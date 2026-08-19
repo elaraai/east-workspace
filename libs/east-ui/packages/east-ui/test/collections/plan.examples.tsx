@@ -55,7 +55,7 @@ export const planTargetState = example({
         "slice", "brush", "horizon", "toolbar", "affordances", "expand",
         "expandRender", "resolver", "data-driven", "accessor", "raw", "target state",
     ],
-    description: "The whole operation on one axis, defined the one way — ONE variant-discriminated ops source of RAW records (jobs with batch/tonnes/lifecycle, allocations, shifts with hours, load samples), a Plan.series.* entry per row series whose accessors DERIVE the canvas vocabulary client-side (run labels + quantity displays from batch/tonnes via one bound mapping function, chip labels with the proposal + prefix from hours × state, machine capacity values, tiles from allocations), the generalized popover/hover resolvers over element refs, slice chrome + the horizon brush, the R2 expand declaration with the root's expandRender resolver, review and a status footer",
+    description: "Every row kind on one axis from a single raw ops source, with slice chrome, expand, review and a status footer",
     fn: East.function([], UIComponentType, (_$) => {
         const HorizonRow = StructType({ key: StringType, at: DateTimeType, line: StringType });
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
@@ -371,7 +371,7 @@ export const planTargetState = example({
 
 export const planSpanRows = example({
     keywords: ["Plan", "data", "series", "span", "run", "state", "estimated", "removed", "rejected", "decision", "port", "rollup", "union", "byStatus", "groupBy", "bands", "group", "stacked", "gutter", "links", "link", "focus", "expand", "expandRender", "match", "raw"],
-    description: "Span-row series over ONE raw machine source — jobs carry phase/batch/tonnes/lifecycle and ONE bound mapping function derives every run's label and quantity pair client-side: the proposal flavours (forecast ghost, proposed cut, declined) as a value-gutter series, a stacked series whose row carries its expand declaration in the data (the root's expandRender resolver mounts the body) plus a decision diamond and port, a groupBy series with union rollup parents (renderer-derived ×k bands), a runoff despatch series, and a byStatus groupBy series inside a static series.group strip; the six-edge link graph rides the root",
+    description: "Span rows over one raw machine source — proposal flavours, decision diamonds and ports, rollup parents, and a link graph",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -540,7 +540,7 @@ export const planSpanRows = example({
 
 export const planBucketRows = example({
     keywords: ["Plan", "data", "series", "buckets", "Planner", "lane", "lanes", "AM", "PM", "event", "tile", "marker", "tone", "stretch", "pulse", "icon", "hovercard", "popover", "mixed", "unbucketed", "group", "match", "gutter", "raw"],
-    description: "Bucket-row series over ONE dock source — an unbucketed weekly dock whose raw allocations map to resting ✓/plan tiles in the accessor, and an AM/PM-laned dock inside a static series.group strip whose tiles are STORED canvas-vocabulary records (the §3.2 pure-data element shapes: tones, a pulsing proposal, a full-cell mixed tile, an icon tile) plus a cell marker ring; tile popovers/hovercards resolve through the root over the event arm of the element ref",
+    description: "Bucket rows over one dock source — tiles derived in the accessor, and stored tile records with lanes, tones and markers",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -648,7 +648,7 @@ export const planBucketRows = example({
 
 export const planChartRows = example({
     keywords: ["Plan", "data", "series", "chart", "layers", "spark", "expanded", "fixed", "refLine", "refBand", "refDot", "breach", "stacked", "dual-axis", "swatches", "Area", "Band", "Scatter", "Column", "Line", "domain", "tickValues", "group", "match", "gutter", "raw"],
-    description: "Chart-row series over ONE raw measure source — one series per mark kind, layers built from each row's own points via the accessor: a Line spark with a breach threshold and custom expandedHeight, an Area cumulative fill, stacked Columns pairing the row's two point sets by the Plan.layer series channel, a Scatter defect cloud, an expanded Line with refLine/refBand/refDot annotations, and a fixed 120px dual-axis composition (Chart.Root's domain/tickValues vocabulary) inside a static series.group strip",
+    description: "Chart rows over one measure source — one series per mark kind, plus annotations and a fixed dual-axis composition",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -764,7 +764,7 @@ export const planChartRows = example({
 
 export const planHeatRows = example({
     keywords: ["Plan", "data", "series", "heat", "Matrix", "cells", "depth", "aggregate", "mean", "groupBy", "scale", "warnAt", "weightCells", "segmentCells", "segment", "no-data", "hatch", "group", "match", "gutter", "raw"],
-    description: "Heat-row series over ONE raw line source — per-bucket samples wrapped by the cells accessors client-side: colour-depth cells with a warn ring and a no-data hatch under a groupBy aggregate-mean parent (renderer-derived), booked-vs-free weight bars with a planned tail on a two-line sub gutter, and status-segment compositions (plain segment records) inside a static series.group strip",
+    description: "Heat rows over one line source — colour-depth cells under an aggregate parent, weight bars, and status segments",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -854,7 +854,7 @@ export const planHeatRows = example({
 
 export const planTableRows = example({
     keywords: ["Plan", "data", "series", "table", "cells", "tableCells", "subtotal", "aggregate", "sum", "format", "emphasis", "footer", "groupBy", "nested", "depth", "em-dash", "neg", "match", "gutter", "tableSeries", "split", "horizontal", "vertical", "multi-value", "multi-cell", "stacked", "two-line", "strong", "muted", "rollup", "mirror", "position", "raw"],
-    description: "Table-row series over ONE raw order source (per-bucket value arrays only — style lives in the SERIES CONFIG, never the data) — two-level groupBy nesting (top → program subtotal parents, every level renderer-derived), a footer-emphasis net series with a negative tone and the muted em-dash, and multi-series series whose accessors declare the per-POSITION style once — all four combinations of the two INDEPENDENT choices, since a cell split implies nothing about a gutter: horizontal beside a two-line gutter (a strong rolled-up actual and its muted always-signed \u0394) and beside a one-line one, vertical under a one-line gutter and under a two-line one (the row then grows in both directions at once) — plus the two GROUPED multi-value series, laid out side by side and stacked, whose subtotal parents mirror their members position for position rather than collapsing to one number",
+    description: "Table rows over one order source — nested groupBy subtotals, footer emphasis, and every split × gutter combination",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -1040,7 +1040,7 @@ export const planTableRows = example({
 
 export const planCardRows = example({
     keywords: ["Plan", "data", "series", "cards", "Roster", "chip", "lifecycle", "confirmed", "recommended", "removed", "estimated", "icon", "popover", "stacked", "format", "axis", "group", "match", "gutter", "raw"],
-    description: "Cards-row series over ONE crew source — a raw-shift series whose accessor derives every chip label from hours × lifecycle (the proposal + prefix; confirmed tint, proposed dashed, removed strikethrough, estimated ghost) on a stacked two-line gutter, plus a stored-vocabulary series (plain chip records with an icon) inside a static series.group strip, under a custom `axis.format` ruler; chip detail resolves through the root popover over the chip arm",
+    description: "Cards rows over one crew source — chip labels derived from hours × lifecycle, plus stored chip records",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -1127,7 +1127,7 @@ export const planCardRows = example({
 
 export const planEventRows = example({
     keywords: ["Plan", "data", "series", "events", "mark", "milestone", "decision", "exception", "markKind", "applied", "icon", "label", "popover", "group", "match", "stacked", "gutter", "raw"],
-    description: "Event-row series over ONE stream source of plain mark records (the §3.2 element shapes — kind variants carry milestone/decision{applied}/exception directly) — milestone dots, pending and applied decision diamonds, an exception triangle, a custom FA glyph swap and a clustered ×3 label on a single-line gutter, plus a stacked two-line release stream inside a static series.group strip; mark detail resolves through the root popover over the mark arm",
+    description: "Event rows over one stream source — milestone dots, decision diamonds, an exception, and a custom glyph",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -1195,7 +1195,7 @@ export const planEventRows = example({
 
 export const planGroupedRows = example({
     keywords: ["Plan", "data", "series", "group", "groups", "strip", "by", "discovered", "summary", "summaryAggregate", "collapsed", "groupBy", "heterogeneous", "match", "meta", "nesting", "raw"],
-    description: "Group-strip forms over ONE raw line source — a static expanded series.group with meta chrome around mixed-kind child series (a span series mapping raw jobs + a heat series), a static collapsed group resting as its DECLARED mean strip, and the DISCOVERED form (series.group with a `by` accessor) building one collapsed strip per distinct line value with the member-count meta",
+    description: "Group strips in all three forms — static expanded, static collapsed, and discovered by a `by` accessor",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -1293,7 +1293,7 @@ export const planGroupedRows = example({
 
 export const planSeriesData = example({
     keywords: ["Plan", "data", "series", "match", "series", "variant", "span", "cards", "group", "rows", "groupBy", "rollup", "Series", "data-driven", "accessor", "raw", "one source"],
-    description: "The data + series canvas, minimally — ONE variant-discriminated RAW source (jobs with batch/tonnes/state, shifts with hours); each Plan.series.* builder (row type first) declares a row series over it via match + accessors that DERIVE the canvas vocabulary client-side (run labels + quantity pairs from batch/tonnes, chip labels with the proposal + prefix from hours × lifecycle; span with groupBy rollup parents, cards under a static series.group strip), series.rows carries literal one-off chrome, and the whole list is a $.const-bound East value typed ArrayType(Plan.Types.Series(OpsRow))",
+    description: "The data + series canvas, minimally — one raw source and one `Plan.series.*` entry per row series",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -1398,7 +1398,7 @@ export const planLibraryDnd = example({
         "keySuffix", "keyPrefix", "same entity", "multiple views", "adjacent", "seek",
         "DnD", "drag", "drop", "onDrag", "canDrop", "sources", "add", "Reactive", "State", "#590",
     ],
-    description: "The series library across the whole vocabulary — every row kind as its own entry, two entries of the SAME kind (two spans, two heats) proving a kind is not an identity, three static groups each wrapping a different kind, a discovered group building one strip per line, literal `rows` chrome, and a `keySuffix` pair putting a chart and a table over the SAME asset the span series already draws — three views per machine, adjacent in key order and still seekable; Plan.pick binds them all, Pick.Panel lists each with its kind icon and derived row count, and Pick.active feeds the survivors back so a toggle changes the canvas with no data change",
+    description: "The series library across every row kind — duplicate kinds, groups, and a `keySuffix` pair showing one asset three ways",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
@@ -1744,7 +1744,7 @@ export const planRowDrop = example({
         "invalid", "span", "buckets", "events", "cards", "chart", "heat", "table", "group",
         "droppable", "inert", "bucket instant", "Reactive", "State", "commit", "re-derive",
     ],
-    description: "Library + Plan DnD — drag a card onto a row and it lands at the bucket under the pointer, committed through bound state so the row re-derives; the four kinds that hold discrete objects (span / buckets / events / cards) receive, the three that render derived values (chart / heat / table) and the group strip register no cell at all, and canDrop admits only the matching family so a job on a dock, or the family-less PALLET card anywhere, shows the ⊘ stage and drops nothing",
+    description: "Library + Plan DnD — only the kinds holding discrete objects receive, and `canDrop` admits only the matching family",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
@@ -2054,7 +2054,7 @@ export const planRowDrop = example({
  *  `estimateSize` path is exercised rather than a single constant. */
 export const planFill = example({
     keywords: ["Plan", "fill", "height", "maxHeight", "#320", "virtual", "virtualization", "bounded", "Box", "scroll", "sizing", "data", "series", "span", "chart", "heat", "spark", "sub", "two-line", "mixed", "variable", "estimateSize", "group", "groupBy", "rollup", "union", "collapse", "parent"],
-    description: "Fill sizing over VARIABLE row heights — height=\"fill\" resolves against the bounded Box and virtualizes 200 rows of mixed kinds (span / chart spark / heat) whose gutters alternate one-line and two-line, nested under 8 groupBy rollup parents: four different heights interleaved, so a collapse changes the item count and total size mid-scroll and no constant estimate can stand in for the real one",
+    description: "Fill sizing over variable row heights — 200 virtualized rows of mixed kinds under 8 rollup parents",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open).
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -2197,7 +2197,7 @@ export const planReview = example({
         "onReject", "onApproveAll", "onRejectAll", "Reactive", "State", "bind",
         "write", "live", "derived", "accessor", "data",
     ],
-    description: "Live review chrome — verdicts in a bound `State` dict, callbacks write it, and the canvas re-derives buttons, bar state and status dot inside a `Reactive`",
+    description: "Live review chrome — verdicts live in bound `State`, and the canvas re-derives buttons, bar and dot",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
@@ -2318,7 +2318,7 @@ export const planReview = example({
  */
 export const planExpand = example({
     keywords: ["Plan", "expand", "expandRender", "axis", "keep", "dim", "off", "focus", "R2", "collapse", "context strip", "row", "data", "series", "chart", "heat", "table", "events", "span", "raw"],
-    description: "Expand-in-place — rows declare `expand` with an axis mode, one root `expandRender` fills the plot and `expandGutter` the grown gutter; unfocused rows collapse to 16px strips",
+    description: "Expand-in-place — a row declares `expand`, the root renders plot and gutter, and unfocused rows collapse to strips",
     fn: East.function([], UIComponentType, ($) => {
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
             const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
