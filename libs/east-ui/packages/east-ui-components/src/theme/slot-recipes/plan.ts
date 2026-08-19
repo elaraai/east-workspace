@@ -34,7 +34,7 @@ export const planSlotRecipe = defineSlotRecipe({
         "toolbar", "toolbarGroup", "toolbarTrailing", "toolbarLibraryCount", "brushRow", "brushCaption",
         "ruler", "rulerTick", "nowChip", "footer", "footerItem",
         // the alignment contract
-        "row", "gutterCell", "plot", "gridCol",
+        "row", "gutterCell", "plot", "gridCol", "dropPreview",
         // gutter vocabulary
         "gutterName", "gutterSub", "gutterValue", "gutterRight", "gutterMeta", "gutterSwatch",
         "caret", "statusDot",
@@ -282,6 +282,38 @@ export const planSlotRecipe = defineSlotRecipe({
             pointerEvents: "none",
             "[data-axis='dim'] &": { opacity: 0.4 },
             "[data-axis='off'] &": { display: "none" },
+        },
+        // The landing band — where a dragged library card would come to rest if
+        // it were dropped right now. It spans the BUCKET the drop coordinate
+        // resolves to, so it is truthful by construction: the same bucket
+        // `resolveCoord` names is the one painted.
+        //
+        // Visibility is driven entirely by the cell's own stage attribute, not
+        // by a second piece of JS state that could disagree with it. The layer
+        // sets `data-drop-active` on exactly the destination cell and never
+        // sets it alongside `data-drop-invalid`, so a refused row shows no
+        // landing band without anything here having to know why.
+        //
+        // Dashed edges over a faint wash — "dashed = ephemeral" in the stage
+        // vocabulary, the same reading as the candidate frame.
+        dropPreview: {
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            display: "none",
+            pointerEvents: "none",
+            zIndex: 5,
+            // Read against the ACTIVE cell's own brand wash, not against the
+            // bare row — the band only ever appears inside `[data-drop-active]`,
+            // which is already tinted, so a faint fill disappears into it.
+            background: "color-mix(in srgb, {colors.brand.500} 30%, transparent)",
+            borderLeftWidth: "1.5px",
+            borderRightWidth: "1.5px",
+            borderTopWidth: "0",
+            borderBottomWidth: "0",
+            borderStyle: "dashed",
+            borderColor: "{colors.brand.600}",
+            "[data-drop-active] &": { display: "block" },
         },
         // ── Gutter vocabulary ──
         gutterName: {

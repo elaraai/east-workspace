@@ -16,7 +16,7 @@ import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faLink, faUpRightAndDownLeftFromCenter } from "@fortawesome/free-solid-svg-icons";
-import { useDropCell, type CellCoord, type DragPayload } from "../../../dnd/drag-layer";
+import { useDropCell, useDragLayerOptional, type CellCoord, type DragPayload } from "../../../dnd/drag-layer";
 import { canDropAllows, candidateEvent, type CanDropFn } from "../../../dnd/ir-can-drop";
 import { toEastDateTimeSlot } from "../../../dnd/slot-key";
 import { usePlanDispatch, usePlanScale } from "../context.js";
@@ -195,6 +195,32 @@ export function RowShell({
         dropRef(el);
     }, [dropRef]);
 
+    // ── The landing band ──────────────────────────────────────────────────
+    // While a card is over this row, show WHERE it would come to rest. The
+    // band spans the bucket `resolveCoord` names, so the preview and the drop
+    // cannot disagree — they read the same geometry from the same rect.
+    //
+    // Positioned by writing the style DIRECTLY, never through React state: a
+    // pointermove is a per-frame event, and routing it through state would
+    // re-render this row (and, through the shared reducer, the whole canvas)
+    // on every one. Whether the band is VISIBLE is not decided here at all —
+    // the recipe shows it only inside `[data-drop-active]`, which the drag
+    // layer sets on exactly the destination cell and never sets on a refused
+    // one, so a vetoed row shows no landing band for free.
+    const dragActive = useDragLayerOptional()?.active === true;
+    const previewRef = useRef<HTMLDivElement | null>(null);
+    const positionPreview = useCallback((clientX: number) => {
+        const el = previewRef.current;
+        const rect = plotElRef.current?.getBoundingClientRect();
+        if (el === null || rect === undefined || rect.width <= 0) return;
+        const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        const bucket = scale.buckets.find((b) => frac >= b.x0 && frac < b.x1)
+            ?? scale.buckets[scale.buckets.length - 1];
+        if (bucket === undefined) return;
+        el.style.left = `${bucket.x0 * 100}%`;
+        el.style.width = `${(bucket.x1 - bucket.x0) * 100}%`;
+    }, [scale]);
+
     return (
         <Box
             css={styles.row}
@@ -286,15 +312,24 @@ export function RowShell({
                 css={styles.plot}
                 data-axis={axisMode}
                 onPointerMove={(e) => {
+                    // While a drag is in flight the landing band IS the readout,
+                    // so the hairline would only add a second, competing mark —
+                    // and dispatching `cursor.move` re-renders the whole canvas
+                    // through the shared reducer, once per pointer event, for
+                    // the entire gesture.
+                    if (dragActive) { positionPreview(e.clientX); return; }
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     if (rect.width <= 0) return;
                     dispatch({ t: "cursor.move", frac: (e.clientX - rect.left) / rect.width });
                 }}
-                onPointerLeave={() => dispatch({ t: "cursor.leave" })}
+                onPointerLeave={() => { if (!dragActive) dispatch({ t: "cursor.leave" }); }}
             >
                 {noGrid !== true && edges.map((x, i) => (
                     <Box key={i} css={styles.gridCol} data-plan-axisline left={`${x * 100}%`} />
                 ))}
+                {drop !== undefined && (
+                    <Box ref={previewRef} css={styles.dropPreview} data-plan-drop-preview />
+                )}
                 {/* Expanded: the row's own marks hold a band at the top (they
                     position against it, so a 20px bar in a 200px row does not
                     drift to the middle), and the render takes the rest. */}

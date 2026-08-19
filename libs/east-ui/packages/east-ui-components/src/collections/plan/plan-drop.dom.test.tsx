@@ -160,6 +160,24 @@ describe("Plan drop target", () => {
         expect(dropRows(container).sort()).toEqual(["a-span", "c-buckets", "e-cards", "g-events"]);
     });
 
+    test("the landing band exists on exactly the rows that can receive", () => {
+        // Geometry cannot be asserted here — jsdom reports a zero-width rect, so
+        // the band has no position to check (the real placement is covered by a
+        // Playwright pass against a live browser). What IS checkable, and what
+        // matters structurally, is that a row which registers no drop cell also
+        // renders no landing band: an inert row must have nothing that could
+        // ever light up.
+        const { container } = renderPlan(planRoot(ALL_KINDS, { onDrag: () => {} }));
+        const bands = container.querySelectorAll("[data-plan-drop-preview]");
+        expect(bands).toHaveLength(dropRows(container).length);
+        expect(bands).toHaveLength(4);
+    });
+
+    test("no target ⇒ no landing band anywhere", () => {
+        const { container } = renderPlan(planRoot(ALL_KINDS));
+        expect(container.querySelectorAll("[data-plan-drop-preview]")).toHaveLength(0);
+    });
+
     test("a drop reports `add` with the row KEY and the bucket instant", async () => {
         const events: DragEventValue[] = [];
         const { container, getByTestId } = renderPlan(
