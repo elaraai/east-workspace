@@ -14,7 +14,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
 import { VirtualRows } from "./virtual-rows.js";
@@ -115,6 +115,38 @@ describe("VirtualRows — the paged collection's two signals (#577)", () => {
         expect(last.endIndex).toBeLessThan(499);
         // Idle at rest: a reader gates fetching and eviction on this.
         expect(last.isScrolling).toBe(false);
+    });
+
+    test("the range report carries the item under the viewport CENTER, resolved from the live offset (#612)", () => {
+        const centers: ({ index: number; withinPx: number } | undefined)[] = [];
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <VirtualRows
+                    height="200px"
+                    maxHeight={undefined}
+                    count={500}
+                    estimateSize={() => ROW_H}
+                    measureRows={false}
+                    overscan={6}
+                    onRangeChange={(_range, _isScrolling, center) => centers.push(center)}
+                    renderRow={(i) => <div>row {i}</div>}
+                />
+            </ChakraProvider>,
+        );
+        // At rest the 200px viewport's center (100px) sits 4px into row 3.
+        expect(centers[centers.length - 1]).toEqual({ index: 3, withinPx: 4 });
+
+        // Scroll deep. The center must be read from the LIVE offset at report
+        // time — a drag within one huge item never moves the mounted range,
+        // so render-captured geometry would still say row 3.
+        const scrollEl = container.firstElementChild as HTMLElement;
+        scrollEl.scrollTop = 6400;
+        fireEvent.scroll(scrollEl);
+        const at = 6400 + 100;
+        expect(centers[centers.length - 1]).toEqual({
+            index: Math.floor(at / ROW_H),
+            withinPx: at % ROW_H,
+        });
     });
 
     test("sizeVersion busts TanStack's measurement memo when heights move at a constant count", () => {

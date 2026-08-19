@@ -29,6 +29,16 @@
  * (or which band) the viewport is over, and the driver maps that back to a
  * window through the origin map. No layout knowledge crosses the boundary.
  *
+ * A band report also carries how many PIXELS into the band the viewport
+ * center sits (#612). A head/tail band is a single body item spanning every
+ * unloaded window on that side, so "over the band" alone can only name the
+ * window adjacent to the run — which walks the gap one serial fetch per
+ * landing, precisely what {@link ResidencyOptions.rebaseGap} exists to
+ * prevent. The pixel offset is measured from the band's own top, which the
+ * ledger can place exactly (the band was sized FROM the ledger), so the
+ * window under the scrollbar thumb resolves through {@link elementAtOffset}
+ * and a far drag rebases instead of walking.
+ *
  * # Demand is idle-gated
  *
  * Nothing is fetched or evicted while the user is mid-gesture. The extent is
@@ -46,7 +56,7 @@ import type { PlanBand, PlanRootValue, PlanRowValue } from "./model.js";
 /** The decoded `paged` arm — the derived source at the canvas-row type. */
 export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged" }>["value"];
 import {
-    createLedger, observeWindow, documentHeight, offsetOfWindow, elementsIn,
+    createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, elementsIn,
     type WindowLedger,
 } from "./window-ledger.js";
 import {
@@ -66,7 +76,15 @@ export type { PlanBand } from "./model.js";
 /** Where the viewport is, in the caller's own terms. */
 export type PlanViewport =
     | { kind: "row"; key: string }
-    | { kind: "band"; at: "head" | "tail" };
+    | {
+        kind: "band";
+        at: "head" | "tail";
+        /** Pixels from the band's own top to the viewport center, when the
+         *  caller knows them (`VirtualRows`' center report). Without them the
+         *  driver can only name the window adjacent to the run — a far
+         *  scrollbar drag then walks the gap instead of rebasing (#612). */
+        px?: number | undefined;
+    };
 
 export interface PlanPagingOptions {
     /**
@@ -279,8 +297,21 @@ export function usePlanPaging(
         setIsScrolling(scrolling);
         setViewportWindow((current) => {
             if (at.kind === "band") {
-                // Over a band: the viewport wants the window just outside the
-                // run on that side. One step per commit walks it in.
+                // With a pixel offset into the band, the window under the
+                // scrollbar thumb resolves exactly: the band's top is a ledger
+                // offset the band was SIZED from (a head band starts the
+                // document; a tail band starts where the run ends), so the
+                // offset maps through `elementAtOffset` regardless of what the
+                // resident rows in between actually rendered at. `advance`
+                // then rebases across a far gap instead of walking it one
+                // serial fetch per landing (#612).
+                if (at.px !== undefined && ledger.windows > 0) {
+                    const bandTop = at.at === "head" ? 0 : offsetOfWindow(ledger, residency.hi + 1);
+                    const element = elementAtOffset(ledger, bandTop + Math.max(0, at.px));
+                    return Math.floor(element / PLAN_PAGE_SIZE);
+                }
+                // Without one, the window just outside the run on that side.
+                // One step per commit walks it in.
                 return at.at === "head"
                     ? Math.max(0, residency.lo - 1)
                     : residency.hi + 1;
@@ -288,7 +319,7 @@ export function usePlanPaging(
             const w = originRef.current.get(at.key);
             return w ?? current;
         });
-    }, [residency.lo, residency.hi]);
+    }, [residency.lo, residency.hi, ledger]);
 
     const jumpToElement = useCallback((element: number) => {
         const w = Math.floor(Math.max(0, element) / PLAN_PAGE_SIZE);
@@ -319,12 +350,6 @@ export function usePlanPaging(
 /** Elements the band covers, for its caption. */
 export function bandElements(band: PlanBand): number {
     return Math.max(0, band.to - band.from + 1);
-}
-
-/** The window a band's near edge sits at — what a caption reports as it scrolls. */
-export function bandWindowAt(ledger: WindowLedger, element: number): number {
-    if (ledger.pageSize <= 0) return 0;
-    return Math.min(Math.max(0, Math.floor(element / ledger.pageSize)), Math.max(0, ledger.windows - 1));
 }
 
 /** Re-exported so the renderer can size a band's own slot. */

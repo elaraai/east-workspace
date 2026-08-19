@@ -167,6 +167,47 @@ describe("paging driver — a jump rebases", () => {
     });
 });
 
+describe("paging driver — a far scrollbar position rebases (#612)", () => {
+    test("a band report carrying a deep pixel offset rebases to the window under the thumb", async () => {
+        const { value, asked } = source(250);            // 50,000 elements
+        render(<Harness src={value} />);
+        await waitFor(() => expect(text("resident")).toBe("0-600"));
+        const before = new Set(asked);
+
+        // The geometry after first paint: three measured windows (2 rows ×
+        // 32px = 64px each), then 1px-per-element slots — so the tail band's
+        // windows sit 200px apart. A drag 147¼ windows into the band puts the
+        // viewport center over window 150.
+        report({ kind: "band", at: "tail", px: 147 * 200 + 50 });
+
+        await waitFor(() => {
+            const [from, to] = text("resident").split("-").map(Number) as [number, number];
+            expect(from).toBeLessThanOrEqual(150 * PLAN_PAGE_SIZE);
+            expect(to).toBeGreaterThan(150 * PLAN_PAGE_SIZE);
+        });
+        // The destination ring was fetched; the ~146 windows in between were
+        // NOT — the precise behaviour the module header promises.
+        const newly = [...new Set(asked.filter((w) => !before.has(w)))].sort((a, b) => a - b);
+        expect(newly.length).toBeLessThanOrEqual(4);
+        for (const w of newly) expect(w).toBeGreaterThanOrEqual(148);
+        // Everything skipped reads as ONE head band.
+        expect(text("head")).toMatch(/^0-/);
+    });
+
+    test("a shallow offset still walks one window at a time — no rebase at the band's edge", async () => {
+        const { value, asked } = source(50);
+        render(<Harness src={value} />);
+        await waitFor(() => expect(text("resident")).toBe("0-600"));
+
+        report({ kind: "band", at: "tail", px: 10 });    // barely into the band
+        // The run EXTENDS to the demand ring around the adjacent window —
+        // the head never leaves the top of the source.
+        await waitFor(() => expect(text("resident")).toBe("0-1200"));
+        expect(text("head")).toBe("-");
+        expect([...new Set(asked)].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
+    });
+});
+
 describe("paging driver — an unreadable source", () => {
     test("reports the reason instead of an empty canvas", async () => {
         const boom = (): never => { throw new Error("no paging service"); };

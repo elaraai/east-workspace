@@ -30,7 +30,7 @@
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import { parseCssSize } from "../style/parse-size.js";
 import { virtualScrollbarCss } from "../style/scrollbar.js";
 
@@ -94,9 +94,22 @@ export interface VirtualRowsProps {
      * virtualizer's own flag; a reader should gate fetching and eviction on it
      * being false, so neither happens mid-gesture.
      *
+     * `center` names the item under the viewport's vertical CENTER and how
+     * many pixels into it that center sits — resolved from the LIVE scroll
+     * offset at report time, never from render-captured geometry. The range
+     * alone cannot say where the scrollbar is inside one huge item (a paged
+     * collection's unloaded band): the mounted range does not move while the
+     * thumb drags within it, so the scroll-end report — the one an idle-gated
+     * reader acts on — must read the offset fresh (#612). `undefined` when no
+     * mounted item contains the center (an empty body).
+     *
      * Fires only in bounded mode — an unbounded frame mounts everything.
      */
-    onRangeChange?: ((range: { startIndex: number; endIndex: number }, isScrolling: boolean) => void) | undefined;
+    onRangeChange?: ((
+        range: { startIndex: number; endIndex: number },
+        isScrolling: boolean,
+        center?: { index: number; withinPx: number },
+    ) => void) | undefined;
     /**
      * Bump to force a re-measure. TanStack memoizes its measurements on
      * `[count, paddingStart, scrollMargin, getItemKey, enabled, lanes]` plus the
@@ -259,6 +272,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             {footer}
             {onRangeChange !== undefined && (
                 <RangeReporter
+                    virtualizer={virtualizer}
                     startIndex={items[0]?.index ?? 0}
                     endIndex={items[items.length - 1]?.index ?? 0}
                     isScrolling={virtualizer.isScrolling}
@@ -271,14 +285,32 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
 
 /** Reports the mounted range in an effect, so the callback fires AFTER commit
  *  and a reader that responds by setting state cannot re-enter the render. */
-function RangeReporter({ startIndex, endIndex, isScrolling, onRangeChange }: {
+function RangeReporter({ virtualizer, startIndex, endIndex, isScrolling, onRangeChange }: {
+    virtualizer: Virtualizer<HTMLDivElement, Element>;
     startIndex: number;
     endIndex: number;
     isScrolling: boolean;
-    onRangeChange: (range: { startIndex: number; endIndex: number }, isScrolling: boolean) => void;
+    onRangeChange: (
+        range: { startIndex: number; endIndex: number },
+        isScrolling: boolean,
+        center?: { index: number; withinPx: number },
+    ) => void;
 }): null {
     useEffect(() => {
-        onRangeChange({ startIndex, endIndex }, isScrolling);
-    }, [startIndex, endIndex, isScrolling, onRangeChange]);
+        // The center is resolved AT REPORT TIME from the live scroll offset,
+        // never from render-captured values: a scrollbar drag deep inside one
+        // huge item (a paged collection's unloaded band) never changes the
+        // mounted range, so the values captured when the range last moved are
+        // stale by the scroll-end report — the one an idle-gated reader acts
+        // on (#612). The center is on screen by definition, so its item is
+        // always among the mounted ones.
+        const centerPx = (virtualizer.scrollOffset ?? 0) + (virtualizer.scrollRect?.height ?? 0) / 2;
+        const item = virtualizer.getVirtualItems().find((it) => centerPx >= it.start && centerPx < it.end);
+        onRangeChange(
+            { startIndex, endIndex },
+            isScrolling,
+            item !== undefined ? { index: item.index, withinPx: centerPx - item.start } : undefined,
+        );
+    }, [startIndex, endIndex, isScrolling, onRangeChange, virtualizer]);
     return null;
 }

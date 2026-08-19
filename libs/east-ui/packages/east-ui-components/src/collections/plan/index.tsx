@@ -630,14 +630,28 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         return out;
     }, [focusCtx, visible, index, paging.head, paging.tail]);
 
-    // The viewport, in the driver's terms — which ROW (or which band) the middle
-    // of the mounted range sits on. The driver maps that back to a window; no
+    // The viewport, in the driver's terms — which ROW (or which band) it sits
+    // on. The item under the viewport CENTER when the frame can resolve one
+    // (the live scroll offset; inside one huge band item the mounted range
+    // cannot say where the thumb is — the center pixel can, #612), else the
+    // middle of the mounted range. The driver maps it back to a window; no
     // body-layout knowledge crosses that boundary.
-    const reportRange = useCallback((range: { startIndex: number; endIndex: number }, isScrolling: boolean) => {
+    const reportRange = useCallback((
+        range: { startIndex: number; endIndex: number },
+        isScrolling: boolean,
+        center?: { index: number; withinPx: number },
+    ) => {
         const mid = Math.floor((range.startIndex + range.endIndex) / 2);
-        const item = bodyItems[mid] ?? bodyItems[range.startIndex];
+        const item = bodyItems[center?.index ?? mid] ?? bodyItems[range.startIndex];
         if (item === undefined) return;
-        if (item.kind === "band") paging.reportViewport({ kind: "band", at: item.band.at }, isScrolling);
+        if (item.kind === "band") {
+            // `withinPx` is measured from the band's own top — the one origin
+            // the ledger can place exactly, whatever the resident rows above
+            // it rendered at.
+            paging.reportViewport(
+                { kind: "band", at: item.band.at, px: center?.withinPx },
+                isScrolling);
+        }
         else if (item.kind === "row") paging.reportViewport({ kind: "row", key: item.row.row.key }, isScrolling);
         // A links-focus gap band names no window — leave the demand where it is.
     }, [bodyItems, paging]);
