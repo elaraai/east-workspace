@@ -111,7 +111,11 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                         {scale.buckets.slice(0, -1).map((b, i) => (
                             <Box key={i} css={styles.gridCol} left={`${b.x1 * 100}%`} />
                         ))}
-                        <HeatCells rowKey={row.key} cells={summary} styles={styles} />
+                        {/* The strip's cells are part of the BAND: clicking
+                            them toggles the group like the rest of it, rather
+                            than selecting a group key nothing displays (#615). */}
+                        <HeatCells rowKey={row.key} cells={summary} styles={styles}
+                            onCellClick={() => dispatch({ t: "group.toggle", key: row.key })} />
                     </>
                 )}
                 {scale.nowFrac !== undefined && <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />}

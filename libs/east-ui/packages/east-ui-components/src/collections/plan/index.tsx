@@ -45,7 +45,7 @@ import {
     type PlanAction, type PlanCtx, type PlanEffect, type PlanEvent, type PlanStore,
 } from "./plan-state.js";
 import {
-    GAP_H, derivePlan, deriveLinkFamily, elideForFocus, indexRows, linkedRowKeys, pinnedRows, rowHeight, visibleRows,
+    GAP_H, derivePlan, deriveLinkFamily, elideForFocus, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, visibleRows,
     windowRestHeight,
     type FocusGap, type PlanBodyItem, type PlanFocusCtx, type PlanRootValue, type PlanRowValue, type VisibleRow,
 } from "./model.js";
@@ -557,8 +557,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     );
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     // gutterWidth is a CSS px size string (the shared component-height type).
-    const gutterWDeclared = style !== undefined && style.gutterWidth.type === "some" ? parseFloat(style.gutterWidth.value) : NaN;
-    const gutterW = Number.isFinite(gutterWDeclared) ? gutterWDeclared : GUTTER_W;
+    // `pxOf`, not `parseFloat`: a percentage must fall back to the default,
+    // never silently become that many pixels (#615).
+    const gutterWDeclared = style !== undefined && style.gutterWidth.type === "some" ? pxOf(style.gutterWidth.value) : undefined;
+    const gutterW = gutterWDeclared ?? GUTTER_W;
     const gridTemplate = `${gutterW}px 1fr${review !== undefined ? ` ${DECISION_WIDTH}` : ""}`;
     const height = parseCssSize(style !== undefined ? getSomeorUndefined(style.height) : undefined);
     const maxHeight = parseCssSize(style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined);

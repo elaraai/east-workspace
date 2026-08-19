@@ -46,13 +46,17 @@ export interface HeatCellsProps {
     rowKey: string;
     cells: HeatCellsValue;
     styles: Styles;
+    /** What a cell click DOES (default: select the row). A collapsed group's
+     *  summary strip passes its toggle — selecting the GROUP key is a click
+     *  that visibly does nothing, and it swallows the band's own toggle (#615). */
+    onCellClick?: (() => void) | undefined;
 }
 
 /**
  * The heat-arm plot content — one cell / bar / composition per bucket,
  * positioned by `bucketOf` with the §8 3px insets.
  */
-export function HeatCells({ rowKey, cells, styles, ctx }: HeatCellsProps) {
+export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCellsProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -64,7 +68,8 @@ export function HeatCells({ rowKey, cells, styles, ctx }: HeatCellsProps) {
     };
     const clickCell = (e: React.MouseEvent) => {
         e.stopPropagation();
-        dispatch({ t: "row.select", key: rowKey });
+        if (onCellClick !== undefined) onCellClick();
+        else dispatch({ t: "row.select", key: rowKey });
     };
 
     if (cells.type === "heat") {

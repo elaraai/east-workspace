@@ -228,6 +228,25 @@ describe("Plan group strips (§5)", () => {
         expect(container.querySelector('[data-plan-row="m3"]')).toBeNull();
         expect(screen.getByText("80")).toBeTruthy();
     });
+
+    test("the summary strip's CELLS toggle the group like the rest of the band (#615)", () => {
+        // The cells used to select the GROUP key — a click that visibly did
+        // nothing, and it swallowed the band's own toggle.
+        const { container } = renderPlan(planRoot([
+            planRow("line2", variant("group", {
+                summary: some(variant("heat", {
+                    cells: [{ at: new Date("2026-06-29Z"), value: some(80), label: some("80") }],
+                    min: some(0), max: some(100), warnAt: none,
+                })),
+                summaryAggregate: none,
+                collapsed: some(true),
+            })),
+            planRow("m3", spanKind([]), { parent: "line2" }),
+        ]), "plan-strip-toggle");
+        expect(container.querySelector('[data-plan-row="m3"]')).toBeNull();
+        fireEvent.click(screen.getByText("80"));
+        expect(container.querySelector('[data-plan-row="m3"]')).toBeTruthy();
+    });
 });
 
 describe("Plan heat rows (§4·K4)", () => {
@@ -424,6 +443,33 @@ describe("Plan bucket rows (§4·K2)", () => {
         // The lane-less event takes the whole cell across lanes.
         const full = container.querySelector('[data-plan-cell="1:full"]')!;
         expect(full.querySelector('[data-event="full1"]')).toBeTruthy();
+    });
+
+    test("a full-cell bucket keeps its lane events AND its markers; the worst marker wins (#615)", () => {
+        // The spanning cell used to `continue` past the per-lane loop —
+        // dropping the bucket's lane-assigned chips AND its markers outright.
+        const { container } = renderPlan(planRoot([
+            planRow("crew", variant("buckets", {
+                lanes: [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }],
+                events: [
+                    bucketEvent("full1", new Date("2026-07-06Z"), variant("confirmed", null)),
+                    bucketEvent("am1", new Date("2026-07-06Z"), variant("confirmed", null), { lane: "am" }),
+                ],
+                markers: [
+                    { at: new Date("2026-07-06Z"), lane: some("pm"), status: variant("warning", null), message: "tight" },
+                    { at: new Date("2026-07-06Z"), lane: some("pm"), status: variant("danger", null), message: "short 2 ops" },
+                ],
+            })),
+        ]), "plan-full-cell-615");
+        const full = container.querySelector('[data-plan-cell="1:full"]')!;
+        expect(full.querySelector('[data-event="full1"]')).toBeTruthy();
+        // The lane-assigned chip flows after the spanning one — repositioned,
+        // never dropped.
+        expect(full.querySelector('[data-event="am1"]')).toBeTruthy();
+        // The bucket's markers surface on the spanning cell; two markers on
+        // one cell resolve to the WORST status — a cell has one ring.
+        expect(full.getAttribute("data-over")).toBe("danger");
+        expect(full.querySelector('[data-status="danger"]')).toBeTruthy();
     });
 });
 
@@ -626,6 +672,68 @@ describe("Plan horizon brush — live pan preview (§7)", () => {
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(range().from.toISOString()).toBe("2026-07-27T00:00:00.000Z");
         expect(range().to.toISOString()).toBe("2026-08-24T00:00:00.000Z");
+    });
+});
+
+describe("Plan interaction fixes (#615)", () => {
+    test("neither a caption click nor a sub-threshold strip click leaves a phantom brush esc rung", () => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+            ]),
+            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: some(variant("datetime", { from: W27, to: W39 })),
+            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none,
+            resolution: some(variant("week", null)),
+        };
+        const handle = buildSliceHandle("plan.brush.phantom", cfg as never, initial as never,
+            [{ at: W27 }, { at: W39 }] as never, none) as never;
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some({ slice: handle, affordances: [variant("brush", null)] }),
+        }), "plan-brush-phantom");
+
+        // Select a row — the esc target a phantom rung would eat.
+        fireEvent.click(container.querySelector('[data-plan-row="m1"]')!);
+        expect(container.querySelector('[data-plan-row="m1"]')!.hasAttribute("data-selected")).toBe(true);
+
+        // A caption click is not a brush gesture...
+        const caption = screen.getByText(/^HORIZON/);
+        fireEvent.pointerDown(caption, { pointerId: 1, buttons: 1 });
+        fireEvent.pointerUp(caption, { pointerId: 1 });
+        // ... and a sub-threshold strip click releases as a noop — the strip
+        // emits neither commit nor clear, so the rung must settle on the UP.
+        const track = container.querySelector("[data-brush-track]") as HTMLElement;
+        Object.defineProperty(track, "getBoundingClientRect", {
+            value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+        });
+        fireEvent.pointerDown(track, { clientX: 300, pointerId: 1, buttons: 1 });
+        fireEvent.pointerUp(track, { clientX: 302, pointerId: 1 });
+
+        // ONE Escape clears the selection — nothing ate it.
+        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
+        expect(container.querySelector('[data-plan-row="m1"]')!.hasAttribute("data-selected")).toBe(false);
+    });
+
+    test("the resolution segment does not mount without a bound slice — its write has nowhere to go", () => {
+        // A pick mounts the toolbar with no slice; the segment used to render
+        // on `resolutions` alone, and clicking it dispatched a slice write the
+        // effect runner drops. The unbound fallback story is #572's.
+        const pick = {
+            key: "plan.seg.gate",
+            state: { read: () => [] as string[], write: () => {}, has: () => true },
+            items: [{ id: "a", title: "Machine jobs", subtitle: none, icon: none, count: none, narrowed: false }],
+        };
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            pick,
+            resolutions: [variant("week", null), variant("day", null)],
+        }), "plan-seg-gate");
+        expect(container.querySelector("[data-slot='toolbar']")).not.toBeNull();
+        expect(container.querySelector("[data-slot='seg']")).toBeNull();
+        expect(screen.queryByText("DAY")).toBeNull();
     });
 });
 

@@ -145,6 +145,17 @@ describe('planReducer', () => {
             expect(effects).toEqual([{ t: "slice.clearRange" }]);
         });
 
+        it('brush.up disarms the esc rung with NO slice write; idle it is identity (#615)', () => {
+            // The sub-threshold release emits neither commit nor clear — the
+            // rung must still settle, or the next Escape is silently eaten.
+            const down = run(init(), { t: "brush.down" });
+            const { state, effects } = run(down.state, { t: "brush.up" });
+            expect(state.brush).toBeNull();
+            expect(effects).toEqual([]);
+            const idle = planReducer(state, { t: "brush.up" }, ctx);
+            expect(idle.state).toBe(state);
+        });
+
         it('resolution.set is a pure slice write', () => {
             const { state, effects } = run(init(), { t: "resolution.set", resolution: "day" });
             expect(state).toEqual(init());

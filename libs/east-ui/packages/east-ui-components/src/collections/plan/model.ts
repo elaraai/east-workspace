@@ -194,8 +194,13 @@ export interface PlanFocusCtx {
 }
 
 /** Parse a CSS px size (`"120px"` / `"120"`) to a number; `undefined` for
- *  anything a virtualized row can't be (`"fill"`, percentages). */
-function pxOf(size: string): number | undefined {
+ *  anything a virtualized row can't be (`"fill"`, percentages).
+ *
+ *  The unit test is the doc: `parseFloat("50%")` is `50`, so bare
+ *  `parseFloat` silently turned a percentage height into 50px (#615) —
+ *  only a `px` suffix or a bare number qualifies. */
+export function pxOf(size: string): number | undefined {
+    if (!/^\s*-?(\d+\.?\d*|\.\d+)(px)?\s*$/.test(size)) return undefined;
     const n = parseFloat(size);
     return Number.isFinite(n) ? n : undefined;
 }

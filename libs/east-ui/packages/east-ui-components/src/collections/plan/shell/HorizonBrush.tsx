@@ -104,9 +104,16 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
 
     return (
         <Box css={styles.brushRow} gridTemplateColumns={gridTemplate} data-slot="horizon"
-            onPointerDownCapture={() => dispatch({ t: "brush.down" })}>
+            // The esc rung DISARMS on any release — including the
+            // sub-threshold click where the strip emits neither a commit nor
+            // a clear (`brushRelease` is a noop there), which used to leave
+            // `ui.brush` armed forever and silently eat the next Escape (#615).
+            onPointerUpCapture={() => dispatch({ t: "brush.up" })}
+            onPointerCancelCapture={() => dispatch({ t: "brush.up" })}>
             <Box css={styles.brushCaption}>{caption}</Box>
-            <Box minWidth={0}>
+            {/* Only the STRIP arms the rung — a caption click is not a brush
+                gesture, and only strip gestures can ever settle one. */}
+            <Box minWidth={0} onPointerDownCapture={() => dispatch({ t: "brush.down" })}>
                 <BrushStrip
                     counts={counts}
                     window={winTo > winFrom ? { from: winFrom, to: winTo } : undefined}

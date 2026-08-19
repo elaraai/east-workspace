@@ -73,6 +73,7 @@ export type PlanEvent =
     | { t: "brush.preview"; min: Date; max: Date }
     | { t: "brush.commit"; min: Date; max: Date }
     | { t: "brush.clear" }
+    | { t: "brush.up" }
     | { t: "focus.links"; key: RowKey }
     | { t: "focus.expand"; key: RowKey }
     | { t: "focus.clear" }
@@ -185,6 +186,13 @@ export function planReducer(
             return { state: { ...s, brush: null }, effects: [{ t: "slice.setRange", min: e.min, max: e.max }] };
         case "brush.clear":
             return { state: { ...s, brush: null }, effects: [{ t: "slice.clearRange" }] };
+        case "brush.up":
+            // The gesture ended, however it ended — INCLUDING the
+            // sub-threshold release that emits neither a commit nor a clear.
+            // Disarm the esc rung; never a slice write (#615). The rung
+            // exists only while a pointer is actually down on the strip.
+            if (s.brush === null) return { state: s, effects: [] };
+            return { state: { ...s, brush: null }, effects: [] };
         case "focus.links":
             // Toggle on the focused row; switching rows (or from expand)
             // returns the first and focuses the new one — one per canvas.

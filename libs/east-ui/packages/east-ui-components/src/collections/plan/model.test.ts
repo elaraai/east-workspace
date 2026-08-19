@@ -12,7 +12,7 @@ import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
     rowHeight, deriveBands, deriveHeatCells, deriveTableCells, deriveLinkFamily, derivePlan, elideForFocus, indexRows, linkedRowKeys,
-    windowRestHeight,
+    pxOf, windowRestHeight,
     HEAT_ROW_H, ROW_H, ROW_H_STACKED, GROUP_STRIP_H, GROUP_H, STRIP_H,
     RAIL_H,
     type PlanLinkValue, type PlanRowValue, type VisibleRow,
@@ -182,6 +182,24 @@ describe("Plan row focus heights (R1 rails)", () => {
         const g = { ...row(variant("group", { summary: none, summaryAggregate: none, collapsed: none })),
             key: "g" } as PlanRowValue;
         expect(rowHeight(visible(g), false, new Set(), focus)).toBe(GROUP_H);
+    });
+});
+
+describe("Plan pxOf (#615)", () => {
+    test("accepts px and bare numbers; rejects percentages and keywords, as documented", () => {
+        expect(pxOf("120px")).toBe(120);
+        expect(pxOf("120")).toBe(120);
+        expect(pxOf("119.5px")).toBe(119.5);
+        // `parseFloat("50%") === 50` — the silent 50px this guards against.
+        expect(pxOf("50%")).toBeUndefined();
+        expect(pxOf("fill")).toBeUndefined();
+        expect(pxOf("100vh")).toBeUndefined();
+        expect(pxOf("")).toBeUndefined();
+    });
+
+    test("a percentage row height falls back to the KIND height, never 50px", () => {
+        const tall = { ...row(spanKind), height: { type: "some", value: "50%" } } as unknown as PlanRowValue;
+        expect(rowHeight(visible(tall), false, new Set())).toBe(ROW_H);
     });
 });
 

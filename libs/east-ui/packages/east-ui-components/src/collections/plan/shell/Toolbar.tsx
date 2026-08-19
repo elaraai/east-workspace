@@ -141,7 +141,12 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
                 {slice !== undefined && rangeKinds.length > 0 && (
                     <SliceRailCluster slice={slice} affordanceKinds={rangeKinds} />
                 )}
-                {resolutions.length > 0 && (
+                {/* The segment is a SLICE write (`slice.setResolution`) —
+                    without a bound slice the effect runner drops it, so
+                    mounting it would offer a control that does nothing. The
+                    unbound-canvas fallback story is #572's (resolution
+                    persist fallback); until then, no slice ⇒ no segment. */}
+                {slice !== undefined && resolutions.length > 0 && (
                     <Seg
                         items={resolutions.map((r) => ({ key: r, label: r.toUpperCase() }))}
                         active={resolution}

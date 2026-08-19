@@ -130,13 +130,29 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
             else cellEvents.set(key, [ev]);
         }
     }
-    const cellMarkers = new Map<string, MarkerValue>();
+    const cellMarkers = new Map<string, MarkerValue[]>();
     for (const m of kind.markers) {
         const bi = scale.bucketOf(m.at);
         if (bi < 0) continue;
         const li = laneIndex(m.lane) ?? 0;
-        cellMarkers.set(`${bi}:${li}`, m);
+        const list = cellMarkers.get(`${bi}:${li}`);
+        if (list !== undefined) list.push(m);
+        else cellMarkers.set(`${bi}:${li}`, [m]);
     }
+    // Two markers on one cell: the WORST status wins the ring and the corner
+    // icon — a cell has exactly one of each, and hiding a danger under an
+    // info would be the wrong resolution in every canvas (#615).
+    const MARKER_RANK: Record<string, number> = { neutral: 0, info: 1, success: 2, warning: 3, danger: 4 };
+    const worstMarker = (ms: readonly MarkerValue[]): MarkerValue | undefined =>
+        ms.length === 0 ? undefined : ms.reduce((a, b) =>
+            ((MARKER_RANK[b.status.type] ?? 0) > (MARKER_RANK[a.status.type] ?? 0) ? b : a));
+    // The spanning full-cell shows the whole BUCKET's markers — a lane-less
+    // event taking the cell must not hide a lane's marker with it (#615).
+    const bucketMarkers = (bi: number): MarkerValue[] => {
+        const out: MarkerValue[] = [];
+        for (let li = 0; li < laneCount; li++) out.push(...(cellMarkers.get(`${bi}:${li}`) ?? []));
+        return out;
+    };
 
     // Cell geometry — 2px horizontal / per-lane vertical insets approximating
     // the Planner's 1px 2px cell margins + 3px lane padding.
@@ -150,7 +166,7 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
     });
 
     const renderCell = (bi: number, li: number | undefined, events: BucketEventValue[], span: number = 1) => {
-        const marker = li !== undefined ? cellMarkers.get(`${bi}:${li}`) : undefined;
+        const marker = worstMarker(li !== undefined ? cellMarkers.get(`${bi}:${li}`) ?? [] : bucketMarkers(bi));
         const lane = li !== undefined ? lanes[li] : undefined;
         const caption = lane !== undefined && lane.label.type === "some" ? lane.label.value : undefined;
         const cell = (
@@ -189,8 +205,14 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
         const full = fullCellEvents.get(bi);
         if (full !== undefined) {
             // The mixed grammar: a lane-less event in a laned row takes the
-            // whole cell across lanes.
-            cells.push(renderCell(bi, undefined, full));
+            // whole cell across lanes. Lane-assigned chips in the SAME bucket
+            // still render — they flow after the spanning chips, in lane
+            // order. Their lane position is not representable inside a
+            // spanned bucket, but a dropped event is worse than a
+            // repositioned one (#615).
+            const laned: BucketEventValue[] = [];
+            for (let li = 0; li < laneCount; li++) laned.push(...(cellEvents.get(`${bi}:${li}`) ?? []));
+            cells.push(renderCell(bi, undefined, [...full, ...laned]));
             continue;
         }
         for (let li = 0; li < laneCount; li++) {
