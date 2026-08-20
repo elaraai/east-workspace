@@ -19,7 +19,7 @@ import { faCaretDown, faLink, faUpRightAndDownLeftFromCenter } from "@fortawesom
 import { useDropCell, useDragLayerOptional, type CellCoord, type DragPayload } from "../../../dnd/drag-layer";
 import { canDropAllows, candidateEvent, type CanDropFn } from "../../../dnd/ir-can-drop";
 import { toEastDateTimeSlot } from "../../../dnd/slot-key";
-import { usePlanDispatch, usePlanScale } from "../context.js";
+import { usePlanCursor, usePlanDispatch, usePlanScale } from "../context.js";
 import type { PlanRowValue } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -49,8 +49,6 @@ export interface RowShellProps {
     /** Nesting depth (gutter indent). */
     depth: number;
     selected: boolean;
-    /** Cursor fraction to draw the shared hairline at (undefined ⇒ none). */
-    cursorFrac: number | undefined;
     /** The caret state for nesting parents (undefined ⇒ no caret). */
     caret?: { collapsed: boolean } | undefined;
     /** Caret click (subtree collapse / chart spark↔expanded toggle). The
@@ -96,12 +94,13 @@ export interface RowShellProps {
 /** One canvas body row — gutter + plot on the shared template. */
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
-    cursorFrac, caret, onCaretClick, emphasis, gutterOverlay, noGrid,
+    caret, onCaretClick, emphasis, gutterOverlay, noGrid,
     controls, focusTag, axisMode, ctx, decision, drop, children,
     expandBody, expandGutter, bandHeight,
 }: RowShellProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const cursor = usePlanCursor();
     const gutter = row.gutter;
     // One flag, spread onto every slot that has a collapsed state. The slots
     // own the styling (`&[data-ctx]` in the recipe) — this only says which
@@ -324,16 +323,16 @@ export function RowShell({
                 data-axis={axisMode}
                 onPointerMove={(e) => {
                     // While a drag is in flight the landing band IS the readout,
-                    // so the hairline would only add a second, competing mark —
-                    // and dispatching `cursor.move` re-renders the whole canvas
-                    // through the shared reducer, once per pointer event, for
-                    // the entire gesture.
+                    // so the hairline would only add a second, competing mark.
                     if (dragActive) { positionPreview(e.clientX); return; }
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     if (rect.width <= 0) return;
-                    dispatch({ t: "cursor.move", frac: (e.clientX - rect.left) / rect.width });
+                    // Display-only chrome — a direct DOM write through the
+                    // cursor channel, never the reducer: dispatching here
+                    // committed the whole canvas once per pointer event (#609).
+                    cursor.move((e.clientX - rect.left) / rect.width);
                 }}
-                onPointerLeave={() => { if (!dragActive) dispatch({ t: "cursor.leave" }); }}
+                onPointerLeave={() => { if (!dragActive) cursor.leave(); }}
             >
                 {noGrid !== true && edges.map((x, i) => (
                     <Box key={i} css={styles.gridCol} data-plan-axisline left={`${x * 100}%`} />
@@ -353,7 +352,11 @@ export function RowShell({
                         </Box>
                     </>
                 ) : children}
-                {cursorFrac !== undefined && <Box css={styles.cursorLine} left={`${cursorFrac * 100}%`} />}
+                {/* The shared hairline — positioned by the body's ONE
+                    `--plan-cursor-x` variable and shown only under
+                    `[data-plan-cursor]` (#609): a pointermove writes a style,
+                    renders nothing. Strips carry no hairline. */}
+                {ctx !== true && <Box css={styles.cursorLine} data-plan-cursorline />}
                 {scale.nowFrac !== undefined && <Box css={styles.nowLine} data-plan-axisline left={`${scale.nowFrac * 100}%`} />}
             </Box>
             {decision}

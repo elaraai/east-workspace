@@ -1320,6 +1320,12 @@ export const planSlotRecipe = defineSlotRecipe({
             borderLeftColor: "fg.muted",
             pointerEvents: "none",
             zIndex: 6,
+            // Driven by the canvas body's ONE `--plan-cursor-x` variable and
+            // shown only while the pointer is over a plot (#609) — a
+            // pointermove writes a style on the body, renders nothing.
+            display: "none",
+            left: "calc(var(--plan-cursor-x, 0) * 100%)",
+            "[data-plan-cursor] &": { display: "block" },
         },
         cursorChip: {
             position: "absolute",

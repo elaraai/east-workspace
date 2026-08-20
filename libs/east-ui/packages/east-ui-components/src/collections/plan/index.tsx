@@ -34,7 +34,7 @@ import { parseCssSize } from "../../style/parse-size.js";
 import { DensityProvider } from "../../contracts/density.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { VirtualRows } from "../virtual-rows.js";
-import { PlanScaleContext, PlanDispatchContext, PlanResolversContext, type PlanResolvers, type PlanElementRefValue } from "./context.js";
+import { PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, type PlanCursor, type PlanResolvers, type PlanElementRefValue } from "./context.js";
 import { usePlanPaging } from "./use-plan-paging.js";
 import { usePlanSeek } from "./use-seek.js";
 import { useElementHeight } from "./use-element-height.js";
@@ -42,7 +42,7 @@ import { WindowBand } from "./rows/WindowBand.js";
 import { effectiveResolution, planScale, resolutionInterval, type PlanResolution, type PlanScale, type PlanWindow } from "./scale.js";
 import {
     initialPlanStore, planStoreReducer,
-    type PlanAction, type PlanCtx, type PlanEffect, type PlanEvent, type PlanStore,
+    type PlanEffect, type PlanEvent,
 } from "./plan-state.js";
 import {
     GAP_H, derivePlan, deriveLinkFamily, elideForFocus, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, visibleRows,
@@ -65,7 +65,7 @@ import { PlanToolbar } from "./shell/Toolbar.js";
 import { HorizonBrush } from "./shell/HorizonBrush.js";
 import { FocusBar } from "./shell/FocusBar.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
-import { PlanRuler } from "./shell/Ruler.js";
+import { PlanRuler, chipAnchor } from "./shell/Ruler.js";
 import { PlanFooter } from "./shell/Footer.js";
 import {
     usePlanReview, PlanDecisionCell, PlanDecisionHeader, tagOf, DECISION_WIDTH,
@@ -336,17 +336,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         return r !== undefined ? { start: r.start, end: r.end } : undefined;
     }, [index]);
     // THE state machine — one `useReducer(planStoreReducer)` (#610). The
-    // reducer's scale context rides the closure, so a queued dispatch is
-    // answered against the current buckets and no ref is written during
-    // render; the reducer stays pure either way.
-    const ctx = useMemo<PlanCtx>(() => ({
-        bucketAtFrac: (f) => (scale === undefined ? -1 : scale.bucketAtFrac(f)),
-    }), [scale]);
-    const storeReducer = useCallback(
-        (s: PlanStore, a: PlanAction) => planStoreReducer(s, a, ctx),
-        [ctx]);
+    // reducer needs no scale context: the hover cursor — its one former
+    // consumer — is DOM chrome now (#609), so the machine is scale-free.
     const [store, dispatchStore] = useReducer(
-        storeReducer, undefined,
+        planStoreReducer, undefined,
         () => initialPlanStore(initGrain, index.initiallyCollapsed));
     const ui = store.ui;
     // A host data commit RECONCILES the ephemeral UI state instead of
@@ -600,6 +593,43 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         if (ui.focus !== null) focusBodyRef.current?.focus();
     }, [ui.focus]);
 
+    // ── The hover cursor: DIRECT DOM writes, zero renders (#609) ──────────
+    // The hairline + ruler chip are display-only chrome, driven the way the
+    // landing band is driven: `move` sets ONE CSS variable on the body — every
+    // row's hairline positions from `--plan-cursor-x` and shows only under
+    // `[data-plan-cursor]` — and writes the chip's label/position directly.
+    // Routing this through the reducer committed the ENTIRE canvas once per
+    // pointermove, O(mounted rows), unthrottled; now a pointermove renders
+    // nothing at all.
+    const cursorChipRef = useRef<HTMLDivElement | null>(null);
+    const cursor = useMemo<PlanCursor>(() => ({
+        move: (frac: number) => {
+            const body = focusBodyRef.current;
+            if (body === null || scale === undefined) return;
+            body.style.setProperty("--plan-cursor-x", String(frac));
+            body.setAttribute("data-plan-cursor", "");
+            const chip = cursorChipRef.current;
+            if (chip !== null) {
+                const bi = scale.bucketAtFrac(frac);
+                if (bi >= 0) {
+                    chip.textContent = scale.buckets[bi]!.label;
+                    chip.style.left = `${frac * 100}%`;
+                    chip.style.transform = `translate(${chipAnchor(frac)}, -50%)`;
+                    chip.style.display = "";
+                } else {
+                    // A truncated axis's uncovered remainder has no bucket to
+                    // name — the hairline still tracks, the readout hides.
+                    chip.style.display = "none";
+                }
+            }
+        },
+        leave: () => {
+            focusBodyRef.current?.removeAttribute("data-plan-cursor");
+            const chip = cursorChipRef.current;
+            if (chip !== null) chip.style.display = "none";
+        },
+    }), [scale]);
+
     // ── Recipe + layout ───────────────────────────────────────────────────
     const recipe = useSlotRecipe({ key: "plan" });
     const styles = useMemo(
@@ -688,6 +718,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // cannot say where the thumb is — the center pixel can, #612), else the
     // middle of the mounted range. The driver maps it back to a window; no
     // body-layout knowledge crosses that boundary.
+    // Depends on the STABLE `reportViewport` callback, never the whole
+    // `paging` object — the hook returns a fresh literal every render, so
+    // keying on it re-fired the virtualizer's range effect after every
+    // commit rather than on real range changes (#609).
+    const reportViewport = paging.reportViewport;
     const reportRange = useCallback((
         range: { startIndex: number; endIndex: number },
         isScrolling: boolean,
@@ -700,13 +735,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             // `withinPx` is measured from the band's own top — the one origin
             // the ledger can place exactly, whatever the resident rows above
             // it rendered at.
-            paging.reportViewport(
+            reportViewport(
                 { kind: "band", at: item.band.at, px: center?.withinPx },
                 isScrolling);
         }
-        else if (item.kind === "row") paging.reportViewport({ kind: "row", key: item.row.row.key }, isScrolling);
+        else if (item.kind === "row") reportViewport({ kind: "row", key: item.row.row.key }, isScrolling);
         // A links-focus gap band names no window — leave the demand where it is.
-    }, [bodyItems, paging]);
+    }, [bodyItems, reportViewport]);
     // Where a key search has positioned the canvas. Resolved against the
     // VISIBLE body (a match inside a collapsed group has no row to scroll to),
     // and only once that row has actually loaded.
@@ -721,7 +756,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         if (scale === undefined) return null;
         const kind = v.row.kind;
         const h = rowHeight(v, dense, ui.chartsExpanded, heightCtx, derived);
-        const cursorFrac = ui.cursor?.frac;
         // R1 rails — unrelated rows collapse to 11px, never removed: order,
         // scroll and the status dot survive, and the rail itself returns.
         if (focusCtx?.kind === "links" && kind.type !== "group"
@@ -785,7 +819,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         const hasChildren = (index.children.get(v.row.key)?.length ?? 0) > 0;
         const shellBase = {
             row: v.row, styles, gridTemplate, depth: v.depth,
-            selected: ui.selected === v.row.key, cursorFrac: isCtx ? undefined : cursorFrac,
+            selected: ui.selected === v.row.key,
             controls: isCtx ? undefined : rowControls, focusTag, axisMode: axisTag, ctx: isCtx,
             ...(isFocal ? {
                 expandBody: <EastChakraComponent value={expandBody}
@@ -941,9 +975,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     // The ruler's gutter caption is the active grain's name (the §1 mock).
     const rulerCaption = ui.grain.toUpperCase();
-    const cursorBucket = ui.cursor !== undefined && ui.cursor !== null && ui.cursor.bucket >= 0
-        ? scale.buckets[ui.cursor.bucket]
-        : undefined;
 
     const header = (
         <Box background="bg.surface" ref={headerElRef}>
@@ -971,9 +1002,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     window={scale.window} now={now} resolution={scale.resolution} />
             )}
             <PlanRuler styles={styles} gridTemplate={gridTemplate} caption={rulerCaption}
-                cursor={ui.cursor !== null && cursorBucket !== undefined
-                    ? { frac: ui.cursor.frac, label: cursorBucket.label }
-                    : undefined}
+                cursorChipRef={cursorChipRef}
                 trailing={review !== undefined
                     ? <PlanDecisionHeader label={review.columnLabel} />
                     : undefined} />
@@ -1000,6 +1029,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const body = (
         <PlanScaleContext.Provider value={scale}>
             <PlanDispatchContext.Provider value={dispatch}>
+            <PlanCursorContext.Provider value={cursor}>
             <PlanResolversContext.Provider value={resolvers}>
                 <Box
                     ref={focusBodyRef}
@@ -1095,6 +1125,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     )}
                 </Box>
             </PlanResolversContext.Provider>
+            </PlanCursorContext.Provider>
             </PlanDispatchContext.Provider>
         </PlanScaleContext.Provider>
     );

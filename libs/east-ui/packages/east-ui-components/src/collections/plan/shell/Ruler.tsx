@@ -35,14 +35,16 @@ export interface PlanRulerProps {
     gridTemplate: string;
     /** The gutter caption — the active grain's name (`RESOURCE`, the §1 mock). */
     caption: string;
-    /** The cursor fraction + its bucket's label (the readout chip). */
-    cursor: { frac: number; label: string } | undefined;
+    /** The cursor readout chip's element — always mounted (hidden), written
+     *  DIRECTLY by the canvas's cursor controller (#609): label, position and
+     *  visibility are DOM writes, so a pointermove renders nothing. */
+    cursorChipRef?: React.Ref<HTMLDivElement>;
     /** The trailing cell for the review decision column (#569). */
     trailing?: React.ReactNode;
 }
 
 /** The 28px ruler band. */
-export function PlanRuler({ styles, gridTemplate, caption, cursor, trailing }: PlanRulerProps) {
+export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef, trailing }: PlanRulerProps) {
     const scale = usePlanScale();
     const columns = scale.buckets.map((b) => `${((b.x1 - b.x0) * 100).toFixed(4)}%`).join(" ");
     return (
@@ -59,11 +61,9 @@ export function PlanRuler({ styles, gridTemplate, caption, cursor, trailing }: P
                             transform={`translate(${chipAnchor(scale.nowFrac)}, -50%)`}>NOW</Box>
                     </>
                 )}
-                {cursor !== undefined && (
-                    <Box css={styles.cursorChip} left={`${cursor.frac * 100}%`} top="50%"
-                        transform={`translate(${chipAnchor(cursor.frac)}, -50%)`}>
-                        {cursor.label}
-                    </Box>
+                {cursorChipRef !== undefined && (
+                    <Box ref={cursorChipRef} css={styles.cursorChip} top="50%"
+                        data-plan-cursorchip style={{ display: "none" }} />
                 )}
             </Box>
             {trailing}

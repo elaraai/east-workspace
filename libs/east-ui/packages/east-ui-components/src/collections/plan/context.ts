@@ -50,6 +50,26 @@ export const PlanScaleContext = createContext<PlanScale | null>(null);
 /** The interaction dispatch channel (the one `useReducer` dispatch). */
 export const PlanDispatchContext = createContext<(e: PlanEvent) => void>(() => undefined);
 
+/**
+ * The hover-cursor controller (#609) — display-only chrome, written straight
+ * to the DOM: `move` sets ONE CSS variable on the canvas body (every row's
+ * hairline positions from it) and writes the ruler chip's label/position;
+ * `leave` hides both. Never React state: routing a pointermove through the
+ * reducer re-rendered every mounted row once per event.
+ */
+export interface PlanCursor {
+    /** The pointer is at a window fraction over a row plot. */
+    move(frac: number): void;
+    /** The pointer left a row plot. */
+    leave(): void;
+}
+
+/** The cursor channel (inert by default — chrome simply never shows). */
+export const PlanCursorContext = createContext<PlanCursor>({
+    move: () => undefined,
+    leave: () => undefined,
+});
+
 /** The element-resolver channel (empty when the root declares none). */
 export const PlanResolversContext = createContext<PlanResolvers>({});
 
@@ -72,6 +92,15 @@ export function usePlanScale(): PlanScale {
  */
 export function usePlanDispatch(): (e: PlanEvent) => void {
     return useContext(PlanDispatchContext);
+}
+
+/**
+ * The hover-cursor controller.
+ *
+ * @returns The canvas's cursor channel (a no-op outside a Plan)
+ */
+export function usePlanCursor(): PlanCursor {
+    return useContext(PlanCursorContext);
 }
 
 /**

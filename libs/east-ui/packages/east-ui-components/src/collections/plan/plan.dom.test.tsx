@@ -16,6 +16,7 @@
  */
 
 import { describe, test, expect, vi, afterEach } from "vitest";
+import { Profiler } from "react";
 import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -327,6 +328,70 @@ describe("Plan selection + esc ladder", () => {
         const surface = container.querySelector('[tabindex="0"]')!;
         fireEvent.keyDown(surface, { key: "Escape" });
         expect(row().hasAttribute("data-selected")).toBe(false);
+    });
+});
+
+describe("Plan hover cursor is DOM chrome (#609)", () => {
+    const stubRect = (el: HTMLElement) => Object.defineProperty(el, "getBoundingClientRect", {
+        value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+
+    test("the hairline + ruler chip track the pointer through DIRECT DOM writes, across rows", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("m1", spanKind([])),
+            planRow("m2", spanKind([])),
+            planRow("m3", spanKind([])),
+        ]), "plan-609-cursor");
+        const body = container.querySelector("[data-plan-body]") as HTMLElement;
+        // One hairline element per data row, hidden until a plot is hovered —
+        // all of them position from the body's ONE `--plan-cursor-x` variable.
+        expect(container.querySelectorAll("[data-plan-cursorline]")).toHaveLength(3);
+        expect(body.hasAttribute("data-plan-cursor")).toBe(false);
+
+        const plot = container.querySelector('[data-plan-row="m1"]')!.children[1] as HTMLElement;
+        stubRect(plot);
+        fireEvent.pointerMove(plot, { clientX: 500 });
+        expect(body.hasAttribute("data-plan-cursor")).toBe(true);
+        expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("0.5");
+        // The ruler chip names the hovered bucket: frac 0.5 of W27..W39 ⇒ W33.
+        const chip = container.querySelector("[data-plan-cursorchip]") as HTMLElement;
+        expect(chip.textContent).toBe("W33");
+        expect(chip.style.display).not.toBe("none");
+
+        // Crossing to ANOTHER row keeps tracking — same variable, same chip.
+        const plot2 = container.querySelector('[data-plan-row="m3"]')!.children[1] as HTMLElement;
+        stubRect(plot2);
+        fireEvent.pointerMove(plot2, { clientX: 250 });
+        expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("0.25");
+        expect(chip.textContent).toBe("W30");
+
+        fireEvent.pointerLeave(plot2);
+        expect(body.hasAttribute("data-plan-cursor")).toBe(false);
+        expect(chip.style.display).toBe("none");
+    });
+
+    test("a pointermove COMMITS NOTHING — profiler-verified O(0) renders per event", () => {
+        // The issue's measurement: one full-canvas commit per pointermove,
+        // linear in mounted rows (91.5ms per move at 200 rows). The cursor is
+        // DOM chrome now, so the property under test is stronger than the
+        // O(1)-rows criterion: ZERO React commits per pointer event.
+        const commits: string[] = [];
+        const rows = Array.from({ length: 30 }, (_u, i) => planRow(`r${i}`, spanKind([])));
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <Profiler id="plan-609" onRender={(_id, phase) => { commits.push(phase); }}>
+                    <EastChakraPlan value={planRoot(rows)} storageKey="plan-609-profiler" />
+                </Profiler>
+            </ChakraProvider>,
+        );
+        const plot = container.querySelector('[data-plan-row="r0"]')!.children[1] as HTMLElement;
+        stubRect(plot);
+        const before = commits.length;
+        for (let x = 100; x <= 900; x += 100) fireEvent.pointerMove(plot, { clientX: x });
+        expect(commits.length).toBe(before);
+        // ... and the chrome still tracked: the writes happened, renders did not.
+        const body = container.querySelector("[data-plan-body]") as HTMLElement;
+        expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("0.9");
     });
 });
 

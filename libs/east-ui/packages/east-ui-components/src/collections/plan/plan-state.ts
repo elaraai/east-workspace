@@ -32,7 +32,12 @@
  *   focus control returns the first; invoking the active row's own control
  *   returns it.
  * - **Grain changes rows, never the axis**: `grain.set` clears `selected`,
- *   keeps `cursor` / `expanded` / the window.
+ *   keeps `expanded` / the window.
+ *
+ * The hover CURSOR (hairline + ruler chip) is NOT machine state: it is
+ * display-only chrome written straight to the DOM by the canvas's cursor
+ * controller (#609) — routing a pointermove through a reducer re-rendered
+ * every mounted row once per event.
  *
  * @packageDocumentation
  */
@@ -53,8 +58,6 @@ export interface PlanUiState {
     selected: RowKey | null;
     /** Chart rows toggled from spark to expanded. */
     chartsExpanded: ReadonlySet<RowKey>;
-    /** The shared hover cursor (window fraction + containing bucket), if any. */
-    cursor: { frac: number; bucket: number } | null;
     /** Whether a horizon-brush drag is in flight (esc-ladder rung). */
     brush: { active: true } | null;
     /** The row-scoped focus (R1 links / R2 expand) — at most one per canvas. */
@@ -67,8 +70,6 @@ export type PlanEvent =
     | { t: "group.toggle"; key: RowKey }
     | { t: "row.select"; key: RowKey }
     | { t: "chart.toggle"; key: RowKey }
-    | { t: "cursor.move"; frac: number }
-    | { t: "cursor.leave" }
     | { t: "brush.down" }
     | { t: "brush.commit"; min: Date; max: Date }
     | { t: "brush.clear" }
@@ -90,12 +91,6 @@ export type PlanEffect =
     | { t: "scroll.toNow" }
     | { t: "pan"; buckets: -1 | 1 };
 
-/** Static context the reducer consults (never stored in the state). */
-export interface PlanCtx {
-    /** The bucket index containing a window fraction (−1 outside). */
-    bucketAtFrac(frac: number): number;
-}
-
 const GRAIN_CYCLE: PlanGrain[] = ["group", "resource"];
 
 /** The initial UI state for a decoded root. */
@@ -108,7 +103,6 @@ export function initialPlanState(
         collapsed: new Set(collapsedKeys),
         selected: null,
         chartsExpanded: new Set(),
-        cursor: null,
         brush: null,
         focus: null,
     };
@@ -126,19 +120,17 @@ function toggled(set: ReadonlySet<RowKey>, key: RowKey): ReadonlySet<RowKey> {
  *
  * @param s - The current UI state
  * @param e - The interaction event
- * @param ctx - Scale-derived context (fraction → bucket)
  * @returns The next state plus the effects the component must run
  */
 export function planReducer(
     s: PlanUiState,
     e: PlanEvent,
-    ctx: PlanCtx,
 ): { state: PlanUiState; effects: PlanEffect[] } {
     switch (e.t) {
         case "grain.set": {
             if (e.grain === s.grain) return { state: s, effects: [] };
             // Grain changes rows, never the axis: selection resets,
-            // cursor / collapsed / window survive.
+            // collapsed / window survive.
             return {
                 state: { ...s, grain: e.grain, selected: null, focus: null },
                 effects: [{ t: "emit.grainChange", grain: e.grain }],
@@ -161,12 +153,6 @@ export function planReducer(
         }
         case "chart.toggle":
             return { state: { ...s, chartsExpanded: toggled(s.chartsExpanded, e.key) }, effects: [] };
-        case "cursor.move": {
-            const bucket = ctx.bucketAtFrac(e.frac);
-            return { state: { ...s, cursor: { frac: e.frac, bucket } }, effects: [] };
-        }
-        case "cursor.leave":
-            return { state: { ...s, cursor: null }, effects: [] };
         case "brush.down":
             return { state: { ...s, brush: { active: true } }, effects: [] };
         // NO brush.preview event: a mid-drag preview changes no machine state,
@@ -339,14 +325,13 @@ function grown(set: ReadonlySet<RowKey>, keys: readonly RowKey[]): ReadonlySet<R
  *
  * @param store - The current store
  * @param a - The action
- * @param ctx - Scale-derived context (fraction → bucket), consulted by events
  * @returns The next store — `store` itself when nothing changed, so React
  *   skips the re-render
  */
-export function planStoreReducer(store: PlanStore, a: PlanAction, ctx: PlanCtx): PlanStore {
+export function planStoreReducer(store: PlanStore, a: PlanAction): PlanStore {
     switch (a.t) {
         case "event": {
-            const { state, effects } = planReducer(store.ui, a.e, ctx);
+            const { state, effects } = planReducer(store.ui, a.e);
             if (state === store.ui && effects.length === 0) return store;
             return effects.length === 0
                 ? { ...store, ui: state }

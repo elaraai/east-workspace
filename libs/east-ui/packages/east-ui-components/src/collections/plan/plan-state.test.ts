@@ -6,16 +6,14 @@
 import { describe, it, expect } from 'vitest';
 import {
     initialPlanState, planReducer, initialPlanStore, planStoreReducer,
-    type PlanCtx, type PlanEvent, type PlanUiState, type PlanStore,
+    type PlanEvent, type PlanUiState, type PlanStore,
 } from './plan-state';
-
-const ctx: PlanCtx = { bucketAtFrac: (f) => (f < 0 || f >= 1 ? -1 : Math.floor(f * 12)) };
 
 function run(s: PlanUiState, ...events: PlanEvent[]): { state: PlanUiState; effects: ReturnType<typeof planReducer>["effects"] } {
     let state = s;
     let effects: ReturnType<typeof planReducer>["effects"] = [];
     for (const e of events) {
-        const out = planReducer(state, e, ctx);
+        const out = planReducer(state, e);
         state = out.state;
         effects = out.effects;
     }
@@ -46,7 +44,7 @@ describe('planReducer', () => {
             s = run(s, { t: "key", key: "esc" }).state;
             expect(s.selected).toBeNull();
 
-            const idle = planReducer(s, { t: "key", key: "esc" }, ctx);
+            const idle = planReducer(s, { t: "key", key: "esc" });
             expect(idle.state).toBe(s);
             expect(idle.effects).toEqual([]);
         });
@@ -75,21 +73,19 @@ describe('planReducer', () => {
     });
 
     describe('grain', () => {
-        it('grain.set clears selection, keeps cursor and collapsed', () => {
+        it('grain.set clears selection, keeps collapsed', () => {
             let s = initialPlanState("resource", ["g1"]);
-            s = run(s, { t: "cursor.move", frac: 0.5 }).state;
             s = run(s, { t: "row.select", key: "r1" }).state;
             const { state, effects } = run(s, { t: "grain.set", grain: "group" });
             expect(state.grain).toBe("group");
             expect(state.selected).toBeNull();
-            expect(state.cursor).not.toBeNull();
             expect(state.collapsed.has("g1")).toBe(true);
             expect(effects).toEqual([{ t: "emit.grainChange", grain: "group" }]);
         });
 
         it('grain.set to the current grain is a no-op', () => {
             const s = init();
-            const out = planReducer(s, { t: "grain.set", grain: "resource" }, ctx);
+            const out = planReducer(s, { t: "grain.set", grain: "resource" });
             expect(out.state).toBe(s);
             expect(out.effects).toEqual([]);
         });
@@ -142,7 +138,7 @@ describe('planReducer', () => {
             const { state, effects } = run(down.state, { t: "brush.up" });
             expect(state.brush).toBeNull();
             expect(effects).toEqual([]);
-            const idle = planReducer(state, { t: "brush.up" }, ctx);
+            const idle = planReducer(state, { t: "brush.up" });
             expect(idle.state).toBe(state);
         });
 
@@ -182,14 +178,8 @@ describe('planReducer', () => {
         });
     });
 
-    describe('cursor', () => {
-        it('move stores the fraction + containing bucket; leave clears', () => {
-            const moved = run(init(), { t: "cursor.move", frac: 0.51 });
-            expect(moved.state.cursor).toEqual({ frac: 0.51, bucket: 6 });
-            const left = run(moved.state, { t: "cursor.leave" });
-            expect(left.state.cursor).toBeNull();
-        });
-    });
+    // NO cursor state: the hover hairline + ruler chip are DOM chrome written
+    // by the canvas's cursor controller (#609) — a pointermove renders nothing.
 
     describe('charts', () => {
         it('toggle flips spark ↔ expanded per row', () => {
@@ -211,7 +201,7 @@ describe('planReducer', () => {
 
 describe('planStoreReducer (#610)', () => {
     const store0 = () => initialPlanStore("resource", ["g1"]);
-    const event = (s: PlanStore, e: PlanEvent) => planStoreReducer(s, { t: "event", e }, ctx);
+    const event = (s: PlanStore, e: PlanEvent) => planStoreReducer(s, { t: "event", e });
     const keys = (...k: string[]) => new Set(k);
 
     describe('event actions', () => {
@@ -248,18 +238,16 @@ describe('planStoreReducer (#610)', () => {
             let s = store0();
             s = event(s, { t: "row.select", key: "r1" });
             s = event(s, { t: "chart.toggle", key: "c1" });
-            s = event(s, { t: "cursor.move", frac: 0.5 });
             s = event(s, { t: "focus.expand", key: "r1" });
             const out = planStoreReducer(s, {
                 t: "reconcile", alive: keys("g1", "r1", "c1"),
                 declaredCollapsed: keys("g1"), declaredGrain: "resource",
-            }, ctx);
+            });
             expect(out).toBe(s);
             expect(out.ui.selected).toBe("r1");
             expect(out.ui.focus).toEqual({ kind: "expand", key: "r1" });
             expect(out.ui.chartsExpanded.has("c1")).toBe(true);
             expect(out.ui.collapsed.has("g1")).toBe(true);
-            expect(out.ui.cursor).not.toBeNull();
         });
 
         it('drops selection / focus / collapse / chart entries for vanished rows', () => {
@@ -270,7 +258,7 @@ describe('planStoreReducer (#610)', () => {
             const out = planStoreReducer(s, {
                 t: "reconcile", alive: keys("r3"),
                 declaredCollapsed: keys(), declaredGrain: "resource",
-            }, ctx);
+            });
             expect(out.ui.selected).toBeNull();
             expect(out.ui.focus).toBeNull();
             expect(out.ui.chartsExpanded.size).toBe(0);
@@ -286,7 +274,7 @@ describe('planStoreReducer (#610)', () => {
             const out = planStoreReducer(s, {
                 t: "reconcile", alive: keys("g1", "r1"),
                 declaredCollapsed: keys("g1"), declaredGrain: "resource",
-            }, ctx);
+            });
             expect(out.ui.collapsed.has("g1")).toBe(false);
         });
 
@@ -295,14 +283,14 @@ describe('planStoreReducer (#610)', () => {
             const out = planStoreReducer(s, {
                 t: "reconcile", alive: keys("g1", "g2"),
                 declaredCollapsed: keys("g1", "g2"), declaredGrain: "resource",
-            }, ctx);
+            });
             expect(out.ui.collapsed.has("g2")).toBe(true);
             // ... and only once: opening it survives the next reconcile.
             const opened = event(out, { t: "group.toggle", key: "g2" });
             const again = planStoreReducer(opened, {
                 t: "reconcile", alive: keys("g1", "g2"),
                 declaredCollapsed: keys("g1", "g2"), declaredGrain: "resource",
-            }, ctx);
+            });
             expect(again.ui.collapsed.has("g2")).toBe(false);
         });
 
@@ -312,11 +300,11 @@ describe('planStoreReducer (#610)', () => {
             const gone = planStoreReducer(s, {
                 t: "reconcile", alive: keys("r1"),
                 declaredCollapsed: keys(), declaredGrain: "resource",
-            }, ctx);
+            });
             const back = planStoreReducer(gone, {
                 t: "reconcile", alive: keys("g1", "r1"),
                 declaredCollapsed: keys("g1"), declaredGrain: "resource",
-            }, ctx);
+            });
             expect(back.ui.collapsed.has("g1")).toBe(true);
         });
 
@@ -327,7 +315,7 @@ describe('planStoreReducer (#610)', () => {
             const out = planStoreReducer(s, {
                 t: "reconcile", alive: keys("r1"),
                 declaredCollapsed: keys(), declaredGrain: "group",
-            }, ctx);
+            });
             expect(out.ui.grain).toBe("group");
             expect(out.ui.selected).toBeNull();
             expect(out.ui.focus).toBeNull();
@@ -340,7 +328,7 @@ describe('planStoreReducer (#610)', () => {
         it('applies never-seen declared collapse and drops nothing', () => {
             let s = store0();
             s = event(s, { t: "row.select", key: "r1" });
-            const out = planStoreReducer(s, { t: "seed", declaredCollapsed: keys("g1", "late") }, ctx);
+            const out = planStoreReducer(s, { t: "seed", declaredCollapsed: keys("g1", "late") });
             expect(out.ui.collapsed.has("late")).toBe(true);
             expect(out.ui.collapsed.has("g1")).toBe(true);
             expect(out.ui.selected).toBe("r1");
@@ -348,9 +336,9 @@ describe('planStoreReducer (#610)', () => {
 
         it('is the store identity when every declared key is seeded — and an opened group stays open', () => {
             let s = store0();
-            expect(planStoreReducer(s, { t: "seed", declaredCollapsed: keys("g1") }, ctx)).toBe(s);
+            expect(planStoreReducer(s, { t: "seed", declaredCollapsed: keys("g1") })).toBe(s);
             s = event(s, { t: "group.toggle", key: "g1" });            // user opens it
-            const out = planStoreReducer(s, { t: "seed", declaredCollapsed: keys("g1") }, ctx);
+            const out = planStoreReducer(s, { t: "seed", declaredCollapsed: keys("g1") });
             expect(out).toBe(s);
             expect(out.ui.collapsed.has("g1")).toBe(false);
         });
