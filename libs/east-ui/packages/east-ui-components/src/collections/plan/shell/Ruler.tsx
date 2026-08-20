@@ -46,18 +46,7 @@ export interface PlanRulerProps {
 /** The 28px ruler band. */
 export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef, trailing }: PlanRulerProps) {
     const scale = usePlanScale();
-    // The tick grid spans the RENDER bounds (#620): the #619 overscan periods
-    // carry ticks too, clipped at rest by the band's own clip and revealed by
-    // a brush pan — the region a slide drags in is labelled, not blank. The
-    // pan LAYER itself stays `inset: 0` so its transform origin (the plot's
-    // left edge) matches every row layer's; the wider grid is an inner track.
-    const rSpan = scale.renderMax - scale.renderMin;
-    const ticks = [
-        ...scale.overscan.filter((b) => b.index < 0),
-        ...scale.buckets,
-        ...scale.overscan.filter((b) => b.index >= scale.buckets.length),
-    ];
-    const columns = ticks.map((b) => `${(((b.x1 - b.x0) / rSpan) * 100).toFixed(4)}%`).join(" ");
+    const columns = scale.buckets.map((b) => `${((b.x1 - b.x0) * 100).toFixed(4)}%`).join(" ");
     return (
         <Box css={styles.ruler} gridTemplateColumns={gridTemplate} data-slot="ruler">
             <Box css={styles.brushCaption} borderRight="none">{caption}</Box>
@@ -65,17 +54,10 @@ export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef, traili
                 {/* The brush-pan layer (#616): the tick grid + NOW chip are
                     window-anchored and slide with the canvas; the cursor chip
                     is pointer-anchored and stays outside the layer. */}
-                <Box css={styles.panLayer} data-plan-panlayer>
-                    <Box position="absolute" top={0} bottom={0} display="grid"
-                        gridTemplateColumns={columns} data-plan-rulertrack
-                        style={{
-                            left: `${(scale.renderMin * 100).toFixed(4)}%`,
-                            width: `${(rSpan * 100).toFixed(4)}%`,
-                        }}>
-                        {ticks.map((b) => (
-                            <Box key={b.index} css={styles.rulerTick} data-slot="rulerTick">{b.label}</Box>
-                        ))}
-                    </Box>
+                <Box css={styles.panLayer} display="grid" gridTemplateColumns={columns} data-plan-panlayer>
+                    {scale.buckets.map((b) => (
+                        <Box key={b.index} css={styles.rulerTick} data-slot="rulerTick">{b.label}</Box>
+                    ))}
                     {scale.nowFrac !== undefined && (
                         <>
                             <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />

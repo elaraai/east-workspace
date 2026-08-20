@@ -36,14 +36,6 @@ export const INDENT_PX = 30;
  * lands on the plot's own boundaries. A 100-row × 500-bucket canvas used to
  * mount ~50k separator divs; this is 100. Unequal buckets (month / quarter —
  * clipped edge buckets, low counts by construction) keep the per-edge divs.
- *
- * FLANKS (#620): the #619 overscan periods carry separators too — a constant
- * handful of per-edge divs per side, clipped at rest, so the region a brush
- * pan reveals shows the same grid the window does. The lines AT the window
- * boundaries (frac 0 / 1) nudge outward so the at-rest render is unchanged:
- * at 0 the gutter's own border already draws that line, at 1 the plot ends.
- * A truncated axis skips right-flank edges inside the window — the uncovered
- * remainder is visibly dead space at rest and must stay bare.
  */
 export function GridSeparators({ styles }: { styles: Styles }) {
     const scale = usePlanScale();
@@ -51,29 +43,15 @@ export function GridSeparators({ styles }: { styles: Styles }) {
     if (n < 2) return null;
     const w0 = scale.buckets[0]!.x1 - scale.buckets[0]!.x0;
     const uniform = scale.buckets.every((b) => Math.abs((b.x1 - b.x0) - w0) < 1e-9);
-    const flankEdges: number[] = [];
-    for (const b of scale.overscan) {
-        for (const e of [b.x0, b.x1]) {
-            if (e > 1e-9 && e < 1 - 1e-9) continue;       // inside the window: never
-            if (!flankEdges.some((x) => Math.abs(x - e) < 1e-9)) flankEdges.push(e);
-        }
-    }
-    const flanks = flankEdges.map((e, i) => (
-        <Box key={`f${i}`} css={styles.gridCol} data-plan-axisline data-plan-gridflank
-            style={{ left: e <= 1e-9 ? `calc(${(e * 100).toFixed(4)}% - 1px)` : `${(e * 100).toFixed(4)}%` }} />
-    ));
     if (uniform) {
         return (
-            <>
-                <Box css={styles.gridSep} data-plan-axisline data-plan-gridsep
-                    left={`${scale.buckets[0]!.x1 * 100}%`}
-                    style={{
-                        // One bucket width, in THIS element's own space: it spans
-                        // n−1 buckets, so a tile is 1/(n−1) of it.
-                        backgroundImage: `repeating-linear-gradient(to right, var(--chakra-colors-border-subtle) 0 1px, transparent 1px calc(100% / ${n - 1}))`,
-                    }} />
-                {flanks}
-            </>
+            <Box css={styles.gridSep} data-plan-axisline data-plan-gridsep
+                left={`${scale.buckets[0]!.x1 * 100}%`}
+                style={{
+                    // One bucket width, in THIS element's own space: it spans
+                    // n−1 buckets, so a tile is 1/(n−1) of it.
+                    backgroundImage: `repeating-linear-gradient(to right, var(--chakra-colors-border-subtle) 0 1px, transparent 1px calc(100% / ${n - 1}))`,
+                }} />
         );
     }
     return (
@@ -81,7 +59,6 @@ export function GridSeparators({ styles }: { styles: Styles }) {
             {scale.buckets.slice(0, -1).map((b, i) => (
                 <Box key={i} css={styles.gridCol} data-plan-axisline left={`${b.x1 * 100}%`} />
             ))}
-            {flanks}
         </>
     );
 }

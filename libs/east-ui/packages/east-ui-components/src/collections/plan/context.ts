@@ -71,30 +71,23 @@ export const PlanCursorContext = createContext<PlanCursor>({
 });
 
 /**
- * The brush-pan controller (#616/#620) — direct transform writes, settle on
- * release. Any brush draft over an existing window is an AFFINE preview of
- * the canvas: `preview(f0, f1)` takes the draft window in fractions of the
- * APPLIED window and writes two variables on the canvas body —
- * `--plan-pan-px` (translate) and `--plan-zoom-k` (horizontal scale) — that
- * every pan layer transforms by. A same-width draft is a pure slide
- * (`k = 1`); a resize scales too (`data-plan-zooming` hides chrome a
- * translate counter cannot correct). Either way a drag step is style
- * writes — no slice write, no scale rebuild, no re-render — and the
- * release commits the real window once.
+ * The brush-pan controller (#616) — direct transform writes, settle on
+ * release. A horizon-brush SLIDE (same window width) is a pure horizontal
+ * translation of every plot layer: `slide` sets ONE px variable on the
+ * canvas body (`--plan-pan-px`) that every pan layer translates by, so a
+ * drag step is one style write — no slice write, no scale rebuild, no
+ * re-render — and the release commits the real window once.
  */
 export interface PlanPan {
-    /**
-     * Preview the draft window `[f0, f1]`, given in fractions of the applied
-     * window (`preview(0, 1)` — the identity — IS the reset).
-     */
-    preview(f0: number, f1: number): void;
-    /** Reset the preview (release / cancel / unmount). */
+    /** Pan the canvas by a fraction of the applied window (0 clears). */
+    slide(dxFrac: number): void;
+    /** Reset the pan (release / cancel / unmount). */
     clear(): void;
 }
 
 /** The pan channel (inert by default). */
 export const PlanPanContext = createContext<PlanPan>({
-    preview: () => undefined,
+    slide: () => undefined,
     clear: () => undefined,
 });
 

@@ -182,13 +182,6 @@ describe('planScale', () => {
             expect(scale.renderMax).toBeLessThan(1);
         });
 
-        it('exposes the overscan buckets in axis order for the render chrome (#620)', () => {
-            const scale = planScale({ min: d("2026-06-29T00:00:00Z"), max: d("2026-07-27T00:00:00Z") }, "week")!;
-            expect(scale.overscan.map((b) => b.index)).toEqual([-2, -1, 4, 5]);
-            expect(scale.overscan[0]!.x0).toBe(scale.renderMin);
-            expect(scale.overscan[3]!.x1).toBe(scale.renderMax);
-        });
-
         it('an unaligned window maps the pre-min sliver to the clipped first bucket', () => {
             // Wednesday-start window: the first period begins Mon 6-29.
             const scale = planScale({ min: d("2026-07-01T00:00:00Z"), max: d("2026-07-15T00:00:00Z") }, "week")!;

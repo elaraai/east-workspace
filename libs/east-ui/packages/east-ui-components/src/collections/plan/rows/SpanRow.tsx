@@ -8,9 +8,8 @@
  * on the shared scale, plus factory-computed rollup bands, decision diamonds
  * and quantity ports. The §4.3 run-state truth table maps `EventStateType` to
  * the recipe `bar` slot's `data-state` axis; `status: warning` adds the
- * `.stuck` warn ring; a run crossing either window edge keeps its TRUE
- * geometry and mask-fades at the edge (`data-runoff` / `data-runon`) — never
- * a fabricated end OR start (#620). Popovers / hovercards
+ * `.stuck` warn ring; a run ending past the window keeps its true geometry and
+ * mask-fades (`data-runoff`) — never a fabricated end. Popovers / hovercards
  * resolve through the root's generalized resolvers ({@link ElementOverlays});
  * decision diamonds ride the `mark` arm of the element ref.
  */
@@ -69,40 +68,22 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
         const f0 = scale.fracOf(run.start);
         const f1 = scale.fracOf(run.end);
         // Cull against the RENDER bounds (#619 — the schematic's
-        // viewport-cull discipline, one axis) and mount at TRUE geometry,
-        // always (#620): a window-clamped straddler translated by a brush
-        // pan was a lie — its box slid at the clamped length, then popped to
-        // the truth at the settle. The window-edge chrome is re-expressed in
-        // BAR-LOCAL fractions of the true box so the at-rest pixels match
-        // the old clamped form: the runoff fade lands on the same screen
-        // stops, the label pins to the window edge via computed padding, and
-        // a run STARTING before the window fades in symmetrically instead of
-        // drawing a fabricated hard start (§4.3's "never a fabricated end",
-        // applied to starts — a deliberate rest change).
+        // viewport-cull discipline, one axis): a run WHOLLY outside the
+        // window but inside the overscan mounts at its true geometry,
+        // clipped at rest, so a brush-slide pan reveals it. A run TOUCHING
+        // the window keeps its window-clamped form — its label pins to the
+        // window edge and the runoff mask's proportions ride the clamp, so
+        // the at-rest render is bit-identical to before.
         if (f1 <= scale.renderMin || f0 >= scale.renderMax) return null;
-        const width = f1 - f0;
-        if (!(width > 0)) return null;
-        const runoff = f1 > 1 && f0 < 1;
-        const runon = f0 < 0 && f1 > 0;
-        // The visible span in bar-local fractions — the mask stops and the
-        // label pin are computed against it.
-        const vL = runon ? -f0 / width : 0;
-        const vR = runoff ? (1 - f0) / width : 1;
-        const vis = Math.max(vR - vL, 0);
-        const mask = runoff || runon
-            ? `linear-gradient(to right, ${runon
-                ? `transparent ${(100 * (vL + 0.01 * vis)).toFixed(2)}%, black ${(100 * (vL + 0.16 * vis)).toFixed(2)}%`
-                : "black 0%"}, ${runoff
-                ? `black ${(100 * (vL + 0.84 * vis)).toFixed(2)}%, transparent ${(100 * (vL + 0.99 * vis)).toFixed(2)}%`
-                : "black 100%"})`
-            : undefined;
-        const labelPad = runon ? `calc(${(vL * 100).toFixed(4)}% + 7px)` : undefined;
-        return { run, left: f0, width, runoff, runon, mask, labelPad };
+        const outside = f1 <= 0 || f0 >= 1;
+        const left = outside ? f0 : Math.max(0, f0);
+        const right = outside ? f1 : Math.min(1, f1);
+        return { run, left, width: Math.max(0, right - left), runoff: !outside && f1 > 1 };
     }).filter((b): b is NonNullable<typeof b> => b !== null), [kind.runs, scale]);
 
     return (
         <>
-            {bars.map(({ run, left, width, runoff, runon, mask, labelPad }) => {
+            {bars.map(({ run, left, width, runoff }) => {
                 const stateKey = runStateKey(run.state);
                 const stuck = run.status.type === "some" && run.status.value.type === "warning";
                 const qty = run.quantity.type === "some" ? run.quantity.value : undefined;
@@ -115,18 +96,10 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                         data-state={stateKey}
                         data-stuck={stuck ? "" : undefined}
                         data-runoff={runoff ? "" : undefined}
-                        data-runon={runon ? "" : undefined}
                         data-run={run.key}
+                        left={`${left * 100}%`}
+                        width={`${width * 100}%`}
                         height={`${barHeight}px`}
-                        // Geometry + edge chrome as INLINE style: computed
-                        // per bar, and inline always wins over the recipe's
-                        // fixed `data-runoff` stops.
-                        style={{
-                            left: `${(left * 100).toFixed(4)}%`,
-                            width: `${(width * 100).toFixed(4)}%`,
-                            ...(mask !== undefined ? { maskImage: mask, WebkitMaskImage: mask } : {}),
-                            ...(labelPad !== undefined ? { paddingLeft: labelPad } : {}),
-                        }}
                         onClick={(e) => {
                             e.stopPropagation();
                             dispatch({ t: "row.select", key: rowKey });
@@ -149,13 +122,9 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
             {rollBands.map((band, i) => {
                 const f0 = scale.fracOf(band.from);
                 const f1 = scale.fracOf(band.to);
-                // True geometry + render-bounds cull (#620, the bar rule).
-                // The centred caption pads back into the VISIBLE span so a
-                // straddling band's caption sits where the clamped form put
-                // it at rest.
-                if (f1 <= scale.renderMin || f0 >= scale.renderMax) return null;
-                const width = f1 - f0;
-                if (!(width > 0)) return null;
+                if (f1 <= 0 || f0 >= 1) return null;
+                const left = Math.max(0, f0);
+                const width = Math.max(0, Math.min(1, f1) - left);
                 const counts = [band.count > 1 ? `×${band.count}` : undefined, band.quantity].filter(Boolean).join(" · ");
                 // A rollup over a partial prefix is an understatement, not a
                 // number — mark it rather than print it as if it were final.
@@ -163,12 +132,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 return (
                     <Box key={`band-${i}`} css={styles.rollBand} data-state={runStateKey(band.state)} data-ctx={ctxAttr}
                         data-plan-partial={partial === true ? "" : undefined}
-                        style={{
-                            left: `${(f0 * 100).toFixed(4)}%`,
-                            width: `${(width * 100).toFixed(4)}%`,
-                            ...(f0 < 0 && f1 > 0 ? { paddingLeft: `${((-f0 / width) * 100).toFixed(4)}%` } : {}),
-                            ...(f1 > 1 && f0 < 1 ? { paddingRight: `${(((f1 - 1) / width) * 100).toFixed(4)}%` } : {}),
-                        }}>
+                        left={`${left * 100}%`} width={`${width * 100}%`}>
                         {caption}
                     </Box>
                 );

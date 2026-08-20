@@ -233,22 +233,13 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
         return lane !== undefined && lane.label.type === "some";
     };
     const cells: ReactNode[] = [];
-    // The wash spans the RENDER bounds (#620): the #619 overscan periods wear
-    // the same empty-cell wash, clipped at rest, so a brush pan reveals washed
-    // cells rather than bare row. Uniform buckets ⇒ the overscan tiles at the
-    // same width, so the tile is 1/(window + overscan periods) of the wider
-    // element and the phase still lands on bucket edges.
-    const nOver = n + scale.overscan.length;
-    const washSpan = scale.renderMax - scale.renderMin;
     for (let li = 0; li < laneCount; li++) {
         if (uniform && !laneCaptioned(li)) {
             cells.push(
                 <Box key={`wash-${li}`} css={styles.cellWash} data-plan-cellwash={li}
                     {...laneY(li)}
                     style={{
-                        left: `${(scale.renderMin * 100).toFixed(4)}%`,
-                        width: `${(washSpan * 100).toFixed(4)}%`,
-                        backgroundImage: `repeating-linear-gradient(to right, transparent 0 2px, var(--chakra-colors-bg-panel) 2px calc(100% / ${nOver} - 2px), transparent calc(100% / ${nOver} - 2px) calc(100% / ${nOver}))`,
+                        backgroundImage: `repeating-linear-gradient(to right, transparent 0 2px, var(--chakra-colors-bg-panel) 2px calc(100% / ${n} - 2px), transparent calc(100% / ${n} - 2px) calc(100% / ${n}))`,
                     }} />,
             );
         }
