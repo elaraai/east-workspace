@@ -16,7 +16,7 @@ describeEast("Slice", (test) => {
         sliceChartChrome:          ex.sliceChartChrome,
         sliceRail:                 ex.sliceRail,
         sliceNarrow:               ex.sliceNarrow,
-        sliceGanttChrome:          ex.sliceGanttChrome,
+        slicePlanChrome:           ex.slicePlanChrome,
         sliceExpressiveFilters:    ex.sliceExpressiveFilters,
         sliceCrossFilterDashboard: ex.sliceCrossFilterDashboard,
         sliceResolution:           ex.sliceResolution,

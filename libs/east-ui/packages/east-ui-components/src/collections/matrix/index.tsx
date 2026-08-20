@@ -436,7 +436,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
     const stickyLeft = { position: "sticky" as const, left: 0, zIndex: 1, background: "bg.surface" };
     const stickyLeftHeader = { ...stickyLeft, zIndex: 2, background: "bg.panel" };
 
-    // Shared plot gutter (#147) — own field wins over an enclosing <AlignedStack>'s
+    // Shared plot gutter (#147) — own field wins over a PlotGutterProvider
     // context. When active the value-grid is pinned to [left, W−right]: the
     // row-header pane becomes `left` (overriding its resizable width), the outer
     // row grid gains a trailing right-gutter track, columns fill flush (minmax 0),

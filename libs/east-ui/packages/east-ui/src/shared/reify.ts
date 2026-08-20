@@ -43,8 +43,8 @@ import {
  * type from the lambda's expanded result (single expansion via
  * `East.function`'s inference overload).
  *
- * Use for accessors whose output type is caller-determined (Table/Gantt
- * column `value`, Chart encodings). For mappers with a fixed output type,
+ * Use for accessors whose output type is caller-determined (Table column
+ * `value`, Chart encodings). For mappers with a fixed output type,
  * call `East.function(inputs, OutType, …)` directly — no inference needed.
  *
  * @typeParam I - The concrete East parameter types
@@ -96,7 +96,7 @@ export function mapRows<T extends EastType>(
 /**
  * `mapRows` for row mappers whose body needs a block builder — per-row
  * normalizations that declare `$.let` bindings or emit statements (Matrix,
- * Planner, Library row construction).
+ * Library row construction).
  *
  * @typeParam T - The fixed East element type the mapper produces
  * @param rows - The caller's rows array expression

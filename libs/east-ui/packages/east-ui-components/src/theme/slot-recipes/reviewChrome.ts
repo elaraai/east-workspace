@@ -6,7 +6,7 @@
 /**
  * ReviewChrome slot recipe — the shared decision-column pieces of the review
  * contract (`contracts/review.ts`), lifted copy-exact from the Planner's
- * review chrome (PR #76) so every adopter (Planner, Gantt, Table, Roster)
+ * review chrome (PR #76) so every adopter (Table, Roster, Board, Plan)
  * wears identical chrome. The batch foot stays on the sibling `commitBar`
  * recipe; the Approve / Reject pair reuses the shared `button` recipe.
  *

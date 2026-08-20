@@ -9,9 +9,7 @@ import { useToken } from "@chakra-ui/react";
 /**
  * The shared density-driven control heights (px) — the column-header band and
  * one text row — read from the `sizes.density.*` theme tokens (the single
- * source). In the Planner a "row" is one bucket (AM/PM/EV). Consumed by Table
- * rows, Gantt/Planner header bands, and Planner slot rows so every text row
- * aligns across the three components.
+ * source). Consumed by Table rows and header bands so every text row aligns.
  */
 export function useDensityHeights(size: "sm" | "md" | "lg"): { header: number; row: number } {
     const [header, row] = useToken("sizes", [`density.header.${size}`, `density.row.${size}`]);
@@ -64,8 +62,7 @@ export function statusTokenToBg(tag: string | undefined): string | undefined {
 
 /**
  * React hook returning a memoised `(rowIndex) => background?` lookup
- * for an optional East `rowStatus` callback. Shared across Planner,
- * Gantt and Table renderers.
+ * for an optional East `rowStatus` callback (the Table renderer).
  */
 export function useRowStatusBg(
     rowStatus: ((idx: bigint) => unknown) | undefined,

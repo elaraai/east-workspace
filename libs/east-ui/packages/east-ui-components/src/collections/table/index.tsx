@@ -297,7 +297,7 @@ const TableCore = function TableCore({
         : densityTag === "comfortable" ? "lg"
         : ((props.size as "sm" | "md" | "lg" | undefined) ?? "md");
     // Row + header height come from the shared `sizes.density` tokens (the
-    // single source, also consumed by Gantt and Planner) — md → 36px, the spec
+    // single source) — md → 36px, the spec
     // row height. Pad-Y stays here for the group/footer cells that set padding
     // via raw inline style outside the recipe's cell slot.
     const densityPadYPx = tableSize === "sm" ? 6 : tableSize === "lg" ? 12 : 10;
@@ -339,7 +339,7 @@ const TableCore = function TableCore({
     }, []);
 
     // Row-status callback — paints each row's background with a
-    // semantic token. Shared helper used by Planner / Gantt too.
+    // semantic token (the shared helper).
     const rowStatusBgFor = useRowStatusBg(getSomeorUndefined(value.rowStatus));
 
     // Row state management for loading indicators
@@ -915,7 +915,7 @@ const TableCore = function TableCore({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasFrozen, table.getState().columnSizing, table.getState().columnSizingInfo]);
 
-    // Shared plot gutter (#147) — own field wins over an enclosing <AlignedStack>'s
+    // Shared plot gutter (#147) — own field wins over an inherited plot-gutter
     // context. When active the data columns are pinned to [left, W−right]: the
     // frozen pane is scaled to `left` (or a left spacer fills it when there are no
     // frozen columns), the centre columns flex-fill the lane, a `right` spacer

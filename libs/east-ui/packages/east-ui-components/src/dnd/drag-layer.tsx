@@ -53,7 +53,7 @@ export interface DragKinds {
     add?: boolean;
     move?: boolean;
     remove?: boolean;
-    /** Span-edge resize (#268) — Gantt bars, `Planner.Span` events. */
+    /** Span-edge resize (#268) — temporal span surfaces. */
     resize?: boolean;
 }
 
@@ -86,7 +86,7 @@ interface CellRegistration {
     canDrop?: ((payload: DragPayload, clientX?: number, clientY?: number) => boolean) | undefined;
     /** Continuous surfaces (#268): resolve the drop coordinate from the
      * pointer position at drop time — the component maps pointer x → its
-     * snapped slot key (e.g. a Gantt row strip mapping x → a snapped ISO
+     * snapped slot key (e.g. a Plan row strip mapping x → a snapped ISO
      * instant), as the grammar intends. Absent ⇒ the registered `coord`. */
     resolveCoord?: ((clientX: number, clientY: number) => CellCoord) | undefined;
 }
@@ -453,7 +453,7 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         const origin = e.currentTarget as HTMLElement;
 
         // Grip fast-path: a touch ON A DRAG GRIP (`[data-drag-grip]` — the
-        // ⋮⋮ handles on Library cards, Planner chips, Blend allocations,
+        // ⋮⋮ handles on Library cards, Roster chips, Blend allocations,
         // Board cards) is unambiguous drag intent, so it engages
         // immediately — grips carry `touch-action: none`, so no scroll
         // gesture competes. Body touches keep the long-press below.

@@ -125,8 +125,7 @@ export const tokens = defineTokens({
         // header band and one text row, per density (compact / cozy / comfortable
         // → sm / md / lg). Derived from the Table cell rhythm (cell padding-Y
         // 6/10/12 + font 12/13/14): 2·padY + round(font·1.25). Consumed by Table
-        // rows, Gantt/Planner header bands, and Planner slot rows — where a
-        // Planner "row" is one bucket (AM/PM/EV). Recipes can reference these
+        // rows and header bands. Recipes can reference these
         // (`{sizes.density.row.md}`); renderers read them as numbers via
         // `useDensityHeights`.
         density: {

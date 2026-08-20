@@ -27,21 +27,22 @@ import {
 // | Roster  | person key       | day key (e.g. `"wed"`)                        |
 // | Board   | area key         | shift key                                     |
 // | Blend   | target key       | `"alloc"` (synthetic single slot)             |
-// | Planner | row key          | axis key, with the bucket composed in — `"wed"` unbucketed, `"wed:am"` for the AM bucket |
-// | Gantt   | row index key    | snapped datetime key (ISO instant after the component's grid snap) |
 // | Plan    | canvas row key   | the pointed-at bucket's START instant (ISO), at the canvas's resolution |
 //
-// The composite rule: when a slot subdivides (Planner buckets), the sub-slot
-// key is appended with `":"` — the same composite key the renderer uses to
-// index its cells. Axis coordinates that are not strings (numbers, datetimes)
-// are printed canonically: numbers via their decimal form, datetimes as the
-// snapped ISO-8601 instant. Hosts map keys straight back to their source data.
+// The composite rule: if a target's slot subdivides, the sub-slot key is
+// appended with `":"` — the same composite key the renderer uses to index its
+// cells. (No current target subdivides: the Plan reports the bucket START
+// instant and leaves lane placement to the receiving series.) Axis coordinates
+// that are not strings (numbers, datetimes) are printed canonically: numbers
+// via their decimal form, datetimes as the snapped ISO-8601 instant. Hosts map
+// keys straight back to their source data.
 //
-// The two TEMPORAL targets — Gantt and Plan — share one encoding
-// (`east-ui-components/src/dnd/slot-key.ts`), so a host parses either the same
-// way. They differ in what `row` names: a Gantt row key is a row INDEX, while
-// a Plan row key IS the data key its canvas is built from and searched by, so
-// a Plan `add` maps straight back to the source element with no lookup table.
+// The TEMPORAL target — the Plan — prints datetime slots through one shared
+// encoding (`east-ui-components/src/dnd/slot-key.ts`), which any future
+// temporal target must reuse so a host parses every temporal slot the same
+// way. A Plan row key IS the data key its canvas is built from and searched
+// by, so a Plan `add` maps straight back to the source element with no lookup
+// table.
 //
 // A Plan accepts drops only on the row kinds that hold discrete scheduled
 // objects — `span`, `buckets`, `events`, `cards`. Rows rendering derived values
@@ -170,9 +171,9 @@ export type DragEdgeLiteral = "start" | "end";
  *   `from.row ≠ to.row`.
  * - `remove` takes a {@link DragSinkType} destination: the trash affordance
  *   or back to the originating Library.
- * - `resize` exists only for span events with a duration (Gantt /
- *   Planner.Span); the edge variant says which boundary moved, and the
- *   destination slot of the moved edge is the `event` ref's `slot`.
+ * - `resize` exists only for span events with a duration; the edge variant
+ *   says which boundary moved, and the destination slot of the moved edge is
+ *   the `event` ref's `slot`.
  *
  * @property add - New item from a sibling Library landing on a target cell
  * @property move - An event moved within one surface

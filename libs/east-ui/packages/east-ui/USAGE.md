@@ -794,51 +794,6 @@ const example = East.function([], UIComponentType, $ => {
 
 ---
 
-### Gantt
-
-Gantt chart for project timelines.
-
-```typescript
-import { East } from "@elaraai/east";
-import { Gantt, UIComponentType } from "@elaraai/east-ui";
-
-const example = East.function([], UIComponentType, $ => {
-    const data = $.let([
-        { task: "Design", start: new Date("2024-01-01"), end: new Date("2024-01-15") },
-        { task: "Development", start: new Date("2024-01-10"), end: new Date("2024-02-01") },
-    ]);
-    return Gantt.Root(data, { task: { header: "Task" } }, row => [
-        Gantt.Task({ start: row.start, end: row.end, colorPalette: "blue" }),
-    ], { variant: "line", showToday: true });
-});
-```
-
-| Signature | Description | Example |
-|-----------|-------------|---------|
-| `Gantt.Root<T>(data: T, columns: ColumnSpec<T>, events: (row) => GanttEvent[], style?: GanttStyle): ExprType<UIComponentType>` | Create Gantt chart | `Gantt.Root(data, {...}, row => [...])` |
-| `Gantt.Task(input: TaskInput): GanttEvent` | Create task bar | `Gantt.Task({ start, end })` |
-| `Gantt.Milestone(input: MilestoneInput): GanttEvent` | Create milestone marker | `Gantt.Milestone({ date, label })` |
-
-**TaskInput Properties:**
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `start` | `SubtypeExprOrValue<DateTimeType>` | Start date |
-| `end` | `SubtypeExprOrValue<DateTimeType>` | End date |
-| `label` | `SubtypeExprOrValue<StringType>` | Optional label on task bar |
-| `progress` | `SubtypeExprOrValue<IntegerType>` | Progress percentage (0-100) |
-| `colorPalette` | `SubtypeExprOrValue<ColorSchemeType> \| ColorSchemeLiteral` | Color scheme |
-
-**MilestoneInput Properties:**
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `date` | `SubtypeExprOrValue<DateTimeType>` | Milestone date |
-| `label` | `SubtypeExprOrValue<StringType>` | Optional label |
-| `colorPalette` | `SubtypeExprOrValue<ColorSchemeType> \| ColorSchemeLiteral` | Color scheme |
-
----
-
 ### DataList
 
 Key-value data display.

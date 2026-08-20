@@ -26,10 +26,9 @@ import { SizeType, type SizeLiteral } from "./scheme.js";
  * Single-axis alignment for content positioned inside a container.
  *
  * @remarks
- * Used by Matrix segment labels and overlays, Planner event labels and
- * overlays, and Gantt task / milestone labels and overlays — every
- * collection that positions text or rich content inside an event /
- * cell / segment box uses this single shared enum.
+ * Used by Matrix segment labels and overlays — every collection that
+ * positions text or rich content inside an event / cell / segment box
+ * uses this single shared enum.
  *
  * Distinct from CSS `align-items` ({@link AlignItemsType}) which has
  * five values and applies to flex children. `AlignType` is a UX-level
@@ -75,8 +74,7 @@ export function Align(align: AlignLiteral): ExprType<AlignType> {
  * Inline label input — text plus optional positioning + typography.
  *
  * @remarks
- * Used by Matrix segments, Planner events, and Gantt tasks /
- * milestones for the per-event label inside the bar / cell / segment.
+ * Used by Matrix segments for the per-segment label inside the cell.
  * The renderer applies `align` / `verticalAlign` via flex, and
  * `color` / `fontWeight` / `fontStyle` / `fontSize` via direct CSS
  * tokens.

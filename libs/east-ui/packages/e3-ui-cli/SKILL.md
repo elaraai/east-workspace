@@ -59,7 +59,7 @@ Render a component to an image
 
 What KIND of component is it?
 ├─ Self-sized (cards, stacks, forms, charts…) → shot renders true to layout
-├─ Width-flexible (Schematic, Gantt, Table…)  → pass --frame-width full (the `shots` sweep DEFAULT) to
+├─ Width-flexible (Schematic, Plan, Table…)   → pass --frame-width full (the `shots` sweep DEFAULT) to
 │                                                mount the frame at viewport width; the default single-shot
 │                                                frame is shrink-to-fit and collapses these
 ├─ Reads e3 data (Data.bind / Decision.bind)  → a standalone shot has NO workspace: use --from-task
@@ -96,7 +96,7 @@ Exactly one `--from-*` source per run.
 | `--element <selector>` | Capture a specific CSS selector. |
 | `--wait <ms>` | Extra settle time after fonts/skeletons clear (default 300). |
 | `--timeout <ms>` | Max wait for the render (default 30000); raise for slow live tasks. |
-| `--frame-width <w>` | Mount the component frame at a definite width — `full` (viewport) or a CSS width (`900px`). Width-flexible components (Schematic/Gantt/Table) collapse in the default shrink-to-fit frame. |
+| `--frame-width <w>` | Mount the component frame at a definite width — `full` (viewport) or a CSS width (`900px`). Width-flexible components (Schematic/Plan/Table) collapse in the default shrink-to-fit frame. |
 
 ### `e3-ui shots [paths…]`
 
@@ -159,7 +159,7 @@ npm run shot        # = e3-ui shot --from-source src/ui/index.tsx --export surfa
 # One example() from an examples file (self-sized component) — name the export
 e3-ui shot --from-source test/display/combine.examples.tsx -e combineDensities -o combine.png
 
-# Width-flexible component (Schematic/Gantt/Table) — mount the frame at viewport width
+# Width-flexible component (Schematic/Plan/Table) — mount the frame at viewport width
 e3-ui shot --from-source test/collections/schematic.examples.tsx -e schematicStress --frame-width full -o stress.png
 
 # Sweep a whole project (the --ui scaffold wires this as `npm run shots`):

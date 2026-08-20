@@ -5,7 +5,7 @@
 
 /**
  * Shared row-virtualization frame for the grow-to-content data collections
- * (Matrix / Board / Roster / Calendar / Planner). Table / Gantt / Library keep
+ * (Matrix / Board / Roster / Calendar / Plan). Table / Library keep
  * their own bespoke virtualizers; every other collection routes its body rows
  * through this one helper so they all bound, scroll and virtualize identically
  * (#320).

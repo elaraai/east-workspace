@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, BooleanType, NullType, StringType, StructType, example} from "@elaraai/east";
+import { East, ArrayType, BooleanType, DateTimeType, DictType, IntegerType, NullType, StringType, StructType, some, variant, example} from "@elaraai/east";
 import { State, UIComponentType } from "@elaraai/east-ui";
-import { Box, Configurator, Dock, HStack, Planner, Reactive, Stack, Switch, Text, VStack } from "@elaraai/east-ui";
+import { Box, Configurator, Dock, HStack, Plan, Reactive, Stack, Switch, Text, VStack } from "@elaraai/east-ui";
 
 /**
  * The `<Dock>` chrome as one live configurator — an orientation axis (a
@@ -82,21 +82,41 @@ export const dockVariants = example({
 });
 
 /**
- * The concrete driver (#325): a `<Dock>` source panel beside a `<Planner>` drop
- * target in an `<HStack>`. The dock holds a booking list and the Planner is the
+ * The concrete driver (#325): a `<Dock>` source panel beside a `<Plan>` drop
+ * target in an `<HStack>`. The dock holds a booking list and the Plan is the
  * schedule board; collapsing the dock reclaims horizontal space for the board
- * without covering it (in flow — never an overlay). The Planner sibling is
+ * without covering it (in flow — never an overlay). The Plan sibling is
  * `flex="1" minWidth="0"` so it grows into the freed width.
  */
-export const dockBesidePlanner = example({
-    keywords: ["Dock", "layout", "Planner", "beside", "drag", "source", "drop", "target", "in-flow", "sidebar", "board"],
-    description: "A Dock booking-source panel beside a Planner board — collapsing the dock frees width for the board without covering it",
+export const dockBesidePlan = example({
+    keywords: ["Dock", "layout", "Plan", "beside", "drag", "source", "drop", "target", "in-flow", "sidebar", "board"],
+    description: "A Dock booking-source panel beside a Plan board — collapsing the dock frees width for the board without covering it",
     fn: East.function([], UIComponentType, ($) => {
-        const tanks = $.const([
-            { name: "Tank A", role: "Mix" },
-            { name: "Tank B", role: "Fill" },
-            { name: "Tank C", role: "Hold" },
-        ], ArrayType(StructType({ name: StringType, role: StringType })));
+        // Monday of ISO week n, 2026.
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+            return w1.addWeeks(n.subtract(1n));
+        }));
+        const TankRow = StructType({ role: StringType, start: DateTimeType, end: DateTimeType });
+        const tanks = $.const(new Map([
+            ["Tank A", { role: "Mix",  start: week(28n), end: week(30n) }],
+            ["Tank B", { role: "Fill", start: week(29n), end: week(31n) }],
+            ["Tank C", { role: "Hold", start: week(30n), end: week(33n) }],
+        ]), DictType(StringType, TankRow));
+        const series = $.const([
+            Plan.series.span(TankRow, {
+                key: "tanks", title: "Tanks",
+                label: (_r, k) => k, id: true,
+                sub: r => some(r.role),
+                runs: (r, k) => [Plan.run({
+                    key: k, start: r.start, end: r.end,
+                    label: "PLAN", state: variant("proposed", variant("added", null)),
+                })],
+            }),
+        ], ArrayType(Plan.Types.Series(TankRow)));
+        const axis = $.const(Plan.axis({
+            window: { min: week(27n), max: week(34n) }, resolution: "week", now: week(29n),
+        }));
         return (
             <Box height="260px" width="100%">
                 <HStack gap="4" width="100%" height="100%">
@@ -108,15 +128,7 @@ export const dockBesidePlanner = example({
                         </Stack>
                     </Dock>
                     <Box flex="1" minWidth="0">
-                        <Planner.Point
-                            data={tanks}
-                            axis={Planner.axis.number({ range: { min: 0, max: 6 } })}
-                            columns={[{ key: "name", frozen: true, value: r => r.name, sublabel: r => r.role }]}
-                            events={_r => [
-                                Planner.event({ slot: Planner.at.number(2), label: "plan", state: "added" }),
-                            ]}
-                            now={Planner.at.number(3)}
-                        />
+                        <Plan axis={axis} data={tanks} series={series} style={{ height: "fill" }} />
                     </Box>
                 </HStack>
             </Box>

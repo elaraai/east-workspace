@@ -752,9 +752,9 @@ export interface AxisOptions {
     /**
      * Explicit tick positions, overriding `numTicks`'s auto-"nice" ticks —
      * floats on a linear axis (axis-domain values, not pixels; e.g. integer
-     * day ticks `[0, 1, 2, …]` to line up with a stacked `<Planner>`), or
-     * `Date` instants on a `time` axis (#318) — e.g. the Planner's day-column
-     * instants under a shared `AlignedStack` gutter. Date ticks render through
+     * day ticks `[0, 1, 2, …]`), or
+     * `Date` instants on a `time` axis (#318) — e.g. a `Plan` window's
+     * day-column instants. Date ticks render through
      * the date `tickFormat`; on `y`/`y2` (always numeric) they are a
      * build-time error.
      */
@@ -770,7 +770,7 @@ export interface AxisOptions {
     titleStyle?: ChartAxisTextStyle;
     /** Extra px between the tick labels and the axis caption (#327). Widens this
      *  axis's own margin band, never the shared plot gutter — so it cannot shift
-     *  an `AlignedStack`-aligned plot lane. */
+     *  a gutter-aligned plot lane. */
     titleGap?: SubtypeExprOrValue<FloatType>;
 }
 

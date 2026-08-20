@@ -218,7 +218,7 @@ describe("Chart renderer — per-layer tooltip opt-out (issue #117)", () => {
             if (!Number.isNaN(zi) && zi > 0) { z = zi; break; }
             el = el.parentElement;
         }
-        // Above every collection sticky header (Table = 2, Planner = 5, Matrix = 2, …).
+        // Above every collection sticky header (Table = 2, Matrix = 2, …).
         expect(z).toBeGreaterThan(100);
     });
 
@@ -331,7 +331,7 @@ describe("Chart renderer — skeleton until measured (#125)", () => {
 describe("Chart renderer — tooltip portal + stacking tier", () => {
     test("the hover tooltip renders in a body-level portal raised to the tooltip z-index tier", () => {
         // Regression guard: the tooltip must escape the chart's local stacking context
-        // (so a sibling Planner / Gantt sticky x-axis can't paint over it) and sit at
+        // (so a sibling collection's sticky header can't paint over it) and sit at
         // the design system's `zIndex.tooltip` tier — above sticky chrome, drawers,
         // dialogs and popovers.
         const node = frame([
@@ -551,8 +551,8 @@ describe("Chart renderer — series clipped to the plot rect (#152)", () => {
         const rect = container.querySelector("clipPath rect")!;
         expect(rect).not.toBeNull();
         // The rect is the plot rect, NOT padded outward: a point sitting on the
-        // domain edge is cleanly clipped at the boundary so a chart stacked in an
-        // <AlignedStack> stays aligned to [left, W−right]. innerW = 400 − 40 − 8.
+        // domain edge is cleanly clipped at the boundary so a gutter-aligned
+        // chart stays aligned to [left, W−right]. innerW = 400 − 40 − 8.
         expect(Number(rect.getAttribute("x"))).toBe(0);
         expect(Number(rect.getAttribute("y"))).toBe(0);
         expect(Number(rect.getAttribute("width"))).toBe(352);

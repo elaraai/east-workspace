@@ -21,7 +21,7 @@
 
 import { East, DateTimeType, StringType, IntegerType, NullType, ArrayType, StructType, variant, some, none, example } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Box, Chart, Gantt, Reactive, Separator, Slice, State, Table, VStack } from "@elaraai/east-ui";
+import { Box, Chart, Plan, Reactive, Separator, Slice, State, Table, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // 1. Events table — Table with the `slice` chrome option.
@@ -525,14 +525,14 @@ export const sliceResolution = example({
 });
 
 // ============================================================================
-// 8. Ops Gantt — Gantt with the `slice` chrome option.
-//    Exercises: the rail on a timeline component (filter · search · range
-//    over the row type's datetime field) and the derived-count footer.
+// 8. Ops plan — Plan with the `slice` chrome option.
+//    Exercises: the rail on the timeline canvas (filter · search · range
+//    over the row type's datetime field) plus the horizon brush.
 // ============================================================================
 
-export const sliceGanttChrome = example({
-    keywords: ["Slice", "Gantt", "slice", "chrome", "filter", "search", "range", "timeline"],
-    description: "Ops Gantt — Gantt with the `slice` chrome option: a header rail (`filter`, `search`, `range`) plus the `brush` affordance — drag a window on the timeline header to set the slice's range; a derived-count footer; rows fed explicitly via `Slice.rows`",
+export const slicePlanChrome = example({
+    keywords: ["Slice", "Plan", "slice", "chrome", "filter", "search", "range", "brush", "timeline"],
+    description: "Ops plan — Plan with the `slice` chrome option: a header rail (`filter`, `search`, `range`) plus the `brush` affordance — drag a window on the horizon strip to set the slice's range; rows fed explicitly via `Slice.rows` and re-keyed into the canvas's keyed collection",
     fn: East.function([], UIComponentType, (_$) => {
         const JobType = StructType({ task: StringType, owner: StringType, start: DateTimeType, end: DateTimeType });
         const cfg = Slice.config(JobType, {
@@ -548,17 +548,34 @@ export const sliceGanttChrome = example({
                     { task: "Development", owner: "Charlie", start: new Date("2024-01-20"), end: new Date("2024-03-15") },
                     { task: "Testing",     owner: "Alice",   start: new Date("2024-03-01"), end: new Date("2024-03-30") },
                 ], ArrayType(JobType));
-                const slice = $.let(Slice.bind([JobType], "ex.slice.gantt.chrome", cfg, Slice.state({
+                const slice = $.let(Slice.bind([JobType], "ex.slice.plan.chrome", cfg, Slice.state({
                     filters: [variant("string", { fieldId: "owner", op: variant("eq", "Alice") })],
                 }), data, none));
+                // The narrowed rows re-key into the canvas's keyed collection
+                // (#568) — the task name is the row identity here.
                 const narrowed = $.let(Slice.rows([JobType], slice));
+                const jobs = $.let(narrowed.toDict((_$, j) => j.task, (_$, j) => j));
+                const series = $.const([
+                    Plan.series.span(JobType, {
+                        key: "jobs", title: "Jobs",
+                        label: r => r.task, id: true,
+                        sub: r => some(r.owner),
+                        runs: (r, k) => [Plan.run({
+                            key: k, start: r.start, end: r.end,
+                            label: r.task, state: variant("confirmed", null),
+                        })],
+                    }),
+                ], ArrayType(Plan.Types.Series(JobType)));
+                const axis = $.const(Plan.axis({
+                    window: { min: new Date("2024-01-01"), max: new Date("2024-04-01") },
+                    resolution: "week", now: new Date("2024-01-20"),
+                }));
                 return (
-                    <Gantt
-                        data={narrowed}
-                        columns={["task", "owner"]}
-                        rowSpec={row => ({ tasks: [Gantt.Task({ start: row.start, end: row.end })] })}
-                        slice={slice}
-                        affordances={["filter", "search", "range", "brush"]}
+                    <Plan
+                        axis={axis}
+                        data={jobs}
+                        series={series}
+                        slice={{ slice, affordances: ["filter", "search", "range", "brush"] }}
                     />
                 );
             }}</Reactive>

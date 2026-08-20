@@ -51,7 +51,7 @@ export const tableSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
         },
         // Row grouping (#317) — group header rows, one visual family with the
-        // Matrix / Planner groupHead band (bg.panel wash, mono micro-label).
+        // Matrix groupHead band (bg.panel wash, mono micro-label).
         groupHead: {
             background: "bg.panel",
             minHeight: "28px",
@@ -96,8 +96,8 @@ export const tableSlotRecipe = defineSlotRecipe({
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
             // Centre cell content vertically — for the Table's content-height
-            // rows this matches the old top alignment; for the Gantt's left pane
-            // (rows sized to the same density token) it keeps text centred.
+            // rows this matches the old top alignment (rows sized to the
+            // shared density token keep text centred).
             verticalAlign: "middle",
             color: "fg",
         },

@@ -9,9 +9,9 @@
  *
  * The grammar (`contracts/drag.ts`) says a target documents how its grid
  * coordinates encode into `row` / `slot`, and that "datetimes [are printed] as
- * the snapped ISO-8601 instant". Two targets are temporal — Gantt and Plan —
- * and they must agree on the spelling, because a host that parses one target's
- * slot parses the other's the same way.
+ * the snapped ISO-8601 instant". The Plan is the temporal target, and any
+ * future temporal target must agree on the spelling, because a host that
+ * parses one target's slot parses the other's the same way.
  *
  * @packageDocumentation
  */

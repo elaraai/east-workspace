@@ -40,13 +40,6 @@ export {
 } from "./tree-view";
 
 export {
-    EastChakraPlanner,
-    type PlannerRootValue,
-    type PlannerEventValue,
-    type EastChakraPlannerProps,
-} from "./planner";
-
-export {
     EastChakraPlan,
     type PlanRootValue,
     type PlanRowValue,

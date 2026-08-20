@@ -6,8 +6,9 @@ values verbatim.
 Production implementation: `@elaraai/east-ui` `<Chart layers={…}>`
 (Chart.Line / Chart.Column / Chart.Bar / Chart.Area / Chart.Scatter /
 Chart.Band + Chart.refLine / refBand / refDot — **Column is vertical, Bar
-is horizontal**) and `<Sparkline>`. Stack charts over planners/tables on a
-shared x-axis with `<AlignedStack>`.
+is horizontal**) and `<Sparkline>`. To compose a chart over other temporal
+row kinds on one shared time axis, use a `<Plan>` chart row
+(`Plan.series.chart`).
 
 ## Chrome — mono type on rule lines; color is data only
 

@@ -72,7 +72,7 @@ export type ApprovalStateLiteral = "approved" | "pending" | "rejected";
 
 /**
  * The row-subject reference — the payload of per-row review callbacks on the
- * row-granularity adopters (Planner, Gantt, Table, Roster).
+ * row-granularity adopters (Table, Roster, Board).
  *
  * @remarks
  * `rowIndex` addresses the row in the surface's **unsliced** row order (the

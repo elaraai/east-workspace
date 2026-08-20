@@ -5,7 +5,7 @@
 
 /**
  * Pure geometry for the slice brush gesture (#192) — shared by the
- * `Slice.Rail` brush strip and the Gantt timeline-header brush.
+ * `Slice.Rail` brush strip and the Plan's horizon brush.
  *
  * A brush drag runs a small mode machine resolved at pointer-down
  * against the applied window (d3-brush conventions):

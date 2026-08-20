@@ -29,7 +29,6 @@ import { EastVisxChart } from "./charts/spec";
 import { EastChakraBox } from "./layout/box";
 import { EastChakraFlex } from "./layout/flex";
 import { EastChakraStack } from "./layout/stack";
-import { EastChakraAlignedStack } from "./layout/aligned-stack";
 import { EastChakraSeparator } from "./layout/separator";
 import { EastChakraGrid } from "./layout/grid";
 import { EastChakraSplitter } from "./layout/splitter";
@@ -52,8 +51,6 @@ import { EastChakraMatrix } from "./collections/matrix";
 import { EastChakraPagination } from "./collections/pagination";
 import { EastChakraTable } from "./collections/table";
 import { EastChakraTreeView } from "./collections/tree-view";
-import { EastChakraGantt } from "./collections/gantt";
-import { EastChakraPlanner } from "./collections/planner";
 import { EastChakraPlan } from "./collections/plan";
 import { EastChakraBreadcrumb } from "./navigation/breadcrumb";
 import { EastChakraNavList } from "./navigation/nav-list";
@@ -174,7 +171,6 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Box: (v) => <EastChakraBox value={v} storageKey={storageKey} />,
             Flex: (v) => <EastChakraFlex value={v} storageKey={storageKey} />,
             Stack: (v) => <EastChakraStack value={v} storageKey={storageKey} />,
-            AlignedStack: (v) => <EastChakraAlignedStack value={v} storageKey={childKey(storageKey, "AlignedStack")} />,
             Separator: (v) => <EastChakraSeparator value={v} storageKey={storageKey} />,
             Grid: (v) => <EastChakraGrid value={v} storageKey={storageKey} />,
             Splitter: (v) => <EastChakraSplitter value={v} storageKey={childKey(storageKey, "Splitter")} />,
@@ -262,8 +258,6 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Matrix: (v) => <EastChakraMatrix value={v} storageKey={childKey(storageKey, "Matrix")} />,
             Pagination: (v) => <EastChakraPagination value={v} storageKey={childKey(storageKey, "Pagination")} />,
             Table: (v) => <EastChakraTable value={v} storageKey={childKey(storageKey, "Table")} />,
-            Gantt: (v) => <EastChakraGantt value={v} storageKey={childKey(storageKey, "Gantt")} />,
-            Planner: (v) => <EastChakraPlanner value={v} storageKey={childKey(storageKey, "Planner")} />,
             Plan: (v) => <EastChakraPlan value={v} storageKey={childKey(storageKey, "Plan")} />,
             Library: (v) => <EastChakraLibrary value={v} storageKey={childKey(storageKey, "Library")} />,
             Deck: (v) => <EastChakraDeck value={v} storageKey={childKey(storageKey, "Deck")} />,

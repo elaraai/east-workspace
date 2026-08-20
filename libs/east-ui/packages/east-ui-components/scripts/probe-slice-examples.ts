@@ -19,7 +19,7 @@ const HARNESS_ROOT = path.resolve(__dirname, "../snapshot");
 // stale optimized bundle. Drop the cache so the probe always serves the latest dist.
 fs.rmSync(path.resolve(__dirname, "../node_modules/.vite"), { recursive: true, force: true });
 
-const EXAMPLES = ["sliceTableChrome", "sliceChartChrome", "sliceGanttChrome", "sliceRail", "sliceNarrow"];
+const EXAMPLES = ["sliceTableChrome", "sliceChartChrome", "slicePlanChrome", "sliceRail", "sliceNarrow"];
 
 async function main() {
     const server = await createServer({ root: HARNESS_ROOT, server: { port: 0, host: "127.0.0.1" }, logLevel: "warn" });
@@ -43,8 +43,8 @@ async function main() {
             const out = path.resolve(__dirname, `../dist-examples/probe-slice-${example}.png`);
             await page.screenshot({ path: out, fullPage: true });
             console.log(`  shot: probe-slice-${example}.png`);
-            if (example === "sliceGanttChrome") {
-                // Drag a window on the timeline header — the brush affordance
+            if (example === "slicePlanChrome") {
+                // Drag a window on the horizon strip — the brush affordance
                 // should write the slice's range (visible in the range pill).
                 const header = page.locator("[style*='crosshair'], [class*='header']").first();
                 const box = await page.locator("text=JAN").first().boundingBox().catch(() => null)

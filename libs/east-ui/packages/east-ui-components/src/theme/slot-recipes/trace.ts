@@ -28,7 +28,7 @@ export const traceSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             /* NO overflow/max-width here: `overflow-x` would couple the
              * vertical axis to `auto` (a stray scrollbar on every trace) and
-             * the width clamp breaks the AlignedStack gutter contract (#147).
+             * the width clamp breaks the plot-gutter contract (#147).
              * Narrow hosts pan a wide trace via their own scroll container
              * (the showcase example frames do — #356). */
         },

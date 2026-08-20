@@ -66,10 +66,10 @@ probe-slice:
 	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-components exec tsx scripts/probe-slice.ts
 
-## Pixel audit of the Collections.Table / Gantt / Planner examples — renders
+## Pixel audit of the Collections.Table examples — renders
 ## single examples (waiting for virtualized rows to load past skeleton),
 ## screenshots each to dist-examples/probe-coll-*.png, and dumps the table
-## header/cell/row + bar computed CSS to diff against the rendered captures
+## header/cell/row computed CSS to diff against the rendered captures
 ## (`app_design_system/components/rendered/collections/`).
 ## Run the package build first.
 probe-collections:

@@ -156,7 +156,7 @@ export interface DrawerStyle {
     onExitComplete?: SubtypeExprOrValue<FunctionType<[], NullType>>;
     /** CSS padding shorthand for the body (default `"16px 20px"`). */
     bodyPadding?: SubtypeExprOrValue<StringType>;
-    /** When `true`, removes body padding (full-bleed) so a Table / Planner / Chart fills the drawer body. Overrides `bodyPadding`. */
+    /** When `true`, removes body padding (full-bleed) so a Table / Plan / Chart fills the drawer body. Overrides `bodyPadding`. */
     flush?: SubtypeExprOrValue<BooleanType>;
     /** When `true`, the body is a definite-height flex column (`minHeight:0`, clipped) so a single `height:100%`/`flex:1` child fills the panel and owns its internal scroll instead of the whole panel scrolling. */
     fillBody?: SubtypeExprOrValue<BooleanType>;

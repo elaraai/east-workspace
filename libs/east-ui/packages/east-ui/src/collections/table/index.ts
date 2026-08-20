@@ -854,7 +854,7 @@ export function createTable(
         : undefined;
 
     if (style?.affordances?.includes("brush")) {
-        throw new Error("Table does not support the 'brush' affordance — it has no continuous axis. Use it on a Chart or Gantt.");
+        throw new Error("Table does not support the 'brush' affordance — it has no continuous axis. Use it on a Chart or Plan.");
     }
     const sliceChromeValue = style?.slice !== undefined
         ? East.value({

@@ -6,8 +6,8 @@
 /**
  * Matrix slot recipe — the row × column grid of status-coloured segment bars.
  *
- * Shares the Planner header / group-head / row-header / marker chrome (one
- * unified header system across Table / Gantt / Planner / Matrix) and adds the
+ * Shares the collection header / group-head / row-header / marker chrome (one
+ * unified header system across Table / Matrix) and adds the
  * matrix-native bar: a weighted segment track whose colour is driven by a
  * `fill` variant (the status palette + brand / slack / free), a per-orientation
  * track (`orientation`), and the status `markerRing` / `markerIcon` carried
@@ -31,8 +31,8 @@ export const matrixSlotRecipe = defineSlotRecipe({
     base: {
         root: { display: "flex", flexDirection: "column", overflowX: "auto", overflowY: "hidden", overscrollBehaviorX: "contain" /* touch pan containment (#352) */, background: "bg.surface", width: "100%" },
         // Header band — wrapper only. The header cells reuse the shared `table`
-        // recipe's `columnHeader` slot (same chrome as Table / Gantt), so the
-        // strong bottom rule + mono eyebrow are one source across all three.
+        // recipe's `columnHeader` slot (same chrome as the Table), so the
+        // strong bottom rule + mono eyebrow are one source across both.
         header: { background: "bg.panel", alignItems: "stretch" },
         leftPanel: { background: "bg.surface" },
         row: { borderBottomWidth: "1px", borderBottomColor: "border.subtle" },

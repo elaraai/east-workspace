@@ -1,5 +1,5 @@
 /**
- * Collections showcase — every collections (DataList, Gantt, Planner, Table,
+ * Collections showcase — every collections (DataList, Matrix, Plan, Table,
  * TreeView) example wrapped as a UI task and bundled into
  * `east-ui-showcase-collections@<pkg.version>`.
  *

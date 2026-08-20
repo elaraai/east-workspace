@@ -1,6 +1,6 @@
 ---
 name: east-ui
-description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <AlignedStack>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Gantt>, <Planner>, <Plan> (the composite temporal canvas — heterogeneous keyed rows on ONE shared time axis, paged sources, series library, key search), <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Board>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, route-stack page switching (Navigation.config / Navigation.bind / <Pages>, plus <Route> to host a remounting per-route slot anywhere), and <App> — the whole application shell (collapsible rail + breadcrumb + logo + routed body from one nav handle, with an east-ui-components AppProvider for host-injected app-bar chrome), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Shared value formatting — one Chart.format.* spec reused by chart axes, Slice fields, <Stat>, <Numeric> and Deck metrics, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props."
+description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Plan> (the composite temporal canvas — heterogeneous keyed rows on ONE shared time axis, paged sources, series library, key search), <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Board>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, route-stack page switching (Navigation.config / Navigation.bind / <Pages>, plus <Route> to host a remounting per-route slot anywhere), and <App> — the whole application shell (collapsible rail + breadcrumb + logo + routed body from one nav handle, with an east-ui-components AppProvider for host-injected app-bar chrome), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Shared value formatting — one Chart.format.* spec reused by chart axes, Slice fields, <Stat>, <Numeric> and Deck metrics, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props."
 ---
 
 # East UI
@@ -155,27 +155,20 @@ Task → Which tag?
 │   │       ├─ label (optional) — accessible toggle name ("Expand ‹label›")
 │   │       ├─ zIndex (optional) — stacking level of the expanded surface (default 900, below Chakra floating tiers)
 │   │       └─ background (optional) — expanded-surface background (default bg.canvas)
-│   ├─ <Dock> — inline panel that collapses along an axis to an icon rail, staying in flow (siblings reflow; never overlays) — a source panel beside a drop target (Library beside Planner); Esc does NOT collapse
-│   │   └─ Props:
-│   │       ├─ children (required) — the docked panel body
-│   │       ├─ orientation (optional) — collapse axis: horizontal (default) | vertical
-│   │       ├─ side (optional) — edge the rail pins to: start (default) | end
-│   │       ├─ expandedSize / railSize (optional) — size along the axis expanded (px or %) / collapsed (default 44px)
-│   │       ├─ icon / label / badge (optional) — rail + header icon (FA name), title, count chip
-│   │       ├─ collapsed (optional) — controlled collapsed state
-│   │       ├─ defaultCollapsed (optional) — uncontrolled initial state (default false)
-│   │       ├─ onCollapsedChange (optional) — fn(Boolean) => Null on user toggle
-│   │       ├─ persist (optional) — where the uncontrolled state persists (default none)
-│   │       ├─ keepMounted (optional) — keep the body mounted while collapsed (default true)
-│   │       ├─ lazy (optional) — mount the body only on first expand (default false)
-│   │       └─ animated (optional) — animate the rail↔expanded size change (default false)
-│   └─ <AlignedStack> — vertical stack that pins every lane child to ONE shared plot gutter (#147) so a Chart over a Planner over a Trace line up on a common x-axis
+│   └─ <Dock> — inline panel that collapses along an axis to an icon rail, staying in flow (siblings reflow; never overlays) — a source panel beside a drop target (Library beside a Plan); Esc does NOT collapse
 │       └─ Props:
-│           ├─ children (required) — the stacked, gutter-aware lanes (Chart / Planner / Gantt / Table / Calendar / Trace)
-│           ├─ gutter (optional) — "auto" (measure the widest lane) or an explicit { left, right } px gutter
-│           ├─ gap (optional) — vertical spacing between lanes
-│           ├─ density (optional) — density imposed on every lane child (a child's own density wins)
-│           └─ width / height / minHeight (optional) — stack sizing
+│           ├─ children (required) — the docked panel body
+│           ├─ orientation (optional) — collapse axis: horizontal (default) | vertical
+│           ├─ side (optional) — edge the rail pins to: start (default) | end
+│           ├─ expandedSize / railSize (optional) — size along the axis expanded (px or %) / collapsed (default 44px)
+│           ├─ icon / label / badge (optional) — rail + header icon (FA name), title, count chip
+│           ├─ collapsed (optional) — controlled collapsed state
+│           ├─ defaultCollapsed (optional) — uncontrolled initial state (default false)
+│           ├─ onCollapsedChange (optional) — fn(Boolean) => Null on user toggle
+│           ├─ persist (optional) — where the uncontrolled state persists (default none)
+│           ├─ keepMounted (optional) — keep the body mounted while collapsed (default true)
+│           ├─ lazy (optional) — mount the body only on first expand (default false)
+│           └─ animated (optional) — animate the rail↔expanded size change (default false)
 │
 ├─ Typography (display text)
 │   ├─ <Text> — inline/block text
@@ -449,7 +442,7 @@ Task → Which tag?
 │   │   │   ├─ rowStatus (optional) — fn(rowIndex) => StatusToken row tint (see the Statuses branch)
 │   │   │   ├─ review / reviewStatus / reviewApproval (optional) — pinned-right Decision column + commitBar foot BELOW the pager; rowIndex is the UNSLICED index
 │   │   │   ├─ slice + affordances (optional) — bound slice chrome (default ["filter","search"]); filtering flows through the slice interface
-│   │   │   ├─ plotGutter (optional) — shared plot gutter (#147); frozen columns fill `left` (usually supplied by <AlignedStack>)
+│   │   │   ├─ plotGutter (optional) — shared plot gutter (#147); frozen columns fill `left`
 │   │   │   └─ colorPalette + headerBackground / headerColor / zebraBackground / hoverBackground / selectedBackground / selectedBorderColor / footerBackground / borderColor (optional) — chrome colours
 │   │   └─ Factories: (columns/footers are plain config objects; no builders)
 │   ├─ <DataList items={…} /> — label/value pairs
@@ -468,46 +461,6 @@ Task → Which tag?
 │   │   └─ Factories:
 │   │       ├─ TreeView.Item(value, label, indicator?) — leaf node (indicator = FA icon + style)
 │   │       └─ TreeView.Branch(value, label, children, indicator?, disabled?) — expandable node
-│   ├─ <Gantt data={rows} columns={…} rowSpec={row => ({ tasks: … })} /> — table + time-bar timeline
-│   │   ├─ Props:
-│   │   │   ├─ data / columns (required) — the left table (same column config family as <Table>); frozen (optional) pins keys left
-│   │   │   ├─ rowSpec (required) — per-row accessor returning { tasks?: [Gantt.Task(…)], milestones?: [Gantt.Milestone(…)], status?, approval? } (status/approval feed the Decision column — only rendered when `review` is set)
-│   │   │   ├─ axis (optional) — { range?: {min,max}, format?: date pattern ("MMM YYYY"), tier?: header granularity } — omit to fit the domain to the data
-│   │   │   ├─ showToday (optional) — the now-line
-│   │   │   ├─ dragStep / durationStep (optional) — drag / resize snapping steps
-│   │   │   ├─ height / maxHeight (optional) — uniform sizing (#320)
-│   │   │   ├─ variant / size / striped / stickyHeader / showColumnBorder (optional) — table chrome
-│   │   │   ├─ density / rowHeight (optional) — rhythm (rowHeight overrides, flows to virtualizer + bars)
-│   │   │   ├─ rowStatus (optional) — fn(rowIndex) => StatusToken row tint
-│   │   │   ├─ review (optional) — shared Decision column + commitBar foot ({rowIndex} events, identical to Planner's)
-│   │   │   ├─ onCellClick / onCellDoubleClick / onRowClick / onRowDoubleClick / onSortChange (optional) — table callbacks
-│   │   │   ├─ onTaskClick / onTaskDoubleClick / onTaskProgressChange / onMilestoneClick / onMilestoneDoubleClick (optional) — timeline callbacks
-│   │   │   ├─ id + sources + onDrag + canDrop (optional) — DnD target (ONE grammar funnel: Library `add` lands proposed(added) bars at the dragStep-snapped instant; task-body drags = `move`, edge drags = `resize`; row = row index key, slot = snapped ISO instant, event = t<i>/m<i>) + canDrop veto (⊘, pointer-resolved); progress-handle drag stays bespoke (onTaskProgressChange — not a spatial drag)
-│   │   │   ├─ slice + affordances (optional) — bound slice chrome (default ["filter","search","range"]; the timeline header doubles as a brush)
-│   │   │   └─ plotGutter (optional) — shared gutter (#147); frozen table columns fill `left`
-│   │   └─ Factories:
-│   │       ├─ Gantt.Task({ start, end, label?, progress?, state?, status?, popover? }) — one bar; `state` is the SHARED lifecycle (PlannerStateType via Gantt.Types.State: "committed"|"added"|"model"|"removed"|"rejected" — committed solid, proposals dashed/ghost/struck, rejected greyed; only proposed bars drag/resize); `status` is the orthogonal risk tint (Gantt.Types.Status — "danger" = the old atRisk); popover = click-triggered rich body
-│   │       └─ Gantt.Milestone({ date, label?, kind?, popover? }) — diamond marker; kind: interim (amber) | release (brand teal, default)
-│   ├─ <Planner.Point …> / <Planner.Span …> — discrete rows × ordered-slot scheduler (Point = instant events, Span = ranges)
-│   │   ├─ Props:
-│   │   │   ├─ data (required) — row structs; axis (required) — a Planner.axis.* declaration
-│   │   │   ├─ columns (required) — [{ key, header?, width?, frozen?, align?, value, sublabel? }] left-side columns (value/sublabel are row accessors)
-│   │   │   ├─ events (required) — per-row accessor returning Planner.event(…) values
-│   │   │   ├─ markers (optional) — per-row accessor returning Planner.marker(…) values
-│   │   │   ├─ groupBy (optional) — per-row group-head label accessor
-│   │   │   ├─ now (optional) — explicit committed/proposed divider slot
-│   │   │   ├─ height (optional) — pin the plan area (header pinned, body scrolls, like Table stickyHeader); maxHeight (optional) — cap; absent ⇒ content-sized; slotMinWidth (optional) — drives horizontal slot scroll
-│   │   │   ├─ density (optional) — row/header rhythm
-│   │   │   ├─ status / approval + review (optional) — per-row Approve/Reject Decision column + commitBar batch foot (clean ⇒ approved, flagged ⇒ pending via deriveApproval; {rowIndex} events)
-│   │   │   ├─ onSelectRow / rowHover (optional) — selection callback + row hover affordance
-│   │   │   ├─ id + sources + onDrag + canDrop (optional) — opt-in DnD target (#269): a Planner without onDrag is exactly click-only; PROPOSED tiles drag (committed history inert; tiles need an authored event key), drops land proposed(added); slot keys compose the bucket in ("wed" / "wed:am"); Span edges resize via the shared runtime
-│   │   │   └─ plotGutter (optional) — shared gutter (#147); frozen channel columns fill `left`
-│   │   └─ Factories:
-│   │       ├─ Planner.axis.time({ resolution?, format?, range?, buckets? }) — calendar axis (#309): resolution "hour"|"day"|"week"|"month"|"quarter"|"year" sets the column unit; omitted, a PINNED range ≤ 14 days infers day columns (else month). A pinned range is half-open [min, max), interpreted in UTC (#326 — East DateTime is a UTC instant, so columns are timezone-independent) and authoritative (events outside are culled, never grow the axis). {Mar 30 … Apr 6} at day resolution = Mon 30 … Sun 05, and a sibling Chart pinning the same [min, max] time domain lines its day ticks up cell-for-cell under an AlignedStack gutter. format uses the Chart date tokens ("ddd DD" → Mon 30, in UTC); day default "ddd DD". Drag slot keys stay period-start ISO instants
-│   │       ├─ Planner.axis.number({ range?, buckets?, format? }) — numeric slot axis
-│   │       ├─ Planner.axis.ordinal({ range?, buckets?, format? }) — explicit ordered slot list
-│   │       ├─ Planner.event({ key?, slot, endSlot?, bucket?, label, state, popover?, hovercard?, stretch?, content?, tone?, colorPalette?, color?, animation? }) — one tile; state = audit lifecycle ("committed"|"added"|"model"|"removed"|"rejected"); tone = semantic status tint; popover/hovercard = rich click / hover bodies
-│   │       └─ Planner.marker({ slot, status?, message }) — cell status ring (status defaults "danger"; message surfaces as tooltip)
 │   ├─ <Plan axis={Plan.axis({…})} data={rows} series={[Plan.series.span(Row, {…}), …]} /> — the composite temporal canvas: ONE shared time axis (window ÷ resolution = n bucket columns) over heterogeneous KEYED rows — Gantt state-runs, Planner lanes, Chart measures, Matrix heat, bucketed Table numerals, Roster chips and event marks — sliced, searched, picked and reviewed as one surface. Rows derive from `data` through `series`; a leaf row's key IS its data key (screen order = canonical key order), so a paged source stays addressable by the keys it windows and seeks
 │   │   ├─ Props:
 │   │   │   ├─ axis (required) — Plan.axis({ window?, resolution, resolutions?, now?, format? }): half-open [min, max) UTC window; omit window ⇒ the bound slice's datetime range, else fit-to-data (a PAGED canvas must declare one); `resolutions` lists the WEEK/DAY segment options; `now` draws the observed/plan divider; `format` overrides tick labels (date tokens; defaults: week ⇒ "W27", day ⇒ "MON")
@@ -733,7 +686,7 @@ Task → Which tag?
 │   │   │   ├─ slice (required) — the bound handle from Slice.bind
 │   │   │   ├─ affordances (optional) — ["filter","search","range","breakdown","cohort","presets","brush","legend"]; legends are explicit-only (list "legend" or compose <Slice.Legend>)
 │   │   │   ├─ persist (optional) — "local" | "session" | "url" opts the state into reload-surviving / shareable-link storage
-│   │   │   └─ brush (optional) — the brush strip is rich by default (the range field's format drives the axis labels; a self-excluding count histogram shows the row distribution); brush={{ axis?, count?, buckets? }} opts down to the bare track. The applied window is a full brush selection: drag its body to slide (width preserved), an edge to resize, empty track to draw (also on the Gantt timeline header)
+│   │   │   └─ brush (optional) — the brush strip is rich by default (the range field's format drives the axis labels; a self-excluding count histogram shows the row distribution); brush={{ axis?, count?, buckets? }} opts down to the bare track. The applied window is a full brush selection: drag its body to slide (width preserved), an edge to resize, empty track to draw (also the Plan's horizon-brush gesture)
 │   │   ├─ Nested tags: <Slice.Filter/Search/Range/Breakdown/Legend/Cohort/Presets/Summary slice={slice} /> — per-affordance chrome; <Slice.Cohort mode="toggle"|"manage" allowCreate?> (cohorts toggle on chip click; <Slice.Presets> = toggle-only preset bar); <Slice.Legend> = facet bar (click = in-set multi-select over self-excluding slice.facetGroups(); mode="visibility" = eye rail); Summary/Filter footers read "N of M"
 │   │   └─ Factories:
 │   │       ├─ Slice.bind([Row], key, config, initialState, data, searchMatcher?) — bind a dataset to a slice key (searchMatcher = optional Option of a per-row match fn; pass `none` for the config-driven default)
@@ -755,9 +708,9 @@ Task → Which tag?
 │   │   ├─ Props:
 │   │   │   ├─ layers (required) — array of Chart.Line/Column/Bar/Area/Scatter/Band/refLine/refBand/refDot/Series values
 │   │   │   ├─ x / y / y2 (optional) — axis options: { label?, format? (shared spec — see the Formats branch), domain?, scale?, numTicks?, tickValues?, hideTicks?, hideLine?, tickStyle?, titleStyle?, titleGap? }
-│   │   │   │     tickValues (#318): floats on a linear axis ([0,1,2,…] to line up with a Planner) or DateTime[] on a time axis (pin ticks to exact instants, rendered through the date format); Date ticks on y/y2 are a build-time error
+│   │   │   │     tickValues (#318): floats on a linear axis ([0,1,2,…]) or DateTime[] on a time axis (pin ticks to exact instants, rendered through the date format); Date ticks on y/y2 are a build-time error
 │   │   │   │     tickStyle/titleStyle (#315): { fontSize?, fontFamily?: "sans"|"serif"|"mono", fontWeight?, color?, letterSpacing? } — restyle ticks/captions over the spec chrome
-│   │   │   │     titleGap (#327): px between ticks and caption — widens that axis's OWN margin band, never the shared AlignedStack gutter, so nudging a title can't shift a stacked plot lane
+│   │   │   │     titleGap (#327): px between ticks and caption — widens that axis's OWN margin band, never the shared plot gutter, so nudging a title can't shift a gutter-aligned plot lane
 │   │   │   ├─ height (optional) — px or "fill"; width (optional) — px (omit for responsive)
 │   │   │   ├─ grid / legend / tooltip (optional) — background gridlines (default on) / colour-matched legend / hover tooltip
 │   │   │   ├─ stackOffset (optional) — "none" | "expand" (percent stacking)
@@ -859,7 +812,7 @@ Task → Which tag?
 │           ├─ scale (optional) — heat colour encoding; future (optional) — how predicted steps are distinguished
 │           ├─ axis (optional) — per-step labels (ruler at comfortable density, tooltips always)
 │           ├─ density / brandColor / nowLineColor / labelWidth (optional) — rhythm + colour + name-gutter width
-│           └─ plotGutter (optional) — shared gutter (#147): pins the step lane so a Trace stacked under a Chart lines up (left supersedes labelWidth; usually supplied by <AlignedStack>)
+│           └─ plotGutter (optional) — shared gutter (#147): pins the step lane so a Trace stacked under a Chart lines up (left supersedes labelWidth)
 │
 ├─ Feedback (status & async signals)
 │   ├─ <Banner> — page-spanning notice
@@ -1017,7 +970,7 @@ Task → Which tag?
 │   │   │   ├─ trigger (required) — the opening UIComponent; children (required) — the body
 │   │   │   ├─ placement (optional) — start | end | top | bottom; size — panel size; contained — render within the parent container
 │   │   │   ├─ eyebrow / title / description (optional) — header copy
-│   │   │   ├─ bodyPadding / flush (optional) — body padding control (flush = full-bleed so a Table/Planner fills)
+│   │   │   ├─ bodyPadding / flush (optional) — body padding control (flush = full-bleed so a Table/Plan fills)
 │   │   │   ├─ fillBody (optional) — the body becomes a definite-height flex column so a single height:100% child fills + owns its scroll
 │   │   │   ├─ stacked + stackIcon (optional) — (#328) while a deeper drawer is open, this drawer collapses to a labeled vertical icon rail (instead of hiding behind) — click the rail to pop the stack back to it; Esc pops one level
 │   │   │   ├─ open / defaultOpen / onOpenChange / onExitComplete (optional) — controlled state + lifecycle
@@ -1077,7 +1030,7 @@ Task → Which tag?
 │           ├─ state (optional) — "ready" | "loading" | "empty" | "error" | "stale" | "disabled" | "permission-denied" runtime state
 │           ├─ variant (optional) — elevated | outline | subtle
 │           ├─ density (optional) — density provider for the body
-│           ├─ bodyPadding / flush (optional) — body padding (default "18px 20px"); flush = full-bleed so a Planner / Table / Chart fills
+│           ├─ bodyPadding / flush (optional) — body padding (default "18px 20px"); flush = full-bleed so a Plan / Table / Chart fills
 │           ├─ accentColor / headerBackground / footerBackground (optional) — chrome colours
 │           ├─ height / minHeight / maxHeight / width / minWidth / maxWidth / flex / overflow (optional) — sizing (a sized Card becomes a flex column constraining its body — see the Sizing pattern)
 │           └─ background / borderColor (optional)
@@ -1095,10 +1048,10 @@ Task → Which tag?
 │   │   ├─ Slice.config fields { format } — filter chips, brush axis labels, range summaries (string shorthands "number"|"percent"|"compact"|{currency:{code?,compact?}}|{date|time|datetime: pattern} also accepted)
 │   │   ├─ <Stat format> and <Numeric format> — KPI values
 │   │   ├─ Deck.metric / Deck.Readout cells / card fill { format } — board metrics
-│   │   └─ Gantt axis { format } and Planner.axis.time { format } — timeline headers (date-pattern strings, same token vocabulary)
+│   │   └─ Plan.axis { format } — timeline tick labels (date-pattern strings, same token vocabulary)
 │   ├─ Accessor alternative: Deck metric/fill format props ALSO accept a text accessor ((value) => String / (value, max) => String) — reified at authoring time into a pre-rendered `text` field; the raw value still ships, and a `none` value renders "—"
-│   ├─ Date tokens: East's date tokens incl. weekdays — dd/ddd/dddd; "ddd DD" → Mon 30. All date rendering is UTC (East DateTime is a UTC instant), so ticks and Planner columns are timezone-independent
-│   └─ tickValues (#318): pin chart ticks to exact floats / DateTime instants (rendered through the date format) to line a Chart up with a Planner's columns under an <AlignedStack>
+│   ├─ Date tokens: East's date tokens incl. weekdays — dd/ddd/dddd; "ddd DD" → Mon 30. All date rendering is UTC (East DateTime is a UTC instant), so ticks and Plan columns are timezone-independent
+│   └─ tickValues (#318): pin chart ticks to exact floats / DateTime instants (rendered through the date format) to line a Chart up with a Plan's bucket columns
 │
 ├─ Statuses & tones (the shared five-token status vocabulary)
 │   ├─ The tokens: "success" | "warning" | "danger" | "info" | "neutral" (StatusTokenType / StatusValueType) — the ONE semantic palette for state colour across the library; theme-mapped, never raw hex
@@ -1106,15 +1059,14 @@ Task → Which tag?
 │   │   └─ Deck.statuses({ key: { label, color, pulse?, hint? } }) — color is a standard token OR any custom CSS colour; one entry drives the card tag + dot/pulse, face wash, fill bar, group-head swatch + hint, and legend
 │   ├─ Where a bare token / status value plugs in:
 │   │   ├─ Library.status(label, tone) — palette card status chip
-│   │   ├─ Table / Gantt rowStatus — fn(rowIndex) => StatusToken row tint
+│   │   ├─ Table rowStatus — fn(rowIndex) => StatusToken row tint
 │   │   ├─ Schematic item { status } (Option token dot) and { tone } (brand|ink|muted|success|warning|danger stroke override)
-│   │   ├─ Planner.marker { status } (default danger) and Planner.event { tone } — cell rings + tile tints
-│   │   ├─ Gantt.Task { status } — risk tint ("danger" = the old atRisk), ORTHOGONAL to `state`
+│   │   ├─ Plan.run { status } (stuck ring) · Plan.marker { status } (cell rings, default danger) · Plan.event { tone } — tile tints, all ORTHOGONAL to `state`
 │   │   ├─ Matrix.marker { status } — corner markers
 │   │   ├─ <Status value> — dot + word; <Banner status> uses the wider notice set (info|warning|success|error|neutral|change|guard|stale)
 │   │   └─ <Meter tone> / BarStrip item { tone } / SegmentedMeter segment { tone } — bar fills
 │   ├─ Sentiment (value direction, NOT state): <MetricChip tone> positive|negative|neutral|info · <Numeric sentiment> positive|negative|neutral · <Stat indicator.sentiment> positive|negative|neutral · <Progress tone> brand|pos|neg
-│   ├─ state ≠ status: PlannerStateType ("committed"|"added"|"model"|"removed"|"rejected") is the AUDIT LIFECYCLE shared by Planner events, Gantt tasks, Roster shifts and Board assignments — committed solid, proposals dashed/ghost/struck, rejected greyed; only proposed items drag. A status token is the ORTHOGONAL semantic tint layered on top
+│   ├─ state ≠ status: the AUDIT LIFECYCLE is orthogonal to the status tint. Roster shifts, Board assignments and Blend allocations speak PlannerStateType ("committed"|"added"|"model"|"removed"|"rejected" — committed solid, proposals dashed/ghost/struck, rejected greyed; only proposed items drag); Plan elements speak the richer EventStateType ladder ("estimated"→"proposed"(added|recommended|removed)→"confirmed"→"in-progress"→"actual", plus "rejected"). A status token is the ORTHOGONAL semantic tint layered on top
 │   └─ tone vs colorPalette: tone/status/sentiment = the semantic vocabulary above (meaning-bearing, theme-stable); colorPalette = decorative hue theming (Chakra palettes) for buttons/badges/tags where the colour carries no state meaning
 │
 ├─ Reactive (state-driven re-render)
@@ -1260,7 +1212,7 @@ Non-UI sub-structures are never child sub-tags.
 
 Every size prop is a **plain string** and every renderer parses it the same
 way (`parseCssSize`). Four spellings, uniform across data components (`<Table>`,
-`<Gantt>`, `<Planner>`, `<Matrix>`, `<Board>`, `<Roster>`, `<Calendar>`,
+`<Plan>`, `<Matrix>`, `<Board>`, `<Roster>`, `<Calendar>`,
 `<Library>`, `<Schematic>`) and layout primitives (`<Box>` / `<Flex>` /
 `<Stack>` / `<Grid>` / `<Card>`):
 
@@ -1282,7 +1234,7 @@ vertically when its container is narrower than 480px.
 // height bounds the whole component and it scrolls within; maxHeight caps
 // it but stays content-sized until the cap is hit.
 <Table data={rows} columns={cols} height="fill" />      // fills its parent
-<Planner …  maxHeight="420" />                           // content up to 420px, then scrolls
+<Matrix …   maxHeight="420" />                           // content up to 420px, then scrolls
 
 // Layout primitives add boolean shorthands so you never hand-write the
 // flex:1 + min-height:0 + overflow incantation for a scroll region:
@@ -1370,7 +1322,7 @@ single-member section in the data, or use `footerRows`.
 Display components (`<Tag>`, `<Badge>`, `<Kbd>`, `<MetricChip>`, `<EditableChip>`,
 `<Meter>`, `<BarStrip>`, `<SegmentedMeter>`, `<Stat>`, `<Avatar>`, `<Trace>`,
 `<ChipRail>`) take `density="condensed" | "compact" | "comfortable"` and inherit
-it from the nearest providing surface — a `<Table>` / `<Gantt>` / `<Planner>` /
+it from the nearest providing surface — a `<Table>` /
 `<Matrix>` / `<ChipRail>` with `density` set, or any layout container
 (`<Box>` / `<Stack>` / `<Flex>` / `<Grid>` / `<Card>`) given a `density` prop.
 All densified components share one sizing rhythm, so mixed table cells (a tag
@@ -1458,14 +1410,15 @@ import { AppProvider, EastChakraComponent } from "@elaraai/east-ui-components";
   bars inside an axis-bearing `<Chart>` (numeric x, categorical y — grid,
   legend, tooltip, stacking); `Chart.Column` is the vertical twin (formerly
   named `Chart.Bar`).
-- **Plan vs Gantt vs Planner** — `<Plan>` is the composite temporal canvas:
-  ONE shared time axis over heterogeneous KEYED rows (state-runs, allocation
-  lanes, chart measures, heat, bucketed numerals, shift chips, event marks)
-  with slice/key-search/series-library/review chrome and PAGED sources.
-  `<Gantt>` (table + time bars) and `<Planner>` (discrete-slot grid) are its
-  single-surface ancestors. Reach for `<Plan>` whenever a surface mixes row
-  kinds on one time axis, needs a paged source, or needs rows addressed by
-  stable keys rather than indices.
+- **Plan (subsumes the retired Gantt / Planner / AlignedStack, #571)** —
+  `<Plan>` is the composite temporal canvas: ONE shared time axis over
+  heterogeneous KEYED rows (state-runs, allocation lanes, chart measures,
+  heat, bucketed numerals, shift chips, event marks) with
+  slice/key-search/series-library/review chrome and PAGED sources. A Gantt
+  is a Plan with span rows, a Planner a Plan with bucket rows, an
+  AlignedStack a Plan mixing chart / heat / table rows on the shared axis.
+  Reach for `<Plan>` for anything scheduled on a time axis — mixed row
+  kinds, a paged source, or rows addressed by stable keys.
 - **Flowchart vs Schematic** — `<Schematic>` is a world-coordinate 2D canvas
   (data carries x/y; zones, footprints, camera); `<Flowchart>` derives its
   whole layout from lanes + links (no coordinates) for state-transition /

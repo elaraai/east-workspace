@@ -62,7 +62,7 @@ export {
     Numeric, Note,
 } from "./typography/index.js";
 export {
-    Box, Flex, Stack, AlignedStack, Separator, Grid, Splitter,
+    Box, Flex, Stack, Separator, Grid, Splitter,
     Configurator,
     Sticky, ScrollArea, Expandable, Dock,
 } from "./layout/index.js";
@@ -79,7 +79,7 @@ export type {
 } from "./navigation/index.js";
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
 export { Card } from "./container/index.js";
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Gantt, Planner, Plan, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
 export type {
     PlanConfig, PlanRowBaseInput, PlanSpanInput, PlanBucketsInput, PlanChartInput,
     PlanHeatInput, PlanTableInput, PlanCardsInput, PlanEventsInput, PlanGroupInput,
@@ -131,7 +131,6 @@ export type { JsxTag, ContainerProps, ContentProps, ValueProps, OptionsProps } f
 // Standalone style/data types (renderers reference these directly).
 export * from "./layout/box/types.js";
 export * from "./layout/stack/types.js";
-export * from "./layout/aligned-stack/types.js";
 export * from "./shared/plot-gutter.js";
 export { reifyAccessor } from "./shared/reify.js";
 export * from "./layout/grid/types.js";

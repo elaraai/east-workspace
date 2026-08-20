@@ -39,9 +39,9 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
  * @property cohort - Toggleable saved-segment pills with authoring (left zone)
  * @property presets - Curated toggle-only preset pills — no authoring (#163; left zone)
  * @property brush - Drag-a-window gesture writing the slice's range. Hosts
- *   render it natively: a Chart brushes the plot's continuous x, a Gantt the
- *   timeline, a standalone `Slice.Rail` the mini brush strip. Hosts with no
- *   continuous axis reject it at the factory.
+ *   render it natively: a Chart brushes the plot's continuous x, a Plan its
+ *   horizon strip, a standalone `Slice.Rail` the mini brush strip. Hosts with
+ *   no continuous axis reject it at the factory.
  * @property legend - The colour-matched series legend (primary click
  *   cross-filters; the eye toggles series visibility), rendered natively by
  *   the host: a Chart mounts it beneath the plot, a standalone `Slice.Rail`

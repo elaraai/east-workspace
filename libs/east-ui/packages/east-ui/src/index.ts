@@ -110,7 +110,7 @@ export {
 
 // Layout
 export {
-    Box, Flex, Stack, VStack, HStack, AlignedStack, Separator, Grid, Splitter,
+    Box, Flex, Stack, VStack, HStack, Separator, Grid, Splitter,
     Sticky, ScrollArea, Expandable, Dock, Configurator,
 } from "./runtime/layout/index.js";
 
@@ -150,7 +150,7 @@ export type { IconPayload } from "./buttons/button/types.js";
 export { Card } from "./runtime/container/index.js";
 
 // Collections
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Gantt, Planner, Plan, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
 
 // Charts
 export { Chart, Sparkline } from "./runtime/charts/index.js";

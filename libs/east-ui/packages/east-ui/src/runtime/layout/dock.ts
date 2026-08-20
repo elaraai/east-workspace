@@ -16,7 +16,7 @@ import { container, type ContainerProps, type JsxTag } from "../combinators.js";
  * reflow to reclaim the freed space; it never overlays. The in-flow,
  * collapse-to-rail sibling of `<Expandable>` (which instead fills the app
  * container). Reach for it when a source panel should tuck away beside the
- * thing it feeds — a `<Library>` drag-source beside a `<Planner>` drop-target,
+ * thing it feeds — a `<Library>` drag-source beside a `<Plan>` drop-target,
  * a filter rail beside a board — so the board grows while the panel is stowed
  * and the drop-target is never covered.
  *
@@ -34,7 +34,7 @@ import { container, type ContainerProps, type JsxTag } from "../combinators.js";
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
  * import { East } from "@elaraai/east";
- * import { Box, Dock, HStack, Planner, Text, UIComponentType } from "@elaraai/east-ui";
+ * import { Box, Dock, HStack, Text, UIComponentType } from "@elaraai/east-ui";
  *
  * const board = East.function([], UIComponentType, _$ => (
  *     <HStack gap="4" width="100%">

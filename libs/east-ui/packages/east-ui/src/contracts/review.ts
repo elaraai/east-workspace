@@ -7,13 +7,14 @@
  * Review / approval grammar — the shared contract for decision surfaces.
  *
  * Lifted from the Planner's review chrome (PR #76) so every grid surface
- * (Planner, Gantt, Table, Roster, Board) speaks one approval vocabulary and
+ * (Table, Roster, Board, Plan) speaks one approval vocabulary and
  * wears identical chrome: a per-subject Approve / Reject **decision column**
  * plus a batch **`commitBar` foot** (Approve all / Reject all / Rerun).
  *
  * The vocabulary is deliberately two-axis:
  *
- * - **Event lifecycle** (`PlannerStateType`: committed / proposed / rejected)
+ * - **Event lifecycle** (`PlannerStateType` in `contracts/states.ts`:
+ *   committed / proposed / rejected — or the richer `EventStateType`)
  *   is what happened to a scheduled event — the audit trail.
  * - **Approval state** ({@link ApprovalStateType}: approved / pending /
  *   rejected) is the *reviewer's* verdict on a subject (usually a row) — the
@@ -66,7 +67,7 @@ export {
 
 /**
  * The resolved row-granularity review-config type — `reviewType(RowRefType,
- * UIComponentType)`. The concrete type Planner / Gantt / Table / Roster carry
+ * UIComponentType)`. The concrete type Table / Roster / Board carry
  * (and the one renderers decode).
  */
 export const RowReviewType: ReviewStructType<RowRefType, UIComponentType> = reviewType(RowRefType, UIComponentType);

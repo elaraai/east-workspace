@@ -6,8 +6,8 @@
 /**
  * Shared review chrome — the renderer half of the review contract
  * (`contracts/review.ts` in `@elaraai/east-ui`), extracted from the Planner's
- * review rendering (PR #76) so every adopter (Planner, Gantt, Table, Roster,
- * Board) composes the same pieces:
+ * review rendering (PR #76) so every adopter (Table, Roster, Board, Plan)
+ * composes the same pieces:
  *
  * - {@link useReviewController} — the optimistic per-row decisions state
  *   (the mandatory interactive-state pattern: local `useState`, `useEffect`
