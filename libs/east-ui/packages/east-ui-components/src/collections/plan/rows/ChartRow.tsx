@@ -116,8 +116,12 @@ function splitAtNow<P extends { t: Date }>(points: readonly P[], scale: PlanScal
     return { before, after };
 }
 
+// UNCLAMPED x (#620): an out-of-window point draws at its true instant, so
+// the segment crossing the window edge carries its TRUE slope (the clamped
+// form kinked it onto the edge — a lie that slid around under a brush pan).
+// The svg overflows visibly; the plot's own clip crops it at rest.
 function polyline(points: ReadonlyArray<{ t: Date; y: number }>, scale: PlanScale, ys: YScale): string {
-    return points.map((p) => `${(scale.xOf(p.t) * VW).toFixed(2)},${ys.y(p.y).toFixed(2)}`).join(" ");
+    return points.map((p) => `${(scale.fracOf(p.t) * VW).toFixed(2)},${ys.y(p.y).toFixed(2)}`).join(" ");
 }
 
 /** The breach test for a point value. */
@@ -261,8 +265,8 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             const s = ys(layer.value.axis.type);
             const pts = layer.value.points;
             if (pts.length === 0) return;
-            const top = pts.map((p) => `${(scale.xOf(p.t) * VW).toFixed(2)},${s.y(p.hi).toFixed(2)}`);
-            const bottom = [...pts].reverse().map((p) => `${(scale.xOf(p.t) * VW).toFixed(2)},${s.y(p.lo).toFixed(2)}`);
+            const top = pts.map((p) => `${(scale.fracOf(p.t) * VW).toFixed(2)},${s.y(p.hi).toFixed(2)}`);
+            const bottom = [...pts].reverse().map((p) => `${(scale.fracOf(p.t) * VW).toFixed(2)},${s.y(p.lo).toFixed(2)}`);
             svgMarks.push(<polygon key={`band-${li}`} points={[...top, ...bottom].join(" ")} fill={BAND_FILL} stroke="none" />);
             return;
         }
@@ -271,11 +275,11 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             const pts = layer.value.points;
             if (pts.length === 0) return;
             const base = s.y(Math.max(s.min, 0));
-            const top = pts.map((p) => `${(scale.xOf(p.t) * VW).toFixed(2)},${s.y(p.y).toFixed(2)}`);
+            const top = pts.map((p) => `${(scale.fracOf(p.t) * VW).toFixed(2)},${s.y(p.y).toFixed(2)}`);
             const poly = [
-                `${(scale.xOf(pts[0]!.t) * VW).toFixed(2)},${base.toFixed(2)}`,
+                `${(scale.fracOf(pts[0]!.t) * VW).toFixed(2)},${base.toFixed(2)}`,
                 ...top,
-                `${(scale.xOf(pts[pts.length - 1]!.t) * VW).toFixed(2)},${base.toFixed(2)}`,
+                `${(scale.fracOf(pts[pts.length - 1]!.t) * VW).toFixed(2)},${base.toFixed(2)}`,
             ];
             svgMarks.push(<polygon key={`area-${li}`} points={poly.join(" ")} fill={BAND_FILL} stroke="none" />);
             svgMarks.push(<polyline key={`arealine-${li}`} points={polyline(pts, scale, s)} fill="none"
@@ -299,7 +303,10 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             if (breach !== undefined) {
                 for (const [pi, p] of layer.value.points.entries()) {
                     if (!breached(p.y, breach)) continue;
-                    svgMarks.push(<circle key={`line-${li}-warn-${pi}`} cx={scale.xOf(p.t) * VW} cy={s.y(p.y)}
+                    // Point marks cull + unclamp like scatter (#619/#620).
+                    const f = scale.fracOf(p.t);
+                    if (f <= scale.renderMin || f >= scale.renderMax) continue;
+                    svgMarks.push(<circle key={`line-${li}-warn-${pi}`} cx={f * VW} cy={s.y(p.y)}
                         r={2.5} fill={WARN} stroke="none" />);
                 }
             }
@@ -328,18 +335,21 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
 
     return (
         <Box position="absolute" inset={0} onClick={() => dispatch({ t: "row.select", key: rowKey })}>
-            {/* refBand paper washes under everything */}
+            {/* refBand paper washes under everything — TRUE geometry culled
+                to the render bounds (#620); the label keeps its window-pinned
+                rest position (`max(0, f0)`). */}
             {kind.layers.map((layer, li) => {
                 if (layer.type !== "refBand") return null;
-                const f0 = Math.max(0, scale.fracOf(layer.value.from));
-                const f1 = Math.min(1, scale.fracOf(layer.value.to));
-                if (f1 <= f0) return null;
+                const f0 = scale.fracOf(layer.value.from);
+                const f1 = scale.fracOf(layer.value.to);
+                if (f1 <= scale.renderMin || f0 >= scale.renderMax || f1 <= f0) return null;
                 const label = layer.value.label.type === "some" ? layer.value.label.value : undefined;
                 return (
                     <Box key={`refband-${li}`}>
-                        <Box position="absolute" top={0} bottom={0} left={`${f0 * 100}%`} width={`${(f1 - f0) * 100}%`}
+                        <Box position="absolute" top={0} bottom={0}
+                            left={`${(f0 * 100).toFixed(4)}%`} width={`${((f1 - f0) * 100).toFixed(4)}%`}
                             background="color-mix(in srgb, var(--chakra-colors-fg) 4%, transparent)" zIndex={1} pointerEvents="none" />
-                        {label !== undefined && <Box css={styles.refLabel} left={`${f0 * 100}%`} top="1px">{label}</Box>}
+                        {label !== undefined && <Box css={styles.refLabel} left={`${Math.max(0, f0) * 100}%`} top="1px">{label}</Box>}
                     </Box>
                 );
             })}
@@ -361,7 +371,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 ) : null)}
                 {svgMarks}
                 {kind.layers.map((layer, li) => layer.type === "refDot" ? (
-                    <circle key={`refdot-${li}`} cx={scale.xOf(layer.value.t) * VW} cy={ys(layer.value.axis.type).y(layer.value.y)}
+                    <circle key={`refdot-${li}`} cx={scale.fracOf(layer.value.t) * VW} cy={ys(layer.value.axis.type).y(layer.value.y)}
                         r={3} fill="var(--chakra-colors-bg-surface)" stroke={BRAND} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
                 ) : null)}
                 {breachRects.map((r, i) => (
@@ -385,7 +395,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                     const s = ys(layer.value.axis.type);
                     const top = Math.max(1, Math.min(height - 12, s.y(layer.value.y) - 6));
                     return <Box key={`refdotlabel-${li}`} css={styles.refLabel}
-                        left={`calc(${scale.xOf(layer.value.t) * 100}% + 5px)`}
+                        left={`calc(${scale.fracOf(layer.value.t) * 100}% + 5px)`}
                         top={`${top}px`}>{layer.value.label.value}</Box>;
                 }
                 return null;

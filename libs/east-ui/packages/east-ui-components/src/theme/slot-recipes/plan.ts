@@ -269,17 +269,23 @@ export const planSlotRecipe = defineSlotRecipe({
             "&[data-axis='dim'] [data-plan-axisline]": { opacity: 0.4 },
             "&[data-axis='off'] [data-plan-axisline]": { display: "none" },
         },
-        // The brush-pan layer (#616): every window-anchored surface renders
-        // inside one full-size layer that translates by the body's
-        // `--plan-pan-px` during a horizon-brush SLIDE — one style write pans
-        // the whole canvas, no re-render; the release settles the real
-        // window. At rest the variable is unset and the transform is
-        // identity. Value-axis chrome inside a plot opts out with a px
-        // counter-transform (`chartTickRight`, `refLabel[data-plan-nopan]`).
+        // The brush-pan layer (#616/#620): every window-anchored surface
+        // renders inside one full-size layer that transforms by the body's
+        // `--plan-pan-px` (translate) and `--plan-zoom-k` (horizontal scale)
+        // during a horizon-brush gesture — style writes pan/zoom the whole
+        // canvas, no re-render; the release settles the real window. At rest
+        // both variables are unset and the transform is identity. The origin
+        // is the layer's LEFT edge so every layer scales about the same
+        // plot-x, which is what the controller's translate math assumes.
+        // Value-axis chrome inside a plot opts out of the SLIDE with a px
+        // counter-transform (`chartTickRight`, `refLabel[data-plan-nopan]`)
+        // and hides during a ZOOM (`[data-plan-zooming]`) — a translate
+        // counter cannot undo a scale.
         panLayer: {
             position: "absolute",
             inset: 0,
-            transform: "translateX(var(--plan-pan-px, 0px))",
+            transformOrigin: "left center",
+            transform: "translateX(var(--plan-pan-px, 0px)) scaleX(var(--plan-zoom-k, 1))",
         },
         // A single bucket's background grid line (column separators). The
         // expand render's `axis` treatment washes / suppresses them INSIDE
@@ -912,8 +918,11 @@ export const planSlotRecipe = defineSlotRecipe({
             fontSize: "8.5px",
             color: "fg.subtle",
             // Value-AXIS chrome — counter-translated out of the brush pan
-            // (#616): px is size-independent, so the counter is exact.
+            // (#616): px is size-independent, so the counter is exact. A
+            // ZOOM stretches the layer about a different origin than this
+            // element, so no one-var counter exists — hide for the gesture.
             transform: "translate(calc(-1 * var(--plan-pan-px, 0px)), -50%)",
+            "[data-plan-zooming] &": { visibility: "hidden" },
             pointerEvents: "none",
             zIndex: 4,
         },
@@ -930,7 +939,11 @@ export const planSlotRecipe = defineSlotRecipe({
             pointerEvents: "none",
             // A refLINE's label is right-anchored axis chrome and opts out of
             // the brush pan; a refDOT's label is window content and rides it.
-            "&[data-plan-nopan]": { transform: "translateX(calc(-1 * var(--plan-pan-px, 0px)))" },
+            // Under a ZOOM no translate counter exists — hide for the gesture.
+            "&[data-plan-nopan]": {
+                transform: "translateX(calc(-1 * var(--plan-pan-px, 0px)))",
+                "[data-plan-zooming] &": { visibility: "hidden" },
+            },
         },
         // ── Heat rows (min-height 16, r2, 3px margins; depth is data-driven) ──
         heatCell: {

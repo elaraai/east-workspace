@@ -180,7 +180,13 @@ describe("Plan ruler + footer chrome", () => {
         renderPlan(planRoot([planRow("m1", spanKind([]))]));
         expect(screen.getByText("W27")).toBeTruthy();
         expect(screen.getByText("W38")).toBeTruthy();
-        expect(screen.queryByText("W39")).toBeNull();
+        // The #619 overscan periods carry ticks too (#620) — mounted for the
+        // brush pan to reveal, clipped at rest by the band's clip. Beyond the
+        // two-period overscan: nothing.
+        expect(screen.getByText("W25")).toBeTruthy();
+        expect(screen.getByText("W40")).toBeTruthy();
+        expect(screen.queryByText("W24")).toBeNull();
+        expect(screen.queryByText("W41")).toBeNull();
         expect(screen.getByText("NOW")).toBeTruthy();
         // The ruler's gutter caption is the active grain (§1 mock: RESOURCE).
         expect(screen.getAllByText("RESOURCE").length).toBeGreaterThan(0);
@@ -494,6 +500,55 @@ describe("Plan overscan (#619)", () => {
         // the out-of-range index; the window grid itself stays 12 buckets.
         expect(container.querySelector('[data-plan-cell="12:0"]')).toBeTruthy();
         expect(container.querySelector('[data-plan-cell="11:0"]')).toBeNull();   // empty window cell: still occupied-only (#616)
+    });
+});
+
+describe("Plan brush-gesture fidelity (#620)", () => {
+    test("straddling runs mount at TRUE geometry with window-edge chrome recomputed", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("s", spanKind([
+                // W25..W29 — starts two weeks BEFORE the window.
+                run("lstrad", new Date("2026-06-15Z"), new Date("2026-07-13Z"), variant("actual", null)),
+                // W37..W41 — ends two weeks PAST the window.
+                run("rstrad", new Date("2026-09-07Z"), new Date("2026-10-05Z"), variant("confirmed", null)),
+            ])),
+        ]), "plan-620-straddle");
+        // The left straddler's box is its TRUE extent — negative left, full
+        // width — not the old window-clamped form that slid as a lie under a
+        // brush pan and popped at the settle.
+        const l = container.querySelector('[data-run="lstrad"]') as HTMLElement;
+        expect(l.style.left).toBe("-16.6667%");
+        expect(l.style.width).toBe("33.3333%");
+        expect(l.hasAttribute("data-runon")).toBe(true);
+        expect(l.hasAttribute("data-runoff")).toBe(false);
+        // The label pins to the window edge via computed padding: the edge
+        // sits at 50% of this box, plus the recipe's own 7px.
+        expect(l.style.paddingLeft).toBe("calc(50% + 7px)");   // jsdom normalizes 50.0000%
+        const r = container.querySelector('[data-run="rstrad"]') as HTMLElement;
+        expect(r.style.left).toBe("83.3333%");
+        expect(r.style.width).toBe("33.3333%");
+        expect(r.hasAttribute("data-runoff")).toBe(true);
+        expect(r.hasAttribute("data-runon")).toBe(false);
+        expect(r.style.paddingLeft).toBe("");
+    });
+
+    test("grid flanks, overscan ruler ticks and the extended wash mount for the pan to reveal", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("m1", spanKind([])),
+            planRow("b", variant("buckets", { lanes: [], events: [], markers: [] })),
+        ]), "plan-620-chrome");
+        // Six flank separators per row on an aligned axis: the overscan edges
+        // (−2w, −w, +1w, +2w past each side) plus the two window boundaries,
+        // which nudge outward / self-clip so the at-rest render is unchanged.
+        const row = container.querySelector('[data-plan-row="m1"]')!;
+        expect(row.querySelectorAll("[data-plan-gridflank]")).toHaveLength(6);
+        // The window gradient itself is untouched (#616's one element)…
+        expect(row.querySelectorAll("[data-plan-gridsep]")).toHaveLength(1);
+        // …and the bucket wash spans the render bounds: −2 weeks to +14 of a
+        // 12-week window.
+        const wash = container.querySelector("[data-plan-cellwash]") as HTMLElement;
+        expect(wash.style.left).toBe("-16.6667%");
+        expect(wash.style.width).toBe("133.3333%");
     });
 });
 
@@ -853,6 +908,58 @@ describe("Plan horizon brush — transform-pan preview, settle on release (§7 /
         expect(body.hasAttribute("data-plan-panning")).toBe(false);
         expect(body.style.getPropertyValue("--plan-pan-px")).toBe("");
     });
+
+    test("an edge RESIZE previews as a live ZOOM — scale variable mid-gesture, ONE settle on release (#620)", () => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+            ]),
+            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            // Applied window W29..W33 (4 weeks) inside the W27..W39 horizon.
+            range: some(variant("datetime", { from: new Date("2026-07-13T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z") })),
+            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none,
+            resolution: some(variant("week", null)),
+        };
+        const handle = buildSliceHandle("plan.brush.zoom", cfg as never, initial as never,
+            [{ at: W27 }, { at: W39 }] as never, none) as never as {
+                read(): { range: { value: { value: { from: Date; to: Date } } } };
+            };
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some({ slice: handle, affordances: [variant("brush", null)] }),
+        }), "plan-620-zoom");
+        const track = container.querySelector("[data-brush-track]") as HTMLElement;
+        Object.defineProperty(track, "getBoundingClientRect", {
+            value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+        });
+        const range = () => handle.read().range.value.value;
+        const body = container.querySelector("[data-plan-body]") as HTMLElement;
+
+        // Grab the HI handle (winTo = 500px on the mocked track) and drag it
+        // left one snapped week: the draft narrows W29..W33 → W29..W32.
+        fireEvent.pointerDown(track, { clientX: 500, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 420, pointerId: 1, buttons: 1 });
+        // The canvas previews the ZOOM: k = 4/3 stretches the pan layers about
+        // the plot's left edge; the width change hides the counter-translated
+        // value-axis chrome under `data-plan-zooming`. The slice does NOT move.
+        expect(body.hasAttribute("data-plan-panning")).toBe(true);
+        expect(body.hasAttribute("data-plan-zooming")).toBe(true);
+        expect(body.style.getPropertyValue("--plan-zoom-k")).toBe("1.333333");
+        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-08-10T00:00:00.000Z");
+
+        // Release: ONE commit lands the previewed window; the preview resets.
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-08-03T00:00:00.000Z");
+        expect(body.hasAttribute("data-plan-panning")).toBe(false);
+        expect(body.hasAttribute("data-plan-zooming")).toBe(false);
+        expect(body.style.getPropertyValue("--plan-zoom-k")).toBe("");
+        expect(body.style.getPropertyValue("--plan-pan-px")).toBe("");
+    });
 });
 
 describe("Plan element clicks (#569)", () => {
@@ -950,7 +1057,9 @@ describe("Plan keyboard rungs (#569)", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]), "plan-kbd-unbound");
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "[" });
         expect(screen.getByText("W27")).toBeTruthy();
-        expect(screen.queryByText("W26")).toBeNull();
+        // The window did not move: W25 is still the deepest (overscan) tick —
+        // a one-period pan would have mounted W24.
+        expect(screen.queryByText("W24")).toBeNull();
     });
 
     test("g cycles the grain — the reducer arm is finally reachable", () => {

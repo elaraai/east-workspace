@@ -58,15 +58,15 @@ export interface HorizonBrushProps {
 export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolution }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const scale = usePlanScale();
-    // ── Live preview: TRANSFORM-PAN the canvas, settle on release (#616) ──
-    // A window SLIDE (same width) is a pure horizontal translation of every
-    // plot layer, so a preview step is one style write through the pan
-    // channel — no slice write, no scale rebuild, no re-render. The strip
-    // draws the draft either way (masks + handles), an edge RESIZE previews
-    // in the strip alone (a width change is not a translation), and the
-    // release commits the real window ONCE through the machine. (The
-    // per-step live apply this replaces re-derived the whole canvas per
-    // snapped step; before that, #610's store staging doubled it.)
+    // ── Live preview: TRANSFORM the canvas, settle on release (#616/#620) ──
+    // Any draft over an existing window is an AFFINE preview of the canvas:
+    // a SLIDE is a pure translation, an edge RESIZE a scale about the plot's
+    // left edge — either way a preview step is style writes through the pan
+    // channel, no slice write, no scale rebuild, no re-render. The strip
+    // draws the draft too (masks + handles), and the release commits the
+    // real window ONCE through the machine. (The per-step live apply this
+    // replaces re-derived the whole canvas per snapped step; before that,
+    // #610's store staging doubled it.)
     const pan = usePlanPan();
     useEffect(() => pan.clear, [pan]);
     // Self-subscribe (#611): the histogram is a STORE read, and a re-render
@@ -139,21 +139,24 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
                         pan.clear();
                         dispatch({ t: "brush.commit", min: snapDate(fromFraction(f0)), max: snapDate(fromFraction(f1)) });
                     }}
-                    // Live SLIDE preview — the snapped draft pans the canvas
-                    // one discrete column at a time through the pan channel
-                    // (a width change is a resize: strip-only preview). A
+                    // Live preview — the snapped draft transforms the canvas
+                    // one discrete period step at a time through the pan
+                    // channel: a slide translates, a resize scales too
+                    // (#620). The one-period floor mirrors `snapWindow`, so
+                    // the preview shows exactly what would commit. A
                     // cancelled / no-op drag re-fires the origin, which is
-                    // slide(0) — the reset.
+                    // preview(0, 1) — the reset.
                     onPreview={(f0, f1) => {
                         const a = snapDate(fromFraction(f0));
-                        const b = snapDate(fromFraction(f1));
+                        let b = snapDate(fromFraction(f1));
+                        if (b.getTime() <= a.getTime()) b = interval.offset(a, 1);
                         const winFrom = window.min.getTime();
                         const winSpan = window.max.getTime() - winFrom;
-                        if (winSpan > 0 && Math.abs((b.getTime() - a.getTime()) - winSpan) < 1) {
-                            pan.slide((a.getTime() - winFrom) / winSpan);
-                        } else {
-                            pan.clear();
-                        }
+                        if (winSpan <= 0) { pan.clear(); return; }
+                        pan.preview(
+                            (a.getTime() - winFrom) / winSpan,
+                            (b.getTime() - winFrom) / winSpan,
+                        );
                     }}
                     onClear={() => { pan.clear(); dispatch({ t: "brush.clear" }); }}
                 />

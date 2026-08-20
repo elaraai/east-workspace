@@ -622,32 +622,46 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const frameFills = height !== undefined || maxHeight !== undefined;
     const barHeight = dense ? 16 : 20;
 
-    // ── The brush pan: DIRECT transform writes, settle on release (#616) ──
-    // A horizon-brush SLIDE (same window width) is a pure horizontal
-    // translation of every plot layer. The HorizonBrush reports the slid
-    // fraction; ONE px variable on the body translates every row's pan layer
-    // and the ruler track — no slice write, no scale rebuild, no re-render —
-    // and the release commits the window once. Content the old window culled
-    // is simply absent from the revealed edge until that settle (rendering a
-    // true overscan is the remaining #616 ambition).
+    // ── The brush pan: DIRECT transform writes, settle on release (#616/#620) ──
+    // Any brush draft over an existing window is an AFFINE preview of the
+    // canvas. The HorizonBrush reports the draft in fractions of the APPLIED
+    // window; two variables on the body transform every pan layer — a
+    // same-width draft is a pure slide (`k = 1`), an edge resize scales too —
+    // no slice write, no scale rebuild, no re-render — and the release
+    // commits the window once. The #619 overscan is what the revealed edge
+    // shows; beyond two periods it runs out until the settle.
     const pan = useMemo<PlanPan>(() => {
         const reset = (body: HTMLElement) => {
             body.style.removeProperty("--plan-pan-px");
+            body.style.removeProperty("--plan-zoom-k");
             body.removeAttribute("data-plan-panning");
+            body.removeAttribute("data-plan-zooming");
         };
         return {
-            slide: (dxFrac: number) => {
+            preview: (f0: number, f1: number) => {
                 const body = focusBodyRef.current;
                 if (body === null) return;
+                const w = f1 - f0;
+                if (!(w > 0)) return;
                 // The origin restore of a cancelled / no-op drag arrives as
-                // slide(0) — a zero pan IS the reset.
-                if (Math.abs(dxFrac) < 1e-9) { reset(body); return; }
+                // preview(0, 1) — the identity IS the reset.
+                if (Math.abs(f0) < 1e-9 && Math.abs(w - 1) < 1e-9) { reset(body); return; }
                 const plotW = Math.max(
                     0,
                     body.clientWidth - gutterW - (review !== undefined ? (pxOf(DECISION_WIDTH) ?? 0) : 0),
                 );
-                body.style.setProperty("--plan-pan-px", `${(-dxFrac * plotW).toFixed(2)}px`);
+                // Draft [f0, f1] maps content x → (x − f0·plotW) / (f1 − f0):
+                // with the pan layers' left-edge transform origin that is
+                // translateX(−f0·k·plotW) scaleX(k).
+                const k = 1 / w;
+                body.style.setProperty("--plan-pan-px", `${(-f0 * k * plotW).toFixed(2)}px`);
+                body.style.setProperty("--plan-zoom-k", k.toFixed(6));
                 body.setAttribute("data-plan-panning", "");
+                // A width-changing draft stretches the layers; chrome a
+                // translate counter cannot correct (right-edge value ticks)
+                // hides under this attribute for the gesture's duration.
+                if (Math.abs(k - 1) > 1e-9) body.setAttribute("data-plan-zooming", "");
+                else body.removeAttribute("data-plan-zooming");
             },
             clear: () => {
                 const body = focusBodyRef.current;

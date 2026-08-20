@@ -175,6 +175,14 @@ export interface PlanScale {
      * `[0, 1]`.
      */
     renderBucketOf(t: Date): PlanBucket | undefined;
+    /**
+     * The overscan buckets themselves, in axis order (left run then right
+     * run) — RENDER chrome geometry (#620): the ruler's overscan ticks and
+     * the grid's flank separators paint from these, clipped at rest and
+     * revealed by a brush pan. Never in {@link buckets}, never consulted by
+     * an interaction.
+     */
+    overscan: ReadonlyArray<PlanBucket>;
 }
 
 /**
@@ -322,6 +330,6 @@ export function planScale(
 
     return {
         window, resolution, n: buckets.length, buckets, xOf, fracOf, bucketOf, bucketAtFrac, snap, nowFrac,
-        renderMin, renderMax, renderBucketOf,
+        renderMin, renderMax, renderBucketOf, overscan,
     };
 }
