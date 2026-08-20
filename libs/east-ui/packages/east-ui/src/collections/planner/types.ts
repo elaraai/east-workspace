@@ -196,52 +196,11 @@ export type PlannerAxisType = typeof PlannerAxisType;
 // Event state + conflict marker
 // ============================================================================
 
-/**
- * The sub-flavour of a `proposed` event. It rides inside the `proposed` arm of
- * {@link PlannerStateType}, so it is only representable while proposed — a
- * committed event can never carry a flavour.
- *
- * @remarks
- * Consumer code passes string literals (`"added"`, `"model"`, `"removed"`) to
- * `Planner.event`'s `state` field rather than constructing this variant
- * directly. The renderer uses the flavour to pick a distinct visual treatment:
- * `added` is highlighted, `model` is rendered italic, and `removed` is struck
- * through to communicate a proposed deletion of an existing committed event.
- *
- * @property added - An operator proposal
- * @property model - A model's suggestion (rendered italic)
- * @property removed - A proposed deletion of a committed event (struck through)
- */
-export const PlannerFlavourType = VariantType({
-    added:   NullType,
-    model:   NullType,
-    removed: NullType,
-});
-export type PlannerFlavourType = typeof PlannerFlavourType;
-
-/**
- * The three event states. `committed` is audit-locked and read-only; `proposed`
- * is dirty-patch owned (carrying its flavour); `rejected` is a proposal that was
- * turned down, kept for diff context.
- *
- * @remarks
- * Consumer code passes string literals to `Planner.event`'s `state` field —
- * `"committed"`, `"added"`, `"model"`, `"removed"`, or `"rejected"` — and the
- * builder maps them to the appropriate nested variant. `proposed` is never
- * written directly; use the flavour shorthands instead. `rejected` events are
- * kept in the IR so diff views can show what was declined without re-fetching
- * history.
- *
- * @property committed - Audit-locked, immutable
- * @property proposed - Drafted; the flavour (see {@link PlannerFlavourType}) is nested
- * @property rejected - Reviewed and declined; kept for diff
- */
-export const PlannerStateType = VariantType({
-    committed: NullType,
-    proposed:  PlannerFlavourType,
-    rejected:  NullType,
-});
-export type PlannerStateType = typeof PlannerStateType;
+// The three-state audit grammar (`committed` / `proposed(flavour)` /
+// `rejected`) moved to `contracts/states.ts` (#571) — it is shared by Roster,
+// Board, and Blend, so it outlives the Planner. Re-exported here so Planner
+// modules and imports keep working until the component is deleted.
+export { PlannerFlavourType, PlannerStateType } from "../../contracts/states.js";
 
 /**
  * A row's review decision — distinct from the event-level {@link PlannerStateType}.

@@ -12,7 +12,7 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import { PlannerStateType } from "../planner/types.js";
+import { PlannerStateType } from "../../contracts/states.js";
 
 /**
  * Board render mode.

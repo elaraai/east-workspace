@@ -11,7 +11,8 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import { PlannerApprovalType, PlannerStateType } from "../planner/types.js";
+import { ApprovalStateType } from "../../contracts/approval.js";
+import { PlannerStateType } from "../../contracts/states.js";
 import { StatusValueType } from "../../feedback/status/types.js";
 
 /**
@@ -59,8 +60,8 @@ export const RosterPersonType = StructType({
     // Review chrome (only meaningful when the root carries `review`, #265):
     /** The quiet per-row status dot (some ⇒ flagged, none ⇒ clean) */
     status: OptionType(StatusValueType),
-    /** The row's review decision (structurally the shared `ApprovalStateType`) */
-    approval: OptionType(PlannerApprovalType),
+    /** The row's review decision (the shared `ApprovalStateType`) */
+    approval: OptionType(ApprovalStateType),
 });
 
 /**

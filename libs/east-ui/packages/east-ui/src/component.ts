@@ -177,7 +177,8 @@ import {
 } from "./collections/flowchart/types.js";
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
-import { StateValueType } from "./contracts/states.js";
+import { PlannerStateType, StateValueType } from "./contracts/states.js";
+import { ApprovalStateType, RowRefType } from "./contracts/approval.js";
 import { StatIndicatorType, StatStyleType } from "./display/stat/types.js";
 import { TickFormatType } from "./format/types.js";
 import { SliceSummaryType } from "./slice/summary/types.js";
@@ -225,7 +226,6 @@ import {
 import {
     PlannerSlotType,
     PlannerAxisType,
-    PlannerStateType,
     PlannerMarkerType,
     PlannerStretchType,
     PlannerContentType,
@@ -234,8 +234,6 @@ import {
     PlannerCellType,
     PlannerVariantType,
     PlannerSelectEventType,
-    PlannerApprovalType,
-    PlannerApproveEventType,
 } from "./collections/planner/types.js";
 import {
     PlanAxisType,
@@ -965,15 +963,15 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
-            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApprove: OptionType(FunctionType([RowRefType], NullType)),
+            onReject: OptionType(FunctionType([RowRefType], NullType)),
             onApproveAll: OptionType(FunctionType([], NullType)),
             onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),
             rerunLabel: StringType,
         })),
         reviewStatus: OptionType(FunctionType([IntegerType], OptionType(StatusValueType))),
-        reviewApproval: OptionType(FunctionType([IntegerType], OptionType(PlannerApprovalType))),
+        reviewApproval: OptionType(FunctionType([IntegerType], OptionType(ApprovalStateType))),
         slice: OptionType(SliceChromeType),
         style: OptionType(TableStyleType),
     }),
@@ -1000,9 +998,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             })),
             // Review chrome (#263) — mirror `GanttRowType` in
             // `collections/gantt/index.ts` (approval = the shared
-            // `ApprovalStateType`, structurally `PlannerApprovalType`).
+            // `ApprovalStateType`).
             status: OptionType(StatusValueType),
-            approval: OptionType(PlannerApprovalType),
+            approval: OptionType(ApprovalStateType),
         })),
         columns: ArrayType(StructType({
             key: StringType,
@@ -1044,8 +1042,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
-            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApprove: OptionType(FunctionType([RowRefType], NullType)),
+            onReject: OptionType(FunctionType([RowRefType], NullType)),
             onApproveAll: OptionType(FunctionType([], NullType)),
             onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),
@@ -1083,7 +1081,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             })),
             markers: ArrayType(PlannerMarkerType),
             status: OptionType(StatusValueType),
-            approval: OptionType(PlannerApprovalType),
+            approval: OptionType(ApprovalStateType),
         })),
         now: OptionType(PlannerSlotType),
         density: OptionType(DensityType),
@@ -1103,8 +1101,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
-            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApprove: OptionType(FunctionType([RowRefType], NullType)),
+            onReject: OptionType(FunctionType([RowRefType], NullType)),
             onApproveAll: OptionType(FunctionType([], NullType)),
             onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),
@@ -1207,8 +1205,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
-            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApprove: OptionType(FunctionType([RowRefType], NullType)),
+            onReject: OptionType(FunctionType([RowRefType], NullType)),
             onApproveAll: OptionType(FunctionType([], NullType)),
             onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),
@@ -1245,8 +1243,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
-            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApprove: OptionType(FunctionType([RowRefType], NullType)),
+            onReject: OptionType(FunctionType([RowRefType], NullType)),
             onApproveAll: OptionType(FunctionType([], NullType)),
             onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),

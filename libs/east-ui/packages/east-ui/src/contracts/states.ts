@@ -169,3 +169,59 @@ export type EventStateType = typeof EventStateType;
 export type EventStateLiteral =
     | "estimated" | "added" | "recommended" | "removed"
     | "confirmed" | "in-progress" | "actual" | "rejected";
+
+// ============================================================================
+// Three-state audit grammar — committed → proposed(flavour) → rejected
+// ============================================================================
+
+/**
+ * The sub-flavour of a `proposed` item. It rides inside the `proposed` arm of
+ * {@link PlannerStateType}, so it is only representable while proposed — a
+ * committed item can never carry a flavour.
+ *
+ * @remarks
+ * The flavour records *provenance and intent*: `added` is an operator's own
+ * proposal, `model` is a model's suggestion (rendered italic / dashed by the
+ * consuming surfaces), and `removed` proposes deleting an existing committed
+ * item (rendered struck through until the call is made).
+ *
+ * @property added - An operator proposal
+ * @property model - A model's suggestion (rendered italic)
+ * @property removed - A proposed deletion of a committed item (struck through)
+ */
+export const PlannerFlavourType = VariantType({
+    added:   NullType,
+    model:   NullType,
+    removed: NullType,
+});
+export type PlannerFlavourType = typeof PlannerFlavourType;
+
+/**
+ * The three-state audit grammar — `committed` is audit-locked and read-only;
+ * `proposed` is dirty-patch owned (carrying its {@link PlannerFlavourType});
+ * `rejected` is a proposal that was turned down, kept for diff context.
+ *
+ * @remarks
+ * The shared state vocabulary of the assignment surfaces — Roster shifts,
+ * Board assignments, and Blend allocations all carry these values in their
+ * data. Named for the Planner component that coined it (retired in favour of
+ * the `Plan` canvas, #571); the name is kept so existing data and imports
+ * round-trip unchanged.
+ *
+ * Two sibling vocabularies stay distinct on purpose:
+ * - {@link EventStateType} is the richer *scheduled-event* lifecycle the Plan
+ *   canvas speaks (`estimated → proposed → confirmed → in-progress → actual`).
+ * - `ApprovalStateType` (`contracts/review.ts`) is the *reviewer's* verdict on
+ *   a subject — a model writes `proposed(model)` items, the affected row rests
+ *   `pending`, and an operator's Approve resolves them.
+ *
+ * @property committed - Audit-locked, immutable
+ * @property proposed - Drafted; the flavour (see {@link PlannerFlavourType}) is nested
+ * @property rejected - Reviewed and declined; kept for diff
+ */
+export const PlannerStateType = VariantType({
+    committed: NullType,
+    proposed:  PlannerFlavourType,
+    rejected:  NullType,
+});
+export type PlannerStateType = typeof PlannerStateType;

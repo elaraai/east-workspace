@@ -33,6 +33,7 @@ export {
 export {
     StateValueType, type StateValueLiteral, StateValue,
     EventFlavourType, EventStateType, type EventStateLiteral,
+    PlannerFlavourType, PlannerStateType,
 } from "./states.js";
 
 export {

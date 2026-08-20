@@ -41,7 +41,7 @@ import { UIComponentType } from "../../component.js";
 import { mapRows } from "../../shared/reify.js";
 import { DensityType, type DensityLiteral } from "../../style/interaction.js";
 import { CellRefType, DragEventType } from "../../contracts/drag.js";
-import { PlannerStateType } from "../planner/types.js";
+import { PlannerStateType } from "../../contracts/states.js";
 import {
     RosterModeType, type RosterModeLiteral,
     RosterPersonType, RosterShiftType,

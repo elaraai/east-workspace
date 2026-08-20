@@ -15,7 +15,7 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import { PlannerStateType } from "../planner/types.js";
+import { PlannerStateType } from "../../contracts/states.js";
 import { CanDropFnType, DragEventType } from "../../contracts/drag.js";
 
 /**
