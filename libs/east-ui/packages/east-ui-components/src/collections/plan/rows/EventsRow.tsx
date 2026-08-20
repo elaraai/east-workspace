@@ -43,7 +43,9 @@ export function EventsRow({ rowKey, kind, styles, storageKey, ctx }: EventsRowPr
         <>
             {kind.marks.map((mark) => {
                 const x = scale.fracOf(mark.at);
-                if (x < 0 || x > 1) return null;
+                // Render-bounds cull (#619): overscan marks sit clipped at
+                // rest and slide in on a brush pan.
+                if (x <= scale.renderMin || x >= scale.renderMax) return null;
                 const label = mark.label.type === "some" ? mark.label.value : undefined;
                 const icon = mark.icon.type === "some" ? mark.icon.value : undefined;
                 const ref = variant("mark", { row: rowKey, mark: mark.key }) as PlanElementRefValue;

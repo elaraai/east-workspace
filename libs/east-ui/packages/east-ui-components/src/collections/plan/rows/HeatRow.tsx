@@ -61,10 +61,11 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const { onElementClick } = usePlanResolvers();
+    // RENDER bucketing (#619): overscan cells mount clipped at rest so a
+    // brush-slide pan reveals them; interactions still speak `bucketOf`.
     const cellBox = (at: Date): { left: string; width: string } | undefined => {
-        const i = scale.bucketOf(at);
-        if (i < 0) return undefined;
-        const b = scale.buckets[i]!;
+        const b = scale.renderBucketOf(at);
+        if (b === undefined) return undefined;
         return { left: `calc(${b.x0 * 100}% + 1.5px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 3px)` };
     };
     const clickCell = (at: Date) => (e: React.MouseEvent) => {
@@ -119,9 +120,8 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
         return (
             <>
                 {cells.value.map((c, i) => {
-                    const bi = scale.bucketOf(c.at);
-                    if (bi < 0) return null;
-                    const b = scale.buckets[bi]!;
+                    const b = scale.renderBucketOf(c.at);
+                    if (b === undefined) return null;
                     const frac = Math.max(0, Math.min(1, c.fraction));
                     return (
                         <Box key={i} css={styles.weightBar}
@@ -138,9 +138,8 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
     return (
         <>
             {cells.value.map((c, i) => {
-                const bi = scale.bucketOf(c.at);
-                if (bi < 0) return null;
-                const b = scale.buckets[bi]!;
+                const b = scale.renderBucketOf(c.at);
+                if (b === undefined) return null;
                 const total = c.segments.reduce((acc, s) => acc + Math.max(0, s.weight), 0);
                 return (
                     <Box key={i} css={styles.segmentTrack}

@@ -22,6 +22,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { formatTick, type TickFormatOpt } from "../../../typography/numeric/format-tick.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
+import type { PlanBucket } from "../scale.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type TableCellValue = ValueTypeOf<typeof Plan.Types.TableCell>;
@@ -62,22 +63,25 @@ export function TableRowCells({ rowKey, series, split, format, styles, ctx }: Ta
         return <ToneStrip data={data} styles={styles} />;
     }
     // Join the series by bucket — parts arrive in series order; a series
-    // without a cell in a bucket simply contributes nothing there.
+    // without a cell in a bucket simply contributes nothing there. RENDER
+    // bucketing (#619): overscan cells join and mount too, clipped at rest.
+    const bucketByIndex = new Map<number, PlanBucket>();
     const buckets = new Map<number, { si: number; cell: TableCellValue }[]>();
     series.forEach((s, si) => {
         for (const c of s.cells) {
-            const bi = scale.bucketOf(c.at);
-            if (bi < 0) continue;
-            const list = buckets.get(bi);
+            const b = scale.renderBucketOf(c.at);
+            if (b === undefined) continue;
+            bucketByIndex.set(b.index, b);
+            const list = buckets.get(b.index);
             if (list !== undefined) list.push({ si, cell: c });
-            else buckets.set(bi, [{ si, cell: c }]);
+            else buckets.set(b.index, [{ si, cell: c }]);
         }
     });
     const multi = series.length > 1;
     return (
         <>
             {[...buckets.entries()].map(([bi, parts]) => {
-                const b = scale.buckets[bi]!;
+                const b = bucketByIndex.get(bi)!;
                 return (
                     <Box key={bi} css={styles.tableCellText}
                         data-split={multi ? split : undefined}

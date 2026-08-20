@@ -469,6 +469,34 @@ describe("Plan DOM scale (#616)", () => {
     });
 });
 
+describe("Plan overscan (#619)", () => {
+    test("marks wholly inside the overscan MOUNT (clipped at rest); beyond it they don't", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("s", spanKind([
+                run("in", W27, new Date("2026-07-13Z"), variant("actual", null)),
+                // W39 — the first overscan week past the W27..W39 window.
+                run("near", new Date("2026-09-21Z"), new Date("2026-09-28Z"), variant("confirmed", null)),
+                // W42 — beyond the two-period overscan.
+                run("far", new Date("2026-10-12Z"), new Date("2026-10-19Z"), variant("confirmed", null)),
+            ])),
+            planRow("b", variant("buckets", {
+                lanes: [],
+                events: [bucketEvent("oe", new Date("2026-09-22Z"), variant("confirmed", null))],
+                markers: [],
+            })),
+        ]), "plan-619-overscan");
+        // The overscan run mounts (clipped at rest by the plot; a brush-slide
+        // pan reveals it) — the schematic's viewport-cull discipline, 1D.
+        expect(container.querySelector('[data-run="near"]')).toBeTruthy();
+        // Beyond the overscan: culled, exactly as before.
+        expect(container.querySelector('[data-run="far"]')).toBeNull();
+        // A bucket event in the first overscan period mounts its cell under
+        // the out-of-range index; the window grid itself stays 12 buckets.
+        expect(container.querySelector('[data-plan-cell="12:0"]')).toBeTruthy();
+        expect(container.querySelector('[data-plan-cell="11:0"]')).toBeNull();   // empty window cell: still occupied-only (#616)
+    });
+});
+
 describe("Plan ephemeral UI state survives a data commit (#610)", () => {
     // A Reactive write the series read — an approval, a committed drop — makes
     // a NEW decoded value. The canvas RECONCILES its ephemeral state against

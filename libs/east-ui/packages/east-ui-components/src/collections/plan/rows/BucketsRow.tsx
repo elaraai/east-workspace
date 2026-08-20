@@ -27,6 +27,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey } from "./SpanRow.js";
 import { ElementOverlays } from "./ElementOverlays.js";
+import type { PlanBucket } from "../scale.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type BucketsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "buckets" }>["value"];
@@ -118,12 +119,22 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
     };
 
     // Group events + markers by (bucket, lane); lane: none ⇒ the full cell
-    // (rendered as a spanning cell across all lanes).
+    // (rendered as a spanning cell across all lanes). RENDER bucketing
+    // (#619): overscan events land in overscan cells (out-of-range indices),
+    // clipped at rest and revealed by a brush pan; interactions still speak
+    // the window's `bucketOf`.
+    const bucketByIndex = new Map<number, PlanBucket>();
+    const renderIndexOf = (at: Date): number | undefined => {
+        const b = scale.renderBucketOf(at);
+        if (b === undefined) return undefined;
+        bucketByIndex.set(b.index, b);
+        return b.index;
+    };
     const cellEvents = new Map<string, BucketEventValue[]>();
     const fullCellEvents = new Map<number, BucketEventValue[]>();
     for (const ev of kind.events) {
-        const bi = scale.bucketOf(ev.at);
-        if (bi < 0) continue;
+        const bi = renderIndexOf(ev.at);
+        if (bi === undefined) continue;
         const li = laneIndex(ev.lane);
         if (li === undefined && lanes.length > 0) {
             const list = fullCellEvents.get(bi);
@@ -138,8 +149,8 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
     }
     const cellMarkers = new Map<string, MarkerValue[]>();
     for (const m of kind.markers) {
-        const bi = scale.bucketOf(m.at);
-        if (bi < 0) continue;
+        const bi = renderIndexOf(m.at);
+        if (bi === undefined) continue;
         const li = laneIndex(m.lane) ?? 0;
         const list = cellMarkers.get(`${bi}:${li}`);
         if (list !== undefined) list.push(m);
@@ -162,16 +173,16 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
 
     // Cell geometry — 2px horizontal / per-lane vertical insets approximating
     // the Planner's 1px 2px cell margins + 3px lane padding.
-    const cellX = (bi: number) => {
-        const b = scale.buckets[bi]!;
-        return { left: `calc(${b.x0 * 100}% + 2px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 4px)` };
-    };
+    const cellX = (b: PlanBucket) => (
+        { left: `calc(${b.x0 * 100}% + 2px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 4px)` }
+    );
     const laneY = (li: number, span: number = 1) => ({
         top: `calc(${(li / laneCount) * 100}% + 2px)`,
         height: `calc(${(span / laneCount) * 100}% - 4px)`,
     });
 
-    const renderCell = (bi: number, li: number | undefined, events: BucketEventValue[], span: number = 1) => {
+    const renderCell = (b: PlanBucket, li: number | undefined, events: BucketEventValue[], span: number = 1) => {
+        const bi = b.index;
         const marker = worstMarker(li !== undefined ? cellMarkers.get(`${bi}:${li}`) ?? [] : bucketMarkers(bi));
         const lane = li !== undefined ? lanes[li] : undefined;
         const caption = lane !== undefined && lane.label.type === "some" ? lane.label.value : undefined;
@@ -179,7 +190,7 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
             <Box css={styles.cell}
                 data-plan-cell={`${bi}:${li ?? "full"}`}
                 data-over={marker !== undefined ? marker.status.type : undefined}
-                {...cellX(bi)}
+                {...cellX(b)}
                 {...laneY(li ?? 0, li === undefined ? laneCount : span)}
                 onClick={() => dispatch({ t: "row.select", key: rowKey })}
             >
@@ -233,7 +244,8 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
             );
         }
     }
-    for (let bi = 0; bi < scale.buckets.length; bi++) {
+    const mountBucket = (b: PlanBucket, occupiedOnly: boolean) => {
+        const bi = b.index;
         const full = fullCellEvents.get(bi);
         if (full !== undefined) {
             // The mixed grammar: a lane-less event in a laned row takes the
@@ -244,15 +256,22 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
             // repositioned one (#615).
             const laned: BucketEventValue[] = [];
             for (let li = 0; li < laneCount; li++) laned.push(...(cellEvents.get(`${bi}:${li}`) ?? []));
-            cells.push(renderCell(bi, undefined, [...full, ...laned]));
-            continue;
+            cells.push(renderCell(b, undefined, [...full, ...laned]));
+            return;
         }
         for (let li = 0; li < laneCount; li++) {
             const events = cellEvents.get(`${bi}:${li}`) ?? [];
             const occupied = events.length > 0 || (cellMarkers.get(`${bi}:${li}`)?.length ?? 0) > 0;
-            if (uniform && !laneCaptioned(li) && !occupied) continue;
-            cells.push(renderCell(bi, li, events));
+            if (!occupied && (occupiedOnly || (uniform && !laneCaptioned(li)))) continue;
+            cells.push(renderCell(b, li, events));
         }
+    };
+    for (const b of scale.buckets) mountBucket(b, false);
+    // Overscan cells (#619) — occupied ONLY, always: the wash and the caption
+    // grid belong to the window; an overscan cell exists to slide real
+    // content in under a brush pan.
+    for (const [bi, b] of bucketByIndex) {
+        if (bi < 0 || bi >= scale.buckets.length) mountBucket(b, true);
     }
     return <>{cells}</>;
 }

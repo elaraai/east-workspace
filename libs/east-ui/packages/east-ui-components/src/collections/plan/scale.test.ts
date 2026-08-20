@@ -138,6 +138,58 @@ describe('planScale', () => {
         });
     });
 
+    describe('overscan (#619)', () => {
+        it('renderMin / renderMax extend the window by whole periods each side', () => {
+            // 4 aligned weeks → 2 overscan weeks each side = ±0.5 in fracs.
+            const scale = planScale({ min: d("2026-06-29T00:00:00Z"), max: d("2026-07-27T00:00:00Z") }, "week")!;
+            expect(scale.renderMin).toBeCloseTo(-0.5, 10);
+            expect(scale.renderMax).toBeCloseTo(1.5, 10);
+        });
+
+        it('renderBucketOf: window buckets inside, overscan geometry outside, undefined beyond', () => {
+            const scale = planScale({ min: d("2026-06-29T00:00:00Z"), max: d("2026-07-27T00:00:00Z") }, "week")!;
+            // Inside the window: the SAME bucket object `bucketOf` names.
+            expect(scale.renderBucketOf(d("2026-07-01T00:00:00Z"))).toBe(scale.buckets[0]);
+            // One week before the window: out-of-range index, negative fracs.
+            const before = scale.renderBucketOf(d("2026-06-24T00:00:00Z"))!;
+            expect(before.index).toBe(-1);
+            expect(before.x0).toBeCloseTo(-0.25, 10);
+            expect(before.x1).toBeCloseTo(0, 10);
+            // First week past the window: index n, x0 at the window edge.
+            const after = scale.renderBucketOf(d("2026-07-28T00:00:00Z"))!;
+            expect(after.index).toBe(4);
+            expect(after.x0).toBeCloseTo(1, 10);
+            // Interactions never see overscan — `bucketOf` stays window-only.
+            expect(scale.bucketOf(d("2026-07-28T00:00:00Z"))).toBe(-1);
+            // Beyond the overscan: nothing renders.
+            expect(scale.renderBucketOf(d("2026-06-10T00:00:00Z"))).toBeUndefined();
+            expect(scale.renderBucketOf(d("2026-08-15T00:00:00Z"))).toBeUndefined();
+        });
+
+        it('the right overscan starts at the COVERED edge of a truncated axis (#618)', () => {
+            const min = d("2026-01-01T00:00:00Z");
+            const max = new Date(Date.UTC(2026, 0, 1) + 600 * 86_400_000);
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const scale = planScale({ min, max }, "day")!;
+            warn.mockRestore();
+            const lastEnd = scale.buckets[scale.n - 1]!.end;
+            const b = scale.renderBucketOf(lastEnd)!;
+            expect(b.index).toBe(scale.n);
+            expect(b.start.getTime()).toBe(lastEnd.getTime());
+            // Past the overscan but inside the WINDOW: still no render bucket
+            // — truncation narrows the grid, overscan only pads its edges.
+            expect(scale.renderBucketOf(new Date(Date.UTC(2026, 0, 1) + 550 * 86_400_000))).toBeUndefined();
+            expect(scale.renderMax).toBeLessThan(1);
+        });
+
+        it('an unaligned window maps the pre-min sliver to the clipped first bucket', () => {
+            // Wednesday-start window: the first period begins Mon 6-29.
+            const scale = planScale({ min: d("2026-07-01T00:00:00Z"), max: d("2026-07-15T00:00:00Z") }, "week")!;
+            expect(scale.renderBucketOf(d("2026-06-30T00:00:00Z"))).toBe(scale.buckets[0]);
+            expect(scale.renderBucketOf(d("2026-06-25T00:00:00Z"))!.index).toBe(-1);
+        });
+    });
+
     describe('degenerate windows', () => {
         it('empty or inverted windows yield no scale', () => {
             const t = d("2026-06-29T00:00:00Z");

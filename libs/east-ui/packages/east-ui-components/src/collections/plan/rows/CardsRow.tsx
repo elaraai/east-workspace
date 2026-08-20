@@ -43,9 +43,14 @@ export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProp
             {kind.chips.map((chip) => {
                 const f0 = scale.fracOf(chip.from);
                 const f1 = scale.fracOf(chip.to);
-                if (f1 <= 0 || f0 >= 1) return null;
-                const left = Math.max(0, f0);
-                const width = Math.max(0, Math.min(1, f1) - left);
+                // Render-bounds cull (#619): a chip wholly in the overscan
+                // mounts at its true geometry (clipped at rest, revealed by a
+                // brush pan); one touching the window keeps its clamped form
+                // so the at-rest render is unchanged.
+                if (f1 <= scale.renderMin || f0 >= scale.renderMax) return null;
+                const outside = f1 <= 0 || f0 >= 1;
+                const left = outside ? f0 : Math.max(0, f0);
+                const width = Math.max(0, (outside ? f1 : Math.min(1, f1)) - left);
                 const icon = chip.icon.type === "some" ? chip.icon.value : undefined;
                 const ref = variant("chip", { row: rowKey, chip: chip.key }) as PlanElementRefValue;
                 const node = (

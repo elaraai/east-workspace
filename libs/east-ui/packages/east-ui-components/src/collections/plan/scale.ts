@@ -43,6 +43,13 @@ const DAY_MS = 86_400_000;
  *  warning) rather than locking the tab (the Planner convention). */
 export const MAX_PLAN_BUCKETS = 500;
 
+/** Whole periods rendered beyond each window edge (#619) — the slide distance
+ *  a brush pan can travel before its revealed edge runs out of real content.
+ *  Overscan marks are clipped at rest by the plot's `overflow: hidden`, so
+ *  they cost DOM without costing pixels — the Schematic's viewport-cull
+ *  discipline (`schematic/camera.ts`), collapsed to one axis. */
+export const PLAN_OVERSCAN_BUCKETS = 2;
+
 /** The d3-time UTC interval for a resolution (quarter = 3-month steps; week =
  *  ISO Monday-start). */
 export function resolutionInterval(res: PlanResolution): TimeInterval {
@@ -150,6 +157,24 @@ export interface PlanScale {
     snap(t: Date): Date;
     /** The now instant's window fraction, when inside the window. */
     nowFrac: number | undefined;
+    /**
+     * The RENDER-cull bounds, in window fractions (#619): the window plus
+     * {@link PLAN_OVERSCAN_BUCKETS} whole periods each side (the right side
+     * extends from the COVERED edge on a truncated axis). Window-anchored
+     * marks cull against these instead of `[0, 1]`, so a brush-slide pan
+     * reveals real content; the ruler, the grid, `bucketOf` and every drop
+     * coordinate stay on the window buckets.
+     */
+    renderMin: number;
+    renderMax: number;
+    /**
+     * The bucket containing an instant across window + overscan — RENDER
+     * geometry only (interactions use {@link bucketOf}); `undefined` outside
+     * the render bounds. Overscan buckets carry out-of-range indices
+     * (negative on the left, ≥ `n` on the right) and fractions outside
+     * `[0, 1]`.
+     */
+    renderBucketOf(t: Date): PlanBucket | undefined;
 }
 
 /**
@@ -246,9 +271,57 @@ export function planScale(
         return t.getTime() - below.getTime() <= above.getTime() - t.getTime() ? below : above;
     };
 
+    // ── Overscan (#619) ── whole periods beyond each edge, geometry only:
+    // out-of-range indices, fractions outside [0, 1], never in `buckets`,
+    // never consulted by the ruler, the grid, `bucketOf` or a drop
+    // coordinate. The right run starts at the COVERED edge (the last
+    // bucket's end — the truncation boundary on a truncated axis, #618) and
+    // re-aligns to period edges if that edge is mid-period (a clipped
+    // window max).
+    const labelOf = (start: Date): string =>
+        format !== undefined ? formatDatePattern(format, start) : defaultTickLabel(start, resolution);
+    const minPeriodStartMs = interval.floor(window.min).getTime();
+    const overscan: PlanBucket[] = [];
+    for (let k = PLAN_OVERSCAN_BUCKETS; k >= 1; k--) {
+        const start = interval.offset(interval.floor(window.min), -k);
+        const end = interval.offset(start, 1);
+        overscan.push({ index: -k, start, end, x0: fracOf(start), x1: fracOf(end), label: labelOf(start) });
+    }
+    let overscanStart = buckets[buckets.length - 1]!.end;
+    for (let k = 0; k < PLAN_OVERSCAN_BUCKETS; k++) {
+        const aligned = interval.floor(overscanStart).getTime() === overscanStart.getTime();
+        const end = aligned
+            ? interval.offset(overscanStart, 1)
+            : interval.offset(interval.floor(overscanStart), 1);
+        overscan.push({
+            index: buckets.length + k,
+            start: overscanStart,
+            end,
+            x0: fracOf(overscanStart),
+            x1: fracOf(end),
+            label: labelOf(overscanStart),
+        });
+        overscanStart = end;
+    }
+    const renderMin = overscan[0]!.x0;
+    const renderMax = overscan[overscan.length - 1]!.x1;
+    const renderBucketOf = (t: Date): PlanBucket | undefined => {
+        const i = bucketOf(t);
+        if (i >= 0) return buckets[i];
+        const ms = t.getTime();
+        // The pre-min sliver of an UNALIGNED window's first period belongs to
+        // the first (clipped) bucket — reachable only mid-pan, drawn in the
+        // clipped bucket's visible geometry.
+        if (ms >= minPeriodStartMs && ms < minMs) return buckets[0];
+        return overscan.find((b) => ms >= b.start.getTime() && ms < b.end.getTime());
+    };
+
     const nowFrac = now !== undefined && now.getTime() >= minMs && now.getTime() < maxMs
         ? fracOf(now)
         : undefined;
 
-    return { window, resolution, n: buckets.length, buckets, xOf, fracOf, bucketOf, bucketAtFrac, snap, nowFrac };
+    return {
+        window, resolution, n: buckets.length, buckets, xOf, fracOf, bucketOf, bucketAtFrac, snap, nowFrac,
+        renderMin, renderMax, renderBucketOf,
+    };
 }

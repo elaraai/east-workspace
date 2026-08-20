@@ -207,9 +207,11 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 ? { type: layer.value.breach.value.type, value: layer.value.breach.value.value }
                 : undefined;
             for (const p of layer.value.points) {
-                const bi = scale.bucketOf(p.t);
-                if (bi < 0) continue;
-                const b = scale.buckets[bi]!;
+                // RENDER bucketing (#619): overscan columns mount clipped at
+                // rest and slide in on a brush pan.
+                const b = scale.renderBucketOf(p.t);
+                if (b === undefined) continue;
+                const bi = b.index;
                 const inset = 0.18 * (b.x1 - b.x0);
                 const base = series !== undefined ? (stacks.get(bi) ?? 0) : 0;
                 if (series !== undefined) stacks.set(bi, base + p.y);
@@ -306,7 +308,13 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
         if (layer.type === "scatter") {
             const s = ys(layer.value.axis.type);
             layer.value.points.forEach((p, pi) => {
-                svgMarks.push(<circle key={`sc-${li}-${pi}`} cx={scale.xOf(p.t) * VW} cy={s.y(p.y)}
+                // Unclamped + render-bounds culled (#619): an out-of-window
+                // dot used to CLAMP onto the window edge (an artifact pile);
+                // it now sits at its true instant in the overscan, clipped at
+                // rest and revealed by a brush pan.
+                const f = scale.fracOf(p.t);
+                if (f <= scale.renderMin || f >= scale.renderMax) return;
+                svgMarks.push(<circle key={`sc-${li}-${pi}`} cx={f * VW} cy={s.y(p.y)}
                     r={2.5} fill={SCATTER} stroke="none" />);
             });
             return;

@@ -67,10 +67,18 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
     const bars = useMemo(() => kind.runs.map((run) => {
         const f0 = scale.fracOf(run.start);
         const f1 = scale.fracOf(run.end);
-        if (f1 <= 0 || f0 >= 1) return null;                    // fully outside
-        const left = Math.max(0, f0);
-        const right = Math.min(1, f1);
-        return { run, left, width: Math.max(0, right - left), runoff: f1 > 1 };
+        // Cull against the RENDER bounds (#619 — the schematic's
+        // viewport-cull discipline, one axis): a run WHOLLY outside the
+        // window but inside the overscan mounts at its true geometry,
+        // clipped at rest, so a brush-slide pan reveals it. A run TOUCHING
+        // the window keeps its window-clamped form — its label pins to the
+        // window edge and the runoff mask's proportions ride the clamp, so
+        // the at-rest render is bit-identical to before.
+        if (f1 <= scale.renderMin || f0 >= scale.renderMax) return null;
+        const outside = f1 <= 0 || f0 >= 1;
+        const left = outside ? f0 : Math.max(0, f0);
+        const right = outside ? f1 : Math.min(1, f1);
+        return { run, left, width: Math.max(0, right - left), runoff: !outside && f1 > 1 };
     }).filter((b): b is NonNullable<typeof b> => b !== null), [kind.runs, scale]);
 
     return (
@@ -131,7 +139,9 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
             })}
             {kind.ports.map((port, i) => {
                 const x = scale.fracOf(port.at);
-                if (x < 0 || x > 1) return null;
+                // Point marks cull to the render bounds (#619) — overscan
+                // ports sit clipped at rest and slide in on a brush pan.
+                if (x <= scale.renderMin || x >= scale.renderMax) return null;
                 const label = port.label.type === "some" ? port.label.value : undefined;
                 if (label === undefined) return <Box key={`port-${i}`} css={styles.port} left={`${x * 100}%`} />;
                 // The design-system tooltip, never the native `title=` — the
@@ -152,7 +162,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
             })}
             {kind.decisions.map((dec) => {
                 const x = scale.fracOf(dec.at);
-                if (x < 0 || x > 1) return null;
+                if (x <= scale.renderMin || x >= scale.renderMax) return null;
                 const ref = variant("mark", { row: rowKey, mark: dec.key }) as PlanElementRefValue;
                 const diamond = (
                     <Box css={styles.diamond} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
