@@ -364,33 +364,28 @@ export function RowShell({
                 }}
                 onPointerLeave={() => { if (!dragActive) cursor.leave(); }}
             >
-                {/* The brush-pan layer (#616): the plot's window-anchored
-                    content translates by the body's `--plan-pan-px` during a
-                    horizon-brush slide — the plot's own clip stays put. */}
-                <Box css={styles.panLayer} data-plan-panlayer>
-                    {noGrid !== true && <GridSeparators styles={styles} />}
-                    {drop !== undefined && (
-                        <Box ref={previewRef} css={styles.dropPreview} data-plan-drop-preview />
-                    )}
-                    {/* Expanded: the row's own marks hold a band at the top (they
-                        position against it, so a 20px bar in a 200px row does not
-                        drift to the middle), and the render takes the rest. */}
-                    {expanded ? (
-                        <>
-                            <Box css={styles.expandRowBand} height={`${bandHeight ?? 32}px`}>{children}</Box>
-                            <Box css={styles.expandRenderBody} data-plan-expandrender
-                                top={`${(bandHeight ?? 32) + 2}px`}>
-                                {expandBody}
-                            </Box>
-                        </>
-                    ) : children}
-                    {/* The shared hairline — positioned by the body's ONE
-                        `--plan-cursor-x` variable and shown only under
-                        `[data-plan-cursor]` (#609): a pointermove writes a style,
-                        renders nothing. Strips carry no hairline. */}
-                    {ctx !== true && <Box css={styles.cursorLine} data-plan-cursorline />}
-                    {scale.nowFrac !== undefined && <Box css={styles.nowLine} data-plan-axisline left={`${scale.nowFrac * 100}%`} />}
-                </Box>
+                {noGrid !== true && <GridSeparators styles={styles} />}
+                {drop !== undefined && (
+                    <Box ref={previewRef} css={styles.dropPreview} data-plan-drop-preview />
+                )}
+                {/* Expanded: the row's own marks hold a band at the top (they
+                    position against it, so a 20px bar in a 200px row does not
+                    drift to the middle), and the render takes the rest. */}
+                {expanded ? (
+                    <>
+                        <Box css={styles.expandRowBand} height={`${bandHeight ?? 32}px`}>{children}</Box>
+                        <Box css={styles.expandRenderBody} data-plan-expandrender
+                            top={`${(bandHeight ?? 32) + 2}px`}>
+                            {expandBody}
+                        </Box>
+                    </>
+                ) : children}
+                {/* The shared hairline — positioned by the body's ONE
+                    `--plan-cursor-x` variable and shown only under
+                    `[data-plan-cursor]` (#609): a pointermove writes a style,
+                    renders nothing. Strips carry no hairline. */}
+                {ctx !== true && <Box css={styles.cursorLine} data-plan-cursorline />}
+                {scale.nowFrac !== undefined && <Box css={styles.nowLine} data-plan-axisline left={`${scale.nowFrac * 100}%`} />}
             </Box>
             {decision}
         </Box>

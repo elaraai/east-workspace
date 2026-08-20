@@ -15,14 +15,14 @@
  * an unbound Plan has no wider horizon to brush.
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Box } from "@chakra-ui/react";
-import { type ValueTypeOf } from "@elaraai/east";
+import { some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { BrushStrip } from "../../../slice/brush-strip.js";
 import { boundRangeDomain, boundRangeHistogram } from "../../../platform/slice/index.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
-import { usePlanDispatch, usePlanPan, usePlanScale } from "../context.js";
+import { usePlanDispatch, usePlanScale } from "../context.js";
 import { resolutionInterval, type PlanWindow } from "../scale.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -58,17 +58,25 @@ export interface HorizonBrushProps {
 export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolution }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const scale = usePlanScale();
-    // ── Live preview: TRANSFORM-PAN the canvas, settle on release (#616) ──
-    // A window SLIDE (same width) is a pure horizontal translation of every
-    // plot layer, so a preview step is one style write through the pan
-    // channel — no slice write, no scale rebuild, no re-render. The strip
-    // draws the draft either way (masks + handles), an edge RESIZE previews
-    // in the strip alone (a width change is not a translation), and the
-    // release commits the real window ONCE through the machine. (The
-    // per-step live apply this replaces re-derived the whole canvas per
-    // snapped step; before that, #610's store staging doubled it.)
-    const pan = usePlanPan();
-    useEffect(() => pan.clear, [pan]);
+    // ── Live PER-STEP application (#620; the #609 pattern, resizes too) ──
+    // The draft is SNAPPED to period edges, so it changes a handful of times
+    // per gesture — there is nothing per-frame to smooth, and a transform
+    // preview of stale DOM lies (the reverted #620 attempt scaled plain
+    // slides wherever the snapped draft's ms-width differed from the applied
+    // window's — month/quarter periods, unaligned windows, edge clamps).
+    // Instead, each snapped step WRITES the draft window to the slice,
+    // rAF-coalesced: every mid-gesture frame is a real render of the draft —
+    // grid, ruler, geometry and zoom are correct by construction, and the
+    // post-#616 canvas (virtualized rows, memoized row layer) makes a step
+    // a few milliseconds. A cancelled / no-op drag re-fires the origin
+    // through the same channel, so the window always lands somewhere
+    // deliberate; the release's commit cancels any pending frame so it is
+    // always the last write.
+    const stepFrameRef = useRef<number | null>(null);
+    const stepPendingRef = useRef<PlanWindow | null>(null);
+    useEffect(() => () => {
+        if (stepFrameRef.current !== null) cancelAnimationFrame(stepFrameRef.current);
+    }, []);
     // Self-subscribe (#611): the histogram is a STORE read, and a re-render
     // does not bust a memo whose deps did not move — the version has to be
     // one of them. (The previous disable comment justified the old deps with
@@ -112,6 +120,24 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
     const unit = CAPTION_UNIT[resolution] ?? CAPTION_UNIT.week!;
     const caption = `HORIZON · ${Math.max(1, Math.round(span / unitMs))} ${unit.label}`;
 
+    // One coalesced slice write per frame — the LAST step wins the frame.
+    const applyStep = (min: Date, max: Date) => {
+        stepPendingRef.current = { min, max };
+        stepFrameRef.current ??= requestAnimationFrame(() => {
+            stepFrameRef.current = null;
+            const w = stepPendingRef.current;
+            stepPendingRef.current = null;
+            if (w !== null) slice.setRange(some(variant("datetime", { from: w.min, to: w.max })));
+        });
+    };
+    const cancelStep = () => {
+        if (stepFrameRef.current !== null) {
+            cancelAnimationFrame(stepFrameRef.current);
+            stepFrameRef.current = null;
+        }
+        stepPendingRef.current = null;
+    };
+
     return (
         <Box css={styles.brushRow} gridTemplateColumns={gridTemplate} data-slot="horizon"
             // The esc rung DISARMS on any release — including the
@@ -133,29 +159,25 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
                     snapWindow={snapWindow}
                     // Snap AGAIN on the dates themselves so float round-trips
                     // can never land the committed window 1ms off an edge. The
-                    // pan resets in the same frame the commit re-derives, so
-                    // content lands exactly where the pan showed it.
+                    // commit cancels any pending step frame, so it is always
+                    // the last write.
                     onCommit={(f0, f1) => {
-                        pan.clear();
+                        cancelStep();
                         dispatch({ t: "brush.commit", min: snapDate(fromFraction(f0)), max: snapDate(fromFraction(f1)) });
                     }}
-                    // Live SLIDE preview — the snapped draft pans the canvas
-                    // one discrete column at a time through the pan channel
-                    // (a width change is a resize: strip-only preview). A
-                    // cancelled / no-op drag re-fires the origin, which is
-                    // slide(0) — the reset.
+                    // Live per-step application — the strip fires only when
+                    // the SNAPPED draft changes (one step per period-boundary
+                    // crossing), and each step writes the draft window to the
+                    // slice: moves slide the real canvas, resizes zoom it.
+                    // The one-period floor mirrors `snapWindow`, so what the
+                    // steps show is exactly what the release commits.
                     onPreview={(f0, f1) => {
                         const a = snapDate(fromFraction(f0));
-                        const b = snapDate(fromFraction(f1));
-                        const winFrom = window.min.getTime();
-                        const winSpan = window.max.getTime() - winFrom;
-                        if (winSpan > 0 && Math.abs((b.getTime() - a.getTime()) - winSpan) < 1) {
-                            pan.slide((a.getTime() - winFrom) / winSpan);
-                        } else {
-                            pan.clear();
-                        }
+                        let b = snapDate(fromFraction(f1));
+                        if (b.getTime() <= a.getTime()) b = interval.offset(a, 1);
+                        applyStep(a, b);
                     }}
-                    onClear={() => { pan.clear(); dispatch({ t: "brush.clear" }); }}
+                    onClear={() => { cancelStep(); dispatch({ t: "brush.clear" }); }}
                 />
             </Box>
         </Box>

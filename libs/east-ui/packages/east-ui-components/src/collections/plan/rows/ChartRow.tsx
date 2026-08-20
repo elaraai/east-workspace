@@ -376,9 +376,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
                 if (layer.type === "refLine" && layer.value.label.type === "some") {
                     const s = ys(layer.value.axis.type);
                     const top = Math.max(1, Math.min(height - 12, s.y(layer.value.y) - 11));
-                    // Right-anchored VALUE-axis chrome — opts out of the brush
-                    // pan (#616); a refDot's label is window content and rides it.
-                    return <Box key={`reflabel-${li}`} css={styles.refLabel} right="4px" data-plan-nopan
+                    return <Box key={`reflabel-${li}`} css={styles.refLabel} right="4px"
                         top={`${top}px`}>{layer.value.label.value}</Box>;
                 }
                 if (layer.type === "refDot" && layer.value.label.type === "some") {

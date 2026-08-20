@@ -799,8 +799,8 @@ describe("Plan resolution zoom (§3)", () => {
     });
 });
 
-describe("Plan horizon brush — transform-pan preview, settle on release (§7 / #616)", () => {
-    test("sliding the window PANS the canvas via one transform variable; the slice settles ONCE on release", () => {
+describe("Plan horizon brush — per-step live application (§7 / #620)", () => {
+    const brushFixture = (key: string) => {
         initializeStore(new UIStore());
         const cfg = {
             fields: new Map<string, unknown>([
@@ -816,42 +816,54 @@ describe("Plan horizon brush — transform-pan preview, settle on release (§7 /
             resolution: some(variant("week", null)),
         };
         // Data spans W27..W39 — a 12-week brushable domain (84 days).
-        const handle = buildSliceHandle("plan.brush", cfg as never, initial as never,
+        const handle = buildSliceHandle(key, cfg as never, initial as never,
             [{ at: W27 }, { at: W39 }] as never, none) as never as {
                 read(): { range: { value: { value: { from: Date; to: Date } } } };
             };
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             slice: some({ slice: handle, affordances: [variant("brush", null)] }),
-        }));
+        }), key);
         const track = container.querySelector("[data-brush-track]") as HTMLElement;
         Object.defineProperty(track, "getBoundingClientRect", {
             value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
         });
-        const range = () => handle.read().range.value.value;
+        return { container, track, range: () => handle.read().range.value.value };
+    };
 
-        const body = container.querySelector("[data-plan-body]") as HTMLElement;
-
+    test("a SLIDE applies each snapped step to the slice — the canvas re-renders honestly mid-gesture", async () => {
+        const { track, range } = brushFixture("plan-620-slide");
         // Grab the window body (166.7px..500px on the mocked track) and
-        // slide +86px ≈ +1.03 weeks — the snapped draft steps one period.
+        // slide +86px ≈ +1.03 weeks — the snapped draft steps one period,
+        // and that step is APPLIED (rAF-coalesced): the mid-gesture canvas
+        // IS the draft window, so grid / ruler / geometry stay truthful
+        // (the reverted transform preview slid stale DOM instead — #620).
         fireEvent.pointerDown(track, { clientX: 300, pointerId: 1, buttons: 1 });
         fireEvent.pointerMove(track, { clientX: 386, pointerId: 1, buttons: 1 });
-        // The canvas PANS (one transform variable on the body; every pan
-        // layer translates) and the slice does NOT move — a mid-gesture step
-        // is a style write, never a re-derive (#616).
-        expect(body.hasAttribute("data-plan-panning")).toBe(true);
-        expect(body.style.getPropertyValue("--plan-pan-px")).not.toBe("");
-        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-08-10T00:00:00.000Z");
+        await waitFor(() => expect(range().from.toISOString()).toBe("2026-07-20T00:00:00.000Z"));
+        expect(range().to.toISOString()).toBe("2026-08-17T00:00:00.000Z");
 
-        // Slide on to ≈ +2 weeks total and release — ONE commit lands the
-        // snapped window the strip previewed, and the pan resets in the same
-        // frame so content lands exactly where the pan showed it.
+        // Slide on to ≈ +2 weeks total and release — the commit lands the
+        // same window the last step already applied.
         fireEvent.pointerMove(track, { clientX: 467, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(range().from.toISOString()).toBe("2026-07-27T00:00:00.000Z");
         expect(range().to.toISOString()).toBe("2026-08-24T00:00:00.000Z");
-        expect(body.hasAttribute("data-plan-panning")).toBe(false);
-        expect(body.style.getPropertyValue("--plan-pan-px")).toBe("");
+    });
+
+    test("an edge RESIZE applies its snapped steps too — a live zoom, no transform anywhere", async () => {
+        const { track, range } = brushFixture("plan-620-resize");
+        // Grab the HI handle (winTo = 500px on the mocked track) and drag it
+        // left one snapped week: the draft narrows W29..W33 → W29..W32 and
+        // the step applies — the canvas re-lays at the narrower window, a
+        // REAL zoom (columns re-derive; no scaled text, no hidden chrome).
+        fireEvent.pointerDown(track, { clientX: 500, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 420, pointerId: 1, buttons: 1 });
+        await waitFor(() => expect(range().to.toISOString()).toBe("2026-08-03T00:00:00.000Z"));
+        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-08-03T00:00:00.000Z");
     });
 });
 

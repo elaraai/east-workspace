@@ -70,27 +70,6 @@ export const PlanCursorContext = createContext<PlanCursor>({
     leave: () => undefined,
 });
 
-/**
- * The brush-pan controller (#616) — direct transform writes, settle on
- * release. A horizon-brush SLIDE (same window width) is a pure horizontal
- * translation of every plot layer: `slide` sets ONE px variable on the
- * canvas body (`--plan-pan-px`) that every pan layer translates by, so a
- * drag step is one style write — no slice write, no scale rebuild, no
- * re-render — and the release commits the real window once.
- */
-export interface PlanPan {
-    /** Pan the canvas by a fraction of the applied window (0 clears). */
-    slide(dxFrac: number): void;
-    /** Reset the pan (release / cancel / unmount). */
-    clear(): void;
-}
-
-/** The pan channel (inert by default). */
-export const PlanPanContext = createContext<PlanPan>({
-    slide: () => undefined,
-    clear: () => undefined,
-});
-
 /** The element-resolver channel (empty when the root declares none). */
 export const PlanResolversContext = createContext<PlanResolvers>({});
 
@@ -122,15 +101,6 @@ export function usePlanDispatch(): (e: PlanEvent) => void {
  */
 export function usePlanCursor(): PlanCursor {
     return useContext(PlanCursorContext);
-}
-
-/**
- * The brush-pan controller.
- *
- * @returns The canvas's pan channel (a no-op outside a Plan)
- */
-export function usePlanPan(): PlanPan {
-    return useContext(PlanPanContext);
 }
 
 /**

@@ -51,10 +51,7 @@ export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef, traili
         <Box css={styles.ruler} gridTemplateColumns={gridTemplate} data-slot="ruler">
             <Box css={styles.brushCaption} borderRight="none">{caption}</Box>
             <Box position="relative" minWidth={0} overflow="clip">
-                {/* The brush-pan layer (#616): the tick grid + NOW chip are
-                    window-anchored and slide with the canvas; the cursor chip
-                    is pointer-anchored and stays outside the layer. */}
-                <Box css={styles.panLayer} display="grid" gridTemplateColumns={columns} data-plan-panlayer>
+                <Box position="absolute" inset={0} display="grid" gridTemplateColumns={columns}>
                     {scale.buckets.map((b) => (
                         <Box key={b.index} css={styles.rulerTick} data-slot="rulerTick">{b.label}</Box>
                     ))}
