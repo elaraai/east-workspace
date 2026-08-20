@@ -17,7 +17,7 @@ import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/east-ui/internal";
-import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
+import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { ElementOverlays } from "./ElementOverlays.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -38,6 +38,7 @@ export function EventsRow({ rowKey, kind, styles, storageKey, ctx }: EventsRowPr
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const { onElementClick } = usePlanResolvers();
     return (
         <>
             {kind.marks.map((mark) => {
@@ -45,9 +46,11 @@ export function EventsRow({ rowKey, kind, styles, storageKey, ctx }: EventsRowPr
                 if (x < 0 || x > 1) return null;
                 const label = mark.label.type === "some" ? mark.label.value : undefined;
                 const icon = mark.icon.type === "some" ? mark.icon.value : undefined;
+                const ref = variant("mark", { row: rowKey, mark: mark.key }) as PlanElementRefValue;
                 const onClick = (e: MouseEvent) => {
                     e.stopPropagation();
                     dispatch({ t: "row.select", key: rowKey });
+                    onElementClick?.(ref);
                 };
                 // ── R4 (#591) ──
                 // A K7 override swaps the kind's geometry for the host's own
@@ -74,7 +77,7 @@ export function EventsRow({ rowKey, kind, styles, storageKey, ctx }: EventsRowPr
                                 left={`${x * 100}%`} onClick={onClick} cursor="pointer" />;
                 return (
                     <ElementOverlays key={mark.key}
-                        elementRef={variant("mark", { row: rowKey, mark: mark.key }) as PlanElementRefValue}
+                        elementRef={ref}
                         storageKey={`${storageKey}.${mark.key}`}>
                         <Box as="span" display="contents">
                             {glyph}

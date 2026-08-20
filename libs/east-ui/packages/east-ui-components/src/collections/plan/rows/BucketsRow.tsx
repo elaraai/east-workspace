@@ -24,7 +24,7 @@ import {
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
-import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
+import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey } from "./SpanRow.js";
 import { ElementOverlays } from "./ElementOverlays.js";
 
@@ -59,6 +59,8 @@ function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
     ev: BucketEventValue; styles: Styles; rowKey: string; storageKey: string; ctx?: boolean | undefined;
 }) {
     const dispatch = usePlanDispatch();
+    const { onElementClick } = usePlanResolvers();
+    const ref = variant("event", { row: rowKey, event: ev.key }) as PlanElementRefValue;
     const label = ev.label.type === "some" ? ev.label.value : undefined;
     const icon = ev.icon.type === "some" ? ev.icon.value : undefined;
     const stateKey = runStateKey(ev.state);
@@ -81,7 +83,11 @@ function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
             justifyContent={justify}
             background={color !== undefined && !color.includes(".") ? color : undefined}
             backgroundColor={color !== undefined && color.includes(".") ? color : undefined}
-            onClick={(e) => { e.stopPropagation(); dispatch({ t: "row.select", key: rowKey }); }}
+            onClick={(e) => {
+                e.stopPropagation();
+                dispatch({ t: "row.select", key: rowKey });
+                onElementClick?.(ref);
+            }}
         >
             {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />}
             {label !== undefined ? label
@@ -91,7 +97,7 @@ function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
         </Box>
     );
     return (
-        <ElementOverlays elementRef={variant("event", { row: rowKey, event: ev.key }) as PlanElementRefValue}
+        <ElementOverlays elementRef={ref}
             storageKey={`${storageKey}.${ev.key}`}>
             {chip}
         </ElementOverlays>

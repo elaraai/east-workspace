@@ -35,6 +35,13 @@ export interface PlanResolvers {
     popover?: PlanElementResolver | undefined;
     /** The hovercard resolver, when declared. */
     hover?: PlanElementResolver | undefined;
+    /**
+     * The element-click funnel (#569) — routes a clicked element's ref to the
+     * root's `onRunClick` / `onEventClick` / `onMarkClick` / `onChipClick` /
+     * `onCellClick` by the ref's own tag (the click payloads ARE the ref
+     * arms). `undefined` when the root declares none of the five.
+     */
+    onElementClick?: ((ref: PlanElementRefValue) => void) | undefined;
 }
 
 /** The shared scale, provided once by the canvas. */

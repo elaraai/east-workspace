@@ -16,10 +16,10 @@
  * emphasis (header / footer) rides the shell's `data-emphasis`.
  */
 
-import { type ValueTypeOf } from "@elaraai/east";
+import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@chakra-ui/react";
 import { Plan } from "@elaraai/east-ui/internal";
-import { usePlanDispatch, usePlanScale } from "../context.js";
+import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { formatTick, type TickFormatOpt } from "../../../typography/numeric/format-tick.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 
@@ -44,6 +44,7 @@ export interface TableRowCellsProps {
 export function TableRowCells({ rowKey, series, split, format, styles, ctx }: TableRowCellsProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const { onElementClick } = usePlanResolvers();
     // ── R2 (#591): numerals have no small form ──
     // The ROLLUP position is the one that carries the row's headline number
     // (`tableRollupSeries`' contract), so it is the one the strip encodes —
@@ -81,7 +82,14 @@ export function TableRowCells({ rowKey, series, split, format, styles, ctx }: Ta
                     <Box key={bi} css={styles.tableCellText}
                         data-split={multi ? split : undefined}
                         left={`${b.x0 * 100}%`} width={`${(b.x1 - b.x0) * 100}%`}
-                        onClick={(e) => { e.stopPropagation(); dispatch({ t: "row.select", key: rowKey }); }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            dispatch({ t: "row.select", key: rowKey });
+                            // Parts join BY bucket (their own `at`s may differ
+                            // inside it) — the BUCKET instant is the honest
+                            // subject, exactly as the payload documents.
+                            onElementClick?.(variant("cell", { row: rowKey, at: b.start }) as PlanElementRefValue);
+                        }}
                     >
                         {parts.map(({ si, cell }, i) => {
                             const s = series[si]!;

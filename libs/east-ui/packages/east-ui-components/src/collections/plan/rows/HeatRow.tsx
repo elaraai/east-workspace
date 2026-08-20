@@ -15,10 +15,10 @@
  * {@link HeatCells} — GroupRow delegates here.
  */
 
-import { type ValueTypeOf } from "@elaraai/east";
+import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@chakra-ui/react";
 import { Plan } from "@elaraai/east-ui/internal";
-import { usePlanDispatch, usePlanScale } from "../context.js";
+import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
@@ -60,16 +60,22 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const { onElementClick } = usePlanResolvers();
     const cellBox = (at: Date): { left: string; width: string } | undefined => {
         const i = scale.bucketOf(at);
         if (i < 0) return undefined;
         const b = scale.buckets[i]!;
         return { left: `calc(${b.x0 * 100}% + 1.5px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 3px)` };
     };
-    const clickCell = (e: React.MouseEvent) => {
+    const clickCell = (at: Date) => (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (onCellClick !== undefined) onCellClick();
-        else dispatch({ t: "row.select", key: rowKey });
+        if (onCellClick !== undefined) {
+            onCellClick();
+            return;
+        }
+        dispatch({ t: "row.select", key: rowKey });
+        // The cell's own declared instant — what the author addressed it by.
+        onElementClick?.(variant("cell", { row: rowKey, at }) as PlanElementRefValue);
     };
 
     if (cells.type === "heat") {
@@ -95,7 +101,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                             left={box.left} width={box.width}
                             background={v === undefined ? undefined
                                 : `color-mix(in srgb, var(--chakra-colors-brand-700) ${Math.round(depth * 88)}%, var(--chakra-colors-bg-surface))`}
-                            onClick={clickCell}
+                            onClick={clickCell(c.at)}
                         >
                             <Box as="span" css={styles.heatLabel} data-flip={depth > 0.5 ? "" : undefined} data-ctx={ctxAttr}>
                                 {v === undefined ? "–" : label}
@@ -122,7 +128,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                             data-planned={c.planned ? "" : undefined}
                             left={`calc(${b.x0 * 100}% + 4px)`}
                             width={`calc((${(b.x1 - b.x0) * 100}% - 8px) * ${frac})`}
-                            onClick={clickCell} />
+                            onClick={clickCell(c.at)} />
                     );
                 })}
             </>
@@ -140,7 +146,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                     <Box key={i} css={styles.segmentTrack}
                         left={`calc(${b.x0 * 100}% + 4px)`}
                         width={`calc(${(b.x1 - b.x0) * 100}% - 8px)`}
-                        onClick={clickCell}>
+                        onClick={clickCell(c.at)}>
                         {c.segments.map((s, j) => {
                             const share = total > 0 ? Math.max(0, s.weight) / total : 0;
                             const label = s.label.type === "some" ? s.label.value : undefined;

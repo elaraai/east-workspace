@@ -18,7 +18,7 @@ import { useMemo } from "react";
 import { Box } from "@chakra-ui/react";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
-import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
+import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { ElementOverlays } from "./ElementOverlays.js";
 import type { DerivedBand } from "../model.js";
 
@@ -62,6 +62,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const { onElementClick } = usePlanResolvers();
 
     const bars = useMemo(() => kind.runs.map((run) => {
         const f0 = scale.fracOf(run.start);
@@ -79,6 +80,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 const stuck = run.status.type === "some" && run.status.value.type === "warning";
                 const qty = run.quantity.type === "some" ? run.quantity.value : undefined;
                 const moved = run.moved.type === "some" ? Number(run.moved.value) : undefined;
+                const ref = variant("run", { row: rowKey, run: run.key }) as PlanElementRefValue;
                 const bar = (
                     <Box
                         css={styles.bar}
@@ -93,6 +95,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                         onClick={(e) => {
                             e.stopPropagation();
                             dispatch({ t: "row.select", key: rowKey });
+                            onElementClick?.(ref);
                         }}
                     >
                         <Box as="span" overflow="hidden" textOverflow="ellipsis" minW={0}>{run.label}</Box>
@@ -102,7 +105,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 );
                 return (
                     <ElementOverlays key={run.key}
-                        elementRef={variant("run", { row: rowKey, run: run.key }) as PlanElementRefValue}
+                        elementRef={ref}
                         storageKey={`${storageKey}.${run.key}`}>
                         {bar}
                     </ElementOverlays>
@@ -135,14 +138,15 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
             {kind.decisions.map((dec) => {
                 const x = scale.fracOf(dec.at);
                 if (x < 0 || x > 1) return null;
+                const ref = variant("mark", { row: rowKey, mark: dec.key }) as PlanElementRefValue;
                 const diamond = (
                     <Box css={styles.diamond} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
                         data-mark={dec.key} left={`${x * 100}%`}
-                        onClick={(e) => e.stopPropagation()} cursor="pointer" />
+                        onClick={(e) => { e.stopPropagation(); onElementClick?.(ref); }} cursor="pointer" />
                 );
                 return (
                     <ElementOverlays key={dec.key}
-                        elementRef={variant("mark", { row: rowKey, mark: dec.key }) as PlanElementRefValue}
+                        elementRef={ref}
                         storageKey={`${storageKey}.${dec.key}`}>
                         {diamond}
                     </ElementOverlays>

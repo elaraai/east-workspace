@@ -25,7 +25,9 @@
  * `plan-state.test.ts`):
  *
  * - **Esc ladder**, strict precedence, exactly one rung per press:
- *   drag-cancel → brush-cancel → focus-return (links / expand) → deselect.
+ *   brush-cancel → focus-return (links / expand) → deselect. (Drag-cancel
+ *   belongs to the shared drag layer, which owns the drag lifecycle — the
+ *   machine's own drag staging was deleted as dead code, #569.)
  * - **One row focus per canvas** (R1 links / R2 expand): invoking a second
  *   focus control returns the first; invoking the active row's own control
  *   returns it.
@@ -57,8 +59,6 @@ export interface PlanUiState {
     brush: { active: true } | null;
     /** The row-scoped focus (R1 links / R2 expand) — at most one per canvas. */
     focus: { kind: "links" | "expand"; key: RowKey } | null;
-    /** In-flight drag staging (P3 wires the DOM side). */
-    drag: { over: string | null; valid: boolean } | null;
 }
 
 /** Every interaction the surface can report. */
@@ -78,10 +78,6 @@ export type PlanEvent =
     | { t: "focus.expand"; key: RowKey }
     | { t: "focus.clear" }
     | { t: "resolution.set"; resolution: string }
-    | { t: "drag.start" }
-    | { t: "drag.over"; cell: string | null; valid: boolean }
-    | { t: "drag.drop" }
-    | { t: "drag.cancel" }
     | { t: "key"; key: "esc" | "n" | "[" | "]" | "g" };
 
 /** Side effects, returned as data — never performed in the reducer. */
@@ -116,7 +112,6 @@ export function initialPlanState(
         cursor: null,
         brush: null,
         focus: null,
-        drag: null,
     };
 }
 
@@ -210,16 +205,6 @@ export function planReducer(
             return { state: { ...s, focus: null }, effects: [] };
         case "resolution.set":
             return { state: s, effects: [{ t: "slice.setResolution", resolution: e.resolution }] };
-        case "drag.start":
-            return { state: { ...s, drag: { over: null, valid: false } }, effects: [] };
-        case "drag.over":
-            if (s.drag === null) return { state: s, effects: [] };
-            return { state: { ...s, drag: { over: e.cell, valid: e.valid } }, effects: [] };
-        case "drag.drop":
-            // An invalid drop is a no-op transition (the ⊘ stage held).
-            return { state: { ...s, drag: null }, effects: [] };
-        case "drag.cancel":
-            return { state: { ...s, drag: null }, effects: [] };
         case "key":
             return keyEvent(s, e.key);
     }
@@ -229,8 +214,8 @@ export function planReducer(
 function keyEvent(s: PlanUiState, key: "esc" | "n" | "[" | "]" | "g"): { state: PlanUiState; effects: PlanEffect[] } {
     switch (key) {
         case "esc": {
-            // Exactly one rung per press, strict precedence.
-            if (s.drag !== null) return { state: { ...s, drag: null }, effects: [] };
+            // Exactly one rung per press, strict precedence. (A drag in
+            // flight is the shared drag LAYER's escape, not the machine's.)
             if (s.brush !== null) return { state: { ...s, brush: null }, effects: [] };
             if (s.focus !== null) return { state: { ...s, focus: null }, effects: [] };
             if (s.selected !== null) return { state: { ...s, selected: null }, effects: [] };

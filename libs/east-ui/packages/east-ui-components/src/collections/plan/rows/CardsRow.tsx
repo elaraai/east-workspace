@@ -15,7 +15,7 @@ import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/east-ui/internal";
-import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
+import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey } from "./SpanRow.js";
 import { ElementOverlays } from "./ElementOverlays.js";
 
@@ -37,6 +37,7 @@ export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProp
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const { onElementClick } = usePlanResolvers();
     return (
         <>
             {kind.chips.map((chip) => {
@@ -46,6 +47,7 @@ export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProp
                 const left = Math.max(0, f0);
                 const width = Math.max(0, Math.min(1, f1) - left);
                 const icon = chip.icon.type === "some" ? chip.icon.value : undefined;
+                const ref = variant("chip", { row: rowKey, chip: chip.key }) as PlanElementRefValue;
                 const node = (
                     <Box css={styles.cardChip}
                         data-ctx={ctxAttr}
@@ -53,7 +55,11 @@ export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProp
                         data-state={runStateKey(chip.state)}
                         left={`calc(${left * 100}% + 2px)`}
                         width={`calc(${width * 100}% - 4px)`}
-                        onClick={(e) => { e.stopPropagation(); dispatch({ t: "row.select", key: rowKey }); }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            dispatch({ t: "row.select", key: rowKey });
+                            onElementClick?.(ref);
+                        }}
                     >
                         {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />}
                         <Box as="span" overflow="hidden" textOverflow="ellipsis" minW={0}>{chip.label}</Box>
@@ -61,7 +67,7 @@ export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProp
                 );
                 return (
                     <ElementOverlays key={chip.key}
-                        elementRef={variant("chip", { row: rowKey, chip: chip.key }) as PlanElementRefValue}
+                        elementRef={ref}
                         storageKey={`${storageKey}.${chip.key}`}>
                         {node}
                     </ElementOverlays>

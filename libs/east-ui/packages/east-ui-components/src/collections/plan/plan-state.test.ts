@@ -26,18 +26,15 @@ const init = () => initialPlanState("resource", []);
 
 describe('planReducer', () => {
     describe('esc ladder (strict, one rung per press)', () => {
-        it('runs drag → brush → focus → deselect, one rung at a time', () => {
+        it('runs brush → focus → deselect, one rung at a time', () => {
+            // Drag-cancel is the shared drag LAYER's escape; the machine's own
+            // drag staging was dead code and is gone (#569).
             let s: PlanUiState = {
                 ...init(),
                 selected: "r1",
                 brush: { active: true },
                 focus: { kind: "links", key: "r1" },
-                drag: { over: null, valid: false },
             };
-            s = run(s, { t: "key", key: "esc" }).state;
-            expect(s.drag).toBeNull();
-            expect(s.brush).not.toBeNull();
-
             s = run(s, { t: "key", key: "esc" }).state;
             expect(s.brush).toBeNull();
             expect(s.focus).not.toBeNull();
@@ -207,23 +204,6 @@ describe('planReducer', () => {
             expect(a.state.chartsExpanded.has("cov")).toBe(true);
             const b = run(a.state, { t: "chart.toggle", key: "cov" });
             expect(b.state.chartsExpanded.has("cov")).toBe(false);
-        });
-    });
-
-    describe('drag staging', () => {
-        it('over updates staging; drop and cancel clear it', () => {
-            let s = run(init(), { t: "drag.start" }).state;
-            s = run(s, { t: "drag.over", cell: "r1|w2", valid: true }).state;
-            expect(s.drag).toEqual({ over: "r1|w2", valid: true });
-            expect(run(s, { t: "drag.drop" }).state.drag).toBeNull();
-            const cancelled = run(run(init(), { t: "drag.start" }).state, { t: "drag.cancel" });
-            expect(cancelled.state.drag).toBeNull();
-        });
-
-        it('drag.over without a live drag is ignored', () => {
-            const s = init();
-            const out = planReducer(s, { t: "drag.over", cell: "x", valid: true }, ctx);
-            expect(out.state).toBe(s);
         });
     });
 

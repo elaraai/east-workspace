@@ -18,9 +18,9 @@
  * resolution source of truth — the axis seeds the unbound case — and the
  * brush / segment write back through `setRange` / `setResolution`.
  *
- * P2 renders group / span / chart / heat rows; buckets / table / cards /
- * events arrive in P3 (their rows render as quiet placeholder bands so a
- * full canvas stays intact).
+ * All eight row kinds render (`rows/*`); review chrome, the drag-target
+ * role, element clicks and the keyboard rungs are wired — the reducer's
+ * events and the component's dispatches are a closed loop (#569).
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -34,7 +34,7 @@ import { parseCssSize } from "../../style/parse-size.js";
 import { DensityProvider } from "../../contracts/density.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { VirtualRows } from "../virtual-rows.js";
-import { PlanScaleContext, PlanDispatchContext, PlanResolversContext, type PlanResolvers } from "./context.js";
+import { PlanScaleContext, PlanDispatchContext, PlanResolversContext, type PlanResolvers, type PlanElementRefValue } from "./context.js";
 import { usePlanPaging } from "./use-plan-paging.js";
 import { usePlanSeek } from "./use-seek.js";
 import { useElementHeight } from "./use-element-height.js";
@@ -420,12 +420,35 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // painting at their old full heights.
     const [focusVersion, setFocusVersion] = useState(0);
     useEffect(() => { setFocusVersion((n) => n + 1); }, [ui.focus]);
-    // The generalized element resolvers (popover / hover) — threaded to the
-    // row renderers; elements invoke them lazily at interaction time.
+    // The element-click callbacks (#569) — one funnel, routed by the clicked
+    // ref's own tag. The click payloads ARE the element-ref arms (types.ts),
+    // so nothing is re-encoded; `queueMicrotask` per the mandatory pattern.
+    const onRunClickFn = useMemo(() => getSomeorUndefined(value.onRunClick), [value.onRunClick]);
+    const onEventClickFn = useMemo(() => getSomeorUndefined(value.onEventClick), [value.onEventClick]);
+    const onMarkClickFn = useMemo(() => getSomeorUndefined(value.onMarkClick), [value.onMarkClick]);
+    const onChipClickFn = useMemo(() => getSomeorUndefined(value.onChipClick), [value.onChipClick]);
+    const onCellClickFn = useMemo(() => getSomeorUndefined(value.onCellClick), [value.onCellClick]);
+    const onElementClick = useMemo(() => {
+        if (onRunClickFn === undefined && onEventClickFn === undefined && onMarkClickFn === undefined
+            && onChipClickFn === undefined && onCellClickFn === undefined) return undefined;
+        return (ref: PlanElementRefValue) => {
+            switch (ref.type) {
+                case "run": if (onRunClickFn) queueMicrotask(() => onRunClickFn(ref.value)); break;
+                case "event": if (onEventClickFn) queueMicrotask(() => onEventClickFn(ref.value)); break;
+                case "mark": if (onMarkClickFn) queueMicrotask(() => onMarkClickFn(ref.value)); break;
+                case "chip": if (onChipClickFn) queueMicrotask(() => onChipClickFn(ref.value)); break;
+                case "cell": if (onCellClickFn) queueMicrotask(() => onCellClickFn(ref.value)); break;
+            }
+        };
+    }, [onRunClickFn, onEventClickFn, onMarkClickFn, onChipClickFn, onCellClickFn]);
+    // The generalized element resolvers (popover / hover) + the click funnel —
+    // threaded to the row renderers; elements invoke them lazily at
+    // interaction time.
     const resolvers = useMemo<PlanResolvers>(() => ({
         popover: getSomeorUndefined(value.popover),
         hover: getSomeorUndefined(value.hover),
-    }), [value.popover, value.hover]);
+        onElementClick,
+    }), [value.popover, value.hover, onElementClick]);
 
     // Host callbacks (behavior props — queueMicrotask per the mandatory pattern).
     const onSelect = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
@@ -508,13 +531,40 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 case "emit.grainChange":
                     if (onGrainChange) queueMicrotask(() => onGrainChange(variant(eff.grain, null)));
                     break;
-                case "scroll.toNow":
-                case "pan":
-                    // P3 — virtualizer handle wiring.
+                case "scroll.toNow": {
+                    // The now instant is an AXIS fact, so reaching it means
+                    // moving the WINDOW — which is slice state (the #567
+                    // sweep's call: these are `slice.setRange` writes, not
+                    // virtualizer calls). An unbound canvas has no writable
+                    // window, so the rung idles there, exactly like the
+                    // resolution segment (#615).
+                    if (slice === undefined || scale === undefined) break;
+                    const nowInstant = getSomeorUndefined(value.axis.now);
+                    if (nowInstant === undefined) break;
+                    // Re-derive the window on period edges with the SAME
+                    // column count, now a third of the way in (ahead is where
+                    // the plan lives) — the resolution-zoom precedent above:
+                    // snap + `n` periods, never ms arithmetic.
+                    const interval = resolutionInterval(scale.resolution);
+                    const from = interval.offset(interval.floor(nowInstant), -Math.floor(scale.n / 3));
+                    slice.setRange(some(variant("datetime", {
+                        from,
+                        to: interval.offset(from, scale.n),
+                    })));
                     break;
+                }
+                case "pan": {
+                    if (slice === undefined || scale === undefined) break;
+                    const interval = resolutionInterval(scale.resolution);
+                    slice.setRange(some(variant("datetime", {
+                        from: interval.offset(scale.window.min, eff.buckets),
+                        to: interval.offset(scale.window.max, eff.buckets),
+                    })));
+                    break;
+                }
             }
         }
-    }, [slice, scale, onSelect, onGroupToggle, onGrainChange]);
+    }, [slice, scale, value.axis.now, onSelect, onGroupToggle, onGrainChange]);
 
     const dispatch = useCallback((e: PlanEvent) => dispatchStore({ t: "event", e }), []);
     // The store's effect batch, drained EXACTLY ONCE per bump — post-commit
@@ -975,6 +1025,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             n: { t: "key", key: "n" },
                             "[": { t: "key", key: "[" },
                             "]": { t: "key", key: "]" },
+                            g: { t: "key", key: "g" },
                         };
                         const ev = map[e.key];
                         if (ev !== undefined) {

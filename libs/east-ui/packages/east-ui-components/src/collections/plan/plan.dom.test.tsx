@@ -88,7 +88,7 @@ function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
     return new Map(rows.map((r) => [r.key, r]));
 }
 
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; style?: { height?: string; maxHeight?: string } }): PlanRootValue {
+function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
         links: opts?.links ?? [],
@@ -110,8 +110,12 @@ function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date 
         footer: opts?.footer ?? [],
         id: "", sources: [], onDrag: none, canDrop: none,
         onSelect: none,
-        onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none,
-        onCellClick: none, onGroupToggle: none, onGrainChange: none,
+        onRunClick: opts?.clicks?.onRunClick !== undefined ? some(opts.clicks.onRunClick) : none,
+        onEventClick: opts?.clicks?.onEventClick !== undefined ? some(opts.clicks.onEventClick) : none,
+        onMarkClick: opts?.clicks?.onMarkClick !== undefined ? some(opts.clicks.onMarkClick) : none,
+        onChipClick: opts?.clicks?.onChipClick !== undefined ? some(opts.clicks.onChipClick) : none,
+        onCellClick: opts?.clicks?.onCellClick !== undefined ? some(opts.clicks.onCellClick) : none,
+        onGroupToggle: none, onGrainChange: none,
         style: opts?.style !== undefined
             ? some({
                 height: opts.style.height !== undefined ? some(opts.style.height) : none,
@@ -672,6 +676,114 @@ describe("Plan horizon brush — live pan preview (§7)", () => {
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(range().from.toISOString()).toBe("2026-07-27T00:00:00.000Z");
         expect(range().to.toISOString()).toBe("2026-08-24T00:00:00.000Z");
+    });
+});
+
+describe("Plan element clicks (#569)", () => {
+    test("each element kind reports its click ref to the right callback — and still selects", async () => {
+        const seen: Record<string, unknown[]> = { run: [], event: [], mark: [], chip: [], cell: [] };
+        const at = new Date("2026-06-29Z");
+        const { container } = renderPlan(planRoot([
+            planRow("s", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            planRow("b", variant("buckets", {
+                lanes: [], events: [bucketEvent("e1", at, variant("confirmed", null))], markers: [],
+            })),
+            planRow("e", variant("events", {
+                marks: [{ key: "k1", at, kind: variant("milestone", null), icon: none, label: none }],
+            })),
+            planRow("c", variant("cards", {
+                chips: [{ key: "c1", from: W27, to: new Date("2026-07-13Z"), label: "D. OKAFOR",
+                    state: variant("confirmed", null), icon: none }],
+            })),
+            planRow("h", variant("heat", {
+                cells: variant("heat", {
+                    cells: [{ at, value: some(80), label: some("80") }],
+                    min: some(0), max: some(100), warnAt: none,
+                }),
+                aggregate: none,
+            })),
+        ], {
+            clicks: {
+                onRunClick: (e: unknown) => { seen["run"]!.push(e); },
+                onEventClick: (e: unknown) => { seen["event"]!.push(e); },
+                onMarkClick: (e: unknown) => { seen["mark"]!.push(e); },
+                onChipClick: (e: unknown) => { seen["chip"]!.push(e); },
+                onCellClick: (e: unknown) => { seen["cell"]!.push(e); },
+            },
+        }), "plan-clicks-569");
+
+        fireEvent.click(container.querySelector('[data-run="r1"]')!);
+        fireEvent.click(container.querySelector('[data-event="e1"]')!);
+        fireEvent.click(container.querySelector('[data-mark="k1"]')!);
+        fireEvent.click(container.querySelector('[data-chip="c1"]')!);
+        fireEvent.click(screen.getByText("80"));
+        await waitFor(() => expect(seen["cell"]!.length).toBe(1));
+
+        expect(seen["run"]).toEqual([{ row: "s", run: "r1" }]);
+        expect(seen["event"]).toEqual([{ row: "b", event: "e1" }]);
+        expect(seen["mark"]).toEqual([{ row: "e", mark: "k1" }]);
+        expect(seen["chip"]).toEqual([{ row: "c", chip: "c1" }]);
+        expect(seen["cell"]).toEqual([{ row: "h", at }]);
+        // The canvas behaviour is unchanged: the click also selected the row.
+        expect(container.querySelector('[data-plan-row="h"]')!.hasAttribute("data-selected")).toBe(true);
+    });
+});
+
+describe("Plan keyboard rungs (#569)", () => {
+    const sliceFixture = (key: string) => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+            ]),
+            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: some(variant("datetime", { from: W27, to: W39 })),
+            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none,
+            resolution: some(variant("week", null)),
+        };
+        return buildSliceHandle(key, cfg as never, initial as never, [{ at: W27 }] as never, none) as never as {
+            read(): { range: { value: { value: { from: Date; to: Date } } } };
+        };
+    };
+
+    test("[ and ] PAN the window one period through the slice; n recenters on now — asserted on the WINDOW, not on emitted effects", () => {
+        const handle = sliceFixture("plan.kbd.pan");
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some({ slice: handle, affordances: [] }),
+        }), "plan-kbd-pan");
+        const surface = container.querySelector('[tabindex="0"]')!;
+        const range = () => handle.read().range.value.value;
+
+        fireEvent.keyDown(surface, { key: "[" });
+        expect(range().from.toISOString()).toBe("2026-06-22T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-09-14T00:00:00.000Z");
+        fireEvent.keyDown(surface, { key: "]" });
+        expect(range().from.toISOString()).toBe("2026-06-29T00:00:00.000Z");
+
+        // n re-derives the window on period edges with the same column count,
+        // now (Aug 12 → its Monday, W33) a third of the way in.
+        fireEvent.keyDown(surface, { key: "n" });
+        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-10-05T00:00:00.000Z");
+    });
+
+    test("without a slice the pan rungs idle — the declared window is not writable", () => {
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]), "plan-kbd-unbound");
+        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "[" });
+        expect(screen.getByText("W27")).toBeTruthy();
+        expect(screen.queryByText("W26")).toBeNull();
+    });
+
+    test("g cycles the grain — the reducer arm is finally reachable", () => {
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]), "plan-kbd-grain");
+        expect(screen.getAllByText("RESOURCE").length).toBeGreaterThan(0);
+        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "g" });
+        expect(screen.getAllByText("GROUP").length).toBeGreaterThan(0);
+        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "g" });
+        expect(screen.getAllByText("RESOURCE").length).toBeGreaterThan(0);
     });
 });
 
