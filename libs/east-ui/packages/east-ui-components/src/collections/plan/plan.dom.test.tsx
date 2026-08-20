@@ -26,6 +26,7 @@ import { buildSliceHandle } from "../../platform/slice/index.js";
 import { initializeStore, getStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { setBodyRowRenderProbe } from "./rows/BodyRow.js";
 
 afterEach(cleanup);
 
@@ -392,6 +393,44 @@ describe("Plan hover cursor is DOM chrome (#609)", () => {
         // ... and the chrome still tracked: the writes happened, renders did not.
         const body = container.querySelector("[data-plan-body]") as HTMLElement;
         expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("0.9");
+    });
+});
+
+describe("Plan row-layer memoization (#616)", () => {
+    test("a selection click re-renders O(changed rows); a chart toggle exactly one", () => {
+        // The render probe records WHICH rows ran — the memo property is
+        // asserted deterministically, never inferred from profiler timings.
+        const rendered: string[] = [];
+        setBodyRowRenderProbe((key) => rendered.push(key));
+        try {
+            const { container } = renderPlan(planRoot([
+                planRow("m1", spanKind([])),
+                planRow("m2", spanKind([])),
+                planRow("m3", spanKind([])),
+                planRow("cov", variant("chart", {
+                    layers: [], left: none, right: none,
+                    height: variant("spark", null), expandedHeight: none,
+                    expandable: some(true),
+                })),
+            ]), "plan-616-memo");
+            // First selection: ONLY the newly-selected row re-renders — the
+            // other rows' facts did not move, so their memo bails.
+            rendered.length = 0;
+            fireEvent.click(container.querySelector('[data-plan-row="m2"]')!);
+            expect(rendered).toEqual(["m2"]);
+            // Moving the selection re-renders exactly the two rows whose
+            // `selected` fact changed.
+            rendered.length = 0;
+            fireEvent.click(container.querySelector('[data-plan-row="m3"]')!);
+            expect([...rendered].sort()).toEqual(["m2", "m3"]);
+            // A chart spark↔expanded toggle re-renders exactly the toggled
+            // row (its `chartExpanded` + height moved; nothing else did).
+            rendered.length = 0;
+            fireEvent.click(container.querySelector('[data-plan-row="cov"]')!.children[0]!);
+            expect(rendered).toEqual(["cov"]);
+        } finally {
+            setBodyRowRenderProbe(undefined);
+        }
     });
 });
 

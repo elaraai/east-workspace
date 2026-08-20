@@ -52,15 +52,8 @@ import {
 import { EastChakraComponent } from "../../component.js";
 import { useDragTarget, type DragEventValue } from "../../dnd/drag-layer";
 import { type CanDropFn } from "../../dnd/ir-can-drop";
-import { RowShell, type PlanRowDrop } from "./rows/RowShell.js";
-import { SpanRow } from "./rows/SpanRow.js";
-import { GroupRow } from "./rows/GroupRow.js";
-import { ChartRowPlot, ChartLeftTicks } from "./rows/ChartRow.js";
-import { HeatCells } from "./rows/HeatRow.js";
-import { BucketsRow } from "./rows/BucketsRow.js";
-import { CardsRow } from "./rows/CardsRow.js";
-import { EventsRow } from "./rows/EventsRow.js";
-import { TableRowCells } from "./rows/TableRow.js";
+import { type PlanRowDrop } from "./rows/RowShell.js";
+import { PlanBodyRow } from "./rows/BodyRow.js";
 import { PlanToolbar } from "./shell/Toolbar.js";
 import { HorizonBrush } from "./shell/HorizonBrush.js";
 import { FocusBar } from "./shell/FocusBar.js";
@@ -68,7 +61,7 @@ import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { PlanRuler, chipAnchor } from "./shell/Ruler.js";
 import { PlanFooter } from "./shell/Footer.js";
 import {
-    usePlanReview, PlanDecisionCell, PlanDecisionHeader, tagOf, DECISION_WIDTH,
+    usePlanReview, PlanDecisionHeader, DECISION_WIDTH,
 } from "./shell/Review.js";
 import { ReviewFoot } from "../shared/review.js";
 import { type PlanTransport } from "./shell/transport.js";
@@ -87,30 +80,6 @@ const EXPAND_DEFAULT_PX = 240;
 /** The render never clamps below this — a region too short to hold anything
  *  is worse than one that scrolls. */
 const EXPAND_FLOOR_PX = 88;
-
-/**
- * The row kinds that accept a drop.
- *
- * @remarks
- * A Plan's rows are heterogeneous, so "can you drop here" is a per-KIND
- * question before it is a per-row one — and the line is not arbitrary. These
- * four render a **collection of discrete scheduled objects** (runs, bucket
- * events, marks, chips): things a library card can BECOME, at an instant the
- * pointer names.
- *
- * The rest are excluded on the same principle:
- *
- * - `chart` / `heat` / `table` render DERIVED values — a plotted series, an
- *   intensity field, computed cells. There is nothing for a card to become,
- *   and a number is not a destination.
- * - `group` is wayfinding chrome; its MEMBERS are the droppable things, and
- *   accepting on the strip would make a collapsed group swallow drops meant
- *   for a row inside it.
- *
- * A canvas narrows further with `canDrop` — this set is what is structurally
- * possible, the predicate is what this particular canvas permits.
- */
-const DROPPABLE_KINDS: ReadonlySet<string> = new Set(["span", "buckets", "events", "cards"]);
 
 export interface EastChakraPlanProps {
     /** The Plan root value. */
@@ -654,7 +623,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const barHeight = dense ? 16 : 20;
 
     // ── Rows ──────────────────────────────────────────────────────────────
-    const visible = useMemo(() => visibleRows(index, ui, focusVisibleKeys), [index, ui, focusVisibleKeys]);
+    // Keyed on the ui FIELDS the derivation reads (`grain`, `collapsed`) —
+    // never the whole `ui` — so the `VisibleRow` identities hold across
+    // selection / chart-toggle / focus-control store changes, which is what
+    // lets `PlanBodyRow`'s memo skip unmoved rows (#616).
+    const visible = useMemo(
+        () => visibleRows(index, ui, focusVisibleKeys),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- visibleRows reads ui.grain + ui.collapsed only; keying on the whole ui would bust every row identity per store change
+        [index, ui.grain, ui.collapsed, focusVisibleKeys],
+    );
     const pinned = useMemo(() => pinnedRows(index), [index]);
     // R2 — the focused row's own declaration. The row keeps its NORMAL
     // anatomy and height; what grows is the render region BELOW it, which is
@@ -752,177 +729,74 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         return i >= 0 ? i : undefined;
     }, [bodyItems, targetKey]);
 
+    // The thin per-row adapter: compute this row's PRIMITIVE facts and hand
+    // them to the memoized `PlanBodyRow` (#616). The canvas still renders on
+    // every store change — cheaply — and each row's memo skips its subtree
+    // unless ITS facts moved, so a selection click re-renders two rows and a
+    // chart toggle one. (`visible` keys on `grain`/`collapsed`, not the whole
+    // `ui`, which is what keeps the `v` identities stable across those
+    // changes.) Scale changes still repaint every row: the row content
+    // consumes `PlanScaleContext`, and context pierces the memo by design.
     const renderVisible = useCallback((v: VisibleRow): React.ReactNode => {
         if (scale === undefined) return null;
         const kind = v.row.kind;
         const h = rowHeight(v, dense, ui.chartsExpanded, heightCtx, derived);
-        // R1 rails — unrelated rows collapse to 11px, never removed: order,
-        // scroll and the status dot survive, and the rail itself returns.
-        if (focusCtx?.kind === "links" && kind.type !== "group"
-            && v.row.key !== focusCtx.key && !(focusCtx.family?.has(v.row.key) ?? false)) {
-            const railTone = v.row.status.type === "some" ? v.row.status.value.type : undefined;
-            return (
-                <Box css={styles.rail} gridTemplateColumns={gridTemplate} data-plan-rail={v.row.key}
-                    onClick={() => dispatch({ t: "focus.clear" })}>
-                    <Box position="relative">
-                        {railTone !== undefined && (
-                            <Box as="span" css={styles.statusDot} data-tone={railTone}
-                                position="absolute" right="12px" top="2px" />
-                        )}
-                    </Box>
-                </Box>
-            );
-        }
-        // ── R2 context strip (#591) ──
-        // Under an expand focus every DATA row but the focused one compresses
-        // to 16px. Group bands are exempt: they are wayfinding, and a wall of
-        // strips with no structure between them is unreadable.
+        // R1 rails — unrelated data rows under a links focus collapse to 11px.
+        const isRail = focusCtx?.kind === "links" && kind.type !== "group"
+            && v.row.key !== focusCtx.key && !(focusCtx.family?.has(v.row.key) ?? false);
+        // ── R2 context strip (#591) ── Under an expand focus every DATA row
+        // but the focused one compresses to 16px. Group bands are exempt:
+        // they are wayfinding, and a wall of strips with no structure between
+        // them is unreadable.
         const isCtx = focusCtx?.kind === "expand" && v.row.key !== focusCtx.key
             && kind.type !== "group";
-        // The FOCUSED row carries the render inside itself, which is what makes
-        // it (and its gutter) tall — see `PlanFocusCtx.renderPx`.
+        // The FOCUSED row carries the render inside itself, which is what
+        // makes it (and its gutter) tall — see `PlanFocusCtx.renderPx`.
         const isFocal = focusCtx?.kind === "expand" && v.row.key === focusCtx.key
             && kind.type !== "group" && expandBody !== null;
-        // The row-scoped focus controls + family tags.
-        const rowControls: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> = [
-            ...(linkedKeys.has(v.row.key) ? [{
-                kind: "links" as const,
-                active: ui.focus?.kind === "links" && ui.focus.key === v.row.key,
-                onClick: () => dispatch({ t: "focus.links", key: v.row.key }),
-            }] : []),
-            ...(v.row.expand.type === "some" && expandRenderFn !== undefined ? [{
-                kind: "expand" as const,
-                active: ui.focus?.kind === "expand" && ui.focus.key === v.row.key,
-                onClick: () => dispatch({ t: "focus.expand", key: v.row.key }),
-            }] : []),
-        ];
         const up = linkFamily?.upstream.has(v.row.key) ?? false;
         const down = linkFamily?.downstream.has(v.row.key) ?? false;
         const focusTag = up && down ? "LINKED" as const : up ? "UPSTREAM" as const : down ? "DOWNSTREAM" as const : undefined;
         // R2 — the focused row keeps its NORMAL anatomy; `axis` washes /
-        // suppresses the shared lines inside its plot. The developer render
-        // mounts BELOW the row (the body's expand branch), never inside it.
-        const isExpandFocused = focusCtx?.kind === "expand" && focusCtx.key === v.row.key;
+        // suppresses the shared lines inside its plot.
         const rowExpand = v.row.expand.type === "some" ? v.row.expand.value : undefined;
-        const axisTag = isExpandFocused && rowExpand !== undefined && rowExpand.axis.type !== "keep"
+        const axisMode = isFocal && rowExpand !== undefined && rowExpand.axis.type !== "keep"
             ? rowExpand.axis.type
             : undefined;
-        if (kind.type === "group") {
-            return (
-                <GroupRow row={v.row} kind={kind.value} styles={styles} gridTemplate={gridTemplate}
-                    height={h} depth={v.depth} collapsed={v.collapsed}
-                    summaryCells={derived.groupSummary.get(v.row.key)}
-                    memberCount={derived.groupMembers.get(v.row.key)}
-                    partial={transport?.partial} />
-            );
-        }
-        const hasChildren = (index.children.get(v.row.key)?.length ?? 0) > 0;
-        const shellBase = {
-            row: v.row, styles, gridTemplate, depth: v.depth,
-            selected: ui.selected === v.row.key,
-            controls: isCtx ? undefined : rowControls, focusTag, axisMode: axisTag, ctx: isCtx,
-            ...(isFocal ? {
-                expandBody: <EastChakraComponent value={expandBody}
-                    storageKey={`${storageKey}.${v.row.key}.expand`} />,
-                bandHeight: rowHeight(v, dense, ui.chartsExpanded, undefined, derived),
-                ...(expandGutterBody !== null ? {
-                    expandGutter: <EastChakraComponent value={expandGutterBody}
-                        storageKey={`${storageKey}.${v.row.key}.expandgutter`} />,
-                } : {}),
-            } : {}),
-            decision: review !== undefined && review.hasRowVerbs
-                ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} review={review} />
-                : undefined,
-            // Only the kinds that hold droppable objects register a cell —
-            // a chart / heat / table row is inert to a drag by construction,
-            // not by predicate (see `DROPPABLE_KINDS`).
-            drop: DROPPABLE_KINDS.has(kind.type) ? rowDrop : undefined,
-        } as const;
-        switch (kind.type) {
-            case "span": {
-                return (
-                    <RowShell {...shellBase} height={h}
-                        caret={hasChildren ? { collapsed: v.collapsed } : undefined}
-                        onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                        <SpanRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
-                            bands={derived.bands.get(v.row.key) ?? []}
-                            barHeight={v.collapsed && hasChildren ? 12 : barHeight}
-                            storageKey={`${storageKey}.${v.row.key}`}
-                            partial={transport?.partial} />
-                    </RowShell>
-                );
-            }
-            case "chart": {
-                const declaredExpanded = kind.value.height.type === "expanded";
-                const expandable = kind.value.expandable.type === "some" && kind.value.expandable.value;
-                const expanded = declaredExpanded || ui.chartsExpanded.has(v.row.key);
-                return (
-                    <RowShell {...shellBase} height={h} noGrid={false}
-                        caret={expandable ? { collapsed: !expanded } : undefined}
-                        onCaretClick={expandable ? () => dispatch({ t: "chart.toggle", key: v.row.key }) : undefined}
-                        gutterOverlay={<ChartLeftTicks kind={kind.value} styles={styles} height={h} />}>
-                        <ChartRowPlot kind={kind.value} styles={styles} height={h}
-                            expanded={expanded} rowKey={v.row.key} ctx={isCtx} />
-                    </RowShell>
-                );
-            }
-            case "heat": {
-                // A declared-aggregate parent renders its derived cells inside
-                // the empty scale-bearing heat arm — rebuilt with `variant`, so
-                // the wrap is a real East value like the arm it replaces (#617).
-                const derivedCells = derived.heatCells.get(v.row.key);
-                const cells = derivedCells !== undefined && kind.value.cells.type === "heat"
-                    ? variant("heat", { ...kind.value.cells.value, cells: derivedCells })
-                    : kind.value.cells;
-                return (
-                    <RowShell {...shellBase} height={h}
-                        caret={hasChildren ? { collapsed: v.collapsed } : undefined}
-                        onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                        <HeatCells rowKey={v.row.key} cells={cells} styles={styles} ctx={isCtx} />
-                    </RowShell>
-                );
-            }
-            case "buckets":
-                return (
-                    <RowShell {...shellBase} height={h}
-                        caret={hasChildren ? { collapsed: v.collapsed } : undefined}
-                        onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                        <BucketsRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
-                            storageKey={`${storageKey}.${v.row.key}`} />
-                    </RowShell>
-                );
-            case "table": {
-                // A declared-aggregate parent renders its derived subtotal
-                // cells as ONE plain series; leaf rows render their declared
-                // series (per-position style, raw cells).
-                const derivedSeries = derived.tableSeries.get(v.row.key);
-                const emphasis = kind.value.emphasis.type === "body" ? undefined : kind.value.emphasis.type;
-                return (
-                    <RowShell {...shellBase} height={h} emphasis={emphasis}
-                        caret={hasChildren ? { collapsed: v.collapsed } : undefined}
-                        onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                        <TableRowCells rowKey={v.row.key}
-                            series={derivedSeries ?? kind.value.series}
-                            split={kind.value.split.type} ctx={isCtx}
-                            format={getSomeorUndefined(kind.value.format)} styles={styles} />
-                    </RowShell>
-                );
-            }
-            case "cards":
-                return (
-                    <RowShell {...shellBase} height={h}>
-                        <CardsRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
-                            storageKey={`${storageKey}.${v.row.key}`} />
-                    </RowShell>
-                );
-            case "events":
-                return (
-                    <RowShell {...shellBase} height={h}>
-                        <EventsRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
-                            storageKey={`${storageKey}.${v.row.key}`} />
-                    </RowShell>
-                );
-        }
+        const activeControl = ui.focus !== null && ui.focus.key === v.row.key ? ui.focus.kind : undefined;
+        return (
+            <PlanBodyRow
+                v={v}
+                h={h}
+                styles={styles}
+                gridTemplate={gridTemplate}
+                barHeight={barHeight}
+                storageKey={storageKey}
+                index={index}
+                derived={derived}
+                dispatch={dispatch}
+                selected={ui.selected === v.row.key}
+                chartExpanded={ui.chartsExpanded.has(v.row.key)}
+                focusRole={isRail ? "rail" : isFocal ? "focal" : isCtx ? "ctx" : "none"}
+                focusTag={focusTag}
+                axisMode={axisMode}
+                showLinksControl={linkedKeys.has(v.row.key)}
+                showExpandControl={v.row.expand.type === "some" && expandRenderFn !== undefined}
+                activeControl={activeControl}
+                partial={transport?.partial}
+                review={review}
+                rowDrop={rowDrop}
+                {...(isFocal ? {
+                    expandBody: <EastChakraComponent value={expandBody}
+                        storageKey={`${storageKey}.${v.row.key}.expand`} />,
+                    bandHeight: rowHeight(v, dense, ui.chartsExpanded, undefined, derived),
+                    ...(expandGutterBody !== null ? {
+                        expandGutter: <EastChakraComponent value={expandGutterBody}
+                            storageKey={`${storageKey}.${v.row.key}.expandgutter`} />,
+                    } : {}),
+                } : {})}
+            />
+        );
     }, [scale, styles, gridTemplate, dense, ui, index, derived, dispatch, barHeight, storageKey,
         focusCtx, heightCtx, linkedKeys, linkFamily, expandRenderFn, expandBody, expandGutterBody,
         transport, review, rowDrop]);
