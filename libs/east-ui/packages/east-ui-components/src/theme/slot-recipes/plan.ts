@@ -34,7 +34,7 @@ export const planSlotRecipe = defineSlotRecipe({
         "toolbar", "toolbarGroup", "toolbarTrailing", "toolbarLibraryCount", "brushRow", "brushCaption",
         "ruler", "rulerTick", "nowChip", "footer", "footerItem",
         // the alignment contract
-        "row", "gutterCell", "plot", "gridCol", "dropPreview",
+        "row", "gutterCell", "plot", "panLayer", "gridCol", "dropPreview",
         // gutter vocabulary
         "gutterName", "gutterSub", "gutterValue", "gutterRight", "gutterMeta", "gutterSwatch",
         "caret", "statusDot",
@@ -268,6 +268,18 @@ export const planSlotRecipe = defineSlotRecipe({
             // different element entirely and never moves either way.
             "&[data-axis='dim'] [data-plan-axisline]": { opacity: 0.4 },
             "&[data-axis='off'] [data-plan-axisline]": { display: "none" },
+        },
+        // The brush-pan layer (#616): every window-anchored surface renders
+        // inside one full-size layer that translates by the body's
+        // `--plan-pan-px` during a horizon-brush SLIDE — one style write pans
+        // the whole canvas, no re-render; the release settles the real
+        // window. At rest the variable is unset and the transform is
+        // identity. Value-axis chrome inside a plot opts out with a px
+        // counter-transform (`chartTickRight`, `refLabel[data-plan-nopan]`).
+        panLayer: {
+            position: "absolute",
+            inset: 0,
+            transform: "translateX(var(--plan-pan-px, 0px))",
         },
         // A single bucket's background grid line (column separators). The
         // expand render's `axis` treatment washes / suppresses them INSIDE
@@ -886,7 +898,9 @@ export const planSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "8.5px",
             color: "fg.subtle",
-            transform: "translateY(-50%)",
+            // Value-AXIS chrome — counter-translated out of the brush pan
+            // (#616): px is size-independent, so the counter is exact.
+            transform: "translate(calc(-1 * var(--plan-pan-px, 0px)), -50%)",
             pointerEvents: "none",
             zIndex: 4,
         },
@@ -901,6 +915,9 @@ export const planSlotRecipe = defineSlotRecipe({
             padding: "0 3px",
             zIndex: 4,
             pointerEvents: "none",
+            // A refLINE's label is right-anchored axis chrome and opts out of
+            // the brush pan; a refDOT's label is window content and rides it.
+            "&[data-plan-nopan]": { transform: "translateX(calc(-1 * var(--plan-pan-px, 0px)))" },
         },
         // ── Heat rows (min-height 16, r2, 3px margins; depth is data-driven) ──
         heatCell: {

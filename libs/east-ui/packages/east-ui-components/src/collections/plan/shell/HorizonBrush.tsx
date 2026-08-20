@@ -15,14 +15,14 @@
  * an unbound Plan has no wider horizon to brush.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import { Box } from "@chakra-ui/react";
-import { some, variant, type ValueTypeOf } from "@elaraai/east";
+import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { BrushStrip } from "../../../slice/brush-strip.js";
 import { boundRangeDomain, boundRangeHistogram } from "../../../platform/slice/index.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
-import { usePlanDispatch, usePlanScale } from "../context.js";
+import { usePlanDispatch, usePlanPan, usePlanScale } from "../context.js";
 import { resolutionInterval, type PlanWindow } from "../scale.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -58,36 +58,17 @@ export interface HorizonBrushProps {
 export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolution }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const scale = usePlanScale();
-    // ── Live preview: DIRECT slice writes, one per animation frame (#609) ──
-    // A preview changes no machine state — the esc rung is armed by
-    // `brush.down` — so routing it through the store paid a full canvas
-    // render per pointer step with the OLD window (the effect-staging bump)
-    // before the drain's write rendered it again with the new one, and a
-    // fast drag emits more steps than frames. The write happens here, in the
-    // pointer handler (never render phase), trailing-edge coalesced so at
-    // most one window applies per frame. The COMMIT still routes through the
-    // machine: it disarms the rung, and cancelling the pending frame first
-    // keeps the committed window last.
-    const previewRaf = useRef<number | null>(null);
-    const previewPending = useRef<{ min: Date; max: Date } | null>(null);
-    const applyPreview = useCallback((min: Date, max: Date) => {
-        previewPending.current = { min, max };
-        if (previewRaf.current !== null) return;
-        previewRaf.current = requestAnimationFrame(() => {
-            previewRaf.current = null;
-            const w = previewPending.current;
-            previewPending.current = null;
-            if (w !== null) slice.setRange(some(variant("datetime", { from: w.min, to: w.max })));
-        });
-    }, [slice]);
-    const cancelPreview = useCallback(() => {
-        if (previewRaf.current !== null) {
-            cancelAnimationFrame(previewRaf.current);
-            previewRaf.current = null;
-        }
-        previewPending.current = null;
-    }, []);
-    useEffect(() => cancelPreview, [cancelPreview]);
+    // ── Live preview: TRANSFORM-PAN the canvas, settle on release (#616) ──
+    // A window SLIDE (same width) is a pure horizontal translation of every
+    // plot layer, so a preview step is one style write through the pan
+    // channel — no slice write, no scale rebuild, no re-render. The strip
+    // draws the draft either way (masks + handles), an edge RESIZE previews
+    // in the strip alone (a width change is not a translation), and the
+    // release commits the real window ONCE through the machine. (The
+    // per-step live apply this replaces re-derived the whole canvas per
+    // snapped step; before that, #610's store staging doubled it.)
+    const pan = usePlanPan();
+    useEffect(() => pan.clear, [pan]);
     // Self-subscribe (#611): the histogram is a STORE read, and a re-render
     // does not bust a memo whose deps did not move — the version has to be
     // one of them. (The previous disable comment justified the old deps with
@@ -151,19 +132,30 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
                     barHeight={BAR_H}
                     snapWindow={snapWindow}
                     // Snap AGAIN on the dates themselves so float round-trips
-                    // can never land the committed window 1ms off an edge. A
-                    // pending preview frame is cancelled first, so the
-                    // committed window is always the last write.
+                    // can never land the committed window 1ms off an edge. The
+                    // pan resets in the same frame the commit re-derives, so
+                    // content lands exactly where the pan showed it.
                     onCommit={(f0, f1) => {
-                        cancelPreview();
+                        pan.clear();
                         dispatch({ t: "brush.commit", min: snapDate(fromFraction(f0)), max: snapDate(fromFraction(f1)) });
                     }}
-                    // Live pan/resize preview — the snapped draft applies to
-                    // the slice as it steps between period edges, so the
-                    // canvas follows the drag one discrete column at a time
-                    // (directly + frame-coalesced; see `applyPreview`).
-                    onPreview={(f0, f1) => applyPreview(snapDate(fromFraction(f0)), snapDate(fromFraction(f1)))}
-                    onClear={() => { cancelPreview(); dispatch({ t: "brush.clear" }); }}
+                    // Live SLIDE preview — the snapped draft pans the canvas
+                    // one discrete column at a time through the pan channel
+                    // (a width change is a resize: strip-only preview). A
+                    // cancelled / no-op drag re-fires the origin, which is
+                    // slide(0) — the reset.
+                    onPreview={(f0, f1) => {
+                        const a = snapDate(fromFraction(f0));
+                        const b = snapDate(fromFraction(f1));
+                        const winFrom = window.min.getTime();
+                        const winSpan = window.max.getTime() - winFrom;
+                        if (winSpan > 0 && Math.abs((b.getTime() - a.getTime()) - winSpan) < 1) {
+                            pan.slide((a.getTime() - winFrom) / winSpan);
+                        } else {
+                            pan.clear();
+                        }
+                    }}
+                    onClear={() => { pan.clear(); dispatch({ t: "brush.clear" }); }}
                 />
             </Box>
         </Box>

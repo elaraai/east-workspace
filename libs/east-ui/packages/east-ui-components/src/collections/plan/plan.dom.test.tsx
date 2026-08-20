@@ -736,8 +736,8 @@ describe("Plan resolution zoom (§3)", () => {
     });
 });
 
-describe("Plan horizon brush — live pan preview (§7)", () => {
-    test("sliding the window pans the slice range in discrete period steps BEFORE release", async () => {
+describe("Plan horizon brush — transform-pan preview, settle on release (§7 / #616)", () => {
+    test("sliding the window PANS the canvas via one transform variable; the slice settles ONCE on release", () => {
         initializeStore(new UIStore());
         const cfg = {
             fields: new Map<string, unknown>([
@@ -766,24 +766,29 @@ describe("Plan horizon brush — live pan preview (§7)", () => {
         });
         const range = () => handle.read().range.value.value;
 
+        const body = container.querySelector("[data-plan-body]") as HTMLElement;
+
         // Grab the window body (166.7px..500px on the mocked track) and
         // slide +86px ≈ +1.03 weeks — the snapped draft steps one period.
         fireEvent.pointerDown(track, { clientX: 300, pointerId: 1, buttons: 1 });
         fireEvent.pointerMove(track, { clientX: 386, pointerId: 1, buttons: 1 });
-        // LIVE: the slice range pans one whole week pre-release — applied on
-        // the next animation frame (previews are frame-coalesced DIRECT
-        // writes, not store round-trips — #609), so the assertion awaits it.
-        await waitFor(() => expect(range().from.toISOString()).toBe("2026-07-20T00:00:00.000Z"));
-        expect(range().to.toISOString()).toBe("2026-08-17T00:00:00.000Z");
+        // The canvas PANS (one transform variable on the body; every pan
+        // layer translates) and the slice does NOT move — a mid-gesture step
+        // is a style write, never a re-derive (#616).
+        expect(body.hasAttribute("data-plan-panning")).toBe(true);
+        expect(body.style.getPropertyValue("--plan-pan-px")).not.toBe("");
+        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-08-10T00:00:00.000Z");
 
-        // Slide on to ≈ +2 weeks total and release — the commit lands the
-        // same snapped window the live preview showed, synchronously (the
-        // commit still routes through the machine, cancelling any pending
-        // preview frame so it is always the LAST write).
+        // Slide on to ≈ +2 weeks total and release — ONE commit lands the
+        // snapped window the strip previewed, and the pan resets in the same
+        // frame so content lands exactly where the pan showed it.
         fireEvent.pointerMove(track, { clientX: 467, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(range().from.toISOString()).toBe("2026-07-27T00:00:00.000Z");
         expect(range().to.toISOString()).toBe("2026-08-24T00:00:00.000Z");
+        expect(body.hasAttribute("data-plan-panning")).toBe(false);
+        expect(body.style.getPropertyValue("--plan-pan-px")).toBe("");
     });
 });
 

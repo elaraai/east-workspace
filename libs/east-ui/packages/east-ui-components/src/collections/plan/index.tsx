@@ -34,7 +34,7 @@ import { parseCssSize } from "../../style/parse-size.js";
 import { DensityProvider } from "../../contracts/density.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { VirtualRows } from "../virtual-rows.js";
-import { PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, type PlanCursor, type PlanResolvers, type PlanElementRefValue } from "./context.js";
+import { PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanPanContext, PlanResolversContext, type PlanCursor, type PlanPan, type PlanResolvers, type PlanElementRefValue } from "./context.js";
 import { usePlanPaging } from "./use-plan-paging.js";
 import { usePlanSeek } from "./use-seek.js";
 import { useElementHeight } from "./use-element-height.js";
@@ -622,6 +622,40 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const frameFills = height !== undefined || maxHeight !== undefined;
     const barHeight = dense ? 16 : 20;
 
+    // ── The brush pan: DIRECT transform writes, settle on release (#616) ──
+    // A horizon-brush SLIDE (same window width) is a pure horizontal
+    // translation of every plot layer. The HorizonBrush reports the slid
+    // fraction; ONE px variable on the body translates every row's pan layer
+    // and the ruler track — no slice write, no scale rebuild, no re-render —
+    // and the release commits the window once. Content the old window culled
+    // is simply absent from the revealed edge until that settle (rendering a
+    // true overscan is the remaining #616 ambition).
+    const pan = useMemo<PlanPan>(() => {
+        const reset = (body: HTMLElement) => {
+            body.style.removeProperty("--plan-pan-px");
+            body.removeAttribute("data-plan-panning");
+        };
+        return {
+            slide: (dxFrac: number) => {
+                const body = focusBodyRef.current;
+                if (body === null) return;
+                // The origin restore of a cancelled / no-op drag arrives as
+                // slide(0) — a zero pan IS the reset.
+                if (Math.abs(dxFrac) < 1e-9) { reset(body); return; }
+                const plotW = Math.max(
+                    0,
+                    body.clientWidth - gutterW - (review !== undefined ? (pxOf(DECISION_WIDTH) ?? 0) : 0),
+                );
+                body.style.setProperty("--plan-pan-px", `${(-dxFrac * plotW).toFixed(2)}px`);
+                body.setAttribute("data-plan-panning", "");
+            },
+            clear: () => {
+                const body = focusBodyRef.current;
+                if (body !== null) reset(body);
+            },
+        };
+    }, [gutterW, review]);
+
     // ── Rows ──────────────────────────────────────────────────────────────
     // Keyed on the ui FIELDS the derivation reads (`grain`, `collapsed`) —
     // never the whole `ui` — so the `VisibleRow` identities hold across
@@ -904,6 +938,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         <PlanScaleContext.Provider value={scale}>
             <PlanDispatchContext.Provider value={dispatch}>
             <PlanCursorContext.Provider value={cursor}>
+            <PlanPanContext.Provider value={pan}>
             <PlanResolversContext.Provider value={resolvers}>
                 <Box
                     ref={focusBodyRef}
@@ -999,6 +1034,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     )}
                 </Box>
             </PlanResolversContext.Provider>
+            </PlanPanContext.Provider>
             </PlanCursorContext.Provider>
             </PlanDispatchContext.Provider>
         </PlanScaleContext.Provider>
