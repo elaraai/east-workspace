@@ -67,7 +67,7 @@ export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProp
                 );
                 return (
                     <ElementOverlays key={chip.key}
-                        elementRef={ref}
+                        elementRef={ref} styles={styles}
                         storageKey={`${storageKey}.${chip.key}`}>
                         {node}
                     </ElementOverlays>

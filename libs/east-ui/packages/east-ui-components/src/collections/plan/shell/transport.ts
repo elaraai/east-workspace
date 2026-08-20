@@ -46,7 +46,11 @@ export interface PlanTransport {
 export function transportLabel(t: PlanTransport): string {
     const total = t.total !== undefined ? t.total.toLocaleString() : undefined;
     if (t.from > 0) {
-        const interval = `elements ${t.from.toLocaleString()}–${t.to.toLocaleString()}`;
+        // `from` is a 0-based index and `to` an EXCLUSIVE bound; the printed
+        // range is 1-based inclusive, so the count it implies matches
+        // `loaded` (#617 — it used to print the exclusive bound's span as one
+        // element more than was resident).
+        const interval = `elements ${(t.from + 1).toLocaleString()}–${t.to.toLocaleString()}`;
         return total !== undefined ? `${interval} of ${total}` : interval;
     }
     const loaded = t.loaded.toLocaleString();

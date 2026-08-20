@@ -147,10 +147,12 @@ export function RowShell({
         const frac = rect !== undefined && rect.width > 0
             ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
             : 0;
-        // The window is half-open, so a pointer exactly at the right edge
-        // (frac === 1) falls outside every bucket — clamp it into the last.
-        const bucket = scale.buckets.find((b) => frac >= b.x0 && frac < b.x1)
-            ?? scale.buckets[scale.buckets.length - 1];
+        // The shared frac→bucket resolver (#617): the exact right edge closes
+        // into the last bucket; a truncated axis's uncovered remainder is NO
+        // bucket (#618) — the slot stays empty and `dropVeto` refuses it, so a
+        // drop past the truncation point can never land at a wrong instant.
+        const bi = scale.bucketAtFrac(frac);
+        const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
         return {
             surface: drop?.surface ?? "",
             row: row.key,
@@ -164,11 +166,17 @@ export function RowShell({
         [drop, row.key],
     );
     const dropVeto = useCallback((payload: DragPayload, x?: number, y?: number): boolean => {
-        if (drop === undefined || drop.canDrop === undefined) return true;
-        const fn = drop.canDrop;
+        if (drop === undefined) return true;
         if (x !== undefined && y !== undefined) {
-            return canDropAllows(fn, candidateEvent(payload, resolveCoord(x, y)));
+            const coord = resolveCoord(x, y);
+            // No bucket under the pointer (past a truncated axis's coverage) —
+            // structurally not a destination, before any predicate is asked.
+            if (coord.slot === "") return false;
+            if (drop.canDrop === undefined) return true;
+            return canDropAllows(drop.canDrop, candidateEvent(payload, coord));
         }
+        if (drop.canDrop === undefined) return true;
+        const fn = drop.canDrop;
         // The drag-START sweep has no pointer yet — but a Plan cell's identity
         // is its ROW, and that is known right here. So the sweep answers for
         // this row at its FIRST bucket rather than blanket-allowing: a row the
@@ -214,8 +222,11 @@ export function RowShell({
         const rect = plotElRef.current?.getBoundingClientRect();
         if (el === null || rect === undefined || rect.width <= 0) return;
         const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-        const bucket = scale.buckets.find((b) => frac >= b.x0 && frac < b.x1)
-            ?? scale.buckets[scale.buckets.length - 1];
+        // The same resolver the drop coordinate reads (#617) — the preview and
+        // the drop cannot disagree. No bucket ⇒ the band stays where it was
+        // (the cell is not active there anyway — `dropVeto` refused it).
+        const bi = scale.bucketAtFrac(frac);
+        const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
         if (bucket === undefined) return;
         el.style.left = `${bucket.x0 * 100}%`;
         el.style.width = `${(bucket.x1 - bucket.x0) * 100}%`;

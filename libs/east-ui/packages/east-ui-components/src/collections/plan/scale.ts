@@ -133,6 +133,19 @@ export interface PlanScale {
     fracOf(t: Date): number;
     /** The bucket index containing an instant, or −1 outside the window. */
     bucketOf(t: Date): number;
+    /**
+     * The bucket index at a window FRACTION (pointer x ÷ plot width), or −1
+     * when the fraction lands in no bucket.
+     *
+     * The one frac→bucket resolver — the cursor readout, the drop coordinate
+     * and the landing-band preview all read it (#617; they used to carry
+     * three hand-copies with divergent right-edge handling). Buckets are
+     * half-open, which would make the covered range's exact right edge
+     * unreachable — a pointer there closes into the last bucket instead. On a
+     * truncated axis the uncovered remainder is NO bucket (#618): fractions
+     * past the last bucket's end answer −1, exactly like `bucketOf`.
+     */
+    bucketAtFrac(frac: number): number;
     /** Snap an instant to the nearest bucket edge (drag snapping). */
     snap(t: Date): Date;
     /** The now instant's window fraction, when inside the window. */
@@ -211,6 +224,22 @@ export function planScale(
         return lo;
     };
 
+    // The covered range's right edge as a fraction — 1 except on a truncated
+    // axis, where the grid ends before the window does.
+    const coveredX1 = buckets[buckets.length - 1]!.x1;
+    const bucketAtFrac = (frac: number): number => {
+        if (!Number.isFinite(frac) || frac < 0 || frac > coveredX1) return -1;
+        if (frac >= buckets[buckets.length - 1]!.x0) return buckets.length - 1;
+        // Buckets are contiguous and ordered — binary search the left edges.
+        let lo = 0, hi = buckets.length - 1;
+        while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+            if (buckets[mid]!.x0 <= frac) lo = mid;
+            else hi = mid - 1;
+        }
+        return lo;
+    };
+
     const snap = (t: Date): Date => {
         const below = interval.floor(t);
         const above = interval.offset(below, 1);
@@ -221,5 +250,5 @@ export function planScale(
         ? fracOf(now)
         : undefined;
 
-    return { window, resolution, n: buckets.length, buckets, xOf, fracOf, bucketOf, snap, nowFrac };
+    return { window, resolution, n: buckets.length, buckets, xOf, fracOf, bucketOf, bucketAtFrac, snap, nowFrac };
 }

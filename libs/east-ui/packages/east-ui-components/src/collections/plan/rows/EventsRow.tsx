@@ -77,7 +77,7 @@ export function EventsRow({ rowKey, kind, styles, storageKey, ctx }: EventsRowPr
                                 left={`${x * 100}%`} onClick={onClick} cursor="pointer" />;
                 return (
                     <ElementOverlays key={mark.key}
-                        elementRef={ref}
+                        elementRef={ref} styles={styles}
                         storageKey={`${storageKey}.${mark.key}`}>
                         <Box as="span" display="contents">
                             {glyph}

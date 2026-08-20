@@ -52,8 +52,9 @@ type Styles = Record<string, Record<string, unknown>>;
 /** The decoded `review` config a Plan carries. */
 export type PlanReviewValue = ValueTypeOf<typeof Plan.Types.Review>;
 
-/** The fixed width of the trailing decision column — the shared 168px. */
-export const DECISION_WIDTH = "168px";
+/** The fixed width of the trailing decision column — the shared review
+ *  module's one constant, re-exported rather than re-declared (#617). */
+export { DECISION_WIDTH } from "../../shared/review.js";
 
 /** A row's resolved verdict. `pending` when the data says nothing. */
 export type ApprovalTag = "approved" | "pending" | "rejected";

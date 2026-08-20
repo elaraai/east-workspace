@@ -14,7 +14,7 @@
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
-import { type ValueTypeOf } from "@elaraai/east";
+import { none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { HeatCells } from "./HeatRow.js";
@@ -24,17 +24,16 @@ import type { PlanRowValue } from "../model.js";
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
 type HeatCellValue = ValueTypeOf<typeof Plan.Types.HeatCell>;
 
-/** Wrap derived strip cells in a decoded-shaped heat arm for {@link HeatCells}. */
+/** Wrap derived strip cells in a heat arm for {@link HeatCells} — built with
+ *  `variant`/`none` so it is a REAL East value like the arm it stands in for,
+ *  never a hand-rolled `{ type, value }` literal (#617). */
 function derivedArm(cells: readonly HeatCellValue[]): HeatCellsValue {
-    return {
-        type: "heat",
-        value: {
-            cells: cells as HeatCellValue[],
-            min: { type: "none", value: null },
-            max: { type: "none", value: null },
-            warnAt: { type: "none", value: null },
-        },
-    } as HeatCellsValue;
+    return variant("heat", {
+        cells: [...cells],
+        min: none,
+        max: none,
+        warnAt: none,
+    });
 }
 
 type Styles = Record<string, Record<string, unknown>>;

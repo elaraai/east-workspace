@@ -46,7 +46,10 @@ const BRAND = "var(--chakra-colors-brand-600)";
 const WARN = "var(--chakra-colors-status-warn)";
 const BAND_FILL = "color-mix(in srgb, var(--chakra-colors-brand-600) 14%, transparent)";
 const REF_INK = "var(--chakra-colors-fg-subtle)";
-const PURPLE = "var(--chakra-colors-purple-500)";
+// Scatter marks wear the chart-accent purple — the canonical chart palette
+// (`tokens.colors.accent`, "chart palette only"), never a raw Chakra
+// palette stop (#617).
+const SCATTER = "var(--chakra-colors-accent-purple)";
 
 interface YScale { min: number; max: number; y(v: number): number }
 
@@ -304,7 +307,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             const s = ys(layer.value.axis.type);
             layer.value.points.forEach((p, pi) => {
                 svgMarks.push(<circle key={`sc-${li}-${pi}`} cx={scale.xOf(p.t) * VW} cy={s.y(p.y)}
-                    r={2.5} fill={PURPLE} stroke="none" />);
+                    r={2.5} fill={SCATTER} stroke="none" />);
             });
             return;
         }

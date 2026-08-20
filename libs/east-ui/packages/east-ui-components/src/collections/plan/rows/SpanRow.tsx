@@ -15,7 +15,7 @@
  */
 
 import { useMemo } from "react";
-import { Box } from "@chakra-ui/react";
+import { Box, Portal, Tooltip } from "@chakra-ui/react";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
@@ -105,7 +105,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 );
                 return (
                     <ElementOverlays key={run.key}
-                        elementRef={ref}
+                        elementRef={ref} styles={styles}
                         storageKey={`${storageKey}.${run.key}`}>
                         {bar}
                     </ElementOverlays>
@@ -133,7 +133,22 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 const x = scale.fracOf(port.at);
                 if (x < 0 || x > 1) return null;
                 const label = port.label.type === "some" ? port.label.value : undefined;
-                return <Box key={`port-${i}`} css={styles.port} left={`${x * 100}%`} title={label} />;
+                if (label === undefined) return <Box key={`port-${i}`} css={styles.port} left={`${x * 100}%`} />;
+                // The design-system tooltip, never the native `title=` — the
+                // same overlay every other labelled mark uses (#617; the
+                // BucketsRow marker precedent).
+                return (
+                    <Tooltip.Root key={`port-${i}`} openDelay={150}>
+                        <Tooltip.Trigger asChild>
+                            <Box css={styles.port} left={`${x * 100}%`} />
+                        </Tooltip.Trigger>
+                        <Portal>
+                            <Tooltip.Positioner>
+                                <Tooltip.Content>{label}</Tooltip.Content>
+                            </Tooltip.Positioner>
+                        </Portal>
+                    </Tooltip.Root>
+                );
             })}
             {kind.decisions.map((dec) => {
                 const x = scale.fracOf(dec.at);
@@ -146,7 +161,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 );
                 return (
                     <ElementOverlays key={dec.key}
-                        elementRef={ref}
+                        elementRef={ref} styles={styles}
                         storageKey={`${storageKey}.${dec.key}`}>
                         {diamond}
                     </ElementOverlays>

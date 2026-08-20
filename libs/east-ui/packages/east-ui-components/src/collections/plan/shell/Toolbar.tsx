@@ -16,7 +16,7 @@ import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLayerGroup } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui/internal";
+import { Pick, Slice } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
@@ -36,6 +36,8 @@ const NARROWING_KINDS = new Set(["filter", "cohort", "presets", "breakdown", "se
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
+/** The decoded pick bind — DERIVED from the East type, never mirrored (#617). */
+type PickBindValue = ValueTypeOf<typeof Pick.Types.Bind>;
 
 /** The compact chrome segment strip (`seg` recipe). */
 export function Seg({ items, active, onPick }: {
@@ -73,7 +75,7 @@ export interface PlanToolbarProps {
     search?: PlanSearch | undefined;
     /** The bound series library (#590) — mounts the right-edge Series button,
      *  which opens the library in the shared slice-editor popover. */
-    pick?: unknown;
+    pick?: PickBindValue | undefined;
 }
 
 /** The 44px toolbar band. */
@@ -172,10 +174,6 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
     );
 }
 
-/** One pickable thing, as the panel reads it — enough to count what is shown. */
-type PickItemLike = { id: string };
-type PickBindLike = { key: string; items: ReadonlyArray<PickItemLike>; state: { read: () => string[] } };
-
 /**
  * The right-edge **Series** button — the library's only chrome at rest.
  *
@@ -193,27 +191,26 @@ type PickBindLike = { key: string; items: ReadonlyArray<PickItemLike>; state: { 
  * nest. No per-call flag.
  */
 function PlanLibraryButton({ pick, open, onOpenChange, btn, styles }: {
-    pick: unknown;
+    pick: PickBindValue;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     btn: ReturnType<typeof useRecipe>;
     styles: Styles;
 }) {
-    const bind = pick as PickBindLike;
     // Self-subscribe on the pick's store key — `PickBindType.key` exists for
     // exactly this ("renderers self-subscribe on it"). Without it, a toggle
     // that changes no rows (a zero-row series) re-renders nothing, and the
     // per-render read below never runs again (#611).
-    useSliceReactivity(bind.key);
-    const hidden = new Set(bind.state.read());
-    const shown = bind.items.filter((i) => !hidden.has(i.id)).length;
+    useSliceReactivity(pick.key);
+    const hidden = new Set(pick.state.read());
+    const shown = pick.items.filter((i) => !hidden.has(i.id)).length;
     return (
         <SliceEditPopover
             open={open}
             onOpenChange={onOpenChange}
             size="lg"
             flush
-            label={<>Series · <Box as="span" css={styles.toolbarLibraryCount}>{`${shown} of ${bind.items.length}`}</Box></>}
+            label={<>Series · <Box as="span" css={styles.toolbarLibraryCount}>{`${shown} of ${pick.items.length}`}</Box></>}
             trigger={
                 <chakra.button type="button" css={btn({ variant: "ghost", size: "xs" })}
                     data-slot="planLibraryTrigger" aria-label="Series library" aria-expanded={open}>
@@ -223,7 +220,7 @@ function PlanLibraryButton({ pick, open, onOpenChange, btn, styles }: {
             }
         >
             <SliceDensityContext.Provider value="editor">
-                <EastChakraPickPanel value={{ pick, title: "Series" } as never} />
+                <EastChakraPickPanel value={{ pick, title: "Series" }} />
             </SliceDensityContext.Provider>
         </SliceEditPopover>
     );

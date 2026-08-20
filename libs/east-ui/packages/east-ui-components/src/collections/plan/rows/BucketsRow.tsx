@@ -97,7 +97,7 @@ function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
         </Box>
     );
     return (
-        <ElementOverlays elementRef={ref}
+        <ElementOverlays elementRef={ref} styles={styles}
             storageKey={`${storageKey}.${ev.key}`}>
             {chip}
         </ElementOverlays>

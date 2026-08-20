@@ -22,8 +22,8 @@ import { Slice } from "@elaraai/east-ui/internal";
 import { BrushStrip } from "../../../slice/brush-strip.js";
 import { boundRangeDomain, boundRangeHistogram } from "../../../platform/slice/index.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
-import { usePlanDispatch } from "../context.js";
-import { resolutionInterval, type PlanResolution, type PlanWindow } from "../scale.js";
+import { usePlanDispatch, usePlanScale } from "../context.js";
+import { resolutionInterval, type PlanWindow } from "../scale.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
@@ -57,6 +57,7 @@ export interface HorizonBrushProps {
 /** The 32px horizon band — caption gutter cell + the shared brush strip. */
 export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolution }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
+    const scale = usePlanScale();
     // Self-subscribe (#611): the histogram is a STORE read, and a re-render
     // does not bust a memo whose deps did not move — the version has to be
     // one of them. (The previous disable comment justified the old deps with
@@ -84,12 +85,10 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
     const fromFraction = (f: number) => new Date(domain.min + Math.max(0, Math.min(1, f)) * span);
     // Resolution-edge snapping: the draft and the committed window land on
     // period boundaries of the ACTIVE resolution, at least one period wide.
-    const interval = resolutionInterval((CAPTION_UNIT[resolution] !== undefined ? resolution : "week") as PlanResolution);
-    const snapDate = (d: Date): Date => {
-        const below = interval.floor(d);
-        const above = interval.offset(below, 1);
-        return d.getTime() - below.getTime() <= above.getTime() - d.getTime() ? below : above;
-    };
+    // The scale's OWN `snap` — this band used to carry a hand-copy of the
+    // same floor/offset/midpoint over the same interval (#617).
+    const interval = resolutionInterval(scale.resolution);
+    const snapDate = scale.snap;
     const toFrac = (d: Date) => Math.max(0, Math.min(1, (d.getTime() - domain.min) / span));
     const snapWindow = (f0: number, f1: number): { from: number; to: number } => {
         const a = snapDate(fromFraction(f0));

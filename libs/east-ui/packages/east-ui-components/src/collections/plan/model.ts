@@ -17,7 +17,7 @@
  * @packageDocumentation
  */
 
-import { type ValueTypeOf } from "@elaraai/east";
+import { none, some, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { initialPlanState, type PlanGrain, type PlanUiState, type RowKey } from "./plan-state.js";
 
@@ -442,7 +442,10 @@ export function deriveHeatCells(
         if (!groups.has(t)) { groups.set(t, []); order.push(t); }
         if (c.value.type === "some") groups.get(t)!.push(c.value.value);
     }
-    return order.sort((a, b) => a - b).map((t) => {
+    // Derived cells are REAL East option values (`some`/`none` — never a
+    // hand-rolled `{ type, value }` literal, which lacks the encoder symbol
+    // and breaks the day one is encoded or symbol-compared; #617).
+    return order.sort((a, b) => a - b).map((t): HeatCellValue => {
         const vals = groups.get(t)!;
         let v: number | undefined;
         if (vals.length > 0) {
@@ -451,9 +454,9 @@ export function deriveHeatCells(
         }
         return {
             at: new Date(t),
-            value: v !== undefined ? { type: "some", value: v } : { type: "none", value: null },
-            label: v !== undefined ? { type: "some", value: v.toFixed(0) } : { type: "none", value: null },
-        } as HeatCellValue;
+            value: v !== undefined ? some(v) : none,
+            label: v !== undefined ? some(v.toFixed(0)) : none,
+        };
     });
 }
 
@@ -471,7 +474,7 @@ export function deriveTableCells(
         if (!groups.has(t)) { groups.set(t, []); order.push(t); }
         if (c.value.type === "some") groups.get(t)!.push(c.value.value);
     }
-    return order.sort((a, b) => a - b).map((t) => {
+    return order.sort((a, b) => a - b).map((t): TableCellValue => {
         const vals = groups.get(t)!;
         let v: number | undefined;
         if (mode === "count") v = vals.length;
@@ -484,10 +487,10 @@ export function deriveTableCells(
         }
         return {
             at: new Date(t),
-            value: v !== undefined ? { type: "some", value: v } : { type: "none", value: null },
-            text: { type: "none", value: null },
-            tone: { type: "none", value: null },
-        } as TableCellValue;
+            value: v !== undefined ? some(v) : none,
+            text: none,
+            tone: none,
+        };
     });
 }
 
@@ -516,7 +519,7 @@ export function deriveTableSeries(
         out.push({
             cells: deriveTableCells(at.flatMap((s) => s.cells), mode),
             format: style.format, tone: style.tone, strong: style.strong, rollup: style.rollup,
-        } as TableSeriesValue);
+        });
     }
     return out;
 }

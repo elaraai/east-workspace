@@ -340,7 +340,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // answered against the current buckets and no ref is written during
     // render; the reducer stays pure either way.
     const ctx = useMemo<PlanCtx>(() => ({
-        bucketAtFrac: (f) => (scale === undefined ? -1 : scale.buckets.findIndex((b) => f >= b.x0 && f < b.x1)),
+        bucketAtFrac: (f) => (scale === undefined ? -1 : scale.bucketAtFrac(f)),
     }), [scale]);
     const storeReducer = useCallback(
         (s: PlanStore, a: PlanAction) => planStoreReducer(s, a, ctx),
@@ -644,8 +644,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // focus context: every row but the focus is `STRIP_H`, groups aside.
     const expandRenderPx = useMemo(() => {
         if (expandDecl === undefined) return 0;
-        const declared = expandDecl.height.type === "some" ? parseFloat(expandDecl.height.value) : NaN;
-        const want = Number.isFinite(declared) ? declared : EXPAND_DEFAULT_PX;
+        // `pxOf`, not `parseFloat` — a percentage must fall back to the
+        // default, never silently become that many pixels (the #615 rule).
+        const declared = expandDecl.height.type === "some" ? pxOf(expandDecl.height.value) : undefined;
+        const want = declared ?? EXPAND_DEFAULT_PX;
         if (viewportPx === undefined) return want;
         // Everything the render must NOT push out: the strips, the focal row's
         // own band, and the chrome pinned above them.
@@ -831,10 +833,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             }
             case "heat": {
                 // A declared-aggregate parent renders its derived cells inside
-                // the empty scale-bearing heat arm.
+                // the empty scale-bearing heat arm — rebuilt with `variant`, so
+                // the wrap is a real East value like the arm it replaces (#617).
                 const derivedCells = derived.heatCells.get(v.row.key);
                 const cells = derivedCells !== undefined && kind.value.cells.type === "heat"
-                    ? { type: "heat" as const, value: { ...kind.value.cells.value, cells: derivedCells } } as typeof kind.value.cells
+                    ? variant("heat", { ...kind.value.cells.value, cells: derivedCells })
                     : kind.value.cells;
                 return (
                     <RowShell {...shellBase} height={h}

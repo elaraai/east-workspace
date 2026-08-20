@@ -41,6 +41,9 @@ function resolveBody(
 export interface ElementOverlaysProps {
     /** The wrapped element's ref — build with `variant("run", { row, run })` etc. */
     elementRef: PlanElementRefValue;
+    /** The resolved `plan` recipe styles — the overlay body geometry lives on
+     *  the `elementOverlay` slot, never inline (#617). */
+    styles: Record<string, Record<string, unknown>>;
     storageKey: string;
     /** The trigger element (the bar / tile / chip / mark). */
     children: ReactNode;
@@ -51,7 +54,7 @@ export interface ElementOverlaysProps {
  * hovercard (hover). Both are CONTROLLED: the open intent runs the resolver
  * first and only a `some` body opens — an empty surface never flashes.
  */
-export function ElementOverlays({ elementRef, storageKey, children }: ElementOverlaysProps) {
+export function ElementOverlays({ elementRef, styles, storageKey, children }: ElementOverlaysProps) {
     const { popover, hover } = usePlanResolvers();
     const [pop, setPop] = useState<{ open: boolean; body: BodyValue | null }>({ open: false, body: null });
     const [hov, setHov] = useState<{ open: boolean; body: BodyValue | null }>({ open: false, body: null });
@@ -73,7 +76,7 @@ export function ElementOverlays({ elementRef, storageKey, children }: ElementOve
     const hoverBody = hov.body !== null ? (
         <Portal>
             <HoverCard.Positioner>
-                <HoverCard.Content padding="14px 16px" minW="240px" maxW="360px" fontSize="13px">
+                <HoverCard.Content css={styles.elementOverlay}>
                     <EastChakraComponent value={hov.body} storageKey={`${storageKey}.hover`} />
                 </HoverCard.Content>
             </HoverCard.Positioner>
@@ -82,7 +85,7 @@ export function ElementOverlays({ elementRef, storageKey, children }: ElementOve
     const popBody = pop.body !== null ? (
         <Portal>
             <Popover.Positioner>
-                <Popover.Content padding="14px 16px" minW="240px" maxW="360px" fontSize="13px">
+                <Popover.Content css={styles.elementOverlay}>
                     <Popover.Body padding={0}>
                         <EastChakraComponent value={pop.body} storageKey={`${storageKey}.popover`} />
                     </Popover.Body>

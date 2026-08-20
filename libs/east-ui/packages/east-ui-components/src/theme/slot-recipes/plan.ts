@@ -54,7 +54,7 @@ export const planSlotRecipe = defineSlotRecipe({
         "cell", "tile", "laneLabel", "markerIcon", "cardChip",
         "milestoneDot", "exceptionTri", "markIcon", "markLabel", "tableCellText", "tableCellPart",
         // overlays
-        "nowLine", "cursorLine", "cursorChip",
+        "nowLine", "cursorLine", "cursorChip", "elementOverlay",
         // diagnostics (no window / unreadable source)
         "diagnostic",
         // paged canvas: the unloaded run above / below the resident one
@@ -1334,6 +1334,15 @@ export const planSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             zIndex: 6,
             pointerEvents: "none",
+        },
+        // The generalized element popover / hovercard body (`ElementOverlays`)
+        // — one content geometry for both overlay kinds, so a run's click
+        // surface and its hover surface read as the same family.
+        elementOverlay: {
+            padding: "14px 16px",
+            minWidth: "240px",
+            maxWidth: "360px",
+            fontSize: "13px",
         },
     },
     variants: {
