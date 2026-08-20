@@ -161,9 +161,15 @@ export function LinksOverlay({ container, links, visibleKeys, scale, runDates }:
             setBands([]);
             return;
         }
+        // Re-measures are COALESCED to one per animation frame and BAIL when
+        // the measured geometry did not move (#616): the handlers used to run
+        // querySelector + getBoundingClientRect per edge and setState a fresh
+        // array on every scroll tick, unthrottled — a re-render per tick even
+        // when nothing had moved.
+        let raf: number | null = null;
+        let lastSig = "";
         const measure = () => {
             const base = container.getBoundingClientRect();
-            setSize({ w: base.width, h: base.height });
             const maxQty = edges.reduce((m, l) => Math.max(m, Math.abs(l.quantity)), 0);
             const outR: Ribbon[] = [];
             const outB: FadeBand[] = [];
@@ -190,18 +196,30 @@ export function LinksOverlay({ container, links, visibleKeys, scale, runDates }:
                 while (placed.some((p) => Math.abs(p.x - r.lx) < 60 && Math.abs(p.y - r.ly) < 12)) r.ly += 12;
                 placed.push({ x: r.lx, y: r.ly });
             }
+            const sig = JSON.stringify([base.width, base.height, outR, outB]);
+            if (sig === lastSig) return;
+            lastSig = sig;
+            setSize({ w: base.width, h: base.height });
             setRibbons(outR);
             setBands(outB);
         };
+        const schedule = () => {
+            if (raf !== null) return;
+            raf = requestAnimationFrame(() => {
+                raf = null;
+                measure();
+            });
+        };
         // First draw waits for the gather choreography to settle; scroll /
-        // resize re-measure immediately (capture — scroll doesn't bubble).
+        // resize re-measure on the next frame (capture — scroll doesn't bubble).
         const timer = setTimeout(measure, SETTLE_MS);
-        container.addEventListener("scroll", measure, true);
-        window.addEventListener("resize", measure);
+        container.addEventListener("scroll", schedule, true);
+        window.addEventListener("resize", schedule);
         return () => {
             clearTimeout(timer);
-            container.removeEventListener("scroll", measure, true);
-            window.removeEventListener("resize", measure);
+            if (raf !== null) cancelAnimationFrame(raf);
+            container.removeEventListener("scroll", schedule, true);
+            window.removeEventListener("resize", schedule);
         };
     }, [container, edges, scale, runDates]);
 

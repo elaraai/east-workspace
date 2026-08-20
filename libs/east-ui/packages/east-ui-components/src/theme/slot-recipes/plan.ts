@@ -34,7 +34,7 @@ export const planSlotRecipe = defineSlotRecipe({
         "toolbar", "toolbarGroup", "toolbarTrailing", "toolbarLibraryCount", "brushRow", "brushCaption",
         "ruler", "rulerTick", "nowChip", "footer", "footerItem",
         // the alignment contract
-        "row", "gutterCell", "plot", "panLayer", "gridCol", "dropPreview",
+        "row", "gutterCell", "plot", "panLayer", "gridCol", "gridSep", "dropPreview",
         // gutter vocabulary
         "gutterName", "gutterSub", "gutterValue", "gutterRight", "gutterMeta", "gutterSwatch",
         "caret", "statusDot",
@@ -51,7 +51,7 @@ export const planSlotRecipe = defineSlotRecipe({
         // heat rows
         "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart",
         // bucket rows (K2), cards rows (K6), event rows (K7), table rows (K5)
-        "cell", "tile", "laneLabel", "markerIcon", "cardChip",
+        "cell", "cellWash", "tile", "laneLabel", "markerIcon", "cardChip",
         "milestoneDot", "exceptionTri", "markIcon", "markLabel", "tableCellText", "tableCellPart",
         // overlays
         "nowLine", "cursorLine", "cursorChip", "elementOverlay",
@@ -291,6 +291,19 @@ export const planSlotRecipe = defineSlotRecipe({
             width: 0,
             borderLeftWidth: "1px",
             borderLeftColor: "border.subtle",
+            pointerEvents: "none",
+            "[data-axis='dim'] &": { opacity: 0.4 },
+            "[data-axis='off'] &": { display: "none" },
+        },
+        // ALL interior separators of an equal-bucket row as ONE element
+        // (#616): a repeating gradient at one bucket width, starting at the
+        // first interior edge (the renderer sets `left` + the tile size). The
+        // per-edge `gridCol` divs remain the unequal-bucket fallback.
+        gridSep: {
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            right: 0,
             pointerEvents: "none",
             "[data-axis='dim'] &": { opacity: 0.4 },
             "[data-axis='off'] &": { display: "none" },
@@ -999,6 +1012,18 @@ export const planSlotRecipe = defineSlotRecipe({
         // One washed sub-cell per bucket × lane; content (lane caption +
         // chips) flows inline, left-aligned. A marker rings the CELL
         // (`data-over`) and pins the corner status icon.
+        //
+        // EMPTY cells of an equal-bucket captionless lane do not mount (#616):
+        // their wash paints as ONE gradient band per lane (`cellWash` — the
+        // renderer sets the lane's top/height and the tile size), and real
+        // cells mount only where content, a caption or a marker exists,
+        // covering their gradient tile exactly.
+        cellWash: {
+            position: "absolute",
+            left: 0,
+            right: 0,
+            pointerEvents: "none",
+        },
         cell: {
             position: "absolute",
             background: "bg.panel",

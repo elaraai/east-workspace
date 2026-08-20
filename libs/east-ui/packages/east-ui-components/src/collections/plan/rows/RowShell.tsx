@@ -28,6 +28,42 @@ type Styles = Record<string, Record<string, unknown>>;
 export const INDENT_PX = 30;
 
 /**
+ * The plot's bucket-column separators, O(1) DOM per row (#616).
+ *
+ * Equal-width buckets (hour / day / week — every high-count resolution) paint
+ * ALL interior separators as one repeating gradient on a single element: it
+ * starts at the FIRST interior edge and tiles at one bucket width, so no line
+ * lands on the plot's own boundaries. A 100-row × 500-bucket canvas used to
+ * mount ~50k separator divs; this is 100. Unequal buckets (month / quarter —
+ * clipped edge buckets, low counts by construction) keep the per-edge divs.
+ */
+export function GridSeparators({ styles }: { styles: Styles }) {
+    const scale = usePlanScale();
+    const n = scale.buckets.length;
+    if (n < 2) return null;
+    const w0 = scale.buckets[0]!.x1 - scale.buckets[0]!.x0;
+    const uniform = scale.buckets.every((b) => Math.abs((b.x1 - b.x0) - w0) < 1e-9);
+    if (uniform) {
+        return (
+            <Box css={styles.gridSep} data-plan-axisline data-plan-gridsep
+                left={`${scale.buckets[0]!.x1 * 100}%`}
+                style={{
+                    // One bucket width, in THIS element's own space: it spans
+                    // n−1 buckets, so a tile is 1/(n−1) of it.
+                    backgroundImage: `repeating-linear-gradient(to right, var(--chakra-colors-border-subtle) 0 1px, transparent 1px calc(100% / ${n - 1}))`,
+                }} />
+        );
+    }
+    return (
+        <>
+            {scale.buckets.slice(0, -1).map((b, i) => (
+                <Box key={i} css={styles.gridCol} data-plan-axisline left={`${b.x1 * 100}%`} />
+            ))}
+        </>
+    );
+}
+
+/**
  * A row's DnD drop registration — present only when the canvas is a drag
  * target AND this row's KIND accepts drops (see `DROPPABLE_KINDS`).
  */
@@ -116,12 +152,6 @@ export function RowShell({
     const value = gutter.value.type === "some" ? gutter.value.value : undefined;
     const isId = gutter.id.type === "some" && gutter.id.value;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
-
-    // Interior bucket edges (skip the window edges) — the column separators.
-    const edges = useMemo(
-        () => scale.buckets.slice(0, -1).map((b) => b.x1),
-        [scale],
-    );
 
     // ── DnD drop cell ─────────────────────────────────────────────────────
     // The PLOT is the drop target, and its coordinate resolves from the
@@ -338,9 +368,7 @@ export function RowShell({
                     content translates by the body's `--plan-pan-px` during a
                     horizon-brush slide — the plot's own clip stays put. */}
                 <Box css={styles.panLayer} data-plan-panlayer>
-                    {noGrid !== true && edges.map((x, i) => (
-                        <Box key={i} css={styles.gridCol} data-plan-axisline left={`${x * 100}%`} />
-                    ))}
+                    {noGrid !== true && <GridSeparators styles={styles} />}
                     {drop !== undefined && (
                         <Box ref={previewRef} css={styles.dropPreview} data-plan-drop-preview />
                     )}

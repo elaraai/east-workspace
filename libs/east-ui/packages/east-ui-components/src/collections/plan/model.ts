@@ -110,21 +110,37 @@ export function visibleRows(
     const out: VisibleRow[] = [];
     const grain: PlanGrain = ui.grain;
     const isPinned = (row: PlanRowValue) => row.pinned.type === "some" && row.pinned.value;
-    const mustReveal = (key: RowKey): boolean => {
-        if (reveal === undefined) return false;
-        const kids = index.children.get(key) ?? [];
-        return kids.some((c) => reveal.has(c.key) || mustReveal(c.key));
-    };
+    // "Must this subtree stay open for the focus?" answered ONCE: the set of
+    // strict ANCESTORS of every revealed key, built by walking `parent`
+    // pointers upward — O(reveal × depth). (It used to recurse down the
+    // children per visited row, O(n²) under a links focus on wide trees —
+    // #616.)
+    const revealAncestors = ancestorsOf(index, reveal);
     const walk = (row: PlanRowValue, depth: number) => {
         if (isPinned(row)) return;
         const kids = index.children.get(row.key) ?? [];
         const isGroup = row.kind.type === "group";
         const collapsed = (ui.collapsed.has(row.key) || (grain === "group" && isGroup && depth === 0))
-            && !mustReveal(row.key);
+            && !revealAncestors.has(row.key);
         out.push({ row, depth, collapsed });
         if (!collapsed) for (const child of kids) walk(child, depth + 1);
     };
     for (const root of index.roots) walk(root, 0);
+    return out;
+}
+
+/** The strict ancestors of every key in `keys` — "which subtrees contain one"
+ *  as a set, via upward `parent` walks (each ancestor visited once). */
+function ancestorsOf(index: PlanRowIndex, keys: ReadonlySet<RowKey> | undefined): ReadonlySet<RowKey> {
+    const out = new Set<RowKey>();
+    if (keys === undefined) return out;
+    for (const key of keys) {
+        let parent = index.byKey.get(key)?.parent;
+        while (parent !== undefined && parent.type === "some" && !out.has(parent.value)) {
+            out.add(parent.value);
+            parent = index.byKey.get(parent.value)?.parent;
+        }
+    }
     return out;
 }
 
@@ -703,8 +719,11 @@ export function elideForFocus(
     focus: PlanFocusCtx,
 ): PlanBodyItem[] {
     const kept = (key: RowKey): boolean => key === focus.key || (focus.family?.has(key) ?? false);
-    const subtreeHasFamily = (key: RowKey): boolean =>
-        (index.children.get(key) ?? []).some((c) => kept(c.key) || subtreeHasFamily(c.key));
+    // "Does this group's subtree hold family?" precomputed as the kept keys'
+    // ancestor set — O(family × depth), not a per-row downward recursion
+    // (#616; the same fix as `visibleRows`' reveal test).
+    const keptAncestors = ancestorsOf(index, new Set([focus.key, ...(focus.family ?? [])]));
+    const subtreeHasFamily = (key: RowKey): boolean => keptAncestors.has(key);
     const subtreeDataRows = (key: RowKey): number =>
         (index.children.get(key) ?? []).reduce(
             (n, c) => n + (c.kind.type === "group" ? 0 : 1) + subtreeDataRows(c.key), 0);

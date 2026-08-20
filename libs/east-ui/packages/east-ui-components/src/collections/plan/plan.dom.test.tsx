@@ -434,6 +434,41 @@ describe("Plan row-layer memoization (#616)", () => {
     });
 });
 
+describe("Plan DOM scale (#616)", () => {
+    test("separator DOM is O(rows): ONE gradient element per row on a uniform axis", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("m1", spanKind([])),
+            planRow("m2", spanKind([])),
+            planRow("m3", spanKind([])),
+        ]), "plan-616-sep");
+        // 12 equal week buckets → one separator element per row, where the
+        // per-edge divs were 11 per row (33 across this canvas, ~50k at
+        // 100 rows × 500 hour buckets).
+        expect(container.querySelectorAll("[data-plan-gridsep]")).toHaveLength(3);
+    });
+
+    test("bucket cells mount only where OCCUPIED; the empty wash is one band per lane", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("dock", variant("buckets", {
+                lanes: [],
+                events: [
+                    bucketEvent("e1", new Date("2026-06-29Z"), variant("actual", null)),
+                    bucketEvent("e2", new Date("2026-07-06Z"), variant("confirmed", null)),
+                ],
+                markers: [{ at: new Date("2026-07-20Z"), lane: none, status: variant("danger", null), message: "short" }],
+            })),
+        ]), "plan-616-cells");
+        // 12 buckets: 2 event cells + 1 marker cell mount — not 12 — and the
+        // empty-cell wash paints as one gradient band.
+        expect(container.querySelectorAll("[data-plan-cell]")).toHaveLength(3);
+        expect(container.querySelectorAll("[data-plan-cellwash]")).toHaveLength(1);
+        // The marker cell still rings and pins its icon.
+        expect(container.querySelector('[data-over="danger"]')).toBeTruthy();
+        // A CAPTIONED lane keeps its full grid (the caption prints per cell —
+        // the Planner `.bl`) — covered by the lanes test above.
+    });
+});
+
 describe("Plan ephemeral UI state survives a data commit (#610)", () => {
     // A Reactive write the series read — an approval, a committed drop — makes
     // a NEW decoded value. The canvas RECONCILES its ephemeral state against

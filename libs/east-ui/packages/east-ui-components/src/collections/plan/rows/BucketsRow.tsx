@@ -206,7 +206,33 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
         return <Box as="span" key={`c${bi}:${li ?? "full"}`} display="contents">{cell}</Box>;
     };
 
+    // ── Occupied-only mounting (#616) ─────────────────────────────────────
+    // A cell per bucket × lane is O(buckets × lanes) DOM whether or not
+    // anything is in it — 500 hour buckets used to mount 500+ divs per row.
+    // For an EQUAL-bucKET lane with no caption, the empty-cell wash paints as
+    // ONE gradient band (`cellWash`) and real cells mount only where content,
+    // a caption or a marker exists. A captioned lane prints its caption in
+    // every cell (the Planner `.bl`), and unequal buckets (month / quarter,
+    // low counts) keep the full grid — both fall back to mounting all.
+    const n = scale.buckets.length;
+    const w0 = n > 0 ? scale.buckets[0]!.x1 - scale.buckets[0]!.x0 : 0;
+    const uniform = n > 1 && scale.buckets.every((b) => Math.abs((b.x1 - b.x0) - w0) < 1e-9);
+    const laneCaptioned = (li: number): boolean => {
+        const lane = lanes[li];
+        return lane !== undefined && lane.label.type === "some";
+    };
     const cells: ReactNode[] = [];
+    for (let li = 0; li < laneCount; li++) {
+        if (uniform && !laneCaptioned(li)) {
+            cells.push(
+                <Box key={`wash-${li}`} css={styles.cellWash} data-plan-cellwash={li}
+                    {...laneY(li)}
+                    style={{
+                        backgroundImage: `repeating-linear-gradient(to right, transparent 0 2px, var(--chakra-colors-bg-panel) 2px calc(100% / ${n} - 2px), transparent calc(100% / ${n} - 2px) calc(100% / ${n}))`,
+                    }} />,
+            );
+        }
+    }
     for (let bi = 0; bi < scale.buckets.length; bi++) {
         const full = fullCellEvents.get(bi);
         if (full !== undefined) {
@@ -222,7 +248,10 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
             continue;
         }
         for (let li = 0; li < laneCount; li++) {
-            cells.push(renderCell(bi, li, cellEvents.get(`${bi}:${li}`) ?? []));
+            const events = cellEvents.get(`${bi}:${li}`) ?? [];
+            const occupied = events.length > 0 || (cellMarkers.get(`${bi}:${li}`)?.length ?? 0) > 0;
+            if (uniform && !laneCaptioned(li) && !occupied) continue;
+            cells.push(renderCell(bi, li, events));
         }
     }
     return <>{cells}</>;
