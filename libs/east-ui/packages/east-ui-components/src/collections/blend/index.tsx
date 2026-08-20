@@ -4,7 +4,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGripVertical, faThumbtack, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
@@ -158,12 +158,15 @@ interface TargetPanelProps {
 }
 
 function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, onRemove, onAction, compactActive }: TargetPanelProps) {
-    // The action foot rides the shared `commitBar` slots (#266) so
-    // apply/discard reads as the same chrome family as the Planner review
-    // foot + DecisionQueue staged footer (Apply = primary, Discard = danger,
-    // Reset = plain — the Approve-all / Reject-all / Rerun mapping).
+    // The action foot rides the shared `commitBar` LAYOUT slots (#266) so
+    // apply/discard reads as the same chrome family as the shared review
+    // foot + DecisionQueue staged footer. The BUTTONS come from the shared
+    // `button` recipe (#569 — commitBar no longer carries button slots):
+    // Apply = solid, Discard = danger, Reset = outline (the Approve-all /
+    // Reject-all / Rerun mapping).
     const commitRecipe = useSlotRecipe({ key: "commitBar" });
     const cs = useMemo(() => commitRecipe({}) as SlotStyles, [commitRecipe]);
+    const btn = useRecipe({ key: "button" });
     const coord = useMemo(() => ({ surface, row: target.key, slot: "alloc" }), [surface, target.key]);
     const veto = useMemo(() => vetoFor?.(coord), [vetoFor, coord]);
     const dropRef = useDropCell(coord, false, veto);
@@ -238,11 +241,11 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
                     </Box>
                     {onAction && (
                         <Box css={cs.btnRow}>
-                            <Box as="button" css={cs.btn} onClick={() => onAction("reset")}>Reset</Box>
+                            <Box as="button" css={btn({ variant: "outline", size: "md" })} onClick={() => onAction("reset")}>Reset</Box>
                             {mode === "compare" && (
-                                <Box as="button" css={cs.btnDanger} onClick={() => onAction("discard")}>Discard</Box>
+                                <Box as="button" css={btn({ variant: "danger", size: "md" })} onClick={() => onAction("discard")}>Discard</Box>
                             )}
-                            <Box as="button" css={cs.btnPrimary} onClick={() => onAction("apply")}>Apply blend</Box>
+                            <Box as="button" css={btn({ variant: "solid", size: "md" })} onClick={() => onAction("apply")}>Apply blend</Box>
                         </Box>
                     )}
                 </Box>
