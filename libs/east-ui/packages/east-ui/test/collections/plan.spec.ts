@@ -19,6 +19,7 @@ const END = new Date("2026-09-21T00:00:00Z");
 describeEast("Plan", (test) => {
     Assert.examples(test, {
         planTargetState: ex.planTargetState,
+        planVariants: ex.planVariants,
         planSpanRows: ex.planSpanRows,
         planBucketRows: ex.planBucketRows,
         planChartRows: ex.planChartRows,

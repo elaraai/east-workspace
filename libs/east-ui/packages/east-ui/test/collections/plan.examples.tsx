@@ -22,8 +22,8 @@ import {
     some,
     variant,
 } from "@elaraai/east";
-import { DragEventType, EventStateType, State, StatusValueType, UIComponentType } from "@elaraai/east-ui";
-import { Box, Chart, Format, Library, Plan, Progress, Reactive, Slice, Sparkline, Text, VStack, deriveApproval } from "@elaraai/east-ui";
+import { DragEventType, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
+import { Badge, Box, Chart, Configurator, Format, Library, Plan, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack, deriveApproval } from "@elaraai/east-ui";
 
 // The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
 // §3.5): `data` (RAW domain rows — batches, tonnes, lifecycle states; row
@@ -366,6 +366,213 @@ export const planTargetState = example({
 });
 
 // ============================================================================
+// planVariants — THE Plan configurator (#571): axis presets × style sweeps
+// ============================================================================
+
+/**
+ * THE Plan configurator — the slot-2 variant-space surface the retired Gantt /
+ * Planner configurators held (#571). ONE live canvas; every axis feeds it as
+ * an expression. The window presets are whole `Plan.axis` VALUES riding a
+ * typed preset struct: the ops week window, the year roadmap at month
+ * resolution, and the 14-day sprint at day resolution with `ddd DD` labels
+ * (the #309 pinned-day-columns contract the Planner's `day` preset and the
+ * AlignedStack date-axis panel guarded). The style sweeps ride `style` —
+ * density rhythm and gutter width — and every callback (select / run click /
+ * group toggle / grain change) logs to the aside, the retired configurators'
+ * pattern. Fill sizing stays `planFill`'s; the per-kind visual grammars stay
+ * the static per-kind panels.
+ */
+export const planVariants = example({
+    keywords: [
+        "Plan", "configurator", "Configurator", "variants", "preset", "axis", "window",
+        "resolution", "month", "week", "day", "roadmap", "sprint", "ops", "format",
+        "ddd", "#309", "density", "condensed", "compact", "comfortable", "gutterWidth",
+        "gutter", "style", "onSelect", "onRunClick", "onGroupToggle", "onGrainChange",
+        "callback", "aside", "Reactive", "State", "SegmentGroup", "Select", "getTag",
+    ],
+    description: "Plan configurator — axis window presets (ops week / year roadmap / 14-day sprint) with density and gutter-width sweeps on one live canvas; every callback logs to the aside",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Monday of ISO week n, 2026 — the ops window is W27–W38
+            // (half-open at W39), now = W31; the roadmap preset walks the
+            // whole ISO year and the sprint preset a 14-day slice of it.
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+                return w1.addWeeks(n.subtract(1n));
+            }));
+            const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+            const JobRow = StructType({
+                key: StringType, label: StringType,
+                start: DateTimeType, end: DateTimeType, state: EventStateType,
+            });
+            const OpsRow = StructType({
+                series: StringType, label: StringType,
+                sub: OptionType(StringType),
+                jobs: ArrayType(JobRow),
+                points: ArrayType(MeasureRow),
+                cells: ArrayType(Plan.Types.HeatCell),
+            });
+            const noJobs = $.const([], ArrayType(JobRow));
+            const noPoints = $.const([], ArrayType(MeasureRow));
+            const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
+            const pcts = $.const([46.0, 58.0, 66.0, 72.0, 84.0, 96.0], ArrayType(FloatType));
+            const points = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
+                ({ week: week(i.multiply(2n).add(27n)), pct: pcts.get(i) })));
+            const cells = $.let(East.Array.generate(6n, Plan.Types.HeatCell, (_$, i) => ({
+                at: week(i.multiply(2n).add(27n)),
+                value: some(pcts.get(i)),
+                label: some(East.Float.printFixed(pcts.get(i), 0n)),
+            })));
+            // Mixed kinds on purpose: the density sweep re-rhythms the span /
+            // heat rows and the gutter sweep re-widths every label at once.
+            const ops = $.const(new Map([
+                ["10-util", { series: "util", label: "UTIL %", sub: none, jobs: noJobs, points, cells: noCells }],
+                ["20-m03", { series: "mach", label: "L1-M03", sub: some("cap 120 t"),
+                  jobs: [
+                      { key: "b214", label: "RUN · B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) },
+                      { key: "b221", label: "RUN · B-221", start: week(32n), end: week(35n), state: variant("proposed", variant("recommended", null)) },
+                  ], points: noPoints, cells: noCells }],
+                ["20-m04", { series: "mach", label: "L1-M04", sub: none,
+                  jobs: [
+                      { key: "b208", label: "RUN · B-208", start: week(27n), end: week(30n), state: variant("actual", null) },
+                  ], points: noPoints, cells: noCells }],
+                ["30-load", { series: "load", label: "L2 load", sub: some("%/wk"), jobs: noJobs, points: noPoints, cells }],
+                ["g1-m11", { series: "gmach", label: "L3-M11", sub: none,
+                  jobs: [
+                      { key: "b301", label: "RUN · B-301", start: week(29n), end: week(33n), state: variant("confirmed", null) },
+                  ], points: noPoints, cells: noCells }],
+            ]), DictType(StringType, OpsRow));
+            const series = $.const([
+                Plan.series.chart(OpsRow, {
+                    key: "util", title: "Utilisation",
+                    match: r => r.series.equal("util"),
+                    label: r => r.label, id: true, height: "spark",
+                    layers: r => [Chart.Line(r.points, { x: p => p.week, y: p => p.pct })],
+                }),
+                Plan.series.span(OpsRow, {
+                    key: "mach", title: "Machine jobs",
+                    match: r => r.series.equal("mach"),
+                    label: r => r.label, id: true, sub: r => r.sub,
+                    runs: r => r.jobs.map((_$, j) => Plan.run({
+                        key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                    })),
+                }),
+                Plan.series.heat(OpsRow, {
+                    key: "load", title: "Line load",
+                    match: r => r.series.equal("load"),
+                    label: r => r.label, sub: r => r.sub,
+                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
+                }),
+                // A strip so the group-toggle callback has something to fire on.
+                Plan.series.group(OpsRow, { key: "g1-line3", label: "Line 3", meta: "1 rs" }, [
+                    Plan.series.span(OpsRow, {
+                        key: "gmach", title: "Grouped jobs",
+                        match: r => r.series.equal("gmach"),
+                        label: r => r.label, id: true,
+                        runs: r => r.jobs.map((_$, j) => Plan.run({
+                            key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                        })),
+                    }),
+                ]),
+            ], ArrayType(Plan.Types.Series(OpsRow)));
+            // Every preset is DATA — a whole axis value in a typed struct, so
+            // switching presets swaps window, resolution, format and now
+            // through ONE expression-fed prop.
+            const presets = $.const([
+                { key: "ops", axis: Plan.axis({
+                    window: { min: week(27n), max: week(39n) },
+                    resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
+                }) },
+                { key: "roadmap", axis: Plan.axis({
+                    window: { min: week(1n), max: week(53n) },
+                    resolution: "month", format: "MMM", now: week(31n),
+                }) },
+                { key: "sprint", axis: Plan.axis({
+                    window: { min: week(30n), max: week(32n) },
+                    resolution: "day", format: "ddd DD", now: week(31n),
+                }) },
+            ], ArrayType(StructType({ key: StringType, axis: Plan.Types.Axis })));
+            const presetKeys = $.const(["ops", "roadmap", "sprint"], ArrayType(StringType));
+            const densities = $.const([
+                variant("condensed", null), variant("compact", null), variant("comfortable", null),
+            ], ArrayType(Style.Types.Density));
+            const gutters = $.const(["168px", "200px", "240px"], ArrayType(StringType));
+
+            const presetBind = $.let(State.bind([StringType], "plan_variants_preset", "ops"));
+            const densityBind = $.let(State.bind([StringType], "plan_variants_density", "compact"));
+            const gutterBind = $.let(State.bind([StringType], "plan_variants_gutter", "168px"));
+            const lastEventBind = $.let(State.bind([StringType], "plan_variants_last_event", ""));
+            const pKey = $.let(presetBind.read());
+            const dKey = $.let(densityBind.read());
+            const gKey = $.let(gutterBind.read());
+            const lastEvent = $.let(lastEventBind.read());
+            const onPreset = $.const(East.function([StringType], NullType, ($, next) => { $(presetBind.write(next)); }));
+            const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));
+            const onGutter = $.const(East.function([StringType], NullType, ($, next) => { $(gutterBind.write(next)); }));
+
+            // The interactive surface — every callback writes the aside line.
+            const onSelect = $.const(East.function([Plan.Types.RowRef], NullType, ($, ref) => {
+                $(lastEventBind.write(East.str`onSelect · ${ref.key}`));
+            }));
+            const onRunClick = $.const(East.function([Plan.Types.RunClickEvent], NullType, ($, ev) => {
+                $(lastEventBind.write(East.str`onRunClick · ${ev.row} / ${ev.run}`));
+            }));
+            const onGroupToggle = $.const(East.function([Plan.Types.GroupToggleEvent], NullType, ($, ev) => {
+                const state = $.let(ev.expanded.ifElse(() => "expanded", () => "collapsed"), StringType);
+                $(lastEventBind.write(East.str`onGroupToggle · ${ev.row} → ${state}`));
+            }));
+            const onGrainChange = $.const(East.function([Plan.Types.Grain], NullType, ($, grain) => {
+                $(lastEventBind.write(East.str`onGrainChange · ${grain.getTag()}`));
+            }));
+
+            const sel = $.let(presets.filter((_$, o) => o.key.equal(pKey)).get(0n, _$ => presets.get(0n)));
+            const densitySel = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
+            return (
+                <Configurator
+                    controls={[
+                        Configurator.Control("Preset", pKey,
+                            <Select value={pKey} onChange={onPreset} size="sm"
+                                items={presetKeys.map((_$, s) => Select.Item(s, s))} />),
+                        Configurator.Control("Density", dKey,
+                            <SegmentGroup value={dKey} onChange={onDensity} size="sm"
+                                items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),
+                        Configurator.Control("Gutter", gKey,
+                            <SegmentGroup value={gKey} onChange={onGutter} size="sm"
+                                items={gutters.map((_$, g) => SegmentGroup.Item(g, <Text>{g}</Text>))} />),
+                    ]}
+                    preview={
+                        <Plan
+                            axis={sel.axis}
+                            data={ops}
+                            series={series}
+                            onSelect={onSelect}
+                            onRunClick={onRunClick}
+                            onGroupToggle={onGroupToggle}
+                            onGrainChange={onGrainChange}
+                            style={{ density: densitySel, gutterWidth: gKey }}
+                        />
+                    }
+                    live
+                    aside={{
+                        label: "Events · Reactive",
+                        body: (
+                            <Badge colorPalette="brand" variant="outline">
+                                {East.equal(lastEvent.length(), 0n).ifElse(_$ => "Interact with the canvas", _$ => lastEvent)}
+                            </Badge>
+                        ),
+                    }}
+                    spec={[
+                        Configurator.Spec("Resolution", sel.axis.resolution.getTag()),
+                        Configurator.Spec("Rows", East.print(ops.size())),
+                    ]}
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
 // Per-kind examples — one canvas per row kind; the config sweep is DATA
 // ============================================================================
 
@@ -539,8 +746,8 @@ export const planSpanRows = example({
 });
 
 export const planBucketRows = example({
-    keywords: ["Plan", "data", "series", "buckets", "Planner", "lane", "lanes", "AM", "PM", "event", "tile", "marker", "tone", "stretch", "pulse", "icon", "hovercard", "popover", "mixed", "unbucketed", "group", "match", "gutter", "raw"],
-    description: "Bucket rows over one dock source — tiles derived in the accessor, and stored tile records with lanes, tones and markers",
+    keywords: ["Plan", "data", "series", "buckets", "Planner", "lane", "lanes", "AM", "PM", "event", "tile", "marker", "tone", "color", "colorPalette", "stretch", "pulse", "icon", "hovercard", "popover", "mixed", "unbucketed", "group", "match", "gutter", "raw"],
+    description: "Bucket rows over one dock source — tiles derived in the accessor, and stored tile records with lanes, tones, colours and markers",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -591,6 +798,13 @@ export const planBucketRows = example({
                     tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none },
                   { key: "m6", at: week(31n), lane: some("am"), label: some("QC"), icon: none, state: variant("estimated", null),
                     tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none },
+                  // The colour channels (#571, from the Planner's colors
+                  // preset): `color` is a raw token override, `colorPalette`
+                  // recolours the whole lifecycle treatment.
+                  { key: "m7", at: week(32n), lane: some("am"), label: some("S-A"), icon: none, state: variant("confirmed", null),
+                    tone: none, color: some("teal.solid"), colorPalette: none, stretch: none, content: none, animation: none },
+                  { key: "m8", at: week(32n), lane: some("pm"), label: some("S-B"), icon: none, state: variant("confirmed", null),
+                    tone: none, color: none, colorPalette: some(variant("brand", null)), stretch: none, content: none, animation: none },
               ],
               markers: [{ at: week(29n), lane: none, status: variant("danger", null), message: "capacity breach" }] }],
         ]), DictType(StringType, DockRow));
