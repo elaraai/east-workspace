@@ -15,9 +15,9 @@
  * an unbound Plan has no wider horizon to brush.
  */
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Box } from "@chakra-ui/react";
-import { type ValueTypeOf } from "@elaraai/east";
+import { some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { BrushStrip } from "../../../slice/brush-strip.js";
 import { boundRangeDomain, boundRangeHistogram } from "../../../platform/slice/index.js";
@@ -58,6 +58,36 @@ export interface HorizonBrushProps {
 export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolution }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const scale = usePlanScale();
+    // ── Live preview: DIRECT slice writes, one per animation frame (#609) ──
+    // A preview changes no machine state — the esc rung is armed by
+    // `brush.down` — so routing it through the store paid a full canvas
+    // render per pointer step with the OLD window (the effect-staging bump)
+    // before the drain's write rendered it again with the new one, and a
+    // fast drag emits more steps than frames. The write happens here, in the
+    // pointer handler (never render phase), trailing-edge coalesced so at
+    // most one window applies per frame. The COMMIT still routes through the
+    // machine: it disarms the rung, and cancelling the pending frame first
+    // keeps the committed window last.
+    const previewRaf = useRef<number | null>(null);
+    const previewPending = useRef<{ min: Date; max: Date } | null>(null);
+    const applyPreview = useCallback((min: Date, max: Date) => {
+        previewPending.current = { min, max };
+        if (previewRaf.current !== null) return;
+        previewRaf.current = requestAnimationFrame(() => {
+            previewRaf.current = null;
+            const w = previewPending.current;
+            previewPending.current = null;
+            if (w !== null) slice.setRange(some(variant("datetime", { from: w.min, to: w.max })));
+        });
+    }, [slice]);
+    const cancelPreview = useCallback(() => {
+        if (previewRaf.current !== null) {
+            cancelAnimationFrame(previewRaf.current);
+            previewRaf.current = null;
+        }
+        previewPending.current = null;
+    }, []);
+    useEffect(() => cancelPreview, [cancelPreview]);
     // Self-subscribe (#611): the histogram is a STORE read, and a re-render
     // does not bust a memo whose deps did not move — the version has to be
     // one of them. (The previous disable comment justified the old deps with
@@ -121,13 +151,19 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
                     barHeight={BAR_H}
                     snapWindow={snapWindow}
                     // Snap AGAIN on the dates themselves so float round-trips
-                    // can never land the committed window 1ms off an edge.
-                    onCommit={(f0, f1) => dispatch({ t: "brush.commit", min: snapDate(fromFraction(f0)), max: snapDate(fromFraction(f1)) })}
+                    // can never land the committed window 1ms off an edge. A
+                    // pending preview frame is cancelled first, so the
+                    // committed window is always the last write.
+                    onCommit={(f0, f1) => {
+                        cancelPreview();
+                        dispatch({ t: "brush.commit", min: snapDate(fromFraction(f0)), max: snapDate(fromFraction(f1)) });
+                    }}
                     // Live pan/resize preview — the snapped draft applies to
                     // the slice as it steps between period edges, so the
-                    // canvas follows the drag one discrete column at a time.
-                    onPreview={(f0, f1) => dispatch({ t: "brush.preview", min: snapDate(fromFraction(f0)), max: snapDate(fromFraction(f1)) })}
-                    onClear={() => dispatch({ t: "brush.clear" })}
+                    // canvas follows the drag one discrete column at a time
+                    // (directly + frame-coalesced; see `applyPreview`).
+                    onPreview={(f0, f1) => applyPreview(snapDate(fromFraction(f0)), snapDate(fromFraction(f1)))}
+                    onClear={() => { cancelPreview(); dispatch({ t: "brush.clear" }); }}
                 />
             </Box>
         </Box>

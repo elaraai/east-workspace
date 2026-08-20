@@ -125,16 +125,9 @@ describe('planReducer', () => {
             expect(effects).toEqual([{ t: "slice.setRange", min, max }]);
         });
 
-        it('preview emits slice.setRange while the drag stays in flight', () => {
-            const min = new Date("2026-07-13T00:00:00Z");
-            const max = new Date("2026-08-10T00:00:00Z");
-            const down = run(init(), { t: "brush.down" });
-            const { state, effects } = run(down.state, { t: "brush.preview", min, max });
-            // The live-applied step writes through the same channel as a
-            // commit, but the brush rung stays armed (esc still cancels it).
-            expect(state.brush).toEqual({ active: true });
-            expect(effects).toEqual([{ t: "slice.setRange", min, max }]);
-        });
+        // NO brush.preview event: mid-drag previews write the slice DIRECTLY
+        // from the HorizonBrush, frame-coalesced — a store round-trip cost a
+        // full canvas render per pointer step before the drain's write (#609).
 
         it('clear emits slice.clearRange', () => {
             const { state, effects } = run(init(), { t: "brush.clear" });
@@ -241,15 +234,12 @@ describe('planStoreReducer (#610)', () => {
             expect(selected.ui.selected).toBe("r1");
             expect(selected.fx).toEqual([{ t: "emit.select", key: "r1" }]);
             expect(selected.fxSeq).toBe(s.fxSeq + 1);
-            // brush.preview transitions to the SAME ui but must still deliver
+            // resolution.set transitions to the SAME ui but must still deliver
             // its slice write — the store changes so the drain can run.
-            const min = new Date("2026-07-13T00:00:00Z");
-            const max = new Date("2026-08-10T00:00:00Z");
-            const down = event(selected, { t: "brush.down" });
-            const preview = event(down, { t: "brush.preview", min, max });
-            expect(preview.ui).toBe(down.ui);
-            expect(preview.fx).toEqual([{ t: "slice.setRange", min, max }]);
-            expect(preview.fxSeq).toBe(down.fxSeq + 1);
+            const res = event(selected, { t: "resolution.set", resolution: "day" });
+            expect(res.ui).toBe(selected.ui);
+            expect(res.fx).toEqual([{ t: "slice.setResolution", resolution: "day" }]);
+            expect(res.fxSeq).toBe(selected.fxSeq + 1);
         });
     });
 

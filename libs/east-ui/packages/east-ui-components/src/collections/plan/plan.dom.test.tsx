@@ -633,7 +633,7 @@ describe("Plan resolution zoom (§3)", () => {
 });
 
 describe("Plan horizon brush — live pan preview (§7)", () => {
-    test("sliding the window pans the slice range in discrete period steps BEFORE release", () => {
+    test("sliding the window pans the slice range in discrete period steps BEFORE release", async () => {
         initializeStore(new UIStore());
         const cfg = {
             fields: new Map<string, unknown>([
@@ -666,12 +666,16 @@ describe("Plan horizon brush — live pan preview (§7)", () => {
         // slide +86px ≈ +1.03 weeks — the snapped draft steps one period.
         fireEvent.pointerDown(track, { clientX: 300, pointerId: 1, buttons: 1 });
         fireEvent.pointerMove(track, { clientX: 386, pointerId: 1, buttons: 1 });
-        // LIVE: the slice range already panned one whole week, pre-release.
-        expect(range().from.toISOString()).toBe("2026-07-20T00:00:00.000Z");
+        // LIVE: the slice range pans one whole week pre-release — applied on
+        // the next animation frame (previews are frame-coalesced DIRECT
+        // writes, not store round-trips — #609), so the assertion awaits it.
+        await waitFor(() => expect(range().from.toISOString()).toBe("2026-07-20T00:00:00.000Z"));
         expect(range().to.toISOString()).toBe("2026-08-17T00:00:00.000Z");
 
         // Slide on to ≈ +2 weeks total and release — the commit lands the
-        // same snapped window the live preview showed.
+        // same snapped window the live preview showed, synchronously (the
+        // commit still routes through the machine, cancelling any pending
+        // preview frame so it is always the LAST write).
         fireEvent.pointerMove(track, { clientX: 467, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(range().from.toISOString()).toBe("2026-07-27T00:00:00.000Z");

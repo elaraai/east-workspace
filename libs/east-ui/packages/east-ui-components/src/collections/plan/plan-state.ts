@@ -70,7 +70,6 @@ export type PlanEvent =
     | { t: "cursor.move"; frac: number }
     | { t: "cursor.leave" }
     | { t: "brush.down" }
-    | { t: "brush.preview"; min: Date; max: Date }
     | { t: "brush.commit"; min: Date; max: Date }
     | { t: "brush.clear" }
     | { t: "brush.up" }
@@ -170,11 +169,13 @@ export function planReducer(
             return { state: { ...s, cursor: null }, effects: [] };
         case "brush.down":
             return { state: { ...s, brush: { active: true } }, effects: [] };
-        case "brush.preview":
-            // Mid-drag live apply — the drag is still in flight (the brush
-            // rung stays armed for esc), but the snapped draft window pans
-            // the canvas as it changes. Same write channel as commit.
-            return { state: s, effects: [{ t: "slice.setRange", min: e.min, max: e.max }] };
+        // NO brush.preview event: a mid-drag preview changes no machine state,
+        // and routing it through the store bumped `fx`/`fxSeq` — a full canvas
+        // render per pointer step with the OLD window, before the drain's
+        // write rendered it again with the new one (#609). The HorizonBrush
+        // applies previews directly to the slice, coalesced per animation
+        // frame; only the state-bearing gesture events (down / commit /
+        // clear / up — the esc rung) belong to the machine.
         case "brush.commit":
             // The machine never stores a window — the slice is the single
             // source of truth; the committed range goes straight through.

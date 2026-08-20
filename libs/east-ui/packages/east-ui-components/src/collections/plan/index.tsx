@@ -568,10 +568,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     const dispatch = useCallback((e: PlanEvent) => dispatchStore({ t: "event", e }), []);
     // The store's effect batch, drained EXACTLY ONCE per bump — post-commit
-    // but before paint, so a brush preview's slice write lands in the same
-    // visual frame the old synchronous path gave it. The seq gate is a ref so
-    // a re-created `runEffects` (new slice / scale identity) cannot re-fire an
-    // already-drained batch.
+    // but before paint, so a slice write lands in the same visual frame its
+    // event did. (Brush PREVIEWS no longer ride this: they change no machine
+    // state, so the HorizonBrush writes them directly, frame-coalesced —
+    // #609.) The seq gate is a ref so a re-created `runEffects` (new slice /
+    // scale identity) cannot re-fire an already-drained batch.
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
