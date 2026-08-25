@@ -20,12 +20,20 @@ typedef struct {
     EastType **input_types;
     size_t num_input_types;
     EastType *output_type;
+    /** The implementation understands EAST_VAL_PAGED arguments (issue #621):
+     *  the evaluator passes lazy paged collections through instead of
+     *  hydrating them whole at the call boundary. False by default — C-level
+     *  implementations read value union arms directly and must keep seeing
+     *  eager collections. */
+    bool serves_paged;
 } PlatformFunction;
 
 typedef struct {
     const char *name;
     GenericPlatformFactory factory;
     bool is_async;
+    /** Same contract as PlatformFunction.serves_paged. */
+    bool serves_paged;
 } GenericPlatformFunction;
 
 typedef struct PlatformRegistry {
@@ -66,6 +74,15 @@ PlatformFn platform_registry_get(PlatformRegistry *reg, const char *name, EastTy
 /** Look up a concrete (non-generic) registry entry by name. Returns NULL if
  *  the name is unregistered or registered only as a generic factory. */
 PlatformFunction *platform_registry_lookup(PlatformRegistry *reg, const char *name);
+
+/** Declare that a registered function (concrete or generic) understands
+ *  EAST_VAL_PAGED arguments — see PlatformFunction.serves_paged. No-op if
+ *  the name is unregistered. */
+void platform_registry_set_serves_paged(PlatformRegistry *reg, const char *name, bool serves_paged);
+
+/** Whether the named function (concrete or generic) declared that it serves
+ *  paged arguments. False for unregistered names. */
+bool platform_registry_serves_paged(PlatformRegistry *reg, const char *name);
 void platform_registry_free(PlatformRegistry *reg);
 
 void platform_registry_retain(PlatformRegistry *reg);

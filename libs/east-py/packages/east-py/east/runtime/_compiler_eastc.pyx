@@ -448,6 +448,16 @@ def paged_value_ref_count(uintptr_t ptr):
     return (<_eastc.EastValue*>ptr).ref_count
 
 
+def paged_value_is_hydrated(uintptr_t ptr):
+    """Whether a paged value has decoded its whole (hydrated) child — the
+    laziness probe (#621): False means every operation so far was
+    pager-served at O(segment)."""
+    cdef _eastc.EastValue* v = <_eastc.EastValue*>ptr
+    if v == NULL or v.kind != _eastc.EAST_VAL_PAGED:
+        return False
+    return v.data.paged.hydrated != NULL
+
+
 def open_paged_value(uintptr_t type_ptr, bytes data, bint frozen=False):
     """Open an indexed beast2 collection blob as a lazy paged C value (#505).
 
@@ -666,11 +676,14 @@ def call_builtin(str name, list type_params, list args, object output_type):
     cdef _eastc.EastType* resolved
     cdef _eastc.BuiltinImpl bfn
     cdef _eastc.EastValue* result
+    cdef _eastc.EastValue* h_arg
     cdef char* err
     cdef size_t i, j
     cdef uintptr_t fn_ptr
     cdef object py_result
     cdef list declared
+    cdef bint checked_serves
+    cdef bint builtin_paged_ok
     cdef _eastc.PlatformRegistry* saved_platform
     cdef _eastc.BuiltinRegistry* saved_builtins
     # Keeps traced kernels alive until their function values are released.
@@ -819,6 +832,37 @@ def call_builtin(str name, list type_params, list args, object output_type):
                             f"not convert to the declared slot type "
                             f"{printed} — {conv_err}"
                         ) from conv_err
+
+        # Paged arguments reach only the pager-served builtins (size / keyed
+        # get / has); every other builtin receives the hydrated collection —
+        # the evaluator's IR_BUILTIN gate, applied here because the funnel
+        # invokes impls directly and a kind-blind builtin handed a paged
+        # value would read its union arms as garbage (#621). Hydration is
+        # cached on the wrapper, so the cost is paid once per value.
+        if nargs > 0:
+            checked_serves = False
+            builtin_paged_ok = False
+            for i in range(nargs):
+                if c_args[i] != NULL and c_args[i].kind == _eastc.EAST_VAL_PAGED:
+                    if not checked_serves:
+                        checked_serves = True
+                        builtin_paged_ok = _eastc.east_builtin_serves_paged(
+                            <const char*>name_bytes)
+                    if builtin_paged_ok:
+                        continue
+                    h_arg = _eastc.east_paged_hydrated(c_args[i])
+                    if h_arg == NULL:
+                        err = _eastc.east_builtin_get_error()
+                        if err != NULL:
+                            msg = err.decode("utf-8")
+                            free(err)
+                        else:
+                            msg = "failed to hydrate a paged argument"
+                        from east.runtime.errors import EastError
+                        raise EastError(msg, [])
+                    _eastc.east_value_retain(h_arg)
+                    _eastc.east_value_release(c_args[i])
+                    c_args[i] = h_arg
 
         c_out = py_type_to_c(output_type)
 

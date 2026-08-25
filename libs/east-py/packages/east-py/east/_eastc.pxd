@@ -176,6 +176,10 @@ cdef extern from "east/values.h":
     ctypedef struct PlatformRegistry:
         pass
 
+    # Forward-declared in values.h; the full API lives in serialization.h.
+    ctypedef struct Beast2Pages:
+        pass
+
     ctypedef struct EastSourceMap:
         pass
 
@@ -252,6 +256,14 @@ cdef extern from "east/values.h":
     ctypedef struct _EastValueFunctionData:
         EastCompiledFn *compiled
 
+    ctypedef struct _EastValuePagedData:
+        Beast2Pages *pages
+        uint8_t *data
+        size_t len
+        EastValue *hydrated
+        bint frozen
+        bint owns_data
+
     ctypedef union _EastValueData:
         bint boolean
         int64_t integer
@@ -268,6 +280,7 @@ cdef extern from "east/values.h":
         _EastValueVectorData vector
         _EastValueMatrixData matrix
         _EastValueFunctionData function
+        _EastValuePagedData paged
 
     # The GC header trails `data`, and exists only on the container kinds — a
     # leaf value's slot stops at its union arm, so reading gc_tracked or
@@ -350,6 +363,11 @@ cdef extern from "east/values.h":
     bint east_value_equal(EastValue *a, EastValue *b)
     int east_value_compare(EastValue *a, EastValue *b)
 
+    # Frozen (task-input) brand — per union arm; false for kinds without it.
+    bint east_value_frozen(const EastValue *v)
+    # The uniform frozen-mutation message, identical across runtimes.
+    const char *EAST_FROZEN_MUTATION_MSG
+
 
 # ─── serialization.h ──────────────────────────────────────────────────────
 
@@ -408,8 +426,8 @@ cdef extern from "east/serialization.h":
     void east_beast2_reader_free(Beast2SegmentReader *r)
 
     # v5 paging reader — random access over an indexed, self-contained blob
-    ctypedef struct Beast2Pages:
-        pass
+    # (Beast2Pages itself is declared in the values.h block above — the paged
+    # value union arm references it.)
     Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t length, EastType *type)
     size_t east_beast2_pages_segment_count(Beast2Pages *p)
     size_t east_beast2_pages_element_count(Beast2Pages *p)
@@ -463,6 +481,7 @@ cdef extern from "east/serialization.h":
     # EAST_PAGED_CACHE_BYTES environment variable overrides the default.
     void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes)
     EastValue *east_paged_hydrated(EastValue *v)
+    EastType *east_beast2_pages_type(Beast2Pages *p)
 
     # v5 splice extents — byte geometry for merging blobs (issue #484)
     ctypedef struct Beast2SpliceExtents:
@@ -517,6 +536,7 @@ cdef extern from "east/builtins.h":
     BuiltinImpl builtin_registry_get(BuiltinRegistry *reg, const char *name, EastType **type_params, size_t num_tp)
     void east_builtin_error(const char *msg)
     char *east_builtin_get_error()
+    bint east_builtin_serves_paged(const char *name)
 
 
 # ─── eval_result.h ───────────────────────────────────────────────────────
@@ -556,6 +576,8 @@ cdef extern from "east/platform.h":
     void platform_registry_add_typed(PlatformRegistry *reg, const char *name, PlatformFn fn, bint is_async, EastType **input_types, size_t num_input_types, EastType *output_type)
     void platform_registry_add_generic(PlatformRegistry *reg, const char *name, GenericPlatformFactory factory, bint is_async)
     PlatformFn platform_registry_get(PlatformRegistry *reg, const char *name, EastType **type_params, size_t num_tp)
+    void platform_registry_set_serves_paged(PlatformRegistry *reg, const char *name, bint serves_paged)
+    bint platform_registry_serves_paged(PlatformRegistry *reg, const char *name)
     void platform_registry_free(PlatformRegistry *reg)
     void platform_registry_retain(PlatformRegistry *reg)
     void platform_registry_release(PlatformRegistry *reg)

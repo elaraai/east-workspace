@@ -32,6 +32,12 @@ void builtin_registry_free(BuiltinRegistry *reg);
 // Register all builtins
 void east_register_all_builtins(BuiltinRegistry *reg);
 
+// Whether the named builtin answers EAST_VAL_PAGED arguments from the pager
+// itself (size / keyed get / has). Every other builtin must receive the
+// hydrated collection — callers invoking impls directly (the east-py eager
+// funnel) apply the same gate the evaluator's IR_BUILTIN case does.
+bool east_builtin_serves_paged(const char *name);
+
 // Individual module registration
 void east_register_integer_builtins(BuiltinRegistry *reg);
 void east_register_float_builtins(BuiltinRegistry *reg);
