@@ -375,6 +375,13 @@ cdef void register_platform_functions(_eastc.PlatformRegistry *reg,
                     _python_generic_factory,
                     <bint>is_async,
                 )
+                # Python dispatch converts every argument through the
+                # paged-aware c_value_to_py, so the evaluator may pass lazy
+                # paged collections through un-hydrated (#621). C-level
+                # capsule implementations above are kind-blind and keep the
+                # default (hydrate at the boundary).
+                _eastc.platform_registry_set_serves_paged(
+                    reg, <const char*>name_bytes, True)
         else:
             # Non-generic platform function
             c_callback = pf.get("c_callback")
@@ -398,6 +405,11 @@ cdef void register_platform_functions(_eastc.PlatformRegistry *reg,
                     pf.get("inputs"),
                     pf.get("output"),
                 )
+                # Python dispatch converts every argument through the
+                # paged-aware c_value_to_py, so the evaluator may pass lazy
+                # paged collections through un-hydrated (#621).
+                _eastc.platform_registry_set_serves_paged(
+                    reg, <const char*>name_bytes, True)
 
 
 def clear_platform_state():

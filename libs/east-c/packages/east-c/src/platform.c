@@ -98,6 +98,27 @@ PlatformFunction *platform_registry_lookup(PlatformRegistry *reg, const char *na
     return hashmap_get(reg->functions, name);
 }
 
+void platform_registry_set_serves_paged(PlatformRegistry *reg, const char *name, bool serves_paged)
+{
+    if (!reg || !name) return;
+    PlatformFunction *pf = hashmap_get(reg->functions, name);
+    if (pf) {
+        pf->serves_paged = serves_paged;
+        return;
+    }
+    GenericPlatformFunction *gf = hashmap_get(reg->generic_functions, name);
+    if (gf) gf->serves_paged = serves_paged;
+}
+
+bool platform_registry_serves_paged(PlatformRegistry *reg, const char *name)
+{
+    if (!reg || !name) return false;
+    PlatformFunction *pf = hashmap_get(reg->functions, name);
+    if (pf) return pf->serves_paged;
+    GenericPlatformFunction *gf = hashmap_get(reg->generic_functions, name);
+    return gf ? gf->serves_paged : false;
+}
+
 static void free_pf(void *v)
 {
     free(v);

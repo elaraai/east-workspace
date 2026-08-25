@@ -160,8 +160,9 @@ static bool is_truthy(EastValue *v)
 /* Builtins that answer from the pager and so receive the paged wrapper
  * itself; every other builtin gets the hydrated collection (observational
  * equivalence — hydrate once, delegate). Consulted only when an argument is
- * actually paged, so the strcmp scan is off the hot path. */
-static bool builtin_serves_paged(const char *name)
+ * actually paged, so the strcmp scan is off the hot path. Public (builtins.h)
+ * so direct-impl callers — the east-py eager funnel — apply the same gate. */
+bool east_builtin_serves_paged(const char *name)
 {
     static const char *const served[] = {
         "ArraySize", "ArrayHas", "ArrayGet",   "ArrayTryGet",      "ArrayGetOrDefault", "DictSize",
@@ -938,13 +939,27 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             }
         }
 
-        /* Platform functions always see eager collections (issue #505). */
+        /* Platform functions see eager collections (issue #505) unless the
+         * registered implementation declared it serves paged arguments
+         * (issue #621) — the python bridge does, so its dispatch keeps the
+         * pager's O(segment) cost model; kind-blind C implementations keep
+         * the hydrated view. The registry lookup runs only when an argument
+         * is actually paged. */
+        bool any_paged = false;
         for (size_t i = 0; i < nargs; i++) {
-            if (args[i] && args[i]->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&args[i])) {
-                for (size_t j = 0; j < nargs; j++)
-                    east_value_release(args[j]);
-                free(args);
-                return paged_error(node);
+            if (args[i] && args[i]->kind == EAST_VAL_PAGED) {
+                any_paged = true;
+                break;
+            }
+        }
+        if (any_paged && !platform_registry_serves_paged(platform, node->data.platform.name)) {
+            for (size_t i = 0; i < nargs; i++) {
+                if (args[i] && args[i]->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&args[i])) {
+                    for (size_t j = 0; j < nargs; j++)
+                        east_value_release(args[j]);
+                    free(args);
+                    return paged_error(node);
+                }
             }
         }
 
@@ -1002,7 +1017,8 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
          * builtin sees the hydrated collection (issue #505). */
         for (size_t i = 0; i < nargs; i++) {
             if (args[i] && args[i]->kind == EAST_VAL_PAGED &&
-                !builtin_serves_paged(node->data.builtin.name) && !hydrate_owned_arg(&args[i])) {
+                !east_builtin_serves_paged(node->data.builtin.name) &&
+                !hydrate_owned_arg(&args[i])) {
                 for (size_t j = 0; j < nargs; j++)
                     east_value_release(args[j]);
                 free(args);

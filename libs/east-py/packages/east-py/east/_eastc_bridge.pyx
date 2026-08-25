@@ -486,6 +486,31 @@ cdef object _c_value_to_py_impl(_eastc.EastValue *val, _eastc.EastType *c_type, 
     cdef _eastc.EastTypeKind kind = c_type.kind
     cdef int64_t millis
     cdef uintptr_t ptr_key
+    cdef _eastc.EastType *paged_type
+
+    # A lazy paged collection (issue #621): once hydrated, convert the eager
+    # child; while live, wrap the SAME proxy classes over the paged value —
+    # their accessors answer from the pager, so a platform function keeps
+    # the compiled body's O(segment) cost model instead of paying a whole
+    # decode at the call boundary.
+    if val.kind == _eastc.EAST_VAL_PAGED:
+        if val.data.paged.hydrated != NULL:
+            return _c_value_to_py_impl(val.data.paged.hydrated, c_type, alias_map)
+        paged_type = c_type
+        while paged_type.kind == _eastc.EAST_TYPE_RECURSIVE and paged_type.data.recursive.node != NULL:
+            paged_type = paged_type.data.recursive.node
+        ptr_key = <uintptr_t>val
+        cached = alias_map.get(ptr_key)
+        if cached is not None:
+            return cached
+        if paged_type.kind == _eastc.EAST_TYPE_ARRAY:
+            return _c_array_to_py(val, paged_type, alias_map)
+        if paged_type.kind == _eastc.EAST_TYPE_SET:
+            return _c_set_to_py(val, paged_type, alias_map)
+        if paged_type.kind == _eastc.EAST_TYPE_DICT:
+            return _c_dict_to_py(val, paged_type, alias_map)
+        raise ValueError(
+            f"paged value declared with non-collection type kind {paged_type.kind}")
 
     if kind == _eastc.EAST_TYPE_NULL:
         # Canonical NullType value is the east_null sentinel, matching what
@@ -1540,31 +1565,156 @@ cdef void _env_set_capture(_eastc.EastCompiledFn* fn, bytes name, _eastc.EastVal
 
 # ─── cpdef helpers (callable from Python proxy methods via int pointers) ──
 
+cdef inline bint _live_paged(_eastc.EastValue *v) noexcept:
+    """Whether v is a paged wrapper still answering from its pager."""
+    return v.kind == _eastc.EAST_VAL_PAGED and v.data.paged.hydrated == NULL
+
+
+cdef int _raise_paged_error() except -1:
+    """Raise the pager's posted message as an EastError (loud, never silent)."""
+    cdef char *err = _eastc.east_builtin_get_error()
+    msg = err.decode("utf-8") if err != NULL else "beast2 v5: paged read failed"
+    if err != NULL:
+        free(err)
+    from east.runtime.errors import EastError
+    raise EastError(msg, [])
+
+
+cdef _eastc.EastValue* _paged_resolve(_eastc.EastValue *v) except NULL:
+    """The eager collection behind v: v itself, or a paged wrapper's hydrated
+    child — hydrating now if needed, exactly like the evaluator's
+    hydrate-once-and-delegate rule for non-pager-served operations."""
+    cdef _eastc.EastValue *h
+    if v.kind != _eastc.EAST_VAL_PAGED:
+        return v
+    h = _eastc.east_paged_hydrated(v)
+    if h == NULL:
+        _raise_paged_error()
+    return h
+
+
+cpdef bint _proxy_is_live_paged(uintptr_t ptr):
+    return _live_paged(<_eastc.EastValue*>ptr)
+
+
+def _paged_array_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
+    """Stream a live paged Array's elements one decoded segment at a time —
+    the python twin of the evaluator's paged for-loop (O(segment) memory)."""
+    cdef _eastc.EastValue *v = <_eastc.EastValue*>ptr
+    cdef _eastc.Beast2Pages *pages = v.data.paged.pages
+    cdef _eastc.EastValue *seg
+    cdef size_t s, i, n
+    cdef size_t seg_count = _eastc.east_beast2_pages_segment_count(pages)
+    cdef list batch
+    for s in range(seg_count):
+        seg = _eastc.east_beast2_pages_segment(pages, s)
+        if seg == NULL:
+            _raise_paged_error()
+        try:
+            n = _eastc.east_array_len(seg)
+            batch = [
+                c_value_to_py(_eastc.east_array_get(seg, i), <_eastc.EastType*>elem_type_ptr)
+                for i in range(n)
+            ]
+        finally:
+            _eastc.east_value_release(seg)
+        yield from batch
+
+
+def _paged_set_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
+    """Stream a live paged Set's elements one decoded segment at a time."""
+    cdef _eastc.EastValue *v = <_eastc.EastValue*>ptr
+    cdef _eastc.Beast2Pages *pages = v.data.paged.pages
+    cdef _eastc.EastValue *seg
+    cdef size_t s, i, n
+    cdef size_t seg_count = _eastc.east_beast2_pages_segment_count(pages)
+    cdef list batch
+    for s in range(seg_count):
+        seg = _eastc.east_beast2_pages_segment_disjoint(pages, s)
+        if seg == NULL:
+            _raise_paged_error()
+        try:
+            n = _eastc.east_set_len(seg)
+            batch = [
+                c_value_to_py(_eastc.east_set_at(seg, i), <_eastc.EastType*>elem_type_ptr)
+                for i in range(n)
+            ]
+        finally:
+            _eastc.east_value_release(seg)
+        yield from batch
+
+
+def _paged_dict_items(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_ptr):
+    """Stream a live paged Dict's (key, value) pairs one decoded segment at a
+    time."""
+    cdef _eastc.EastValue *v = <_eastc.EastValue*>ptr
+    cdef _eastc.Beast2Pages *pages = v.data.paged.pages
+    cdef _eastc.EastValue *seg
+    cdef size_t s, i, n
+    cdef size_t seg_count = _eastc.east_beast2_pages_segment_count(pages)
+    cdef list batch
+    for s in range(seg_count):
+        seg = _eastc.east_beast2_pages_segment_disjoint(pages, s)
+        if seg == NULL:
+            _raise_paged_error()
+        try:
+            n = _eastc.east_dict_len(seg)
+            batch = [
+                (
+                    c_value_to_py(_eastc.east_dict_key_at(seg, i), <_eastc.EastType*>key_type_ptr),
+                    c_value_to_py(_eastc.east_dict_val_at(seg, i), <_eastc.EastType*>val_type_ptr),
+                )
+                for i in range(n)
+            ]
+        finally:
+            _eastc.east_value_release(seg)
+        yield from batch
+
+
 cpdef Py_ssize_t _proxy_array_len(uintptr_t ptr):
-    return <Py_ssize_t>(<_eastc.EastValue*>ptr).data.array.len
+    return <Py_ssize_t>_eastc.east_array_len(<_eastc.EastValue*>ptr)
 
 cpdef object _proxy_array_get(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t index):
     cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
-    cdef Py_ssize_t n = <Py_ssize_t>arr.data.array.len
+    cdef Py_ssize_t n = <Py_ssize_t>_eastc.east_array_len(arr)
+    cdef _eastc.EastValue *owned
     if index < 0:
         index += n
     if index < 0 or index >= n:
         raise IndexError("array index out of range")
+    if _live_paged(arr):
+        # Pager-served indexed read: an OWNED element from the LRU-cached
+        # segment — never east_array_get, whose borrowed-return contract
+        # hydrates the whole value.
+        owned = _eastc.east_beast2_pages_element(arr.data.paged.pages, <size_t>index)
+        if owned == NULL:
+            _raise_paged_error()
+        try:
+            return c_value_to_py(owned, <_eastc.EastType*>elem_type_ptr)
+        finally:
+            _eastc.east_value_release(owned)
+    if arr.kind == _eastc.EAST_VAL_PAGED:
+        arr = arr.data.paged.hydrated
     cdef _eastc.EastValue *elem = arr.data.array.items[index]
     return c_value_to_py(elem, <_eastc.EastType*>elem_type_ptr)
 
 cdef _guard_mutation(uintptr_t ptr, str container):
     """Parity with east-c's ITER_GUARD_*: the pythonic mutators respect the
     same ``iter_lock`` the native builtins check, so mutating a collection
-    while any iterator (python or builtin) is live fails identically."""
+    while any iterator (python or builtin) is live fails identically — and
+    the frozen (task-input) brand refuses with the uniform cross-runtime
+    message, exactly as the mutating builtins do."""
     if (<_eastc.EastValue*>ptr).iter_lock > 0:
         from east.runtime.errors import EastError
         raise EastError(f"Cannot modify {container} during iteration", [])
+    if _eastc.east_value_frozen(<_eastc.EastValue*>ptr):
+        from east.runtime.errors import EastError
+        raise EastError((<bytes>_eastc.EAST_FROZEN_MUTATION_MSG).decode("utf-8"), [])
 
 
 cpdef void _proxy_array_set(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t index, object value):
     _guard_mutation(ptr, "Array")
-    cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
+    cdef _eastc.EastValue *arr = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef Py_ssize_t n = <Py_ssize_t>arr.data.array.len
     if index < 0:
         index += n
@@ -1576,14 +1726,14 @@ cpdef void _proxy_array_set(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t i
 
 cpdef void _proxy_array_push(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
     _guard_mutation(ptr, "Array")
-    cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
+    cdef _eastc.EastValue *arr = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>elem_type_ptr)
     _eastc.east_array_push(arr, c_val)
     _eastc.east_value_release(c_val)
 
 cpdef void _proxy_array_clear(uintptr_t ptr):
     _guard_mutation(ptr, "Array")
-    cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
+    cdef _eastc.EastValue *arr = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef size_t i
     for i in range(arr.data.array.len):
         _eastc.east_value_release(arr.data.array.items[i])
@@ -1591,7 +1741,7 @@ cpdef void _proxy_array_clear(uintptr_t ptr):
 
 cpdef void _proxy_array_reverse(uintptr_t ptr):
     _guard_mutation(ptr, "Array")
-    cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
+    cdef _eastc.EastValue *arr = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef size_t n = arr.data.array.len
     cdef size_t i
     cdef _eastc.EastValue *tmp
@@ -1602,7 +1752,7 @@ cpdef void _proxy_array_reverse(uintptr_t ptr):
 
 cpdef object _proxy_array_pop(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t index):
     _guard_mutation(ptr, "Array")
-    cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
+    cdef _eastc.EastValue *arr = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef Py_ssize_t n = <Py_ssize_t>arr.data.array.len
     if n == 0:
         raise IndexError("pop from empty array")
@@ -1621,24 +1771,38 @@ cpdef object _proxy_array_pop(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t
     return result
 
 cpdef Py_ssize_t _proxy_set_len(uintptr_t ptr):
-    return <Py_ssize_t>(<_eastc.EastValue*>ptr).data.set.len
+    return <Py_ssize_t>_eastc.east_set_len(<_eastc.EastValue*>ptr)
 
 cpdef void _proxy_set_add(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
     _guard_mutation(ptr, "Set")
+    cdef _eastc.EastValue *s = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>elem_type_ptr)
-    _eastc.east_set_insert(<_eastc.EastValue*>ptr, c_val)
+    _eastc.east_set_insert(s, c_val)
     _eastc.east_value_release(c_val)
 
 cpdef bint _proxy_set_contains(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
+    cdef _eastc.EastValue *s = <_eastc.EastValue*>ptr
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>elem_type_ptr)
-    cdef bint result = _eastc.east_set_has(<_eastc.EastValue*>ptr, c_val)
+    cdef bint result
+    cdef int rc
+    if _live_paged(s):
+        # The pager path directly: east_set_has degrades a read error to
+        # False (its bool contract has no error channel); the python surface
+        # raises instead.
+        rc = _eastc.east_beast2_pages_get_key(s.data.paged.pages, c_val, NULL)
+        _eastc.east_value_release(c_val)
+        if rc == -1:
+            _raise_paged_error()
+        return rc == 1
+    result = _eastc.east_set_has(s, c_val)
     _eastc.east_value_release(c_val)
     return result
 
 cpdef void _proxy_set_remove(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
     _guard_mutation(ptr, "Set")
+    cdef _eastc.EastValue *s = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>elem_type_ptr)
-    if not _eastc.east_set_delete(<_eastc.EastValue*>ptr, c_val):
+    if not _eastc.east_set_delete(s, c_val):
         err = _missing_key_error("Set", c_val, <_eastc.EastType*>elem_type_ptr)
         _eastc.east_value_release(c_val)
         raise err
@@ -1646,6 +1810,9 @@ cpdef void _proxy_set_remove(uintptr_t ptr, uintptr_t elem_type_ptr, object valu
 
 cpdef object _proxy_set_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
     cdef _eastc.EastValue *s = <_eastc.EastValue*>ptr
+    if _live_paged(s):
+        return list(_paged_set_iter(ptr, elem_type_ptr))
+    s = _paged_resolve(s)
     cdef size_t n = s.data.set.len
     cdef list result = []
     for i in range(n):
@@ -1653,7 +1820,7 @@ cpdef object _proxy_set_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
     return result
 
 cpdef Py_ssize_t _proxy_dict_len(uintptr_t ptr):
-    return <Py_ssize_t>(<_eastc.EastValue*>ptr).data.dict.len
+    return <Py_ssize_t>_eastc.east_dict_len(<_eastc.EastValue*>ptr)
 
 cdef object _missing_key_error(str container, _eastc.EastValue *c_key, _eastc.EastType *key_type):
     """A KeyError carrying east-c's message, with the key East-printed."""
@@ -1666,8 +1833,30 @@ cdef object _missing_key_error(str container, _eastc.EastValue *c_key, _eastc.Ea
     return KeyError(f"{container} does not contain key {msg}")
 
 cpdef object _proxy_dict_get(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_ptr, object key):
+    cdef _eastc.EastValue *d = <_eastc.EastValue*>ptr
     cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*>key_type_ptr)
-    cdef _eastc.EastValue *c_val = _eastc.east_dict_get(<_eastc.EastValue*>ptr, c_key)
+    cdef _eastc.EastValue *owned = NULL
+    cdef int rc
+    if _live_paged(d):
+        # Pager-served keyed read: fence bisect + the LRU-cached segment,
+        # returning an OWNED value — never east_dict_get, whose
+        # borrowed-return contract hydrates the whole value.
+        rc = _eastc.east_beast2_pages_get_key(d.data.paged.pages, c_key, &owned)
+        if rc == -1:
+            _eastc.east_value_release(c_key)
+            _raise_paged_error()
+        if rc == 0:
+            err = _missing_key_error("Dict", c_key, <_eastc.EastType*>key_type_ptr)
+            _eastc.east_value_release(c_key)
+            raise err
+        _eastc.east_value_release(c_key)
+        try:
+            return c_value_to_py(owned, <_eastc.EastType*>val_type_ptr)
+        finally:
+            _eastc.east_value_release(owned)
+    if d.kind == _eastc.EAST_VAL_PAGED:
+        d = d.data.paged.hydrated
+    cdef _eastc.EastValue *c_val = _eastc.east_dict_get(d, c_key)
     if c_val == NULL:
         err = _missing_key_error("Dict", c_key, <_eastc.EastType*>key_type_ptr)
         _eastc.east_value_release(c_key)
@@ -1677,20 +1866,34 @@ cpdef object _proxy_dict_get(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t va
 
 cpdef void _proxy_dict_set(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_ptr, object key, object value):
     _guard_mutation(ptr, "Dict")
+    cdef _eastc.EastValue *d = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*>key_type_ptr)
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>val_type_ptr)
-    _eastc.east_dict_set(<_eastc.EastValue*>ptr, c_key, c_val)
+    _eastc.east_dict_set(d, c_key, c_val)
     _eastc.east_value_release(c_key)
     _eastc.east_value_release(c_val)
 
 cpdef bint _proxy_dict_contains(uintptr_t ptr, uintptr_t key_type_ptr, object key):
+    cdef _eastc.EastValue *d = <_eastc.EastValue*>ptr
     cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*>key_type_ptr)
-    cdef bint result = _eastc.east_dict_has(<_eastc.EastValue*>ptr, c_key)
+    cdef bint result
+    cdef int rc
+    if _live_paged(d):
+        # east_dict_has degrades a pager read error to False; raise instead.
+        rc = _eastc.east_beast2_pages_get_key(d.data.paged.pages, c_key, NULL)
+        _eastc.east_value_release(c_key)
+        if rc == -1:
+            _raise_paged_error()
+        return rc == 1
+    result = _eastc.east_dict_has(d, c_key)
     _eastc.east_value_release(c_key)
     return result
 
 cpdef object _proxy_dict_items(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_ptr):
     cdef _eastc.EastValue *d = <_eastc.EastValue*>ptr
+    if _live_paged(d):
+        return list(_paged_dict_items(ptr, key_type_ptr, val_type_ptr))
+    d = _paged_resolve(d)
     cdef size_t n = d.data.dict.len
     cdef list result = []
     for i in range(n):
@@ -1704,6 +1907,9 @@ cpdef object _proxy_ref_get(uintptr_t ptr, uintptr_t inner_type_ptr):
     return c_value_to_py(ref.data.ref.value, <_eastc.EastType*>inner_type_ptr)
 
 cpdef void _proxy_ref_set(uintptr_t ptr, uintptr_t inner_type_ptr, object value):
+    if _eastc.east_value_frozen(<_eastc.EastValue*>ptr):
+        from east.runtime.errors import EastError
+        raise EastError((<bytes>_eastc.EAST_FROZEN_MUTATION_MSG).decode("utf-8"), [])
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>inner_type_ptr)
     _eastc.east_ref_set(<_eastc.EastValue*>ptr, c_val)
     _eastc.east_value_release(c_val)
@@ -1896,6 +2102,11 @@ class EastArrayProxy(EastArray):
         # during a python for-loop fails exactly like East's for-loop.
         (<_eastc.EastValue*><uintptr_t>self._c_ptr).iter_lock += 1
         try:
+            if _proxy_is_live_paged(self._c_ptr):
+                # Segment-streaming walk — one decoded segment live at a
+                # time, the paged for-loop's cost model.
+                yield from _paged_array_iter(self._c_ptr, self._c_elem_type_ptr)
+                return
             for i in range(len(self)):
                 yield _proxy_array_get(self._c_ptr, self._c_elem_type_ptr, i)
         finally:
@@ -1922,8 +2133,9 @@ class EastArrayProxy(EastArray):
             index = max(0, n + index)
         if index >= n:
             return  # already at end
-        # Shift: move last element to index position
-        cdef _eastc.EastValue *arr = <_eastc.EastValue*><uintptr_t>self._c_ptr
+        # Shift: move last element to index position (append resolved any
+        # paged wrapper to its hydrated child; shift the same collection).
+        cdef _eastc.EastValue *arr = _paged_resolve(<_eastc.EastValue*><uintptr_t>self._c_ptr)
         cdef _eastc.EastValue *tmp = arr.data.array.items[n - 1]
         for i in range(n - 1, index, -1):
             arr.data.array.items[i] = arr.data.array.items[i - 1]
@@ -1951,6 +2163,7 @@ class EastArrayProxy(EastArray):
         # callbacks ride as kernels/traced lambdas like everywhere else), then
         # replace the contents C-to-C. The previous keyed path decoded the
         # whole array, sorted in python, and sampled the key type (#450).
+        _guard_mutation(self._c_ptr, "Array")
         result = self.sorted(key=key, reverse=reverse)
         _proxy_array_clear(self._c_ptr)
         _array_extend_bulk(self._c_ptr, self._c_elem_type_ptr, result, True)
@@ -2031,7 +2244,7 @@ class EastSetProxy(EastSet):
 
     def clear(self):
         _guard_mutation(self._c_ptr, "Set")
-        _eastc.east_set_clear(<_eastc.EastValue*><uintptr_t>self._c_ptr)
+        _eastc.east_set_clear(_paged_resolve(<_eastc.EastValue*><uintptr_t>self._c_ptr))
 
     def __contains__(self, item):
         return _proxy_set_contains(self._c_ptr, self._c_elem_type_ptr, item)
@@ -2041,9 +2254,15 @@ class EastSetProxy(EastSet):
         # during a python for-loop fails exactly like East's for-loop.
         (<_eastc.EastValue*><uintptr_t>self._c_ptr).iter_lock += 1
         try:
+            if _proxy_is_live_paged(self._c_ptr):
+                # Segment-streaming walk — one decoded segment live at a
+                # time, the paged for-loop's cost model.
+                yield from _paged_set_iter(self._c_ptr, self._c_elem_type_ptr)
+                return
             for i in range(_proxy_set_len(self._c_ptr)):
                 yield c_value_to_py(
-                    _eastc.east_set_at(<_eastc.EastValue*><uintptr_t>self._c_ptr, i),
+                    _eastc.east_set_at(
+                        _paged_resolve(<_eastc.EastValue*><uintptr_t>self._c_ptr), i),
                     <_eastc.EastType*><uintptr_t>self._c_elem_type_ptr)
         finally:
             (<_eastc.EastValue*><uintptr_t>self._c_ptr).iter_lock -= 1
@@ -2122,8 +2341,9 @@ class EastDictProxy(EastDict):
 
     def __delitem__(self, key):
         _guard_mutation(self._c_ptr, "Dict")
+        cdef _eastc.EastValue *d = _paged_resolve(<_eastc.EastValue*><uintptr_t>self._c_ptr)
         cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*><uintptr_t>self._c_key_type_ptr)
-        if not _eastc.east_dict_delete(<_eastc.EastValue*><uintptr_t>self._c_ptr, c_key):
+        if not _eastc.east_dict_delete(d, c_key):
             err = _missing_key_error("Dict", c_key, <_eastc.EastType*><uintptr_t>self._c_key_type_ptr)
             _eastc.east_value_release(c_key)
             raise err
@@ -2140,13 +2360,21 @@ class EastDictProxy(EastDict):
         # during a python for-loop fails exactly like East's for-loop.
         (<_eastc.EastValue*><uintptr_t>self._c_ptr).iter_lock += 1
         try:
+            if _proxy_is_live_paged(self._c_ptr):
+                # Segment-streaming walk — one decoded segment live at a
+                # time, the paged for-loop's cost model.
+                yield from _paged_dict_items(
+                    self._c_ptr, self._c_key_type_ptr, self._c_val_type_ptr)
+                return
             for i in range(_proxy_dict_len(self._c_ptr)):
                 yield (
                     c_value_to_py(
-                        _eastc.east_dict_key_at(<_eastc.EastValue*><uintptr_t>self._c_ptr, i),
+                        _eastc.east_dict_key_at(
+                            _paged_resolve(<_eastc.EastValue*><uintptr_t>self._c_ptr), i),
                         <_eastc.EastType*><uintptr_t>self._c_key_type_ptr),
                     c_value_to_py(
-                        _eastc.east_dict_val_at(<_eastc.EastValue*><uintptr_t>self._c_ptr, i),
+                        _eastc.east_dict_val_at(
+                            _paged_resolve(<_eastc.EastValue*><uintptr_t>self._c_ptr), i),
                         <_eastc.EastType*><uintptr_t>self._c_val_type_ptr),
                 )
         finally:
@@ -2176,8 +2404,9 @@ class EastDictProxy(EastDict):
 
     def pop(self, key, *args):
         _guard_mutation(self._c_ptr, "Dict")
+        cdef _eastc.EastValue *d = _paged_resolve(<_eastc.EastValue*><uintptr_t>self._c_ptr)
         cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*><uintptr_t>self._c_key_type_ptr)
-        cdef _eastc.EastValue *c_val = _eastc.east_dict_pop(<_eastc.EastValue*><uintptr_t>self._c_ptr, c_key)
+        cdef _eastc.EastValue *c_val = _eastc.east_dict_pop(d, c_key)
         if c_val == NULL:
             if args:
                 _eastc.east_value_release(c_key)
@@ -2192,7 +2421,7 @@ class EastDictProxy(EastDict):
 
     def clear(self):
         _guard_mutation(self._c_ptr, "Dict")
-        _eastc.east_dict_clear(<_eastc.EastValue*><uintptr_t>self._c_ptr)
+        _eastc.east_dict_clear(_paged_resolve(<_eastc.EastValue*><uintptr_t>self._c_ptr))
 
 
 class EastRefProxy(EastRef):
@@ -2261,7 +2490,10 @@ def _array_to_columns(uintptr_t ptr, uintptr_t elem_type_ptr, object fields,
     becomes float64 with NaN for none); String columns box once with
     interning; any other field type falls back to a list of boxed values.
     """
-    cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
+    # Column extraction is a whole-value read — a paged wrapper resolves to
+    # its hydrated child (once, cached), matching the evaluator's rule for
+    # non-pager-served operations.
+    cdef _eastc.EastValue *arr = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef _eastc.EastType *et = <_eastc.EastType*>elem_type_ptr
     if et == NULL or et.kind != _eastc.EAST_TYPE_STRUCT:
         raise TypeError("to_columns requires an Array of Struct elements")
@@ -2483,7 +2715,7 @@ def _array_extend_bulk(uintptr_t ptr, uintptr_t elem_type_ptr, object items,
     else marshals per item inside this single call.
     """
     _guard_mutation(ptr, "Array")
-    cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
+    cdef _eastc.EastValue *arr = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef _eastc.EastType *elem_t = <_eastc.EastType*>elem_type_ptr
     cdef _eastc.EastValue *src
     cdef _eastc.EastValue *c_val
@@ -2494,8 +2726,9 @@ def _array_extend_bulk(uintptr_t ptr, uintptr_t elem_type_ptr, object items,
 
     src_ptr = getattr(items, "_c_ptr", None) if allow_c_copy else None
     if src_ptr is not None:
-        # C-to-C: push retains each element; no python objects involved
-        src = <_eastc.EastValue*><uintptr_t>src_ptr
+        # C-to-C: push retains each element; no python objects involved.
+        # A paged source copies from its hydrated child (whole-value read).
+        src = _paged_resolve(<_eastc.EastValue*><uintptr_t>src_ptr)
         if src.kind == _eastc.EAST_VAL_ARRAY:
             n = <Py_ssize_t>src.data.array.len
             for i in range(n):
@@ -2564,7 +2797,8 @@ def _dict_update_many(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_
     The boxing could also exhaust or corrupt memory on deeply nested values —
     MemoryError inside ``_box_string``, SIGSEGV under ``list_extend``.
     """
-    cdef _eastc.EastValue *d = <_eastc.EastValue*>ptr
+    _guard_mutation(ptr, "Dict")
+    cdef _eastc.EastValue *d = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef _eastc.EastType *kt = <_eastc.EastType*>key_type_ptr
     cdef _eastc.EastType *vt = <_eastc.EastType*>val_type_ptr
     cdef _eastc.EastValue *k_arr = <_eastc.EastValue*>keys_arr_ptr

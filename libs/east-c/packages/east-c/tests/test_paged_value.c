@@ -23,7 +23,10 @@
  * sanitizer.
  */
 #include <east/east.h>
+#include <east/compiler.h>
+#include <east/env.h>
 #include <east/gc.h>
+#include <east/ir.h>
 #include <east/type_of_type.h>
 
 #include <stdint.h>
@@ -341,6 +344,83 @@ static void test_frozen_open(void)
     }
 }
 
+/* The platform-call boundary (issue #621): by default a paged argument
+ * hydrates whole before the platform function runs (kind-blind C
+ * implementations read value union arms directly), and a registration that
+ * declared serves_paged — the python bridge's dispatch — receives the paged
+ * wrapper itself, un-hydrated, with the API accessors answering from the
+ * pager. */
+static EastValueKind plat_probe_seen_kind;
+
+static EvalResult plat_probe(EastValue **args, size_t num_args, EastType **input_types,
+                             size_t num_input_types, EastType *output_type)
+{
+    (void)input_types;
+    (void)num_input_types;
+    (void)output_type;
+    plat_probe_seen_kind = (num_args > 0 && args[0]) ? args[0]->kind : EAST_VAL_NULL;
+    /* east_dict_len is pager-served on a live paged value. */
+    return eval_ok(east_integer((int64_t)east_dict_len(args[0])));
+}
+
+static void test_platform_boundary(void)
+{
+    EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
+    BuiltinRegistry *builtins = builtin_registry_new();
+    east_register_all_builtins(builtins);
+
+    for (int paged_capable = 0; paged_capable < 2; paged_capable++) {
+        size_t len = 0;
+        uint8_t *data = encode_int_dict(300, &len);
+        CHECK(data != NULL, "paged encode failed");
+        if (!data) break;
+        EastValue *paged = east_beast2_open_paged(data, len, dt);
+        CHECK(paged != NULL, "open_paged failed");
+        if (!paged) {
+            free(data);
+            break;
+        }
+
+        PlatformRegistry *platform = platform_registry_new();
+        platform_registry_add_typed(platform, "probe", plat_probe, false, (EastType *[]){dt}, 1,
+                                    &east_integer_type);
+        if (paged_capable) platform_registry_set_serves_paged(platform, "probe", true);
+        CHECK(platform_registry_serves_paged(platform, "probe") == (paged_capable != 0),
+              "serves_paged flag readback wrong");
+
+        IRNode *arg = ir_variable(dt, "d", false, false);
+        IRNode *node =
+            ir_platform(&east_integer_type, "probe", NULL, 0, (IRNode *[]){arg}, 1, false, false);
+        ir_node_release(arg); /* the builder retained its own reference */
+        Environment *env = env_new(NULL);
+        env_set(env, "d", paged);
+
+        plat_probe_seen_kind = EAST_VAL_NULL;
+        EvalResult r = eval_ir(node, env, platform, builtins);
+        CHECK(r.status == EVAL_OK, "platform eval failed: %s",
+              r.error_message ? r.error_message : "(none)");
+        CHECK(r.value && r.value->kind == EAST_VAL_INTEGER && r.value->data.integer == 300,
+              "platform result wrong");
+        if (paged_capable) {
+            CHECK(plat_probe_seen_kind == EAST_VAL_PAGED, "serves_paged impl saw kind %d",
+                  (int)plat_probe_seen_kind);
+            CHECK(paged->data.paged.hydrated == NULL, "serves_paged call hydrated the argument");
+        } else {
+            CHECK(plat_probe_seen_kind == EAST_VAL_DICT, "default impl saw kind %d",
+                  (int)plat_probe_seen_kind);
+            CHECK(paged->data.paged.hydrated != NULL, "default call did not hydrate the argument");
+        }
+
+        if (r.value) east_value_release(r.value);
+        eval_result_free(&r);
+        env_release(env);
+        ir_node_release(node);
+        platform_registry_free(platform);
+        east_value_release(paged);
+    }
+    builtin_registry_free(builtins);
+}
+
 static void test_release_states(void)
 {
     EastType *at = east_array_type(&east_integer_type);
@@ -386,6 +466,7 @@ int main(void)
     test_pager_served_reads();
     test_equivalence_and_hydration();
     test_frozen_open();
+    test_platform_boundary();
     test_release_states();
 
     east_gc_collect_full();
