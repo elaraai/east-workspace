@@ -57,7 +57,11 @@ export const planTargetState = example({
     ],
     description: "Every row kind on one axis from a single raw ops source, with slice chrome, expand, review and a status footer",
     fn: East.function([], UIComponentType, (_$) => {
-        const HorizonRow = StructType({ key: StringType, at: DateTimeType, line: StringType });
+        // The horizon fixture — the despatch orders the slice narrows (the
+        // canvas rows are the ops source; the slice is chrome over THESE):
+        // when, which line, whether the order is at risk of running late,
+        // and the tonnage booked so far (0 = nothing yet).
+        const HorizonRow = StructType({ key: StringType, at: DateTimeType, line: StringType, risk: StringType, tonnes: FloatType });
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
         // The RAW job record — what an ops dataset stores: phase + optional
         // batch, the window, optional tonnage, the lifecycle state, an alert.
@@ -94,7 +98,12 @@ export const planTargetState = example({
             }),
         });
         const cfg = Slice.config(HorizonRow, {
-            fields: { at: { label: "Despatched" }, line: { label: "Line" } },
+            fields: {
+                at: { label: "Despatched", format: { date: "MMM D" } },
+                line: { label: "Line" },
+                risk: { label: "Risk", hints: ["late", "on-time"] },
+                tonnes: { label: "Tonnes" },
+            },
             rangeFieldId: "at",
             searchFieldIds: ["line"],
         });
@@ -119,10 +128,17 @@ export const planTargetState = example({
                 label: some(East.Float.printFixed(loadPcts.get(i), 0n)),
             })));
             // 36 despatch orders spread over W21–W47 — the horizon fixture.
+            // Every third order is at risk of running late (the §1 `Late
+            // risk` cohort counts 12); every seventh has no tonnage booked
+            // yet (the `Empty` cohort).
             const horizon = $.let(East.Array.generate(36n, HorizonRow, (_$, i) => ({
                 key: East.str`h${East.print(i.add(1n))}`,
                 at: week(i.multiply(27n).divide(36n).add(21n)),
                 line: i.remainder(2n).equal(0n).ifElse(() => "Line 1", () => "Line 2"),
+                risk: i.remainder(3n).equal(0n).ifElse(() => "late", () => "on-time"),
+                tonnes: i.remainder(7n).equal(6n).ifElse(
+                    () => 0.0,
+                    () => i.multiply(11n).remainder(40n).toFloat().add(20.0)),
             })));
             // Raw jobs → runs: ONE bound mapping function — the bar label and
             // the quantity display/number pair derive CLIENT-SIDE from the
@@ -290,7 +306,18 @@ export const planTargetState = example({
                 window: { min: week(27n), max: week(39n) },
                 resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
             }));
-            const slice = $.let(Slice.bind([HorizonRow], "ex.plan.target", cfg, Slice.state(), horizon, none));
+            // The §1 toolbar is SEEDED slice state: the applied window is the
+            // range chip (`JUN 29 → SEP 21 · 84d`), and two saved cohorts sit
+            // beside the filter builder with `Late risk` active — their
+            // counts are live over the horizon fixture, never printed.
+            const slice = $.let(Slice.bind([HorizonRow], "ex.plan.target", cfg, Slice.state({
+                range: some(variant("datetime", { from: week(27n), to: week(39n) })),
+                cohorts: [
+                    { id: "late", name: "Late risk", filters: [variant("string", { fieldId: "risk", op: variant("eq", "late") })] },
+                    { id: "empty", name: "Empty", filters: [variant("float", { fieldId: "tonnes", op: variant("lte", 0.0) })] },
+                ],
+                activeCohorts: new Set(["late"]),
+            }), horizon, none));
             // The R2 developer render — the ROOT's resolver, called with the
             // focused row's ref; ONE function serves every row whose `expand`
             // accessor returned some(...). The machine series declares it.
