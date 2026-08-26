@@ -24,6 +24,7 @@ from east import (
     ArrayType,
     BooleanType,
     DictType,
+    East,
     EastArray,
     EastDict,
     EastSet,
@@ -406,7 +407,7 @@ ARRAY_COMPUTE_CASES = [
     ("map_out", lambda c: c.map(lambda r: r["amt"], out=FloatType)),
     ("filter", lambda c: c.filter(lambda r: r["amt"] > 3.0)),
     ("filter_map", lambda c: c.filter_map(
-        lambda r: some(r["qty"]) if r["qty"] % 3 == 0 else none, out=IntegerType)),
+        lambda r: some(r["qty"]) if East.Integer.remainder(r["qty"], 3) == 0 else none, out=IntegerType)),
     ("first_map", lambda c: c.first_map(
         lambda r: some(r["sku"]) if r["qty"] > 17 else none, out=StringType)),
     ("fold_float", lambda c: c.fold(0.0, lambda a, r: a + r["amt"])),
@@ -689,9 +690,9 @@ def test_file_group_fold_aliases_warn_and_delegate(tmp_path):
     write_beast2_file(set_path, SetType(IntegerType),
                       EastSet(IntegerType, range(9)), segment_rows=3)
     with open_beast2_file(set_path) as s:
-        want = s.group_reduce(lambda el: el % 3, lambda _k: 0, lambda a, el: a + el)
+        want = s.group_reduce(lambda el: East.Integer.remainder(el, 3), lambda _k: 0, lambda a, el: a + el)
         with pytest.warns(DeprecationWarning, match="group_reduce"):
-            got = s.group_fold(lambda el: el % 3, lambda _k: 0, lambda a, el: a + el)
+            got = s.group_fold(lambda el: East.Integer.remainder(el, 3), lambda _k: 0, lambda a, el: a + el)
         assert dict(got.items()) == dict(want.items())
 
 
@@ -701,7 +702,7 @@ SET_COMPUTE_CASES = [
     ("sum", lambda c: c.sum()),
     ("mean", lambda c: c.mean()),
     ("map", lambda c: c.map(lambda el: el * 2)),
-    ("filter", lambda c: c.filter(lambda el: el % 2 == 0)),
+    ("filter", lambda c: c.filter(lambda el: East.Integer.remainder(el, 2) == 0)),
     ("filter_map", lambda c: c.filter_map(
         lambda el: some(el) if el > 10 else none, out=IntegerType)),
     ("first_map", lambda c: c.first_map(
@@ -711,23 +712,23 @@ SET_COMPUTE_CASES = [
     ("some", lambda c: c.some(lambda el: el > 50)),
     ("to_array", lambda c: list(c.to_array())),
     ("to_array_proj", lambda c: list(c.to_array(lambda el: el * 10))),
-    ("to_set", lambda c: c.to_set(lambda el: el % 7, out=IntegerType)),
+    ("to_set", lambda c: c.to_set(lambda el: East.Integer.remainder(el, 7), out=IntegerType)),
     ("to_dict", lambda c: c.to_dict(lambda el: el, lambda el: el * 2)),
     ("flatten_to_array", lambda c: list(c.flatten_to_array(
         lambda el: EastArray(IntegerType, [el, el])))),
     ("flatten_to_set", lambda c: c.flatten_to_set(
         lambda el: EastSet(IntegerType, [el, el + 1000]))),
     ("group_reduce", lambda c: c.group_reduce(
-        lambda el: el % 3, lambda _k: 0, lambda a, el: a + el)),
-    ("group_size", lambda c: c.group_size(lambda el: el % 3)),
-    ("group_sum", lambda c: c.group_sum(lambda el: el % 3)),
-    ("group_mean", lambda c: c.group_mean(lambda el: el % 3)),
-    ("group_every", lambda c: c.group_every(lambda el: el % 3, lambda el: el >= 0)),
-    ("group_some", lambda c: c.group_some(lambda el: el % 3, lambda el: el > 50)),
-    ("group_to_arrays", lambda c: c.group_to_arrays(lambda el: el % 3, lambda el: el)),
-    ("group_to_sets", lambda c: c.group_to_sets(lambda el: el % 3, lambda el: el)),
+        lambda el: East.Integer.remainder(el, 3), lambda _k: 0, lambda a, el: a + el)),
+    ("group_size", lambda c: c.group_size(lambda el: East.Integer.remainder(el, 3))),
+    ("group_sum", lambda c: c.group_sum(lambda el: East.Integer.remainder(el, 3))),
+    ("group_mean", lambda c: c.group_mean(lambda el: East.Integer.remainder(el, 3))),
+    ("group_every", lambda c: c.group_every(lambda el: East.Integer.remainder(el, 3), lambda el: el >= 0)),
+    ("group_some", lambda c: c.group_some(lambda el: East.Integer.remainder(el, 3), lambda el: el > 50)),
+    ("group_to_arrays", lambda c: c.group_to_arrays(lambda el: East.Integer.remainder(el, 3), lambda el: el)),
+    ("group_to_sets", lambda c: c.group_to_sets(lambda el: East.Integer.remainder(el, 3), lambda el: el)),
     ("group_to_dicts", lambda c: c.group_to_dicts(
-        lambda el: el % 3, lambda el: el, lambda el: el * 2)),
+        lambda el: East.Integer.remainder(el, 3), lambda el: el, lambda el: el * 2)),
 ]
 
 

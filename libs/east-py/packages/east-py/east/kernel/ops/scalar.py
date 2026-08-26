@@ -34,6 +34,27 @@ _COMPARE = {
     "ge": "GreaterEqual",
 }
 
+# Operator forks (#624): python spellings whose East builtin disagrees with
+# python's own semantics on ordinary inputs. Tracing them would silently
+# compute different values than the same lambda run per-element, so each
+# raises and names the East spelling that says which semantics you get.
+_FLOORDIV_FORK = (
+    "python `//` floors the quotient; East IntegerDivide truncates toward "
+    "zero (-10 // 3 is -4 in python but -3 traced) — call "
+    "East.Integer.divide(a, b) explicitly"
+)
+_MOD_FORK = (
+    "python `%` takes the sign of the divisor; East IntegerRemainder / "
+    "FloatRemainder take the sign of the dividend (-10 % 3 is 2 in python "
+    "but -1 traced) — call East.Integer.remainder(a, b) or "
+    "East.Float.remainder(a, b) explicitly"
+)
+_INT_POW_FORK = (
+    "python `**` promotes a negative Integer exponent to float (2 ** -1 is "
+    "0.5 in python but 0 as East IntegerPow) — call East.Integer.pow(a, b) "
+    "explicitly"
+)
+
 
 class _ScalarOps(_ExprBase):
     """Traced arithmetic, comparison, boolean algebra and scalar math.
@@ -87,22 +108,26 @@ class _ScalarOps(_ExprBase):
         return self._arith("mul", other, reflected=True)
 
     def __mod__(self, other: Any) -> KernelExpr:
-        return self._arith("mod", other)
+        raise KernelTraceError(_MOD_FORK)
 
     def __rmod__(self, other: Any) -> KernelExpr:
-        return self._arith("mod", other, reflected=True)
+        raise KernelTraceError(_MOD_FORK)
 
     def __pow__(self, other: Any) -> KernelExpr:
+        if self.east_type.type == "Integer":
+            raise KernelTraceError(_INT_POW_FORK)
         return self._arith("pow", other)
 
     def __rpow__(self, other: Any) -> KernelExpr:
+        if self.east_type.type == "Integer":
+            raise KernelTraceError(_INT_POW_FORK)
         return self._arith("pow", other, reflected=True)
 
     def __truediv__(self, other: Any) -> KernelExpr:
         if self.east_type.type == "Integer":
             raise KernelTraceError(
-                "`/` on East Integers is ambiguous — use `//` for integer division or "
-                ".to_float() for float division"
+                "`/` on East Integers is ambiguous — call East.Integer.divide(a, b) "
+                "for truncating integer division or .to_float() for float division"
             )
         other = _lift(other, hint=self.east_type)
         if other.east_type.type != "Float":
@@ -113,20 +138,10 @@ class _ScalarOps(_ExprBase):
         return _lift(other, hint=self.east_type).__truediv__(self)
 
     def __floordiv__(self, other: Any) -> KernelExpr:
-        # Python `//` floors; East IntegerDivide truncates toward zero. A
-        # traced `//` therefore differs from eager Python for mixed-sign
-        # operands: -10 // 3 == -4 in Python but traces to -3.
-        if self.east_type.type != "Integer":
-            raise KernelTraceError("`//` is East IntegerDivide — both sides must be Integer")
-        other = _lift(other)
-        if other.east_type.type != "Integer":
-            raise KernelTraceError("`//` is East IntegerDivide — both sides must be Integer")
-        return self._expr(
-            _builtin("IntegerDivide", IntegerType, [], [self.ir, other.ir]), IntegerType
-        )
+        raise KernelTraceError(_FLOORDIV_FORK)
 
     def __rfloordiv__(self, other: Any) -> KernelExpr:
-        return _lift(other).__floordiv__(self)
+        raise KernelTraceError(_FLOORDIV_FORK)
 
     def __neg__(self) -> KernelExpr:
         tag = self.east_type.type
@@ -227,13 +242,16 @@ class _ScalarOps(_ExprBase):
     # ── Float → Integer rounding (#604) ─────────────────────────────────
     #
     # Composed from Remainder/Subtract/IfElse/FloatToInteger, so every
-    # runtime executes them with no new builtins. `frac = x % 1.0 + 0.0` is
-    # the fractional part, exactly (fmod is exact), with `+ 0.0` folding the
-    # -0.0 that fmod returns for negative integral x — East's float TOTAL
-    # order puts -0.0 below 0.0, so an unnormalized frac would make every
-    # sign test lie on whole negatives. All decisions compare that exact
-    # frac; never add 0.5 to x, which double-rounds at the tie boundary
-    # (0.49999999999999994 + 0.5 rounds to 1.0).
+    # runtime executes them with no new builtins. The compositions call
+    # `_arith("mod", 1.0)` directly — the `%` dunder raises (#624), and
+    # FloatRemainder's sign-of-dividend contract is exactly what they want.
+    # `frac = FloatRemainder(x, 1.0) + 0.0` is the fractional part, exactly
+    # (fmod is exact), with `+ 0.0` folding the -0.0 that fmod returns for
+    # negative integral x — East's float TOTAL order puts -0.0 below 0.0, so
+    # an unnormalized frac would make every sign test lie on whole negatives.
+    # All decisions compare that exact frac; never add 0.5 to x, which
+    # double-rounds at the tie boundary (0.49999999999999994 + 0.5 rounds
+    # to 1.0).
 
     def _pick_float(self, pred: KernelExpr, then: KernelExpr, other: KernelExpr) -> KernelExpr:
         return self._expr(_k_ifelse(FloatType, [(pred.ir, then.ir)], other.ir), FloatType)
@@ -245,19 +263,19 @@ class _ScalarOps(_ExprBase):
     def trunc(self) -> KernelExpr:
         """Truncate toward zero, as an Integer: 3.7 → 3, -3.7 → -3."""
         self._require_float("trunc")
-        return (self - self % 1.0).to_integer()
+        return (self - self._arith("mod", 1.0)).to_integer()
 
     def floor(self) -> KernelExpr:
         """Round toward negative infinity, as an Integer: -3.2 → -4."""
         self._require_float("floor")
-        frac = self % 1.0 + 0.0
+        frac = self._arith("mod", 1.0) + 0.0
         whole = self - frac
         return self._pick_float(frac < 0.0, whole - 1.0, whole).to_integer()
 
     def ceil(self) -> KernelExpr:
         """Round toward positive infinity, as an Integer: 3.2 → 4."""
         self._require_float("ceil")
-        frac = self % 1.0 + 0.0
+        frac = self._arith("mod", 1.0) + 0.0
         whole = self - frac
         return self._pick_float(frac > 0.0, whole + 1.0, whole).to_integer()
 
@@ -270,7 +288,7 @@ class _ScalarOps(_ExprBase):
         traced spelling is an explicit method with an explicit rule.
         """
         self._require_float("round")
-        frac = self % 1.0 + 0.0
+        frac = self._arith("mod", 1.0) + 0.0
         whole = self - frac
         return self._pick_float(
             frac >= 0.5, whole + 1.0,

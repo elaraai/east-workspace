@@ -29,6 +29,7 @@ import pytest
 
 from east import (
     BooleanType,
+    East,
     FloatType,
     IntegerType,
     StringType,
@@ -159,10 +160,10 @@ def test_dict_every_some_sum_run_native():
 def test_group_find_all_matches_the_ts_example():
     # [1,2,3,2,5,2].groupFindAll(x => x % 2, 2n) -> { 0: [1,3,5], 1: [] }
     xs = array(IntegerType, [1, 2, 3, 2, 5, 2])
-    got = xs.group_find_all(lambda x: x % 2, 2)
+    got = xs.group_find_all(lambda x: East.Integer.remainder(x, 2), 2)
     assert {k: list(v) for k, v in got.items()} == {0: [1, 3, 5], 1: []}
     # a value present in neither group still lists every group
-    assert {k: list(v) for k, v in xs.group_find_all(lambda x: x % 2, 99).items()} == \
+    assert {k: list(v) for k, v in xs.group_find_all(lambda x: East.Integer.remainder(x, 2), 99).items()} == \
         {0: [], 1: []}
 
 
@@ -179,7 +180,7 @@ def test_group_find_all_with_projection_and_empty_input():
     assert {k: list(v) for k, v in got.items()} == {"acme": [0], "bolt": [2]}
 
     empty = array(IntegerType, [])
-    out = empty.group_find_all(lambda x: x % 2, 1)
+    out = empty.group_find_all(lambda x: East.Integer.remainder(x, 2), 1)
     assert len(out) == 0
     assert out.value_type == ArrayType(IntegerType)
 
@@ -187,12 +188,12 @@ def test_group_find_all_with_projection_and_empty_input():
 def test_group_find_first_matches_the_ts_example():
     # [1..6].groupFindFirst(x => x % 2, 4n) -> { 0: some(3), 1: none }
     xs = array(IntegerType, [1, 2, 3, 4, 5, 6])
-    got = xs.group_find_first(lambda x: x % 2, 4)
+    got = xs.group_find_first(lambda x: East.Integer.remainder(x, 2), 4)
     assert dict(got.items()) == {0: some(3), 1: none}
-    assert dict(xs.group_find_first(lambda x: x % 2, 5).items()) == {0: none, 1: some(4)}
+    assert dict(xs.group_find_first(lambda x: East.Integer.remainder(x, 2), 5).items()) == {0: none, 1: some(4)}
     # first of SEVERAL matches in a group
     dupes = array(IntegerType, [2, 4, 2, 6, 2])
-    assert dict(dupes.group_find_first(lambda x: x % 2, 2).items()) == {0: some(0)}
+    assert dict(dupes.group_find_first(lambda x: East.Integer.remainder(x, 2), 2).items()) == {0: some(0)}
 
 
 @pytest.mark.parametrize(
@@ -216,7 +217,7 @@ def test_group_find_first_types_option_whichever_group_matches(rows, target, exp
     from east.types.types import IntegerType as I
     from east.types.types import OptionType
 
-    got = array(I, rows).group_find_first(lambda x: x % 2, target)
+    got = array(I, rows).group_find_first(lambda x: East.Integer.remainder(x, 2), target)
     assert got.value_type == OptionType(I)
     assert dict(got.items()) == expected
 
@@ -258,27 +259,27 @@ def test_group_find_all_passes_the_row_index_to_arity_2_callbacks():
     eager Array callback."""
     xs = array(IntegerType, [5, 2, 5, 2])
     # group by index parity, match on the element
-    assert {k: list(v) for k, v in xs.group_find_all(lambda _x, i: i % 2, 5).items()} == \
+    assert {k: list(v) for k, v in xs.group_find_all(lambda _x, i: East.Integer.remainder(i, 2), 5).items()} == \
         {0: [0, 2], 1: []}
     # an index-taking projection: element+index, so the match depends on BOTH
     # (rows 0 and 3 sum to 5; they land in different index-parity groups)
     assert {k: list(v) for k, v in
-            xs.group_find_all(lambda _x, i: i % 2, 5, lambda x, i: x + i).items()} == \
+            xs.group_find_all(lambda _x, i: East.Integer.remainder(i, 2), 5, lambda x, i: x + i).items()} == \
         {0: [0], 1: [3]}
-    assert dict(xs.group_find_maximum(lambda _x, i: i % 2, lambda _x, i: i).items()) == \
+    assert dict(xs.group_find_maximum(lambda _x, i: East.Integer.remainder(i, 2), lambda _x, i: i).items()) == \
         {0: 2, 1: 3}
-    assert dict(xs.group_find_minimum(lambda _x, i: i % 2, lambda _x, i: i).items()) == \
+    assert dict(xs.group_find_minimum(lambda _x, i: East.Integer.remainder(i, 2), lambda _x, i: i).items()) == \
         {0: 0, 1: 1}
 
 
 def test_group_find_minimum_and_maximum_match_the_ts_examples():
     # [1..6] grouped by parity: min indices {0: 1, 1: 0}, max {0: 5, 1: 4}
     xs = array(IntegerType, [1, 2, 3, 4, 5, 6])
-    assert dict(xs.group_find_minimum(lambda x: x % 2).items()) == {0: 1, 1: 0}
-    assert dict(xs.group_find_maximum(lambda x: x % 2).items()) == {0: 5, 1: 4}
+    assert dict(xs.group_find_minimum(lambda x: East.Integer.remainder(x, 2)).items()) == {0: 1, 1: 0}
+    assert dict(xs.group_find_maximum(lambda x: East.Integer.remainder(x, 2)).items()) == {0: 5, 1: 4}
     # with a projection (negate flips which index wins)
-    assert dict(xs.group_find_minimum(lambda x: x % 2, lambda x: -x).items()) == {0: 5, 1: 4}
-    assert dict(xs.group_find_maximum(lambda x: x % 2, lambda x: -x).items()) == {0: 1, 1: 0}
+    assert dict(xs.group_find_minimum(lambda x: East.Integer.remainder(x, 2), lambda x: -x).items()) == {0: 5, 1: 4}
+    assert dict(xs.group_find_maximum(lambda x: East.Integer.remainder(x, 2), lambda x: -x).items()) == {0: 1, 1: 0}
 
 
 def test_group_find_extremes_keep_the_earliest_index_on_ties():

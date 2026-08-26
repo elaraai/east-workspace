@@ -31,6 +31,7 @@ import pytest
 from east import (
     ArrayType,
     DictType,
+    East,
     FloatType,
     IntegerType,
     SetType,
@@ -166,7 +167,7 @@ def test_beast2_array_file_scan_threads_segments(tmp_path):
         assert list(f.scan(0, lambda acc, x: acc + x)) == \
             list(f.load().scan(0, lambda acc, x: acc + x))
         # (acc, el, idx) steps must see GLOBAL row indices across segments.
-        step = lambda acc, x, i: if_else(i % 2 == 0, acc + x, acc)  # noqa: E731
+        step = lambda acc, x, i: if_else(East.Integer.remainder(i, 2) == 0, acc + x, acc)  # noqa: E731
         assert list(f.scan(0, step)) == list(f.load().scan(0, step))
 
 

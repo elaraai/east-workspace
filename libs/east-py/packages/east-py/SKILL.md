@@ -265,9 +265,15 @@ syntax, fastest first:
   It is dual-mode: eager on plain values, an East `IfElse` on traced
   expressions — the same lambda works on both paths.
 - Arithmetic follows East types exactly: no implicit Integer↔Float mixing
-  (`.to_float()` / `.to_integer()` convert), `//` is East IntegerDivide —
-  truncation toward zero, NOT python's floored `//` — and `/` is Float
-  division. Struct fields read as attributes or items
+  (`.to_float()` / `.to_integer()` convert) and `/` is Float division.
+  Operators whose python semantics fork from the East builtin RAISE at
+  trace time with a fix-it (#624): `//` (python floors; IntegerDivide
+  truncates toward zero) → `East.Integer.divide(a, b)`; `%` (python takes
+  the sign of the divisor; the East remainder the dividend) →
+  `East.Integer.remainder` / `East.Float.remainder`; Integer `**` (python
+  promotes a negative exponent to float) → `East.Integer.pow`. Float `**`
+  coincides with python and stays an operator. Struct fields read as
+  attributes or items
   (`r.price` / `r["price"]` — both trace, and both work on real rows).
 - Traces are CACHED (#422): an eager callback whose code object, captured
   bindings and declared signature match a previous call reuses the compiled
@@ -638,7 +644,9 @@ Task → What do you need?
     │   ├─ Check whether a hot call ran natively → east.runtime.compiler.eager_stats() (trampoline/kernel/pushdown counters)
     │   ├─ What traces (the expression surface inside kernels)
     │   │   ├─ Struct fields → r.price / r["price"] · build rows with dict literals {"k": expr, …}
-    │   │   ├─ Arithmetic → + - * / // % ** · unary - · .abs() · .to_float()/.to_integer() (exact-only ❗non-integral) · .sign() ·
+    │   │   ├─ Arithmetic → + - * · / (Float) · Float ** · East.Integer.divide/remainder/pow · East.Float.remainder
+    │   │   │                (`//`, `%` and integer `**` RAISE with those fix-its — python semantics fork, #624) ·
+    │   │   │                unary - · .abs() · .to_float()/.to_integer() (exact-only ❗non-integral) · .sign() ·
     │   │   │                .round()/.floor()/.ceil()/.trunc() (Float → Integer, #604; round = half AWAY from zero —
     │   │   │                math.floor/ceil/trunc trace via the dunders; python round() raises, its tie rule differs) ·
     │   │   │                .sqrt()/.exp()/.log()/.sin()/.cos()/.tan() (Float) · .log()/.sign() (Integer)
@@ -663,7 +671,9 @@ Task → What do you need?
     │   │   │                 to_dict · to_set · unique · group_by · sorted · is_sorted · some · every ·
     │   │   │                 sum · mean · maximum/minimum (Array) · reduce (Set/Dict) ·
     │   │   │                 string_join · concat · slice · reversed · copy · get_keys · the Set algebra ·
-    │   │   │                 keys_set · to_array · size · has · get ❗ · [i|k expr] ❗ · get_or_default · try_get ·
+    │   │   │                 keys_set · to_array · size · has · get ❗ · [i|k expr] ❗ (a negative literal Array
+    │   │   │                 index raises — python's from-the-end has no East twin; spell a.get(a.size() - 1), #624) ·
+    │   │   │                 get_or_default · try_get ·
     │   │   │                 first_map(fn, out=) → Option (early exit: Array/Set fn(el), Dict fn(k,v))
     │   │   │                 (inner lambdas trace recursively, may reference outer params; some([])=False, every([])=True;
     │   │   │                  some/every/first_map short-circuit natively — identical to the eager path; an unsupported
@@ -1176,7 +1186,7 @@ evaluation inside a kernel (see the decision tree's *Sequential logic* branch).
 | `EastArray.range(start, end, step=1)` | `EastArray.range(0, 5, 2)` → `[0, 2, 4]` |
 | `EastArray.linspace(start, end, count)` | `EastArray.linspace(0., 1., 3)` → `[0.0, 0.5, 1.0]` |
 | `EastArray.generate(count, fn(i), element_type=None)` | `EastArray.generate(3, lambda i: i*i, IntegerType)` |
-| `EastSet.generate(n, fn(i), element_type=None)` | `EastSet.generate(4, lambda i: i % 2, IntegerType)` |
+| `EastSet.generate(n, fn(i), element_type=None)` | `EastSet.generate(4, lambda i: East.Integer.remainder(i, 2), IntegerType)` |
 | `EastDict.generate(n, key_fn(i), value_fn(i), combine, key_type, value_type)` | `EastDict.generate(3, lambda i:i, lambda i:i*10, None, IntegerType, IntegerType)` |
 | `EastVector.zeros/ones(element_type, length)` · `fill(element_type, length, value)` · `from_array(element_type, items)` · `from_numpy(array, element_type=None)` · `from_torch(tensor, element_type=None)` | `EastVector.zeros(FloatType, 3)` |
 | `EastMatrix.zeros/ones(element_type, rows, cols)` · `fill(…, value)` · `from_array/from_rows(element_type, rows)` · `from_numpy(array, element_type=None)` · `from_torch(tensor, element_type=None)` | `EastMatrix.from_array(FloatType, [[1.,2.],[3.,4.]])` |

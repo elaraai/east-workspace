@@ -85,6 +85,74 @@ def test_kernel_type_errors_are_loud():
         kernel(ROW, lambda r: r.price + r.sku.length())
 
 
+# ─── #624: operator forks raise instead of silently diverging ───────────────
+#
+# `//` (python floors, IntegerDivide truncates), `%` (python takes the sign of
+# the divisor, IntegerRemainder/FloatRemainder the dividend), Integer `**`
+# (python promotes a negative exponent to float) and a negative literal index
+# (python counts from the end) mean something different per element than the
+# IR they traced to — and the purity gate picked a side silently. These are
+# AUTHORING-SPELLING pins only: each python spelling raises at trace time and
+# the named East twin is accepted by the tracer. The twins' VALUE semantics
+# (IntegerDivide/IntegerRemainder/IntegerPow/FloatRemainder/ArrayGet) are
+# pinned by the TS compliance corpus, not here.
+
+
+def test_operator_fork_spellings_raise_with_their_named_twins():
+    from east import East
+
+    for fn, twin in [
+        (lambda v: v // 3, r"East\.Integer\.divide"),
+        (lambda v: 10 // v, r"East\.Integer\.divide"),
+        (lambda v: v % 3, r"East\.Integer\.remainder"),
+        (lambda v: 10 % v, r"East\.Integer\.remainder"),
+        (lambda v: v ** 2, r"East\.Integer\.pow"),
+        (lambda v: 2 ** v, r"East\.Integer\.pow"),
+        # `/` on Integers already raised; its fix-it must now name the
+        # spelling that works, not the `//` that raises too
+        (lambda v: v / 3, r"East\.Integer\.divide"),
+    ]:
+        with pytest.raises(KernelTraceError, match=twin):
+            kernel(IntegerType, fn)
+    with pytest.raises(KernelTraceError, match=r"East\.Float\.remainder"):
+        kernel(FloatType, lambda v: v % 3.0)
+    # ...and the tracer accepts each named twin (the corpus pins the values)
+    assert kernel(IntegerType, lambda v: East.Integer.divide(v, 3))(-10) == -3
+    assert kernel(IntegerType, lambda v: East.Integer.remainder(v, 3))(-10) == -1
+    assert kernel(IntegerType, lambda v: East.Integer.pow(v, -1))(2) == 0
+    assert kernel(FloatType, lambda v: East.Float.remainder(v, 3.0))(-10.0) == -1.0
+    # Float ** coincides with python on ordinary inputs, so it stays
+    assert kernel(FloatType, lambda v: v ** 2.0)(3.0) == 9.0
+
+
+def test_negative_array_index_raises_and_the_spelled_form_works():
+    from east.types.types import ArrayType, DictType
+
+    t = ArrayType(IntegerType)
+    with pytest.raises(KernelTraceError, match=r"a\.get\(a\.size\(\) - 1\)"):
+        kernel(t, lambda a: a[-1])
+    assert kernel(t, lambda a: a.get(a.size() - 1))([10, 20, 30]) == 30
+    assert kernel(t, lambda a: a[1])([10, 20, 30]) == 20
+    # a Dict's Integer keys are real keys, so a negative KEY stays legal
+    from east import EastDict
+
+    dt = DictType(IntegerType, IntegerType)
+    assert kernel(dt, lambda d: d[-1])(EastDict(IntegerType, IntegerType, {-1: 42})) == 42
+
+
+def test_operator_fork_raises_reach_the_eager_path():
+    # The defect the raises close: the same lambda computed DIFFERENT values
+    # depending on whether the purity gate traced it or fell back to python.
+    # An eligible callback must now surface the fork loudly, not pick a side.
+    from east import EastArray
+
+    arr = EastArray(IntegerType, [-10, 10])
+    with pytest.raises(KernelTraceError, match=r"East\.Integer\.remainder"):
+        arr.map(lambda x: x % 3)
+    with pytest.raises(KernelTraceError, match=r"East\.Integer\.divide"):
+        arr.map(lambda x: x // 3)
+
+
 # ─── the purity gate ────────────────────────────────────────────────────────
 
 
@@ -788,23 +856,27 @@ def test_first_map_emits_firstmap_builtin_not_fold():
 def test_quantifiers_short_circuit_like_eager():
     # The deciding element must STOP the scan: the poisoned tail (integer
     # division by zero) errors if evaluated, which the old fold encoding did.
-    from east import EastArray
+    from east import East, EastArray
     from east.types.types import ArrayType
 
     IROW = StructType([("data", StringType)])
     k_some = kernel(
-        [ArrayType(IntegerType)], lambda arr: arr.some(lambda v: (10 // v) > 0)
+        [ArrayType(IntegerType)],
+        lambda arr: arr.some(lambda v: East.Integer.divide(10, v) > 0),
     )
     assert k_some([2, 0]) is True  # v=2 decides; v=0 never evaluates
     k_every = kernel(
-        [ArrayType(IntegerType)], lambda arr: arr.every(lambda v: (10 // v) > 100)
+        [ArrayType(IntegerType)],
+        lambda arr: arr.every(lambda v: East.Integer.divide(10, v) > 100),
     )
     assert k_every([2, 0]) is False  # v=2 is the counterexample; v=0 never evaluates
     # eager path agrees on the same data — the guard is spelled with the
     # dual-mode `if_else` (a python-`if` lambda would raise: a pure callback
     # that cannot trace surfaces loudly rather than silently trampolining)
     eager = EastArray(IntegerType, [2, 0])
-    assert eager.some(lambda v: if_else(v != 0, (10 // v) > 0, False)) is True
+    assert eager.some(
+        lambda v: if_else(v != 0, East.Integer.divide(10, v) > 0, False)
+    ) is True
     del IROW
 
 

@@ -27,6 +27,7 @@ import pytest
 from east import (
     ArrayType,
     DictType,
+    East,
     FloatType,
     IntegerType,
     SetType,
@@ -670,8 +671,8 @@ def test_group_then_reduce_is_one_native_kernel():
 
 def test_mean_over_a_filtered_projection_is_one_kernel():
     rows = _rows()
-    got = _native(lambda a: a.filter(lambda r: r.n % 2 == 0).mean(lambda r: r.v), A_ROW, rows)
-    want = rows.filter(lambda r: r["n"] % 2 == 0).mean(lambda r: r["v"])
+    got = _native(lambda a: a.filter(lambda r: East.Integer.remainder(r.n, 2) == 0).mean(lambda r: r.v), A_ROW, rows)
+    want = rows.filter(lambda r: East.Integer.remainder(r["n"], 2) == 0).mean(lambda r: r["v"])
     _same(got, want)
 
 
@@ -726,8 +727,8 @@ def _same_dict(got, want):
          lambda a: a.group_mean(lambda r: r["g"], lambda r: r["n"])),
         # DISCRIMINATING: true for g0 only, so an implementation that ignored
         # the predicate (returning the seed per group) would fail here.
-        (lambda a: a.group_every(lambda r: r.g, lambda r: r.n % 3 == 0),
-         lambda a: a.group_every(lambda r: r["g"], lambda r: r["n"] % 3 == 0)),
+        (lambda a: a.group_every(lambda r: r.g, lambda r: East.Integer.remainder(r.n, 3) == 0),
+         lambda a: a.group_every(lambda r: r["g"], lambda r: East.Integer.remainder(r["n"], 3) == 0)),
         (lambda a: a.group_every(lambda r: r.g, lambda r: r.v >= 0.0),
          lambda a: a.group_every(lambda r: r["g"], lambda r: r["v"] >= 0.0)),
         (lambda a: a.group_some(lambda r: r.g, lambda r: r.v > 60.0),
@@ -746,17 +747,17 @@ def test_array_group_matches_eager(traced, eager):
 @pytest.mark.parametrize(
     ("traced", "eager"),
     [
-        (lambda s: s.group_reduce(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e),
-         lambda s: s.group_reduce(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e)),
-        (lambda s: s.group_size(lambda e: e % 3), lambda s: s.group_size(lambda e: e % 3)),
-        (lambda s: s.group_sum(lambda e: e % 3), lambda s: s.group_sum(lambda e: e % 3)),
-        (lambda s: s.group_mean(lambda e: e % 3), lambda s: s.group_mean(lambda e: e % 3)),
-        (lambda s: s.group_every(lambda e: e % 3, lambda e: e < 6),
-         lambda s: s.group_every(lambda e: e % 3, lambda e: e < 6)),
-        (lambda s: s.group_every(lambda e: e % 3, lambda e: e >= 0),
-         lambda s: s.group_every(lambda e: e % 3, lambda e: e >= 0)),
-        (lambda s: s.group_some(lambda e: e % 3, lambda e: e > 9),
-         lambda s: s.group_some(lambda e: e % 3, lambda e: e > 9)),
+        (lambda s: s.group_reduce(lambda e: East.Integer.remainder(e, 3), lambda _k: 0, lambda acc, e: acc + e),
+         lambda s: s.group_reduce(lambda e: East.Integer.remainder(e, 3), lambda _k: 0, lambda acc, e: acc + e)),
+        (lambda s: s.group_size(lambda e: East.Integer.remainder(e, 3)), lambda s: s.group_size(lambda e: East.Integer.remainder(e, 3))),
+        (lambda s: s.group_sum(lambda e: East.Integer.remainder(e, 3)), lambda s: s.group_sum(lambda e: East.Integer.remainder(e, 3))),
+        (lambda s: s.group_mean(lambda e: East.Integer.remainder(e, 3)), lambda s: s.group_mean(lambda e: East.Integer.remainder(e, 3))),
+        (lambda s: s.group_every(lambda e: East.Integer.remainder(e, 3), lambda e: e < 6),
+         lambda s: s.group_every(lambda e: East.Integer.remainder(e, 3), lambda e: e < 6)),
+        (lambda s: s.group_every(lambda e: East.Integer.remainder(e, 3), lambda e: e >= 0),
+         lambda s: s.group_every(lambda e: East.Integer.remainder(e, 3), lambda e: e >= 0)),
+        (lambda s: s.group_some(lambda e: East.Integer.remainder(e, 3), lambda e: e > 9),
+         lambda s: s.group_some(lambda e: East.Integer.remainder(e, 3), lambda e: e > 9)),
     ],
 )
 def test_set_group_matches_eager(traced, eager):
@@ -796,18 +797,18 @@ def test_group_reduce_is_the_one_spelling_and_group_fold_is_the_alias():
     the deprecated name."""
     # group_reduce now traces on a Set (it used to point at group_fold)
     s = _set_i()
-    want = s.group_reduce(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e)
-    got = _native(lambda x: x.group_reduce(lambda e: e % 3, lambda _k: 0,
+    want = s.group_reduce(lambda e: East.Integer.remainder(e, 3), lambda _k: 0, lambda acc, e: acc + e)
+    got = _native(lambda x: x.group_reduce(lambda e: East.Integer.remainder(e, 3), lambda _k: 0,
                                            lambda acc, e: acc + e), _G_SET, s)
     _same_dict(got, want)
     # the alias answers identically and TELLS you where it went — eager...
     with pytest.warns(DeprecationWarning, match="group_reduce"):
-        aliased = s.group_fold(lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e)
+        aliased = s.group_fold(lambda e: East.Integer.remainder(e, 3), lambda _k: 0, lambda acc, e: acc + e)
     _same_dict(aliased, want)
     # ...and traced (the warning fires at trace time)
     with pytest.warns(DeprecationWarning, match="group_reduce"):
         traced_alias = kernel(_G_SET, lambda x: x.group_fold(
-            lambda e: e % 3, lambda _k: 0, lambda acc, e: acc + e))
+            lambda e: East.Integer.remainder(e, 3), lambda _k: 0, lambda acc, e: acc + e))
     _same_dict(traced_alias(s), want)
     # the Dict alias warns too
     d = _dict_kf()
@@ -832,7 +833,7 @@ def test_group_extremes_are_array_only_like_eager():
     failure raises.
     """
     with pytest.raises(KernelTraceError, match=r"group_maximum\(\) on Set"):
-        kernel(_G_SET, lambda s: s.group_maximum(lambda e: e % 3))
+        kernel(_G_SET, lambda s: s.group_maximum(lambda e: East.Integer.remainder(e, 3)))
     with pytest.raises(KernelTraceError, match=r"group_minimum\(\) on Dict"):
         kernel(D_SF, lambda d: d.group_minimum(lambda k, v: k))
 
@@ -853,9 +854,9 @@ def test_a_whole_grouped_aggregate_is_one_native_kernel():
     no crossing back into python."""
     rows = _rows()
     got = _native(
-        lambda a: a.filter(lambda r: r.n % 2 == 0).group_sum(lambda r: r.g, lambda r: r.v),
+        lambda a: a.filter(lambda r: East.Integer.remainder(r.n, 2) == 0).group_sum(lambda r: r.g, lambda r: r.v),
         A_ROW, rows)
-    want = rows.filter(lambda r: r["n"] % 2 == 0).group_sum(lambda r: r["g"], lambda r: r["v"])
+    want = rows.filter(lambda r: East.Integer.remainder(r["n"], 2) == 0).group_sum(lambda r: r["g"], lambda r: r["v"])
     assert dict(got.items()) == dict(want.items())
 
 
@@ -867,10 +868,10 @@ def test_group_every_actually_reads_its_predicate():
     passed the whole suite (proven by mutation). These groups must differ.
     """
     rows = _rows()
-    got = _native(lambda a: a.group_every(lambda r: r.g, lambda r: r.n % 3 == 0), A_ROW, rows)
+    got = _native(lambda a: a.group_every(lambda r: r.g, lambda r: East.Integer.remainder(r.n, 3) == 0), A_ROW, rows)
     assert dict(got.items()) == {"g0": True, "g1": False, "g2": False}
     assert dict(got.items()) == dict(
-        rows.group_every(lambda r: r["g"], lambda r: r["n"] % 3 == 0).items())
+        rows.group_every(lambda r: r["g"], lambda r: East.Integer.remainder(r["n"], 3) == 0).items())
 
 
 # Each case carries the RESULT TYPE it must produce on empty input, chosen so
@@ -1087,17 +1088,17 @@ def test_the_group_seed_really_receives_its_group_key(tag):
     if tag == "array":
         rows = _rows()
         got = _native(
-            lambda a: a.group_reduce(lambda r: r.n % 3, lambda k: k * 100,
+            lambda a: a.group_reduce(lambda r: East.Integer.remainder(r.n, 3), lambda k: k * 100,
                                      lambda acc, r: acc + 1),
             A_ROW, rows)
-        want = rows.group_reduce(lambda r: r["n"] % 3, lambda k: k * 100,
+        want = rows.group_reduce(lambda r: East.Integer.remainder(r["n"], 3), lambda k: k * 100,
                                  lambda acc, r: acc + 1)
     elif tag == "set":
         s = _set_i()
-        got = _native(lambda x: x.group_reduce(lambda e: e % 3, lambda k: k * 100,
+        got = _native(lambda x: x.group_reduce(lambda e: East.Integer.remainder(e, 3), lambda k: k * 100,
                                                lambda acc, e: acc + e),
                       _G_SET, s)
-        want = s.group_reduce(lambda e: e % 3, lambda k: k * 100, lambda acc, e: acc + e)
+        want = s.group_reduce(lambda e: East.Integer.remainder(e, 3), lambda k: k * 100, lambda acc, e: acc + e)
     else:
         d = _dict_kf()
         got = _native(lambda x: x.group_reduce(lambda k, v: v, lambda k: k * 1000.0,
@@ -1229,12 +1230,12 @@ def test_array_group_to_and_find_match_eager(name, traced, eager):
 @pytest.mark.parametrize(
     ("traced", "eager"),
     [
-        (lambda s: s.group_to_arrays(lambda e: e % 3, lambda e: e % 2),
-         lambda s: s.group_to_arrays(lambda e: e % 3, lambda e: e % 2)),
-        (lambda s: s.group_to_sets(lambda e: e % 3, lambda e: e % 2),
-         lambda s: s.group_to_sets(lambda e: e % 3, lambda e: e % 2)),
-        (lambda s: s.group_to_dicts(lambda e: e % 3, lambda e: e, lambda e: e % 2),
-         lambda s: s.group_to_dicts(lambda e: e % 3, lambda e: e, lambda e: e % 2)),
+        (lambda s: s.group_to_arrays(lambda e: East.Integer.remainder(e, 3), lambda e: East.Integer.remainder(e, 2)),
+         lambda s: s.group_to_arrays(lambda e: East.Integer.remainder(e, 3), lambda e: East.Integer.remainder(e, 2))),
+        (lambda s: s.group_to_sets(lambda e: East.Integer.remainder(e, 3), lambda e: East.Integer.remainder(e, 2)),
+         lambda s: s.group_to_sets(lambda e: East.Integer.remainder(e, 3), lambda e: East.Integer.remainder(e, 2))),
+        (lambda s: s.group_to_dicts(lambda e: East.Integer.remainder(e, 3), lambda e: e, lambda e: East.Integer.remainder(e, 2)),
+         lambda s: s.group_to_dicts(lambda e: East.Integer.remainder(e, 3), lambda e: e, lambda e: East.Integer.remainder(e, 2))),
     ],
 )
 def test_set_group_to_match_eager(traced, eager):
@@ -1349,9 +1350,9 @@ def test_the_group_to_family_is_one_native_kernel():
     """filter → group → collect, with no crossing back into python."""
     rows = _g_rows()
     got = _native(
-        lambda a: a.filter(lambda r: r.n % 2 == 0).group_to_sets(lambda r: r.g, lambda r: r.v),
+        lambda a: a.filter(lambda r: East.Integer.remainder(r.n, 2) == 0).group_to_sets(lambda r: r.g, lambda r: r.v),
         A_ROW, rows)
-    want = rows.filter(lambda r: r["n"] % 2 == 0).group_to_sets(
+    want = rows.filter(lambda r: East.Integer.remainder(r["n"], 2) == 0).group_to_sets(
         lambda r: r["g"], lambda r: r["v"])
     assert _norm(got) == _norm(want)
 
@@ -1394,8 +1395,8 @@ def test_set_to_set_traces_like_its_eager_twin():
     """The whole `to_*` family traced except this one member, so a working
     eager `EastSet.to_set(fn)` silently dropped its loop to python."""
     s = EastSet(IntegerType, [1, 2, 3, 4])
-    got = _native(lambda x: x.to_set(lambda e: e % 2), _G_SET, s)
-    assert sorted(got) == sorted(s.to_set(lambda e: e % 2)) == [0, 1]
+    got = _native(lambda x: x.to_set(lambda e: East.Integer.remainder(e, 2)), _G_SET, s)
+    assert sorted(got) == sorted(s.to_set(lambda e: East.Integer.remainder(e, 2))) == [0, 1]
     with pytest.raises(KernelTraceError, match="needs a projection"):
         kernel(_G_SET, lambda x: x.to_set())
 
@@ -1636,7 +1637,7 @@ def test_group_to_dicts_accepts_a_three_argument_combine(tag):
     elif tag == "set":
         val, pt = EastSet(IntegerType, [1, 2, 3, 4]), _G_SET
         traced = eager = lambda s: s.group_to_dicts(  # noqa: E731
-            lambda e: e % 2, lambda _e: 0, lambda e: e, lambda ex, inc, _k: ex + inc)
+            lambda e: East.Integer.remainder(e, 2), lambda _e: 0, lambda e: e, lambda ex, inc, _k: ex + inc)
     else:
         val = EastDict(StringType, FloatType, {"a": 1.0, "b": 2.0})
         pt = D_SF
@@ -1752,8 +1753,8 @@ def test_traced_to_set_accepts_the_out_keyword_its_eager_twin_takes():
     """`EastSet.to_set(fn, out=T)` is a documented eager call; the traced twin
     rejected the keyword, so it silently fell back to the per-element path."""
     s = EastSet(IntegerType, [1, 2, 3, 4])
-    got = _native(lambda x: x.to_set(lambda e: e % 2, out=IntegerType), _G_SET, s)
-    assert sorted(got) == sorted(s.to_set(lambda e: e % 2, out=IntegerType)) == [0, 1]
+    got = _native(lambda x: x.to_set(lambda e: East.Integer.remainder(e, 2), out=IntegerType), _G_SET, s)
+    assert sorted(got) == sorted(s.to_set(lambda e: East.Integer.remainder(e, 2), out=IntegerType)) == [0, 1]
     # a contradictory out= is a caller error, not a silent relabel (#467)
     with pytest.raises(KernelTraceError, match="out= declares"):
-        kernel(_G_SET, lambda x: x.to_set(lambda e: e % 2, out=SetType(IntegerType)))
+        kernel(_G_SET, lambda x: x.to_set(lambda e: East.Integer.remainder(e, 2), out=SetType(IntegerType)))

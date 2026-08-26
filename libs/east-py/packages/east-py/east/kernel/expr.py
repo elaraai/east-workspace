@@ -279,6 +279,16 @@ class KernelExpr(
             return self.slice(start, name.stop)
         if self.east_type.type in ("Array", "Dict") and not isinstance(name, str):
             # `split(data, FM)[n]` / `table[key_expr]` — same as .get() (#393).
+            # A literal negative Array index is python's from-the-end
+            # indexing, which has no East twin — ArrayGet(a, -1) is a runtime
+            # error, not the last element (#624). Dict keys are real keys, so
+            # a negative Integer key stays legal there.
+            if self.east_type.type == "Array" and isinstance(name, int) and name < 0:
+                raise KernelTraceError(
+                    "python's from-the-end indexing (a[-1]) has no East twin — "
+                    "spell the element you mean, e.g. a.get(a.size() - 1) for "
+                    "the last element"
+                )
             return self.get(name)
         if not isinstance(name, str):
             raise _trace_bail(f"[{name!r}] indexing")

@@ -208,13 +208,13 @@ def test_group_to_sets_collapses_duplicates_within_a_group():
     Project onto a coarser value so each group genuinely repeats.
     """
     rows = _rows()
-    sets = rows.group_to_sets(lambda r: r.sku, lambda r: r.qty % 2)
+    sets = rows.group_to_sets(lambda r: r.sku, lambda r: East.Integer.remainder(r.qty, 2))
     # A: qty 4, 2 -> 0, 0    B: qty 1, 5 -> 1, 1
     assert {k: sorted(v.to_array()) for k, v in sets.items()} == {"A": [0], "B": [1]}
 
     # ...and the same for the Set and Dict spellings, which share the helper
     s = rows.to_set(lambda r: r.qty)                       # {1, 2, 4, 5}
-    assert {k: sorted(v) for k, v in s.group_to_sets(lambda x: x % 2, lambda x: x % 2).items()} \
+    assert {k: sorted(v) for k, v in s.group_to_sets(lambda x: East.Integer.remainder(x, 2), lambda x: East.Integer.remainder(x, 2)).items()} \
         == {0: [0], 1: [1]}
     d = rows.to_dict(lambda r: r.sku, lambda r: r.price, combine=lambda a, b: a + b)
     assert {k: sorted(v) for k, v in
@@ -250,9 +250,9 @@ def test_set_sugar():
     assert s.every(lambda x: x > 0) is True
     assert s.every(lambda x: x > 3) is False
     assert s.some(lambda x: x > 4) is True
-    assert dict(s.group_sum(lambda x: x % 2).items()) == {0: 6, 1: 6}
-    assert dict(s.group_size(lambda x: x % 2).items()) == {0: 2, 1: 2}
-    assert {k: sorted(v) for k, v in s.group_to_arrays(lambda x: x % 2).items()} == {0: [2, 4], 1: [1, 5]}
+    assert dict(s.group_sum(lambda x: East.Integer.remainder(x, 2)).items()) == {0: 6, 1: 6}
+    assert dict(s.group_size(lambda x: East.Integer.remainder(x, 2)).items()) == {0: 2, 1: 2}
+    assert {k: sorted(v) for k, v in s.group_to_arrays(lambda x: East.Integer.remainder(x, 2)).items()} == {0: [2, 4], 1: [1, 5]}
 
 
 def test_dict_sugar():
