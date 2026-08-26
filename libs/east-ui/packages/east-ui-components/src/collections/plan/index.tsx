@@ -32,6 +32,7 @@ import { Plan, Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils.js";
 import { parseCssSize } from "../../style/parse-size.js";
 import { DensityProvider } from "../../contracts/density.js";
+import { useContainerBelow } from "../../contracts/adaptive.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, type PlanCursor, type PlanResolvers, type PlanElementRefValue } from "./context.js";
@@ -54,6 +55,7 @@ import { useDragTarget, type DragEventValue } from "../../dnd/drag-layer";
 import { type CanDropFn } from "../../dnd/ir-can-drop";
 import { type PlanRowDrop } from "./rows/RowShell.js";
 import { PlanBodyRow } from "./rows/BodyRow.js";
+import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import { PlanToolbar } from "./shell/Toolbar.js";
 import { HorizonBrush } from "./shell/HorizonBrush.js";
 import { FocusBar } from "./shell/FocusBar.js";
@@ -544,6 +546,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     // The focus overlay's positioning parent (the canvas body wrapper).
     const focusBodyRef = useRef<HTMLDivElement | null>(null);
+    // The narrow layout (§10, #570): below the adaptive contract's compact
+    // width the Plan is a review tool — cards and tabs, not a canvas. The
+    // signal is the CONTAINER the body renders in (a splitter pane, a task
+    // preview, a phone all qualify), never the viewport.
+    const narrow = useContainerBelow(focusBodyRef, PLAN_NARROW_BELOW);
     // The virtualizer's scroll viewport — the only element that knows how much
     // canvas there actually is, which the R2 clamp measures.
     const scrollElRef = useRef<HTMLDivElement | null>(null);
@@ -916,6 +923,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     // The bound lives HERE, not on the frame — the attribute is
                     // the contract (jsdom resolves no Chakra classes).
                     data-plan-bounded={frameFills ? "" : undefined}
+                    // The narrow layout is in charge (the footer wraps, etc.).
+                    data-plan-narrow={narrow ? "" : undefined}
                     // Every derived number in this body is over a prefix.
                     data-plan-partial={transport?.partial === true ? "" : undefined}
                     {...(frameFills && {
@@ -942,57 +951,71 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         }
                     }}
                 >
-                    <VirtualRows
-                        height={frameFills ? undefined : height}
-                        maxHeight={frameFills ? undefined : maxHeight}
-                        fillParent={frameFills}
-                        // Every body item pins an exact height matching
-                        // `estimateSize` — `RowShell` sets `height: {h}px`
-                        // from the same `rowHeight()`, the rail / gap bands
-                        // pin 11px / 22px in the recipe, and the R2 render
-                        // pins its clamped `px`. Measuring fixed-height rows
-                        // drifts under fractional zoom and paints hairline
-                        // seams (#533).
-                        measureRows={false}
-                        scrollToIndex={scrollToIndex}
-                        onRangeChange={pagedSource !== undefined ? reportRange : undefined}
-                        // A band becoming rows changes heights without
-                        // changing the count, which TanStack's measurement
-                        // memo does not watch (see `sizeVersion`). A row focus
-                        // does exactly the same thing — every unfocused row
-                        // drops to a strip while the count holds — so the
-                        // focus identity rides the same bust.
-                        sizeVersion={paging.sizeVersion + focusVersion}
-                        scrollElRef={scrollElRef}
-                        header={header}
-                        footer={<PlanFooter styles={styles} items={value.footer} transport={transport} />}
-                        count={bodyItems.length}
-                        estimateSize={(i) => {
-                            const item = bodyItems[i];
-                            if (item === undefined) return 32;
-                            if (item.kind === "gap") return GAP_H;
-                            if (item.kind === "band") return Math.max(1, item.band.px);
-                            return rowHeight(item.row, dense, ui.chartsExpanded, heightCtx, derived);
-                        }}
-                        renderRow={(i) => {
-                            const item = bodyItems[i];
-                            if (item === undefined) return null;
-                            if (item.kind === "gap") return renderGap(item.gap);
-                            if (item.kind === "band") {
-                                return <WindowBand band={item.band} styles={styles} loading={paging.loading} />;
-                            }
-                            return renderVisible(item.row);
-                        }}
-                        headerZIndex={5}
-                        rootCss={styles.root}
-                    />
+                    {narrow ? (
+                        <PlanNarrow
+                            styles={styles} index={index} derived={derived} ui={ui}
+                            dense={dense} barHeight={barHeight} storageKey={storageKey}
+                            slice={slice} affordances={affordances}
+                            resolution={scale.resolution} resolutions={resolutions}
+                            transport={transport} footer={value.footer} review={review}
+                            expandBody={expandBody} expandGutterBody={expandGutterBody}
+                            canExpand={expandRenderFn !== undefined}
+                            partial={transport?.partial} fill={frameFills}
+                        />
+                    ) : (
+                        <VirtualRows
+                            height={frameFills ? undefined : height}
+                            maxHeight={frameFills ? undefined : maxHeight}
+                            fillParent={frameFills}
+                            // Every body item pins an exact height matching
+                            // `estimateSize` — `RowShell` sets `height: {h}px`
+                            // from the same `rowHeight()`, the rail / gap bands
+                            // pin 11px / 22px in the recipe, and the R2 render
+                            // pins its clamped `px`. Measuring fixed-height rows
+                            // drifts under fractional zoom and paints hairline
+                            // seams (#533).
+                            measureRows={false}
+                            scrollToIndex={scrollToIndex}
+                            onRangeChange={pagedSource !== undefined ? reportRange : undefined}
+                            // A band becoming rows changes heights without
+                            // changing the count, which TanStack's measurement
+                            // memo does not watch (see `sizeVersion`). A row focus
+                            // does exactly the same thing — every unfocused row
+                            // drops to a strip while the count holds — so the
+                            // focus identity rides the same bust.
+                            sizeVersion={paging.sizeVersion + focusVersion}
+                            scrollElRef={scrollElRef}
+                            header={header}
+                            footer={<PlanFooter styles={styles} items={value.footer} transport={transport} />}
+                            count={bodyItems.length}
+                            estimateSize={(i) => {
+                                const item = bodyItems[i];
+                                if (item === undefined) return 32;
+                                if (item.kind === "gap") return GAP_H;
+                                if (item.kind === "band") return Math.max(1, item.band.px);
+                                return rowHeight(item.row, dense, ui.chartsExpanded, heightCtx, derived);
+                            }}
+                            renderRow={(i) => {
+                                const item = bodyItems[i];
+                                if (item === undefined) return null;
+                                if (item.kind === "gap") return renderGap(item.gap);
+                                if (item.kind === "band") {
+                                    return <WindowBand band={item.band} styles={styles} loading={paging.loading} />;
+                                }
+                                return renderVisible(item.row);
+                            }}
+                            headerZIndex={5}
+                            rootCss={styles.root}
+                        />
+                    )}
                     {/* The batch foot sits OUTSIDE the scrolling grid so it stays
                         full-width under the canvas (the shared convention). */}
                     {review !== undefined && (
                         <ReviewFoot controller={review} storageKey={storageKey} />
                     )}
-                    {/* R1 ribbons — the K8 vocabulary at the current row set. */}
-                    {ui.focus?.kind === "links" && focusVisibleKeys !== undefined && (
+                    {/* R1 ribbons — the K8 vocabulary at the current row set
+                        (ribbons need width — never on the narrow layout). */}
+                    {!narrow && ui.focus?.kind === "links" && focusVisibleKeys !== undefined && (
                         <LinksOverlay container={focusBodyRef.current}
                             links={value.links} visibleKeys={focusVisibleKeys}
                             scale={scale} runDates={runDates} />

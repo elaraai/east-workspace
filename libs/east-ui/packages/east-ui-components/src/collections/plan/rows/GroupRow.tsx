@@ -14,25 +14,28 @@
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
-import { none, variant, type ValueTypeOf } from "@elaraai/east";
+import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { HeatCells } from "./HeatRow.js";
 import { GridSeparators, INDENT_PX } from "./RowShell.js";
-import type { PlanRowValue } from "../model.js";
+import type { HeatScale, PlanRowValue } from "../model.js";
 
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
 type HeatCellValue = ValueTypeOf<typeof Plan.Types.HeatCell>;
 
 /** Wrap derived strip cells in a heat arm for {@link HeatCells} — built with
- *  `variant`/`none` so it is a REAL East value like the arm it stands in for,
- *  never a hand-rolled `{ type, value }` literal (#617). */
-function derivedArm(cells: readonly HeatCellValue[]): HeatCellsValue {
+ *  `variant`/`some`/`none` so it is a REAL East value like the arm it stands
+ *  in for, never a hand-rolled `{ type, value }` literal (#617). The scale is
+ *  the one the strip INHERITS from its members (`derived.groupSummaryScale`);
+ *  without one the arm paints on its own extent. Shared with the narrow
+ *  layout's group cards, so both strips read the same way. */
+export function derivedSummaryArm(cells: readonly HeatCellValue[], scale: HeatScale | undefined): HeatCellsValue {
     return variant("heat", {
         cells: [...cells],
-        min: none,
-        max: none,
-        warnAt: none,
+        min: scale?.min !== undefined ? some(scale.min) : none,
+        max: scale?.max !== undefined ? some(scale.max) : none,
+        warnAt: scale?.warnAt !== undefined ? some(scale.warnAt) : none,
     });
 }
 
@@ -49,6 +52,8 @@ export interface GroupRowProps {
     collapsed: boolean;
     /** Renderer-derived strip cells (`summaryAggregate` declared in the IR). */
     summaryCells?: readonly HeatCellValue[] | undefined;
+    /** The scale those cells inherit from the members (see `model.ts`). */
+    summaryScale?: HeatScale | undefined;
     /** Renderer-derived direct-member count — printed as the `"8 rs"` meta
      *  when the IR declares none (#568: the count is an aggregate like any
      *  other, so it is derived here rather than baked into the row). */
@@ -61,7 +66,7 @@ export interface GroupRowProps {
 }
 
 /** One group band — full-width strip on the shared template. */
-export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells, memberCount, partial }: GroupRowProps) {
+export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells, summaryScale, memberCount, partial }: GroupRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     // A declared meta line wins; otherwise the derived member count stands in.
@@ -75,7 +80,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
     const summary = collapsed
         ? (kind.summary.type === "some"
             ? kind.summary.value
-            : (summaryCells !== undefined && summaryCells.length > 0 ? derivedArm(summaryCells) : undefined))
+            : (summaryCells !== undefined && summaryCells.length > 0 ? derivedSummaryArm(summaryCells, summaryScale) : undefined))
         : undefined;
 
     return (

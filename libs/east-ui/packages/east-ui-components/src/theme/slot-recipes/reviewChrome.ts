@@ -57,6 +57,9 @@ export const reviewChromeSlotRecipe = defineSlotRecipe({
             borderLeftWidth: "1px",
             borderLeftColor: "border.subtle",
             boxSizing: "border-box",
+            // On a card (the Plan's narrow layout, §10) there is no column to
+            // fence: the pair sits in the card's own foot, rule-less.
+            "[data-plan-narrow] &": { borderLeftWidth: 0, padding: 0 },
         },
         // The quiet status dot beside the subject's identity (some ⇒ flagged).
         // Colour rides the `status` variant; this is just the 8px disc geometry.

@@ -196,6 +196,16 @@ describe('planReducer', () => {
             expect(run(init(), { t: "key", key: "[" }).effects).toEqual([{ t: "pan", buckets: -1 }]);
             expect(run(init(), { t: "key", key: "]" }).effects).toEqual([{ t: "pan", buckets: 1 }]);
         });
+
+        it('a pan event is a pure slice write of N periods; zero is identity (#570)', () => {
+            const s = init();
+            const out = run(s, { t: "pan", buckets: 3 });
+            expect(out.state).toBe(s);
+            expect(out.effects).toEqual([{ t: "pan", buckets: 3 }]);
+            const idle = planReducer(s, { t: "pan", buckets: 0 });
+            expect(idle.state).toBe(s);
+            expect(idle.effects).toEqual([]);
+        });
     });
 });
 

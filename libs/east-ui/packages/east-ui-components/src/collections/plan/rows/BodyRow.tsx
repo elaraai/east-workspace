@@ -22,18 +22,11 @@
 
 import { memo, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
-import { variant } from "@elaraai/east";
 import { RowShell, type PlanRowDrop } from "./RowShell.js";
-import { SpanRow } from "./SpanRow.js";
 import { GroupRow } from "./GroupRow.js";
-import { ChartRowPlot, ChartLeftTicks } from "./ChartRow.js";
-import { HeatCells } from "./HeatRow.js";
-import { BucketsRow } from "./BucketsRow.js";
-import { CardsRow } from "./CardsRow.js";
-import { EventsRow } from "./EventsRow.js";
-import { TableRowCells } from "./TableRow.js";
+import { ChartLeftTicks } from "./ChartRow.js";
+import { KindPlot } from "./KindPlot.js";
 import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
-import { getSomeorUndefined } from "../../../utils.js";
 import type { PlanDerived, PlanRowIndex, VisibleRow } from "../model.js";
 import type { PlanEvent } from "../plan-state.js";
 
@@ -151,6 +144,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             <GroupRow row={v.row} kind={kind.value} styles={styles} gridTemplate={gridTemplate}
                 height={h} depth={v.depth} collapsed={v.collapsed}
                 summaryCells={derived.groupSummary.get(v.row.key)}
+                summaryScale={derived.groupSummaryScale.get(v.row.key)}
                 memberCount={derived.groupMembers.get(v.row.key)}
                 partial={partial} />
         );
@@ -189,24 +183,31 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         // not by predicate (see `DROPPABLE_KINDS`).
         drop: DROPPABLE_KINDS.has(kind.type) ? rowDrop : undefined,
     } as const;
+    // The per-kind SHELL differences — caret, toggle, emphasis, the chart's
+    // gutter ticks. The plot content itself is one switch shared with the
+    // narrow layout's cards (`KindPlot`).
+    const subtreeCaret = hasChildren ? { collapsed: v.collapsed } : undefined;
+    const subtreeToggle = hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined;
+    let shellExtras: {
+        caret?: { collapsed: boolean } | undefined;
+        onCaretClick?: (() => void) | undefined;
+        emphasis?: "header" | "footer" | undefined;
+        noGrid?: boolean;
+        gutterOverlay?: ReactNode;
+    } = {};
+    // The plot height a chart row scales against (see the chart case).
+    let plotH = h;
+    let chartExpanded_ = false;
     switch (kind.type) {
-        case "span": {
-            return (
-                <RowShell {...shellBase} height={h}
-                    caret={hasChildren ? { collapsed: v.collapsed } : undefined}
-                    onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                    <SpanRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
-                        bands={derived.bands.get(v.row.key) ?? []}
-                        barHeight={v.collapsed && hasChildren ? 12 : barHeight}
-                        storageKey={`${storageKey}.${v.row.key}`}
-                        partial={partial} />
-                </RowShell>
-            );
-        }
+        case "span":
+        case "heat":
+        case "buckets":
+            shellExtras = { caret: subtreeCaret, onCaretClick: subtreeToggle };
+            break;
         case "chart": {
             const declaredExpanded = kind.value.height.type === "expanded";
             const expandable = kind.value.expandable.type === "some" && kind.value.expandable.value;
-            const expanded = declaredExpanded || chartExpanded;
+            chartExpanded_ = declaredExpanded || chartExpanded;
             // The FOCAL row is tall (natural + render), but its marks live in
             // the band at the top — `RowShell` mounts `children` inside
             // `expandRowBand` at `bandHeight` — so the plot's y-scale, its
@@ -215,75 +216,33 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             // that squashed into a ~32px band, opened the ≥48px ref-label
             // gate on a spark row, and pushed labels + ticks past the band
             // into the render (#591).
-            const plotH = isFocal ? (bandHeight ?? h) : h;
-            return (
-                <RowShell {...shellBase} height={h} noGrid={false}
-                    caret={expandable ? { collapsed: !expanded } : undefined}
-                    onCaretClick={expandable ? () => dispatch({ t: "chart.toggle", key: v.row.key }) : undefined}
-                    // A STRIP carries no value axis — its plot re-encodes as a
-                    // tone strip (`ToneStrip`), so the gutter ticks would
-                    // label a scale that is not there, stacked in 16px.
-                    gutterOverlay={isCtx ? undefined : <ChartLeftTicks kind={kind.value} styles={styles} height={plotH} />}>
-                    <ChartRowPlot kind={kind.value} styles={styles} height={plotH}
-                        expanded={expanded} rowKey={v.row.key} ctx={isCtx} />
-                </RowShell>
-            );
+            plotH = isFocal ? (bandHeight ?? h) : h;
+            shellExtras = {
+                noGrid: false,
+                caret: expandable ? { collapsed: !chartExpanded_ } : undefined,
+                onCaretClick: expandable ? () => dispatch({ t: "chart.toggle", key: v.row.key }) : undefined,
+                // A STRIP carries no value axis — its plot re-encodes as a
+                // tone strip (`ToneStrip`), so the gutter ticks would label a
+                // scale that is not there, stacked in 16px.
+                gutterOverlay: isCtx ? undefined : <ChartLeftTicks kind={kind.value} styles={styles} height={plotH} />,
+            };
+            break;
         }
-        case "heat": {
-            // A declared-aggregate parent renders its derived cells inside
-            // the empty scale-bearing heat arm — rebuilt with `variant`, so
-            // the wrap is a real East value like the arm it replaces (#617).
-            const derivedCells = derived.heatCells.get(v.row.key);
-            const cells = derivedCells !== undefined && kind.value.cells.type === "heat"
-                ? variant("heat", { ...kind.value.cells.value, cells: derivedCells })
-                : kind.value.cells;
-            return (
-                <RowShell {...shellBase} height={h}
-                    caret={hasChildren ? { collapsed: v.collapsed } : undefined}
-                    onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                    <HeatCells rowKey={v.row.key} cells={cells} styles={styles} ctx={isCtx} />
-                </RowShell>
-            );
-        }
-        case "buckets":
-            return (
-                <RowShell {...shellBase} height={h}
-                    caret={hasChildren ? { collapsed: v.collapsed } : undefined}
-                    onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                    <BucketsRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
-                        storageKey={`${storageKey}.${v.row.key}`} />
-                </RowShell>
-            );
-        case "table": {
-            // A declared-aggregate parent renders its derived subtotal
-            // cells as ONE plain series; leaf rows render their declared
-            // series (per-position style, raw cells).
-            const derivedSeries = derived.tableSeries.get(v.row.key);
-            const emphasis = kind.value.emphasis.type === "body" ? undefined : kind.value.emphasis.type;
-            return (
-                <RowShell {...shellBase} height={h} emphasis={emphasis}
-                    caret={hasChildren ? { collapsed: v.collapsed } : undefined}
-                    onCaretClick={hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined}>
-                    <TableRowCells rowKey={v.row.key}
-                        series={derivedSeries ?? kind.value.series}
-                        split={kind.value.split.type} ctx={isCtx}
-                        format={getSomeorUndefined(kind.value.format)} styles={styles} />
-                </RowShell>
-            );
-        }
+        case "table":
+            shellExtras = {
+                caret: subtreeCaret, onCaretClick: subtreeToggle,
+                emphasis: kind.value.emphasis.type === "body" ? undefined : kind.value.emphasis.type,
+            };
+            break;
         case "cards":
-            return (
-                <RowShell {...shellBase} height={h}>
-                    <CardsRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
-                        storageKey={`${storageKey}.${v.row.key}`} />
-                </RowShell>
-            );
         case "events":
-            return (
-                <RowShell {...shellBase} height={h}>
-                    <EventsRow rowKey={v.row.key} kind={kind.value} styles={styles} ctx={isCtx}
-                        storageKey={`${storageKey}.${v.row.key}`} />
-                </RowShell>
-            );
+            break;
     }
+    return (
+        <RowShell {...shellBase} height={h} {...shellExtras}>
+            <KindPlot v={v} styles={styles} derived={derived} storageKey={storageKey}
+                barHeight={barHeight} hasChildren={hasChildren} ctx={isCtx}
+                plotHeight={plotH} chartExpanded={chartExpanded_} partial={partial} />
+        </RowShell>
+    );
 });

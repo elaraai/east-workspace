@@ -547,6 +547,49 @@ function heatCellsOf(row: PlanRowValue): readonly HeatCellValue[] {
     return cells.type === "heat" ? cells.value.cells : [];
 }
 
+/** A heat row's DECLARED scale (`min` / `max` / `warnAt`), when its cells
+ *  ride the heat arm. */
+function heatScaleOf(row: PlanRowValue): HeatScale | undefined {
+    if (row.kind.type !== "heat" || row.kind.value.cells.type !== "heat") return undefined;
+    const { min, max, warnAt } = row.kind.value.cells.value;
+    return {
+        min: min.type === "some" ? min.value : undefined,
+        max: max.type === "some" ? max.value : undefined,
+        warnAt: warnAt.type === "some" ? warnAt.value : undefined,
+    };
+}
+
+/** A heat scale as plain numbers — `undefined` where nothing is declared. */
+export interface HeatScale {
+    min: number | undefined;
+    max: number | undefined;
+    warnAt: number | undefined;
+}
+
+/**
+ * The scale a derived group strip INHERITS from the heat rows it summarises.
+ *
+ * A strip painted on its own extent puts the coolest bucket at zero depth —
+ * a blank tile with a number floating in it — which reads as no data, not as
+ * the minimum. A `mean` or `max` of rows declared on 0–100 is itself on
+ * 0–100, so the strip takes the children's scale: the widest declared span
+ * (every child must declare the bound for it to hold), and the tightest
+ * warn threshold. A `sum` outgrows its members' scale and keeps the extent.
+ */
+function inheritedScale(children: readonly PlanRowValue[], mode: string): HeatScale | undefined {
+    if (mode === "sum") return undefined;
+    const scales = children.map(heatScaleOf).filter((s): s is HeatScale => s !== undefined);
+    if (scales.length === 0) return undefined;
+    const mins = scales.map((s) => s.min);
+    const maxs = scales.map((s) => s.max);
+    const warns = scales.map((s) => s.warnAt).filter((w): w is number => w !== undefined);
+    const min = mins.every((m): m is number => m !== undefined) ? Math.min(...mins) : undefined;
+    const max = maxs.every((m): m is number => m !== undefined) ? Math.max(...maxs) : undefined;
+    const warnAt = warns.length > 0 ? Math.min(...warns) : undefined;
+    if (min === undefined && max === undefined && warnAt === undefined) return undefined;
+    return { min, max, warnAt };
+}
+
 /** Every span run across a subtree (any depth). */
 function subtreeRuns(index: PlanRowIndex, key: RowKey): RunValue[] {
     const out: RunValue[] = [];
@@ -572,6 +615,9 @@ export interface PlanDerived {
     tableSeries: ReadonlyMap<RowKey, TableSeriesValue[]>;
     /** Strip summary cells by group row key. */
     groupSummary: ReadonlyMap<RowKey, HeatCellValue[]>;
+    /** The scale a derived strip inherits from its heat members (see
+     *  `inheritedScale`) — absent when it paints on its own extent. */
+    groupSummaryScale: ReadonlyMap<RowKey, HeatScale>;
     /** Direct-member count by group row key — the `"8 rs"` gutter meta.
      *  Derived here, not baked into the IR: a group parent synthesized per
      *  paged window would otherwise carry THAT window's count (#568). */
@@ -602,6 +648,7 @@ export function derivePlan(index: PlanRowIndex): PlanDerived {
     const heatCells = new Map<RowKey, HeatCellValue[]>();
     const tableSeries = new Map<RowKey, TableSeriesValue[]>();
     const groupSummary = new Map<RowKey, HeatCellValue[]>();
+    const groupSummaryScale = new Map<RowKey, HeatScale>();
     const groupMembers = new Map<RowKey, number>();
     // A row's effective cells — its own, or (for declared parents) its
     // already-derived cells from the bottom-up walk.
@@ -642,13 +689,15 @@ export function derivePlan(index: PlanRowIndex): PlanDerived {
         if (kind.type === "group") {
             groupMembers.set(row.key, children.length);
             if (kind.value.summaryAggregate.type === "some") {
-                groupSummary.set(row.key, deriveHeatCells(
-                    children.flatMap(resolvedHeatCells), kind.value.summaryAggregate.value.type));
+                const mode = kind.value.summaryAggregate.value.type;
+                groupSummary.set(row.key, deriveHeatCells(children.flatMap(resolvedHeatCells), mode));
+                const scale = inheritedScale(children, mode);
+                if (scale !== undefined) groupSummaryScale.set(row.key, scale);
             }
         }
     };
     for (const root of index.roots) visit(root);
-    return { bands, heatCells, tableSeries, groupSummary, groupMembers };
+    return { bands, heatCells, tableSeries, groupSummary, groupSummaryScale, groupMembers };
 }
 
 // ── The R1 link graph (renderer-derived over the decoded `links` edges) ─────

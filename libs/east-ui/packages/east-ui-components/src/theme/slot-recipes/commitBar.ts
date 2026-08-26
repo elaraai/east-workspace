@@ -35,6 +35,9 @@ export const commitBarSlotRecipe = defineSlotRecipe({
             borderTopWidth: "1px",
             borderTopStyle: "solid",
             borderTopColor: "border.subtle",
+            // The Plan's narrow layout (§10): the draft line has no room
+            // beside three buttons — it stacks above them.
+            "[data-plan-narrow] &": { gridTemplateColumns: "1fr" },
         },
         draft: {
             paddingInline: "18px",
@@ -46,6 +49,7 @@ export const commitBarSlotRecipe = defineSlotRecipe({
             textTransform: "uppercase",
             color: "fg.subtle",
             alignSelf: "center",
+            "[data-plan-narrow] &": { paddingInline: "12px", paddingBlock: "10px 4px", alignSelf: "start" },
         },
         pending: { color: "fg" },
         btnRow: {
@@ -53,6 +57,7 @@ export const commitBarSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "8px",
             padding: "10px 18px",
+            "[data-plan-narrow] &": { padding: "4px 12px 10px", flexWrap: "wrap", justifyContent: "flex-end" },
         },
     },
 });

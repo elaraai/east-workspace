@@ -35,6 +35,7 @@ describeEast("Plan", (test) => {
         planReview: ex.planReview,
         // Was never wired — the example shipped without ever being executed.
         planExpand: ex.planExpand,
+        planNarrow: ex.planNarrow,
     });
 
     // =========================================================================

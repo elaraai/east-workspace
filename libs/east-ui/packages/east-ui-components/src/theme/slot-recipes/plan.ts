@@ -59,6 +59,11 @@ export const planSlotRecipe = defineSlotRecipe({
         "diagnostic",
         // paged canvas: the unloaded run above / below the resident one
         "windowBand", "windowBandCaption",
+        // the narrow layout (§10 / #570): chips · tabs · ruler · card list
+        "narrowRoot", "narrowChips", "narrowTabs", "narrowTab", "narrowRuler", "narrowRulerTick",
+        "narrowScope", "narrowScopeTitle", "narrowScopeMeta", "narrowBack", "narrowList",
+        "narrowCard", "narrowCardHead", "narrowCardTitle", "narrowCardSub", "narrowCardBody",
+        "narrowCardFoot", "narrowRender", "narrowTicks", "narrowMore", "narrowEmpty",
     ],
     base: {
         root: {
@@ -188,6 +193,9 @@ export const planSlotRecipe = defineSlotRecipe({
             background: "bg.panel",
             borderTopWidth: "1px",
             borderTopColor: "border.subtle",
+            // The narrow layout (§10) has no 28px band to fit a status line
+            // into — the same items wrap onto as many lines as they need.
+            "[data-plan-narrow] &": { flexWrap: "wrap", minHeight: "auto", padding: "6px 12px", rowGap: "2px", columnGap: "10px" },
         },
         footerItem: {
             fontFamily: "mono",
@@ -1380,6 +1388,253 @@ export const planSlotRecipe = defineSlotRecipe({
             minWidth: "240px",
             maxWidth: "360px",
             fontSize: "13px",
+        },
+
+        // ── The narrow layout (§10 / #570) ──────────────────────────────
+        // Below 480px of CONTAINER width the Plan is a review tool, not a
+        // canvas: grouped cards on the paper-2 page, 52pt rows, 40pt targets,
+        // a tab strip at the top of the frame. A row's gutter identity is the
+        // card head; its plot (the same kind renderer) is the card body. The
+        // list has NO left gutter column, so the shared ruler and every card
+        // body share one inset — 12px list padding + 1px card border + 12px
+        // body margin — and the bucket columns line up down the page.
+        narrowRoot: {
+            display: "flex",
+            flexDirection: "column",
+            minWidth: 0,
+            background: "bg.panel",
+            // Bounded frames scroll the list inside the frame; unbounded ones
+            // grow with it.
+            "&[data-plan-fill]": { flex: 1, minHeight: 0, overflowY: "auto" },
+        },
+        // The slice chips + the resolution chip — one wrapping row.
+        narrowChips: {
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "8px",
+            padding: "10px 12px",
+            background: "bg.surface",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
+        },
+        // The tab strip — the `tabs` recipe's line grammar, at the top of the
+        // frame, never a bottom bar (the mobile shell).
+        narrowTabs: {
+            display: "flex",
+            alignItems: "stretch",
+            gap: "16px",
+            padding: "0 12px",
+            background: "bg.surface",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
+        },
+        narrowTab: {
+            fontFamily: "mono",
+            fontSize: "11px",
+            fontWeight: "semibold",
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+            background: "transparent",
+            border: "none",
+            padding: "12px 2px 10px",
+            marginBottom: "-1px",
+            borderBottomWidth: "2px",
+            borderBottomStyle: "solid",
+            borderBottomColor: "transparent",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            _coarse: { minHeight: "44px" },
+            "&:hover": { color: "fg.default" },
+            "&[data-selected]": { color: "fg.default", borderBottomColor: "fg.default" },
+        },
+        // The slim shared ruler — a deliberate addition to the §10 mock: a
+        // strip on a card must read as TIME, not as a progress bar. Insets
+        // match the card bodies (see above) so the columns align.
+        narrowRuler: {
+            position: "relative",
+            height: "22px",
+            margin: "0 25px",
+            overflow: "clip",
+        },
+        narrowRulerTick: {
+            fontFamily: "mono",
+            fontSize: "9px",
+            fontWeight: "medium",
+            color: "fg.subtle",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRightWidth: "1px",
+            borderRightColor: "border.subtle",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            minWidth: 0,
+            // A 22px ruler has no lane for the NOW chip, and a chip laid over
+            // the labels hides the two it straddles. The now BUCKET's label
+            // wears the brand instead — the line beneath it says the rest.
+            "&[data-now]": { color: "brand.fg", fontWeight: "semibold" },
+        },
+        // The Rows tab's scope line — which group's rows these are, and the
+        // way back to the group list.
+        narrowScope: {
+            display: "flex",
+            alignItems: "baseline",
+            gap: "10px",
+            padding: "12px 12px 2px",
+            minWidth: 0,
+        },
+        narrowScopeTitle: {
+            fontSize: "15px",
+            fontWeight: "semibold",
+            color: "fg.default",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            minWidth: 0,
+        },
+        narrowScopeMeta: {
+            fontFamily: "mono",
+            fontSize: "9.5px",
+            fontWeight: "medium",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+            marginLeft: "auto",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+        },
+        narrowBack: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "semibold",
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            color: "brand.fg",
+            background: "transparent",
+            border: "none",
+            padding: "2px 4px",
+            marginLeft: "-4px",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            _coarse: { minHeight: "40px" },
+        },
+        narrowList: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+            padding: "10px 12px 14px",
+            minWidth: 0,
+            // Vertical scroll is the page's; horizontal is the two-finger
+            // window pan (§10) — leave it to the pointer handlers.
+            touchAction: "pan-y",
+        },
+        // One card — a row's identity over its plot. Selection is the one
+        // brand tint; a drilled card wears the brand rule.
+        narrowCard: {
+            background: "bg.surface",
+            borderWidth: "1px",
+            borderColor: "border.subtle",
+            borderRadius: "8px",
+            overflow: "hidden",
+            position: "relative",
+            cursor: "pointer",
+            "&[data-selected]": { background: "{colors.brandTint}", borderColor: "color-mix(in srgb, {colors.brand.600} 40%, {colors.border.subtle})" },
+            "&[data-expanded]": { borderColor: "{colors.brand.600}" },
+        },
+        narrowCardHead: {
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "10px 12px 6px",
+            minHeight: "40px",
+            minWidth: 0,
+        },
+        narrowCardTitle: {
+            fontSize: "13px",
+            fontWeight: "semibold",
+            color: "fg.default",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            minWidth: 0,
+            // Mono row-id treatment (`.nm.id`), and the group strip's name.
+            "&[data-id]": { fontFamily: "mono", fontSize: "12px", letterSpacing: "0.02em" },
+            "&[data-group]": { fontFamily: "mono", fontSize: "11px", letterSpacing: "0.12em", textTransform: "uppercase", color: "fg.muted" },
+        },
+        narrowCardSub: {
+            fontFamily: "mono",
+            fontSize: "9.5px",
+            fontWeight: "medium",
+            color: "fg.subtle",
+            padding: "0 12px 6px",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+        },
+        // The plot cell of a card — the row's kind renderer positions its
+        // marks absolutely inside, exactly as in the desktop plot cell.
+        narrowCardBody: {
+            position: "relative",
+            margin: "0 12px 10px",
+            overflow: "hidden",
+            minWidth: 0,
+        },
+        narrowCardFoot: {
+            display: "flex",
+            justifyContent: "flex-end",
+            padding: "0 12px 10px",
+        },
+        // A drilled card's render region (§10: ~148pt in place).
+        narrowRender: {
+            position: "relative",
+            margin: "0 12px 10px",
+            overflow: "hidden",
+            animation: "plan-settle-in 0.22s ease-out 0.3s backwards",
+            "@media (prefers-reduced-motion: reduce)": { animation: "none" },
+        },
+        // A chart card has no gutter to print its value ticks in — they
+        // overlay the plot's left edge instead (`chartTickLeft` positions
+        // against this box).
+        narrowTicks: {
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: "34px",
+            pointerEvents: "none",
+            zIndex: 5,
+        },
+        // `9 MORE GROUPS · 378 RS` — the load-more card.
+        narrowMore: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "semibold",
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            color: "fg.muted",
+            background: "bg.surface",
+            borderWidth: "1px",
+            borderStyle: "dashed",
+            borderColor: "border.strong",
+            borderRadius: "8px",
+            padding: "14px 12px",
+            textAlign: "center",
+            cursor: "pointer",
+            width: "100%",
+            _coarse: { minHeight: "44px" },
+            "&:hover": { color: "fg.default" },
+        },
+        narrowEmpty: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+            padding: "24px 12px",
+            textAlign: "center",
         },
     },
     variants: {

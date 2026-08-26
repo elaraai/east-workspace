@@ -2756,3 +2756,178 @@ export const planExpand = example({
     }),
     inputs: [],
 });
+
+// ============================================================================
+// planNarrow — the §10 narrow layout: a phone-width box makes the Plan a
+// review tool, not a canvas (#570)
+// ============================================================================
+
+/**
+ * Below 480px of CONTAINER width — not the viewport: this example is a 360px
+ * `<Box>` on a desktop page — the Plan reflows to the §10 layout: three tabs
+ * over ONE slice (Groups · Rows · Measures), the group grain as hottest-first
+ * strip cards, one group's rows as cards whose head is the row's gutter
+ * identity and whose body is its plot on the shared window, chart rows
+ * full-width at expanded density. A row declaring `expand` drills in place on
+ * a second tap; horizontal pan is two-finger. The DEFINITION is the desktop
+ * one — the same `data` + `series`, the same slice — only the box changed.
+ */
+export const planNarrow = example({
+    keywords: ["Plan", "narrow", "mobile", "phone", "responsive", "compact", "container", "breakpoint", "tabs", "Groups", "Rows", "Measures", "cards", "strip", "hottest", "two-finger", "pan", "review", "cohort", "slice", "§10", "raw"],
+    description: "The narrow layout — a phone-width box turns the same canvas into a review tool: Groups · Rows · Measures tabs, hottest-first strip cards, rows as cards, charts at expanded density",
+    fn: East.function([], UIComponentType, (_$) => {
+        const HorizonRow = StructType({ key: StringType, at: DateTimeType, risk: StringType });
+        const cfg = Slice.config(HorizonRow, {
+            fields: { at: { label: "Despatched", format: { date: "MMM D" } }, risk: { label: "Risk", hints: ["late", "on-time"] } },
+            rangeFieldId: "at",
+        });
+        return (<Reactive>{$ => {
+            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+                return w1.addWeeks(n.subtract(1n));
+            }));
+            const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+            const JobRow = StructType({
+                key: StringType, label: StringType,
+                start: DateTimeType, end: DateTimeType, state: EventStateType,
+            });
+            // ONE raw source: `series` picks the series, `line` the group a row
+            // belongs to (the KPI belongs to none — it rides the Measures tab
+            // and an "Other rows" card), and every envelope field is per-row DATA.
+            const OpsRow = StructType({
+                series: StringType, line: StringType, label: StringType,
+                value: OptionType(StringType), status: OptionType(StatusValueType),
+                expand: OptionType(Plan.Types.Expand),
+                jobs: ArrayType(JobRow),
+                cells: ArrayType(Plan.Types.HeatCell),
+                points: ArrayType(MeasureRow),
+            });
+            const noJobs = $.const([], ArrayType(JobRow));
+            const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
+            const noPoints = $.const([], ArrayType(MeasureRow));
+            const loadPcts = $.const(
+                [46.0, 52.0, 58.0, 61.0, 66.0, 72.0, 78.0, 84.0, 90.0, 96.0, 98.0, 92.0],
+                ArrayType(FloatType));
+            // Line 2 runs hotter than Line 1 — the Groups tab sorts it first.
+            const loadA = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({
+                at: week(i.add(27n)), value: some(loadPcts.get(i).multiply(0.85)),
+                label: some(East.Float.printFixed(loadPcts.get(i).multiply(0.85), 0n)),
+            })));
+            const loadB = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({
+                at: week(i.add(27n)), value: some(loadPcts.get(i)),
+                label: some(East.Float.printFixed(loadPcts.get(i), 0n)),
+            })));
+            const covPcts = $.const(
+                [96.1, 96.4, 96.8, 97.0, 96.2, 95.1, 93.4, 91.0, 88.9, 91.4, 93.8, 94.2],
+                ArrayType(FloatType));
+            const coverage = $.let(East.Array.generate(12n, MeasureRow, (_$, i) =>
+                ({ week: week(i.add(27n)), pct: covPcts.get(i) })));
+            const ops = $.const(new Map([
+                ["L1-M03", { series: "mach", line: "Line 1 · Fill", label: "L1-M03",
+                  value: some("120 t"), status: some(variant("success", null)),
+                  expand: some({ height: some("140px"), axis: variant("keep", null) }),
+                  jobs: [
+                      { key: "b208", label: "RUN · B-208", start: week(27n), end: week(30n), state: variant("actual", null) },
+                      { key: "qc", label: "QC", start: week(30n), end: week(32n), state: variant("confirmed", null) },
+                      { key: "b231", label: "RUN · B-231", start: week(33n), end: week(38n), state: variant("proposed", variant("recommended", null)) },
+                  ], cells: noCells, points: noPoints }],
+                ["L1-M04", { series: "mach", line: "Line 1 · Fill", label: "L1-M04",
+                  value: some("120 t"), status: some(variant("warning", null)), expand: none,
+                  jobs: [
+                      { key: "b214", label: "RUN · B-214", start: week(28n), end: week(33n), state: variant("in-progress", null) },
+                  ], cells: noCells, points: noPoints }],
+                ["l1-load", { series: "load", line: "Line 1 · Fill", label: "Line load",
+                  value: none, status: none, expand: none,
+                  jobs: noJobs, cells: loadA, points: noPoints }],
+                ["L2-M11", { series: "mach", line: "Line 2 · Assy", label: "L2-M11",
+                  value: some("80 t"), status: none, expand: none,
+                  jobs: [
+                      { key: "b241", label: "RUN · B-241", start: week(29n), end: week(34n), state: variant("confirmed", null) },
+                  ], cells: noCells, points: noPoints }],
+                ["l2-load", { series: "load", line: "Line 2 · Assy", label: "Line load",
+                  value: none, status: some(variant("warning", null)), expand: none,
+                  jobs: noJobs, cells: loadB, points: noPoints }],
+                ["coverage", { series: "kpi", line: "", label: "COVERAGE",
+                  value: some("94.2%"), status: none, expand: none,
+                  jobs: noJobs, cells: noCells, points: coverage }],
+            ]), DictType(StringType, OpsRow));
+            // The slice's own rows — despatch orders with a late-risk cohort
+            // seeded active, so the chips row has something to say.
+            const horizon = $.let(East.Array.generate(24n, HorizonRow, (_$, i) => ({
+                key: East.str`h${East.print(i.add(1n))}`,
+                at: week(i.divide(2n).add(27n)),
+                risk: i.remainder(3n).equal(0n).ifElse(() => "late", () => "on-time"),
+            })));
+            const slice = $.let(Slice.bind([HorizonRow], "ex.plan.narrow", cfg, Slice.state({
+                range: some(variant("datetime", { from: week(27n), to: week(39n) })),
+                cohorts: [{ id: "late", name: "Late risk", filters: [variant("string", { fieldId: "risk", op: variant("eq", "late") })] }],
+                activeCohorts: new Set(["late"]),
+            }), horizon, none));
+            const series = $.const([
+                // One strip per line, DISCOVERED from the data; its summary
+                // strip is the max of its heat rows — what "hottest first" reads.
+                Plan.series.group(OpsRow, {
+                    key: "lines", title: "Lines",
+                    by: r => r.line, match: r => r.line.equal("").not(),
+                    keyPrefix: "g-", summaryAggregate: "max",
+                }, [
+                    Plan.series.span(OpsRow, {
+                        key: "mach", title: "Machines",
+                        match: r => r.series.equal("mach"),
+                        label: r => r.label, id: true,
+                        value: r => r.value, status: r => r.status, expand: r => r.expand,
+                        runs: r => r.jobs.map((_$, j) => Plan.run({
+                            key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
+                        })),
+                    }),
+                    Plan.series.heat(OpsRow, {
+                        key: "load", title: "Line load",
+                        match: r => r.series.equal("load"),
+                        label: r => r.label, status: r => r.status,
+                        cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 95 }),
+                    }),
+                ]),
+                Plan.series.chart(OpsRow, {
+                    key: "kpi", title: "Coverage",
+                    match: r => r.series.equal("kpi"),
+                    label: r => r.label, id: true, value: r => r.value,
+                    height: "spark",
+                    left: { domain: [80, 110], tickValues: [80, 100] },
+                    layers: r => [
+                        Plan.layer(Chart.Line(r.points, { x: p => p.week, y: p => p.pct }), { breach: { below: 92 } }),
+                        Chart.refLine({ y: 100, label: "TARGET 100" }),
+                    ],
+                }),
+            ], ArrayType(Plan.Types.Series(OpsRow)));
+            const util = $.let(East.Array.generate(12n, FloatType, (_$, i) =>
+                i.multiply(19n).remainder(48n).toFloat().add(50.0)));
+            const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, (_$, _ref) => (
+                <Sparkline data={util} type="area" color="link" width="100%" height="100%" />
+            )));
+            const axis = $.const(Plan.axis({
+                window: { min: week(27n), max: week(39n) },
+                resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
+            }));
+            // The 360px box is the whole point: the reflow is a property of
+            // the CONTAINER, so a phone, a splitter pane and this box agree.
+            return (
+                <Box width="360px">
+                    <Plan
+                        axis={axis}
+                        data={ops}
+                        series={series}
+                        slice={{ slice, affordances: ["cohort", "filter", "range", "resolution", "summary"] }}
+                        expandRender={expandRender}
+                        footer={[
+                            { text: "6 ROWS · 2 LINES" },
+                            { text: "RUN 412 · W27–W38", end: true },
+                        ]}
+                        style={{ height: "560px" }}
+                    />
+                </Box>
+            );
+        }}</Reactive>);
+    }),
+    inputs: [],
+});

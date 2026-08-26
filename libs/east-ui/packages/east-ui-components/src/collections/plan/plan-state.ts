@@ -78,6 +78,9 @@ export type PlanEvent =
     | { t: "focus.expand"; key: RowKey }
     | { t: "focus.clear" }
     | { t: "resolution.set"; resolution: string }
+    /** A window pan of N whole periods — the narrow layout's two-finger
+     *  horizontal drag (§10); the `[` / `]` keys are the one-period case. */
+    | { t: "pan"; buckets: number }
     | { t: "key"; key: "esc" | "n" | "[" | "]" | "g" };
 
 /** Side effects, returned as data — never performed in the reducer. */
@@ -89,7 +92,7 @@ export type PlanEffect =
     | { t: "emit.groupToggle"; key: RowKey; expanded: boolean }
     | { t: "emit.grainChange"; grain: PlanGrain }
     | { t: "scroll.toNow" }
-    | { t: "pan"; buckets: -1 | 1 };
+    | { t: "pan"; buckets: number };
 
 const GRAIN_CYCLE: PlanGrain[] = ["group", "resource"];
 
@@ -192,6 +195,11 @@ export function planReducer(
             return { state: { ...s, focus: null }, effects: [] };
         case "resolution.set":
             return { state: s, effects: [{ t: "slice.setResolution", resolution: e.resolution }] };
+        case "pan":
+            // A pure slice write, like the keys — a zero pan is identity so a
+            // gesture that never crossed a period edge commits nothing.
+            if (e.buckets === 0) return { state: s, effects: [] };
+            return { state: s, effects: [{ t: "pan", buckets: e.buckets }] };
         case "key":
             return keyEvent(s, e.key);
     }
