@@ -99,7 +99,11 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                         data-run={run.key}
                         left={`${left * 100}%`}
                         width={`${width * 100}%`}
-                        height={`${barHeight}px`}
+                        // The bar height is a style PROP, and a style prop
+                        // outranks the recipe — so in a strip it is not set at
+                        // all, or the `bar[data-ctx]` 7px rule never wins and
+                        // a 20px bar sits clipped inside a 16px strip (#591).
+                        height={ctx === true ? undefined : `${barHeight}px`}
                         onClick={(e) => {
                             e.stopPropagation();
                             dispatch({ t: "row.select", key: rowKey });

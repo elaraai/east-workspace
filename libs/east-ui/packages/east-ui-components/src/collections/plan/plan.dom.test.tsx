@@ -1244,11 +1244,27 @@ describe("Plan expand-in-place (R2)", () => {
             planRow("e", variant("events", { marks: [{
                 key: "m1", at: W27, kind: variant("milestone", null), icon: none, label: some("KICKOFF"),
             }] })),
+            planRow("cov", variant("chart", {
+                layers: [variant("line", {
+                    points: [{ t: W27, y: 94 }, { t: new Date("2026-08-31Z"), y: 101 }],
+                    axis: variant("left", null), breach: none,
+                })],
+                left: some({ domain: none, tickValues: some(variant("number", [80])), format: none }),
+                right: none, height: variant("spark", null), expandedHeight: none, expandable: none,
+            })),
         ], {
             expandRender: (ref: { key: string }) =>
                 variant("Text", { value: `R · ${ref.key}`, style: none }),
         }));
+        // At rest the chart row draws its marks and prints its axis.
+        expect(container.querySelector('[data-plan-row="cov"] polyline')).toBeTruthy();
+        expect(container.querySelector('[data-plan-row="cov"] [data-plan-tickpx]')).toBeTruthy();
         fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
+        // R2 — values RE-ENCODE: the strip is a tone strip, so there is no SVG
+        // to squash and no value axis to label in 16px — the ticks go with it.
+        expect(container.querySelector('[data-plan-row="cov"]')!.hasAttribute("data-ctx")).toBe(true);
+        expect(container.querySelector('[data-plan-row="cov"] polyline')).toBeNull();
+        expect(container.querySelector('[data-plan-row="cov"] [data-plan-tickpx]')).toBeNull();
         // R1 — the span bar is still there, still positioned, flagged for 7px.
         const bar = container.querySelector('[data-plan-row="s"] [data-run="r1"]') as HTMLElement;
         expect(bar).toBeTruthy();
@@ -1257,6 +1273,56 @@ describe("Plan expand-in-place (R2)", () => {
         const dot = container.querySelector('[data-plan-row="e"] [data-mark="m1"]') as HTMLElement;
         expect(dot).toBeTruthy();
         expect(dot.hasAttribute("data-ctx")).toBe(true);
+    });
+
+    test("a focus-expanded CHART row scales its plot to the BAND, not the grown row (#591)", () => {
+        // The focal row grows to hold its render, but its marks keep the band
+        // at the top. The plot's y-scale (the SVG viewBox), the ≥48px
+        // ref-label gate and the gutter ticks all used to answer to the GROWN
+        // row height: a 272px scale squashed into a 32px band, a spark row
+        // suddenly printed its ref label, and the ticks drifted down the tall
+        // gutter cell. All three read the band now.
+        const { container } = renderPlan(planRoot([
+            planRow("cov", variant("chart", {
+                layers: [
+                    variant("line", {
+                        points: [{ t: W27, y: 94 }, { t: new Date("2026-08-31Z"), y: 101 }],
+                        axis: variant("left", null), breach: none,
+                    }),
+                    variant("refLine", { y: 100, axis: variant("left", null), label: some("TARGET 100") }),
+                ],
+                left: some({
+                    domain: some(variant("number", { min: 80, max: 110 })),
+                    tickValues: some(variant("number", [80])),
+                    format: none,
+                }),
+                right: none,
+                height: variant("spark", null), expandedHeight: none, expandable: none,
+            }), { expand: { height: some("240px"), axis: variant("keep", null) } }),
+            planRow("other", spanKind([])),
+        ], {
+            expandRender: (ref: { key: string }) =>
+                variant("Text", { value: `R · ${ref.key}`, style: none }),
+        }), "plan-591-chart-band");
+        // The plot SVG is the one holding the line — the gutter's control
+        // icon is an SVG too.
+        const plotSvg = () => container.querySelector('[data-plan-row="cov"] polyline')!.closest("svg")!;
+        const tick = () => container.querySelector('[data-plan-row="cov"] [data-plan-tickpx]')!;
+        // At rest: a 32px spark. The scale's floor sits at the 4px pad + the
+        // 24px inner height = 28px; too shallow for the ref label.
+        expect(plotSvg().getAttribute("viewBox")).toBe("0 0 1000 32");
+        expect(tick().getAttribute("data-plan-tickpx")).toBe("28");
+        expect(screen.queryByText("TARGET 100")).toBeNull();
+
+        fireEvent.click(container.querySelector('[data-plan-row="cov"] [data-plan-control="expand"]')!);
+        const focal = container.querySelector('[data-plan-row="cov"]') as HTMLElement;
+        expect(focal.hasAttribute("data-expanded")).toBe(true);
+        expect(focal.querySelector("[data-plan-expandrender]")).toBeTruthy();
+        // The ROW grew (32 + 240); the band did not — and the plot, the tick
+        // and the label gate all scale against the band.
+        expect(plotSvg().getAttribute("viewBox")).toBe("0 0 1000 32");
+        expect(tick().getAttribute("data-plan-tickpx")).toBe("28");
+        expect(screen.queryByText("TARGET 100")).toBeNull();
     });
 });
 

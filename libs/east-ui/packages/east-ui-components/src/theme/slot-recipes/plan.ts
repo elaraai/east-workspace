@@ -892,6 +892,12 @@ export const planSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             transform: "translateY(-50%)",
             pointerEvents: "none",
+            // An EXPANDED row pins its active ⤢ control to the band's corner
+            // (`rowControls[data-expanded]`: top 11px, right 6px, a 20px
+            // button in a 3px paper halo) — exactly where a 32px band's
+            // ticks sit. The ticks step left of the pill's footprint so the
+            // axis stays legible while the row has the canvas (#591).
+            "[data-expanded] &": { right: "36px" },
         },
         chartTickRight: {
             position: "absolute",

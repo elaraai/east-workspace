@@ -207,12 +207,24 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             const declaredExpanded = kind.value.height.type === "expanded";
             const expandable = kind.value.expandable.type === "some" && kind.value.expandable.value;
             const expanded = declaredExpanded || chartExpanded;
+            // The FOCAL row is tall (natural + render), but its marks live in
+            // the band at the top — `RowShell` mounts `children` inside
+            // `expandRowBand` at `bandHeight` — so the plot's y-scale, its
+            // ref-label gate and the gutter ticks take the BAND height, never
+            // the grown row's. Passing the grown `h` built a ~272px y-scale
+            // that squashed into a ~32px band, opened the ≥48px ref-label
+            // gate on a spark row, and pushed labels + ticks past the band
+            // into the render (#591).
+            const plotH = isFocal ? (bandHeight ?? h) : h;
             return (
                 <RowShell {...shellBase} height={h} noGrid={false}
                     caret={expandable ? { collapsed: !expanded } : undefined}
                     onCaretClick={expandable ? () => dispatch({ t: "chart.toggle", key: v.row.key }) : undefined}
-                    gutterOverlay={<ChartLeftTicks kind={kind.value} styles={styles} height={h} />}>
-                    <ChartRowPlot kind={kind.value} styles={styles} height={h}
+                    // A STRIP carries no value axis — its plot re-encodes as a
+                    // tone strip (`ToneStrip`), so the gutter ticks would
+                    // label a scale that is not there, stacked in 16px.
+                    gutterOverlay={isCtx ? undefined : <ChartLeftTicks kind={kind.value} styles={styles} height={plotH} />}>
+                    <ChartRowPlot kind={kind.value} styles={styles} height={plotH}
                         expanded={expanded} rowKey={v.row.key} ctx={isCtx} />
                 </RowShell>
             );

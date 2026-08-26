@@ -2540,6 +2540,7 @@ export const planExpand = example({
         }));
         // ONE raw source; `series` picks the series and `expand` is per-row
         // DATA — presence is what grows the ⤢ control on that row.
+        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
         const OpsRow = StructType({
             series: StringType,
             label: StringType,
@@ -2548,6 +2549,7 @@ export const planExpand = example({
                 key: StringType, label: StringType,
                 start: DateTimeType, end: DateTimeType, state: EventStateType,
             })),
+            points: ArrayType(MeasureRow),
             cells: ArrayType(Plan.Types.HeatCell),
             nums: ArrayType(Plan.Types.TableCell),
             marks: ArrayType(Plan.Types.EventMark),
@@ -2559,7 +2561,19 @@ export const planExpand = example({
         const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
         const noNums = $.const([], ArrayType(Plan.Types.TableCell));
         const noMarks = $.const([], ArrayType(Plan.Types.EventMark));
+        const noPoints = $.const([], ArrayType(MeasureRow));
+        const covPcts = $.const(
+            [96.1, 96.4, 96.8, 97.0, 96.2, 95.1, 93.4, 91.0, 88.9, 91.4, 93.8, 94.2],
+            ArrayType(FloatType));
+        const coverage = $.let(East.Array.generate(12n, MeasureRow, (_$, i) =>
+            ({ week: week(i.add(27n)), pct: covPcts.get(i) })));
         const ops = $.const(new Map([
+            // A CHART row — the one kind whose marks are a VALUE scale. Its
+            // plot, its gutter ticks and its ref-label gate answer to the band
+            // the marks keep at the top, not to the grown row (#591).
+            ["COVERAGE", { series: "chart", label: "COVERAGE",
+              expand: some({ height: some("150px"), axis: variant("keep", null) }),
+              jobs: noJobs, points: coverage, cells: noCells, nums: noNums, marks: noMarks }],
             // axis: keep — the grid and now-line run THROUGH the render.
             ["L1-M03", { series: "span", label: "L1-M03",
               expand: some({ height: some("168px"), axis: variant("keep", null) }),
@@ -2567,24 +2581,24 @@ export const planExpand = example({
                   { key: "b208", label: "RUN · B-208", start: week(27n), end: week(30n), state: variant("actual", null) },
                   { key: "qc", label: "QC", start: week(30n), end: week(32n), state: variant("confirmed", null) },
                   { key: "b231", label: "RUN · B-231", start: week(33n), end: week(38n), state: variant("proposed", variant("recommended", null)) },
-              ], cells: noCells, nums: noNums, marks: noMarks }],
+              ], points: noPoints, cells: noCells, nums: noNums, marks: noMarks }],
             // axis: dim — washed to 40% behind a dense render.
             ["L1-M04", { series: "span", label: "L1-M04",
               expand: some({ height: some("140px"), axis: variant("dim", null) }),
               jobs: [
                   { key: "b214", label: "RUN · B-214", start: week(28n), end: week(33n), state: variant("in-progress", null) },
-              ], cells: noCells, nums: noNums, marks: noMarks }],
+              ], points: noPoints, cells: noCells, nums: noNums, marks: noMarks }],
             // No declaration — no control. The contrast is the point: one row
             // that cannot be expanded beside five that can.
             ["L1-M07", { series: "span", label: "L1-M07", expand: none,
               jobs: [
                   { key: "hld", label: "HLD · B-197", start: week(27n), end: week(31n), state: variant("actual", null) },
-              ], cells: noCells, nums: noNums, marks: noMarks }],
+              ], points: noPoints, cells: noCells, nums: noNums, marks: noMarks }],
             // The kinds that COLLAPSE differently — heat keeps its ramp, the
             // table re-encodes its numerals, the marks keep their silhouettes.
             ["LOAD", { series: "heat", label: "Line load",
               expand: some({ height: some("132px"), axis: variant("keep", null) }),
-              jobs: noJobs, nums: noNums, marks: noMarks,
+              jobs: noJobs, points: noPoints, nums: noNums, marks: noMarks,
               cells: [
                   { at: week(27n), value: some(46.0), label: some("46") },
                   { at: week(28n), value: some(58.0), label: some("58") },
@@ -2600,7 +2614,7 @@ export const planExpand = example({
             // are suppressed INSIDE this row only (the ruler never moves).
             ["DESPATCH", { series: "table", label: "Despatch t",
               expand: some({ height: some("120px"), axis: variant("off", null) }),
-              jobs: noJobs, cells: noCells, marks: noMarks,
+              jobs: noJobs, points: noPoints, cells: noCells, marks: noMarks,
               nums: [
                   { at: week(27n), value: some(128.0), text: none, tone: none },
                   { at: week(28n), value: some(134.0), text: none, tone: none },
@@ -2614,7 +2628,7 @@ export const planExpand = example({
               ] }],
             ["MILESTONES", { series: "events", label: "MILESTONES",
               expand: some({ height: some("112px"), axis: variant("dim", null) }),
-              jobs: noJobs, cells: noCells, nums: noNums,
+              jobs: noJobs, points: noPoints, cells: noCells, nums: noNums,
               marks: [
                   { key: "k", at: week(28n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
                   { key: "d", at: week(31n), kind: variant("decision", { applied: true }), icon: none, label: none },
@@ -2644,6 +2658,7 @@ export const planExpand = example({
         const GutterFacts = StructType({ a: StringType, b: StringType, fill: FloatType });
         const expandGutter = $.const(East.function([Plan.Types.RowRef], UIComponentType, ($, ref) => {
             const facts = $.const(new Map([
+                ["COVERAGE", { a: "TARGET 100 · MIN 92", b: "BREACH W34–W36 · 3 wk", fill: 0.94 }],
                 ["L1-M03", { a: "120 t · FILL", b: "B-208 · 88 t · 73%", fill: 0.73 }],
                 ["L1-M04", { a: "120 t · FILL", b: "B-214 · 89 t · 74%", fill: 0.74 }],
                 ["LOAD",   { a: "MEAN 74 · PEAK 96", b: "BREACH W33 · 1 wk", fill: 0.96 }],
@@ -2675,6 +2690,17 @@ export const planExpand = example({
                         runs: r => r.jobs.map((_$, j) => Plan.run({
                             key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
                         })),
+                    }),
+                    Plan.series.chart(OpsRow, {
+                        key: "chart-2", title: "Chart",
+                        match: r => r.series.equal("chart"),
+                        label: r => r.label, id: true, expand: r => r.expand,
+                        height: "spark",
+                        left: { domain: [80, 110], tickValues: [80, 100] },
+                        layers: r => [
+                            Plan.layer(Chart.Line(r.points, { x: p => p.week, y: p => p.pct }), { breach: { below: 92 } }),
+                            Chart.refLine({ y: 100, label: "TARGET 100" }),
+                        ],
                     }),
                     Plan.series.heat(OpsRow, {
                         key: "heat-3", title: "Heat",

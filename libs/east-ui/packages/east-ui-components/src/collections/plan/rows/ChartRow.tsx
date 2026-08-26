@@ -408,7 +408,13 @@ function axisTickFormatter(axis: AxisValue | undefined): (v: number) => string {
     return (v) => f(v);
 }
 
-/** The gutter-edge left-axis ticks (mounted via the shell's `gutterOverlay`). */
+/** The gutter-edge left-axis ticks (mounted via the shell's `gutterOverlay`).
+ *
+ *  `height` is the PLOT's height — the band the marks scale against — and the
+ *  ticks position in px against it. Not a percentage: they mount in the gutter
+ *  CELL, which is the row's height, and a focus-expanded row's cell is taller
+ *  than its band (#591) — a percentage of the cell landed the ticks in the
+ *  render. At rest cell and band coincide, so nothing moves. */
 export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue; styles: Styles; height: number }) {
     const left = kind.left.type === "some" ? kind.left.value : undefined;
     const ticks = axisTicks(left);
@@ -423,7 +429,7 @@ export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue;
     return (
         <>
             {ticks.map((v, i) => (
-                <Box key={i} css={styles.chartTickLeft} top={`${(s.y(v) / height) * 100}%`}>
+                <Box key={i} css={styles.chartTickLeft} top={`${s.y(v)}px`} data-plan-tickpx={s.y(v)}>
                     {fmt(v)}
                 </Box>
             ))}

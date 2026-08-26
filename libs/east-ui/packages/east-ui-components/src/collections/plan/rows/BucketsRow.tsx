@@ -79,8 +79,11 @@ function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
             data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
             data-pulse={ev.animation.type === "some" && ev.animation.value.type === "pulse" ? "" : undefined}
             flex={hFill ? "1" : undefined}
-            alignSelf={vFill ? "stretch" : undefined}
-            height={vFill ? "auto" : undefined}
+            // Stretch is a style PROP and outranks the recipe: in a strip
+            // neither is set, or a `vertical` tile fills the lane instead of
+            // dropping to the `tile[data-ctx]` 7px mark (#591).
+            alignSelf={vFill && ctx !== true ? "stretch" : undefined}
+            height={vFill && ctx !== true ? "auto" : undefined}
             justifyContent={justify}
             background={color !== undefined && !color.includes(".") ? color : undefined}
             backgroundColor={color !== undefined && color.includes(".") ? color : undefined}
