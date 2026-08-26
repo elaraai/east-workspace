@@ -13,10 +13,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from east.ir.builders import ir_let
-from east.kernel.errors import KernelTraceError
-from east.kernel.lift import _lift, _trace_inner_fn, _with_index, if_else
-from east.kernel.nodes import (
+from east.expression.errors import ExpressionError
+from east.expression.lift import _lift, _trace_inner_fn, _with_index, if_else
+from east.expression.nodes import (
     _builtin,
     _fresh_name,
     _k_block,
@@ -24,11 +23,12 @@ from east.kernel.nodes import (
     _option_type,
     _var,
 )
-from east.kernel.ops import _ExprBase
+from east.expression.ops import _ExprBase
+from east.ir.builders import ir_let
 from east.types.types import EastType, FunctionType, IntegerType
 
 if TYPE_CHECKING:
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
 
 class _SearchOps(_ExprBase):
@@ -42,7 +42,7 @@ class _SearchOps(_ExprBase):
     # the eager one on floats, strings, variants and structs alike.
 
     def _find_keyed(self, builtin: str, op: str, target: Any, key: Any,
-                    out_t: EastType) -> KernelExpr:
+                    out_t: EastType) -> Expression:
         """The shared ``(array, target, key)`` shape of the ArrayFind* family.
 
         The key projects each element into the target's type; without one the
@@ -57,7 +57,7 @@ class _SearchOps(_ExprBase):
             node, t2 = _trace_inner_fn(key, [elem_t], declared=1)
         tgt = _lift(target, hint=t2)
         if tgt.east_type != t2:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".{op}() target is {tgt.east_type.type} but the key projects "
                 f"to {t2.type} — they must be the same East type"
             )
@@ -65,26 +65,26 @@ class _SearchOps(_ExprBase):
             _builtin(builtin, out_t, [elem_t, t2], [self.ir, tgt.ir, node]), out_t
         )
 
-    def find_first(self, target: Any, key: Any = None) -> KernelExpr:
+    def find_first(self, target: Any, key: Any = None) -> Expression:
         """Traced ArrayFindFirst: ``some(index)`` of the first element whose
         ``key`` equals ``target`` under East equality, else ``none``. Linear
         scan — the array need not be sorted."""
         return self._find_keyed("ArrayFindFirst", "find_first", target, key,
                                 _option_type(IntegerType))
 
-    def find_sorted_first(self, target: Any, key: Any = None) -> KernelExpr:
+    def find_sorted_first(self, target: Any, key: Any = None) -> Expression:
         """Traced ArrayFindSortedFirst: the leftmost insertion index for
         ``target``. Assumes the array is already sorted in East order, like
         the eager method."""
         return self._find_keyed("ArrayFindSortedFirst", "find_sorted_first",
                                 target, key, IntegerType)
 
-    def find_sorted_last(self, target: Any, key: Any = None) -> KernelExpr:
+    def find_sorted_last(self, target: Any, key: Any = None) -> Expression:
         """Traced ArrayFindSortedLast: the rightmost insertion index."""
         return self._find_keyed("ArrayFindSortedLast", "find_sorted_last",
                                 target, key, IntegerType)
 
-    def find_sorted_range(self, target: Any, key: Any = None) -> KernelExpr:
+    def find_sorted_range(self, target: Any, key: Any = None) -> Expression:
         """Traced ArrayFindSortedRange: the half-open ``{start, end}`` span of
         elements equal to ``target``; ``start == end`` when absent."""
         from east.types.types import StructType as _StructType
@@ -93,7 +93,7 @@ class _SearchOps(_ExprBase):
         return self._find_keyed("ArrayFindSortedRange", "find_sorted_range",
                                 target, key, out)
 
-    def find_all(self, value: Any, by: Any = None) -> KernelExpr:
+    def find_all(self, value: Any, by: Any = None) -> Expression:
         """Traced ArrayFilterMap: the indices whose element (or ``by``
         projection) equals ``value``, in row order."""
         from east.types.construct import none as _none
@@ -105,7 +105,7 @@ class _SearchOps(_ExprBase):
         _probe, p_t = _trace_inner_fn(proj, [elem_t, IntegerType], declared=2)
         target = _lift(value, hint=p_t)
         if target.east_type != p_t:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".find_all() value is {target.east_type.type} but the "
                 f"projection yields {p_t.type} — they must be the same East type"
             )
@@ -131,7 +131,7 @@ class _SearchOps(_ExprBase):
             _k_block(out, [ir_let(p_t, _var(tname, p_t), target.ir), scan]), out
         )
 
-    def _find_extreme(self, op: str, by: Any, pick: Any) -> KernelExpr:
+    def _find_extreme(self, op: str, by: Any, pick: Any) -> Expression:
         """``some(index)`` of the first extreme, ``none`` when empty.
 
         The eager methods return ``none`` for an empty array rather than
@@ -149,12 +149,12 @@ class _SearchOps(_ExprBase):
             recv.find_first(pick(recv, by), key=by),
         ))
 
-    def find_maximum(self, by: Any = None) -> KernelExpr:
+    def find_maximum(self, by: Any = None) -> Expression:
         """Traced index of the first maximum as ``some(index)``; ``none`` for
         an empty array, like the eager ``find_maximum``."""
         return self._find_extreme("find_maximum", by, lambda r, b: r.maximum(b))
 
-    def find_minimum(self, by: Any = None) -> KernelExpr:
+    def find_minimum(self, by: Any = None) -> Expression:
         """Traced index of the first minimum as ``some(index)``; ``none`` when
         empty."""
         return self._find_extreme("find_minimum", by, lambda r, b: r.minimum(b))

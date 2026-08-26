@@ -37,7 +37,7 @@ from east import (
     VectorType,
     kernel,
 )
-from east.kernel import KernelTraceError
+from east.expression import ExpressionError
 from east.runtime.compiler import eager_stats
 
 FA = ArrayType(FloatType)
@@ -77,7 +77,7 @@ def test_array_to_vector_eager_twin_matches():
 def test_array_to_vector_refuses_non_numeric_elements():
     with pytest.raises(TypeError, match="Float, Integer or Boolean"):
         EastArray(StringType, ["x"]).to_vector()
-    with pytest.raises(KernelTraceError, match="Float, Integer or Boolean"):
+    with pytest.raises(ExpressionError, match="Float, Integer or Boolean"):
         kernel([ArrayType(StringType)], lambda a: a.to_vector())
 
 

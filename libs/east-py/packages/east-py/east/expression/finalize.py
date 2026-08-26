@@ -15,8 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from east.ir.builders import ir_let
-from east.kernel.nodes import (
+from east.expression.nodes import (
     _MUTATING_BUILTINS,
     _fresh_name,
     _k_block,
@@ -24,11 +23,12 @@ from east.kernel.nodes import (
     _root_var_name,
     _var,
 )
+from east.ir.builders import ir_let
 from east.types.types import EastType, FunctionType
 from east.types.values import EastArray, EastStruct, EastVariant
 
 if TYPE_CHECKING:
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
 
 def _free_vars(node: Any, bound: frozenset, out: dict) -> None:
@@ -58,7 +58,7 @@ def _free_vars(node: Any, bound: frozenset, out: dict) -> None:
         if name not in bound and name not in out:
             out[name] = node
         return
-    if kind == "Function":
+    if kind in ("Function", "AsyncFunction"):
         for c in p["captures"]:
             cname = c.value["name"]
             if cname not in bound and cname not in out:
@@ -110,7 +110,7 @@ def _capturing_fn(fn_t: EastType, params: list, body_ir: Any):
     return _k_function(fn_t, list(free.values()), params, body_ir)
 
 
-def _const_fn_node(param_types: list, body: KernelExpr, out_t: EastType) -> Any:
+def _const_fn_node(param_types: list, body: Expression, out_t: EastType) -> Any:
     """A Function IR node ignoring its parameters and returning `body`."""
     from east.types.types import FunctionType as _FnType
 
@@ -120,7 +120,7 @@ def _const_fn_node(param_types: list, body: KernelExpr, out_t: EastType) -> Any:
 
 # ─── Trace-time CSE + finalize: shared subexpressions bind once (#411) ──────
 #
-# Reusing one KernelExpr object at N sites makes the traced (lazy) tree a
+# Reusing one Expression object at N sites makes the traced (lazy) tree a
 # DAG. The finalize pass walks it once: every non-trivial node referenced
 # more than once — whose free variables are the kernel's own parameters or
 # hoisted constants — binds to a Let at the top of the kernel body (this
@@ -132,8 +132,12 @@ _CSE_SKIP_KINDS = frozenset({"Value", "Variable"})
 
 #: Kinds never hoisted on a SINGLE occurrence (#602). Function values stay
 #: where the trace created them, Error must keep firing exactly where (and as
-#: often as) it was written, Let/Break/Continue are statements not values.
-_SOLO_SKIP_KINDS = frozenset({"Function", "Error", "Let", "Break", "Continue"})
+#: often as) it was written, Let/Break/Continue are statements not values, and
+#: a Platform call is an EFFECT — hoisting one out of a callback would change
+#: how many times the host function runs.
+_SOLO_SKIP_KINDS = frozenset({
+    "Function", "AsyncFunction", "Error", "Let", "Break", "Continue", "Platform",
+})
 
 
 def _reaches_mutable(t) -> bool:
@@ -169,6 +173,7 @@ def _node_specs():
         "Value": ((), ()),
         "Variable": ((), ()),
         "Builtin": ((("arguments", "list", ir),), (("type_parameters", EastTypeType),)),
+        "Platform": ((("arguments", "list", ir),), (("type_parameters", EastTypeType),)),
         "GetField": (("struct",), ()),
         "Struct": ((("fields", "structs", lambda: StructFieldIRType, ("value",)),), ()),
         "Variant": (("value",), ()),
@@ -182,6 +187,7 @@ def _node_specs():
         "Call": (("function", ("arguments", "list", ir)), ()),
         "TryCatch": (("try_body", "catch_body", "message", "stack", "finally_body"), ()),
         "Function": ((("captures", "list", ir), ("parameters", "list", ir), "body"), ()),
+        "AsyncFunction": ((("captures", "list", ir), ("parameters", "list", ir), "body"), ()),
         "Let": (("variable", "value"), ()),
         "Block": ((("statements", "list", ir),), ()),
         "Error": (("message",), ()),
@@ -270,7 +276,8 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         cb_walked.add(key)
         if inside:
             in_callback.add(id(node))
-        enter = inside or (kernel_fn is not None and node.type == "Function"
+        enter = inside or (kernel_fn is not None
+                           and node.type in ("Function", "AsyncFunction")
                            and node is not kernel_fn)
         for child in _node_children(node):
             callback_walk(child, enter)
@@ -285,7 +292,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
     scope: dict[int, set] = {}
 
     def binder_names(node):
-        if node.type == "Function" and node is not kernel_fn:
+        if node.type in ("Function", "AsyncFunction") and node is not kernel_fn:
             return {p.value["name"] for p in node.value["parameters"]}
         if node.type == "Match":
             return {c["variable"].value["name"] for c in node.value["cases"]}
@@ -538,7 +545,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
                     | free_vars(payload["catch_body"], caught)
                     | free_vars(payload["finally_body"], bound))
         inner = bound
-        if node.type == "Function":
+        if node.type in ("Function", "AsyncFunction"):
             inner = bound | {p.value["name"] for p in node.value["parameters"]}
         out: set = set()
         for child in _node_children(node):
@@ -566,7 +573,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
                     block_out |= mutated_free(stmt, scope_)
             return block_out
         inner = bound
-        if node.type == "Function":
+        if node.type in ("Function", "AsyncFunction"):
             inner = bound | {p.value["name"] for p in node.value["parameters"]}
         out: set = set()
         if node.type == "Builtin" and node.value["builtin"] in _MUTATING_BUILTINS:
@@ -584,7 +591,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         variable — mutating a builtin result or fresh container directly.
         ``mutated_free`` cannot name such a target, so a single-occurrence
         hoist (which cannot rely on shared-object intent the way a reused
-        KernelExpr can) must refuse the subtree outright (#602)."""
+        Expression can) must refuse the subtree outright (#602)."""
         i = id(node)
         hit = anon_memo.get(i)
         if hit is not None:
@@ -740,15 +747,22 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
 def _function_ir(
     param_types: list[EastType],
     params: list,
-    body: KernelExpr,
+    body: Expression,
     consts: list[tuple[str, Any, EastType]] = (),  # type: ignore[assignment]
+    is_async: bool = False,
 ) -> Any:
     """The kernel's top-level IR value: a Function node, or — when constants
     hoisted — ``Block[Let …, Function(captures)]`` so each constant evaluates
     ONCE when the kernel compiles, not per call. Finalization runs the
-    identity CSE (#411) and converts the lazy tree to real East arrays."""
-    fn_type = FunctionType(list(param_types), body.east_type)
-    fn_node = _k_function(
+    identity CSE (#411) and converts the lazy tree to real East arrays.
+    ``is_async`` builds the AsyncFunction node/type instead (East.asyncFunction)."""
+    from east.expression.nodes import _k_async_function
+    from east.types.types import AsyncFunctionType
+
+    make_type = AsyncFunctionType if is_async else FunctionType
+    make_node = _k_async_function if is_async else _k_function
+    fn_type = make_type(list(param_types), body.east_type)
+    fn_node = make_node(
         fn_type,
         # Hoisted constants are captured so they survive the enclosing block.
         [_var(name, t) for name, _n, t in consts],

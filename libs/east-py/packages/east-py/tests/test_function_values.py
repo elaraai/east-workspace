@@ -20,7 +20,7 @@ Three boundary defects, each pinned by the round trip it used to break:
 from east.runtime._compiler_eastc import call_builtin
 
 from east import BlobType, EastArray, FunctionType, IntegerType, type_of
-from east.kernel import kernel, trace
+from east.expression import kernel, trace
 from east.runtime.compiler import compile_from_value
 from east.types.values.structural import EastFunction
 

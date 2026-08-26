@@ -6,7 +6,7 @@
 
 `sum` / `mean` / `maximum` / `minimum` / `reduce` / `every` / `some` existed as
 eager methods and ran natively in every runtime, but did not TRACE — so inside
-a kernel they were either a `KernelTraceError` or a hand-rolled fold. That is
+a kernel they were either a `ExpressionError` or a hand-rolled fold. That is
 not a slower-but-correct fallback: #524 measured 6h02m for 729k rows caused by
 exactly this kind of reformulation.
 
@@ -38,7 +38,7 @@ from east import (
     none,
     some,
 )
-from east.kernel import KernelTraceError
+from east.expression import ExpressionError
 from east.runtime.compiler import eager_stats
 from east.types.values.collections import (
     EastArray,
@@ -213,9 +213,9 @@ def test_every_and_some_without_a_predicate():
 
 
 def test_no_predicate_quantifier_on_non_boolean_is_named():
-    with pytest.raises(KernelTraceError, match="without a predicate needs Boolean elements"):
+    with pytest.raises(ExpressionError, match="without a predicate needs Boolean elements"):
         kernel(S_I, lambda s: s.every())
-    with pytest.raises(KernelTraceError, match="without a predicate needs Boolean values"):
+    with pytest.raises(ExpressionError, match="without a predicate needs Boolean values"):
         kernel(D_SF, lambda d: d.some())
 
 
@@ -300,33 +300,33 @@ def test_dict_reduce_visits_in_key_order():
 # ── diagnostics ──────────────────────────────────────────────────────────────
 
 def test_non_numeric_projection_is_named():
-    with pytest.raises(KernelTraceError, match=r"\.sum\(\) needs a numeric"):
+    with pytest.raises(ExpressionError, match=r"\.sum\(\) needs a numeric"):
         kernel(A_ROW, lambda a: a.sum(lambda r: r.g))
-    with pytest.raises(KernelTraceError, match=r"\.mean\(\) needs a numeric"):
+    with pytest.raises(ExpressionError, match=r"\.mean\(\) needs a numeric"):
         kernel(A_ROW, lambda a: a.mean(lambda r: r.g))
 
 
 def test_non_boolean_predicate_is_named():
-    with pytest.raises(KernelTraceError, match=r"\.every\(\) predicate must return Boolean"):
+    with pytest.raises(ExpressionError, match=r"\.every\(\) predicate must return Boolean"):
         kernel(S_I, lambda s: s.every(lambda e: e + 1))
-    with pytest.raises(KernelTraceError, match=r"\.some\(\) predicate must return Boolean"):
+    with pytest.raises(ExpressionError, match=r"\.some\(\) predicate must return Boolean"):
         kernel(D_SF, lambda d: d.some(lambda k, v: v * 2.0))
 
 
 def test_reduce_accumulator_mismatch_is_named():
-    with pytest.raises(KernelTraceError, match=r"\.reduce\(\) step returns"):
+    with pytest.raises(ExpressionError, match=r"\.reduce\(\) step returns"):
         kernel(S_I, lambda s: s.reduce(0, lambda a, e: a > e))
 
 
 def test_reduce_on_an_array_points_at_fold():
-    with pytest.raises(KernelTraceError, match="fold"):
+    with pytest.raises(ExpressionError, match="fold"):
         kernel(A_F, lambda a: a.reduce(0.0, lambda acc, el: acc + el))
 
 
 def test_maximum_on_a_set_is_refused_not_silently_wrong():
     """EastSet has no eager `maximum`, so the traced surface must not invent
     one — the error should name the surface rather than mis-dispatch."""
-    with pytest.raises(KernelTraceError):
+    with pytest.raises(ExpressionError):
         kernel(S_I, lambda s: s.maximum())
 
 
@@ -357,7 +357,7 @@ def test_index_taking_predicate_traces_for_quantifiers():
 
 def _builtin_count(traced, param_type, builtin):
     """How many times ``builtin`` appears in the traced IR."""
-    from east.kernel import trace
+    from east.expression import trace
     from east.serialization.json import encode_json_for
     from east.types.type_of_type import IRType
 
@@ -379,7 +379,7 @@ def _builtin_count_inside_callbacks(traced, param_type, builtin):
     Walk the traced IR and count only occurrences under a Function node other
     than the kernel's own top-level one. Spliced -> >= 1; Let-bound -> 0.
     """
-    from east.kernel import trace
+    from east.expression import trace
     from east.types.values import is_east_struct, is_east_variant
 
     ir, _out, _binds = trace(traced, [param_type])
@@ -449,7 +449,7 @@ def test_a_struct_field_is_not_shadowed_by_a_method_of_the_same_name(field):
     """`sum`, `mean` and `count` are ordinary column names.
 
     `__getattr__` only fires when normal lookup FAILS, so every method on
-    KernelExpr shadows a struct field of the same name — and the failure is
+    Expression shadows a struct field of the same name — and the failure is
     opaque ("cannot lift python value of type method"). A Struct-typed
     expression has no collection methods at all, so the field must win.
     """
@@ -564,9 +564,9 @@ def test_find_uses_east_total_order_not_python_order():
 
 
 def test_find_target_type_mismatch_is_named():
-    with pytest.raises(KernelTraceError, match="same East type"):
+    with pytest.raises(ExpressionError, match="same East type"):
         kernel(A_ROW, lambda a: a.find_first("nope", lambda r: r.v))
-    with pytest.raises(KernelTraceError, match="same East type"):
+    with pytest.raises(ExpressionError, match="same East type"):
         kernel(A_ROW, lambda a: a.find_all(1, lambda r: r.g))
 
 
@@ -818,7 +818,7 @@ def test_group_reduce_is_the_one_spelling_and_group_fold_is_the_alias():
     _same_dict(d_alias, d.group_reduce(lambda k, v: k[:2], lambda _k: 0.0,
                                        lambda acc, k, v: acc + v))
     # an Array still has no group_fold
-    with pytest.raises(KernelTraceError, match="group_reduce"):
+    with pytest.raises(ExpressionError, match="group_reduce"):
         kernel(A_ROW, lambda a: a.group_fold(lambda r: r.g, lambda _k: 0, lambda acc, r: acc))
     with pytest.raises(AttributeError):
         _rows().group_fold(lambda r: r["g"], lambda _k: 0, lambda acc, r: acc)
@@ -829,12 +829,12 @@ def test_group_extremes_are_array_only_like_eager():
     must not invent one.
 
     `match=` matters here: without it the guard could be deleted outright and
-    the test would still pass on the unrelated `KernelTraceError` a later arity
+    the test would still pass on the unrelated `ExpressionError` a later arity
     failure raises.
     """
-    with pytest.raises(KernelTraceError, match=r"group_maximum\(\) on Set"):
+    with pytest.raises(ExpressionError, match=r"group_maximum\(\) on Set"):
         kernel(_G_SET, lambda s: s.group_maximum(lambda e: East.Integer.remainder(e, 3)))
-    with pytest.raises(KernelTraceError, match=r"group_minimum\(\) on Dict"):
+    with pytest.raises(ExpressionError, match=r"group_minimum\(\) on Dict"):
         kernel(D_SF, lambda d: d.group_minimum(lambda k, v: k))
 
 
@@ -1007,14 +1007,14 @@ def test_every_eager_group_call_is_accepted_by_its_traced_twin():
     one-directional: traced must require NO MORE arguments than eager, for
     every name on the surface.
 
-    It cannot be an equality: `KernelExpr` is a single class serving all three
+    It cannot be an equality: `Expression` is a single class serving all three
     tags, so Array's optional `key` is visible on a Set receiver too. Traced
     being LAXER is safe because the surplus form is rejected at trace time with
     a named error — pinned by the test below.
     """
     import inspect
 
-    from east.kernel import _TRACED_SURFACE, KernelExpr
+    from east.expression import _TRACED_SURFACE, Expression
     from east.types.values.collections import EastArray, EastDict, EastSet
 
     eager_cls = {"Array": EastArray, "Set": EastSet, "Dict": EastDict}
@@ -1023,7 +1023,7 @@ def test_every_eager_group_call_is_accepted_by_its_traced_twin():
         for name in names:
             if not name.startswith("group_"):
                 continue
-            traced_fn = getattr(KernelExpr, name, None)
+            traced_fn = getattr(Expression, name, None)
             eager_fn = getattr(eager_cls[tag], name, None)
             assert eager_fn is not None, f"{tag}.{name} has no eager twin"
 
@@ -1044,7 +1044,7 @@ def test_group_size_defaults_to_the_identity_key_on_an_array():
     got = _native(lambda a: a.group_size(), ArrayType(StringType), xs)
     assert dict(got.items()) == dict(xs.group_size().items()) == {"a": 2, "b": 1}
     # ...and Set/Dict require one, exactly as their eager twins do
-    with pytest.raises(KernelTraceError, match="needs a key function"):
+    with pytest.raises(ExpressionError, match="needs a key function"):
         kernel(_G_SET, lambda s: s.group_size())
 
 
@@ -1132,7 +1132,7 @@ def test_the_traced_group_surface_is_pinned_against_the_eager_one():
     element, so the only symptom is that the job takes hours (#524 measured
     6h02m for 729k rows). The list must only ever SHRINK.
     """
-    from east.kernel import _TRACED_SURFACE
+    from east.expression import _TRACED_SURFACE
     from east.types.values.collections import EastArray, EastDict, EastSet
 
     regressions, stale = [], []
@@ -1155,7 +1155,7 @@ def test_a_traced_group_name_always_has_an_eager_twin():
     A traced-only name is the divergence #526/#527 were about — code that
     works inside a kernel and fails outside it, or vice versa.
     """
-    from east.kernel import _TRACED_SURFACE
+    from east.expression import _TRACED_SURFACE
     from east.types.values.collections import EastArray, EastDict, EastSet
 
     orphans = []
@@ -1397,7 +1397,7 @@ def test_set_to_set_traces_like_its_eager_twin():
     s = EastSet(IntegerType, [1, 2, 3, 4])
     got = _native(lambda x: x.to_set(lambda e: East.Integer.remainder(e, 2)), _G_SET, s)
     assert sorted(got) == sorted(s.to_set(lambda e: East.Integer.remainder(e, 2))) == [0, 1]
-    with pytest.raises(KernelTraceError, match="needs a projection"):
+    with pytest.raises(ExpressionError, match="needs a projection"):
         kernel(_G_SET, lambda x: x.to_set())
 
 
@@ -1435,7 +1435,7 @@ def test_dict_union_overlap_without_a_combine_errors_on_both_paths():
 def test_a_set_union_still_takes_no_combine():
     """`union` now serves two containers; a Set has no values to combine, so
     passing one is a caller error rather than a silently ignored argument."""
-    with pytest.raises(KernelTraceError, match="takes no combine"):
+    with pytest.raises(ExpressionError, match="takes no combine"):
         kernel(_G_SET, lambda s: s.union(EastSet(IntegerType, [9]), lambda a, b: a))
 
 
@@ -1466,7 +1466,7 @@ def test_the_traced_surface_now_equals_the_eager_one():
     and the python mapping VIEWS `items`/`keys`/`values` — whose East-value
     spelling is `keys_set`, which does trace.
     """
-    from east.kernel import _TRACED_SURFACE, KernelExpr
+    from east.expression import _TRACED_SURFACE, Expression
     from east.types.values.collections import EastArray, EastDict, EastSet
 
     excluded = {
@@ -1495,7 +1495,7 @@ def test_the_traced_surface_now_equals_the_eager_one():
         # call stop tracing — silently, which is the failure mode this whole
         # surface exists to prevent. Compare the SIGNATURES too.
         for name in sorted(eager & set(_TRACED_SURFACE[tag])):
-            e_fn, t_fn = getattr(cls, name), getattr(KernelExpr, name, None)
+            e_fn, t_fn = getattr(cls, name), getattr(Expression, name, None)
             if t_fn is None or not callable(t_fn):
                 continue
             try:
@@ -1756,5 +1756,5 @@ def test_traced_to_set_accepts_the_out_keyword_its_eager_twin_takes():
     got = _native(lambda x: x.to_set(lambda e: East.Integer.remainder(e, 2), out=IntegerType), _G_SET, s)
     assert sorted(got) == sorted(s.to_set(lambda e: East.Integer.remainder(e, 2), out=IntegerType)) == [0, 1]
     # a contradictory out= is a caller error, not a silent relabel (#467)
-    with pytest.raises(KernelTraceError, match="out= declares"):
+    with pytest.raises(ExpressionError, match="out= declares"):
         kernel(_G_SET, lambda x: x.to_set(lambda e: East.Integer.remainder(e, 2), out=SetType(IntegerType)))

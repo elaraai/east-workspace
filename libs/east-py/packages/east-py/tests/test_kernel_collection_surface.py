@@ -33,7 +33,7 @@ from east import (
     array,
     kernel,
 )
-from east.kernel import _TRACED_SURFACE, KernelExpr, KernelTraceError, _var
+from east.expression import _TRACED_SURFACE, Expression, ExpressionError, _var
 
 Leg = StructType([("code", StringType), ("qty", FloatType)])
 Row = StructType([("id", StringType), ("csv", StringType),
@@ -167,12 +167,12 @@ def test_every_listed_method_resolves():
     from east.types.types import DictType, MatrixType, SetType, VectorType
 
     exprs = {
-        "Array": KernelExpr(_var("a", ArrayType(StringType)), ArrayType(StringType)),
-        "Set": KernelExpr(_var("s", SetType(StringType)), SetType(StringType)),
-        "Dict": KernelExpr(_var("d", DictType(StringType, IntegerType)),
+        "Array": Expression(_var("a", ArrayType(StringType)), ArrayType(StringType)),
+        "Set": Expression(_var("s", SetType(StringType)), SetType(StringType)),
+        "Dict": Expression(_var("d", DictType(StringType, IntegerType)),
                            DictType(StringType, IntegerType)),
-        "Vector": KernelExpr(_var("v", VectorType(FloatType)), VectorType(FloatType)),
-        "Matrix": KernelExpr(_var("m", MatrixType(FloatType)), MatrixType(FloatType)),
+        "Vector": Expression(_var("v", VectorType(FloatType)), VectorType(FloatType)),
+        "Matrix": Expression(_var("m", MatrixType(FloatType)), MatrixType(FloatType)),
     }
     for tag, expr in exprs.items():
         for name in _TRACED_SURFACE[tag]:
@@ -182,17 +182,17 @@ def test_every_listed_method_resolves():
 def test_unsupported_method_names_the_surface():
     # `append`/`insert` are ON the surface since #578 — these are names that
     # still are not, so the enumeration keeps being the thing that answers.
-    with pytest.raises(KernelTraceError, match="traced kernel surface.*supported.*concat"):
+    with pytest.raises(ExpressionError, match="traced kernel surface.*supported.*concat"):
         kernel(Row, lambda r: r["legs"].pop())
-    with pytest.raises(KernelTraceError, match="Set-typed.*union"):
+    with pytest.raises(ExpressionError, match="Set-typed.*union"):
         kernel(Row, lambda r: r["csv"].split(",").unique().add("x"))
-    with pytest.raises(KernelTraceError, match="Dict-typed.*keys_set"):
+    with pytest.raises(ExpressionError, match="Dict-typed.*keys_set"):
         kernel(Row, lambda r: r["csv"].split(",")
                .to_dict(lambda p: p, value=lambda p: p).swap("x", "y"))
 
 
 def test_mismatched_operand_type_is_named():
-    with pytest.raises(KernelTraceError, match="operand"):
+    with pytest.raises(ExpressionError, match="operand"):
         kernel(Row, lambda r: r["csv"].split(",").concat(
             r["legs"].map(lambda leg: leg["qty"])))
 

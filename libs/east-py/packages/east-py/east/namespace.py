@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from east.kernel.control import (
+from east.expression.control import (
     block,
     break_,
     continue_,
@@ -38,7 +38,25 @@ from east.kernel.control import (
     try_catch,
     while_,
 )
-from east.kernel.lift import if_else
+from east.expression.function import (
+    async_function as _async_function,
+)
+from east.expression.function import (
+    compile_ as _compile,
+)
+from east.expression.function import (
+    compile_async as _compile_async,
+)
+from east.expression.function import (
+    function as _function,
+)
+from east.expression.lift import if_else
+from east.expression.platform import (
+    async_platform as _async_platform,
+)
+from east.expression.platform import (
+    platform as _platform,
+)
 from east.types.types import (
     ArrayType,
     BlobType,
@@ -1394,6 +1412,16 @@ class _East:
     DateTime = _DateTimeNamespace()
     Vector = _VectorNamespace()
     Matrix = _MatrixNamespace()
+
+    # ── the strict expression builders (#625, east/expression/function.py) ──
+    # Name-for-name with the TypeScript trio: East.function / East.platform /
+    # East.compile author, declare and compile East programs from python.
+    function = staticmethod(_function)
+    asyncFunction = staticmethod(_async_function)  # noqa: N815 — TS parity name
+    platform = staticmethod(_platform)
+    asyncPlatform = staticmethod(_async_platform)  # noqa: N815 — TS parity name
+    compile = staticmethod(_compile)
+    compileAsync = staticmethod(_compile_async)  # noqa: N815 — TS parity name
 
     # ── block-level control flow (#578, east/kernel/control.py) ──────────
     # Attached rather than defined here: they are dual-mode expression

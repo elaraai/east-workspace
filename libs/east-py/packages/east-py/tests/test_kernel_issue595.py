@@ -35,7 +35,7 @@ from east import (
     IntegerType,
     kernel,
 )
-from east.kernel import trace
+from east.expression import trace
 from east.types.values import is_east_struct, is_east_variant
 
 INT_ARR = ArrayType(IntegerType)

@@ -18,7 +18,7 @@ from collections import OrderedDict
 from datetime import datetime as _pydatetime
 from typing import Any
 
-from east.kernel.control import (
+from east.expression.control import (
     block,
     break_,
     continue_,
@@ -32,11 +32,11 @@ from east.kernel.control import (
     try_catch,
     while_,
 )
-from east.kernel.errors import KernelTraceError
-from east.kernel.expr import KernelExpr
-from east.kernel.lift import _sequence_effect, greatest, if_else, least
-from east.kernel.nodes import _type_key
-from east.kernel.trace import trace
+from east.expression.errors import ExpressionError
+from east.expression.expr import Expression
+from east.expression.function import trace
+from east.expression.lift import _sequence_effect, greatest, if_else, least
+from east.expression.nodes import _type_key
 from east.types.types import EastType
 from east.types.values import EastArray
 
@@ -101,7 +101,7 @@ def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
     # and the wrappers that reference it must keep pushing down.
     if value is _sequence_effect:
         return True
-    if value is KernelExpr:
+    if value is Expression:
         return True
     # The `East` builtin namespace is a stateless singleton whose calls now
     # trace through the eager funnel (#393) — allowing it lets lambdas like
@@ -240,7 +240,7 @@ def _type_traceable(fn: Any) -> bool:
     semantics cannot be observed. Impure lambdas (mutable python captures,
     arbitrary callables) must keep the sampling fallback instead: sampling
     calls them with a REAL element, whereas tracing would run them on
-    ``KernelExpr`` proxies and leak those proxies into their python state
+    ``Expression`` proxies and leak those proxies into their python state
     (e.g. a closure list mutated per call).
     """
     return _eligible(fn, extra_allowed=_east_value_capture)
@@ -411,7 +411,7 @@ def try_push_down(east_fn: Any) -> Any | None:
     lambda once, not once per group.
 
     An ELIGIBLE callback — one that passes the purity gate and so LOOKS
-    native — that then fails to trace RAISES the ``KernelTraceError``
+    native — that then fails to trace RAISES the ``ExpressionError``
     instead of silently trampolining: the fallback's only symptom is that
     the job takes hours (#524), and every named trace failure has a traced
     spelling the error message points at. A lambda doing genuine python
@@ -498,7 +498,7 @@ def try_push_down(east_fn: Any) -> Any | None:
             # signature visible, so the loop and every callee run native.
             native = native.bind(*fn_binds)
         return remember(native)
-    except KernelTraceError as exc:
+    except ExpressionError as exc:
         # The loud contract: a pure-looking callback that fails to trace
         # raises — its silent fallback's only symptom is that the job takes
         # hours (#524). Genuinely-python lambdas fail the purity gate above

@@ -12,12 +12,16 @@ for python syntax that cannot be overloaded (``if``/``and``/``or``, iteration,
 from __future__ import annotations
 
 
-class KernelTraceError(TypeError):
+class ExpressionError(TypeError):
     """The lambda performed an operation that cannot be traced into East IR."""
 
 
-def _trace_bail(op: str) -> KernelTraceError:
-    return KernelTraceError(
+#: Deprecated alias of :class:`ExpressionError` (renamed in #625; one release).
+KernelTraceError = ExpressionError
+
+
+def _trace_bail(op: str) -> ExpressionError:
+    return ExpressionError(
         f"python `{op}` cannot be traced into an East kernel — use `&`, `|`, `~` for "
         "boolean logic and `East.if_else(cond, a, b)` for conditionals, or let the "
         "method "

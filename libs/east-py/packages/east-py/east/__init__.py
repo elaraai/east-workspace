@@ -45,7 +45,16 @@ with contextlib.suppress(ImportError):
 
 # --- public value/type surface (curated in east.types) ---
 import east.types as _types  # noqa: E402
-from east.kernel import KernelTraceError, greatest, if_else, kernel, least  # noqa: E402
+from east.expression import (  # noqa: E402
+    Expression,
+    ExpressionError,
+    KernelExpr,
+    KernelTraceError,
+    greatest,
+    if_else,
+    kernel,
+    least,
+)
 from east.namespace import East  # noqa: E402
 from east.runtime.compiler import (  # noqa: E402
     compile_from_beast2,
@@ -106,10 +115,14 @@ __all__ = [
     "platform_functions",
     "memoize",
     "configure_memo",
-    # kernels (IR push-down for eager methods)
-    "kernel",
+    # the expression builders (East.function / East.platform / East.compile)
+    "Expression",
+    "ExpressionError",
     "if_else",
     "greatest",
     "least",
+    # deprecated aliases (#625, one release)
+    "kernel",
+    "KernelExpr",
     "KernelTraceError",
 ]

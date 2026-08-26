@@ -162,18 +162,18 @@ cdef object _try_push_down_py(object east_fn):
 
     Returns the compiled kernel callable (whose function value can then be
     passed straight to the builtin — IR push-down), or None to use the
-    per-element trampoline. A ``KernelTraceError`` propagates: an ELIGIBLE
+    per-element trampoline. A ``ExpressionError`` propagates: an ELIGIBLE
     callback that failed to trace must surface loudly, never fall back
     silently (try_push_down's contract).
     """
-    from east.kernel import KernelTraceError
+    from east.expression import ExpressionError
     try:
-        from east.kernel import try_push_down
+        from east.expression import try_push_down
         result = try_push_down(east_fn)
         if result is not None:
             _eager_counters["pushdown_traced"] += 1
         return result
-    except KernelTraceError:
+    except ExpressionError:
         raise
     except BaseException:
         return None
@@ -181,7 +181,7 @@ cdef object _try_push_down_py(object east_fn):
 
 # ─── Precompiled kernels as eager callbacks (#409) ────────────────────────
 #
-# A callback that is ALREADY a compiled East function (east.kernel /
+# A callback that is ALREADY a compiled East function (east.expression /
 # compile_from_* / kernel.bind) carries its native function value on its
 # handle — re-tracing it can only fail (its python body is the bridge
 # closure), which used to drop the whole call to the per-element trampoline.
@@ -356,7 +356,7 @@ def _try_lower_call(object handle, tuple args):
     native Call instead of failing (#561). Returns the traced expression or
     None (no active trace / a shape lowering declines).
     """
-    from east.kernel import _lower_compiled_call
+    from east.expression import _lower_compiled_call
     return _lower_compiled_call(getattr(handle, "_fn_val", 0), handle._input_types,
                                 handle._output_type, args)
 
@@ -611,7 +611,7 @@ cdef uintptr_t _native_fn_val_ptr(object obj) noexcept:
     """The EastValue* of a compiled East function callable, or 0.
 
     Callables from _make_callable_from_value (compile_from_json/beast2/east
-    and east.kernel) carry an _eastc_handle whose _fn_val is the retained
+    and east.expression) carry an _eastc_handle whose _fn_val is the retained
     EAST_VAL_FUNCTION pointer — passing it straight to a callback builtin
     keeps the whole loop inside east-c (IR push-down, no trampoline).
     """
@@ -731,7 +731,7 @@ def call_builtin(str name, list type_params, list args, object output_type):
                     if isinstance(args[i], EastFunction):
                         c_args[i] = _callback_value_for(args[i], native_holds)
                     else:
-                        # Compiled East function (east.kernel / compile_from_*):
+                        # Compiled East function (east.expression / compile_from_*):
                         # pass its value through so the callback executes
                         # natively (no python). Anything else in a callback
                         # slot is a caller bug — wrapping it behind the invoke
@@ -1653,14 +1653,14 @@ def _invoke_c_function_py(uintptr_t val_ptr, list input_type_ptrs, uintptr_t out
             # lower the call to a native IR Call in the surrounding trace
             # (#561); when lowering declines, name the actual problem and
             # give try_push_down a cause it can decline-and-fall-back on.
-            from east.kernel import KernelExpr as _KernelExpr
+            from east.expression import Expression as _Expression
             found_proxy = False
             for j in range(nargs):
-                if isinstance(args[j], _KernelExpr):
+                if isinstance(args[j], _Expression):
                     found_proxy = True
                     break
             if found_proxy:
-                from east.kernel import _lower_compiled_call
+                from east.expression import _lower_compiled_call
                 lowered = _lower_compiled_call(val_ptr, input_type_ptrs,
                                                output_type_ptr, args)
                 if lowered is not None:
@@ -1781,10 +1781,10 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
             # caller is a traced lambda trying to RE-TRACE this compiled
             # function — name that instead of the opaque conversion error,
             # and give try_push_down a cause it can decline-and-fall-back on.
-            from east.kernel import KernelExpr as _KernelExpr
+            from east.expression import Expression as _Expression
             found_proxy = False
             for j in range(nargs):
-                if isinstance(args[j], _KernelExpr):
+                if isinstance(args[j], _Expression):
                     found_proxy = True
                     break
             if found_proxy:

@@ -204,7 +204,7 @@ class TestGracefulDegradation:
         # Lowering declines an arity mismatch, and push-down falls back rather
         # than raising (#558 C). The failure that surfaces is therefore the
         # sink's own runtime refusal from the per-element path — never a
-        # KernelTraceError about an untraceable lambda.
+        # ExpressionError about an untraceable lambda.
         core = _sink()
         emit = core.function_value([StringType, FloatType])
         with pytest.raises(EastError, match="emit: missing argument"):

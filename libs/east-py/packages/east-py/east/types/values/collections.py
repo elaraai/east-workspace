@@ -36,7 +36,7 @@ def _proxy_cls(name: str) -> Any:
     return cls
 
 
-# Cached KernelExpr class for the traced-argument pre-checks (#393): access
+# Cached Expression class for the traced-argument pre-checks (#393): access
 # methods called with a traced key/index re-route through the kernel tracer
 # (this collection lifts to a constant) instead of hitting the C container
 # protocol with an expression proxy.
@@ -47,15 +47,15 @@ def _is_traced(value: Any) -> bool:
     """Whether ``value`` is a traced kernel expression (lazy class cache)."""
     global _kernel_expr_cls
     if _kernel_expr_cls is None:
-        from east.kernel import KernelExpr
+        from east.expression import Expression
 
-        _kernel_expr_cls = KernelExpr
+        _kernel_expr_cls = Expression
     return isinstance(value, _kernel_expr_cls)
 
 
 def _lift_traced(value: Any) -> Any:
     """Lift an eager collection into a traced constant expression (#393)."""
-    from east.kernel import _lift
+    from east.expression import _lift
 
     return _lift(value)
 
@@ -66,7 +66,7 @@ def _kernel_out_type(fn, param_types=None):
 
     Two exact sources, tried in order:
 
-    1. a precompiled kernel (east.kernel / compile_from_* / ``.bind`` results)
+    1. a precompiled kernel (east.expression / compile_from_* / ``.bind`` results)
        carries its signature on ``_eastc_handle`` (#409);
     2. a traceable lambda gets one from the tracer, once ``param_types`` says
        what it will be called with.
@@ -85,7 +85,7 @@ def _kernel_out_type(fn, param_types=None):
     taken — how the callback actually EXECUTES is still decided independently
     by ``try_push_down``. It is attempted only when ``_type_traceable`` proves
     the run cannot corrupt python state: an impure lambda would receive
-    ``KernelExpr`` proxies and leak them into its captures (a closure list
+    ``Expression`` proxies and leak them into its captures (a closure list
     mutated per call ends up holding an expression, not a value), so impure
     callbacks keep the sampling fallback, which calls them with a REAL element.
     """
@@ -98,7 +98,7 @@ def _kernel_out_type(fn, param_types=None):
     if param_types is None or not callable(fn):
         return None
     try:
-        from east.kernel import _trace_out_type, _type_traceable
+        from east.expression import _trace_out_type, _type_traceable
 
         if not _type_traceable(fn):
             return None      # impure callback — the caller samples
@@ -265,7 +265,7 @@ def _require_operand_type(other, expected, op: str) -> None:
     ``EastSet`` and ``EastVector`` all expose ``element_type``, so an Array
     passed where a Set is expected compares equal on that attribute and east-c
     then decodes an array header as a b-tree (also exit 139). This is the rule
-    the traced twin ``KernelExpr._same_typed`` has always applied; the eager
+    the traced twin ``Expression._same_typed`` has always applied; the eager
     path now matches it.
 
     ``type_of`` is O(1) on a C-backed collection. Operands it cannot type — a
@@ -772,7 +772,7 @@ class EastArray(MutableSequence, Generic[T]):
         Returns:
             A new array of the matching elements in original order.
         """
-        from east.kernel import KernelExpr
+        from east.expression import Expression
         from east.types.types import ArrayType, BooleanType, IntegerType
 
         # bool() coerces python truthiness only — a traced predicate stays a
@@ -781,7 +781,7 @@ class EastArray(MutableSequence, Generic[T]):
 
         def _pred(el, idx):  # noqa: ANN001, ANN202
             r = predicate(el, idx) if wants_idx else predicate(el)
-            return r if isinstance(r, KernelExpr) else bool(r)
+            return r if isinstance(r, Expression) else bool(r)
 
         callback = EastFunction(_mark_kernel(_pred, predicate), [self.element_type, IntegerType], BooleanType)
         return _call_builtin("ArrayFilter", [self.element_type], [self, callback], ArrayType(self.element_type))
@@ -1022,7 +1022,7 @@ class EastArray(MutableSequence, Generic[T]):
         Returns:
             None.
         """
-        from east.kernel import _sequence_effect
+        from east.expression import _sequence_effect
         from east.types.types import IntegerType, NullType
 
         run = (lambda el, idx: _sequence_effect(fn(el, idx))) if _callback_arity(fn, 1) >= 2 \
@@ -1041,7 +1041,7 @@ class EastArray(MutableSequence, Generic[T]):
             A dict mapping each group key to an array of its elements, with keys
             in East total order.
         """
-        from east.kernel import _append_kernel, _empty_array_kernel, try_push_down
+        from east.expression import _append_kernel, _empty_array_kernel, try_push_down
         from east.types.types import ArrayType, DictType, IntegerType
 
         bucket_type = ArrayType(self.element_type)
@@ -1069,7 +1069,7 @@ class EastArray(MutableSequence, Generic[T]):
                 DictType(k2, bucket_type),
             )
 
-        from east.kernel import block
+        from east.expression import block
 
         # Reached when the KEY fell back to python. The accumulation itself
         # still traces: `block` sequences the append and yields the
@@ -1161,7 +1161,7 @@ class EastArray(MutableSequence, Generic[T]):
         """Largest element (or ``by``-projection) by East total order (native
         ArrayMapReduce). Raises on an empty array, like the TS ``maximum``.
         """
-        from east.kernel import greatest
+        from east.expression import greatest
         from east.types.types import IntegerType
 
         t2 = (_kernel_out_type(by, _elem_in(by, self.element_type)) or _ev.type_of(_call_elem(by, self[0])) if by is not None else self.element_type) if len(self) else self.element_type
@@ -1175,7 +1175,7 @@ class EastArray(MutableSequence, Generic[T]):
 
     def minimum(self, by: Any = None) -> Any:
         """Smallest element (or projection) by East total order; raises on empty."""
-        from east.kernel import least
+        from east.expression import least
         from east.types.types import IntegerType
 
         t2 = (_kernel_out_type(by, _elem_in(by, self.element_type)) or _ev.type_of(_call_elem(by, self[0])) if by is not None else self.element_type) if len(self) else self.element_type
@@ -1213,7 +1213,7 @@ class EastArray(MutableSequence, Generic[T]):
 
     def _first_map_bool(self, want: bool, pred: Any) -> bool:
         """Shared native short-circuit scan: some(True) on the deciding element."""
-        from east.kernel import KernelExpr, if_else
+        from east.expression import Expression, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import BooleanType, IntegerType, NullType, VariantType
@@ -1222,10 +1222,10 @@ class EastArray(MutableSequence, Generic[T]):
 
         def _probe(el, i):  # noqa: ANN001, ANN202
             r = pred(el, i) if wants_idx else pred(el)
-            decided = (r if isinstance(r, KernelExpr) else bool(r)) if want else (
-                ~r if isinstance(r, KernelExpr) else not bool(r)
+            decided = (r if isinstance(r, Expression) else bool(r)) if want else (
+                ~r if isinstance(r, Expression) else not bool(r)
             )
-            if isinstance(decided, KernelExpr):
+            if isinstance(decided, Expression):
                 return if_else(decided, _some(True), _none)
             return _some(True) if decided else _none
 
@@ -1262,7 +1262,7 @@ class EastArray(MutableSequence, Generic[T]):
         """Indices whose element (or projection) equals ``value`` (native
         ArrayFilterMap), in order.
         """
-        from east.kernel import KernelExpr, if_else
+        from east.expression import Expression, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import ArrayType, IntegerType, NullType, VariantType
@@ -1272,7 +1272,7 @@ class EastArray(MutableSequence, Generic[T]):
 
         def _probe(el, i):  # noqa: ANN001, ANN202
             r = (proj(el, i) if wants_idx else proj(el)) == value
-            if isinstance(r, KernelExpr):
+            if isinstance(r, Expression):
                 return if_else(r, _some(i), _none)
             return _some(i) if r else _none
 
@@ -1374,7 +1374,7 @@ class EastArray(MutableSequence, Generic[T]):
         return sums
 
     def _group_extreme(self, key: Any, by: Any, pick: Any) -> EastDict:
-        from east.kernel import _none_init_kernel
+        from east.expression import _none_init_kernel
         from east.types.construct import some as _some
         from east.types.types import DictType, IntegerType, OptionType
 
@@ -1394,7 +1394,7 @@ class EastArray(MutableSequence, Generic[T]):
         opt_t = OptionType(p_t)
         key_cb = EastFunction(_idx_cb(key), [self.element_type, IntegerType], k2)
         p_wants = _callback_arity(proj, 1) >= 2
-        # `.unwrap_or` is dual-mode since #453 (KernelExpr and eager Options
+        # `.unwrap_or` is dual-mode since #453 (Expression and eager Options
         # both have it), so the fold body is traceable — no import-laden
         # helper in the closure, which would fail the purity scan (#470).
         fold_cb = EastFunction(
@@ -1413,13 +1413,13 @@ class EastArray(MutableSequence, Generic[T]):
 
     def group_maximum(self, key: Any, by: Any = None) -> EastDict:
         """Largest element/projection per group (East total order, native)."""
-        from east.kernel import greatest
+        from east.expression import greatest
 
         return self._group_extreme(key, by, greatest)
 
     def group_minimum(self, key: Any, by: Any = None) -> EastDict:
         """Smallest element/projection per group (East total order, native)."""
-        from east.kernel import least
+        from east.expression import least
 
         return self._group_extreme(key, by, least)
 
@@ -1441,7 +1441,7 @@ class EastArray(MutableSequence, Generic[T]):
                 python callback per group per segment — O(rows) trampolines
                 on a file whose segments are small (#470).
         """
-        from east.kernel import KernelExpr, if_else
+        from east.expression import Expression, if_else
         from east.namespace import East
         from east.types.coercion import coerce_to
         from east.types.construct import none as _none
@@ -1471,7 +1471,7 @@ class EastArray(MutableSequence, Generic[T]):
             # structured type, which python `==` does not guarantee.
             r = East.equal(p_t, pf(el, i), value)
             gi = i + base if base else i
-            if isinstance(r, KernelExpr):
+            if isinstance(r, Expression):
                 return if_else(r, _some({"i": gi, "k": kf(el, i)}), _none)
             return _some({"i": gi, "k": kf(el, i)}) if r else _none
 
@@ -1497,7 +1497,7 @@ class EastArray(MutableSequence, Generic[T]):
             in row order. Every group the array has appears, so a group with no
             match maps to an empty array (TS ``groupFindAll`` parity).
         """
-        from east.kernel import _empty_array_kernel
+        from east.expression import _empty_array_kernel
         from east.types.types import ArrayType, IntegerType
 
         # A typeable key fixes the GROUP KEY type even with no rows; the value
@@ -1554,7 +1554,7 @@ class EastArray(MutableSequence, Generic[T]):
         this traces instead of trampolining. Shared with the beast2 file
         surface, which merges per-segment pairs under the same rule.
         """
-        from east.kernel import if_else
+        from east.expression import if_else
         from east.namespace import East
 
         p_t = next(f["type"] for f in pair_t.value if f["name"] == "by")
@@ -1659,7 +1659,7 @@ class EastArray(MutableSequence, Generic[T]):
 
         Without ``value`` this is ``group_by``.
         """
-        from east.kernel import _append_field_kernel, _empty_array_kernel
+        from east.expression import _append_field_kernel, _empty_array_kernel
         from east.types.types import ArrayType, DictType, IntegerType
 
         if value is None:
@@ -1683,7 +1683,7 @@ class EastArray(MutableSequence, Generic[T]):
 
     def group_to_sets(self, key: Any, value: Any = None) -> EastDict:
         """Sets of ``value(element)`` per group key (native throughout)."""
-        from east.kernel import _empty_set_kernel, _set_insert_field_kernel
+        from east.expression import _empty_set_kernel, _set_insert_field_kernel
         from east.types.types import DictType, IntegerType, SetType
 
         val = value if value is not None else (lambda el: el)
@@ -1709,7 +1709,7 @@ class EastArray(MutableSequence, Generic[T]):
         Without ``combine`` a duplicate inner key errors (TS parity); with it,
         collisions resolve as ``combine(existing, incoming)``.
         """
-        from east.kernel import _dict_insert_fields_kernel, _empty_dict_kernel
+        from east.expression import _dict_insert_fields_kernel, _empty_dict_kernel
         from east.types.types import DictType, IntegerType
 
         val = value if value is not None else (lambda el: el)
@@ -1737,7 +1737,7 @@ class EastArray(MutableSequence, Generic[T]):
         inner = combine if _callback_arity(combine, 2) >= 3 \
             else (lambda ex, inc, _key: combine(ex, inc))
 
-        from east.kernel import block
+        from east.expression import block
 
         # `insert_or_update` gained a traced spelling in #578, so this fold no
         # longer has to run per element in python. `block` sequences the
@@ -2150,7 +2150,7 @@ class EastSet(Generic[T]):
         Args:
             fn: ``fn(element)``; its return value is discarded.
         """
-        from east.kernel import _sequence_effect
+        from east.expression import _sequence_effect
         from east.types.types import NullType
 
         callback = EastFunction(lambda el: _sequence_effect(fn(el)), [self.element_type], NullType)
@@ -2272,12 +2272,12 @@ class EastSet(Generic[T]):
         Returns:
             A new set of the elements for which ``predicate`` is true.
         """
-        from east.kernel import KernelExpr
+        from east.expression import Expression
         from east.types.types import BooleanType, SetType
 
         def _pred(el):  # noqa: ANN001, ANN202
             r = predicate(el)
-            return r if isinstance(r, KernelExpr) else bool(r)
+            return r if isinstance(r, Expression) else bool(r)
 
         callback = EastFunction(_mark_kernel(_pred, predicate), [self.element_type], BooleanType)
         return _call_builtin("SetFilter", [self.element_type], [self, callback], SetType(self.element_type))
@@ -2520,17 +2520,17 @@ class EastSet(Generic[T]):
         return total / float(n)
 
     def _first_map_bool(self, want: bool, pred: Any) -> bool:
-        from east.kernel import KernelExpr, if_else
+        from east.expression import Expression, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import BooleanType, NullType, VariantType
 
         def _probe(el):  # noqa: ANN001, ANN202
             r = pred(el)
-            decided = (r if isinstance(r, KernelExpr) else bool(r)) if want else (
-                ~r if isinstance(r, KernelExpr) else not bool(r)
+            decided = (r if isinstance(r, Expression) else bool(r)) if want else (
+                ~r if isinstance(r, Expression) else not bool(r)
             )
-            if isinstance(decided, KernelExpr):
+            if isinstance(decided, Expression):
                 return if_else(decided, _some(True), _none)
             return _some(True) if decided else _none
 
@@ -2953,17 +2953,17 @@ class EastDict(Generic[K, V]):
         ``(key, value)`` like every other eager Dict callback, while the
         builtin's own slot is ``(value, key)``.
         """
-        from east.kernel import KernelExpr, if_else
+        from east.expression import Expression, if_else
         from east.types.construct import none as _none
         from east.types.construct import some as _some
         from east.types.types import BooleanType, NullType, VariantType
 
         def _probe(v, k):  # noqa: ANN001, ANN202
             r = pred(k, v)
-            decided = (r if isinstance(r, KernelExpr) else bool(r)) if want else (
-                ~r if isinstance(r, KernelExpr) else not bool(r)
+            decided = (r if isinstance(r, Expression) else bool(r)) if want else (
+                ~r if isinstance(r, Expression) else not bool(r)
             )
-            if isinstance(decided, KernelExpr):
+            if isinstance(decided, Expression):
                 return if_else(decided, _some(True), _none)
             return _some(True) if decided else _none
 
@@ -3211,7 +3211,7 @@ class EastDict(Generic[K, V]):
                 combine_ptr = fn_val
                 keep_alive = combine
             else:
-                from east.kernel import try_push_down
+                from east.expression import try_push_down
 
                 native = try_push_down(
                     EastFunction(combine, [self.value_type, self.value_type], self.value_type)
@@ -3594,7 +3594,7 @@ class EastDict(Generic[K, V]):
                 key order under East's total ordering. Its return value is
                 ignored.
         """
-        from east.kernel import _sequence_effect
+        from east.expression import _sequence_effect
         from east.types.types import NullType
 
         callback = EastFunction(lambda v, k: _sequence_effect(fn(k, v)), [self.value_type, self.key_type], NullType)
@@ -3642,12 +3642,12 @@ class EastDict(Generic[K, V]):
         Returns:
             A new dict containing the retained entries in key order.
         """
-        from east.kernel import KernelExpr
+        from east.expression import Expression
         from east.types.types import BooleanType, DictType
 
         def _pred(v, k):  # noqa: ANN001, ANN202
             r = predicate(k, v)
-            return r if isinstance(r, KernelExpr) else bool(r)
+            return r if isinstance(r, Expression) else bool(r)
 
         # No _mark_kernel: the wrapper SWAPS (k, v) — a marked kernel would be
         # invoked with the builtin's (value, key) order. Argument-swapped

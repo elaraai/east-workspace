@@ -4,7 +4,7 @@
 #
 """IR push-down tests: traced kernels + eager-method integration (issue #256).
 
-``east.kernel`` traces pure python lambdas into East IR compiled by east-c;
+``east.expression`` traces pure python lambdas into East IR compiled by east-c;
 eager collection methods push callbacks down automatically when the purity
 gate allows, and fall back to the per-element python path otherwise.
 """
@@ -13,9 +13,9 @@ import pytest
 
 from east import (
     EastBlob,
+    ExpressionError,
     FloatType,
     IntegerType,
-    KernelTraceError,
     OptionType,
     StringType,
     StructType,
@@ -24,7 +24,7 @@ from east import (
     none,
     some,
 )
-from east.kernel import _eligible, try_push_down
+from east.expression import _eligible, try_push_down
 from east.types.values.structural import EastFunction
 
 ROW = StructType([("sku", StringType), ("price", FloatType), ("qty", FloatType)])
@@ -69,7 +69,7 @@ def test_kernel_integer_and_string_ops():
 
 
 def test_kernel_untraceable_raises():
-    with pytest.raises(KernelTraceError, match="cannot be traced"):
+    with pytest.raises(ExpressionError, match="cannot be traced"):
         kernel(ROW, lambda r: r.price if r.qty > 0 else 0.0)
 
 
@@ -79,78 +79,14 @@ def test_kernel_out_mismatch_raises():
 
 
 def test_kernel_type_errors_are_loud():
-    with pytest.raises(KernelTraceError, match="no field"):
+    with pytest.raises(ExpressionError, match="no field"):
         kernel(ROW, lambda r: r.missing)
-    with pytest.raises(KernelTraceError, match="coercion"):
+    with pytest.raises(ExpressionError, match="coercion"):
         kernel(ROW, lambda r: r.price + r.sku.length())
 
 
-# ─── #624: operator forks raise instead of silently diverging ───────────────
-#
-# `//` (python floors, IntegerDivide truncates), `%` (python takes the sign of
-# the divisor, IntegerRemainder/FloatRemainder the dividend), Integer `**`
-# (python promotes a negative exponent to float) and a negative literal index
-# (python counts from the end) mean something different per element than the
-# IR they traced to — and the purity gate picked a side silently. These are
-# AUTHORING-SPELLING pins only: each python spelling raises at trace time and
-# the named East twin is accepted by the tracer. The twins' VALUE semantics
-# (IntegerDivide/IntegerRemainder/IntegerPow/FloatRemainder/ArrayGet) are
-# pinned by the TS compliance corpus, not here.
-
-
-def test_operator_fork_spellings_raise_with_their_named_twins():
-    from east import East
-
-    for fn, twin in [
-        (lambda v: v // 3, r"East\.Integer\.divide"),
-        (lambda v: 10 // v, r"East\.Integer\.divide"),
-        (lambda v: v % 3, r"East\.Integer\.remainder"),
-        (lambda v: 10 % v, r"East\.Integer\.remainder"),
-        (lambda v: v ** 2, r"East\.Integer\.pow"),
-        (lambda v: 2 ** v, r"East\.Integer\.pow"),
-        # `/` on Integers already raised; its fix-it must now name the
-        # spelling that works, not the `//` that raises too
-        (lambda v: v / 3, r"East\.Integer\.divide"),
-    ]:
-        with pytest.raises(KernelTraceError, match=twin):
-            kernel(IntegerType, fn)
-    with pytest.raises(KernelTraceError, match=r"East\.Float\.remainder"):
-        kernel(FloatType, lambda v: v % 3.0)
-    # ...and the tracer accepts each named twin (the corpus pins the values)
-    assert kernel(IntegerType, lambda v: East.Integer.divide(v, 3))(-10) == -3
-    assert kernel(IntegerType, lambda v: East.Integer.remainder(v, 3))(-10) == -1
-    assert kernel(IntegerType, lambda v: East.Integer.pow(v, -1))(2) == 0
-    assert kernel(FloatType, lambda v: East.Float.remainder(v, 3.0))(-10.0) == -1.0
-    # Float ** coincides with python on ordinary inputs, so it stays
-    assert kernel(FloatType, lambda v: v ** 2.0)(3.0) == 9.0
-
-
-def test_negative_array_index_raises_and_the_spelled_form_works():
-    from east.types.types import ArrayType, DictType
-
-    t = ArrayType(IntegerType)
-    with pytest.raises(KernelTraceError, match=r"a\.get\(a\.size\(\) - 1\)"):
-        kernel(t, lambda a: a[-1])
-    assert kernel(t, lambda a: a.get(a.size() - 1))([10, 20, 30]) == 30
-    assert kernel(t, lambda a: a[1])([10, 20, 30]) == 20
-    # a Dict's Integer keys are real keys, so a negative KEY stays legal
-    from east import EastDict
-
-    dt = DictType(IntegerType, IntegerType)
-    assert kernel(dt, lambda d: d[-1])(EastDict(IntegerType, IntegerType, {-1: 42})) == 42
-
-
-def test_operator_fork_raises_reach_the_eager_path():
-    # The defect the raises close: the same lambda computed DIFFERENT values
-    # depending on whether the purity gate traced it or fell back to python.
-    # An eligible callback must now surface the fork loudly, not pick a side.
-    from east import EastArray
-
-    arr = EastArray(IntegerType, [-10, 10])
-    with pytest.raises(KernelTraceError, match=r"East\.Integer\.remainder"):
-        arr.map(lambda x: x % 3)
-    with pytest.raises(KernelTraceError, match=r"East\.Integer\.divide"):
-        arr.map(lambda x: x // 3)
+# The #624 operator-fork pins live in test_expression_operators.py, spelled
+# with the East.function builder (#625).
 
 
 # ─── the purity gate ────────────────────────────────────────────────────────
@@ -340,7 +276,7 @@ def test_kernel_bare_none_reports_missing_type_context():
     # A bare `none` has no type to infer — the type-from-context diagnostic must
     # fire. It was dead code because `none.value` is east_null, not Python None,
     # so callers got a generic "cannot lift" instead.
-    with pytest.raises(KernelTraceError, match="needs a type from context"):
+    with pytest.raises(ExpressionError, match="needs a type from context"):
         kernel(ROW, lambda r: none)
 
 
@@ -496,9 +432,9 @@ def test_funnel_stays_eager_outside_kernels():
 
 
 def test_untraceable_ops_still_fail_loud():
-    with pytest.raises(KernelTraceError):
+    with pytest.raises(ExpressionError):
         kernel([SROW], lambda r: r.data.split("|").map(lambda v: len(v)))
-    with pytest.raises(KernelTraceError):
+    with pytest.raises(ExpressionError):
         kernel([SROW], lambda r: r.id.try_parse("not a type"))
 
 
@@ -558,11 +494,11 @@ def test_captured_set_membership():
 
 
 def test_new_op_errors_are_loud_and_specific():
-    with pytest.raises(KernelTraceError, match="predicate must return Boolean"):
+    with pytest.raises(ExpressionError, match="predicate must return Boolean"):
         kernel([SROW], lambda r: r.data.split("|").filter(lambda v: v.length()))
-    with pytest.raises(KernelTraceError, match="accumulator"):
+    with pytest.raises(ExpressionError, match="accumulator"):
         kernel([SROW], lambda r: r.data.split("|").fold(0, lambda acc, v: v))
-    with pytest.raises(KernelTraceError, match="string_join"):
+    with pytest.raises(ExpressionError, match="string_join"):
         kernel([SROW], lambda r: r.data.split("|").map(lambda v: v.length()).string_join(","))
 
 
@@ -580,7 +516,7 @@ def test_method_string_lambda_pushes_down_automatically():
     fn = lambda r: r.sku.substring(0, 1)  # noqa: E731
     pushed = try_push_down(EastFunction(fn, [ROW], StringType))
     assert pushed is not None
-    # KernelExpr-only methods need out= (without it, map samples the lambda
+    # Expression-only methods need out= (without it, map samples the lambda
     # on a decoded python value to infer the type - str has no .substring)
     assert list(_rows().map(fn, out=StringType)) == ["A", "B", "A"]
 
@@ -597,7 +533,7 @@ def test_captured_collection_does_not_auto_push_down():
 
 def test_captured_constants_hoist_once_per_kernel():
     from east import EastDict
-    from east.kernel import trace
+    from east.expression import trace
 
     table = EastDict(StringType, StringType, {"a": "A"})
     # trace() returns a homoiconic IR value (an EastVariant conforming to
@@ -617,7 +553,7 @@ def test_captured_constants_hoist_once_per_kernel():
 
 def test_hoisted_constant_inside_nested_lambda_still_binds_once():
     from east import EastDict
-    from east.kernel import trace
+    from east.expression import trace
 
     table = EastDict(StringType, StringType, {"a": "A"})
     ir, _t, _binds = trace(
@@ -827,7 +763,7 @@ def test_first_map_traces_and_matches_eager():
 
 
 def test_first_map_emits_firstmap_builtin_not_fold():
-    from east.kernel import trace
+    from east.expression import trace
 
     ir, _t, _binds = trace(
         lambda r: r.data.split("|").first_map(lambda v: if_else(v == "x", some(v), none)),
@@ -881,7 +817,7 @@ def test_quantifiers_short_circuit_like_eager():
 
 
 def test_quantifier_error_message_unchanged():
-    with pytest.raises(KernelTraceError, match="predicate must return Boolean"):
+    with pytest.raises(ExpressionError, match="predicate must return Boolean"):
         kernel([SROW], lambda r: r.data.split("|").some(lambda v: v.length()))
 
 
@@ -894,7 +830,7 @@ def test_first_map_out_pins_bare_none():
 
 
 def test_first_map_requires_option_result():
-    with pytest.raises(KernelTraceError, match="must return some"):
+    with pytest.raises(ExpressionError, match="must return some"):
         kernel([SROW], lambda r: r.data.split("|").first_map(lambda v: v.length()))
 
 
@@ -918,7 +854,7 @@ def test_bind_multiple_trailing_parameters():
 
 
 def test_shared_subexpression_binds_once():
-    from east.kernel import trace
+    from east.expression import trace
 
     def build(r):
         fields = r.data.split("|")
@@ -938,7 +874,7 @@ def test_shared_subexpression_binds_once():
 
 
 def test_loop_invariant_shared_expr_hoists_out_of_inner_lambda():
-    from east.kernel import trace
+    from east.expression import trace
 
     def build(r):
         prefix = r.id.substring(0, 2)  # outer-param expr ...

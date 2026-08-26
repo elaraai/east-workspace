@@ -40,7 +40,7 @@ from east import (
     if_else,
     kernel,
 )
-from east.kernel import greatest
+from east.expression import greatest
 from east.runtime.compiler import eager_stats
 from east.types.values.collections import EastDict, EastSet
 
@@ -93,7 +93,7 @@ def test_forward_fill_paths_agree_and_run_native():
     step = kernel([StringType, StringType], _ffill_step)
     assert list(arr.scan("seed", step)) == expected
 
-    # kernel() raises KernelTraceError rather than falling back, so this
+    # kernel() raises ExpressionError rather than falling back, so this
     # compiling at all proves scan is on the traced surface.
     k = kernel(ArrayType(StringType), lambda a: a.scan("seed", _ffill_step))
     assert list(k(arr)) == expected

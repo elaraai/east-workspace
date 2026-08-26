@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from east.kernel.errors import KernelTraceError
-from east.kernel.lift import _lift
-from east.kernel.nodes import _builtin, _k_ifelse
-from east.kernel.ops import _ExprBase
+from east.expression.errors import ExpressionError
+from east.expression.lift import _lift
+from east.expression.nodes import _builtin, _k_ifelse
+from east.expression.ops import _ExprBase
 from east.types.types import BooleanType, FloatType, IntegerType, StringType
 
 if TYPE_CHECKING:
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
 _ARITH = {
     "add": ("IntegerAdd", "FloatAdd"),
@@ -68,98 +68,98 @@ class _ScalarOps(_ExprBase):
 
     # ── arithmetic ─────────────────────────────────────────────────────
 
-    def _arith(self, op: str, other: Any, reflected: bool = False) -> KernelExpr:
+    def _arith(self, op: str, other: Any, reflected: bool = False) -> Expression:
         other = _lift(other, hint=self.east_type)
         lhs, rhs = (other, self) if reflected else (self, other)
         tag = lhs.east_type.type
         if tag != rhs.east_type.type or tag not in ("Integer", "Float"):
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"arithmetic between {lhs.east_type.type} and {rhs.east_type.type} — East "
                 "has no implicit numeric coercion; convert explicitly with .to_float()"
             )
         name = _ARITH[op][0 if tag == "Integer" else 1]
         return self._expr(_builtin(name, lhs.east_type, [], [lhs.ir, rhs.ir]), lhs.east_type)
 
-    def __add__(self, other: Any) -> KernelExpr:
+    def __add__(self, other: Any) -> Expression:
         if self.east_type.type == "String":
             rhs = _lift(other)
             if rhs.east_type.type != "String":
-                raise KernelTraceError("string concatenation needs a String on both sides")
+                raise ExpressionError("string concatenation needs a String on both sides")
             return self._expr(
                 _builtin("StringConcat", StringType, [], [self.ir, rhs.ir]), StringType
             )
         return self._arith("add", other)
 
-    def __radd__(self, other: Any) -> KernelExpr:
+    def __radd__(self, other: Any) -> Expression:
         if self.east_type.type == "String":
             return _lift(other).__add__(self)
         return self._arith("add", other, reflected=True)
 
-    def __sub__(self, other: Any) -> KernelExpr:
+    def __sub__(self, other: Any) -> Expression:
         return self._arith("sub", other)
 
-    def __rsub__(self, other: Any) -> KernelExpr:
+    def __rsub__(self, other: Any) -> Expression:
         return self._arith("sub", other, reflected=True)
 
-    def __mul__(self, other: Any) -> KernelExpr:
+    def __mul__(self, other: Any) -> Expression:
         return self._arith("mul", other)
 
-    def __rmul__(self, other: Any) -> KernelExpr:
+    def __rmul__(self, other: Any) -> Expression:
         return self._arith("mul", other, reflected=True)
 
-    def __mod__(self, other: Any) -> KernelExpr:
-        raise KernelTraceError(_MOD_FORK)
+    def __mod__(self, other: Any) -> Expression:
+        raise ExpressionError(_MOD_FORK)
 
-    def __rmod__(self, other: Any) -> KernelExpr:
-        raise KernelTraceError(_MOD_FORK)
+    def __rmod__(self, other: Any) -> Expression:
+        raise ExpressionError(_MOD_FORK)
 
-    def __pow__(self, other: Any) -> KernelExpr:
+    def __pow__(self, other: Any) -> Expression:
         if self.east_type.type == "Integer":
-            raise KernelTraceError(_INT_POW_FORK)
+            raise ExpressionError(_INT_POW_FORK)
         return self._arith("pow", other)
 
-    def __rpow__(self, other: Any) -> KernelExpr:
+    def __rpow__(self, other: Any) -> Expression:
         if self.east_type.type == "Integer":
-            raise KernelTraceError(_INT_POW_FORK)
+            raise ExpressionError(_INT_POW_FORK)
         return self._arith("pow", other, reflected=True)
 
-    def __truediv__(self, other: Any) -> KernelExpr:
+    def __truediv__(self, other: Any) -> Expression:
         if self.east_type.type == "Integer":
-            raise KernelTraceError(
+            raise ExpressionError(
                 "`/` on East Integers is ambiguous — call East.Integer.divide(a, b) "
                 "for truncating integer division or .to_float() for float division"
             )
         other = _lift(other, hint=self.east_type)
         if other.east_type.type != "Float":
-            raise KernelTraceError("float division needs Float on both sides")
+            raise ExpressionError("float division needs Float on both sides")
         return self._expr(_builtin("FloatDivide", FloatType, [], [self.ir, other.ir]), FloatType)
 
-    def __rtruediv__(self, other: Any) -> KernelExpr:
+    def __rtruediv__(self, other: Any) -> Expression:
         return _lift(other, hint=self.east_type).__truediv__(self)
 
-    def __floordiv__(self, other: Any) -> KernelExpr:
-        raise KernelTraceError(_FLOORDIV_FORK)
+    def __floordiv__(self, other: Any) -> Expression:
+        raise ExpressionError(_FLOORDIV_FORK)
 
-    def __rfloordiv__(self, other: Any) -> KernelExpr:
-        raise KernelTraceError(_FLOORDIV_FORK)
+    def __rfloordiv__(self, other: Any) -> Expression:
+        raise ExpressionError(_FLOORDIV_FORK)
 
-    def __neg__(self) -> KernelExpr:
+    def __neg__(self) -> Expression:
         tag = self.east_type.type
         if tag == "Integer":
             return self._expr(_builtin("IntegerNegate", IntegerType, [], [self.ir]), IntegerType)
         if tag == "Float":
             return self._expr(_builtin("FloatNegate", FloatType, [], [self.ir]), FloatType)
-        raise KernelTraceError(f"unary minus on {tag}")
+        raise ExpressionError(f"unary minus on {tag}")
 
-    def __abs__(self) -> KernelExpr:
+    def __abs__(self) -> Expression:
         return self.abs()
 
     # ── comparisons (East total order, generic over the operand type) ──
 
-    def _compare(self, op: str, other: Any) -> KernelExpr:
+    def _compare(self, op: str, other: Any) -> Expression:
         other = _lift(other, hint=self.east_type)
         if self.east_type != other.east_type:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"comparison between different East types "
                 f"({self.east_type.type} vs {other.east_type.type})"
             )
@@ -168,75 +168,75 @@ class _ScalarOps(_ExprBase):
             BooleanType,
         )
 
-    def __eq__(self, other: Any) -> KernelExpr:  # type: ignore[override]
+    def __eq__(self, other: Any) -> Expression:  # type: ignore[override]
         return self._compare("eq", other)
 
-    def __ne__(self, other: Any) -> KernelExpr:  # type: ignore[override]
+    def __ne__(self, other: Any) -> Expression:  # type: ignore[override]
         return self._compare("ne", other)
 
-    def __lt__(self, other: Any) -> KernelExpr:
+    def __lt__(self, other: Any) -> Expression:
         return self._compare("lt", other)
 
-    def __le__(self, other: Any) -> KernelExpr:
+    def __le__(self, other: Any) -> Expression:
         return self._compare("le", other)
 
-    def __gt__(self, other: Any) -> KernelExpr:
+    def __gt__(self, other: Any) -> Expression:
         return self._compare("gt", other)
 
-    def __ge__(self, other: Any) -> KernelExpr:
+    def __ge__(self, other: Any) -> Expression:
         return self._compare("ge", other)
 
     # ── boolean algebra (& | ^ ~ — python `and`/`or`/`not` can't overload) ──
 
-    def _bool_op(self, name: str, other: Any) -> KernelExpr:
+    def _bool_op(self, name: str, other: Any) -> Expression:
         other = _lift(other)
         if self.east_type.type != "Boolean" or other.east_type.type != "Boolean":
-            raise KernelTraceError(f"{name} needs Boolean operands")
+            raise ExpressionError(f"{name} needs Boolean operands")
         return self._expr(_builtin(name, BooleanType, [], [self.ir, other.ir]), BooleanType)
 
-    def __and__(self, other: Any) -> KernelExpr:
+    def __and__(self, other: Any) -> Expression:
         return self._bool_op("BooleanAnd", other)
 
-    def __rand__(self, other: Any) -> KernelExpr:
+    def __rand__(self, other: Any) -> Expression:
         return _lift(other)._bool_op("BooleanAnd", self)
 
-    def __or__(self, other: Any) -> KernelExpr:
+    def __or__(self, other: Any) -> Expression:
         return self._bool_op("BooleanOr", other)
 
-    def __ror__(self, other: Any) -> KernelExpr:
+    def __ror__(self, other: Any) -> Expression:
         return _lift(other)._bool_op("BooleanOr", self)
 
-    def __xor__(self, other: Any) -> KernelExpr:
+    def __xor__(self, other: Any) -> Expression:
         return self._bool_op("BooleanXor", other)
 
-    def __invert__(self) -> KernelExpr:
+    def __invert__(self) -> Expression:
         if self.east_type.type != "Boolean":
-            raise KernelTraceError("`~` (not) needs a Boolean operand")
+            raise ExpressionError("`~` (not) needs a Boolean operand")
         return self._expr(_builtin("BooleanNot", BooleanType, [], [self.ir]), BooleanType)
 
     # ── conversions and math methods ────────────────────────────────────
 
-    def to_float(self) -> KernelExpr:
+    def to_float(self) -> Expression:
         if self.east_type.type != "Integer":
-            raise KernelTraceError(f".to_float() on {self.east_type.type} (needs Integer)")
+            raise ExpressionError(f".to_float() on {self.east_type.type} (needs Integer)")
         return self._expr(_builtin("IntegerToFloat", FloatType, [], [self.ir]), FloatType)
 
-    def to_integer(self) -> KernelExpr:
+    def to_integer(self) -> Expression:
         if self.east_type.type != "Float":
-            raise KernelTraceError(f".to_integer() on {self.east_type.type} (needs Float)")
+            raise ExpressionError(f".to_integer() on {self.east_type.type} (needs Float)")
         return self._expr(_builtin("FloatToInteger", IntegerType, [], [self.ir]), IntegerType)
 
-    def abs(self) -> KernelExpr:
+    def abs(self) -> Expression:
         tag = self.east_type.type
         if tag == "Integer":
             return self._expr(_builtin("IntegerAbs", IntegerType, [], [self.ir]), IntegerType)
         if tag == "Float":
             return self._expr(_builtin("FloatAbs", FloatType, [], [self.ir]), FloatType)
-        raise KernelTraceError(f".abs() on {tag}")
+        raise ExpressionError(f".abs() on {tag}")
 
-    def sqrt(self) -> KernelExpr:
+    def sqrt(self) -> Expression:
         if self.east_type.type != "Float":
-            raise KernelTraceError(".sqrt() needs a Float")
+            raise ExpressionError(".sqrt() needs a Float")
         return self._expr(_builtin("FloatSqrt", FloatType, [], [self.ir]), FloatType)
 
     # ── Float → Integer rounding (#604) ─────────────────────────────────
@@ -253,33 +253,33 @@ class _ScalarOps(_ExprBase):
     # double-rounds at the tie boundary (0.49999999999999994 + 0.5 rounds
     # to 1.0).
 
-    def _pick_float(self, pred: KernelExpr, then: KernelExpr, other: KernelExpr) -> KernelExpr:
+    def _pick_float(self, pred: Expression, then: Expression, other: Expression) -> Expression:
         return self._expr(_k_ifelse(FloatType, [(pred.ir, then.ir)], other.ir), FloatType)
 
     def _require_float(self, method: str) -> None:
         if self.east_type.type != "Float":
-            raise KernelTraceError(f".{method}() needs a Float")
+            raise ExpressionError(f".{method}() needs a Float")
 
-    def trunc(self) -> KernelExpr:
+    def trunc(self) -> Expression:
         """Truncate toward zero, as an Integer: 3.7 → 3, -3.7 → -3."""
         self._require_float("trunc")
         return (self - self._arith("mod", 1.0)).to_integer()
 
-    def floor(self) -> KernelExpr:
+    def floor(self) -> Expression:
         """Round toward negative infinity, as an Integer: -3.2 → -4."""
         self._require_float("floor")
         frac = self._arith("mod", 1.0) + 0.0
         whole = self - frac
         return self._pick_float(frac < 0.0, whole - 1.0, whole).to_integer()
 
-    def ceil(self) -> KernelExpr:
+    def ceil(self) -> Expression:
         """Round toward positive infinity, as an Integer: 3.2 → 4."""
         self._require_float("ceil")
         frac = self._arith("mod", 1.0) + 0.0
         whole = self - frac
         return self._pick_float(frac > 0.0, whole + 1.0, whole).to_integer()
 
-    def round(self) -> KernelExpr:
+    def round(self) -> Expression:
         """Round half AWAY FROM ZERO, as an Integer: 2.5 → 3, -2.5 → -3.
 
         Deliberately not python's round(): the builtin rounds ties to even,
@@ -295,17 +295,17 @@ class _ScalarOps(_ExprBase):
             self._pick_float(frac <= -0.5, whole - 1.0, whole),
         ).to_integer()
 
-    def __trunc__(self) -> KernelExpr:
+    def __trunc__(self) -> Expression:
         return self.trunc()
 
-    def __floor__(self) -> KernelExpr:
+    def __floor__(self) -> Expression:
         return self.floor()
 
-    def __ceil__(self) -> KernelExpr:
+    def __ceil__(self) -> Expression:
         return self.ceil()
 
-    def __round__(self, ndigits: Any = None) -> KernelExpr:
-        raise KernelTraceError(
+    def __round__(self, ndigits: Any = None) -> Expression:
+        raise ExpressionError(
             "python round() rounds ties to even; the traced surface rounds "
             "half away from zero — call .round() explicitly (or compose "
             ".floor()/.ceil()/.trunc())"
@@ -313,30 +313,30 @@ class _ScalarOps(_ExprBase):
 
     # ── float / integer math tail ───────────────────────────────────────
 
-    def _float_fn(self, name: str) -> KernelExpr:
+    def _float_fn(self, name: str) -> Expression:
         if self.east_type.type != "Float":
-            raise KernelTraceError(f".{name.lower()}() needs a Float")
+            raise ExpressionError(f".{name.lower()}() needs a Float")
         return self._expr(_builtin(name, FloatType, [], [self.ir]), FloatType)
 
-    def exp(self) -> KernelExpr:
+    def exp(self) -> Expression:
         return self._float_fn("FloatExp")
 
-    def log(self) -> KernelExpr:
+    def log(self) -> Expression:
         tag = self.east_type.type
         if tag == "Integer":
             return self._expr(_builtin("IntegerLog", IntegerType, [], [self.ir]), IntegerType)
         return self._float_fn("FloatLog")
 
-    def sin(self) -> KernelExpr:
+    def sin(self) -> Expression:
         return self._float_fn("FloatSin")
 
-    def cos(self) -> KernelExpr:
+    def cos(self) -> Expression:
         return self._float_fn("FloatCos")
 
-    def tan(self) -> KernelExpr:
+    def tan(self) -> Expression:
         return self._float_fn("FloatTan")
 
-    def sign(self) -> KernelExpr:
+    def sign(self) -> Expression:
         tag = self.east_type.type
         if tag == "Integer":
             return self._expr(_builtin("IntegerSign", IntegerType, [], [self.ir]), IntegerType)

@@ -62,19 +62,27 @@ All structured data uses two base classes:
      environment-passing style
    - `platform.py` — platform function integration API
 
-4. **`east/kernel/`** — the tracer that turns python lambdas into East IR
-   (the push-down behind every eager collection method). One module per
-   concern; `__init__.py` re-exports the whole surface, so importers only
-   ever say `from east.kernel import …`.
+4. **`east/expression/`** — the expression builders (`East.function` /
+   `East.platform` / `East.compile`, #625) and the tracer behind every eager
+   collection method's push-down. One module per concern; `__init__.py`
+   re-exports the whole surface, so importers only ever say
+   `from east.expression import …` (`east.kernel` is the one-release
+   deprecated alias).
    - `nodes.py` / `lift.py` / `finalize.py` — IR construction, lifting python
      values into traced expressions, and the trace-time CSE
-   - `expr.py` + `ops/` — `KernelExpr` and its method surface, one op mixin
+   - `expr.py` + `ops/` — `Expression` and its method surface, one op mixin
      per domain (a mixin builds results with `self._expr(…)`: it cannot name
-     `KernelExpr`, because `expr.py` imports it to build that class)
+     `Expression`, because `expr.py` imports it to build that class)
    - `control.py` — the block-level constructs (`East.while_`, `East.for_`,
      `block`/`let`/`ref`/`label`/`break_`/`continue_`/`try_catch`)
-   - `trace.py` / `pushdown.py` — `kernel()`, and the purity gate + trace
-     cache that decide whether an eager callback goes native
+   - `function.py` — `East.function`/`asyncFunction` (strict; declared `out`
+     required + enforced), `East.compile`/`compileAsync` over
+     `compile_from_value`, the deprecated `kernel()` alias, and `trace()`
+   - `platform.py` — `East.platform`/`asyncPlatform` declaration handles
+     emitting `Platform` IR; a platform-declaring function raises
+     `Platform function '<name>' is not available` until compiled
+   - `pushdown.py` — the purity gate + trace cache that decide whether an
+     eager callback goes native (deleted in #625 phase 3)
 
 5. **`east/builtins/`** — 212+ builtin functions
    - Auto-register on import via registry pattern

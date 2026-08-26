@@ -24,7 +24,7 @@ from east import (
     kernel,
     some,
 )
-from east.kernel import KernelTraceError
+from east.expression import ExpressionError
 
 Inner = StructType([("inner_only", StringType), ("label", StringType)])
 Outer = StructType([
@@ -87,5 +87,5 @@ def test_unwrap_or_defaults_still_see_their_own_option():
 
 
 def test_missing_field_still_fails_at_trace_time_naming_the_outer_struct():
-    with pytest.raises(KernelTraceError, match="label, plain, nested"):
+    with pytest.raises(ExpressionError, match="label, plain, nested"):
         kernel([T], _nested(lambda o, i: o["inner_only"]))

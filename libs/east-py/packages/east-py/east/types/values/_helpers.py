@@ -86,13 +86,13 @@ def _call_builtin(name: str, type_params: list, args: list, output_type: EastTyp
 
     Every namespace builtin (``East.String.*``, ``East.Float.*``, …) and eager
     collection method funnels through here — so when any argument is a traced
-    ``KernelExpr`` (the call is happening inside a ``kernel()`` lambda), the
+    ``Expression`` (the call is happening inside a ``kernel()`` lambda), the
     call emits East IR instead of executing (#393). That one seam makes the
     entire builtin surface traceable.
     """
     global _cached_call_builtin, _kernel_trace_call
     if _kernel_trace_call is None:
-        from east.kernel import trace_builtin_call
+        from east.expression import trace_builtin_call
 
         _kernel_trace_call = trace_builtin_call
     traced = _kernel_trace_call(name, type_params, args, output_type)

@@ -27,7 +27,7 @@ from east import (
     StructType,
     kernel,
 )
-from east.kernel import KernelTraceError
+from east.expression import ExpressionError
 from east.runtime.compiler import compile_from_value, eager_stats
 from east.runtime.errors import NonRetraceableCallError
 
@@ -96,7 +96,7 @@ class TestCallLowering:
     def test_dict_to_array_with_a_bound_kernel_runs_native(self):
         # The #558 C repro, upgraded: the (key, value) argument-order shim
         # traces, the call on the bound kernel lowers, and the whole
-        # conveniences path compiles — no KernelTraceError, no trampoline.
+        # conveniences path compiles — no ExpressionError, no trampoline.
         D = DictType(StringType, FloatType)
         d = EastDict(StringType, FloatType, {"a": 1.0, "b": 2.0})
         side = EastDict(StringType, FloatType, {"a": 10.0})
@@ -133,11 +133,11 @@ class TestFunctionTypeParameters:
             k.bind(stringy)
 
     def test_calling_a_non_function_expression_raises(self):
-        with pytest.raises(KernelTraceError, match="non-function"):
+        with pytest.raises(ExpressionError, match="non-function"):
             kernel([FloatType], lambda x: x(1.0))
 
     def test_arity_mismatch_on_a_parameter_call_raises(self):
-        with pytest.raises(KernelTraceError, match="argument"):
+        with pytest.raises(ExpressionError, match="argument"):
             kernel([FloatType, self.FT], lambda x, f: f(x, x))
 
 
@@ -153,7 +153,7 @@ class TestAsyncCallee:
         af = compile_from_value(
             ir_async_function(AsyncFunctionType([IntegerType], IntegerType), [], [x], body),
             is_async=True)
-        with pytest.raises(KernelTraceError, match="sync traced kernel"):
+        with pytest.raises(ExpressionError, match="sync traced kernel"):
             kernel([IntegerType], lambda n: af(n))
 
 
@@ -172,7 +172,7 @@ class TestFallbackPreserved:
         sink = _sink()
         try:
             kernel([StringType], lambda s: sink(s))
-        except KernelTraceError as e:
+        except ExpressionError as e:
             cause, found = e.__cause__, False
             for _ in range(4):
                 if cause is None:
@@ -183,4 +183,4 @@ class TestFallbackPreserved:
                 cause = cause.__cause__
             assert found, "NonRetraceableCallError missing from the cause chain"
         else:
-            raise AssertionError("expected KernelTraceError")
+            raise AssertionError("expected ExpressionError")

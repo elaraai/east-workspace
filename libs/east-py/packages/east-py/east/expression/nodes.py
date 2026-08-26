@@ -10,7 +10,7 @@ Two flavours of constructor live here. The ``ir_*`` builders in
 identity); the ``_k_*`` twins below hold ARRAY children in plain python lists
 during tracing, because ``EastArray`` is a C-backed proxy whose every read
 materializes a fresh python object — node identity, which the CSE in
-``east.kernel.finalize`` detects, would die at each array boundary. One
+``east.expression.finalize`` detects, would die at each array boundary. One
 finalize pass converts those lists to real ``EastArray``s.
 """
 
@@ -19,8 +19,8 @@ from __future__ import annotations
 import itertools
 from typing import Any
 
+from east.expression.errors import ExpressionError
 from east.ir.builders import ir_value, ir_variable
-from east.kernel.errors import KernelTraceError
 from east.types.type_of_type import EastTypeType
 from east.types.types import EastType
 from east.types.values import EastStruct, EastVariant
@@ -68,7 +68,7 @@ def _literal(value: Any, t: EastType):
         # a python datetime IS the East DateTime value — nothing to cast
         coerced = value
     else:
-        raise KernelTraceError(f"cannot embed a literal of East type {tag} in a kernel")
+        raise ExpressionError(f"cannot embed a literal of East type {tag} in a kernel")
     return ir_value(t, coerced)
 
 #: The builtins that MUTATE their first argument. Two callers need to know:
@@ -159,6 +159,21 @@ def _k_function(fn_t: EastType, captures: list, params: list, body):
     return EastVariant("Function", EastStruct({
         "type": fn_t, "loc_id": 0, "captures": list(captures),
         "parameters": list(params), "body": body,
+    }))
+
+
+def _k_async_function(fn_t: EastType, captures: list, params: list, body):
+    return EastVariant("AsyncFunction", EastStruct({
+        "type": fn_t, "loc_id": 0, "captures": list(captures),
+        "parameters": list(params), "body": body,
+    }))
+
+
+def _k_platform(name: str, out: EastType, args: list, is_async: bool):
+    return EastVariant("Platform", EastStruct({
+        "type": out, "loc_id": 0, "name": name,
+        "type_parameters": [], "arguments": list(args),
+        "async": is_async, "optional": False,
     }))
 
 

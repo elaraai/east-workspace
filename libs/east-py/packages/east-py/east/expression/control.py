@@ -45,19 +45,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from east.ir.builders import (
-    ir_for_array,
-    ir_for_dict,
-    ir_for_set,
-    ir_label,
-    ir_let,
-    ir_new_ref,
-    ir_trycatch,
-    ir_while,
-)
-from east.kernel.errors import KernelTraceError
-from east.kernel.expr import KernelExpr
-from east.kernel.lift import (
+from east.expression.errors import ExpressionError
+from east.expression.expr import Expression
+from east.expression.lift import (
     _NO_STATE,
     _Jump,
     _lift,
@@ -67,7 +57,7 @@ from east.kernel.lift import (
     _suspend_hoisting,
     _tracing,
 )
-from east.kernel.nodes import (
+from east.expression.nodes import (
     _builtin,
     _fresh_name,
     _k_block,
@@ -76,6 +66,16 @@ from east.kernel.nodes import (
     _k_new_set,
     _literal,
     _var,
+)
+from east.ir.builders import (
+    ir_for_array,
+    ir_for_dict,
+    ir_for_set,
+    ir_label,
+    ir_let,
+    ir_new_ref,
+    ir_trycatch,
+    ir_while,
 )
 from east.types.types import (
     ArrayType,
@@ -147,13 +147,13 @@ def _label_name(lbl: Any) -> str:
         return lbl.name
     if isinstance(lbl, str):
         return lbl
-    raise KernelTraceError(
+    raise ExpressionError(
         "label must be a Label from East.label(...) or a plain string")
 
 
 def _jump(kind: str, state: Any, lbl: Any) -> _Jump:
     if isinstance(state, Label):
-        raise KernelTraceError(
+        raise ExpressionError(
             f"{kind.lower()}_() takes the final state first — name the loop "
             f"with {kind.lower()}_(label=…)")
     return _Jump(kind, None if lbl is None else _label_name(lbl), state)
@@ -284,13 +284,13 @@ def _check_state_fields(fields: dict, names: list[str]) -> dict:
     missing = [n for n in names if n not in fields]
     extra = [k for k in fields if k not in names]
     if missing or extra:
-        raise KernelTraceError(
+        raise ExpressionError(
             f"loop body must return exactly the state fields {names} — "
             f"missing {missing}, unknown {extra}")
     return {n: fields[n] for n in names}
 
 
-def _next_state(result: Any, state_t: EastType) -> KernelExpr:
+def _next_state(result: Any, state_t: EastType) -> Expression:
     """Lift a traced body result into the state's exact East type.
 
     A body may hand back the state EXPRESSION untouched — an iteration that
@@ -302,7 +302,7 @@ def _next_state(result: Any, state_t: EastType) -> KernelExpr:
         result = _check_state_fields(fields, [f["name"] for f in state_t.value])
     e = _lift(result, hint=state_t)
     if e.east_type != state_t:
-        raise KernelTraceError(_state_drift(state_t, e.east_type))
+        raise ExpressionError(_state_drift(state_t, e.east_type))
     return e
 
 
@@ -337,7 +337,7 @@ def _next_state_eager(result: Any, state: Any) -> Any:
         return result
     fields = _fields_of(result)
     if fields is None:
-        raise KernelTraceError(
+        raise ExpressionError(
             f"loop body must return the state as a dict of {list(state)}, "
             f"got {type(result).__name__}")
     return _check_state_fields(fields, list(state))
@@ -391,7 +391,7 @@ def while_(state: Any, cond: Any, body: Any, *, label: Any = None) -> Any:
         a plain dict/value otherwise).
 
     Raises:
-        KernelTraceError: If ``cond`` does not return a Boolean, or ``body``
+        ExpressionError: If ``cond`` does not return a Boolean, or ``body``
             returns different fields or different East types than ``state``.
     """
     name = _label_name(label)
@@ -406,7 +406,7 @@ def while_(state: Any, cond: Any, body: Any, *, label: Any = None) -> Any:
     try:
         test = _lift(cond(read))
         if test.east_type.type != "Boolean":
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"while_ cond must return a Boolean, got {test.east_type.type}")
         step = commit(body(read))
     finally:
@@ -416,7 +416,7 @@ def while_(state: Any, cond: Any, body: Any, *, label: Any = None) -> Any:
     return _loop_block(cell, ref_t, state_t, init, loop)
 
 
-def _lift_initial(state: Any) -> KernelExpr:
+def _lift_initial(state: Any) -> Expression:
     """Lift a loop's initial state, building captured constants INLINE.
 
     The state is the loop's mutable working set. A captured East collection
@@ -442,7 +442,7 @@ def _state_cell(state_t: EastType):
     """
     cell = _fresh_name()
     ref_t = RefType(state_t)
-    read = KernelExpr(
+    read = Expression(
         _builtin("RefGet", state_t, [state_t], [_var(cell, ref_t)]), state_t)
 
     def commit(value: Any):
@@ -453,9 +453,9 @@ def _state_cell(state_t: EastType):
 
 
 def _loop_block(cell: str, ref_t: EastType, state_t: EastType,
-                init: KernelExpr, loop: Any) -> KernelExpr:
+                init: Expression, loop: Any) -> Expression:
     """Seed the state cell, run the loop, read the state back out."""
-    return KernelExpr(
+    return Expression(
         _k_block(state_t, [
             ir_let(ref_t, _var(cell, ref_t), ir_new_ref(ref_t, init.ir)),
             loop,
@@ -507,7 +507,7 @@ def for_(collection: Any, state: Any, body: Any, *, label: Any = None) -> Any:
         collection is empty.
 
     Raises:
-        KernelTraceError: If ``collection`` is not a container, or ``body``
+        ExpressionError: If ``collection`` is not a container, or ``body``
             returns a state of a different shape.
     """
     name = _label_name(label)
@@ -517,7 +517,7 @@ def for_(collection: Any, state: Any, body: Any, *, label: Any = None) -> Any:
     source = _lift(collection)
     tag = source.east_type.type
     if tag not in ("Array", "Set", "Dict"):
-        raise KernelTraceError(f"for_ over {tag} — needs an Array, Set or Dict")
+        raise ExpressionError(f"for_ over {tag} — needs an Array, Set or Dict")
 
     init = _lift_initial(state)
     state_t = init.east_type
@@ -529,19 +529,19 @@ def for_(collection: Any, state: Any, body: Any, *, label: Any = None) -> Any:
             elem_t = source.east_type.value
             key = _var(_fresh_name(), IntegerType)
             value = _var(_fresh_name(), elem_t)
-            args = (read, KernelExpr(value, elem_t), KernelExpr(key, IntegerType))
+            args = (read, Expression(value, elem_t), Expression(key, IntegerType))
             step = commit(_call_step(body, 2, args))
         elif tag == "Set":
             elem_t = source.east_type.value
             key = _var(_fresh_name(), elem_t)
             value = None
-            step = commit(body(read, KernelExpr(key, elem_t)))
+            step = commit(body(read, Expression(key, elem_t)))
         else:
             kv = source.east_type.value
             key = _var(_fresh_name(), kv["key"])
             value = _var(_fresh_name(), kv["value"])
             step = commit(
-                body(read, KernelExpr(key, kv["key"]), KernelExpr(value, kv["value"])))
+                body(read, Expression(key, kv["key"]), Expression(value, kv["value"])))
     finally:
         _pop_loop_frame()
 
@@ -615,12 +615,12 @@ def block(*exprs: Any) -> Any:
         The last expression's value.
     """
     if not exprs:
-        raise KernelTraceError("East.block() needs at least one expression")
+        raise ExpressionError("East.block() needs at least one expression")
     if not _tracing():
         return exprs[-1]
     lifted = [_lift(e) for e in exprs]
     out_t = lifted[-1].east_type
-    return KernelExpr(_k_block(out_t, [e.ir for e in lifted]), out_t)
+    return Expression(_k_block(out_t, [e.ir for e in lifted]), out_t)
 
 
 def let(value: Any, fn: Any) -> Any:
@@ -643,8 +643,8 @@ def let(value: Any, fn: Any) -> Any:
         return fn(value)
     bound = _lift(value)
     name = _fresh_name()
-    body = _lift(fn(KernelExpr(_var(name, bound.east_type), bound.east_type)))
-    return KernelExpr(
+    body = _lift(fn(Expression(_var(name, bound.east_type), bound.east_type)))
+    return Expression(
         _k_block(body.east_type, [
             ir_let(bound.east_type, _var(name, bound.east_type), bound.ir),
             body.ir,
@@ -673,7 +673,7 @@ def ref(value: Any) -> Any:
         return EastRef(value)
     inner = _lift(value)
     t = RefType(inner.east_type)
-    return KernelExpr(ir_new_ref(t, inner.ir), t)
+    return Expression(ir_new_ref(t, inner.ir), t)
 
 
 # ─── Fresh local collections ────────────────────────────────────────────────
@@ -699,7 +699,7 @@ def new_array(element_type: EastType, values: Any = ()) -> Any:
 
         return EastArray(element_type, list(values))
     t = ArrayType(element_type)
-    return KernelExpr(
+    return Expression(
         _k_new_array(t, [_lift(v, hint=element_type).ir for v in values]), t)
 
 
@@ -719,7 +719,7 @@ def new_set(element_type: EastType, values: Any = ()) -> Any:
 
         return EastSet(element_type, list(values))
     t = SetType(element_type)
-    return KernelExpr(
+    return Expression(
         _k_new_set(t, [_lift(v, hint=element_type).ir for v in values]), t)
 
 
@@ -741,7 +741,7 @@ def new_dict(key_type: EastType, value_type: EastType, entries: Any = ()) -> Any
 
         return EastDict(key_type, value_type, dict(pairs))
     t = DictType(key_type, value_type)
-    return KernelExpr(
+    return Expression(
         _k_new_dict(t, [(_lift(k, hint=key_type).ir, _lift(v, hint=value_type).ir)
                         for k, v in pairs]),
         t,
@@ -765,7 +765,7 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
         The body's value, or the handler's when the body failed.
 
     Raises:
-        KernelTraceError: If the handler's East type differs from the body's.
+        ExpressionError: If the handler's East type differs from the body's.
     """
     if not _tracing():
         try:
@@ -784,16 +784,16 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
     stack = _var(_fresh_name(), stack_t)
     caught = _lift(
         _call_handler(handler,
-                      KernelExpr(message, StringType),
-                      KernelExpr(stack, stack_t)),
+                      Expression(message, StringType),
+                      Expression(stack, stack_t)),
         hint=guarded.east_type,
     )
     if caught.east_type != guarded.east_type:
-        raise KernelTraceError(
+        raise ExpressionError(
             f"try_catch handler returns {caught.east_type.type}, the body "
             f"returns {guarded.east_type.type} — both arms must agree")
     ending = _lift(finally_()) if finally_ is not None else None
-    return KernelExpr(
+    return Expression(
         ir_trycatch(
             guarded.east_type,
             guarded.ir,

@@ -14,9 +14,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from east.ir.builders import ir_let, ir_variant
-from east.kernel.errors import KernelTraceError
-from east.kernel.lift import (
+from east.expression.errors import ExpressionError
+from east.expression.lift import (
     _lift,
     _trace_inner_fn,
     _with_acc_index,
@@ -26,7 +25,7 @@ from east.kernel.lift import (
     if_else,
     least,
 )
-from east.kernel.nodes import (
+from east.expression.nodes import (
     _builtin,
     _fresh_name,
     _k_block,
@@ -38,11 +37,12 @@ from east.kernel.nodes import (
     _option_type,
     _var,
 )
-from east.kernel.ops import _ExprBase
+from east.expression.ops import _ExprBase
+from east.ir.builders import ir_let, ir_variant
 from east.types.types import BooleanType, EastType, FunctionType, IntegerType, NullType
 
 if TYPE_CHECKING:
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
 
 class _GroupOps(_ExprBase):
@@ -50,7 +50,7 @@ class _GroupOps(_ExprBase):
 
     __slots__ = ()
 
-    def group_by(self, key: Any) -> KernelExpr:
+    def group_by(self, key: Any) -> Expression:
         """Traced ArrayGroupFold: a Dict from ``key(element)`` to the Array of
         its elements, with hand-built empty-init and append bodies — grouping
         inside a kernel makes a whole aggregate one compiled unit."""
@@ -110,11 +110,11 @@ class _GroupOps(_ExprBase):
                 out_hint=key_out)
             return ("DictGroupFold", [kv["key"], kv["value"]], key_node, k2,
                     [kv["value"], kv["key"]])
-        raise KernelTraceError(f".{op}() on {tag}")
+        raise ExpressionError(f".{op}() on {tag}")
 
     def _group_fold(self, op: str, key: Any, init: Any, fold: Any,
                     key_out: EastType | None = None,
-                    acc_out: EastType | None = None) -> KernelExpr:
+                    acc_out: EastType | None = None) -> Expression:
         """The shared grouped fold behind every ``group_*`` method."""
         from east.types.types import DictType as _DictType
 
@@ -133,7 +133,7 @@ class _GroupOps(_ExprBase):
                 declared=3 if self.east_type.type == "Array" else 2,
                 out_hint=acc_t)
         if out_t != acc_t:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".{op}() step returns {out_t.type}, the accumulator from "
                 f"init() is {acc_t.type}"
             )
@@ -146,7 +146,7 @@ class _GroupOps(_ExprBase):
 
     def group_reduce(self, key: Any, init: Any, fold: Any,
                      key_out: EastType | None = None,
-                     acc_out: EastType | None = None) -> KernelExpr:
+                     acc_out: EastType | None = None) -> Expression:
         """Traced Array/Set/DictGroupFold: a Dict from the group key to the
         value ``fold`` accumulates from ``init(group_key)`` — the one grouped
         fold, spelled the same on every container (#535). Array steps take
@@ -158,7 +158,7 @@ class _GroupOps(_ExprBase):
 
     def group_fold(self, key: Any, init: Any, fold: Any,
                    key_out: EastType | None = None,
-                   acc_out: EastType | None = None) -> KernelExpr:
+                   acc_out: EastType | None = None) -> Expression:
         """Deprecated Set/Dict alias for :meth:`group_reduce` (issue #535).
 
         The grouped fold had two names — TS ``groupReduce`` everywhere,
@@ -167,7 +167,7 @@ class _GroupOps(_ExprBase):
         The operation is unchanged; only the spelling moves.
         """
         if self.east_type.type == "Array":
-            raise KernelTraceError(
+            raise ExpressionError(
                 ".group_fold() on Array — an Array groups with .group_reduce()"
             )
         import warnings
@@ -181,7 +181,7 @@ class _GroupOps(_ExprBase):
         )
         return self._group_fold("group_fold", key, init, fold, key_out, acc_out)
 
-    def _grouped(self, op: str, key: Any, init: Any, fold: Any) -> KernelExpr:
+    def _grouped(self, op: str, key: Any, init: Any, fold: Any) -> Expression:
         """Dispatch to the container's own grouped-fold spelling."""
         return self._group_fold(op, key, init, fold)
 
@@ -191,7 +191,7 @@ class _GroupOps(_ExprBase):
             return fn if fn is not None else (lambda _k, v: v)
         return fn if fn is not None else (lambda el: el)
 
-    def group_size(self, key: Any = None) -> KernelExpr:
+    def group_size(self, key: Any = None) -> Expression:
         """Traced count per group key.
 
         ``key`` is optional on an Array — omitted, elements are counted by
@@ -202,7 +202,7 @@ class _GroupOps(_ExprBase):
         """
         if key is None:
             if self.east_type.type != "Array":
-                raise KernelTraceError(
+                raise ExpressionError(
                     f".group_size() on a {self.east_type.type} needs a key "
                     "function — only an Array defaults to the identity key"
                 )
@@ -214,7 +214,7 @@ class _GroupOps(_ExprBase):
             return self._grouped("group_size", key, zero, lambda acc, _el, _i: acc + 1)
         return self._grouped("group_size", key, zero, lambda acc, _el: acc + 1)
 
-    def group_sum(self, key: Any, fn: Any = None) -> KernelExpr:
+    def group_sum(self, key: Any, fn: Any = None) -> Expression:
         """Traced sum per group of ``fn(...)`` — the elements (a Dict's
         VALUES) when omitted. The zero is typed from the projection."""
         proj, t2 = self._numeric_projection("group_sum", fn)
@@ -228,7 +228,7 @@ class _GroupOps(_ExprBase):
         return self._grouped("group_sum", key, lambda _gk: zero,
                              lambda acc, el: acc + proj(el))
 
-    def _group_quantifier(self, op: str, key: Any, pred: Any, seed: bool) -> KernelExpr:
+    def _group_quantifier(self, op: str, key: Any, pred: Any, seed: bool) -> Expression:
         """group_every / group_some as a grouped boolean fold."""
         step: Any
         if self.east_type.type == "Dict":
@@ -243,15 +243,15 @@ class _GroupOps(_ExprBase):
                 else (lambda acc, el: acc | _lift(pred(el)))
         return self._grouped(op, key, lambda _gk: seed, step)
 
-    def group_every(self, key: Any, pred: Any) -> KernelExpr:
+    def group_every(self, key: Any, pred: Any) -> Expression:
         """Traced per group: True when ``pred`` holds for every member."""
         return self._group_quantifier("group_every", key, pred, True)
 
-    def group_some(self, key: Any, pred: Any) -> KernelExpr:
+    def group_some(self, key: Any, pred: Any) -> Expression:
         """Traced per group: True when ``pred`` holds for any member."""
         return self._group_quantifier("group_some", key, pred, False)
 
-    def _group_extreme(self, op: str, key: Any, by: Any, pick: Any) -> KernelExpr:
+    def _group_extreme(self, op: str, key: Any, by: Any, pick: Any) -> Expression:
         """group_maximum / group_minimum (Array only, like the eager twins).
 
         Folds an ``Option`` so the first element of each group seeds the
@@ -271,15 +271,15 @@ class _GroupOps(_ExprBase):
         )
         return grouped.map(lambda v: v.unwrap("some"))
 
-    def group_maximum(self, key: Any, by: Any = None) -> KernelExpr:
+    def group_maximum(self, key: Any, by: Any = None) -> Expression:
         """Traced largest element/projection per group (East total order)."""
         return self._group_extreme("group_maximum", key, by, lambda a, b: greatest(a, b))
 
-    def group_minimum(self, key: Any, by: Any = None) -> KernelExpr:
+    def group_minimum(self, key: Any, by: Any = None) -> Expression:
         """Traced smallest element/projection per group (East total order)."""
         return self._group_extreme("group_minimum", key, by, lambda a, b: least(a, b))
 
-    def group_mean(self, key: Any, fn: Any = None) -> KernelExpr:
+    def group_mean(self, key: Any, fn: Any = None) -> Expression:
         """Traced Float mean per group.
 
         Accumulates ``{t, n}`` in ONE grouped pass and divides at the end —
@@ -291,7 +291,7 @@ class _GroupOps(_ExprBase):
         proj, t2 = self._numeric_projection("group_mean", fn)
         widen = t2.type == "Integer"
 
-        def as_float(value: Any) -> KernelExpr:
+        def as_float(value: Any) -> Expression:
             lifted = _lift(value)
             return lifted.to_float() if widen else lifted
 
@@ -335,10 +335,10 @@ class _GroupOps(_ExprBase):
             _n, t2 = _trace_inner_fn(
                 lambda v, k: proj(k, v), [kv["value"], kv["key"]], declared=2)
         else:
-            raise KernelTraceError(f".{op}() on {tag}")
+            raise ExpressionError(f".{op}() on {tag}")
         return proj, t2
 
-    def _group_collect(self, op: str, key: Any, value: Any, into: str) -> KernelExpr:
+    def _group_collect(self, op: str, key: Any, value: Any, into: str) -> Expression:
         """group_to_arrays / group_to_sets: a grouped fold into a COLLECTION.
 
         The accumulator is mutated per element, so the step body is hand-built
@@ -366,10 +366,10 @@ class _GroupOps(_ExprBase):
             # on an existing element — the defect the eager helper carried.
             add_name, add_out = "SetTryInsert", BooleanType
 
-        def init(_gk: Any) -> KernelExpr:
+        def init(_gk: Any) -> Expression:
             return self._expr(empty(acc_t, []), acc_t)
 
-        def step(acc: Any, *rest: Any) -> KernelExpr:
+        def step(acc: Any, *rest: Any) -> Expression:
             v = _lift(proj(*rest))
             add = _builtin(add_name, add_out, [v_t], [acc.ir, v.ir])
             return self._expr(_k_block(acc_t, [add, acc.ir]), acc_t)
@@ -377,7 +377,7 @@ class _GroupOps(_ExprBase):
         return self._group_fold(op, key, init, step)
 
     def group_to_arrays(self, key: Any, value: Any = None, *,
-                        value_fn: Any = None) -> KernelExpr:
+                        value_fn: Any = None) -> Expression:
         """Traced arrays of ``value(...)`` per group key.
 
         Without ``value`` the elements themselves — a Dict's VALUES — are
@@ -388,14 +388,14 @@ class _GroupOps(_ExprBase):
                                    value if value is not None else value_fn, "Array")
 
     def group_to_sets(self, key: Any, value: Any = None, *,
-                      value_fn: Any = None) -> KernelExpr:
+                      value_fn: Any = None) -> Expression:
         """Traced sets of ``value(...)`` per group key; duplicates within a
         group collapse. ``value_fn`` is the eager Dict spelling (#536)."""
         return self._group_collect("group_to_sets", key,
                                    value if value is not None else value_fn, "Set")
 
     def group_to_dicts(self, key: Any, key2: Any, value: Any = None,
-                       combine: Any = None, *, value_fn: Any = None) -> KernelExpr:
+                       combine: Any = None, *, value_fn: Any = None) -> Expression:
         """Traced nested dicts — ``key2(...) -> value(...)`` per group key.
 
         Without ``combine`` a duplicate INNER key errors at run time, matching
@@ -415,15 +415,15 @@ class _GroupOps(_ExprBase):
             node, c_out = _trace_inner_fn(
                 _with_key_arg(combine), [v_t, v_t, k2_t], declared=3, out_hint=v_t)
             if c_out != v_t:
-                raise KernelTraceError(
+                raise ExpressionError(
                     f".group_to_dicts() combine returns {c_out.type}, "
                     f"values are {v_t.type}")
             add_name, add_args = "DictInsertOrUpdate", [node]
 
-        def init(_gk: Any) -> KernelExpr:
+        def init(_gk: Any) -> Expression:
             return self._expr(_k_new_dict(acc_t, []), acc_t)
 
-        def step(acc: Any, *rest: Any) -> KernelExpr:
+        def step(acc: Any, *rest: Any) -> Expression:
             ik = _lift(k2proj(*rest))
             v = _lift(proj(*rest))
             add = _builtin(add_name, NullType, [k2_t, v_t],
@@ -453,7 +453,7 @@ class _GroupOps(_ExprBase):
         _n, p_t = _trace_inner_fn(proj, [elem_t, IntegerType], declared=2)
         target = _lift(value, hint=p_t)
         if target.east_type != p_t:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".{op}() value is {target.east_type.type} but the projection "
                 f"yields {p_t.type} — they must be the same East type")
         pair_t = _StructType([("i", IntegerType), ("k", k2)])
@@ -475,7 +475,7 @@ class _GroupOps(_ExprBase):
             _SetType(k2))
         return pairs, groups, k2, pair_t
 
-    def group_find_all(self, key: Any, value: Any, by: Any = None) -> KernelExpr:
+    def group_find_all(self, key: Any, value: Any, by: Any = None) -> Expression:
         """Traced indices of every element equal to ``value``, per group.
 
         Every group the array has appears: one with no match maps to an EMPTY
@@ -486,7 +486,7 @@ class _GroupOps(_ExprBase):
         self._array_elem("group_find_all")
         idx_t = _ArrayType(IntegerType)
 
-        def build(recv: KernelExpr) -> KernelExpr:
+        def build(recv: Expression) -> Expression:
             pairs, groups, _k2, _pair_t = recv._find_index_pairs(
                 "group_find_all", key, value, by)
             found = pairs.group_to_arrays(lambda p: p.k, lambda p: p.i)
@@ -496,7 +496,7 @@ class _GroupOps(_ExprBase):
         # the receiver is scanned twice (matches, and the group set), so bind it
         return self._with_bound_receiver(build)
 
-    def group_find_first(self, key: Any, value: Any, by: Any = None) -> KernelExpr:
+    def group_find_first(self, key: Any, value: Any, by: Any = None) -> Expression:
         """Traced ``some(first matching index)`` per group, ``none`` for a group
         with no match (TS parity).
 
@@ -505,7 +505,7 @@ class _GroupOps(_ExprBase):
         """
         return self.group_find_all(key, value, by).map(lambda idxs: idxs.try_get(0))
 
-    def _group_find_extreme(self, op: str, key: Any, by: Any, want_max: bool) -> KernelExpr:
+    def _group_find_extreme(self, op: str, key: Any, by: Any, want_max: bool) -> Expression:
         """Index of each group's extreme, via ArrayToDict over ``{by, index}``.
 
         The collision handler compares NON-STRICTLY, so the incumbent (earlier)
@@ -528,7 +528,7 @@ class _GroupOps(_ExprBase):
         comb_node, c_out = _trace_inner_fn(
             lambda a, b, _k: keep(a, b), [pair_t, pair_t, k2], declared=3)
         if c_out != pair_t:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".{op}() collision handler returns {c_out.type}, pairs are Struct")
         out = _DictType(k2, pair_t)
         pairs = self._expr(
@@ -538,11 +538,11 @@ class _GroupOps(_ExprBase):
         )
         return pairs.map(lambda v: v.index)
 
-    def group_find_maximum(self, key: Any, by: Any = None) -> KernelExpr:
+    def group_find_maximum(self, key: Any, by: Any = None) -> Expression:
         """Traced index of the largest element/projection per group (East total
         order; a tie keeps the earliest index)."""
         return self._group_find_extreme("group_find_maximum", key, by, want_max=True)
 
-    def group_find_minimum(self, key: Any, by: Any = None) -> KernelExpr:
+    def group_find_minimum(self, key: Any, by: Any = None) -> Expression:
         """Traced index of the smallest element/projection per group."""
         return self._group_find_extreme("group_find_minimum", key, by, want_max=False)

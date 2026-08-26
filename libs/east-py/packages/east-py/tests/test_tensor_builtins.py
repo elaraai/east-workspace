@@ -33,7 +33,7 @@ from east import (
     VectorType,
     kernel,
 )
-from east.kernel import KernelTraceError
+from east.expression import ExpressionError
 from east.runtime.compiler import eager_stats
 from east.runtime.errors import EastError
 
@@ -185,11 +185,11 @@ def test_traced_length_error_is_fixed():
     """`.length()` on a traced Vector is VectorLength, not a String error, and
     a method miss names the tensor surface."""
     assert kernel(VectorType(FloatType), lambda t: t.length())(fvec([1.0])) == 1
-    with pytest.raises(KernelTraceError, match="traced kernel surface.*Vector.*scale"):
+    with pytest.raises(ExpressionError, match="traced kernel surface.*Vector.*scale"):
         kernel(VectorType(FloatType), lambda t: t.nonexistent())
     # .map()/.fold() are deliberately absent (callback boxing is inherent);
     # their misses name the real problem instead of "needs a String"
-    with pytest.raises(KernelTraceError, match=r"\.map\(\) on Vector"):
+    with pytest.raises(ExpressionError, match=r"\.map\(\) on Vector"):
         kernel(VectorType(FloatType), lambda t: t.map(lambda q: q * 0.99))
 
 

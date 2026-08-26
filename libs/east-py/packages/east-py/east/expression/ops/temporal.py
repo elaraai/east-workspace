@@ -8,15 +8,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from east.expression.errors import ExpressionError
+from east.expression.lift import _lift
+from east.expression.nodes import _builtin, _k_new_array, _literal
+from east.expression.ops import _ExprBase
 from east.ir.builders import ir_variant
-from east.kernel.errors import KernelTraceError
-from east.kernel.lift import _lift
-from east.kernel.nodes import _builtin, _k_new_array, _literal
-from east.kernel.ops import _ExprBase
 from east.types.types import IntegerType, NullType, StringType
 
 if TYPE_CHECKING:
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
 
 class _TemporalOps(_ExprBase):
@@ -30,9 +30,9 @@ class _TemporalOps(_ExprBase):
 
     # ── datetime ───────────────────────────────────────────────────────
 
-    def _dt_get(self, name: str) -> KernelExpr:
+    def _dt_get(self, name: str) -> Expression:
         if self.east_type.type != "DateTime":
-            raise KernelTraceError(f".{name}() needs a DateTime")
+            raise ExpressionError(f".{name}() needs a DateTime")
         builtin = {
             "get_year": "DateTimeGetYear",
             "get_month": "DateTimeGetMonth",
@@ -46,43 +46,43 @@ class _TemporalOps(_ExprBase):
         }[name]
         return self._expr(_builtin(builtin, IntegerType, [], [self.ir]), IntegerType)
 
-    def get_year(self) -> KernelExpr:
+    def get_year(self) -> Expression:
         return self._dt_get("get_year")
 
-    def get_month(self) -> KernelExpr:
+    def get_month(self) -> Expression:
         return self._dt_get("get_month")
 
-    def get_day_of_month(self) -> KernelExpr:
+    def get_day_of_month(self) -> Expression:
         return self._dt_get("get_day_of_month")
 
-    def get_day_of_week(self) -> KernelExpr:
+    def get_day_of_week(self) -> Expression:
         return self._dt_get("get_day_of_week")
 
-    def get_hour(self) -> KernelExpr:
+    def get_hour(self) -> Expression:
         return self._dt_get("get_hour")
 
-    def get_minute(self) -> KernelExpr:
+    def get_minute(self) -> Expression:
         return self._dt_get("get_minute")
 
-    def get_second(self) -> KernelExpr:
+    def get_second(self) -> Expression:
         return self._dt_get("get_second")
 
-    def get_millisecond(self) -> KernelExpr:
+    def get_millisecond(self) -> Expression:
         return self._dt_get("get_millisecond")
 
-    def to_epoch_milliseconds(self) -> KernelExpr:
+    def to_epoch_milliseconds(self) -> Expression:
         return self._dt_get("to_epoch_milliseconds")
 
-    def _dt_shift(self, amount: Any, scale: int, negate: bool) -> KernelExpr:
+    def _dt_shift(self, amount: Any, scale: int, negate: bool) -> Expression:
         if self.east_type.type != "DateTime":
-            raise KernelTraceError("datetime arithmetic needs a DateTime")
+            raise ExpressionError("datetime arithmetic needs a DateTime")
         n = _lift(amount)
         if n.east_type.type == "Float":
             ms = (n * float(scale)).to_integer()
         elif n.east_type.type == "Integer":
             ms = n * scale
         else:
-            raise KernelTraceError("datetime shift amount must be Integer or Float")
+            raise ExpressionError("datetime shift amount must be Integer or Float")
         if negate:
             ms = -ms
         from east.types.types import DateTimeType
@@ -91,71 +91,71 @@ class _TemporalOps(_ExprBase):
             _builtin("DateTimeAddMilliseconds", DateTimeType, [], [self.ir, ms.ir]), DateTimeType
         )
 
-    def add_milliseconds(self, n: Any) -> KernelExpr:
+    def add_milliseconds(self, n: Any) -> Expression:
         return self._dt_shift(n, 1, False)
 
-    def add_seconds(self, n: Any) -> KernelExpr:
+    def add_seconds(self, n: Any) -> Expression:
         return self._dt_shift(n, 1000, False)
 
-    def add_minutes(self, n: Any) -> KernelExpr:
+    def add_minutes(self, n: Any) -> Expression:
         return self._dt_shift(n, 60_000, False)
 
-    def add_hours(self, n: Any) -> KernelExpr:
+    def add_hours(self, n: Any) -> Expression:
         return self._dt_shift(n, 3_600_000, False)
 
-    def add_days(self, n: Any) -> KernelExpr:
+    def add_days(self, n: Any) -> Expression:
         return self._dt_shift(n, 86_400_000, False)
 
-    def add_weeks(self, n: Any) -> KernelExpr:
+    def add_weeks(self, n: Any) -> Expression:
         return self._dt_shift(n, 604_800_000, False)
 
-    def subtract_milliseconds(self, n: Any) -> KernelExpr:
+    def subtract_milliseconds(self, n: Any) -> Expression:
         return self._dt_shift(n, 1, True)
 
-    def subtract_seconds(self, n: Any) -> KernelExpr:
+    def subtract_seconds(self, n: Any) -> Expression:
         return self._dt_shift(n, 1000, True)
 
-    def subtract_minutes(self, n: Any) -> KernelExpr:
+    def subtract_minutes(self, n: Any) -> Expression:
         return self._dt_shift(n, 60_000, True)
 
-    def subtract_hours(self, n: Any) -> KernelExpr:
+    def subtract_hours(self, n: Any) -> Expression:
         return self._dt_shift(n, 3_600_000, True)
 
-    def subtract_days(self, n: Any) -> KernelExpr:
+    def subtract_days(self, n: Any) -> Expression:
         return self._dt_shift(n, 86_400_000, True)
 
-    def subtract_weeks(self, n: Any) -> KernelExpr:
+    def subtract_weeks(self, n: Any) -> Expression:
         return self._dt_shift(n, 604_800_000, True)
 
-    def duration_milliseconds(self, other: Any) -> KernelExpr:
+    def duration_milliseconds(self, other: Any) -> Expression:
         if self.east_type.type != "DateTime":
-            raise KernelTraceError(".duration_*() needs a DateTime")
+            raise ExpressionError(".duration_*() needs a DateTime")
         o = _lift(other)
         if o.east_type.type != "DateTime":
-            raise KernelTraceError(".duration_*() other must be a DateTime")
+            raise ExpressionError(".duration_*() other must be a DateTime")
         return self._expr(
             _builtin("DateTimeDurationMilliseconds", IntegerType, [], [self.ir, o.ir]), IntegerType
         )
 
-    def _dt_duration(self, other: Any, scale: float) -> KernelExpr:
+    def _dt_duration(self, other: Any, scale: float) -> Expression:
         return self.duration_milliseconds(other).to_float() / scale
 
-    def duration_seconds(self, other: Any) -> KernelExpr:
+    def duration_seconds(self, other: Any) -> Expression:
         return self._dt_duration(other, 1000.0)
 
-    def duration_minutes(self, other: Any) -> KernelExpr:
+    def duration_minutes(self, other: Any) -> Expression:
         return self._dt_duration(other, 60_000.0)
 
-    def duration_hours(self, other: Any) -> KernelExpr:
+    def duration_hours(self, other: Any) -> Expression:
         return self._dt_duration(other, 3_600_000.0)
 
-    def duration_days(self, other: Any) -> KernelExpr:
+    def duration_days(self, other: Any) -> Expression:
         return self._dt_duration(other, 86_400_000.0)
 
-    def duration_weeks(self, other: Any) -> KernelExpr:
+    def duration_weeks(self, other: Any) -> Expression:
         return self._dt_duration(other, 604_800_000.0)
 
-    def print_format(self, fmt: Any) -> KernelExpr:
+    def print_format(self, fmt: Any) -> Expression:
         """Format a DateTime with a Day.js-style format string.
 
         Like the TS `printFormatted`, the format must be a python string
@@ -163,9 +163,9 @@ class _TemporalOps(_ExprBase):
         array, not the raw string).
         """
         if self.east_type.type != "DateTime":
-            raise KernelTraceError(".print_format() needs a DateTime")
+            raise ExpressionError(".print_format() needs a DateTime")
         if not isinstance(fmt, str):
-            raise KernelTraceError(
+            raise ExpressionError(
                 ".print_format() takes a literal format string (tokenized at trace time)"
             )
         from east.datetime_format import DateTimeFormatTokenType, tokenize_datetime_format

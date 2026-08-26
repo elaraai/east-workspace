@@ -24,7 +24,7 @@ import math
 import pytest
 
 from east import FloatType, IntegerType, kernel
-from east.kernel import KernelTraceError
+from east.expression import ExpressionError
 
 F = [FloatType]
 
@@ -71,7 +71,7 @@ def test_the_math_module_spellings_trace():
 
 
 def test_python_round_names_the_tie_rule_difference():
-    with pytest.raises(KernelTraceError, match="half away from zero"):
+    with pytest.raises(ExpressionError, match="half away from zero"):
         kernel(F, lambda v: round(v))
 
 
@@ -83,14 +83,14 @@ def test_to_integer_stays_exact_only():
 
 
 def test_rounding_needs_a_float():
-    with pytest.raises(KernelTraceError, match="needs a Float"):
+    with pytest.raises(ExpressionError, match="needs a Float"):
         kernel([IntegerType], lambda v: v.round())
-    with pytest.raises(KernelTraceError, match="needs a Float"):
+    with pytest.raises(ExpressionError, match="needs a Float"):
         kernel([IntegerType], lambda v: v.floor())
 
 
 def test_an_unknown_scalar_method_names_the_real_cause():
-    with pytest.raises(KernelTraceError,
+    with pytest.raises(ExpressionError,
                        match=r"`.round_nearest` is not on the traced kernel "
                              r"surface for a Float-typed expression"):
         kernel(F, lambda v: v.round_nearest())

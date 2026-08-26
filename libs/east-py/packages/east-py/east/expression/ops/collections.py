@@ -14,15 +14,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from east.kernel.errors import KernelTraceError
-from east.kernel.finalize import _const_fn_node
-from east.kernel.lift import _lift, _trace_inner_fn, _with_index, if_else
-from east.kernel.nodes import _builtin
-from east.kernel.ops import _ExprBase
+from east.expression.errors import ExpressionError
+from east.expression.finalize import _const_fn_node
+from east.expression.lift import _lift, _trace_inner_fn, _with_index, if_else
+from east.expression.nodes import _builtin
+from east.expression.ops import _ExprBase
 from east.types.types import BooleanType, EastType, IntegerType
 
 if TYPE_CHECKING:
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
 
 class _CollectionOps(_ExprBase):
@@ -32,7 +32,7 @@ class _CollectionOps(_ExprBase):
 
     # ── scalar reads on collection-typed fields ─────────────────────────
 
-    def size(self) -> KernelExpr:
+    def size(self) -> Expression:
         tag = self.east_type.type
         if tag == "Array":
             return self._expr(
@@ -49,14 +49,14 @@ class _CollectionOps(_ExprBase):
             )
         if tag == "String":
             return self.length()
-        raise KernelTraceError(f".size() on {tag}")
+        raise ExpressionError(f".size() on {tag}")
 
-    def has(self, item: Any) -> KernelExpr:
+    def has(self, item: Any) -> Expression:
         tag = self.east_type.type
         if tag == "Array":
             i = _lift(item)
             if i.east_type.type != "Integer":
-                raise KernelTraceError("Array.has() takes an Integer index")
+                raise ExpressionError("Array.has() takes an Integer index")
             return self._expr(
                 _builtin("ArrayHas", BooleanType, [self.east_type.value], [self.ir, i.ir]),
                 BooleanType,
@@ -74,9 +74,9 @@ class _CollectionOps(_ExprBase):
                 _builtin("DictHas", BooleanType, [kv["key"], kv["value"]], [self.ir, k.ir]),
                 BooleanType,
             )
-        raise KernelTraceError(f".has() on {tag}")
+        raise ExpressionError(f".has() on {tag}")
 
-    def get(self, key: Any = None) -> KernelExpr:
+    def get(self, key: Any = None) -> Expression:
         tag = self.east_type.type
         if tag == "Ref":
             # `East.ref(x).get()` — the cell read, spelled as the eager
@@ -87,7 +87,7 @@ class _CollectionOps(_ExprBase):
         if tag == "Array":
             i = _lift(key)
             if i.east_type.type != "Integer":
-                raise KernelTraceError("Array.get() takes an Integer index")
+                raise ExpressionError("Array.get() takes an Integer index")
             elem_t = self.east_type.value
             return self._expr(
                 _builtin("ArrayGet", elem_t, [elem_t], [self.ir, i.ir]), elem_t
@@ -99,9 +99,9 @@ class _CollectionOps(_ExprBase):
                 _builtin("DictGet", kv["value"], [kv["key"], kv["value"]], [self.ir, k.ir]),
                 kv["value"],
             )
-        raise KernelTraceError(f".get() on {tag}")
+        raise ExpressionError(f".get() on {tag}")
 
-    def get_or_default(self, key: Any, default: Any) -> KernelExpr:
+    def get_or_default(self, key: Any, default: Any) -> Expression:
         tag = self.east_type.type
         if tag == "Array":
             elem_t = self.east_type.value
@@ -122,7 +122,7 @@ class _CollectionOps(_ExprBase):
                 ),
                 kv["value"],
             )
-        raise KernelTraceError(f".get_or_default() on {tag}")
+        raise ExpressionError(f".get_or_default() on {tag}")
 
     # ── collection transforms (nested lambdas traced recursively, #393) ──
 
@@ -136,15 +136,15 @@ class _CollectionOps(_ExprBase):
         type that does not describe it — the #467 failure mode.
         """
         if out is not None and out != traced_t:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"{op} projection yields {traced_t.type}, out= declares {out.type}")
 
     def _array_elem(self, op: str) -> EastType:
         if self.east_type.type != "Array":
-            raise KernelTraceError(f".{op}() on {self.east_type.type} (needs Array)")
+            raise ExpressionError(f".{op}() on {self.east_type.type} (needs Array)")
         return self.east_type.value
 
-    def map(self, fn: Any, out: EastType | None = None) -> KernelExpr:
+    def map(self, fn: Any, out: EastType | None = None) -> Expression:
         """Traced map, shaped like the eager methods: Array → Array of
         ``fn(element)`` (``fn(element, index)`` also accepted), Set → Dict of
         element to ``fn(element)`` (SetMap), Dict → Dict with mapped values and
@@ -180,9 +180,9 @@ class _CollectionOps(_ExprBase):
                 _builtin("DictMap", out_d, [kv["key"], kv["value"], out_t], [self.ir, node]),
                 out_d,
             )
-        raise KernelTraceError(f".map() on {tag}")
+        raise ExpressionError(f".map() on {tag}")
 
-    def filter(self, fn: Any) -> KernelExpr:
+    def filter(self, fn: Any) -> Expression:
         """Traced filter: Array/Set keep elements the predicate accepts;
         Dict keeps entries where ``fn(key, value)`` holds (DictFilter)."""
         from east.types.types import ArrayType as _ArrayType
@@ -194,14 +194,14 @@ class _CollectionOps(_ExprBase):
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(fn, [elem_t, IntegerType], out_hint=BooleanType)
             if out_t.type != "Boolean":
-                raise KernelTraceError(f".filter() predicate must return Boolean, got {out_t.type}")
+                raise ExpressionError(f".filter() predicate must return Boolean, got {out_t.type}")
             out = _ArrayType(elem_t)
             return self._expr(_builtin("ArrayFilter", out, [elem_t], [self.ir, node]), out)
         if tag == "Set":
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(fn, [elem_t], declared=1, out_hint=BooleanType)
             if out_t.type != "Boolean":
-                raise KernelTraceError(f".filter() predicate must return Boolean, got {out_t.type}")
+                raise ExpressionError(f".filter() predicate must return Boolean, got {out_t.type}")
             out = _SetType(elem_t)
             return self._expr(_builtin("SetFilter", out, [elem_t], [self.ir, node]), out)
         if tag == "Dict":
@@ -211,28 +211,28 @@ class _CollectionOps(_ExprBase):
                 out_hint=BooleanType
             )
             if out_t.type != "Boolean":
-                raise KernelTraceError(f".filter() predicate must return Boolean, got {out_t.type}")
+                raise ExpressionError(f".filter() predicate must return Boolean, got {out_t.type}")
             out = _DictType(kv["key"], kv["value"])
             return self._expr(
                 _builtin("DictFilter", out, [kv["key"], kv["value"]], [self.ir, node]), out
             )
-        raise KernelTraceError(f".filter() on {tag}")
+        raise ExpressionError(f".filter() on {tag}")
 
-    def fold(self, initial: Any, fn: Any) -> KernelExpr:
+    def fold(self, initial: Any, fn: Any) -> Expression:
         """Traced ArrayFold: ``fn(acc, element)`` or ``fn(acc, element, index)``."""
         elem_t = self._array_elem("fold")
         init = _lift(initial)
         acc_t = init.east_type
         node, out_t = _trace_inner_fn(fn, [acc_t, elem_t, IntegerType], out_hint=acc_t)
         if out_t != acc_t:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".fold() step returns {out_t.type}, accumulator is {acc_t.type}"
             )
         return self._expr(
             _builtin("ArrayFold", acc_t, [elem_t, acc_t], [self.ir, init.ir, node]), acc_t
         )
 
-    def scan(self, initial: Any, fn: Any) -> KernelExpr:
+    def scan(self, initial: Any, fn: Any) -> Expression:
         """Traced running fold (ArrayScan / SetScan / DictScan): an Array of
         every intermediate accumulator. Element ``i`` is the accumulator
         AFTER folding element ``i`` — same length as the input, the seed is
@@ -249,7 +249,7 @@ class _CollectionOps(_ExprBase):
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(fn, [acc_t, elem_t, IntegerType], out_hint=acc_t)
             if out_t != acc_t:
-                raise KernelTraceError(
+                raise ExpressionError(
                     f".scan() step returns {out_t.type}, accumulator is {acc_t.type}"
                 )
             out = _ArrayType(acc_t)
@@ -260,7 +260,7 @@ class _CollectionOps(_ExprBase):
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(fn, [acc_t, elem_t], declared=2, out_hint=acc_t)
             if out_t != acc_t:
-                raise KernelTraceError(
+                raise ExpressionError(
                     f".scan() step returns {out_t.type}, accumulator is {acc_t.type}"
                 )
             out = _ArrayType(acc_t)
@@ -276,7 +276,7 @@ class _CollectionOps(_ExprBase):
                 out_hint=acc_t
             )
             if out_t != acc_t:
-                raise KernelTraceError(
+                raise ExpressionError(
                     f".scan() step returns {out_t.type}, accumulator is {acc_t.type}"
                 )
             out = _ArrayType(acc_t)
@@ -286,9 +286,9 @@ class _CollectionOps(_ExprBase):
                 ),
                 out,
             )
-        raise KernelTraceError(f".scan() on {tag}")
+        raise ExpressionError(f".scan() on {tag}")
 
-    def some(self, pred: Any = None) -> KernelExpr:
+    def some(self, pred: Any = None) -> Expression:
         """Traced any-element predicate (native short-circuiting FirstMap scan).
 
         Without ``pred`` the elements — a Dict's VALUES — must be Boolean,
@@ -296,7 +296,7 @@ class _CollectionOps(_ExprBase):
         """
         return self._quantifier("some", pred)
 
-    def every(self, pred: Any = None) -> KernelExpr:
+    def every(self, pred: Any = None) -> Expression:
         """Traced all-elements predicate (native short-circuiting FirstMap scan).
 
         Without ``pred`` the elements — a Dict's VALUES — must be Boolean,
@@ -304,7 +304,7 @@ class _CollectionOps(_ExprBase):
         """
         return self._quantifier("every", pred)
 
-    def _quantifier(self, op: str, fn: Any) -> KernelExpr:
+    def _quantifier(self, op: str, fn: Any) -> Expression:
         """some/every as a FirstMap probe that yields ``some(True)`` on the
         deciding element — the scan short-circuits exactly like the eager
         ``_first_map_bool`` path (#403), where the previous fold encoding
@@ -322,17 +322,17 @@ class _CollectionOps(_ExprBase):
             probed = self.east_type.value
             probed = probed["value"] if self.east_type.type == "Dict" else probed
             if getattr(probed, "type", None) != "Boolean":
-                raise KernelTraceError(
+                raise ExpressionError(
                     f".{op}() without a predicate needs Boolean "
                     f"{'values' if self.east_type.type == 'Dict' else 'elements'}, "
                     f"got {getattr(probed, 'type', self.east_type.type)}"
                 )
             fn = (lambda _k, v: v) if self.east_type.type == "Dict" else (lambda el: el)
 
-        def decide(raw: Any) -> KernelExpr:
+        def decide(raw: Any) -> Expression:
             pred = _lift(raw)
             if pred.east_type.type != "Boolean":
-                raise KernelTraceError(
+                raise ExpressionError(
                     f".{op}() predicate must return Boolean, got {pred.east_type.type}"
                 )
             decided = pred if want else ~pred
@@ -358,7 +358,7 @@ class _CollectionOps(_ExprBase):
             )
             builtin, tps = "DictFirstMap", [kv["key"], kv["value"], BooleanType]
         else:
-            raise KernelTraceError(f".{op}() on {tag}")
+            raise ExpressionError(f".{op}() on {tag}")
         scanned = self._expr(_builtin(builtin, out_t, tps, [self.ir, node]), out_t)
         # some: a deciding element exists; every: no counterexample exists.
         # FirstMap on an empty collection yields none, so some([])=False and

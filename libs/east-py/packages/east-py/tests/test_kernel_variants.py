@@ -26,7 +26,7 @@ from east import (
     some,
     variant,
 )
-from east.kernel import KernelTraceError
+from east.expression import ExpressionError
 from east.types.values import is_east_null
 
 Source = VariantType([("vessel", StringType), ("added", NullType)])
@@ -61,7 +61,7 @@ def test_where_with_variant_branches_defers_to_out():
 
 
 def test_where_with_variant_branches_without_out_raises_the_actionable_error():
-    with pytest.raises(KernelTraceError, match="needs a type from context"):
+    with pytest.raises(ExpressionError, match="needs a type from context"):
         kernel(Row, _classify)
 
 
@@ -74,17 +74,17 @@ def test_variant_inside_struct_field_types_from_out():
 
 
 def test_unknown_case_names_the_declared_cases():
-    with pytest.raises(KernelTraceError, match="not in"):
+    with pytest.raises(ExpressionError, match="not in"):
         kernel(Row, lambda r: variant("boat", r["code"]), out=Source)
 
 
 def test_payload_type_mismatch_is_named():
-    with pytest.raises(KernelTraceError, match="payload has type Integer, expected String"):
+    with pytest.raises(ExpressionError, match="payload has type Integer, expected String"):
         kernel(Row, lambda r: variant("vessel", 1), out=Source)
 
 
 def test_bare_variant_without_any_context_raises_the_actionable_error():
-    with pytest.raises(KernelTraceError, match="needs a VariantType from context"):
+    with pytest.raises(ExpressionError, match="needs a VariantType from context"):
         kernel(Row, lambda r: variant("vessel", r["code"]))
 
 

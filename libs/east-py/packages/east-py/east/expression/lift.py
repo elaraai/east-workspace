@@ -10,7 +10,7 @@ a dict struct literal, or an expression that is already traced. ``if_else`` /
 ``greatest`` / ``least`` sit here too — they emit IfElse when handed traced
 operands and evaluate eagerly otherwise, so one lambda works on both paths.
 
-``KernelExpr`` is imported inside the functions that need it: ``expr.py``
+``Expression`` is imported inside the functions that need it: ``expr.py``
 imports this module (through the op mixins), so the class is not yet bound
 when this module executes.
 """
@@ -20,10 +20,9 @@ from __future__ import annotations
 from datetime import datetime as _pydatetime
 from typing import TYPE_CHECKING, Any
 
-from east.ir.builders import ir_variant
-from east.kernel.errors import KernelTraceError
-from east.kernel.finalize import _capturing_fn
-from east.kernel.nodes import (
+from east.expression.errors import ExpressionError
+from east.expression.finalize import _capturing_fn
+from east.expression.nodes import (
     _fresh_name,
     _is_option,
     _k_block,
@@ -39,6 +38,7 @@ from east.kernel.nodes import (
     _option_type,
     _var,
 )
+from east.ir.builders import ir_variant
 from east.types.types import (
     BooleanType,
     DateTimeType,
@@ -52,7 +52,7 @@ from east.types.types import (
 from east.types.values import EastArray, EastVariant
 
 if TYPE_CHECKING:
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
 
 # ─── Expression proxy ───────────────────────────────────────────────────────
@@ -61,34 +61,34 @@ _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
 
 
-def _lift(value: Any, hint: EastType | None = None) -> KernelExpr:
+def _lift(value: Any, hint: EastType | None = None) -> Expression:
     """Lift a python literal into a constant expression (bool before int!)."""
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
     from east.types.values import is_east_null
 
-    if isinstance(value, KernelExpr):
+    if isinstance(value, Expression):
         return value
     if isinstance(value, (_DeferredIfElse, _Jump)):
         return value.resolve(hint)
     if value is None or is_east_null(value):
-        return KernelExpr(_literal(None, NullType), NullType)
+        return Expression(_literal(None, NullType), NullType)
     if isinstance(value, bool):
-        return KernelExpr(_literal(value, BooleanType), BooleanType)
+        return Expression(_literal(value, BooleanType), BooleanType)
     if isinstance(value, int):
         if hint is not None and hint.type == "Float":
-            return KernelExpr(_literal(float(value), FloatType), FloatType)
+            return Expression(_literal(float(value), FloatType), FloatType)
         if not (_INT64_MIN <= value <= _INT64_MAX):
-            raise KernelTraceError(f"integer literal {value} does not fit East's 64-bit Integer")
-        return KernelExpr(_literal(value, IntegerType), IntegerType)
+            raise ExpressionError(f"integer literal {value} does not fit East's 64-bit Integer")
+        return Expression(_literal(value, IntegerType), IntegerType)
     if isinstance(value, float):
-        return KernelExpr(_literal(value, FloatType), FloatType)
+        return Expression(_literal(value, FloatType), FloatType)
     if isinstance(value, str):
-        return KernelExpr(_literal(value, StringType), StringType)
+        return Expression(_literal(value, StringType), StringType)
     if isinstance(value, _pydatetime):
         # `Option<DateTime>.unwrap_or(datetime(...))`, a datetime `if_else`
         # arm, a captured datetime constant — all lift as DateTime
         # literals (#422); every other scalar already did.
-        return KernelExpr(_literal(value, DateTimeType), DateTimeType)
+        return Expression(_literal(value, DateTimeType), DateTimeType)
     lifted = _lift_variant(value, hint)
     if lifted is not None:
         return lifted
@@ -103,12 +103,12 @@ def _lift(value: Any, hint: EastType | None = None) -> KernelExpr:
         # An async compiled function called in the trace returned its
         # coroutine unexecuted — name the actual problem (#561).
         value.close()
-        raise KernelTraceError(
+        raise ExpressionError(
             "an AsyncFunction value was called inside a sync traced kernel — "
             "its result is a coroutine, which has no traced form; call it "
             "from python (per-element) instead"
         )
-    raise KernelTraceError(
+    raise ExpressionError(
         f"cannot lift python value of type {type(value).__name__} into an East kernel expression"
     )
 
@@ -133,8 +133,8 @@ class _ConstRegistry:
         self.by_id: dict[int, tuple[str, EastType]] = {}
         self.entries: list[tuple[str, Any, EastType]] = []
 
-    def register(self, value: Any, node: Any, t: EastType) -> KernelExpr:
-        from east.kernel.expr import KernelExpr
+    def register(self, value: Any, node: Any, t: EastType) -> Expression:
+        from east.expression.expr import Expression
 
         hit = self.by_id.get(id(value))
         if hit is None:
@@ -143,7 +143,7 @@ class _ConstRegistry:
             self.entries.append((name, node, t))
         else:
             name, t = hit
-        return KernelExpr(_var(name, t), t)
+        return Expression(_var(name, t), t)
 
 
 # The active (outermost) trace's constant registry; inner-lambda traces share
@@ -176,7 +176,7 @@ def _resume_hoisting(previous: bool) -> None:
     _hoisting = previous
 
 
-def _register_const(value: Any, expr: KernelExpr) -> KernelExpr:
+def _register_const(value: Any, expr: Expression) -> Expression:
     if _const_registry is None or not _hoisting:
         return expr
     return _const_registry.register(value, expr.ir, expr.east_type)
@@ -274,7 +274,7 @@ def _pop_effects(body_ir: Any) -> None:
     noted = _effect_frames.pop()
     if not noted:
         return
-    from east.kernel.finalize import _node_children
+    from east.expression.finalize import _node_children
 
     seen: set[int] = set()
     stack = [body_ir]
@@ -286,7 +286,7 @@ def _pop_effects(body_ir: Any) -> None:
         stack.extend(_node_children(node))
     for node, op in noted:
         if id(node) not in seen:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".{op}() was evaluated and thrown away — a traced callback is "
                 "ONE expression, so a mutation written as a statement does not "
                 "reach the compiled body and the loop would silently do "
@@ -317,7 +317,7 @@ def _hoisted_const_names() -> frozenset[str]:
 
 
 def _lower_compiled_call(fn_val_ptr: int, input_type_ptrs: list,
-                         output_type_ptr: int, args: tuple) -> KernelExpr | None:
+                         output_type_ptr: int, args: tuple) -> Expression | None:
     """Lower a proxy-argument call on a compiled East function to Call IR.
 
     The cold path behind the bridge's ``NonRetraceableCallError``: the call
@@ -333,11 +333,11 @@ def _lower_compiled_call(fn_val_ptr: int, input_type_ptrs: list,
     if _fn_registry is None or fn_val_ptr == 0 or output_type_ptr == 0:
         return None
     from east._eastc_bridge import c_function_value_type, c_type_ptr_to_py_type
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
     declared = c_function_value_type(fn_val_ptr)
     if declared is not None and declared.type == "AsyncFunction":
-        raise KernelTraceError(
+        raise ExpressionError(
             "an AsyncFunction value cannot be called inside a sync traced "
             "kernel — call it from python (per-element) instead"
         )
@@ -351,7 +351,7 @@ def _lower_compiled_call(fn_val_ptr: int, input_type_ptrs: list,
             if e.east_type != t:
                 return None
             arg_exprs.append(e)
-    except KernelTraceError:
+    except ExpressionError:
         return None
     out_t = c_type_ptr_to_py_type(output_type_ptr)
     fn_t = FunctionType(list(inputs), out_t)
@@ -361,10 +361,10 @@ def _lower_compiled_call(fn_val_ptr: int, input_type_ptrs: list,
 
         name = _fn_registry.register(fn_val_ptr, hold_function_value(fn_val_ptr), fn_t)
     node = _k_call(out_t, _var(name, fn_t), [e.ir for e in arg_exprs])
-    return KernelExpr(node, out_t)
+    return Expression(node, out_t)
 
 
-def _lift_collection(value: Any) -> KernelExpr | None:
+def _lift_collection(value: Any) -> Expression | None:
     """Lift a captured East collection/struct constant (#393).
 
     The value snapshots into constructor IR (NewArray/NewSet/NewDict/Struct,
@@ -375,7 +375,7 @@ def _lift_collection(value: Any) -> KernelExpr | None:
     all): declare a trailing parameter and use ``kernel(...).bind(table)``
     (#399).
     """
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
     from east.types.types import ArrayType as _ArrayType
     from east.types.types import DictType as _DictType
     from east.types.types import MatrixType as _MatrixType
@@ -388,14 +388,14 @@ def _lift_collection(value: Any) -> KernelExpr | None:
         arr_t = _ArrayType(elem_t)
         nodes = [_lift(v, hint=elem_t).ir for v in value]
         return _register_const(
-            value, KernelExpr(_k_new_array(arr_t, nodes), arr_t)
+            value, Expression(_k_new_array(arr_t, nodes), arr_t)
         )
     if isinstance(value, EastVector):
         elem_t = value.element_type
         vec_t = _VectorType(elem_t)
         nodes = [_lift(x, hint=elem_t).ir for x in value.to_numpy().tolist()]
         return _register_const(
-            value, KernelExpr(_k_new_vector(vec_t, nodes), vec_t)
+            value, Expression(_k_new_vector(vec_t, nodes), vec_t)
         )
     if isinstance(value, EastMatrix):
         elem_t = value.element_type
@@ -404,14 +404,14 @@ def _lift_collection(value: Any) -> KernelExpr | None:
         nodes = [_lift(x, hint=elem_t).ir for x in flat]
         return _register_const(
             value,
-            KernelExpr(_k_new_matrix(mat_t, value.rows, value.cols, nodes), mat_t),
+            Expression(_k_new_matrix(mat_t, value.rows, value.cols, nodes), mat_t),
         )
     if isinstance(value, EastSet):
         elem_t = value.element_type
         set_t = _SetType(elem_t)
         nodes = [_lift(v, hint=elem_t).ir for v in value]
         return _register_const(
-            value, KernelExpr(_k_new_set(set_t, nodes), set_t)
+            value, Expression(_k_new_set(set_t, nodes), set_t)
         )
     if isinstance(value, EastDict):
         k_t, v_t = value.key_type, value.value_type
@@ -421,7 +421,7 @@ def _lift_collection(value: Any) -> KernelExpr | None:
         ]
         return _register_const(
             value,
-            KernelExpr(_k_new_dict(dict_t, entries), dict_t),
+            Expression(_k_new_dict(dict_t, entries), dict_t),
         )
     if is_east_struct(value):
         # A captured struct constant (e.g. a config row) lifts field by field.
@@ -429,7 +429,7 @@ def _lift_collection(value: Any) -> KernelExpr | None:
     return None
 
 
-def _lift_struct(value: dict, hint: EastType | None = None) -> KernelExpr:
+def _lift_struct(value: dict, hint: EastType | None = None) -> Expression:
     """Lift a dict of traced expressions/literals into Struct IR.
 
     Lets kernels build rows naturally: ``lambda el, i: {"i": i, "v": el.x}``.
@@ -437,7 +437,7 @@ def _lift_struct(value: dict, hint: EastType | None = None) -> KernelExpr:
     field lifts under its declared type — which is what lets a field hold a
     general ``variant(case, …)`` or a bare ``none`` (#541).
     """
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
     from east.types.types import StructType as _StructType
 
     field_hints: dict[str, EastType] = {}
@@ -448,42 +448,42 @@ def _lift_struct(value: dict, hint: EastType | None = None) -> KernelExpr:
     field_types = []
     for name, item in value.items():
         if not isinstance(name, str):
-            raise KernelTraceError("struct construction needs string field names")
+            raise ExpressionError("struct construction needs string field names")
         e = _lift(item, hint=field_hints.get(name))
         fields.append((name, e.ir))
         field_types.append((name, e.east_type))
     struct_t = _StructType(field_types)
-    return KernelExpr(_k_struct(struct_t, fields), struct_t)
+    return Expression(_k_struct(struct_t, fields), struct_t)
 
 
-def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
+def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
     """Lift `some(<traced expr>)` / the `none` constant into Variant IR.
 
     `east.some()` wraps without validating, so a traced lambda can build
     options with the ordinary constructors; `none` needs a type hint (from
     an `if_else` arm or the declared callback output).
     """
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
     from east.types.values import is_east_null, is_east_variant
 
     if not is_east_variant(value) or not isinstance(value, EastVariant):
         return None
     if value.type == "some":
         payload = value.value
-        inner = _lift(payload) if not isinstance(payload, KernelExpr) else payload
+        inner = _lift(payload) if not isinstance(payload, Expression) else payload
         opt_t = _option_type(inner.east_type)
         node = ir_variant(opt_t, "some", inner.ir)
-        return KernelExpr(node, opt_t)
+        return Expression(node, opt_t)
     # `none.value` is the east_null sentinel, not Python None — test the sentinel
     # so this branch (and its type-from-context diagnostic) is actually reachable.
     if value.type == "none" and (is_east_null(value.value) or value.value is None):
         if hint is None or not _is_option(hint):
-            raise KernelTraceError(
+            raise ExpressionError(
                 "`none` in a traced kernel needs a type from context — pair it with a "
                 "some(...) arm in East.if_else(), or let the method fall back"
             )
         node = ir_variant(hint, "none", _literal(None, NullType))
-        return KernelExpr(node, hint)
+        return Expression(node, hint)
     if hint is not None and hint.type == "Variant":
         # General variant construction: variant("case", payload) with the
         # type from context (e.g. an if_else() arm or a declared output);
@@ -491,18 +491,18 @@ def _lift_variant(value: Any, hint: EastType | None) -> KernelExpr | None:
         case_t = next((c["type"] for c in hint.value if c["name"] == value.type), None)
         if case_t is None:
             names = ", ".join(c["name"] for c in hint.value)
-            raise KernelTraceError(f"variant case {value.type!r} not in {{{names}}}")
+            raise ExpressionError(f"variant case {value.type!r} not in {{{names}}}")
         payload = _lift(value.value, hint=case_t)
         if payload.east_type != case_t:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"variant case {value.type!r} payload has type {payload.east_type.type}, "
                 f"expected {case_t.type}"
             )
         node = ir_variant(hint, value.type, payload.ir)
-        return KernelExpr(node, hint)
+        return Expression(node, hint)
     # A general variant — the 2-arg variant(case, payload) construction
     # carries no VariantType — reached here with no Variant hint (#541).
-    raise KernelTraceError(
+    raise ExpressionError(
         f"variant({value.type!r}, …) in a traced kernel needs a VariantType from "
         "context — declare the kernel output (kernel(..., out=VariantType(...))), "
         "or build it in an East.if_else() with a typed sibling or a typed struct field"
@@ -514,12 +514,12 @@ def _needs_type_context(value: Any) -> bool:
     ``none``, a general ``variant(case, …)`` (the 2-arg construction carries
     no VariantType), or a deferred ``if_else`` over such arms (#541).
     ``some(expr)`` self-types and never defers."""
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
     from east.types.values import is_east_variant
 
     if isinstance(value, (_DeferredIfElse, _Jump)):
         return True
-    if isinstance(value, KernelExpr) or not is_east_variant(value):
+    if isinstance(value, Expression) or not is_east_variant(value):
         return False
     return value.type != "some"
 
@@ -546,14 +546,14 @@ def _pop_loop_frame() -> None:
 def _loop_frame(name: str | None, jump: str) -> Any:
     """The frame a jump targets — the innermost loop when unlabelled."""
     if not _loop_frames:
-        raise KernelTraceError(
+        raise ExpressionError(
             f"{jump}() outside any loop — it belongs in a while_/for_ body")
     if name is None:
         return _loop_frames[-1]
     for frame in reversed(_loop_frames):
         if frame.name == name:
             return frame
-    raise KernelTraceError(f"{jump}() names a label no enclosing loop carries")
+    raise ExpressionError(f"{jump}() names a label no enclosing loop carries")
 
 
 #: "no final state given" — distinct from a state that IS ``None``.
@@ -584,12 +584,12 @@ class _Jump:
     def __repr__(self) -> str:
         return f"<{self.kind.lower()} {self.label!r}>"
 
-    def resolve(self, hint: EastType | None) -> KernelExpr:
+    def resolve(self, hint: EastType | None) -> Expression:
+        from east.expression.expr import Expression
         from east.ir.builders import ir_break, ir_continue, ir_label
-        from east.kernel.expr import KernelExpr
 
         if hint is None:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"{self.kind.lower()}_() needs a type from context — put it in a "
                 "East.if_else() arm inside a while_/for_ body, where the loop state "
                 "types it"
@@ -598,8 +598,8 @@ class _Jump:
         build = ir_break if self.kind == "Break" else ir_continue
         jump = build(hint, ir_label(frame.name))
         if self.state is _NO_STATE:
-            return KernelExpr(jump, hint)
-        return KernelExpr(_k_block(hint, [frame.commit(self.state), jump]), hint)
+            return Expression(jump, hint)
+        return Expression(_k_block(hint, [frame.commit(self.state), jump]), hint)
 
 
 class _DeferredIfElse:
@@ -619,9 +619,9 @@ class _DeferredIfElse:
         self.conds = conds
         self.values = values
 
-    def resolve(self, hint: EastType | None) -> KernelExpr:
+    def resolve(self, hint: EastType | None) -> Expression:
         if hint is None:
-            raise KernelTraceError(
+            raise ExpressionError(
                 "if_else() with variant arms throughout needs a type from "
                 "context — declare the kernel output (kernel(..., out=VariantType(...))) "
                 "or build it in a typed struct field"
@@ -683,7 +683,7 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     ``if_else`` over variant arms (#541, #536). Returns
     ``(Function node, traced output type)``.
     """
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
     arity = declared
     if arity is None:
@@ -693,21 +693,21 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
         else:
             arity = code.co_argcount
     if not (1 <= arity <= len(param_types)):
-        raise KernelTraceError(
+        raise ExpressionError(
             f"inner lambda takes {arity} parameters; the callback signature has "
             f"{len(param_types)}"
         )
     names = [_fresh_name() for _ in param_types]
-    proxies = [KernelExpr(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
+    proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
     _push_effects()
     popped = False
     try:
         try:
             result = fn(*proxies[:arity])
-        except KernelTraceError:
+        except ExpressionError:
             raise
         except Exception as e:  # pragma: no cover - message carries the cause
-            raise KernelTraceError(f"inner lambda is not traceable: {e}") from e
+            raise ExpressionError(f"inner lambda is not traceable: {e}") from e
         body = _lift(result, hint=out_hint)
         popped = True
         _pop_effects(body.ir)
@@ -720,14 +720,14 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     return node, body.east_type
 
 
-def _ifelse_expr(conds: list, arms: list) -> KernelExpr:
+def _ifelse_expr(conds: list, arms: list) -> Expression:
     """Build the IfElse from lifted conditions and lifted arms (else last)."""
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
     out_t = arms[0].east_type
     for arm in arms:
         if arm.east_type != out_t:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"if_else() arms must have the same East type "
                 f"({out_t.type} vs {arm.east_type.type})"
             )
@@ -736,7 +736,7 @@ def _ifelse_expr(conds: list, arms: list) -> KernelExpr:
         [(c.ir, a.ir) for c, a in zip(conds, arms[:-1], strict=True)],
         arms[-1].ir,
     )
-    return KernelExpr(node, out_t)
+    return Expression(node, out_t)
 
 
 def if_else(*branches: Any) -> Any:
@@ -769,22 +769,22 @@ def if_else(*branches: Any) -> Any:
         and the per-element python paths).
 
     Raises:
-        KernelTraceError: If the argument count is even, a condition is not
+        ExpressionError: If the argument count is even, a condition is not
             Boolean, or the arms disagree on their East type.
     """
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
     if len(branches) < 3 or len(branches) % 2 == 0:
-        raise KernelTraceError(
+        raise ExpressionError(
             "if_else() takes cond/value pairs then the else value — an odd "
             f"number of arguments, at least three; got {len(branches)}"
         )
     conds = list(branches[0:-1:2])
     values = list(branches[1:-1:2]) + [branches[-1]]
 
-    if not any(isinstance(c, KernelExpr) for c in conds):
-        if any(isinstance(v, (KernelExpr, _DeferredIfElse)) for v in values):
-            raise KernelTraceError(
+    if not any(isinstance(c, Expression) for c in conds):
+        if any(isinstance(v, (Expression, _DeferredIfElse)) for v in values):
+            raise ExpressionError(
                 "if_else() received python conditions with traced arms — the "
                 "condition must come from the kernel's parameters"
             )
@@ -797,7 +797,7 @@ def if_else(*branches: Any) -> Any:
     for cond in conds:
         e = _lift(cond)
         if e.east_type.type != "Boolean":
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"if_else() condition must be Boolean, got {e.east_type.type}")
         cond_exprs.append(e)
 
@@ -824,10 +824,10 @@ def greatest(a: Any, b: Any) -> Any:
     """max(a, b) by East total order: traced IfElse on expressions, eager on
     plain values (dual-mode like ``if_else`` — the same lambda works on both
     the traced and python paths)."""
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
-    if isinstance(a, KernelExpr) or isinstance(b, KernelExpr):
-        ae = _lift(a, hint=b.east_type if isinstance(b, KernelExpr) else None)
+    if isinstance(a, Expression) or isinstance(b, Expression):
+        ae = _lift(a, hint=b.east_type if isinstance(b, Expression) else None)
         be = _lift(b, hint=ae.east_type)
         return if_else(ae >= be, ae, be)
     from east.types.values import type_of
@@ -838,10 +838,10 @@ def greatest(a: Any, b: Any) -> Any:
 
 def least(a: Any, b: Any) -> Any:
     """min(a, b) by East total order (dual-mode — see ``greatest``)."""
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
-    if isinstance(a, KernelExpr) or isinstance(b, KernelExpr):
-        ae = _lift(a, hint=b.east_type if isinstance(b, KernelExpr) else None)
+    if isinstance(a, Expression) or isinstance(b, Expression):
+        ae = _lift(a, hint=b.east_type if isinstance(b, Expression) else None)
         be = _lift(b, hint=ae.east_type)
         return if_else(ae <= be, ae, be)
     from east.types.values import type_of
@@ -862,14 +862,14 @@ def _sequence_effect(result: Any):
     sequences through a Block so the call executes and the callback still
     types as ``-> Null``.
     """
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
-    if isinstance(result, KernelExpr):
+    if isinstance(result, Expression):
         if result.east_type.type == "Null":
             return result
         from east.types.types import NullType
 
-        return KernelExpr(
+        return Expression(
             _k_block(NullType, [result.ir, _literal(None, NullType)]), NullType)
     from east.types.values import east_null
 

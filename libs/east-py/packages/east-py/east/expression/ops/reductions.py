@@ -14,15 +14,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from east.expression.errors import ExpressionError
+from east.expression.lift import _lift, _trace_inner_fn, _with_index, greatest, least
+from east.expression.nodes import _builtin, _fresh_name, _k_block, _var
+from east.expression.ops import _ExprBase
 from east.ir.builders import ir_let
-from east.kernel.errors import KernelTraceError
-from east.kernel.lift import _lift, _trace_inner_fn, _with_index, greatest, least
-from east.kernel.nodes import _builtin, _fresh_name, _k_block, _var
-from east.kernel.ops import _ExprBase
 from east.types.types import IntegerType
 
 if TYPE_CHECKING:
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
 
 class _ReductionOps(_ExprBase):
@@ -37,7 +37,7 @@ class _ReductionOps(_ExprBase):
     # method uses, so traced and eager agree including float accumulation
     # order.
 
-    def reduce(self, initial: Any, fn: Any) -> KernelExpr:
+    def reduce(self, initial: Any, fn: Any) -> Expression:
         """Traced SetReduce / DictReduce: fold every element into one
         accumulator, in East order. Set steps take ``fn(acc, element)``, Dict
         steps ``fn(acc, key, value)``. An Array's spelling is :meth:`fold`.
@@ -61,11 +61,11 @@ class _ReductionOps(_ExprBase):
             tps = [kv["key"], kv["value"], acc_t]
             args = [self.ir, node, init.ir]
         else:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".reduce() on {tag}" + (" — an Array folds with .fold()" if tag == "Array" else "")
             )
         if out_t != acc_t:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".reduce() step returns {out_t.type}, accumulator is {acc_t.type}"
             )
         return self._expr(_builtin(builtin, acc_t, tps, args), acc_t)
@@ -99,14 +99,14 @@ class _ReductionOps(_ExprBase):
                 lambda v, k: proj(k, v), [kv["value"], kv["key"]], declared=2
             )
         else:
-            raise KernelTraceError(f".{op}() on {tag}")
+            raise ExpressionError(f".{op}() on {tag}")
         if t2.type not in ("Integer", "Float"):
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".{op}() needs a numeric (Integer/Float) projection, got {t2.type}"
             )
         return proj, t2
 
-    def _with_bound_receiver(self, build: Any) -> KernelExpr:
+    def _with_bound_receiver(self, build: Any) -> Expression:
         """Evaluate the receiver ONCE and hand the binding to ``build``.
 
         Any composed method that reads the receiver more than a single time
@@ -129,7 +129,7 @@ class _ReductionOps(_ExprBase):
             body.east_type,
         )
 
-    def _reduce_numeric(self, zero: Any, proj: Any, wrap: Any) -> KernelExpr:
+    def _reduce_numeric(self, zero: Any, proj: Any, wrap: Any) -> Expression:
         """Fold ``wrap(proj(...))`` from ``zero`` with the container's own
         callback shape (Array folds with the index in scope)."""
         tag = self.east_type.type
@@ -139,7 +139,7 @@ class _ReductionOps(_ExprBase):
             return self.fold(zero, lambda acc, el, i: acc + wrap(proj(el, i)))
         return self.reduce(zero, lambda acc, el: acc + wrap(proj(el)))
 
-    def sum(self, fn: Any = None) -> KernelExpr:
+    def sum(self, fn: Any = None) -> Expression:
         """Traced sum of the elements, or of ``fn(...)`` over them.
 
         The zero is typed from the projection, so an empty collection sums to
@@ -150,7 +150,7 @@ class _ReductionOps(_ExprBase):
         zero: Any = 0 if t2.type == "Integer" else 0.0
         return self._reduce_numeric(zero, proj, lambda v: v)
 
-    def mean(self, fn: Any = None) -> KernelExpr:
+    def mean(self, fn: Any = None) -> Expression:
         """Traced arithmetic mean as a Float.
 
         An Integer projection widens once per element with IntegerToFloat, so
@@ -161,7 +161,7 @@ class _ReductionOps(_ExprBase):
         proj, t2 = self._numeric_projection("mean", fn)
         widen = t2.type == "Integer"
 
-        def as_float(value: Any) -> KernelExpr:
+        def as_float(value: Any) -> Expression:
             # One IntegerToFloat per element, decided once from the TYPE — the
             # traced twin of the eager `_float_proj` rule (#470). Lift FIRST:
             # a projection may legitimately return a plain python number
@@ -175,7 +175,7 @@ class _ReductionOps(_ExprBase):
         return self._with_bound_receiver(
             lambda recv: recv._reduce_numeric(0.0, proj, as_float) / recv.size().to_float())
 
-    def maximum(self, by: Any = None) -> KernelExpr:
+    def maximum(self, by: Any = None) -> Expression:
         """Traced ArrayMapReduce under ``greatest`` (East total order).
 
         Errors at run time on an empty array, like the eager ``maximum`` —
@@ -185,7 +185,7 @@ class _ReductionOps(_ExprBase):
         return self.map_reduce(by if by is not None else (lambda el: el),
                                lambda a, b: greatest(a, b))
 
-    def minimum(self, by: Any = None) -> KernelExpr:
+    def minimum(self, by: Any = None) -> Expression:
         """Traced ArrayMapReduce under ``least``; errors on empty, like the
         eager ``minimum``."""
         self._array_elem("minimum")

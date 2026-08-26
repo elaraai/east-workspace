@@ -8,10 +8,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from east.ir.builders import ir_error, ir_trycatch, ir_variant
-from east.kernel.errors import KernelTraceError
-from east.kernel.lift import _lift
-from east.kernel.nodes import (
+from east.expression.errors import ExpressionError
+from east.expression.lift import _lift
+from east.expression.nodes import (
     _builtin,
     _fresh_name,
     _is_option,
@@ -21,12 +20,13 @@ from east.kernel.nodes import (
     _option_type,
     _var,
 )
-from east.kernel.ops import _ExprBase
+from east.expression.ops import _ExprBase
+from east.ir.builders import ir_error, ir_trycatch, ir_variant
 from east.types.types import ArrayType, BooleanType, EastType, IntegerType, NullType, StringType
 from east.types.values import EastVariant
 
 if TYPE_CHECKING:
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
 
 class _OptionOps(_ExprBase):
@@ -40,9 +40,9 @@ class _OptionOps(_ExprBase):
 
     # ── option access (Match IR) ───────────────────────────────────────
 
-    def _match_option(self, some_body_fn: Any, none_value: KernelExpr, out_t: EastType) -> KernelExpr:
+    def _match_option(self, some_body_fn: Any, none_value: Expression, out_t: EastType) -> Expression:
         if not _is_option(self.east_type):
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"option access on a non-Option expression ({self.east_type.type})"
             )
         inner_t = _option_inner(self.east_type)
@@ -63,29 +63,29 @@ class _OptionOps(_ExprBase):
         )
         return self._expr(node, out_t)
 
-    def is_some(self) -> KernelExpr:
+    def is_some(self) -> Expression:
         return self._match_option(
             lambda _x: self._expr(_literal(True, BooleanType), BooleanType),
             self._expr(_literal(False, BooleanType), BooleanType),
             BooleanType,
         )
 
-    def is_none(self) -> KernelExpr:
+    def is_none(self) -> Expression:
         return self._match_option(
             lambda _x: self._expr(_literal(False, BooleanType), BooleanType),
             self._expr(_literal(True, BooleanType), BooleanType),
             BooleanType,
         )
 
-    def unwrap_or(self, default: Any) -> KernelExpr:
+    def unwrap_or(self, default: Any) -> Expression:
         if not _is_option(self.east_type):
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".unwrap_or() on a non-Option expression ({self.east_type.type})"
             )
         inner_t = _option_inner(self.east_type)
         d = _lift(default, hint=inner_t)
         if d.east_type != inner_t:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".unwrap_or() default has type {d.east_type.type}, option holds {inner_t.type}"
             )
         return self._match_option(lambda x: x, d, inner_t)
@@ -94,12 +94,12 @@ class _OptionOps(_ExprBase):
 
     def _variant_cases(self) -> list:
         if self.east_type.type != "Variant":
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"variant access on a non-variant expression ({self.east_type.type})"
             )
         return list(self.east_type.value)
 
-    def get_tag(self) -> KernelExpr:
+    def get_tag(self) -> Expression:
         """The case name as a String (Match over every case)."""
         cases = []
         for c in self._variant_cases():
@@ -108,12 +108,12 @@ class _OptionOps(_ExprBase):
         node = _k_match(StringType, self.ir, cases)
         return self._expr(node, StringType)
 
-    def has_tag(self, tag: str) -> KernelExpr:
+    def has_tag(self, tag: str) -> Expression:
         if not isinstance(tag, str):
-            raise KernelTraceError(".has_tag() takes a literal case name")
+            raise ExpressionError(".has_tag() takes a literal case name")
         names = [c["name"] for c in self._variant_cases()]
         if tag not in names:
-            raise KernelTraceError(f"variant has no case {tag!r} (cases: {', '.join(names)})")
+            raise ExpressionError(f"variant has no case {tag!r} (cases: {', '.join(names)})")
         cases = []
         for c in self._variant_cases():
             var = _var(_fresh_name(), c["type"])
@@ -121,21 +121,21 @@ class _OptionOps(_ExprBase):
         node = _k_match(BooleanType, self.ir, cases)
         return self._expr(node, BooleanType)
 
-    def match(self, cases: dict) -> KernelExpr:
+    def match(self, cases: dict) -> Expression:
         """Exhaustive traced match: {case: handler(payload_expr) -> expr}.
 
         Every case must be handled and all handler results must share one
         East type (a scalar handler value is lifted, with the other
         branches' type as the hint).
         """
-        from east.kernel.expr import KernelExpr
+        from east.expression.expr import Expression
 
         declared = self._variant_cases()
         names = [c["name"] for c in declared]
         missing = [n for n in names if n not in cases]
         extra = [n for n in cases if n not in names]
         if missing or extra:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".match() must handle exactly the variant's cases {names}; "
                 f"missing {missing}, unknown {extra}"
             )
@@ -143,26 +143,26 @@ class _OptionOps(_ExprBase):
         for c in declared:
             var = _var(_fresh_name(), c["type"])
             handler = cases[c["name"]]
-            # A KernelExpr arm is a VALUE arm, not a handler — expressions
+            # A Expression arm is a VALUE arm, not a handler — expressions
             # became callable when Function-typed expressions gained Call
             # lowering (#561), and invoking a non-function one would raise.
-            run = callable(handler) and not isinstance(handler, KernelExpr)
+            run = callable(handler) and not isinstance(handler, Expression)
             raw = handler(self._expr(var, c["type"])) if run else handler
             results.append((c["name"], var, raw))
         # Settle the shared output type from ANY arm that can state one
-        # without a hint — a raw KernelExpr, OR a `some(...)` result, which
+        # without a hint — a raw Expression, OR a `some(...)` result, which
         # arrives as an EastVariant WRAPPING a traced payload (the constructor
         # is a value builder, not an expression). Recognising only the bare
-        # KernelExpr left `out_t` unset whenever the only typed arm was
+        # Expression left `out_t` unset whenever the only typed arm was
         # `some(expr)`, so the sibling `none` arm raised "needs a type from
         # context" — the exact pairing `if_else(...)` types fine (#558 D).
         out_t = None
         for _, _, raw in results:
-            if isinstance(raw, KernelExpr):
+            if isinstance(raw, Expression):
                 out_t = raw.east_type
                 break
             if (isinstance(raw, EastVariant) and raw.type == "some"
-                    and isinstance(raw.value, KernelExpr)):
+                    and isinstance(raw.value, Expression)):
                 out_t = _option_type(raw.value.east_type)
                 break
         case_nodes = []
@@ -171,7 +171,7 @@ class _OptionOps(_ExprBase):
             if out_t is None:
                 out_t = body.east_type
             elif body.east_type != out_t:
-                raise KernelTraceError(
+                raise ExpressionError(
                     f".match() case {name!r} returns {body.east_type.type}, "
                     f"other cases return {out_t.type}"
                 )
@@ -179,15 +179,15 @@ class _OptionOps(_ExprBase):
         node = _k_match(out_t, self.ir, case_nodes)
         return self._expr(node, out_t)
 
-    def unwrap(self, tag: str) -> KernelExpr:
+    def unwrap(self, tag: str) -> Expression:
         """The payload of `tag`; an East runtime error for any other case."""
         if not isinstance(tag, str):
-            raise KernelTraceError(".unwrap() takes a literal case name")
+            raise ExpressionError(".unwrap() takes a literal case name")
         declared = self._variant_cases()
         target = next((c for c in declared if c["name"] == tag), None)
         if target is None:
             names = ", ".join(c["name"] for c in declared)
-            raise KernelTraceError(f"variant has no case {tag!r} (cases: {names})")
+            raise ExpressionError(f"variant has no case {tag!r} (cases: {names})")
         out_t = target["type"]
         case_nodes = []
         for c in declared:
@@ -203,15 +203,15 @@ class _OptionOps(_ExprBase):
 
     # ── strict optional parse (TryCatch IR, #392/#393) ──────────────────
 
-    def try_parse(self, t: EastType) -> KernelExpr:
+    def try_parse(self, t: EastType) -> Expression:
         """Parse this String as ``t``; ``some(value)`` on success, ``none`` on
         any parse failure (the strict whole-string parse of #392 wrapped in
         TryCatch IR). ``if_else(x.is_some(), …)`` / ``.unwrap_or(…)`` consume it.
         """
         if self.east_type.type != "String":
-            raise KernelTraceError(".try_parse() needs a String")
+            raise ExpressionError(".try_parse() needs a String")
         if not isinstance(t, EastType):
-            raise KernelTraceError(".try_parse() takes an East type")
+            raise ExpressionError(".try_parse() takes an East type")
         from east.types.types import StructType as _StructType
 
         out_t = _option_type(t)

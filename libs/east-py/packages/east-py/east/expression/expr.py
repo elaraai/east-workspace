@@ -2,14 +2,14 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""``KernelExpr`` — the typed expression proxy handed to traced lambdas.
+"""``Expression`` — the typed expression proxy handed to traced lambdas.
 
 The class core lives here: construction, struct field access (including the
 rule that a field WINS over a same-named method), calling a Function-typed
 expression, and the python protocol points that must fail loudly rather than
 constant-fold trace-time state into the result.
 
-Everything else is an op mixin under ``east.kernel.ops`` — one module per
+Everything else is an op mixin under ``east.expression.ops`` — one module per
 domain. A mixin builds its results with ``self._expr(…)`` rather than naming
 the class, which is what keeps the mixins importable BEFORE the class exists.
 """
@@ -18,26 +18,26 @@ from __future__ import annotations
 
 from typing import Any
 
+from east.expression.errors import ExpressionError, _trace_bail
+from east.expression.lift import _lift
+from east.expression.nodes import _k_call
+from east.expression.ops.collections import _CollectionOps
+from east.expression.ops.grouping import _GroupOps
+from east.expression.ops.mutation import _MutationOps
+from east.expression.ops.optionals import _OptionOps
+from east.expression.ops.reductions import _ReductionOps
+from east.expression.ops.scalar import _ScalarOps
+from east.expression.ops.search import _SearchOps
+from east.expression.ops.sequence import _SequenceOps
+from east.expression.ops.temporal import _TemporalOps
+from east.expression.ops.tensor import _TensorOps
+from east.expression.ops.text import _TextOps
+from east.expression.ops.transforms import _TransformOps
 from east.ir.builders import ir_get_field
-from east.kernel.errors import KernelTraceError, _trace_bail
-from east.kernel.lift import _lift
-from east.kernel.nodes import _k_call
-from east.kernel.ops.collections import _CollectionOps
-from east.kernel.ops.grouping import _GroupOps
-from east.kernel.ops.mutation import _MutationOps
-from east.kernel.ops.optionals import _OptionOps
-from east.kernel.ops.reductions import _ReductionOps
-from east.kernel.ops.scalar import _ScalarOps
-from east.kernel.ops.search import _SearchOps
-from east.kernel.ops.sequence import _SequenceOps
-from east.kernel.ops.temporal import _TemporalOps
-from east.kernel.ops.tensor import _TensorOps
-from east.kernel.ops.text import _TextOps
-from east.kernel.ops.transforms import _TransformOps
 from east.types.types import EastType
 
 # The traced collection surface per container kind — every name is a real
-# ``KernelExpr`` method. This is the enumeration the docs, the unsupported-
+# ``Expression`` method. This is the enumeration the docs, the unsupported-
 # method error, and the surface-coverage test all pin, so it cannot drift
 # silently (#452). Every transform is pure; the in-place mutators at the end
 # of each list are the loop-accumulator surface (#578) — the receiver they
@@ -128,7 +128,7 @@ _SHADOWABLE: frozenset[str] | None = None
 
 
 def _shadowable_names() -> frozenset[str]:
-    """Public ``KernelExpr`` method names — the ones a struct field can shadow.
+    """Public ``Expression`` method names — the ones a struct field can shadow.
 
     Computed once from the class itself, so a method added later is covered
     without anyone remembering to list it here.
@@ -136,13 +136,13 @@ def _shadowable_names() -> frozenset[str]:
     global _SHADOWABLE
     if _SHADOWABLE is None:
         _SHADOWABLE = frozenset(
-            n for n in dir(KernelExpr)
-            if not n.startswith("_") and callable(getattr(KernelExpr, n, None))
+            n for n in dir(Expression)
+            if not n.startswith("_") and callable(getattr(Expression, n, None))
         )
     return _SHADOWABLE
 
 
-class KernelExpr(
+class Expression(
     # _TensorOps sits first: its Vector/Matrix dispatch for the shared names
     # (length/get/set/slice/concat/to_array/sum/mean/maximum/minimum/abs)
     # runs before the scalar/collection mixins and delegates non-tensor
@@ -170,25 +170,25 @@ class KernelExpr(
         self.east_type = east_type
 
     def __repr__(self) -> str:
-        return f"<KernelExpr {self.east_type.type}>"
+        return f"<Expression {self.east_type.type}>"
 
     # ── struct field access ────────────────────────────────────────────
 
-    def field(self, name: str) -> KernelExpr:
+    def field(self, name: str) -> Expression:
         """Access a struct field (also available as attribute / item access)."""
         if self.east_type.type != "Struct":
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"field access `.{name}` on a non-struct expression ({self.east_type.type})"
             )
         for f in self.east_type.value:
             if f["name"] == name:
                 out_t = f["type"]
-                return KernelExpr(
+                return Expression(
                     ir_get_field(out_t, name, self.ir),
                     out_t,
                 )
         available = ", ".join(f["name"] for f in self.east_type.value)
-        raise KernelTraceError(f"struct has no field '{name}' (available: {available})")
+        raise ExpressionError(f"struct has no field '{name}' (available: {available})")
 
     def keys(self) -> list[str]:
         """This struct's field names, so ``{**s, "i": s.i + 1}`` works.
@@ -199,7 +199,7 @@ class KernelExpr(
         branch — the same on the traced and the eager paths.
         """
         if self.east_type.type != "Struct":
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".keys() on a non-struct expression ({self.east_type.type})")
         return [f["name"] for f in self.east_type.value]
 
@@ -227,7 +227,7 @@ class KernelExpr(
                         return object.__getattribute__(self, "field")(name)
         return object.__getattribute__(self, name)
 
-    def __getattr__(self, name: str) -> KernelExpr:
+    def __getattr__(self, name: str) -> Expression:
         if name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
         if name.startswith("_east_"):
@@ -242,7 +242,7 @@ class KernelExpr(
             # A method miss on a collection-typed expression: name the traced
             # surface instead of the misleading "field access on a non-struct
             # expression" (#452).
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"`.{name}` is not on the traced kernel surface for a "
                 f"{self.east_type.type}-typed expression — supported: "
                 f"{', '.join(_TRACED_SURFACE[self.east_type.type])}"
@@ -251,13 +251,13 @@ class KernelExpr(
             # A method miss on a scalar-typed expression: the real problem is
             # the method does not exist, not that the receiver failed to be a
             # struct (#604).
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"`.{name}` is not on the traced kernel surface for a "
                 f"{self.east_type.type}-typed expression"
             )
         return self.field(name)
 
-    def __getitem__(self, name: Any) -> KernelExpr:
+    def __getitem__(self, name: Any) -> Expression:
         if isinstance(name, slice) and self.east_type.type in ("Array", "String"):
             # `arr[a:b]` / `s[a:b]` — the eager slicing spellings, traced as
             # ArraySlice / StringSubstring. Python's from-the-end negatives
@@ -284,7 +284,7 @@ class KernelExpr(
             # error, not the last element (#624). Dict keys are real keys, so
             # a negative Integer key stays legal there.
             if self.east_type.type == "Array" and isinstance(name, int) and name < 0:
-                raise KernelTraceError(
+                raise ExpressionError(
                     "python's from-the-end indexing (a[-1]) has no East twin — "
                     "spell the element you mean, e.g. a.get(a.size() - 1) for "
                     "the last element"
@@ -298,7 +298,7 @@ class KernelExpr(
 
     # ── function-typed expressions are callable (IR Call, #561) ─────────
 
-    def __call__(self, *args: Any) -> KernelExpr:
+    def __call__(self, *args: Any) -> Expression:
         """Call a Function-typed expression: a ``FunctionType`` kernel
         parameter, a function-typed struct field, or any other traced
         function value. Emits the IR ``Call`` node, so the callee — whatever
@@ -306,17 +306,17 @@ class KernelExpr(
         natively per element."""
         tag = self.east_type.type
         if tag == "AsyncFunction":
-            raise KernelTraceError(
+            raise ExpressionError(
                 "an AsyncFunction value cannot be called inside a sync traced "
                 "kernel — call it from python (per-element) instead"
             )
         if tag != "Function":
-            raise KernelTraceError(f"calling a non-function expression ({tag})")
+            raise ExpressionError(f"calling a non-function expression ({tag})")
         sig = self.east_type.value
         inputs = list(sig["inputs"])
         out_t = sig["output"]
         if len(args) != len(inputs):
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"function expression takes {len(inputs)} argument(s), "
                 f"called with {len(args)}"
             )
@@ -324,13 +324,13 @@ class KernelExpr(
         for a, t in zip(args, inputs, strict=True):
             e = _lift(a, hint=t)
             if e.east_type != t:
-                raise KernelTraceError(
+                raise ExpressionError(
                     f"function argument has East type {e.east_type.type}, "
                     f"the parameter expects {t.type}"
                 )
             arg_exprs.append(e)
         node = _k_call(out_t, self.ir, [e.ir for e in arg_exprs])
-        return KernelExpr(node, out_t)
+        return Expression(node, out_t)
 
     # ── operations that cannot be traced (fail loud, fall back) ─────────
     # Every python protocol point with a NON-RAISING default must appear
@@ -338,14 +338,14 @@ class KernelExpr(
     # the result (#530's f-string). `__repr__` stays usable for diagnostics.
 
     def __str__(self) -> str:
-        raise KernelTraceError(
+        raise ExpressionError(
             "f-strings / str() cannot be traced into an East kernel — the "
             "expression proxy would constant-fold into the result. Build "
             "strings with `+` concatenation, or let the method fall back"
         )
 
     def __format__(self, format_spec: str) -> str:
-        raise KernelTraceError(
+        raise ExpressionError(
             "f-strings / format() cannot be traced into an East kernel — the "
             "expression proxy would constant-fold into the result. Build "
             "strings with `+` concatenation, or let the method fall back"
@@ -371,3 +371,7 @@ class KernelExpr(
 
     def __contains__(self, item: Any) -> bool:
         raise _trace_bail("in")
+
+
+#: Deprecated alias of :class:`Expression` (renamed in #625; one release).
+KernelExpr = Expression

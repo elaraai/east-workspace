@@ -33,8 +33,8 @@ from east import (
     EastDict,
     EastError,
     EastTypeError,
+    ExpressionError,
     IntegerType,
-    KernelTraceError,
     OptionType,
     StringType,
     StructType,
@@ -177,7 +177,7 @@ def test_wrong_input_kernel_does_not_run_native(rows):
     (previously the wrong kernel silently trampolined to a runtime error)."""
     other = StructType([("zz", StringType)])
     k = kernel(other, lambda r: r["zz"])
-    with pytest.raises(KernelTraceError, match="no field 'zz'"):
+    with pytest.raises(ExpressionError, match="no field 'zz'"):
         rows.map(k, out=StringType)
 
 

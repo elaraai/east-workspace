@@ -13,10 +13,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from east.ir.builders import ir_error
-from east.kernel.errors import KernelTraceError
-from east.kernel.lift import _lift, _trace_inner_fn, _with_index, _with_key_arg
-from east.kernel.nodes import (
+from east.expression.errors import ExpressionError
+from east.expression.lift import _lift, _trace_inner_fn, _with_index, _with_key_arg
+from east.expression.nodes import (
     _builtin,
     _fresh_name,
     _is_option,
@@ -26,11 +25,12 @@ from east.kernel.nodes import (
     _option_type,
     _var,
 )
-from east.kernel.ops import _ExprBase
+from east.expression.ops import _ExprBase
+from east.ir.builders import ir_error
 from east.types.types import EastType, FunctionType, IntegerType, StringType
 
 if TYPE_CHECKING:
-    from east.kernel.expr import KernelExpr
+    from east.expression.expr import Expression
 
 
 class _TransformOps(_ExprBase):
@@ -38,7 +38,7 @@ class _TransformOps(_ExprBase):
 
     __slots__ = ()
 
-    def first_map(self, fn: Any, out: EastType | None = None) -> KernelExpr:
+    def first_map(self, fn: Any, out: EastType | None = None) -> Expression:
         """Traced early-exit scan: the first ``some(value)`` that ``fn``
         produces (native ``Array``/``Set``/``Dict`` FirstMap — the scan stops
         at the first ``some``, #403).
@@ -63,7 +63,7 @@ class _TransformOps(_ExprBase):
                 lambda el, _i: lift_result(fn(el)), [elem_t, IntegerType], declared=2
             )
             if not _is_option(out_t):
-                raise KernelTraceError(
+                raise ExpressionError(
                     ".first_map() lambda must return some(...)/none, got "
                     f"{out_t.type}"
                 )
@@ -75,7 +75,7 @@ class _TransformOps(_ExprBase):
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(lambda el: lift_result(fn(el)), [elem_t], declared=1)
             if not _is_option(out_t):
-                raise KernelTraceError(
+                raise ExpressionError(
                     ".first_map() lambda must return some(...)/none, got "
                     f"{out_t.type}"
                 )
@@ -91,7 +91,7 @@ class _TransformOps(_ExprBase):
                 lambda v, k: lift_result(fn(k, v)), [kv["value"], kv["key"]], declared=2
             )
             if not _is_option(out_t):
-                raise KernelTraceError(
+                raise ExpressionError(
                     ".first_map() lambda must return some(...)/none, got "
                     f"{out_t.type}"
                 )
@@ -102,16 +102,16 @@ class _TransformOps(_ExprBase):
                 ),
                 out_t,
             )
-        raise KernelTraceError(f".first_map() on {tag}")
+        raise ExpressionError(f".first_map() on {tag}")
 
-    def string_join(self, separator: Any) -> KernelExpr:
+    def string_join(self, separator: Any) -> Expression:
         """Traced ArrayStringJoin over an Array<String>."""
         elem_t = self._array_elem("string_join")
         if elem_t.type != "String":
-            raise KernelTraceError(".string_join() needs an Array<String>")
+            raise ExpressionError(".string_join() needs an Array<String>")
         sep = _lift(separator)
         if sep.east_type.type != "String":
-            raise KernelTraceError(".string_join() separator must be a String")
+            raise ExpressionError(".string_join() separator must be a String")
         return self._expr(
             _builtin("ArrayStringJoin", StringType, [], [self.ir, sep.ir]), StringType
         )
@@ -126,12 +126,12 @@ class _TransformOps(_ExprBase):
         hint = _option_type(out) if out is not None else None
         node, out_t = _trace_inner_fn(fn, param_types, declared=declared, out_hint=hint)
         if not _is_option(out_t):
-            raise KernelTraceError(
+            raise ExpressionError(
                 f"callback must return some(...)/none, got {out_t.type}"
             )
         return node, _option_inner(out_t)
 
-    def filter_map(self, fn: Any, out: EastType | None = None) -> KernelExpr:
+    def filter_map(self, fn: Any, out: EastType | None = None) -> Expression:
         """Traced filter+map in one pass: Array → Array of unwrapped ``some``
         values; Set → Dict of kept element to value; Dict → Dict of kept key
         to value (``fn(key, value)``). ``out`` pins the kept value type and
@@ -168,9 +168,9 @@ class _TransformOps(_ExprBase):
                          [self.ir, node]),
                 out_d,
             )
-        raise KernelTraceError(f".filter_map() on {tag}")
+        raise ExpressionError(f".filter_map() on {tag}")
 
-    def flatten_to_array(self, fn: Any, out: EastType | None = None) -> KernelExpr:
+    def flatten_to_array(self, fn: Any, out: EastType | None = None) -> Expression:
         """Traced flatten: concatenate the arrays ``fn`` produces per element
         (per entry for a Dict, ``fn(key, value)``) — the operation whose
         absence forced two-stage kernels with a materialised intermediate.
@@ -195,16 +195,16 @@ class _TransformOps(_ExprBase):
                 lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2, out_hint=hint)
             builtin, tps = "DictFlattenToArray", [kv["key"], kv["value"]]
         else:
-            raise KernelTraceError(f".flatten_to_array() on {tag}")
+            raise ExpressionError(f".flatten_to_array() on {tag}")
         if out_t.type != "Array":
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".flatten_to_array() callback must return an Array, got {out_t.type}")
         inner_t = out_t.value
         self._check_out(".flatten_to_array()", inner_t, out)
         out_a = _ArrayType(inner_t)
         return self._expr(_builtin(builtin, out_a, [*tps, inner_t], [self.ir, node]), out_a)
 
-    def flatten_to_set(self, fn: Any, out: EastType | None = None) -> KernelExpr:
+    def flatten_to_set(self, fn: Any, out: EastType | None = None) -> Expression:
         """Traced flatten into a set: union the sets ``fn`` produces. ``out``
         pins the flattened ELEMENT type and types the callback's trace
         (#536)."""
@@ -227,16 +227,16 @@ class _TransformOps(_ExprBase):
                 lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2, out_hint=hint)
             builtin, tps = "DictFlattenToSet", [kv["key"], kv["value"]]
         else:
-            raise KernelTraceError(f".flatten_to_set() on {tag}")
+            raise ExpressionError(f".flatten_to_set() on {tag}")
         if out_t.type != "Set":
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".flatten_to_set() callback must return a Set, got {out_t.type}")
         inner_t = out_t.value
         self._check_out(".flatten_to_set()", inner_t, out)
         out_s = _SetType(inner_t)
         return self._expr(_builtin(builtin, out_s, [*tps, inner_t], [self.ir, node]), out_s)
 
-    def map_reduce(self, map_fn: Any, reduce_fn: Any, out: EastType | None = None) -> KernelExpr:
+    def map_reduce(self, map_fn: Any, reduce_fn: Any, out: EastType | None = None) -> Expression:
         """Traced map-then-pairwise-combine (errors at run time on empty, like
         the eager method). Dict's ``map_fn`` takes ``(key, value)``. ``out``
         pins the mapped type and types the map callback's trace (#536)."""
@@ -260,11 +260,11 @@ class _TransformOps(_ExprBase):
                 out_hint=out)
             builtin, tps = "DictMapReduce", [kv["key"], kv["value"]]
         else:
-            raise KernelTraceError(f".map_reduce() on {tag}")
+            raise ExpressionError(f".map_reduce() on {tag}")
         self._check_out(".map_reduce()", t2, out)
         reduce_node, r_out = _trace_inner_fn(reduce_fn, [t2, t2], declared=2, out_hint=t2)
         if r_out != t2:
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".map_reduce() reduce returns {r_out.type}, mapped values are {t2.type}")
         return self._expr(
             _builtin(builtin, t2, [*tps, t2], [self.ir, map_node, reduce_node]), t2
@@ -311,7 +311,7 @@ class _TransformOps(_ExprBase):
 
     def to_dict(self, key: Any, value: Any = None, combine: Any = None,
                 key_out: EastType | None = None,
-                value_out: EastType | None = None) -> KernelExpr:
+                value_out: EastType | None = None) -> Expression:
         """Traced ArrayToDict / DictToDict, shaped like the eager methods:
         Array keys by ``key(element)`` with ``value(element)`` (the element
         itself when omitted); Dict re-keys with ``key(key, value)`` /
@@ -348,11 +348,11 @@ class _TransformOps(_ExprBase):
             elem_t = self.east_type.value
             key_node, k2 = _trace_inner_fn(key, [elem_t], declared=1, out_hint=key_out)
             if value is None:
-                raise KernelTraceError(".to_dict() on a Set needs a value fn(element)")
+                raise ExpressionError(".to_dict() on a Set needs a value fn(element)")
             val_node, t2 = _trace_inner_fn(value, [elem_t], declared=1,
                                            out_hint=value_out)
         else:
-            raise KernelTraceError(f".to_dict() on {tag}")
+            raise ExpressionError(f".to_dict() on {tag}")
         self._check_out(".to_dict() key", k2, key_out)
         self._check_out(".to_dict() value", t2, value_out)
         if combine is None:
@@ -361,7 +361,7 @@ class _TransformOps(_ExprBase):
             combine_node, c_out = _trace_inner_fn(
                 _with_key_arg(combine), [t2, t2, k2], declared=3, out_hint=t2)
             if c_out != t2:
-                raise KernelTraceError(
+                raise ExpressionError(
                     f".to_dict() combine returns {c_out.type}, values are {t2.type}")
         out = _DictType(k2, t2)
         if tag == "Array":
@@ -377,7 +377,7 @@ class _TransformOps(_ExprBase):
         return self._expr(
             _builtin("SetToDict", out, [self.east_type.value, k2, t2], args), out)
 
-    def flatten_to_dict(self, fn: Any, combine: Any = None) -> KernelExpr:
+    def flatten_to_dict(self, fn: Any, combine: Any = None) -> Expression:
         """Traced flatten into a dict: merge the dicts ``fn`` produces.
 
         The third member of the flatten family (``flatten_to_array`` /
@@ -404,9 +404,9 @@ class _TransformOps(_ExprBase):
                 lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2)
             builtin, tps = "DictFlattenToDict", [kv["key"], kv["value"]]
         else:
-            raise KernelTraceError(f".flatten_to_dict() on {tag}")
+            raise ExpressionError(f".flatten_to_dict() on {tag}")
         if out_t.type != "Dict":
-            raise KernelTraceError(
+            raise ExpressionError(
                 f".flatten_to_dict() callback must return a Dict, got {out_t.type}")
         k2, v2 = out_t.value["key"], out_t.value["value"]
         if combine is None:
@@ -415,14 +415,14 @@ class _TransformOps(_ExprBase):
             combine_node, c_out = _trace_inner_fn(
                 _with_key_arg(combine), [v2, v2, k2], declared=3, out_hint=v2)
             if c_out != v2:
-                raise KernelTraceError(
+                raise ExpressionError(
                     f".flatten_to_dict() combine returns {c_out.type}, values are {v2.type}")
         out = _DictType(k2, v2)
         return self._expr(
             _builtin(builtin, out, [*tps, k2, v2], [self.ir, node, combine_node]), out
         )
 
-    def to_set(self, key: Any = None, out: EastType | None = None) -> KernelExpr:
+    def to_set(self, key: Any = None, out: EastType | None = None) -> Expression:
         """Traced ArrayToSet / SetToSet / DictToSet: the set of elements or
         projections (``key(key, value)`` for a Dict, where it is required).
 
@@ -439,7 +439,7 @@ class _TransformOps(_ExprBase):
             # whole to_* family traced except this one member, so a working
             # eager lambda silently dropped its loop to the python path.
             if key is None:
-                raise KernelTraceError(".to_set() on a Set needs a projection fn(element)")
+                raise ExpressionError(".to_set() on a Set needs a projection fn(element)")
             elem_t = self.east_type.value
             node, k2 = _trace_inner_fn(key, [elem_t], declared=1)
             self._check_out(".to_set()", k2, out)
@@ -459,7 +459,7 @@ class _TransformOps(_ExprBase):
             )
         if tag == "Dict":
             if key is None:
-                raise KernelTraceError(".to_set() on a Dict needs a projection fn(key, value)")
+                raise ExpressionError(".to_set() on a Dict needs a projection fn(key, value)")
             kv = self.east_type.value
             node, k2 = _trace_inner_fn(
                 lambda v, k: key(k, v), [kv["value"], kv["key"]], declared=2)
@@ -469,14 +469,14 @@ class _TransformOps(_ExprBase):
                 _builtin("DictToSet", out_t, [kv["key"], kv["value"], k2], [self.ir, node]),
                 out_t,
             )
-        raise KernelTraceError(f".to_set() on {tag}")
+        raise ExpressionError(f".to_set() on {tag}")
 
-    def unique(self) -> KernelExpr:
+    def unique(self) -> Expression:
         """Traced distinct elements (ArrayToSet with the identity key)."""
         return self.to_set()
 
     def to_array(self, fn: Any = None, out: EastType | None = None, *,
-                 key: Any = None) -> KernelExpr:
+                 key: Any = None) -> Expression:
         """Traced SetToArray / DictToArray: elements (or projections) in East
         order; a Dict projects with ``fn(key, value)`` (required). ``key`` is
         the eager Set spelling of the projection; ``out`` pins the projected
@@ -497,7 +497,7 @@ class _TransformOps(_ExprBase):
             )
         if tag == "Dict":
             if fn is None:
-                raise KernelTraceError(".to_array() on a Dict needs a projection fn(key, value)")
+                raise ExpressionError(".to_array() on a Dict needs a projection fn(key, value)")
             kv = self.east_type.value
             node, t2 = _trace_inner_fn(
                 lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2, out_hint=out)
@@ -507,4 +507,4 @@ class _TransformOps(_ExprBase):
                 _builtin("DictToArray", out_a, [kv["key"], kv["value"], t2], [self.ir, node]),
                 out_a,
             )
-        raise KernelTraceError(f".to_array() on {tag}")
+        raise ExpressionError(f".to_array() on {tag}")

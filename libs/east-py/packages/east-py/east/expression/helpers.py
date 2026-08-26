@@ -14,10 +14,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from east.ir.builders import ir_get_field, ir_variant
-from east.kernel.expr import KernelExpr
-from east.kernel.finalize import _function_ir
-from east.kernel.nodes import (
+from east.expression.expr import Expression
+from east.expression.finalize import _function_ir
+from east.expression.nodes import (
     _builtin,
     _k_block,
     _k_new_array,
@@ -28,6 +27,7 @@ from east.kernel.nodes import (
     _type_key,
     _var,
 )
+from east.ir.builders import ir_get_field, ir_variant
 from east.types.types import ArrayType, BooleanType, EastType, NullType
 
 # ─── Hand-built helper kernels (internal — used by eager methods) ───────────
@@ -48,7 +48,7 @@ def _identity_kernel(t: EastType) -> Any:
     cached = _helper_memo.get(key)
     if cached is not None:
         return cached
-    body = KernelExpr(_var("__k0", t), t)
+    body = Expression(_var("__k0", t), t)
     k = compile_from_value(_function_ir([t], [_var("__k0", t)], body))
     _helper_memo[key] = k
     return k
@@ -63,7 +63,7 @@ def _second_kernel(t: EastType) -> Any:
     if cached is not None:
         return cached
     params = [_var("__k0", t), _var("__k1", t)]
-    body = KernelExpr(_var("__k1", t), t)
+    body = Expression(_var("__k1", t), t)
     k = compile_from_value(_function_ir([t, t], params, body))
     _helper_memo[key] = k
     return k
@@ -78,7 +78,7 @@ def _empty_array_kernel(key_t: EastType, element_t: EastType) -> Any:
     if cached is not None:
         return cached
     bucket_t = ArrayType(element_t)
-    body = KernelExpr(_k_new_array(bucket_t, []), bucket_t)
+    body = Expression(_k_new_array(bucket_t, []), bucket_t)
     k = compile_from_value(_function_ir([key_t], [_var("__k0", key_t)], body))
     _helper_memo[key] = k
     return k
@@ -93,7 +93,7 @@ def _none_init_kernel(key_t: EastType, inner_t: EastType) -> Any:
     if cached is not None:
         return cached
     opt_t = _option_type(inner_t)
-    body = KernelExpr(
+    body = Expression(
         ir_variant(opt_t, "none", _literal(None, NullType)),
         opt_t,
     )
@@ -121,7 +121,7 @@ def _append_field_kernel(pair_t: EastType, value_field: str) -> Any:
     acc = _var("__k0", bucket_t)
     push = _builtin("ArrayPushLast", NullType, [v_t], [acc, field_ir])
     block = _k_block(bucket_t, [push, acc])
-    k = compile_from_value(_function_ir([bucket_t, pair_t], [acc, el], KernelExpr(block, bucket_t)))
+    k = compile_from_value(_function_ir([bucket_t, pair_t], [acc, el], Expression(block, bucket_t)))
     _helper_memo[key] = k
     return k
 
@@ -136,7 +136,7 @@ def _empty_set_kernel(key_t: EastType, element_t: EastType) -> Any:
     if cached is not None:
         return cached
     set_t = _SetType(element_t)
-    body = KernelExpr(_k_new_set(set_t, []), set_t)
+    body = Expression(_k_new_set(set_t, []), set_t)
     k = compile_from_value(_function_ir([key_t], [_var("__k0", key_t)], body))
     _helper_memo[key] = k
     return k
@@ -168,7 +168,7 @@ def _set_insert_field_kernel(pair_t: EastType, value_field: str) -> Any:
     # returns the accumulator, exactly as the SetInsert form did with Null.
     ins = _builtin("SetTryInsert", BooleanType, [v_t], [acc, field_ir])
     block = _k_block(set_t, [ins, acc])
-    k = compile_from_value(_function_ir([set_t, pair_t], [acc, el], KernelExpr(block, set_t)))
+    k = compile_from_value(_function_ir([set_t, pair_t], [acc, el], Expression(block, set_t)))
     _helper_memo[key] = k
     return k
 
@@ -183,7 +183,7 @@ def _empty_dict_kernel(key_t: EastType, k2_t: EastType, v_t: EastType) -> Any:
     if cached is not None:
         return cached
     dict_t = _DictType(k2_t, v_t)
-    body = KernelExpr(_k_new_dict(dict_t, []), dict_t)
+    body = Expression(_k_new_dict(dict_t, []), dict_t)
     k = compile_from_value(_function_ir([key_t], [_var("__k0", key_t)], body))
     _helper_memo[key] = k
     return k
@@ -209,7 +209,7 @@ def _dict_insert_fields_kernel(pair_t: EastType, key_field: str, value_field: st
     acc = _var("__k0", dict_t)
     ins = _builtin("DictInsert", NullType, [k2_t, v_t], [acc, k_ir, v_ir])
     block = _k_block(dict_t, [ins, acc])
-    k = compile_from_value(_function_ir([dict_t, pair_t], [acc, el], KernelExpr(block, dict_t)))
+    k = compile_from_value(_function_ir([dict_t, pair_t], [acc, el], Expression(block, dict_t)))
     _helper_memo[key] = k
     return k
 
@@ -227,7 +227,7 @@ def _append_kernel(element_t: EastType) -> Any:
     el = _var("__k1", element_t)
     push = _builtin("ArrayPushLast", NullType, [element_t], [acc, el])
     block = _k_block(bucket_t, [push, acc])
-    body = KernelExpr(block, bucket_t)
+    body = Expression(block, bucket_t)
     k = compile_from_value(_function_ir([bucket_t, element_t], [acc, el], body))
     _helper_memo[key] = k
     return k

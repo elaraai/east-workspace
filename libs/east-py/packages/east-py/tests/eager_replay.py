@@ -26,7 +26,7 @@ Callback (``Function``-typed) builtin arguments are materialised per MODE:
 - ``trampoline``  — the same compiled callable hidden behind a plain python
                     closure, so pushdown refuses and the per-element python
                     path runs;
-- ``traced``      — the callback IR is replayed against ``KernelExpr`` proxies
+- ``traced``      — the callback IR is replayed against ``Expression`` proxies
                     through the traced surface and re-compiled; nodes the
                     traced surface cannot express are COUNTED (the #452
                     ratchet) and fall back to the kernel-mode callable.
@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from east.expression import Expression, ExpressionError, trace
 from east.ir.builders import (
     ir_block,
     ir_let,
@@ -55,7 +56,6 @@ from east.ir.builders import (
     ir_value,
     ir_variant,
 )
-from east.kernel import KernelExpr, KernelTraceError, trace
 from east.namespace import East
 from east.runtime.compiler import compile_from_value, eager_stats
 from east.runtime.errors import EastError
@@ -378,11 +378,11 @@ class EagerEvaluator:
 
     @staticmethod
     def _klift(value: Any, hint: Any) -> Any:
-        """A KernelExpr for a constructor child: proxies pass through, plain
+        """A Expression for a constructor child: proxies pass through, plain
         values lift as typed constants."""
-        if isinstance(value, KernelExpr):
+        if isinstance(value, Expression):
             return value
-        from east.kernel import _lift
+        from east.expression import _lift
 
         return _lift(value, hint=hint)
 
@@ -393,7 +393,7 @@ class EagerEvaluator:
         an eager value would lift as a hoisted CONSTANT shared across calls —
         an init callback returning `[]` would hand every group one aliased
         accumulator."""
-        from east.kernel import _tracing
+        from east.expression import _tracing
 
         return _tracing()
 
@@ -459,7 +459,7 @@ class EagerEvaluator:
             return self.eval(p["else_body"], Env(env))
         if kind == "Match":
             subject = self.eval(p["variant"], env)
-            if isinstance(subject, KernelExpr):
+            if isinstance(subject, Expression):
                 raise _Unsupported("Match over a traced subject outside a callback")
             for case in p["cases"]:
                 if case["case"] == subject.type:
@@ -471,36 +471,36 @@ class EagerEvaluator:
             return self.eval(p["struct"], env)[p["field"]]
         if kind == "Struct":
             fields = [(f["name"], self.eval(f["value"], env)) for f in p["fields"]]
-            if any(isinstance(v, KernelExpr) for _n, v in fields) or self._in_trace():
+            if any(isinstance(v, Expression) for _n, v in fields) or self._in_trace():
                 # construction from traced parts IS a traced expression —
                 # an eager value holding proxies would hoist as a "constant"
                 # referencing kernel parameters (unbound outside the fn).
                 # Use the kernel's LAZY constructors: the eager builders'
                 # EastArray children convert nodes mid-trace (#411)
-                from east.kernel import _k_struct
+                from east.expression import _k_struct
 
                 t = self.canon(p["type"])
                 ftypes = {f["name"]: f["type"] for f in t.value}
                 node2 = _k_struct(t, [(n, self._klift(v, ftypes[n]).ir) for n, v in fields])
-                return KernelExpr(node2, t)
+                return Expression(node2, t)
             return EastStruct(dict(fields))
         if kind == "Variant":
             val = self.eval(p["value"], env)
-            if isinstance(val, KernelExpr) or self._in_trace():
+            if isinstance(val, Expression) or self._in_trace():
                 # in-trace: the node's DECLARED type keeps every case — an
                 # eager variant would be sampled to a single-case type (#450)
                 t = self.canon(p["type"])
                 ctypes = {c["name"]: c["type"] for c in t.value}
-                return KernelExpr(ir_variant(t, p["case"], self._klift(val, ctypes[p["case"]]).ir), t)
+                return Expression(ir_variant(t, p["case"], self._klift(val, ctypes[p["case"]]).ir), t)
             return EastVariant(p["case"], val)
         if kind == "NewArray":
             t = self.canon(p["type"])
             vals = [self.eval(v, env) for v in p["values"]]
-            if any(isinstance(v, KernelExpr) for v in vals) or self._in_trace():
-                from east.kernel import _k_new_array
+            if any(isinstance(v, Expression) for v in vals) or self._in_trace():
+                from east.expression import _k_new_array
 
                 et = child_type(t)
-                return KernelExpr(_k_new_array(t, [self._klift(v, et).ir for v in vals]), t)
+                return Expression(_k_new_array(t, [self._klift(v, et).ir for v in vals]), t)
             # Direct construction: the evaluated values are already East-typed
             # (the IR is), and the constructor's batch conversion preserves
             # element aliasing — a coerce_to detour re-canonicalizes each
@@ -510,11 +510,11 @@ class EagerEvaluator:
         if kind == "NewSet":
             t = self.canon(p["type"])
             vals = [self.eval(v, env) for v in p["values"]]
-            if any(isinstance(v, KernelExpr) for v in vals) or self._in_trace():
-                from east.kernel import _k_new_set
+            if any(isinstance(v, Expression) for v in vals) or self._in_trace():
+                from east.expression import _k_new_set
 
                 et = child_type(t)
-                return KernelExpr(_k_new_set(t, [self._klift(v, et).ir for v in vals]), t)
+                return Expression(_k_new_set(t, [self._klift(v, et).ir for v in vals]), t)
             if _mentions_function(t):
                 return EastSet(child_type(t), vals)
             from east.types.coercion import coerce_to
@@ -524,10 +524,10 @@ class EagerEvaluator:
             t = self.canon(p["type"])
             kt, vt = dict_child(t, "key"), dict_child(t, "value")
             entries = [(self.eval(e["key"], env), self.eval(e["value"], env)) for e in p["values"]]
-            if any(isinstance(x, KernelExpr) for kv in entries for x in kv) or self._in_trace():
-                from east.kernel import _k_new_dict
+            if any(isinstance(x, Expression) for kv in entries for x in kv) or self._in_trace():
+                from east.expression import _k_new_dict
 
-                return KernelExpr(_k_new_dict(
+                return Expression(_k_new_dict(
                     t, [(self._klift(k, kt).ir, self._klift(v, vt).ir) for k, v in entries]), t)
             d = EastDict(kt, vt)
             for k, v in entries:
@@ -593,7 +593,7 @@ class EagerEvaluator:
             raise _Continue(p["label"]["name"])
         if kind == "Error":
             msg = self.eval(p["message"], env)
-            if isinstance(msg, KernelExpr):
+            if isinstance(msg, Expression):
                 # data-dependent raise inside a trace replay — untraceable
                 raise _Unsupported("Error node over a traced message")
             raise EastError(msg, [])
@@ -628,7 +628,7 @@ class EagerEvaluator:
 
     @staticmethod
     def _truth(value: Any) -> bool:
-        if isinstance(value, KernelExpr):
+        if isinstance(value, Expression):
             raise _Unsupported("python branch on a traced predicate")
         return bool(value)
 
@@ -691,7 +691,7 @@ class EagerEvaluator:
         mutations (an accumulating forEach would silently count on the copy) —
         they run as interpreter closures instead, counted as such."""
         p = clo.payload
-        if any(isinstance(clo.env.get(v.value["name"]), KernelExpr)
+        if any(isinstance(clo.env.get(v.value["name"]), Expression)
                for v in p["captures"]):
             # materialized INSIDE a trace replay: a capture is the outer
             # trace's proxy, so a standalone compile would leave it free —
@@ -765,7 +765,7 @@ class EagerEvaluator:
         def dual(*args: Any) -> Any:
             # mirror kernel()'s dual-mode wrapper (#470): proxies re-run the
             # body through the replay; plain values execute natively
-            if any(isinstance(x, KernelExpr) for x in args):
+            if any(isinstance(x, Expression) for x in args):
                 return replay(*args)
             return compiled(*args)
 
@@ -795,13 +795,13 @@ class EagerEvaluator:
         return replay
 
     def _traced_callback(self, clo: Closure) -> Any | None:
-        """Replay the callback body over KernelExpr proxies through the traced
+        """Replay the callback body over Expression proxies through the traced
         surface; None (counted) when a node has no traced expression form."""
         p = clo.payload
         param_types = [self.canon(v.value["type"]) for v in p["parameters"]]
         try:
             ir_value_, _out, binds = trace(self._replay_fn(clo), param_types)
-        except (KernelTraceError, _Unsupported) as e:
+        except (ExpressionError, _Unsupported) as e:
             self.report.untraceable[str(e)[:80]] += 1
             return None
         compiled_cb = compile_from_value(ir_value_)
@@ -819,7 +819,7 @@ class EagerEvaluator:
         args = [self.eval(a, env) for a in raw_args]
 
         row = _ROWS.get(name)
-        traced_ctx = any(isinstance(a, KernelExpr) for a in args)
+        traced_ctx = any(isinstance(a, Expression) for a in args)
         cbs = [i for i, a in enumerate(args) if isinstance(a, Closure)]
 
         if row is not None and not traced_ctx:
@@ -837,7 +837,7 @@ class EagerEvaluator:
                 return result
         if row is not None and traced_ctx:
             # inside a traced callback replay: the row itself runs against
-            # proxies (KernelExpr methods / namespace funnel) and emits IR
+            # proxies (Expression methods / namespace funnel) and emits IR
             result = row(self, node, args)
             self.report.routes[(name, "traced")] += 1
             return result
@@ -933,41 +933,41 @@ _ROWS: dict[str, Any] = {
     "RegexReplace": lambda ev, n, a: East.String.regex_replace(a[0], a[1], a[3], a[2]),
     # comparisons — user spelling is the ordering-function surface
     "Equal": lambda ev, n, a: equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] == a[1],
     "NotEqual": lambda ev, n, a: not_equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] != a[1],
     "Less": lambda ev, n, a: less_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] < a[1],
     "LessEqual": lambda ev, n, a: less_equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] <= a[1],
     "Greater": lambda ev, n, a: greater_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] > a[1],
     "GreaterEqual": lambda ev, n, a: greater_equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] >= a[1],
     # Array
     "ArrayMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].map(_cb(ev, a[1])),
     "ArrayFilter": lambda ev, n, a: a[0].filter(_cb(ev, a[1])),
     "ArrayFilterMap": lambda ev, n, a: a[0].filter_map(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].filter_map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].filter_map(_cb(ev, a[1])),
     "ArrayFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_opt_inner(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].first_map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].first_map(_cb(ev, a[1])),
     "ArrayFold": lambda ev, n, a: a[0].fold(a[1], _cb(ev, a[2])),
     # scan IS the running fold, so it takes fold's argument order (#524).
     "ArrayScan": lambda ev, n, a: a[0].scan(a[1], _cb(ev, a[2])),
     "ArrayMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2]))
-    if isinstance(a[0], KernelExpr) else a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2]), out=_out(n)),
-    "ArraySize": lambda ev, n, a: a[0].size() if isinstance(a[0], KernelExpr) else len(a[0]),
+    if isinstance(a[0], Expression) else a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2]), out=_out(n)),
+    "ArraySize": lambda ev, n, a: a[0].size() if isinstance(a[0], Expression) else len(a[0]),
     "ArrayHas": lambda ev, n, a: a[0].has(a[1]),
     "ArrayGet": lambda ev, n, a: a[0].get(a[1]),
     "ArrayGetOrDefault": lambda ev, n, a: a[0].get_or_default(a[1], ev.call(a[2], [a[1]]) if isinstance(a[2], Closure) else a[2])
-    if not isinstance(a[0], KernelExpr) else a[0].get_or_default(a[1], _default_of(ev, a[2])),
+    if not isinstance(a[0], Expression) else a[0].get_or_default(a[1], _default_of(ev, a[2])),
     "ArrayTryGet": lambda ev, n, a: a[0].try_get(a[1]),
     "ArrayConcat": lambda ev, n, a: a[0].concat(a[1]),
     "ArraySlice": lambda ev, n, a: a[0].slice(a[1], a[2]),
@@ -981,11 +981,11 @@ _ROWS: dict[str, Any] = {
         _cb(ev, a[1]), value=_cb(ev, a[2]), combine=_cb(ev, a[3])),
     "ArrayGroupFold": lambda ev, n, a: a[0].group_reduce(
         _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3]))
-    if not isinstance(a[0], KernelExpr) else _unsup("traced group_reduce"),
+    if not isinstance(a[0], Expression) else _unsup("traced group_reduce"),
     "ArrayFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].flatten_to_array(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].flatten_to_array(_cb(ev, a[1])),
     "ArrayFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].flatten_to_set(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].flatten_to_set(_cb(ev, a[1])),
     "ArrayFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_cb(ev, a[1]), _cb(ev, a[2])),
     "ArrayStringJoin": lambda ev, n, a: a[0].string_join(a[1]),
     "ArrayPushLast": lambda ev, n, a: (a[0].append(a[1]), east_null)[1],
@@ -1005,7 +1005,7 @@ _ROWS: dict[str, Any] = {
     "ArrayFindSortedLast": lambda ev, n, a: a[0].find_sorted_last(a[1], key=_cb(ev, a[2])),
     "ArrayFindSortedRange": lambda ev, n, a: a[0].find_sorted_range(a[1], key=_cb(ev, a[2])),
     # Set
-    "SetSize": lambda ev, n, a: a[0].size() if isinstance(a[0], KernelExpr) else len(a[0]),
+    "SetSize": lambda ev, n, a: a[0].size() if isinstance(a[0], Expression) else len(a[0]),
     "SetHas": lambda ev, n, a: a[0].has(a[1]),
     "SetInsert": lambda ev, n, a: a[0].insert(a[1]),
     "SetDelete": lambda ev, n, a: a[0].delete(a[1]),
@@ -1021,34 +1021,34 @@ _ROWS: dict[str, Any] = {
     "SetUnionInPlace": lambda ev, n, a: a[0].union_in_place(a[1]),
     "SetToArray": lambda ev, n, a: a[0].to_array(_cb(ev, a[1])),
     "SetToSet": lambda ev, n, a: a[0].to_set(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else _unsup("traced SetToSet spelling"),
+    if not isinstance(a[0], Expression) else _unsup("traced SetToSet spelling"),
     "SetToDict": lambda ev, n, a: a[0].to_dict(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "SetMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
-    if not isinstance(a[0], KernelExpr) else a[0].map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].map(_cb(ev, a[1])),
     "SetFilter": lambda ev, n, a: a[0].filter(_cb(ev, a[1])),
     "SetFilterMap": lambda ev, n, a: a[0].filter_map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
-    if not isinstance(a[0], KernelExpr) else a[0].filter_map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].filter_map(_cb(ev, a[1])),
     "SetFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_opt_inner(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].first_map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].first_map(_cb(ev, a[1])),
     "SetMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2])),
     "SetReduce": lambda ev, n, a: a[0].reduce(a[2], _cb(ev, a[1])),
     # SetScan mirrors SetReduce's (set, fn, init) argument order (#524).
     "SetScan": lambda ev, n, a: a[0].scan(a[2], _cb(ev, a[1])),
     "SetGroupFold": lambda ev, n, a: a[0].group_reduce(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "SetFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].flatten_to_array(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].flatten_to_array(_cb(ev, a[1])),
     "SetFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].flatten_to_set(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].flatten_to_set(_cb(ev, a[1])),
     "SetFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_cb(ev, a[1]), _cb(ev, a[2])),
     "SetGenerate": lambda ev, n, a: EastSet.generate(a[0], _cb(ev, a[1]), element_type=ev.canon(n.value["type_parameters"][0])),
     "SetForEach": lambda ev, n, a: a[0].for_each(_cb(ev, a[1])),
     # Dict — note the builtin invokes callbacks (value, key); the python
     # methods take user (key, value) argument order
-    "DictSize": lambda ev, n, a: a[0].size() if isinstance(a[0], KernelExpr) else len(a[0]),
+    "DictSize": lambda ev, n, a: a[0].size() if isinstance(a[0], Expression) else len(a[0]),
     "DictHas": lambda ev, n, a: a[0].has(a[1]),
-    "DictGet": lambda ev, n, a: a[0].get(a[1]) if isinstance(a[0], KernelExpr) else a[0][a[1]],
+    "DictGet": lambda ev, n, a: a[0].get(a[1]) if isinstance(a[0], Expression) else a[0][a[1]],
     "DictGetOrDefault": lambda ev, n, a: a[0].get_or_default(a[1], ev.call(a[2], [a[1]]) if isinstance(a[2], Closure) else a[2])
-    if not isinstance(a[0], KernelExpr) else a[0].get_or_default(a[1], _default_of(ev, a[2])),
+    if not isinstance(a[0], Expression) else a[0].get_or_default(a[1], _default_of(ev, a[2])),
     "DictTryGet": lambda ev, n, a: a[0].try_get(a[1]),
     "DictInsert": lambda ev, n, a: a[0].insert(a[1], a[2]),
     # DictGetOrInsert's third arg is a nullary default producer in TS
@@ -1067,12 +1067,12 @@ _ROWS: dict[str, Any] = {
     "DictKeys": lambda ev, n, a: a[0].keys_set(),
     "DictGetKeys": lambda ev, n, a: a[0].get_keys(a[1], _kv_user(ev, a[2], 1)),
     "DictMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
-    if not isinstance(a[0], KernelExpr) else a[0].map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].map(_cb(ev, a[1])),
     "DictFilter": lambda ev, n, a: a[0].filter(_dict_kv(ev, a[1])),
     "DictFilterMap": lambda ev, n, a: a[0].filter_map(_dict_kv(ev, a[1]), out=dict_child(_out(n), "value"))
-    if not isinstance(a[0], KernelExpr) else a[0].filter_map(_dict_kv(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].filter_map(_dict_kv(ev, a[1])),
     "DictFirstMap": lambda ev, n, a: a[0].first_map(_dict_kv(ev, a[1]), out=_opt_inner(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].first_map(_dict_kv(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].first_map(_dict_kv(ev, a[1])),
     "DictMapReduce": lambda ev, n, a: a[0].map_reduce(_dict_kv(ev, a[1]), _cb(ev, a[2])),
     "DictReduce": lambda ev, n, a: a[0].reduce(a[2], _acc_kv(ev, a[1])),
     # DictScan mirrors DictReduce: builtin (acc, value, key) -> user

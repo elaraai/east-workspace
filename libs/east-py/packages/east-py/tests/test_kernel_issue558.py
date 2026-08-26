@@ -45,7 +45,7 @@ from east import (
     none,
     some,
 )
-from east.kernel import KernelTraceError
+from east.expression import ExpressionError
 from east.runtime.errors import NonRetraceableCallError
 
 ROW = StructType([("k", StringType)])
@@ -173,7 +173,7 @@ class TestNonRetraceableCallee:
         sink = _native_sink()
         try:
             kernel([StringType], lambda s: sink(s))
-        except KernelTraceError as e:
+        except ExpressionError as e:
             cause, found = e.__cause__, False
             for _ in range(4):
                 if cause is None:
@@ -184,7 +184,7 @@ class TestNonRetraceableCallee:
                 cause = cause.__cause__
             assert found, "NonRetraceableCallError missing from the cause chain"
         else:
-            raise AssertionError("expected KernelTraceError")
+            raise AssertionError("expected ExpressionError")
 
 
 # ── D. match settles its type from a some(...) arm ──────────────────────────

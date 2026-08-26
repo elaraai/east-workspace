@@ -27,8 +27,8 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import Any
 
-from east.kernel.finalize import _node_children
-from east.kernel.nodes import _type_key
+from east.expression.finalize import _node_children
+from east.expression.nodes import _type_key
 from east.types.types import EastType, StructType
 
 #: A subtree that must decode whole (also the "element escapes" answer).
@@ -229,7 +229,7 @@ def infer_field_mask(fn: Any, param_types: list[EastType], elem_pos: int) -> tup
     if not callable(fn):
         return None, None, "untraceable"
 
-    from east.kernel.pushdown import _eligible, _trace_cache_key
+    from east.expression.pushdown import _eligible, _trace_cache_key
 
     key = _trace_cache_key(fn, ("mask", elem_pos,
                                 tuple(_type_key(t) for t in param_types)))
@@ -241,7 +241,7 @@ def infer_field_mask(fn: Any, param_types: list[EastType], elem_pos: int) -> tup
     if not _eligible(fn):
         return None, None, "untraceable"
     try:
-        from east.kernel.trace import trace
+        from east.expression.function import trace
 
         ir, _out, _binds = trace(fn, list(param_types))
     except Exception:

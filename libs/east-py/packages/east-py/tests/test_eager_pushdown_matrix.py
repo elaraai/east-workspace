@@ -175,7 +175,7 @@ def test_try_push_down_honours_the_mark():
     """A wrapper carrying ``_east_kernel`` is pushable — before, the bridge
     honoured the mark while try_push_down judged the wrapper's own closure,
     so ``group_by`` branched to its per-element python path anyway."""
-    from east.kernel import try_push_down
+    from east.expression import try_push_down
     from east.types.values.collections import _mark_kernel
     from east.types.values.structural import EastFunction
 
@@ -189,7 +189,7 @@ def test_try_push_down_honours_the_mark():
 def test_try_push_down_still_rejects_a_mismatched_marked_kernel():
     """The mark rides the same #467 signature checks as the bridge: a marked
     kernel whose output is not the declared callback output must not pass."""
-    from east.kernel import try_push_down
+    from east.expression import try_push_down
     from east.types.values.collections import _mark_kernel
     from east.types.values.structural import EastFunction
 

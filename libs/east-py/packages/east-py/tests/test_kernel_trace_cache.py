@@ -42,7 +42,7 @@ from east import (
 from east.types.values.structural import EastFunction
 
 # `from east import kernel` shadows the module — resolve it for internals.
-_K = importlib.import_module("east.kernel")
+_K = importlib.import_module("east.expression")
 
 Row = StructType([("g", StringType), ("v", FloatType), ("n", IntegerType)])
 ROWS = [{"g": f"g{i % 3}", "v": float(i) * 1.5, "n": i} for i in range(30)]

@@ -26,7 +26,7 @@ from east import (
     StructType,
     kernel,
 )
-from east.kernel import trace
+from east.expression import trace
 from east.types.values import is_east_struct, is_east_variant
 
 RowT = StructType([("k", IntegerType), ("v", FloatType)])

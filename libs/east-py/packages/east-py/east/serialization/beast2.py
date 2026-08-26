@@ -832,7 +832,7 @@ class Beast2File:
         if self._pages is None or not self._pages.self_contained:
             counters["beast2_projection_declined_unpageable"] += 1
             return None, fns
-        from east.kernel.project import (
+        from east.expression.project import (
             WHOLE_MASK,
             infer_field_mask,
             merge_masks,
@@ -895,7 +895,7 @@ class Beast2File:
         if narrow_row == row_t:
             return None, fns  # every field read: nothing to skip, no cliff
         narrow_root = ArrayType(narrow_row) if kind == "Array" else DictType(key_t, narrow_row)
-        from east.kernel.nodes import _type_key
+        from east.expression.nodes import _type_key
 
         cache_key = _type_key(narrow_root)
         proj = self._proj_cache.get(cache_key)
@@ -1493,7 +1493,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         finely segmented file (#470). The group set is the union across
         segments, so a group that matched nowhere still lists an empty array.
         """
-        from east.kernel import _empty_array_kernel
+        from east.expression import _empty_array_kernel
         from east.types.types import ArrayType, IntegerType
         from east.types.values.collections import EastDict
 
@@ -1824,7 +1824,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         ``greatest`` under East's total order (max is associative, so the
         merge is exact; a boundary tie keeps the earlier-stream value, like
         the eager left fold)."""
-        from east.kernel import greatest
+        from east.expression import greatest
         from east.types.values.collections import EastDict
 
         self._project(("whole",))  # group values ARE elements
@@ -1843,7 +1843,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
     def group_minimum(self, key: Any, by: Any = None):
         """``EastArray.group_minimum`` — the :meth:`group_maximum` machinery
         under ``least``."""
-        from east.kernel import least
+        from east.expression import least
         from east.types.values.collections import EastDict
 
         self._project(("whole",))  # group values ARE elements

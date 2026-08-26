@@ -41,7 +41,7 @@ from east import (
     if_else,
     kernel,
 )
-from east.kernel import KernelTraceError, trace
+from east.expression import ExpressionError, trace
 from east.runtime.errors import EastError
 from east.types.values import EastArray, EastDict, EastSet
 
@@ -111,18 +111,18 @@ def test_while_threads_a_single_value_state():
 
 
 def test_while_cond_must_be_boolean():
-    with pytest.raises(KernelTraceError, match="cond must return a Boolean"):
+    with pytest.raises(ExpressionError, match="cond must return a Boolean"):
         kernel([IntegerType], lambda n: East.while_(
             {"i": 0}, cond=lambda s: s.i + n, body=lambda s: {"i": s.i + 1}))
 
 
 def test_while_state_shape_change_is_named():
-    with pytest.raises(KernelTraceError, match="missing \\['acc'\\]"):
+    with pytest.raises(ExpressionError, match="missing \\['acc'\\]"):
         kernel([IntegerType], lambda n: East.while_(
             {"i": 0, "acc": 0},
             cond=lambda s: s.i < n,
             body=lambda s: {"i": s.i + 1}))
-    with pytest.raises(KernelTraceError, match="unknown \\['extra'\\]"):
+    with pytest.raises(ExpressionError, match="unknown \\['extra'\\]"):
         kernel([IntegerType], lambda n: East.while_(
             {"i": 0},
             cond=lambda s: s.i < n,
@@ -130,7 +130,7 @@ def test_while_state_shape_change_is_named():
 
 
 def test_while_state_type_change_names_the_field():
-    with pytest.raises(KernelTraceError, match="acc: Integer -> Float"):
+    with pytest.raises(ExpressionError, match="acc: Integer -> Float"):
         kernel([IntegerType], lambda n: East.while_(
             {"i": 0, "acc": 0},
             cond=lambda s: s.i < n,
@@ -182,7 +182,7 @@ def test_for_over_an_empty_collection_returns_the_seed():
 
 
 def test_for_needs_a_container():
-    with pytest.raises(KernelTraceError, match="for_ over Integer"):
+    with pytest.raises(ExpressionError, match="for_ over Integer"):
         kernel([IntegerType], lambda n: East.for_(n, {"t": 0}, lambda s, el: s))
 
 
@@ -231,14 +231,14 @@ def test_a_mutation_written_as_a_statement_is_refused():
         s.out.append(el)
         return s
 
-    with pytest.raises(KernelTraceError, match="thrown away.*East.block"):
+    with pytest.raises(ExpressionError, match="thrown away.*East.block"):
         kernel([INTS], lambda a: East.for_(
             a, {"out": East.new_array(IntegerType)}, step).out)
 
 
 def test_mutating_a_captured_constant_is_refused():
     table = EastArray(IntegerType, [1, 2, 3])
-    with pytest.raises(KernelTraceError, match="captured constant"):
+    with pytest.raises(ExpressionError, match="captured constant"):
         kernel([INTS], lambda a: East.block(
             a.map(lambda el: el).concat(table).size(),
             East.let(table.copy().concat(table), lambda t: t.size()),
@@ -249,7 +249,7 @@ def test_mutating_a_captured_constant_is_refused():
 def _capture_append(table, el):
     """Reach the captured constant AS A TRACED EXPRESSION, which is the shape
     the guard is about — a bare ``table.append`` would hit the eager method."""
-    from east.kernel import _lift
+    from east.expression import _lift
 
     return _lift(table).append(el)
 
@@ -301,19 +301,19 @@ def _ifelse_cases(node, out=None):
 
 
 def test_if_else_needs_an_odd_argument_count():
-    with pytest.raises(KernelTraceError, match="odd\\s+number of arguments"):
+    with pytest.raises(ExpressionError, match="odd\\s+number of arguments"):
         kernel([IntegerType], lambda n: East.if_else(n > 0, 1, n > 5, 2))
-    with pytest.raises(KernelTraceError, match="odd"):
+    with pytest.raises(ExpressionError, match="odd"):
         kernel([IntegerType], lambda n: East.if_else(n > 0, 1))
 
 
 def test_if_else_conditions_must_be_boolean():
-    with pytest.raises(KernelTraceError, match="condition must be Boolean"):
+    with pytest.raises(ExpressionError, match="condition must be Boolean"):
         kernel([IntegerType], lambda n: East.if_else(n, 1, 2))
 
 
 def test_if_else_arms_must_agree():
-    with pytest.raises(KernelTraceError, match="arms must have the same East type"):
+    with pytest.raises(ExpressionError, match="arms must have the same East type"):
         kernel([IntegerType], lambda n: East.if_else(n > 0, 1, "no"))
 
 
@@ -332,10 +332,10 @@ def test_where_is_gone():
     """#578 renamed it: the python name is the IR node name, so a second
     spelling for IfElse would be exactly the inconsistency the rename fixes."""
     import east
-    import east.kernel
+    import east.expression
 
     assert not hasattr(east, "where")
-    assert not hasattr(east.kernel, "where")
+    assert not hasattr(east.expression, "where")
     assert not hasattr(East, "where")
 
 
@@ -390,13 +390,13 @@ def test_a_labelled_break_leaves_the_outer_loop_with_its_state():
 
 
 def test_break_outside_a_loop_says_so():
-    with pytest.raises(KernelTraceError, match="outside any loop"):
+    with pytest.raises(ExpressionError, match="outside any loop"):
         kernel([IntegerType], lambda n: if_else(n > 0, East.break_(), n))
 
 
 def test_break_with_a_label_positionally_is_corrected():
     lbl = East.label("l")
-    with pytest.raises(KernelTraceError, match=r"break_\(label="):
+    with pytest.raises(ExpressionError, match=r"break_\(label="):
         East.break_(lbl)
 
 
@@ -405,7 +405,7 @@ def test_break_with_a_label_positionally_is_corrected():
 
 def test_block_yields_its_last_expression():
     assert kernel([IntegerType], lambda n: East.block(n, n + 1))(4) == 5
-    with pytest.raises(KernelTraceError, match="at least one expression"):
+    with pytest.raises(ExpressionError, match="at least one expression"):
         kernel([IntegerType], lambda n: East.block())
 
 
@@ -452,7 +452,7 @@ def test_try_catch_handler_sees_the_message():
 
 
 def test_try_catch_arms_must_agree_on_type():
-    with pytest.raises(KernelTraceError, match="both arms must agree"):
+    with pytest.raises(ExpressionError, match="both arms must agree"):
         kernel([INTS], lambda a: East.try_catch(lambda: a.get(0), lambda _m: "no"))
 
 
@@ -502,7 +502,7 @@ def test_eager_mutators_block_and_try_catch_match():
 
 
 def test_eager_state_shape_is_checked_the_same_way():
-    with pytest.raises(KernelTraceError, match="missing \\['acc'\\]"):
+    with pytest.raises(ExpressionError, match="missing \\['acc'\\]"):
         East.while_({"i": 0, "acc": 0},
                     cond=lambda s: s.i < 3,
                     body=lambda s: {"i": s.i + 1})

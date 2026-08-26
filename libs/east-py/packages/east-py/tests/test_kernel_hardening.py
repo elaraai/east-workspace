@@ -27,7 +27,7 @@ from east import (
     kernel,
     variant,
 )
-from east.kernel import KernelTraceError
+from east.expression import ExpressionError
 
 Source = VariantType([("vessel", StringType), ("added", NullType)])
 Row = StructType([("code", StringType)])
@@ -40,12 +40,12 @@ def _rows() -> EastArray:
 # ── #530: f-strings / str() bail loudly instead of constant-folding ────────
 
 def test_fstring_in_an_explicit_kernel_raises():
-    with pytest.raises(KernelTraceError, match="constant-fold"):
+    with pytest.raises(ExpressionError, match="constant-fold"):
         kernel(StringType, lambda s: f"<{s}>")
 
 
 def test_str_call_in_an_explicit_kernel_raises():
-    with pytest.raises(KernelTraceError, match="constant-fold"):
+    with pytest.raises(ExpressionError, match="constant-fold"):
         kernel(StringType, lambda s: "<" + str(s) + ">")
 
 
@@ -57,7 +57,7 @@ def test_repr_still_works_for_diagnostics():
 def _probe_repr(s):
     # repr() must stay usable (error messages, debugging) — only str()/format
     # bail. The lambda returns the expression untouched after taking a repr.
-    assert "KernelExpr" in repr(s)
+    assert "Expression" in repr(s)
     return s
 
 
@@ -69,7 +69,7 @@ def test_an_eligible_untraceable_callback_raises_on_the_eager_path():
     # trace failure surfaces loudly instead of silently trampolining per
     # element (the hours-not-errors failure mode, #524). One behavior, no
     # opt-in flag: the error names the traced spelling.
-    with pytest.raises(KernelTraceError, match="constant-fold"):
+    with pytest.raises(ExpressionError, match="constant-fold"):
         arr.map(lambda s: f"<{s}>", out=StringType)
 
 
@@ -90,7 +90,7 @@ def test_map_out_is_accepted_and_types_a_variant_building_callback():
 
 
 def test_map_out_contradiction_raises():
-    with pytest.raises(KernelTraceError, match="out= declares"):
+    with pytest.raises(ExpressionError, match="out= declares"):
         kernel(ArrayTypeOf(IntegerType), lambda a: a.map(lambda x: x + 1, out=StringType))
 
 
@@ -122,7 +122,7 @@ def test_flatten_out_pins_the_element_type():
     arr = EastArray(ArrayType(IntegerType), [[1, 2], [3]])
     got = arr.flatten_to_array(lambda xs: xs, out=IntegerType)
     assert list(got) == [1, 2, 3]
-    with pytest.raises(KernelTraceError, match="out= declares"):
+    with pytest.raises(ExpressionError, match="out= declares"):
         kernel(ArrayType(ArrayType(IntegerType)),
                lambda a: a.flatten_to_array(lambda xs: xs, out=StringType))
 
