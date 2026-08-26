@@ -1380,7 +1380,14 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect([...container.querySelectorAll("[data-plan-tab]")].map((t) => t.getAttribute("data-plan-tab")))
             .toEqual(["groups", "rows", "measures"]);
         expect(container.querySelector("[data-plan-tab='groups']")!.hasAttribute("data-selected")).toBe(true);
-        // The slim shared ruler carries the window's ticks.
+        // The strip is the production `tabs` recipe; counts ride the labels
+        // as plain numerals — two groups, four data rows, one measure.
+        expect(container.querySelector("[data-slot='narrowTabs'][data-part='list']")).toBeTruthy();
+        expect([...container.querySelectorAll("[data-plan-tabcount]")].map((c) => c.getAttribute("data-plan-tabcount")))
+            .toEqual(["2", "4", "1"]);
+        // The shared ruler is the LIST's first row and carries the window's
+        // ticks — one cell per bucket, so its rhythm is the card grids'.
+        expect(container.querySelector("[data-slot='narrowList'] > [data-slot='narrowRuler']")).toBeTruthy();
         expect(container.querySelectorAll("[data-slot='narrowRulerTick']")).toHaveLength(12);
         expect(screen.getByText("W27")).toBeTruthy();
         // Hottest first: Line 2 peaks at 98, Line 1 at 60; the ungrouped
@@ -1473,6 +1480,39 @@ describe("Plan narrow layout (§10 / #570)", () => {
         fireEvent.pointerUp(list, { pointerId: 2, clientX: 214 });
         fireEvent.pointerMove(list, { pointerId: 1, clientX: 0 });
         expect(handle.read().range.value.value.from.toISOString()).toBe("2026-07-06T00:00:00.000Z");
+    });
+
+    test("one or two strip-less groups are no index: the plan LANDS on Rows, sectioned by group; a section header scopes", () => {
+        // The sweep's finding: most canvases carry one or two groups with no
+        // strip, and a Groups landing showed two empty header cards before a
+        // single row — a detour. Groups is the landing only when it is a map
+        // (three groups, or a strip); otherwise Rows opens, and the grouping
+        // survives as SECTIONS rather than flattening into one list.
+        const { container } = renderPlan(planRoot([
+            planRow("line1", variant("group", { summary: none, summaryAggregate: none, collapsed: none }),
+                { gutter: gutter("Line 1") }),
+            planRow("m1", spanKind([]), { parent: "line1" }),
+            planRow("m2", spanKind([]), { parent: "line1" }),
+            planRow("dock", spanKind([])),
+        ]), "plan-570-sections");
+        expect(container.querySelector("[data-plan-tab='rows']")!.hasAttribute("data-selected")).toBe(true);
+        // The Groups tab still exists — it is just not where the plan opens.
+        expect(container.querySelector("[data-plan-tab='groups']")).toBeTruthy();
+        expect([...container.querySelectorAll("[data-plan-section]")].map((x) => x.getAttribute("data-plan-section")))
+            .toEqual(["line1", "other"]);
+        expect(container.querySelector("[data-plan-section='line1']")!.textContent).toContain("2 rs");
+        expect([...container.querySelectorAll("[data-plan-card]")].map((c) => c.getAttribute("data-plan-card")))
+            .toEqual(["m1", "m2", "dock"]);
+        // A section header scopes to its group…
+        fireEvent.click(container.querySelector("[data-plan-section='line1']")!);
+        expect([...container.querySelectorAll("[data-plan-card]")].map((c) => c.getAttribute("data-plan-card")))
+            .toEqual(["m1", "m2"]);
+        expect(container.querySelector("[data-plan-section]")).toBeNull();
+        // …and the way back names the whole plan, not an index that isn't one.
+        expect(container.querySelector("[data-plan-back]")!.textContent).toBe("← All rows");
+        fireEvent.click(container.querySelector("[data-plan-back]")!);
+        expect(container.querySelectorAll("[data-plan-section]")).toHaveLength(2);
+        expect(container.querySelector("[data-plan-tab='rows']")!.hasAttribute("data-selected")).toBe(true);
     });
 
     test("at 480px and above nothing reflows — the canvas is the canvas", () => {

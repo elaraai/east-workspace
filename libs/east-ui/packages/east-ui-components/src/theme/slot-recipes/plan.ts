@@ -60,8 +60,9 @@ export const planSlotRecipe = defineSlotRecipe({
         // paged canvas: the unloaded run above / below the resident one
         "windowBand", "windowBandCaption",
         // the narrow layout (§10 / #570): chips · tabs · ruler · card list
-        "narrowRoot", "narrowChips", "narrowTabs", "narrowTab", "narrowRuler", "narrowRulerTick",
+        "narrowRoot", "narrowChips", "narrowTabCount", "narrowRuler", "narrowRulerTrack", "narrowRulerTick",
         "narrowScope", "narrowScopeTitle", "narrowScopeMeta", "narrowBack", "narrowList",
+        "narrowSection", "narrowSectionTitle", "narrowSectionGo",
         "narrowCard", "narrowCardHead", "narrowCardTitle", "narrowCardSub", "narrowCardBody",
         "narrowCardFoot", "narrowRender", "narrowTicks", "narrowMore", "narrowEmpty",
     ],
@@ -1403,78 +1404,115 @@ export const planSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             minWidth: 0,
             background: "bg.panel",
-            // Bounded frames scroll the list inside the frame; unbounded ones
-            // grow with it.
-            "&[data-plan-fill]": { flex: 1, minHeight: 0, overflowY: "auto" },
+            // A bounded frame: the header (chips · tabs · ruler) stays put
+            // and the LIST scrolls inside the frame (see `narrowList`); an
+            // unbounded one grows with its list.
+            "&[data-plan-fill]": { flex: 1, minHeight: 0 },
         },
-        // The slice chips + the resolution chip — one wrapping row.
+        // The slice chips + the resolution chip — one wrapping row on the
+        // page. No fill and no rule of its own: the tab strip below carries
+        // the header's one baseline (the `tabs` recipe's), so the header is
+        // chips · tabs on the page, not a ladder of filled bands.
         narrowChips: {
             display: "flex",
             flexWrap: "wrap",
             alignItems: "center",
             gap: "8px",
-            padding: "10px 12px",
-            background: "bg.surface",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
+            padding: "10px 12px 8px",
+            flexShrink: 0,
         },
-        // The tab strip — the `tabs` recipe's line grammar, at the top of the
-        // frame, never a bottom bar (the mobile shell).
-        narrowTabs: {
-            display: "flex",
-            alignItems: "stretch",
-            gap: "16px",
-            padding: "0 12px",
-            background: "bg.surface",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
+        // The plain mono numeral beside a tab label (the spec's "counts":
+        // never a tinted pill). It inherits the trigger's ink — active reads
+        // ink, inactive muted — and drops the label's tracking.
+        narrowTabCount: {
+            fontSize: "10px",
+            fontWeight: "medium",
+            letterSpacing: "0.02em",
+            textTransform: "none",
         },
-        narrowTab: {
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontWeight: "semibold",
-            letterSpacing: "0.16em",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-            background: "transparent",
-            border: "none",
-            padding: "12px 2px 10px",
-            marginBottom: "-1px",
-            borderBottomWidth: "2px",
-            borderBottomStyle: "solid",
-            borderBottomColor: "transparent",
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-            _coarse: { minHeight: "44px" },
-            "&:hover": { color: "fg.default" },
-            "&[data-selected]": { color: "fg.default", borderBottomColor: "fg.default" },
-        },
-        // The slim shared ruler — a deliberate addition to the §10 mock: a
-        // strip on a card must read as TIME, not as a progress bar. Insets
-        // match the card bodies (see above) so the columns align.
+        // The shared ruler — the LIST's sticky first row, in the desktop
+        // ruler's vocabulary: the panel surface, a separator per bucket (the
+        // same rhythm as the card grids beneath it), a strong bottom rule.
+        // Full-bleed across the list's padding, so the rule spans the page
+        // while the tick track keeps the card bodies' inset.
         narrowRuler: {
             position: "relative",
-            height: "22px",
-            margin: "0 25px",
+            zIndex: 3,
+            height: "28px",
+            flexShrink: 0,
+            marginX: "-12px",
+            background: "bg.panel",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.strong",
             overflow: "clip",
+            // Sticky ONLY where the list is its own scroll container (a
+            // bounded frame) — the desktop ruler's rule too. On an unbounded
+            // page the scroll is the host's, and `top: 0` against it slides
+            // the axis under whatever app bar the host pins there.
+            "[data-plan-fill] &": { position: "sticky", top: 0 },
         },
+        // The tick track — inset to the card bodies' inset so the bucket
+        // columns line up down the page; a grid, one cell per bucket.
+        narrowRulerTrack: {
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: "25px",
+            right: "25px",
+            display: "grid",
+            alignItems: "stretch",
+        },
+        // One bucket: its separator on the right edge (every bucket has one,
+        // labelled or not), its label centred over it when it carries one —
+        // wider than the cell at day resolution, so it may overflow into the
+        // unlabelled neighbours on purpose.
         narrowRulerTick: {
-            fontFamily: "mono",
-            fontSize: "9px",
-            fontWeight: "medium",
-            color: "fg.subtle",
+            position: "relative",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "medium",
+            color: "fg.subtle",
+            whiteSpace: "nowrap",
+            minWidth: 0,
+            overflow: "visible",
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            minWidth: 0,
-            // A 22px ruler has no lane for the NOW chip, and a chip laid over
+            "&:last-of-type": { borderRightWidth: 0 },
+            // A 28px band has no lane for the NOW chip, and a chip laid over
             // the labels hides the two it straddles. The now BUCKET's label
             // wears the brand instead — the line beneath it says the rest.
             "&[data-now]": { color: "brand.fg", fontWeight: "semibold" },
+        },
+        // A group's section header on the unscoped Rows tab — the group's
+        // band vocabulary (mono uppercase name + meta), a tap scopes to it.
+        narrowSection: {
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "8px 4px 0",
+            minWidth: 0,
+            cursor: "pointer",
+            "&:first-of-type": { paddingTop: "2px" },
+        },
+        narrowSectionTitle: {
+            fontFamily: "mono",
+            fontSize: "11px",
+            fontWeight: "semibold",
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            color: "fg.muted",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            minWidth: 0,
+        },
+        narrowSectionGo: {
+            fontSize: "14px",
+            lineHeight: 1,
+            color: "fg.subtle",
         },
         // The Rows tab's scope line — which group's rows these are, and the
         // way back to the group list.
@@ -1525,11 +1563,26 @@ export const planSlotRecipe = defineSlotRecipe({
             display: "flex",
             flexDirection: "column",
             gap: "10px",
-            padding: "10px 12px 14px",
+            // No top padding: the ruler is the first child and sits FLUSH
+            // under the tab baseline, its separators meeting the rule the way
+            // the desktop ruler meets the toolbar's (a 10px strip of bare page
+            // between the rule and the top of the axis lines read as a
+            // misalignment, not as breathing room). The list gap then puts
+            // 10px between the ruler and the first card.
+            padding: "0 12px 14px",
             minWidth: 0,
             // Vertical scroll is the page's; horizontal is the two-finger
             // window pan (§10) — leave it to the pointer handlers.
             touchAction: "pan-y",
+            // In a bounded frame the list is what scrolls — the header above
+            // it stays put (it used to be the whole root that scrolled, and a
+            // flex column with a scrolling root shrank the ruler to 0px).
+            "[data-plan-fill] &": { flex: 1, minHeight: 0, overflowY: "auto" },
+            // A scrolling flex column must not SHRINK its cards to fit (an
+            // `overflow: hidden` card has no content floor, so it collapsed
+            // to a sliver instead of overflowing) — they keep their size and
+            // the list scrolls.
+            "& > *": { flexShrink: 0 },
         },
         // One card — a row's identity over its plot. Selection is the one
         // brand tint; a drilled card wears the brand rule.

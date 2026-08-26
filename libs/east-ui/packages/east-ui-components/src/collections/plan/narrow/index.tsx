@@ -28,8 +28,8 @@
  * says so in the footer.
  */
 
-import { useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
-import { Box, Menu as ChakraMenu, Portal, useRecipe } from "@chakra-ui/react";
+import { useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
+import { Box, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan, Slice } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../../component.js";
@@ -71,6 +71,14 @@ const GROUP_STRIP_H = 24;
 const OTHER_SCOPE = " other";
 
 type NarrowTab = "groups" | "rows" | "measures";
+
+/** One run of row cards on the Rows tab — under a group header when the
+ *  list is unscoped, bare when it is one group's rows. */
+interface RowSection {
+    key: string;
+    header?: { scope: RowKey; label: string; meta: string | undefined; value: string | undefined; tone: string | undefined };
+    rows: PlanRowValue[];
+}
 
 export interface PlanNarrowProps {
     styles: Styles;
@@ -147,21 +155,62 @@ function peakOf(arm: HeatCellsValue | undefined): number {
     return peak;
 }
 
-/** The slim shared ruler — bucket labels thinned to ~12 across; the now
- *  bucket's label wears the brand (a 22px band has no lane for the chip). */
+/** Mono 9px: the width one label character takes, plus the gap two labels
+ *  keep between them — what decides how many labels a track can carry. */
+const TICK_CHAR_PX = 5.6;
+const TICK_GAP_PX = 8;
+/** Labels printed when the track has not been measured yet (jsdom, the
+ *  first frame): one per bucket up to twelve — the desktop ruler's density. */
+const TICK_FALLBACK_LABELS = 12;
+
+/**
+ * The shared ruler — the LIST's sticky first row, not a row of the header.
+ * It wears the desktop ruler's vocabulary (the panel surface, a separator
+ * per bucket so its rhythm IS the card grids', a strong bottom rule) and
+ * sits 10px under the tab baseline on the page, so it reads as the axis
+ * over the cards rather than as a strip welded under the tab underline
+ * (which is what a filled band directly beneath the tabs looked like). The
+ * tick TRACK is inset to the card bodies' inset (25px) so the columns line
+ * up down the page; labels are thinned to what the measured track can carry
+ * (at day resolution a bucket is ~3px — a label per bucket clipped to
+ * confetti), each centred over its bucket. The now bucket's label wears the
+ * brand: a 28px band has no lane for the chip, and a chip laid over the
+ * labels hid the two it straddled.
+ */
 function NarrowRuler({ styles }: { styles: Styles }) {
     const scale = usePlanScale();
-    const columns = scale.buckets.map((b) => `${((b.x1 - b.x0) * 100).toFixed(4)}%`).join(" ");
-    const every = Math.max(1, Math.ceil(scale.n / 12));
+    const trackRef = useRef<HTMLDivElement | null>(null);
+    const [trackPx, setTrackPx] = useState(0);
+    useLayoutEffect(() => {
+        const el = trackRef.current;
+        if (el === null) return undefined;
+        const measure = () => setTrackPx(el.clientWidth);
+        measure();
+        if (typeof ResizeObserver === "undefined") return undefined;
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
     const nowIndex = scale.nowFrac === undefined ? undefined
         : scale.buckets.find((b) => scale.nowFrac! >= b.x0 && scale.nowFrac! < b.x1)?.index;
+    // How many labels FIT: the widest label's width plus a gap, into the track.
+    const widest = scale.buckets.reduce((w, b) => Math.max(w, b.label.length), 1);
+    const maxLabels = trackPx > 0
+        ? Math.max(2, Math.floor(trackPx / (widest * TICK_CHAR_PX + TICK_GAP_PX)))
+        : TICK_FALLBACK_LABELS;
+    const every = Math.max(1, Math.ceil(scale.n / maxLabels));
+    // The cadence, plus the now bucket — which displaces a cadence label it
+    // would otherwise sit on top of. Every bucket keeps its separator.
+    const labelled = (i: number) => i === nowIndex
+        || (i % every === 0 && (nowIndex === undefined || Math.abs(i - nowIndex) >= every));
+    const columns = scale.buckets.map((b) => `${((b.x1 - b.x0) * 100).toFixed(4)}%`).join(" ");
     return (
         <Box css={styles.narrowRuler} data-slot="narrowRuler">
-            <Box position="absolute" inset={0} display="grid" gridTemplateColumns={columns}>
+            <Box ref={trackRef} css={styles.narrowRulerTrack} gridTemplateColumns={columns}>
                 {scale.buckets.map((b) => (
                     <Box key={b.index} css={styles.narrowRulerTick} data-slot="narrowRulerTick"
                         data-now={b.index === nowIndex ? "" : undefined}>
-                        {b.index % every === 0 || b.index === nowIndex ? b.label : ""}
+                        {labelled(b.index) ? b.label : ""}
                     </Box>
                 ))}
                 {scale.nowFrac !== undefined && <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />}
@@ -206,6 +255,7 @@ export function PlanNarrow({
 }: PlanNarrowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const tabsRecipe = useSlotRecipe({ key: "tabs" });
     // The auto-appended cohort chip appears when the STORE moves (#611).
     const sliceVersion = useSliceReactivity(slice?.key);
     const railKinds = useMemo(
@@ -221,15 +271,6 @@ export function PlanNarrow({
     const hasGroups = rootGroups.length > 0;
     const hasMeasures = chartRows.length > 0;
 
-    const [tab, setTab] = useState<NarrowTab>(hasGroups ? "groups" : "rows");
-    const [scope, setScope] = useState<RowKey | null>(null);
-    const [reveal, setReveal] = useState({ groups: PAGE_GROUPS, rows: PAGE_ROWS, measures: PAGE_ROWS });
-    // A tab whose content vanished (a data change) falls back to Rows.
-    const activeTab: NarrowTab = tab === "groups" && !hasGroups ? "rows"
-        : tab === "measures" && !hasMeasures ? "rows"
-            : tab;
-    const openGroup = (key: RowKey) => { setScope(key); setTab("rows"); };
-
     // ── Groups: root group strips, hottest first ─────────────────────────
     const groupCards = useMemo(() => {
         const cards = rootGroups.map((row, i) => {
@@ -239,14 +280,53 @@ export function PlanNarrow({
         cards.sort((a, b) => (b.peak - a.peak) || (a.i - b.i));
         return cards;
     }, [rootGroups, derived]);
+    // Groups is the LANDING only when it is an index worth landing on — a
+    // few strips that say where it is hot, or enough groups that a list of
+    // them is the map. One or two strip-less groups are a detour: the reader
+    // taps through a card that shows nothing to reach the rows.
+    const groupsIndex = rootGroups.length >= 3 || groupCards.some((c) => c.arm !== undefined);
 
-    // ── Rows: one group at a time (or every data row, when none is chosen) ──
+    const [tab, setTab] = useState<NarrowTab>(hasGroups && groupsIndex ? "groups" : "rows");
+    const [scope, setScope] = useState<RowKey | null>(null);
+    const [reveal, setReveal] = useState({ groups: PAGE_GROUPS, rows: PAGE_ROWS, measures: PAGE_ROWS });
+    // A tab whose content vanished (a data change) falls back to Rows.
+    const activeTab: NarrowTab = tab === "groups" && !hasGroups ? "rows"
+        : tab === "measures" && !hasMeasures ? "rows"
+            : tab;
+    const openGroup = (key: RowKey) => { setScope(key); setTab("rows"); };
+
+    // ── Rows: one group at a time, or the whole plan SECTIONED by group ──
     const scopeGroup = scope !== null && scope !== OTHER_SCOPE ? index.byKey.get(scope) : undefined;
-    const scopeRows = useMemo(() => {
-        if (scope === OTHER_SCOPE) return ungrouped.flatMap((r) => [r, ...dataRowsUnder(index, r.key)]);
-        if (scope !== null && index.byKey.has(scope)) return dataRowsUnder(index, scope);
-        return allDataRows(index);
-    }, [scope, index, ungrouped]);
+    const sections = useMemo<RowSection[]>(() => {
+        if (scope === OTHER_SCOPE) return [{ key: "other", rows: ungrouped.flatMap((r) => [r, ...dataRowsUnder(index, r.key)]) }];
+        if (scope !== null && index.byKey.has(scope)) return [{ key: scope, rows: dataRowsUnder(index, scope) }];
+        if (!hasGroups) return [{ key: "all", rows: allDataRows(index) }];
+        // Unscoped: every root group is a section under its own header (a tap
+        // scopes to it), so the grouping the desktop canvas shows as bands
+        // survives the trip instead of flattening into one anonymous list.
+        const out: RowSection[] = [];
+        const other: PlanRowValue[] = [];
+        for (const root of index.roots) {
+            if (root.kind.type !== "group") { other.push(root, ...dataRowsUnder(index, root.key)); continue; }
+            const members = derived.groupMembers.get(root.key);
+            out.push({
+                key: root.key,
+                header: {
+                    scope: root.key,
+                    label: root.gutter.label,
+                    meta: root.gutter.meta.type === "some" ? root.gutter.meta.value
+                        : (members !== undefined && members > 0 ? `${partial === true ? "~" : ""}${members} rs` : undefined),
+                    value: root.gutter.value.type === "some" ? root.gutter.value.value : undefined,
+                    tone: root.status.type === "some" ? root.status.value.type : undefined,
+                },
+                rows: dataRowsUnder(index, root.key),
+            });
+        }
+        if (other.length > 0) {
+            out.push({ key: "other", header: { scope: OTHER_SCOPE, label: "Other rows", meta: `${other.length} rs`, value: undefined, tone: undefined }, rows: other });
+        }
+        return out;
+    }, [scope, index, ungrouped, hasGroups, derived, partial]);
 
     // ── Two-finger pan (§10) — one whole period per period width crossed ──
     const listRef = useRef<HTMLDivElement | null>(null);
@@ -397,17 +477,43 @@ export function PlanNarrow({
             </>
         );
     } else if (activeTab === "rows") {
-        const shown = scopeRows.slice(0, reveal.rows);
-        const rest = scopeRows.length - shown.length;
+        const total = sections.reduce((n, s) => n + s.rows.length, 0);
         const members = scopeGroup !== undefined ? derived.groupMembers.get(scopeGroup.key) : undefined;
         const scopeValue = scopeGroup !== undefined && scopeGroup.gutter.value.type === "some" ? scopeGroup.gutter.value.value : undefined;
+        // ONE page across every section: a section prints its header once it
+        // has a card to show, and the load-more counts what is left overall.
+        let budget = reveal.rows;
+        const body: ReactNode[] = [];
+        for (const s of sections) {
+            if (budget <= 0) break;
+            const shown = s.rows.slice(0, budget);
+            budget -= shown.length;
+            if (s.header !== undefined && shown.length > 0) {
+                const h = s.header;
+                body.push(
+                    <Box key={`section-${s.key}`} css={styles.narrowSection} data-plan-section={s.key}
+                        onClick={() => openGroup(h.scope)}>
+                        <Box css={styles.narrowSectionTitle}>{h.label}</Box>
+                        {h.meta !== undefined && <Box as="span" css={styles.gutterMeta}>{h.meta}</Box>}
+                        <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
+                            {h.tone !== undefined && <Box as="span" css={styles.statusDot} data-tone={h.tone} />}
+                            {h.value !== undefined && <Box as="span" css={styles.gutterValue}>{h.value}</Box>}
+                            <Box as="span" css={styles.narrowSectionGo} aria-hidden>{"›"}</Box>
+                        </Box>
+                    </Box>,
+                );
+            }
+            body.push(...shown.map((row) => renderRowCard(row, false)));
+        }
+        const rest = total - (reveal.rows - Math.max(0, budget));
         list = (
             <>
                 {(scopeGroup !== undefined || scope === OTHER_SCOPE) && (
                     <Box css={styles.narrowScope} data-slot="narrowScope">
                         {hasGroups && (
-                            <Box as="button" css={styles.narrowBack} data-plan-back="" onClick={() => setTab("groups")}>
-                                {"← Groups"}
+                            <Box as="button" css={styles.narrowBack} data-plan-back=""
+                                onClick={() => { setScope(null); setTab(groupsIndex ? "groups" : "rows"); }}>
+                                {groupsIndex ? "← Groups" : "← All rows"}
                             </Box>
                         )}
                         <Box css={styles.narrowScopeTitle}>{scopeGroup !== undefined ? scopeGroup.gutter.label : "Other rows"}</Box>
@@ -416,8 +522,8 @@ export function PlanNarrow({
                         </Box>
                     </Box>
                 )}
-                {shown.length === 0 && <Box css={styles.narrowEmpty}>No rows</Box>}
-                {shown.map((row) => renderRowCard(row, false))}
+                {total === 0 && <Box css={styles.narrowEmpty}>No rows</Box>}
+                {body}
                 {rest > 0 && more("rows", `${rest} more row${rest > 1 ? "s" : ""}`)}
             </>
         );
@@ -432,10 +538,17 @@ export function PlanNarrow({
         );
     }
 
-    const tabs: Array<{ key: NarrowTab; label: string }> = [
-        ...(hasGroups ? [{ key: "groups" as const, label: "Groups" }] : []),
-        { key: "rows" as const, label: "Rows" },
-        ...(hasMeasures ? [{ key: "measures" as const, label: "Measures" }] : []),
+    // The tab strip is the production `tabs` recipe (`<Tabs>`'s line
+    // variant) — underline only, no fill, the mono eyebrow grammar, the
+    // hairline baseline the active underline overlaps — so the strip cannot
+    // drift from the spec by re-declaring it. Counts ride each label as
+    // plain numerals (never a tinted pill); a paged prefix marks them `~`.
+    const tabStyles = tabsRecipe({ variant: "line", size: "md" }) as unknown as Styles;
+    const rowCount = allDataRows(index).length;
+    const tabs: Array<{ key: NarrowTab; label: string; count: number }> = [
+        ...(hasGroups ? [{ key: "groups" as const, label: "Groups", count: rootGroups.length }] : []),
+        { key: "rows" as const, label: "Rows", count: rowCount },
+        ...(hasMeasures ? [{ key: "measures" as const, label: "Measures", count: chartRows.length }] : []),
     ];
 
     return (
@@ -449,20 +562,23 @@ export function PlanNarrow({
                     )}
                 </Box>
             )}
-            <Box css={styles.narrowTabs} role="tablist" data-slot="narrowTabs">
+            <Box css={tabStyles.list} role="tablist" data-slot="narrowTabs" data-part="list" flexShrink={0}>
                 {tabs.map((t) => (
-                    <Box key={t.key} as="button" role="tab" css={styles.narrowTab}
+                    <Box key={t.key} as="button" role="tab" css={tabStyles.trigger} data-part="trigger"
                         data-plan-tab={t.key} data-selected={activeTab === t.key ? "" : undefined}
                         aria-selected={activeTab === t.key}
                         onClick={() => setTab(t.key)}>
                         {t.label}
+                        <Box as="span" css={styles.narrowTabCount} data-plan-tabcount={t.count}>
+                            {`${partial === true && t.key !== "groups" ? "~" : ""}${t.count}`}
+                        </Box>
                     </Box>
                 ))}
             </Box>
-            <NarrowRuler styles={styles} />
             <Box ref={listRef} css={styles.narrowList} data-slot="narrowList"
                 onPointerDown={onPointerDown} onPointerMove={onPointerMove}
                 onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}>
+                <NarrowRuler styles={styles} />
                 {list}
             </Box>
             <PlanFooter styles={styles} items={footer} transport={transport} />
