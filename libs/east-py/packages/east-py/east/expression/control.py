@@ -32,8 +32,8 @@ the empty else. Branching therefore composes for free::
                                      s.total)}
 
 Everything here is dual-mode, exactly like ``if_else``: handed a trace it emits
-IR, and outside one it runs the ordinary python loop — so a callback that
-falls back to the per-element path still works.
+IR, and outside one it runs the ordinary python loop — so one body serves both
+a captured callback and a direct call on plain East values.
 
 The python names are the IR node names, so an error message, an IR dump and
 the docs all say the same word. The trailing underscore on ``while_`` /

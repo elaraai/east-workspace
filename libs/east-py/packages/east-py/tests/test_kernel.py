@@ -2,12 +2,13 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""IR push-down tests: traced kernels + eager-method integration (issue #256).
+"""The python authoring surface: explicit builds + eager-method capture (#256).
 
-``east.expression`` traces pure python lambdas into East IR compiled by
-east-c; eager collection methods capture their callbacks strictly as
-``East.function`` bodies (#625) — a callback with no East capture raises the
-named error up front, and there is no per-element python fallback.
+``east.expression`` captures a python body into East IR compiled by east-c;
+eager collection methods capture their callbacks the same way, as
+``East.function`` bodies with the builtin's declared signature (#625) — a
+callback with no East capture raises the named error up front, and there is
+no per-element python path behind it.
 """
 
 import pytest
@@ -25,7 +26,7 @@ from east import (
     none,
     some,
 )
-from east.expression import _eligible, try_push_down
+from east.expression import _eligible, capture_callback
 from east.types.values.structural import EastFunction
 
 ROW = StructType([("sku", StringType), ("price", FloatType), ("qty", FloatType)])
@@ -90,16 +91,19 @@ def test_kernel_type_errors_are_loud():
 # with the East.function builder (#625).
 
 
-# ─── the purity gate ────────────────────────────────────────────────────────
+# ─── the capture validator ──────────────────────────────────────────────────
+# `_eligible` is the predicate behind the refusal: it proves a body does no
+# python work before the capture runs it once over proxies. A False here is
+# what `capture_callback` turns into the named ExpressionError.
 
 
-def test_gate_accepts_pure_lambdas():
+def test_the_validator_accepts_pure_lambdas():
     assert _eligible(lambda r: r.price * r.qty)
     rate = 1.1
     assert _eligible(lambda r: r.price * rate)  # scalar closure is stable
 
 
-def test_gate_rejects_module_and_callable_references():
+def test_the_validator_rejects_module_and_callable_references():
     import random
 
     assert not _eligible(lambda r: random.random())
@@ -107,7 +111,7 @@ def test_gate_rejects_module_and_callable_references():
     assert not _eligible(lambda r: model["weights"])  # mutable closure
 
 
-def test_gate_rejects_closure_mutation():
+def test_the_validator_rejects_closure_mutation():
     count = 0
 
     def bump(r):
@@ -118,14 +122,14 @@ def test_gate_rejects_closure_mutation():
     assert not _eligible(bump)
 
 
-def test_try_push_down_respects_declared_output():
+def test_capture_callback_respects_declared_output():
     # Declared Boolean output but traced Float -> the capture names the
     # mismatch (#625); there is no silent python path to fall back to.
     from east.types.types import BooleanType
 
     ef = EastFunction(lambda el, idx: el, [FloatType, IntegerType], BooleanType)
     with pytest.raises(ExpressionError, match="produced Float"):
-        try_push_down(ef)
+        capture_callback(ef)
 
 
 # ─── eager-method integration (implicit push-down) ──────────────────────────
@@ -286,7 +290,7 @@ def test_option_lambda_pushes_down_natively():
         [ROW, IntegerType],
         OptionType(FloatType),
     )
-    assert try_push_down(ef) is not None
+    assert capture_callback(ef) is not None
 
 
 def test_map_with_option_result_runs_native():
@@ -505,17 +509,19 @@ def test_namespace_lambda_pushes_down_automatically():
 
     fn = lambda r: East.String.upper_case(r.sku)  # noqa: E731
     assert _eligible(fn)
-    pushed = try_push_down(EastFunction(fn, [ROW], StringType))
+    pushed = capture_callback(EastFunction(fn, [ROW], StringType))
     assert pushed is not None
     assert list(_rows().map(fn)) == ["A-1", "B-2", "A-1"]
 
 
 def test_method_string_lambda_pushes_down_automatically():
     fn = lambda r: r.sku.substring(0, 1)  # noqa: E731
-    pushed = try_push_down(EastFunction(fn, [ROW], StringType))
+    pushed = capture_callback(EastFunction(fn, [ROW], StringType))
     assert pushed is not None
-    # Expression-only methods need out= (without it, map samples the lambda
-    # on a decoded python value to infer the type - str has no .substring)
+    # Expression-only methods (`.substring` exists on the proxy, not on `str`)
+    # need no out=: the capture derives the type, it is never sampled by
+    # calling the lambda on a decoded value (#625).
+    assert list(_rows().map(fn)) == ["A", "B", "A"]
     assert list(_rows().map(fn, out=StringType)) == ["A", "B", "A"]
 
 
@@ -528,7 +534,7 @@ def test_captured_collection_needs_an_explicit_capture():
     # explicit choice (kernel()/East.function snapshots, .bind stays live)
     assert not _eligible(fn)
     with pytest.raises(ExpressionError, match="captured automatically"):
-        try_push_down(EastFunction(fn, [ROW], StringType))
+        capture_callback(EastFunction(fn, [ROW], StringType))
 
 
 def test_captured_constants_hoist_once_per_kernel():
@@ -716,8 +722,8 @@ def test_sorted_and_to_dict_run_kernel_callbacks_natively():
 def test_builtin_shadowing_field_names_trace():
     from east import EastArray
 
-    # A field named after a python builtin (`id`) must not poison the purity
-    # gate: co_names contains ATTRIBUTE names, which are not globals.
+    # A field named after a python builtin (`id`) must not poison the capture
+    # validator: co_names contains ATTRIBUTE names, which are not globals.
     IdRow = StructType([("id", StringType)])
     fn = lambda r: r.id.substring(0, 3)  # noqa: E731
     assert _eligible(fn)
@@ -727,14 +733,15 @@ def test_builtin_shadowing_field_names_trace():
     assert not _eligible(lambda r: id(r))
 
 
-def test_mismatched_kernel_output_falls_back_cleanly():
+def test_a_matching_out_keeps_the_kernel_on_the_direct_path():
     from east.runtime.compiler import eager_stats
 
-    # out= disagrees with the kernel's output type: the direct path must
-    # refuse (no type confusion) and the per-element path still runs.
+    # The agreeing case, next to its refusal twin (test_kernel_out_mismatch
+    # pins the raise): out= equal to the kernel's declared output rides the
+    # native value straight in, with no re-capture and no python per element.
     k = kernel([ROW], lambda r: r.price * r.qty)  # Float out
     before = eager_stats()
-    out = _rows().map(k, out=FloatType)  # matches — native
+    out = _rows().map(k, out=FloatType)
     after = eager_stats()
     assert after["trampoline_calls"] == before["trampoline_calls"]
     assert list(out) == [10.0, 150.0, 20.0]

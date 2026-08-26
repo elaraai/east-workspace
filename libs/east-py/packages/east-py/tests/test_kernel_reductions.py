@@ -1114,9 +1114,10 @@ def test_the_traced_group_surface_is_pinned_against_the_eager_one():
     exactly how seven of them survived phase 3. Drive the comparison from the
     EAGER surface instead.
 
-    This matters more than a normal coverage gap: an untraced name does not
-    raise. `try_push_down` simply fails and east-c trampolines once per
-    element, so the only symptom is that the job takes hours (#524 measured
+    This matters more than a normal coverage gap: a name missing from the
+    traced surface breaks the enclosing capture, so an eager call that used to
+    work stops working — and before #625 it was worse, silently trampolining
+    once per element with no symptom but the job taking hours (#524 measured
     6h02m for 729k rows). The list must only ever SHRINK.
     """
     from east.expression import _TRACED_SURFACE

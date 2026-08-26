@@ -2,19 +2,19 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""The eager-path trace cache and datetime lifting (issue #422).
+"""The eager-path capture cache and datetime lifting (issue #422).
 
 Eager methods take a FRESH lambda object per call, so a per-group aggregate
 loop — ``group_to_arrays(key).to_array(lambda k, es: {…aggregates…})`` —
-used to re-trace an identical lambda once per group: 1,686 groups × ~15
+used to re-capture an identical lambda once per group: 1,686 groups × ~15
 inner eager calls measured 145 s of pure re-tracing, silently, from code
-that reads as the idiomatic East spelling. ``try_push_down`` (and the
-type-derivation twin ``_trace_out_type``) now memoise on the callback's
-code object + captured bindings + declared signature.
+that reads as the idiomatic East spelling. ``capture_callback`` (and the
+type-derivation twin ``_trace_out_type``) memoise on the callback's code
+object + captured bindings + declared signature.
 
 The cache must never trade correctness for the speedup, so the tests here
 pin the MISS cases as hard as the hits: a capture with a different value, a
-mutated global, a different declared signature — each must trace afresh.
+mutated global, a different declared signature — each must capture afresh.
 
 Also #422 item 3: python ``datetime`` values lift as DateTime literals, so
 ``Option<DateTime>.unwrap_or(datetime(...))`` and captured datetime
@@ -66,13 +66,13 @@ def test_fresh_identical_lambdas_reuse_the_compiled_kernel():
     f1 = EastFunction(_fresh_projection(), [Row], FloatType)
     f2 = EastFunction(_fresh_projection(), [Row], FloatType)
     assert f1.fn is not f2.fn                      # genuinely fresh objects
-    k1 = _K.try_push_down(f1)
-    k2 = _K.try_push_down(f2)
+    k1 = _K.capture_callback(f1)
+    k2 = _K.capture_callback(f2)
     assert k1 is not None
     assert k1 is k2                                 # the cache hit, by identity
 
 
-def test_a_per_group_aggregate_loop_traces_each_lambda_once(monkeypatch):
+def test_a_per_group_aggregate_loop_captures_each_lambda_once(monkeypatch):
     """The issue's exact shape, observed at the trace call itself."""
     rows = _rows()
     calls = 0
@@ -126,8 +126,8 @@ def test_different_closure_values_do_not_share_a_kernel():
     low = rows.filter(mk(3.0))
     high = rows.filter(mk(30.0))
     assert len(low) > len(high)                    # a false hit would equate them
-    k_low = _K.try_push_down(EastFunction(mk(3.0), [Row], BooleanType))
-    k_high = _K.try_push_down(EastFunction(mk(30.0), [Row], BooleanType))
+    k_low = _K.capture_callback(EastFunction(mk(3.0), [Row], BooleanType))
+    k_high = _K.capture_callback(EastFunction(mk(30.0), [Row], BooleanType))
     assert k_low is not k_high
 
 
@@ -147,18 +147,18 @@ def test_a_mutated_global_is_a_cache_miss(monkeypatch):
 
 def test_different_declared_signatures_do_not_collide():
     fn = _fresh_projection()
-    k_float = _K.try_push_down(EastFunction(fn, [Row], FloatType))
+    k_float = _K.capture_callback(EastFunction(fn, [Row], FloatType))
     # declared String output: the trace disagrees, so the capture RAISES
     # (#625) — and must not evict or answer for the Float-declared entry
     with pytest.raises(_K.ExpressionError, match="produced Float"):
-        _K.try_push_down(EastFunction(fn, [Row], StringType))
-    assert _K.try_push_down(EastFunction(_fresh_projection(), [Row], FloatType)) is k_float
+        _K.capture_callback(EastFunction(fn, [Row], StringType))
+    assert _K.capture_callback(EastFunction(_fresh_projection(), [Row], FloatType)) is k_float
 
 
 def test_a_default_bound_mutable_accumulator_is_uncacheable():
     """Parameter DEFAULTS are bindings too. The beast2 segment folds bind
     their RUNNING accumulator as a default (`lambda gk, _acc=result: …`),
-    counting on a fresh trace per segment to snapshot the current state — a
+    counting on a fresh capture per segment to snapshot the current state — a
     default the key cannot soundly hold must force a miss, or segment 2
     folds into segment 1's stale snapshot."""
     from east import EastDict
@@ -168,9 +168,9 @@ def test_a_default_bound_mutable_accumulator_is_uncacheable():
     def mk():
         return lambda gk, _acc=acc: _acc.get_or_default(gk, 0)
 
-    first = _K.try_push_down(EastFunction(mk(), [StringType], IntegerType))
+    first = _K.capture_callback(EastFunction(mk(), [StringType], IntegerType))
     acc["a"] = 100
-    second = _K.try_push_down(EastFunction(mk(), [StringType], IntegerType))
+    second = _K.capture_callback(EastFunction(mk(), [StringType], IntegerType))
     assert first is not None and second is not None
     assert first("a") == 1                          # the first snapshot
     assert second("a") == 100                       # re-traced, sees the mutation
@@ -210,9 +210,9 @@ def test_datetime_literals_lift_in_where_branches_and_captures():
     assert k({"at": _EPOCH}) == cutoff
 
 
-def test_a_captured_datetime_passes_the_purity_gate():
-    """The auto-trace path: a datetime capture is an immutable scalar, so an
-    eager callback using one pushes down instead of trampolining."""
+def test_a_captured_datetime_is_an_allowed_capture():
+    """A datetime capture is an immutable scalar, so an eager callback using
+    one captures natively instead of being refused."""
     from east.runtime.compiler import eager_stats
 
     D = StructType([("at", DateTimeType), ("v", FloatType)])

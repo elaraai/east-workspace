@@ -192,9 +192,9 @@ class _FnConstRegistry:
     cannot re-trace the callee (its body is native), so the call lowers to
     the IR's ``Call`` node instead: the callee becomes a HIDDEN TRAILING
     PARAMETER of the kernel, referenced by name at every call site, and
-    ``kernel()`` / ``try_push_down`` bind the recorded function values right
-    after compiling (the #399 machinery), so the compiled loop invokes the
-    callee natively. Entries are deduped by the callee's C function-value
+    ``East.function`` / ``capture_callback`` bind the recorded function values
+    right after compiling (the #399 machinery), so the compiled loop invokes
+    the callee natively. Entries are deduped by the callee's C function-value
     pointer, so one sink called at N sites binds once; each entry's hold
     retains the pointer until the bind takes its own reference.
     """
@@ -214,8 +214,8 @@ class _FnConstRegistry:
 
 # The active trace's called-function registry, managed in lockstep with
 # ``_const_registry`` by ``trace()``. None outside any trace — then a call on
-# a compiled function value declines to lower and the caller raises its
-# NonRetraceableCallError exactly as before #561.
+# a compiled function value simply runs natively on the plain values it was
+# handed; only a proxy-argument call needs lowering (#561).
 _fn_registry: _FnConstRegistry | None = None
 
 
@@ -326,10 +326,11 @@ def _lower_compiled_call(fn_val_ptr: int, input_type_ptrs: list,
     the traced ``Call`` expression — registering the callee as a hidden
     trailing parameter — or ``None`` to decline: no active trace, a callee
     the pointer/type plumbing cannot describe, an arity mismatch, or an
-    argument that does not lift to the parameter's East type (the python
-    fallback path may still serve those shapes, so they keep the pre-#561
-    contract). Calling an ``AsyncFunction`` value raises the named error —
-    a sync trace has no spelling for it, fallback included.
+    argument that does not lift to the parameter's East type. A declined
+    shape then surfaces as the capture's error with
+    ``NonRetraceableCallError`` in its cause chain (#558 C). Calling an
+    ``AsyncFunction`` value raises the named error — a sync trace has no
+    spelling for it.
     """
     if _fn_registry is None or fn_val_ptr == 0 or output_type_ptr == 0:
         return None
@@ -373,8 +374,8 @@ def _lift_collection(value: Any) -> Expression | None:
     kernel-build-time ``Let`` (see ``_ConstRegistry``), so a TRANS-style
     side-table is built once per compiled kernel, not per evaluation.
     Very large tables should bind by reference instead (no snapshot at
-    all): declare a trailing parameter and use ``kernel(...).bind(table)``
-    (#399).
+    all): declare a trailing parameter and use
+    ``East.function(...).bind(table)`` (#399).
     """
     from east.expression.expr import Expression
     from east.types.types import ArrayType as _ArrayType
@@ -486,7 +487,8 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
         if hint is None or not _is_option(hint):
             raise ExpressionError(
                 "`none` in a traced kernel needs a type from context — pair it with a "
-                "some(...) arm in East.if_else(), or let the method fall back"
+                "some(...) arm in East.if_else(), or declare the output type "
+                "(East.function(params, OptionType(T), body); out= on the method)"
             )
         node = ir_variant(hint, "none", _literal(None, NullType))
         return Expression(node, hint)
@@ -510,8 +512,9 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
     # carries no VariantType — reached here with no Variant hint (#541).
     raise ExpressionError(
         f"variant({value.type!r}, …) in a traced kernel needs a VariantType from "
-        "context — declare the kernel output (kernel(..., out=VariantType(...))), "
-        "or build it in an East.if_else() with a typed sibling or a typed struct field"
+        "context — declare the output (East.function(params, VariantType(...), "
+        "body), or out= on the eager method), or build it in an East.if_else() "
+        "with a typed sibling or a typed struct field"
     )
 
 
@@ -632,8 +635,9 @@ class _DeferredIfElse:
         if hint is None:
             raise ExpressionError(
                 "if_else() with variant arms throughout needs a type from "
-                "context — declare the kernel output (kernel(..., out=VariantType(...))) "
-                "or build it in a typed struct field"
+                "context — declare the output (East.function(params, "
+                "VariantType(...), body), or out= on the eager method) or "
+                "build it in a typed struct field"
             )
         return _ifelse_expr(self.conds, [_lift(v, hint=hint) for v in self.values])
 

@@ -46,12 +46,14 @@ def eager_stats() -> dict[str, int]:
     Returns a snapshot dict:
 
     - ``kernel_direct`` — calls where a precompiled kernel's native function
-      value was passed straight to the builtin (the fast path).
-    - ``pushdown_traced`` — pure python lambdas traced into native kernels.
-    - ``trampoline_calls`` — per-element python invocations (the slow path;
-      one count per element, not per call).
+      value was passed straight to the builtin (no capture needed).
+    - ``trampoline_calls`` — invocations of a HOST python callable wrapped as
+      a function value (a runner's ``emit``, one count per invocation). An
+      eager collection callback never lands here: it is captured into a
+      native kernel or it raises (#625), so a delta around an eager call is
+      a defect, not a slow path.
 
-    Use the delta around a hot call to verify it runs natively::
+    Use the delta around a hot call to verify it ran natively::
 
         before = eager_stats()
         rows.map(k)

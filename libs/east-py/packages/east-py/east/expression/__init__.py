@@ -38,15 +38,17 @@ block-level control constructs (#578): ``East.while_`` / ``East.for_`` /
 
 The traced collection surface is the closed enumeration in
 ``_TRACED_SURFACE`` (#452) — the per-container method lists the docs and the
-surface test pin. Eager collection methods still capture pure lambdas
-automatically through the same machinery (the purity-gated push-down;
-phases 2–3 of #625 make that capture strict and delete the fallback).
+surface test pin. Eager collection methods capture a plain callback through
+the same machinery (``capture.capture_callback``), with the builtin's
+declared signature: one capture, one execution semantics, and a callback
+that does python work raises instead of running per element.
 
 Deprecated aliases, one release (#625): ``east.kernel`` (module),
 ``kernel()`` (→ ``East.function`` with inferred ``out``), ``KernelExpr``
 (→ ``Expression``), ``KernelTraceError`` (→ ``ExpressionError``).
 """
 
+from east.expression.capture import _eligible, _trace_out_type, capture_callback
 from east.expression.control import (
     Label,
     block,
@@ -117,7 +119,6 @@ from east.expression.nodes import (
     _var,
 )
 from east.expression.platform import PlatformDeclaration, async_platform, platform
-from east.expression.pushdown import _eligible, _trace_out_type, _type_traceable, try_push_down
 
 __all__ = [
     # the strict builder trio (reached as East.function / East.platform / …)

@@ -47,18 +47,20 @@ cdef void _ensure_runtime() except *:
     _runtime_initialized = True
 
 
-# ─── Python callbacks as east-c function values (the invoke hook) ─────────
+# ─── Host callables as east-c function values (the invoke hook) ───────────
 #
-# A callback builtin (ArrayMap, ArrayFilter, keyed ArraySort, …) takes the
-# user's lambda as a function ARG. To delegate the whole builtin to east-c we
-# wrap that lambda as a function value whose EastCompiledFn.invoke trampolines
-# back into Python. east-c then drives the loop and calls the lambda per element
-# through the trampoline — no algorithm is reimplemented in Python.
+# A python callable that is NOT an East expression — a runner's ``emit``
+# capability, a host capability handed to a compiled body — becomes a
+# function value whose EastCompiledFn.invoke calls back into python per
+# invocation (``foreign_function_value``). Eager collection callbacks do NOT
+# come through here: they are captured into native kernels (#625), so this
+# seam carries only what the host genuinely owns.
 
 # Eager-path observability (#409): how callbacks actually executed. Read via
 # east.runtime.compiler.eager_stats() — the difference between a native
-# kernel loop and a silent per-element trampoline is invisible in results
-# and enormous in cost, so make it measurable.
+# kernel loop and a per-invocation call back into python is invisible in
+# results and enormous in cost, so make it measurable. ``trampoline_calls``
+# is the tripwire the whole suite asserts stays flat around an eager call.
 #
 # The beast2_* counters (#599) make column projection observable the same
 # way: an inferred optimisation that silently stops applying is an invisible
@@ -67,7 +69,7 @@ cdef void _ensure_runtime() except *:
 # (an untraceable callback, the element escaping whole, a kernel with no
 # retraceable source, an unpageable blob, or a per-segment alias fallback).
 _eager_counters = {
-    "trampoline_calls": 0, "kernel_direct": 0, "pushdown_traced": 0,
+    "trampoline_calls": 0, "kernel_direct": 0,
     "beast2_segments_projected": 0, "beast2_segments_whole": 0,
     "beast2_projection_declined_untraceable": 0,
     "beast2_projection_declined_escape": 0,
@@ -97,7 +99,8 @@ def _eager_counters_snapshot():
 
 cdef _eastc.EvalResult _py_invoke_trampoline(_eastc.EastCompiledFn* self,
                                              _eastc.EastValue** args, size_t n) noexcept with gil:
-    """Called by east-c when it invokes a wrapped Python callable."""
+    """Called by east-c when it invokes a wrapped HOST python callable
+    (``foreign_function_value``); no eager callback reaches here."""
     _eager_counters["trampoline_calls"] += 1
     cdef object ud = <object>self.invoke_userdata  # (fn, input_types, output_type)
     cdef _eastc.EastType* c_in
@@ -157,26 +160,12 @@ cdef _eastc.EastValue* _wrap_pyfn(object east_fn) except NULL:
     return fv
 
 
-cdef object _try_push_down_py(object east_fn):
-    """Capture an EastFunction's python callback into a native kernel — the
-    strict wrap (#625).
-
-    Returns the compiled kernel callable (whose function value is passed
-    straight to the builtin — IR push-down). A capture failure raises its
-    ``ExpressionError``: there is no per-element trampoline behind it.
-    """
-    from east.expression import try_push_down
-    result = try_push_down(east_fn)
-    _eager_counters["pushdown_traced"] += 1
-    return result
-
-
 # ─── Precompiled kernels as eager callbacks (#409) ────────────────────────
 #
 # A callback that is ALREADY a compiled East function (east.expression /
 # compile_from_* / kernel.bind) carries its native function value on its
-# handle — re-tracing it can only fail (its python body is the bridge
-# closure), which used to drop the whole call to the per-element trampoline.
+# handle — re-capturing it can only fail (its python body is the bridge
+# closure), so it would raise where the value is usable as it stands.
 # Use the function value directly. When the builtin's callback signature
 # passes more arguments than the kernel takes (ArrayMap invokes (element,
 # index); a kernel([RowT], …) takes one), a pure-C prefix adapter forwards
@@ -257,12 +246,13 @@ cdef object _native_kernel_for(object east_fn):
     Verifies the kernel's declared signature against the callback's — output
     AND the input prefix it will receive: the kernel reads its arguments raw
     with no per-element conversion, so a mismatch on either side would read
-    or write values as the wrong type (#467). A mismatch falls back to the
-    trampoline, which converts (and so validates) per element. Prefix-adapts
-    arity when the callback signature passes more arguments than the kernel
-    takes. Eager methods that wrap the user callback tag the wrapper with the
-    underlying kernel via ``_east_kernel`` (collections._mark_kernel) —
-    resolve through it.
+    or write values as the wrong type (#467). A mismatch declines the native
+    pass-through, and the capture then re-traces the callback against the
+    signature it will actually receive and raises what is wrong with it
+    (#625). Prefix-adapts arity when the callback signature passes more
+    arguments than the kernel takes. Eager methods that wrap the user
+    callback tag the wrapper with the underlying kernel via ``_east_kernel``
+    (collections._mark_kernel) — resolve through it.
     """
     cdef _eastc.EastType* want_in
     cdef bint in_matched
@@ -301,7 +291,7 @@ cdef object _native_kernel_for(object east_fn):
 
 
 def native_kernel_for(object east_fn):
-    """Python-visible ``_native_kernel_for`` (used by ``try_push_down``, #470).
+    """Python-visible ``_native_kernel_for`` (used by ``capture_callback``, #470).
 
     Resolves a precompiled kernel from the callback — directly or via its
     ``_east_kernel`` mark — with the same declared-signature checks (#467)
@@ -774,7 +764,9 @@ cdef _eastc.EastValue* _callback_value_for(object arg, list native_holds) except
             _eastc.east_type_release(c_fn_t)
         return out
     if native is None:
-        native = _try_push_down_py(arg)
+        from east.expression import capture_callback
+
+        native = capture_callback(arg)
     fn_ptr = _native_fn_val_ptr(native)
     if fn_ptr == 0:
         raise RuntimeError(
@@ -900,7 +892,7 @@ def call_builtin(str name, list type_params, list args, object output_type):
                     # A Function-typed VALUE slot (a generic T instanced to a
                     # function type, e.g. Print or BlobEncodeBeast2 over
                     # functions) accepts the same forms a callback slot does:
-                    # an EastFunction resolves to its native/traced/trampoline
+                    # an EastFunction resolves to its native (or captured)
                     # function value, a compiled function passes its value
                     # through, and anything else converts below (decoded
                     # function wrappers serialize from their attached IR).
@@ -912,8 +904,8 @@ def call_builtin(str name, list type_params, list args, object output_type):
                             # A VALUE slot holds data (Print, BlobEncodeBeast2 over
                             # functions): prefer the native function value, then
                             # the function's OWN attached representation (live
-                            # captures / attached IR) — push-down TRACING comes
-                            # last: it re-derives the body, which executes
+                            # captures / attached IR) — CAPTURING it comes
+                            # last: that re-derives the body, which executes
                             # identically but is a different function value
                             # than the one the slot holds (#476).
                             native = _native_kernel_for(args[i])
@@ -947,7 +939,9 @@ def call_builtin(str name, list type_params, list args, object output_type):
                                     c_args[i] = <_eastc.EastValue*>fn_ptr
                                     _eastc.east_value_retain(c_args[i])
                                     continue
-                            native = _try_push_down_py(args[i])
+                            from east.expression import capture_callback
+
+                            native = capture_callback(args[i])
                             fn_ptr = _native_fn_val_ptr(native)
                             if fn_ptr == 0:
                                 raise RuntimeError(
@@ -1802,8 +1796,8 @@ def _invoke_c_function_py(uintptr_t val_ptr, list input_type_ptrs, uintptr_t out
             # Cold path: if the failing argument is a trace-time proxy, the
             # caller is a traced lambda calling this compiled function —
             # lower the call to a native IR Call in the surrounding trace
-            # (#561); when lowering declines, name the actual problem and
-            # give try_push_down a cause it can decline-and-fall-back on.
+            # (#561); when lowering declines, name the actual problem so it
+            # reaches the capture error's cause chain (#558 C).
             from east.expression import Expression as _Expression
             found_proxy = False
             for j in range(nargs):
@@ -1930,8 +1924,8 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
                 free(c_args)
             # Cold path: if the failing argument is a trace-time proxy, the
             # caller is a traced lambda trying to RE-TRACE this compiled
-            # function — name that instead of the opaque conversion error,
-            # and give try_push_down a cause it can decline-and-fall-back on.
+            # function — name that instead of the opaque conversion error, so
+            # it reaches the capture error's cause chain (#558 C).
             from east.expression import Expression as _Expression
             found_proxy = False
             for j in range(nargs):

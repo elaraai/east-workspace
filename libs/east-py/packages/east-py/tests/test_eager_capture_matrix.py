@@ -2,34 +2,39 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Every eager callback method runs native for kernels AND lambdas (issue #470).
+"""east-py's own sugar captures whole, for kernels AND lambdas (issue #470).
 
-The #409 contract — a precompiled kernel keeps the whole loop inside east-c
-with zero per-element python — held for ``map``/``filter``/``to_dict`` and
-silently inverted for the grouping methods: a kernel was 4.4×–7.6× SLOWER
-than the identical plain lambda, because wrappers composing a kernel
-(``lambda el: {"k": key(el), ...}``) could neither be traced (a compiled
-kernel was an opaque callable) nor recognised by ``try_push_down`` (which
-ignored the ``_east_kernel`` mark that the bridge honoured — the counter and
-the branch disagreed, so ``group_by`` looked healthy and trampolined anyway).
+The corpus (``test_compliance_eager``) covers every BUILTIN's callback path
+corpus-wide. What it cannot express is east-py's NATIVE sugar — the
+``sum``/``mean``/``min``/``max``/``every``/``some``/``group_*`` compositions,
+which exist only here — so this matrix drives each of them × {kernel, lambda}
+and asserts the whole composition stays inside east-c.
 
-Three mechanisms close it, and this matrix pins all of them at once:
+Under the strict surface (#625) a callback either captures or RAISES, so a
+composition whose internal wrapper stopped being capturable fails loudly
+here. The ``trampoline_calls`` delta stays as the tripwire for the other
+half: an eager call that reached the host-callable seam at all.
 
-* kernels are dual-mode — called with trace proxies they re-run their
-  retained source lambda, so any composing wrapper traces with correct
-  argument order (no marking needed, including the ``(k, v)``-swapped dict
-  wrappers a mark could not express);
-* ``try_push_down`` resolves the ``_east_kernel`` mark through the bridge's
-  ``native_kernel_for`` — same signature checks (#467), same arity
-  adaptation — so the mark means one thing to every consumer;
-* the purity gate reaches two wrapper levels and the ``mean`` family
-  decides Integer-vs-Float from the type system, so the group-sugar block
-  traces end-to-end.
+The #409 contract this pins — a precompiled kernel keeps the whole loop
+inside east-c with zero per-element python — held for ``map``/``filter``/
+``to_dict`` and silently inverted for the grouping methods: a kernel was
+4.4×–7.6× SLOWER than the identical plain lambda, because wrappers composing
+a kernel (``lambda el: {"k": key(el), ...}``) could neither be captured (a
+compiled kernel was an opaque callable) nor recognised by
+``capture_callback`` (which ignored the ``_east_kernel`` mark that the bridge
+honoured — the counter and the branch disagreed, so ``group_by`` looked
+healthy and trampolined anyway). Three mechanisms close it, and the matrix
+pins all of them at once: kernels are dual-mode (called with proxies they
+re-run their retained source, so any composing wrapper captures with correct
+argument order, including the ``(k, v)``-swapped dict wrappers a mark could
+not express); ``capture_callback`` resolves the ``_east_kernel`` mark through
+the bridge's ``native_kernel_for`` — same signature checks (#467), same arity
+adaptation; and the eligibility check reaches two wrapper levels while the
+``mean`` family decides Integer-vs-Float from the type system.
 
 Per the issue: a spot-check is not enough — ``group_by`` had the right code,
 the right comment, and a healthy-looking ``kernel_direct`` counter while
-being 7.6× slower. So: every callback-taking method × {kernel, lambda},
-asserting ``trampoline_calls`` does not move.
+being 7.6× slower.
 """
 
 import pytest
@@ -83,11 +88,11 @@ def _callbacks(mode):
 
 
 # The plain builtin-backed method rows that used to live here (map/filter/
-# filter_map/first_map/map_reduce/fold/sorted/to_*/flatten_*) are now covered
-# corpus-wide by tests/test_compliance_eager.py — kernel + trampoline replay
-# with per-builtin path accounting (#474 cleanup pass 1). This file keeps the
-# east-py-NATIVE surface the corpus cannot express: the sugar compositions
-# (sum/mean/min/max/every/some/group_*) and the pushdown mechanics pins.
+# filter_map/first_map/map_reduce/fold/sorted/to_*/flatten_*) are covered
+# corpus-wide by tests/test_compliance_eager.py, with per-builtin path
+# accounting (#474 cleanup pass 1). This file keeps the east-py-NATIVE surface
+# the corpus cannot express: the sugar compositions (sum/mean/min/max/every/
+# some/group_*) and the capture mechanics pins.
 ARRAY_CASES = {
     "sum":             lambda a, c: a.sum(c["v"]),
     "mean":            lambda a, c: a.mean(c["v"]),
@@ -139,6 +144,8 @@ DICT_CASES = {
 
 
 def _assert_no_per_element_python(run):
+    """The composition captures (it did not raise) AND never reached the
+    host-callable seam."""
     before = eager_stats()["trampoline_calls"]
     run()
     moved = eager_stats()["trampoline_calls"] - before
@@ -171,33 +178,34 @@ def test_dict_method_runs_native(case, mode):
 
 # ── the specific #470 mechanics ──────────────────────────────────────────────
 
-def test_try_push_down_honours_the_mark():
-    """A wrapper carrying ``_east_kernel`` is pushable — before, the bridge
-    honoured the mark while try_push_down judged the wrapper's own closure,
-    so ``group_by`` branched to its per-element python path anyway."""
-    from east.expression import try_push_down
+def test_capture_callback_honours_the_mark():
+    """A wrapper carrying ``_east_kernel`` resolves to the kernel's own native
+    value — before, the bridge honoured the mark while capture_callback judged
+    the wrapper's own closure, so ``group_by`` branched to its per-element
+    python path anyway."""
+    from east.expression import capture_callback
     from east.types.values.collections import _mark_kernel
     from east.types.values.structural import EastFunction
 
     key = kernel(Row, lambda r: r["g"])
     wrapper = _mark_kernel(lambda el, _i: key(el), key)
-    native = try_push_down(EastFunction(wrapper, [Row, IntegerType], StringType))
+    native = capture_callback(EastFunction(wrapper, [Row, IntegerType], StringType))
     assert native is not None
     assert getattr(native._eastc_handle, "_fn_val", 0)
 
 
-def test_try_push_down_still_rejects_a_mismatched_marked_kernel():
+def test_capture_callback_still_rejects_a_mismatched_marked_kernel():
     """The mark rides the same #467 signature checks as the bridge: a marked
     kernel whose output is not the declared callback output must not pass —
     the strict capture re-traces the wrapper and names the mismatch (#625)."""
-    from east.expression import ExpressionError, try_push_down
+    from east.expression import ExpressionError, capture_callback
     from east.types.values.collections import _mark_kernel
     from east.types.values.structural import EastFunction
 
     key = kernel(Row, lambda r: r["g"])            # String
     wrapper = _mark_kernel(lambda el, _i: key(el), key)
     with pytest.raises(ExpressionError, match="produced String"):
-        try_push_down(EastFunction(wrapper, [Row, IntegerType], FloatType))
+        capture_callback(EastFunction(wrapper, [Row, IntegerType], FloatType))
 
 
 def test_kernels_compose_inside_kernels_and_wrappers():

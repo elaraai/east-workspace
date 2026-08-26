@@ -173,15 +173,16 @@ def narrow_type_for(wire_t: EastType, mask: Any) -> EastType:
 
 
 def _retrace_wrapper(fn: Any, arity: int) -> Any:
-    """A purity-gate-passing wrapper around a precompiled kernel.
+    """A capturable wrapper around a precompiled kernel.
 
     A kernel's declared input types name the WIDE element, so on a projected
     (narrow) segment the native pass-through refuses it (#467) and the
     wrapper's re-trace takes over: called with proxies, the kernel's
     dual-mode callable re-runs its retained source lambda, splicing the same
     expression against the narrow types. The kernel rides a keyword-only
-    default (not a closure cell), which the purity gate does not inspect —
-    and needs not: a ``_east_retrace`` carrier is allowed capture anyway.
+    default (not a closure cell), which the eligibility check does not
+    inspect — and needs not: a ``_east_retrace`` carrier is allowed capture
+    anyway.
     """
     if arity == 1:
         return lambda a, *, _k=fn: _k(a)
@@ -229,7 +230,7 @@ def infer_field_mask(fn: Any, param_types: list[EastType], elem_pos: int) -> tup
     if not callable(fn):
         return None, None, "untraceable"
 
-    from east.expression.pushdown import _eligible, _trace_cache_key
+    from east.expression.capture import _eligible, _trace_cache_key
 
     key = _trace_cache_key(fn, ("mask", elem_pos,
                                 tuple(_type_key(t) for t in param_types)))

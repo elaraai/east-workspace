@@ -20,6 +20,7 @@ warnings.warn(
 )
 
 import east.expression as _expression  # noqa: E402
+import east.expression.capture  # noqa: E402
 import east.expression.control  # noqa: E402
 import east.expression.errors  # noqa: E402
 import east.expression.expr  # noqa: E402
@@ -30,16 +31,18 @@ import east.expression.lift  # noqa: E402
 import east.expression.nodes  # noqa: E402
 import east.expression.ops  # noqa: E402
 import east.expression.project  # noqa: E402
-import east.expression.pushdown  # noqa: E402
 from east.expression import *  # noqa: E402,F401,F403
 from east.expression import (  # noqa: E402,F401
     _eligible,
     _lift,
     _tracing,
+    capture_callback,
     trace,
     trace_builtin_call,
-    try_push_down,
 )
+
+#: ``pushdown.try_push_down`` became ``capture.capture_callback`` (#625).
+try_push_down = capture_callback
 
 for _name, _mod in [
     ("control", east.expression.control),
@@ -53,7 +56,8 @@ for _name, _mod in [
     ("nodes", east.expression.nodes),
     ("ops", east.expression.ops),
     ("project", east.expression.project),
-    ("pushdown", east.expression.pushdown),
+    ("capture", east.expression.capture),
+    ("pushdown", east.expression.capture),  # pushdown.py became capture.py
 ]:
     sys.modules[f"east.kernel.{_name}"] = _mod
 

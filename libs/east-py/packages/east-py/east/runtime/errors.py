@@ -19,11 +19,11 @@ class NonRetraceableCallError(TypeError):
     input such as a streamTask ``emit``) — its body cannot be re-traced, so
     the call cannot splice into the surrounding kernel.
 
-    ``try_push_down`` treats this cause as "decline and fall back": the eager
-    method runs its per-element python path, which is the documented contract
-    for a callback that cannot trace. An explicit ``kernel(...)`` still raises
-    loudly, carrying this message instead of the former opaque
-    ``bad argument type for built-in operation``.
+    Since #561 a well-typed call LOWERS to the IR ``Call`` node instead, so
+    this survives only for the shapes lowering declines (an arity mismatch, an
+    argument that does not lift to the parameter's type). It is then the CAUSE
+    the capture's ``ExpressionError`` carries, naming the real problem instead
+    of the opaque ``bad argument type for built-in operation``.
     """
 
 
