@@ -8,9 +8,10 @@ Two forms over one decode plan:
 
 - INFERRED: the compute family traces its callbacks FIRST, derives the set
   of struct fields the traced IR reads, and decodes each segment to exactly
-  that subset — no API, no declaration. Non-inferable callbacks (impure,
-  element-escaping, un-retraceable kernels) fall back to today's whole
-  decode, counted in ``eager_stats()`` with the reason.
+  that subset — no API, no declaration. Non-inferable callbacks decline
+  projection with the reason counted in ``eager_stats()``: element-escaping
+  shapes and bound kernels decode whole, and an impure callback then raises
+  the strict-capture error before any row runs (#625).
 - EXPLICIT: ``open_beast2_file(path, project=NARROW)`` — ``NARROW`` is a
   subset of the wire type; every read serves the projected shape.
 
@@ -159,23 +160,26 @@ def test_bound_kernels_decline_with_the_kernel_reason(array_path):
 
 
 def test_non_inferable_callbacks_fall_back_and_count(array_path):
+    from east.expression import ExpressionError
+
     with open_beast2_file(array_path, AT) as f:
         table = f.load()
 
-        # Impure callback: per-element python semantics preserved, decline
-        # counted with the untraceable reason.
+        # Impure callback: the projection layer counts its decline, then the
+        # strict wrap refuses it before any row runs (#625).
         seen = []
 
         def impure(r):
             seen.append(r["id"])
             return r["qty"]
 
-        got, counted = _delta(lambda: list(f.map(impure, out=IntegerType)))
-        assert got == list(table.map(lambda r: r["qty"], out=IntegerType))
-        assert len(seen) == 500
+        before = eager_stats()
+        with pytest.raises(ExpressionError, match="captured automatically"):
+            f.map(impure, out=IntegerType)
+        counted = {k: eager_stats()[k] - before.get(k, 0) for k in eager_stats()}
+        assert seen == []
         assert counted["beast2_projection_declined_untraceable"] == 1
         assert counted["beast2_segments_projected"] == 0
-        assert counted["beast2_segments_whole"] > 0
 
         # The element escaping whole (identity) declines with the escape
         # reason — nothing can be skipped.

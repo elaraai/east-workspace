@@ -494,6 +494,23 @@ def _merge_partial(acc, part, combine) -> None:
         values = part.to_array(lambda _k, v: v, out=acc.value_type)
         acc.update_many(keys, values)
 
+
+def _inner_dict_merge(value_type, combine):
+    """The ``group_to_dicts`` cross-segment merge, precompiled: two groups'
+    inner dicts union, shared inner keys resolving through ``combine`` — or
+    through the native duplicate-key error kernel, the eager builders'
+    message. Built once per operation, when the first merge knows the inner
+    dict type."""
+    from east.expression import _error_combine_kernel, function
+
+    ikt = value_type.value["key"]
+    ivt = value_type.value["value"]
+    on_shared = combine if combine is not None else _error_combine_kernel(
+        ivt, ikt, "Cannot insert duplicate key ", " into dict")
+    return function([value_type, value_type], value_type,
+                    lambda a, b: a.union(b, on_shared))
+
+
 #: Managed cap on rows per segment when the caller doesn't override.
 _TARGET_SEGMENT_ROWS = 8192
 
@@ -1925,24 +1942,13 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.types import DictType
         from east.types.values.collections import EastDict
 
-        def _inner(a, b):  # noqa: ANN001, ANN202
-            if combine is not None:
-                return a.union(b, combine)
-            from east.runtime.errors import EastError
-            from east.serialization.east_printer import print_east
-
-            def _dup(_v1, _v2, ik):  # noqa: ANN001, ANN202
-                printed = ik if isinstance(ik, str) else print_east(ik, a.key_type)
-                raise EastError(f"Cannot insert duplicate key {printed} into dict", [])
-
-            return a.union(b, _dup)
-
         if value is not None:
             project, (key, key2, value) = self._project(
                 ("el", key), ("el", key2), ("el", value))
         else:
             project, _ = self._project(("whole",))
         result = None
+        inner = None
         base = 0
         for segment in self._iter_segments(project):
             part = segment.group_to_dicts(
@@ -1952,7 +1958,9 @@ class Beast2ArrayFile(Beast2File, EastArray):
             if result is None:
                 result = part
             else:
-                _merge_partial(result, part, _inner)
+                if inner is None:
+                    inner = _inner_dict_merge(result.value_type, combine)
+                _merge_partial(result, part, inner)
         return result if result is not None else EastDict(
             self.element_type, DictType(self.element_type, self.element_type))
 
@@ -2632,27 +2640,18 @@ class Beast2DictFile(Beast2File, EastDict):
         from east.types.types import DictType
         from east.types.values.collections import EastDict
 
-        def _inner(a, b):  # noqa: ANN001, ANN202
-            if combine is not None:
-                return a.union(b, combine)
-            from east.runtime.errors import EastError
-            from east.serialization.east_printer import print_east
-
-            def _dup(_v1, _v2, ik):  # noqa: ANN001, ANN202
-                printed = ik if isinstance(ik, str) else print_east(ik, a.key_type)
-                raise EastError(f"Cannot insert duplicate key {printed} into dict", [])
-
-            return a.union(b, _dup)
-
         project, (key_fn, key2_fn, value_fn) = self._project(
             ("kv", key_fn), ("kv", key2_fn), ("kv", value_fn))
         result = None
+        inner = None
         for segment in self._disjoint_segments(project):
             part = segment.group_to_dicts(key_fn, key2_fn, value_fn, combine)
             if result is None:
                 result = part
             else:
-                _merge_partial(result, part, _inner)
+                if inner is None:
+                    inner = _inner_dict_merge(result.value_type, combine)
+                _merge_partial(result, part, inner)
         return result if result is not None else EastDict(
             self.key_type, DictType(self.key_type, self.value_type))
 
@@ -3074,25 +3073,16 @@ class Beast2SetFile(Beast2File, EastSet):
         from east.types.types import DictType
         from east.types.values.collections import EastDict
 
-        def _inner(a, b):  # noqa: ANN001, ANN202
-            if combine is not None:
-                return a.union(b, combine)
-            from east.runtime.errors import EastError
-            from east.serialization.east_printer import print_east
-
-            def _dup(_v1, _v2, ik):  # noqa: ANN001, ANN202
-                printed = ik if isinstance(ik, str) else print_east(ik, a.key_type)
-                raise EastError(f"Cannot insert duplicate key {printed} into dict", [])
-
-            return a.union(b, _dup)
-
         result = None
+        inner = None
         for segment in self._disjoint_segments():
             part = segment.group_to_dicts(key, key2, value, combine)
             if result is None:
                 result = part
             else:
-                _merge_partial(result, part, _inner)
+                if inner is None:
+                    inner = _inner_dict_merge(result.value_type, combine)
+                _merge_partial(result, part, inner)
         return result if result is not None else EastDict(
             self.element_type, DictType(self.element_type, self.element_type))
 

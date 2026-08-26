@@ -23,9 +23,10 @@ against the traced surface (`unwrap_or`, `substring`, `try_parse`, `is_some`)
 died with an `AttributeError` from inside the library before it ever ran.
 
 The types were always available: a precompiled kernel carries its signature,
-and a traceable lambda gets one from the tracer. Sampling remains only as the
-fallback for genuinely untraceable (impure) callbacks, which these tests also
-pin so that path does not rot.
+and a traceable lambda gets one from the tracer. Since #625 there is no
+sampling fallback at all: a callback with no East capture is refused up
+front, and a mutable-East-collection capture must be explicit —
+``kernel``/``East.function`` (a build-time snapshot) or ``.bind`` (live).
 """
 
 import pytest
@@ -40,6 +41,7 @@ from east import (
     none,
     some,
 )
+from east.expression import ExpressionError
 
 ROW = StructType([("a", OptionType(StringType)), ("n", StringType)])
 KEY = StructType([("a", OptionType(StringType)), ("n", StringType)])
@@ -141,27 +143,31 @@ def test_dict_map_value_fn_may_use_traced_only_methods(rows):
     assert sizes.value_type == OptionType(StringType)
 
 
-def test_captured_side_table_lambda_still_types_from_the_tracer(rows):
-    """A lambda closing over an East dict cannot push DOWN (snapshot-vs-live
-    semantics), but its output TYPE must still come from the tracer — sampling
-    would narrow the Option to whichever case the first element produced."""
+def test_captured_side_table_needs_an_explicit_capture(rows):
+    """A lambda closing over a MUTABLE East dict has no automatic capture —
+    snapshot-vs-live must be an explicit choice (#625) — so the auto-wrap
+    refuses it with the fix-it, and the explicit ``kernel`` snapshot types
+    from the tracer exactly as before."""
     table = EastDict(StringType, OptionType(StringType), {"1": some("hit")})
-    grouped = rows.group_by(lambda r: table.get_or_default(r["n"], none))
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        rows.group_by(lambda r: table.get_or_default(r["n"], none))
+    grouped = rows.group_by(
+        kernel(ROW, lambda r: table.get_or_default(r["n"], none)))
     assert grouped.key_type == OptionType(StringType)
     assert len(grouped) == 2  # some("hit") for row "1", none for "2"/"3"
 
 
-# ── the fallback must survive ────────────────────────────────────────────────
+# ── there is no sampling fallback (#625) ─────────────────────────────────────
 
-def test_impure_callback_still_falls_back_to_sampling(rows):
-    """An untraceable callback has no declared type, so sampling remains the
-    only answer for it. Pinned so the fallback is not dropped as dead code."""
+def test_impure_callback_is_refused_not_sampled(rows):
+    """An untraceable callback has no declared type and no sampling path any
+    more: the strict capture refuses it before it runs on any element."""
     calls = []
 
     def impure(r):
-        calls.append(1)          # closure mutation — refuses to trace
+        calls.append(1)          # closure mutation — no East capture
         return r["n"]
 
-    grouped = rows.group_by(impure)
-    assert len(grouped) == 3
-    assert calls, "the impure callback should have been sampled/run in python"
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        rows.group_by(impure)
+    assert calls == []

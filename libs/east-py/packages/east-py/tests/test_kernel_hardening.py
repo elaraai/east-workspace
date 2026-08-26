@@ -3,12 +3,11 @@
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
 """Kernel-tracer hardening (#543): the proxy bail for f-strings (#530), the
-one-mode loud-fallback contract (a pure-looking callback that fails to
-trace RAISES; genuinely-python lambdas keep their fallback; a deliberate
-python path declares ``_east_trace_fallback``), and the
-#536 keyword sweep — ``out=``-family pins accepted by the traced twins AND
-threaded into the callback's trace as its expected type (so a pinned
-callback can build a general variant, #541).
+strict one-mode contract (any callback that fails to capture RAISES — there
+is no per-element python fallback, #625), and the #536 keyword sweep —
+``out=``-family pins accepted by the traced twins AND threaded into the
+callback's trace as its expected type (so a pinned callback can build a
+general variant, #541).
 """
 
 import pytest
@@ -61,25 +60,26 @@ def _probe_repr(s):
     return s
 
 
-# ── eligible-but-untraceable RAISES; the purity gate keeps python python ───
+# ── any callback that fails to capture RAISES (#625) ───────────────────────
 
-def test_an_eligible_untraceable_callback_raises_on_the_eager_path():
+def test_an_untraceable_callback_raises_on_the_eager_path():
     arr = EastArray(StringType, ["p", "q"])
-    # An f-string lambda passes the purity gate — it LOOKS native — so its
-    # trace failure surfaces loudly instead of silently trampolining per
-    # element (the hours-not-errors failure mode, #524). One behavior, no
-    # opt-in flag: the error names the traced spelling.
+    # An f-string lambda LOOKS native but cannot trace — its failure
+    # surfaces loudly instead of silently trampolining per element (the
+    # hours-not-errors failure mode, #524). The error names the traced
+    # spelling.
     with pytest.raises(ExpressionError, match="constant-fold"):
         arr.map(lambda s: f"<{s}>", out=StringType)
 
 
-def test_impure_callbacks_keep_the_python_fallback():
+def test_impure_callbacks_are_refused():
     log: list = []
     arr = EastArray(IntegerType, [1, 2])
-    # Mutating a closure fails the PURITY gate — not eligible, so the
-    # per-element python path is its contract and stays silent.
-    assert list(arr.map(lambda x: (log.append(x) or x + 1), out=IntegerType)) == [2, 3]
-    assert log == [1, 2]
+    # Mutating a closure has no East capture (#625): refused before any
+    # element runs — there is no silent per-element python path anymore.
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        arr.map(lambda x: (log.append(x) or x + 1), out=IntegerType)
+    assert log == []
 
 
 # ── #536: the out= sweep, threading the hint into the callback ─────────────

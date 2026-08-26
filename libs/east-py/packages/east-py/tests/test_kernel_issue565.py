@@ -19,6 +19,7 @@ They also pin the Block path (a non-Null traced expression still executes) and
 ``ir_platform``'s ``optional`` field (hand-built Platform nodes must convert).
 """
 
+import pytest
 from east.serialization._beast2_eastc import _EmitAccumCore
 
 from east import (
@@ -32,6 +33,7 @@ from east import (
     StructType,
     kernel,
 )
+from east.expression import ExpressionError
 from east.ir.builders import ir_function, ir_platform, ir_variable
 from east.runtime.compiler import compile_from_value
 
@@ -145,21 +147,28 @@ class TestNonNullCallback:
         assert list(elems) == ["a", "b", "c"]
 
 
-# ── the eager path is unchanged ─────────────────────────────────────────────
+# ── the python boundary: explicit loops (#625) ──────────────────────────────
 
 
-class TestImpureCallbackKeepsPerElementPath:
-    def test_python_side_effects_run_per_element(self):
+class TestPythonBoundary:
+    def test_python_side_effects_need_an_explicit_loop(self):
         seen: list[str] = []
-        _rows().for_each(lambda r: seen.append(r["k"]))
+        with pytest.raises(ExpressionError, match="captured automatically"):
+            _rows().for_each(lambda r: seen.append(r["k"]))
+        assert seen == []
+        for r in _rows():
+            seen.append(r["k"])
         assert seen == ["a", "b", "c"]
 
-    def test_python_emit_wrapper_still_delivers(self):
-        # the tests/drivers shape: a python wrapper over emit (impure via the
-        # captured list) — per-element path, every row really lands.
+    def test_python_emit_wrapper_delivers_through_an_explicit_loop(self):
+        # the tests/drivers shape: python work around emit — the explicit
+        # loop is the boundary, and emit called on plain values marshals one
+        # row through the C path per call.
         def body(emit):
             order: list[str] = []
-            _rows().for_each(lambda r: (order.append(r["k"]), emit(r["k"]))[1])
+            for r in _rows():
+                order.append(r["k"])
+                emit(r["k"])
             assert order == ["a", "b", "c"]
 
         (elems,) = _drive("issue565.pywrap", "array", [StringType], body)

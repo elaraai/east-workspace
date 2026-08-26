@@ -65,7 +65,7 @@ CASES = [
     ("array.to_dict.combine",
      lambda r: r["csv"].split(",").to_dict(
          lambda p: p, value=lambda p: p.length(), combine=lambda a, b: a + b),
-     lambda: _arr().to_dict(lambda p: p, value=lambda p: len(p),
+     lambda: _arr().to_dict(lambda p: p, value=lambda p: p.length(),
                             combine=lambda a, b: a + b)),
     ("array.sorted.key.reverse",
      lambda r: r["legs"].sorted(key=lambda leg: leg["qty"], reverse=True)
@@ -141,7 +141,7 @@ def test_to_dict_duplicate_key_errors_like_eager_and_ts():
     parts = array(StringType, ["b", "a", "c", "a"])
     t = ArrayType(StringType)
     with pytest.raises(EastError, match="Cannot insert duplicate key"):
-        parts.to_dict(lambda p: p, value=lambda p: len(p))
+        parts.to_dict(lambda p: p, value=lambda p: p.length())
     with pytest.raises(EastError, match="Cannot insert duplicate key"):
         kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length()))(parts)
     # ...and the message names the offending key, as eager and TS do
@@ -150,7 +150,8 @@ def test_to_dict_duplicate_key_errors_like_eager_and_ts():
     # with a combine, both paths agree on the resolved value
     got = kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length(),
                                         combine=lambda x, y: x + y))(parts)
-    want = parts.to_dict(lambda p: p, value=lambda p: len(p), combine=lambda x, y: x + y)
+    want = parts.to_dict(lambda p: p, value=lambda p: p.length(),
+                         combine=lambda x, y: x + y)
     assert dict(got.items()) == dict(want.items())
 
     # a 3-argument combine is a supported EAGER call, so it must trace too

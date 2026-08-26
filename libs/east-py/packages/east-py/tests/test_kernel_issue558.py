@@ -17,11 +17,11 @@ B. `bind()` type-checked struct parameters by CONTENT inference (`type_of`),
 
 C. A traced lambda calling an already-compiled East function (a `.bind`
    result; the e3 runner's streamTask `emit`) cannot re-trace the callee.
-   Speculative push-down declines and falls back to the per-element python
-   path (the ≤1.0.61 contract) — and since #561 a well-typed call LOWERS to
-   the IR Call node instead, so these lambdas now compile whole; the decline
-   (and the named error for explicit `kernel(...)`) survives for the shapes
-   lowering cannot type, and for genuinely-python callees.
+   Since #561 a well-typed call LOWERS to the IR Call node, so these lambdas
+   compile whole; the named error (NonRetraceableCallError in the cause
+   chain) survives for the shapes lowering cannot type, and since #625 a
+   genuinely-python wrapper raises the strict-capture error up front — the
+   explicit python loop is the boundary for python semantics.
 
 D. `.match()` settles its output type from ANY arm that can state one
    without a hint — including a `some(expr)` arm, which arrives as an
@@ -140,15 +140,19 @@ def _native_sink():
 
 
 class TestNonRetraceableCallee:
-    def test_for_each_over_a_native_sink_falls_back_and_runs(self):
-        # the production regression: every streamTask projection emits
-        # per-row through a runner-supplied native function. Speculative
-        # push-down must decline, not raise.
+    def test_for_each_with_a_python_side_effect_is_refused(self):
+        # the pre-#625 production shape — a per-row python append around the
+        # native sink — now raises before any row runs; the explicit loop is
+        # the sanctioned python boundary.
         sink = _native_sink()
         seen: list[float] = []
         rows = EastArray(StructType([("k", StringType), ("v", FloatType)]),
                          [{"k": "a", "v": 1.0}, {"k": "b", "v": 2.0}])
-        rows.for_each(lambda e: seen.append(sink(e["k"], e["v"])))
+        with pytest.raises(ExpressionError, match="captured automatically"):
+            rows.for_each(lambda e: seen.append(sink(e["k"], e["v"])))
+        assert seen == []
+        for e in rows:
+            seen.append(sink(e["k"], e["v"]))
         assert seen == [1.0, 2.0]
 
     def test_map_over_a_lambda_calling_a_native_fn_still_answers(self):

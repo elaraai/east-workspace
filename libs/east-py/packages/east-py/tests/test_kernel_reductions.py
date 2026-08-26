@@ -284,9 +284,10 @@ def test_dict_callbacks_take_key_then_value():
     ``(value, key)`` — the traced forms must not leak the builtin's order."""
     d = EastDict(StringType, IntegerType, {"a": 1, "bb": 2})
     # a projection over the KEY proves the argument order
-    assert _native(lambda x: x.sum(lambda k, v: k.length()), D_SI, d) == d.sum(lambda k, v: len(k)) == 3
+    assert _native(lambda x: x.sum(lambda k, v: k.length()), D_SI, d) \
+        == d.sum(lambda k, v: East.String.length(k)) == 3
     assert _native(lambda x: x.every(lambda k, v: k.length() >= v), D_SI, d) \
-        is d.every(lambda k, v: len(k) >= v) is True
+        is d.every(lambda k, v: East.String.length(k) >= v) is True
     assert _native(lambda x: x.reduce("", lambda a, k, v: a + k), D_SI, d) \
         == d.reduce("", lambda a, k, v: a + k) == "abb"
 
@@ -979,12 +980,10 @@ def test_empty_group_result_type_matches_eager(cases, param_type, make_empty):
     Parametrized per container because the first fix pass covered Array alone
     and left the Set/Dict twins — and `_group_extreme` — untouched.
 
-    Every eager callback here is East-typeable, which is the precondition for
-    the guarantee: on an EMPTY container there is no element to sample, so a
-    callback the tracer cannot type (a python builtin like `len`) leaves eager
-    nothing whatsoever to infer from and it must still fall back. See
-    :func:`test_an_untypeable_callback_on_empty_input_still_falls_back` — that
-    residual case is inherent, not a gap in this fix.
+    Every eager callback here is East-typeable, which since #625 is simply
+    the contract: a callback the tracer cannot capture (a python builtin like
+    `len`) is refused outright, empty input or not — see
+    :func:`test_an_untypeable_callback_is_refused_even_on_empty_input`.
     """
     for name, want_k, want_v, traced, eager in cases:
         empty = make_empty()
@@ -1048,30 +1047,18 @@ def test_group_size_defaults_to_the_identity_key_on_an_array():
         kernel(_G_SET, lambda s: s.group_size())
 
 
-def test_an_untypeable_callback_on_empty_input_falls_back_per_parameter():
-    """The one case the empty-input guarantee does NOT cover, stated honestly.
-
-    The rule is "derive from the type system, sample only as a fallback". On an
-    empty container there is nothing to sample, so when the callback ALSO
-    cannot be typed — a python builtin, or an impure lambda the purity scan
-    refuses to trace — there is no information anywhere and eager must keep a
-    source-typed guess. A kernel lambda is traceable by construction, so the
-    traced path never hits this, and the two can then differ.
-
-    The fallback is per TYPE PARAMETER, not all-or-nothing: an underivable key
-    callback does not drag a perfectly derivable value type down with it. That
-    is what the old single `if len(self) == 0` bail did, and why fixing it moved
-    `group_size` from `Dict<String,String>` to `Dict<String,Integer>` even here.
-
-    Pinned so the limit is a known, named boundary rather than a surprise.
+def test_an_untypeable_callback_is_refused_even_on_empty_input():
+    """The old per-parameter sampling fallback is gone (#625): a callback the
+    tracer cannot capture — a python builtin like `len` — raises the named
+    error whether or not there is an element to sample, so an empty input can
+    no longer change which types (or errors) a program produces. The
+    East-typeable spelling derives both type parameters as before.
     """
     empty = EastSet(StringType)
-    # `len` is a python builtin: untraceable, and no element exists to sample
-    assert _kernel_out_type(len, [StringType]) is None
-    partly = empty.group_size(len)
-    # the KEY falls back to the element type; the VALUE is still derived
-    assert (partly.key_type.type, partly.value_type.type) == ("String", "Integer")
-    # ...and the East-typeable spelling derives both
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        _kernel_out_type(len, [StringType])
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        empty.group_size(len)
     typed = empty.group_size(lambda e: e.length())
     assert (typed.key_type.type, typed.value_type.type) == ("Integer", "Integer")
 
@@ -1377,17 +1364,25 @@ def test_array_flatten_to_dict_matches_eager():
 
 
 def test_set_and_dict_flatten_to_dict_match_eager():
+    # The eager callbacks read the collection ITSELF — a mutable East value
+    # the auto-wrap refuses to capture (#625) — so the eager spelling passes
+    # it as a `.bind` parameter and the callback traces against a receiver
+    # of its own kernel.
     s = EastSet(IntegerType, [1, 2, 3])
     got = _native(lambda x: x.flatten_to_dict(lambda e: x.map(lambda y: y * e),
                                               lambda a, b: a + b), _G_SET, s)
-    want = s.flatten_to_dict(lambda e: s.map(lambda y: y * e), lambda a, b: a + b)
+    inner = kernel([IntegerType, _G_SET],
+                   lambda e, ss: ss.map(lambda y: y * e)).bind(s)
+    want = s.flatten_to_dict(inner, lambda a, b: a + b)
     _same_dict(got, want)
 
     d = EastDict(StringType, IntegerType, {"x": 1, "y": 2})
     t = DictType(StringType, IntegerType)
     got_d = _native(lambda x: x.flatten_to_dict(
         lambda k, _v: x.filter(lambda k2, _v2: k2 == k)), t, d)
-    want_d = d.flatten_to_dict(lambda k, _v: d.filter(lambda k2, _v2: k2 == k))
+    inner_d = kernel([StringType, IntegerType, t],
+                     lambda k, _v, dd: dd.filter(lambda k2, _v2: k2 == k)).bind(d)
+    want_d = d.flatten_to_dict(inner_d)
     _same_dict(got_d, want_d)
 
 
@@ -1580,7 +1575,7 @@ def test_the_duplicate_key_error_message_is_unquoted_like_eager_and_ts():
     with pytest.raises(EastError, match="Cannot insert duplicate key a into dict"):
         kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length()))(parts)
     with pytest.raises(EastError, match="Cannot insert duplicate key a into dict"):
-        parts.to_dict(lambda p: p, value=lambda p: len(p))
+        parts.to_dict(lambda p: p, value=lambda p: p.length())
 
     dt = DictType(StringType, IntegerType)
     d = EastDict(StringType, IntegerType, {"x": 1})
@@ -1678,12 +1673,19 @@ _EMPTY_NEW_NAMES = [
     ("array_flatten_to_dict", _P4_EA, lambda: array(_P4_EROW, []),
      lambda a: a.flatten_to_dict(lambda r: r.tags.to_dict(lambda x: x, lambda _x: r.n)),
      lambda a: a.flatten_to_dict(lambda r: r["tags"].to_dict(lambda x: x, lambda _x: r["n"]))),
+    # The eager sides read the collection itself — a mutable East value the
+    # bare lambda cannot capture (#625) — so it rides as a `.bind` parameter.
     ("set_flatten_to_dict", SetType(IntegerType), lambda: EastSet(IntegerType),
      lambda s: s.flatten_to_dict(lambda e: s.map(lambda y: y * e), lambda p, q: p + q),
-     lambda s: s.flatten_to_dict(lambda e: s.map(lambda y: y * e), lambda p, q: p + q)),
+     lambda s: s.flatten_to_dict(
+         kernel([IntegerType, SetType(IntegerType)],
+                lambda e, ss: ss.map(lambda y: y * e)).bind(s),
+         lambda p, q: p + q)),
     ("dict_flatten_to_dict", D_SF, lambda: EastDict(StringType, FloatType),
      lambda d: d.flatten_to_dict(lambda k, _v: d.filter(lambda k2, _v2: k2 == k)),
-     lambda d: d.flatten_to_dict(lambda k, _v: d.filter(lambda k2, _v2: k2 == k))),
+     lambda d: d.flatten_to_dict(
+         kernel([StringType, FloatType, D_SF],
+                lambda k, _v, dd: dd.filter(lambda k2, _v2: k2 == k)).bind(d))),
 ]
 
 

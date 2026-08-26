@@ -62,32 +62,20 @@ def _lift_traced(value: Any) -> Any:
 
 
 def _kernel_out_type(fn, param_types=None):
-    """A callback's output type from the TYPE SYSTEM, or None if unavailable.
+    """A callback's output type from the TYPE SYSTEM — the strict derivation.
 
     Two exact sources, tried in order:
 
     1. a precompiled kernel (east.expression / compile_from_* / ``.bind`` results)
        carries its signature on ``_eastc_handle`` (#409);
-    2. a traceable lambda gets one from the tracer, once ``param_types`` says
-       what it will be called with.
+    2. any other callable is captured against ``param_types`` exactly as the
+       strict wrap will capture it (#625): the built expression's type is the
+       answer, and a callback with no East capture RAISES its
+       ``ExpressionError`` here — before any of it runs on real elements —
+       rather than silently deferring to a data sample (#450's whole family).
 
-    Callers fall back to SAMPLING — ``type_of(fn(first_element))`` — only when
-    both fail, and that fallback is lossy in a way worth stating. ``type_of``
-    documents it: "for a variant, the inferred type is a single-case
-    VariantType ... the other cases are unknowable from one value". So an
-    ``Option``-returning callback sampled on an element that happens to carry
-    ``some`` is typed ``Variant<some>`` with no ``none`` arm — after which the
-    first ``none`` fails conversion with "Unknown variant case: none", and even
-    an all-``some`` run silently builds a collection with the wrong key type
-    (#450). The type is already known; it should not be re-derived from data.
-
-    Tracing here runs the lambda once against proxies, and only its TYPE is
-    taken — how the callback actually EXECUTES is still decided independently
-    by ``try_push_down``. It is attempted only when ``_type_traceable`` proves
-    the run cannot corrupt python state: an impure lambda would receive
-    ``Expression`` proxies and leak them into its captures (a closure list
-    mutated per call ends up holding an expression, not a value), so impure
-    callbacks keep the sampling fallback, which calls them with a REAL element.
+    Returns None only when ``param_types`` is not given (the handle-only
+    probe) or ``fn`` is not callable.
     """
     handle = getattr(fn, "_eastc_handle", None)
     if handle is not None:
@@ -97,14 +85,9 @@ def _kernel_out_type(fn, param_types=None):
             return None
     if param_types is None or not callable(fn):
         return None
-    try:
-        from east.expression import _trace_out_type, _type_traceable
+    from east.expression import _trace_out_type
 
-        if not _type_traceable(fn):
-            return None      # impure callback — the caller samples
-        return _trace_out_type(fn, list(param_types))
-    except Exception:       # untraceable callback — the caller samples
-        return None
+    return _trace_out_type(fn, list(param_types))
 
 
 def _callback_arity(fn, default):
@@ -170,22 +153,19 @@ def _acc_idx_cb(fn):
     return _mark_kernel(lambda acc, el, idx: fn(acc, el), fn)
 
 
-def _combine_cb(fn, key_type):
+def _combine_cb(fn, key_type, value_type):
     """Wrapper for an ``(existing, incoming, key)`` conflict slot.
 
     Forwards the key when ``fn`` accepts three arguments. ``None`` means
-    East's default: error on the duplicate with the key printed — TS injects
-    exactly this erroring combine when no handler is given.
+    East's default: error on the duplicate with the key printed — a COMPILED
+    error kernel (the traced twin's ``_key_error_node`` message, byte for
+    byte), so the strict surface needs no python error callback (#625).
     """
     if fn is None:
-        def _dup(_v1, _v2, k):  # noqa: ANN001, ANN202
-            from east.runtime.errors import EastError
-            from east.serialization.east_printer import print_east
+        from east.expression import _error_combine_kernel
 
-            printed = k if isinstance(k, str) else print_east(k, key_type)
-            raise EastError(f"Cannot insert duplicate key {printed} into dict", [])
-
-        return _dup
+        return _error_combine_kernel(
+            value_type, key_type, "Cannot insert duplicate key ", " into dict")
     if _callback_arity(fn, 2) >= 3:
         return _mark_kernel(lambda v1, v2, k: fn(v1, v2, k), fn)
     return _mark_kernel(lambda v1, v2, k: fn(v1, v2), fn)
@@ -412,7 +392,7 @@ class EastArray(MutableSequence, Generic[T]):
         if key is None:
             result = _call_builtin("ArraySortDefault", [self.element_type], [self], ArrayType(self.element_type))
         else:
-            t2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0])) if len(self) else self.element_type
+            t2 = _kernel_out_type(key, [self.element_type])
             callback = EastFunction(key, [self.element_type], t2)
             result = _call_builtin("ArraySort", [self.element_type, t2], [self, callback], ArrayType(self.element_type))
         return result.reversed() if reverse else result
@@ -433,7 +413,7 @@ class EastArray(MutableSequence, Generic[T]):
             t2 = self.element_type
             callback = EastFunction(lambda el: el, [self.element_type], t2)
         else:
-            t2 = _kernel_out_type(key, [self.element_type]) or _ev.type_of(key(self[0])) if len(self) else self.element_type
+            t2 = _kernel_out_type(key, [self.element_type])
             callback = EastFunction(key, [self.element_type], t2)
         return _call_builtin("ArrayIsSorted", [self.element_type, t2], [self, callback], BooleanType)
 
@@ -459,8 +439,6 @@ class EastArray(MutableSequence, Generic[T]):
             callback = EastFunction(lambda el: el, [self.element_type], t2)
         else:
             t2 = _kernel_out_type(key, [self.element_type])
-            if t2 is None:
-                t2 = _ev.type_of(_call_elem(key, self[0])) if len(self) else self.element_type
             callback = EastFunction(key, [self.element_type], t2)
         return coerce_to(target, t2), t2, callback
 
@@ -582,9 +560,13 @@ class EastArray(MutableSequence, Generic[T]):
         Returns:
             A new array with one element per index, ``self[index]`` for each.
         """
-        from east.types.types import ArrayType, IntegerType
+        from east.expression import _array_get_kernel
+        from east.types.types import ArrayType
 
-        callback = EastFunction(lambda idx: self[idx], [IntegerType], self.element_type)
+        # A compiled getter with THIS array bound by reference — the python
+        # `lambda idx: self[idx]` closure it replaces has no strict capture
+        # (#625), and a snapshot capture would copy the whole source.
+        callback = _array_get_kernel(self.element_type).bind(self)
         return _call_builtin("ArrayGetKeys", [self.element_type], [self, indices, callback], ArrayType(self.element_type))
 
     def copy(self) -> EastArray:
@@ -663,7 +645,7 @@ class EastArray(MutableSequence, Generic[T]):
             k2 = self.element_type
             callback = EastFunction(lambda el, idx: el, [self.element_type, IntegerType], k2)
         else:
-            k2 = _kernel_out_type(key, _elem_in(key, self.element_type)) or _ev.type_of(_call_elem(key, self[0])) if len(self) else self.element_type
+            k2 = _kernel_out_type(key, _elem_in(key, self.element_type))
             callback = EastFunction(_idx_cb(key), [self.element_type, IntegerType], k2)
         return _call_builtin("ArrayToSet", [self.element_type, k2], [self, callback], SetType(k2))
 
@@ -734,7 +716,7 @@ class EastArray(MutableSequence, Generic[T]):
             t2 = _ev.type_of(_call_elem(value, self[0]))
         key_cb = EastFunction(_idx_cb(key), [self.element_type, IntegerType], k2)
         val_cb = EastFunction(_idx_cb(value_fn), [self.element_type, IntegerType], t2)
-        combine_cb = EastFunction(_combine_cb(combine, k2), [t2, t2, k2], t2)
+        combine_cb = EastFunction(_combine_cb(combine, k2, t2), [t2, t2, k2], t2)
         return _call_builtin("ArrayToDict", [self.element_type, k2, t2], [self, key_cb, val_cb, combine_cb], DictType(k2, t2))
 
     def map(self, fn: Any, out: EastType | None = None) -> EastArray:
@@ -1009,7 +991,7 @@ class EastArray(MutableSequence, Generic[T]):
             k2 = sample.key_type
             t2 = sample.value_type
         map_cb = EastFunction(_idx_cb(fn), [self.element_type, IntegerType], DictType(k2, t2))
-        combine_cb = EastFunction(_combine_cb(combine, k2), [t2, t2, k2], t2)
+        combine_cb = EastFunction(_combine_cb(combine, k2, t2), [t2, t2, k2], t2)
         return _call_builtin("ArrayFlattenToDict", [self.element_type, k2, t2], [self, map_cb, combine_cb], DictType(k2, t2))
 
     def for_each(self, fn: Any) -> None:
@@ -1047,45 +1029,19 @@ class EastArray(MutableSequence, Generic[T]):
         bucket_type = ArrayType(self.element_type)
         if len(self) == 0:
             return EastDict(self.element_type, bucket_type)
-        # Declared type first, sampling only as a fallback — a sampled variant
-        # yields a single-case type and breaks on the first other case (#450).
-        k2 = _kernel_out_type(key, _elem_in(key, self.element_type)) or _ev.type_of(_call_elem(key, self[0]))
+        k2 = _kernel_out_type(key, _elem_in(key, self.element_type))
 
+        # The key captures strictly (#625) and pairs with the hand-built
+        # init/append kernels, so the whole grouping runs inside east-c.
         # ArrayGroupFold callbacks carry the element index: key(elem, idx),
         # init(group_key), fold(acc, elem, idx).
         key_cb = EastFunction(_idx_cb(key), [self.element_type, IntegerType], k2)
-
-        # When the key traces to a native kernel, pair it with hand-built
-        # init/append kernels so the whole grouping runs inside east-c (the
-        # internal python init/append lambdas would otherwise trampoline
-        # per element even with a native key).
         native_key = try_push_down(key_cb)
-        if native_key is not None:
-            return _call_builtin(
-                "ArrayGroupFold",
-                [self.element_type, k2, bucket_type],
-                [self, native_key, _empty_array_kernel(k2, self.element_type),
-                 _append_kernel(self.element_type)],
-                DictType(k2, bucket_type),
-            )
-
-        from east.expression import block
-
-        # Reached when the KEY fell back to python. The accumulation itself
-        # still traces: `block` sequences the append and yields the
-        # accumulator on BOTH paths, where the statement form
-        # (`acc.append(el); return acc`) traces to a body of just `acc` (#578).
-        # `acc` is an EastArray on the python path and a traced expression on
-        # the native one, so it is typed for both.
-        def _append(acc: Any, el: Any, _idx: int) -> Any:
-            return block(acc.append(el), acc)
-
-        init_cb = EastFunction(lambda _gk: EastArray(self.element_type, []), [k2], bucket_type)
-        fold_cb = EastFunction(_append, [bucket_type, self.element_type, IntegerType], bucket_type)
         return _call_builtin(
             "ArrayGroupFold",
             [self.element_type, k2, bucket_type],
-            [self, key_cb, init_cb, fold_cb],
+            [self, native_key, _empty_array_kernel(k2, self.element_type),
+             _append_kernel(self.element_type)],
             DictType(k2, bucket_type),
         )
 
@@ -1164,7 +1120,8 @@ class EastArray(MutableSequence, Generic[T]):
         from east.expression import greatest
         from east.types.types import IntegerType
 
-        t2 = (_kernel_out_type(by, _elem_in(by, self.element_type)) or _ev.type_of(_call_elem(by, self[0])) if by is not None else self.element_type) if len(self) else self.element_type
+        t2 = _kernel_out_type(by, _elem_in(by, self.element_type)) \
+            if by is not None else self.element_type
         map_cb = EastFunction(
             _idx_cb(by) if by is not None else (lambda el, _i: el),
             [self.element_type, IntegerType],
@@ -1178,7 +1135,8 @@ class EastArray(MutableSequence, Generic[T]):
         from east.expression import least
         from east.types.types import IntegerType
 
-        t2 = (_kernel_out_type(by, _elem_in(by, self.element_type)) or _ev.type_of(_call_elem(by, self[0])) if by is not None else self.element_type) if len(self) else self.element_type
+        t2 = _kernel_out_type(by, _elem_in(by, self.element_type)) \
+            if by is not None else self.element_type
         map_cb = EastFunction(
             _idx_cb(by) if by is not None else (lambda el, _i: el),
             [self.element_type, IntegerType],
@@ -2237,7 +2195,7 @@ class EastSet(Generic[T]):
             t2 = _ev.type_of(value(sample))
         key_cb = EastFunction(key, [self.element_type], k2)
         value_cb = EastFunction(value, [self.element_type], t2)
-        combine_cb = EastFunction(_combine_cb(combine, k2), [t2, t2, k2], t2)
+        combine_cb = EastFunction(_combine_cb(combine, k2, t2), [t2, t2, k2], t2)
         return _call_builtin(
             "SetToDict", [self.element_type, k2, t2], [self, key_cb, value_cb, combine_cb], DictType(k2, t2)
         )
@@ -2478,7 +2436,7 @@ class EastSet(Generic[T]):
             k2 = sample.key_type
             t2 = sample.value_type
         callback = EastFunction(fn, [self.element_type], DictType(k2, t2))
-        combine_cb = EastFunction(_combine_cb(combine, k2), [t2, t2, k2], t2)
+        combine_cb = EastFunction(_combine_cb(combine, k2, t2), [t2, t2, k2], t2)
         return _call_builtin(
             "SetFlattenToDict", [self.element_type, k2, t2], [self, callback, combine_cb], DictType(k2, t2)
         )
@@ -2895,7 +2853,7 @@ class EastDict(Generic[K, V]):
         """
         from east.types.types import NullType
 
-        cb = EastFunction(_combine_cb(combine, self.key_type),
+        cb = EastFunction(_combine_cb(combine, self.key_type, self.value_type),
                           [self.value_type, self.value_type, self.key_type], self.value_type)
         _call_builtin("DictInsertOrUpdate", [self.key_type, self.value_type], [self, key, value, cb], NullType)
 
@@ -3213,14 +3171,14 @@ class EastDict(Generic[K, V]):
             else:
                 from east.expression import try_push_down
 
+                # The strict wrap (#625): the combine captures as an
+                # East.function against the dict's value type or raises —
+                # collisions always resolve C-to-C.
                 native = try_push_down(
                     EastFunction(combine, [self.value_type, self.value_type], self.value_type)
                 )
-                if native is not None:
-                    combine_ptr = native._eastc_handle._fn_val
-                    keep_alive = native
-                else:
-                    combine_py = combine
+                combine_ptr = native._eastc_handle._fn_val
+                keep_alive = native
         # When both inputs are ALREADY C-backed arrays of the right element
         # type, hand their pointers over and let the bridge index them C-side.
         # `list(keys), list(values)` boxes every element C->python purely so the
@@ -3339,18 +3297,12 @@ class EastDict(Generic[K, V]):
         produces, matching TS).
         """
         if combine is None:
-            key_type = self.key_type
+            from east.expression import _error_combine_kernel
 
-            def _dup(_v1, _v2, k):  # noqa: ANN001, ANN202
-                from east.runtime.errors import EastError
-                from east.serialization.east_printer import print_east
-
-                printed = k if isinstance(k, str) else print_east(k, key_type)
-                raise EastError(f"Key {printed} exists in both dictionaries", [])
-
-            cb_fn: Any = _dup
+            cb_fn: Any = _error_combine_kernel(
+                self.value_type, self.key_type, "Key ", " exists in both dictionaries")
         else:
-            cb_fn = _combine_cb(combine, self.key_type)
+            cb_fn = _combine_cb(combine, self.key_type, self.value_type)
         return EastFunction(cb_fn, [self.value_type, self.value_type, self.key_type], self.value_type)
 
     def union(self, other: EastDict, combine: Any = None) -> EastDict:
@@ -3471,16 +3423,10 @@ class EastDict(Generic[K, V]):
         update_cb = EastFunction(_mark_kernel(update_fn, update),
                                  [self.value_type, v2, self.key_type], self.value_type)
         if initial is None:
-            key_type = self.key_type
+            from east.expression import _error_init_kernel
 
-            def _missing(k):  # noqa: ANN001, ANN202
-                from east.runtime.errors import EastError
-                from east.serialization.east_printer import print_east
-
-                printed = k if isinstance(k, str) else print_east(k, key_type)
-                raise EastError(f"Key {printed} not found in dictionary", [])
-
-            init_fn: Any = _missing
+            init_fn: Any = _error_init_kernel(
+                self.value_type, self.key_type, "Key ", " not found in dictionary")
         else:
             init_fn = initial
         init_cb = EastFunction(_mark_kernel(init_fn, init_fn), [self.key_type], self.value_type)
@@ -3679,10 +3625,10 @@ class EastDict(Generic[K, V]):
         if out is not None:
             v2 = out
         else:
-            v2 = next(
-                (_ev.type_of(r.value) for k in self if (r := fn(k, self[k])).type == "some"),
-                self.value_type,
-            )
+            from east.types.types import get_option_inner_type
+
+            v2 = get_option_inner_type(
+                _kernel_out_type(fn, [self.key_type, self.value_type]))
         callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], OptionType(v2))
         return _call_builtin("DictFilterMap", [self.key_type, self.value_type, v2], [self, callback], DictType(self.key_type, v2))
 
@@ -3709,10 +3655,10 @@ class EastDict(Generic[K, V]):
         if out is not None:
             t2 = out
         else:
-            t2 = next(
-                (_ev.type_of(r.value) for k in self if (r := fn(k, self[k])).type == "some"),
-                self.value_type,
-            )
+            from east.types.types import get_option_inner_type
+
+            t2 = get_option_inner_type(
+                _kernel_out_type(fn, [self.key_type, self.value_type]))
         callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], OptionType(t2))
         return _call_builtin("DictFirstMap", [self.key_type, self.value_type, t2], [self, callback], OptionType(t2))
 
@@ -3798,10 +3744,16 @@ class EastDict(Generic[K, V]):
         from east.types.types import ArrayType, NullType
 
         _check_kernel_out(fn, out)
+        # Declared type first (#450), and BEFORE the empty check — the
+        # group_to_* sugar routes its pair array through here, and an empty
+        # dict bailing to Array<Null> made the downstream grouping trace its
+        # field reads against Null while the non-empty path typed fine (#625).
+        t2 = out if out is not None else _kernel_out_type(fn, [self.key_type, self.value_type])
         if len(self) == 0:
-            return EastArray(out if out is not None else NullType, [])
-        first_key = next(iter(self))
-        t2 = out if out is not None else _kernel_out_type(fn, [self.key_type, self.value_type]) or _ev.type_of(fn(first_key, self[first_key]))
+            return EastArray(t2 if t2 is not None else NullType, [])
+        if t2 is None:
+            first_key = next(iter(self))
+            t2 = _ev.type_of(fn(first_key, self[first_key]))
         callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], t2)
         return _call_builtin("DictToArray", [self.key_type, self.value_type, t2], [self, callback], ArrayType(t2))
 
@@ -3872,7 +3824,7 @@ class EastDict(Generic[K, V]):
         # 3-argument handler. Wiring `combine` raw made a 2-arg lambda — which
         # works on every other collection, and which the traced twin accepts —
         # fail at run time on a Dict alone (#525).
-        combine_cb = EastFunction(_combine_cb(combine, k2), [v2, v2, k2], v2)
+        combine_cb = EastFunction(_combine_cb(combine, k2, v2), [v2, v2, k2], v2)
         return _call_builtin("DictToDict", [self.key_type, self.value_type, k2, v2], [self, key_cb, value_cb, combine_cb], DictType(k2, v2))
 
     def flatten_to_array(self, fn: Any) -> EastArray:
@@ -3891,9 +3843,7 @@ class EastDict(Generic[K, V]):
 
         if len(self) == 0:
             return EastArray(NullType, [])
-        first_key = next(iter(self))
-        sample = fn(first_key, self[first_key])
-        t2 = sample.element_type
+        t2 = _kernel_out_type(fn, [self.key_type, self.value_type]).value
         callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], ArrayType(t2))
         return _call_builtin("DictFlattenToArray", [self.key_type, self.value_type, t2], [self, callback], ArrayType(t2))
 
@@ -3913,9 +3863,7 @@ class EastDict(Generic[K, V]):
 
         if len(self) == 0:
             return EastSet(self.key_type)
-        first_key = next(iter(self))
-        sample = fn(first_key, self[first_key])
-        k2 = sample.element_type
+        k2 = _kernel_out_type(fn, [self.key_type, self.value_type]).value
         callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], SetType(k2))
         return _call_builtin("DictFlattenToSet", [self.key_type, self.value_type, k2], [self, callback], SetType(k2))
 
@@ -3947,7 +3895,7 @@ class EastDict(Generic[K, V]):
             sample = fn(first_key, self[first_key])
             k2, v2 = sample.key_type, sample.value_type
         map_cb = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], DictType(k2, v2))
-        combine_cb = EastFunction(_combine_cb(combine, k2), [v2, v2, k2], v2)
+        combine_cb = EastFunction(_combine_cb(combine, k2, v2), [v2, v2, k2], v2)
         return _call_builtin("DictFlattenToDict", [self.key_type, self.value_type, k2, v2], [self, map_cb, combine_cb], DictType(k2, v2))
 
     def group_reduce(self, key_fn: Any, init_fn: Any, fold_fn: Any, key_out: EastType | None = None, acc_out: EastType | None = None) -> EastDict:

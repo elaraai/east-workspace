@@ -158,25 +158,17 @@ cdef _eastc.EastValue* _wrap_pyfn(object east_fn) except NULL:
 
 
 cdef object _try_push_down_py(object east_fn):
-    """Trace an EastFunction's pure python callback into a native kernel.
+    """Capture an EastFunction's python callback into a native kernel — the
+    strict wrap (#625).
 
-    Returns the compiled kernel callable (whose function value can then be
-    passed straight to the builtin — IR push-down), or None to use the
-    per-element trampoline. A ``ExpressionError`` propagates: an ELIGIBLE
-    callback that failed to trace must surface loudly, never fall back
-    silently (try_push_down's contract).
+    Returns the compiled kernel callable (whose function value is passed
+    straight to the builtin — IR push-down). A capture failure raises its
+    ``ExpressionError``: there is no per-element trampoline behind it.
     """
-    from east.expression import ExpressionError
-    try:
-        from east.expression import try_push_down
-        result = try_push_down(east_fn)
-        if result is not None:
-            _eager_counters["pushdown_traced"] += 1
-        return result
-    except ExpressionError:
-        raise
-    except BaseException:
-        return None
+    from east.expression import try_push_down
+    result = try_push_down(east_fn)
+    _eager_counters["pushdown_traced"] += 1
+    return result
 
 
 # ─── Precompiled kernels as eager callbacks (#409) ────────────────────────
@@ -359,6 +351,137 @@ def _try_lower_call(object handle, tuple args):
     from east.expression import _lower_compiled_call
     return _lower_compiled_call(getattr(handle, "_fn_val", 0), handle._input_types,
                                 handle._output_type, args)
+
+
+def frozen_hold_to_py(object hold, object east_type):
+    """Decode a ``freeze_value``/``load_frozen_value`` hold into the
+    python-side value — frozen containers come back as branded zero-copy
+    proxies, so mutation refuses exactly as a frozen task input does."""
+    cdef uintptr_t ptr = <uintptr_t>getattr(hold, "_east_c_value", 0)
+    if ptr == 0:
+        raise TypeError("frozen_hold_to_py: not a frozen value hold")
+    cdef bint own_type = False
+    cdef _eastc.EastType* c_t = _resolve_c_type(east_type, &own_type)
+    try:
+        return c_value_to_py(<_eastc.EastValue*>ptr, c_t)
+    finally:
+        if own_type:
+            _eastc.east_type_release(c_t)
+
+
+def read_closure_capture(object fn_callable, str name, object east_type):
+    """A captured variable's CURRENT value, read from a compiled closure's
+    captures env.
+
+    east-c's ``Assign`` writes the env where the variable is DEFINED, so a
+    callback that rebinds a captured variable accumulates in the closure's
+    captures env across per-element invocations. The compliance replay runs
+    the ENCLOSING scope in python, so after such a callback executes natively
+    it folds the rebound slot back into its interpreter environment (#625).
+    ``east_type`` is a Python EastType or a raw ``EastType*`` pointer.
+    """
+    cdef uintptr_t compiled_ptr = <uintptr_t>getattr(
+        fn_callable._eastc_handle, "_compiled", 0)
+    cdef _eastc.EastCompiledFn* cfn = <_eastc.EastCompiledFn*>compiled_ptr
+    if cfn == NULL or cfn.captures == NULL:
+        raise KeyError(name)
+    cdef bytes bname = name.encode("utf-8")
+    cdef _eastc.EastValue* v = _eastc.env_get(cfn.captures, <const char*>bname)
+    if v == NULL:
+        raise KeyError(name)
+    cdef bint own_type = False
+    cdef _eastc.EastType* c_t = _resolve_c_type(east_type, &own_type)
+    try:
+        return c_value_to_py(v, c_t)
+    finally:
+        if own_type:
+            _eastc.east_type_release(c_t)
+
+
+def compile_function_carrier(object carrier, object input_types, object output_type):
+    """Build a native callable from a function CARRIER — a python callable
+    with attached homoiconic IR (``_east_ir``) and live capture values
+    (``_east_captures``, #476 E).
+
+    The bridge constructs the closure with an identity-mapped captures env,
+    so by-reference captures stay live (mutations visible) while the body
+    executes natively — the strict surface's replacement for interpreting
+    such callbacks per element in python (#625). The returned callable
+    carries the ordinary ``_eastc_handle`` (with ``_fn_val``), so eager
+    methods, ``_mark_kernel`` and the arity adapter treat it as any other
+    compiled kernel.
+    """
+    _ensure_runtime()
+    from east.types.types import FunctionType as _FnType
+    fn_t = _FnType(list(input_types), output_type)
+    cdef _eastc.EastType* c_t = py_type_to_c(fn_t)
+    cdef _eastc.EastValue* fv
+    try:
+        fv = py_value_to_c(carrier, c_t)
+    finally:
+        _eastc.east_type_release(c_t)
+    if fv == NULL or fv.kind != _eastc.EAST_VAL_FUNCTION:
+        if fv != NULL:
+            _eastc.east_value_release(fv)
+        raise TypeError("compile_function_carrier: conversion did not yield a function value")
+    cdef uintptr_t fv_ptr = <uintptr_t>fv
+    cdef uintptr_t compiled_ptr = <uintptr_t>fv.data.function.compiled
+    in_ptrs = []
+    for t in input_types:
+        in_ptrs.append(<uintptr_t>py_type_to_c(t))
+    cdef uintptr_t out_ptr = <uintptr_t>py_type_to_c(output_type)
+
+    class _CarrierHandle:
+        __slots__ = ("_compiled", "_fn_val", "_input_types", "_output_type", "_released")
+
+        def __init__(self):
+            self._compiled = compiled_ptr
+            self._fn_val = fv_ptr
+            self._input_types = list(in_ptrs)
+            self._output_type = out_ptr
+            self._released = False
+
+        def get_input_types(self):
+            from east._eastc_bridge import c_type_ptr_to_py_type as _to_py
+            return [_to_py(ptr) for ptr in self._input_types]
+
+        def get_output_type(self):
+            from east._eastc_bridge import c_type_ptr_to_py_type as _to_py
+            return _to_py(self._output_type)
+
+        def __del__(self):
+            if self._released:
+                return
+            self._released = True
+            _proxy_value_release(self._fn_val)
+            for ptr in self._input_types:
+                _proxy_type_release(ptr)
+            _proxy_type_release(self._output_type)
+
+    carrier_handle = _CarrierHandle()
+
+    def carrier_fn(*args):
+        try:
+            return _eastc_call(carrier_handle._compiled, carrier_handle._input_types,
+                               carrier_handle._output_type, args)
+        except NonRetraceableCallError:
+            # Called with trace proxies: lower to a native IR Call in the
+            # surrounding trace instead of failing (#561).
+            lowered = _try_lower_call(carrier_handle, args)
+            if lowered is None:
+                raise
+            return lowered
+
+    object.__setattr__(carrier_fn, "_eastc_handle", carrier_handle)
+    # Keep the carrier (and so its live capture values) alive with the fn.
+    object.__setattr__(carrier_fn, "_east_carrier_ref", carrier)
+
+    def bind(*values):
+        """Pre-bind further trailing parameters by reference (see bind_kernel)."""
+        return bind_kernel(carrier_fn, values)
+
+    object.__setattr__(carrier_fn, "bind", bind)
+    return carrier_fn
 
 
 def foreign_function_value(object east_fn):
@@ -631,23 +754,35 @@ cdef _eastc.EastValue* _callback_value_for(object arg, list native_holds) except
     """The C function value for an EastFunction in a Function-typed slot.
 
     A precompiled kernel used as the callback rides its own native function
-    value straight into the builtin (#409); otherwise IR push-down traces a
-    provably-pure python callback into a native kernel so the loop never
-    re-enters python; otherwise the callable is wrapped behind the
-    per-element invoke trampoline.
+    value straight into the builtin (#409); a callable carrying attached IR
+    (a replayed closure, a decoded function) converts through the bridge —
+    live captures ride its identity-mapped captures env (#476 E); any other
+    python callback captures STRICTLY into a native kernel (#625) — a
+    capture failure raises, and no per-element trampoline exists behind it.
     """
     cdef uintptr_t fn_ptr
     cdef _eastc.EastValue* out
+    cdef _eastc.EastType* c_fn_t
     native = _native_kernel_for(arg)
+    if native is None and getattr(arg.fn, EAST_IR_ATTR, None) is not None:
+        from east.types.types import FunctionType as _FnType
+        fn_t = _FnType(list(arg.input_types), arg.output_type)
+        c_fn_t = py_type_to_c(fn_t)
+        try:
+            out = py_value_to_c(arg.fn, c_fn_t)
+        finally:
+            _eastc.east_type_release(c_fn_t)
+        return out
     if native is None:
         native = _try_push_down_py(arg)
-    fn_ptr = _native_fn_val_ptr(native) if native is not None else 0
-    if fn_ptr != 0:
-        native_holds.append(native)
-        out = <_eastc.EastValue*>fn_ptr
-        _eastc.east_value_retain(out)
-        return out
-    return _wrap_pyfn(arg)
+    fn_ptr = _native_fn_val_ptr(native)
+    if fn_ptr == 0:
+        raise RuntimeError(
+            "callback did not resolve to a native function value")
+    native_holds.append(native)
+    out = <_eastc.EastValue*>fn_ptr
+    _eastc.east_value_retain(out)
+    return out
 
 
 def call_builtin(str name, list type_params, list args, object output_type):
@@ -746,6 +881,21 @@ def call_builtin(str name, list type_params, list args, object output_type):
                         c_args[i] = <_eastc.EastValue*>fn_ptr
                         _eastc.east_value_retain(c_args[i])
                 else:
+                    # A frozen hold (freeze_value / load_frozen_value) passes
+                    # its branded C value straight through — the same seam
+                    # _eastc_call has (#539): re-converting via python would
+                    # construct a fresh mutable value and drop the frozen
+                    # contract (and, for tensors, the value identity Is
+                    # compares by). The probe must swallow raising
+                    # __getattr__s (Expression proxies).
+                    try:
+                        raw_hold = getattr(args[i], "_east_c_value", None)
+                    except BaseException:
+                        raw_hold = None
+                    if raw_hold is not None:
+                        c_args[i] = <_eastc.EastValue*><uintptr_t>raw_hold
+                        _eastc.east_value_retain(c_args[i])
+                        continue
                     arg_types[i] = py_type_to_c(declared[i])
                     # A Function-typed VALUE slot (a generic T instanced to a
                     # function type, e.g. Print or BlobEncodeBeast2 over
@@ -798,13 +948,14 @@ def call_builtin(str name, list type_params, list args, object output_type):
                                     _eastc.east_value_retain(c_args[i])
                                     continue
                             native = _try_push_down_py(args[i])
-                            fn_ptr = _native_fn_val_ptr(native) if native is not None else 0
-                            if fn_ptr != 0:
-                                native_holds.append(native)
-                                c_args[i] = <_eastc.EastValue*>fn_ptr
-                                _eastc.east_value_retain(c_args[i])
-                                continue
-                            c_args[i] = _wrap_pyfn(args[i])
+                            fn_ptr = _native_fn_val_ptr(native)
+                            if fn_ptr == 0:
+                                raise RuntimeError(
+                                    "function value did not resolve to a "
+                                    "native function value")
+                            native_holds.append(native)
+                            c_args[i] = <_eastc.EastValue*>fn_ptr
+                            _eastc.east_value_retain(c_args[i])
                             continue
                         fn_ptr = _native_fn_val_ptr(args[i])
                         if fn_ptr != 0:

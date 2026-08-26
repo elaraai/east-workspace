@@ -188,14 +188,16 @@ def test_try_push_down_honours_the_mark():
 
 def test_try_push_down_still_rejects_a_mismatched_marked_kernel():
     """The mark rides the same #467 signature checks as the bridge: a marked
-    kernel whose output is not the declared callback output must not pass."""
-    from east.expression import try_push_down
+    kernel whose output is not the declared callback output must not pass —
+    the strict capture re-traces the wrapper and names the mismatch (#625)."""
+    from east.expression import ExpressionError, try_push_down
     from east.types.values.collections import _mark_kernel
     from east.types.values.structural import EastFunction
 
     key = kernel(Row, lambda r: r["g"])            # String
     wrapper = _mark_kernel(lambda el, _i: key(el), key)
-    assert try_push_down(EastFunction(wrapper, [Row, IntegerType], FloatType)) is None
+    with pytest.raises(ExpressionError, match="produced String"):
+        try_push_down(EastFunction(wrapper, [Row, IntegerType], FloatType))
 
 
 def test_kernels_compose_inside_kernels_and_wrappers():

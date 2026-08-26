@@ -66,6 +66,15 @@ _CONTROL_FLOW = (
 
 
 def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
+    # A captured Expression INSTANCE is another trace's proxy. Compiling a
+    # callback around one would mis-bind the foreign variable against the new
+    # kernel's own parameters — a silently wrong answer — so it is REFUSED,
+    # first and explicitly (Expression.__getattr__ raises non-AttributeError
+    # on the attribute probes below, so probing one is also unsafe). The
+    # sanctioned spellings pass the receiver as a parameter (`.bind`) or use
+    # the traced method on a traced receiver.
+    if isinstance(value, Expression):
+        return False
     if extra_allowed is not None and extra_allowed(value):
         return True
     # A kernel() result retains its source lambda and re-traces when called
@@ -113,12 +122,13 @@ def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
 
     if value is _East:
         return True
-    # `some`/`none` are pure option constructors that _lift_variant turns into
-    # Variant IR — allow them so option-returning lambdas trace natively instead
-    # of falling back to the per-element python path.
-    from east.types.construct import none, some
+    # `some`/`none`/`variant` are pure constructors that _lift_variant turns
+    # into Variant IR — allow them so option/variant-returning lambdas capture
+    # natively (a general `variant(case, …)` types itself from the declared
+    # slot, #541).
+    from east.types.construct import none, some, variant
 
-    if value is some or value is none:
+    if value is some or value is none or value is variant:
         return True
     if callable(value) and depth > 0:
         return _eligible(value, depth - 1, extra_allowed)
@@ -192,8 +202,15 @@ def _code_scan(code: Any) -> tuple[bool, frozenset[str]]:
     return result
 
 
-def _eligible(fn: Any, depth: int = 2, extra_allowed: Any = None) -> bool:
-    """Whether tracing ``fn`` is provably semantics-preserving (see above)."""
+def _eligible(fn: Any, depth: int = 4, extra_allowed: Any = None) -> bool:
+    """Whether tracing ``fn`` is provably semantics-preserving (see above).
+
+    ``depth`` bounds recursion through captured callables. Four levels covers
+    the deepest in-tree composition (an arity adapter over a sugar step over
+    a widening projection over the user callback, ``group_mean``'s Integer
+    path) — and since #625 made this a VALIDATOR (a refusal RAISES instead of
+    silently falling back), a too-shallow depth is a spurious error, so lean
+    deep."""
     code = getattr(fn, "__code__", None)
     if code is None:
         return False
@@ -231,6 +248,15 @@ def _east_value_capture(value: Any) -> bool:
     return is_east_struct(value) or is_east_variant(value)
 
 
+def _immutable_east_capture(value: Any) -> bool:
+    """Captured IMMUTABLE East values — a snapshot of one IS the value, so
+    the strict auto-wrap admits them (mutable collections stay an explicit
+    opt-in: `East.function` snapshots, `.bind` keeps live)."""
+    from east.types.values import is_east_struct, is_east_variant
+
+    return is_east_struct(value) or is_east_variant(value)
+
+
 def _type_traceable(fn: Any) -> bool:
     """Whether running ``fn`` ONCE against proxies for its output TYPE is safe.
 
@@ -238,12 +264,24 @@ def _type_traceable(fn: Any) -> bool:
     East values (collections/structs/variants) are allowed, because lifting
     them is pure and only the traced TYPE is taken — snapshot-vs-live
     semantics cannot be observed. Impure lambdas (mutable python captures,
-    arbitrary callables) must keep the sampling fallback instead: sampling
-    calls them with a REAL element, whereas tracing would run them on
-    ``Expression`` proxies and leak those proxies into their python state
-    (e.g. a closure list mutated per call).
+    arbitrary callables) are refused: tracing would run them on
+    ``Expression`` proxies, executing their python effect once at build time
+    and leaking proxies into their python state.
     """
     return _eligible(fn, extra_allowed=_east_value_capture)
+
+
+def _capture_error() -> ExpressionError:
+    """The one strict-capture refusal (#625), shared by the auto-wrap and the
+    type trace so a python-work callback gets the same fix-it everywhere."""
+    return ExpressionError(
+        "the callback cannot be captured automatically: it does python "
+        "work (mutable python captures, host library references, closure "
+        "mutation) or closes over a mutable East collection — capture "
+        "side-tables explicitly with East.function (a build-time "
+        "snapshot) or .bind (live, by reference), or write an explicit "
+        "python loop for genuine python semantics (#625)"
+    )
 
 
 # ─── Trace cache (#422) ──────────────────────────────────────────────────────
@@ -329,11 +367,7 @@ def _trace_cache_key(fn: Any, declared: tuple, depth: int = 2) -> tuple | None:
         pure, names = _code_scan(code)
         if not pure:
             return None
-        # The fallback marker flips a failing trace between silent-None and
-        # the loud raise, so it is part of the outcome; captured functions
-        # carry theirs through the recursive ("f", …) keys below.
-        parts: list = [code, declared,
-                       bool(getattr(fn, "_east_trace_fallback", False))]
+        parts: list = [code, declared]
         fn_globals = getattr(fn, "__globals__", {})
         import builtins as _builtins
 
@@ -391,6 +425,12 @@ def _trace_out_type(fn: Any, param_types: list[EastType]) -> EastType:
         if hit is not None:
             _out_type_memo.move_to_end(key)
             return hit
+    # The type trace RUNS the callback once over proxies, so python work must
+    # be refused BEFORE it executes — the same strict contract as the capture
+    # itself (#625). East-value captures (mutable included) are fine here:
+    # only the traced TYPE is taken, so snapshot-vs-live cannot be observed.
+    if not _eligible(fn, extra_allowed=_east_value_capture):
+        raise _capture_error()
     out = trace(fn, list(param_types))[1]  # type-only: called-fn binds unused
     if key is not None:
         _out_type_memo[key] = out
@@ -399,35 +439,25 @@ def _trace_out_type(fn: Any, param_types: list[EastType]) -> EastType:
     return out
 
 
-def try_push_down(east_fn: Any) -> Any | None:
-    """Compile an eager-method callback into a native kernel when safe.
+def try_push_down(east_fn: Any) -> Any:
+    """Compile an eager-method callback into a native kernel — the strict
+    wrap (#625 phase 2).
 
     ``east_fn`` is an ``EastFunction`` (python callable + declared East
-    signature). Returns a native callable (carrying ``_eastc_handle``), or
-    ``None`` to use the per-element python path. Deterministic outcomes are
-    memoised (#422): a fresh-but-identical lambda — same code object, same
-    captured bindings, same declared signature — reuses the compiled kernel
-    instead of re-tracing, so a per-group aggregate loop traces each inner
-    lambda once, not once per group.
-
-    An ELIGIBLE callback — one that passes the purity gate and so LOOKS
-    native — that then fails to trace RAISES the ``ExpressionError``
-    instead of silently trampolining: the fallback's only symptom is that
-    the job takes hours (#524), and every named trace failure has a traced
-    spelling the error message points at. A lambda doing genuine python
-    work fails the purity gate and keeps the silent fallback — that path is
-    its contract. A callback that traces to a type other than its declared
-    output still falls back silently: the declared type may be SAMPLED (the
-    #450 family), so a disagreement there is not proof of a mistake.
+    signature). The callback is captured exactly as an ``East.function``
+    body with the builtin's declared signature: once, over expression
+    proxies, with the built expression checked against the declared output
+    slot. A capture failure RAISES its ``ExpressionError`` — there is no
+    purity gate and no per-element python fallback, so two syntactically
+    identical callbacks can never differ by purity. Compiles are memoised
+    as a pure cache (#422): a fresh-but-identical lambda — same code
+    object, same captured bindings, same declared signature — reuses the
+    compiled kernel instead of re-tracing.
 
     A callback that already IS a precompiled kernel — directly, or recorded
     on its wrapper by ``_mark_kernel`` — resolves through the bridge's
     ``_native_kernel_for``: the same signature checks (#467) and arity
-    adaptation the trampoline-avoidance path uses, so the mark means the
-    same thing to every consumer (#470). ``group_by`` branches on this
-    result to run its whole grouping natively; before, a marked wrapper was
-    judged on its own (ineligible) closure and reported un-pushable even
-    though the bridge would have run the very same kernel natively.
+    adaptation, so the mark means the same thing to every consumer (#470).
     """
     try:
         from east.runtime._compiler_eastc import native_kernel_for
@@ -437,31 +467,6 @@ def try_push_down(east_fn: Any) -> Any | None:
             return native
     except Exception:
         pass
-    # A callable declared `_east_trace_fallback = True` keeps the OLD
-    # silent-fallback contract: its trace is attempted (a pure body still
-    # goes native), and a failure falls back to the per-element python path
-    # instead of raising — the eager implementation's own accumulation
-    # helpers/adapters and test-harness wrappers, whose python paths are
-    # deliberate. The declaration is transitive through closure cells
-    # (bounded): a probe or argument-reorder adapter wrapping a declared
-    # callable inherits it. Tracked for nativisation on #543; not a user
-    # surface.
-    def _trace_fallback(fn: Any, depth: int = 3) -> bool:
-        if getattr(fn, "_east_trace_fallback", False):
-            return True
-        if depth == 0:
-            return False
-        for cell in getattr(fn, "__closure__", None) or ():
-            try:
-                c = cell.cell_contents
-            except ValueError:  # an unassigned cell
-                continue
-            if callable(c) and _trace_fallback(c, depth - 1):
-                return True
-        return False
-
-    from east.runtime.errors import NonRetraceableCallError
-
     key = _trace_cache_key(east_fn.fn, (
         tuple(_type_key(t) for t in east_fn.input_types),
         _type_key(east_fn.output_type)))
@@ -470,57 +475,34 @@ def try_push_down(east_fn: Any) -> Any | None:
         if hit is not _MEMO_MISS:
             _push_down_memo.move_to_end(key)
             return hit
+    # Genuinely-python callbacks fail LOUDLY before the capture runs: a
+    # side-effecting body would otherwise trace "successfully" with its
+    # effect executed once at build time and then silently dropped from the
+    # loop. Immutable East values (structs/variants) capture fine — a
+    # snapshot of an immutable value IS the value. A captured MUTABLE
+    # collection keeps the explicit-opt-in rule: `East.function` snapshots
+    # it, `.bind` keeps it live — the auto-wrap must not pick silently.
+    if not _eligible(east_fn.fn, extra_allowed=_immutable_east_capture):
+        raise _capture_error()
+    ir_value, out_type, fn_binds = trace(east_fn.fn, list(east_fn.input_types),
+                                         out_hint=east_fn.output_type)
+    if out_type != east_fn.output_type:
+        raise ExpressionError(
+            f"callback produced {out_type.type}, the declared slot is "
+            f"{east_fn.output_type.type} — the built expression must match "
+            "the method's declared callback type"
+        )
+    from east.runtime.compiler import compile_from_value
 
-    def remember(result: Any) -> Any:
-        # Deterministic outcomes only — compiled kernels and the silent
-        # Nones (ineligible, sampled-type disagreement, declared fallback).
-        # The loud raise re-raises per call, and a generic exception may be
-        # transient, so neither is stored.
-        if key is not None:
-            _push_down_memo[key] = result
-            if len(_push_down_memo) > _TRACE_MEMO_MAX:
-                _push_down_memo.popitem(last=False)
-        return result
-
-    try:
-        if not _eligible(east_fn.fn):
-            return remember(None)
-        ir_value, out_type, fn_binds = trace(east_fn.fn, list(east_fn.input_types),
-                                             out_hint=east_fn.output_type)
-        if out_type != east_fn.output_type:
-            return remember(None)
-        from east.runtime.compiler import compile_from_value
-
-        native = compile_from_value(ir_value)
-        if fn_binds:
-            # Called compiled functions ride as hidden trailing parameters
-            # (#561); binding them leaves exactly the builtin's callback
-            # signature visible, so the loop and every callee run native.
-            native = native.bind(*fn_binds)
-        return remember(native)
-    except ExpressionError as exc:
-        # The loud contract: a pure-looking callback that fails to trace
-        # raises — its silent fallback's only symptom is that the job takes
-        # hours (#524). Genuinely-python lambdas fail the purity gate above
-        # and keep their fallback; deliberate python paths carry the marker.
-        if _trace_fallback(east_fn.fn):
-            return remember(None)
-        # A call on an already-compiled East function normally LOWERS to the
-        # IR Call node now (#561) and never raises here. This cause survives
-        # only for the shapes lowering declines — an arity-mismatched call,
-        # an argument that does not lift to the parameter type — where the
-        # per-element python path is still the documented contract, not a
-        # silent performance cliff: raising unconditionally turned every
-        # `for_each(lambda e: emit(...))` under the e3 runner into a hard
-        # failure (#558 C). Explicit `kernel(...)` still raises for them.
-        cause = exc.__cause__
-        for _ in range(4):
-            if cause is None:
-                break
-            if isinstance(cause, NonRetraceableCallError):
-                return remember(None)
-            cause = cause.__cause__
-        raise
-    except Exception:
-        return None
+    native = compile_from_value(ir_value)
+    if fn_binds:
+        # Called compiled functions ride as hidden trailing parameters
+        # (#561); binding them leaves exactly the builtin's callback
+        # signature visible, so the loop and every callee run native.
+        native = native.bind(*fn_binds)
+    if key is not None:
+        _push_down_memo[key] = native
+        if len(_push_down_memo) > _TRACE_MEMO_MAX:
+            _push_down_memo.popitem(last=False)
+    return native
 

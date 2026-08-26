@@ -207,14 +207,16 @@ def test_update_many_no_combine_overwrites():
     assert d["b"] == 20.0
 
 
-def test_update_many_python_combine():
+def test_update_many_impure_combine_is_refused():
+    from east.expression import ExpressionError
+
     d = EastDict(StringType, FloatType, {"a": 1.0})
     seen = []
-    d.update_many(["a", "a", "b"], [2.0, 3.0, 5.0],
-                  combine=lambda cur, new: (seen.append(1), cur + new)[1])
-    assert d["a"] == 6.0
-    assert d["b"] == 5.0
-    assert len(seen) == 2  # called per collision on the python path
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        d.update_many(["a", "a", "b"], [2.0, 3.0, 5.0],
+                      combine=lambda cur, new: (seen.append(1), cur + new)[1])
+    assert seen == []  # refused before any collision ran
+    assert d["a"] == 1.0 and "b" not in d
 
 
 def test_update_many_traced_combine():
@@ -289,9 +291,11 @@ def test_update_many_east_arrays_with_native_combine():
     assert d["a"] == 6.0 and d["b"] == 5.0
 
 
-def test_update_many_east_arrays_with_python_combine():
-    # an impure combine cannot trace, so it runs per collision in python and
-    # the incoming value must still be unboxed correctly on the C-backed path
+def test_update_many_east_arrays_with_impure_combine_is_refused():
+    # an impure combine has no East capture (#625): refused up front, on the
+    # C-backed path exactly as on the boxed one
+    from east.expression import ExpressionError
+
     calls = []
 
     def combine(cur, new):
@@ -299,10 +303,10 @@ def test_update_many_east_arrays_with_python_combine():
         return cur + new
 
     d = EastDict(StringType, FloatType, {"a": 1.0})
-    d.update_many(array(StringType, ["a", "a"]), array(FloatType, [2.0, 3.0]),
-                  combine=combine)
-    assert d["a"] == 6.0
-    assert calls == [(1.0, 2.0), (3.0, 3.0)]
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        d.update_many(array(StringType, ["a", "a"]), array(FloatType, [2.0, 3.0]),
+                      combine=combine)
+    assert calls == [] and d["a"] == 1.0
 
 
 def test_update_many_rejects_mismatched_element_type():

@@ -106,7 +106,7 @@ def test_dict_sum():
     assert d.sum(lambda _k, v: v * 2) == 12
     # a projection over the KEYS is just as valid
     strings = EastDict(StringType, StringType, {"a": "hello", "b": "world"})
-    assert strings.sum(lambda _k, v: len(v)) == 10
+    assert strings.sum(lambda _k, v: East.String.length(v)) == 10
     # floats keep their own zero
     floats = EastDict(StringType, FloatType, {"a": 1.5, "b": 2.5})
     assert floats.sum() == pytest.approx(4.0)
@@ -223,35 +223,30 @@ def test_group_find_first_types_option_whichever_group_matches(rows, target, exp
 
 
 def test_group_find_matching_uses_east_equality_not_python_equality():
-    """The match probe is dual-mode ``East.equal``, so an untraceable ``by``
-    (which falls back to per-element python) agrees with a traced one.
-
-    Copied from ``find_all``, the probe originally used python ``==``; that
-    silently swaps East's equality for python's on the trampolined path, and
-    the two disagree on ``-0.0``/``NaN`` and on structured values.
+    """The match probe is ``East.equal`` — ``-0.0`` does not match ``0.0`` —
+    and an impure ``by`` no longer gets a python-``==`` path: it is refused
+    up front (#625), so the probe's equality can never silently swap.
     """
+    from east.expression import ExpressionError
+
     Row = StructType([("g", StringType), ("v", FloatType)])
     rows = array(Row, [
         {"g": "a", "v": 0.0}, {"g": "a", "v": -0.0},
         {"g": "b", "v": 1.0}, {"g": "b", "v": 0.0},
     ])
-    calls: list[int] = []
-
-    def impure_by(r):
-        calls.append(1)          # a mutated capture -> the tracer refuses it
-        return r["v"]
-
     pure = rows.group_find_all(lambda r: r["g"], 0.0, lambda r: r["v"])
-    impure = rows.group_find_all(lambda r: r["g"], 0.0, impure_by)
-    assert calls, "the impure callback should have run per element, not traced"
-    assert {k: list(v) for k, v in impure.items()} == {k: list(v) for k, v in pure.items()}
     # East equality distinguishes -0.0 from 0.0, so row 1 must NOT match.
     assert {k: list(v) for k, v in pure.items()} == {"a": [0], "b": [3]}
 
-    calls.clear()
-    pure_first = rows.group_find_first(lambda r: r["g"], 0.0, lambda r: r["v"])
-    impure_first = rows.group_find_first(lambda r: r["g"], 0.0, impure_by)
-    assert dict(impure_first.items()) == dict(pure_first.items())
+    calls: list[int] = []
+
+    def impure_by(r):
+        calls.append(1)          # a mutated capture — no East capture (#625)
+        return r["v"]
+
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        rows.group_find_all(lambda r: r["g"], 0.0, impure_by)
+    assert calls == []
 
 
 def test_group_find_all_passes_the_row_index_to_arity_2_callbacks():
@@ -370,14 +365,13 @@ def test_dict_merge_key_is_the_ts_single_key_merge():
     # the incoming value may have a DIFFERENT type from the values — the thing
     # insert_or_update cannot express (its value must be the dict's value type)
     lengths = EastDict(StringType, IntegerType, {"a": 10})
-    lengths.merge_key("a", "xyz", lambda existing, s: existing + len(s))
+    lengths.merge_key("a", "xyz", lambda existing, s: existing + East.String.length(s))
     assert dict(lengths.items()) == {"a": 13}
 
     # a three-argument update also receives the key
-    seen: list = []
     tagged = EastDict(StringType, StringType, {"k": "v"})
-    tagged.merge_key("k", "!", lambda existing, inc, key: (seen.append(key), existing + inc)[1])
-    assert dict(tagged.items()) == {"k": "v!"} and seen == ["k"]
+    tagged.merge_key("k", "!", lambda existing, inc, key: existing + inc + key)
+    assert dict(tagged.items()) == {"k": "v!k"}
 
 
 # ── the sum/group_sum family agrees about an empty collection ────────────────
@@ -438,13 +432,15 @@ def test_merge_all_is_generic_in_the_incoming_value_type():
     # the exact case that used to crash the interpreter (exit 139)
     words = EastDict(StringType, StringType, {"a": "hello", "b": "hi"})
     nums = EastDict(StringType, IntegerType, {"a": 12345, "c": 7})
-    words.merge_all(nums, lambda cur, n, _k: cur + "/" + str(n), lambda _k: "<new>")
+    words.merge_all(nums, lambda cur, n, _k: cur + "/" + East.String.print(IntegerType, n),
+                    lambda _k: "<new>")
     assert dict(words.items()) == {"a": "hello/12345", "b": "hi", "c": "<new>/7"}
 
     # the TS doc's own worked example: fold Integer counts into Float totals
     totals = EastDict(StringType, FloatType, {"apple": 1.5})
     counts = EastDict(StringType, IntegerType, {"apple": 3, "pear": 2})
-    totals.merge_all(counts, lambda t, n, _k: t + float(n), lambda _k: 0.0)
+    totals.merge_all(counts, lambda t, n, _k: t + East.Integer.to_float(n),
+                     lambda _k: 0.0)
     assert dict(totals.items()) == {"apple": 4.5, "pear": 2.0}
 
     # a KEY mismatch is still a decode hazard, so it is still refused

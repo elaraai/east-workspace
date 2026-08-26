@@ -293,9 +293,12 @@ class EastVector:
         return EastMatrix(self.element_type, self._data.reshape(rows, cols))
 
     def map(self, fn: Any, out: EastType | None = None) -> EastVector:
-        """Apply ``fn`` to each logical scalar (numpy).
+        """Deprecated (#625): a per-element python loop with no native path.
 
-        The callback runs in Python (not delegated to east-c).
+        Use the east-c arithmetic surface (``scale`` / ``add_scaled`` /
+        ``mul`` / ``add_scalar`` / ``abs`` / ``clamp`` / the masks), or an
+        explicit python loop over ``to_numpy()`` when the math genuinely
+        is not East-expressible.
 
         Args:
             fn: Callback ``fn(element) -> new value`` invoked once per element
@@ -307,14 +310,25 @@ class EastVector:
             A new vector of the ``out`` (or original) element type holding the
             mapped values.
         """
+        import warnings
+
+        warnings.warn(
+            "EastVector.map is deprecated — a per-element python loop with no "
+            "native path: use the tensor arithmetic builtins (scale/add_scaled/"
+            "mul/add_scalar/abs/clamp/masks) or an explicit loop over "
+            "to_numpy() (#625)",
+            DeprecationWarning, stacklevel=2,
+        )
         results = [fn(x.item()) for x in self._data]
         elem = out if out is not None else self.element_type
         return EastVector(elem, np.asarray(results, dtype=EAST_ELEMENT_TO_DTYPE[elem.type]))
 
     def fold(self, initial: Any, fn: Any) -> Any:
-        """Left-fold over logical scalars (numpy).
+        """Deprecated (#625): a per-element python loop with no native path.
 
-        The callback runs in Python (not delegated to east-c).
+        Use the east-c reductions (``sum`` / ``dot`` / ``maximum`` /
+        ``minimum`` / ``mean`` / ``cum_sum``), or an explicit python loop
+        over ``to_numpy()``.
 
         Args:
             initial: Seed accumulator value.
@@ -324,6 +338,14 @@ class EastVector:
         Returns:
             The final accumulator (``initial`` if the vector is empty).
         """
+        import warnings
+
+        warnings.warn(
+            "EastVector.fold is deprecated — a per-element python loop with no "
+            "native path: use the tensor reductions (sum/dot/maximum/minimum/"
+            "mean/cum_sum) or an explicit loop over to_numpy() (#625)",
+            DeprecationWarning, stacklevel=2,
+        )
         acc = initial
         for x in self._data:
             acc = fn(acc, x.item())
@@ -1035,7 +1057,10 @@ class EastMatrix:
         )
 
     def map_elements(self, fn: Any, out: EastType | None = None) -> EastMatrix:
-        """Apply ``fn`` to each logical scalar (numpy).
+        """Deprecated (#625): a per-element python loop with no native path.
+
+        Use the east-c arithmetic surface (``scale`` / ``add_scaled`` /
+        ``mul_elementwise``), or an explicit python loop over ``to_numpy()``.
 
         Runs ``fn`` in Python (not delegated) over every element in row-major
         order, building a new matrix of the same shape.
@@ -1051,6 +1076,15 @@ class EastMatrix:
             and the same dimensions. An empty matrix (zero rows or columns) is
             returned unchanged in shape without invoking ``fn``.
         """
+        import warnings
+
+        warnings.warn(
+            "EastMatrix.map_elements is deprecated — a per-element python loop "
+            "with no native path: use the tensor arithmetic builtins (scale/"
+            "add_scaled/mul_elementwise) or an explicit loop over to_numpy() "
+            "(#625)",
+            DeprecationWarning, stacklevel=2,
+        )
         elem = out if out is not None else self.element_type
         if self.rows == 0 or self.cols == 0:
             return EastMatrix(elem, rows=self.rows, cols=self.cols)
@@ -1058,7 +1092,11 @@ class EastMatrix:
         return EastMatrix(elem, np.asarray(results, dtype=EAST_ELEMENT_TO_DTYPE[elem.type]))
 
     def map_rows(self, fn: Any, out: EastType | None = None) -> EastMatrix:
-        """Apply ``fn`` to each row vector, returning a row vector (numpy).
+        """Deprecated (#625): a per-row python loop with no native path.
+
+        Use the east-c row operations (``row_sums`` / ``vec_mul`` /
+        ``add_scaled``), or an explicit python loop over ``to_rows()`` /
+        ``to_numpy()``.
 
         Runs ``fn`` in Python (not delegated) once per row, building a new
         matrix from the returned rows.
@@ -1076,6 +1114,14 @@ class EastMatrix:
             whose rows are the callback results. A zero-row matrix is returned
             with the same column count and without invoking ``fn``.
         """
+        import warnings
+
+        warnings.warn(
+            "EastMatrix.map_rows is deprecated — a per-row python loop with no "
+            "native path: use the tensor row operations (row_sums/vec_mul/"
+            "add_scaled) or an explicit loop over to_rows()/to_numpy() (#625)",
+            DeprecationWarning, stacklevel=2,
+        )
         elem = out if out is not None else self.element_type
         if self.rows == 0:
             return EastMatrix(elem, rows=0, cols=self.cols)

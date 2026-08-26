@@ -464,11 +464,11 @@ ARRAY_COMPUTE_CASES = [
     ("group_to_dicts", lambda c: c.group_to_dicts(
         lambda r: r["sku"], lambda r: r["qty"], lambda r: r["amt"])),
     ("flatten_to_array", lambda c: list(c.flatten_to_array(
-        lambda r: EastArray(IntegerType, [r["qty"], -r["qty"]])))),
+        lambda r: East.new_array(IntegerType, [r["qty"], -r["qty"]])))),
     ("flatten_to_set", lambda c: c.flatten_to_set(
-        lambda r: EastSet(StringType, [r["sku"]]))),
+        lambda r: East.new_set(StringType, [r["sku"]]))),
     ("flatten_to_dict", lambda c: c.flatten_to_dict(
-        lambda r: EastDict(IntegerType, StringType, {r["qty"]: r["sku"]}))),
+        lambda r: East.new_dict(IntegerType, StringType, [(r["qty"], r["sku"])]))),
     ("iter_boxes", lambda c: [r["qty"] for r in c]),
 ]
 
@@ -565,10 +565,11 @@ DICT_COMPUTE_CASES = [
     ("to_dict", lambda c: c.to_dict(
         lambda k, v: k[:2], lambda k, v: 1.0, lambda a, b, _k: a + b)),
     ("flatten_to_array", lambda c: list(c.flatten_to_array(
-        lambda k, v: EastArray(FloatType, [v, v])))),
-    ("flatten_to_set", lambda c: c.flatten_to_set(lambda k, v: EastSet(StringType, [k]))),
+        lambda k, v: East.new_array(FloatType, [v, v])))),
+    ("flatten_to_set", lambda c: c.flatten_to_set(
+        lambda k, v: East.new_set(StringType, [k]))),
     ("flatten_to_dict", lambda c: c.flatten_to_dict(
-        lambda k, v: EastDict(StringType, FloatType, {k: v}))),
+        lambda k, v: East.new_dict(StringType, FloatType, [(k, v)]))),
     ("group_reduce", lambda c: c.group_reduce(
         lambda k, v: k[:2], lambda _k: 0.0, lambda a, k, v: a + v)),
     ("group_size", lambda c: c.group_size(lambda k, v: k[:2])),
@@ -715,9 +716,9 @@ SET_COMPUTE_CASES = [
     ("to_set", lambda c: c.to_set(lambda el: East.Integer.remainder(el, 7), out=IntegerType)),
     ("to_dict", lambda c: c.to_dict(lambda el: el, lambda el: el * 2)),
     ("flatten_to_array", lambda c: list(c.flatten_to_array(
-        lambda el: EastArray(IntegerType, [el, el])))),
+        lambda el: East.new_array(IntegerType, [el, el])))),
     ("flatten_to_set", lambda c: c.flatten_to_set(
-        lambda el: EastSet(IntegerType, [el, el + 1000]))),
+        lambda el: East.new_set(IntegerType, [el, el + 1000]))),
     ("group_reduce", lambda c: c.group_reduce(
         lambda el: East.Integer.remainder(el, 3), lambda _k: 0, lambda a, el: a + el)),
     ("group_size", lambda c: c.group_size(lambda el: East.Integer.remainder(el, 3))),
@@ -768,8 +769,10 @@ def test_set_compute_matches_load(tmp_path):
 
 def test_compute_callback_modes_stay_native(tmp_path):
     """Traced lambdas and precompiled kernels must run ZERO python per
-    element across the whole file-level call; an impure callback keeps
-    per-element python semantics — all three modes agree with the oracle."""
+    element across the whole file-level call; an impure callback raises the
+    strict-capture error before any row is touched (#625) — genuine python
+    work iterates the file at the python boundary instead."""
+    from east.expression import ExpressionError
     from east.runtime.compiler import eager_stats
 
     path = tmp_path / "modes.beast2"
@@ -816,8 +819,10 @@ def test_compute_callback_modes_stay_native(tmp_path):
             seen.append(r["qty"])
             return r["qty"] * 2
 
-        assert list(f.map(impure, out=IntegerType)) == via_kernel
-        assert len(seen) == len(rows)
+        with pytest.raises(ExpressionError, match="captured automatically"):
+            f.map(impure, out=IntegerType)
+        assert seen == []
+        assert [r["qty"] * 2 for r in f] == via_kernel
 
 
 def test_first_map_short_circuits_segment_decoding(tmp_path, monkeypatch):

@@ -31,7 +31,6 @@ import pytest
 from east import (
     ArrayType,
     EastDict,
-    EastError,
     EastTypeError,
     ExpressionError,
     IntegerType,
@@ -158,14 +157,14 @@ def test_update_many_rejects_a_mismatched_combine_kernel(rows):
     assert dict(d.items()) == {"c1": 1, "c2": 1}
 
 
-# ── the bridge backstop: mislabelled C-backed values refuse to cross ─────────
+# ── the strict wrap backstops the label before anything crosses ──────────────
 
-def test_plain_lambda_returning_a_mislabelled_array_is_refused(rows):
-    """No kernel involved, so the call-site guard cannot fire; the bridge's
-    by-pointer pass-through must reject the wrong element type instead of
-    silently adopting the declared label."""
+def test_plain_lambda_capturing_a_mislabelled_array_is_refused(rows):
+    """No kernel involved, so the call-site guard cannot fire — and no
+    per-element python path exists either (#625): the mutable array capture
+    is refused at the wrap, before any mislabelled pointer could cross."""
     wrong = array(StringType, ["a", "b"])
-    with pytest.raises(EastError, match="by-pointer"):
+    with pytest.raises(ExpressionError, match="captured automatically"):
         rows.map(lambda r: wrong, out=ArrayType(OptionType(StringType)))
 
 
@@ -182,9 +181,11 @@ def test_wrong_input_kernel_does_not_run_native(rows):
 
 
 def test_scalar_variant_mismatch_gets_a_named_error(rows):
-    """The per-element conversion of a String into a declared Option slot used
-    to die with "'str' object has no attribute 'type'"."""
-    with pytest.raises(EastError, match="variant"):
+    """A traceable lambda whose expression is a String cannot fill a declared
+    Option slot: the strict capture names both types up front (#625) —
+    previously the per-element conversion died with "'str' object has no
+    attribute 'type'"."""
+    with pytest.raises(ExpressionError, match="produced String"):
         rows.map(lambda r: r["id"], out=OptionType(StringType))
 
 

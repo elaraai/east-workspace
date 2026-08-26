@@ -35,6 +35,7 @@ from east.expression.nodes import (
     _k_new_vector,
     _k_struct,
     _literal,
+    _option_inner,
     _option_type,
     _var,
 )
@@ -470,7 +471,12 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
         return None
     if value.type == "some":
         payload = value.value
-        inner = _lift(payload) if not isinstance(payload, Expression) else payload
+        # An Option hint threads into the payload, so `some(variant(case, …))`
+        # types the inner variant from the declared context (#541/#536).
+        inner_hint = _option_inner(hint) \
+            if hint is not None and _is_option(hint) else None
+        inner = payload if isinstance(payload, Expression) \
+            else _lift(payload, hint=inner_hint)
         opt_t = _option_type(inner.east_type)
         node = ir_variant(opt_t, "some", inner.ir)
         return Expression(node, opt_t)
@@ -513,7 +519,8 @@ def _needs_type_context(value: Any) -> bool:
     """Whether a value can only lift with a type from context: a bare
     ``none``, a general ``variant(case, …)`` (the 2-arg construction carries
     no VariantType), or a deferred ``if_else`` over such arms (#541).
-    ``some(expr)`` self-types and never defers."""
+    ``some(expr)`` self-types — unless its PAYLOAD is itself context-needing
+    (``some(variant(case, …))``), which the surrounding Option hint types."""
     from east.expression.expr import Expression
     from east.types.values import is_east_variant
 
@@ -521,7 +528,9 @@ def _needs_type_context(value: Any) -> bool:
         return True
     if isinstance(value, Expression) or not is_east_variant(value):
         return False
-    return value.type != "some"
+    if value.type != "some":
+        return True
+    return _needs_type_context(value.value)
 
 
 # The loops enclosing the expression being traced, innermost last.

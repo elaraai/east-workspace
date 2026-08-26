@@ -18,22 +18,15 @@ the layer users actually call. Statement nodes (``Let``/``Block``/``IfElse``/
 builtins are the surface under test. The corpus is self-asserting (its
 ``testFail`` platform calls), so pass/fail needs no authored expectations.
 
-Callback (``Function``-typed) builtin arguments are materialised per MODE:
-
-- ``kernel``      — the callback IR compiles via ``compile_from_value`` into a
-                    precompiled kernel (captures baked as ``Let``s of quoted
-                    values), so the eager method takes its native path;
-- ``trampoline``  — the same compiled callable hidden behind a plain python
-                    closure, so pushdown refuses and the per-element python
-                    path runs;
-- ``traced``      — the callback IR is replayed against ``Expression`` proxies
-                    through the traced surface and re-compiled; nodes the
-                    traced surface cannot express are COUNTED (the #452
-                    ratchet) and fall back to the kernel-mode callable.
-
-Per-builtin path accounting (``eager_stats`` deltas) verifies the mode really
-took its path — values agreeing while the path silently degrades is exactly
-the #470 failure shape.
+Callback (``Function``-typed) builtin arguments are materialised as native
+function values — the ONE mode the strict surface leaves (#625): immutable
+captures bake as ``Let``s of quoted values and the callback IR compiles via
+``compile_from_value``; by-reference (mutable/container) captures ride the
+bridge's live-captures carrier instead (``_east_ir`` + ``_east_captures``,
+#476 E), so mutation semantics survive without a python path. Per-builtin
+path accounting (``eager_stats`` deltas) verifies no call trampolined —
+values agreeing while the path silently degrades is exactly the #470
+failure shape.
 """
 
 from __future__ import annotations
@@ -45,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from east.expression import Expression, ExpressionError, trace
+from east.expression import Expression
 from east.ir.builders import (
     ir_block,
     ir_let,
@@ -255,10 +248,6 @@ class Env:
 class Closure:
     """An evaluated Function node: params + body + the creation environment.
 
-    ``native`` records whether mode-materialisation could compile it (False
-    once it fell back to an interpreter closure for by-reference captures) —
-    path accounting skips calls whose callbacks could never ride natively.
-
     A Closure can land in a Function-typed VALUE slot (struct fields, arrays
     of functions); ``py_value_to_c`` serializes functions from their attached
     homoiconic IR, so ``_east_ir`` exposes the capture-baked Function node and
@@ -266,7 +255,6 @@ class Closure:
     """
     node: EastVariant
     env: Env
-    native: bool = True
 
     @property
     def payload(self) -> EastStruct:
@@ -337,7 +325,6 @@ def _baked_node(clo: Closure) -> Any:
 class Report:
     routes: Counter = field(default_factory=Counter)          # (builtin, route)
     path_violations: list = field(default_factory=list)       # (builtin, detail)
-    untraceable: Counter = field(default_factory=Counter)     # node kind / reason
     unsupported: Counter = field(default_factory=Counter)     # skip reasons
     tests_passed: int = 0
     tests_failed: list = field(default_factory=list)          # (name, error)
@@ -345,7 +332,6 @@ class Report:
     def merge(self, other: Report) -> None:
         self.routes.update(other.routes)
         self.path_violations.extend(other.path_violations)
-        self.untraceable.update(other.untraceable)
         self.unsupported.update(other.unsupported)
         self.tests_passed += other.tests_passed
         self.tests_failed.extend(other.tests_failed)
@@ -356,12 +342,15 @@ class Report:
 class EagerEvaluator:
     """Executes decoded IR with Builtin nodes routed through the user surface."""
 
-    def __init__(self, mode: str = "kernel", report: Report | None = None):
-        assert mode in ("kernel", "trampoline", "traced")
-        self.mode = mode
+    def __init__(self, report: Report | None = None):
         self.report = report if report is not None else Report()
         self.test_depth = 0
         self._canon_memo: dict[int, Any] = {}
+        # Pending capture write-backs: (native callable, defining Env,
+        # [(name, type), …]) per carrier whose captures include MUTABLE
+        # variables — flushed after the builtin call that used it (see
+        # make_callback / _flush_writebacks).
+        self._writebacks: list = []
 
     def canon(self, t: Any) -> Any:
         """Node types may carry the TS id-dialect Recursive form; the pure-
@@ -657,7 +646,20 @@ class EagerEvaluator:
             container._unlock_for_iteration()
         return east_null
 
-    # ── platform: the four self-assertion harness functions ──
+    # ── platform: the self-assertion harness + the corpus capabilities ──
+
+    _HARNESS_IMPLS: dict[str, Any] | None = None
+
+    @classmethod
+    def _platform_impls(cls) -> dict[str, Any]:
+        """The corpus's non-assertion platform capabilities (the ``freeze*``
+        family, #539), shared with ``test_compliance`` so the replay runs the
+        SAME implementations the compiled runners do."""
+        if cls._HARNESS_IMPLS is None:
+            from tests.test_compliance import _freeze_platform
+
+            cls._HARNESS_IMPLS = {pf["name"]: pf for pf in _freeze_platform()}
+        return cls._HARNESS_IMPLS
 
     def _platform(self, p: EastStruct, env: Env) -> Any:
         name = p["name"]
@@ -680,16 +682,38 @@ class EagerEvaluator:
             return east_null
         if name == "testFail":
             raise AssertionError(args[0])
-        raise _Unsupported(f"platform function {name!r}")
+        impl = self._platform_impls().get(name)
+        if impl is None:
+            raise _Unsupported(f"platform function {name!r}")
+        result = impl["fn"](*args)
+        if getattr(result, "_east_c_value", None) is not None:
+            t = self.canon(p["type"])
+            if t.type in ("Vector", "Matrix"):
+                # Tensors decode by COPY (numpy-backed), which would drop the
+                # value identity the frozen brand carries under Is — keep the
+                # HOLD; the funnel passes its branded C value by pointer.
+                return result
+            # A frozen hold (freeze_value) decodes into branded zero-copy
+            # proxies, so the replay's eager surface sees exactly what a
+            # frozen task input looks like — mutation refuses, Is compares
+            # by value (#539).
+            from east.runtime._compiler_eastc import frozen_hold_to_py
+
+            return frozen_hold_to_py(result, t)
+        return result
 
     # ── callbacks per mode ──
 
     def make_callback(self, clo: Closure) -> Any:
-        """A python callable for a Function-typed builtin argument, shaped by
-        the mode. Callbacks whose captures are mutable or container-typed are
-        NOT baked — East captures by reference, and a baked copy would hide
-        mutations (an accumulating forEach would silently count on the copy) —
-        they run as interpreter closures instead, counted as such."""
+        """A python callable for a Function-typed builtin argument.
+
+        Immutable captures bake as ``Let``s of quoted values and the callback
+        IR compiles into a native kernel. By-reference (mutable/container)
+        captures must NOT bake — East captures by reference, and a baked copy
+        would hide mutations (an accumulating forEach would silently count on
+        the copy) — so the callable carries the UNBAKED node and its live
+        capture values instead, and the funnel's carrier route builds the
+        closure with an identity-mapped captures env (#476 E)."""
         p = clo.payload
         if any(isinstance(clo.env.get(v.value["name"]), Expression)
                for v in p["captures"]):
@@ -700,37 +724,36 @@ class EagerEvaluator:
             self.report.routes[("<nested-trace>", "traced")] += 1
             return self._replay_fn(clo)
         if not self._bake_safe(p["captures"]):
-            self.report.routes[("<captures-by-ref>", "interpreted")] += 1
-            clo.native = False
+            self.report.routes[("<captures-by-ref>", "carrier")] += 1
+            from east._eastc_bridge import resolve_child_type
+            from east.runtime._compiler_eastc import compile_function_carrier
 
-            def interpreted(*args):
+            def carrier(*args):
                 return self.call(clo, list(args))
 
-            # A deliberate python path (mutable captures interpret by
-            # reference) — the push-down's loud contract skips it.
-            interpreted._east_trace_fallback = True
-            return interpreted
-        if self.mode == "traced":
-            traced = self._traced_callback(clo)
-            if traced is not None:
-                return traced
-        compiled = self._compile_closure(clo)
-        # The compiled callable's native handle is the real path; its
-        # RE-TRACE runs the replay interpreter (python branches), so when
-        # the native handle is refused (signature adaptation) the loud
-        # contract must not fire on the interpreter — declare it.
-        compiled._east_trace_fallback = True
-        if self.mode == "trampoline":
-            n = len(p["parameters"])
-
-            def hidden(*args: Any) -> Any:
-                return compiled(*args[:n])
-
-            # NOT declared python-only: its re-trace succeeds through the
-            # compiled dual-path, and serialize-shaped tests need the traced
-            # native function value.
-            return hidden
-        return compiled
+            # The bridge's live-captures compile (#476 E): the UNBAKED node
+            # plus these values, identity-mapped into the closure's captures
+            # env — mutations stay visible and the body executes natively.
+            carrier._east_ir = clo.node
+            carrier._east_captures = clo._east_captures
+            native = compile_function_carrier(
+                carrier,
+                [self.canon(v.value["type"]) for v in p["parameters"]],
+                resolve_child_type(p["type"], ("output",)),
+            )
+            # A MUTABLE capture the body REBINDS (`$.assign(total, …)`)
+            # accumulates in the closure's captures env — east-c's Assign
+            # writes the defining env, which for the carrier is the closure's
+            # own, not this interpreter's. Register a write-back: after the
+            # builtin call that drove the callback, the rebound slots fold
+            # back into the replay environment (in-place container mutation
+            # needs none — the identity map shares the C value).
+            mutable_caps = [(v.value["name"], self.canon(v.value["type"]))
+                            for v in p["captures"] if v.value["mutable"]]
+            if mutable_caps:
+                self._writebacks.append((native, clo.env, mutable_caps))
+            return native
+        return self._compile_closure(clo)
 
     @staticmethod
     def _bake_safe(captures: Any) -> bool:
@@ -755,29 +778,10 @@ class EagerEvaluator:
         quoted values — the same ``Block[Let…, Function]`` shape the kernel
         tracer emits for hoisted constants.
 
-        The compiled callable also gets ``_east_retrace`` (#470's dual-mode
-        hook), pointing at a proxy-replay of the same body — so wrappers that
-        REORDER arguments (the dict ``(k,v)`` methods) still trace natively
-        exactly as user `kernel()` results do."""
-        compiled = compile_from_value(_baked_node(clo))
-        replay = self._replay_fn(clo)
-
-        def dual(*args: Any) -> Any:
-            # mirror kernel()'s dual-mode wrapper (#470): proxies re-run the
-            # body through the replay; plain values execute natively
-            if any(isinstance(x, Expression) for x in args):
-                return replay(*args)
-            return compiled(*args)
-
-        dual._eastc_handle = compiled._eastc_handle
-        dual.bind = compiled.bind
-        dual._east_compiled = compiled
-        dual._east_retrace = replay
-        # The native handle is the real path; the retrace is the interpreter,
-        # so when native resolution is refused the loud push-down contract
-        # must fall back silently rather than raise on harness machinery.
-        dual._east_trace_fallback = True
-        return dual
+        The compiled callable is used AS-IS: called with expression proxies
+        (an argument-reordering wrapper under the strict wrap) it lowers to a
+        native IR ``Call`` (#561), so the body is never re-derived."""
+        return compile_from_value(_baked_node(clo))
 
     def _replay_fn(self, clo: Closure) -> Any:
         p = clo.payload
@@ -788,25 +792,7 @@ class EagerEvaluator:
                 env.define(var.value["name"], proxy)
             return self.eval(p["body"], env)
 
-        # Interpreter-backed: whether this replay traces depends on the IR
-        # body, so its failures must keep the silent fallback — it is the
-        # harness's own machinery, not a user callback.
-        replay._east_trace_fallback = True
         return replay
-
-    def _traced_callback(self, clo: Closure) -> Any | None:
-        """Replay the callback body over Expression proxies through the traced
-        surface; None (counted) when a node has no traced expression form."""
-        p = clo.payload
-        param_types = [self.canon(v.value["type"]) for v in p["parameters"]]
-        try:
-            ir_value_, _out, binds = trace(self._replay_fn(clo), param_types)
-        except (ExpressionError, _Unsupported) as e:
-            self.report.untraceable[str(e)[:80]] += 1
-            return None
-        compiled_cb = compile_from_value(ir_value_)
-        # Called compiled functions ride as hidden trailing parameters (#561).
-        return compiled_cb.bind(*binds) if binds else compiled_cb
 
     # ── builtin dispatch ──
 
@@ -821,6 +807,7 @@ class EagerEvaluator:
         row = _ROWS.get(name)
         traced_ctx = any(isinstance(a, Expression) for a in args)
         cbs = [i for i, a in enumerate(args) if isinstance(a, Closure)]
+        wb_mark = len(self._writebacks)
 
         if row is not None and not traced_ctx:
             before = eager_stats()
@@ -828,11 +815,11 @@ class EagerEvaluator:
                 result = row(self, node, args)
             except _Unsupported as e:
                 self.report.unsupported[str(e)[:80]] += 1
+                self._flush_writebacks(wb_mark)
                 row = None  # fall through to the funnel, counted
             else:
-                capable = sum(1 for i in cbs if args[i].native)
-                self._account(name, before, capable=capable,
-                              excused=len(cbs) - capable)
+                self._flush_writebacks(wb_mark)
+                self._account(name, before, n_callbacks=len(cbs))
                 self.report.routes[(name, "surface")] += 1
                 return result
         if row is not None and traced_ctx:
@@ -870,33 +857,38 @@ class EagerEvaluator:
             else:
                 conv.append(a)
         self.report.routes[(name, "funnel")] += 1
-        return _call_builtin(name, tps, conv, out_t)
+        try:
+            return _call_builtin(name, tps, conv, out_t)
+        finally:
+            self._flush_writebacks(wb_mark)
 
-    def _account(self, name: str, before: dict, *, capable: int, excused: int) -> None:
+    def _flush_writebacks(self, mark: int) -> None:
+        """Fold rebound closure captures back into the replay environment.
+
+        Runs after the builtin call that drove the carrier (errors included —
+        mutations up to a mid-loop error are real, exactly as they are for a
+        native caller). Reading an unrebound capture is an identity refresh.
+        """
+        from east.runtime._compiler_eastc import read_closure_capture
+
+        while len(self._writebacks) > mark:
+            native, env, caps = self._writebacks.pop()
+            for cap_name, cap_t in caps:
+                env.assign(cap_name, read_closure_capture(native, cap_name, cap_t))
+
+    def _account(self, name: str, before: dict, *, n_callbacks: int) -> None:
         """The native-path guarantee, from the compiler's REAL counters.
 
-        ``capable`` counts callbacks that must ride natively in kernel mode;
-        ``excused`` counts adapter-wrapped ones (the dict (k,v) reorders)
-        whose per-element python is legitimate when their retrace cannot
-        fire. Kernel mode flags (1) any trampoline activity on a call with
-        no excused callbacks, and (2) a mixed call where NO callback rode
-        natively — a capable one regressing to python cannot hide behind an
-        excused sibling, because the native counter would read zero."""
-        if capable == 0 or self.mode == "traced":
+        Under the strict surface (#625) there is no per-element python path
+        for eager callbacks at all, so ANY trampoline activity around a
+        callback-carrying builtin call is a violation."""
+        if n_callbacks == 0:
             return
         after = eager_stats()
         tramp = after["trampoline_calls"] - before["trampoline_calls"]
-        native = (after["kernel_direct"] - before["kernel_direct"]) + (
-            after["pushdown_traced"] - before["pushdown_traced"])
-        if self.mode == "kernel" and tramp and not excused:
+        if tramp:
             self.report.path_violations.append(
-                (name, f"kernel mode trampolined {tramp}×"))
-        if self.mode == "kernel" and tramp and excused and not native:
-            self.report.path_violations.append(
-                (name, f"kernel mode: no capable callback rode native ({tramp}× python)"))
-        if self.mode == "trampoline" and native:
-            self.report.path_violations.append(
-                (name, f"trampoline mode went native {native}×"))
+                (name, f"trampolined {tramp}× under the strict surface"))
 
 
 # ─── the mapping table: BuiltinName → user-surface call ──────────────────────
@@ -988,6 +980,8 @@ _ROWS: dict[str, Any] = {
     if not isinstance(a[0], Expression) else a[0].flatten_to_set(_cb(ev, a[1])),
     "ArrayFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_cb(ev, a[1]), _cb(ev, a[2])),
     "ArrayStringJoin": lambda ev, n, a: a[0].string_join(a[1]),
+    "ArrayUpdate": lambda ev, n, a: (a[0].__setitem__(a[1], a[2]), east_null)[1],
+    "ArrayClear": lambda ev, n, a: (a[0].clear(), east_null)[1],
     "ArrayPushLast": lambda ev, n, a: (a[0].append(a[1]), east_null)[1],
     "ArrayPushFirst": lambda ev, n, a: (a[0].insert(0, a[1]), east_null)[1],
     "ArrayPopLast": lambda ev, n, a: a[0].pop(),
@@ -1009,6 +1003,7 @@ _ROWS: dict[str, Any] = {
     "SetHas": lambda ev, n, a: a[0].has(a[1]),
     "SetInsert": lambda ev, n, a: a[0].insert(a[1]),
     "SetDelete": lambda ev, n, a: a[0].delete(a[1]),
+    "SetClear": lambda ev, n, a: (a[0].clear(), east_null)[1],
     "SetTryInsert": lambda ev, n, a: a[0].try_insert(a[1]),
     "SetTryDelete": lambda ev, n, a: a[0].try_delete(a[1]),
     "SetUnion": lambda ev, n, a: a[0].union(a[1]),
@@ -1061,6 +1056,7 @@ _ROWS: dict[str, Any] = {
     "DictUpdate": lambda ev, n, a: (a[0].swap(a[1], a[2]), east_null)[1],
     "DictSwap": lambda ev, n, a: a[0].swap(a[1], a[2]),
     "DictPop": lambda ev, n, a: a[0].pop(a[1]),
+    "DictClear": lambda ev, n, a: (a[0].clear(), east_null)[1],
     "DictDelete": lambda ev, n, a: a[0].delete(a[1]),
     "DictTryDelete": lambda ev, n, a: a[0].try_delete(a[1]),
     "DictCopy": lambda ev, n, a: a[0].copy(),
@@ -1208,14 +1204,12 @@ def _dict_kv(ev: EagerEvaluator, a: Any) -> Any:
     if not isinstance(a, Closure):
         return a
     cb = ev.make_callback(a)
-    a.native = False
 
     def swapped(k, v):
         return cb(v, k)
 
-    # A deliberate python adapter over a native callable (declared non-native
-    # above) — the push-down's loud contract skips it.
-    swapped._east_trace_fallback = True
+    # The reorder captures strictly: `cb` called with proxies lowers to a
+    # native IR Call (#561), so the body is never re-derived.
     return swapped
 
 
@@ -1224,14 +1218,12 @@ def _acc_kv(ev: EagerEvaluator, a: Any) -> Any:
     if not isinstance(a, Closure):
         return a
     cb = ev.make_callback(a)
-    a.native = False
 
     def swapped(acc, k, v):
         return cb(acc, v, k)
 
-    # A deliberate python adapter over a native callable (declared non-native
-    # above) — the push-down's loud contract skips it.
-    swapped._east_trace_fallback = True
+    # The reorder captures strictly: `cb` called with proxies lowers to a
+    # native IR Call (#561), so the body is never re-derived.
     return swapped
 
 

@@ -25,6 +25,8 @@ import importlib
 import sys
 from datetime import UTC, datetime
 
+import pytest
+
 from east import (
     BooleanType,
     DateTimeType,
@@ -114,32 +116,6 @@ def test_the_out_type_derivation_is_cached_too(monkeypatch):
     assert t1 == t2 == FloatType
 
 
-def test_a_declared_silent_fallback_is_cached_as_none(monkeypatch):
-    """A `_east_trace_fallback` wrapper that fails to trace falls back
-    silently — and the None is remembered, so the failing trace is not
-    re-attempted per call."""
-    def mk():
-        def fold(acc, el):
-            return f"<{acc}{el}>"                   # f-string: eligible, untraceable
-
-        fold._east_trace_fallback = True
-        return fold
-
-    f1 = EastFunction(mk(), [StringType, StringType], StringType)
-    assert _K.try_push_down(f1) is None             # warm: traces, fails, falls back
-    calls = 0
-    original = _K.trace
-
-    def counting(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(_K, "trace", counting)
-    assert _K.try_push_down(EastFunction(mk(), [StringType, StringType], StringType)) is None
-    assert calls == 0
-
-
 # ── cache misses: every binding that bakes into the trace is in the key ─────
 
 def test_different_closure_values_do_not_share_a_kernel():
@@ -172,9 +148,10 @@ def test_a_mutated_global_is_a_cache_miss(monkeypatch):
 def test_different_declared_signatures_do_not_collide():
     fn = _fresh_projection()
     k_float = _K.try_push_down(EastFunction(fn, [Row], FloatType))
-    # declared String output: the trace disagrees, so the outcome is None —
-    # and it must not evict or answer for the Float-declared entry
-    assert _K.try_push_down(EastFunction(fn, [Row], StringType)) is None
+    # declared String output: the trace disagrees, so the capture RAISES
+    # (#625) — and must not evict or answer for the Float-declared entry
+    with pytest.raises(_K.ExpressionError, match="produced Float"):
+        _K.try_push_down(EastFunction(fn, [Row], StringType))
     assert _K.try_push_down(EastFunction(_fresh_projection(), [Row], FloatType)) is k_float
 
 
@@ -199,17 +176,16 @@ def test_a_default_bound_mutable_accumulator_is_uncacheable():
     assert second("a") == 100                       # re-traced, sees the mutation
 
 
-def test_an_impure_lambda_stays_on_the_python_path():
+def test_an_impure_lambda_is_refused():
     log: list = []
 
     def impure(r):
         log.append(1)
         return r["v"] * 2.0
 
-    rows = _rows()
-    got = rows.map(impure, out=FloatType)
-    assert len(log) == len(ROWS)                   # ran per element, uncached
-    assert list(got) == [r["v"] * 2.0 for r in ROWS]
+    with pytest.raises(_K.ExpressionError, match="captured automatically"):
+        _rows().map(impure, out=FloatType)
+    assert log == []                               # refused before any element
 
 
 # ── #422 item 3: datetime literals lift ──────────────────────────────────────

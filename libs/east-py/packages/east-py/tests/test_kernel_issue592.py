@@ -18,8 +18,10 @@ platform function receives when east-c decodes the value for it, so both
 routes hand python the identical shape: callable, tagged ``_east_c_handle``,
 and lowering a proxy-argument call to an IR ``Call`` (#561). These tests pin
 that a python-driven body pushes down with ZERO python per row, that the
-eager and value paths are unchanged, and that the shapes lowering declines
-still degrade to the per-element path instead of failing the trace (#558 C).
+eager and value paths are unchanged, and that python work around the sink
+raises the strict-capture error up front (#625) — the explicit loop is the
+python boundary, and an arity-mismatched call surfaces the named
+``NonRetraceableCallError`` cause (#558 C).
 """
 
 import pytest
@@ -39,8 +41,9 @@ from east import (
     kernel,
     platform_function,
 )
+from east.expression import ExpressionError
 from east.runtime.compiler import eager_stats
-from east.runtime.errors import EastError
+from east.runtime.errors import EastError, NonRetraceableCallError
 
 ROW = StructType([("k", StringType), ("v", FloatType)])
 EMIT_T = FunctionType([StringType, FloatType], NullType)
@@ -183,29 +186,45 @@ class TestPythonBoundaryCall:
             emit(f"k{i:04d}", float(i))  # a freed core would not answer here
 
 
-# ── degradation: the shapes lowering declines keep the python path ──────────
+# ── the strict boundary: refusals name the problem (#625) ───────────────────
 
 
-class TestGracefulDegradation:
-    def test_an_impure_callback_keeps_the_per_element_path(self):
-        # A mutable python capture fails the purity gate, so the callback runs
-        # per element — and every row still reaches the sink through the
-        # wrapper's eager call.
+class TestStrictBoundary:
+    def test_an_impure_callback_is_refused_up_front(self):
+        # A mutable python capture has no East capture: the raise lands
+        # before any row runs, and the explicit loop delivers instead.
         core = _sink()
         emit = core.function_value([StringType, FloatType])
         order: list[str] = []
-        _rows().for_each(lambda r: (order.append(r["k"]), emit(r["k"], r["v"]))[1])
+        with pytest.raises(ExpressionError, match="captured automatically"):
+            _rows().for_each(lambda r: (order.append(r["k"]), emit(r["k"], r["v"]))[1])
+        assert order == []
+        for r in _rows():
+            order.append(r["k"])
+            emit(r["k"], r["v"])
 
         assert order == ["a", "b", "c"]
         keys, _values = core.take_batch()
         assert list(keys) == ["a", "b", "c"]
 
-    def test_an_arity_mismatched_call_declines_instead_of_failing_the_trace(self):
-        # Lowering declines an arity mismatch, and push-down falls back rather
-        # than raising (#558 C). The failure that surfaces is therefore the
-        # sink's own runtime refusal from the per-element path — never a
-        # ExpressionError about an untraceable lambda.
+    def test_an_arity_mismatched_call_fails_the_capture_with_the_named_cause(self):
+        # Lowering declines an arity mismatch; the strict capture then raises
+        # (#625) with NonRetraceableCallError in the cause chain (#558 C) —
+        # instead of the old per-element fallback surfacing the sink's own
+        # runtime refusal.
         core = _sink()
         emit = core.function_value([StringType, FloatType])
-        with pytest.raises(EastError, match="emit: missing argument"):
+        try:
             _rows().for_each(lambda r: emit(r["k"]))
+        except ExpressionError as e:
+            cause, found = e.__cause__, False
+            for _ in range(6):
+                if cause is None:
+                    break
+                if isinstance(cause, NonRetraceableCallError):
+                    found = True
+                    break
+                cause = cause.__cause__
+            assert found, "NonRetraceableCallError missing from the cause chain"
+        else:
+            raise AssertionError("expected ExpressionError")

@@ -10,8 +10,9 @@ runner-supplied FunctionType input — lowers the call to the IR ``Call`` node
 instead of attempting to re-trace the callee: the callee rides as a hidden
 trailing parameter, bound by reference after compilation, so the loop, the
 kernel and the callee all execute inside east-c. ``FunctionType`` kernel
-PARAMETERS are callable (and bindable) the same way. The #559 fallback stays
-for genuinely-python callees and for the shapes lowering declines.
+PARAMETERS are callable (and bindable) the same way. Genuinely-python
+wrappers raise the strict-capture error up front (#625); the named
+``NonRetraceableCallError`` cause survives for the shapes lowering declines.
 """
 
 import pytest
@@ -157,13 +158,18 @@ class TestAsyncCallee:
             kernel([IntegerType], lambda n: af(n))
 
 
-class TestFallbackPreserved:
-    def test_a_genuinely_python_callee_still_falls_back(self):
-        # An impure lambda (mutating a closure list) fails the purity gate:
-        # the per-element python path remains its contract (#558 C / #559).
+class TestStrictCapture:
+    def test_a_genuinely_python_wrapper_is_refused(self):
+        # An impure lambda (mutating a closure list) has no East capture:
+        # since #625 it raises before any row runs, and the explicit python
+        # loop is the boundary for python semantics.
         sink = _sink()
         seen: list[float] = []
-        _rows().for_each(lambda e: seen.append(sink(e["k"], e["v"])))
+        with pytest.raises(ExpressionError, match="captured automatically"):
+            _rows().for_each(lambda e: seen.append(sink(e["k"], e["v"])))
+        assert seen == []
+        for e in _rows():
+            seen.append(sink(e["k"], e["v"]))
         assert seen == [11.0, 12.0, 13.0]
 
     def test_an_arity_mismatched_call_declines_and_raises_the_named_cause(self):

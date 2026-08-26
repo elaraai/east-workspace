@@ -83,10 +83,13 @@ from east.expression.function import (
 from east.expression.helpers import (
     _append_field_kernel,
     _append_kernel,
+    _array_get_kernel,
     _dict_insert_fields_kernel,
     _empty_array_kernel,
     _empty_dict_kernel,
     _empty_set_kernel,
+    _error_combine_kernel,
+    _error_init_kernel,
     _identity_kernel,
     _none_init_kernel,
     _second_kernel,

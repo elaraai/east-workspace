@@ -27,8 +27,8 @@ from east.expression.nodes import (
     _type_key,
     _var,
 )
-from east.ir.builders import ir_get_field, ir_variant
-from east.types.types import ArrayType, BooleanType, EastType, NullType
+from east.ir.builders import ir_error, ir_get_field, ir_variant
+from east.types.types import ArrayType, BooleanType, EastType, NullType, StringType
 
 # ─── Hand-built helper kernels (internal — used by eager methods) ───────────
 #
@@ -210,6 +210,77 @@ def _dict_insert_fields_kernel(pair_t: EastType, key_field: str, value_field: st
     ins = _builtin("DictInsert", NullType, [k2_t, v_t], [acc, k_ir, v_ir])
     block = _k_block(dict_t, [ins, acc])
     k = compile_from_value(_function_ir([dict_t, pair_t], [acc, el], Expression(block, dict_t)))
+    _helper_memo[key] = k
+    return k
+
+
+def _key_error_message(k2: EastType, key_var: Any, prefix: str, suffix: str):
+    """``prefix + key + suffix`` as String IR — a String key prints BARE
+    (``Print`` would JSON-quote it), matching the eager path and TypeScript."""
+    printed = key_var if k2.type == "String" \
+        else _builtin("Print", StringType, [k2], [key_var])
+    return _builtin(
+        "StringConcat", StringType, [],
+        [_builtin("StringConcat", StringType, [],
+                  [_literal(prefix, StringType), printed]),
+         _literal(suffix, StringType)],
+    )
+
+
+def _error_combine_kernel(t2: EastType, k2: EastType, prefix: str, suffix: str) -> Any:
+    """Compiled ``(v1, v2, k) -> Error(prefix + key + suffix)`` — the default
+    collision handler (duplicate-key / exists-in-both), native so the strict
+    surface needs no python error callback (#625). The traced twin is
+    ``_TransformOps._key_error_node``; the messages must stay identical."""
+    from east.runtime.compiler import compile_from_value
+
+    key = "errcombine:" + _type_key(t2) + "|" + _type_key(k2) + "|" + prefix + "|" + suffix
+    cached = _helper_memo.get(key)
+    if cached is not None:
+        return cached
+    v1, v2, ck = _var("__k0", t2), _var("__k1", t2), _var("__k2", k2)
+    body = Expression(ir_error(t2, _key_error_message(k2, ck, prefix, suffix)), t2)
+    k = compile_from_value(_function_ir([t2, t2, k2], [v1, v2, ck], body))
+    _helper_memo[key] = k
+    return k
+
+
+def _error_init_kernel(out_t: EastType, k2: EastType, prefix: str, suffix: str) -> Any:
+    """Compiled ``(k) -> Error(prefix + key + suffix)`` — ``merge_key``'s
+    missing-key default, native (#625)."""
+    from east.runtime.compiler import compile_from_value
+
+    key = "errinit:" + _type_key(out_t) + "|" + _type_key(k2) + "|" + prefix + "|" + suffix
+    cached = _helper_memo.get(key)
+    if cached is not None:
+        return cached
+    ck = _var("__k0", k2)
+    body = Expression(ir_error(out_t, _key_error_message(k2, ck, prefix, suffix)), out_t)
+    k = compile_from_value(_function_ir([k2], [ck], body))
+    _helper_memo[key] = k
+    return k
+
+
+def _array_get_kernel(element_t: EastType) -> Any:
+    """Compiled (i: Integer, a: [t]) -> a[i] — ``get_keys``' element getter.
+
+    The array parameter binds BY REFERENCE at the call site
+    (``_array_get_kernel(t).bind(arr)``), so the gather never snapshots the
+    source — the python ``lambda idx: self[idx]`` closure it replaces has no
+    strict capture (#625).
+    """
+    from east.runtime.compiler import compile_from_value
+    from east.types.types import IntegerType as _IntegerType
+
+    key = "arrayget:" + _type_key(element_t)
+    cached = _helper_memo.get(key)
+    if cached is not None:
+        return cached
+    arr_t = ArrayType(element_t)
+    i = _var("__k0", _IntegerType)
+    a = _var("__k1", arr_t)
+    body = Expression(_builtin("ArrayGet", element_t, [element_t], [a, i]), element_t)
+    k = compile_from_value(_function_ir([_IntegerType, arr_t], [i, a], body))
     _helper_memo[key] = k
     return k
 

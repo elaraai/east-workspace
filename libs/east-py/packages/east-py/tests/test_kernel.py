@@ -4,9 +4,10 @@
 #
 """IR push-down tests: traced kernels + eager-method integration (issue #256).
 
-``east.expression`` traces pure python lambdas into East IR compiled by east-c;
-eager collection methods push callbacks down automatically when the purity
-gate allows, and fall back to the per-element python path otherwise.
+``east.expression`` traces pure python lambdas into East IR compiled by
+east-c; eager collection methods capture their callbacks strictly as
+``East.function`` bodies (#625) — a callback with no East capture raises the
+named error up front, and there is no per-element python fallback.
 """
 
 import pytest
@@ -118,12 +119,13 @@ def test_gate_rejects_closure_mutation():
 
 
 def test_try_push_down_respects_declared_output():
-    # Declared Boolean output but traced Float -> no push-down (the python
-    # path's truthiness semantics are preserved)
+    # Declared Boolean output but traced Float -> the capture names the
+    # mismatch (#625); there is no silent python path to fall back to.
     from east.types.types import BooleanType
 
     ef = EastFunction(lambda el, idx: el, [FloatType, IntegerType], BooleanType)
-    assert try_push_down(ef) is None
+    with pytest.raises(ExpressionError, match="produced Float"):
+        try_push_down(ef)
 
 
 # ─── eager-method integration (implicit push-down) ──────────────────────────
@@ -146,9 +148,12 @@ def test_filter_pushes_down_and_matches_python_semantics():
     assert [r["price"] for r in hot] == [10.0]
 
 
-def test_filter_truthiness_falls_back():
-    # Python truthiness on a Float is untraceable as Boolean — must still work
-    rows = _rows().filter(lambda r: r["qty"] - 1.0)
+def test_filter_truthiness_raises():
+    # Python truthiness on a Float is not an East Boolean predicate: the
+    # capture names the mismatch (#625) — spell the comparison explicitly.
+    with pytest.raises(ExpressionError, match="produced Float"):
+        _rows().filter(lambda r: r["qty"] - 1.0)
+    rows = _rows().filter(lambda r: (r["qty"] - 1.0) != 0.0)
     assert [r["sku"] for r in rows] == ["A-1", "A-1"]
 
 
@@ -157,15 +162,15 @@ def test_fold_pushes_down():
     assert total == 180.0
 
 
-def test_impure_lambda_keeps_python_semantics():
+def test_impure_lambda_is_refused():
     seen = []
     rows = _rows()
-    doubled = rows.map(lambda r: (seen.append(r["sku"]), r["price"] * 2.0)[1])
-    assert list(doubled) == [5.0, 300.0, 20.0]
-    # map() samples fn on the first element to infer the output type (a
-    # pre-existing behaviour), then the python path runs once per element —
-    # crucially NOT once total, which is what a mis-applied trace would give
-    assert seen == ["A-1", "A-1", "B-2", "A-1"]
+    # A closure-mutating callback has no East capture (#625): the raise lands
+    # before any element runs — crucially the side effect never fires once at
+    # build time either, which is what a mis-applied trace would give.
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        rows.map(lambda r: (seen.append(r["sku"]), r["price"] * 2.0)[1])
+    assert seen == []
 
 
 def test_group_by_native_path():
@@ -208,15 +213,13 @@ def test_struct_field_attribute_access():
     assert rows[0]["qty"] == 4.0
 
 
-def test_attribute_lambdas_work_on_both_paths():
+def test_attribute_lambdas_trace():
     rows = _rows()
     traced = rows.map(lambda r: r.price * r.qty)
-    sink = []
-    python_path = rows.map(lambda r: (sink, r.price * r.qty)[1])
-    assert list(traced) == list(python_path)
+    assert list(traced) == [10.0, 150.0, 20.0]
 
 
-# ─── differential: traced and python paths must agree ───────────────────────
+# ─── one semantics: python work around the same body is refused loudly ──────
 
 _DIFF_CASES = [
     ("map-arith", lambda rows, f: rows.map(f), lambda r: r.price * r.qty + 1.0),
@@ -229,30 +232,25 @@ _DIFF_CASES = [
 
 
 @pytest.mark.parametrize(("name", "invoke", "fn"), _DIFF_CASES, ids=[c[0] for c in _DIFF_CASES])
-def test_traced_matches_python_path(name, invoke, fn):
+def test_python_work_around_the_same_body_is_refused(name, invoke, fn):
+    """Two syntactically identical callbacks can never differ by purity
+    (#625): the clean body captures and runs native, and the SAME body behind
+    a mutable python capture raises the named error instead of silently
+    taking a second execution path."""
     rows = _rows()
 
-    # the natural call: gate-eligible, so it traces into a native kernel
-    assert _eligible(fn), f"{name}: expected the differential lambda to be traceable"
-
+    assert _eligible(fn), f"{name}: expected the clean lambda to be traceable"
     traced = invoke(rows, fn)
+    assert traced is not None
 
-    # force the python path with a gate-defeating (but semantically inert)
-    # closure over a mutable object. Declare the wrapped arity explicitly:
-    # a bare *args wrapper reads as "takes everything", and the eager
-    # methods would then hand it the builtin's full (el, idx) signature.
     poison = []
 
     def python_fn(el):
         _ = poison
         return fn(el)
 
-    python_result = invoke(rows, python_fn)
-
-    if hasattr(traced, "keys"):
-        assert sorted(traced.keys()) == sorted(python_result.keys())
-    else:
-        assert list(traced) == list(python_result)
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        invoke(rows, python_fn)
 
 
 # ─── options: `none` lifts into traced kernels (issue #376) ──────────────────
@@ -521,14 +519,16 @@ def test_method_string_lambda_pushes_down_automatically():
     assert list(_rows().map(fn, out=StringType)) == ["A", "B", "A"]
 
 
-def test_captured_collection_does_not_auto_push_down():
+def test_captured_collection_needs_an_explicit_capture():
     from east import EastDict
 
     table = EastDict(StringType, StringType, {"A-1": "first"})
     fn = lambda r: table.get_or_default(r.sku, "other")  # noqa: E731
-    # mutable capture: the gate must refuse (tracing would snapshot the table)
+    # mutable capture: the auto-wrap refuses — snapshot-vs-live is an
+    # explicit choice (kernel()/East.function snapshots, .bind stays live)
     assert not _eligible(fn)
-    assert try_push_down(EastFunction(fn, [ROW], StringType)) is None
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        try_push_down(EastFunction(fn, [ROW], StringType))
 
 
 def test_captured_constants_hoist_once_per_kernel():
@@ -757,7 +757,7 @@ def test_first_map_traces_and_matches_eager():
     assert k({"id": "", "data": ""}) == "<none>"
     eager = EastArray(StringType, ["a", "bb", "ccc"])
     result = eager.first_map(
-        lambda v: some(v.upper()) if len(v) > 1 else none, out=StringType
+        lambda v: if_else(v.length() > 1, some(v.upper()), none), out=StringType
     )
     assert result.type == "some" and result.value == "BB"
 
