@@ -608,6 +608,11 @@ cdef extern from "east/compiler.h":
 
 # ─── type_of_type.h ─────────────────────────────────────────────────────
 
+cdef extern from "east/ir_normalize.h":
+    EastValue *east_ir_normalize(EastValue *ir)
+    char *east_value_diff_path(EastValue *a, EastValue *b)
+
+
 cdef extern from "east/type_of_type.h":
     # Type descriptors (initialized by east_type_of_type_init)
     EastType *east_type_type

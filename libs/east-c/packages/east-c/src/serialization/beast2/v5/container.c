@@ -521,8 +521,23 @@ void b2v5_index_free(B2V5Index *ix)
 /*  Whole-value encode                                                 */
 /* ================================================================== */
 
+static ByteBuffer *encode_v5(EastValue *value, EastType *type, int32_t codec_id, bool with_index,
+                             EastSourceMap *header_override, bool use_override);
+
 ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t codec_id,
                                   bool with_index)
+{
+    return encode_v5(value, type, codec_id, with_index, NULL, false);
+}
+
+ByteBuffer *east_beast2_encode_ir(EastValue *ir_value, EastSourceMap *source_map)
+{
+    if (!east_ir_type) east_type_of_type_init();
+    return encode_v5(ir_value, east_ir_type, EAST_BEAST2_CODEC_DEFLATE, false, source_map, true);
+}
+
+static ByteBuffer *encode_v5(EastValue *value, EastType *type, int32_t codec_id, bool with_index,
+                             EastSourceMap *header_override, bool use_override)
 {
     if (!value || !type) return NULL;
     if (codec_id != EAST_BEAST2_CODEC_NONE && codec_id != EAST_BEAST2_CODEC_DEFLATE) {
@@ -537,8 +552,10 @@ ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t code
     /* Header source map: only a root function value carries one up front;
      * maps on nested functions travel as inline deltas. */
     EastSourceMap *header_sm = NULL;
-    if ((type->kind == EAST_TYPE_FUNCTION || type->kind == EAST_TYPE_ASYNC_FUNCTION) &&
-        value->kind == EAST_VAL_FUNCTION && value->data.function.compiled) {
+    if (use_override) {
+        header_sm = header_override;
+    } else if ((type->kind == EAST_TYPE_FUNCTION || type->kind == EAST_TYPE_ASYNC_FUNCTION) &&
+               value->kind == EAST_VAL_FUNCTION && value->data.function.compiled) {
         header_sm = value->data.function.compiled->source_map;
     }
 

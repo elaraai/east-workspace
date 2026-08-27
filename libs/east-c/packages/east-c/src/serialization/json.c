@@ -2759,7 +2759,7 @@ EastValue *east_json_decode_with_error(const char *json, EastType *type, char **
 /* Build source map from decoded wrapper value.
  * sm_val is a Struct({stacks: Array(Array(Struct({column,filename,line})))}).
  * Returns a heap EastSourceMap holding one reference (the caller's), or NULL. */
-static EastSourceMap *build_source_map_from_value(EastValue *sm_val)
+EastSourceMap *east_source_map_from_value(EastValue *sm_val)
 {
     if (!sm_val || sm_val->kind != EAST_VAL_STRUCT) return NULL;
     EastValue *stacks_val = east_struct_get_field_idx(sm_val, 0);
@@ -2831,7 +2831,7 @@ IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out,
         /* Struct fields sorted alphabetically: ir=0, source_map=1 */
         ir_val = east_struct_get_field_idx(wrapper_val, 0);
         EastValue *sm_val = east_struct_get_field_idx(wrapper_val, 1);
-        source_map = build_source_map_from_value(sm_val);
+        source_map = east_source_map_from_value(sm_val);
         if (ir_val) east_value_retain(ir_val);
         east_value_release(wrapper_val);
     } else {

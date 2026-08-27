@@ -33,6 +33,21 @@ See [`docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFI
 
 The CLI loads the standard platform from `east-c-std` by default. Custom platform functions can be linked at build time.
 
+The `ir` toolbox (issue #627) works on IR files without running them:
+
+```bash
+# The canonical form of an IR file: loc_ids stripped, variables/labels renamed in
+# the TypeScript lowering's order, captures recomputed, recursive type ids renumbered
+east-c ir normalize program.json -o canonical.json
+
+# Normalize two IR files and report the first structural difference (exit 1) or
+# "identical" (exit 0); --raw compares as-is
+east-c ir diff program.json rebuilt.beast2
+
+# json <-> beast2 with the source map intact
+east-c ir convert program.json -o program.beast2
+```
+
 ## Claude Code plugin
 
 The East ecosystem also ships a [Claude Code](https://claude.com/claude-code) plugin — East language skills, example search, and preemptive diagnostics for East code — installed separately from the `elaraai` marketplace:

@@ -316,6 +316,16 @@ ByteBuffer *east_beast2_splice_tail(const size_t *offsets, const size_t *counts,
 IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out,
                             EastSourceMap **source_map_out);
 
+// The heap source map (one reference, the caller's) a decoded wrapper's
+// `source_map` value describes — `{stacks: [[{filename, line, column}]]}` —
+// or NULL when it carries no stacks.
+EastSourceMap *east_source_map_from_value(EastValue *sm_val);
+
+// Encode an IR value (IRType) as a beast2 (v5) blob whose header carries
+// `source_map` (NULL: an empty map) — the twin of east_beast2_decode_ir, for
+// re-encoding an IR file with its locations intact.
+ByteBuffer *east_beast2_encode_ir(EastValue *ir_value, EastSourceMap *source_map);
+
 // Beast v1 binary serialization (magic + type schema + twiddled values)
 ByteBuffer *east_beast_encode(EastValue *value, EastType *type);
 EastValue *east_beast_decode(const uint8_t *data, size_t len, EastType *type);
