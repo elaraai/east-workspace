@@ -61,7 +61,9 @@ from east.expression.control import (
     let,
     new_array,
     new_dict,
+    new_matrix,
     new_set,
+    new_vector,
     ref,
     try_catch,
     while_,
@@ -98,14 +100,19 @@ from east.expression.helpers import (
     _set_insert_field_kernel,
 )
 from east.expression.lift import (
+    _coerce,
     _lift,
     _lower_compiled_call,
     _sequence_effect,
     _trace_inner_fn,
     _tracing,
+    as_,
+    builtin,
     greatest,
     if_else,
     least,
+    value,
+    wrap_recursive,
 )
 from east.expression.location import (
     SourceMap,
@@ -126,7 +133,26 @@ from east.expression.nodes import (
     _literal,
     _var,
 )
-from east.expression.platform import PlatformDeclaration, async_platform, platform
+from east.expression.platform import (
+    PlatformDeclaration,
+    async_generic_platform,
+    async_platform,
+    generic_platform,
+    platform,
+)
+from east.expression.statements import (
+    IfBuilder,
+    LoopLabel,
+    TryBuilder,
+    assign,
+    const,
+    do,
+    error,
+    if_,
+    match_,
+    return_,
+    try_,
+)
 
 __all__ = [
     # the strict builder trio (reached as East.function / East.platform / …)
@@ -134,7 +160,26 @@ __all__ = [
     "async_function",
     "platform",
     "async_platform",
+    "generic_platform",
+    "async_generic_platform",
     "PlatformDeclaration",
+    # the statement surface (the TypeScript `$` twin)
+    "const",
+    "assign",
+    "return_",
+    "if_",
+    "match_",
+    "try_",
+    "do",
+    "error",
+    "IfBuilder",
+    "TryBuilder",
+    "LoopLabel",
+    # expression spellings for every IR node kind
+    "value",
+    "as_",
+    "wrap_recursive",
+    "builtin",
     "compile_",
     "compile_async",
     "Expression",
@@ -159,4 +204,6 @@ __all__ = [
     "new_array",
     "new_set",
     "new_dict",
+    "new_vector",
+    "new_matrix",
 ]

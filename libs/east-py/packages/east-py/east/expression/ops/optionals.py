@@ -22,7 +22,8 @@ from east.expression.nodes import (
     _var,
 )
 from east.expression.ops import _ExprBase
-from east.ir.builders import ir_error, ir_trycatch, ir_variant
+from east.expression.statements import _Run as _RunT
+from east.ir.builders import ir_error, ir_trycatch, ir_unwrap_recursive, ir_variant
 from east.types.types import ArrayType, BooleanType, EastType, IntegerType, NullType, StringType
 from east.types.values import EastVariant
 
@@ -123,32 +124,43 @@ class _OptionOps(_ExprBase):
         return self._expr(node, BooleanType)
 
     def match(self, cases: dict) -> Expression:
-        """Exhaustive traced match: {case: handler(payload_expr) -> expr}.
+        """Traced match — the EXPRESSION form (TS ``East.match``):
+        ``{case: handler(payload_expr) -> expr}``.
 
-        Every case must be handled and all handler results must share one
-        East type (a scalar handler value is lifted, with the other
-        branches' type as the hint).
+        Each handler runs in its own statement frame (it may append
+        statements and return the arm's value, or diverge). The result type
+        is the union of the arms' types — a diverging ``Never`` arm is
+        absorbed, a narrower arm widens — so every arm must agree on one
+        East type (a scalar handler value is lifted with the other arms'
+        type as the hint). A case without a handler evaluates to ``null``,
+        which only types when every other arm is Null too.
         """
         from east.expression.expr import Expression
+        from east.expression.statements import _finish_run, _frames, _open_run
 
         declared = self._variant_cases()
         names = [c["name"] for c in declared]
-        missing = [n for n in names if n not in cases]
         extra = [n for n in cases if n not in names]
-        if missing or extra:
+        if extra:
             raise ExpressionError(
-                f".match() must handle exactly the variant's cases {names}; "
-                f"missing {missing}, unknown {extra}"
+                f".match() must handle the variant's cases {names}; unknown {extra}"
             )
+        ret_t = _frames[-1].return_type if _frames else None
         results = []
         for c in declared:
             var = _var(_fresh_name(), c["type"])
-            handler = cases[c["name"]]
+            handler = cases.get(c["name"])
             # A Expression arm is a VALUE arm, not a handler — expressions
             # became callable when Function-typed expressions gained Call
             # lowering (#561), and invoking a non-function one would raise.
-            run = callable(handler) and not isinstance(handler, Expression)
-            raw = handler(self._expr(var, c["type"])) if run else handler
+            if handler is None:
+                raw: Any = self._expr(_literal(None, NullType), NullType)
+            elif callable(handler) and not isinstance(handler, Expression):
+                # Run now, assemble once the arms have settled a type: a
+                # `none` arm lifts under its `some` sibling's Option type.
+                raw = _open_run(handler, (self._expr(var, c["type"]),), return_type=ret_t)
+            else:
+                raw = handler
             results.append((c["name"], var, raw))
         # Settle the shared output type from ANY arm that can state one
         # without a hint — a raw Expression, OR a `some(...)` result, which
@@ -159,29 +171,44 @@ class _OptionOps(_ExprBase):
         # context" — the exact pairing `if_else(...)` types fine (#558 D).
         out_t = None
         for _, _, raw in results:
-            if isinstance(raw, Expression):
-                out_t = raw.east_type
+            probe = raw.result if isinstance(raw, _RunT) else raw
+            if isinstance(probe, Expression):
+                out_t = probe.east_type
                 break
-            if (isinstance(raw, EastVariant) and raw.type == "some"
-                    and isinstance(raw.value, Expression)):
-                out_t = _option_type(raw.value.east_type)
+            if (isinstance(probe, EastVariant) and probe.type == "some"
+                    and isinstance(probe.value, Expression)):
+                out_t = _option_type(probe.value.east_type)
                 break
+        from east.expression.lift import _coerce, _union_type
+
+        lifted = [(name, var,
+                   _finish_run(raw, "block_expr", out_t) if isinstance(raw, _RunT)
+                   else _lift(raw, hint=out_t))
+                  for name, var, raw in results]
+        out_t = _union_type([b.east_type for _n, _v, b in lifted], ".match()")
         case_nodes = []
-        for name, var, raw in results:
-            body = _lift(raw, hint=out_t)
-            if out_t is None:
-                out_t = body.east_type
-            elif body.east_type != out_t:
-                raise ExpressionError(
-                    f".match() case {name!r} returns {body.east_type.type}, "
-                    f"other cases return {out_t.type}"
-                )
+        for name, var, body in lifted:
+            if body.east_type.type != "Never":
+                body = _coerce(body, out_t)
             case_nodes.append((name, var, body.ir))
         node = _k_match(out_t, self.ir, case_nodes)
         return self._expr(node, out_t)
 
-    def unwrap(self, tag: str) -> Expression:
-        """The payload of `tag`; an East runtime error for any other case."""
+    def unwrap(self, tag: str | None = None) -> Expression:
+        """The payload of `tag`; an East runtime error for any other case.
+
+        On a RECURSIVE-typed expression ``.unwrap()`` takes no tag: it is the
+        recursive type's one level of unrolling (TS ``RecursiveExpr.unwrap``,
+        the ``UnwrapRecursive`` node) — the value as its inner type.
+        """
+        if self.east_type.type == "Recursive":
+            from east.expression.lift import _unroll
+
+            if tag is not None:
+                raise ExpressionError(
+                    ".unwrap() on a recursive-typed expression takes no case name")
+            inner_t = _unroll(self.east_type)
+            return self._expr(ir_unwrap_recursive(inner_t, self.ir, _loc_id()), inner_t)
         if not isinstance(tag, str):
             raise ExpressionError(".unwrap() takes a literal case name")
         declared = self._variant_cases()

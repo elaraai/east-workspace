@@ -19,9 +19,9 @@ from __future__ import annotations
 from typing import Any
 
 from east.expression.errors import ExpressionError, _trace_bail
-from east.expression.lift import _lift
+from east.expression.lift import _coerce, _lift
 from east.expression.location import location_id as _loc_id
-from east.expression.nodes import _k_call
+from east.expression.nodes import _k_call, _k_call_async
 from east.expression.ops.collections import _CollectionOps
 from east.expression.ops.grouping import _GroupOps
 from east.expression.ops.mutation import _MutationOps
@@ -54,8 +54,9 @@ _TRACED_SURFACE = {
         "group_by", "sorted", "is_sorted", "some", "every", "string_join",
         "concat", "slice", "reversed", "copy", "get_keys",
         "size", "has", "get", "get_or_default", "try_get",
-        # in-place mutation (#578)
-        "append", "extend", "clear",
+        # in-place mutation (#578; the rest of the builtin surface, #627)
+        "append", "extend", "clear", "prepend", "pop", "pop_first", "set_at",
+        "reverse_in_place", "sort_in_place", "for_each",
         # reductions (#525 phase 1)
         "sum", "mean", "maximum", "minimum",
         # find_* (#525 phase 2)
@@ -83,8 +84,9 @@ _TRACED_SURFACE = {
         "group_every", "group_some",
         # group_to_* (#525 phase 3b)
         "group_to_arrays", "group_to_sets", "group_to_dicts",
-        # in-place mutation (#578)
-        "insert", "try_insert", "delete", "try_delete", "clear",
+        # in-place mutation (#578; the rest of the builtin surface, #627)
+        "insert", "try_insert", "delete", "try_delete", "clear", "union_in_place",
+        "for_each",
     })),
     "Dict": tuple(sorted({
         "map", "filter", "filter_map", "first_map", "map_reduce", "scan",
@@ -100,8 +102,10 @@ _TRACED_SURFACE = {
         "group_every", "group_some",
         # group_to_* (#525 phase 3b)
         "group_to_arrays", "group_to_sets", "group_to_dicts",
-        # in-place mutation (#578)
+        # in-place mutation (#578; the rest of the builtin surface, #627)
         "insert", "insert_or_update", "delete", "try_delete", "clear",
+        "update_at", "swap", "pop", "get_or_insert", "merge_key", "merge_all",
+        "union_in_place", "for_each",
     })),
     # The tensor surface (#598): structural ops + elementwise arithmetic,
     # masks, reductions and gather/scatter. Deliberately absent: the callback
@@ -305,13 +309,19 @@ class Expression(
         function value. Emits the IR ``Call`` node, so the callee — whatever
         function value the expression evaluates to at run time — is invoked
         natively per element."""
+        from east.types.types import is_subtype
+
         tag = self.east_type.type
         if tag == "AsyncFunction":
-            raise ExpressionError(
-                "an AsyncFunction value cannot be called inside a sync traced "
-                "kernel — call it from python (per-element) instead"
-            )
-        if tag != "Function":
+            from east.expression.function import _in_async_build
+
+            if not _in_async_build():
+                raise ExpressionError(
+                    "an AsyncFunction value cannot be called inside a sync traced "
+                    "kernel — call it from an East.asyncFunction body (a CallAsync) "
+                    "or from python (per-element) instead"
+                )
+        elif tag != "Function":
             raise ExpressionError(f"calling a non-function expression ({tag})")
         sig = self.east_type.value
         inputs = list(sig["inputs"])
@@ -324,13 +334,14 @@ class Expression(
         arg_exprs = []
         for a, t in zip(args, inputs, strict=True):
             e = _lift(a, hint=t)
-            if e.east_type != t:
+            if not is_subtype(e.east_type, t):
                 raise ExpressionError(
                     f"function argument has East type {e.east_type.type}, "
                     f"the parameter expects {t.type}"
                 )
-            arg_exprs.append(e)
-        node = _k_call(out_t, self.ir, [e.ir for e in arg_exprs])
+            arg_exprs.append(_coerce(e, t))
+        make = _k_call_async if tag == "AsyncFunction" else _k_call
+        node = make(out_t, self.ir, [e.ir for e in arg_exprs])
         return Expression(node, out_t)
 
     # ── operations that cannot be traced (fail loud) ────────────────────

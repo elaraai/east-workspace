@@ -240,11 +240,68 @@ def ir_new_ref(typ: EastTypeValue, value, loc_id: int = 0):
 
 
 def ir_let(typ: EastTypeValue, variable, value, loc_id: int = 0):
-    """Create a Let IR node binding ``variable`` to ``value``."""
+    """Create a Let IR node binding ``variable`` to ``value``.
+
+    A Let is a statement: the TypeScript builder types every Let ``Null``
+    (``$.let`` / ``$.const``), whatever the bound value's type. ``typ`` is
+    kept as a parameter for hand-built IR; the expression builders pass
+    ``NullType``.
+    """
     return EastVariant("Let", EastStruct({
         "type": typ,
         "loc_id": loc_id,
         "variable": variable,
+        "value": value,
+    }))
+
+
+def ir_assign(typ: EastTypeValue, variable, value, loc_id: int = 0):
+    """Create an Assign IR node — ``variable`` (a mutable Variable node)
+    takes ``value``. A statement: TypeScript types it ``Null``."""
+    return EastVariant("Assign", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "variable": variable,
+        "value": value,
+    }))
+
+
+def ir_return(typ: EastTypeValue, value, loc_id: int = 0):
+    """Create a Return IR node leaving the enclosing function with ``value``.
+    Diverging: TypeScript types it ``Never``."""
+    return EastVariant("Return", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "value": value,
+    }))
+
+
+def ir_as(typ: EastTypeValue, value, loc_id: int = 0):
+    """Create an As IR node — the explicit subtype widening of ``value`` to
+    ``typ`` (the value's type must be a strict subtype of ``typ``)."""
+    return EastVariant("As", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "value": value,
+    }))
+
+
+def ir_wrap_recursive(typ: EastTypeValue, value, loc_id: int = 0):
+    """Create a WrapRecursive IR node: ``value`` (of the recursive type's
+    unrolled inner type) becomes a value of the recursive type ``typ``."""
+    return EastVariant("WrapRecursive", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "value": value,
+    }))
+
+
+def ir_unwrap_recursive(typ: EastTypeValue, value, loc_id: int = 0):
+    """Create an UnwrapRecursive IR node: ``value`` (of a recursive type)
+    read as its unrolled inner type ``typ``."""
+    return EastVariant("UnwrapRecursive", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
         "value": value,
     }))
 
@@ -265,6 +322,26 @@ def ir_new_array(typ: EastTypeValue, values: list, loc_id: int = 0):
         "type": typ,
         "loc_id": loc_id,
         "values": EastArray(IRType, values),
+    }))
+
+
+def ir_new_vector(typ: EastTypeValue, values: list, loc_id: int = 0):
+    """Create a NewVector IR node constructing a vector from ``values``."""
+    return EastVariant("NewVector", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "values": EastArray(IRType, values),
+    }))
+
+
+def ir_new_matrix(typ: EastTypeValue, rows: int, cols: int, values: list, loc_id: int = 0):
+    """Create a NewMatrix IR node (``rows`` x ``cols``, row-major ``values``)."""
+    return EastVariant("NewMatrix", EastStruct({
+        "type": typ,
+        "loc_id": loc_id,
+        "values": EastArray(IRType, values),
+        "rows": rows,
+        "cols": cols,
     }))
 
 
@@ -493,8 +570,15 @@ __all__ = [
     "ir_call_async",
     "ir_new_ref",
     "ir_let",
+    "ir_assign",
+    "ir_return",
+    "ir_as",
+    "ir_wrap_recursive",
+    "ir_unwrap_recursive",
     "ir_get_field",
     "ir_new_array",
+    "ir_new_vector",
+    "ir_new_matrix",
     "ir_new_set",
     "ir_new_dict",
     "ir_struct",

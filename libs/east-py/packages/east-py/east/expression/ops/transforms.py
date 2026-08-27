@@ -61,7 +61,7 @@ class _TransformOps(_ExprBase):
         if tag == "Array":
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda el, _i: lift_result(fn(el)), [elem_t, IntegerType], declared=2
+                lambda el, i: lift_result(_with_index(fn)(el, i)), [elem_t, IntegerType], declared=2
             )
             if not _is_option(out_t):
                 raise ExpressionError(
@@ -144,7 +144,7 @@ class _TransformOps(_ExprBase):
         if tag == "Array":
             elem_t = self.east_type.value
             node, inner_t = self._option_callback(
-                lambda el, _i: fn(el), [elem_t, IntegerType], 2, out)
+                _with_index(fn), [elem_t, IntegerType], 2, out)
             self._check_out(".filter_map()", inner_t, out)
             out_a = _ArrayType(inner_t)
             return self._expr(
@@ -184,7 +184,7 @@ class _TransformOps(_ExprBase):
         if tag == "Array":
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda el, _i: fn(el), [elem_t, IntegerType], declared=2, out_hint=hint)
+                _with_index(fn), [elem_t, IntegerType], declared=2, out_hint=hint)
             builtin, tps = "ArrayFlattenToArray", [elem_t]
         elif tag == "Set":
             elem_t = self.east_type.value
@@ -216,7 +216,7 @@ class _TransformOps(_ExprBase):
         if tag == "Array":
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda el, _i: fn(el), [elem_t, IntegerType], declared=2, out_hint=hint)
+                _with_index(fn), [elem_t, IntegerType], declared=2, out_hint=hint)
             builtin, tps = "ArrayFlattenToSet", [elem_t]
         elif tag == "Set":
             elem_t = self.east_type.value
@@ -326,11 +326,11 @@ class _TransformOps(_ExprBase):
         if tag == "Array":
             elem_t = self.east_type.value
             key_node, k2 = _trace_inner_fn(
-                lambda el, _i: key(el), [elem_t, IntegerType], declared=2,
+                _with_index(key), [elem_t, IntegerType], declared=2,
                 out_hint=key_out)
             val = value if value is not None else (lambda el: el)
             val_node, t2 = _trace_inner_fn(
-                lambda el, _i: val(el), [elem_t, IntegerType], declared=2,
+                _with_index(val), [elem_t, IntegerType], declared=2,
                 out_hint=value_out)
         elif tag == "Dict":
             kv = self.east_type.value
@@ -393,7 +393,7 @@ class _TransformOps(_ExprBase):
         if tag == "Array":
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda el, _i: fn(el), [elem_t, IntegerType], declared=2)
+                _with_index(fn), [elem_t, IntegerType], declared=2)
             builtin, tps = "ArrayFlattenToDict", [elem_t]
         elif tag == "Set":
             elem_t = self.east_type.value
@@ -452,7 +452,7 @@ class _TransformOps(_ExprBase):
             elem_t = self.east_type.value
             proj = key if key is not None else (lambda el: el)
             node, k2 = _trace_inner_fn(
-                lambda el, _i: proj(el), [elem_t, IntegerType], declared=2)
+                _with_index(proj), [elem_t, IntegerType], declared=2)
             self._check_out(".to_set()", k2, out)
             out_t = _SetType(k2)
             return self._expr(

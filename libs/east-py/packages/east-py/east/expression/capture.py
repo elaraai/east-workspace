@@ -517,7 +517,7 @@ def capture_callback(east_fn: Any) -> Any:
     with source_map_scope() as source_map:
         ir_value, out_type, fn_binds = trace(east_fn.fn, list(east_fn.input_types),
                                              out_hint=east_fn.output_type)
-    if out_type != east_fn.output_type:
+    if out_type != east_fn.output_type and out_type.type != "Never":
         raise ExpressionError(
             f"callback produced {out_type.type}, the declared slot is "
             f"{east_fn.output_type.type} — the built expression must match "

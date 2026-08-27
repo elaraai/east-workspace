@@ -60,7 +60,7 @@ class _GroupOps(_ExprBase):
 
         elem_t = self._array_elem("group_by")
         key_node, k2 = _trace_inner_fn(
-            lambda el, _i: key(el), [elem_t, IntegerType], declared=2)
+            _with_index(key), [elem_t, IntegerType], declared=2)
         bucket_t = _ArrayType(elem_t)
         gk = _var(_fresh_name(), k2)
         init_node = _k_function(
