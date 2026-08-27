@@ -27,6 +27,7 @@ import { initializeStore, getStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
 import { setBodyRowRenderProbe } from "./rows/BodyRow.js";
+import type { PlanInstantValue } from "./instant.js";
 
 afterEach(cleanup);
 
@@ -39,10 +40,14 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
 const NOW = new Date("2026-08-12T00:00:00Z");
+/** Instants on each arm — REAL East variant values, as the decoder yields them (#631). */
+const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
+const n = (v: number): PlanInstantValue => variant("number", v) as PlanInstantValue;
+const o = (v: string): PlanInstantValue => variant("ordinal", v) as PlanInstantValue;
 
 function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: string; stuck?: boolean; qty?: number }) {
     return {
-        key, start, end, label: key.toUpperCase(),
+        key, start: t(start), end: t(end), label: key.toUpperCase(),
         quantity: opts?.quantity !== undefined ? some(opts.quantity) : none,
         qty: opts?.qty !== undefined ? some(opts.qty) : none,
         state,
@@ -90,17 +95,18 @@ function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
     return new Map(rows.map((r) => [r.key, r]));
 }
 
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
         links: opts?.links ?? [],
-        axis: {
+        // The TIME arm by default (#631); the typed-axis tests pass their own.
+        axis: opts?.axis ?? variant("time", {
             window: some({ min: W27, max: W39 }),
             resolution: variant("week", null),
             resolutions: opts?.resolutions ?? [],
             now: opts?.now !== undefined ? some(opts.now) : (opts && "now" in opts ? none : some(NOW)),
             format: none,
-        },
+        }),
         grain: none,
        
         popover: opts?.popover !== undefined ? some(opts.popover) : none,
@@ -223,7 +229,7 @@ describe("Plan group strips (§5)", () => {
         const { container } = renderPlan(planRoot([
             planRow("line2", variant("group", {
                 summary: some(variant("heat", {
-                    cells: [{ at: new Date("2026-06-29Z"), value: some(80), label: some("80") }],
+                    cells: [{ at: t(new Date("2026-06-29Z")), value: some(80), label: some("80") }],
                     min: some(0), max: some(100), warnAt: none,
                 })),
                 summaryAggregate: none,
@@ -241,7 +247,7 @@ describe("Plan group strips (§5)", () => {
         const { container } = renderPlan(planRoot([
             planRow("line2", variant("group", {
                 summary: some(variant("heat", {
-                    cells: [{ at: new Date("2026-06-29Z"), value: some(80), label: some("80") }],
+                    cells: [{ at: t(new Date("2026-06-29Z")), value: some(80), label: some("80") }],
                     min: some(0), max: some(100), warnAt: none,
                 })),
                 summaryAggregate: none,
@@ -261,9 +267,9 @@ describe("Plan heat rows (§4·K4)", () => {
             planRow("l1", variant("heat", {
                 cells: variant("heat", {
                     cells: [
-                        { at: new Date("2026-06-29Z"), value: some(30), label: some("30") },
-                        { at: new Date("2026-07-06Z"), value: some(96), label: some("96") },
-                        { at: new Date("2026-07-13Z"), value: none, label: none },
+                        { at: t(new Date("2026-06-29Z")), value: some(30), label: some("30") },
+                        { at: t(new Date("2026-07-06Z")), value: some(96), label: some("96") },
+                        { at: t(new Date("2026-07-13Z")), value: none, label: none },
                     ],
                     min: some(0), max: some(100), warnAt: some(95),
                 }),
@@ -285,8 +291,8 @@ describe("Plan chart rows (§4·K3)", () => {
             layers: [
                 variant("line", {
                     points: [
-                        { t: new Date("2026-06-29Z"), y: 94 },
-                        { t: new Date("2026-08-31Z"), y: 101 },
+                        { t: t(new Date("2026-06-29Z")), y: 94 },
+                        { t: t(new Date("2026-08-31Z")), y: 101 },
                     ],
                     axis: variant("left", null),
                     breach: none,
@@ -455,7 +461,7 @@ describe("Plan DOM scale (#616)", () => {
                     bucketEvent("e1", new Date("2026-06-29Z"), variant("actual", null)),
                     bucketEvent("e2", new Date("2026-07-06Z"), variant("confirmed", null)),
                 ],
-                markers: [{ at: new Date("2026-07-20Z"), lane: none, status: variant("danger", null), message: "short" }],
+                markers: [{ at: t(new Date("2026-07-20Z")), lane: none, status: variant("danger", null), message: "short" }],
             })),
         ]), "plan-616-cells");
         // 12 buckets: 2 event cells + 1 marker cell mount — not 12 — and the
@@ -562,7 +568,7 @@ describe("Plan ephemeral UI state survives a data commit (#610)", () => {
 
 function bucketEvent(key: string, at: Date, state: unknown, opts?: { lane?: string; label?: string; stretch?: string; tone?: string }) {
     return {
-        key, at,
+        key, at: t(at),
         lane: opts?.lane !== undefined ? some(opts.lane) : none,
         label: opts?.label !== undefined ? some(opts.label) : none,
         icon: none, state,
@@ -584,7 +590,7 @@ describe("Plan bucket rows (§4·K2)", () => {
                     bucketEvent("e3", new Date("2026-07-13Z"), variant("confirmed", null),
                         { label: "TRIM · 4 t", stretch: "horizontal", tone: "warning" }),
                 ],
-                markers: [{ at: new Date("2026-07-20Z"), lane: none, status: variant("danger", null), message: "short 2 ops" }],
+                markers: [{ at: t(new Date("2026-07-20Z")), lane: none, status: variant("danger", null), message: "short 2 ops" }],
             })),
         ]));
         expect(container.querySelector('[data-event="e1"]')!.getAttribute("data-state")).toBe("obs");
@@ -627,8 +633,8 @@ describe("Plan bucket rows (§4·K2)", () => {
                     bucketEvent("am1", new Date("2026-07-06Z"), variant("confirmed", null), { lane: "am" }),
                 ],
                 markers: [
-                    { at: new Date("2026-07-06Z"), lane: some("pm"), status: variant("warning", null), message: "tight" },
-                    { at: new Date("2026-07-06Z"), lane: some("pm"), status: variant("danger", null), message: "short 2 ops" },
+                    { at: t(new Date("2026-07-06Z")), lane: some("pm"), status: variant("warning", null), message: "tight" },
+                    { at: t(new Date("2026-07-06Z")), lane: some("pm"), status: variant("danger", null), message: "short 2 ops" },
                 ],
             })),
         ]), "plan-full-cell-615");
@@ -646,7 +652,7 @@ describe("Plan bucket rows (§4·K2)", () => {
 
 function tableCell(at: Date, v: number | undefined, text?: string) {
     return {
-        at,
+        at: t(at),
         value: v !== undefined ? some(v) : none,
         text: text !== undefined ? some(text) : none,
         tone: none,
@@ -751,11 +757,11 @@ describe("Plan cards rows (§4·K6)", () => {
         const { container } = renderPlan(planRoot([
             planRow("ops", variant("cards", {
                 chips: [
-                    { key: "c1", from: new Date("2026-06-29Z"), to: new Date("2026-07-13Z"), label: "D. OKAFOR",
+                    { key: "c1", from: t(new Date("2026-06-29Z")), to: t(new Date("2026-07-13Z")), label: "D. OKAFOR",
                         state: variant("confirmed", null), icon: none },
-                    { key: "c2", from: new Date("2026-07-13Z"), to: new Date("2026-07-27Z"), label: "+64h",
+                    { key: "c2", from: t(new Date("2026-07-13Z")), to: t(new Date("2026-07-27Z")), label: "+64h",
                         state: variant("proposed", variant("recommended", null)), icon: none },
-                    { key: "c3", from: new Date("2026-07-27Z"), to: new Date("2026-08-10Z"), label: "L. CHEN",
+                    { key: "c3", from: t(new Date("2026-07-27Z")), to: t(new Date("2026-08-10Z")), label: "L. CHEN",
                         state: variant("proposed", variant("removed", null)), icon: none },
                 ],
             })),
@@ -877,15 +883,15 @@ describe("Plan element clicks (#569)", () => {
                 lanes: [], events: [bucketEvent("e1", at, variant("confirmed", null))], markers: [],
             })),
             planRow("e", variant("events", {
-                marks: [{ key: "k1", at, kind: variant("milestone", null), icon: none, label: none }],
+                marks: [{ key: "k1", at: t(at), kind: variant("milestone", null), icon: none, label: none }],
             })),
             planRow("c", variant("cards", {
-                chips: [{ key: "c1", from: W27, to: new Date("2026-07-13Z"), label: "D. OKAFOR",
+                chips: [{ key: "c1", from: t(W27), to: t(new Date("2026-07-13Z")), label: "D. OKAFOR",
                     state: variant("confirmed", null), icon: none }],
             })),
             planRow("h", variant("heat", {
                 cells: variant("heat", {
-                    cells: [{ at, value: some(80), label: some("80") }],
+                    cells: [{ at: t(at), value: some(80), label: some("80") }],
                     min: some(0), max: some(100), warnAt: none,
                 }),
                 aggregate: none,
@@ -911,7 +917,7 @@ describe("Plan element clicks (#569)", () => {
         expect(seen["event"]).toEqual([{ row: "b", event: "e1" }]);
         expect(seen["mark"]).toEqual([{ row: "e", mark: "k1" }]);
         expect(seen["chip"]).toEqual([{ row: "c", chip: "c1" }]);
-        expect(seen["cell"]).toEqual([{ row: "h", at }]);
+        expect(seen["cell"]).toEqual([{ row: "h", at: t(at) }]);
         // The canvas behaviour is unchanged: the click also selected the row.
         expect(container.querySelector('[data-plan-row="h"]')!.hasAttribute("data-selected")).toBe(true);
     });
@@ -1242,11 +1248,11 @@ describe("Plan expand-in-place (R2)", () => {
             planRow("focal", spanKind([]), { expand: { height: none, axis: variant("keep", null) } }),
             planRow("s", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
             planRow("e", variant("events", { marks: [{
-                key: "m1", at: W27, kind: variant("milestone", null), icon: none, label: some("KICKOFF"),
+                key: "m1", at: t(W27), kind: variant("milestone", null), icon: none, label: some("KICKOFF"),
             }] })),
             planRow("cov", variant("chart", {
                 layers: [variant("line", {
-                    points: [{ t: W27, y: 94 }, { t: new Date("2026-08-31Z"), y: 101 }],
+                    points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
                     axis: variant("left", null), breach: none,
                 })],
                 left: some({ domain: none, tickValues: some(variant("number", [80])), format: none }),
@@ -1286,7 +1292,7 @@ describe("Plan expand-in-place (R2)", () => {
             planRow("cov", variant("chart", {
                 layers: [
                     variant("line", {
-                        points: [{ t: W27, y: 94 }, { t: new Date("2026-08-31Z"), y: 101 }],
+                        points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
                         axis: variant("left", null), breach: none,
                     }),
                     variant("refLine", { y: 100, axis: variant("left", null), label: some("TARGET 100") }),
@@ -1342,14 +1348,14 @@ describe("Plan narrow layout (§10 / #570)", () => {
 
     const heatKind = (vals: number[]) => variant("heat", {
         cells: variant("heat", {
-            cells: vals.map((v, i) => ({ at: new Date(W27.getTime() + i * 7 * 86_400_000), value: some(v), label: some(String(v)) })),
+            cells: vals.map((v, i) => ({ at: t(new Date(W27.getTime() + i * 7 * 86_400_000)), value: some(v), label: some(String(v)) })),
             min: some(0), max: some(100), warnAt: none,
         }),
         aggregate: none,
     });
     const chartKind = variant("chart", {
         layers: [variant("line", {
-            points: [{ t: W27, y: 94 }, { t: new Date("2026-08-31Z"), y: 101 }],
+            points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
             axis: variant("left", null), breach: none,
         })],
         left: some({ domain: some(variant("number", { min: 80, max: 110 })), tickValues: some(variant("number", [80, 100])), format: none }),
@@ -1980,13 +1986,13 @@ describe("Plan event rows (§4·K7)", () => {
         const { container } = renderPlan(planRoot([
             planRow("mile", variant("events", {
                 marks: [
-                    { key: "k1", at: new Date("2026-06-29Z"), kind: variant("milestone", null),
+                    { key: "k1", at: t(new Date("2026-06-29Z")), kind: variant("milestone", null),
                         icon: none, label: some("KICKOFF") },
-                    { key: "k2", at: new Date("2026-07-13Z"), kind: variant("decision", { applied: true }),
+                    { key: "k2", at: t(new Date("2026-07-13Z")), kind: variant("decision", { applied: true }),
                         icon: none, label: none },
-                    { key: "k3", at: new Date("2026-07-27Z"), kind: variant("exception", null),
+                    { key: "k3", at: t(new Date("2026-07-27Z")), kind: variant("exception", null),
                         icon: none, label: none },
-                    { key: "k4", at: new Date("2026-08-10Z"), kind: variant("milestone", null),
+                    { key: "k4", at: t(new Date("2026-08-10Z")), kind: variant("milestone", null),
                         icon: some({ prefix: "fas", name: "flag", label: none, style: none }), label: none },
                 ],
             })),
@@ -2147,5 +2153,206 @@ describe("the series library is TOOLBAR chrome (#590)", () => {
         await waitFor(() => expect(document.querySelector("[data-slot='pickPanel']")).not.toBeNull());
         await user.click(screen.getByLabelText("Toggle Machine jobs"));
         expect(pick.state.read()).toEqual(["a"]);
+    });
+});
+
+describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
+    const PHASES = Array.from({ length: 12 }, (_u, i) => `P${i + 1}`);
+    // Three 12-bucket axes; "bucket 2" and "bucket 5" on each arm. On an
+    // ordinal axis an interval END names its LAST bucket (inclusive), so
+    // [P3, P5] is three columns — the same width as W29..W32 and 3..6.
+    const AXES = {
+        time: {
+            axis: variant("time", { window: some({ min: W27, max: W39 }), resolution: variant("week", null), resolutions: [], now: none, format: none }),
+            at2: t(new Date("2026-07-13Z")), at5: t(new Date("2026-08-03Z")), tick2: "W29",
+        },
+        number: {
+            axis: variant("number", { window: some({ min: 1, max: 13 }), step: 1, now: none, format: none }),
+            at2: n(3), at5: n(6), tick2: "3",
+        },
+        ordinal: {
+            axis: variant("ordinal", { values: PHASES, now: none }),
+            at2: o("P3"), at5: o("P5"), tick2: "P3",
+        },
+    } as const;
+    const rowsFor = (a: { at2: PlanInstantValue; at5: PlanInstantValue }) => [
+        planRow("span", spanKind([{
+            key: "r", start: a.at2, end: a.at5, label: "R", quantity: none, qty: none,
+            state: variant("actual", null), status: none, moved: none, icon: none,
+        }])),
+        planRow("buckets", variant("buckets", {
+            lanes: [],
+            events: [{ key: "e", at: a.at2, lane: none, label: none, icon: none, state: variant("confirmed", null),
+                tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
+            markers: [],
+        })),
+        planRow("chart", variant("chart", {
+            layers: [variant("column", { points: [{ t: a.at2, y: 5 }], axis: variant("left", null), series: none, breach: none })],
+            left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: none,
+        })),
+        planRow("heat", variant("heat", {
+            cells: variant("heat", { cells: [{ at: a.at2, value: some(50), label: some("50") }], min: some(0), max: some(100), warnAt: none }),
+            aggregate: none,
+        })),
+        planRow("table", tableKindOf([{ at: a.at2, value: some(7), text: none, tone: none }])),
+        planRow("cards", variant("cards", {
+            chips: [{ key: "c", from: a.at2, to: a.at5, label: "C", state: variant("confirmed", null), icon: none }],
+        })),
+        planRow("events", variant("events", {
+            marks: [{ key: "m", at: a.at2, kind: variant("milestone", null), icon: none, label: none }],
+        })),
+        planRow("group", variant("group", {
+            summary: some(variant("heat", { cells: [{ at: a.at2, value: some(80), label: some("80") }], min: some(0), max: some(100), warnAt: none })),
+            summaryAggregate: none, collapsed: some(true),
+        })),
+    ];
+
+    for (const [kind, a] of Object.entries(AXES)) {
+        test(`${kind}: the eight kinds position by bucket index / fraction on a 12-bucket ${kind} axis`, () => {
+            const { container } = renderPlan(planRoot(rowsFor(a), { axis: a.axis }), `plan-631-${kind}`);
+            const q = (sel: string) => container.querySelector(sel);
+            // Continuous kinds at fraction 2/12; quantised kinds in bucket 2.
+            expect(q('[data-plan-row="span"] [data-run="r"]')!.getAttribute("data-plan-frac")).toBe("0.1667");
+            expect(q('[data-plan-row="buckets"] [data-plan-cell="2:0"]')).toBeTruthy();
+            // The column rect's x = (2/12 + 0.18/12) × 1000 viewBox units.
+            expect(parseFloat(q('[data-plan-row="chart"] svg rect')!.getAttribute("x")!)).toBeCloseTo(181.67, 1);
+            expect(q('[data-plan-row="heat"] [data-plan-bucket="2"]')).toBeTruthy();
+            expect(q('[data-plan-row="table"] [data-plan-bucket="2"]')).toBeTruthy();
+            expect(q('[data-plan-row="cards"] [data-chip="c"]')!.getAttribute("data-plan-frac")).toBe("0.1667");
+            expect(q('[data-plan-row="events"] [data-mark="m"]')!.getAttribute("data-plan-frac")).toBe("0.1667");
+            expect(q('[data-plan-group="group"] [data-plan-bucket="2"]')).toBeTruthy();
+            // Twelve ruler ticks whatever the kind, labelled in the kind's vocabulary.
+            const labels = [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent);
+            expect(labels).toHaveLength(12);
+            expect(labels[2]).toBe(a.tick2);
+        });
+    }
+
+    test("a row whose instants ride another arm is refused with a diagnostic naming the row and the axis kind", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("ok", spanKind([{
+                key: "r", start: n(3), end: n(6), label: "R", quantity: none, qty: none,
+                state: variant("actual", null), status: none, moved: none, icon: none,
+            }])),
+            // Time instants on a number axis — the Planner's single-axis-kind rule.
+            planRow("m1", spanKind([run("x", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+        ], { axis: AXES.number.axis }), "plan-631-mismatch");
+        const diag = container.querySelector("[data-plan-mismatch]")!;
+        expect(diag).toBeTruthy();
+        expect(diag.getAttribute("data-plan-mismatch")).toBe("m1");
+        expect(diag.textContent).toContain("the axis is number");
+        expect(diag.textContent).toContain('row "m1" carries time instants');
+        // Nothing is drawn somewhere wrong — the canvas waits for the data.
+        expect(container.querySelector("[data-plan-row]")).toBeNull();
+    });
+});
+
+describe("Plan typed axis (#631) — chrome per kind", () => {
+    const numberAxis = variant("number", { window: some({ min: 1, max: 9 }), step: 1, now: some(5), format: none });
+    /** A slice whose range field is a FLOAT — days 1..12 of orders. */
+    const numberSlice = (key: string, days: number[]) => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["day", { type: "float", value: { label: "Day", accessor: (r: { day: number }) => r.day, format: none } }],
+            ]),
+            rangeFieldId: some("day"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: some(variant("float", { from: 1, to: 9 })),
+            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        };
+        return buildSliceHandle(key, cfg as never, initial as never, days.map((day) => ({ day })) as never, none) as never as {
+            read(): { range: { value: { type: string; value: { from: number; to: number } } } };
+        };
+    };
+    const ticks = (container: HTMLElement) =>
+        [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent);
+
+    test("a number axis rules 1 … 8 with the NOW divider, mounts no resolution segment, and brushes the slice's FLOAT range live", async () => {
+        const handle = numberSlice("plan.631.brush", [1, 12]);
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            axis: numberAxis,
+            slice: some({ slice: handle, affordances: [variant("brush", null), variant("resolution", null)] }),
+        }), "plan-631-number");
+        expect(ticks(container)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
+        expect(screen.getByText("NOW")).toBeTruthy();
+        // `step` is the declaration — there is no unit to switch.
+        expect(container.querySelector("[data-slot='seg']")).toBeNull();
+        // The horizon spans the DOMAIN (days 1..12 = 11 steps), not the window.
+        expect(screen.getByText("HORIZON · 11 STEPS")).toBeTruthy();
+        const track = container.querySelector("[data-brush-track]") as HTMLElement;
+        Object.defineProperty(track, "getBoundingClientRect", {
+            value: () => ({ left: 0, top: 0, right: 1100, bottom: 32, width: 1100, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+        });
+        // The applied window 1..9 spans the first 8/11 of the track (0..800px).
+        // Grab its body at 400 and slide +100px = one step: the draft snaps to
+        // 2..10 and is APPLIED — as the slice's `float` arm.
+        fireEvent.pointerDown(track, { clientX: 400, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 500, pointerId: 1, buttons: 1 });
+        await waitFor(() => expect(handle.read().range.value.value.from).toBe(2));
+        expect(handle.read().range.value.type).toBe("float");
+        expect(handle.read().range.value.value.to).toBe(10);
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        expect(handle.read().range.value.value.from).toBe(2);
+        expect(handle.read().range.value.value.to).toBe(10);
+        // The canvas followed: the ruler now reads 2 … 9.
+        expect(ticks(container)).toEqual(["2", "3", "4", "5", "6", "7", "8", "9"]);
+    });
+
+    test("[ / ] and n write a number axis's window as the slice's float arm", () => {
+        const handle = numberSlice("plan.631.keys", [1, 12]);
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            axis: numberAxis, slice: some({ slice: handle, affordances: [] }),
+        }), "plan-631-keys");
+        const surface = container.querySelector('[tabindex="0"]')!;
+        const range = () => handle.read().range.value;
+        fireEvent.keyDown(surface, { key: "]" });
+        expect(range().type).toBe("float");
+        expect(range().value.from).toBe(2);
+        expect(range().value.to).toBe(10);
+        fireEvent.keyDown(surface, { key: "[" });
+        expect(range().value.from).toBe(1);
+        expect(range().value.to).toBe(9);
+        // n re-derives the window on step edges with the same column count,
+        // now (5) a third of the way in: 5 − ⌊8/3⌋ = 3 → [3, 11).
+        fireEvent.keyDown(surface, { key: "n" });
+        expect(range().value.from).toBe(3);
+        expect(range().value.to).toBe(11);
+    });
+
+    test("an ordinal axis rules its values with NOW on the named phase; the brush never mounts and the window keys idle", () => {
+        initializeStore(new UIStore());
+        // A DATETIME slice bound with the brush affordance — the arm a time
+        // axis would brush; an ordinal axis has no arm to speak, so the
+        // strip does not mount and a pan writes nothing.
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+            ]),
+            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: some(variant("datetime", { from: W27, to: W39 })),
+            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        };
+        const handle = buildSliceHandle("plan.631.ordinal", cfg as never, initial as never,
+            [{ at: W27 }, { at: W39 }] as never, none) as never as {
+                read(): { range: { value: { value: { from: Date; to: Date } } } };
+            };
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            axis: variant("ordinal", { values: ["INTAKE", "PREP", "BUILD", "QC", "PACK", "SHIP"], now: some("BUILD") }),
+            slice: some({ slice: handle, affordances: [variant("brush", null)] }),
+        }), "plan-631-ordinal");
+        expect(ticks(container)).toEqual(["INTAKE", "PREP", "BUILD", "QC", "PACK", "SHIP"]);
+        expect(screen.getByText("NOW")).toBeTruthy();
+        expect(container.querySelector("[data-slot='horizon']")).toBeNull();
+        expect(container.querySelector("[data-brush-track]")).toBeNull();
+        const before = handle.read().range.value.value.from.getTime();
+        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
+        expect(handle.read().range.value.value.from.getTime()).toBe(before);
+        expect(ticks(container)[0]).toBe("INTAKE");
     });
 });

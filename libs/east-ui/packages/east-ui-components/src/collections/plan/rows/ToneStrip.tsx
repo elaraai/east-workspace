@@ -25,13 +25,14 @@
 
 import { Box } from "@chakra-ui/react";
 import { usePlanScale } from "../context.js";
+import type { PlanInstantValue } from "../instant.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
 /** One bucket's contribution to a tone strip. */
 export interface ToneDatum {
     /** The bucket instant. */
-    at: Date;
+    at: PlanInstantValue;
     /** The raw value — `undefined` renders the no-data hatch. */
     value: number | undefined;
     /** An explicit semantic tone, overriding the derived depth. */

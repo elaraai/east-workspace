@@ -66,7 +66,9 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
 
     const bars = useMemo(() => kind.runs.map((run) => {
         const f0 = scale.fracOf(run.start);
-        const f1 = scale.fracOf(run.end);
+        // An interval END: half-open on a time / number axis, the far edge
+        // of the named bucket on an ordinal one (#631).
+        const f1 = scale.endFracOf(run.end);
         // Cull against the RENDER bounds (#619 — the schematic's
         // viewport-cull discipline, one axis): a run WHOLLY outside the
         // window but inside the overscan mounts at its true geometry,
@@ -78,6 +80,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
         const outside = f1 <= 0 || f0 >= 1;
         const left = outside ? f0 : Math.max(0, f0);
         const right = outside ? f1 : Math.min(1, f1);
+        if (!Number.isFinite(f0) || !Number.isFinite(f1)) return null;
         return { run, left, width: Math.max(0, right - left), runoff: !outside && f1 > 1 };
     }).filter((b): b is NonNullable<typeof b> => b !== null), [kind.runs, scale]);
 
@@ -97,6 +100,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                         data-stuck={stuck ? "" : undefined}
                         data-runoff={runoff ? "" : undefined}
                         data-run={run.key}
+                        data-plan-frac={left.toFixed(4)}
                         left={`${left * 100}%`}
                         width={`${width * 100}%`}
                         // The bar height is a style PROP, and a style prop
@@ -125,7 +129,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
             })}
             {rollBands.map((band, i) => {
                 const f0 = scale.fracOf(band.from);
-                const f1 = scale.fracOf(band.to);
+                const f1 = scale.endFracOf(band.to);
                 if (f1 <= 0 || f0 >= 1) return null;
                 const left = Math.max(0, f0);
                 const width = Math.max(0, Math.min(1, f1) - left);

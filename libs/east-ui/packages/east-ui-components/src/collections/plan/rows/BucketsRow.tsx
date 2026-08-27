@@ -28,6 +28,7 @@ import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefVal
 import { runStateKey } from "./SpanRow.js";
 import { ElementOverlays } from "./ElementOverlays.js";
 import type { PlanBucket } from "../scale.js";
+import type { PlanInstantValue } from "../instant.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type BucketsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "buckets" }>["value"];
@@ -127,7 +128,7 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
     // clipped at rest and revealed by a brush pan; interactions still speak
     // the window's `bucketOf`.
     const bucketByIndex = new Map<number, PlanBucket>();
-    const renderIndexOf = (at: Date): number | undefined => {
+    const renderIndexOf = (at: PlanInstantValue): number | undefined => {
         const b = scale.renderBucketOf(at);
         if (b === undefined) return undefined;
         bucketByIndex.set(b.index, b);

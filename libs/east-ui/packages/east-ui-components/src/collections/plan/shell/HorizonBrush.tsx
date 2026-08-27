@@ -11,19 +11,24 @@
  * editing the slice's Range — commits route through the machine
  * (`brush.commit` → `slice.setRange`), which never stores a window itself.
  *
- * Renders only when a slice is bound with a usable datetime range domain —
- * an unbound Plan has no wider horizon to brush.
+ * Renders only when a slice is bound with a range domain of the AXIS's arm
+ * (#631): a `datetime` domain on a time axis, a `float` / `integer` domain on
+ * a number axis — the brush speaks whichever the slice's field is, and every
+ * step it applies is written as that arm. An ordinal axis has no range arm
+ * (its list is its window), so the strip never mounts there; an unbound Plan
+ * has no wider horizon to brush.
  */
 
 import { useEffect, useMemo, useRef } from "react";
 import { Box } from "@chakra-ui/react";
-import { some, variant, type ValueTypeOf } from "@elaraai/east";
+import { some, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { BrushStrip } from "../../../slice/brush-strip.js";
 import { boundRangeDomain, boundRangeHistogram } from "../../../platform/slice/index.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
-import { resolutionInterval, type PlanWindow } from "../scale.js";
+import { rangeArmOf, rangeOf } from "../axis.js";
+import type { PlanInstantValue } from "../instant.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
@@ -32,7 +37,7 @@ type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 const STRIP_H = 32;
 const BAR_H = 23;
 
-/** Resolution → the caption unit + its span in ms (for `HORIZON · 26 WK`). */
+/** Time resolution → the caption unit + its span in ms (for `HORIZON · 26 WK`). */
 const CAPTION_UNIT: Record<string, { label: string; ms: number }> = {
     hour: { label: "HR", ms: 3_600_000 },
     day: { label: "D", ms: 86_400_000 },
@@ -46,17 +51,15 @@ export interface HorizonBrushProps {
     styles: Styles;
     gridTemplate: string;
     slice: SliceBindValue;
-    /** The Plan's current window (the applied brush selection). */
-    window: PlanWindow;
-    /** The now instant, if any (domain tick). */
-    now: Date | undefined;
-    /** The bucket resolution (caption unit — the caption spans the DOMAIN). */
-    resolution: string;
+    /** The now instant, if any (domain tick) — on the axis's arm. */
+    now: PlanInstantValue | undefined;
 }
 
 /** The 32px horizon band — caption gutter cell + the shared brush strip. */
-export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolution }: HorizonBrushProps) {
+export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
+    // The scale IS the applied window (slice range ▸ axis ▸ fit), on its
+    // own numeric domain — epoch ms, or the value on a number axis.
     const scale = usePlanScale();
     // ── Live PER-STEP application (#620; the #609 pattern, resizes too) ──
     // The draft is SNAPPED to period edges, so it changes a handful of times
@@ -73,7 +76,7 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
     // deliberate; the release's commit cancels any pending frame so it is
     // always the last write.
     const stepFrameRef = useRef<number | null>(null);
-    const stepPendingRef = useRef<PlanWindow | null>(null);
+    const stepPendingRef = useRef<{ min: PlanInstantValue; max: PlanInstantValue } | null>(null);
     useEffect(() => () => {
         if (stepFrameRef.current !== null) cancelAnimationFrame(stepFrameRef.current);
     }, []);
@@ -84,50 +87,70 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
     // misconception: it re-renders, and the memo then serves the stale value.)
     const sliceVersion = useSliceReactivity(slice.key);
     const domain = boundRangeDomain(slice.key);
-    // One histogram bucket per resolution period across the domain (the §2
-    // mock: 26 weekly bars over a 26-week horizon), clamped to sanity.
-    const unitMs = (CAPTION_UNIT[resolution] ?? CAPTION_UNIT.week!).ms;
-    const buckets = domain !== undefined
-        ? Math.max(8, Math.min(64, Math.round((domain.max - domain.min) / unitMs)))
+    // The domain must speak the axis's arm — a datetime field on a time
+    // axis, a numeric field on a number axis. An ordinal axis never fits.
+    const fits = domain !== undefined && domain.max > domain.min && (
+        scale.kind === "time" ? domain.kind === "datetime"
+            : scale.kind === "number" ? domain.kind !== "datetime"
+                : false);
+    // One histogram bucket per period across the domain (the §2 mock: 26
+    // weekly bars over a 26-week horizon), clamped to sanity. A period, in
+    // domain units, is one scale offset from the window's start.
+    const periodN = scale.toNumber(scale.offset(scale.window.min, 1)) - scale.toNumber(scale.window.min);
+    const buckets = fits && domain !== undefined && periodN > 0
+        ? Math.max(8, Math.min(64, Math.round((domain.max - domain.min) / periodN)))
         : 0;
     const counts = useMemo(
-        () => (domain !== undefined ? boundRangeHistogram(slice.key, buckets) : undefined),
+        () => (fits && buckets > 0 ? boundRangeHistogram(slice.key, buckets) : undefined),
         // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the histogram's dependency: it re-derives when the STORE moves (#611)
-        [slice.key, buckets, domain?.min, domain?.max, sliceVersion],
+        [slice.key, buckets, domain?.min, domain?.max, fits, sliceVersion],
     );
-    if (domain === undefined || domain.kind !== "datetime" || domain.max <= domain.min) return null;
+    if (!fits || domain === undefined || periodN <= 0) return null;
 
     const span = domain.max - domain.min;
-    const winFrom = Math.max(0, (window.min.getTime() - domain.min) / span);
-    const winTo = Math.min(1, (window.max.getTime() - domain.min) / span);
-    const nowFrac = now !== undefined ? (now.getTime() - domain.min) / span : undefined;
-    const fromFraction = (f: number) => new Date(domain.min + Math.max(0, Math.min(1, f)) * span);
+    const clamp = (f: number) => Math.max(0, Math.min(1, f));
+    const winFrom = clamp((scale.toNumber(scale.window.min) - domain.min) / span);
+    const winTo = clamp((scale.toNumber(scale.window.max) - domain.min) / span);
+    const nowN = now !== undefined ? scale.toNumber(now) : NaN;
+    const nowFrac = Number.isFinite(nowN) ? (nowN - domain.min) / span : undefined;
+    const fromFraction = (f: number): PlanInstantValue => scale.fromNumber(domain.min + clamp(f) * span);
+    const toFrac = (t: PlanInstantValue): number => clamp((scale.toNumber(t) - domain.min) / span);
     // Resolution-edge snapping: the draft and the committed window land on
-    // period boundaries of the ACTIVE resolution, at least one period wide.
-    // The scale's OWN `snap` — this band used to carry a hand-copy of the
-    // same floor/offset/midpoint over the same interval (#617).
-    const interval = resolutionInterval(scale.resolution);
-    const snapDate = scale.snap;
-    const toFrac = (d: Date) => Math.max(0, Math.min(1, (d.getTime() - domain.min) / span));
+    // period boundaries of the ACTIVE resolution (a whole step on a number
+    // axis), at least one period wide. The scale's OWN `snap` / `offset` —
+    // this band used to carry a hand-copy of the same floor/offset/midpoint
+    // over the same interval (#617).
+    const snapPair = (f0: number, f1: number): [PlanInstantValue, PlanInstantValue] => {
+        const a = scale.snap(fromFraction(f0));
+        let b = scale.snap(fromFraction(f1));
+        if (scale.toNumber(b) <= scale.toNumber(a)) b = scale.offset(a, 1);
+        return [a, b];
+    };
     const snapWindow = (f0: number, f1: number): { from: number; to: number } => {
-        const a = snapDate(fromFraction(f0));
-        let b = snapDate(fromFraction(f1));
-        if (b.getTime() <= a.getTime()) b = interval.offset(a, 1);
+        const [a, b] = snapPair(f0, f1);
         return { from: toFrac(a), to: toFrac(b) };
     };
     // The caption spans the DOMAIN (the whole brushable horizon), not the
-    // applied window — `HORIZON · 26 WK` over a 12-week window.
-    const unit = CAPTION_UNIT[resolution] ?? CAPTION_UNIT.week!;
-    const caption = `HORIZON · ${Math.max(1, Math.round(span / unitMs))} ${unit.label}`;
+    // applied window — `HORIZON · 26 WK` over a 12-week window; on a number
+    // axis the count is in steps.
+    const unit = scale.kind === "time" ? (CAPTION_UNIT[scale.resolution ?? "week"] ?? CAPTION_UNIT.week!) : undefined;
+    const caption = unit !== undefined
+        ? `HORIZON · ${Math.max(1, Math.round(span / unit.ms))} ${unit.label}`
+        : `HORIZON · ${Math.max(1, Math.round(span / periodN))} STEPS`;
+    // Every write speaks the slice field's arm (#631): `datetime` on a time
+    // axis; `float` / `integer` per the field on a number axis — an Integer
+    // field needs bigint bounds or the range is inert (#167).
+    const arm = rangeArmOf(scale.kind, slice.read(), domain.kind);
+    if (arm === undefined) return null;
 
     // One coalesced slice write per frame — the LAST step wins the frame.
-    const applyStep = (min: Date, max: Date) => {
+    const applyStep = (min: PlanInstantValue, max: PlanInstantValue) => {
         stepPendingRef.current = { min, max };
         stepFrameRef.current ??= requestAnimationFrame(() => {
             stepFrameRef.current = null;
             const w = stepPendingRef.current;
             stepPendingRef.current = null;
-            if (w !== null) slice.setRange(some(variant("datetime", { from: w.min, to: w.max })));
+            if (w !== null) slice.setRange(some(rangeOf(arm, w.min, w.max)));
         });
     };
     const cancelStep = () => {
@@ -157,13 +180,14 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
                     height={STRIP_H}
                     barHeight={BAR_H}
                     snapWindow={snapWindow}
-                    // Snap AGAIN on the dates themselves so float round-trips
-                    // can never land the committed window 1ms off an edge. The
+                    // Snap AGAIN on the instants themselves so float round-trips
+                    // can never land the committed window off an edge. The
                     // commit cancels any pending step frame, so it is always
                     // the last write.
                     onCommit={(f0, f1) => {
                         cancelStep();
-                        dispatch({ t: "brush.commit", min: snapDate(fromFraction(f0)), max: snapDate(fromFraction(f1)) });
+                        const [a, b] = snapPair(f0, f1);
+                        dispatch({ t: "brush.commit", min: a, max: b });
                     }}
                     // Live per-step application — the strip fires only when
                     // the SNAPPED draft changes (one step per period-boundary
@@ -172,9 +196,7 @@ export function HorizonBrush({ styles, gridTemplate, slice, window, now, resolut
                     // The one-period floor mirrors `snapWindow`, so what the
                     // steps show is exactly what the release commits.
                     onPreview={(f0, f1) => {
-                        const a = snapDate(fromFraction(f0));
-                        let b = snapDate(fromFraction(f1));
-                        if (b.getTime() <= a.getTime()) b = interval.offset(a, 1);
+                        const [a, b] = snapPair(f0, f1);
                         applyStep(a, b);
                     }}
                     onClear={() => { cancelStep(); dispatch({ t: "brush.clear" }); }}

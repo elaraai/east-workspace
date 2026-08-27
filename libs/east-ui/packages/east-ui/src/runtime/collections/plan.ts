@@ -14,8 +14,9 @@ import {
 import type { UIElement } from "../runtime.js";
 
 /**
- * `<Plan>` — the temporally-aligned composite canvas: one shared time axis
- * (window ÷ resolution = `n` buckets) over heterogeneous rows — span rows
+ * `<Plan>` — the axis-aligned composite canvas: one shared axis
+ * (`{ time | number | ordinal }` — a window ÷ resolution or step, or an
+ * ordinal list, = `n` buckets) over heterogeneous rows — span rows
  * (Gantt state-runs), bucket rows (Planner allocation lanes), chart rows
  * (Chart layers consumed as data), heat/table rows (Matrix cells / bucketed
  * numerals), cards rows (Roster chips), event marks and group strips —
@@ -25,7 +26,9 @@ import type { UIElement } from "../runtime.js";
  * `heat` / `table` / `cards` / `events` / `group`, the data-driven
  * `Plan.rows`, and the accessor `.of` forms); content with the value builders
  * (`Plan.run` / `event` / `chip` / `mark` / `marker` / `decision` / `port` /
- * `segment` / cell builders); the axis with `Plan.axis`. Maps to `Plan.Root`.
+ * `segment` / cell builders, instants via `Plan.at.*`); the axis with
+ * `Plan.axis` (`time`) / `Plan.axis.number` / `Plan.axis.ordinal`. Maps to
+ * `Plan.Root`.
  *
  * @example
  * ```tsx
@@ -54,14 +57,15 @@ import type { UIElement } from "../runtime.js";
  * ```
  *
  * @remarks
- * Carries the whole authoring namespace — `Plan.axis`, the kind factories,
- * the value builders, `Plan.layer` / `Plan.fixed` (chart channels),
- * `Plan.template` / `Plan.markKind`, and `Plan.Types.*`. Replaces `Gantt`,
- * `Planner` and `AlignedStack`.
+ * Carries the whole authoring namespace — `Plan.axis` (+ `.time` / `.number` /
+ * `.ordinal`), `Plan.at`, the kind factories, the value builders,
+ * `Plan.layer` / `Plan.fixed` (chart channels), `Plan.markKind`, and
+ * `Plan.Types.*`. Replaces `Gantt`, `Planner` and `AlignedStack`.
  */
 export const Plan: {
     (props: PlanConfig): UIElement;
     axis: typeof PlanFactory.axis;
+    at: typeof PlanFactory.at;
     span: typeof PlanFactory.span;
     buckets: typeof PlanFactory.buckets;
     chart: typeof PlanFactory.chart;
@@ -98,6 +102,7 @@ export const Plan: {
     },
     {
         axis: PlanFactory.axis,
+        at: PlanFactory.at,
         span: PlanFactory.span,
         buckets: PlanFactory.buckets,
         chart: PlanFactory.chart,

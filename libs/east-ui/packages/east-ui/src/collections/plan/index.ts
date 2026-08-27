@@ -4,11 +4,12 @@
  */
 
 /**
- * `Plan` — the temporally-aligned composite canvas. One shared time axis;
- * heterogeneous rows: span rows (Gantt state-runs), bucket rows (Planner
- * lanes), chart rows (Chart layers consumed as data), heat/table rows (Matrix
- * cells / bucketed numerals), cards rows (Roster chips) and event rows —
- * sliced and reviewed as one surface.
+ * `Plan` — the axis-aligned composite canvas. One shared axis
+ * (`{ time | number | ordinal }`, declared once and carried by every element
+ * instant — #631); heterogeneous rows: span rows (Gantt state-runs), bucket
+ * rows (Planner lanes), chart rows (Chart layers consumed as data),
+ * heat/table rows (Matrix cells / bucketed numerals), cards rows (Roster
+ * chips) and event rows — sliced and reviewed as one surface.
  *
  * Rows are **flat and KEYED** in the IR (`Dict<String, PlanRow>`) with
  * `parent` keys; the kind factories nest via `rows:` / `groupBy`, and the
@@ -32,6 +33,10 @@
 
 import {
     PlanAxisType,
+    PlanTimeAxisType,
+    PlanNumberAxisType,
+    PlanOrdinalAxisType,
+    PlanInstantType,
     PlanGrainType,
     PlanGutterType,
     PlanPortType,
@@ -84,6 +89,7 @@ import {
 import { PlanReviewType, PlanRootType } from "./ir.js";
 import {
     createAxis,
+    at,
     createRun,
     createDecision,
     createPort,
@@ -132,7 +138,15 @@ import { createPlanPick, createPlanPickItems } from "./pick.js";
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
 export {
     PlanAxisType,
+    PlanTimeAxisType,
+    PlanNumberAxisType,
+    PlanOrdinalAxisType,
+    PlanInstantType,
+    type PlanInstantLikeType,
+    type PlanAxisKindLiteral,
     type PlanAxisOptions,
+    type PlanNumberAxisOptions,
+    type PlanOrdinalAxisOptions,
     PlanGrainType,
     type PlanGrainLiteral,
     PlanGutterType,
@@ -204,6 +218,9 @@ export {
 export { PlanReviewType, PlanRootType } from "./ir.js";
 export {
     resolvePlanEventState,
+    resolveInstant,
+    type PlanAxisBuilder,
+    type PlanRawTableCellType,
     type PlanIconInput,
     type PlanRunInput,
     type PlanDecisionInput,
@@ -269,8 +286,13 @@ export {
 export interface PlanNamespace {
     /** Creates the Plan root (the `<Plan>` tag's factory). */
     Root: typeof createPlanRoot;
-    /** Builds the shared time-axis declaration. */
+    /** Builds the shared axis declaration — `Plan.axis({ … })` is the `time`
+     *  shorthand; `Plan.axis.time` / `.number` / `.ordinal` declare each kind. */
     axis: typeof createAxis;
+    /** Builds one instant explicitly — `Plan.at.time(d)` / `.number(n)` /
+     *  `.ordinal(s)` (element builders wrap by type; these are for records
+     *  written as data and for reading as a declaration). */
+    at: typeof at;
     /** Span-row SUBTREE builder (`series.rows` chrome + nested `rows:` input). */
     span: typeof createSpan;
     /** Bucket-row subtree builder. */
@@ -355,8 +377,16 @@ export interface PlanNamespace {
     Types: {
         /** The Plan root IR ({@link PlanRootType}). */
         Root: typeof PlanRootType;
-        /** The shared time-axis declaration. */
+        /** The shared axis declaration — `{ time | number | ordinal }`. */
         Axis: typeof PlanAxisType;
+        /** The `time` axis arm. */
+        TimeAxis: typeof PlanTimeAxisType;
+        /** The `number` axis arm. */
+        NumberAxis: typeof PlanNumberAxisType;
+        /** The `ordinal` axis arm. */
+        OrdinalAxis: typeof PlanOrdinalAxisType;
+        /** One instant on the shared axis — `{ time | number | ordinal }`. */
+        Instant: typeof PlanInstantType;
         /** The two grains (group / resource). */
         Grain: typeof PlanGrainType;
         /** One flat canvas row. */
@@ -462,17 +492,19 @@ export interface PlanNamespace {
 }
 
 /**
- * The `Plan` namespace — the temporally-aligned composite canvas. Assemble a
+ * The `Plan` namespace — the axis-aligned composite canvas. Assemble a
  * Plan with `Plan.Root` (the `<Plan>` tag), declare the axis with
- * `Plan.axis`, build rows with the kind factories (`Plan.span` / `buckets` /
- * `chart` / `heat` / `table` / `cards` / `events` / `group`, or drive them
- * from data with `Plan.series.*`), place content with the value
- * builders (`Plan.run` / `event` / `chip` / `mark` / …), and reach every
- * East type via `Plan.Types.*`.
+ * `Plan.axis` (`time`) / `Plan.axis.number` / `Plan.axis.ordinal`, build
+ * rows with the kind factories (`Plan.span` / `buckets` / `chart` / `heat` /
+ * `table` / `cards` / `events` / `group`, or drive them from data with
+ * `Plan.series.*`), place content with the value builders (`Plan.run` /
+ * `event` / `chip` / `mark` / …, instants via `Plan.at.*` when written as
+ * data), and reach every East type via `Plan.Types.*`.
  */
 export const Plan: PlanNamespace = {
     Root: createPlanRoot,
     axis: createAxis,
+    at,
     span: createSpan,
     buckets: createBuckets,
     chart: createChart,
@@ -515,6 +547,10 @@ export const Plan: PlanNamespace = {
     Types: {
         Root: PlanRootType,
         Axis: PlanAxisType,
+        TimeAxis: PlanTimeAxisType,
+        NumberAxis: PlanNumberAxisType,
+        OrdinalAxis: PlanOrdinalAxisType,
+        Instant: PlanInstantType,
         Grain: PlanGrainType,
         Row: PlanRowType,
         Rows: PlanRowsCollectionType,

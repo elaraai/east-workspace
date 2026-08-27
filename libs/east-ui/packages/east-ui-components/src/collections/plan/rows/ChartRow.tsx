@@ -31,6 +31,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { tickFormatter } from "../../../charts/spec/index.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import type { PlanScale } from "../scale.js";
+import type { PlanInstantValue } from "../instant.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -103,7 +104,7 @@ function layerValues(layer: LayerValue): { side: "left" | "right"; values: numbe
 }
 
 /** Split `{t, y}` points at the now instant (for the solid/dashed line split). */
-function splitAtNow<P extends { t: Date }>(points: readonly P[], scale: PlanScale): { before: P[]; after: P[] } {
+function splitAtNow<P extends { t: PlanInstantValue }>(points: readonly P[], scale: PlanScale): { before: P[]; after: P[] } {
     if (scale.nowFrac === undefined) return { before: [...points], after: [] };
     const before: P[] = [];
     const after: P[] = [];
@@ -116,7 +117,7 @@ function splitAtNow<P extends { t: Date }>(points: readonly P[], scale: PlanScal
     return { before, after };
 }
 
-function polyline(points: ReadonlyArray<{ t: Date; y: number }>, scale: PlanScale, ys: YScale): string {
+function polyline(points: ReadonlyArray<{ t: PlanInstantValue; y: number }>, scale: PlanScale, ys: YScale): string {
     return points.map((p) => `${(scale.xOf(p.t) * VW).toFixed(2)},${ys.y(p.y).toFixed(2)}`).join(" ");
 }
 
@@ -332,7 +333,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             {kind.layers.map((layer, li) => {
                 if (layer.type !== "refBand") return null;
                 const f0 = Math.max(0, scale.fracOf(layer.value.from));
-                const f1 = Math.min(1, scale.fracOf(layer.value.to));
+                const f1 = Math.min(1, scale.endFracOf(layer.value.to));
                 if (f1 <= f0) return null;
                 const label = layer.value.label.type === "some" ? layer.value.label.value : undefined;
                 return (

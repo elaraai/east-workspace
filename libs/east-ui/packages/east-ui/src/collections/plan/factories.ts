@@ -19,7 +19,6 @@ import {
     Expr,
     ArrayType,
     BooleanType,
-    DateTimeType,
     FloatType,
     OptionType,
     StringType,
@@ -35,6 +34,7 @@ import {
     type RefBandOptions,
     type RefDotOptions,
 } from "../../charts/chart/index.js";
+import { ChartXType } from "../../charts/spec/index.js";
 import { TableAggregateType, type TableAggregateLiteral } from "../table/types.js";
 import { TickFormatType } from "../../format/types.js";
 import {
@@ -67,9 +67,11 @@ import {
     PlanEventMarkType,
     PlanLaneType,
     PlanRowKindType,
+    PlanInstantType,
+    type PlanInstantLikeType,
     type PlanRowsValue,
 } from "./types.js";
-import { createHeatCells, resolveTag, type PlanHeatCellsOptions } from "./builders.js";
+import { createHeatCells, resolveTag, resolveInstant, type PlanHeatCellsOptions } from "./builders.js";
 import {
     type PlanRowBaseInput,
     type PlanRowsInput,
@@ -136,19 +138,20 @@ function breachOpt(breach: PlanLayerChannels["breach"]): ExprType<OptionType<Pla
     return East.value(some(arm), OptionType(PlanBreachType));
 }
 
-/** Coerce a ref-annotation coordinate into a `DateTimeType` expression. */
-function coerceInstant(v: unknown, where: string): SubtypeExprOrValue<DateTimeType> {
-    if (v instanceof Date) return v;
-    if (typeof v === "number" || typeof v === "string") {
-        throw new Error(`Plan.chart: ${where} must be an instant (a Date or DateTimeType expression) — chart rows share the Plan's time scale`);
-    }
-    return v as SubtypeExprOrValue<DateTimeType>;
-}
-
-/** Guard: a consumed layer's x accessor must have been `DateTimeType`. */
-function requireTimeScale(xScale: string): void {
-    if (xScale !== "time") {
-        throw new Error("Plan.chart: the layer's x accessor must be DateTimeType — chart rows position on the Plan's shared time scale");
+/**
+ * A consumed layer point's x coordinate as a canvas instant (#631). The
+ * Chart builder already typed the coordinate by the accessor's STATIC type
+ * (`ChartXType`: `time` / `number` / `category` — `scaleFor`), so the arm
+ * is known here without an East match: a `DateTimeType` x is a `time`
+ * instant, a numeric x a `number` instant, a `StringType` x an `ordinal`
+ * one. Which arm the canvas accepts is the root axis's; the renderer holds
+ * every row against it.
+ */
+function pointInstant(x: ExprType<ChartXType>, xScale: "band" | "linear" | "time"): ExprType<PlanInstantType> {
+    switch (xScale) {
+        case "time":   return East.value(variant("time", x.unwrap("time")), PlanInstantType);
+        case "linear": return East.value(variant("number", x.unwrap("number")), PlanInstantType);
+        default:       return East.value(variant("ordinal", x.unwrap("category")), PlanInstantType);
     }
 }
 
@@ -179,15 +182,15 @@ function consumeLayer(input: PlanChartLayerInput): ExprType<ArrayType<PlanChartL
                 throw new Error("Plan.chart: refBand needs x bounds (two instants) — y-range refBands are not supported on chart rows");
             }
             return East.value([East.value(variant("refBand", {
-                from:  coerceInstant(o.x[0], "refBand x bounds"),
-                to:    coerceInstant(o.x[1], "refBand x bounds"),
+                from:  resolveInstant(o.x[0] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
+                to:    resolveInstant(o.x[1] as SubtypeExprOrValue<PlanInstantLikeType>, "refBand x bounds"),
                 label: o.label !== undefined ? some(o.label) : none,
             }), PlanChartLayerType)], ArrayType(PlanChartLayerType));
         }
         if (layer.refKind === "dot") {
             const o = layer.refOptions as RefDotOptions;
             return East.value([East.value(variant("refDot", {
-                t: coerceInstant(o.x, "refDot x"), y: o.y, axis: side,
+                t: resolveInstant(o.x as SubtypeExprOrValue<PlanInstantLikeType>, "refDot x"), y: o.y, axis: side,
                 label: o.label !== undefined ? some(o.label) : none,
             }), PlanChartLayerType)], ArrayType(PlanChartLayerType));
         }
@@ -195,11 +198,11 @@ function consumeLayer(input: PlanChartLayerInput): ExprType<ArrayType<PlanChartL
     }
 
     if (layer.kind === "band") {
-        requireTimeScale(layer.xScale);
+        const xScale = layer.xScale;
         const side = axisSide(channels.axis ?? layer.style.axis);
         return layer.data.map((_$, s) => East.value(variant("band", {
             points: s.points.map((_$2, p) => East.value({
-                t: p.x.unwrap("time"), lo: p.low, hi: p.high,
+                t: pointInstant(p.x, xScale), lo: p.low, hi: p.high,
             }, PlanChartBandPointType)),
             axis: side,
         }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
@@ -208,30 +211,30 @@ function consumeLayer(input: PlanChartLayerInput): ExprType<ArrayType<PlanChartL
     // Series layer — line / column / area / scatter. The shared channels are
     // built fresh per use so no East expression is spliced twice.
     if (layer.orientation === "horizontal") {
-        throw new Error("Plan.chart: Chart.Bar (horizontal) has no meaning on a time axis — use Chart.Column (vertical)");
+        throw new Error("Plan.chart: Chart.Bar (horizontal) flips the frame the shared axis owns — use Chart.Column (vertical)");
     }
-    requireTimeScale(layer.xScale);
+    const xScale = layer.xScale;
     const stacked = layer.style.stack !== undefined;
     if (layer.mark === "line") {
         return layer.data.map((_$, s) => East.value(variant("line", {
-            points: s.points.map((_$2, p) => East.value({ t: p.x.unwrap("time"), y: p.value }, PlanChartPointType)),
+            points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
             axis: axisSide(channels.axis ?? layer.style.axis), breach: breachOpt(channels.breach),
         }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
     }
     if (layer.mark === "area") {
         return layer.data.map((_$, s) => East.value(variant("area", {
-            points: s.points.map((_$2, p) => East.value({ t: p.x.unwrap("time"), y: p.value }, PlanChartPointType)),
+            points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
             axis: axisSide(channels.axis ?? layer.style.axis),
         }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
     }
     if (layer.mark === "scatter") {
         return layer.data.map((_$, s) => East.value(variant("scatter", {
-            points: s.points.map((_$2, p) => East.value({ t: p.x.unwrap("time"), y: p.value }, PlanChartPointType)),
+            points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
             axis: axisSide(channels.axis ?? layer.style.axis),
         }), PlanChartLayerType)) as ExprType<ArrayType<PlanChartLayerType>>;
     }
     return layer.data.map((_$, s) => East.value(variant("column", {
-        points: s.points.map((_$2, p) => East.value({ t: p.x.unwrap("time"), y: p.value }, PlanChartPointType)),
+        points: s.points.map((_$2, p) => East.value({ t: pointInstant(p.x, xScale), y: p.value }, PlanChartPointType)),
         axis:   axisSide(channels.axis ?? layer.style.axis),
         series: channels.series !== undefined
             ? East.value(some(channels.series), OptionType(StringType))
@@ -420,7 +423,9 @@ function buildChartAxis(a: PlanChartAxisInput, side: "left" | "right"): ExprType
  * @property expandable - Spark ↔ expanded toggle (caret)
  */
 export interface PlanChartInput extends Omit<PlanRowBaseInput, "height"> {
-    /** The Chart layer builders, consumed as data (x accessors must be `DateTimeType`; `Chart.Bar` is an error). */
+    /** The Chart layer builders, consumed as data. The x accessor's static type picks the
+     *  instant arm (`DateTimeType` ⇒ `time`, numeric ⇒ `number`, `StringType` ⇒ `ordinal`) and
+     *  must match the canvas axis at render; `Chart.Bar` is a build-time error. */
     layers: PlanChartLayerInput | PlanChartLayerInput[];
     /** The left y-axis (ticks print inside the gutter's right edge). */
     left?: PlanChartAxisInput;
@@ -440,8 +445,9 @@ export interface PlanChartInput extends Omit<PlanRowBaseInput, "height"> {
 
 /**
  * Creates a chart row — Chart layers consumed AS DATA (reified `{t, y}`
- * points), drawn by the canvas itself on the shared scale. Never an embedded
- * `<Chart>`; `Chart.Bar` is a build-time error.
+ * points on the axis arm the x accessor's type implies), drawn by the canvas
+ * itself on the shared scale. Never an embedded `<Chart>`; `Chart.Bar` is a
+ * build-time error.
  *
  * @param input - The chart configuration ({@link PlanChartInput})
  * @returns The 1-row flattened subtree

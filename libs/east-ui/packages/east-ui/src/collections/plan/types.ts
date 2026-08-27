@@ -4,9 +4,11 @@
  */
 
 /**
- * `Plan` IR — the UIComponent-free types. A Plan is a temporally-aligned
- * composite canvas: one shared time axis (window ÷ resolution = `n` buckets)
- * over heterogeneous rows — Gantt-style state-runs, Planner allocation lanes,
+ * `Plan` IR — the UIComponent-free types. A Plan is an axis-aligned
+ * composite canvas: ONE shared axis — `{ time | number | ordinal }`, declared
+ * once by the root and carried by every element instant (#631) — divided into
+ * `n` buckets (a window ÷ a resolution or step, or an ordinal list) over
+ * heterogeneous rows — Gantt-style state-runs, Planner allocation lanes,
  * Chart measures, Matrix heat cells, Table numerals, Roster chips and event
  * marks — sliced and reviewed as one surface.
  *
@@ -69,20 +71,50 @@ import { TableAggregateType } from "../table/types.js";
 import { DensityType } from "../../style/interaction.js";
 
 // ============================================================================
-// Axis — the shared time scale declaration
+// Instants + axis — the shared scale, in one of three kinds
 // ============================================================================
 
 /**
- * The Plan axis declaration — the explicit window, the bucket resolution, the
+ * One instant on the Plan's shared axis — `{ time | number | ordinal }`, the
+ * retired Planner's slot type verbatim (#631). The axis KIND rides every
+ * element, so a canvas is typed end to end: a run's `start` / `end`, a tile's
+ * `at`, a chart point's `t`, a chip's `from` / `to` and a click payload's
+ * `at` are all this variant, and the root's {@link PlanAxisType} declares
+ * which arm the canvas positions on.
+ *
+ * @remarks
+ * Every instant on a canvas must ride the axis's arm — a row whose instants
+ * ride another arm is a render-time diagnostic naming the row and the axis
+ * kind, never a silent misplacement (the Planner's single-axis-kind rule).
+ *
+ * The element builders take the JS-typed sugar (`Date` ⇒ `time`, `number`
+ * ⇒ `number`, `string` ⇒ `ordinal`) and wrap East expressions by their
+ * STATIC type (`DateTimeType` ⇒ `time`, `FloatType` / `IntegerType` ⇒
+ * `number`, `StringType` ⇒ `ordinal`), so a `DateTimeType` accessor keeps
+ * compiling unchanged; `Plan.at.time` / `.number` / `.ordinal` build one
+ * explicitly, and element RECORDS stored in data carry the variant itself.
+ *
+ * @property time - A UTC instant on a `time` axis
+ * @property number - A position on a `number` axis (day 1..8, a shift index, a distance)
+ * @property ordinal - A declared value on an `ordinal` axis (a workflow phase)
+ */
+export const PlanInstantType = VariantType({ time: DateTimeType, number: FloatType, ordinal: StringType });
+export type PlanInstantType = typeof PlanInstantType;
+
+/** The axis kinds — the arms of {@link PlanInstantType} / {@link PlanAxisType}. */
+export type PlanAxisKindLiteral = "time" | "number" | "ordinal";
+
+/**
+ * The `time` axis — the explicit window, the bucket resolution, the
  * resolution segment options, the observed/plan divider, and the tick format.
  *
  * @remarks
- * Construct via `Plan.axis({ … })`. The window is a half-open calendar range
- * `[min, max)` interpreted in UTC — a 12-week window at `week` resolution is
- * exactly 12 columns. When a bound slice carries a datetime range /
- * resolution, the slice state supersedes these initial values (the slice is
- * the single source of truth for window + resolution); `axis` seeds the
- * defaults and covers the unbound case.
+ * Construct via `Plan.axis({ … })` (or `Plan.axis.time`). The window is a
+ * half-open calendar range `[min, max)` interpreted in UTC — a 12-week window
+ * at `week` resolution is exactly 12 columns. When a bound slice carries a
+ * datetime range / resolution, the slice state supersedes these initial
+ * values (the slice is the single source of truth for window + resolution);
+ * `axis` seeds the defaults and covers the unbound case.
  *
  * @property window - Explicit window `[min, max)`. `none` ⇒ the bound slice's datetime range; else fit to the data
  * @property resolution - Initial bucket unit (see {@link TimeResolutionType}); the toolbar segment overrides via slice state
@@ -90,12 +122,72 @@ import { DensityType } from "../../style/interaction.js";
  * @property now - The observed/plan split instant. `none` ⇒ no now-line
  * @property format - Tick-label pattern override; `none` ⇒ resolution defaults matching the spec ruler (week ⇒ ISO week `"W27"`, day ⇒ uppercase weekday `"MON"`)
  */
-export const PlanAxisType = StructType({
+export const PlanTimeAxisType = StructType({
     window:      OptionType(StructType({ min: DateTimeType, max: DateTimeType })),
     resolution:  TimeResolutionType,
     resolutions: ArrayType(TimeResolutionType),
     now:         OptionType(DateTimeType),
     format:      OptionType(StringType),
+});
+export type PlanTimeAxisType = typeof PlanTimeAxisType;
+
+/**
+ * The `number` axis — a numeric window divided by a `step` (the
+ * `TimeResolution` rule, numerically): `[min, max)` ÷ `step` = `n` buckets,
+ * bucket edges on whole multiples of `step`.
+ *
+ * @remarks
+ * Construct via `Plan.axis.number({ … })`. When a bound slice carries a
+ * `float` / `integer` range, that range is the window (the horizon brush and
+ * the `[` / `]` / `n` keys write it back); `window` seeds the unbound case,
+ * else the axis fits to the data. There is no resolution segment on a
+ * number axis — `step` is fixed by the declaration.
+ *
+ * @property window - Explicit half-open window `[min, max)`. `none` ⇒ the bound slice's numeric range; else fit to the data
+ * @property step - The bucket width (`> 0`) — `n = window ÷ step`
+ * @property now - The observed/plan split position. `none` ⇒ no now-line
+ * @property format - Tick-label format (the shared {@link ValueFormatType} — `Chart.format.*`); `none` ⇒ plain numbers
+ */
+export const PlanNumberAxisType = StructType({
+    window: OptionType(StructType({ min: FloatType, max: FloatType })),
+    step:   FloatType,
+    now:    OptionType(FloatType),
+    format: OptionType(ValueFormatType),
+});
+export type PlanNumberAxisType = typeof PlanNumberAxisType;
+
+/**
+ * The `ordinal` axis — the declared values ARE the buckets, one column each,
+ * in the declared order; the window is the whole list.
+ *
+ * @remarks
+ * Construct via `Plan.axis.ordinal({ … })`. An ordinal axis has no slice
+ * range arm: the horizon brush does not mount and the window keys idle — the
+ * list is the window. An instant naming a value outside the list positions
+ * nowhere (it is culled, like an instant outside a time window).
+ *
+ * @property values - The ordered labels — the bucket identities and their ruler ticks
+ * @property now - The observed/plan split value. `none` ⇒ no now-line
+ */
+export const PlanOrdinalAxisType = StructType({
+    values: ArrayType(StringType),
+    now:    OptionType(StringType),
+});
+export type PlanOrdinalAxisType = typeof PlanOrdinalAxisType;
+
+/**
+ * The Plan axis declaration — ONE of the three kinds. The arm IS the
+ * declaration: a canvas cannot mix kinds, and every element instant on it
+ * must ride the same arm ({@link PlanInstantType}).
+ *
+ * @property time - A calendar axis: UTC window ÷ resolution ({@link PlanTimeAxisType})
+ * @property number - A numeric axis: window ÷ step ({@link PlanNumberAxisType})
+ * @property ordinal - A declared list of values, one bucket each ({@link PlanOrdinalAxisType})
+ */
+export const PlanAxisType = VariantType({
+    time:    PlanTimeAxisType,
+    number:  PlanNumberAxisType,
+    ordinal: PlanOrdinalAxisType,
 });
 export type PlanAxisType = typeof PlanAxisType;
 
@@ -171,7 +263,7 @@ export type PlanGutterType = typeof PlanGutterType;
  * @property label - Optional port caption (e.g. `"−24 t"`)
  */
 export const PlanPortType = StructType({
-    at:    DateTimeType,
+    at:    PlanInstantType,
     label: OptionType(StringType),
 });
 export type PlanPortType = typeof PlanPortType;
@@ -204,7 +296,7 @@ export type PlanRollupLiteral = "union" | "byStatus" | "sum";
  * @property message - The tooltip text
  */
 export const PlanCellMarkerType = StructType({
-    at:      DateTimeType,
+    at:      PlanInstantType,
     lane:    OptionType(StringType),
     status:  StatusValueType,
     message: StringType,
@@ -270,12 +362,14 @@ export type PlanAnimationLiteral = "none" | "pulse";
 
 /**
  * One `{t, y}` point of a Plan chart layer — the reified form every consumed
- * Chart layer builder reduces to (the x accessor must be `DateTimeType`).
+ * Chart layer builder reduces to. The x accessor's arm follows its static
+ * type (`DateTimeType` ⇒ `time`, numeric ⇒ `number`, `StringType` ⇒
+ * `ordinal`) and must match the canvas axis at render.
  *
- * @property t - The instant on the shared time scale
+ * @property t - The instant on the shared scale
  * @property y - The measure value
  */
-export const PlanChartPointType = StructType({ t: DateTimeType, y: FloatType });
+export const PlanChartPointType = StructType({ t: PlanInstantType, y: FloatType });
 export type PlanChartPointType = typeof PlanChartPointType;
 
 /**
@@ -305,11 +399,11 @@ export type PlanBreachType = typeof PlanBreachType;
 /**
  * One `{t, lo, hi}` point of a band (area-range) chart layer.
  *
- * @property t - The instant on the shared time scale
+ * @property t - The instant on the shared scale
  * @property lo - The lower bound
  * @property hi - The upper bound
  */
-export const PlanChartBandPointType = StructType({ t: DateTimeType, lo: FloatType, hi: FloatType });
+export const PlanChartBandPointType = StructType({ t: PlanInstantType, lo: FloatType, hi: FloatType });
 export type PlanChartBandPointType = typeof PlanChartBandPointType;
 
 /**
@@ -340,7 +434,7 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  * and dashed after; columns observed `ink`, planned brand at half strength,
  * breach warn; stacked columns pair by `series`; refLines are dotted
  * gridlines with a mono label. `Chart.Bar` (horizontal) is a build-time error
- * — horizontal bars have no meaning on a time axis.
+ * on every axis kind — horizontal bars flip the frame the shared axis owns.
  *
  * @property line - A continuous line series (optional breach threshold)
  * @property area - A filled area series
@@ -360,8 +454,8 @@ export const PlanChartLayerType = VariantType({
     scatter: StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType }),
     band:    StructType({ points: ArrayType(PlanChartBandPointType), axis: PlanAxisSideType }),
     refLine: StructType({ y: FloatType, axis: PlanAxisSideType, label: OptionType(StringType) }),
-    refBand: StructType({ from: DateTimeType, to: DateTimeType, label: OptionType(StringType) }),
-    refDot:  StructType({ t: DateTimeType, y: FloatType, axis: PlanAxisSideType,
+    refBand: StructType({ from: PlanInstantType, to: PlanInstantType, label: OptionType(StringType) }),
+    refDot:  StructType({ t: PlanInstantType, y: FloatType, axis: PlanAxisSideType,
                           label: OptionType(StringType) }),
 });
 export type PlanChartLayerType = typeof PlanChartLayerType;
@@ -393,7 +487,7 @@ export type PlanChartHeightLiteral = "spark" | "expanded";
  * @property label - Optional printed value text (shown when the cell is ≥ 12px tall)
  */
 export const PlanHeatCellType = StructType({
-    at:    DateTimeType,
+    at:    PlanInstantType,
     value: OptionType(FloatType),
     label: OptionType(StringType),
 });
@@ -408,7 +502,7 @@ export type PlanHeatCellType = typeof PlanHeatCellType;
  * @property planned - `true` ⇒ the pale planned treatment
  */
 export const PlanWeightCellType = StructType({
-    at:       DateTimeType,
+    at:       PlanInstantType,
     fraction: FloatType,
     planned:  BooleanType,
 });
@@ -435,7 +529,7 @@ export type PlanSegmentType = typeof PlanSegmentType;
  * @property segments - The weighted segments
  */
 export const PlanSegmentCellType = StructType({
-    at:       DateTimeType,
+    at:       PlanInstantType,
     segments: ArrayType(PlanSegmentType),
 });
 export type PlanSegmentCellType = typeof PlanSegmentCellType;
@@ -502,7 +596,7 @@ export type PlanTableToneType = typeof PlanTableToneType;
  * @property tone - Optional explicit semantic tone override
  */
 export const PlanTableCellType = StructType({
-    at:    DateTimeType,
+    at:    PlanInstantType,
     value: OptionType(FloatType),
     text:  OptionType(StringType),
     tone:  OptionType(PlanTableToneType),
@@ -632,12 +726,13 @@ export type PlanChipClickEventType = typeof PlanChipClickEventType;
 
 /**
  * The `onCellClick` payload — a heat / table / weight / segment bucket cell
- * was clicked. Carries the bucket instant, never an index.
+ * was clicked. Carries the bucket instant (on the axis's arm), never an
+ * index.
  *
  * @property row - The row key
  * @property at - The clicked bucket's instant
  */
-export const PlanCellClickEventType = StructType({ row: StringType, at: DateTimeType });
+export const PlanCellClickEventType = StructType({ row: StringType, at: PlanInstantType });
 export type PlanCellClickEventType = typeof PlanCellClickEventType;
 
 /**
@@ -774,8 +869,8 @@ export type PlanExpandAxisLiteral = "keep" | "dim" | "off";
  */
 export const PlanRunType = StructType({
     key: StringType,
-    start: DateTimeType,
-    end: DateTimeType,
+    start: PlanInstantType,
+    end: PlanInstantType,
     label: StringType,
     quantity: OptionType(StringType),
     qty: OptionType(FloatType),
@@ -794,7 +889,7 @@ export type PlanRunType = typeof PlanRunType;
  */
 export const PlanDecisionMarkType = StructType({
     key: StringType,
-    at: DateTimeType,
+    at: PlanInstantType,
     applied: BooleanType,
 });
 /** Type alias for {@link PlanDecisionMarkType}. */
@@ -802,9 +897,9 @@ export type PlanDecisionMarkType = typeof PlanDecisionMarkType;
 
 /**
  * One bucket-event tile — the full Planner point-event grammar carried over
- * whole (everything `PlannerEventType` had except the slot-coordinate
- * variant — the axis is always the shared time scale — and `endSlot` —
- * multi-bucket spans are span rows).
+ * whole (everything `PlannerEventType` had except `endSlot` — multi-bucket
+ * spans are span rows; the slot coordinate is the shared
+ * {@link PlanInstantType}).
  *
  * @remarks
  * `label: none` ⇒ the resting look — a ✓ chip for confirmed/actual, the
@@ -815,7 +910,7 @@ export type PlanDecisionMarkType = typeof PlanDecisionMarkType;
  */
 export const PlanBucketEventType = StructType({
     key: StringType,
-    at: DateTimeType,
+    at: PlanInstantType,
     lane: OptionType(StringType),
     label: OptionType(StringType),
     icon: OptionType(IconType),
@@ -839,8 +934,8 @@ export type PlanBucketEventType = typeof PlanBucketEventType;
  */
 export const PlanChipType = StructType({
     key: StringType,
-    from: DateTimeType,
-    to: DateTimeType,
+    from: PlanInstantType,
+    to: PlanInstantType,
     label: StringType,
     state: EventStateType,
     icon: OptionType(IconType),
@@ -858,7 +953,7 @@ export type PlanChipType = typeof PlanChipType;
  */
 export const PlanEventMarkType = StructType({
     key: StringType,
-    at: DateTimeType,
+    at: PlanInstantType,
     kind: PlanEventMarkKindType,
     icon: OptionType(IconType),
     label: OptionType(StringType),
@@ -896,7 +991,7 @@ export type PlanExpandType = typeof PlanExpandType;
  * cards · events` — each keeping its source component's rendered surface.
  *
  * @remarks
- * `span` positions continuously (real datetimes, may cross bucket edges);
+ * `span` positions continuously (real instants, may cross bucket edges);
  * `buckets` / `heat` / `table` / `cards` quantise to the bucket grid;
  * `chart` draws per-bucket and continuous marks; `events` places instant
  * marks; `group` is the heterogeneous container whose collapsed form is
@@ -1026,7 +1121,19 @@ export type PlanRowsType = typeof PlanRowsType;
 // ============================================================================
 
 /**
- * Options for `Plan.axis` — the shared time-scale declaration.
+ * The East types an instant may be WRITTEN as — what every element builder
+ * accepts for a `start` / `end` / `at` / `from` / `to`, as
+ * `SubtypeExprOrValue<PlanInstantLikeType>` (the Chart `CoordScalar`
+ * precedent: one `SubtypeExprOrValue` over a set of East types). The arm is
+ * inferred from the value's static type: `DateTimeType` ⇒ `time`,
+ * `FloatType` / `IntegerType` ⇒ `number`, `StringType` ⇒ `ordinal`, and a
+ * {@link PlanInstantType} value (`Plan.at.*`) as is — so a `Date`, a number,
+ * a string, or a typed accessor each land on their arm with nothing written.
+ */
+export type PlanInstantLikeType = DateTimeType | FloatType | IntegerType | StringType | PlanInstantType;
+
+/**
+ * Options for `Plan.axis` / `Plan.axis.time` — the `time` axis declaration.
  *
  * @property window - Explicit half-open window `[min, max)` (Dates or expressions); omit ⇒ the bound slice's range, else fit to data
  * @property resolution - The initial bucket unit (string shorthand or expression)
@@ -1045,4 +1152,36 @@ export interface PlanAxisOptions {
     now?: SubtypeExprOrValue<DateTimeType>;
     /** Tick-label pattern override; omit ⇒ resolution defaults matching the spec ruler. */
     format?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * Options for `Plan.axis.number` — the `number` axis declaration.
+ *
+ * @property window - Explicit half-open window `[min, max)` (numbers or expressions); omit ⇒ the bound slice's `float` / `integer` range, else fit to data
+ * @property step - The bucket width (`> 0`); bucket edges sit on whole multiples of it
+ * @property now - The observed/plan split position; omit ⇒ no now-line
+ * @property format - Tick-label format (`Chart.format.*`); omit ⇒ plain numbers
+ */
+export interface PlanNumberAxisOptions {
+    /** Explicit half-open window `[min, max)`; omit ⇒ the bound slice's numeric range, else fit to data. */
+    window?: { min: SubtypeExprOrValue<FloatType> | number; max: SubtypeExprOrValue<FloatType> | number };
+    /** The bucket width (`> 0`) — `n = window ÷ step`, edges on whole multiples of `step`. */
+    step: SubtypeExprOrValue<FloatType> | number;
+    /** The observed/plan split position; omit ⇒ no now-line. */
+    now?: SubtypeExprOrValue<FloatType> | number;
+    /** Tick-label format — the shared `Chart.format.*` vocabulary; omit ⇒ plain numbers. */
+    format?: SubtypeExprOrValue<ValueFormatType>;
+}
+
+/**
+ * Options for `Plan.axis.ordinal` — the `ordinal` axis declaration.
+ *
+ * @property values - The ordered labels (strings or an expression) — the buckets, one each, and the ruler ticks
+ * @property now - The observed/plan split value; omit ⇒ no now-line
+ */
+export interface PlanOrdinalAxisOptions {
+    /** The ordered labels — the buckets, one each, in this order. */
+    values: SubtypeExprOrValue<ArrayType<StringType>> | string[];
+    /** The observed/plan split value; omit ⇒ no now-line. */
+    now?: SubtypeExprOrValue<StringType>;
 }

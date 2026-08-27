@@ -12,11 +12,17 @@ import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
     rowHeight, deriveBands, deriveHeatCells, deriveTableCells, deriveLinkFamily, derivePlan, elideForFocus, indexRows, linkedRowKeys,
-    pxOf, windowRestHeight,
+    pxOf, windowRestHeight, axisKindMismatches, dataExtent,
     HEAT_ROW_H, ROW_H, ROW_H_STACKED, GROUP_STRIP_H, GROUP_H, STRIP_H,
     RAIL_H,
     type PlanLinkValue, type PlanRowValue, type VisibleRow,
 } from "./model.js";
+import type { PlanInstantValue } from "./instant.js";
+
+/** Instants on each arm — REAL East variant values, as the decoder yields them (#631). */
+const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
+const n = (v: number): PlanInstantValue => variant("number", v) as PlanInstantValue;
+const o = (v: string): PlanInstantValue => variant("ordinal", v) as PlanInstantValue;
 
 function row(kind: unknown, opts?: { sub?: string; stacked?: boolean; expand?: unknown }): PlanRowValue {
     return {
@@ -251,9 +257,9 @@ describe("Plan windowRestHeight (#613)", () => {
     test("a vertical subtotal parent measures with its window-local DERIVED width", () => {
         const vmulti = variant("table", {
             series: [
-                { cells: [{ at: W27, value: some(1), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
-                { cells: [{ at: W27, value: some(2), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
-                { cells: [{ at: W27, value: some(3), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: t(W27), value: some(1), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: t(W27), value: some(2), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: t(W27), value: some(3), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
             ],
             split: variant("vertical", null), aggregate: none, format: none, emphasis: variant("body", null),
         });
@@ -356,7 +362,7 @@ const W32 = new Date("2026-08-03T00:00:00Z");
 
 function mkRun(key: string, start: Date, end: Date, state: unknown, qty?: number) {
     return {
-        key, start, end, label: key,
+        key, start: t(start), end: t(end), label: key,
         quantity: none, qty: qty !== undefined ? some(qty) : none,
         state, status: none, moved: none, icon: none, popover: none, hovercard: none,
     } as unknown as Parameters<typeof deriveBands>[0][number];
@@ -370,9 +376,9 @@ describe("Plan derived bands (§4·K1 rollups)", () => {
             mkRun("rc", W31, W32, variant("proposed", variant("recommended", null)), 88),
         ], "union", "t");
         expect(bands).toHaveLength(2);
-        expect(bands[0]).toMatchObject({ from: W27, to: W30, count: 2, quantity: "146 t" });
+        expect(bands[0]).toMatchObject({ from: t(W27), to: t(W30), count: 2, quantity: "146 t" });
         expect((bands[0]!.state as { type: string }).type).toBe("confirmed");   // rank 2 < actual 3
-        expect(bands[1]).toMatchObject({ from: W31, to: W32, count: 1, quantity: "88 t" });
+        expect(bands[1]).toMatchObject({ from: t(W31), to: t(W32), count: 1, quantity: "88 t" });
     });
 
     test("rejected runs are excluded; a missing qty suppresses the sum", () => {
@@ -381,7 +387,7 @@ describe("Plan derived bands (§4·K1 rollups)", () => {
             mkRun("r2", W29, W30, variant("rejected", null), 10),
         ], "union", "t");
         expect(bands).toHaveLength(1);
-        expect(bands[0]!.from).toBe(W27);
+        expect(bands[0]!.from).toEqual(t(W27));
         expect(bands[0]!.quantity).toBeUndefined();
     });
 
@@ -418,7 +424,7 @@ function nestedTableRows(): PlanRowValue[] {
         format: none,
         emphasis: variant("body", null),
     });
-    const cell = (at: Date, v: number) => ({ at, value: some(v), text: none, tone: none });
+    const cell = (at: Date, v: number) => ({ at: t(at), value: some(v), text: none, tone: none });
     return [
         trow("gp", undefined, tableKind([], true)),
         trow("mid", "gp", tableKind([], true)),
@@ -431,10 +437,10 @@ function nestedTableRows(): PlanRowValue[] {
 describe("Plan derived heat / table aggregates", () => {
     test("heat mean skips no-data cells and prints whole-number labels", () => {
         const cells = deriveHeatCells([
-            { at: W27, value: some(40), label: none },
-            { at: W27, value: some(60), label: none },
-            { at: W28, value: some(60), label: none },
-            { at: W28, value: none, label: none },
+            { at: t(W27), value: some(40), label: none },
+            { at: t(W27), value: some(60), label: none },
+            { at: t(W28), value: some(60), label: none },
+            { at: t(W28), value: none, label: none },
         ] as unknown as Parameters<typeof deriveHeatCells>[0], "mean");
         expect(cells).toHaveLength(2);
         expect(cells[0]).toMatchObject({ value: { type: "some", value: 50 }, label: { type: "some", value: "50" } });
@@ -473,9 +479,9 @@ describe("Plan derived heat / table aggregates", () => {
         // than no subtotal.
         const multi = (a: number, b: number) => variant("table", {
             series: [
-                { cells: [{ at: W27, value: some(a), text: none, tone: none }],
+                { cells: [{ at: t(W27), value: some(a), text: none, tone: none }],
                   format: none, tone: none, strong: some(true), rollup: none },
-                { cells: [{ at: W27, value: some(b), text: none, tone: none }],
+                { cells: [{ at: t(W27), value: some(b), text: none, tone: none }],
                   format: none, tone: some(variant("muted", null)), strong: none, rollup: none },
             ],
             split: variant("horizontal", null), aggregate: none, format: none,
@@ -503,9 +509,9 @@ describe("Plan derived heat / table aggregates", () => {
     test("`rollup: true` still NARROWS — an author can say which position is the number", () => {
         const flagged = (a: number, b: number) => variant("table", {
             series: [
-                { cells: [{ at: W27, value: some(a), text: none, tone: none }],
+                { cells: [{ at: t(W27), value: some(a), text: none, tone: none }],
                   format: none, tone: none, strong: none, rollup: some(true) },
-                { cells: [{ at: W27, value: some(b), text: none, tone: none }],
+                { cells: [{ at: t(W27), value: some(b), text: none, tone: none }],
                   format: none, tone: none, strong: none, rollup: none },
             ],
             split: variant("horizontal", null), aggregate: none, format: none,
@@ -533,9 +539,9 @@ describe("Plan derived heat / table aggregates", () => {
         // derived width is observable as a height difference.
         const vmulti = (a: number, b: number, c: number) => variant("table", {
             series: [
-                { cells: [{ at: W27, value: some(a), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
-                { cells: [{ at: W27, value: some(b), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
-                { cells: [{ at: W27, value: some(c), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: t(W27), value: some(a), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: t(W27), value: some(b), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: t(W27), value: some(c), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
             ],
             split: variant("vertical", null), aggregate: none, format: none, emphasis: variant("body", null),
         });
@@ -571,12 +577,78 @@ describe("Plan derived heat / table aggregates", () => {
         expect(derived.groupMembers.get("nested")).toBe(1);
     });
 
+    test("ordinal cells derive in DECLARED order when the axis's index is given; without it, insertion order (#631)", () => {
+        const PH = new Map([["INTAKE", 0], ["PREP", 1], ["BUILD", 2], ["QC", 3]]);
+        const cells = [
+            { at: o("QC"), value: some(4), label: none },
+            { at: o("PREP"), value: some(1), label: none },
+            { at: o("PREP"), value: some(3), label: none },
+            { at: o("INTAKE"), value: some(9), label: none },
+        ] as unknown as Parameters<typeof deriveHeatCells>[0];
+        expect(deriveHeatCells(cells, "mean", PH).map((c) => (c.at.type === "ordinal" ? c.at.value : "?")))
+            .toEqual(["INTAKE", "PREP", "QC"]);
+        expect(deriveHeatCells(cells, "mean", PH)[1]).toMatchObject({ value: { type: "some", value: 2 } });
+        // The ledger's height measure derives without the axis — order is
+        // insertion, the numbers are the same.
+        expect(deriveHeatCells(cells, "mean").map((c) => (c.at.type === "ordinal" ? c.at.value : "?")))
+            .toEqual(["QC", "PREP", "INTAKE"]);
+        // Number instants order numerically, no map needed.
+        const nums = [
+            { at: n(3), value: some(1), text: none, tone: none },
+            { at: n(1), value: some(2), text: none, tone: none },
+        ] as unknown as Parameters<typeof deriveTableCells>[0];
+        expect(deriveTableCells(nums, "sum").map((c) => (c.at.type === "number" ? c.at.value : NaN))).toEqual([1, 3]);
+    });
+
+    test("ordinal rollup bands close on the END's own bucket — an end names its last bucket (#631)", () => {
+        const PH = new Map([["INTAKE", 0], ["PREP", 1], ["BUILD", 2], ["QC", 3], ["PACK", 4]]);
+        const run = (key: string, start: string, end: string) => ({
+            key, start: o(start), end: o(end), label: key,
+            quantity: none, qty: none, state: variant("confirmed", null), status: none, moved: none, icon: none,
+        }) as unknown as Parameters<typeof deriveBands>[0][number];
+        // [INTAKE, PREP] and [BUILD, QC] touch at the PREP|BUILD edge — on a
+        // half-open axis they would merge; with inclusive ends PREP is covered
+        // by the first run, so BUILD starts a NEW band.
+        const bands = deriveBands([run("a", "INTAKE", "PREP"), run("b", "BUILD", "QC")], "union", undefined, PH);
+        expect(bands).toHaveLength(2);
+        expect(bands[0]).toMatchObject({ from: o("INTAKE"), to: o("PREP") });
+        // [INTAKE, BUILD] and [BUILD, QC] share BUILD — one band, ×2.
+        const merged = deriveBands([run("a", "INTAKE", "BUILD"), run("b", "BUILD", "QC")], "union", undefined, PH);
+        expect(merged).toHaveLength(1);
+        expect(merged[0]).toMatchObject({ from: o("INTAKE"), to: o("QC"), count: 2 });
+    });
+
+    test("axisKindMismatches names every row whose instants ride another arm; dataExtent reads only the axis's arm (#631)", () => {
+        const heat = (at: PlanInstantValue) => variant("heat", {
+            cells: variant("heat", { cells: [{ at, value: some(1), label: none }], min: none, max: none, warnAt: none }),
+            aggregate: none,
+        });
+        const rows = [
+            trow("ok", undefined, heat(n(2))),
+            trow("bad", undefined, heat(t(W27))),
+            trow("worse", undefined, variant("events", { marks: [{ key: "m", at: o("QC"), kind: variant("milestone", null), icon: none, label: none }] })),
+            trow("empty", undefined, variant("events", { marks: [] })),
+        ];
+        expect(axisKindMismatches(indexRows(rows), "number")).toEqual([
+            { row: "bad", found: "time" },
+            { row: "worse", found: "ordinal" },
+        ]);
+        expect(axisKindMismatches(indexRows(rows), "time")).toEqual([
+            { row: "ok", found: "number" },
+            { row: "worse", found: "ordinal" },
+        ]);
+        // The extent skips the other arms rather than mixing units.
+        expect(dataExtent(rows, "number")).toEqual({ min: 2, max: 2 });
+        expect(dataExtent(rows, "time")).toEqual({ min: W27.getTime(), max: W27.getTime() });
+        expect(dataExtent(rows, "ordinal")).toBeUndefined();
+    });
+
     test("table sum subtotals carry raw values; text and tone stay renderer-owned", () => {
         const cells = deriveTableCells([
-            { at: W27, value: some(96), text: none, tone: none },
-            { at: W27, value: some(54), text: none, tone: none },
-            { at: W28, value: some(-4), text: none, tone: none },
-            { at: W29, value: none, text: none, tone: none },
+            { at: t(W27), value: some(96), text: none, tone: none },
+            { at: t(W27), value: some(54), text: none, tone: none },
+            { at: t(W28), value: some(-4), text: none, tone: none },
+            { at: t(W29), value: none, text: none, tone: none },
         ] as unknown as Parameters<typeof deriveTableCells>[0], "sum");
         expect(cells[0]).toMatchObject({ value: { type: "some", value: 150 } });
         expect(cells[1]).toMatchObject({ value: { type: "some", value: -4 }, text: { type: "none" }, tone: { type: "none" } });

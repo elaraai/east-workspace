@@ -79,16 +79,31 @@ interface PlanOpts {
     sources?: string[];
     onDrag?: (e: DragEventValue) => void;
     canDrop?: (e: DragEventValue) => boolean;
+    /** The axis kind (#631) — time by default; number = `[1, 13)` at step 1; ordinal = twelve phases. */
+    axis?: "time" | "number" | "ordinal";
+}
+
+const PHASES = Array.from({ length: 12 }, (_u, i) => `P${i + 1}`);
+
+function axisOf(kind: PlanOpts["axis"]): unknown {
+    switch (kind) {
+        case "number":
+            return variant("number", { window: some({ min: 1, max: 13 }), step: 1, now: some(5), format: none });
+        case "ordinal":
+            return variant("ordinal", { values: PHASES, now: some("P5") });
+        default:
+            return variant("time", {
+                window: some({ min: W27, max: W39 }), resolution: variant("week", null),
+                resolutions: [], now: some(W31), format: none,
+            });
+    }
 }
 
 function planRoot(rows: PlanRowValue[], opts: PlanOpts = {}): PlanRootValue {
     return {
         rows: variant("inline", new Map(rows.map((r) => [r.key, r]))),
         links: [],
-        axis: {
-            window: some({ min: W27, max: W39 }), resolution: variant("week", null),
-            resolutions: [], now: some(W31), format: none,
-        },
+        axis: axisOf(opts.axis),
         grain: none, popover: none, hover: none,
         expandRender: none, expandGutter: none,
         review: none, pick: none, slice: none, footer: [],
@@ -203,6 +218,26 @@ describe("Plan drop target", () => {
             // what matters: Z-less ISO, so it parses as an East DateTime.
             expect(add.into.slot).toBe("2026-06-29T00:00:00.000");
             expect(new Date(`${add.into.slot}Z`).getTime()).toBe(W27.getTime());
+        }
+    });
+
+    test("the slot speaks the axis's arm (#631): a number axis reports the bucket start as a decimal, an ordinal one the value", async () => {
+        for (const [axis, expected] of [["number", "1"], ["ordinal", "P1"]] as const) {
+            cleanup();
+            const events: DragEventValue[] = [];
+            const { container, getByTestId } = renderPlan(
+                planRoot(ALL_KINDS, { onDrag: (e) => { events.push(e); }, axis }));
+            const spanCell = container.querySelectorAll<HTMLElement>("[data-drag-cell]")[0]!;
+            drag(getByTestId("card-job-1"), spanCell);
+            await microtasks();
+            expect(events).toHaveLength(1);
+            expect(events[0]!.type).toBe("add");
+            if (events[0]!.type === "add") {
+                // jsdom's zero-width rect resolves the pointer into the FIRST
+                // bucket: `1` on the number axis (parses with `parse(FloatType)`),
+                // the first declared value on the ordinal one.
+                expect(events[0]!.value.into.slot).toBe(expected);
+            }
         }
     });
 

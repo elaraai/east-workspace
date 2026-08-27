@@ -947,8 +947,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         style: OptionType(TableStyleType),
     }),
 
-    // Plan — the temporally-aligned composite canvas: one shared time axis
-    // (window ÷ resolution) over heterogeneous rows — span runs, bucket
+    // Plan — the axis-aligned composite canvas: one shared axis
+    // ({ time | number | ordinal }, #631) over heterogeneous rows — span runs, bucket
     // lanes, chart layers, heat / table cells, chips and event marks — flat
     // rows with `parent` keys. Rows are PURE DATA (`PlanRowType` — no UI, no
     // functions; pageable), so the arm references the named types directly;

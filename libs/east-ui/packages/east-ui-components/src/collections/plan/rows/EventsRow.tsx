@@ -45,7 +45,8 @@ export function EventsRow({ rowKey, kind, styles, storageKey, ctx }: EventsRowPr
                 const x = scale.fracOf(mark.at);
                 // Render-bounds cull (#619): overscan marks sit clipped at
                 // rest and slide in on a brush pan.
-                if (x <= scale.renderMin || x >= scale.renderMax) return null;
+                if (!Number.isFinite(x) || x <= scale.renderMin || x >= scale.renderMax) return null;
+                const frac = x.toFixed(4);
                 const label = mark.label.type === "some" ? mark.label.value : undefined;
                 const icon = mark.icon.type === "some" ? mark.icon.value : undefined;
                 const ref = variant("mark", { row: rowKey, mark: mark.key }) as PlanElementRefValue;
@@ -63,19 +64,19 @@ export function EventsRow({ rowKey, kind, styles, storageKey, ctx }: EventsRowPr
                 // and the host's icon returns on expand.
                 const glyph = icon !== undefined && ctx !== true
                     ? (
-                        <Box css={styles.markIcon} data-mark={mark.key} data-kind={mark.kind.type}
+                        <Box css={styles.markIcon} data-mark={mark.key} data-kind={mark.kind.type} data-plan-frac={frac}
                             left={`${x * 100}%`} onClick={onClick} cursor="pointer">
                             <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />
                         </Box>
                     )
                     : mark.kind.type === "decision"
-                        ? <Box css={styles.diamond} data-mark={mark.key} data-ctx={ctxAttr}
+                        ? <Box css={styles.diamond} data-mark={mark.key} data-ctx={ctxAttr} data-plan-frac={frac}
                             data-applied={mark.kind.value.applied ? "" : undefined}
                             left={`${x * 100}%`} onClick={onClick} cursor="pointer" />
                         : mark.kind.type === "exception"
-                            ? <Box css={styles.exceptionTri} data-mark={mark.key} data-ctx={ctxAttr}
+                            ? <Box css={styles.exceptionTri} data-mark={mark.key} data-ctx={ctxAttr} data-plan-frac={frac}
                                 left={`${x * 100}%`} onClick={onClick} cursor="pointer" />
-                            : <Box css={styles.milestoneDot} data-mark={mark.key} data-ctx={ctxAttr}
+                            : <Box css={styles.milestoneDot} data-mark={mark.key} data-ctx={ctxAttr} data-plan-frac={frac}
                                 left={`${x * 100}%`} onClick={onClick} cursor="pointer" />;
                 return (
                     <ElementOverlays key={mark.key}

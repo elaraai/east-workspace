@@ -36,6 +36,8 @@ describeEast("Plan", (test) => {
         // Was never wired — the example shipped without ever being executed.
         planExpand: ex.planExpand,
         planNarrow: ex.planNarrow,
+        planNumberAxis: ex.planNumberAxis,
+        planOrdinalAxis: ex.planOrdinalAxis,
     });
 
     // =========================================================================
@@ -55,13 +57,16 @@ describeEast("Plan", (test) => {
             style: { height: "fill", density: "compact", gutterWidth: "168px" },
         }));
         const root = $.let(p.unwrap().unwrap("Plan"));
-        $(Assert.equal(root.axis.window.unwrap("some").min, W27));
-        $(Assert.equal(root.axis.window.unwrap("some").max, END));
-        $(Assert.equal(root.axis.resolution.hasTag("week"), true));
-        $(Assert.equal(root.axis.resolutions.length(), 2n));
-        $(Assert.equal(root.axis.resolutions.get(1n).hasTag("day"), true));
-        $(Assert.equal(root.axis.now.unwrap("some"), W31));
-        $(Assert.equal(root.axis.format.unwrap("some"), "W"));
+        // `Plan.axis({ … })` is the TIME shorthand — the arm IS the declaration (#631).
+        $(Assert.equal(root.axis.getTag(), "time"));
+        const axis = $.let(root.axis.unwrap("time"));
+        $(Assert.equal(axis.window.unwrap("some").min, W27));
+        $(Assert.equal(axis.window.unwrap("some").max, END));
+        $(Assert.equal(axis.resolution.hasTag("week"), true));
+        $(Assert.equal(axis.resolutions.length(), 2n));
+        $(Assert.equal(axis.resolutions.get(1n).hasTag("day"), true));
+        $(Assert.equal(axis.now.unwrap("some"), W31));
+        $(Assert.equal(axis.format.unwrap("some"), "W"));
         $(Assert.equal(root.grain.unwrap("some").hasTag("group"), true));
         $(Assert.equal(root.id, "plan"));
         $(Assert.equal(root.sources.get(0n), "lib"));
@@ -323,7 +328,7 @@ describeEast("Plan", (test) => {
         const rows = $.let(Plan.heat({
             key: "line", label: "Line", aggregate: "mean", scale: { min: 0, max: 100 }, rows: [
                 Plan.heat({ key: "a", label: "A", cells: Plan.heatCells([
-                    { at: W27, value: some(40.0), label: none }, { at: W28, value: some(60.0), label: none },
+                    { at: Plan.at.time(W27), value: some(40.0), label: none }, { at: Plan.at.time(W28), value: some(60.0), label: none },
                 ]) }),
             ],
         }));
@@ -446,8 +451,8 @@ describeEast("Plan", (test) => {
             ],
         }));
         const chip = $.let(cardRows.get("crew").kind.unwrap("cards").chips.get(0n));
-        $(Assert.equal(chip.from, W27));
-        $(Assert.equal(chip.to, W29));
+        $(Assert.equal(chip.from.unwrap("time"), W27));
+        $(Assert.equal(chip.to.unwrap("time"), W29));
         $(Assert.equal(chip.state.unwrap("proposed").hasTag("removed"), true));
         const eventRows = $.let(Plan.events({
             key: "ms", label: "MS", marks: [
@@ -501,7 +506,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(chart.layers.length(), 5n));
         const line = $.let(chart.layers.get(0n).unwrap("line"));
         $(Assert.equal(line.points.length(), 3n));
-        $(Assert.equal(line.points.get(0n).t, W27));
+        $(Assert.equal(line.points.get(0n).t.unwrap("time"), W27));
         $(Assert.equal(line.points.get(0n).y, 10.0));
         $(Assert.equal(line.axis.hasTag("left"), true));
         $(Assert.equal(line.breach.unwrap("some").unwrap("below"), 15.0));
@@ -511,10 +516,10 @@ describeEast("Plan", (test) => {
         $(Assert.equal(refLine.y, 100.0));
         $(Assert.equal(refLine.label.unwrap("some"), "TARGET"));
         const refBand = $.let(chart.layers.get(3n).unwrap("refBand"));
-        $(Assert.equal(refBand.from, W27));
-        $(Assert.equal(refBand.to, W28));
+        $(Assert.equal(refBand.from.unwrap("time"), W27));
+        $(Assert.equal(refBand.to.unwrap("time"), W28));
         const refDot = $.let(chart.layers.get(4n).unwrap("refDot"));
-        $(Assert.equal(refDot.t, W28));
+        $(Assert.equal(refDot.t.unwrap("time"), W28));
         $(Assert.equal(refDot.y, 20.0));
     });
 
@@ -539,7 +544,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(chart.layers.get(2n).unwrap("column").series.hasTag("none"), true));
     });
 
-    test("Chart.Bar, non-DateTime x accessors and temporal value-axis domains are build-time errors", $ => {
+    test("Chart.Bar and temporal value-axis domains are build-time errors; a numeric x is a number-arm layer", $ => {
         const NumericRow = StructType({ x: FloatType, y: FloatType });
         const CategoryRow = StructType({ site: StringType, v: FloatType });
         const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
@@ -553,12 +558,10 @@ describeEast("Plan", (test) => {
                 return false;
             } catch { return true; }
         })()), true));
-        $(Assert.equal(East.value((() => {
-            try {
-                Plan.chart({ key: "x", label: "X", layers: Chart.Line(numeric, { x: r => r.x, y: r => r.y }) });
-                return false;
-            } catch { return true; }
-        })()), true));
+        // A numeric x accessor is no longer refused (#631): it lands the layer
+        // on the `number` arm, for a `Plan.axis.number` canvas to position.
+        const numRows = $.let(Plan.chart({ key: "x", label: "X", layers: Chart.Line(numeric, { x: r => r.x, y: r => r.y }) }));
+        $(Assert.equal(numRows.get("x").kind.unwrap("chart").layers.get(0n).unwrap("line").points.get(1n).t.unwrap("number"), 2.0));
         // A temporal extent on a VALUE axis mirrors Chart.Root's y-axis guard.
         $(Assert.equal(East.value((() => {
             try {
@@ -580,10 +583,10 @@ describeEast("Plan", (test) => {
         const rows = $.let(Plan.group({
             key: "line2", label: "Line 2", collapsed: true, summaryAggregate: "mean", rows: [
                 Plan.heat({ key: "a", label: "A", cells: Plan.heatCells([
-                    { at: W27, value: some(40.0), label: none },
+                    { at: Plan.at.time(W27), value: some(40.0), label: none },
                 ]) }),
                 Plan.heat({ key: "b", label: "B", cells: Plan.heatCells([
-                    { at: W27, value: some(60.0), label: none },
+                    { at: Plan.at.time(W27), value: some(60.0), label: none },
                 ]) }),
             ],
         }));
@@ -616,7 +619,7 @@ describeEast("Plan", (test) => {
                     Plan.series.heat(LineRow, {
                         key: "heat", title: "Heat",
                         label: (_r, k) => k,
-                        cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+                        cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
                     }),
                 ]),
             ],
@@ -682,7 +685,7 @@ describeEast("Plan", (test) => {
             series: [
                 Plan.series.heat(Row, {
                     key: "load", title: "Load", keySuffix: "/chart", label: (_r, k) => k,
-                    cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+                    cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
                 }),
                 Plan.series.table(Row, {
                     key: "detail", title: "Detail", keySuffix: "/table", label: (_r, k) => k,
@@ -714,7 +717,7 @@ describeEast("Plan", (test) => {
             series: [
                 Plan.series.heat(Row, {
                     key: "load", title: "Load", keyPrefix: "chart/", label: (_r, k) => k,
-                    cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+                    cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
                 }),
                 Plan.series.events(Row, { key: "ms", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
             ],
@@ -990,7 +993,7 @@ describeEast("Plan", (test) => {
             Plan.series.heat(Row, {
                 key: "load", title: "Line load", subtitle: "per line",
                 label: (_r, k) => k,
-                cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+                cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
             }),
             // A series matching nothing — the `0 rs` case the count exists to surface.
             Plan.series.events(Row, {
@@ -1041,11 +1044,11 @@ describeEast("Plan", (test) => {
         const twoHeats = $.const([
             Plan.series.heat(Row, {
                 key: "load", title: "Line load", label: (_r, k) => k,
-                cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+                cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
             }),
             Plan.series.heat(Row, {
                 key: "quality", title: "Quality index", label: (_r, k) => k,
-                cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+                cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
             }),
         ], ArrayType(Plan.Types.Series(Row)));
         const pair = $.let(Plan.pickItems(twoHeats));
@@ -1064,7 +1067,7 @@ describeEast("Plan", (test) => {
         const all = $.const([
             Plan.series.heat(Row, {
                 key: "load", title: "Load", label: (_r, k) => k,
-                cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+                cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
             }),
             Plan.series.events(Row, { key: "ms", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
         ], ArrayType(Plan.Types.Series(Row)));
@@ -1100,7 +1103,7 @@ describeEast("Plan", (test) => {
         const spanSeries = Plan.series.span(Row, { key: "span", title: "Span", label: (_r, k) => k, runs: _r => [] });
         const heatSeries = Plan.series.heat(Row, {
             key: "heat", title: "Heat", label: (_r, k) => k,
-            cells: r => Plan.heatCells([{ at: W27, value: some(r.v), label: none }]),
+            cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
         });
         const build = (series: ReturnType<typeof Plan.series.span>[]) =>
             Plan.Root({ axis: Plan.axis({ resolution: "week" }), data: handle, series });
@@ -1168,6 +1171,167 @@ describeEast("Plan", (test) => {
         $(Assert.equal(w0.unwrap("some").get("m1").kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
         // A window the author's handle can't serve stays none (loading).
         $(Assert.equal(src.page(1n, 100n).hasTag("none"), true));
+    });
+
+    // =========================================================================
+    // The typed axis (#631) — { time | number | ordinal } on every row kind
+    // =========================================================================
+
+    test("Plan.axis.number / .ordinal declare the other two arms; Plan.axis stays the time shorthand", $ => {
+        const t = $.let(Plan.axis({ window: { min: W27, max: END }, resolution: "week" }));
+        $(Assert.equal(t.getTag(), "time"));
+        $(Assert.equal(Plan.axis.time({ resolution: "day" }).getTag(), "time"));
+        const n = $.let(Plan.axis.number({ window: { min: 1, max: 9 }, step: 1, now: 5, format: Chart.format.number() }));
+        $(Assert.equal(n.getTag(), "number"));
+        const num = $.let(n.unwrap("number"));
+        $(Assert.equal(num.window.unwrap("some").min, 1.0));
+        $(Assert.equal(num.window.unwrap("some").max, 9.0));
+        $(Assert.equal(num.step, 1.0));
+        $(Assert.equal(num.now.unwrap("some"), 5.0));
+        // The tick format is the shared Chart vocabulary (ValueFormatType).
+        $(Assert.equal(num.format.unwrap("some").hasTag("number"), true));
+        // Window / now / format are optional — a bound slice's float range or
+        // the data fits the window; `step` is the one declaration.
+        const bare = $.let(Plan.axis.number({ step: 0.5 }).unwrap("number"));
+        $(Assert.equal(bare.window.hasTag("none"), true));
+        $(Assert.equal(bare.now.hasTag("none"), true));
+        $(Assert.equal(bare.step, 0.5));
+        const o = $.let(Plan.axis.ordinal({ values: ["INTAKE", "PREP", "BUILD"], now: "PREP" }));
+        $(Assert.equal(o.getTag(), "ordinal"));
+        const ord = $.let(o.unwrap("ordinal"));
+        $(Assert.equal(ord.values.length(), 3n));
+        $(Assert.equal(ord.values.get(1n), "PREP"));
+        $(Assert.equal(ord.now.unwrap("some"), "PREP"));
+        // An expression list works too — the values ARE the buckets.
+        const phases = $.const(["A", "B"], ArrayType(StringType));
+        $(Assert.equal(Plan.axis.ordinal({ values: phases }).unwrap("ordinal").values.length(), 2n));
+        // Guards: a non-positive literal step and an empty literal list are
+        // authoring errors (there would be no buckets).
+        $(Assert.equal(East.value((() => {
+            try { Plan.axis.number({ step: 0 }); return false; } catch { return true; }
+        })()), true));
+        $(Assert.equal(East.value((() => {
+            try { Plan.axis.ordinal({ values: [] }); return false; } catch { return true; }
+        })()), true));
+        // The root carries whichever arm it was given.
+        const Row = StructType({ id: StringType });
+        const data = $.const(new Map(), DictType(StringType, Row));
+        const p = $.let(Plan.Root({ axis: Plan.axis.ordinal({ values: ["P1", "P2"] }), data, series: [] }));
+        $(Assert.equal(p.unwrap().unwrap("Plan").axis.getTag(), "ordinal"));
+    });
+
+    test("element builders wrap an instant by its type — Date / number / string, and DateTime / Float / Integer / String expressions", $ => {
+        // The JS sugar: a Date is a `time` instant, a number a `number` one, a string an `ordinal` one.
+        const asDate = $.let(Plan.run({ key: "a", start: W27, end: W28, label: "A", state: "actual" }));
+        $(Assert.equal(asDate.start.unwrap("time"), W27));
+        $(Assert.equal(asDate.end.unwrap("time"), W28));
+        const asNumber = $.let(Plan.run({ key: "b", start: 2, end: 5, label: "B", state: "actual" }));
+        $(Assert.equal(asNumber.start.unwrap("number"), 2.0));
+        $(Assert.equal(asNumber.end.unwrap("number"), 5.0));
+        const asOrdinal = $.let(Plan.run({ key: "c", start: "PREP", end: "QC", label: "C", state: "actual" }));
+        $(Assert.equal(asOrdinal.start.unwrap("ordinal"), "PREP"));
+        $(Assert.equal(asOrdinal.end.unwrap("ordinal"), "QC"));
+        // Expressions wrap by their STATIC type — the DateTime accessor every
+        // existing canvas passes keeps compiling unchanged, and a Float /
+        // Integer / String field lands on the other arms.
+        const d = $.const(W29, DateTimeType);
+        const f = $.const(3.5, FloatType);
+        const i = $.const(4n, IntegerType);
+        const str = $.const("BUILD", StringType);
+        $(Assert.equal(Plan.event({ key: "e", at: d, state: "confirmed" }).at.unwrap("time"), W29));
+        $(Assert.equal(Plan.mark({ key: "m", at: f, kind: "milestone" }).at.unwrap("number"), 3.5));
+        $(Assert.equal(Plan.marker({ at: i, message: "x" }).at.unwrap("number"), 4.0));
+        $(Assert.equal(Plan.chip({ key: "c", from: str, to: "SHIP", label: "L", state: "confirmed" }).from.unwrap("ordinal"), "BUILD"));
+        // An explicit instant passes straight through; `Plan.at.*` builds one.
+        const explicit = $.const(Plan.at.number(7), Plan.Types.Instant);
+        $(Assert.equal(Plan.decision({ key: "d", at: explicit, applied: true }).at.unwrap("number"), 7.0));
+        $(Assert.equal(Plan.port({ at: Plan.at.time(W28) }).at.unwrap("time"), W28));
+        $(Assert.equal(Plan.at.ordinal("QC").unwrap("ordinal"), "QC"));
+        $(Assert.equal(Plan.at.number(f).unwrap("number"), 3.5));
+        // A bare variant VALUE is an instant too.
+        $(Assert.equal(Plan.port({ at: variant("ordinal", "PACK") }).at.unwrap("ordinal"), "PACK"));
+    });
+
+    test("tableCells wraps a raw cell's `at` by its field type — DateTime, Float, Integer, String, or an instant", $ => {
+        // Literal records take the JS sugar…
+        const asDate = $.let(Plan.tableCells([{ at: W27, value: some(1.0) }]));
+        $(Assert.equal(asDate.get(0n).at.unwrap("time"), W27));
+        const asNumber = $.let(Plan.tableCells([{ at: 3, value: some(1.0) }]));
+        $(Assert.equal(asNumber.get(0n).at.unwrap("number"), 3.0));
+        $(Assert.equal(Plan.tableCells([{ at: "QC", value: none }]).get(0n).at.unwrap("ordinal"), "QC"));
+        // …and an East array wraps by its element's STATIC `at` type, so a
+        // `{ at: DateTimeType, value }` dataset compiles unchanged and a
+        // numeric / string one lands on its arm.
+        const DateCell = StructType({ at: DateTimeType, value: OptionType(FloatType) });
+        const dates = $.const([{ at: W28, value: some(9.0) }], ArrayType(DateCell));
+        $(Assert.equal(Plan.tableCells(dates).get(0n).at.unwrap("time"), W28));
+        const FloatCell = StructType({ at: FloatType, value: OptionType(FloatType) });
+        const floats = $.const([{ at: 2.0, value: some(9.0) }], ArrayType(FloatCell));
+        $(Assert.equal(Plan.tableCells(floats).get(0n).at.unwrap("number"), 2.0));
+        const IntCell = StructType({ at: IntegerType, value: OptionType(FloatType) });
+        const ints = $.const([{ at: 4n, value: none }], ArrayType(IntCell));
+        $(Assert.equal(Plan.tableCells(ints).get(0n).at.unwrap("number"), 4.0));
+        $(Assert.equal(Plan.tableCells(ints).get(0n).value.hasTag("none"), true));
+        const StrCell = StructType({ at: StringType, value: OptionType(FloatType) });
+        const strs = $.const([{ at: "QC", value: some(2.0) }], ArrayType(StrCell));
+        $(Assert.equal(Plan.tableCells(strs).get(0n).at.unwrap("ordinal"), "QC"));
+        const InstCell = StructType({ at: Plan.Types.Instant, value: OptionType(FloatType) });
+        const insts = $.const([{ at: variant("ordinal", "PACK"), value: some(2.0) }], ArrayType(InstCell));
+        $(Assert.equal(Plan.tableCells(insts).get(0n).at.unwrap("ordinal"), "PACK"));
+    });
+
+    test("chart layers carry the x accessor's arm — a numeric x lands number points, a string x ordinal ones; annotations follow", $ => {
+        const DayRow = StructType({ day: FloatType, y: FloatType });
+        const IdxRow = StructType({ idx: IntegerType, y: FloatType });
+        const PhaseRow = StructType({ phase: StringType, y: FloatType });
+        const days = $.const([{ day: 1.0, y: 10.0 }, { day: 2.0, y: 20.0 }], ArrayType(DayRow));
+        const idxs = $.const([{ idx: 3n, y: 10.0 }], ArrayType(IdxRow));
+        const phases = $.const([{ phase: "PREP", y: 1.0 }, { phase: "QC", y: 2.0 }], ArrayType(PhaseRow));
+        const numeric = $.let(Plan.chart({ key: "n", label: "N", layers: [
+            Chart.Column(days, { x: r => r.day, y: r => r.y }),
+            Chart.refDot({ x: 2, y: 20, label: "PEAK" }),
+            Chart.refBand({ x: [1, 2], label: "RAMP" }),
+            // An Integer x is a number too (the Chart builder already floats it).
+            Chart.Scatter(idxs, { x: r => r.idx, y: r => r.y }),
+        ] }));
+        const nk = $.let(numeric.get("n").kind.unwrap("chart"));
+        $(Assert.equal(nk.layers.get(0n).unwrap("column").points.get(0n).t.unwrap("number"), 1.0));
+        $(Assert.equal(nk.layers.get(0n).unwrap("column").points.get(1n).t.unwrap("number"), 2.0));
+        $(Assert.equal(nk.layers.get(1n).unwrap("refDot").t.unwrap("number"), 2.0));
+        $(Assert.equal(nk.layers.get(2n).unwrap("refBand").from.unwrap("number"), 1.0));
+        $(Assert.equal(nk.layers.get(2n).unwrap("refBand").to.unwrap("number"), 2.0));
+        $(Assert.equal(nk.layers.get(3n).unwrap("scatter").points.get(0n).t.unwrap("number"), 3.0));
+        const ordinal = $.let(Plan.chart({ key: "o", label: "O", layers: [
+            Chart.Line(phases, { x: r => r.phase, y: r => r.y }),
+            Chart.refDot({ x: "QC", y: 2 }),
+        ] }));
+        const ok = $.let(ordinal.get("o").kind.unwrap("chart"));
+        $(Assert.equal(ok.layers.get(0n).unwrap("line").points.get(1n).t.unwrap("ordinal"), "QC"));
+        $(Assert.equal(ok.layers.get(1n).unwrap("refDot").t.unwrap("ordinal"), "QC"));
+    });
+
+    test("every element instant is the shared variant — cell clicks report it, and a data-driven series carries the arm through", $ => {
+        // The click payload's `at` is an instant, so a number-axis cell reports
+        // a number and an ordinal-axis cell a value — never an index.
+        const ev = $.const({ row: "r", at: Plan.at.number(3) }, Plan.Types.CellClickEvent);
+        $(Assert.equal(ev.at.unwrap("number"), 3.0));
+        // A series over numeric raw rows: the FloatType `start` / `end` fields
+        // wrap through `Plan.run` with nothing else written.
+        const JobRow = StructType({ start: FloatType, end: FloatType, state: EventStateType });
+        const data = $.const(new Map([
+            ["m1", { start: 1.0, end: 4.0, state: variant("actual", null) }],
+        ]), DictType(StringType, JobRow));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }),
+            data,
+            series: [Plan.series.span(JobRow, {
+                key: "span", title: "Span", label: (_r, k) => k,
+                runs: (r, k) => [Plan.run({ key: k, start: r.start, end: r.end, label: k, state: r.state })],
+            })],
+        }));
+        const run = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").get("m1").kind.unwrap("span").runs.get(0n));
+        $(Assert.equal(run.start.unwrap("number"), 1.0));
+        $(Assert.equal(run.end.unwrap("number"), 4.0));
     });
 
 }, { platformFns: TestImpl });

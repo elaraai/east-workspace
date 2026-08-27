@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { variant } from "@elaraai/east";
 import {
     initialPlanState, planReducer, initialPlanStore, planStoreReducer,
     type PlanEvent, type PlanUiState, type PlanStore,
@@ -112,11 +113,13 @@ describe('planReducer', () => {
 
     describe('brush / slice handoff', () => {
         it('commit emits slice.setRange and never stores a window', () => {
-            const min = new Date("2026-07-06T00:00:00Z");
-            const max = new Date("2026-08-03T00:00:00Z");
+            // Windows are INSTANTS on the axis's arm (#631) — the component
+            // writes them as the slice arm the axis speaks.
+            const min = variant("time", new Date("2026-07-06T00:00:00Z"));
+            const max = variant("time", new Date("2026-08-03T00:00:00Z"));
             const down = run(init(), { t: "brush.down" });
             expect(down.state.brush).toEqual({ active: true });
-            const { state, effects } = run(down.state, { t: "brush.commit", min, max });
+            const { state, effects } = run(down.state, { t: "brush.commit", min: min as never, max: max as never });
             expect(state.brush).toBeNull();
             expect(effects).toEqual([{ t: "slice.setRange", min, max }]);
         });

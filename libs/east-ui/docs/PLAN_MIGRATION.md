@@ -21,6 +21,13 @@ serialized `UIComponentType` from before it must be **re-emitted** by
 rebuilding the producing package — there is no mixed-version compatibility
 for stored UI values across this release.
 
+**#631 breaks the Plan wire once more**, by the same rule: `PlanAxisType`
+is now a VARIANT (`{ time | number | ordinal }`) and every element instant
+(`PlanRunType.start` / `end`, every `at`, `PlanChipType.from` / `to`, chart
+points, the cell-click payload) is `PlanInstantType` — a `Plan` value
+serialized before #631 does not decode against it. Positions are not
+reserved; stored `UIComponentType` values re-emit.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -103,15 +110,36 @@ Plan.series.buckets(Row, {
   AM/PM buckets → `lanes`; `Planner.marker` → `Plan.marker`.
 - `popover` / `hovercard` move OFF the tile onto the root's generalized
   `popover` / `hover` resolvers over `Plan.Types.ElementRef`.
-- **Number / ordinal axes are not carried over.** Plan is a temporal
-  canvas by design. A "day 1..8" numeric axis was almost always relative
-  time — anchor it to real dates (`epoch.addDays(n)`) and use `resolution:
-  "day"`. A truly ordinal axis (workflow phases) is not a Plan — reach for
-  `<Flowchart>`, `<Board>` or `<Matrix>`.
-- **DnD**: drops report the bucket START INSTANT as the slot (Z-less ISO,
-  parses as an East DateTime) — no composite `"5:pm"` keys; the receiving
-  series decides the lane. Temporal vetoes ("no drops left of now") are a
-  `canDrop` predicate over `add.into.slot.parse(DateTimeType)`.
+- **Number / ordinal axes ARE carried over (#631 — reversing the call
+  #571 recorded here).** A Plan's axis is `{ time | number | ordinal }`,
+  declared once and carried by every element instant (`Plan.Types.Instant`
+  — the Planner's slot type, verbatim):
+  - `Planner.axis.time({ resolution })` → `Plan.axis({ resolution, … })`
+    (the time shorthand; `Plan.axis.time` spells it);
+  - `Planner.axis.number({ range, buckets })` → `Plan.axis.number({ window:
+    { min, max }, step, now?, format? })` — window ÷ step = buckets, edges on
+    whole steps; the horizon brush and the window keys ride the bound
+    slice's `float` / `integer` range exactly as they ride `datetime`;
+  - `Planner.axis.ordinal({ … })` → `Plan.axis.ordinal({ values, now? })` —
+    the values are the buckets; no slice arm, no brush; an interval END
+    names its LAST bucket (inclusive);
+  - `Planner.at.time / .number / .ordinal` → `Plan.at.time / .number /
+    .ordinal` — needed only for element RECORDS written as data (a
+    `Plan.Types.HeatCell` array, a stored `Plan.Types.Run`). The element
+    builders (`Plan.run` / `event` / `chip` / `mark` / `marker` / `decision`
+    / `port`, `Plan.tableCells`) and the chart x accessors wrap a `Date` /
+    number / string, or a `DateTime` / `Float` / `Integer` / `String`
+    expression, by its type — `Plan.run({ start: j.start })` over a
+    `start: FloatType` field lands on the number arm with nothing written.
+  - The Planner's single-axis-kind rule holds: a row whose instants ride
+    another arm is a render-time diagnostic naming the row and the arm.
+  A "day 1..8" Planner canvas is `planNumberAxis`; a workflow-phase one
+  `planOrdinalAxis`.
+- **DnD**: drops report the bucket START INSTANT as the slot, per the axis
+  arm — time: Z-less ISO (`add.into.slot.parse(DateTimeType)`); number: a
+  decimal (`parse(FloatType)`); ordinal: the value — no composite `"5:pm"`
+  keys; the receiving series decides the lane. Temporal vetoes ("no drops
+  left of now") are a `canDrop` predicate over the parsed slot.
 
 ### `<Planner.Span>` → `<Plan>` with a span series
 
@@ -137,8 +165,8 @@ gutter-imposing stack container any more.
 | `ganttReactiveDrag` | `planRowDrop` (drop → State → re-derive; move/resize deferred) |
 | `ganttReview` | `planReview` |
 | `ganttLibraryDnd` | `planRowDrop` |
-| `plannerPoint` | `planBucketRows` |
-| `plannerVariants` (states/stretch/tones/colors/markers/buckets/mixed/percell/popover/hovercard) | `planBucketRows` (incl. the colour channels), `planCardRows`, root resolvers in the per-kind panels; day/hour axes → `planVariants` sprint preset |
+| `plannerPoint` | `planBucketRows`; its `number` axis → `planNumberAxis` (#631) |
+| `plannerVariants` (states/stretch/tones/colors/markers/buckets/mixed/percell/popover/hovercard) | `planBucketRows` (incl. the colour channels), `planCardRows`, root resolvers in the per-kind panels; day/hour axes → `planVariants` sprint preset; number ranges → `planNumberAxis`, ordinal phases → `planOrdinalAxis` (#631) |
 | `plannerReview` | `planReview` |
 | `plannerLibraryDnd` (add + veto + review loop) | `planRowDrop` + `planReview` |
 | `plannerSpan` | `planSpanRows` |

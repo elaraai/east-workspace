@@ -311,8 +311,10 @@ export const dataBindPagedPlan = example({
                             East.Array.generate(12n, Plan.Types.HeatCell, ($, i) => {
                                 const drift = $.let(i.toFloat().multiply(2.5).subtract(6.0), FloatType);
                                 const value = $.let(r.load.add(drift), FloatType);
+                                // A heat cell is a stored RECORD, so its instant is
+                                // spelled — `Plan.at.time` on the time arm (#631).
                                 return {
-                                    at: week(r.startWeek.add(i)),
+                                    at: Plan.at.time(week(r.startWeek.add(i))),
                                     value: some(value),
                                     label: some(East.Float.printFixed(value, 0n)),
                                 };

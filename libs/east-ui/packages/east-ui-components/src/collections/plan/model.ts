@@ -20,6 +20,7 @@
 import { none, some, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { initialPlanState, type PlanGrain, type PlanUiState, type RowKey } from "./plan-state.js";
+import { instantKey, instantOrder, type PlanAxisKind, type PlanInstantValue } from "./instant.js";
 
 /** The decoded Plan root value. */
 export type PlanRootValue = ValueTypeOf<typeof Plan.Types.Root>;
@@ -343,12 +344,133 @@ export function windowRestHeight(
         (sum, v) => sum + rowHeight(v, dense, rest.chartsExpanded, undefined, derived), 0);
 }
 
+// ── Instants (#631) ────────────────────────────────────────────────────────
+
+/**
+ * Visit every instant a row carries — each arm's instant fields, whatever
+ * the kind — so the axis-kind checks and the fit-to-data extent walk one
+ * list rather than each keeping a copy of the row vocabulary.
+ *
+ * @param row - The decoded row
+ * @param visit - Called once per instant (interval ENDS flagged, so an
+ *   ordinal end can be read inclusively)
+ */
+export function forEachInstant(row: PlanRowValue, visit: (t: PlanInstantValue, end: boolean) => void): void {
+    const kind = row.kind;
+    switch (kind.type) {
+        case "span":
+            for (const r of kind.value.runs) { visit(r.start, false); visit(r.end, true); }
+            for (const d of kind.value.decisions) visit(d.at, false);
+            for (const p of kind.value.ports) visit(p.at, false);
+            break;
+        case "buckets":
+            for (const e of kind.value.events) visit(e.at, false);
+            for (const m of kind.value.markers) visit(m.at, false);
+            break;
+        case "chart":
+            for (const layer of kind.value.layers) {
+                switch (layer.type) {
+                    case "line": case "area": case "column": case "scatter": case "band":
+                        for (const p of layer.value.points) visit(p.t, false);
+                        break;
+                    case "refBand": visit(layer.value.from, false); visit(layer.value.to, true); break;
+                    case "refDot": visit(layer.value.t, false); break;
+                    case "refLine": break;
+                }
+            }
+            break;
+        case "heat": {
+            const cells = kind.value.cells;
+            if (cells.type === "heat") for (const c of cells.value.cells) visit(c.at, false);
+            else for (const c of cells.value) visit(c.at, false);
+            break;
+        }
+        case "table":
+            for (const s of kind.value.series) for (const c of s.cells) visit(c.at, false);
+            break;
+        case "cards":
+            for (const c of kind.value.chips) { visit(c.from, false); visit(c.to, true); }
+            break;
+        case "events":
+            for (const m of kind.value.marks) visit(m.at, false);
+            break;
+        case "group": {
+            const summary = kind.value.summary;
+            if (summary.type === "some") {
+                const cells = summary.value;
+                if (cells.type === "heat") for (const c of cells.value.cells) visit(c.at, false);
+                else for (const c of cells.value) visit(c.at, false);
+            }
+            break;
+        }
+    }
+}
+
+/**
+ * Every instant a row set touches ON the axis's arm, as numbers — the
+ * fit-to-data window fallback. Instants of another arm are skipped (they are
+ * the mismatch diagnostic's business, not the axis's); an ordinal axis has
+ * no extent to fit (its list is its window).
+ *
+ * @param rows - The decoded rows
+ * @param kind - The axis kind
+ * @returns The `[min, max]` extent, or `undefined` when nothing positions
+ */
+export function dataExtent(rows: ReadonlyArray<PlanRowValue>, kind: PlanAxisKind): { min: number; max: number } | undefined {
+    if (kind === "ordinal") return undefined;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const row of rows) {
+        forEachInstant(row, (t) => {
+            if (t.type !== kind) return;
+            const n = instantOrder(t);
+            if (n < min) min = n;
+            if (n > max) max = n;
+        });
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return undefined;
+    return { min, max };
+}
+
+/** One row whose instants ride another arm than the axis — the diagnostic's subject. */
+export interface PlanAxisMismatch {
+    /** The offending row's key. */
+    row: RowKey;
+    /** The arm its instants ride (the first one found). */
+    found: PlanAxisKind;
+}
+
+/**
+ * The rows whose instants do NOT ride the axis's arm — the Planner's
+ * single-axis-kind rule, enforced at render time (#631). A mixed arm is a
+ * diagnostic naming the row and the axis kind, never a silent misplacement:
+ * the canvas refuses to draw until the data agrees with its declaration.
+ *
+ * @param index - The row-tree index
+ * @param kind - The axis kind
+ * @returns One entry per offending row, in collection order
+ */
+export function axisKindMismatches(index: PlanRowIndex, kind: PlanAxisKind): PlanAxisMismatch[] {
+    const out: PlanAxisMismatch[] = [];
+    for (const row of index.rows) {
+        let found: PlanAxisKind | undefined;
+        forEachInstant(row, (t) => { if (found === undefined && t.type !== kind) found = t.type; });
+        if (found !== undefined) out.push({ row: row.key, found });
+    }
+    return out;
+}
+
 // ── Renderer-side derivations (§4.2 — the Table idiom) ─────────────────────
 //
 // The IR carries DECLARATIONS (`rollup` + `unit`, `aggregate` + scale,
 // `summaryAggregate`, `format`); the numbers — rollup bands, per-bucket
 // aggregates, subtotal cells, strip summaries — are derived here over the
 // decoded values, exactly as Table's renderer computes its group subtotals.
+//
+// Instants are ordered on their own arm (`instantOrder`): epoch ms, the
+// value, or — for an ordinal axis — the declared index, which the caller
+// passes in as `ordinal`. Without it ordinal cells keep their insertion
+// order, which is what the ledger's height measure needs and all it needs.
 
 type RunValue = ValueTypeOf<typeof Plan.Types.Run>;
 type HeatCellValue = ValueTypeOf<typeof Plan.Types.HeatCell>;
@@ -375,8 +497,9 @@ export function tableRollupSeries(series: readonly TableSeriesValue[]): readonly
 
 /** One derived rollup band (`×k · qty`, pessimistic state). */
 export interface DerivedBand {
-    from: Date;
-    to: Date;
+    from: PlanInstantValue;
+    /** The band's end — on an ordinal axis the LAST bucket covered (inclusive). */
+    to: PlanInstantValue;
     /** Peak concurrency inside the band. */
     count: number;
     /** Summed quantity caption (`"146 t"`) — absent unless a unit is declared and every member carries `qty`. */
@@ -390,28 +513,40 @@ const STATE_RANK: Record<string, number> = {
     estimated: 0, proposed: 1, confirmed: 2, "in-progress": 3, actual: 3, rejected: 4,
 };
 
+/** An interval END on its arm — an ordinal end names its last bucket, so it
+ *  closes one bucket LATER than its own index (the scale's `endFracOf` rule). */
+function endOrder(t: PlanInstantValue, ordinal: ReadonlyMap<string, number> | undefined): number {
+    const n = instantOrder(t, ordinal);
+    return t.type === "ordinal" ? n + 1 : n;
+}
+
 /** Union-merge one run set into bands (rejected runs excluded). */
-function mergeBands(runs: readonly RunValue[], unit: string | undefined): DerivedBand[] {
+function mergeBands(
+    runs: readonly RunValue[],
+    unit: string | undefined,
+    ordinal: ReadonlyMap<string, number> | undefined,
+): DerivedBand[] {
+    const startOf = (r: RunValue) => instantOrder(r.start, ordinal);
+    const endOf = (r: RunValue) => endOrder(r.end, ordinal);
     const active = runs
-        .filter((r) => r.state.type !== "rejected")
+        .filter((r) => r.state.type !== "rejected" && Number.isFinite(startOf(r)) && Number.isFinite(endOf(r)))
         .slice()
-        .sort((a, b) => a.start.getTime() - b.start.getTime());
+        .sort((a, b) => startOf(a) - startOf(b));
     if (active.length === 0) return [];
-    const groups: { members: RunValue[]; from: Date; to: Date }[] = [];
+    const groups: { members: RunValue[]; from: PlanInstantValue; to: PlanInstantValue; toN: number }[] = [];
     for (const r of active) {
         const last = groups[groups.length - 1];
-        if (last !== undefined && r.start.getTime() < last.to.getTime()) {
+        if (last !== undefined && startOf(r) < last.toN) {
             last.members.push(r);
-            if (r.end.getTime() > last.to.getTime()) last.to = r.end;
+            if (endOf(r) > last.toN) { last.to = r.end; last.toN = endOf(r); }
         } else {
-            groups.push({ members: [r], from: r.start, to: r.end });
+            groups.push({ members: [r], from: r.start, to: r.end, toN: endOf(r) });
         }
     }
     return groups.map((g) => {
         let count = 1;
         for (const m of g.members) {
-            const c = g.members.filter((x) =>
-                x.start.getTime() <= m.start.getTime() && x.end.getTime() > m.start.getTime()).length;
+            const c = g.members.filter((x) => startOf(x) <= startOf(m) && endOf(x) > startOf(m)).length;
             if (c > count) count = c;
         }
         const missing = g.members.some((m) => m.qty.type === "none");
@@ -425,11 +560,20 @@ function mergeBands(runs: readonly RunValue[], unit: string | undefined): Derive
     });
 }
 
-/** Derive a rollup parent's bands from its subtree's runs. */
+/**
+ * Derive a rollup parent's bands from its subtree's runs.
+ *
+ * @param runs - The subtree's runs
+ * @param rollup - The declared mode
+ * @param unit - The declared quantity unit
+ * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
+ * @returns The bands, in start order
+ */
 export function deriveBands(
     runs: readonly RunValue[],
     rollup: "union" | "byStatus" | "sum",
     unit: string | undefined,
+    ordinal?: ReadonlyMap<string, number>,
 ): DerivedBand[] {
     if (rollup === "byStatus") {
         const order: string[] = [];
@@ -441,57 +585,84 @@ export function deriveBands(
             if (list !== undefined) list.push(r);
             else { byTag.set(tag, [r]); order.push(tag); }
         }
-        return order.flatMap((tag) => mergeBands(byTag.get(tag)!, unit));
+        return order.flatMap((tag) => mergeBands(byTag.get(tag)!, unit, ordinal));
     }
-    return mergeBands(runs, unit);
+    return mergeBands(runs, unit, ordinal);
 }
 
-/** Derive per-bucket aggregated heat cells (mean / max / sum; no-data skipped). */
+/**
+ * Group cells by the INSTANT they name, in axis order — instants with a
+ * comparable order sort; an ordinal set without its index map (the ledger's
+ * height measure) keeps insertion order, which is all a height needs.
+ */
+function groupByInstant<C extends { at: PlanInstantValue }>(
+    cells: readonly C[],
+    ordinal: ReadonlyMap<string, number> | undefined,
+): { at: PlanInstantValue; members: C[] }[] {
+    const groups = new Map<string, { at: PlanInstantValue; members: C[] }>();
+    for (const c of cells) {
+        const k = instantKey(c.at);
+        const g = groups.get(k);
+        if (g !== undefined) g.members.push(c);
+        else groups.set(k, { at: c.at, members: [c] });
+    }
+    const out = [...groups.values()];
+    const orders = out.map((g) => instantOrder(g.at, ordinal));
+    if (orders.every((n) => Number.isFinite(n))) {
+        const rank = new Map(out.map((g, i) => [g, orders[i]!]));
+        out.sort((a, b) => rank.get(a)! - rank.get(b)!);
+    }
+    return out;
+}
+
+/**
+ * Derive per-bucket aggregated heat cells (mean / max / sum; no-data skipped).
+ *
+ * @param cells - The children's cells
+ * @param mode - The declared aggregate
+ * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
+ * @returns One cell per distinct instant, in axis order
+ */
 export function deriveHeatCells(
     cells: readonly HeatCellValue[],
     mode: "mean" | "max" | "sum",
+    ordinal?: ReadonlyMap<string, number>,
 ): HeatCellValue[] {
-    const order: number[] = [];
-    const groups = new Map<number, number[]>();
-    for (const c of cells) {
-        const t = c.at.getTime();
-        if (!groups.has(t)) { groups.set(t, []); order.push(t); }
-        if (c.value.type === "some") groups.get(t)!.push(c.value.value);
-    }
     // Derived cells are REAL East option values (`some`/`none` — never a
     // hand-rolled `{ type, value }` literal, which lacks the encoder symbol
     // and breaks the day one is encoded or symbol-compared; #617).
-    return order.sort((a, b) => a - b).map((t): HeatCellValue => {
-        const vals = groups.get(t)!;
+    return groupByInstant(cells, ordinal).map((g): HeatCellValue => {
+        const vals = g.members.flatMap((c) => (c.value.type === "some" ? [c.value.value] : []));
         let v: number | undefined;
         if (vals.length > 0) {
             const total = vals.reduce((a, b) => a + b, 0);
             v = mode === "sum" ? total : mode === "max" ? Math.max(...vals) : total / vals.length;
         }
         return {
-            at: new Date(t),
+            at: g.at,
             value: v !== undefined ? some(v) : none,
             label: v !== undefined ? some(v.toFixed(0)) : none,
         };
     });
 }
 
-/** Derive per-bucket table subtotal cells (the Table #317 vocabulary) — raw
- *  values only; text and tone are renderer-derived through the row's shared
- *  `TickFormatType` format. */
+/**
+ * Derive per-bucket table subtotal cells (the Table #317 vocabulary) — raw
+ * values only; text and tone are renderer-derived through the row's shared
+ * `TickFormatType` format.
+ *
+ * @param cells - The children's cells
+ * @param mode - The declared aggregate
+ * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
+ * @returns One cell per distinct instant, in axis order
+ */
 export function deriveTableCells(
     cells: readonly TableCellValue[],
     mode: "sum" | "mean" | "min" | "max" | "count",
+    ordinal?: ReadonlyMap<string, number>,
 ): TableCellValue[] {
-    const order: number[] = [];
-    const groups = new Map<number, number[]>();
-    for (const c of cells) {
-        const t = c.at.getTime();
-        if (!groups.has(t)) { groups.set(t, []); order.push(t); }
-        if (c.value.type === "some") groups.get(t)!.push(c.value.value);
-    }
-    return order.sort((a, b) => a - b).map((t): TableCellValue => {
-        const vals = groups.get(t)!;
+    return groupByInstant(cells, ordinal).map((g): TableCellValue => {
+        const vals = g.members.flatMap((c) => (c.value.type === "some" ? [c.value.value] : []));
         let v: number | undefined;
         if (mode === "count") v = vals.length;
         else if (vals.length > 0) {
@@ -502,7 +673,7 @@ export function deriveTableCells(
                 : Math.max(...vals);
         }
         return {
-            at: new Date(t),
+            at: g.at,
             value: v !== undefined ? some(v) : none,
             text: none,
             tone: none,
@@ -520,11 +691,13 @@ export function deriveTableCells(
  *
  * @param positions - Each child's aggregable positions (see {@link tableRollupSeries})
  * @param mode - The declared aggregate
+ * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
  * @returns One derived series per position
  */
 export function deriveTableSeries(
     positions: ReadonlyArray<readonly TableSeriesValue[]>,
     mode: "sum" | "mean" | "min" | "max" | "count",
+    ordinal?: ReadonlyMap<string, number>,
 ): TableSeriesValue[] {
     const width = positions.reduce((m, p) => Math.max(m, p.length), 0);
     const out: TableSeriesValue[] = [];
@@ -533,7 +706,7 @@ export function deriveTableSeries(
         if (at.length === 0) continue;
         const style = at[0]!;
         out.push({
-            cells: deriveTableCells(at.flatMap((s) => s.cells), mode),
+            cells: deriveTableCells(at.flatMap((s) => s.cells), mode, ordinal),
             format: style.format, tone: style.tone, strong: style.strong, rollup: style.rollup,
         });
     }
@@ -641,9 +814,10 @@ export interface PlanDerived {
  * nothing (`visibleRows` walks the same tree).
  *
  * @param index - The row-tree index
+ * @param ordinal - The ordinal axis's value → index map (orders ordinal cells; omit on other axes)
  * @returns Every derived number, keyed by row
  */
-export function derivePlan(index: PlanRowIndex): PlanDerived {
+export function derivePlan(index: PlanRowIndex, ordinal?: ReadonlyMap<string, number>): PlanDerived {
     const bands = new Map<RowKey, DerivedBand[]>();
     const heatCells = new Map<RowKey, HeatCellValue[]>();
     const tableSeries = new Map<RowKey, TableSeriesValue[]>();
@@ -672,25 +846,25 @@ export function derivePlan(index: PlanRowIndex): PlanDerived {
         if (kind.type === "span" && kind.value.rollup.type === "some") {
             const unit = kind.value.unit.type === "some" ? kind.value.unit.value : undefined;
             const runs = [...kind.value.runs, ...subtreeRuns(index, row.key)];
-            bands.set(row.key, deriveBands(runs, kind.value.rollup.value.type, unit));
+            bands.set(row.key, deriveBands(runs, kind.value.rollup.value.type, unit, ordinal));
         }
         if (kind.type === "heat" && kind.value.aggregate.type === "some"
             && heatCellsOf(row).length === 0 && children.length > 0) {
             heatCells.set(row.key, deriveHeatCells(
-                children.flatMap(resolvedHeatCells), kind.value.aggregate.value.type));
+                children.flatMap(resolvedHeatCells), kind.value.aggregate.value.type, ordinal));
         }
         if (kind.type === "table" && kind.value.aggregate.type === "some"
             && tableRollupSeries(kind.value.series).length === 0 && children.length > 0) {
             const positions = children.map(resolvedTableSeries).filter((p) => p.length > 0);
             if (positions.length > 0) {
-                tableSeries.set(row.key, deriveTableSeries(positions, kind.value.aggregate.value.type));
+                tableSeries.set(row.key, deriveTableSeries(positions, kind.value.aggregate.value.type, ordinal));
             }
         }
         if (kind.type === "group") {
             groupMembers.set(row.key, children.length);
             if (kind.value.summaryAggregate.type === "some") {
                 const mode = kind.value.summaryAggregate.value.type;
-                groupSummary.set(row.key, deriveHeatCells(children.flatMap(resolvedHeatCells), mode));
+                groupSummary.set(row.key, deriveHeatCells(children.flatMap(resolvedHeatCells), mode, ordinal));
                 const scale = inheritedScale(children, mode);
                 if (scale !== undefined) groupSummaryScale.set(row.key, scale);
             }

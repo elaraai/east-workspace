@@ -24,6 +24,7 @@ import { Box } from "@chakra-ui/react";
 import { routeRibbon } from "./ribbon-geometry.js";
 import type { PlanLinkValue } from "../model.js";
 import type { PlanScale } from "../scale.js";
+import type { PlanInstantValue } from "../instant.js";
 
 const BRAND = "var(--chakra-colors-brand-600)";
 /** Ribbon fill opacity bounds — share of the largest family quantity. */
@@ -64,10 +65,10 @@ export interface LinksOverlayProps {
     links: readonly PlanLinkValue[];
     /** The full-height row set (focused row + family) — edges outside it skip. */
     visibleKeys: ReadonlySet<string>;
-    /** The shared time scale (off-window detection). */
+    /** The shared scale (off-window detection). */
     scale: PlanScale;
     /** A run's instants by `(rowKey, runKey)` — off-window side resolution. */
-    runDates: (rowKey: string, runKey: string) => { start: Date; end: Date } | undefined;
+    runDates: (rowKey: string, runKey: string) => { start: PlanInstantValue; end: PlanInstantValue } | undefined;
 }
 
 interface Endpoint {
@@ -127,7 +128,7 @@ function endpointFor(
     }
     const dates = runDates(rowKey, runKey);
     if (dates !== undefined) {
-        const offLeft = scale.fracOf(dates.end) <= 0;
+        const offLeft = scale.endFracOf(dates.end) <= 0;
         const offRight = scale.fracOf(dates.start) >= 1;
         if (offLeft || offRight) {
             const x = (offLeft ? p.left : p.right) - base.left;

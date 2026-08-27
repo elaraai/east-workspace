@@ -124,7 +124,7 @@ export const planTargetState = example({
             const coverage = $.let(East.Array.generate(12n, MeasureRow, (_$, i) =>
                 ({ week: week(i.add(27n)), pct: covPcts.get(i) })));
             const loadCells = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({
-                at: week(i.add(27n)), value: some(loadPcts.get(i)),
+                at: Plan.at.time(week(i.add(27n))), value: some(loadPcts.get(i)),
                 label: some(East.Float.printFixed(loadPcts.get(i), 0n)),
             })));
             // 36 despatch orders spread over W21–W47 — the horizon fixture.
@@ -142,7 +142,10 @@ export const planTargetState = example({
             })));
             // Raw jobs → runs: ONE bound mapping function — the bar label and
             // the quantity display/number pair derive CLIENT-SIDE from the
-            // raw phase/batch/tonnes fields (the series-make application).
+            // raw phase/batch/tonnes fields (the series-make application). The
+            // run is written as a RECORD, so its instants are spelled with
+            // `Plan.at.time` — the `Plan.run` builder would wrap a DateTime
+            // field by itself.
             const jobRuns = $.const(East.function([ArrayType(JobRow)], ArrayType(Plan.Types.Run), (_$, jobs) =>
                 jobs.map(($, j) => {
                     const noQuantity = $.const(none, OptionType(StringType));
@@ -155,7 +158,7 @@ export const planTargetState = example({
                         none: (_$) => j.phase,
                     }), StringType);
                     const run = $.let({
-                        key: j.key, start: j.start, end: j.end, label,
+                        key: j.key, start: Plan.at.time(j.start), end: Plan.at.time(j.end), label,
                         quantity, qty: j.tonnes, state: j.state, status: j.alert,
                         moved: none, icon: none,
                     }, Plan.Types.Run);
@@ -190,8 +193,8 @@ export const planTargetState = example({
                       { key: "cln",  phase: "CLN", batch: none, start: week(31n), end: week(32n), tonnes: none, state: variant("confirmed", null), alert: none },
                       { key: "b221", phase: "RUN", batch: some("B-221"), start: week(32n), end: week(35n), tonnes: some(88.0), state: variant("proposed", variant("recommended", null)), alert: none },
                   ],
-                  decisions: [{ key: "d1", at: week(32n), applied: false }],
-                  ports:     [{ at: week(31n), label: some("−24 t") }] }) }],
+                  decisions: [{ key: "d1", at: Plan.at.time(week(32n)), applied: false }],
+                  ports:     [{ at: Plan.at.time(week(31n)), label: some("−24 t") }] }) }],
                 ["L1-M04", { kind: variant("machine", { cap: 120.0, status: none,
                   // The expand declaration — a stored plain-data record
                   // (§3.2); presence is a per-row fact and the ROOT's
@@ -222,7 +225,7 @@ export const planTargetState = example({
                       { key: "a7", at: week(35n), state: variant("confirmed", null) },
                       { key: "a8", at: week(35n), state: variant("proposed", variant("recommended", null)) },
                   ],
-                  markers: [{ at: week(35n), lane: none, status: variant("warning", null), message: "capacity breach — 2 allocations" }] }) }],
+                  markers: [{ at: Plan.at.time(week(35n)), lane: none, status: variant("warning", null), message: "capacity breach — 2 allocations" }] }) }],
                 ["40-crewA", { kind: variant("crew", { name: "Crew A", hours: "152h → 168h", shifts: [
                     { key: "s1", from: week(27n), to: week(29n), hours: 80.0, state: variant("confirmed", null) },
                     { key: "s2", from: week(29n), to: week(31n), hours: 72.0, state: variant("confirmed", null) },
@@ -231,11 +234,11 @@ export const planTargetState = example({
                     { key: "s5", from: week(36n), to: week(38n), hours: 56.0, state: variant("proposed", variant("recommended", null)) },
                 ] }) }],
                 ["50-milestones", { kind: variant("stream", { name: "MILESTONES", marks: [
-                    { key: "kick", at: week(28n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
-                    { key: "d1", at: week(31n), kind: variant("decision", { applied: true }), icon: none, label: none },
-                    { key: "rel", at: week(33n), kind: variant("milestone", null), icon: none, label: some("REL 2.4") },
-                    { key: "audit", at: week(35n), kind: variant("exception", null), icon: none, label: some("AUDIT") },
-                    { key: "d2", at: week(37n), kind: variant("decision", { applied: false }), icon: none, label: some("×3") },
+                    { key: "kick", at: Plan.at.time(week(28n)), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
+                    { key: "d1", at: Plan.at.time(week(31n)), kind: variant("decision", { applied: true }), icon: none, label: none },
+                    { key: "rel", at: Plan.at.time(week(33n)), kind: variant("milestone", null), icon: none, label: some("REL 2.4") },
+                    { key: "audit", at: Plan.at.time(week(35n)), kind: variant("exception", null), icon: none, label: some("AUDIT") },
+                    { key: "d2", at: Plan.at.time(week(37n)), kind: variant("decision", { applied: false }), icon: none, label: some("×3") },
                 ] }) }],
             ]), DictType(StringType, OpsRow));
             // The series — one entry per row series, canvas order = series
@@ -446,7 +449,7 @@ export const planVariants = example({
             const points = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
                 ({ week: week(i.multiply(2n).add(27n)), pct: pcts.get(i) })));
             const cells = $.let(East.Array.generate(6n, Plan.Types.HeatCell, (_$, i) => ({
-                at: week(i.multiply(2n).add(27n)),
+                at: Plan.at.time(week(i.multiply(2n).add(27n))),
                 value: some(pcts.get(i)),
                 label: some(East.Float.printFixed(pcts.get(i), 0n)),
             })));
@@ -589,7 +592,7 @@ export const planVariants = example({
                         ),
                     }}
                     spec={[
-                        Configurator.Spec("Resolution", sel.axis.resolution.getTag()),
+                        Configurator.Spec("Resolution", sel.axis.unwrap("time").resolution.getTag()),
                         Configurator.Spec("Rows", East.print(ops.size())),
                     ]}
                 />
@@ -646,8 +649,8 @@ export const planSpanRows = example({
                   { key: "a", phase: "RUN", batch: some("B-208"), start: week(27n), end: week(31n), tonnes: some(112.0), state: variant("actual", null) },
                   { key: "b", phase: "RUN", batch: some("B-231"), start: week(31n), end: week(34n), tonnes: some(104.0), state: variant("proposed", variant("recommended", null)) },
               ],
-              decisions: [{ key: "d1", at: week(31n), applied: true }],
-              ports: [{ at: week(31n), label: some("−24 t") }] }],
+              decisions: [{ key: "d1", at: Plan.at.time(week(31n)), applied: true }],
+              ports: [{ at: Plan.at.time(week(31n)), label: some("−24 t") }] }],
             // The rollup series — one union parent per program (renderer-derived bands).
             ["L1-M03", { series: "rollup", program: "Program A", sub: none, value: none, expand: none,
               jobs: [
@@ -682,7 +685,7 @@ export const planSpanRows = example({
                     none: (_$) => j.phase,
                 }), StringType);
                 const run = $.let({
-                    key: j.key, start: j.start, end: j.end, label,
+                    key: j.key, start: Plan.at.time(j.start), end: Plan.at.time(j.end), label,
                     quantity, qty: j.tonnes, state: j.state,
                     status: none, moved: none, icon: none,
                 }, Plan.Types.Run);
@@ -803,37 +806,37 @@ export const planBucketRows = example({
         const docks = $.const(new Map([
             ["dock2", { series: "inbound", label: "Dock 2", sub: none, value: some("load/wk"),
               lanes: [], allocations: inbound, tiles: [],
-              markers: [{ at: week(29n), lane: none, status: variant("warning", null), message: "capacity 90%" }] }],
+              markers: [{ at: Plan.at.time(week(29n)), lane: none, status: variant("warning", null), message: "capacity 90%" }] }],
             // The grammar showcase — tiles stored IN the element vocabulary
             // (plain `PlanBucketEventType` records; no builders in data).
             ["dock5", { series: "outbound", label: "Dock 5", sub: some("day · am/pm"), value: none,
               lanes: [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }],
               allocations: [],
               tiles: [
-                  { key: "m1", at: week(27n), lane: some("am"), label: none, icon: none, state: variant("confirmed", null),
+                  { key: "m1", at: Plan.at.time(week(27n)), lane: some("am"), label: none, icon: none, state: variant("confirmed", null),
                     tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none },
-                  { key: "m2", at: week(27n), lane: some("pm"), label: none, icon: none, state: variant("confirmed", null),
+                  { key: "m2", at: Plan.at.time(week(27n)), lane: some("pm"), label: none, icon: none, state: variant("confirmed", null),
                     tone: some(variant("warning", null)), color: none, colorPalette: none, stretch: none, content: none, animation: none },
-                  { key: "m3", at: week(28n), lane: some("am"), label: none, icon: none, state: variant("proposed", variant("recommended", null)),
+                  { key: "m3", at: Plan.at.time(week(28n)), lane: some("am"), label: none, icon: none, state: variant("proposed", variant("recommended", null)),
                     tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: some(variant("pulse", null)) },
-                  { key: "m4", at: week(29n), lane: none, label: some("MIXED"), icon: none, state: variant("confirmed", null),
+                  { key: "m4", at: Plan.at.time(week(29n)), lane: none, label: some("MIXED"), icon: none, state: variant("confirmed", null),
                     tone: none, color: none, colorPalette: none, stretch: some(variant("horizontal", null)),
                     content: some({ horizontal: some(variant("center", null)), vertical: none }), animation: none },
-                  { key: "m5", at: week(30n), lane: some("pm"), label: none,
+                  { key: "m5", at: Plan.at.time(week(30n)), lane: some("pm"), label: none,
                     icon: some({ prefix: "fas", name: "truck", label: none, style: none }),
                     state: variant("proposed", variant("recommended", null)),
                     tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none },
-                  { key: "m6", at: week(31n), lane: some("am"), label: some("QC"), icon: none, state: variant("estimated", null),
+                  { key: "m6", at: Plan.at.time(week(31n)), lane: some("am"), label: some("QC"), icon: none, state: variant("estimated", null),
                     tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none },
                   // The colour channels (#571, from the Planner's colors
                   // preset): `color` is a raw token override, `colorPalette`
                   // recolours the whole lifecycle treatment.
-                  { key: "m7", at: week(32n), lane: some("am"), label: some("S-A"), icon: none, state: variant("confirmed", null),
+                  { key: "m7", at: Plan.at.time(week(32n)), lane: some("am"), label: some("S-A"), icon: none, state: variant("confirmed", null),
                     tone: none, color: some("teal.solid"), colorPalette: none, stretch: none, content: none, animation: none },
-                  { key: "m8", at: week(32n), lane: some("pm"), label: some("S-B"), icon: none, state: variant("confirmed", null),
+                  { key: "m8", at: Plan.at.time(week(32n)), lane: some("pm"), label: some("S-B"), icon: none, state: variant("confirmed", null),
                     tone: none, color: none, colorPalette: some(variant("brand", null)), stretch: none, content: none, animation: none },
               ],
-              markers: [{ at: week(29n), lane: none, status: variant("danger", null), message: "capacity breach" }] }],
+              markers: [{ at: Plan.at.time(week(29n)), lane: none, status: variant("danger", null), message: "capacity breach" }] }],
         ]), DictType(StringType, DockRow));
         const series = $.const([
             // Raw allocations → resting tiles, in the accessor.
@@ -1023,13 +1026,13 @@ export const planHeatRows = example({
             [46.0, 52.0, 58.0, 61.0, 66.0, 72.0, 78.0, 84.0, 90.0, 96.0, 98.0, 92.0],
             ArrayType(FloatType));
         const cells = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({
-            at: week(i.add(27n)),
+            at: Plan.at.time(week(i.add(27n))),
             value: i.equal(4n).ifElse(() => none, () => some(pcts.get(i))),   // W31 = no data
             label: i.equal(4n).ifElse(() => none, () => some(East.Float.printFixed(pcts.get(i), 0n))),
         })));
         // Booked-vs-free fractions; the back half is the planned pale tail.
         const weights = $.let(East.Array.generate(6n, Plan.Types.WeightCell, (_$, i) => ({
-            at: week(i.multiply(2n).add(27n)),
+            at: Plan.at.time(week(i.multiply(2n).add(27n))),
             fraction: i.toFloat().multiply(-0.11).add(0.9),
             planned: i.greaterEqual(3n),
         })));
@@ -1040,16 +1043,16 @@ export const planHeatRows = example({
             // Segment compositions — plain `{ fill, weight, label }` records.
             ["pack", { series: "segments", line: "", label: "Pack line", sub: some("capacity"), cells: [], weights: [],
               segs: [
-                  { at: week(27n), segments: [
+                  { at: Plan.at.time(week(27n)), segments: [
                       { fill: variant("success", null), weight: 60.0, label: some("60%") },
                       { fill: variant("warning", null), weight: 25.0, label: some("25%") },
                       { fill: variant("slack", null), weight: 15.0, label: none },
                   ] },
-                  { at: week(28n), segments: [
+                  { at: Plan.at.time(week(28n)), segments: [
                       { fill: variant("success", null), weight: 70.0, label: some("70%") },
                       { fill: variant("slack", null), weight: 30.0, label: none },
                   ] },
-                  { at: week(29n), segments: [
+                  { at: Plan.at.time(week(29n)), segments: [
                       { fill: variant("danger", null), weight: 40.0, label: some("40%") },
                       { fill: variant("free", null), weight: 60.0, label: none },
                   ] },
@@ -1309,9 +1312,9 @@ export const planCardRows = example({
             // STORED vocabulary — plain chip records (the §3.2 element
             // shapes), here carrying the shift-type icon.
             ["crewB", { series: "pool", name: "Crew B", sub: none, value: some("128h"), shifts: [], chips: [
-                { key: "b1", from: week(28n), to: week(31n), label: "96h", state: variant("confirmed", null),
+                { key: "b1", from: Plan.at.time(week(28n)), to: Plan.at.time(week(31n)), label: "96h", state: variant("confirmed", null),
                   icon: some({ prefix: "fas", name: "user-group", label: none, style: none }) },
-                { key: "b2", from: week(33n), to: week(36n), label: "+32h", state: variant("proposed", variant("recommended", null)), icon: none },
+                { key: "b2", from: Plan.at.time(week(33n)), to: Plan.at.time(week(36n)), label: "+32h", state: variant("proposed", variant("recommended", null)), icon: none },
             ] }],
         ]), DictType(StringType, CrewRow));
         const series = $.const([
@@ -1382,16 +1385,16 @@ export const planEventRows = example({
         });
         const streams = $.const(new Map([
             ["ms", { series: "main", name: "MILESTONES", sub: none, value: some("5"), marks: [
-                { key: "kick", at: week(28n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
-                { key: "d1", at: week(31n), kind: variant("decision", { applied: true }), icon: none, label: none },
-                { key: "rel", at: week(33n), kind: variant("milestone", null),
+                { key: "kick", at: Plan.at.time(week(28n)), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
+                { key: "d1", at: Plan.at.time(week(31n)), kind: variant("decision", { applied: true }), icon: none, label: none },
+                { key: "rel", at: Plan.at.time(week(33n)), kind: variant("milestone", null),
                   icon: some({ prefix: "fas", name: "rocket", label: none, style: none }), label: some("REL 2.4") },
-                { key: "audit", at: week(35n), kind: variant("exception", null), icon: none, label: some("AUDIT") },
-                { key: "d2", at: week(37n), kind: variant("decision", { applied: false }), icon: none, label: some("×3") },
+                { key: "audit", at: Plan.at.time(week(35n)), kind: variant("exception", null), icon: none, label: some("AUDIT") },
+                { key: "d2", at: Plan.at.time(week(37n)), kind: variant("decision", { applied: false }), icon: none, label: some("×3") },
             ] }],
             ["release", { series: "programs", name: "RELEASES", sub: some("6-wk cadence"), value: none, marks: [
-                { key: "r1", at: week(29n), kind: variant("milestone", null), icon: none, label: some("2.3") },
-                { key: "r2", at: week(36n), kind: variant("milestone", null), icon: none, label: some("2.4") },
+                { key: "r1", at: Plan.at.time(week(29n)), kind: variant("milestone", null), icon: none, label: some("2.3") },
+                { key: "r2", at: Plan.at.time(week(36n)), kind: variant("milestone", null), icon: none, label: some("2.4") },
             ] }],
         ]), DictType(StringType, StreamRow));
         const series = $.const([
@@ -1456,7 +1459,7 @@ export const planGroupedRows = example({
             [46.0, 52.0, 58.0, 61.0, 66.0, 72.0, 78.0, 84.0, 90.0, 96.0, 98.0, 92.0],
             ArrayType(FloatType));
         const cells = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({
-            at: week(i.add(27n)),
+            at: Plan.at.time(week(i.add(27n))),
             value: some(pcts.get(i)),
             label: some(East.Float.printFixed(pcts.get(i), 0n)),
         })));
@@ -1682,7 +1685,7 @@ export const planLibraryDnd = example({
             const points = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
                 ({ week: week(i.multiply(2n).add(27n)), pct: pcts.get(i) })));
             const cells = $.let(East.Array.generate(6n, Plan.Types.HeatCell, (_$, i) => ({
-                at: week(i.multiply(2n).add(27n)),
+                at: Plan.at.time(week(i.multiply(2n).add(27n))),
                 value: some(pcts.get(i)),
                 label: some(East.Float.printFixed(pcts.get(i), 0n)),
             })));
@@ -1709,15 +1712,15 @@ export const planLibraryDnd = example({
                                 jobs: [{ key: "b214", label: "RUN · B-214", start: week(28n), end: week(31n), state: RUNNING }],
                                 points,
                                 nums: [
-                                    { at: week(28n), value: some(96.0), text: none, tone: none },
-                                    { at: week(31n), value: some(88.0), text: none, tone: none },
+                                    { at: Plan.at.time(week(28n)), value: some(96.0), text: none, tone: none },
+                                    { at: Plan.at.time(week(31n)), value: some(88.0), text: none, tone: none },
                                 ] }],
                 ["20-m04",    { ...base, pick: "machines", label: "L1-M04",
                                 jobs: [{ key: "b208", label: "RUN · B-208", start: week(27n), end: week(30n), state: ACTUAL }],
                                 points,
                                 nums: [
-                                    { at: week(28n), value: some(112.0), text: none, tone: none },
-                                    { at: week(31n), value: some(-24.0), text: none, tone: none },
+                                    { at: Plan.at.time(week(28n)), value: some(112.0), text: none, tone: none },
+                                    { at: Plan.at.time(week(31n)), value: some(-24.0), text: none, tone: none },
                                 ] }],
                 // SAME KIND as the machines series, different entry — a kind is
                 // not an identity, which is why the library keys on `key`.
@@ -1732,8 +1735,8 @@ export const planLibraryDnd = example({
                                 ] }],
                 ["50-desp",   { ...base, pick: "table",    label: "Despatch t",
                                 nums: [
-                                    { at: week(28n), value: some(128.0), text: none, tone: none },
-                                    { at: week(30n), value: some(-96.0), text: none, tone: none },
+                                    { at: Plan.at.time(week(28n)), value: some(128.0), text: none, tone: none },
+                                    { at: Plan.at.time(week(30n)), value: some(-96.0), text: none, tone: none },
                                 ] }],
                 ["60-crewA",  { ...base, pick: "cards",    label: "Crew A",
                                 shifts: [
@@ -1742,8 +1745,8 @@ export const planLibraryDnd = example({
                                 ] }],
                 ["70-ms",     { ...base, pick: "events",   label: "MILESTONES",
                                 marks: [
-                                    { key: "k", at: week(29n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
-                                    { key: "a", at: week(34n), kind: variant("exception", null), icon: none, label: some("AUDIT") },
+                                    { key: "k", at: Plan.at.time(week(29n)), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
+                                    { key: "a", at: Plan.at.time(week(34n)), kind: variant("exception", null), icon: none, label: some("AUDIT") },
                                 ] }],
                 // Members of the three STATIC groups — they hang under their
                 // strip, so their keys only order within that subtree.
@@ -2028,7 +2031,7 @@ export const planRowDrop = example({
             const points = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
                 ({ week: week(i.multiply(2n).add(27n)), pct: pcts.get(i) })));
             const cells = $.let(East.Array.generate(6n, Plan.Types.HeatCell, (_$, i) => ({
-                at: week(i.multiply(2n).add(27n)),
+                at: Plan.at.time(week(i.multiply(2n).add(27n))),
                 value: some(pcts.get(i)),
                 label: some(East.Float.printFixed(pcts.get(i), 0n)),
             })));
@@ -2055,13 +2058,13 @@ export const planRowDrop = example({
                                allocs: [{ key: "a1", at: week(29n), state: CONFIRMED }] }],
                 ["50-desp",  { ...base, series: "table", label: "Despatch t",
                                nums: [
-                                   { at: week(28n), value: some(128.0), text: none, tone: none },
-                                   { at: week(31n), value: some(-96.0), text: none, tone: none },
+                                   { at: Plan.at.time(week(28n)), value: some(128.0), text: none, tone: none },
+                                   { at: Plan.at.time(week(31n)), value: some(-96.0), text: none, tone: none },
                                ] }],
                 ["60-crewA", { ...base, series: "crew",  label: "Crew A",
                                shifts: [{ key: "s1", from: week(27n), to: week(29n), label: "80h", state: CONFIRMED }] }],
                 ["70-ms",    { ...base, series: "strm",  label: "MILESTONES",
-                               marks: [{ key: "k", at: week(29n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") }] }],
+                               marks: [{ key: "k", at: Plan.at.time(week(29n)), kind: variant("milestone", null), icon: none, label: some("KICKOFF") }] }],
                 // A group MEMBER — the strip itself takes no drops, but the
                 // span row inside it receives like any other span row.
                 ["g1-m11",   { ...base, series: "gmach", label: "L3-M11", line: "Line 3",
@@ -2350,7 +2353,7 @@ export const planFill = example({
                     pct: j.multiply(17n).add(i).remainder(60n).toFloat().add(40.0),
                 })),
                 cells: East.Array.generate(6n, Plan.Types.HeatCell, (_$, j) => ({
-                    at: week(j.multiply(2n).add(27n)),
+                    at: Plan.at.time(week(j.multiply(2n).add(27n))),
                     value: some(j.multiply(13n).add(i).remainder(100n).toFloat()),
                     label: none,
                 })),
@@ -2627,15 +2630,15 @@ export const planExpand = example({
               expand: some({ height: some("132px"), axis: variant("keep", null) }),
               jobs: noJobs, points: noPoints, nums: noNums, marks: noMarks,
               cells: [
-                  { at: week(27n), value: some(46.0), label: some("46") },
-                  { at: week(28n), value: some(58.0), label: some("58") },
-                  { at: week(29n), value: some(66.0), label: some("66") },
-                  { at: week(30n), value: some(72.0), label: some("72") },
-                  { at: week(31n), value: some(84.0), label: some("84") },
-                  { at: week(32n), value: some(90.0), label: some("90") },
-                  { at: week(33n), value: some(96.0), label: some("96") },
-                  { at: week(34n), value: none, label: none },
-                  { at: week(35n), value: some(92.0), label: some("92") },
+                  { at: Plan.at.time(week(27n)), value: some(46.0), label: some("46") },
+                  { at: Plan.at.time(week(28n)), value: some(58.0), label: some("58") },
+                  { at: Plan.at.time(week(29n)), value: some(66.0), label: some("66") },
+                  { at: Plan.at.time(week(30n)), value: some(72.0), label: some("72") },
+                  { at: Plan.at.time(week(31n)), value: some(84.0), label: some("84") },
+                  { at: Plan.at.time(week(32n)), value: some(90.0), label: some("90") },
+                  { at: Plan.at.time(week(33n)), value: some(96.0), label: some("96") },
+                  { at: Plan.at.time(week(34n)), value: none, label: none },
+                  { at: Plan.at.time(week(35n)), value: some(92.0), label: some("92") },
               ] }],
             // axis: off — the render draws its own canvas, so the shared lines
             // are suppressed INSIDE this row only (the ruler never moves).
@@ -2643,23 +2646,23 @@ export const planExpand = example({
               expand: some({ height: some("120px"), axis: variant("off", null) }),
               jobs: noJobs, points: noPoints, cells: noCells, marks: noMarks,
               nums: [
-                  { at: week(27n), value: some(128.0), text: none, tone: none },
-                  { at: week(28n), value: some(134.0), text: none, tone: none },
-                  { at: week(29n), value: some(119.0), text: none, tone: none },
-                  { at: week(30n), value: some(-96.0), text: none, tone: none },
-                  { at: week(31n), value: some(-88.0), text: none, tone: none },
-                  { at: week(32n), value: none, text: none, tone: none },
-                  { at: week(33n), value: some(151.0), text: none, tone: none },
-                  { at: week(34n), value: some(162.0), text: none, tone: none },
-                  { at: week(35n), value: some(144.0), text: none, tone: none },
+                  { at: Plan.at.time(week(27n)), value: some(128.0), text: none, tone: none },
+                  { at: Plan.at.time(week(28n)), value: some(134.0), text: none, tone: none },
+                  { at: Plan.at.time(week(29n)), value: some(119.0), text: none, tone: none },
+                  { at: Plan.at.time(week(30n)), value: some(-96.0), text: none, tone: none },
+                  { at: Plan.at.time(week(31n)), value: some(-88.0), text: none, tone: none },
+                  { at: Plan.at.time(week(32n)), value: none, text: none, tone: none },
+                  { at: Plan.at.time(week(33n)), value: some(151.0), text: none, tone: none },
+                  { at: Plan.at.time(week(34n)), value: some(162.0), text: none, tone: none },
+                  { at: Plan.at.time(week(35n)), value: some(144.0), text: none, tone: none },
               ] }],
             ["MILESTONES", { series: "events", label: "MILESTONES",
               expand: some({ height: some("112px"), axis: variant("dim", null) }),
               jobs: noJobs, points: noPoints, cells: noCells, nums: noNums,
               marks: [
-                  { key: "k", at: week(28n), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
-                  { key: "d", at: week(31n), kind: variant("decision", { applied: true }), icon: none, label: none },
-                  { key: "a", at: week(34n), kind: variant("exception", null), icon: none, label: some("AUDIT") },
+                  { key: "k", at: Plan.at.time(week(28n)), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
+                  { key: "d", at: Plan.at.time(week(31n)), kind: variant("decision", { applied: true }), icon: none, label: none },
+                  { key: "a", at: Plan.at.time(week(34n)), kind: variant("exception", null), icon: none, label: some("AUDIT") },
               ] }],
         ]), DictType(StringType, OpsRow));
         // ONE resolver serves every declaring row, called with the row ref at
@@ -2811,11 +2814,11 @@ export const planNarrow = example({
                 ArrayType(FloatType));
             // Line 2 runs hotter than Line 1 — the Groups tab sorts it first.
             const loadA = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({
-                at: week(i.add(27n)), value: some(loadPcts.get(i).multiply(0.85)),
+                at: Plan.at.time(week(i.add(27n))), value: some(loadPcts.get(i).multiply(0.85)),
                 label: some(East.Float.printFixed(loadPcts.get(i).multiply(0.85), 0n)),
             })));
             const loadB = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({
-                at: week(i.add(27n)), value: some(loadPcts.get(i)),
+                at: Plan.at.time(week(i.add(27n))), value: some(loadPcts.get(i)),
                 label: some(East.Float.printFixed(loadPcts.get(i), 0n)),
             })));
             const covPcts = $.const(
@@ -2928,6 +2931,364 @@ export const planNarrow = example({
                 </Box>
             );
         }}</Reactive>);
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// planNumberAxis — the `number` axis (#631): day 1..8 with AM/PM lanes
+// ============================================================================
+
+/**
+ * The `number` axis — the retired Planner's `plannerPoint` canvas on the
+ * Plan: eight days at step 1, AM/PM lanes in the bucket rows, `now` at day
+ * 5. Every kind positions on the one numeric scale, and every instant in the
+ * raw data is a plain number: a `FloatType` field wraps to the `number` arm
+ * through the element builders (`Plan.run({ start: j.start })`), a chart
+ * layer's numeric x accessor lands its columns on the same arm, `Plan.tableCells`
+ * reads a numeric `at`, and the heat cells stored as RECORDS spell it out with
+ * `Plan.at.number`. The slice's range field is a float, so the horizon brush
+ * and the range chip ride the slice's `float` arm exactly as they ride
+ * `datetime` on a time axis; there is no resolution segment — `step` is the
+ * declaration.
+ */
+export const planNumberAxis = example({
+    keywords: [
+        "Plan", "axis", "number", "numeric", "step", "Plan.axis.number", "Plan.at", "instant",
+        "day", "AM", "PM", "lanes", "buckets", "Planner", "plannerPoint", "brush", "float", "range",
+        "format", "now", "typed axis", "#631", "raw",
+    ],
+    description: "The number axis — day 1..8 at step 1 with AM/PM lanes (the retired Planner's plannerPoint), every row kind on the numeric scale, the horizon brush over the slice's float range",
+    fn: East.function([], UIComponentType, (_$) => {
+        const HorizonRow = StructType({ key: StringType, day: FloatType, line: StringType });
+        const cfg = Slice.config(HorizonRow, {
+            fields: { day: { label: "Day" }, line: { label: "Line" } },
+            rangeFieldId: "day",
+        });
+        return (<Reactive>{$ => {
+            // RAW rows — every instant is a plain number (a day index).
+            const AllocRow = StructType({ key: StringType, day: FloatType, lane: StringType, state: EventStateType });
+            const JobRow = StructType({ key: StringType, label: StringType, start: FloatType, end: FloatType, state: EventStateType });
+            const ShiftRow = StructType({ key: StringType, from: FloatType, to: FloatType, hours: FloatType, state: EventStateType });
+            const MarkRow = StructType({ key: StringType, day: FloatType, label: StringType });
+            const PointRow = StructType({ day: FloatType, t: FloatType });
+            const RawCell = StructType({ at: FloatType, value: OptionType(FloatType) });
+            const OpsRow = StructType({
+                series: StringType, label: StringType, value: OptionType(StringType),
+                allocations: ArrayType(AllocRow), jobs: ArrayType(JobRow), shifts: ArrayType(ShiftRow),
+                marks: ArrayType(MarkRow), points: ArrayType(PointRow), tonnes: ArrayType(RawCell),
+                cells: ArrayType(Plan.Types.HeatCell),
+            });
+            const noAllocs = $.const([], ArrayType(AllocRow));
+            const noJobs = $.const([], ArrayType(JobRow));
+            const noShifts = $.const([], ArrayType(ShiftRow));
+            const noMarks = $.const([], ArrayType(MarkRow));
+            const noPoints = $.const([], ArrayType(PointRow));
+            const noTonnes = $.const([], ArrayType(RawCell));
+            const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
+            const CONFIRMED = variant("confirmed", null);
+            const ACTUAL = variant("actual", null);
+            const RUNNING = variant("in-progress", null);
+            const PROPOSED = variant("proposed", variant("recommended", null));
+            // Per-day series over days 1..8 — derived, never hand-written.
+            const points = $.let(East.Array.generate(8n, PointRow, (_$, i) =>
+                ({ day: i.toFloat().add(1.0), t: i.multiply(17n).remainder(40n).toFloat().add(60.0) })));
+            const tonnes = $.let(East.Array.generate(8n, RawCell, (_$, i) =>
+                ({ at: i.toFloat().add(1.0), value: some(i.multiply(23n).remainder(70n).toFloat().add(80.0)) })));
+            // Heat cells as STORED records — the instant spelled explicitly.
+            const cells = $.let(East.Array.generate(8n, Plan.Types.HeatCell, ($, i) => {
+                const load = $.let(i.multiply(29n).remainder(55n).toFloat().add(40.0), FloatType);
+                return { at: Plan.at.number(i.toFloat().add(1.0)), value: some(load), label: some(East.Float.printFixed(load, 0n)) };
+            }));
+            const base = {
+                value: none, allocations: noAllocs, jobs: noJobs, shifts: noShifts,
+                marks: noMarks, points: noPoints, tonnes: noTonnes, cells: noCells,
+            };
+            // Keys order the canvas (#568) — numbered so each series lands where the
+            // §1 layout puts it.
+            const ops = $.const(new Map([
+                ["10-dock2", { ...base, series: "dock", label: "Dock 2", value: some("load/day"), allocations: [
+                    { key: "a1", day: 1.0, lane: "am", state: CONFIRMED },
+                    { key: "a2", day: 1.0, lane: "pm", state: CONFIRMED },
+                    { key: "a3", day: 2.0, lane: "am", state: CONFIRMED },
+                    { key: "a4", day: 3.0, lane: "pm", state: PROPOSED },
+                    { key: "a5", day: 5.0, lane: "am", state: PROPOSED },
+                    { key: "a6", day: 6.0, lane: "pm", state: CONFIRMED },
+                    { key: "a7", day: 8.0, lane: "am", state: PROPOSED },
+                ] }],
+                ["10-dock5", { ...base, series: "dock", label: "Dock 5", value: some("load/day"), allocations: [
+                    { key: "b1", day: 2.0, lane: "pm", state: CONFIRMED },
+                    { key: "b2", day: 4.0, lane: "am", state: CONFIRMED },
+                    { key: "b3", day: 4.0, lane: "pm", state: PROPOSED },
+                    { key: "b4", day: 7.0, lane: "am", state: PROPOSED },
+                ] }],
+                ["20-m03", { ...base, series: "mach", label: "L1-M03", value: some("120 t"), jobs: [
+                    { key: "set", label: "SET", start: 1.0, end: 2.0, state: ACTUAL },
+                    { key: "b214", label: "RUN · B-214", start: 2.0, end: 5.0, state: RUNNING },
+                    { key: "b221", label: "RUN · B-221", start: 6.0, end: 8.0, state: PROPOSED },
+                ] }],
+                ["20-m04", { ...base, series: "mach", label: "L1-M04", value: some("80 t"), jobs: [
+                    { key: "b208", label: "RUN · B-208", start: 1.0, end: 4.0, state: ACTUAL },
+                    { key: "qc", label: "QC", start: 4.0, end: 5.0, state: CONFIRMED },
+                    { key: "b231", label: "RUN · B-231", start: 5.0, end: 9.0, state: PROPOSED },
+                ] }],
+                ["30-load", { ...base, series: "load", label: "Line load", cells }],
+                ["40-out", { ...base, series: "out", label: "OUTPUT · t", value: some("612 t"), points }],
+                ["50-desp", { ...base, series: "table", label: "Despatch t", tonnes }],
+                ["60-crewA", { ...base, series: "crew", label: "Crew A", shifts: [
+                    { key: "s1", from: 1.0, to: 3.0, hours: 24.0, state: CONFIRMED },
+                    { key: "s2", from: 3.0, to: 6.0, hours: 36.0, state: CONFIRMED },
+                    { key: "s3", from: 6.0, to: 8.0, hours: 24.0, state: PROPOSED },
+                ] }],
+                ["70-ms", { ...base, series: "ms", label: "MILESTONES", marks: [
+                    { key: "kick", day: 2.0, label: "KICKOFF" },
+                    { key: "rel", day: 6.0, label: "REL" },
+                ] }],
+            ]), DictType(StringType, OpsRow));
+            const series = $.const([
+                Plan.series.group(OpsRow, { key: "10-docks", label: "Docks · In", meta: "2 rs" }, [
+                    Plan.series.buckets(OpsRow, {
+                        key: "dock", title: "Docks",
+                        match: r => r.series.equal("dock"),
+                        label: r => r.label, value: r => r.value,
+                        // The Planner's AM/PM lanes — sub-slots of each day column.
+                        lanes: _r => [Plan.lane({ key: "am", label: "AM" }), Plan.lane({ key: "pm", label: "PM" })],
+                        // `a.day` is a FloatType field — the builder wraps it to the number arm.
+                        events: r => r.allocations.map((_$, a) => Plan.event({ key: a.key, at: a.day, lane: a.lane, state: a.state })),
+                    }),
+                ]),
+                Plan.series.span(OpsRow, {
+                    key: "mach", title: "Machines",
+                    match: r => r.series.equal("mach"),
+                    label: r => r.label, id: true, value: r => r.value,
+                    runs: r => r.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.label, state: j.state })),
+                }),
+                Plan.series.heat(OpsRow, {
+                    key: "load", title: "Line load",
+                    match: r => r.series.equal("load"),
+                    label: r => r.label,
+                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 90 }),
+                }),
+                Plan.series.chart(OpsRow, {
+                    key: "out", title: "Output",
+                    match: r => r.series.equal("out"),
+                    label: r => r.label, id: true, value: r => r.value, height: "expanded",
+                    // A numeric x accessor lands the columns on the number arm.
+                    layers: r => [Chart.Column(r.points, { x: p => p.day, y: p => p.t })],
+                }),
+                Plan.series.table(OpsRow, {
+                    key: "table", title: "Despatch",
+                    match: r => r.series.equal("table"),
+                    label: r => r.label,
+                    // A `{ at: FloatType, value }` record wraps by its field type.
+                    cells: r => Plan.tableCells(r.tonnes),
+                    format: Format.Number({ maximumFractionDigits: 0n }),
+                }),
+                Plan.series.cards(OpsRow, {
+                    key: "crew", title: "Crews",
+                    match: r => r.series.equal("crew"),
+                    label: r => r.label,
+                    chips: r => r.shifts.map((_$, s) => Plan.chip({
+                        key: s.key, from: s.from, to: s.to,
+                        label: East.str`${East.Float.printFixed(s.hours, 0n)}h`, state: s.state,
+                    })),
+                }),
+                Plan.series.events(OpsRow, {
+                    key: "ms", title: "Milestones",
+                    match: r => r.series.equal("ms"),
+                    label: r => r.label, id: true,
+                    marks: r => r.marks.map((_$, m) => Plan.mark({ key: m.key, at: m.day, kind: "milestone", label: m.label })),
+                }),
+            ], ArrayType(Plan.Types.Series(OpsRow)));
+            // The slice's horizon — twelve days of orders behind an eight-day
+            // window. Its range field is a FLOAT, so the brush, the range chip
+            // and the window keys write the slice's `float` arm.
+            const horizon = $.let(East.Array.generate(24n, HorizonRow, (_$, i) => ({
+                key: East.str`o${East.print(i.add(1n))}`,
+                day: i.divide(2n).toFloat().add(1.0),
+                line: i.remainder(2n).equal(0n).ifElse(() => "Line 1", () => "Line 2"),
+            })));
+            const slice = $.let(Slice.bind([HorizonRow], "ex.plan.number", cfg, Slice.state({
+                range: some(variant("float", { from: 1.0, to: 9.0 })),
+            }), horizon, none));
+            // The declaration: `[1, 9)` ÷ 1 = eight day columns, the divider at 5.
+            const axis = $.const(Plan.axis.number({
+                window: { min: 1, max: 9 }, step: 1, now: 5, format: Chart.format.number(),
+            }));
+            return (
+                <Plan
+                    axis={axis}
+                    data={ops}
+                    series={series}
+                    slice={{ slice, affordances: ["filter", "range", "brush", "summary"] }}
+                    footer={[
+                        { text: "8 DAYS · STEP 1 · NOW 5" },
+                        { text: "NUMBER AXIS", end: true },
+                    ]}
+                />
+            );
+        }}</Reactive>);
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// planOrdinalAxis — the `ordinal` axis (#631): workflow phases
+// ============================================================================
+
+/**
+ * The `ordinal` axis — a workflow of six phases, each a bucket, in declared
+ * order. Instants are the phase VALUES: a run's `start` / `end` are phase
+ * names (an interval covers `[start, end]` in phase order — on an ordinal
+ * axis the end names the LAST bucket covered, since values are buckets, not
+ * edges), a tile sits in a phase, a chart's string x accessor lands its
+ * columns on the phase arm, `Plan.tableCells` reads a string `at`, and
+ * `Plan.at.ordinal` spells one out where a record is written as data. There
+ * is no slice range for an ordinal axis — the list IS the window, so the
+ * horizon brush does not mount and the window keys idle; `now` names a phase.
+ */
+export const planOrdinalAxis = example({
+    keywords: [
+        "Plan", "axis", "ordinal", "phase", "phases", "workflow", "stage", "Plan.axis.ordinal",
+        "Plan.at", "instant", "values", "list", "span", "buckets", "heat", "chart", "table",
+        "cards", "events", "Planner", "typed axis", "#631", "raw",
+    ],
+    description: "The ordinal axis — six workflow phases as the buckets, in declared order; orders span phases, tiles and cells sit in them, a string x accessor lands a chart on them",
+    fn: East.function([], UIComponentType, ($) => {
+        const PHASES = $.const(["INTAKE", "PREP", "BUILD", "QC", "PACK", "SHIP"], ArrayType(StringType));
+        // RAW rows — every instant is a phase NAME.
+        const JobRow = StructType({ key: StringType, label: StringType, start: StringType, end: StringType, state: EventStateType });
+        const AllocRow = StructType({ key: StringType, phase: StringType, state: EventStateType });
+        const ShiftRow = StructType({ key: StringType, from: StringType, to: StringType, label: StringType, state: EventStateType });
+        const MarkRow = StructType({ key: StringType, phase: StringType, label: StringType, exception: BooleanType });
+        const PointRow = StructType({ phase: StringType, n: FloatType });
+        const RawCell = StructType({ at: StringType, value: OptionType(FloatType) });
+        const OrderRow = StructType({
+            series: StringType, label: StringType, value: OptionType(StringType),
+            jobs: ArrayType(JobRow), allocations: ArrayType(AllocRow), shifts: ArrayType(ShiftRow),
+            marks: ArrayType(MarkRow), points: ArrayType(PointRow), counts: ArrayType(RawCell),
+            cells: ArrayType(Plan.Types.HeatCell),
+        });
+        const noJobs = $.const([], ArrayType(JobRow));
+        const noAllocs = $.const([], ArrayType(AllocRow));
+        const noShifts = $.const([], ArrayType(ShiftRow));
+        const noMarks = $.const([], ArrayType(MarkRow));
+        const noPoints = $.const([], ArrayType(PointRow));
+        const noCounts = $.const([], ArrayType(RawCell));
+        const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
+        const CONFIRMED = variant("confirmed", null);
+        const ACTUAL = variant("actual", null);
+        const RUNNING = variant("in-progress", null);
+        const PROPOSED = variant("proposed", variant("recommended", null));
+        // Per-phase series derived over the declared list — the index picks the value.
+        const points = $.let(East.Array.generate(6n, PointRow, (_$, i) =>
+            ({ phase: PHASES.get(i), n: i.multiply(7n).remainder(20n).toFloat().add(4.0) })));
+        const counts = $.let(East.Array.generate(6n, RawCell, (_$, i) => ({
+            at: PHASES.get(i),
+            value: i.equal(4n).ifElse(() => none, () => some(i.multiply(11n).remainder(30n).toFloat().add(12.0))),
+        })));
+        // Heat cells as STORED records — the phase spelled with `Plan.at.ordinal`.
+        const cells = $.let(East.Array.generate(6n, Plan.Types.HeatCell, ($, i) => {
+            const load = $.let(i.multiply(31n).remainder(60n).toFloat().add(35.0), FloatType);
+            return { at: Plan.at.ordinal(PHASES.get(i)), value: some(load), label: some(East.Float.printFixed(load, 0n)) };
+        }));
+        const base = {
+            value: none, jobs: noJobs, allocations: noAllocs, shifts: noShifts,
+            marks: noMarks, points: noPoints, counts: noCounts, cells: noCells,
+        };
+        const orders = $.const(new Map([
+            ["10-or-1188", { ...base, series: "order", label: "OR-1188", value: some("96 t"), jobs: [
+                { key: "prep", label: "PREP", start: "INTAKE", end: "PREP", state: ACTUAL },
+                { key: "build", label: "BUILD · B-214", start: "BUILD", end: "QC", state: RUNNING },
+                { key: "ship", label: "PACK + SHIP", start: "PACK", end: "SHIP", state: PROPOSED },
+            ] }],
+            ["10-or-1204", { ...base, series: "order", label: "OR-1204", value: some("54 t"), jobs: [
+                { key: "intake", label: "INTAKE", start: "INTAKE", end: "INTAKE", state: ACTUAL },
+                { key: "build", label: "BUILD · B-221", start: "PREP", end: "PACK", state: PROPOSED },
+            ] }],
+            ["20-bench", { ...base, series: "bench", label: "Bench 2", value: some("slots"), allocations: [
+                { key: "a1", phase: "PREP", state: CONFIRMED }, { key: "a2", phase: "BUILD", state: CONFIRMED },
+                { key: "a3", phase: "BUILD", state: PROPOSED }, { key: "a4", phase: "PACK", state: PROPOSED },
+            ] }],
+            ["30-load", { ...base, series: "load", label: "Phase load", cells }],
+            ["40-wip", { ...base, series: "wip", label: "WIP · orders", value: some("31"), points }],
+            ["50-count", { ...base, series: "count", label: "Orders in phase", counts }],
+            ["60-crew", { ...base, series: "crew", label: "Crew B", shifts: [
+                { key: "s1", from: "INTAKE", to: "PREP", label: "prep crew", state: CONFIRMED },
+                { key: "s2", from: "BUILD", to: "SHIP", label: "+ finish crew", state: PROPOSED },
+            ] }],
+            ["70-gates", { ...base, series: "gates", label: "GATES", marks: [
+                { key: "g1", phase: "QC", label: "HOLD", exception: true },
+                { key: "g2", phase: "SHIP", label: "RELEASE", exception: false },
+            ] }],
+        ]), DictType(StringType, OrderRow));
+        const EXCEPTION = $.const(variant("exception", null), Plan.Types.EventMarkKind);
+        const MILESTONE = $.const(variant("milestone", null), Plan.Types.EventMarkKind);
+        const series = $.const([
+            Plan.series.group(OrderRow, { key: "10-orders", label: "Orders", meta: "2 rs" }, [
+                Plan.series.span(OrderRow, {
+                    key: "order", title: "Orders",
+                    match: r => r.series.equal("order"),
+                    label: r => r.label, id: true, value: r => r.value,
+                    // `j.start` / `j.end` are StringType fields — the builder wraps them to the ordinal arm.
+                    runs: r => r.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.label, state: j.state })),
+                }),
+            ]),
+            Plan.series.buckets(OrderRow, {
+                key: "bench", title: "Benches",
+                match: r => r.series.equal("bench"),
+                label: r => r.label, value: r => r.value,
+                events: r => r.allocations.map((_$, a) => Plan.event({ key: a.key, at: a.phase, state: a.state })),
+            }),
+            Plan.series.heat(OrderRow, {
+                key: "load", title: "Phase load",
+                match: r => r.series.equal("load"),
+                label: r => r.label,
+                cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 90 }),
+            }),
+            Plan.series.chart(OrderRow, {
+                key: "wip", title: "WIP",
+                match: r => r.series.equal("wip"),
+                label: r => r.label, id: true, value: r => r.value, height: "expanded",
+                // A string x accessor lands the columns on the ordinal arm.
+                layers: r => [Chart.Column(r.points, { x: p => p.phase, y: p => p.n })],
+            }),
+            Plan.series.table(OrderRow, {
+                key: "count", title: "Counts",
+                match: r => r.series.equal("count"),
+                label: r => r.label,
+                cells: r => Plan.tableCells(r.counts),
+                format: Format.Number({ maximumFractionDigits: 0n }),
+            }),
+            Plan.series.cards(OrderRow, {
+                key: "crew", title: "Crews",
+                match: r => r.series.equal("crew"),
+                label: r => r.label,
+                chips: r => r.shifts.map((_$, s) => Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: s.state })),
+            }),
+            Plan.series.events(OrderRow, {
+                key: "gates", title: "Gates",
+                match: r => r.series.equal("gates"),
+                label: r => r.label, id: true,
+                marks: r => r.marks.map((_$, m) => Plan.mark({
+                    key: m.key, at: m.phase, label: m.label,
+                    kind: m.exception.ifElse(() => EXCEPTION, () => MILESTONE),
+                })),
+            }),
+        ], ArrayType(Plan.Types.Series(OrderRow)));
+        // The declaration: the list IS the axis — one bucket per phase, `now` at BUILD.
+        const axis = $.const(Plan.axis.ordinal({ values: PHASES, now: "BUILD" }));
+        return (
+            <Plan
+                axis={axis}
+                data={orders}
+                series={series}
+                footer={[
+                    { text: "6 PHASES · ORDINAL AXIS" },
+                    { text: "NOW · BUILD", end: true },
+                ]}
+            />
+        );
     }),
     inputs: [],
 });

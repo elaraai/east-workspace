@@ -11,6 +11,7 @@ import { type ValueTypeOf, some, none, variant } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { boundRangeDomain } from "../../platform/slice/index.js";
+import { tickFormatter } from "../../charts/spec/index.js";
 import { EastChakraDateTimeInput } from "../../forms/input/index.js";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
@@ -74,6 +75,15 @@ function resolveWindow(range: RangeValue | undefined): { from: Date; to: Date } 
     if (range.type === "datetimePreset") {
         return presetWindow(range.value.type as PresetTag, new Date());
     }
+    return null;
+}
+
+/** The active NUMERIC range (`float` / `integer` arms — a number-axis Plan's
+ *  window, #631) as plain numbers, or null. */
+function resolveNumericWindow(range: RangeValue | undefined): { from: number; to: number } | null {
+    if (range === undefined) return null;
+    if (range.type === "float") return { from: range.value.from, to: range.value.to };
+    if (range.type === "integer") return { from: Number(range.value.from), to: Number(range.value.to) };
     return null;
 }
 
@@ -145,6 +155,10 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
 
     const range = getSomeorUndefined(state.range);
     const win = resolveWindow(range);
+    // A numeric range field (a number-axis Plan's slice, #631) prints its
+    // window as numbers; the date presets have no meaning against it.
+    const numericWin = resolveNumericWindow(range);
+    const numFmt = tickFormatter(undefined, "linear");
     const compareTag = getSomeorUndefined(state.compare)?.type ?? null;
 
     // Resolution segment (Plan spec §8) — configured bucket units beside the
@@ -157,6 +171,7 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
     // now clamped into [min, max] — historical data gets windows ending at its
     // last day instead of wall-clock windows that miss every row.
     const domain = boundRangeDomain(slice.key);
+    const numericField = domain !== undefined && domain.kind !== "datetime";
     const now = new Date();
     const anchor = domain !== undefined && domain.kind === "datetime"
         ? new Date(Math.max(domain.min, Math.min(domain.max, now.getTime())))
@@ -219,13 +234,17 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
         <SliceEditPopover
             open={open}
             onOpenChange={setOpen}
-            label="Time range"
+            label={numericField ? "Range" : "Time range"}
             footLeft={compareTag !== null ? <chakra.button type="button" css={edit.footLink} onClick={() => setCompareTag(null)}>Clear compare</chakra.button> : undefined}
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(false)}>Done</chakra.button>}
             trigger={
                 <Box css={chip({ tone: range !== undefined ? "brand" : "neutral", numeric: true })} cursor="pointer">
                     {!framed && <FontAwesomeIcon icon={faCalendar} style={{ fontSize: "10px" }} />}
-                    <Box as="span">{win ? `${fmtShort(win.from)} → ${fmtShort(win.to)}` : "All time"}</Box>
+                    <Box as="span">{win
+                        ? `${fmtShort(win.from)} → ${fmtShort(win.to)}`
+                        : numericWin
+                            ? `${numFmt(numericWin.from)} → ${numFmt(numericWin.to)}`
+                            : numericField ? "All" : "All time"}</Box>
                     {dayCount !== undefined && <Box as="span" color="fg.muted">{`${dayCount}d`}</Box>}
                     <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px" }} />
                 </Box>
@@ -233,7 +252,10 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
         >
             <Box display="flex" gap="{spacing.2}" flexWrap="wrap" alignItems="center">
                 <Chip label="All" active={allActive} onClick={setAll} />
-                {PRESETS.map(p => (
+                {/* Date presets pin DATETIME windows — meaningless against a
+                    numeric range field, whose window the brush / a Plan's keys
+                    write as `float` / `integer` (#631). */}
+                {!numericField && PRESETS.map(p => (
                     <Chip
                         key={p.tag}
                         label={p.tag === "today" && anchorClamped ? "Last day" : p.label}
@@ -241,7 +263,7 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
                         onClick={() => setPreset(p.tag)}
                     />
                 ))}
-                <Chip label="Custom…" active={customActive} dashed onClick={setCustom} />
+                {!numericField && <Chip label="Custom…" active={customActive} dashed onClick={setCustom} />}
             </Box>
             {/* An active custom window exposes real from/to date inputs — pick
                 the exact fiscal quarter / incident window from the pill (#167).
@@ -267,6 +289,13 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
             </Box>
             {win && (
                 <Box css={edit.resolveLine}>{`Resolves to ${fmtShort(win.from)} – ${fmtFull(win.to)}`}</Box>
+            )}
+            {numericWin && (
+                <Box css={edit.resolveLine}>{`Resolves to ${numFmt(numericWin.from)} – ${numFmt(numericWin.to)}`}</Box>
+            )}
+            {/* All active on a numeric field: the data's actual extent. */}
+            {numericWin === null && win === null && domain !== undefined && numericField && (
+                <Box css={edit.resolveLine}>{`All data · ${numFmt(domain.min)} – ${numFmt(domain.max)}`}</Box>
             )}
             {/* All active: show the data's actual extent instead of a window (#195). */}
             {win === null && domain !== undefined && domain.kind === "datetime" && (

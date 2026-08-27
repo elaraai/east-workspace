@@ -19,6 +19,8 @@ import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@chakra-ui/react";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
+import type { PlanInstantValue } from "../instant.js";
+import type { PlanBucket } from "../scale.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
@@ -63,12 +65,12 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
     const { onElementClick } = usePlanResolvers();
     // RENDER bucketing (#619): overscan cells mount clipped at rest so a
     // brush-slide pan reveals them; interactions still speak `bucketOf`.
-    const cellBox = (at: Date): { left: string; width: string } | undefined => {
+    const cellBox = (at: PlanInstantValue): { left: string; width: string; bucket: PlanBucket } | undefined => {
         const b = scale.renderBucketOf(at);
         if (b === undefined) return undefined;
-        return { left: `calc(${b.x0 * 100}% + 1.5px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 3px)` };
+        return { left: `calc(${b.x0 * 100}% + 1.5px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 3px)`, bucket: b };
     };
-    const clickCell = (at: Date) => (e: React.MouseEvent) => {
+    const clickCell = (at: PlanInstantValue) => (e: React.MouseEvent) => {
         e.stopPropagation();
         if (onCellClick !== undefined) {
             onCellClick();
@@ -97,6 +99,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                     const label = c.label.type === "some" ? c.label.value : undefined;
                     return (
                         <Box key={i} css={styles.heatCell} data-ctx={ctxAttr}
+                            data-plan-bucket={box.bucket.index}
                             data-nodata={v === undefined ? "" : undefined}
                             data-warn={v !== undefined && warn !== undefined && v >= warn ? "" : undefined}
                             left={box.left} width={box.width}
@@ -125,6 +128,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                     const frac = Math.max(0, Math.min(1, c.fraction));
                     return (
                         <Box key={i} css={styles.weightBar}
+                            data-plan-bucket={b.index}
                             data-planned={c.planned ? "" : undefined}
                             left={`calc(${b.x0 * 100}% + 4px)`}
                             width={`calc((${(b.x1 - b.x0) * 100}% - 8px) * ${frac})`}
@@ -143,6 +147,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                 const total = c.segments.reduce((acc, s) => acc + Math.max(0, s.weight), 0);
                 return (
                     <Box key={i} css={styles.segmentTrack}
+                        data-plan-bucket={b.index}
                         left={`calc(${b.x0 * 100}% + 4px)`}
                         width={`calc(${(b.x1 - b.x0) * 100}% - 8px)`}
                         onClick={clickCell(c.at)}>

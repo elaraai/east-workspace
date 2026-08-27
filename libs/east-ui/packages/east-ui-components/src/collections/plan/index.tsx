@@ -18,6 +18,12 @@
  * resolution source of truth — the axis seeds the unbound case — and the
  * brush / segment write back through `setRange` / `setResolution`.
  *
+ * The axis is one of three kinds (#631) — `time`, `number`, `ordinal` — and
+ * every window read / write speaks the slice arm that kind maps to
+ * (`axis.ts`): `datetime`, `float` / `integer`, or none (an ordinal list is
+ * its own window). Every row's instants must ride the axis's arm; a row that
+ * does not is a diagnostic, never a misplacement.
+ *
  * All eight row kinds render (`rows/*`); review chrome, the drag-target
  * role, element clicks and the keyboard rungs are wired — the reducer's
  * events and the component's dispatches are a closed loop (#569).
@@ -34,19 +40,22 @@ import { parseCssSize } from "../../style/parse-size.js";
 import { DensityProvider } from "../../contracts/density.js";
 import { useContainerBelow } from "../../contracts/adaptive.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
+import { boundRangeDomain } from "../../platform/slice/index.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, type PlanCursor, type PlanResolvers, type PlanElementRefValue } from "./context.js";
 import { usePlanPaging } from "./use-plan-paging.js";
 import { usePlanSeek } from "./use-seek.js";
 import { useElementHeight } from "./use-element-height.js";
 import { WindowBand } from "./rows/WindowBand.js";
-import { effectiveResolution, planScale, resolutionInterval, type PlanResolution, type PlanScale, type PlanWindow } from "./scale.js";
+import { resolutionInterval, type PlanResolution, type PlanScale } from "./scale.js";
+import { axisNow, axisResolutions, ordinalIndexOf, rangeArmOf, rangeOf, resolveScale, sliceWindowOf } from "./axis.js";
+import type { PlanInstantValue } from "./instant.js";
 import {
     initialPlanStore, planStoreReducer,
     type PlanEffect, type PlanEvent,
 } from "./plan-state.js";
 import {
-    GAP_H, derivePlan, deriveLinkFamily, elideForFocus, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, visibleRows,
+    GAP_H, axisKindMismatches, derivePlan, deriveLinkFamily, elideForFocus, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, visibleRows,
     windowRestHeight,
     type FocusGap, type PlanBodyItem, type PlanFocusCtx, type PlanRootValue, type PlanRowValue, type VisibleRow,
 } from "./model.js";
@@ -88,86 +97,6 @@ export interface EastChakraPlanProps {
     value: PlanRootValue;
     /** Storage key prefix for persisting component state. */
     storageKey: string;
-}
-
-/** Every instant a row set touches — the fit-to-data window fallback. */
-function dataExtent(rows: ReadonlyArray<PlanRowValue>): { min: Date; max: Date } | undefined {
-    let min = Infinity;
-    let max = -Infinity;
-    const see = (d: Date) => {
-        const t = d.getTime();
-        if (t < min) min = t;
-        if (t > max) max = t;
-    };
-    for (const row of rows) {
-        const kind = row.kind;
-        switch (kind.type) {
-            case "span":
-                for (const r of kind.value.runs) { see(r.start); see(r.end); }
-                for (const d of kind.value.decisions) see(d.at);
-                for (const p of kind.value.ports) see(p.at);
-                break;
-            case "buckets":
-                for (const e of kind.value.events) see(e.at);
-                for (const m of kind.value.markers) see(m.at);
-                break;
-            case "chart":
-                for (const layer of kind.value.layers) {
-                    switch (layer.type) {
-                        case "line": case "area": case "column": case "scatter":
-                            for (const p of layer.value.points) see(p.t);
-                            break;
-                        case "band":
-                            for (const p of layer.value.points) see(p.t);
-                            break;
-                        case "refBand": see(layer.value.from); see(layer.value.to); break;
-                        case "refDot": see(layer.value.t); break;
-                        case "refLine": break;
-                    }
-                }
-                break;
-            case "heat": {
-                const cells = kind.value.cells;
-                if (cells.type === "heat") for (const c of cells.value.cells) see(c.at);
-                else for (const c of cells.value) see(c.at);
-                break;
-            }
-            case "table":
-                for (const s of kind.value.series) for (const c of s.cells) see(c.at);
-                break;
-            case "cards":
-                for (const c of kind.value.chips) { see(c.from); see(c.to); }
-                break;
-            case "events":
-                for (const m of kind.value.marks) see(m.at);
-                break;
-            case "group":
-                break;
-        }
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return undefined;
-    return { min: new Date(min), max: new Date(max) };
-}
-
-/**
- * The bound slice's applied window as raw millisecond instants, or `undefined`
- * when no literal datetime range is applied.
- *
- * @remarks
- * Returns PRIMITIVES so a caller can key a memo on them. The decoded state is a
- * fresh object every read, so its `range` can never be a stable dependency.
- *
- * @param state - The decoded slice state, when a slice is bound
- * @returns `[fromMs, toMs]` for a non-empty datetime range, else `undefined`
- */
-function sliceRangeInstants(state: { range: unknown } | undefined): readonly [number, number] | undefined {
-    if (state === undefined) return undefined;
-    const r = getSomeorUndefined(state.range as never) as { type: string; value: unknown } | undefined;
-    if (r === undefined || r.type !== "datetime") return undefined;
-    const win = r.value as { from: Date; to: Date };
-    const from = win.from.getTime();
-    const to = win.to.getTime();
-    return to > from ? [from, to] as const : undefined;
 }
 
 /** Renders an East Plan value — the composite temporal canvas. */
@@ -243,64 +172,48 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const pick = useMemo(() => getSomeorUndefined(value.pick), [value.pick]);
 
     // ── Window + resolution: slice state ▸ axis ▸ fit-to-data (§3/§8) ─────
-    const axisWindow = useMemo(() => {
-        const w = getSomeorUndefined(value.axis.window);
-        return w !== undefined ? { min: w.min, max: w.max } : undefined;
-    }, [value.axis.window]);
-    // Keyed on the INSTANTS, never on the range object. `slice.read()` decodes
-    // fresh state on every render, so `sliceState.range` has a new identity each
-    // time even when the window has not moved. Keying the memo on that identity
-    // rebuilt `sliceRange`, which rebuilt `scale` (up to MAX_PLAN_BUCKETS
-    // buckets, each with a formatted label), which published a new PlanScale to
-    // every row — busting `edges`, `resolveCoord`, `dropVeto` and so the drop
-    // cell's own ref callback, so React detached and re-attached every
-    // registered cell on every render of a slice-bound canvas.
-    const sliceFromMs = sliceRangeInstants(sliceState)?.[0];
-    const sliceToMs = sliceRangeInstants(sliceState)?.[1];
-    const sliceRange = useMemo(
-        () => (sliceFromMs === undefined || sliceToMs === undefined
-            ? undefined
-            : { min: new Date(sliceFromMs), max: new Date(sliceToMs) }),
-        [sliceFromMs, sliceToMs],
-    );
+    // The axis KIND (#631) — every window read below speaks its slice arm.
+    const axisKind = value.axis.type;
+    // Keyed on the DOMAIN NUMBERS, never on the range object. `slice.read()`
+    // decodes fresh state on every render, so `sliceState.range` has a new
+    // identity each time even when the window has not moved. Keying the memo
+    // on that identity rebuilt the scale (up to MAX_PLAN_BUCKETS buckets, each
+    // with a formatted label), which published a new PlanScale to every row —
+    // busting `edges`, `resolveCoord`, `dropVeto` and so the drop cell's own
+    // ref callback, so React detached and re-attached every registered cell
+    // on every render of a slice-bound canvas.
+    const sliceWin = sliceWindowOf(sliceState, axisKind);
+    const sliceFromN = sliceWin?.[0];
+    const sliceToN = sliceWin?.[1];
     const sliceResolution = sliceState !== undefined
         ? getSomeorUndefined(sliceState.resolution)?.type
         : undefined;
-    const declaredResolution = sliceResolution ?? value.axis.resolution.type;
-
-    const scale: PlanScale | undefined = useMemo(() => {
-        let window: PlanWindow | undefined = sliceRange ?? axisWindow;
-        let res: PlanResolution;
-        if (window === undefined) {
-            // A PAGED canvas must DECLARE its window. Fitting to the data means
-            // fitting to whatever prefix has landed, so the axis widens and
-            // every bar re-flows as each window arrives (#567 D8) — the canvas
-            // says so instead, and the author declares `axis.window` or binds a
-            // slice range.
-            if (pagedSource !== undefined) return undefined;
-            const extent = dataExtent(rows);
-            if (extent === undefined) return undefined;
-            res = effectiveResolution(declaredResolution, extent);
-            // Extend the fitted extent to whole periods, half-open.
-            const interval = resolutionInterval(res);
-            window = { min: interval.floor(extent.min), max: interval.offset(interval.floor(extent.max), 1) };
-        } else {
-            res = effectiveResolution(declaredResolution, window);
-        }
-        const now = getSomeorUndefined(value.axis.now);
-        const format = getSomeorUndefined(value.axis.format);
-        return planScale(window, res, now, format);
-    }, [sliceRange, axisWindow, declaredResolution, rows, pagedSource, value.axis.now, value.axis.format]);
+    // `resolveScale` owns the ladder: the slice's range ▸ the declared window
+    // ▸ fit-to-data (a PAGED canvas must declare — #567 D8), per axis kind.
+    const scale: PlanScale | undefined = useMemo(() => resolveScale({
+        axis: value.axis,
+        sliceWindow: sliceFromN === undefined || sliceToN === undefined ? undefined : [sliceFromN, sliceToN],
+        sliceResolution,
+        rows,
+        paged: pagedSource !== undefined,
+    }), [value.axis, sliceFromN, sliceToN, sliceResolution, rows, pagedSource]);
 
     // ── The one state machine ─────────────────────────────────────────────
     const index = useMemo(() => indexRows(rows), [rows]);
+    // An ordinal axis orders its instants by the declared list — the
+    // derivations sort cells by it (nothing else needs it).
+    const ordinalIndex = useMemo(() => ordinalIndexOf(value.axis), [value.axis]);
     // Renderer-side derivations (§4.2 — the Table idiom): the IR declares
     // rollups / aggregates / summaries; the numbers are computed here.
-    const derived = useMemo(() => derivePlan(index), [index]);
+    const derived = useMemo(() => derivePlan(index, ordinalIndex), [index, ordinalIndex]);
+    // The Planner's single-axis-kind rule (#631): every instant on the canvas
+    // must ride the axis's arm. A row that does not is diagnosed below —
+    // named, with the arm it carries — instead of being drawn somewhere wrong.
+    const mismatches = useMemo(() => axisKindMismatches(index, axisKind), [index, axisKind]);
     // The R1 link graph — rows an edge touches grow the `links` control.
     const linkedKeys = useMemo(() => linkedRowKeys(value.links), [value.links]);
     // A run's instants by (row, run) — the overlay's off-window resolution.
-    const runDates = useCallback((rowKey: string, runKey: string): { start: Date; end: Date } | undefined => {
+    const runDates = useCallback((rowKey: string, runKey: string): { start: PlanInstantValue; end: PlanInstantValue } | undefined => {
         const row = index.byKey.get(rowKey);
         if (row === undefined || row.kind.type !== "span") return undefined;
         const r = row.kind.value.runs.find((x) => x.key === runKey);
@@ -461,29 +374,40 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         [dropEligible, value.id, canDropFn],
     );
 
+    // Every window WRITE goes through here (#631): the instants land on the
+    // slice as the arm the axis speaks — `datetime` on a time axis, the
+    // field's `float` / `integer` on a number axis, and nothing at all on an
+    // ordinal one, whose list is its window (the keys and the pan idle there
+    // exactly as they idle on an unbound canvas).
+    const writeWindow = useCallback((min: PlanInstantValue, max: PlanInstantValue) => {
+        if (slice === undefined || scale === undefined) return;
+        const arm = rangeArmOf(scale.kind, slice.read(), boundRangeDomain(slice.key)?.kind);
+        if (arm === undefined) return;
+        slice.setRange(some(rangeOf(arm, min, max)));
+    }, [slice, scale]);
     const runEffects = useCallback((effects: readonly PlanEffect[]) => {
         for (const eff of effects) {
             switch (eff.t) {
                 case "slice.setRange":
-                    if (slice !== undefined) slice.setRange(some(variant("datetime", { from: eff.min, to: eff.max })));
+                    writeWindow(eff.min, eff.max);
                     break;
                 case "slice.clearRange":
                     if (slice !== undefined) slice.setRange(none);
                     break;
                 case "slice.setResolution":
-                    if (slice !== undefined) {
+                    // A resolution is a TIME-axis fact — the segment only mounts
+                    // there (a number axis has `step`; an ordinal list no unit).
+                    if (slice !== undefined && scale !== undefined && scale.kind === "time"
+                        && scale.window.min.type === "time") {
                         slice.setResolution(some(variant(eff.resolution, null) as never));
                         // Zoom to the new resolution: preserve the CURRENT
                         // column count (12 weeks showing → DAY shows 12 days),
                         // anchored at the window start on the new period edges
                         // — a same-width window would cram unusable columns.
-                        const sc = scale;
-                        if (sc !== undefined) {
-                            const interval = resolutionInterval(eff.resolution as PlanResolution);
-                            const min = interval.floor(sc.window.min);
-                            const max = interval.offset(min, sc.n);
-                            slice.setRange(some(variant("datetime", { from: min, to: max })));
-                        }
+                        const interval = resolutionInterval(eff.resolution as PlanResolution);
+                        const min = interval.floor(scale.window.min.value);
+                        const max = interval.offset(min, scale.n);
+                        slice.setRange(some(variant("datetime", { from: min, to: max })));
                     }
                     break;
                 case "emit.select":
@@ -503,32 +427,25 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     // window, so the rung idles there, exactly like the
                     // resolution segment (#615).
                     if (slice === undefined || scale === undefined) break;
-                    const nowInstant = getSomeorUndefined(value.axis.now);
+                    const nowInstant = axisNow(value.axis);
                     if (nowInstant === undefined) break;
                     // Re-derive the window on period edges with the SAME
                     // column count, now a third of the way in (ahead is where
                     // the plan lives) — the resolution-zoom precedent above:
-                    // snap + `n` periods, never ms arithmetic.
-                    const interval = resolutionInterval(scale.resolution);
-                    const from = interval.offset(interval.floor(nowInstant), -Math.floor(scale.n / 3));
-                    slice.setRange(some(variant("datetime", {
-                        from,
-                        to: interval.offset(from, scale.n),
-                    })));
+                    // snap + `n` periods on the scale's own domain, never ms
+                    // arithmetic.
+                    const from = scale.offset(scale.floor(nowInstant), -Math.floor(scale.n / 3));
+                    writeWindow(from, scale.offset(from, scale.n));
                     break;
                 }
                 case "pan": {
                     if (slice === undefined || scale === undefined) break;
-                    const interval = resolutionInterval(scale.resolution);
-                    slice.setRange(some(variant("datetime", {
-                        from: interval.offset(scale.window.min, eff.buckets),
-                        to: interval.offset(scale.window.max, eff.buckets),
-                    })));
+                    writeWindow(scale.offset(scale.window.min, eff.buckets), scale.offset(scale.window.max, eff.buckets));
                     break;
                 }
             }
         }
-    }, [slice, scale, value.axis.now, onSelect, onGroupToggle, onGrainChange]);
+    }, [slice, scale, value.axis, writeWindow, onSelect, onGroupToggle, onGrainChange]);
 
     const dispatch = useCallback((e: PlanEvent) => dispatchStore({ t: "event", e }), []);
     // The store's effect batch, drained EXACTLY ONCE per bump — post-commit
@@ -829,8 +746,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     ), [styles, gridTemplate, dispatch]);
 
     // ── Shell composition ─────────────────────────────────────────────────
-    const resolutions = useMemo(() => value.axis.resolutions.map((r) => r.type), [value.axis.resolutions]);
-    const now = useMemo(() => getSomeorUndefined(value.axis.now), [value.axis.now]);
+    // The resolution segment is a TIME-axis affordance; the now instant rides
+    // whichever arm the axis declares.
+    const resolutions = useMemo(() => axisResolutions(value.axis), [value.axis]);
+    const now = useMemo(() => axisNow(value.axis), [value.axis]);
 
     // A paged source that could not be READ outranks every other diagnostic:
     // there is no offline stand-in for `Data.bindPaged` (paging is a server
@@ -844,12 +763,30 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         );
     }
 
+    // A row whose instants ride another arm than the axis is refused with
+    // the row named (#631) — the canvas cannot position it truthfully, and
+    // drawing everything else would hide that it is missing.
+    if (mismatches.length > 0) {
+        const first = mismatches[0]!;
+        const more = mismatches.length > 1 ? ` (and ${mismatches.length - 1} more)` : "";
+        return (
+            <Box css={styles.diagnostic} data-plan-empty data-plan-mismatch={first.row}>
+                {`AXIS MISMATCH — the axis is ${axisKind}, but row "${first.row}" carries ${first.found} instants${more}. ` +
+                    "Every instant on a canvas must ride its axis's arm (Plan.at.* / a field of the matching type)."}
+            </Box>
+        );
+    }
+
     if (scale === undefined) {
         return (
             <Box css={styles.diagnostic} data-plan-empty>
                 {pagedSource !== undefined
                     ? "NO WINDOW — a paged plan must declare an axis window or bind a slice range"
-                    : "NO WINDOW — give the plan an axis window, a bound slice range, or dated rows"}
+                    : axisKind === "number"
+                        ? "NO WINDOW — give the plan an axis window, a bound slice range, or numbered rows"
+                        : axisKind === "ordinal"
+                            ? "NO WINDOW — an ordinal axis needs at least one declared value"
+                            : "NO WINDOW — give the plan an axis window, a bound slice range, or dated rows"}
             </Box>
         );
     }
@@ -875,12 +812,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 ever bound. */}
             {(chrome !== undefined || search !== undefined || pick !== undefined) && (
                 <PlanToolbar styles={styles} slice={slice} affordances={affordances}
-                    resolution={scale.resolution} resolutions={resolutions}
+                    resolution={scale.resolution ?? ""} resolutions={resolutions}
                     transport={transport} search={search} pick={pick} />
             )}
+            {/* The brush mounts only where the slice's range domain speaks
+                the axis's arm — the band decides that itself (#631). */}
             {slice !== undefined && affordances.includes("brush") && (
-                <HorizonBrush styles={styles} gridTemplate={gridTemplate} slice={slice}
-                    window={scale.window} now={now} resolution={scale.resolution} />
+                <HorizonBrush styles={styles} gridTemplate={gridTemplate} slice={slice} now={now} />
             )}
             <PlanRuler styles={styles} gridTemplate={gridTemplate} caption={rulerCaption}
                 cursorChipRef={cursorChipRef}
@@ -956,7 +894,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             styles={styles} index={index} derived={derived} ui={ui}
                             dense={dense} barHeight={barHeight} storageKey={storageKey}
                             slice={slice} affordances={affordances}
-                            resolution={scale.resolution} resolutions={resolutions}
+                            resolution={scale.resolution ?? ""} resolutions={resolutions}
                             transport={transport} footer={value.footer} review={review}
                             expandBody={expandBody} expandGutterBody={expandGutterBody}
                             canExpand={expandRenderFn !== undefined}

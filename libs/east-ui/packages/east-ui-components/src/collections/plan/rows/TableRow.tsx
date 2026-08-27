@@ -84,6 +84,7 @@ export function TableRowCells({ rowKey, series, split, format, styles, ctx }: Ta
                 const b = bucketByIndex.get(bi)!;
                 return (
                     <Box key={bi} css={styles.tableCellText}
+                        data-plan-bucket={bi}
                         data-split={multi ? split : undefined}
                         left={`${b.x0 * 100}%`} width={`${(b.x1 - b.x0) * 100}%`}
                         onClick={(e) => {

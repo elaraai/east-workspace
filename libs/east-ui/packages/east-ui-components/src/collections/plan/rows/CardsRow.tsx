@@ -42,7 +42,10 @@ export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProp
         <>
             {kind.chips.map((chip) => {
                 const f0 = scale.fracOf(chip.from);
-                const f1 = scale.fracOf(chip.to);
+                // The chip's END — half-open on time / number, the far edge
+                // of the named bucket on an ordinal axis (#631).
+                const f1 = scale.endFracOf(chip.to);
+                if (!Number.isFinite(f0) || !Number.isFinite(f1)) return null;
                 // Render-bounds cull (#619): a chip wholly in the overscan
                 // mounts at its true geometry (clipped at rest, revealed by a
                 // brush pan); one touching the window keeps its clamped form
@@ -57,6 +60,7 @@ export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProp
                     <Box css={styles.cardChip}
                         data-ctx={ctxAttr}
                         data-chip={chip.key}
+                        data-plan-frac={left.toFixed(4)}
                         data-state={runStateKey(chip.state)}
                         left={`calc(${left * 100}% + 2px)`}
                         width={`calc(${width * 100}% - 4px)`}

@@ -11,6 +11,13 @@ export { TreeView } from "./tree-view/index.js";
 export {
     Plan,
     type PlanConfig,
+    type PlanAxisOptions,
+    type PlanNumberAxisOptions,
+    type PlanOrdinalAxisOptions,
+    type PlanAxisKindLiteral,
+    type PlanAxisBuilder,
+    type PlanInstantLikeType,
+    type PlanRawTableCellType,
     type PlanRowBaseInput,
     type PlanSpanInput,
     type PlanBucketsInput,

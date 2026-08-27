@@ -28,6 +28,9 @@
  *   brush-cancel → focus-return (links / expand) → deselect. (Drag-cancel
  *   belongs to the shared drag layer, which owns the drag lifecycle — the
  *   machine's own drag staging was deleted as dead code, #569.)
+ * - **Windows are instants** (#631): a committed brush window and the
+ *   `slice.setRange` effect carry `PlanInstantValue`s on the axis's arm;
+ *   the component writes them as the slice arm the axis speaks.
  * - **One row focus per canvas** (R1 links / R2 expand): invoking a second
  *   focus control returns the first; invoking the active row's own control
  *   returns it.
@@ -41,6 +44,8 @@
  *
  * @packageDocumentation
  */
+
+import type { PlanInstantValue } from "./instant.js";
 
 /** A row's stable key (never an index — the flat row array reorders). */
 export type RowKey = string;
@@ -71,7 +76,7 @@ export type PlanEvent =
     | { t: "row.select"; key: RowKey }
     | { t: "chart.toggle"; key: RowKey }
     | { t: "brush.down" }
-    | { t: "brush.commit"; min: Date; max: Date }
+    | { t: "brush.commit"; min: PlanInstantValue; max: PlanInstantValue }
     | { t: "brush.clear" }
     | { t: "brush.up" }
     | { t: "focus.links"; key: RowKey }
@@ -85,7 +90,7 @@ export type PlanEvent =
 
 /** Side effects, returned as data — never performed in the reducer. */
 export type PlanEffect =
-    | { t: "slice.setRange"; min: Date; max: Date }
+    | { t: "slice.setRange"; min: PlanInstantValue; max: PlanInstantValue }
     | { t: "slice.clearRange" }
     | { t: "slice.setResolution"; resolution: string }
     | { t: "emit.select"; key: RowKey }

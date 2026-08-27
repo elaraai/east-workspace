@@ -40,7 +40,7 @@ function row(key: string, opts?: { approval?: "approved" | "pending" | "rejected
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind: variant("span", {
             runs: [{
-                key: "r1", start: W27, end: W31, label: key.toUpperCase(),
+                key: "r1", start: variant("time", W27), end: variant("time", W31), label: key.toUpperCase(),
                 quantity: none, qty: none,
                 state: variant(opts?.state ?? "proposed", opts?.state === undefined ? variant("recommended", null) : null),
                 status: none, moved: none, icon: none,
@@ -68,10 +68,10 @@ function planRoot(rows: PlanRowValue[], review: unknown): PlanRootValue {
     return {
         rows: variant("inline", new Map(rows.map((r) => [r.key, r]))),
         links: [],
-        axis: {
+        axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
             resolutions: [], now: some(W31), format: none,
-        },
+        }),
         grain: none, popover: none, hover: none,
         expandRender: none,
         review: review === undefined ? none : some(review),

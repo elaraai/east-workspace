@@ -18,7 +18,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faLink, faUpRightAndDownLeftFromCenter } from "@fortawesome/free-solid-svg-icons";
 import { useDropCell, useDragLayerOptional, type CellCoord, type DragPayload } from "../../../dnd/drag-layer";
 import { canDropAllows, candidateEvent, type CanDropFn } from "../../../dnd/ir-can-drop";
-import { toEastDateTimeSlot } from "../../../dnd/slot-key";
+import { toPlanSlot } from "../../../dnd/slot-key";
 import { usePlanCursor, usePlanDispatch, usePlanScale } from "../context.js";
 import type { PlanRowValue } from "../model.js";
 
@@ -167,9 +167,10 @@ export function RowShell({
     //    washing the entire canvas.
     //
     // The SLOT is the bucket under the pointer, named by its start instant —
-    // the canvas's own vocabulary for "when" (`onCellClick` reports the same
-    // bucket instant, not an index), spelled with the shared temporal
-    // encoding so a host parses a Plan slot exactly like a Gantt slot.
+    // the canvas's own vocabulary for "where on the axis" (`onCellClick`
+    // reports the same bucket instant, not an index), spelled per the axis
+    // arm by the shared encoding (`toPlanSlot`, #631): a Z-less ISO instant,
+    // a decimal, or the ordinal value.
     const plotElRef = useRef<HTMLElement | null>(null);
     const resolveCoord = useCallback((clientX: number, _clientY: number): CellCoord => {
         const rect = plotElRef.current?.getBoundingClientRect();
@@ -185,7 +186,7 @@ export function RowShell({
         return {
             surface: drop?.surface ?? "",
             row: row.key,
-            slot: bucket !== undefined ? toEastDateTimeSlot(bucket.start) : "",
+            slot: bucket !== undefined ? toPlanSlot(bucket.start) : "",
         };
     }, [scale, drop?.surface, row.key]);
     // The registered coord is a placeholder: every real coordinate comes back
@@ -221,7 +222,7 @@ export function RowShell({
         return canDropAllows(fn, candidateEvent(payload, {
             surface: drop.surface,
             row: row.key,
-            slot: first !== undefined ? toEastDateTimeSlot(first.start) : "",
+            slot: first !== undefined ? toPlanSlot(first.start) : "",
         }));
     }, [drop, resolveCoord, scale, row.key]);
     const dropRef = useDropCell(dropCoord, false, dropVeto, resolveCoord);
