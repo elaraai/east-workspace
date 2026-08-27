@@ -37,7 +37,6 @@ from east import (
     OptionType,
     SetType,
     StringType,
-    kernel,
     some,
 )
 from east.expression import trace
@@ -83,8 +82,8 @@ def _assert_shared_once(build, use, param_types, kind, data):
     assert unbound == bound, (
         f"{kind} emitted {unbound}x unbound vs {bound}x under East.let — "
         "the shared result is re-evaluated per reference")
-    assert kernel(list(param_types), lambda p: use(p, build(p)))(data) == \
-        kernel(list(param_types), lambda p: East.let(build(p),
+    assert East.function(list(param_types), IntegerType, lambda p: use(p, build(p)))(data) == \
+        East.function(list(param_types), IntegerType, lambda p: East.let(build(p),
                                                      lambda r: use(p, r)))(data)
 
 
@@ -171,7 +170,7 @@ class TestHoistStillRefusedWhereItMustBe:
             loop = East.for_(d.get("k"), {"c": 0}, lambda s, x: {"c": s.c + x})
             return East.if_else(d.has("k"), loop.c + loop.c, -1)
 
-        run = kernel([DictType(StringType, INT_ARR)], fn)
+        run = East.function([DictType(StringType, INT_ARR)], IntegerType, fn)
         assert run(EastDict(StringType, INT_ARR, {})) == -1
         assert run(EastDict(StringType, INT_ARR,
                             {"k": EastArray(IntegerType, [2, 3])})) == 10
@@ -194,7 +193,7 @@ class TestHoistStillRefusedWhereItMustBe:
                              lambda s, x: {"c": s.c + x, "n": s.n + 1})
             return loop.c * loop.n
 
-        assert kernel([INT_ARR], fn)(EastArray(IntegerType, [2, 3, 4])) == 9 * 3
+        assert East.function([INT_ARR], IntegerType, fn)(EastArray(IntegerType, [2, 3, 4])) == 9 * 3
 
 
 class TestCseStillCoversPlainExpressions:
@@ -207,7 +206,7 @@ class TestCseStillCoversPlainExpressions:
             return total + total
 
         assert _count_kinds(trace(shared, [INT_ARR])[0]).get("Let", 0) >= 1
-        assert kernel([INT_ARR], shared)(EastArray(IntegerType, [1, 2, 3])) == 12
+        assert East.function([INT_ARR], IntegerType, shared)(EastArray(IntegerType, [1, 2, 3])) == 12
 
 
 def test_three_reads_of_one_loop_cost_one_execution():
@@ -218,4 +217,4 @@ def test_three_reads_of_one_loop_cost_one_execution():
         return loop.c + loop.c + loop.c
 
     assert _emissions(unbound, [INT_ARR], "ForArray") == 1
-    assert kernel([INT_ARR], unbound)(EastArray(IntegerType, [1, 2, 3])) == 18
+    assert East.function([INT_ARR], IntegerType, unbound)(EastArray(IntegerType, [1, 2, 3])) == 18

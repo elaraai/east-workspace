@@ -38,15 +38,13 @@ block-level control constructs (#578): ``East.while_`` / ``East.for_`` /
 
 The traced collection surface is the closed enumeration in
 ``_TRACED_SURFACE`` (#452) — the per-container method lists the docs and the
-surface test pin. Eager collection methods still capture pure lambdas
-automatically through the same machinery (the purity-gated push-down;
-phases 2–3 of #625 make that capture strict and delete the fallback).
-
-Deprecated aliases, one release (#625): ``east.kernel`` (module),
-``kernel()`` (→ ``East.function`` with inferred ``out``), ``KernelExpr``
-(→ ``Expression``), ``KernelTraceError`` (→ ``ExpressionError``).
+surface test pin. Eager collection methods capture a plain callback through
+the same machinery (``capture.capture_callback``), with the builtin's
+declared signature: one capture, one execution semantics, and a callback
+that does python work raises instead of running per element.
 """
 
+from east.expression.capture import _eligible, _trace_out_type, capture_callback
 from east.expression.control import (
     Label,
     block,
@@ -62,12 +60,11 @@ from east.expression.control import (
     try_catch,
     while_,
 )
-from east.expression.errors import ExpressionError, KernelTraceError, _trace_bail
+from east.expression.errors import ExpressionError, _trace_bail
 from east.expression.expr import (
     _SHADOWABLE,
     _TRACED_SURFACE,
     Expression,
-    KernelExpr,
     _shadowable_names,
 )
 from east.expression.finalize import _capturing_fn, _finalize_ir, _free_vars, _function_ir
@@ -76,7 +73,6 @@ from east.expression.function import (
     compile_,
     compile_async,
     function,
-    kernel,
     trace,
     trace_builtin_call,
 )
@@ -117,7 +113,6 @@ from east.expression.nodes import (
     _var,
 )
 from east.expression.platform import PlatformDeclaration, async_platform, platform
-from east.expression.pushdown import _eligible, _trace_out_type, _type_traceable, try_push_down
 
 __all__ = [
     # the strict builder trio (reached as East.function / East.platform / …)
@@ -147,8 +142,4 @@ __all__ = [
     "new_array",
     "new_set",
     "new_dict",
-    # deprecated aliases (#625, one release)
-    "kernel",
-    "KernelExpr",
-    "KernelTraceError",
 ]

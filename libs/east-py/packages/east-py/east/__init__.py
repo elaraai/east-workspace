@@ -48,11 +48,8 @@ import east.types as _types  # noqa: E402
 from east.expression import (  # noqa: E402
     Expression,
     ExpressionError,
-    KernelExpr,
-    KernelTraceError,
     greatest,
     if_else,
-    kernel,
     least,
 )
 from east.namespace import East  # noqa: E402
@@ -121,8 +118,4 @@ __all__ = [
     "if_else",
     "greatest",
     "least",
-    # deprecated aliases (#625, one release)
-    "kernel",
-    "KernelExpr",
-    "KernelTraceError",
 ]

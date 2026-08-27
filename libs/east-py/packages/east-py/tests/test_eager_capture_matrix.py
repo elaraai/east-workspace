@@ -2,46 +2,53 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Every eager callback method runs native for kernels AND lambdas (issue #470).
+"""east-py's own sugar captures whole, for kernels AND lambdas (issue #470).
 
-The #409 contract — a precompiled kernel keeps the whole loop inside east-c
-with zero per-element python — held for ``map``/``filter``/``to_dict`` and
-silently inverted for the grouping methods: a kernel was 4.4×–7.6× SLOWER
-than the identical plain lambda, because wrappers composing a kernel
-(``lambda el: {"k": key(el), ...}``) could neither be traced (a compiled
-kernel was an opaque callable) nor recognised by ``try_push_down`` (which
-ignored the ``_east_kernel`` mark that the bridge honoured — the counter and
-the branch disagreed, so ``group_by`` looked healthy and trampolined anyway).
+The corpus (``test_compliance_eager``) covers every BUILTIN's callback path
+corpus-wide. What it cannot express is east-py's NATIVE sugar — the
+``sum``/``mean``/``min``/``max``/``every``/``some``/``group_*`` compositions,
+which exist only here — so this matrix drives each of them × {kernel, lambda}
+and asserts the whole composition stays inside east-c.
 
-Three mechanisms close it, and this matrix pins all of them at once:
+Under the strict surface (#625) a callback either captures or RAISES, so a
+composition whose internal wrapper stopped being capturable fails loudly
+here — there is no per-element python path left to measure.
 
-* kernels are dual-mode — called with trace proxies they re-run their
-  retained source lambda, so any composing wrapper traces with correct
-  argument order (no marking needed, including the ``(k, v)``-swapped dict
-  wrappers a mark could not express);
-* ``try_push_down`` resolves the ``_east_kernel`` mark through the bridge's
-  ``native_kernel_for`` — same signature checks (#467), same arity
-  adaptation — so the mark means one thing to every consumer;
-* the purity gate reaches two wrapper levels and the ``mean`` family
-  decides Integer-vs-Float from the type system, so the group-sugar block
-  traces end-to-end.
+The #409 contract this pins — a precompiled kernel keeps the whole loop
+inside east-c with zero per-element python — held for ``map``/``filter``/
+``to_dict`` and silently inverted for the grouping methods: a kernel was
+4.4×–7.6× SLOWER than the identical plain lambda, because wrappers composing
+a kernel (``lambda el: {"k": key(el), ...}``) could neither be captured (a
+compiled kernel was an opaque callable) nor recognised by
+``capture_callback`` (which ignored the ``_east_kernel`` mark that the bridge
+honoured — the counter and the branch disagreed, so ``group_by`` looked
+healthy and trampolined anyway). Three mechanisms close it, and the matrix
+pins all of them at once: kernels are dual-mode (called with proxies they
+re-run their retained source, so any composing wrapper captures with correct
+argument order, including the ``(k, v)``-swapped dict wrappers a mark could
+not express); ``capture_callback`` resolves the ``_east_kernel`` mark through
+the bridge's ``native_kernel_for`` — same signature checks (#467), same arity
+adaptation; and the eligibility check reaches two wrapper levels while the
+``mean`` family decides Integer-vs-Float from the type system.
 
 Per the issue: a spot-check is not enough — ``group_by`` had the right code,
 the right comment, and a healthy-looking ``kernel_direct`` counter while
-being 7.6× slower. So: every callback-taking method × {kernel, lambda},
-asserting ``trampoline_calls`` does not move.
+being 7.6× slower.
 """
 
 import pytest
 
 from east import (
+    ArrayType,
+    BooleanType,
+    East,
     FloatType,
     IntegerType,
+    OptionType,
     StringType,
     StructType,
     array,
     if_else,
-    kernel,
     none,
     some,
 )
@@ -60,34 +67,36 @@ def _callbacks(mode):
     """The same projections in both spellings; ``if_else``/``some``/``none``
     are dual-mode, so one body serves eager and traced execution."""
     specs = {
-        "g":      (Row, lambda r: r["g"]),
-        "k":      (Row, lambda r: r["k"]),
-        "v":      (Row, lambda r: r["v"]),
-        "pred":   (Row, lambda r: r["v"] > 5.0),
-        "opt":    (Row, lambda r: if_else(r["v"] > 5.0, some(r["g"]), none)),
-        "flat":   (Row, lambda r: r["k"].split("|")),
-        "folder": ([FloatType, Row], lambda acc, r: acc + r["v"]),
-        "comb":   ([FloatType, FloatType], lambda a, b: a + b),
-        "su":     (StringType, lambda x: x.upper()),
-        "spred":  (StringType, lambda x: x.contains("1")),
-        "mv":     (FloatType, lambda x: x * 2.0),
-        "dg":     ([StringType, FloatType], lambda k, v: k),
-        "dv":     ([StringType, FloatType], lambda k, v: v),
-        "dpred":  ([StringType, FloatType], lambda k, v: v > 5.0),
-        "dopt":   ([StringType, FloatType],
+        "g":      ([Row], StringType, lambda r: r["g"]),
+        "k":      ([Row], StringType, lambda r: r["k"]),
+        "v":      ([Row], FloatType, lambda r: r["v"]),
+        "pred":   ([Row], BooleanType, lambda r: r["v"] > 5.0),
+        "opt":    ([Row], OptionType(StringType),
+                   lambda r: if_else(r["v"] > 5.0, some(r["g"]), none)),
+        "flat":   ([Row], ArrayType(StringType), lambda r: r["k"].split("|")),
+        "folder": ([FloatType, Row], FloatType, lambda acc, r: acc + r["v"]),
+        "comb":   ([FloatType, FloatType], FloatType, lambda a, b: a + b),
+        "su":     ([StringType], StringType, lambda x: x.upper()),
+        "spred":  ([StringType], BooleanType, lambda x: x.contains("1")),
+        "mv":     ([FloatType], FloatType, lambda x: x * 2.0),
+        "dg":     ([StringType, FloatType], StringType, lambda k, v: k),
+        "dv":     ([StringType, FloatType], FloatType, lambda k, v: v),
+        "dpred":  ([StringType, FloatType], BooleanType, lambda k, v: v > 5.0),
+        "dopt":   ([StringType, FloatType], OptionType(StringType),
                    lambda k, v: if_else(v > 5.0, some(k), none)),
     }
     if mode == "kernel":
-        return {name: kernel(types, fn) for name, (types, fn) in specs.items()}
-    return {name: fn for name, (_types, fn) in specs.items()}
+        return {name: East.function(types, out, fn)
+                for name, (types, out, fn) in specs.items()}
+    return {name: fn for name, (_types, _out, fn) in specs.items()}
 
 
 # The plain builtin-backed method rows that used to live here (map/filter/
-# filter_map/first_map/map_reduce/fold/sorted/to_*/flatten_*) are now covered
-# corpus-wide by tests/test_compliance_eager.py — kernel + trampoline replay
-# with per-builtin path accounting (#474 cleanup pass 1). This file keeps the
-# east-py-NATIVE surface the corpus cannot express: the sugar compositions
-# (sum/mean/min/max/every/some/group_*) and the pushdown mechanics pins.
+# filter_map/first_map/map_reduce/fold/sorted/to_*/flatten_*) are covered
+# corpus-wide by tests/test_compliance_eager.py, with per-builtin path
+# accounting (#474 cleanup pass 1). This file keeps the east-py-NATIVE surface
+# the corpus cannot express: the sugar compositions (sum/mean/min/max/every/
+# some/group_*) and the capture mechanics pins.
 ARRAY_CASES = {
     "sum":             lambda a, c: a.sum(c["v"]),
     "mean":            lambda a, c: a.mean(c["v"]),
@@ -138,73 +147,74 @@ DICT_CASES = {
 }
 
 
-def _assert_no_per_element_python(run):
-    before = eager_stats()["trampoline_calls"]
+def _assert_captures(run):
+    """The composition captures — it did not raise. Under the strict surface
+    that is the whole proof: a callback that fails to capture raises rather
+    than running per element (#625)."""
     run()
-    moved = eager_stats()["trampoline_calls"] - before
-    assert moved == 0, f"{moved} per-element python trampoline call(s)"
 
 
 @pytest.mark.parametrize("mode", ["kernel", "lambda"])
 @pytest.mark.parametrize("case", sorted(ARRAY_CASES), ids=str)
 def test_array_method_runs_native(case, mode):
     rows, cbs = _rows(), _callbacks(mode)
-    _assert_no_per_element_python(lambda: ARRAY_CASES[case](rows, cbs))
+    _assert_captures(lambda: ARRAY_CASES[case](rows, cbs))
 
 
 @pytest.mark.parametrize("mode", ["kernel", "lambda"])
 @pytest.mark.parametrize("case", sorted(SET_CASES), ids=str)
 def test_set_method_runs_native(case, mode):
     cbs = _callbacks(mode)
-    strings = _rows().to_set(kernel(Row, lambda r: r["k"]))
-    _assert_no_per_element_python(lambda: SET_CASES[case](strings, cbs))
+    strings = _rows().to_set(East.function([Row], StringType, lambda r: r["k"]))
+    _assert_captures(lambda: SET_CASES[case](strings, cbs))
 
 
 @pytest.mark.parametrize("mode", ["kernel", "lambda"])
 @pytest.mark.parametrize("case", sorted(DICT_CASES), ids=str)
 def test_dict_method_runs_native(case, mode):
     cbs = _callbacks(mode)
-    d = _rows().to_dict(kernel(Row, lambda r: r["k"]),
-                        value=kernel(Row, lambda r: r["v"]))
-    _assert_no_per_element_python(lambda: DICT_CASES[case](d, cbs))
+    d = _rows().to_dict(East.function([Row], StringType, lambda r: r["k"]),
+                        value=East.function([Row], FloatType, lambda r: r["v"]))
+    _assert_captures(lambda: DICT_CASES[case](d, cbs))
 
 
 # ── the specific #470 mechanics ──────────────────────────────────────────────
 
-def test_try_push_down_honours_the_mark():
-    """A wrapper carrying ``_east_kernel`` is pushable — before, the bridge
-    honoured the mark while try_push_down judged the wrapper's own closure,
-    so ``group_by`` branched to its per-element python path anyway."""
-    from east.expression import try_push_down
+def test_capture_callback_honours_the_mark():
+    """A wrapper carrying ``_east_kernel`` resolves to the kernel's own native
+    value — before, the bridge honoured the mark while capture_callback judged
+    the wrapper's own closure, so ``group_by`` branched to its per-element
+    python path anyway."""
+    from east.expression import capture_callback
     from east.types.values.collections import _mark_kernel
     from east.types.values.structural import EastFunction
 
-    key = kernel(Row, lambda r: r["g"])
+    key = East.function([Row], StringType, lambda r: r["g"])
     wrapper = _mark_kernel(lambda el, _i: key(el), key)
-    native = try_push_down(EastFunction(wrapper, [Row, IntegerType], StringType))
+    native = capture_callback(EastFunction(wrapper, [Row, IntegerType], StringType))
     assert native is not None
     assert getattr(native._eastc_handle, "_fn_val", 0)
 
 
-def test_try_push_down_still_rejects_a_mismatched_marked_kernel():
+def test_capture_callback_still_rejects_a_mismatched_marked_kernel():
     """The mark rides the same #467 signature checks as the bridge: a marked
     kernel whose output is not the declared callback output must not pass —
     the strict capture re-traces the wrapper and names the mismatch (#625)."""
-    from east.expression import ExpressionError, try_push_down
+    from east.expression import ExpressionError, capture_callback
     from east.types.values.collections import _mark_kernel
     from east.types.values.structural import EastFunction
 
-    key = kernel(Row, lambda r: r["g"])            # String
+    key = East.function([Row], StringType, lambda r: r["g"])            # String
     wrapper = _mark_kernel(lambda el, _i: key(el), key)
     with pytest.raises(ExpressionError, match="produced String"):
-        try_push_down(EastFunction(wrapper, [Row, IntegerType], FloatType))
+        capture_callback(EastFunction(wrapper, [Row, IntegerType], FloatType))
 
 
 def test_kernels_compose_inside_kernels_and_wrappers():
     """Dual-mode: a kernel called with a trace proxy re-runs its source, so
     kernels splice into other kernels and into composing wrappers."""
-    inner = kernel(Row, lambda r: r["v"])
-    outer = kernel(Row, lambda r: inner(r) * 2.0)
+    inner = East.function([Row], FloatType, lambda r: r["v"])
+    outer = East.function([Row], FloatType, lambda r: inner(r) * 2.0)
     rows = _rows()
     assert outer({"g": "g0", "k": "k1", "v": 3.0}) == 6.0
     doubled = rows.map(outer, out=FloatType)
@@ -238,17 +248,14 @@ def test_mean_family_values_are_correct(mode):
 
 def test_no_bulk_decode_probing():
     """The historical failure mode: an eager method that DECODES the whole
-    collection to python (then probes/sorts/rebuilds) moves neither the
-    trampoline counter nor the corpus assertions — correct results, silently
-    O(n) python. Pin the top-level C→py decode counter instead: with kernel
+    collection to python (then probes/sorts/rebuilds) moves none of the
+    corpus assertions — correct results, silently O(n) python. Pin the top-level C→py decode counter instead: with kernel
     callbacks, each of these once-guilty operations may sample at most a
     handful of values (type fallbacks read ONE element), never the
     collection. The bound is deliberately generous per call but ~N/10 below
     a per-element decode."""
     rows, cbs = _rows(), _callbacks("kernel")
-    before = eager_stats()
-    before_d = before["c_to_py_decodes"]
-    before_t = before["trampoline_calls"]
+    before_d = eager_stats()["c_to_py_decodes"]
 
     rows.sorted(key=cbs["v"])
     rows.sort(key=cbs["v"])                 # in-place: native sorted + C-to-C rebind
@@ -263,4 +270,3 @@ def test_no_bulk_decode_probing():
     assert decoded < N // 10, (
         f"{decoded} C→py decodes across {N}-row native operations — "
         "an eager method is decoding the collection python-side")
-    assert after["trampoline_calls"] == before_t

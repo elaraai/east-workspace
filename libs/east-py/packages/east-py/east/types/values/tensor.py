@@ -200,7 +200,7 @@ class EastVector:
 
         The stored value is promoted from its storage dtype to the canonical
         Python representation of the logical element type (Float/Integer/Boolean).
-        A traced ``index`` (inside a ``kernel()`` lambda) lifts this vector as
+        A traced ``index`` (inside a captured body) lifts this vector as
         a constant and the access emits IR, like the eager collections.
 
         Args:
@@ -940,7 +940,7 @@ class EastMatrix:
     def get(self, row: int, col: int) -> Any:
         """Logical scalar at ``(row, col)`` (numpy).
 
-        Traced indices (inside a ``kernel()`` lambda) lift this matrix as a
+        Traced indices (inside a captured body) lift this matrix as a
         constant and the access emits IR, like the eager collections.
 
         Args:

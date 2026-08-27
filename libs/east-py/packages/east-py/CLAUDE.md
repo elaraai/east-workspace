@@ -63,11 +63,10 @@ All structured data uses two base classes:
    - `platform.py` — platform function integration API
 
 4. **`east/expression/`** — the expression builders (`East.function` /
-   `East.platform` / `East.compile`, #625) and the tracer behind every eager
-   collection method's push-down. One module per concern; `__init__.py`
+   `East.platform` / `East.compile`, #625) and the capture behind every eager
+   collection method's callback. One module per concern; `__init__.py`
    re-exports the whole surface, so importers only ever say
-   `from east.expression import …` (`east.kernel` is the one-release
-   deprecated alias).
+   `from east.expression import …`.
    - `nodes.py` / `lift.py` / `finalize.py` — IR construction, lifting python
      values into traced expressions, and the trace-time CSE
    - `expr.py` + `ops/` — `Expression` and its method surface, one op mixin
@@ -77,12 +76,15 @@ All structured data uses two base classes:
      `block`/`let`/`ref`/`label`/`break_`/`continue_`/`try_catch`)
    - `function.py` — `East.function`/`asyncFunction` (strict; declared `out`
      required + enforced), `East.compile`/`compileAsync` over
-     `compile_from_value`, the deprecated `kernel()` alias, and `trace()`
+     `compile_from_value`, and `trace()`
    - `platform.py` — `East.platform`/`asyncPlatform` declaration handles
      emitting `Platform` IR; a platform-declaring function raises
      `Platform function '<name>' is not available` until compiled
-   - `pushdown.py` — the purity gate + trace cache that decide whether an
-     eager callback goes native (deleted in #625 phase 3)
+   - `capture.py` — `capture_callback`: how an eager method's callback
+     becomes a native kernel. The eligibility check (`_refused_binding` —
+     one refusal, naming the binding with no East form), the capture cache
+     (#422) and the type derivation `_trace_out_type` live here. There is no
+     selector and no fallback: it captures or it raises (#625)
 
 5. **`east/builtins/`** — 212+ builtin functions
    - Auto-register on import via registry pattern

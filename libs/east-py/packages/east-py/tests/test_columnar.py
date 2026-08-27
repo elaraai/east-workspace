@@ -11,6 +11,7 @@ import pytest
 from east import (
     ArrayType,
     BooleanType,
+    East,
     EastArray,
     EastBlob,
     EastDict,
@@ -21,7 +22,6 @@ from east import (
     StructType,
     array,
     if_else,
-    kernel,
     none,
     some,
 )
@@ -228,7 +228,7 @@ def test_update_many_traced_combine():
 
 def test_update_many_precompiled_kernel_combine():
     d = EastDict(StringType, FloatType, {"a": 1.0})
-    k = kernel([FloatType, FloatType], lambda cur, new: cur + new)
+    k = East.function([FloatType, FloatType], FloatType, lambda cur, new: cur + new)
     d.update_many(["a", "b", "a"], [2.0, 7.0, 4.0], combine=k)
     assert d["a"] == 7.0
     assert d["b"] == 7.0
@@ -341,9 +341,9 @@ def test_update_many_deeply_nested_option_values_at_scale():
                                     "level_before": some(1.0),
                                     "level_after": none}]} for i in range(n)])
 
-    k_key = kernel(src, lambda r: {"job": r["id"],
+    k_key = East.function([src], StructType([("job", StringType), ("station", StringType)]), lambda r: {"job": r["id"],
                                    "station": r["station"].unwrap_or("")})
-    k_val = kernel(src, lambda r: {
+    k_val = East.function([src], StructType([("allocations", ArrayType(StructType([("grade", OptionType(StringType)), ("batch", OptionType(StringType)), ("level_before", OptionType(FloatType)), ("level_after", OptionType(FloatType))]))), ("unallocated", StructType([("before", OptionType(FloatType)), ("after", OptionType(FloatType))])), ("quality", OptionType(StringType))]), lambda r: {
         "allocations": r["allocs"],
         "unallocated": {"before": if_else(r["station"].is_some(), some(1.0), none),
                         "after": if_else(r["station"].is_some(), some(2.0), none)},

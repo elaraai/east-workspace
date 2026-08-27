@@ -19,7 +19,7 @@ When a target type is supplied, each constructor validates/coerces against it
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from east.types.coercion import EastTypeError, coerce_to
 from east.types.types import (
@@ -35,18 +35,45 @@ from east.types.values import (
     east_null,
 )
 
+if TYPE_CHECKING:
+    from east.expression import Expression
+
 R = TypeVar("R")
 
 
-def variant(case: str, value: EastValue, typ: EastType | None = None) -> EastVariant:
+def _holds_traced(value: Any) -> bool:
+    """Whether ``value`` is — or contains, at any depth — a traced expression.
+
+    The dual-mode constructors decide by this whether they build IR or an
+    eager value. A lazy import: the expression package imports this module.
+    """
+    from east.expression.lift import _holds_traced as _deep
+
+    return _deep(value)
+
+
+def variant(case: str, value: EastValue, typ: EastType | None = None) -> EastVariant | Expression:
     """Build a tagged variant value.
 
     If ``typ`` (a VariantType) is given, ``case`` must be one of its cases and
     ``value`` is coerced/validated against that case's type.
+
+    Dual-mode, like ``struct``: a payload holding a traced expression makes
+    this the Variant IR the builder emits. With ``typ`` the case and the
+    payload's type are checked here; without it the untyped variant is
+    returned for the surrounding context to type — the declared output, an
+    ``East.if_else`` sibling or a typed struct field (#541) — exactly as on
+    plain values.
     """
+    if typ is not None and not is_variant_type(typ):
+        raise EastTypeError(f"variant() type must be a VariantType, got {typ['type']}", expected=typ)
+    if _holds_traced(value):
+        if typ is None:
+            return EastVariant(case, value)
+        from east.expression import _lift
+
+        return _lift(EastVariant(case, value), hint=typ)
     if typ is not None:
-        if not is_variant_type(typ):
-            raise EastTypeError(f"variant() type must be a VariantType, got {typ['type']}", expected=typ)
         case_type = next((c["type"] for c in typ.value if c["name"] == case), None)
         if case_type is None:
             names = ", ".join(c["name"] for c in typ.value)
@@ -73,13 +100,42 @@ def match(v: EastVariant, cases: dict[str, Callable[[Any], R]], default: R | Non
     return default if handler is None else handler(v.value)
 
 
-def struct(fields: dict[str, EastValue], typ: EastType | None = None) -> EastStruct:
+def struct(fields: dict[str, EastValue], typ: EastType | None = None) -> EastStruct | Expression:
     """Build a struct value from a dict.
 
     If ``typ`` (a StructType) is given, fields are reordered to the type's order
     and each is coerced/validated (so an out-of-order or under-typed dict becomes
     a bridge-ready struct, or raises ``EastTypeError``).
+
+    Dual-mode, like ``East.if_else``: a field holding a traced expression —
+    at any depth, a nested dict or ``some(...)`` included — makes this the
+    Struct IR a dict literal builds (``typ`` types the fields), so the same
+    ``struct({...}, T)`` spelling works inside a captured callback and on
+    plain values. Building an eager struct AROUND expression proxies is what
+    that replaces — it would lift as a bogus build-time "constant" referencing
+    the callback's own parameters.
     """
+    if _holds_traced(fields):
+        from east.expression import _lift
+
+        ordered = dict(fields)
+        if typ is not None:
+            # Same contract as the eager path: the declared type fixes the
+            # FIELD ORDER (a struct type is ordered), so a dict written in
+            # another order must not produce a differently-typed struct just
+            # because its values happened to be traced.
+            if not is_struct_type(typ):
+                raise EastTypeError(
+                    f"struct() type must be a StructType, got {typ['type']}", expected=typ)
+            names = [f["name"] for f in typ.value]
+            missing = [n for n in names if n not in ordered]
+            unknown = [k for k in ordered if k not in names]
+            if missing or unknown:
+                raise EastTypeError(
+                    f"struct() fields do not match the declared type — "
+                    f"missing {missing}, unknown {unknown}", expected=typ)
+            ordered = {n: ordered[n] for n in names}
+        return _lift(ordered, hint=typ)
     if typ is None:
         return EastStruct(dict(fields))
     if not is_struct_type(typ):

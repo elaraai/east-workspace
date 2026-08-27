@@ -130,9 +130,9 @@ class _CollectionOps(_ExprBase):
     def _check_out(op: str, traced_t: EastType, out: EastType | None) -> None:
         """Reject an ``out=`` that disagrees with the traced projection.
 
-        The eager twins accept ``out=`` to PIN a type they would otherwise
-        sample; a kernel always knows it, so ``out`` can only confirm or
-        contradict. Contradicting it silently would label the result with a
+        The eager twins accept ``out=`` to PIN a type; the capture always
+        knows it, so ``out`` can only confirm or contradict. Contradicting it
+        silently would label the result with a
         type that does not describe it — the #467 failure mode.
         """
         if out is not None and out != traced_t:

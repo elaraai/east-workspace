@@ -35,7 +35,6 @@ from east import (
     StringType,
     StructType,
     if_else,
-    kernel,
     none,
     some,
 )
@@ -768,26 +767,22 @@ def test_set_compute_matches_load(tmp_path):
 
 
 def test_compute_callback_modes_stay_native(tmp_path):
-    """Traced lambdas and precompiled kernels must run ZERO python per
-    element across the whole file-level call; an impure callback raises the
-    strict-capture error before any row is touched (#625) — genuine python
-    work iterates the file at the python boundary instead."""
+    """Traced lambdas and precompiled functions run natively across the
+    whole file-level call (a callback that cannot capture raises); an impure
+    callback raises the strict-capture error before any row is touched (#625)
+    — genuine python work iterates the file at the python boundary instead."""
     from east.expression import ExpressionError
-    from east.runtime.compiler import eager_stats
 
     path = tmp_path / "modes.beast2"
     rows = _w4_rows(40)
     write_beast2_file(path, W4_AT, EastArray(W4_ROW, rows), segment_rows=7)
     with open_beast2_file(path, W4_AT) as f:
         table = f.load()
-        double = kernel(W4_ROW, lambda r: r.qty * 2)
+        double = East.function([W4_ROW], IntegerType, lambda r: r.qty * 2)
 
-        before = eager_stats().get("trampoline_calls", 0)
         via_kernel = list(f.map(double))
         via_traced = list(f.map(lambda r: r.qty * 2))
         traced_sum = f.sum(lambda r: r.amt)
-        assert eager_stats().get("trampoline_calls", 0) == before, \
-            "kernel/traced file compute trampolined into python"
 
         assert via_kernel == via_traced == list(table.map(double))
         assert traced_sum == table.sum(lambda r: r.amt)
@@ -797,15 +792,12 @@ def test_compute_callback_modes_stay_native(tmp_path):
         # group per segment — O(rows) on a finely segmented file — so the
         # rebase folds into the traced probe instead (#526 review). A `value`
         # that matches nothing is the worst case: every group needs filling.
-        sku = kernel(W4_ROW, lambda r: r.sku)
-        qty = kernel(W4_ROW, lambda r: r.qty)
-        before = eager_stats().get("trampoline_calls", 0)
+        sku = East.function([W4_ROW], StringType, lambda r: r.sku)
+        qty = East.function([W4_ROW], IntegerType, lambda r: r.qty)
         find_all = f.group_find_all(sku, -1, qty)
         find_first = f.group_find_first(sku, -1, qty)
         find_max = f.group_find_maximum(sku, qty)
         find_min = f.group_find_minimum(sku, qty)
-        moved = eager_stats().get("trampoline_calls", 0) - before
-        assert moved == 0, f"group-find file compute trampolined {moved} time(s)"
 
         assert {k: list(v) for k, v in find_all.items()} == \
             {k: list(v) for k, v in table.group_find_all(sku, -1, qty).items()}

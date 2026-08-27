@@ -35,20 +35,10 @@ from east import (
     StringType,
     StructType,
     array,
-    kernel,
     none,
     some,
 )
-from east.runtime.compiler import eager_stats
 from east.types.values.collections import EastDict, EastSet
-
-
-def _no_per_element_python(run):
-    before = eager_stats()["trampoline_calls"]
-    out = run()
-    moved = eager_stats()["trampoline_calls"] - before
-    return out, moved
-
 
 # ── Set.is_superset_of ───────────────────────────────────────────────────────
 
@@ -129,7 +119,7 @@ def test_dict_sum_on_an_empty_dict_types_the_zero_from_the_PROJECTION():
     from east.namespace import East
 
     # A numeric projection over String values: 0 when empty, like TS.
-    length = kernel([StringType, StringType], lambda _k, v: East.String.length(v))
+    length = East.function([StringType, StringType], IntegerType, lambda _k, v: East.String.length(v))
     assert EastDict(StringType, StringType, {"a": "hello", "b": "hi"}).sum(length) == 7
     assert EastDict(StringType, StringType).sum(length) == 0
 
@@ -145,14 +135,13 @@ def test_dict_sum_on_an_empty_dict_types_the_zero_from_the_PROJECTION():
         EastDict(StringType, StringType).sum()
 
 
-def test_dict_every_some_sum_run_native():
-    """The short-circuit scan and the fold push down: no per-element python."""
+def test_dict_every_some_sum_capture():
+    """The short-circuit scan and the fold capture: each call builds (a
+    callback that cannot capture raises) and answers."""
     d = EastDict(IntegerType, FloatType, {i: float(i) for i in range(300)})
-    for run in (lambda: d.every(lambda _k, v: v >= 0.0),
-                lambda: d.some(lambda _k, v: v > 298.0),
-                lambda: d.sum(lambda _k, v: v)):
-        _out, moved = _no_per_element_python(run)
-        assert moved == 0, f"{moved} per-element python trampoline call(s)"
+    assert d.every(lambda _k, v: v >= 0.0) is True
+    assert d.some(lambda _k, v: v > 298.0) is True
+    assert d.sum(lambda _k, v: v) == sum(float(i) for i in range(300))
 
 
 # ── Array.group_find_* ───────────────────────────────────────────────────────
@@ -300,8 +289,8 @@ def test_group_find_extremes_on_empty_input():
 def test_group_find_family_accepts_precompiled_kernels():
     Row = StructType([("g", StringType), ("v", IntegerType)])
     rows = array(Row, [{"g": "a", "v": 1}, {"g": "a", "v": 5}, {"g": "b", "v": 3}])
-    key = kernel(Row, lambda r: r["g"])
-    by = kernel(Row, lambda r: r["v"])
+    key = East.function([Row], StringType, lambda r: r["g"])
+    by = East.function([Row], IntegerType, lambda r: r["v"])
 
     assert dict(rows.group_find_maximum(key, by).items()) == {"a": 1, "b": 2}
     assert dict(rows.group_find_minimum(key, by).items()) == {"a": 0, "b": 2}

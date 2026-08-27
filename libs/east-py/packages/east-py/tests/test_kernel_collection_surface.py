@@ -26,12 +26,14 @@ import pytest
 
 from east import (
     ArrayType,
+    DictType,
+    East,
     FloatType,
     IntegerType,
+    SetType,
     StringType,
     StructType,
     array,
-    kernel,
 )
 from east.expression import _TRACED_SURFACE, Expression, ExpressionError, _var
 
@@ -59,15 +61,15 @@ def _legs():
 # to_dict's 2-arg combine), the narrowed get_keys, and the flagship shapes.
 
 CASES = [
-    ("array.get_keys",
+    ("array.get_keys", ArrayType(StringType),
      lambda r: r["csv"].split(",").get_keys(array(IntegerType, [2, 0])),
      lambda: _arr().get_keys(array(IntegerType, [2, 0]))),
-    ("array.to_dict.combine",
+    ("array.to_dict.combine", DictType(StringType, IntegerType),
      lambda r: r["csv"].split(",").to_dict(
          lambda p: p, value=lambda p: p.length(), combine=lambda a, b: a + b),
      lambda: _arr().to_dict(lambda p: p, value=lambda p: p.length(),
                             combine=lambda a, b: a + b)),
-    ("array.sorted.key.reverse",
+    ("array.sorted.key.reverse", ArrayType(StringType),
      lambda r: r["legs"].sorted(key=lambda leg: leg["qty"], reverse=True)
                         .map(lambda leg: leg["code"]),
      lambda: _legs().sorted(key=lambda leg: leg["qty"], reverse=True)
@@ -75,10 +77,10 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize(("name", "traced", "eager"),
+@pytest.mark.parametrize(("name", "out", "traced", "eager"),
                          CASES, ids=[c[0] for c in CASES])
-def test_traced_matches_eager(name, traced, eager):
-    k = kernel(Row, traced)
+def test_traced_matches_eager(name, out, traced, eager):
+    k = East.function([Row], out, traced)
     assert k(ROW) == eager()
 
 
@@ -87,9 +89,11 @@ def test_traced_matches_eager(name, traced, eager):
 def test_two_level_descent_is_one_kernel():
     """record → legs → per-character rows, previously a traced pass + an eager
     ``flatten_to_array`` with a declared intermediate type between them."""
-    k = kernel(Row, lambda r: r["legs"].flatten_to_array(
-        lambda leg: leg["code"].split("").map(
-            lambda ch: {"id": r["id"], "ch": ch, "qty": leg["qty"]})))
+    k = East.function(
+        [Row], ArrayType(StructType([("id", StringType), ("ch", StringType), ("qty", FloatType)])),
+        lambda r: r["legs"].flatten_to_array(
+            lambda leg: leg["code"].split("").map(
+                lambda ch: {"id": r["id"], "ch": ch, "qty": leg["qty"]})))
     out = k(ROW)
     assert [(x["id"], x["ch"], x["qty"]) for x in out] == [
         ("r1", "X", 2.0), ("r1", "Y", 2.0), ("r1", "Z", 1.0)]
@@ -98,7 +102,7 @@ def test_two_level_descent_is_one_kernel():
 def test_group_rekey_sort_is_one_kernel():
     """The intake-aggregation shape: group, count, re-key with a combine, and
     sort — previously four eager passes over materialised intermediates."""
-    k = kernel(Row, lambda r: r["csv"].split(",")
+    k = East.function([Row], ArrayType(StringType), lambda r: r["csv"].split(",")
                .group_by(lambda p: p)
                .to_array(lambda part, hits: {"part": part, "n": hits.size()})
                .sorted(key=lambda x: x["n"], reverse=True)
@@ -108,7 +112,7 @@ def test_group_rekey_sort_is_one_kernel():
 
 
 def test_slice_takes_traced_bounds():
-    k = kernel(Row, lambda r: r["csv"].split(",").slice(
+    k = East.function([Row], ArrayType(StringType), lambda r: r["csv"].split(",").slice(
         0, r["legs"].size()))
     assert list(k(ROW)) == ["b", "a"]
 
@@ -119,7 +123,7 @@ def test_dict_get_keys_with_fill():
     # on a default — the traced default used to be "later value wins" while the
     # eager path and TS both raise, and this test was silently encoding that
     # divergence (#525).
-    k = kernel(Row, lambda r: r["csv"].split(",")
+    k = East.function([Row], DictType(StringType, IntegerType), lambda r: r["csv"].split(",")
                .to_dict(lambda p: p, value=lambda p: p.length(),
                         combine=lambda a, _b: a)
                .get_keys(array(StringType, ["a", "zz"]).unique(), lambda _k: 0))
@@ -143,19 +147,19 @@ def test_to_dict_duplicate_key_errors_like_eager_and_ts():
     with pytest.raises(EastError, match="Cannot insert duplicate key"):
         parts.to_dict(lambda p: p, value=lambda p: p.length())
     with pytest.raises(EastError, match="Cannot insert duplicate key"):
-        kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length()))(parts)
+        East.function([t], DictType(StringType, IntegerType), lambda a: a.to_dict(lambda p: p, value=lambda p: p.length()))(parts)
     # ...and the message names the offending key, as eager and TS do
     with pytest.raises(EastError, match='duplicate key "?a"? into dict'):
-        kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length()))(parts)
+        East.function([t], DictType(StringType, IntegerType), lambda a: a.to_dict(lambda p: p, value=lambda p: p.length()))(parts)
     # with a combine, both paths agree on the resolved value
-    got = kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length(),
+    got = East.function([t], DictType(StringType, IntegerType), lambda a: a.to_dict(lambda p: p, value=lambda p: p.length(),
                                         combine=lambda x, y: x + y))(parts)
     want = parts.to_dict(lambda p: p, value=lambda p: p.length(),
                          combine=lambda x, y: x + y)
     assert dict(got.items()) == dict(want.items())
 
     # a 3-argument combine is a supported EAGER call, so it must trace too
-    got3 = kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length(),
+    got3 = East.function([t], DictType(StringType, IntegerType), lambda a: a.to_dict(lambda p: p, value=lambda p: p.length(),
                                          combine=lambda x, y, _k: x + y))(parts)
     assert dict(got3.items()) == dict(want.items())
 
@@ -184,17 +188,18 @@ def test_unsupported_method_names_the_surface():
     # `append`/`insert` are ON the surface since #578 — these are names that
     # still are not, so the enumeration keeps being the thing that answers.
     with pytest.raises(ExpressionError, match="traced kernel surface.*supported.*concat"):
-        kernel(Row, lambda r: r["legs"].pop())
+        East.function([Row], ArrayType(Leg), lambda r: r["legs"].pop())
     with pytest.raises(ExpressionError, match="Set-typed.*union"):
-        kernel(Row, lambda r: r["csv"].split(",").unique().add("x"))
+        East.function([Row], SetType(StringType),
+                      lambda r: r["csv"].split(",").unique().add("x"))
     with pytest.raises(ExpressionError, match="Dict-typed.*keys_set"):
-        kernel(Row, lambda r: r["csv"].split(",")
-               .to_dict(lambda p: p, value=lambda p: p).swap("x", "y"))
+        East.function([Row], DictType(StringType, StringType), lambda r: r["csv"].split(",")
+                      .to_dict(lambda p: p, value=lambda p: p).swap("x", "y"))
 
 
 def test_mismatched_operand_type_is_named():
     with pytest.raises(ExpressionError, match="operand"):
-        kernel(Row, lambda r: r["csv"].split(",").concat(
+        East.function([Row], ArrayType(StringType), lambda r: r["csv"].split(",").concat(
             r["legs"].map(lambda leg: leg["qty"])))
 
 

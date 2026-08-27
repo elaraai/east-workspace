@@ -17,9 +17,9 @@ down. Every pin carries its reason: real, named differences between the
 eager surface and compiled East, each awaiting either a fix or an explicit
 policy blessing. The funnel-only builtin set — builtins with no
 user-surface spelling yet — is pinned exactly and may only shrink (#452's
-ratchet), and path accounting requires ZERO trampolining: under the strict
-surface (#625) there is exactly one execution path, so the old
-kernel/trampoline/traced mode matrix collapsed to this one replay.
+ratchet). Under the strict surface (#625) there is exactly one execution
+path, so the old kernel/trampoline/traced mode matrix collapsed to this one
+replay.
 """
 
 from __future__ import annotations
@@ -108,9 +108,3 @@ def test_register_gap_is_pinned():
     surface = sum(v for (b, r), v in _TOTAL.routes.items() if r == "surface")
     funnel = sum(v for (b, r), v in _TOTAL.routes.items() if r == "funnel")
     assert surface / (surface + funnel) >= 0.90, (surface, funnel)
-    # The native-path guarantee: across the WHOLE corpus, no builtin call
-    # with callbacks ever fell back to the per-element trampoline (measured
-    # from the compiler's real counters — eager_stats() deltas around every
-    # call). Exact zero, not a ceiling: under the strict surface (#625) the
-    # path does not exist.
-    assert not _TOTAL.path_violations, _TOTAL.path_violations[:5]

@@ -18,8 +18,8 @@ These tests pin four things:
 
 * the constructs EMIT the IR nodes they name, and compile and run — including
   the zero- and one-iteration edges a loop gets wrong first;
-* the same lambda works traced and eager, because a callback that fails the
-  purity gate still runs on the python path;
+* the same lambda works traced and eager — the constructs are dual-mode, so
+  one body serves a build and a plain-value call;
 * the failure modes are LOUD — a state that changes shape or type, a mutation
   written as a statement (evaluated and thrown away), a mutation of a
   build-time constant (shared by every call to the kernel);
@@ -37,9 +37,9 @@ from east import (
     IntegerType,
     SetType,
     StringType,
+    StructType,
     array,
     if_else,
-    kernel,
 )
 from east.expression import ExpressionError, trace
 from east.runtime.errors import EastError
@@ -80,7 +80,7 @@ def _traced_kinds(param_types, fn):
 
 def test_while_sums_a_range_including_both_edges():
     """The issue's headline, hand-built there and traced here."""
-    k = kernel([IntegerType], lambda n: East.while_(
+    k = East.function([IntegerType], IntegerType, lambda n: East.while_(
         {"i": 0, "acc": 0},
         cond=lambda s: s.i < n,
         body=lambda s: {"acc": s.acc + s.i, "i": s.i + 1}).acc)
@@ -97,7 +97,7 @@ def test_while_body_may_return_the_fields_in_any_order():
     """The issue's own example seeds ``{i, acc}`` and returns ``{acc, i}``:
     a dict literal's order is whatever the body wrote, the struct type's is
     the state's, so the body is reordered rather than rejected."""
-    k = kernel([IntegerType], lambda n: East.while_(
+    k = East.function([IntegerType], IntegerType, lambda n: East.while_(
         {"i": 0, "acc": 0},
         cond=lambda s: s.i < n,
         body=lambda s: {"acc": s.acc + s.i, "i": s.i + 1}).acc)
@@ -105,25 +105,25 @@ def test_while_body_may_return_the_fields_in_any_order():
 
 
 def test_while_threads_a_single_value_state():
-    k = kernel([IntegerType], lambda n: East.while_(
+    k = East.function([IntegerType], IntegerType, lambda n: East.while_(
         1, cond=lambda p: p < n, body=lambda p: p * 2))
     assert k(50) == 64
 
 
 def test_while_cond_must_be_boolean():
     with pytest.raises(ExpressionError, match="cond must return a Boolean"):
-        kernel([IntegerType], lambda n: East.while_(
+        East.function([IntegerType], IntegerType, lambda n: East.while_(
             {"i": 0}, cond=lambda s: s.i + n, body=lambda s: {"i": s.i + 1}))
 
 
 def test_while_state_shape_change_is_named():
     with pytest.raises(ExpressionError, match="missing \\['acc'\\]"):
-        kernel([IntegerType], lambda n: East.while_(
+        East.function([IntegerType], IntegerType, lambda n: East.while_(
             {"i": 0, "acc": 0},
             cond=lambda s: s.i < n,
             body=lambda s: {"i": s.i + 1}))
     with pytest.raises(ExpressionError, match="unknown \\['extra'\\]"):
-        kernel([IntegerType], lambda n: East.while_(
+        East.function([IntegerType], IntegerType, lambda n: East.while_(
             {"i": 0},
             cond=lambda s: s.i < n,
             body=lambda s: {"i": s.i + 1, "extra": 0}))
@@ -131,7 +131,7 @@ def test_while_state_shape_change_is_named():
 
 def test_while_state_type_change_names_the_field():
     with pytest.raises(ExpressionError, match="acc: Integer -> Float"):
-        kernel([IntegerType], lambda n: East.while_(
+        East.function([IntegerType], IntegerType, lambda n: East.while_(
             {"i": 0, "acc": 0},
             cond=lambda s: s.i < n,
             body=lambda s: {"i": s.i + 1, "acc": s.acc.to_float() + 1.0}))
@@ -141,12 +141,13 @@ def test_while_state_type_change_names_the_field():
 
 
 def test_for_over_an_array_with_and_without_the_index():
-    total = kernel([INTS], lambda a: East.for_(
-        a, {"n": 0, "t": 0}, lambda s, el: {"n": s.n + 1, "t": s.t + el}))
+    total = East.function(
+        [INTS], StructType([("n", IntegerType), ("t", IntegerType)]),
+        lambda a: East.for_(a, {"n": 0, "t": 0}, lambda s, el: {"n": s.n + 1, "t": s.t + el}))
     got = total(_ints(3, 4, 5))
     assert (got["n"], got["t"]) == (3, 12)
 
-    weighted = kernel([INTS], lambda a: East.for_(
+    weighted = East.function([INTS], IntegerType, lambda a: East.for_(
         a, {"w": 0}, lambda s, el, i: {"w": s.w + el * i}).w)
     assert weighted(_ints(10, 20, 30)) == 80
 
@@ -154,13 +155,14 @@ def test_for_over_an_array_with_and_without_the_index():
 def test_for_over_a_set_and_a_dict():
     """A While over an index cannot walk these — they have no positional
     access — which is why ``for_`` lowers to the container's own For node."""
-    from_set = kernel([SetType(IntegerType)], lambda s0: East.for_(
+    from_set = East.function([SetType(IntegerType)], IntegerType, lambda s0: East.for_(
         s0, {"t": 0}, lambda s, el: {"t": s.t + el}).t)
     assert from_set(EastSet(IntegerType, [1, 2, 3])) == 6
 
-    from_dict = kernel([COUNTS], lambda d: East.for_(
-        d, {"t": 0, "keys": ""},
-        lambda s, key, v: {"t": s.t + v, "keys": s.keys + key}))
+    from_dict = East.function(
+        [COUNTS], StructType([("t", IntegerType), ("keys", StringType)]),
+        lambda d: East.for_(d, {"t": 0, "keys": ""},
+                            lambda s, key, v: {"t": s.t + v, "keys": s.keys + key}))
     got = from_dict(EastDict(StringType, IntegerType, {"a": 1, "b": 2}))
     assert (got["t"], got["keys"]) == (3, "ab")
 
@@ -177,20 +179,21 @@ def test_for_emits_the_containers_own_node(container, value, node):
 
 
 def test_for_over_an_empty_collection_returns_the_seed():
-    k = kernel([INTS], lambda a: East.for_(a, {"t": 7}, lambda s, el: {"t": s.t + el}).t)
+    k = East.function([INTS], IntegerType, lambda a: East.for_(a, {"t": 7}, lambda s, el: {"t": s.t + el}).t)
     assert k(array(IntegerType, [])) == 7
 
 
 def test_for_needs_a_container():
     with pytest.raises(ExpressionError, match="for_ over Integer"):
-        kernel([IntegerType], lambda n: East.for_(n, {"t": 0}, lambda s, el: s))
+        East.function([IntegerType], IntegerType,
+                      lambda n: East.for_(n, {"t": 0}, lambda s, el: s))
 
 
 # ── mutable locals ──────────────────────────────────────────────────────────
 
 
 def test_append_accumulates_in_place_and_starts_fresh_each_call():
-    k = kernel([INTS], lambda a: East.for_(
+    k = East.function([INTS], INTS, lambda a: East.for_(
         a, {"out": East.new_array(IntegerType)},
         lambda s, el: East.block(s.out.append(el * 2), s)).out)
     assert list(k(_ints(1, 2, 3))) == [2, 4, 6]
@@ -202,7 +205,7 @@ def test_a_captured_seed_collection_is_also_built_per_call():
     inlined rather than hoisted to the one build-time constant every call
     would otherwise share (the spelling the issue's own example uses)."""
     seed = EastArray(IntegerType, [])
-    k = kernel([INTS], lambda a: East.for_(
+    k = East.function([INTS], INTS, lambda a: East.for_(
         a, {"out": seed}, lambda s, el: East.block(s.out.append(el), s)).out)
     assert list(k(_ints(1, 2))) == [1, 2]
     assert list(k(_ints(1, 2))) == [1, 2]
@@ -210,15 +213,17 @@ def test_a_captured_seed_collection_is_also_built_per_call():
 
 
 def test_dict_and_set_accumulators():
-    counts = kernel([STRS], lambda a: East.for_(
+    counts = East.function([STRS], COUNTS, lambda a: East.for_(
         a, {"counts": East.new_dict(StringType, IntegerType)},
         lambda s, el: East.block(
             s.counts.insert_or_update(el, 1, lambda old, new: old + new), s)).counts)
     assert dict(counts(array(StringType, ["a", "b", "a"])).items()) == {"a": 2, "b": 1}
 
-    seen = kernel([STRS], lambda a: East.for_(
-        a, {"seen": East.new_set(StringType), "n": 0},
-        lambda s, el: East.block(s.seen.try_insert(el), {**s, "n": s.n + 1})))
+    seen = East.function(
+        [STRS], StructType([("seen", SetType(StringType)), ("n", IntegerType)]),
+        lambda a: East.for_(
+            a, {"seen": East.new_set(StringType), "n": 0},
+            lambda s, el: East.block(s.seen.try_insert(el), {**s, "n": s.n + 1})))
     got = seen(array(StringType, ["a", "b", "a"]))
     assert (sorted(got["seen"]), got["n"]) == (["a", "b"], 3)
 
@@ -232,14 +237,14 @@ def test_a_mutation_written_as_a_statement_is_refused():
         return s
 
     with pytest.raises(ExpressionError, match="thrown away.*East.block"):
-        kernel([INTS], lambda a: East.for_(
+        East.function([INTS], INTS, lambda a: East.for_(
             a, {"out": East.new_array(IntegerType)}, step).out)
 
 
 def test_mutating_a_captured_constant_is_refused():
     table = EastArray(IntegerType, [1, 2, 3])
     with pytest.raises(ExpressionError, match="captured constant"):
-        kernel([INTS], lambda a: East.block(
+        East.function([INTS], IntegerType, lambda a: East.block(
             a.map(lambda el: el).concat(table).size(),
             East.let(table.copy().concat(table), lambda t: t.size()),
             East.for_(a, {"n": 0},
@@ -255,7 +260,7 @@ def _capture_append(table, el):
 
 
 def test_mutators_yield_what_their_eager_twins_yield():
-    k = kernel([STRS], lambda a: East.for_(
+    k = East.function([STRS], IntegerType, lambda a: East.for_(
         a, {"new": 0, "seen": East.new_set(StringType)},
         lambda s, el: {"new": s.new + if_else(s.seen.try_insert(el), 1, 0),
                        "seen": s.seen}).new)
@@ -266,14 +271,14 @@ def test_mutators_yield_what_their_eager_twins_yield():
 
 
 def test_if_else_is_the_two_way_conditional():
-    k = kernel([IntegerType], lambda n: East.if_else(n > 0, 1, -1))
+    k = East.function([IntegerType], IntegerType, lambda n: East.if_else(n > 0, 1, -1))
     assert (k(5), k(-5)) == (1, -1)
 
 
 def test_if_else_chains_into_ONE_node():
     """The IR's ``ifs`` is an array of cases, so an if/elif/else chain is one
     IfElse — not a nest of them, which is what a two-way-only spelling costs."""
-    k = kernel([IntegerType],
+    k = East.function([IntegerType], StringType,
                lambda n: East.if_else(n > 10, "bulk", n > 0, "retail", "none"))
     assert [k(20), k(5), k(-1)] == ["bulk", "retail", "none"]
 
@@ -302,24 +307,24 @@ def _ifelse_cases(node, out=None):
 
 def test_if_else_needs_an_odd_argument_count():
     with pytest.raises(ExpressionError, match="odd\\s+number of arguments"):
-        kernel([IntegerType], lambda n: East.if_else(n > 0, 1, n > 5, 2))
+        East.function([IntegerType], IntegerType, lambda n: East.if_else(n > 0, 1, n > 5, 2))
     with pytest.raises(ExpressionError, match="odd"):
-        kernel([IntegerType], lambda n: East.if_else(n > 0, 1))
+        East.function([IntegerType], IntegerType, lambda n: East.if_else(n > 0, 1))
 
 
 def test_if_else_conditions_must_be_boolean():
     with pytest.raises(ExpressionError, match="condition must be Boolean"):
-        kernel([IntegerType], lambda n: East.if_else(n, 1, 2))
+        East.function([IntegerType], IntegerType, lambda n: East.if_else(n, 1, 2))
 
 
 def test_if_else_arms_must_agree():
     with pytest.raises(ExpressionError, match="arms must have the same East type"):
-        kernel([IntegerType], lambda n: East.if_else(n > 0, 1, "no"))
+        East.function([IntegerType], IntegerType, lambda n: East.if_else(n > 0, 1, "no"))
 
 
 def test_if_else_reconciles_an_integer_float_mix_either_way():
-    assert kernel([IntegerType], lambda n: East.if_else(n > 0, 1, 2.0))(1) == 1.0
-    assert kernel([IntegerType], lambda n: East.if_else(n > 0, 1.0, 2))(-1) == 2.0
+    assert East.function([IntegerType], FloatType, lambda n: East.if_else(n > 0, 1, 2.0))(1) == 1.0
+    assert East.function([IntegerType], FloatType, lambda n: East.if_else(n > 0, 1.0, 2))(-1) == 2.0
 
 
 def test_if_else_is_dual_mode():
@@ -343,13 +348,13 @@ def test_where_is_gone():
 
 
 def test_break_stops_the_loop():
-    k = kernel([INTS], lambda a: East.for_(
+    k = East.function([INTS], IntegerType, lambda a: East.for_(
         a, {"t": 0}, lambda s, el: if_else(el < 0, East.break_(), {"t": s.t + el})).t)
     assert k(_ints(1, 2, -1, 100)) == 3
 
 
 def test_break_can_commit_a_final_state():
-    k = kernel([INTS], lambda a: East.for_(
+    k = East.function([INTS], IntegerType, lambda a: East.for_(
         a, {"found": -1, "i": 0},
         lambda s, el: if_else(el == 7,
                               East.break_({"found": s.i, "i": s.i}),
@@ -359,7 +364,7 @@ def test_break_can_commit_a_final_state():
 
 
 def test_continue_skips_the_rest_of_the_body():
-    k = kernel([INTS], lambda a: East.for_(
+    k = East.function([INTS], IntegerType, lambda a: East.for_(
         a, {"t": 0}, lambda s, el: if_else(el < 0, East.continue_(), {"t": s.t + el})).t)
     assert k(_ints(1, -5, 2)) == 3
     assert "Continue" in _traced_kinds([INTS], lambda a: East.for_(
@@ -371,7 +376,10 @@ def test_a_labelled_break_leaves_the_outer_loop_with_its_state():
     it stops. Without the committed state the outer iteration's work is lost."""
     outer = East.label("outer")
     grid_t = ArrayType(ArrayType(IntegerType))
-    k = kernel([grid_t, IntegerType], lambda g, target: East.for_(
+    k = East.function(
+        [grid_t, IntegerType],
+        StructType([("row", IntegerType), ("col", IntegerType), ("r", IntegerType)]),
+        lambda g, target: East.for_(
         g, {"row": -1, "col": -1, "r": 0},
         lambda s, cells: East.let(
             East.for_(cells, {"c": 0},
@@ -391,7 +399,7 @@ def test_a_labelled_break_leaves_the_outer_loop_with_its_state():
 
 def test_break_outside_a_loop_says_so():
     with pytest.raises(ExpressionError, match="outside any loop"):
-        kernel([IntegerType], lambda n: if_else(n > 0, East.break_(), n))
+        East.function([IntegerType], IntegerType, lambda n: if_else(n > 0, East.break_(), n))
 
 
 def test_break_with_a_label_positionally_is_corrected():
@@ -404,32 +412,32 @@ def test_break_with_a_label_positionally_is_corrected():
 
 
 def test_block_yields_its_last_expression():
-    assert kernel([IntegerType], lambda n: East.block(n, n + 1))(4) == 5
+    assert East.function([IntegerType], IntegerType, lambda n: East.block(n, n + 1))(4) == 5
     with pytest.raises(ExpressionError, match="at least one expression"):
-        kernel([IntegerType], lambda n: East.block())
+        East.function([IntegerType], IntegerType, lambda n: East.block())
 
 
 def test_let_binds_once():
-    k = kernel([IntegerType], lambda n: East.let(n * 2, lambda d: d + d))
+    k = East.function([IntegerType], IntegerType, lambda n: East.let(n * 2, lambda d: d + d))
     assert k(5) == 20
     assert "Let" in _traced_kinds([IntegerType],
                                   lambda n: East.let(n * 2, lambda d: d + d))
 
 
 def test_ref_reads_writes_and_updates():
-    assert kernel([IntegerType], lambda n: East.let(
+    assert East.function([IntegerType], IntegerType, lambda n: East.let(
         East.ref(n), lambda r: East.block(r.set(r.get() + 10), r.get())))(7) == 17
-    assert kernel([IntegerType], lambda n: East.let(
+    assert East.function([IntegerType], IntegerType, lambda n: East.let(
         East.ref(n), lambda r: East.block(r.update(lambda v: v * 3), r.get())))(4) == 12
 
 
 def test_new_collections_are_typed_and_can_start_populated():
-    k = kernel([IntegerType], lambda n: East.new_array(IntegerType, [n, n + 1]))
+    k = East.function([IntegerType], INTS, lambda n: East.new_array(IntegerType, [n, n + 1]))
     assert list(k(5)) == [5, 6]
-    k = kernel([IntegerType], lambda n: East.new_dict(
+    k = East.function([IntegerType], IntegerType, lambda n: East.new_dict(
         StringType, IntegerType, {"a": n}).get("a"))
     assert k(3) == 3
-    k = kernel([IntegerType], lambda n: East.new_set(IntegerType, [n]).size())
+    k = East.function([IntegerType], IntegerType, lambda n: East.new_set(IntegerType, [n]).size())
     assert k(9) == 1
 
 
@@ -437,7 +445,7 @@ def test_new_collections_are_typed_and_can_start_populated():
 
 
 def test_try_catch_runs_the_handler_on_an_east_error():
-    k = kernel([INTS], lambda a: East.try_catch(lambda: a.get(10), lambda _m: -1))
+    k = East.function([INTS], IntegerType, lambda a: East.try_catch(lambda: a.get(10), lambda _m: -1))
     assert k(_ints(1, 2)) == -1
     assert k(_ints(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)) == 11
     assert "TryCatch" in _traced_kinds(
@@ -445,7 +453,7 @@ def test_try_catch_runs_the_handler_on_an_east_error():
 
 
 def test_try_catch_handler_sees_the_message():
-    k = kernel([INTS], lambda a: East.try_catch(
+    k = East.function([INTS], StringType, lambda a: East.try_catch(
         lambda: East.new_array(StringType, ["ok"]).get(a.get(9)),
         lambda msg: msg))
     assert isinstance(k(_ints(1)), str)
@@ -453,11 +461,12 @@ def test_try_catch_handler_sees_the_message():
 
 def test_try_catch_arms_must_agree_on_type():
     with pytest.raises(ExpressionError, match="both arms must agree"):
-        kernel([INTS], lambda a: East.try_catch(lambda: a.get(0), lambda _m: "no"))
+        East.function([INTS], IntegerType,
+                      lambda a: East.try_catch(lambda: a.get(0), lambda _m: "no"))
 
 
 def test_try_catch_runs_finally_either_way():
-    k = kernel([INTS], lambda a: East.let(
+    k = East.function([INTS], IntegerType, lambda a: East.let(
         East.ref(0),
         lambda r: East.block(
             East.try_catch(lambda: a.get(10), lambda _m: -1,
@@ -508,18 +517,14 @@ def test_eager_state_shape_is_checked_the_same_way():
                     body=lambda s: {"i": s.i + 1})
 
 
-def test_a_loop_inside_an_eager_callback_still_pushes_down():
-    """The purity gate must let the control-flow constructs through, or an
-    otherwise-traceable lambda drops to the per-element python path — whose
-    only symptom is that the job takes hours."""
-    from east.runtime.compiler import eager_stats
-
+def test_a_loop_inside_an_eager_callback_captures():
+    """The capture validator must let the control-flow constructs through:
+    an eager callback built from them captures like any other (under the
+    strict surface the alternative is a refusal, never a slow path)."""
     rows = array(INTS, [_ints(1, 2), _ints(3, 4, 5)])
-    before = eager_stats()["trampoline_calls"]
     got = rows.map(lambda r: East.for_(r, {"t": 0}, lambda s, el: {"t": s.t + el}).t,
                    out=IntegerType)
     assert list(got) == [3, 12]
-    assert eager_stats()["trampoline_calls"] == before
 
 
 # ── the workload the issue is about ─────────────────────────────────────────
@@ -533,8 +538,8 @@ def test_kahns_algorithm_is_one_kernel():
     succ_t = DictType(node_t, ArrayType(node_t))
     indeg_t = DictType(node_t, IntegerType)
 
-    topo = kernel(
-        [ArrayType(node_t), succ_t, indeg_t],
+    topo = East.function(
+        [ArrayType(node_t), succ_t, indeg_t], ArrayType(node_t),
         lambda roots, succ, indeg: East.while_(
             # a cursor into a worklist the loop APPENDS to — O(1) per edge,
             # where rebuilding `ready` through the state would copy it per step
@@ -552,8 +557,7 @@ def test_kahns_algorithm_is_one_kernel():
                             t.indeg.insert_or_update(v, -1, lambda old, d: old + d),
                             if_else(t.indeg.get(v) == 0,
                                     East.block(t.ready.append(v), t),
-                                    t)))))).order,
-        out=ArrayType(node_t))
+                                    t)))))).order)
 
     #   1 → 2 → 4 ;  1 → 3 → 4
     succ = EastDict(node_t, ArrayType(node_t), {
@@ -565,7 +569,7 @@ def test_kahns_algorithm_is_one_kernel():
 
 
 def test_a_loop_that_raises_still_reports_the_east_error():
-    k = kernel([INTS], lambda a: East.for_(
+    k = East.function([INTS], IntegerType, lambda a: East.for_(
         a, {"t": 0}, lambda s, el: {"t": s.t + a.get(el)}).t)
     with pytest.raises(EastError):
         k(_ints(99))
@@ -593,7 +597,7 @@ def test_compile_from_value_is_reachable_from_east():
 
 
 def test_float_state_keeps_its_type():
-    k = kernel([FloatType], lambda x: East.while_(
+    k = East.function([FloatType], FloatType, lambda x: East.while_(
         {"v": 1.0, "n": 0},
         cond=lambda s: s.n < 3,
         body=lambda s: {"v": s.v * x, "n": s.n + 1}).v)

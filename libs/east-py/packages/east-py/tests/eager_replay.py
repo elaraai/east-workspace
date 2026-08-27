@@ -23,10 +23,9 @@ function values — the ONE mode the strict surface leaves (#625): immutable
 captures bake as ``Let``s of quoted values and the callback IR compiles via
 ``compile_from_value``; by-reference (mutable/container) captures ride the
 bridge's live-captures carrier instead (``_east_ir`` + ``_east_captures``,
-#476 E), so mutation semantics survive without a python path. Per-builtin
-path accounting (``eager_stats`` deltas) verifies no call trampolined —
-values agreeing while the path silently degrades is exactly the #470
-failure shape.
+#476 E), so mutation semantics survive without a python path — and under the
+strict surface there is none: a callback captures or raises, so the replay
+cannot silently degrade to per-element python (#625).
 """
 
 from __future__ import annotations
@@ -50,7 +49,7 @@ from east.ir.builders import (
     ir_variant,
 )
 from east.namespace import East
-from east.runtime.compiler import compile_from_value, eager_stats
+from east.runtime.compiler import compile_from_value
 from east.runtime.errors import EastError
 from east.serialization.json import decode_json_for
 from east.types.type_of_type import IRType
@@ -324,14 +323,12 @@ def _baked_node(clo: Closure) -> Any:
 @dataclass
 class Report:
     routes: Counter = field(default_factory=Counter)          # (builtin, route)
-    path_violations: list = field(default_factory=list)       # (builtin, detail)
     unsupported: Counter = field(default_factory=Counter)     # skip reasons
     tests_passed: int = 0
     tests_failed: list = field(default_factory=list)          # (name, error)
 
     def merge(self, other: Report) -> None:
         self.routes.update(other.routes)
-        self.path_violations.extend(other.path_violations)
         self.unsupported.update(other.unsupported)
         self.tests_passed += other.tests_passed
         self.tests_failed.extend(other.tests_failed)
@@ -806,11 +803,9 @@ class EagerEvaluator:
 
         row = _ROWS.get(name)
         traced_ctx = any(isinstance(a, Expression) for a in args)
-        cbs = [i for i, a in enumerate(args) if isinstance(a, Closure)]
         wb_mark = len(self._writebacks)
 
         if row is not None and not traced_ctx:
-            before = eager_stats()
             try:
                 result = row(self, node, args)
             except _Unsupported as e:
@@ -819,7 +814,6 @@ class EagerEvaluator:
                 row = None  # fall through to the funnel, counted
             else:
                 self._flush_writebacks(wb_mark)
-                self._account(name, before, n_callbacks=len(cbs))
                 self.report.routes[(name, "surface")] += 1
                 return result
         if row is not None and traced_ctx:
@@ -875,20 +869,6 @@ class EagerEvaluator:
             native, env, caps = self._writebacks.pop()
             for cap_name, cap_t in caps:
                 env.assign(cap_name, read_closure_capture(native, cap_name, cap_t))
-
-    def _account(self, name: str, before: dict, *, n_callbacks: int) -> None:
-        """The native-path guarantee, from the compiler's REAL counters.
-
-        Under the strict surface (#625) there is no per-element python path
-        for eager callbacks at all, so ANY trampoline activity around a
-        callback-carrying builtin call is a violation."""
-        if n_callbacks == 0:
-            return
-        after = eager_stats()
-        tramp = after["trampoline_calls"] - before["trampoline_calls"]
-        if tramp:
-            self.report.path_violations.append(
-                (name, f"trampolined {tramp}× under the strict surface"))
 
 
 # ─── the mapping table: BuiltinName → user-surface call ──────────────────────

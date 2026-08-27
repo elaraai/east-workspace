@@ -43,19 +43,24 @@ def compile_from_beast2(
 def eager_stats() -> dict[str, int]:
     """Counters for how eager-method callbacks actually executed (#409).
 
-    Returns a snapshot dict:
+    Under the strict surface (#625) an eager callback is captured into a
+    native function or refused — there is no per-element python path, so
+    nothing measures one. The counters cover what can still vary:
 
-    - ``kernel_direct`` — calls where a precompiled kernel's native function
-      value was passed straight to the builtin (the fast path).
-    - ``pushdown_traced`` — pure python lambdas traced into native kernels.
-    - ``trampoline_calls`` — per-element python invocations (the slow path;
-      one count per element, not per call).
+    - ``kernel_direct`` — calls where a precompiled function's native value
+      was passed straight to the builtin (no capture needed).
+    - ``c_to_py_decodes`` — values boxed C→python (the bridge's decode
+      counter): an eager method that quietly decodes a whole collection to
+      python shows up here, correct results notwithstanding.
+    - ``beast2_segments_projected`` / ``beast2_segments_whole`` and the
+      ``beast2_projection_declined_*`` reasons — beast2 column projection
+      (#599) per segment decode, plus the compiled-body paged-loop pair.
 
-    Use the delta around a hot call to verify it runs natively::
+    Use the delta around a hot call to see how it ran::
 
         before = eager_stats()
         rows.map(k)
-        assert eager_stats()["trampoline_calls"] == before["trampoline_calls"]
+        assert eager_stats()["kernel_direct"] == before["kernel_direct"] + 1
     """
     from east.runtime._compiler_eastc import _eager_counters_snapshot
 

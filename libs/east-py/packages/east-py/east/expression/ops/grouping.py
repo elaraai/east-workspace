@@ -197,8 +197,7 @@ class _GroupOps(_ExprBase):
         ``key`` is optional on an Array — omitted, elements are counted by
         their own value — and required on a Set or Dict, mirroring the eager
         signatures exactly. Without the default a lambda that works eagerly
-        stops tracing, which silently drops the enclosing loop to the
-        per-element python path (#525).
+        would fail to capture inside a body (#525).
         """
         if key is None:
             if self.east_type.type != "Array":
@@ -308,9 +307,10 @@ class _GroupOps(_ExprBase):
 
     # ── group_to_* / group_find_* (#525 phase 3b) ───────────────────────
     # The collect-into-a-collection and per-group search families — the last
-    # seven eager `group_*` names that did not trace. An untraced name does not
-    # raise: `try_push_down` simply fails and east-c trampolines once per
-    # element, so the only symptom is that the job takes hours (#524).
+    # seven eager `group_*` names that did not trace. A name missing from the
+    # traced surface is not a slower path but an outright refusal: the
+    # enclosing capture fails and names it (#625), where it once trampolined
+    # once per element and merely took hours (#524).
 
     def _group_value_projection(self, op: str, fn: Any) -> tuple:
         """``(projection, its traced type)`` in the container's callback shape.

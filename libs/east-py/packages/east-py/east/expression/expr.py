@@ -332,23 +332,25 @@ class Expression(
         node = _k_call(out_t, self.ir, [e.ir for e in arg_exprs])
         return Expression(node, out_t)
 
-    # ── operations that cannot be traced (fail loud, fall back) ─────────
+    # ── operations that cannot be traced (fail loud) ────────────────────
     # Every python protocol point with a NON-RAISING default must appear
     # here: an unlisted one silently constant-folds trace-time state into
     # the result (#530's f-string). `__repr__` stays usable for diagnostics.
 
     def __str__(self) -> str:
         raise ExpressionError(
-            "f-strings / str() cannot be traced into an East kernel — the "
+            "f-strings / str() cannot be traced into an East function body — the "
             "expression proxy would constant-fold into the result. Build "
-            "strings with `+` concatenation, or let the method fall back"
+            "strings with `+` concatenation, or East.String.print(T, value) "
+            "for a value's text"
         )
 
     def __format__(self, format_spec: str) -> str:
         raise ExpressionError(
-            "f-strings / format() cannot be traced into an East kernel — the "
+            "f-strings / format() cannot be traced into an East function body — the "
             "expression proxy would constant-fold into the result. Build "
-            "strings with `+` concatenation, or let the method fall back"
+            "strings with `+` concatenation, or East.String.print(T, value) "
+            "for a value's text"
         )
 
     def __bool__(self) -> bool:
@@ -371,7 +373,3 @@ class Expression(
 
     def __contains__(self, item: Any) -> bool:
         raise _trace_bail("in")
-
-
-#: Deprecated alias of :class:`Expression` (renamed in #625; one release).
-KernelExpr = Expression

@@ -66,12 +66,13 @@ real numpy/scipy/torch/solver op) — cross via `to_numpy()`/`to_torch()`
 
 The callback-free ops (`sort`/`sorted`, `unique`, `union`/`intersect`/`diff`,
 `concat`, `group_by`, `merge`, `to_dict`/`to_set`, `find_sorted_*`) always run
-the whole loop in east-c. And `map`/`filter`/`fold`/… callbacks are **traced
-into native East kernels automatically when the lambda is pure** (see
-[Kernels](#kernels--pure-lambdas-run-natively-ir-push-down)) — a lambda like
-`lambda r: r.price * r.qty` never executes per element; a lambda that does real
-python work falls back to the per-element callback path, which still beats a
-hand-rolled Python loop.
+the whole loop in east-c. And `map`/`filter`/`fold`/… callbacks are
+**captured into native East kernels** (see
+[Expressions](#expressions--one-capture-one-execution)) — a lambda like
+`lambda r: r.price * r.qty` never executes per element. There is no second
+execution path: a callback that does genuine python work RAISES, naming the
+binding with no East form, so two identical-looking callbacks can never
+quietly differ in cost or semantics.
 
 ### Anti-patterns → do this instead
 
@@ -102,28 +103,78 @@ def totals_by_region(items):
         .to_array(lambda region, total: struct({"region": region, "total": total}, Row)))
 ```
 
-## Kernels — pure lambdas run natively (IR push-down)
+## Expressions — one capture, one execution
 
-Eager callback methods accept three kinds of function, all with the same
-syntax, fastest first:
+A python body becomes East IR by being CAPTURED: it runs ONCE against typed
+expression proxies (exactly like the TypeScript `East.function` builder),
+east-c compiles the recorded IR, and from then on only the compiled kernel
+executes. There is no interpreter path behind it — a body East cannot express
+raises at build time, so the same source always costs and means the same
+thing.
 
-1. **A pure python lambda — traced automatically.** The method calls your
-   lambda ONCE with typed expression proxies (exactly like a TS
-   `East.function` builder); the whole builtin surface records East IR —
-   field access, arithmetic, comparisons, boolean algebra, string/datetime
-   methods, every `East.<Type>.*` namespace call, captured East collections
-   (trace-time snapshots hoisted to build-once constants — explicit
-   `kernel()` only), option construct/consume
-   (`some`/`none`/`.is_some`/`.unwrap_or`/`.match`) and
-   `.try_parse(T) -> Option<T>` — east-c compiles it, and the loop AND the
-   kernel execute natively, zero python per element (~5× a per-element
-   callback on a 300k-row map, and it composes with chaining).
+### The authoring trio — `East.function` / `East.platform` / `East.compile`
+
+The python twin of the TS trio, name for name:
+
+```python
+from east import (East, EastArray, FloatType, IntegerType, NullType,
+                  StringType, StructType)
+
+Row = StructType([("sku", StringType), ("qty", IntegerType)])
+rows = EastArray(Row, [{"sku": "a", "qty": 2}, {"sku": "b", "qty": 4}])
+
+# East.function(param_types, out, body) — `out` is REQUIRED and enforced
+amount = East.function([Row], FloatType, lambda r: r.qty.to_float() * 1.5)
+amount({"sku": "a", "qty": 2})            # 3.0 — pure bodies run immediately
+rows.map(amount)                          # [3.0, 6.0] — every eager method
+                                          #   accepts one
+
+# East.platform(name, inputs, output) — the expression-level DECLARATION;
+# @platform_function is the implementation side
+log   = East.platform("t.log", [StringType], NullType)
+greet = East.function([StringType], NullType,
+                      lambda name: log(East.String.concat("hello ", name)))
+
+greet("bob")                              # EastError: Platform function 't.log'
+                                          #   is not available — compile with
+                                          #   East.compile(fn, platform=[...])
+run = East.compile(greet, platform=[*my_impls])
+run("bob")
+```
+
+| Call | Builds | Notes |
+|---|---|---|
+| `East.function(param_types, out, body)` | a `Function` artifact | `param_types` is a LIST (`[]` for none); `out` is required, and a body whose expression has another type raises naming both |
+| `East.asyncFunction(param_types, out, body)` | an `AsyncFunction` artifact | for bodies calling async platform declarations; compile with `East.compileAsync` |
+| `East.platform(name, inputs, output)` | a declaration handle | callable INSIDE a body (emits the `Platform` node); calling one outside raises `expression-level` |
+| `East.asyncPlatform(name, inputs, output)` | an async declaration | calling it from a SYNC body is a build error naming `East.asyncFunction` |
+| `East.compile(fn, platform=[])` / `East.compileAsync(...)` | a native callable | takes an artifact or a raw IR value; platform signatures validate with the TS analyzer's message; a missing impl compiles to a stub that raises at the call (TS parity) |
+
+A **pure** artifact needs no compile step: it is already a native callable,
+`.bind(*values)` pre-binds trailing parameters by reference (#399), and
+referencing it inside another body splices its expression into that build
+(#470/#561). A platform-declaring artifact stays first-class (composable,
+serializable) but raises until `East.compile` pairs it with implementations.
+
+### Eager callbacks capture the same way
+
+Every eager callback method takes exactly two kinds of function:
+
+1. **A python body — captured automatically.** The method captures it as an
+   `East.function` body against the builtin's declared signature: the whole
+   builtin surface records East IR — field access, arithmetic, comparisons,
+   boolean algebra, string/datetime methods, every `East.<Type>.*` namespace
+   call, `struct`/`some`/`none`/`variant` construction, option consume
+   (`.is_some`/`.unwrap_or`/`.match`) and `.try_parse(T) -> Option<T>` —
+   east-c compiles it, and the loop AND the kernel execute natively, zero
+   python per element (~5× the old per-element callback on a 300k-row map,
+   and it composes with chaining).
 
    Collection methods on traced expressions are a **closed, enumerated
-   surface** (an unsupported method raises `KernelTraceError` naming it).
-   Nested lambdas trace recursively and may reference outer parameters;
+   surface** (an unsupported method raises `ExpressionError` naming it).
+   Nested lambdas capture recursively and may reference outer parameters;
    `some`/`every`/`first_map` compile to the native short-circuiting
-   FirstMap scans, so traced and eager forms have identical early-exit
+   FirstMap scans, so the captured and eager forms have identical early-exit
    execution:
 
    - **Array**: `map` `filter` `filter_map` `first_map` `fold` `scan`
@@ -173,9 +224,11 @@ syntax, fastest first:
    with no materialised intermediate between stages. The in-place mutators
    are the loop-accumulator surface (see **Loops and control flow**): each
    returns what its EAGER twin returns (Null, or Boolean for the `try_`
-   forms), so sequence them with `East.block(...)`. Methods that
-   exist only on proxies (e.g. `.substring`) need `out=` on `map` (type
-   inference otherwise samples the lambda on a decoded python value):
+   forms), so sequence them with `East.block(...)`. Result types come from
+   the capture, never from a data sample — so `out=` is optional everywhere
+   (pass it to PIN a type, e.g. widening), methods that exist only on proxies
+   (`.substring`) need nothing extra, and an EMPTY collection derives exactly
+   what a full one derives:
 
    ```python
    rows    = EastBlob(csv_bytes).decode_csv(Row)          # C-backed Array<Row>
@@ -189,10 +242,9 @@ syntax, fastest first:
                           combine=lambda a, b: a + b)
    ```
 
-2. **A precompiled kernel** — `east.kernel(param_types, fn)` traces now and
-   returns a reusable compiled callable (it also raises `KernelTraceError`
-   instead of silently falling back — use it when you need to *know* you're
-   native, or to hoist compilation out of a loop). A precompiled kernel —
+2. **A precompiled East function** — `East.function(param_types, out, fn)`
+   captures now and returns a reusable compiled callable (hoist compilation
+   out of a loop, or share one body across call sites). A precompiled kernel —
    including a `.bind(...)` result — passes its native function value
    **straight through every eager method** (#409): the loop runs entirely in
    east-c with zero per-element python, and the output type comes from the
@@ -200,66 +252,67 @@ syntax, fastest first:
    `out=` (or the method has a declared type) and the kernel's signature
    contradicts it, the call raises `EastTypeError` immediately — both types
    are known statically, and a mislabelled result would corrupt far from the
-   cause (#467). Kernels are also **dual-mode** (#470): called with plain
-   values they execute natively; referenced inside another `kernel()` lambda
-   or a pure wrapper they re-run their source and splice into that trace —
-   so kernels compose (`kernel(Row, lambda r: amount(r) * 1.1)`), and every
+   cause (#467). Artifacts are also **dual-mode** (#470): called with plain
+   values they execute natively; referenced inside another body they re-run
+   their source and splice into that build — so they compose
+   (`East.function([Row], FloatType, lambda r: amount(r) * 1.1)`), and every
    grouping/sugar method runs them with zero per-element python. A
-   `.bind(...)` result (or any compiled function value) cannot re-trace its
-   body — instead a traced lambda that CALLS one lowers the call to the IR
+   `.bind(...)` result (or any compiled function value) cannot re-run its
+   body — instead a captured body that CALLS one lowers the call to the IR
    `Call` node (#561): the callee rides as a hidden bound parameter and the
    loop, the kernel and the callee all execute inside east-c. So
-   `kernel([Row], lambda r: lookup(r.k))` over a `lookup = kernel(...).bind(table)`
-   compiles whole, and `FunctionType` kernel PARAMETERS are first-class —
-   callable in the trace and bindable with function values. (Calling an
-   `AsyncFunctionType` value in a sync trace raises a named
-   `KernelTraceError`.) Compiled East
-   functions loaded from elsewhere (`compile_from_beast2/json/east`, or
+   `East.function([Row], FloatType, lambda r: lookup(r.k))` over a
+   `lookup = East.function(...).bind(table)` compiles whole, and
+   `FunctionType` PARAMETERS are first-class — callable in the body and
+   bindable with function values. (Calling an `AsyncFunctionType` value in a
+   sync body raises a named `ExpressionError`.) Compiled East functions
+   loaded from elsewhere (`compile_from_beast2/json/east`, or
    `compile_from_value` for a homoiconic IR value built with
    `east.ir.builders`) are accepted the same way:
 
    ```python
-   from east import kernel, FloatType
+   from east import East, FloatType
 
-   amount = kernel(Row, lambda r: r.price * r.qty)     # compile once
+   amount = East.function([Row], FloatType, lambda r: r.price * r.qty)
    for blob in batches:
-       out = blob.decode_csv(Row).map(amount)          # reuse — no re-trace
+       out = blob.decode_csv(Row).map(amount)          # reuse — no re-capture
 
-   step = kernel([FloatType, Row], lambda acc, r: acc + r.price)  # fold arity
-   k = compile_from_beast2(bytes_)                     # kernel compiled in TS
+   step = East.function([FloatType, Row], FloatType,   # fold arity
+                        lambda acc, r: acc + r.price)
+   k = compile_from_beast2(bytes_)                     # compiled in TS
 
-   conv = kernel([Row, TableT], lambda r, t: t.get_or_default(r.sku, 0.0))
+   conv = East.function([Row, TableT], FloatType,
+                        lambda r, t: t.get_or_default(r.sku, 0.0))
    rows.map(conv.bind(table))   # bind a live side-table BY REFERENCE (#399):
                                 # zero-copy at any size, mutations observed,
                                 # still native — see "Maximum performance" #3
    ```
 
-3. **Any other python callable** — runs per element exactly as before
-   (east-c drives the loop and calls back into python each iteration).
+Anything else in a callback slot RAISES — there is no third kind.
 
-**Tracing rules** (what makes a lambda "pure" enough to trace):
+**Capture rules** (what a body may reference):
 
-- Reference only the lambda's parameters, plain scalar constants
-  (closure floats/ints/strings/datetimes are baked — same value per
-  element either way), East types/values (`east_null` included), the `East` builtin
-  namespace, `East.if_else`/`some`/`none`, **precompiled `kernel()` results**
-  (dual-mode: they re-trace from their source, at any nesting depth,
-  #470), **compiled East function values** (`.bind` results,
+- Its own parameters, plain scalar constants (closure
+  floats/ints/strings/datetimes bake in — the same value per element either
+  way), East types/values (`east_null` included), the `East` builtin
+  namespace, `East.if_else`, the `struct`/`variant`/`some`/`none`
+  constructors (dual-mode: they build IR when handed traced fields),
+  **East.function artifacts** (dual-mode: they re-run their source at any
+  nesting depth, #470), **compiled East function values** (`.bind` results,
   `compile_from_*` functions — a CALL on one lowers to a native IR Call,
   #561), and — two wrapper levels deep, enough for helper lambdas that
-  compose a callback — other lambdas that pass the same rules. Any
-  other module reference (`random.…`, `np.…`), mutable closure, arbitrary
-  callable, or closure mutation
-  (`nonlocal x; x += 1`) **disables tracing** — the python path runs and
-  semantics are exactly today's. A closed-over East *collection* also
-  disables auto-tracing (tracing snapshots it, which would diverge from
-  live per-element semantics) — capture side-tables in an explicit
-  `kernel()`, which opts into the snapshot. Side effects therefore never
-  get lost: an impure lambda runs per element; a traced lambda ran once,
-  at trace time (type inference likewise never runs an impure lambda
-  against proxies — it samples on a real element instead).
-- Python won't let a library overload `and`/`or`/`not`/`if`, so traced
-  kernels use `&`, `|`, `~` (parenthesised, pandas-style) and
+  compose a callback — other python functions that pass the same rules.
+- Anything else RAISES an `ExpressionError` **naming the binding**: a module
+  reference (`random.…`, `np.…`), a python builtin (`len`, `str`), a mutable
+  python capture, closure mutation (`nonlocal x; x += 1`). A closed-over
+  East *collection* raises too — a capture snapshots, `.bind` stays live, and
+  which one you meant must be your choice, not the library's: use
+  `East.function` to snapshot a side-table or `.bind(table)` to keep it live.
+  For genuine python semantics write an explicit `for` loop. Side effects
+  therefore never get lost or silently doubled: the body runs once, at
+  capture time, or not at all.
+- Python won't let a library overload `and`/`or`/`not`/`if`, so bodies
+  use `&`, `|`, `~` (parenthesised, pandas-style) and
   `East.if_else(cond, value, …, otherwise)` for conditionals — cond/value
   pairs then the else, so an if/elif/else chain is ONE `IfElse` node.
   It is dual-mode: eager on plain values, an East `IfElse` on traced
@@ -275,17 +328,16 @@ syntax, fastest first:
   coincides with python and stays an operator. Struct fields read as
   attributes or items
   (`r.price` / `r["price"]` — both trace, and both work on real rows).
-- Traces are CACHED (#422): an eager callback whose code object, captured
+- Captures are CACHED (#422): an eager callback whose code object, captured
   bindings and declared signature match a previous call reuses the compiled
   kernel — so the per-group aggregate shape,
   `group_to_arrays(key).to_array(lambda k, es: {…aggregates over es…})`,
-  traces each inner lambda once, not once per group (this exact shape
+  captures each inner lambda once, not once per group (this exact shape
   measured 145 s of pure re-tracing before the cache). ⚠️ A lambda whose
   CAPTURES change per call (`lambda r: r.v > g` inside a loop over `g`)
-  re-traces every time, because each capture value bakes into a different
-  kernel — hoist a `kernel(...)` and pass the varying value as a bound
-  parameter instead. When in doubt, `eager_stats()` (lever 6 below) shows
-  whether a hot loop is tracing or trampolining per call.
+  re-captures every time, because each capture value bakes into a different
+  kernel — hoist an `East.function(...)` and pass the varying value as a
+  bound parameter instead.
 
 ### Loops and control flow (`East.while_`, `East.for_`)
 
@@ -316,8 +368,9 @@ East.for_(rows, {"n": 0, "hi": 0.0},
 
 This lowers to a `Ref` holding the state, a `While`/`For*` node whose body is
 one `RefUpdate`, and a final read — the whole loop runs inside east-c. Every
-construct is dual-mode like `East.if_else`: outside a trace it runs the plain
-python loop, so a callback that falls back still works. A worked example is in
+construct is dual-mode like `East.if_else`: outside a build it runs the plain
+python loop, so one body serves both a captured callback and a direct call on
+plain East values. A worked example is in
 [Key Patterns](#sequential-logic-that-stays-in-east-c-worklist--replay).
 
 | Call | Emits | Notes |
@@ -366,8 +419,8 @@ python never runs per element**. In order of impact:
    structure never round-trips through python. The moment you call
    `list(...)`/`dict(...)` or iterate in python you pay a per-element
    boxing crossing — convert at most once, at the very end.
-2. **Let pure lambdas trace** (form 1 above), and chain on the results —
-   a chain of traced `map`/`filter`/`fold` stays native between steps.
+2. **Let the callbacks capture** (form 1 above), and chain on the results —
+   a chain of captured `map`/`filter`/`fold` stays native between steps.
    Return a dict literal (`lambda r: {"a": …, "b": …}`) to compute every
    derived column in ONE pass instead of one `map` per column. **Reuse a
    python variable to share work** (trace-time CSE): assigning
@@ -382,14 +435,16 @@ python never runs per element**. In order of impact:
 3. **Side tables: capture small ones, `bind` big ones.** Two spellings with
    opposite contracts — never conflate them:
 
-   - **Closure capture (snapshot).** A captured East collection is snapshot
-     into the kernel's IR at trace time: hoisted and identity-deduped so it
-     builds **once per compiled kernel** and every per-element lookup runs
-     in C — ideal for lookup tables up to ~10⁴–10⁵ entries. The snapshot's
-     build cost and memory ride the kernel (a 1M-entry dict costs ~10 s to
-     snapshot), and later mutations are **not** seen.
-   - **`kernel(...).bind(table)` (by reference, live).** Declare the table
-     as a trailing parameter and pre-bind it: C-level partial application
+   - **Closure capture (snapshot).** An East collection captured by an
+     `East.function` body is snapshot into its IR: hoisted and
+     identity-deduped so it builds **once per compiled kernel** and every
+     per-element lookup runs in C — ideal for lookup tables up to ~10⁴–10⁵
+     entries. The snapshot's build cost and memory ride the kernel (a
+     1M-entry dict costs ~10 s to snapshot), and later mutations are **not**
+     seen. (Only an EXPLICIT build snapshots: an eager method's callback
+     refuses a mutable collection capture rather than pick for you.)
+   - **`East.function(...).bind(table)` (by reference, live).** Declare the
+     table as a trailing parameter and pre-bind it: C-level partial application
      retains the value's live pointer — **zero copy, O(1) bind at any size**
      (1M entries: ~0.1 ms), per-row cost matches the hoisted case, and the
      kernel **observes later mutations** (the explicit opt-in to live
@@ -398,37 +453,40 @@ python never runs per element**. In order of impact:
 
    ```python
    fx = EastDict(StringType, FloatType, rates)          # small table → capture
-   to_usd = kernel(Row, lambda r: r.amount * fx.get_or_default(r.ccy, 1.0))
+   to_usd = East.function([Row], FloatType,             # (the EXPLICIT build
+       lambda r: r.amount * fx.get_or_default(r.ccy, 1.0))   # opts into snapshot)
 
    TableT = DictType(StringType, FloatType)             # huge table → bind
-   conv = kernel([Row, TableT], lambda r, t: r.amount * t.get_or_default(r.ccy, 1.0))
+   conv = East.function([Row, TableT], FloatType,
+       lambda r, t: r.amount * t.get_or_default(r.ccy, 1.0))
    rows.map(conv.bind(big_table))                       # loop + lookup stay in east-c
    conv.bind(t1, t2)  # multi-table: binds the TRAILING parameters in order
    ```
 
-   Kernel *parameters* always cross the bridge **by reference** (zero copy,
+   Function *parameters* always cross the bridge **by reference** (zero copy,
    any size, any nesting depth) — `bind` is what lets eager methods use a
-   parameter-taking kernel where the callback signature is fixed.
+   parameter-taking function where the callback signature is fixed.
 
-4. **Hoist `kernel(...)` out of python loops** and reuse it — re-tracing is
-   cheap but not free; a precompiled kernel is a plain callable and every
-   eager method accepts it.
+4. **Hoist `East.function(...)` out of python loops** and reuse it —
+   re-capturing is cheap but not free; the artifact is a plain callable and
+   every eager method accepts it.
 5. **When logic must stay python, go columnar** (next section): one
    boundary crossing per column/batch instead of per row × field, then
    come back to East values with `from_columns`/`extend`.
-6. **Verify you're actually native** with
-   `east.runtime.compiler.eager_stats()` — a snapshot of
-   `kernel_direct` / `pushdown_traced` / `trampoline_calls` counters. A hot
-   `rows.map(k)` that bumps `trampoline_calls` by `len(rows)` is running
-   per-element python; the delta should be zero for kernels and traced
-   lambdas.
+6. **See how a hot call ran** with
+   `east.runtime.compiler.eager_stats()` — `kernel_direct` counts callbacks
+   that rode a precompiled function value straight in, `c_to_py_decodes`
+   counts values boxed C→python (an eager method quietly decoding a whole
+   collection shows up here), and the `beast2_*` counters report column
+   projection. There is no per-element python counter because there is no
+   per-element python path: an eager callback captures or it raises.
 
-`kernel()` raises `KernelTraceError` instead of silently falling back —
-use it in hot paths so a lambda that drifts off the traceable surface
-fails loud instead of quietly running per element. (Since #398 the tracer
-constructs homoiconic IR values and compiles them with no serialization
-round-trip, so trace+compile is ~1.5× faster than the earlier wire-format
-path — speculative auto-tracing is cheap enough to just leave on.)
+There is nothing to opt into: every callback is captured, and a body East
+cannot express fails at the call with the binding named — never by quietly
+running per element (whose only symptom is that the job takes hours). Since
+#398 the capture constructs homoiconic IR values and compiles them with no
+serialization round-trip, so capture+compile is ~1.5× faster than the earlier
+wire-format path.
 
 ## Columnar escape hatches — when the logic must stay python
 
@@ -544,7 +602,7 @@ Task → What do you need?
     │   └─ Infer a value's type → type_of(value)
     │
     ├─ Transform a value (eager — runs NOW in east-c; results stay C-side and chain;
-    │   pure lambdas trace into NATIVE kernels — see “Kernels” — and east.kernel()/East.if_else()/greatest()/least() author them explicitly)
+    │   callbacks are CAPTURED into native kernels — see “Expressions” — and East.function()/East.if_else()/greatest()/least() author them explicitly)
     │   ├─ Array<T>  (element callbacks take fn(el) — or fn(el, idx) when declared, the builtin's index)
     │   │   ├─ Access → get(i) ❗bounds · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · arr[i] (pythonic) · len() · iterate
     │   │   ├─ Reorder → sort(key=, reverse=) (in place) · sorted(key=, reverse=) · reverse() · reversed()
@@ -594,7 +652,7 @@ Task → What do you need?
     │   │   └─ Mutate (in place) → d[k]=v · insert ❗exists · get_or_insert(k, fn) · insert_or_update(k, v, combine) ·
     │   │                          update(k, fn) ❗missing · swap ❗missing · delete ❗missing/try_delete · pop · clear ·
     │   │                          merge_all(other, merge, default) (fold other in) · (bulk) update_many(keys, values, combine=)
-    │   ├─ Vector/Matrix → get/set(→new)/slice/concat/map/fold · transpose/get_row/get_col ·
+    │   ├─ Vector/Matrix → get/set(→new)/slice/concat · transpose/get_row/get_col ·
     │   │                   to_array/to_vector/to_matrix/to_rows · to_numpy(copy=False)/to_torch() ·
     │   │                   from_numpy/from_torch/zeros/ones/fill
     │   │   ├─ Elementwise arithmetic (east-c; #598) → scale(α) · add_scaled(other, α) · mul(other) ·
@@ -632,17 +690,23 @@ Task → What do you need?
     │   ├─ Logic → East.Boolean.<op>
     │   └─ Compare / order (East total order) → East.less / compare / equal / …(T, a, b)
     │
-    ├─ Run custom per-element logic natively (IR push-down — build East kernels from python)
-    │   ├─ Pure lambda in ANY eager callback → traced automatically (nothing to import; falls back if impure)
-    │   ├─ Author a reusable/must-be-native kernel → east.kernel(param_types, fn)   ❗KernelTraceError if untraceable
-    │   │   (multi-param: kernel([acc_t, elem_t], lambda acc, r: …) for fold-shaped callbacks)
-    │   ├─ Use a LARGE side-table in a kernel → declare it as a trailing parameter + k.bind(table)
-    │   │   (by reference: zero-copy at any size, LIVE — mutations observed; small tables just capture = snapshot)
-    │   ├─ Pass a precompiled kernel (incl. a .bind result) to any eager method → native loop, no out=, no sampling
-    │   │   (a kernel contradicting a declared out= raises EastTypeError at the call — #467; kernels also COMPOSE:
-    │   │    reference one inside another kernel() lambda or a pure wrapper and it splices into that trace — #470)
-    │   ├─ Check whether a hot call ran natively → east.runtime.compiler.eager_stats() (trampoline/kernel/pushdown counters)
-    │   ├─ What traces (the expression surface inside kernels)
+    ├─ Run custom per-element logic natively (build East expressions from python)
+    │   ├─ A lambda in ANY eager callback → captured automatically (nothing to import;
+    │   │   a body East cannot express RAISES, naming the binding — there is no python fallback)
+    │   ├─ Author a reusable/named function → East.function(param_types, out, body)   ❗out is required
+    │   │   (multi-param: East.function([acc_t, elem_t], acc_t, lambda acc, r: …) for fold-shaped callbacks)
+    │   ├─ Declare a platform call inside a body → East.platform(name, inputs, output) / East.asyncPlatform
+    │   │   → pair with the @platform_function impl and East.compile(fn, platform=[…]) / East.compileAsync
+    │   │   (uncompiled, calling it raises `Platform function 'X' is not available`)
+    │   ├─ Use a LARGE side-table → declare it as a trailing parameter + fn.bind(table)
+    │   │   (by reference: zero-copy at any size, LIVE — mutations observed; an EXPLICIT build may
+    │   │    instead capture a small one = snapshot; an eager callback refuses the choice, #625)
+    │   ├─ Pass a precompiled function (incl. a .bind result) to any eager method → native loop, no out= needed
+    │   │   (one contradicting a declared out= raises EastTypeError at the call — #467; artifacts also COMPOSE:
+    │   │    reference one inside another body and it splices into that build — #470)
+    │   ├─ See how a hot call ran → east.runtime.compiler.eager_stats()
+    │   │   (kernel_direct = rode a compiled value in; c_to_py_decodes = values boxed to python; beast2_* = projection)
+    │   ├─ What captures (the expression surface inside a body)
     │   │   ├─ Struct fields → r.price / r["price"] · build rows with dict literals {"k": expr, …}
     │   │   ├─ Arithmetic → + - * · / (Float) · Float ** · East.Integer.divide/remainder/pow · East.Float.remainder
     │   │   │                (`//`, `%` and integer `**` RAISE with those fix-its — python semantics fork, #624) ·
@@ -662,10 +726,10 @@ Task → What do you need?
     │   │   │              python datetime literals lift as DateTime constants (unwrap_or defaults, if_else arms, captures)
     │   │   ├─ Option → .is_some()/.is_none() · .unwrap_or(default) · construct with some(expr) / none (in if_else arms)
     │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
-    │   │   │             construct with variant(case, payload) typed from context: the kernel's declared
-    │   │   │             out= (types the whole result, incl. an if_else() over variant arms), a typed
+    │   │   │             construct with variant(case, payload) typed from context: the build's declared
+    │   │   │             output (types the whole result, incl. an if_else() over variant arms), a typed
     │   │   │             if_else() sibling, or a declared struct field
-    │   │   ├─ Collections → the FULL closed surface enumerated in [Kernels](#kernels--pure-lambdas-run-natively-ir-push-down)
+    │   │   ├─ Collections → the FULL closed surface enumerated in [Expressions](#expressions--one-capture-one-execution)
     │   │   │                 (#452) — that list is the ONE registry, pinned against `_TRACED_SURFACE`; highlights:
     │   │   │                 map · filter · filter_map · fold · scan · map_reduce · flatten_to_array/set ·
     │   │   │                 to_dict · to_set · unique · group_by · sorted · is_sorted · some · every ·
@@ -677,7 +741,7 @@ Task → What do you need?
     │   │   │                 first_map(fn, out=) → Option (early exit: Array/Set fn(el), Dict fn(k,v))
     │   │   │                 (inner lambdas trace recursively, may reference outer params; some([])=False, every([])=True;
     │   │   │                  some/every/first_map short-circuit natively — identical to the eager path; an unsupported
-    │   │   │                  method raises KernelTraceError NAMING the supported set)
+    │   │   │                  method raises ExpressionError NAMING the supported set)
     │   │   ├─ Namespace builtins → every East.<Type>.<op>(…) with a traced argument emits IR (same ops as eager)
     │   │   ├─ Captured East constants → a closed-over EastArray/EastSet/EastDict/EastStruct becomes a build-once
     │   │   │   SNAPSHOT (hoisted + identity-deduped; not live — big tables belong in params, see .get/.try_get)
@@ -692,7 +756,7 @@ Task → What do you need?
     │   │   │   (no data-parallel method expresses it; before #578 this ran per element in PYTHON)
     │   │   ├─ Loop with state → East.while_(state, cond, body, label=) · East.for_(coll, state, body, label=)
     │   │   │   ├─ state = a dict of fields (read `s.name`) or one value; the body RETURNS the next state,
-    │   │   │   │   with the SAME fields and East types (a change in either is a named KernelTraceError)
+    │   │   │   │   with the SAME fields and East types (a change in either is a named ExpressionError)
     │   │   │   ├─ branch in the body → East.if_else · keep a field → s.field · change one → {**s, "k": …}
     │   │   │   └─ callbacks: while_ cond(s)/body(s) · for_ Array body(s, el[, i]) · Set body(s, el) · Dict body(s, k, v)
     │   │   ├─ Leave / skip → East.break_(state=…, label=…) · East.continue_(state=…, label=…) — as an if_else arm;
@@ -736,7 +800,7 @@ Task → What do you need?
     │   │   (T optional: the header supplies it; declare T to VALIDATE it at open;
     │   │    don't know a file's type? → read_beast2_type(path) — works on v4 too):
     │   │   ├─ whole table → f.load()      (decodes inside east-c; input memory = one segment)
-    │   │   ├─ join against it from a kernel → kernel([RowT, TableT], ...).bind(f) — the
+    │   │   ├─ join against it from a body → East.function([RowT, TableT], T, ...).bind(f) — the
     │   │   │   compiled body's keyed reads answer from the pager, ONE frame per hit/miss,
     │   │   │   nothing materialised (decoded segments sit in a BYTE-budgeted cache;
     │   │   │   EAST_PAGED_CACHE_BYTES tunes it)
@@ -783,13 +847,11 @@ Task → What do you need?
 Almost everything above delegates to native builtins — these are the paths
 that still run python, so you can reason about cost and semantics:
 
-- **The per-element trampoline** — any impure/untraceable callback: east-c
-  drives the loop, python runs per element (by design; `eager_stats()` shows
-  it).
-- **`EastVector`/`EastMatrix` `map`/`fold`/`map_elements`/`map_rows`** run in
-  python (per-element boxing is inherent to their callback contract). The
-  arithmetic/reduction/mask/sparse methods delegate to the east-c builtins
-  (#598); free-form math beyond that surface goes via `to_numpy`/`to_torch`.
+- **`EastVector`/`EastMatrix` `map`/`fold`/`map_elements`/`map_rows`** are
+  DEPRECATED (#625): they ran a python callback per element, the one shape
+  the strict surface removes, so they warn and will go. Use the
+  arithmetic/reduction/mask/sparse methods, which delegate to the east-c
+  builtins (#598), or `to_numpy`/`to_torch` for free-form math.
 - **`Dict.get_or_insert`** composes membership + get python-side so `fn` is
   only called on a miss (deliberately lazier than East's strict default
   expression). The other singles (`insert`/`update`/`swap`/`delete`/
@@ -817,15 +879,16 @@ that still run python, so you can reason about cost and semantics:
   (a `dict`, a `list` of dicts) fails output validation — build with
   `array`/`struct`/`variant` or `coerce_to(raw, OutputType)` at the return
   boundary.
-- **Two lambda surfaces.** A pure lambda kernel-traces into east-c — inside it
-  you hold traced expressions (options: `.is_some()` / `.unwrap_or(default)`).
-  An untraceable lambda runs as a per-element **Python callback over decoded
-  values** — there an option is an `EastVariant` with `.type` / `.value` /
-  `.unwrap(tag)` and **no** `.unwrap_or`; branch on `opt.type == "some"` and
-  read `opt.value`.
+- **One callback surface, two value surfaces.** Inside any callback you hold
+  traced EXPRESSIONS (an option has `.is_some()` / `.unwrap_or(default)`).
+  Decoded East values — what a `@platform_function` is handed, or what
+  iteration yields — are the eager surface, where an option is an
+  `EastVariant` with `.type` / `.value` / `.unwrap(tag)` and **no**
+  `.unwrap_or`: branch on `opt.type == "some"` and read `opt.value`. Both are
+  real; what no longer exists is a callback that silently runs on the second.
 - **`EastDict.get(k, default=None)` is a boundary convenience** — inside a
-  `kernel()` lambda use `get_or_default(k, default)` / `try_get(k)` instead;
-  a `None` default cannot lift into IR.
+  callback use `get_or_default(k, default)` / `try_get(k)` instead; a `None`
+  default cannot lift into IR.
 - **Genuinely-Python loops cross the boundary once** —
   `to_columns()` / `EastArray.from_columns` / `map_batches`, never a platform
   call or a decode per element.
@@ -835,15 +898,14 @@ that still run python, so you can reason about cost and semantics:
   immutable) — copy first` — call `.copy()` to derive a mutable value.
   Keyed gets / iteration on a lazily-opened (paged) input stay O(segment)
   through the proxy; frozen collections compare by value under `Is`.
-- **A pure-looking callback that cannot trace RAISES** — everywhere, eager
-  paths included. A lambda that passes the purity gate but fails to trace
-  (an f-string, which would constant-fold the proxy into the result; an
-  off-surface method) raises a named `KernelTraceError` pointing at the
-  traced spelling, instead of silently dropping the loop to the
-  per-element python path (whose only symptom is that the job takes
-  hours). Genuinely-python lambdas fail the purity gate and keep their
-  python fallback — that path is their contract. Build traced strings
-  with `+` concatenation.
+- **A callback East cannot express RAISES** — everywhere, eager paths
+  included, with the offending binding NAMED. That covers both halves: a
+  body reaching for python (`random.…`, `len`, a mutable capture, `nonlocal
+  x; x += 1`) and one that looks East-native but is not (an f-string, which
+  would constant-fold the proxy into the result; an off-surface method).
+  The alternative it replaces — quietly dropping the loop to per-element
+  python — had no symptom except the job taking hours. Build strings with
+  `+` concatenation; write an explicit `for` loop for genuine python work.
 - **The traced twins accept the eager keywords** — `out=` (`map`,
   `filter_map`, `map_reduce`, `flatten_to_array/set`, `to_array`, `to_set`),
   `key_out=`/`value_out=` (`to_dict`), `key_out=`/`acc_out=` (`group_reduce`),
@@ -860,11 +922,11 @@ that still run python, so you can reason about cost and semantics:
 - **Eager methods delegate to east-c.** `arr.sort()` / `arr.map(fn)` run immediately
   in the native runtime. Collection results come back as live east-c-backed values,
   so `arr.map(f).filter(g).sorted()` stays C-side.
-- **Pure lambdas become native kernels.** Callback methods trace pure lambdas into
-  East IR (once, at call time) and run loop + kernel entirely in east-c; impure
-  lambdas keep exact per-element python semantics. `east.kernel(...)` compiles one
-  explicitly (loud on untraceable) and `East.if_else(cond, a, b)` is the traced
-  conditional.
+- **Callbacks become native kernels.** Callback methods CAPTURE the body into
+  East IR (once, at call time) and run loop + kernel entirely in east-c; a body
+  East cannot express raises, naming the binding — there is no second execution
+  path. `East.function(param_types, out, body)` builds one explicitly and
+  `East.if_else(cond, a, b)` is the conditional.
 - **Methods vs namespaces.** You can't attach methods to Python's `float`/`int`/
   `str`/`bool`/`datetime`, so their builtins live on the `East.<Type>` namespaces.
   Everything else (the containers + `EastBlob`) has real methods.
@@ -911,8 +973,8 @@ to East's storage width (Float→f64, Integer→i64, Boolean→u8) crossing into
 |-----------|-------------|---------|
 | **Ergonomic constructors** |
 | `array(element_type, items, *, validate=True) -> EastArray` | Each item coerced/validated to `element_type` (dict→struct, int→Float, …); `validate=False` stores as-is | `array(LineItem, [{"name":"a","price":1}])` |
-| `struct(fields: dict, typ: StructType\|None=None) -> EastStruct` | Reorders/coerces keys to `typ` (else infers from fields) | `struct({"price":1,"name":"a"}, LineItem)` |
-| `variant(case: str, value, typ: VariantType\|None=None) -> EastVariant` | Tagged value; validates `value` against case `case` (matched **by name**); read back via `.type`/`.value` | `variant("named", "red", Color)` |
+| `struct(fields: dict, typ: StructType\|None=None) -> EastStruct` | Reorders/coerces keys to `typ` (else infers from fields); dual-mode — a field holding a traced expression (at any depth) builds Struct IR instead | `struct({"price":1,"name":"a"}, LineItem)` |
+| `variant(case: str, value, typ: VariantType\|None=None) -> EastVariant` | Tagged value; validates `value` against case `case` (matched **by name**); read back via `.type`/`.value`; dual-mode — a traced payload builds Variant IR, typed by `typ` or by context | `variant("named", "red", Color)` |
 | `some(value) -> EastVariant` / `none` | Option `some`; `none` is a **constant**, not a function | `some(5)` / `none` |
 | `match(v, cases: dict, default=None)` | Dispatch on `v.type`; the handler is **always** called `handler(v.value)` — the `none` arm must be `lambda v: …`, not `lambda: …` | `match(o, {"some": lambda x: x, "none": lambda v: -1})` |
 | `east_ref(value) -> EastRef` | Make a mutable ref cell (same as `EastRef(value)`) | `east_ref(0)` |
@@ -930,11 +992,11 @@ Container constructors are also direct: `EastArray(elem, items=None)`, `EastSet(
 ### EastArray — complete method surface
 
 Eager; results are live east-c-backed values that chain. `arr[i]`, `len(arr)`, `for x in arr`
-work via the sequence protocol. Callback methods accept a python lambda (pure → traced into a
-native kernel; impure → per-element python) or a precompiled `east.kernel(...)`. Python-path
-callbacks receive **decoded East values** and their return is coerced to the East result type —
-pass `out`/`element_type` when the result type can't be sampled from the first element (empty
-input, or a widening map). `.element_type` is the logical element type.
+work via the sequence protocol. Callback methods accept a python body (captured into a native
+kernel) or a precompiled `East.function(...)`; anything East cannot express raises with the
+binding named. Result types come from the capture, so `out`/`element_type` is optional — pass it
+to PIN a type (a widening map, an Option payload) and a contradicting precompiled function raises
+at the call. `.element_type` is the logical element type.
 
 | Group | Methods |
 |-------|----------------------|
@@ -963,7 +1025,7 @@ Mutable, unique, **East-sorted**. `.element_type` is the element type; iteration
 | Per-element | `map(fn(el)) -> Dict` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None) -> Dict` · `first_map(fn(el)->some/none, out=None)` · `to_set(fn(el), out=None)` · `to_array(key=None)` · `to_dict(key(el), value(el), combine=None)` (duplicate key errors without `combine`) · `for_each(fn(el)) -> None` |
 | Reduce | `reduce(initial, fn(acc, el))` · `scan(initial, fn(acc, el)) -> Array` (running fold in East order) · `map_reduce(fn(el), reduce(a,b))` (raises on empty) · `sum(fn=None)` · `mean(fn=None) -> float` · `every(pred=None)` · `some(pred=None)` (native short-circuit) |
 | Group | `group_reduce(key(el), initial(gk), fold(acc, el)) -> Dict` · `group_size(key)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_every/group_some(key, pred)` · `group_to_arrays/group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` · ⚠️ `group_fold(...)` is the DEPRECATED alias of `group_reduce` (#535) |
-| Flatten | `flatten_to_array(fn(el)->arr, out=…)` · `flatten_to_set(fn(el)->set, out=…)` · `flatten_to_dict(fn(el)->dict, combine=None)` (duplicate key errors without `combine`) — **pin `out`; the no-`out` inference path is broken** |
+| Flatten | `flatten_to_array(fn(el)->arr, out=…)` · `flatten_to_set(fn(el)->set, out=…)` · `flatten_to_dict(fn(el)->dict, combine=None)` (duplicate key errors without `combine`) |
 | Mutate (in place) | `add(item)` · `insert(value)` (errors if present) · `try_insert(value) -> bool` (True if newly added) · `remove(item)` · `delete(value)` (errors if absent) · `try_delete(value) -> bool` · `discard(item)` · `union_in_place(other)` (adds all of `other`) · `clear()` · `copy()` |
 
 ### EastDict — complete method surface
@@ -1002,7 +1064,7 @@ which numpy's reassociating reductions are not. Free-form math beyond it goes vi
 unchanged. **Not hashable**, but valid as an East Set/Dict key (ordered by value). Construct via
 the `EastVector.*` classmethods (see [Container generators](#container-generators-classmethods));
 `from_numpy`/`from_torch` infer `element_type` from the array dtype when omitted. Structural access
-methods called with a **traced** argument (inside a `kernel()` lambda) lift the vector as a
+methods called with a **traced** argument (inside a captured body) lift the vector as a
 constant and emit IR, like the eager collections.
 
 | Group | Methods |
@@ -1014,8 +1076,7 @@ constant and emit IR, like the eager collections.
 | Masks & selection (east-c) | `eq(other)`/`lt(other)`/`gt(other)` ❗len `-> Vector<Boolean>` (East equality/order) · `mask.select(a, b)` ❗len (mask receiver) · `v.compress(mask)` ❗len · `mask.count_true() -> int` |
 | Gather / scatter / search (east-c) | `gather(indices)` ❗bounds · `scatter_add(indices, src)` ❗len/bounds (duplicates accumulate in order) · `search_sorted(needles) -> Vector<Integer>` (leftmost insertion index; assumes sorted) |
 | Sparse accumulators (east-c; `East.Vector.*`) | `sparse_axpy(ixA, vA, ixB, vB, alpha)` (union merge `vA + alpha*vB`; absent entries stay absent) ❗ascending/len · `sparse_from_pairs(ix, v)` (sorts + sums duplicates stably, in input order) ❗len · `sparse_filter_gt(ix, v, threshold)` ❗ascending/len — all return `Struct{ix: Vector<Integer>, v: Vector<T>}` with strictly ascending `ix` |
-| Per-element | `map(fn(el), out=None) -> EastVector` (runs in Python, not delegated; pin `out` to fix result element type / storage dtype) |
-| Reduce (python) | `fold(initial, fn(acc, el))` (left fold in Python; returns `initial` if empty) |
+| Per-element (DEPRECATED, #625) | `map(fn(el), out=None)` · `fold(initial, fn(acc, el))` — a python callback per element; they warn and will go. Reach for the arithmetic/reduction surface above, or `to_numpy()` |
 | Convert | `to_array() -> EastArray` (promotes scalars; severs the zero-copy link) · `to_matrix(rows, cols) -> EastMatrix` (row-major reshape; `rows*cols == length`) |
 | NumPy / torch | `to_numpy(dtype=None, copy=False) -> ndarray` (read-only view by default; a cast or `copy=True` is writeable) · `to_torch(dtype=None) -> torch.Tensor` (always a writeable copy) · `np.asarray(v)` via `__array__` · props `.dtype` (storage) / `.element_type` (logical) |
 
@@ -1038,7 +1099,7 @@ argument lift the matrix as a constant and emit IR.
 | Arithmetic (east-c; Float/Integer elements) | `scale(alpha)` · `add_scaled(other, alpha)` ❗dims · `mul_elementwise(other)` ❗dims (Hadamard) |
 | Reduce (east-c; ascending index order) | `row_sums() -> EastVector` (ascending column order per row) · `col_sums() -> EastVector` (ascending row order per column) · `vec_mul(v) -> EastVector` ❗cols≠len (row-by-vector dot products) |
 | Rows & cols | `get_row(r) -> EastVector` (contiguous copy) · `get_col(c) -> EastVector` (contiguous copy) |
-| Per-element & per-row | `map_elements(fn(el), out=None) -> EastMatrix` (row-major, no row/col index) · `map_rows(fn(row: EastVector), out=None) -> EastMatrix` (returned rows must share one width) |
+| Per-element & per-row (DEPRECATED, #625) | `map_elements(fn(el), out=None)` · `map_rows(fn(row: EastVector), out=None)` — a python callback per element/row; they warn and will go. Use the arithmetic surface or `to_numpy()` |
 | Convert | `to_vector() -> EastVector` (row-major flatten) · `to_array() -> EastArray` (`Array<Array<el>>`, one inner array per row) · `to_rows() -> EastArray` (`Array<Vector<el>>`, one `EastVector` per row) |
 | NumPy / torch | `to_numpy(dtype=None, copy=False) -> ndarray` (2-D; read-only view by default) · `to_torch(dtype=None) -> torch.Tensor` (writeable copy) · `np.asarray(m)` via `__array__` · props `.dtype` / `.element_type` / `.rows` / `.cols` |
 
@@ -1102,11 +1163,11 @@ with open_beast2_file(path) as f:                 # self-describing: type from t
     top = f.maximum(by=lambda r: r["qty"])        #   never materialized, == load() exactly
     table = f.load()                              # whole table when you truly need it
 
-# The file IS a collection value (#560): bind it into a kernel and the
+# The file IS a collection value (#560): bind it into a function and the
 # compiled body's keyed reads answer from the pager — one frame per lookup.
 with open_beast2_file("table.beast2") as t:       # Dict<String, Float>
-    lookup = kernel([StringType, DictType(StringType, FloatType)],
-                    lambda k, d: d.get_or_default(k, 0.0)).bind(t)
+    lookup = East.function([StringType, DictType(StringType, FloatType)], FloatType,
+                           lambda k, d: d.get_or_default(k, 0.0)).bind(t)
     joined = rows.map(lambda r: r.v + lookup(r.k))   # loop + callee + pager: all east-c
 ```
 
@@ -1311,9 +1372,10 @@ def convert_prices(fx_rate, items):
         LineItem,                                                 # tag + validate the result
     ))
 ```
-`.map` runs the lambda in Python (the callback *is* the work); `struct(..., LineItem)`
-validates each row; the decorator validates the `Array<LineItem>` result — a named
-`EastTypeError` instead of silent corruption.
+`.map` CAPTURES the lambda — the loop and the row construction run in east-c, with
+`fx_rate` baked in as a constant; `struct(..., LineItem)` is dual-mode, so the same
+spelling builds the row here and on plain values; the decorator validates the
+`Array<LineItem>` result — a named `EastTypeError` instead of silent corruption.
 
 ### Project-owned platform module (calling your Python from e3)
 
@@ -1448,15 +1510,15 @@ that silently does nothing).
 
 ```python
 from east import (ArrayType, DictType, East, IntegerType, StringType,
-                  kernel, platform_function)
+                  platform_function)
 
 Node, Edges = StringType, DictType(StringType, ArrayType(StringType))
 Indeg = DictType(StringType, IntegerType)
 
 # Kahn's algorithm — ONE kernel: a worklist the loop appends to, a cursor
 # into it, and per-node successors decremented in place.
-topo_order = kernel(
-    [ArrayType(Node), Edges, Indeg],
+topo_order = East.function(
+    [ArrayType(Node), Edges, Indeg], ArrayType(Node),
     lambda roots, succ, indeg: East.while_(
         # .copy() because task inputs arrive frozen and the loop mutates
         {"ready": roots.copy(), "indeg": indeg.copy(),
@@ -1472,8 +1534,7 @@ topo_order = kernel(
                     East.if_else(t.indeg.get(v) == 0,     # newly ready?
                                  East.block(t.ready.append(v), t),
                                  t))))),                  # else: unchanged
-    ).order,
-    out=ArrayType(Node))
+    ).order)
 
 @platform_function(inputs=[ArrayType(Node), Edges, Indeg], output=ArrayType(Node))
 def replay_order(roots, succ, indeg):
@@ -1484,14 +1545,13 @@ The same shape covers any carried state — a forward fill is a `for_` whose
 state remembers the last stated value:
 
 ```python
-forward_fill = kernel(
-    [ArrayType(StringType)],
+forward_fill = East.function(
+    [ArrayType(StringType)], ArrayType(StringType),
     lambda cells: East.for_(
         cells, {"last": "", "out": East.new_array(StringType)},
         lambda s, cell: East.let(
             East.if_else(cell == "", s.last, cell),
-            lambda v: East.block(s.out.append(v), {"last": v, "out": s.out}))).out,
-    out=ArrayType(StringType))
+            lambda v: East.block(s.out.append(v), {"last": v, "out": s.out}))).out)
 ```
 
 To stop early, put `East.break_(state)` in an `if_else` arm — the state

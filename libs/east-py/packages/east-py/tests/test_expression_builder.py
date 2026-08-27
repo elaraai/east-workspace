@@ -6,27 +6,24 @@
 
 AUTHORING-SPELLING pins only (test policy, #623): the builder API's
 signatures, its build-time errors, the platform-declaration discipline, the
-uncompiled-call contract, and the deprecation shims. Execution semantics of
+uncompiled-call contract, and the retired spellings. Execution semantics of
 the IR these produce are pinned by the TS compliance corpus; the thin
 execution assertions here prove the authoring path yields working artifacts,
 not what the builtins compute.
 """
 
 import asyncio
-import warnings
 
 import pytest
 
 from east import (
     East,
     EastArray,
-    Expression,
     ExpressionError,
     IntegerType,
     NullType,
     StringType,
     StructType,
-    kernel,
 )
 from east.runtime.errors import EastError
 from east.runtime.platform import PlatformFunction
@@ -89,9 +86,9 @@ def test_artifact_runs_natively_through_eager_methods():
 
     double = East.function([ROW], IntegerType, lambda r: r.qty * 2)
     rows = EastArray(ROW, [{"sku": "a", "qty": 1}, {"sku": "b", "qty": 2}])
-    before = eager_stats()["trampoline_calls"]
+    before = eager_stats()["kernel_direct"]
     assert list(rows.map(double)) == [2, 4]
-    assert eager_stats()["trampoline_calls"] == before
+    assert eager_stats()["kernel_direct"] == before + 1  # rode straight in
 
 
 def test_artifact_composes_by_splicing_into_another_build():
@@ -259,37 +256,23 @@ def test_async_declaration_builds_inside_async_function():
     assert callable(compiled)
 
 
-# ─── the deprecation shims (#625, one release) ──────────────────────────────
+# ─── the old vocabulary is gone (#625) ──────────────────────────────────────
 
 
-def test_kernel_is_a_warning_alias_that_still_infers_out():
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        k = kernel(IntegerType, lambda x: x + 1)
-    assert any(issubclass(w.category, DeprecationWarning) for w in caught)
-    assert k(1) == 2
-
-
-def test_east_kernel_module_is_a_warning_alias():
+def test_the_kernel_spellings_no_longer_exist():
+    """``kernel()``, the ``east.kernel`` module and the ``Kernel*`` class
+    aliases were retired outright rather than shimmed: one builder, one set
+    of names."""
     import importlib
-    import sys
 
-    for name in [m for m in sys.modules if m.startswith("east.kernel")]:
-        del sys.modules[name]
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        ek = importlib.import_module("east.kernel")
-    assert any(issubclass(w.category, DeprecationWarning) for w in caught)
-    assert ek.KernelExpr is Expression
-    assert ek.KernelTraceError is ExpressionError
-    from east.kernel import kernel as k2  # the shim serves the old imports
+    import east
+    import east.expression
 
-    assert k2 is kernel
-
-
-def test_the_class_aliases_are_identities():
-    from east import KernelExpr, KernelTraceError
-
-    assert KernelExpr is Expression
-    assert KernelTraceError is ExpressionError
+    for namespace in (east, east.expression, East):
+        assert not hasattr(namespace, "kernel")
+    for name in ("KernelExpr", "KernelTraceError"):
+        assert not hasattr(east, name)
+        assert not hasattr(east.expression, name)
+    with pytest.raises(ImportError):
+        importlib.import_module("east.kernel")
     assert issubclass(ExpressionError, TypeError)

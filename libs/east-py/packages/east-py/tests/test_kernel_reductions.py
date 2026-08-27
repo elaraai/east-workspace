@@ -16,8 +16,8 @@ The issue's test expectation, applied to every operation here:
   included, which holds because each traced form composes the same builtin the
   eager method uses (ArrayFold / SetReduce / DictReduce / *MapReduce /
   *FirstMap);
-* `eager_stats()["trampoline_calls"]` does not move, which is what actually
-  proves the operation ran natively rather than silently falling back.
+* each traced form BUILDS — under the strict surface a body that cannot
+  capture raises, so building is the proof it runs natively.
 """
 
 import math
@@ -26,20 +26,21 @@ import pytest
 
 from east import (
     ArrayType,
+    BooleanType,
     DictType,
     East,
     FloatType,
     IntegerType,
+    OptionType,
     SetType,
     StringType,
     StructType,
     array,
-    kernel,
     none,
     some,
 )
-from east.expression import ExpressionError
-from east.runtime.compiler import eager_stats
+from east.expression import ExpressionError, trace
+from east.runtime.compiler import compile_from_value
 from east.types.values.collections import (
     EastArray,
     EastDict,
@@ -78,13 +79,16 @@ def _dict_i():
 
 
 def _native(traced, param_type, value):
-    """Run the traced form, asserting it costs no per-element python."""
-    k = kernel(param_type, traced)
-    before = eager_stats()["trampoline_calls"]
-    got = k(value)
-    moved = eager_stats()["trampoline_calls"] - before
-    assert moved == 0, f"{moved} per-element python trampoline call(s)"
-    return got
+    """Run the traced form as a compiled artifact.
+
+    The parametrized cases share this one helper across every output type,
+    so the artifact is built from the trace directly rather than through
+    ``East.function`` (which declares the output up front). Building at all
+    is the native-execution proof: a body that cannot capture raises.
+    """
+    ir, _out, binds = trace(traced, [param_type])
+    compiled = compile_from_value(ir)
+    return (compiled.bind(*binds) if binds else compiled)(value)
 
 
 def _same(got, want):
@@ -157,7 +161,7 @@ def test_array_maximum_on_empty_errors_like_eager():
     with pytest.raises(EastError, match="Cannot reduce empty array"):
         empty.maximum()
     with pytest.raises(EastError, match="Cannot reduce empty array"):
-        kernel(A_F, lambda a: a.maximum())(empty)
+        East.function([A_F], FloatType, lambda a: a.maximum())(empty)
 
 
 def test_array_mean_of_empty_is_nan_like_eager():
@@ -201,8 +205,6 @@ def test_projection_may_return_a_plain_python_number():
 
 def test_every_and_some_without_a_predicate():
     """Boolean elements (a Dict's VALUES) are the predicate, like eager."""
-    from east.types.types import BooleanType
-
     a = EastArray(BooleanType, [True, True])
     s = EastSet(BooleanType, [True])
     d = EastDict(StringType, BooleanType, {"a": True, "b": False})
@@ -214,9 +216,9 @@ def test_every_and_some_without_a_predicate():
 
 def test_no_predicate_quantifier_on_non_boolean_is_named():
     with pytest.raises(ExpressionError, match="without a predicate needs Boolean elements"):
-        kernel(S_I, lambda s: s.every())
+        East.function([S_I], BooleanType, lambda s: s.every())
     with pytest.raises(ExpressionError, match="without a predicate needs Boolean values"):
-        kernel(D_SF, lambda d: d.some())
+        East.function([D_SF], BooleanType, lambda d: d.some())
 
 
 # ── Set ──────────────────────────────────────────────────────────────────────
@@ -302,33 +304,33 @@ def test_dict_reduce_visits_in_key_order():
 
 def test_non_numeric_projection_is_named():
     with pytest.raises(ExpressionError, match=r"\.sum\(\) needs a numeric"):
-        kernel(A_ROW, lambda a: a.sum(lambda r: r.g))
+        East.function([A_ROW], FloatType, lambda a: a.sum(lambda r: r.g))
     with pytest.raises(ExpressionError, match=r"\.mean\(\) needs a numeric"):
-        kernel(A_ROW, lambda a: a.mean(lambda r: r.g))
+        East.function([A_ROW], FloatType, lambda a: a.mean(lambda r: r.g))
 
 
 def test_non_boolean_predicate_is_named():
     with pytest.raises(ExpressionError, match=r"\.every\(\) predicate must return Boolean"):
-        kernel(S_I, lambda s: s.every(lambda e: e + 1))
+        East.function([S_I], BooleanType, lambda s: s.every(lambda e: e + 1))
     with pytest.raises(ExpressionError, match=r"\.some\(\) predicate must return Boolean"):
-        kernel(D_SF, lambda d: d.some(lambda k, v: v * 2.0))
+        East.function([D_SF], BooleanType, lambda d: d.some(lambda k, v: v * 2.0))
 
 
 def test_reduce_accumulator_mismatch_is_named():
     with pytest.raises(ExpressionError, match=r"\.reduce\(\) step returns"):
-        kernel(S_I, lambda s: s.reduce(0, lambda a, e: a > e))
+        East.function([S_I], IntegerType, lambda s: s.reduce(0, lambda a, e: a > e))
 
 
 def test_reduce_on_an_array_points_at_fold():
     with pytest.raises(ExpressionError, match="fold"):
-        kernel(A_F, lambda a: a.reduce(0.0, lambda acc, el: acc + el))
+        East.function([A_F], FloatType, lambda a: a.reduce(0.0, lambda acc, el: acc + el))
 
 
 def test_maximum_on_a_set_is_refused_not_silently_wrong():
     """EastSet has no eager `maximum`, so the traced surface must not invent
     one — the error should name the surface rather than mis-dispatch."""
     with pytest.raises(ExpressionError):
-        kernel(S_I, lambda s: s.maximum())
+        East.function([S_I], IntegerType, lambda s: s.maximum())
 
 
 # ── the projection may take the index, as it may eagerly ─────────────────────
@@ -454,8 +456,6 @@ def test_a_struct_field_is_not_shadowed_by_a_method_of_the_same_name(field):
     opaque ("cannot lift python value of type method"). A Struct-typed
     expression has no collection methods at all, so the field must win.
     """
-    from east.types.types import BooleanType
-
     Row = StructType([(field, IntegerType), ("other", BooleanType)])
     rows = EastArray(Row, [{field: 7, "other": True}])
     got = _native(lambda a: a.map(lambda r: getattr(r, field)), ArrayType(Row), rows)
@@ -566,9 +566,11 @@ def test_find_uses_east_total_order_not_python_order():
 
 def test_find_target_type_mismatch_is_named():
     with pytest.raises(ExpressionError, match="same East type"):
-        kernel(A_ROW, lambda a: a.find_first("nope", lambda r: r.v))
+        East.function([A_ROW], OptionType(IntegerType),
+                      lambda a: a.find_first("nope", lambda r: r.v))
     with pytest.raises(ExpressionError, match="same East type"):
-        kernel(A_ROW, lambda a: a.find_all(1, lambda r: r.g))
+        East.function([A_ROW], ArrayType(IntegerType),
+                      lambda a: a.find_all(1, lambda r: r.g))
 
 
 @pytest.mark.parametrize(
@@ -808,7 +810,7 @@ def test_group_reduce_is_the_one_spelling_and_group_fold_is_the_alias():
     _same_dict(aliased, want)
     # ...and traced (the warning fires at trace time)
     with pytest.warns(DeprecationWarning, match="group_reduce"):
-        traced_alias = kernel(_G_SET, lambda x: x.group_fold(
+        traced_alias = East.function([_G_SET], DictType(IntegerType, IntegerType), lambda x: x.group_fold(
             lambda e: East.Integer.remainder(e, 3), lambda _k: 0, lambda acc, e: acc + e))
     _same_dict(traced_alias(s), want)
     # the Dict alias warns too
@@ -820,7 +822,8 @@ def test_group_reduce_is_the_one_spelling_and_group_fold_is_the_alias():
                                        lambda acc, k, v: acc + v))
     # an Array still has no group_fold
     with pytest.raises(ExpressionError, match="group_reduce"):
-        kernel(A_ROW, lambda a: a.group_fold(lambda r: r.g, lambda _k: 0, lambda acc, r: acc))
+        East.function([A_ROW], DictType(StringType, IntegerType),
+                      lambda a: a.group_fold(lambda r: r.g, lambda _k: 0, lambda acc, r: acc))
     with pytest.raises(AttributeError):
         _rows().group_fold(lambda r: r["g"], lambda _k: 0, lambda acc, r: acc)
 
@@ -834,9 +837,10 @@ def test_group_extremes_are_array_only_like_eager():
     failure raises.
     """
     with pytest.raises(ExpressionError, match=r"group_maximum\(\) on Set"):
-        kernel(_G_SET, lambda s: s.group_maximum(lambda e: East.Integer.remainder(e, 3)))
+        East.function([_G_SET], DictType(IntegerType, IntegerType),
+                      lambda s: s.group_maximum(lambda e: East.Integer.remainder(e, 3)))
     with pytest.raises(ExpressionError, match=r"group_minimum\(\) on Dict"):
-        kernel(D_SF, lambda d: d.group_minimum(lambda k, v: k))
+        East.function([D_SF], D_SF, lambda d: d.group_minimum(lambda k, v: k))
 
 
 def test_group_mean_accumulates_in_element_order():
@@ -1044,7 +1048,7 @@ def test_group_size_defaults_to_the_identity_key_on_an_array():
     assert dict(got.items()) == dict(xs.group_size().items()) == {"a": 2, "b": 1}
     # ...and Set/Dict require one, exactly as their eager twins do
     with pytest.raises(ExpressionError, match="needs a key function"):
-        kernel(_G_SET, lambda s: s.group_size())
+        East.function([_G_SET], DictType(IntegerType, IntegerType), lambda s: s.group_size())
 
 
 def test_an_untypeable_callback_is_refused_even_on_empty_input():
@@ -1114,9 +1118,10 @@ def test_the_traced_group_surface_is_pinned_against_the_eager_one():
     exactly how seven of them survived phase 3. Drive the comparison from the
     EAGER surface instead.
 
-    This matters more than a normal coverage gap: an untraced name does not
-    raise. `try_push_down` simply fails and east-c trampolines once per
-    element, so the only symptom is that the job takes hours (#524 measured
+    This matters more than a normal coverage gap: a name missing from the
+    traced surface breaks the enclosing capture, so an eager call that used to
+    work stops working — and before #625 it was worse, silently trampolining
+    once per element with no symptom but the job taking hours (#524 measured
     6h02m for 729k rows). The list must only ever SHRINK.
     """
     from east.expression import _TRACED_SURFACE
@@ -1371,7 +1376,7 @@ def test_set_and_dict_flatten_to_dict_match_eager():
     s = EastSet(IntegerType, [1, 2, 3])
     got = _native(lambda x: x.flatten_to_dict(lambda e: x.map(lambda y: y * e),
                                               lambda a, b: a + b), _G_SET, s)
-    inner = kernel([IntegerType, _G_SET],
+    inner = East.function([IntegerType, _G_SET], DictType(IntegerType, IntegerType),
                    lambda e, ss: ss.map(lambda y: y * e)).bind(s)
     want = s.flatten_to_dict(inner, lambda a, b: a + b)
     _same_dict(got, want)
@@ -1380,7 +1385,7 @@ def test_set_and_dict_flatten_to_dict_match_eager():
     t = DictType(StringType, IntegerType)
     got_d = _native(lambda x: x.flatten_to_dict(
         lambda k, _v: x.filter(lambda k2, _v2: k2 == k)), t, d)
-    inner_d = kernel([StringType, IntegerType, t],
+    inner_d = East.function([StringType, IntegerType, t], D_SI,
                      lambda k, _v, dd: dd.filter(lambda k2, _v2: k2 == k)).bind(d)
     want_d = d.flatten_to_dict(inner_d)
     _same_dict(got_d, want_d)
@@ -1393,7 +1398,7 @@ def test_set_to_set_traces_like_its_eager_twin():
     got = _native(lambda x: x.to_set(lambda e: East.Integer.remainder(e, 2)), _G_SET, s)
     assert sorted(got) == sorted(s.to_set(lambda e: East.Integer.remainder(e, 2))) == [0, 1]
     with pytest.raises(ExpressionError, match="needs a projection"):
-        kernel(_G_SET, lambda x: x.to_set())
+        East.function([_G_SET], _G_SET, lambda x: x.to_set())
 
 
 def test_dict_union_is_pure_and_matches_eager():
@@ -1421,17 +1426,18 @@ def test_dict_union_overlap_without_a_combine_errors_on_both_paths():
     with pytest.raises(EastError, match="exists in both dictionaries"):
         d.union(overlap)
     with pytest.raises(EastError, match="exists in both dictionaries"):
-        kernel(t, lambda a: a.union(overlap))(d)
+        East.function([t], D_SI, lambda a: a.union(overlap))(d)
     # the message names the key, as eager and TS both do
     with pytest.raises(EastError, match='Key "?x"? exists in both'):
-        kernel(t, lambda a: a.union(overlap))(d)
+        East.function([t], D_SI, lambda a: a.union(overlap))(d)
 
 
 def test_a_set_union_still_takes_no_combine():
     """`union` now serves two containers; a Set has no values to combine, so
     passing one is a caller error rather than a silently ignored argument."""
     with pytest.raises(ExpressionError, match="takes no combine"):
-        kernel(_G_SET, lambda s: s.union(EastSet(IntegerType, [9]), lambda a, b: a))
+        East.function([_G_SET], _G_SET,
+                      lambda s: s.union(EastSet(IntegerType, [9]), lambda a, b: a))
 
 
 # Keywords an eager method accepts that its traced twin does not.
@@ -1573,7 +1579,7 @@ def test_the_duplicate_key_error_message_is_unquoted_like_eager_and_ts():
     parts = array(StringType, ["b", "a", "c", "a"])
     t = ArrayType(StringType)
     with pytest.raises(EastError, match="Cannot insert duplicate key a into dict"):
-        kernel(t, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length()))(parts)
+        East.function([t], D_SI, lambda a: a.to_dict(lambda p: p, value=lambda p: p.length()))(parts)
     with pytest.raises(EastError, match="Cannot insert duplicate key a into dict"):
         parts.to_dict(lambda p: p, value=lambda p: p.length())
 
@@ -1581,13 +1587,13 @@ def test_the_duplicate_key_error_message_is_unquoted_like_eager_and_ts():
     d = EastDict(StringType, IntegerType, {"x": 1})
     o = EastDict(StringType, IntegerType, {"x": 5})
     with pytest.raises(EastError, match="Key x exists in both dictionaries"):
-        kernel(dt, lambda a: a.union(o))(d)
+        East.function([dt], D_SI, lambda a: a.union(o))(d)
     with pytest.raises(EastError, match="Key x exists in both dictionaries"):
         d.union(o)
     # a NON-String key still goes through Print, so an Integer key is bare too
     ints = array(IntegerType, [7, 7])
     with pytest.raises(EastError, match="duplicate key 7 into dict"):
-        kernel(ArrayType(IntegerType), lambda a: a.to_dict(lambda p: p, value=lambda p: p))(ints)
+        East.function([ArrayType(IntegerType)], DictType(IntegerType, IntegerType), lambda a: a.to_dict(lambda p: p, value=lambda p: p))(ints)
 
 
 def test_group_find_coerces_the_target_into_the_projection_type():
@@ -1678,13 +1684,13 @@ _EMPTY_NEW_NAMES = [
     ("set_flatten_to_dict", SetType(IntegerType), lambda: EastSet(IntegerType),
      lambda s: s.flatten_to_dict(lambda e: s.map(lambda y: y * e), lambda p, q: p + q),
      lambda s: s.flatten_to_dict(
-         kernel([IntegerType, SetType(IntegerType)],
+         East.function([IntegerType, SetType(IntegerType)], DictType(IntegerType, IntegerType),
                 lambda e, ss: ss.map(lambda y: y * e)).bind(s),
          lambda p, q: p + q)),
     ("dict_flatten_to_dict", D_SF, lambda: EastDict(StringType, FloatType),
      lambda d: d.flatten_to_dict(lambda k, _v: d.filter(lambda k2, _v2: k2 == k)),
      lambda d: d.flatten_to_dict(
-         kernel([StringType, FloatType, D_SF],
+         East.function([StringType, FloatType, D_SF], D_SF,
                 lambda k, _v, dd: dd.filter(lambda k2, _v2: k2 == k)).bind(d))),
 ]
 
@@ -1759,4 +1765,5 @@ def test_traced_to_set_accepts_the_out_keyword_its_eager_twin_takes():
     assert sorted(got) == sorted(s.to_set(lambda e: East.Integer.remainder(e, 2), out=IntegerType)) == [0, 1]
     # a contradictory out= is a caller error, not a silent relabel (#467)
     with pytest.raises(ExpressionError, match="out= declares"):
-        kernel(_G_SET, lambda x: x.to_set(lambda e: East.Integer.remainder(e, 2), out=SetType(IntegerType)))
+        East.function([_G_SET], _G_SET, lambda x: x.to_set(
+            lambda e: East.Integer.remainder(e, 2), out=SetType(IntegerType)))
