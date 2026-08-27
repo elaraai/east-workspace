@@ -23,6 +23,20 @@ def create_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    # transpile command (#627): IR file -> python builder source
+    transpile_parser = subparsers.add_parser(
+        "transpile",
+        help="Print an East IR program as python East.function builder source",
+    )
+    transpile_parser.add_argument(
+        "ir_file", type=Path, help="Path to IR file (.beast2, .beast, .east, or .json)")
+    transpile_parser.add_argument(
+        "-o", "--output", type=Path, metavar="FILE",
+        help="Write the python module here (default: stdout)")
+    transpile_parser.add_argument(
+        "--name", default="main", metavar="NAME",
+        help="The module-level name bound to the rebuilt function (default: main)")
+
     # run command
     run_parser = subparsers.add_parser("run", help="Run an East IR program")
     run_parser.add_argument(
@@ -298,12 +312,38 @@ def cmd_version(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_transpile(args: argparse.Namespace) -> None:
+    """``east-py transpile``: print an IR file as python builder source.
+
+    The output module rebuilds the same IR through the ``East.function``
+    statement surface (``east.codegen.to_python_source``); every node kind
+    has a spelling, builtins without a named python spelling print through
+    the raw ``East.builtin(...)`` form.
+    """
+    from east.codegen import Unprintable, to_python_source
+
+    from east_py_cli.loader import load_ir
+
+    try:
+        ir = load_ir(args.ir_file)
+        source = to_python_source(ir, name=args.name)
+    except (ValueError, TypeError, Unprintable, FileNotFoundError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    if args.output is not None:
+        args.output.write_text(source, encoding="utf-8")
+    else:
+        sys.stdout.write(source)
+
+
 def main() -> None:
     """Main entry point."""
     parser = create_parser()
     args = parser.parse_args()
 
-    if args.command == "run":
+    if args.command == "transpile":
+        cmd_transpile(args)
+    elif args.command == "run":
         sys.exit(cmd_run(args))
     elif args.command == "convert":
         sys.exit(cmd_convert(args))
