@@ -45,3 +45,27 @@ def test_transpile_reports_a_missing_file():
     result = _run("transpile", "/nonexistent/program.json")
     assert result.returncode == 1
     assert "Error" in result.stderr
+
+
+def test_transpile_accepts_the_examples_export_record(tmp_path):
+    """`npm run export:examples` writes {ir, source_map, inputs, returns, …}:
+    the extra keys must not stop the loader."""
+    import json
+
+    from east.serialization.json import encode_json_for
+    from east.types.type_of_type import IRType
+
+    ir = load_ir(FIXTURES / "zero_param.beast2")
+    encoded = encode_json_for(IRType)(ir)
+    encoded = encoded.decode("utf-8") if isinstance(encoded, bytes) else encoded
+    record = tmp_path / "example.json"
+    record.write_text(json.dumps({
+        "suite": "x", "name": "y", "description": "d", "keywords": [], "inputs": [],
+        "returns": None, "async": False, "ir": json.loads(encoded),
+        "source_map": {"stacks": []},
+    }), encoding="utf-8")
+    result = _run("transpile", str(record), "--name", "ex")
+    assert result.returncode == 0, result.stderr
+    namespace: dict = {}
+    exec(compile(result.stdout, "example.py", "exec"), namespace)
+    assert diff_ir(ir, namespace["ex"]._east_ir) is None

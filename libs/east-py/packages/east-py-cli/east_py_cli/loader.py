@@ -86,6 +86,17 @@ def load_ir(file_path: Path) -> Any:
         except Exception:
             pass
 
+        # A record carrying `ir` among other keys — the examples export
+        # (`npm run export:examples`: ir, source_map, inputs, returns, …).
+        try:
+            import json
+
+            raw = json.loads(data)
+        except ValueError:
+            raw = None
+        if isinstance(raw, dict) and "ir" in raw:
+            return decode_json_for(IRType)(json.dumps(raw["ir"]))
+
         # Fallback: raw IR type (legacy format)
         return decode_json_for(IRType)(data)
 
