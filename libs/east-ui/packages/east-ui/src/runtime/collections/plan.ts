@@ -10,6 +10,7 @@
 import {
     Plan as PlanFactory,
     type PlanConfig,
+    type PlanAxisKindLiteral,
 } from "../../collections/plan/index.js";
 import type { UIElement } from "../runtime.js";
 
@@ -61,9 +62,13 @@ import type { UIElement } from "../runtime.js";
  * `.ordinal`), `Plan.at`, the kind factories, the value builders,
  * `Plan.layer` / `Plan.fixed` (chart channels), `Plan.markKind`, and
  * `Plan.Types.*`. Replaces `Gantt`, `Planner` and `AlignedStack`.
+ *
+ * The tag is generic in the canvas's axis kind `K`, inferred from `axis`:
+ * a series whose instants ride another arm is a compile error at the tag
+ * (see `PlanConfig`).
  */
 export const Plan: {
-    (props: PlanConfig): UIElement;
+    <K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(props: PlanConfig<K>): UIElement;
     axis: typeof PlanFactory.axis;
     at: typeof PlanFactory.at;
     span: typeof PlanFactory.span;
@@ -97,7 +102,7 @@ export const Plan: {
     pickItems: typeof PlanFactory.pickItems;
     Types: typeof PlanFactory.Types;
 } = Object.assign(
-    function Plan(props: PlanConfig): UIElement {
+    function Plan<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(props: PlanConfig<K>): UIElement {
         return PlanFactory.Root(props);
     },
     {

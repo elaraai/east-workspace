@@ -41,6 +41,8 @@
  */
 
 import {
+    type EastType,
+    type Expr,
     type ExprType,
     type SubtypeExprOrValue,
     ArrayType,
@@ -103,6 +105,64 @@ export type PlanInstantType = typeof PlanInstantType;
 
 /** The axis kinds — the arms of {@link PlanInstantType} / {@link PlanAxisType}. */
 export type PlanAxisKindLiteral = "time" | "number" | "ordinal";
+
+// ============================================================================
+// The phantom axis kind — a TYPE-only brand (#631)
+// ============================================================================
+
+/**
+ * The phantom axis-kind brand — a `unique symbol` that exists only in the
+ * TYPES. Every builder result whose instants have a known kind is intersected
+ * with `{ readonly [PlanAxisKindBrand]?: K }` ({@link PlanKinded}): `Plan.at.time(d)`
+ * is `"time"`, `Plan.run({ start: r.start })` takes the kind of `r.start`'s
+ * static type ({@link PlanKindOf}), a `Plan.series.span` whose accessor
+ * returns such runs collects their kind, `Plan.axis.number(...)` declares
+ * `"number"` — and the root demands every series' kind lie WITHIN its
+ * axis's. A `"time"` series on a `"number"` axis is then a compile error at
+ * the `<Plan>` tag, before anything renders.
+ *
+ * @remarks
+ * Nothing changes at runtime or on the wire: the property is optional and
+ * never written. Kind-ERASED values — a stored `Plan.Types.Run`, an
+ * `Expr<PlanInstantType>`, an East-mapped element list, a `$.let`-bound axis
+ * or series list — carry no brand, are accepted on any axis, and remain the
+ * render-time `AXIS MISMATCH` diagnostic's job. Chart rows are erased too:
+ * a Chart layer's TS face does not expose its x type.
+ */
+export const PlanAxisKindBrand: unique symbol = Symbol("PlanAxisKind");
+/** The type of {@link PlanAxisKindBrand}. */
+export type PlanAxisKindBrand = typeof PlanAxisKindBrand;
+
+/**
+ * A face `T` branded with the axis kind `K` its instants ride. `never` is the
+ * erased brand (assignable to every kind); a union (`"time" | "number"`) is a
+ * MIXED face, assignable to no single-kind axis — which is the point.
+ *
+ * @typeParam T - The TS face (an `ExprType`)
+ * @typeParam K - The axis kind(s) the face's instants ride
+ */
+export type PlanKinded<T, K extends PlanAxisKindLiteral> = T & { readonly [PlanAxisKindBrand]?: K };
+
+/** The raw kind classification of an instant input — see {@link PlanKindOf}. */
+type PlanKindOfRaw<T> =
+    T extends Date | Expr<DateTimeType> ? "time" :
+    T extends number | bigint | Expr<FloatType> | Expr<IntegerType> ? "number" :
+    T extends string | Expr<StringType> ? "ordinal" :
+    PlanAxisKindBrand extends keyof T
+        ? (T extends { readonly [PlanAxisKindBrand]?: infer K } ? Exclude<K, undefined> : never)
+        : never;
+
+/**
+ * The axis kind an instant INPUT's static type implies — `Date` /
+ * `DateTimeType` ⇒ `"time"`; `number` / `bigint` / `FloatType` / `IntegerType`
+ * ⇒ `"number"`; `string` / `StringType` ⇒ `"ordinal"`; a branded `Plan.at.*`
+ * value its own arm — and `never` when the type says nothing (an
+ * `Expr<PlanInstantType>`, a bare variant value, an `Expr<NeverType>`, or a
+ * value typed as the whole input union), so an erased input constrains no
+ * axis. Distributes over unions: a `Date | number` input is
+ * `"time" | "number"`, a MIXED kind no single axis accepts.
+ */
+export type PlanKindOf<T> = PlanAxisKindLiteral extends PlanKindOfRaw<T> ? never : PlanKindOfRaw<T>;
 
 /**
  * The `time` axis — the explicit window, the bucket resolution, the
@@ -1089,8 +1149,14 @@ export const PlanRowsCollectionType = DictType(StringType, PlanRowType);
 /** Type alias for {@link PlanRowsCollectionType}. */
 export type PlanRowsCollectionType = typeof PlanRowsCollectionType;
 
-/** The flattened-subtree shape every kind factory returns — a keyed collection. */
-export type PlanRowsValue = ExprType<PlanRowsCollectionType>;
+/**
+ * The flattened-subtree shape every kind factory returns — a keyed
+ * collection, branded with the axis kind its rows' instants ride
+ * ({@link PlanKinded}; `never` ⇒ erased, the default).
+ *
+ * @typeParam K - The axis kind(s) the subtree's instants ride
+ */
+export type PlanRowsValue<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanRowsCollectionType>, K>;
 
 /**
  * The paged source of a `data` + `series` canvas — the SHARED row-source
@@ -1131,6 +1197,78 @@ export type PlanRowsType = typeof PlanRowsType;
  * a string, or a typed accessor each land on their arm with nothing written.
  */
 export type PlanInstantLikeType = DateTimeType | FloatType | IntegerType | StringType | PlanInstantType;
+
+/** The instant INPUT every element builder accepts — a {@link PlanInstantLikeType} value or expression. */
+export type PlanInstantInput = SubtypeExprOrValue<PlanInstantLikeType>;
+
+// ── Kinded faces — what the builders return, the brand riding along ─────────
+
+/** An instant expression branded with its kind — what `Plan.at.*` returns. */
+export type PlanInstantExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanInstantType>, K>;
+/** A kinded span run — what `Plan.run` returns. */
+export type PlanRunExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanRunType>, K>;
+/** A kinded decision diamond — what `Plan.decision` returns. */
+export type PlanDecisionMarkExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanDecisionMarkType>, K>;
+/** A kinded port glyph — what `Plan.port` returns. */
+export type PlanPortExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanPortType>, K>;
+/** A kinded bucket-event tile — what `Plan.event` returns. */
+export type PlanBucketEventExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanBucketEventType>, K>;
+/** A kinded cell marker — what `Plan.marker` returns. */
+export type PlanCellMarkerExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanCellMarkerType>, K>;
+/** A kinded cards chip — what `Plan.chip` returns. */
+export type PlanChipExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanChipType>, K>;
+/** A kinded event mark — what `Plan.mark` returns. */
+export type PlanEventMarkExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanEventMarkType>, K>;
+/** A kinded heat-cells value — what `Plan.heatCells` / `weightCells` / `segmentCells` return. */
+export type PlanHeatCellsExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanHeatCellsType>, K>;
+/** A kinded table-cells list — what `Plan.tableCells` returns. */
+export type PlanTableCellsExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<ArrayType<PlanTableCellType>>, K>;
+/** A kinded table value series — what `Plan.tableSeries` returns. */
+export type PlanTableSeriesExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanTableSeriesType>, K>;
+/** A kinded axis declaration — what `Plan.axis` / `.time` / `.number` / `.ordinal` return. */
+export type PlanAxisExpr<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanAxisType>, K>;
+
+// ── Kinded inputs — what the factories accept, the brand inferred ───────────
+
+/**
+ * A list of elements — the TS-array form keeps the elements' kind (inferred
+ * from the `Plan.run` / `event` / `chip` / … results in it); an East array
+ * expression or plain records are kind-erased.
+ *
+ * @typeParam T - The element's East type
+ * @typeParam K - The kind inferred from the list's elements
+ */
+export type PlanElementsInput<T extends EastType, K extends PlanAxisKindLiteral = never> =
+    | SubtypeExprOrValue<ArrayType<T>>
+    | PlanKinded<ExprType<T>, K>[];
+
+/** The literal-record form of a struct input (`SubtypeExprOrValue`'s record arm). */
+export type PlanRecordInput<T> = T extends StructType<infer F> ? { [P in keyof F]: SubtypeExprOrValue<F[P]> } : never;
+
+/** A literal cell record whose `at` is a kinded instant (a `Plan.at.*` value). */
+export type PlanKindedRecord<T, K extends PlanAxisKindLiteral> = Omit<PlanRecordInput<T>, "at"> & { at: PlanInstantExpr<K> };
+
+/**
+ * A cells input — literal records keep the kind of their `Plan.at.*`
+ * instants; an East array or bare variant values are kind-erased.
+ *
+ * @typeParam T - The cell's East type
+ * @typeParam K - The kind inferred from the records' `at`
+ */
+export type PlanCellsInput<T extends StructType, K extends PlanAxisKindLiteral = never> =
+    | SubtypeExprOrValue<ArrayType<T>>
+    | PlanKindedRecord<T, K>[];
+
+/** A heat-cells input — a kinded `Plan.heatCells`-style value, or any `PlanHeatCellsType` value / expression (erased). */
+export type PlanHeatCellsInput<K extends PlanAxisKindLiteral = never> = SubtypeExprOrValue<PlanHeatCellsType> | PlanHeatCellsExpr<K>;
+/** A table-cells input — a kinded `Plan.tableCells` result, or any cell list (erased). */
+export type PlanTableCellsInput<K extends PlanAxisKindLiteral = never> = SubtypeExprOrValue<ArrayType<PlanTableCellType>> | PlanTableCellsExpr<K>;
+/**
+ * The root's `axis` input — a kinded declaration (`Plan.axis.*`), which fixes
+ * the canvas kind `K`, or any `PlanAxisType` value / expression (erased ⇒ the
+ * root accepts every kind and the render-time diagnostic decides).
+ */
+export type PlanAxisInput<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> = SubtypeExprOrValue<PlanAxisType> | PlanAxisExpr<K>;
 
 /**
  * Options for `Plan.axis` / `Plan.axis.time` — the `time` axis declaration.

@@ -51,6 +51,8 @@ import {
     PlanElementRefType,
     PlanRowsCollectionType,
     PlanRowsType,
+    type PlanAxisKindLiteral,
+    type PlanAxisInput,
 } from "./types.js";
 import { PlanReviewType } from "./ir.js";
 import { resolveTag } from "./builders.js";
@@ -77,7 +79,17 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
 /**
  * Configuration for {@link Plan.Root} (the `<Plan>` tag's props).
  *
- * @property axis - The shared time-axis declaration (`Plan.axis`)
+ * @remarks
+ * `K` is the canvas's axis kind, inferred from `axis` ALONE (`series` is a
+ * `NoInfer` site): a `Plan.axis.number(...)` fixes `K = "number"`, and every
+ * series in the array must then carry a kind within it — a `"time"` series
+ * is a compile error at the tag. An erased axis (a `$.let`-bound expression,
+ * a variant value) leaves `K` at every kind, so the render-time diagnostic
+ * decides; an erased series (`$.const`-bound list, East expression) is
+ * accepted on any axis for the same reason.
+ *
+ * @typeParam K - The canvas's axis kind — inferred from `axis`
+ * @property axis - The shared axis declaration (`Plan.axis` / `.time` / `.number` / `.ordinal`)
  * @property rows - The canvas rows — kind-factory results (flattened subtrees); exclusive with `data`/`series`
  * @property data - The raw data source (a `Dict<String, R>` value/expression, or a paged source of one); pairs with `series`
  * @property series - The row series over `data` — `Plan.series.*` values (declared order resolves key collisions; rows sit in KEY order); exclusive with `pick`
@@ -104,9 +116,9 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  * @property onGrainChange - Grain segment change
  * @property style - Sizing, density and gutter width
  */
-export interface PlanConfig {
-    /** The shared time-axis declaration (`Plan.axis`). */
-    axis: SubtypeExprOrValue<PlanAxisType>;
+export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> {
+    /** The shared axis declaration (`Plan.axis` / `.time` / `.number` / `.ordinal`) — fixes the canvas kind `K`. */
+    axis: PlanAxisInput<K>;
     /** The raw data source — a KEYED collection: a `Dict<String, R>` value or
      *  expression (a `$.let`-bound map, `Data.bind(...).read()`) for the INLINE
      *  arm, or a `$.let`-bound paged handle over one (`Data.bindPaged(ops)`)
@@ -133,8 +145,11 @@ export interface PlanConfig {
      *  rows by keying them for it — a `prefix` per series, or ordered data
      *  keys (`"10-line1"`, `"20-line2"`).
      *
-     *  Literal one-off chrome rides a `Plan.series.rows` entry. */
-    series?: PlanSeriesInput;
+     *  Literal one-off chrome rides a `Plan.series.rows` entry.
+     *
+     *  Every series' axis kind must lie within the axis's (`K`): a `"time"`
+     *  series on a `"number"` axis fails to compile here. */
+    series?: PlanSeriesInput<NoInfer<K>>;
     /**
      * A bound series library from `Plan.pick` — the pickable form of `series`.
      *
@@ -233,6 +248,7 @@ export interface PlanConfig {
 /**
  * Creates the Plan root — the whole canvas.
  *
+ * @typeParam K - The canvas's axis kind, inferred from `config.axis`; every series must lie within it
  * @param config - The Plan configuration ({@link PlanConfig})
  * @returns An East expression of `UIComponentType`
  *
@@ -242,7 +258,7 @@ export interface PlanConfig {
  * proposal is a Modify on its decision, not a free edit — host semantics
  * behind `onDrag`; the surface only reports.
  */
-export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
+export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(config: PlanConfig<K>): ExprType<UIComponentType> {
     // A canvas is DEFINED as data + series (+ the root resolvers) — there
     // is no rows-authoring channel; the IR's inline arm is what inline
     // application collapses to.
@@ -312,7 +328,7 @@ export function createPlanRoot(config: PlanConfig): ExprType<UIComponentType> {
     return East.value(variant("Plan", {
         rows:     rowsValue,
         links:    East.value(config.links ?? [], ArrayType(PlanLinkType)),
-        axis:     config.axis,
+        axis:     config.axis as SubtypeExprOrValue<PlanAxisType>,
         grain:    config.grain !== undefined ? some(resolveTag(config.grain, PlanGrainType)) : none,
         // East.value pins the exact function type (the Schematic `itemHover`
         // pattern) so the arm's recursion-marker slots unify.

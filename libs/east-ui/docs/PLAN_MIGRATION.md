@@ -131,8 +131,14 @@ Plan.series.buckets(Row, {
     number / string, or a `DateTime` / `Float` / `Integer` / `String`
     expression, by its type — `Plan.run({ start: j.start })` over a
     `start: FloatType` field lands on the number arm with nothing written.
-  - The Planner's single-axis-kind rule holds: a row whose instants ride
-    another arm is a render-time diagnostic naming the row and the arm.
+  - The Planner's single-axis-kind rule holds TWICE: the kind is a TYPE —
+    `Plan.axis.number(…)` fixes the tag's `K`, builders brand their results
+    with the kind their instants' static types imply, series collect their
+    elements' kinds, and a series on another arm fails to compile at the
+    `<Plan>` tag (the brand is phantom: no wire change) — and kind-erased
+    values (stored records, `$.let`-bound axes / `$.const`-bound series
+    lists, East-mapped element lists, chart rows) are held to the axis at
+    render by a diagnostic naming the row and the arm.
   A "day 1..8" Planner canvas is `planNumberAxis`; a workflow-phase one
   `planOrdinalAxis`.
 - **DnD**: drops report the bucket START INSTANT as the slot, per the axis

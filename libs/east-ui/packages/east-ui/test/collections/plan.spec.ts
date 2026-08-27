@@ -5,7 +5,7 @@
 
 import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Chart, Plan, Text } from "@elaraai/east-ui/internal";
+import { Chart, Plan, Text, type PlanSeriesValue } from "@elaraai/east-ui/internal";
 import { EventStateType, Format, StatusValueType, UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./plan.examples.js";
 
@@ -1105,7 +1105,10 @@ describeEast("Plan", (test) => {
             key: "heat", title: "Heat", label: (_r, k) => k,
             cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
         });
-        const build = (series: ReturnType<typeof Plan.series.span>[]) =>
+        // The helper's list is typed for the TIME canvas it builds: the
+        // phantom axis kind makes "a series of any kind" a MIXED list, which a
+        // `"time"` root refuses at compile time (see the last test).
+        const build = (series: PlanSeriesValue<"time">[]) =>
             Plan.Root({ axis: Plan.axis({ resolution: "week" }), data: handle, series });
 
         const both = $.let(build([spanSeries, heatSeries]).unwrap().unwrap("Plan").rows.unwrap("paged"));
@@ -1332,6 +1335,59 @@ describeEast("Plan", (test) => {
         const run = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").get("m1").kind.unwrap("span").runs.get(0n));
         $(Assert.equal(run.start.unwrap("number"), 1.0));
         $(Assert.equal(run.end.unwrap("number"), 4.0));
+    });
+
+    test("the axis kind is a TYPE — a series on another arm is refused at compile time; erased values pass", $ => {
+        const JobRow = StructType({ start: FloatType, end: FloatType, when: DateTimeType, state: EventStateType });
+        const data = $.const(new Map([
+            ["m1", { start: 1.0, end: 4.0, when: W27, state: variant("actual", null) }],
+        ]), DictType(StringType, JobRow));
+        // The runs' kind rides the series' TYPE: a Float accessor makes a
+        // `"number"` series, a DateTime accessor a `"time"` one — nothing is
+        // written, the brand is inferred from the accessors' static types.
+        const numberRuns = Plan.series.span(JobRow, {
+            key: "n", title: "N", label: (_r, k) => k,
+            runs: (r, k) => [Plan.run({ key: k, start: r.start, end: r.end, label: k, state: r.state })],
+        });
+        const timeRuns = Plan.series.span(JobRow, {
+            key: "t", title: "T", label: (_r, k) => k,
+            runs: (r, k) => [Plan.run({ key: k, start: r.when, end: r.when, label: k, state: r.state })],
+        });
+        const ok = $.let(Plan.Root({ axis: Plan.axis.number({ step: 1 }), data, series: [numberRuns] }));
+        $(Assert.equal(ok.unwrap().unwrap("Plan").axis.getTag(), "number"));
+        // A `"time"` series on a `"number"` axis, and a mixed list on a
+        // `"time"` axis, fail to COMPILE — the directives fail the build if
+        // the check ever stops firing. (They still evaluate: the RUNTIME holds
+        // rows to the axis at render, not here.)
+        // @ts-expect-error — a "time" series cannot mount on a "number" axis
+        const bad = $.let(Plan.Root({ axis: Plan.axis.number({ step: 1 }), data, series: [timeRuns] }));
+        $(Assert.equal(bad.unwrap().unwrap("Plan").axis.getTag(), "number"));
+        // @ts-expect-error — a mixed list cannot mount on a "time" axis
+        const mixed = $.let(Plan.Root({ axis: Plan.axis.time({ resolution: "week" }), data, series: [timeRuns, numberRuns] }));
+        $(Assert.equal(mixed.unwrap().unwrap("Plan").axis.getTag(), "time"));
+        // Kind-ERASED values constrain nothing — a `$.const`-bound series list
+        // and a `$.let`-bound axis both mount; those stay the render-time
+        // diagnostic's to hold.
+        const erased = $.const([timeRuns], ArrayType(Plan.Types.Series(JobRow)));
+        const viaConst = $.let(Plan.Root({ axis: Plan.axis.number({ step: 1 }), data, series: erased }));
+        $(Assert.equal(viaConst.unwrap().unwrap("Plan").axis.getTag(), "number"));
+        const axis = $.let(Plan.axis.number({ step: 1 }), Plan.Types.Axis);
+        const viaLet = $.let(Plan.Root({ axis, data, series: [timeRuns] }));
+        $(Assert.equal(viaLet.unwrap().unwrap("Plan").axis.getTag(), "number"));
+        // Literal rows brand the same way — through `Plan.series.rows` and the
+        // kind factories: Date chips refuse a number axis, `Plan.at.number`
+        // heat cells mount on it.
+        const chips = Plan.series.rows(JobRow, { key: "c", title: "C" }, [
+            Plan.cards({ key: "crew", label: "Crew", chips: [Plan.chip({ key: "s", from: W27, to: W28, label: "80h", state: "confirmed" })] }),
+        ]);
+        // @ts-expect-error — literal "time" chips cannot mount on a "number" axis
+        const badRows = $.let(Plan.Root({ axis: Plan.axis.number({ step: 1 }), data, series: [chips] }));
+        $(Assert.equal(badRows.unwrap().unwrap("Plan").axis.getTag(), "number"));
+        const heat = Plan.series.rows(JobRow, { key: "h", title: "H" }, [
+            Plan.heat({ key: "load", label: "Load", cells: Plan.heatCells([{ at: Plan.at.number(3), value: some(40.0), label: none }]) }),
+        ]);
+        const okRows = $.let(Plan.Root({ axis: Plan.axis.number({ step: 1 }), data, series: [heat] }));
+        $(Assert.equal(okRows.unwrap().unwrap("Plan").axis.getTag(), "number"));
     });
 
 }, { platformFns: TestImpl });

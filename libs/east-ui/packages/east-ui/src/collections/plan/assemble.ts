@@ -40,6 +40,7 @@ import {
     PlanRowType,
     PlanRowsCollectionType,
     type PlanRowsValue,
+    type PlanAxisKindLiteral,
 } from "./types.js";
 import { resolveTag, emptyRows } from "./builders.js";
 
@@ -159,15 +160,21 @@ export function makeRow(base: PlanRowBaseInput, kind: ExprType<PlanRowKindType>)
 
 /**
  * A nested-rows input — a single flattened-subtree expression (a factory /
- * `Plan.rows` result) or a TS array of them.
+ * `Plan.rows` result) or a TS array of them. Kinded factory results
+ * ({@link PlanRowsValue}) carry their axis kind through, so a parent takes
+ * the union of its children's kinds; any other collection value is erased.
+ *
+ * @typeParam K - The kind inferred from the kinded subtrees in the input
  */
-export type PlanRowsInput =
+export type PlanRowsInput<K extends PlanAxisKindLiteral = never> =
     | SubtypeExprOrValue<PlanRowsCollectionType>
-    | SubtypeExprOrValue<PlanRowsCollectionType>[];
+    | PlanRowsValue<K>
+    | (SubtypeExprOrValue<PlanRowsCollectionType> | PlanRowsValue<K>)[];
 
 /** Normalize a nested-rows input into ONE subtree — the authored siblings
- *  unioned, last wins on a repeated key. */
-export function normalizeRows(input: PlanRowsInput | undefined): PlanRowsValue {
+ *  unioned, last wins on a repeated key. Accepts any kind (the caller
+ *  re-brands its result). */
+export function normalizeRows(input: PlanRowsInput<PlanAxisKindLiteral> | undefined): PlanRowsValue {
     if (input === undefined) return emptyRows();
     if (Array.isArray(input)) {
         return input.reduce<PlanRowsValue>(
@@ -306,7 +313,7 @@ export function applyRowOverrides(rows: PlanRowsValue, o: PlanRowOverrides): Pla
  */
 export function assembleNested(
     base: PlanRowBaseInput,
-    rows: PlanRowsInput,
+    rows: PlanRowsInput<PlanAxisKindLiteral>,
     kind: ExprType<PlanRowKindType>,
 ): PlanRowsValue {
     const children = normalizeRows(rows);

@@ -54,6 +54,8 @@ import {
     PlanEventMarkType,
     PlanRowsCollectionType,
     type PlanRowsValue,
+    type PlanAxisKindLiteral,
+    type PlanKinded,
 } from "./types.js";
 import { resolveTag, resolveIcon, emptyRows, type PlanIconInput } from "./builders.js";
 import { groupParentFn, applyRowOverrides, normalizeRows, LAST_WINS, type PlanRowsInput, type PlanRowBaseInput } from "./assemble.js";
@@ -70,6 +72,7 @@ import {
 } from "./factories.js";
 import {
     type PlanAccessor,
+    type PlanElementsAccessor,
     type PlanSpanOfConfig,
     type PlanHeatOfConfig,
     type PlanTableOfConfig,
@@ -148,22 +151,33 @@ export const PlanSeriesType: (r: EastType) => PlanSeriesShape = seriesShape;
 
 /**
  * One series value — the `BoundValue` alias pattern applied to
- * {@link PlanSeriesType}. The TS face is deliberately ERASED (the
- * `PlanRowsValue` convention): `SubtypeExprOrValue` maps function inputs
- * invariantly, so a row-typed face could never assign through `$.const` /
- * props; type safety lives in the builder CONFIGS (accessors checked
- * against `R`) and in the East runtime (the instantiated type from
+ * {@link PlanSeriesType}. The TS face is deliberately ERASED of the row type
+ * (the `PlanRowsValue` convention): `SubtypeExprOrValue` maps function
+ * inputs invariantly, so a row-typed face could never assign through
+ * `$.const` / props; type safety lives in the builder CONFIGS (accessors
+ * checked against `R`) and in the East runtime (the instantiated type from
  * `PlanSeriesType(rowType)` subtype-checks every stored `derive`).
+ *
+ * What the face DOES carry is the phantom axis kind ({@link PlanKinded}):
+ * a builder brands its series with the kind its elements' instants ride, and
+ * the root refuses a series whose kind is not its axis's at compile time.
+ * `never` (the default) is the erased brand.
+ *
+ * @typeParam K - The axis kind(s) the series' instants ride
  */
-export type PlanSeriesValue = ExprType<PlanSeriesShape>;
+export type PlanSeriesValue<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanSeriesShape>, K>;
 
 /**
  * The `series` prop's input — a TS array of series values (the common
  * static case) or an East expression of the series array (a `$.const`-bound
- * list, a computed list, a dataset-stored list).
+ * list, a computed list, a dataset-stored list). The array form checks each
+ * series' kind against `K` (the root's axis kind); an East expression is
+ * kind-erased.
+ *
+ * @typeParam K - The axis kind(s) the list must lie within (default: every kind)
  */
-export type PlanSeriesInput =
-    | PlanSeriesValue[]
+export type PlanSeriesInput<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> =
+    | PlanSeriesValue<K>[]
     | ExprType<ArrayType<PlanSeriesShape>>;
 
 // ============================================================================
@@ -248,19 +262,19 @@ export interface PlanSeriesEnvelopeConfig<R extends StructType> extends PlanSeri
 }
 
 /** Config for {@link Plan.series.span} — the span `.of` surface plus `match`. */
-export interface PlanSpanSeriesConfig<R extends StructType> extends PlanSpanOfConfig<R>, PlanSeriesIdentity {
+export interface PlanSpanSeriesConfig<R extends StructType, K extends PlanAxisKindLiteral = never> extends PlanSpanOfConfig<R, K>, PlanSeriesIdentity {
     /** Series membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
 
 /** Config for {@link Plan.series.heat} — the heat `.of` surface plus `match`. */
-export interface PlanHeatSeriesConfig<R extends StructType> extends PlanHeatOfConfig<R>, PlanSeriesIdentity {
+export interface PlanHeatSeriesConfig<R extends StructType, K extends PlanAxisKindLiteral = never> extends PlanHeatOfConfig<R, K>, PlanSeriesIdentity {
     /** Series membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
 
 /** Config for {@link Plan.series.table} — the table `.of` surface plus `match`. */
-export interface PlanTableSeriesOfConfig<R extends StructType> extends PlanTableOfConfig<R>, PlanSeriesIdentity {
+export interface PlanTableSeriesOfConfig<R extends StructType, K extends PlanAxisKindLiteral = never> extends PlanTableOfConfig<R, K>, PlanSeriesIdentity {
     /** Series membership — omitted ⇒ every data entry belongs. */
     match?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<BooleanType>;
 }
@@ -269,25 +283,25 @@ export interface PlanTableSeriesOfConfig<R extends StructType> extends PlanTable
  * Config for {@link Plan.series.buckets} — one bucket row per matched data
  * row, lanes / tiles / markers from accessors.
  */
-export interface PlanBucketsSeriesConfig<R extends StructType> extends PlanSeriesEnvelopeConfig<R> {
+export interface PlanBucketsSeriesConfig<R extends StructType, K extends PlanAxisKindLiteral = never> extends PlanSeriesEnvelopeConfig<R> {
     /** Per-row sub-slot lanes accessor; omitted ⇒ unbucketed rows. */
     lanes?: PlanAccessor<R, ArrayType<PlanLaneType>>;
-    /** Per-row tiles accessor. */
-    events: PlanAccessor<R, ArrayType<PlanBucketEventType>>;
+    /** Per-row tiles accessor — the tiles' axis kind brands the series. */
+    events: PlanElementsAccessor<R, PlanBucketEventType, K>;
     /** Per-row cell-marker accessor. */
-    markers?: PlanAccessor<R, ArrayType<PlanCellMarkerType>>;
+    markers?: PlanElementsAccessor<R, PlanCellMarkerType, K>;
 }
 
 /** Config for {@link Plan.series.cards} — one cards row per matched data row. */
-export interface PlanCardsSeriesConfig<R extends StructType> extends PlanSeriesEnvelopeConfig<R> {
-    /** Per-row shift-chips accessor. */
-    chips: PlanAccessor<R, ArrayType<PlanChipType>>;
+export interface PlanCardsSeriesConfig<R extends StructType, K extends PlanAxisKindLiteral = never> extends PlanSeriesEnvelopeConfig<R> {
+    /** Per-row shift-chips accessor — the chips' axis kind brands the series. */
+    chips: PlanElementsAccessor<R, PlanChipType, K>;
 }
 
 /** Config for {@link Plan.series.events} — one event row per matched data row. */
-export interface PlanEventsSeriesConfig<R extends StructType> extends PlanSeriesEnvelopeConfig<R> {
-    /** Per-row instant-marks accessor. */
-    marks: PlanAccessor<R, ArrayType<PlanEventMarkType>>;
+export interface PlanEventsSeriesConfig<R extends StructType, K extends PlanAxisKindLiteral = never> extends PlanSeriesEnvelopeConfig<R> {
+    /** Per-row instant-marks accessor — the marks' axis kind brands the series. */
+    marks: PlanElementsAccessor<R, PlanEventMarkType, K>;
 }
 
 /**
@@ -445,7 +459,7 @@ function seriesScaffold(
 
 /** Apply one series value to a rows expression (the exhaustive-arm call). */
 export function applySeriesValue(
-    s: PlanSeriesValue,
+    s: PlanSeriesValue<PlanAxisKindLiteral>,
     rows: ExprType<DictType<StringType, StructType>>,
 ): PlanRowsValue {
     return s.match({
@@ -501,15 +515,18 @@ export function applySeries(
  * to arbitrary depth with rollup parents (the span `.of` surface + `match`).
  *
  * @typeParam R - The data row type
+ * @typeParam K - The axis kind the runs imply (inferred from the `runs` accessor; `never` when erased)
  * @param rowType - The data row type (every builder takes it first — the `Slice.config` shape)
  * @param config - The accessors + grouping ({@link PlanSpanSeriesConfig})
- * @returns A series value (`variant("span", { derive })`)
+ * @returns A series value (`variant("span", { derive })`), branded with its kind
  */
-export function createSeriesSpan<R extends StructType>(rowType: R, config: PlanSpanSeriesConfig<R>): PlanSeriesValue {
-    const cfg = config as PlanSpanSeriesConfig<StructType>;
+export function createSeriesSpan<R extends StructType, K extends PlanAxisKindLiteral = never>(
+    rowType: R, config: PlanSpanSeriesConfig<R, K>,
+): PlanSeriesValue<K> {
+    const cfg = config as unknown as PlanSpanSeriesConfig<StructType>;
     const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
         () => groupParentFn(spanParentKind(cfg)), spanRowOf(cfg), cfg.keyPrefix);
-    return seriesValue(rowType, "span", { derive }, cfg);
+    return seriesValue(rowType, "span", { derive }, cfg) as PlanSeriesValue<K>;
 }
 
 /**
@@ -517,17 +534,20 @@ export function createSeriesSpan<R extends StructType>(rowType: R, config: PlanS
  * with per-bucket-aggregated parents (the heat `.of` surface + `match`).
  *
  * @typeParam R - The data row type
+ * @typeParam K - The axis kind the cells imply (inferred from the `cells` accessor; `never` when erased)
  * @param rowType - The data row type
  * @param config - The accessors + grouping ({@link PlanHeatSeriesConfig})
- * @returns A series value (`variant("heat", { derive })`)
+ * @returns A series value (`variant("heat", { derive })`), branded with its kind
  */
-export function createSeriesHeat<R extends StructType>(rowType: R, config: PlanHeatSeriesConfig<R>): PlanSeriesValue {
-    const cfg = config as PlanHeatSeriesConfig<StructType>;
+export function createSeriesHeat<R extends StructType, K extends PlanAxisKindLiteral = never>(
+    rowType: R, config: PlanHeatSeriesConfig<R, K>,
+): PlanSeriesValue<K> {
+    const cfg = config as unknown as PlanHeatSeriesConfig<StructType>;
     const mode = cfg.aggregate ?? "mean";
     const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
         () => groupParentFn(heatParentKind(cfg), some(resolveTag(mode, PlanAggregateType).getTag())),
         heatRowOf(cfg), cfg.keyPrefix);
-    return seriesValue(rowType, "heat", { derive }, cfg);
+    return seriesValue(rowType, "heat", { derive }, cfg) as PlanSeriesValue<K>;
 }
 
 /**
@@ -535,17 +555,20 @@ export function createSeriesHeat<R extends StructType>(rowType: R, config: PlanH
  * with subtotal parents (the table `.of` surface + `match`).
  *
  * @typeParam R - The data row type
+ * @typeParam K - The axis kind the cells imply (inferred from the `cells` / `series` accessors; `never` when erased)
  * @param rowType - The data row type
  * @param config - The accessors + grouping ({@link PlanTableSeriesOfConfig})
- * @returns A series value (`variant("table", { derive })`)
+ * @returns A series value (`variant("table", { derive })`), branded with its kind
  */
-export function createSeriesTable<R extends StructType>(rowType: R, config: PlanTableSeriesOfConfig<R>): PlanSeriesValue {
-    const cfg = config as PlanTableSeriesOfConfig<StructType>;
+export function createSeriesTable<R extends StructType, K extends PlanAxisKindLiteral = never>(
+    rowType: R, config: PlanTableSeriesOfConfig<R, K>,
+): PlanSeriesValue<K> {
+    const cfg = config as unknown as PlanTableSeriesOfConfig<StructType>;
     const mode = cfg.aggregate ?? "sum";
     const derive = seriesScaffold(rowType, cfg.match, cfg.groupBy,
         () => groupParentFn(tableParentKind(cfg), some(resolveTag(mode, TableAggregateType).getTag())),
         tableRowOf(cfg), cfg.keyPrefix);
-    return seriesValue(rowType, "table", { derive }, cfg);
+    return seriesValue(rowType, "table", { derive }, cfg) as PlanSeriesValue<K>;
 }
 
 /**
@@ -553,12 +576,15 @@ export function createSeriesTable<R extends StructType>(rowType: R, config: Plan
  * matched data row.
  *
  * @typeParam R - The data row type
+ * @typeParam K - The axis kind the tiles imply (inferred from the `events` / `markers` accessors; `never` when erased)
  * @param rowType - The data row type
  * @param config - The accessors ({@link PlanBucketsSeriesConfig})
- * @returns A series value (`variant("buckets", { derive })`)
+ * @returns A series value (`variant("buckets", { derive })`), branded with its kind
  */
-export function createSeriesBuckets<R extends StructType>(rowType: R, config: PlanBucketsSeriesConfig<R>): PlanSeriesValue {
-    const cfg = config as PlanBucketsSeriesConfig<StructType>;
+export function createSeriesBuckets<R extends StructType, K extends PlanAxisKindLiteral = never>(
+    rowType: R, config: PlanBucketsSeriesConfig<R, K>,
+): PlanSeriesValue<K> {
+    const cfg = config as unknown as PlanBucketsSeriesConfig<StructType>;
     const derive = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createBuckets({
             key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
@@ -571,7 +597,7 @@ export function createSeriesBuckets<R extends StructType>(rowType: R, config: Pl
         }),
         envelopeOverrides(cfg, r, k),
     ), cfg.keyPrefix);
-    return seriesValue(rowType, "buckets", { derive }, cfg);
+    return seriesValue(rowType, "buckets", { derive }, cfg) as PlanSeriesValue<K>;
 }
 
 /**
@@ -579,12 +605,15 @@ export function createSeriesBuckets<R extends StructType>(rowType: R, config: Pl
  * data row.
  *
  * @typeParam R - The data row type
+ * @typeParam K - The axis kind the chips imply (inferred from the `chips` accessor; `never` when erased)
  * @param rowType - The data row type
  * @param config - The accessors ({@link PlanCardsSeriesConfig})
- * @returns A series value (`variant("cards", { derive })`)
+ * @returns A series value (`variant("cards", { derive })`), branded with its kind
  */
-export function createSeriesCards<R extends StructType>(rowType: R, config: PlanCardsSeriesConfig<R>): PlanSeriesValue {
-    const cfg = config as PlanCardsSeriesConfig<StructType>;
+export function createSeriesCards<R extends StructType, K extends PlanAxisKindLiteral = never>(
+    rowType: R, config: PlanCardsSeriesConfig<R, K>,
+): PlanSeriesValue<K> {
+    const cfg = config as unknown as PlanCardsSeriesConfig<StructType>;
     const derive = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createCards({
             key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
@@ -595,19 +624,22 @@ export function createSeriesCards<R extends StructType>(rowType: R, config: Plan
         }),
         envelopeOverrides(cfg, r, k),
     ), cfg.keyPrefix);
-    return seriesValue(rowType, "cards", { derive }, cfg);
+    return seriesValue(rowType, "cards", { derive }, cfg) as PlanSeriesValue<K>;
 }
 
 /**
  * A data-driven event series — one instant-mark row per matched data row.
  *
  * @typeParam R - The data row type
+ * @typeParam K - The axis kind the marks imply (inferred from the `marks` accessor; `never` when erased)
  * @param rowType - The data row type
  * @param config - The accessors ({@link PlanEventsSeriesConfig})
- * @returns A series value (`variant("events", { derive })`)
+ * @returns A series value (`variant("events", { derive })`), branded with its kind
  */
-export function createSeriesEvents<R extends StructType>(rowType: R, config: PlanEventsSeriesConfig<R>): PlanSeriesValue {
-    const cfg = config as PlanEventsSeriesConfig<StructType>;
+export function createSeriesEvents<R extends StructType, K extends PlanAxisKindLiteral = never>(
+    rowType: R, config: PlanEventsSeriesConfig<R, K>,
+): PlanSeriesValue<K> {
+    const cfg = config as unknown as PlanEventsSeriesConfig<StructType>;
     const derive = seriesScaffold(rowType, cfg.match, undefined, undefined, (_$, r, k) => applyRowOverrides(
         createEvents({
             key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
@@ -618,12 +650,14 @@ export function createSeriesEvents<R extends StructType>(rowType: R, config: Pla
         }),
         envelopeOverrides(cfg, r, k),
     ), cfg.keyPrefix);
-    return seriesValue(rowType, "events", { derive }, cfg);
+    return seriesValue(rowType, "events", { derive }, cfg) as PlanSeriesValue<K>;
 }
 
 /**
  * A data-driven chart series — one chart row per matched data row, layers
- * built from the row's own data.
+ * built from the row's own data. Kind-ERASED: a Chart layer's TS face does
+ * not expose its x type, so a chart series constrains no axis at compile
+ * time — the render-time diagnostic holds it to the axis like any row.
  *
  * @typeParam R - The data row type
  * @param rowType - The data row type
@@ -669,15 +703,16 @@ export function createSeriesChart<R extends StructType>(rowType: R, config: Plan
  * The DISCOVERED (`by`) form cannot borrow that, because one series makes MANY
  * strips — it declares its own `key` / `title` ({@link PlanGroupSeriesByConfig}).
  *
+ * @typeParam K - The union of the children's axis kinds (inferred; `never` when all are erased)
  * @param chrome - The group's literal chrome ({@link PlanGroupSeriesChrome})
  * @param children - The member series (applied in declared order; their rows sit in KEY order)
- * @returns A series value (`variant("group", { derive })`)
+ * @returns A series value (`variant("group", { derive })`), branded with its children's kinds
  */
-export function createSeriesGroup<R extends StructType>(
+export function createSeriesGroup<R extends StructType, K extends PlanAxisKindLiteral = never>(
     rowType: R,
     chromeOrBy: PlanGroupSeriesChrome | PlanGroupSeriesByConfig<R>,
-    children: PlanSeriesValue[],
-): PlanSeriesValue {
+    children: PlanSeriesValue<K>[],
+): PlanSeriesValue<K> {
     const applyChildren = (subset: ExprType<DictType<StringType, StructType>>): PlanRowsValue =>
         children.reduce<PlanRowsValue>(
             (acc, c) => acc.union(applySeriesValue(c, subset), LAST_WINS) as PlanRowsValue,
@@ -707,7 +742,7 @@ export function createSeriesGroup<R extends StructType>(
             const levels: PlanResolvedLevel[] = [{ by: reifyLevelKey(rt, cfg.by), parentFn }];
             return groupRows(matched, levels, (subset, _prefix) => applyChildren(subset), prefix);
         });
-        return seriesValue(rowType, "group", { derive: make }, cfg as PlanSeriesIdentity);
+        return seriesValue(rowType, "group", { derive: make }, cfg as PlanSeriesIdentity) as PlanSeriesValue<K>;
     }
     // STATIC chrome — one literal strip around the children.
     const chrome = chromeOrBy as PlanGroupSeriesChrome;
@@ -719,7 +754,7 @@ export function createSeriesGroup<R extends StructType>(
         key:   chrome.key,
         title: chrome.label,
         ...(chrome.meta !== undefined ? { subtitle: chrome.meta } : {}),
-    });
+    }) as PlanSeriesValue<K>;
 }
 
 /**
@@ -735,17 +770,18 @@ export function createSeriesGroup<R extends StructType>(
  * the canvas a user cannot turn off.
  *
  * @typeParam R - The data row type (pins the series against its siblings)
+ * @typeParam K - The union of the rows' axis kinds (inferred from the kind-factory results; `never` when erased)
  * @param rowType - The data row type
  * @param identity - How the library lists this section ({@link PlanSeriesIdentity})
  * @param rows - The literal rows (kind-factory results)
- * @returns A series value (`variant("rows", { rows })`)
+ * @returns A series value (`variant("rows", { rows })`), branded with the rows' kinds
  */
-export function createSeriesRows<R extends StructType>(
+export function createSeriesRows<R extends StructType, K extends PlanAxisKindLiteral = never>(
     rowType: R,
     identity: PlanSeriesIdentity,
-    rows: PlanRowsInput,
-): PlanSeriesValue {
-    return seriesValue(rowType, "rows", { rows: normalizeRows(rows) }, identity);
+    rows: PlanRowsInput<K>,
+): PlanSeriesValue<K> {
+    return seriesValue(rowType, "rows", { rows: normalizeRows(rows) }, identity) as PlanSeriesValue<K>;
 }
 
 /**

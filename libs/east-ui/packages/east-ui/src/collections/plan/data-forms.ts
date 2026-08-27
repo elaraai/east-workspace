@@ -25,7 +25,6 @@ import {
     type SubtypeExprOrValue,
     East,
     Expr,
-    ArrayType,
     DictType,
     OptionType,
     StringType,
@@ -45,8 +44,6 @@ import {
     type PlanRollupLiteral,
     PlanAggregateType,
     type PlanAggregateLiteral,
-    type PlanHeatCellsType,
-    type PlanTableCellType,
     type PlanTableSeriesType,
     PlanTableSplitType,
     type PlanTableSplitLiteral,
@@ -57,6 +54,10 @@ import {
     PlanDecisionMarkType,
     PlanRowKindType,
     type PlanRowsValue,
+    type PlanAxisKindLiteral,
+    type PlanElementsInput,
+    type PlanHeatCellsInput,
+    type PlanTableCellsInput,
 } from "./types.js";
 import { createHeatCells, resolveTag, type PlanHeatCellsOptions } from "./builders.js";
 import { PlanPortType } from "./types.js";
@@ -78,6 +79,23 @@ import { createSpan, createHeat, createTable } from "./factories.js";
  */
 export type PlanAccessor<R extends StructType, T extends EastType> =
     (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<T>;
+
+/**
+ * An accessor returning a list of ELEMENTS (runs, tiles, chips, marks, …) —
+ * a TS array of `Plan.run` / `event` / … results keeps their axis kind, which
+ * the series collects into its own brand ({@link PlanElementsInput}); an
+ * East-mapped list is kind-erased.
+ *
+ * @typeParam R - The data row type
+ * @typeParam T - The element's East type
+ * @typeParam K - The kind inferred from the returned elements
+ */
+export type PlanElementsAccessor<R extends StructType, T extends EastType, K extends PlanAxisKindLiteral = never> =
+    (row: ExprType<R>, key: ExprType<StringType>) => PlanElementsInput<T, K>;
+
+/** An accessor returning one kinded VALUE (a `Plan.heatCells` / `Plan.tableCells` result). */
+export type PlanKindedAccessor<R extends StructType, V> =
+    (row: ExprType<R>, key: ExprType<StringType>) => V;
 
 /** One resolved groupBy level — the reified key accessor + the level's parent constructor. */
 export interface PlanResolvedLevel {
@@ -225,7 +243,7 @@ export function groupRows(
  * @property rollup - Parent rollup mode (default `"union"`)
  * @property unit - Quantity unit for band sums
  */
-export interface PlanSpanOfConfig<R extends StructType> {
+export interface PlanSpanOfConfig<R extends StructType, K extends PlanAxisKindLiteral = never> {
     /** Gutter label accessor. */
     label: PlanAccessor<R, StringType>;
     /** Render labels as mono row ids. */
@@ -244,12 +262,12 @@ export interface PlanSpanOfConfig<R extends StructType> {
     approval?: PlanAccessor<R, OptionType<ApprovalStateType>>;
     /** Per-row expand-declaration accessor — returns the field's `Option<PlanExpandType>` (R2). */
     expand?: PlanAccessor<R, OptionType<PlanExpandType>>;
-    /** Per-row runs accessor. */
-    runs: PlanAccessor<R, ArrayType<PlanRunType>>;
+    /** Per-row runs accessor — the runs' axis kind brands the series. */
+    runs: PlanElementsAccessor<R, PlanRunType, K>;
     /** Per-row decision-diamonds accessor. */
-    decisions?: PlanAccessor<R, ArrayType<PlanDecisionMarkType>>;
+    decisions?: PlanElementsAccessor<R, PlanDecisionMarkType, K>;
     /** Per-row ports accessor. */
-    ports?: PlanAccessor<R, ArrayType<typeof PlanPortType>>;
+    ports?: PlanElementsAccessor<R, typeof PlanPortType, K>;
     /** Group-key accessors — one span rollup parent per discovered value per level. */
     groupBy?: PlanAccessor<R, StringType>[];
     /** Key prefix for this series' rows — leaf keys and synthesized group
@@ -338,7 +356,7 @@ export function spanRowOf(cfg: PlanSpanOfConfig<StructType>): PlanRowFn {
  * @property aggregate - Parent aggregation mode (default `"mean"`)
  * @property scale - Heat scale applied to derived parent cells
  */
-export interface PlanHeatOfConfig<R extends StructType> {
+export interface PlanHeatOfConfig<R extends StructType, K extends PlanAxisKindLiteral = never> {
     /** Gutter label accessor. */
     label: PlanAccessor<R, StringType>;
     /** Render labels as mono row ids. */
@@ -357,8 +375,8 @@ export interface PlanHeatOfConfig<R extends StructType> {
     approval?: PlanAccessor<R, OptionType<ApprovalStateType>>;
     /** Per-row expand-declaration accessor — returns the field's `Option<PlanExpandType>` (R2). */
     expand?: PlanAccessor<R, OptionType<PlanExpandType>>;
-    /** Per-row cells accessor (build with `Plan.heatCells` / `Plan.weightCells` / `Plan.segmentCells`). */
-    cells: PlanAccessor<R, PlanHeatCellsType>;
+    /** Per-row cells accessor (build with `Plan.heatCells` / `Plan.weightCells` / `Plan.segmentCells`) — its kind brands the series. */
+    cells: PlanKindedAccessor<R, PlanHeatCellsInput<K>>;
     /** Group-key accessors — one aggregated heat parent per discovered value per level. */
     groupBy?: PlanAccessor<R, StringType>[];
     /** Key prefix for this series' rows — leaf keys and synthesized group
@@ -426,7 +444,7 @@ export function heatRowOf(cfg: PlanHeatOfConfig<StructType>): PlanRowFn {
  * @property aggregate - Subtotal mode (default `"sum"`)
  * @property format - Numeral format for derived subtotals
  */
-export interface PlanTableOfConfig<R extends StructType> {
+export interface PlanTableOfConfig<R extends StructType, K extends PlanAxisKindLiteral = never> {
     /** Gutter label accessor. */
     label: PlanAccessor<R, StringType>;
     /** Render labels as mono row ids. */
@@ -441,10 +459,10 @@ export interface PlanTableOfConfig<R extends StructType> {
     approval?: PlanAccessor<R, OptionType<ApprovalStateType>>;
     /** Per-row expand-declaration accessor — returns the field's `Option<PlanExpandType>` (R2). */
     expand?: PlanAccessor<R, OptionType<PlanExpandType>>;
-    /** Per-row cells accessor (build with `Plan.tableCells`) — sugar for one unstyled value series. */
-    cells?: PlanAccessor<R, ArrayType<PlanTableCellType>>;
-    /** Per-row MULTI-SERIES accessor (`Array<PlanTableSeriesType>` in the data); exclusive with `cells`. */
-    series?: PlanAccessor<R, ArrayType<PlanTableSeriesType>>;
+    /** Per-row cells accessor (build with `Plan.tableCells`) — sugar for one unstyled value series; its kind brands the series. */
+    cells?: PlanKindedAccessor<R, PlanTableCellsInput<K>>;
+    /** Per-row MULTI-SERIES accessor (`Array<PlanTableSeriesType>` in the data, or `Plan.tableSeries` results); exclusive with `cells`. */
+    series?: PlanElementsAccessor<R, PlanTableSeriesType, K>;
     /** Part layout when several value series render — `"horizontal"` (default) / `"vertical"`. */
     split?: SubtypeExprOrValue<PlanTableSplitType> | PlanTableSplitLiteral;
     /** Row emphasis — `"body"` (default) / `"header"` / `"footer"`. */

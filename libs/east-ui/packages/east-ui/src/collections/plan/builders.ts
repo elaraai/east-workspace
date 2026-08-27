@@ -49,6 +49,23 @@ import {
     type PlanOrdinalAxisOptions,
     PlanInstantType,
     type PlanInstantLikeType,
+    type PlanInstantInput,
+    type PlanAxisKindLiteral,
+    type PlanKindOf,
+    type PlanInstantExpr,
+    type PlanRunExpr,
+    type PlanDecisionMarkExpr,
+    type PlanPortExpr,
+    type PlanBucketEventExpr,
+    type PlanCellMarkerExpr,
+    type PlanChipExpr,
+    type PlanEventMarkExpr,
+    type PlanHeatCellsExpr,
+    type PlanTableCellsExpr,
+    type PlanTableSeriesExpr,
+    type PlanAxisExpr,
+    type PlanCellsInput,
+    type PlanTableCellsInput,
     PlanPortType,
     PlanCellMarkerType,
     PlanStretchType,
@@ -166,7 +183,7 @@ export function emptyRows(): PlanRowsValue {
  * @returns The instant as a `PlanInstantType` expression
  * @throws {Error} If `v` is an expression of a non-instant type
  */
-export function resolveInstant(v: SubtypeExprOrValue<PlanInstantLikeType>, where: string): ExprType<PlanInstantType> {
+export function resolveInstant(v: PlanInstantInput, where: string): ExprType<PlanInstantType> {
     if (v instanceof Date) return East.value(variant("time", v), PlanInstantType);
     if (typeof v === "number") return East.value(variant("number", v), PlanInstantType);
     if (typeof v === "bigint") return East.value(variant("number", Number(v)), PlanInstantType);
@@ -193,33 +210,35 @@ export function resolveInstant(v: SubtypeExprOrValue<PlanInstantLikeType>, where
  * The `Plan.at` builders — one instant per axis kind, explicitly. The
  * element builders already wrap by type; these are for element RECORDS
  * written as data (`{ at: Plan.at.time(week(27n)), … }` in a
- * `Plan.Types.HeatCell` array) and for reading as a declaration.
+ * `Plan.Types.HeatCell` array) and for reading as a declaration. Each
+ * result is BRANDED with its arm ({@link PlanInstantExpr}), so a cell
+ * list built from them carries the kind to the root's compile-time check.
  */
 export const at = {
     /**
      * A `time` instant.
      *
      * @param v - The UTC instant (a `Date` or `DateTimeType` expression)
-     * @returns A `PlanInstantType` expression with the `time` arm
+     * @returns A `PlanInstantType` expression with the `time` arm, branded `"time"`
      */
-    time: (v: SubtypeExprOrValue<DateTimeType>): ExprType<PlanInstantType> =>
-        East.value(variant("time", v), PlanInstantType),
+    time: (v: SubtypeExprOrValue<DateTimeType>): PlanInstantExpr<"time"> =>
+        East.value(variant("time", v), PlanInstantType) as PlanInstantExpr<"time">,
     /**
      * A `number` instant.
      *
      * @param v - The position (a number or `FloatType` expression)
-     * @returns A `PlanInstantType` expression with the `number` arm
+     * @returns A `PlanInstantType` expression with the `number` arm, branded `"number"`
      */
-    number: (v: SubtypeExprOrValue<FloatType> | number): ExprType<PlanInstantType> =>
-        East.value(variant("number", v), PlanInstantType),
+    number: (v: SubtypeExprOrValue<FloatType> | number): PlanInstantExpr<"number"> =>
+        East.value(variant("number", v), PlanInstantType) as PlanInstantExpr<"number">,
     /**
      * An `ordinal` instant.
      *
      * @param v - The declared value (a string or `StringType` expression)
-     * @returns A `PlanInstantType` expression with the `ordinal` arm
+     * @returns A `PlanInstantType` expression with the `ordinal` arm, branded `"ordinal"`
      */
-    ordinal: (v: SubtypeExprOrValue<StringType>): ExprType<PlanInstantType> =>
-        East.value(variant("ordinal", v), PlanInstantType),
+    ordinal: (v: SubtypeExprOrValue<StringType>): PlanInstantExpr<"ordinal"> =>
+        East.value(variant("ordinal", v), PlanInstantType) as PlanInstantExpr<"ordinal">,
 } as const;
 
 // ============================================================================
@@ -230,7 +249,7 @@ export const at = {
  * Builds the `time` axis declaration — `Plan.axis({ … })` / `Plan.axis.time`.
  *
  * @param options - Window, resolution(s), now instant and tick format ({@link PlanAxisOptions})
- * @returns An East expression of {@link PlanAxisType} (the `time` arm)
+ * @returns An East expression of {@link PlanAxisType} (the `time` arm), branded `"time"` — the root's canvas kind
  *
  * @remarks
  * The window is half-open `[min, max)` in UTC; omit it to follow the bound
@@ -239,7 +258,7 @@ export const at = {
  * slice-bound, slice state supersedes window + resolution after mount — the
  * slice is the single source of truth.
  */
-export function createTimeAxis(options: PlanAxisOptions): ExprType<PlanAxisType> {
+export function createTimeAxis(options: PlanAxisOptions): PlanAxisExpr<"time"> {
     return East.value(variant("time", {
         window: options.window !== undefined
             ? some({ min: options.window.min, max: options.window.max })
@@ -248,14 +267,14 @@ export function createTimeAxis(options: PlanAxisOptions): ExprType<PlanAxisType>
         resolutions: (options.resolutions ?? []).map(r => resolveTag(r, TimeResolutionType)),
         now:         options.now !== undefined ? some(options.now) : none,
         format:      options.format !== undefined ? some(options.format) : none,
-    }), PlanAxisType);
+    }), PlanAxisType) as PlanAxisExpr<"time">;
 }
 
 /**
  * Builds the `number` axis declaration — `Plan.axis.number({ … })`.
  *
  * @param options - Window, step, now position and tick format ({@link PlanNumberAxisOptions})
- * @returns An East expression of {@link PlanAxisType} (the `number` arm)
+ * @returns An East expression of {@link PlanAxisType} (the `number` arm), branded `"number"` — the root's canvas kind
  * @throws {Error} If a literal `step` is not `> 0`
  *
  * @remarks
@@ -265,7 +284,7 @@ export function createTimeAxis(options: PlanAxisOptions): ExprType<PlanAxisType>
  * instants on this canvas are numbers — a `FloatType` / `IntegerType`
  * accessor or a bare number wraps to the `number` arm.
  */
-export function createNumberAxis(options: PlanNumberAxisOptions): ExprType<PlanAxisType> {
+export function createNumberAxis(options: PlanNumberAxisOptions): PlanAxisExpr<"number"> {
     if (typeof options.step === "number" && !(options.step > 0)) {
         throw new Error(`Plan.axis.number: \`step\` must be > 0 (got ${options.step}) — it is the bucket width`);
     }
@@ -276,14 +295,14 @@ export function createNumberAxis(options: PlanNumberAxisOptions): ExprType<PlanA
         step:   options.step,
         now:    options.now !== undefined ? some(options.now) : none,
         format: options.format !== undefined ? some(options.format) : none,
-    }), PlanAxisType);
+    }), PlanAxisType) as PlanAxisExpr<"number">;
 }
 
 /**
  * Builds the `ordinal` axis declaration — `Plan.axis.ordinal({ … })`.
  *
  * @param options - The ordered values and the now value ({@link PlanOrdinalAxisOptions})
- * @returns An East expression of {@link PlanAxisType} (the `ordinal` arm)
+ * @returns An East expression of {@link PlanAxisType} (the `ordinal` arm), branded `"ordinal"` — the root's canvas kind
  * @throws {Error} If a literal `values` list is empty
  *
  * @remarks
@@ -292,14 +311,14 @@ export function createNumberAxis(options: PlanNumberAxisOptions): ExprType<PlanA
  * idle. Element instants on this canvas are the values — a `StringType`
  * accessor or a bare string wraps to the `ordinal` arm.
  */
-export function createOrdinalAxis(options: PlanOrdinalAxisOptions): ExprType<PlanAxisType> {
+export function createOrdinalAxis(options: PlanOrdinalAxisOptions): PlanAxisExpr<"ordinal"> {
     if (Array.isArray(options.values) && options.values.length === 0) {
         throw new Error("Plan.axis.ordinal: `values` must list at least one value — the list is the axis");
     }
     return East.value(variant("ordinal", {
         values: East.value(options.values as SubtypeExprOrValue<ArrayType<StringType>>, ArrayType(StringType)),
         now:    options.now !== undefined ? some(options.now) : none,
-    }), PlanAxisType);
+    }), PlanAxisType) as PlanAxisExpr<"ordinal">;
 }
 
 /**
@@ -309,7 +328,7 @@ export function createOrdinalAxis(options: PlanOrdinalAxisOptions): ExprType<Pla
  */
 export interface PlanAxisBuilder {
     /** The `time` axis (the shorthand — `Plan.axis({ resolution: "week", … })`). */
-    (options: PlanAxisOptions): ExprType<PlanAxisType>;
+    (options: PlanAxisOptions): PlanAxisExpr<"time">;
     /** The `time` axis, explicitly. */
     time: typeof createTimeAxis;
     /** The `number` axis — a numeric window ÷ `step`. */
@@ -323,10 +342,10 @@ export interface PlanAxisBuilder {
  * shorthand; `Plan.axis.time` / `.number` / `.ordinal` declare each kind.
  *
  * @param options - The time-axis options ({@link PlanAxisOptions})
- * @returns An East expression of {@link PlanAxisType}
+ * @returns An East expression of {@link PlanAxisType}, branded with its kind
  */
 export const createAxis: PlanAxisBuilder = Object.assign(
-    function axis(options: PlanAxisOptions): ExprType<PlanAxisType> { return createTimeAxis(options); },
+    function axis(options: PlanAxisOptions): PlanAxisExpr<"time"> { return createTimeAxis(options); },
     { time: createTimeAxis, number: createNumberAxis, ordinal: createOrdinalAxis },
 );
 
@@ -337,6 +356,8 @@ export const createAxis: PlanAxisBuilder = Object.assign(
 /**
  * Flat input for {@link Plan.run} — one continuous state-run bar.
  *
+ * @typeParam S - The `start` input's type — its axis kind brands the result ({@link PlanKindOf})
+ * @typeParam E - The `end` input's type
  * @property key - Stable run identity (drag refs, link edges)
  * @property start - Run start (inclusive) — an instant input (a Date / number / string, or a typed expression)
  * @property end - Run end (exclusive)
@@ -348,13 +369,13 @@ export const createAxis: PlanAxisBuilder = Object.assign(
  * @property moved - Optional same-status churn counter (`moved ×k`)
  * @property icon - Optional leading FA glyph (10px, inherits bar text colour)
  */
-export interface PlanRunInput {
+export interface PlanRunInput<S extends PlanInstantInput = PlanInstantInput, E extends PlanInstantInput = PlanInstantInput> {
     /** Stable run identity (drag refs, link edges). */
     key: SubtypeExprOrValue<StringType>;
     /** Run start (inclusive) — wraps to the axis arm by its type (see {@link PlanInstantLikeType}). */
-    start: SubtypeExprOrValue<PlanInstantLikeType>;
+    start: S;
     /** Run end (exclusive). */
-    end: SubtypeExprOrValue<PlanInstantLikeType>;
+    end: E;
     /** The bar text (`"RUN · B-214"`). */
     label: SubtypeExprOrValue<StringType>;
     /** Optional displayed quantity suffix (`"96 t"` — the muted `.q` text). */
@@ -372,12 +393,20 @@ export interface PlanRunInput {
 }
 
 /**
- * Builds one span run from a flat input.
+ * Builds one span run from a flat input. The result is BRANDED with the axis
+ * kind `start` / `end` imply ({@link PlanKindOf}) — a `DateTimeType` accessor
+ * makes a `"time"` run, a `FloatType` one a `"number"` run — so the series and
+ * root can refuse a mismatched kind at compile time; an erased input (an
+ * `Expr<PlanInstantType>`) leaves the run unbranded.
  *
+ * @typeParam S - The `start` input's type
+ * @typeParam E - The `end` input's type
  * @param input - The run configuration ({@link PlanRunInput})
- * @returns An East expression of {@link PlanRunType}
+ * @returns An East expression of {@link PlanRunType}, branded with its kind
  */
-export function createRun(input: PlanRunInput): ExprType<PlanRunType> {
+export function createRun<S extends PlanInstantInput, E extends PlanInstantInput>(
+    input: PlanRunInput<S, E>,
+): PlanRunExpr<PlanKindOf<S | E>> {
     return East.value({
         key:       input.key,
         start:     resolveInstant(input.start, "run start"),
@@ -389,69 +418,74 @@ export function createRun(input: PlanRunInput): ExprType<PlanRunType> {
         status:    input.status !== undefined ? some(resolveTag(input.status, StatusValueType)) : none,
         moved:     input.moved !== undefined ? some(typeof input.moved === "number" ? BigInt(input.moved) : input.moved) : none,
         icon:      input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
-    }, PlanRunType);
+    }, PlanRunType) as PlanRunExpr<PlanKindOf<S | E>>;
 }
 
 /**
  * Flat input for {@link Plan.decision} — a ◇/◆ diamond on a run transition.
  *
+ * @typeParam A - The `at` input's type — its axis kind brands the result
  * @property key - Stable decision identity
  * @property at - The transition instant the diamond sits on
  * @property applied - `true` fills the diamond (◆)
  */
-export interface PlanDecisionInput {
+export interface PlanDecisionInput<A extends PlanInstantInput = PlanInstantInput> {
     /** Stable decision identity. */
     key: SubtypeExprOrValue<StringType>;
     /** The transition instant the diamond sits on (see {@link PlanInstantLikeType}). */
-    at: SubtypeExprOrValue<PlanInstantLikeType>;
+    at: A;
     /** `true` fills the diamond (◆ applied). */
     applied: SubtypeExprOrValue<BooleanType> | boolean;
 }
 
 /**
- * Builds one decision mark from a flat input.
+ * Builds one decision mark from a flat input, branded with `at`'s kind.
  *
+ * @typeParam A - The `at` input's type
  * @param input - The decision configuration ({@link PlanDecisionInput})
- * @returns An East expression of {@link PlanDecisionMarkType}
+ * @returns An East expression of {@link PlanDecisionMarkType}, branded with its kind
  */
-export function createDecision(input: PlanDecisionInput): ExprType<PlanDecisionMarkType> {
+export function createDecision<A extends PlanInstantInput>(input: PlanDecisionInput<A>): PlanDecisionMarkExpr<PlanKindOf<A>> {
     return East.value({
         key:     input.key,
         at:      resolveInstant(input.at, "decision at"),
         applied: input.applied,
-    }, PlanDecisionMarkType);
+    }, PlanDecisionMarkType) as PlanDecisionMarkExpr<PlanKindOf<A>>;
 }
 
 /**
  * Flat input for {@link Plan.port} — a quantity in/out glyph on a span row.
  *
+ * @typeParam A - The `at` input's type — its axis kind brands the result
  * @property at - The instant the quantity moves
  * @property label - Optional caption (`"−24 t"`)
  */
-export interface PlanPortInput {
+export interface PlanPortInput<A extends PlanInstantInput = PlanInstantInput> {
     /** The instant the quantity moves (see {@link PlanInstantLikeType}). */
-    at: SubtypeExprOrValue<PlanInstantLikeType>;
+    at: A;
     /** Optional caption (`"−24 t"`). */
     label?: SubtypeExprOrValue<StringType>;
 }
 
 /**
- * Builds one port glyph from a flat input.
+ * Builds one port glyph from a flat input, branded with `at`'s kind.
  *
+ * @typeParam A - The `at` input's type
  * @param input - The port configuration ({@link PlanPortInput})
- * @returns An East expression of {@link PlanPortType}
+ * @returns An East expression of {@link PlanPortType}, branded with its kind
  */
-export function createPort(input: PlanPortInput): ExprType<typeof PlanPortType> {
+export function createPort<A extends PlanInstantInput>(input: PlanPortInput<A>): PlanPortExpr<PlanKindOf<A>> {
     return East.value({
         at:    resolveInstant(input.at, "port at"),
         label: input.label !== undefined ? some(input.label) : none,
-    }, PlanPortType);
+    }, PlanPortType) as PlanPortExpr<PlanKindOf<A>>;
 }
 
 /**
  * Flat input for {@link Plan.event} — one bucket-row tile (the full Planner
  * point-event grammar).
  *
+ * @typeParam A - The `at` input's type — its axis kind brands the result
  * @property key - Stable event identity (drag refs)
  * @property at - The bucket instant
  * @property lane - The lane key (`[]`-laned rows omit it; in a laned row, omitting takes the full cell)
@@ -465,11 +499,11 @@ export function createPort(input: PlanPortInput): ExprType<typeof PlanPortType> 
  * @property content - Optional two-axis content alignment
  * @property animation - Optional attention animation (`"pulse"`)
  */
-export interface PlanBucketEventInput {
+export interface PlanBucketEventInput<A extends PlanInstantInput = PlanInstantInput> {
     /** Stable event identity (drag-grammar cell refs). */
     key: SubtypeExprOrValue<StringType>;
     /** The bucket instant (see {@link PlanInstantLikeType}). */
-    at: SubtypeExprOrValue<PlanInstantLikeType>;
+    at: A;
     /** The lane key. In a laned row, omitting takes the full cell (the mixed grammar). */
     lane?: SubtypeExprOrValue<StringType>;
     /** Optional tile text; omitted ⇒ ✓ (confirmed/actual) or the dashed `plan` chip (proposed). */
@@ -498,12 +532,13 @@ export interface PlanBucketEventInput {
 }
 
 /**
- * Builds one bucket event from a flat input.
+ * Builds one bucket event from a flat input, branded with `at`'s kind.
  *
+ * @typeParam A - The `at` input's type
  * @param input - The event configuration ({@link PlanBucketEventInput})
- * @returns An East expression of {@link PlanBucketEventType}
+ * @returns An East expression of {@link PlanBucketEventType}, branded with its kind
  */
-export function createBucketEvent(input: PlanBucketEventInput): ExprType<PlanBucketEventType> {
+export function createBucketEvent<A extends PlanInstantInput>(input: PlanBucketEventInput<A>): PlanBucketEventExpr<PlanKindOf<A>> {
     const content = input.content !== undefined
         ? some(East.value({
             horizontal: input.content.horizontal !== undefined ? some(resolveTag(input.content.horizontal, PlanContentAlignType)) : none,
@@ -523,7 +558,7 @@ export function createBucketEvent(input: PlanBucketEventInput): ExprType<PlanBuc
         stretch:      input.stretch !== undefined ? some(resolveTag(input.stretch, PlanStretchType)) : none,
         content,
         animation:    input.animation !== undefined ? some(resolveTag(input.animation, PlanAnimationType)) : none,
-    }, PlanBucketEventType);
+    }, PlanBucketEventType) as PlanBucketEventExpr<PlanKindOf<A>>;
 }
 
 /**
@@ -600,14 +635,15 @@ export function createLink(input: PlanLinkInput): ExprType<PlanLinkType> {
 /**
  * Flat input for {@link Plan.marker} — a bucket-cell status ring.
  *
+ * @typeParam A - The `at` input's type — its axis kind brands the result
  * @property at - The bucket instant the marker rings
  * @property lane - The lane key within the cell
  * @property status - The semantic status (default `"danger"`)
  * @property message - The hover-tooltip text
  */
-export interface PlanCellMarkerInput {
+export interface PlanCellMarkerInput<A extends PlanInstantInput = PlanInstantInput> {
     /** The bucket instant the marker rings (see {@link PlanInstantLikeType}). */
-    at: SubtypeExprOrValue<PlanInstantLikeType>;
+    at: A;
     /** The lane key within the cell. */
     lane?: SubtypeExprOrValue<StringType>;
     /** The semantic status (default `"danger"`). */
@@ -617,23 +653,26 @@ export interface PlanCellMarkerInput {
 }
 
 /**
- * Builds one cell marker from a flat input.
+ * Builds one cell marker from a flat input, branded with `at`'s kind.
  *
+ * @typeParam A - The `at` input's type
  * @param input - The marker configuration ({@link PlanCellMarkerInput})
- * @returns An East expression of {@link PlanCellMarkerType}
+ * @returns An East expression of {@link PlanCellMarkerType}, branded with its kind
  */
-export function createCellMarker(input: PlanCellMarkerInput): ExprType<typeof PlanCellMarkerType> {
+export function createCellMarker<A extends PlanInstantInput>(input: PlanCellMarkerInput<A>): PlanCellMarkerExpr<PlanKindOf<A>> {
     return East.value({
         at:      resolveInstant(input.at, "marker at"),
         lane:    input.lane !== undefined ? some(input.lane) : none,
         status:  resolveTag(input.status ?? "danger", StatusValueType),
         message: input.message,
-    }, PlanCellMarkerType);
+    }, PlanCellMarkerType) as PlanCellMarkerExpr<PlanKindOf<A>>;
 }
 
 /**
  * Flat input for {@link Plan.chip} — one cards-row shift chip.
  *
+ * @typeParam F - The `from` input's type — its axis kind brands the result
+ * @typeParam T - The `to` input's type
  * @property key - Stable chip identity
  * @property from - Chip start (inclusive)
  * @property to - Chip end (exclusive)
@@ -641,13 +680,13 @@ export function createCellMarker(input: PlanCellMarkerInput): ExprType<typeof Pl
  * @property state - The lifecycle state (string shorthand or value)
  * @property icon - Optional leading FA glyph
  */
-export interface PlanChipInput {
+export interface PlanChipInput<F extends PlanInstantInput = PlanInstantInput, T extends PlanInstantInput = PlanInstantInput> {
     /** Stable chip identity (drag refs). */
     key: SubtypeExprOrValue<StringType>;
     /** Chip start (inclusive) — see {@link PlanInstantLikeType}. */
-    from: SubtypeExprOrValue<PlanInstantLikeType>;
+    from: F;
     /** Chip end (exclusive). */
-    to: SubtypeExprOrValue<PlanInstantLikeType>;
+    to: T;
     /** The chip text (`"80h"`, `"+64h"`). */
     label: SubtypeExprOrValue<StringType>;
     /** The lifecycle state — confirmed tint · proposed dashed · removed strikethrough · estimated ghost. */
@@ -657,12 +696,17 @@ export interface PlanChipInput {
 }
 
 /**
- * Builds one cards chip from a flat input.
+ * Builds one cards chip from a flat input, branded with the kind `from` /
+ * `to` imply.
  *
+ * @typeParam F - The `from` input's type
+ * @typeParam T - The `to` input's type
  * @param input - The chip configuration ({@link PlanChipInput})
- * @returns An East expression of {@link PlanChipType}
+ * @returns An East expression of {@link PlanChipType}, branded with its kind
  */
-export function createChip(input: PlanChipInput): ExprType<PlanChipType> {
+export function createChip<F extends PlanInstantInput, T extends PlanInstantInput>(
+    input: PlanChipInput<F, T>,
+): PlanChipExpr<PlanKindOf<F | T>> {
     return East.value({
         key:     input.key,
         from:    resolveInstant(input.from, "chip from"),
@@ -670,23 +714,24 @@ export function createChip(input: PlanChipInput): ExprType<PlanChipType> {
         label:   input.label,
         state:   resolvePlanEventState(input.state),
         icon:    input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
-    }, PlanChipType);
+    }, PlanChipType) as PlanChipExpr<PlanKindOf<F | T>>;
 }
 
 /**
  * Flat input for {@link Plan.mark} — one event-row instant mark.
  *
+ * @typeParam A - The `at` input's type — its axis kind brands the result
  * @property key - Stable mark identity
  * @property at - The instant
  * @property kind - `"milestone"` / `"exception"` / `Plan.markKind.decision(applied)`
  * @property icon - Optional FA glyph swap (12px, kind-coloured)
  * @property label - Optional caption (printed when there is room)
  */
-export interface PlanEventMarkInput {
+export interface PlanEventMarkInput<A extends PlanInstantInput = PlanInstantInput> {
     /** Stable mark identity. */
     key: SubtypeExprOrValue<StringType>;
     /** The instant (see {@link PlanInstantLikeType}). */
-    at: SubtypeExprOrValue<PlanInstantLikeType>;
+    at: A;
     /** The mark kind — `"milestone"` / `"exception"` string shorthand or a `PlanEventMarkKindType` value (see `Plan.markKind`). */
     kind: SubtypeExprOrValue<PlanEventMarkKindType> | "milestone" | "exception";
     /** Optional FA glyph swap (12px, still kind-coloured). */
@@ -696,19 +741,20 @@ export interface PlanEventMarkInput {
 }
 
 /**
- * Builds one event mark from a flat input.
+ * Builds one event mark from a flat input, branded with `at`'s kind.
  *
+ * @typeParam A - The `at` input's type
  * @param input - The mark configuration ({@link PlanEventMarkInput})
- * @returns An East expression of {@link PlanEventMarkType}
+ * @returns An East expression of {@link PlanEventMarkType}, branded with its kind
  */
-export function createEventMark(input: PlanEventMarkInput): ExprType<PlanEventMarkType> {
+export function createEventMark<A extends PlanInstantInput>(input: PlanEventMarkInput<A>): PlanEventMarkExpr<PlanKindOf<A>> {
     return East.value({
         key:     input.key,
         at:      resolveInstant(input.at, "mark at"),
         kind:    typeof input.kind === "string" ? East.value(variant(input.kind, null), PlanEventMarkKindType) : input.kind,
         icon:    input.icon !== undefined ? some(resolveIcon(input.icon)) : none,
         label:   input.label !== undefined ? some(input.label) : none,
-    }, PlanEventMarkType);
+    }, PlanEventMarkType) as PlanEventMarkExpr<PlanKindOf<A>>;
 }
 
 /** The `Plan.markKind` builders — non-null mark kinds. */
@@ -745,47 +791,54 @@ export interface PlanHeatCellsOptions {
 
 /**
  * Wraps per-bucket heat cells into the `heat` arm of {@link PlanHeatCellsType}.
+ * Literal records whose `at` is a `Plan.at.*` value brand the result with
+ * that kind ({@link PlanCellsInput}); an East array is kind-erased.
  *
+ * @typeParam K - The kind inferred from the literal records' `at`
  * @param cells - The cells (`{ at, value, label }` structs; `value: none` ⇒ the no-data hatch)
  * @param options - Scale + warn threshold ({@link PlanHeatCellsOptions})
- * @returns A `PlanHeatCellsType` expression
+ * @returns A `PlanHeatCellsType` expression, branded with the cells' kind
  */
-export function createHeatCells(
-    cells: SubtypeExprOrValue<ArrayType<PlanHeatCellType>>,
+export function createHeatCells<K extends PlanAxisKindLiteral = never>(
+    cells: PlanCellsInput<PlanHeatCellType, K>,
     options?: PlanHeatCellsOptions,
-): ExprType<PlanHeatCellsType> {
+): PlanHeatCellsExpr<K> {
     return East.value(variant("heat", {
-        cells:  East.value(cells, ArrayType(PlanHeatCellType)),
+        cells:  East.value(cells as SubtypeExprOrValue<ArrayType<PlanHeatCellType>>, ArrayType(PlanHeatCellType)),
         min:    options?.min !== undefined ? some(options.min) : none,
         max:    options?.max !== undefined ? some(options.max) : none,
         warnAt: options?.warnAt !== undefined ? some(options.warnAt) : none,
-    }), PlanHeatCellsType);
+    }), PlanHeatCellsType) as PlanHeatCellsExpr<K>;
 }
 
 /**
  * Wraps per-bucket weight cells into the `weight` arm of
- * {@link PlanHeatCellsType} (booked-vs-free bars; planned ⇒ pale).
+ * {@link PlanHeatCellsType} (booked-vs-free bars; planned ⇒ pale). Literal
+ * records with `Plan.at.*` instants brand the result with their kind.
  *
+ * @typeParam K - The kind inferred from the literal records' `at`
  * @param cells - The cells (`{ at, fraction, planned }` structs)
- * @returns A `PlanHeatCellsType` expression
+ * @returns A `PlanHeatCellsType` expression, branded with the cells' kind
  */
-export function createWeightCells(
-    cells: SubtypeExprOrValue<ArrayType<PlanWeightCellType>>,
-): ExprType<PlanHeatCellsType> {
-    return East.value(variant("weight", East.value(cells, ArrayType(PlanWeightCellType))), PlanHeatCellsType);
+export function createWeightCells<K extends PlanAxisKindLiteral = never>(
+    cells: PlanCellsInput<PlanWeightCellType, K>,
+): PlanHeatCellsExpr<K> {
+    return East.value(variant("weight", East.value(cells as SubtypeExprOrValue<ArrayType<PlanWeightCellType>>, ArrayType(PlanWeightCellType))), PlanHeatCellsType) as PlanHeatCellsExpr<K>;
 }
 
 /**
  * Wraps per-bucket segment cells into the `segments` arm of
  * {@link PlanHeatCellsType} (committed / pending / slack compositions).
+ * Literal records with `Plan.at.*` instants brand the result with their kind.
  *
+ * @typeParam K - The kind inferred from the literal records' `at`
  * @param cells - The cells (`{ at, segments }` structs — build segments with `Plan.segment`)
- * @returns A `PlanHeatCellsType` expression
+ * @returns A `PlanHeatCellsType` expression, branded with the cells' kind
  */
-export function createSegmentCells(
-    cells: SubtypeExprOrValue<ArrayType<PlanSegmentCellType>>,
-): ExprType<PlanHeatCellsType> {
-    return East.value(variant("segments", East.value(cells, ArrayType(PlanSegmentCellType))), PlanHeatCellsType);
+export function createSegmentCells<K extends PlanAxisKindLiteral = never>(
+    cells: PlanCellsInput<PlanSegmentCellType, K>,
+): PlanHeatCellsExpr<K> {
+    return East.value(variant("segments", East.value(cells as SubtypeExprOrValue<ArrayType<PlanSegmentCellType>>, ArrayType(PlanSegmentCellType))), PlanHeatCellsType) as PlanHeatCellsExpr<K>;
 }
 
 /**
@@ -823,15 +876,16 @@ export function createSegment(input: PlanSegmentInput): ExprType<typeof PlanSegm
  * multi-series table row. Style is declared ONCE here, per position (never
  * per cell — the wire-lean contract); the cells stay raw values.
  *
+ * @typeParam K - The cells' axis kind (a `Plan.tableCells` result carries it)
  * @property cells - The series' cells (a `Plan.tableCells` result / `PlanTableCellType` values)
  * @property format - Numeral format override for this series (else the row's `format`)
  * @property tone - Default tone for the series' values (`"muted"` de-emphasises a plan column)
  * @property strong - Semibold emphasis for this series' values
  * @property rollup - `true` ⇒ this series feeds declared parent aggregation (default: the first)
  */
-export interface PlanTableSeriesInput {
+export interface PlanTableSeriesInput<K extends PlanAxisKindLiteral = never> {
     /** The series' cells (a `Plan.tableCells` result / `PlanTableCellType` values). */
-    cells: SubtypeExprOrValue<ArrayType<PlanTableCellType>>;
+    cells: PlanTableCellsInput<K>;
     /** Numeral format override for THIS series — a `Format.*` spec (else the row's `format`). */
     format?: SubtypeExprOrValue<TickFormatType>;
     /** Default tone for the series' values; per-cell tones and the derived neg/em-dash win. */
@@ -844,19 +898,21 @@ export interface PlanTableSeriesInput {
 
 /**
  * Builds one table-row value series (see {@link Plan.table}'s `series`) —
- * per-position style declared once, raw cells beneath it.
+ * per-position style declared once, raw cells beneath it; the result carries
+ * the cells' axis kind.
  *
+ * @typeParam K - The cells' axis kind
  * @param input - The series configuration ({@link PlanTableSeriesInput})
- * @returns An East expression of {@link PlanTableSeriesType}
+ * @returns An East expression of {@link PlanTableSeriesType}, branded with the cells' kind
  */
-export function createTableSeries(input: PlanTableSeriesInput): ExprType<PlanTableSeriesType> {
+export function createTableSeries<K extends PlanAxisKindLiteral = never>(input: PlanTableSeriesInput<K>): PlanTableSeriesExpr<K> {
     return East.value({
-        cells:  East.value(input.cells, ArrayType(PlanTableCellType)),
+        cells:  East.value(input.cells as SubtypeExprOrValue<ArrayType<PlanTableCellType>>, ArrayType(PlanTableCellType)),
         format: input.format !== undefined ? some(East.value(input.format, TickFormatType)) : none,
         tone:   input.tone !== undefined ? some(resolveTag(input.tone, PlanTableToneType)) : none,
         strong: input.strong !== undefined ? some(input.strong) : none,
         rollup: input.rollup !== undefined ? some(input.rollup) : none,
-    }, PlanTableSeriesType);
+    }, PlanTableSeriesType) as PlanTableSeriesExpr<K>;
 }
 
 /**
@@ -878,13 +934,19 @@ export type PlanRawTableCellType = StructType<{ at: PlanInstantLikeType; value: 
  * field to `ordinal`, a {@link PlanInstantType} field as is — so a
  * `{ at: DateTimeType, value }` dataset keeps compiling unchanged.
  *
+ * Literal records brand the result with the kind their `at` implies
+ * ({@link PlanKindOf}); an East array is kind-erased.
+ *
+ * @typeParam A - The literal records' `at` type
  * @param cells - The raw cells (`{ at, value }` records; `value` an `Option<Float>`)
- * @returns An `ArrayType(PlanTableCellType)` expression
+ * @returns An `ArrayType(PlanTableCellType)` expression, branded with the cells' kind
  * @throws {Error} If an East array's element `at` is not an instant-typed field
  */
-export function createTableCells(
-    cells: SubtypeExprOrValue<ArrayType<PlanRawTableCellType>>,
-): ExprType<ArrayType<PlanTableCellType>> {
+export function createTableCells<A extends PlanInstantInput = never>(
+    cells:
+        | { at: A; value: SubtypeExprOrValue<OptionType<FloatType>> }[]
+        | SubtypeExprOrValue<ArrayType<PlanRawTableCellType>>,
+): PlanTableCellsExpr<PlanKindOf<A>> {
     if (Array.isArray(cells)) {
         // Each element is a literal record or a struct expression; both
         // expose `at` / `value` (a struct expression's field accessors carry
@@ -898,7 +960,7 @@ export function createTableCells(
                 tone:  none,
             }, PlanTableCellType);
         });
-        return East.value(built, ArrayType(PlanTableCellType));
+        return East.value(built, ArrayType(PlanTableCellType)) as PlanTableCellsExpr<PlanKindOf<A>>;
     }
     // An East array — wrap `at` by its STATIC element type, once for the map.
     const raw = cells as unknown as ExprType<ArrayType<StructType<{ at: EastType; value: OptionType<FloatType> }>>>;
@@ -922,5 +984,5 @@ export function createTableCells(
         value: (c as unknown as { value: ExprType<OptionType<FloatType>> }).value,
         text:  none,
         tone:  none,
-    }, PlanTableCellType)) as ExprType<ArrayType<PlanTableCellType>>;
+    }, PlanTableCellType)) as unknown as PlanTableCellsExpr<PlanKindOf<A>>;
 }
