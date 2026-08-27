@@ -76,19 +76,20 @@ _decode_ir = decode_json_for(IRType)
 
 # The current file's compiled program — loaded exactly as the compiled
 # runners load it (compile_from_json: wrapper decode, source-map install,
-# platform-signature validation) and held so the file's source map stays
-# installed while the replay interprets the same IR. One entry: each load
-# replaces the previous file's program.
+# platform-signature validation) and held so the replay can install the
+# file's source map while it interprets the same IR (see
+# _program_source_map). One entry: each load replaces the previous file's
+# program.
 _PROGRAM_KEEPALIVE: dict[str, Any] = {}
 
 
 def _load_program(data: bytes) -> Any:
     """``compile_from_json`` with inert test-harness platform impls — the
-    program is loaded, never called (the replay interprets its IR). Closures
-    the replay creates while it is held reference the program's source map
-    (compiler.c stamps the current map), so their errors resolve original
-    source locations and their beast2 encodings embed the same stack deltas
-    as any compiled runner's closures."""
+    program is loaded, never called (the replay interprets its IR). The
+    replay runs under the program's source map (``_program_source_map``), so
+    closures it creates reference that map (compiler.c stamps the current
+    map): their errors resolve original source locations and their beast2
+    encodings embed the same stack deltas as any compiled runner's closures."""
     from east.runtime.compiler import compile_from_json
     from east.runtime.platform import PlatformFunction
     from east.types.types import AsyncFunctionType, NullType, StringType
@@ -124,6 +125,20 @@ def load_ir(path: str | Path) -> EastVariant:
     # byte-comparison diverges.
     raw = _pyjson.loads(data.decode("utf-8"))
     return _decode_ir(_pyjson.dumps(raw["ir"]))
+
+
+def _program_source_map() -> Any:
+    """The loaded program's source map, installed as the thread-current map
+    for the replay — the TS ``with_source_map(program.source_map, …)``. A
+    compile installs and RESTORES the map it compiles under (#626), so the
+    file's map must be installed explicitly for the closures the replay
+    builds against the file's loc_ids."""
+    program = next(iter(_PROGRAM_KEEPALIVE.values()), None)
+    if program is None:
+        return contextlib.nullcontext()
+    from east.runtime._compiler_eastc import source_map_of
+
+    return source_map_of(program)
 
 
 # ─── value → IR quotation (for baking callback captures) ─────────────────────
@@ -388,7 +403,8 @@ class EagerEvaluator:
     def run_program(self, ir: EastVariant) -> Report:
         """Run an exported spec program (an argless (Async)Function head)."""
         assert ir.type in ("Function", "AsyncFunction"), ir.type
-        self.call(Closure(ir, Env()), [])
+        with _program_source_map():
+            self.call(Closure(ir, Env()), [])
         return self.report
 
     # ── closures ──

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError
 from east.expression.lift import _lift, _trace_inner_fn, _with_key_arg
+from east.expression.location import location_id as _loc_id
 from east.expression.nodes import (
     _builtin,
     _fresh_name,
@@ -210,7 +211,7 @@ class _SequenceOps(_ExprBase):
             "DictUnionInPlace", NullType, [k_t, v_t], [result, o.ir, merge_node])
         return self._expr(
             _k_block(self.east_type,
-                     [ir_let(self.east_type, _var(name, self.east_type), copy),
+                     [ir_let(self.east_type, _var(name, self.east_type), copy, _loc_id()),
                       merged, result]),
             self.east_type,
         )

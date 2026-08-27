@@ -681,7 +681,10 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         emitted.add(i)
         node = keep[i]
         value = rewrite(node, binding=i)
-        let = ir_let(node.value["type"], _var(hoistable[i], node.value["type"]), value)
+        # The hoisted Let stands in for the node it binds: it reports that
+        # node's authoring location, not the finalize pass's.
+        let = ir_let(node.value["type"], _var(hoistable[i], node.value["type"]), value,
+                     node.value["loc_id"])
         home, at = site[i]
         if home is None:
             lets.append(let)
@@ -716,7 +719,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
 
                 body_type = node.value["type"].value["output"]
                 block: Any = EastVariant("Block", EastStruct({
-                    "type": body_type, "loc_id": 0,
+                    "type": body_type, "loc_id": node.value["loc_id"],
                     "statements": EastArray(IRType, [*lets, body]),
                 }))
                 children[-1] = block
@@ -771,7 +774,9 @@ def _function_ir(
     )
     top = fn_node
     if consts:
-        lets = [ir_let(t, _var(name, t), node) for name, node, t in consts]
+        # Each constant's Let reports the constructor node's own location —
+        # the site that captured the constant.
+        lets = [ir_let(t, _var(name, t), node, node.value["loc_id"]) for name, node, t in consts]
         top = _k_block(fn_type, [*lets, fn_node])
     param_names = {p.value["name"] for p in params} | {name for name, _n, _t in consts}
     return _finalize_ir(top, param_names, kernel_fn=fn_node)

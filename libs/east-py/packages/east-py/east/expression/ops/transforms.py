@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError
 from east.expression.lift import _lift, _trace_inner_fn, _with_index, _with_key_arg
+from east.expression.location import location_id as _loc_id
 from east.expression.nodes import (
     _builtin,
     _fresh_name,
@@ -293,7 +294,7 @@ class _TransformOps(_ExprBase):
              _literal(suffix, StringType)],
         )
         return _k_function(
-            FunctionType([t2, t2, k2], t2), [], [v1, v2, ck], ir_error(t2, msg)
+            FunctionType([t2, t2, k2], t2), [], [v1, v2, ck], ir_error(t2, msg, _loc_id())
         )
 
     def _duplicate_key_node(self, t2: EastType, k2: EastType):

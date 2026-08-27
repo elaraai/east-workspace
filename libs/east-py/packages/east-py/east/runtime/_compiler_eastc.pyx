@@ -14,8 +14,8 @@ east-c via east_register_all_builtins — no Python builtins are used.
 
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uint8_t, uintptr_t
-from libc.stdlib cimport malloc, free
-from libc.string cimport memcpy
+from libc.stdlib cimport malloc, calloc, free
+from libc.string cimport memcpy, strdup
 
 from east cimport _eastc
 from east._eastc_bridge cimport py_type_to_c, c_value_to_py, py_value_to_c, _c_type_tag_to_py_type
@@ -962,6 +962,139 @@ def call_builtin(str name, list type_params, list args, object output_type):
             _eastc.east_type_release(c_out)
 
 
+# ─── Source maps (#626) ──────────────────────────────────────────────────
+#
+# A python-authored function's loc_ids index the SourceMap its build captured
+# (east.expression.location). The map crosses to east-c ONCE, at compile
+# time: it is the current map while the IR compiles — so a compile-time
+# error (a platform-signature mismatch) names the offending node by python
+# file:line, exactly as the JSON/beast2 paths install an exported map — and
+# the closure that results holds its own reference from then on. east-c
+# refcounts source maps (east_source_map_retain/release) and the compiled
+# function releases its reference when it is freed, so nothing here is
+# leaked and nothing outlives its last holder.
+
+
+cdef _eastc.EastSourceMap* _source_map_to_c(object source_map) except NULL:
+    """A heap EastSourceMap (one reference — the caller's) holding every stack
+    of a python ``SourceMap``: filenames strdup'd, lines/columns as given."""
+    cdef list entries = list(source_map.entries())
+    cdef size_t n = len(entries)
+    cdef size_t i, j, count
+    cdef bytes encoded
+    cdef _eastc.EastSourceMap* sm = _eastc.east_source_map_new()
+    if sm == NULL:
+        raise MemoryError()
+    sm.stacks = <_eastc.EastLocation**>calloc(n, sizeof(_eastc.EastLocation*))
+    sm.stack_counts = <size_t*>calloc(n, sizeof(size_t))
+    if sm.stacks == NULL or sm.stack_counts == NULL:
+        _eastc.east_source_map_release(sm)
+        raise MemoryError()
+    # Set the count first: a release part-way through frees exactly the
+    # stacks (and filenames) allocated so far — calloc zeroes the rest.
+    sm.num_stacks = n
+    for i in range(n):
+        stack = entries[i]
+        count = len(stack)
+        sm.stack_counts[i] = count
+        if count == 0:
+            continue
+        sm.stacks[i] = <_eastc.EastLocation*>calloc(count, sizeof(_eastc.EastLocation))
+        if sm.stacks[i] == NULL:
+            _eastc.east_source_map_release(sm)
+            raise MemoryError()
+        for j in range(count):
+            filename, line, column = stack[j]
+            encoded = filename.encode("utf-8")
+            sm.stacks[i][j].filename = strdup(<const char*>encoded)
+            sm.stacks[i][j].line = <int64_t>line
+            sm.stacks[i][j].column = <int64_t>column
+    return sm
+
+
+cdef void _adopt_source_map(object result, _eastc.EastSourceMap* sm) except *:
+    """Hand a compile's map reference to the compiled function.
+
+    The unwrapped closure normally took its own reference while it was
+    created under the map (the IR_FUNCTION eval retains the current map), in
+    which case this compile's reference is simply dropped; a function that
+    compiled to a bare wrapper (nothing to unwrap) adopts it instead. Either
+    way the function ends up holding exactly one reference, released with it.
+    """
+    cdef uintptr_t compiled_ptr = <uintptr_t>result._eastc_handle._compiled
+    cdef _eastc.EastCompiledFn* cfn = <_eastc.EastCompiledFn*>compiled_ptr
+    if cfn != NULL and cfn.source_map == NULL:
+        cfn.source_map = sm
+    else:
+        _eastc.east_source_map_release(sm)
+
+
+cdef list _error_locations(_eastc.EvalResult* result):
+    """The resolved frames of an EVAL_ERROR, innermost first, as the plain
+    ``{filename, line, column}`` structs ``EastError.location`` carries."""
+    from east.types.values import EastStruct
+    cdef list out = []
+    cdef size_t i
+    if result.num_locations > 0 and result.locations != NULL:
+        for i in range(result.num_locations):
+            loc = result.locations[i]
+            filename = loc.filename.decode("utf-8") if loc.filename != NULL else "<unknown>"
+            out.append(EastStruct({
+                "filename": filename,
+                "line": loc.line,
+                "column": loc.column,
+            }))
+    return out
+
+
+cdef class _SourceMapScope:
+    """The context manager behind ``source_map_of``."""
+    cdef object _fn
+    cdef _eastc.EastSourceMap* _sm
+    cdef const _eastc.EastSourceMap* _saved
+
+    def __cinit__(self, object compiled_fn):
+        self._fn = compiled_fn
+        self._sm = NULL
+        self._saved = NULL
+
+    def __enter__(self):
+        cdef uintptr_t compiled_ptr = <uintptr_t>getattr(
+            getattr(self._fn, "_eastc_handle", None), "_compiled", 0)
+        cdef _eastc.EastCompiledFn* cfn = <_eastc.EastCompiledFn*>compiled_ptr
+        self._saved = _eastc.east_get_source_map()
+        if cfn != NULL and cfn.source_map != NULL:
+            self._sm = cfn.source_map
+            _eastc.east_source_map_retain(self._sm)
+            _eastc.east_set_source_map(self._sm)
+        return self
+
+    def __exit__(self, *exc):
+        _eastc.east_set_source_map(self._saved)
+        _eastc.east_source_map_release(self._sm)  # NULL-safe
+        self._sm = NULL
+        self._saved = NULL
+        return False
+
+
+def source_map_of(object compiled_fn):
+    """A context manager installing ``compiled_fn``'s source map as the
+    thread-current map for the block — the C-side twin of the TypeScript
+    ``with_source_map(fn.source_map, …)``.
+
+    For a harness that builds closures against a program's EXPORTED IR (the
+    compliance replay, whose loc_ids index the file's map): every function
+    compiled or unwrapped inside the block snapshots that map, so its errors
+    resolve the original source locations and its beast2 encoding embeds the
+    same map a compiled runner's closure embeds. The previously current map
+    is restored on exit. A compile installs — and restores — the map it
+    compiles under on its own (``compile_from_value``'s ``source_map``, the
+    decoded-map compile paths), so this is only for code that builds
+    functions OUTSIDE such a compile against someone else's loc_ids.
+    """
+    return _SourceMapScope(compiled_fn)
+
+
 # ─── Common compile from C IR value ──────────────────────────────────────
 
 cdef object _compile_from_c_ir_val(_eastc.EastValue* c_ir_val, list platform_list, bint is_async,
@@ -989,7 +1122,8 @@ cdef _eastc.EastType* _ensure_c_ir_type() except NULL:
     return _c_ir_type
 
 
-cpdef object compile_eastc_from_value(object ir_value, list platform_list, bint is_async):
+cpdef object compile_eastc_from_value(object ir_value, list platform_list, bint is_async,
+                                      object source_map=None):
     """Compile East IR from a homoiconic IR value (an EastVariant conforming
     to IRType) — the python value converts straight to a C value and
     east_ir_from_value builds the IR tree, with no serialization round-trip.
@@ -998,10 +1132,42 @@ cpdef object compile_eastc_from_value(object ir_value, list platform_list, bint 
     The IR value is attached to the compiled callable's ``_east_ir`` (#476):
     it is the serialization fallback's source, and dropping it here made
     east-py unable to serialize its own compiled kernels.
+
+    ``source_map`` is the ``east.expression.location.SourceMap`` the IR's
+    loc_ids index (#626). It is installed as the current map around the
+    compile — the same discipline as the exported-map paths — and handed to
+    the compiled function, so a runtime error resolves to the python
+    file:line that built the failing node, the function's beast2 encoding
+    carries the map, and a compile-time error names its node's location.
+    The python map is also attached as ``_east_source_map``.
     """
     _ensure_runtime()
-    cdef _eastc.EastValue* c_ir_val = py_value_to_c(ir_value, _ensure_c_ir_type())
-    return _compile_from_c_ir_val(c_ir_val, platform_list, is_async, ir_value)
+    cdef _eastc.EastSourceMap* c_sm = NULL
+    cdef const _eastc.EastSourceMap* saved = NULL
+    cdef _eastc.EastValue* c_ir_val
+    cdef object result
+    if source_map is not None and len(source_map) > 1:
+        c_sm = _source_map_to_c(source_map)
+    try:
+        c_ir_val = py_value_to_c(ir_value, _ensure_c_ir_type())
+    except BaseException:
+        _eastc.east_source_map_release(c_sm)
+        raise
+    saved = _eastc.east_get_source_map()
+    if c_sm != NULL:
+        _eastc.east_set_source_map(c_sm)
+    try:
+        result = _compile_from_c_ir_val(c_ir_val, platform_list, is_async, ir_value)
+    except BaseException:
+        _eastc.east_set_source_map(saved)
+        _eastc.east_source_map_release(c_sm)
+        raise
+    _eastc.east_set_source_map(saved)
+    if c_sm != NULL:
+        _adopt_source_map(result, c_sm)
+    if source_map is not None:
+        object.__setattr__(result, "_east_source_map", source_map)
+    return result
 
 
 cdef object _compile_from_ir_node(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir_val,
@@ -1091,39 +1257,35 @@ cpdef object compile_eastc_from_json(bytes json_data, list platform_list, bint i
             _eastc.east_value_release(c_ir_val)
         raise RuntimeError("east_json_decode_ir failed for IR")
 
-    # Install before compiling: compile-time errors name the offending node by
-    # source location, which only resolves while this map is the current one.
+    return _compile_with_decoded_map(ir_node, c_ir_val, source_map, platform_list, is_async)
+
+
+cdef object _compile_with_decoded_map(_eastc.IRNode* ir_node, _eastc.EastValue* c_ir_val,
+                                      _eastc.EastSourceMap* source_map,
+                                      list platform_list, bint is_async):
+    """Compile decoded IR under its exported map (JSON wrapper / beast2).
+
+    The map is installed as the current one around the compile — a
+    compile-time error names the offending node by source location, which
+    only resolves while its map is current — then the decode's reference is
+    handed to the compiled function (see ``_adopt_source_map``). The
+    previously current map is restored either way: a compile may run inside
+    ``east_call`` (a platform function building a program) and must not
+    clobber the caller's map.
+    """
+    cdef const _eastc.EastSourceMap* saved = _eastc.east_get_source_map()
+    cdef object result
     if source_map != NULL:
         _eastc.east_set_source_map(source_map)
-
-    cdef object result
     try:
         result = _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async)
     except BaseException:
-        if source_map != NULL:
-            _eastc.east_set_source_map(NULL)
-            _eastc.east_source_map_free(source_map)
-            free(source_map)
+        _eastc.east_set_source_map(saved)
+        _eastc.east_source_map_release(source_map)
         raise
-
-    # Attach source map to the compiled function if present
-    cdef uintptr_t sm_compiled_ptr
-    cdef _eastc.EastCompiledFn* sm_cfn
+    _eastc.east_set_source_map(saved)
     if source_map != NULL:
-        try:
-            handle = result._eastc_handle
-            sm_compiled_ptr = handle._compiled
-            sm_cfn = <_eastc.EastCompiledFn*>sm_compiled_ptr
-            if sm_cfn != NULL:
-                sm_cfn.source_map = source_map
-                _eastc.east_set_source_map(source_map)
-            else:
-                _eastc.east_source_map_free(source_map)
-                free(source_map)
-        except Exception:
-            _eastc.east_source_map_free(source_map)
-            free(source_map)
-
+        _adopt_source_map(result, source_map)
     return result
 
 
@@ -1145,45 +1307,10 @@ cpdef object compile_eastc_from_beast2(bytes beast2_data, list platform_list, bi
     if ir_node == NULL:
         if c_ir_val != NULL:
             _eastc.east_value_release(c_ir_val)
-        if source_map != NULL:
-            _eastc.east_source_map_free(source_map)
-            free(source_map)
+        _eastc.east_source_map_release(source_map)
         raise RuntimeError("east_beast2_decode_ir failed for IR")
 
-    # Install before compiling: compile-time errors name the offending node by
-    # source location, which only resolves while this map is the current one.
-    if source_map != NULL:
-        _eastc.east_set_source_map(source_map)
-
-    cdef object result
-    try:
-        result = _compile_from_ir_node(ir_node, c_ir_val, platform_list, is_async)
-    except BaseException:
-        if source_map != NULL:
-            _eastc.east_set_source_map(NULL)
-            _eastc.east_source_map_free(source_map)
-            free(source_map)
-        raise
-
-    # Attach source map to the compiled function if present
-    cdef uintptr_t sm_compiled_ptr
-    cdef _eastc.EastCompiledFn* sm_cfn
-    if source_map != NULL:
-        try:
-            handle = result._eastc_handle
-            sm_compiled_ptr = handle._compiled
-            sm_cfn = <_eastc.EastCompiledFn*>sm_compiled_ptr
-            if sm_cfn != NULL:
-                sm_cfn.source_map = source_map
-                _eastc.east_set_source_map(source_map)
-            else:
-                _eastc.east_source_map_free(source_map)
-                free(source_map)
-        except Exception:
-            _eastc.east_source_map_free(source_map)
-            free(source_map)
-
-    return result
+    return _compile_with_decoded_map(ir_node, c_ir_val, source_map, platform_list, is_async)
 
 
 # ─── Compile from East text (fast path — no Python round-trip) ───────────
@@ -1729,12 +1856,15 @@ def _invoke_c_function_py(uintptr_t val_ptr, list input_type_ptrs, uintptr_t out
         msg = "east_call failed"
         if result.error_message != NULL:
             msg = result.error_message.decode("utf-8")
+        # A decoded function value resolves its loc_ids against the map it
+        # carries (its blob's source-map section), so the error it raises
+        # names the authoring site exactly as a compiled function's does.
+        location_array = _error_locations(&result)
         if result.value != NULL:
             _eastc.east_value_release(result.value)
         _eastc.eval_result_free(&result)
         from east.runtime.errors import EastError
-        from east.types.values import EastArray, EastVariant
-        raise EastError(msg, [])
+        raise EastError(msg, location_array)
 
     if result.value == NULL:
         return None
@@ -1881,21 +2011,11 @@ cpdef object _eastc_call(uintptr_t compiled_ptr, list input_type_ptrs,
     if result.error_message != NULL:
         msg = result.error_message.decode("utf-8")
 
-    # Build the location stack for EastError — a plain list of {filename, line,
+    # The location stack for EastError — a plain list of {filename, line,
     # column} structs (error-reporting data; no need for a C-backed array).
     from east.runtime.errors import EastError
-    from east.types.values import EastStruct
 
-    location_array = []
-    if result.num_locations > 0 and result.locations != NULL:
-        for i in range(result.num_locations):
-            loc = result.locations[i]
-            filename = loc.filename.decode("utf-8") if loc.filename != NULL else "<unknown>"
-            location_array.append(EastStruct({
-                "filename": filename,
-                "line": loc.line,
-                "column": loc.column,
-            }))
+    location_array = _error_locations(&result)
 
     if result.value != NULL:
         _eastc.east_value_release(result.value)

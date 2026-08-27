@@ -1435,7 +1435,10 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
     cdef uintptr_t baked_ptr
     if not getattr(val, EAST_CAPTURES_ATTR, None):
         from east.runtime.compiler import compile_from_value
-        native = compile_from_value(py_ir)
+        # A builder artifact carries the source map its loc_ids index (#626);
+        # compiling under it keeps the closure's — and so the blob's — map.
+        native = compile_from_value(
+            py_ir, source_map=getattr(val, "_east_source_map", None))
         baked_ptr = <uintptr_t>getattr(
             getattr(native, "_eastc_handle", None), "_fn_val", 0)
         if baked_ptr != 0:

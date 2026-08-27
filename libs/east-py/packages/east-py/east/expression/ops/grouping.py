@@ -25,6 +25,7 @@ from east.expression.lift import (
     if_else,
     least,
 )
+from east.expression.location import location_id as _loc_id
 from east.expression.nodes import (
     _builtin,
     _fresh_name,
@@ -265,7 +266,8 @@ class _GroupOps(_ExprBase):
         opt_t = _option_type(p_t)
         grouped = self._grouped(
             op, key,
-            lambda _gk: self._expr(ir_variant(opt_t, "none", _literal(None, NullType)), opt_t),
+            lambda _gk: self._expr(
+                ir_variant(opt_t, "none", _literal(None, NullType), _loc_id()), opt_t),
             lambda acc, el, i: _some(pick(acc.unwrap_or(proj(el, i)), proj(el, i))),
         )
         return grouped.map(lambda v: v.unwrap("some"))
@@ -469,7 +471,8 @@ class _GroupOps(_ExprBase):
         pairs_t = _ArrayType(pair_t)
         scan = _builtin("ArrayFilterMap", pairs_t, [elem_t, pair_t], [self.ir, node])
         pairs = self._expr(
-            _k_block(pairs_t, [ir_let(p_t, _var(tname, p_t), target.ir), scan]), pairs_t)
+            _k_block(pairs_t, [ir_let(p_t, _var(tname, p_t), target.ir, _loc_id()), scan]),
+            pairs_t)
         groups = self._expr(
             _builtin("ArrayToSet", _SetType(k2), [elem_t, k2], [self.ir, key_node]),
             _SetType(k2))

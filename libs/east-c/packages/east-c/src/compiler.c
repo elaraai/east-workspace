@@ -774,9 +774,14 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
         /* Snapshot the thread-local source map so this function value can be
          * beast2-encoded with its own source_map section (matches JS's
-         * SourceMapSymbol attach at East.function/asyncFunction construction).
-         * Borrowed, not owned — same ownership as value_decode.c:333. */
+         * SourceMapSymbol attach at East.function/asyncFunction construction)
+         * and resolves its own loc_ids at error time. The closure holds a
+         * reference — dropped by east_compiled_fn_free — so the map outlives
+         * whichever compile or decode installed it (a python-authored kernel
+         * is compiled once and called long after; a decoded closure outlives
+         * the decode that read the map off the wire). */
         fn->source_map = (EastSourceMap *)g_current_source_map;
+        east_source_map_retain(fn->source_map);
 
         EastValue *fv = east_function_value(fn);
         return eval_ok(fv);
@@ -1749,6 +1754,11 @@ void east_set_source_map(const EastSourceMap *sm)
     g_current_source_map = sm;
 }
 
+const EastSourceMap *east_get_source_map(void)
+{
+    return g_current_source_map;
+}
+
 EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
 {
     if (!fn) return eval_error("null function");
@@ -1874,6 +1884,11 @@ void east_compiled_fn_free(EastCompiledFn *fn)
     if (fn->source_ir) {
         east_value_release(fn->source_ir);
         fn->source_ir = NULL;
+    }
+
+    if (fn->source_map) {
+        east_source_map_release(fn->source_map);
+        fn->source_map = NULL;
     }
 
     if (fn->platform) {

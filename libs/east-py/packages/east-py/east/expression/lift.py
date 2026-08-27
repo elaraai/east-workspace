@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError
 from east.expression.finalize import _capturing_fn
+from east.expression.location import location_id as _loc_id
 from east.expression.nodes import (
     _fresh_name,
     _is_option,
@@ -512,7 +513,7 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
         inner = payload if isinstance(payload, Expression) \
             else _lift(payload, hint=inner_hint)
         opt_t = _option_type(inner.east_type)
-        node = ir_variant(opt_t, "some", inner.ir)
+        node = ir_variant(opt_t, "some", inner.ir, _loc_id())
         return Expression(node, opt_t)
     # `none.value` is the east_null sentinel, not Python None — test the sentinel
     # so this branch (and its type-from-context diagnostic) is actually reachable.
@@ -523,7 +524,7 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
                 "some(...) arm in East.if_else(), or declare the output type "
                 "(East.function(params, OptionType(T), body); out= on the method)"
             )
-        node = ir_variant(hint, "none", _literal(None, NullType))
+        node = ir_variant(hint, "none", _literal(None, NullType), _loc_id())
         return Expression(node, hint)
     if hint is not None and hint.type == "Variant":
         # General variant construction: variant("case", payload) with the
@@ -539,7 +540,7 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
                 f"variant case {value.type!r} payload has type {payload.east_type.type}, "
                 f"expected {case_t.type}"
             )
-        node = ir_variant(hint, value.type, payload.ir)
+        node = ir_variant(hint, value.type, payload.ir, _loc_id())
         return Expression(node, hint)
     # A general variant — the 2-arg variant(case, payload) construction
     # carries no VariantType — reached here with no Variant hint (#541).
@@ -641,7 +642,8 @@ class _Jump:
             )
         frame = _loop_frame(self.label, f"{self.kind.lower()}_")
         build = ir_break if self.kind == "Break" else ir_continue
-        jump = build(hint, ir_label(frame.name))
+        loc = _loc_id()
+        jump = build(hint, ir_label(frame.name, loc), loc)
         if self.state is _NO_STATE:
             return Expression(jump, hint)
         return Expression(_k_block(hint, [frame.commit(self.state), jump]), hint)

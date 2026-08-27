@@ -57,6 +57,7 @@ from east.expression.lift import (
     _suspend_hoisting,
     _tracing,
 )
+from east.expression.location import location_id as _loc_id
 from east.expression.nodes import (
     _builtin,
     _fresh_name,
@@ -412,7 +413,7 @@ def while_(state: Any, cond: Any, body: Any, *, label: Any = None) -> Any:
     finally:
         _pop_loop_frame()
 
-    loop = ir_while(NullType, test.ir, ir_label(name), step)
+    loop = ir_while(NullType, test.ir, ir_label(name, _loc_id()), step, loc_id=_loc_id())
     return _loop_block(cell, ref_t, state_t, init, loop)
 
 
@@ -455,9 +456,10 @@ def _state_cell(state_t: EastType):
 def _loop_block(cell: str, ref_t: EastType, state_t: EastType,
                 init: Expression, loop: Any) -> Expression:
     """Seed the state cell, run the loop, read the state back out."""
+    loc = _loc_id()
     return Expression(
         _k_block(state_t, [
-            ir_let(ref_t, _var(cell, ref_t), ir_new_ref(ref_t, init.ir)),
+            ir_let(ref_t, _var(cell, ref_t), ir_new_ref(ref_t, init.ir, loc), loc),
             loop,
             _builtin("RefGet", state_t, [state_t], [_var(cell, ref_t)]),
         ]),
@@ -545,13 +547,14 @@ def for_(collection: Any, state: Any, body: Any, *, label: Any = None) -> Any:
     finally:
         _pop_loop_frame()
 
-    lbl = ir_label(name)
+    loc = _loc_id()
+    lbl = ir_label(name, loc)
     if tag == "Array":
-        loop = ir_for_array(NullType, source.ir, lbl, key, value, step)
+        loop = ir_for_array(NullType, source.ir, lbl, key, value, step, loc)
     elif tag == "Set":
-        loop = ir_for_set(NullType, source.ir, lbl, key, step)
+        loop = ir_for_set(NullType, source.ir, lbl, key, step, loc)
     else:
-        loop = ir_for_dict(NullType, source.ir, lbl, key, value, step)
+        loop = ir_for_dict(NullType, source.ir, lbl, key, value, step, loc)
     return _loop_block(cell, ref_t, state_t, init, loop)
 
 
@@ -646,7 +649,7 @@ def let(value: Any, fn: Any) -> Any:
     body = _lift(fn(Expression(_var(name, bound.east_type), bound.east_type)))
     return Expression(
         _k_block(body.east_type, [
-            ir_let(bound.east_type, _var(name, bound.east_type), bound.ir),
+            ir_let(bound.east_type, _var(name, bound.east_type), bound.ir, _loc_id()),
             body.ir,
         ]),
         body.east_type,
@@ -673,7 +676,7 @@ def ref(value: Any) -> Any:
         return EastRef(value)
     inner = _lift(value)
     t = RefType(inner.east_type)
-    return Expression(ir_new_ref(t, inner.ir), t)
+    return Expression(ir_new_ref(t, inner.ir, _loc_id()), t)
 
 
 # ─── Fresh local collections ────────────────────────────────────────────────
@@ -801,6 +804,7 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
             message,
             stack,
             finally_body=ending.ir if ending is not None else _literal(None, NullType),
+            loc_id=_loc_id(),
         ),
         guarded.east_type,
     )

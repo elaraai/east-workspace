@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError
 from east.expression.lift import _lift, _trace_inner_fn, _with_index, greatest, least
+from east.expression.location import location_id as _loc_id
 from east.expression.nodes import _builtin, _fresh_name, _k_block, _var
 from east.expression.ops import _ExprBase
 from east.ir.builders import ir_let
@@ -124,7 +125,8 @@ class _ReductionOps(_ExprBase):
         return self._expr(
             _k_block(
                 body.east_type,
-                [ir_let(self.east_type, _var(name, self.east_type), self.ir), body.ir],
+                [ir_let(self.east_type, _var(name, self.east_type), self.ir, _loc_id()),
+                 body.ir],
             ),
             body.east_type,
         )

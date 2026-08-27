@@ -48,9 +48,11 @@ import east.types as _types  # noqa: E402
 from east.expression import (  # noqa: E402
     Expression,
     ExpressionError,
+    SourceMap,
     greatest,
     if_else,
     least,
+    set_location_base_path,
 )
 from east.namespace import East  # noqa: E402
 from east.runtime.compiler import (  # noqa: E402
@@ -118,4 +120,8 @@ __all__ = [
     "if_else",
     "greatest",
     "least",
+    # authoring-frame source maps (#626): the map an East.function carries,
+    # and the base directory recorded paths are relativized against
+    "SourceMap",
+    "set_location_base_path",
 ]

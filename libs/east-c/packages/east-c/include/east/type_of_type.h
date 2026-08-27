@@ -40,13 +40,30 @@ EastValue *east_type_to_value(EastType *type);
 IRNode *east_ir_from_value(EastValue *value);
 
 // Source map: array of location stacks for loc_id → location resolution.
+//
+// Heap maps are reference-counted: every EastCompiledFn that resolves against
+// a map holds one reference (east_compiled_fn_free drops it), so a closure
+// decoded from a blob — or created while a map was current — keeps that map
+// alive for as long as it can raise, however the decode's own state is torn
+// down. A map embedded in another struct (ref_count 0) is never freed by
+// east_source_map_release; free its contents with east_source_map_free.
 typedef struct EastSourceMap {
     EastLocation **stacks; // stacks[i] = array of EastLocation frames
     size_t *stack_counts;  // stack_counts[i] = number of frames in stack i
     size_t num_stacks;     // total number of stacks (including sentinel 0)
+    int ref_count;         // holders of a heap map; 0 = embedded (not refcounted)
 } EastSourceMap;
 
-// Free a source map's contents (stacks, stack_counts, filenames).
+// A fresh, empty heap map holding one reference (the caller's). NULL on OOM.
+EastSourceMap *east_source_map_new(void);
+
+// Take / drop one reference on a heap map. NULL and embedded (ref_count 0)
+// maps are no-ops; the last release frees the contents and the struct.
+void east_source_map_retain(EastSourceMap *sm);
+void east_source_map_release(EastSourceMap *sm);
+
+// Free a source map's contents (stacks, stack_counts, filenames) in place,
+// leaving the struct itself — for embedded instances and the last release.
 void east_source_map_free(EastSourceMap *sm);
 
 // Resolve a loc_id to EastLocation using a source map.

@@ -69,6 +69,11 @@ All structured data uses two base classes:
    `from east.expression import …`.
    - `nodes.py` / `lift.py` / `finalize.py` — IR construction, lifting python
      values into traced expressions, and the trace-time CSE
+   - `location.py` — authoring-frame source maps (#626): `SourceMap`, the
+     `sys._getframe` capture that stamps every node's `loc_id` at build time
+     (never per call), the ambient `source_map_scope` the builder entries
+     open, and `set_location_base_path`. The map crosses to east-c once, at
+     compile time, and rides the function's beast2 encoding
    - `expr.py` + `ops/` — `Expression` and its method surface, one op mixin
      per domain (a mixin builds results with `self._expr(…)`: it cannot name
      `Expression`, because `expr.py` imports it to build that class)

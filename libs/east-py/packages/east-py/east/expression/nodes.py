@@ -20,6 +20,7 @@ import itertools
 from typing import Any
 
 from east.expression.errors import ExpressionError
+from east.expression.location import location_id as _loc_id
 from east.ir.builders import ir_value, ir_variable
 from east.types.type_of_type import EastTypeType
 from east.types.types import EastType
@@ -30,8 +31,11 @@ from east.types.values import EastStruct, EastVariant
 # Every node is an East value conforming to IRType from the moment it is
 # constructed (east/ir/builders.py), so malformed IR is unrepresentable and
 # compilation converts the value tree directly (compile_from_value) with no
-# serialization round-trip. Kernels carry no source locations: every node
-# keeps the builders' default loc_id of 0 with no source map.
+# serialization round-trip. Every node built inside a build carries the
+# loc_id of the python frames that built it (east/expression/location.py,
+# #626) — the same authoring-frame source map the TypeScript builders attach
+# — so a runtime error names the python file:line of its expression; a node
+# built outside any build (an internal helper kernel) carries 0.
 
 
 def _type_key(t: EastType) -> str:
@@ -43,7 +47,7 @@ def _type_key(t: EastType) -> str:
 
 
 def _var(name: str, t: EastType):
-    return ir_variable(t, name)
+    return ir_variable(t, name, _loc_id())
 
 
 def _builtin(name: str, out: EastType, type_params: list[EastType], args: list):
@@ -69,7 +73,7 @@ def _literal(value: Any, t: EastType):
         coerced = value
     else:
         raise ExpressionError(f"cannot embed a literal of East type {tag} in a kernel")
-    return ir_value(t, coerced)
+    return ir_value(t, coerced, _loc_id())
 
 #: The builtins that MUTATE their first argument. Two callers need to know:
 #: the finalize pass, which must not hoist a mutation of anything the hoisted
@@ -150,28 +154,28 @@ def _fresh_name() -> str:
 
 def _k_builtin(name: str, out: EastType, type_params: list, args: list):
     return EastVariant("Builtin", EastStruct({
-        "type": out, "loc_id": 0, "builtin": name,
+        "type": out, "loc_id": _loc_id(), "builtin": name,
         "type_parameters": list(type_params), "arguments": list(args),
     }))
 
 
 def _k_function(fn_t: EastType, captures: list, params: list, body):
     return EastVariant("Function", EastStruct({
-        "type": fn_t, "loc_id": 0, "captures": list(captures),
+        "type": fn_t, "loc_id": _loc_id(), "captures": list(captures),
         "parameters": list(params), "body": body,
     }))
 
 
 def _k_async_function(fn_t: EastType, captures: list, params: list, body):
     return EastVariant("AsyncFunction", EastStruct({
-        "type": fn_t, "loc_id": 0, "captures": list(captures),
+        "type": fn_t, "loc_id": _loc_id(), "captures": list(captures),
         "parameters": list(params), "body": body,
     }))
 
 
 def _k_platform(name: str, out: EastType, args: list, is_async: bool):
     return EastVariant("Platform", EastStruct({
-        "type": out, "loc_id": 0, "name": name,
+        "type": out, "loc_id": _loc_id(), "name": name,
         "type_parameters": [], "arguments": list(args),
         "async": is_async, "optional": False,
     }))
@@ -179,51 +183,57 @@ def _k_platform(name: str, out: EastType, args: list, is_async: bool):
 
 def _k_block(t: EastType, statements: list):
     return EastVariant("Block", EastStruct({
-        "type": t, "loc_id": 0, "statements": list(statements),
+        "type": t, "loc_id": _loc_id(), "statements": list(statements),
     }))
 
 def _k_match(t: EastType, subject, cases: list):
     return EastVariant("Match", EastStruct({
-        "type": t, "loc_id": 0, "variant": subject,
+        "type": t, "loc_id": _loc_id(), "variant": subject,
         "cases": [EastStruct({"case": c, "variable": v, "body": b}) for c, v, b in cases],
     }))
 
 
 def _k_new_array(t: EastType, values: list):
-    return EastVariant("NewArray", EastStruct({"type": t, "loc_id": 0, "values": list(values)}))
+    return EastVariant("NewArray", EastStruct({
+        "type": t, "loc_id": _loc_id(), "values": list(values),
+    }))
 
 
 def _k_new_vector(t: EastType, values: list):
-    return EastVariant("NewVector", EastStruct({"type": t, "loc_id": 0, "values": list(values)}))
+    return EastVariant("NewVector", EastStruct({
+        "type": t, "loc_id": _loc_id(), "values": list(values),
+    }))
 
 
 def _k_new_matrix(t: EastType, rows: int, cols: int, values: list):
     return EastVariant("NewMatrix", EastStruct({
-        "type": t, "loc_id": 0, "values": list(values), "rows": rows, "cols": cols,
+        "type": t, "loc_id": _loc_id(), "values": list(values), "rows": rows, "cols": cols,
     }))
 
 
 def _k_new_set(t: EastType, values: list):
-    return EastVariant("NewSet", EastStruct({"type": t, "loc_id": 0, "values": list(values)}))
+    return EastVariant("NewSet", EastStruct({
+        "type": t, "loc_id": _loc_id(), "values": list(values),
+    }))
 
 
 def _k_new_dict(t: EastType, entries: list):
     return EastVariant("NewDict", EastStruct({
-        "type": t, "loc_id": 0,
+        "type": t, "loc_id": _loc_id(),
         "values": [EastStruct({"key": k, "value": v}) for k, v in entries],
     }))
 
 
 def _k_struct(t: EastType, fields: list):
     return EastVariant("Struct", EastStruct({
-        "type": t, "loc_id": 0,
+        "type": t, "loc_id": _loc_id(),
         "fields": [EastStruct({"name": n, "value": v}) for n, v in fields],
     }))
 
 
 def _k_ifelse(t: EastType, ifs: list, else_body):
     return EastVariant("IfElse", EastStruct({
-        "type": t, "loc_id": 0,
+        "type": t, "loc_id": _loc_id(),
         "ifs": [EastStruct({"predicate": p, "body": b}) for p, b in ifs],
         "else_body": else_body,
     }))
@@ -231,5 +241,5 @@ def _k_ifelse(t: EastType, ifs: list, else_body):
 
 def _k_call(t: EastType, function, arguments: list):
     return EastVariant("Call", EastStruct({
-        "type": t, "loc_id": 0, "function": function, "arguments": list(arguments),
+        "type": t, "loc_id": _loc_id(), "function": function, "arguments": list(arguments),
     }))

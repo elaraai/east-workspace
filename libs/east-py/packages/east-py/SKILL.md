@@ -156,6 +156,18 @@ referencing it inside another body splices its expression into that build
 (#470/#561). A platform-declaring artifact stays first-class (composable,
 serializable) but raises until `East.compile` pairs it with implementations.
 
+**Error locations (#626).** A build records the python frames that built
+each node, so a runtime error inside the function names the authoring site:
+`EastError.location` is the stack — the lambda's `file:line:column` first,
+then the `East.function(...)` call and its callers — and a platform-signature
+mismatch at `East.compile` names the offending call the same way. The map
+rides the function's beast2 encoding, so the error reads the same after
+export to east-c or east-node. Paths are relative to the working directory;
+`set_location_base_path(dir)` (from `east`) pins the base for reproducible
+fixtures. An error raised inside a callback that a *builtin* invokes
+(`arr.map(...)` and friends) resolves to the builtin's call site, on every
+runner.
+
 ### Eager callbacks capture the same way
 
 Every eager callback method takes exactly two kinds of function:
