@@ -5,7 +5,7 @@
 
 /**
  * Reserved-gutter scrollbar styling shared by the virtual-scroll data
- * components (Table / Gantt / Library / Planner / Matrix / Board / Roster /
+ * components (Table / Library / Plan / Matrix / Board / Roster /
  * Calendar). Spread onto the scroll element's `css` prop — only when the
  * component is actually bounded (a definite `height` / `maxHeight`), so
  * content-sized components don't reserve a dead gutter (#320).
@@ -50,33 +50,6 @@ export const virtualScrollbarCss = {
         borderRadius: "6px",
         // A transparent border + padding-box clip insets the thumb so it reads
         // as a rounded pill inside the 12px gutter rather than edge-to-edge.
-        border: "3px solid transparent",
-        backgroundClip: "padding-box",
-    },
-    "&::-webkit-scrollbar-corner": { background: "transparent" },
-} as const;
-
-/**
- * Scrollbar styling for the LEFT pane of a vertically scroll-synced pane pair
- * (the Gantt's data-table pane beside its timeline pane). The pane hides only
- * its **vertical** bar — the synced timeline pane carries the single visible
- * vertical bar for the pair — while its **horizontal** bar stays visible and
- * styled, because nothing else can scroll that pane's own x-overflow (frozen
- * columns wider than the pane, #320/#323 review).
- *
- * Vertical-only hiding needs `::-webkit-scrollbar:vertical`; the standard
- * `scrollbar-width: none` would hide both axes, so Firefox keeps its native
- * bars here (functional, just unstyled).
- */
-export const syncedPaneScrollbarCss = {
-    "&::-webkit-scrollbar": { width: "12px", height: "12px" },
-    "&::-webkit-scrollbar:vertical": { display: "none" },
-    "&::-webkit-scrollbar-track": {
-        background: "var(--chakra-colors-overlay-scroll-track)",
-    },
-    "&::-webkit-scrollbar-thumb": {
-        background: "var(--chakra-colors-overlay-scroll-thumb)",
-        borderRadius: "6px",
         border: "3px solid transparent",
         backgroundClip: "padding-box",
     },

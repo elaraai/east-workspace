@@ -32,7 +32,7 @@ import {
     type ValueTreePaging,
 } from '@elaraai/east-ui-components';
 import { StatusDisplay } from './StatusDisplay.js';
-import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery } from './DatasetKeySearch.js';
+import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery } from '@elaraai/east-ui-components';
 import { DownloadButton, formatSize } from './DatasetPreview.js';
 import { pagingDebug } from '../debug.js';
 

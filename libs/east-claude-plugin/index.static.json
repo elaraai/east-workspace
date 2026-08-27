@@ -194,7 +194,7 @@
         "renderable"
       ],
       "imports": [],
-      "source": "# EVERYTHING renderable under src/ (default) → .shots/<relative-path>/<export>.png\n# One shared browser; every skip carries its typed reason; exit 1 on render failures.\ne3-ui shots src --out .shots --json\n\n# Also write a standalone HTML beside each PNG:\ne3-ui shots src --out .shots --html\n\n# Width-flexible components (Schematic/Gantt/Table) mount at viewport width by\n# default (--frame-width full); 'none' restores the shrink-to-fit crop:\ne3-ui shots test/collections --out .shots --frame-width full\n\n# Skips are an AUDIT of the renderable surface — e.g.:\n#   skipped  src/tasks.ts › sumExample — output type is Integer, not UIComponentType\n#   skipped  src/ui/queue.tsx › queuePage — reads e3 workspace data (data_read) — use --from-task"
+      "source": "# EVERYTHING renderable under src/ (default) → .shots/<relative-path>/<export>.png\n# One shared browser; every skip carries its typed reason; exit 1 on render failures.\ne3-ui shots src --out .shots --json\n\n# Also write a standalone HTML beside each PNG:\ne3-ui shots src --out .shots --html\n\n# Width-flexible components (Schematic/Plan/Table) mount at viewport width by\n# default (--frame-width full); 'none' restores the shrink-to-fit crop:\ne3-ui shots test/collections --out .shots --frame-width full\n\n# Skips are an AUDIT of the renderable surface — e.g.:\n#   skipped  src/tasks.ts › sumExample — output type is Integer, not UIComponentType\n#   skipped  src/ui/queue.tsx › queuePage — reads e3 workspace data (data_read) — use --from-task"
     },
     {
       "id": "e3-ui-cli:static:shot-from-task",

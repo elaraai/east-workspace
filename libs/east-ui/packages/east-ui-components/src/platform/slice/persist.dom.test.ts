@@ -13,7 +13,8 @@
  */
 
 import { describe, test, expect, beforeEach } from "vitest";
-import { none, some, variant } from "@elaraai/east";
+import { StructType, encodeBeast2For, none, some, variant } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui/internal";
 import {
     SliceImpl,
     buildSliceHandle,
@@ -31,7 +32,7 @@ const call = (name: string, ...args: unknown[]): unknown =>
 const cfg = { fields: new Map(), rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: [] };
 const initial = {
     range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-    breakdown: none, search: none, visible: none, selectedIndex: none,
+    breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
 };
 const eqPred = (v: string) => variant("string", { fieldId: "id", op: variant("eq", v) });
 
@@ -104,6 +105,32 @@ describe("slice persistence (#168)", () => {
         buildSliceHandle("p.bad", cfg, initial, [{ id: "a" }], none);
         expect(() => enableSlicePersistence("p.bad", "local")).not.toThrow();
         expect((call("slice_read", "p.bad") as { filters: unknown[] }).filters.length).toBe(0);
+    });
+
+    test("an OLDER wire shape — a State without `resolution` — is ignored, never mis-decoded; the seed stands", () => {
+        // The blob a pre-#309 build wrote: the same struct minus the trailing
+        // `resolution` field (appended last for wire-order compatibility). Read
+        // against today's type it must fail CLOSED — a narrowing hydrated
+        // from misaligned bytes would be worse than a lost preference.
+        const fields = (Slice.Types.State as unknown as { fields: Record<string, unknown> }).fields;
+        const { resolution: _dropped, ...older } = fields;
+        const OlderState = StructType(older as never);
+        const bytes = encodeBeast2For(OlderState as never)({
+            range: none, compare: none,
+            filters: [eqPred("a")], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: some("stale"), visible: none, selectedIndex: none,
+        } as never);
+        let bin = "";
+        for (const b of bytes) bin += String.fromCharCode(b);
+        window.localStorage.setItem("east-ui.slice.p.old", btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""));
+
+        initializeStore(new UIStore());
+        buildSliceHandle("p.old", cfg, initial, [{ id: "a" }], none);
+        expect(() => enableSlicePersistence("p.old", "local")).not.toThrow();
+        const state = call("slice_read", "p.old") as { filters: unknown[]; search: { type: string }; resolution: { type: string } };
+        expect(state.filters.length).toBe(0);
+        expect(state.search.type).toBe("none");
+        expect(state.resolution.type).toBe("none");
     });
 
     test("unregistered keys never touch storage", () => {

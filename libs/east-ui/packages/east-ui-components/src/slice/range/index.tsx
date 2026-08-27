@@ -11,6 +11,7 @@ import { type ValueTypeOf, some, none, variant } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { boundRangeDomain } from "../../platform/slice/index.js";
+import { tickFormatter } from "../../charts/spec/index.js";
 import { EastChakraDateTimeInput } from "../../forms/input/index.js";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
@@ -77,6 +78,15 @@ function resolveWindow(range: RangeValue | undefined): { from: Date; to: Date } 
     return null;
 }
 
+/** The active NUMERIC range (`float` / `integer` arms — a number-axis Plan's
+ *  window, #631) as plain numbers, or null. */
+function resolveNumericWindow(range: RangeValue | undefined): { from: number; to: number } | null {
+    if (range === undefined) return null;
+    if (range.type === "float") return { from: range.value.from, to: range.value.to };
+    if (range.type === "integer") return { from: Number(range.value.from), to: Number(range.value.to) };
+    return null;
+}
+
 /** Renders a preset / compare chip from the shared `chip` recipe. */
 function Chip({ label, active, dashed, onClick }: { label: string; active: boolean; dashed?: boolean; onClick: () => void }) {
     const chip = useRecipe({ key: "chip" });
@@ -89,6 +99,39 @@ function Chip({ label, active, dashed, onClick }: { label: string; active: boole
         >
             {label}
         </chakra.button>
+    );
+}
+
+/** A resolution tag, decoded. */
+type ResolutionTag = "auto" | "hour" | "day" | "week" | "month" | "quarter" | "year";
+
+/**
+ * The bucket-unit segment beside the range pill (`WEEK · DAY`, the `seg`
+ * recipe) — reads `state.resolution`, writes via `setResolution` so every
+ * bound time-bucketed surface re-buckets together. No segment is active when
+ * the state carries `none` (each surface keeps its own default until the user
+ * picks one, or the host seeds the state).
+ */
+function ResolutionSeg({ options, active, onPick }: {
+    options: ReadonlyArray<ResolutionTag>;
+    active: ResolutionTag | undefined;
+    onPick: (tag: ResolutionTag) => void;
+}) {
+    const seg = useSlotRecipe({ key: "seg" })();
+    return (
+        <Box css={seg.root}>
+            {options.map(tag => (
+                <chakra.button
+                    key={tag}
+                    type="button"
+                    css={seg.item}
+                    data-state={active === tag ? "on" : "off"}
+                    onClick={() => onPick(tag)}
+                >
+                    {tag}
+                </chakra.button>
+            ))}
+        </Box>
     );
 }
 
@@ -112,12 +155,23 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
 
     const range = getSomeorUndefined(state.range);
     const win = resolveWindow(range);
+    // A numeric range field (a number-axis Plan's slice, #631) prints its
+    // window as numbers; the date presets have no meaning against it.
+    const numericWin = resolveNumericWindow(range);
+    const numFmt = tickFormatter(undefined, "linear");
     const compareTag = getSomeorUndefined(state.compare)?.type ?? null;
+
+    // Resolution segment (Plan spec §8) — configured bucket units beside the
+    // pill; reads `state.resolution`, writes via `setResolution`.
+    const resolutionTags = (getSomeorUndefined(value.resolutions) ?? []).map(r => r.type as ResolutionTag);
+    const activeResolution = getSomeorUndefined(state.resolution)?.type as ResolutionTag | undefined;
+    const pickResolution = (tag: ResolutionTag) => slice.setResolution(some(variant(tag, null)));
 
     // Presets anchor to the DATA (#195): with a datetime domain, the anchor is
     // now clamped into [min, max] — historical data gets windows ending at its
     // last day instead of wall-clock windows that miss every row.
     const domain = boundRangeDomain(slice.key);
+    const numericField = domain !== undefined && domain.kind !== "datetime";
     const now = new Date();
     const anchor = domain !== undefined && domain.kind === "datetime"
         ? new Date(Math.max(domain.min, Math.min(domain.max, now.getTime())))
@@ -176,17 +230,21 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
 
     const dayCount = win ? Math.max(1, Math.round((win.to.getTime() - win.from.getTime()) / 86_400_000)) : undefined;
 
-    return (
+    const picker = (
         <SliceEditPopover
             open={open}
             onOpenChange={setOpen}
-            label="Time range"
+            label={numericField ? "Range" : "Time range"}
             footLeft={compareTag !== null ? <chakra.button type="button" css={edit.footLink} onClick={() => setCompareTag(null)}>Clear compare</chakra.button> : undefined}
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(false)}>Done</chakra.button>}
             trigger={
                 <Box css={chip({ tone: range !== undefined ? "brand" : "neutral", numeric: true })} cursor="pointer">
                     {!framed && <FontAwesomeIcon icon={faCalendar} style={{ fontSize: "10px" }} />}
-                    <Box as="span">{win ? `${fmtShort(win.from)} → ${fmtShort(win.to)}` : "All time"}</Box>
+                    <Box as="span">{win
+                        ? `${fmtShort(win.from)} → ${fmtShort(win.to)}`
+                        : numericWin
+                            ? `${numFmt(numericWin.from)} → ${numFmt(numericWin.to)}`
+                            : numericField ? "All" : "All time"}</Box>
                     {dayCount !== undefined && <Box as="span" color="fg.muted">{`${dayCount}d`}</Box>}
                     <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px" }} />
                 </Box>
@@ -194,7 +252,10 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
         >
             <Box display="flex" gap="{spacing.2}" flexWrap="wrap" alignItems="center">
                 <Chip label="All" active={allActive} onClick={setAll} />
-                {PRESETS.map(p => (
+                {/* Date presets pin DATETIME windows — meaningless against a
+                    numeric range field, whose window the brush / a Plan's keys
+                    write as `float` / `integer` (#631). */}
+                {!numericField && PRESETS.map(p => (
                     <Chip
                         key={p.tag}
                         label={p.tag === "today" && anchorClamped ? "Last day" : p.label}
@@ -202,16 +263,23 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
                         onClick={() => setPreset(p.tag)}
                     />
                 ))}
-                <Chip label="Custom…" active={customActive} dashed onClick={setCustom} />
+                {!numericField && <Chip label="Custom…" active={customActive} dashed onClick={setCustom} />}
             </Box>
             {/* An active custom window exposes real from/to date inputs — pick
-                the exact fiscal quarter / incident window from the pill (#167). */}
+                the exact fiscal quarter / incident window from the pill (#167).
+                Stacked vertically under FROM / TO captions: side-by-side date
+                fields overflow the popover into a horizontal scroll. */}
             {customActive && win !== null && (
-                <Box display="flex" alignItems="center" gap="{spacing.2}" minWidth="0">
-                    <EastChakraDateTimeInput value={{ value: win.from, onChange: some((d: Date) => writeCustom(d, win.to)), style: inputStyle } as never} />
-                    <Box as="span" css={edit.clauseConj}>–</Box>
-                    <EastChakraDateTimeInput value={{ value: win.to, onChange: some((d: Date) => writeCustom(win.from, d)), style: inputStyle } as never} />
-                </Box>
+                <>
+                    <Box display="flex" flexDirection="column" gap="{spacing.1}" minWidth="0">
+                        <Box as="span" css={edit.clauseConj} textAlign="left">FROM</Box>
+                        <EastChakraDateTimeInput value={{ value: win.from, onChange: some((d: Date) => writeCustom(d, win.to)), style: inputStyle } as never} />
+                    </Box>
+                    <Box display="flex" flexDirection="column" gap="{spacing.1}" minWidth="0">
+                        <Box as="span" css={edit.clauseConj} textAlign="left">TO</Box>
+                        <EastChakraDateTimeInput value={{ value: win.to, onChange: some((d: Date) => writeCustom(win.from, d)), style: inputStyle } as never} />
+                    </Box>
+                </>
             )}
             <Box as="span" css={edit.clauseConj} textAlign="left">COMPARE WITH</Box>
             <Box display="flex" gap="{spacing.2}" flexWrap="wrap" alignItems="center">
@@ -222,10 +290,25 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
             {win && (
                 <Box css={edit.resolveLine}>{`Resolves to ${fmtShort(win.from)} – ${fmtFull(win.to)}`}</Box>
             )}
+            {numericWin && (
+                <Box css={edit.resolveLine}>{`Resolves to ${numFmt(numericWin.from)} – ${numFmt(numericWin.to)}`}</Box>
+            )}
+            {/* All active on a numeric field: the data's actual extent. */}
+            {numericWin === null && win === null && domain !== undefined && numericField && (
+                <Box css={edit.resolveLine}>{`All data · ${numFmt(domain.min)} – ${numFmt(domain.max)}`}</Box>
+            )}
             {/* All active: show the data's actual extent instead of a window (#195). */}
             {win === null && domain !== undefined && domain.kind === "datetime" && (
                 <Box css={edit.resolveLine}>{`All data · ${fmtShort(new Date(domain.min))} – ${fmtFull(new Date(domain.max))}`}</Box>
             )}
         </SliceEditPopover>
+    );
+
+    if (resolutionTags.length === 0) return picker;
+    return (
+        <Box display="flex" alignItems="center" gap="{spacing.2}" minWidth="0">
+            {picker}
+            <ResolutionSeg options={resolutionTags} active={activeResolution} onPick={pickResolution} />
+        </Box>
     );
 }, () => false);

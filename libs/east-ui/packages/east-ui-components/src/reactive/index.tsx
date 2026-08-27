@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useRef, useMemo, useSyncExternalStore, useCallback } from "react";
+import { useRef, useMemo, useState, useSyncExternalStore, useCallback } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../component.js";
@@ -49,6 +49,15 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
 
     // Track which keys each tracker records
     const depsRef = useRef<Map<string, string[]>>(new Map());
+    // ...and a signature of that key SET. An evaluation can discover keys it did
+    // not read last time — a paged reader walks one window further each time a
+    // window lands — and `useSyncExternalStore` re-subscribes only when
+    // `subscribe`'s identity changes. Keeping the keys in a ref alone therefore
+    // pinned the subscription to the FIRST evaluation's keys, so the second
+    // window's landing notified nobody and the reader stalled (#580). The
+    // signature is what re-keys `subscribe` when the set actually moves.
+    const depsSigRef = useRef<string>("");
+    const [depsSig, setDepsSig] = useState("");
 
     // Execute fn with dependency tracking for all registered trackers.
     // Returns either a successful result or an error to display.
@@ -62,6 +71,7 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
                 deps.set(t.id, t.disableTracking());
             }
             depsRef.current = deps;
+            depsSigRef.current = depsSignature(deps);
             return { ok: true, value: result };
         } catch (e) {
             // Capture deps even on error so we re-render when they change
@@ -70,6 +80,7 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
                 deps.set(t.id, t.disableTracking());
             }
             depsRef.current = deps;
+            depsSigRef.current = depsSignature(deps);
             return { ok: false, error: e };
         }
     }, [fn, trackers]);
@@ -86,9 +97,13 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
             }
         }
         return () => unsubs.forEach(fn => fn());
-        // depsRef is a stable ref; `trackers` is the only reactive input (mirrors
-        // getSnapshot below).
-    }, [trackers]);
+        // Re-keyed on the dependency SET, not just `trackers`: a newly-discovered
+        // key needs a subscription, and `useSyncExternalStore` only makes one
+        // when `subscribe`'s identity changes (#580). `depsSig` is not read in
+        // the body — the keys come from the ref, which is always current — so it
+        // is a deliberate re-key trigger rather than a value dependency.
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- depsSig re-keys the subscription; the keys themselves come from depsRef
+    }, [trackers, depsSig]);
 
     // Snapshot based on our dependencies' versions across all trackers
     const getSnapshot = useCallback(() => {
@@ -108,7 +123,24 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const result = useMemo(() => executeWithTracking(), [executeWithTracking, snapshot, trackersVersion]);
 
+    // Publish the key set the evaluation just read, so `subscribe` re-keys and
+    // covers a newly-discovered key. Set DURING RENDER (React's documented
+    // adjust-state-while-rendering pattern) rather than from an effect: React
+    // re-renders immediately without committing, so the subscription is in place
+    // before the browser can paint — no window in which a landing notifies
+    // nobody. The guard is what makes it converge: one extra render per
+    // dependency-set change, none once the set settles.
+    if (depsSigRef.current !== depsSig) setDepsSig(depsSigRef.current);
+
     return { result, snapshot };
+}
+
+/** A stable signature of the key set an evaluation read, per tracker. Order is
+ *  the tracker registration order, which `executeWithTracking` also walks. */
+function depsSignature(deps: ReadonlyMap<string, string[]>): string {
+    const parts: string[] = [];
+    for (const [id, keys] of deps) parts.push(`${id}:${keys.join(",")}`);
+    return parts.join("|");
 }
 
 /**

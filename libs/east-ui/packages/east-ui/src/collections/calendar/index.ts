@@ -311,7 +311,7 @@ export interface CalendarConfig<R extends StructType> {
     height?: SubtypeExprOrValue<StringType>;
     /** Uniform sizing (#320): max-height cap — a pixel number or CSS length; content-sized up to it. */
     maxHeight?: SubtypeExprOrValue<StringType>;
-    /** Shared plot gutter (#147) — pins the day grid to `[left, W−right]` (px) so a Calendar stacked under a Chart lines up; `left` is the week-label column width. Usually supplied by an enclosing `<AlignedStack>`. */
+    /** Shared plot gutter (#147) — pins the day grid to `[left, W−right]` (px) so a Calendar stacked under a Chart lines up; `left` is the week-label column width. */
     plotGutter?: PlotGutter;
 }
 

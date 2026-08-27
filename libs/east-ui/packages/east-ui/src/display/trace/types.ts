@@ -144,6 +144,6 @@ export interface TraceOptions {
     nowLineColor?: SubtypeExprOrValue<StringType>;
     /** Width of the left-hand track-name gutter (any CSS length, e.g. `"120px"`); omit for the density default. */
     labelWidth?: SubtypeExprOrValue<StringType>;
-    /** Shared plot gutter (#147) — pins the step lane to `[left, W−right]` (px) so a Trace stacked under a Chart lines up on a common x. `left` supersedes `labelWidth`; when present the steps become flexible (`1fr`) and the lane fills the container. Usually supplied by an enclosing `<AlignedStack>`. */
+    /** Shared plot gutter (#147) — pins the step lane to `[left, W−right]` (px) so a Trace stacked under a Chart lines up on a common x. `left` supersedes `labelWidth`; when present the steps become flexible (`1fr`) and the lane fills the container. */
     plotGutter?: PlotGutter;
 }

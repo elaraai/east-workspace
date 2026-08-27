@@ -7,17 +7,16 @@
  * Shared **plot gutter** primitive (#147).
  *
  * A horizontal inset `{ left, right }` for axis/lane components (Chart, Trace,
- * Calendar, Matrix, Table, Planner, Gantt) so their data lanes occupy exactly
+ * Calendar, Matrix, Table) so their data lanes occupy exactly
  * `[left, W − right]` and line up on a common x when stacked. All chrome (axes,
  * frozen label columns, week/row headers) renders **within** the gutter.
- *
- * `<AlignedStack>` imposes one gutter on its children via the
- * `PlotGutterProvider` context (renderer side); a per-component `plotGutter`
- * prop overrides the inherited value (own-prop-over-context, like density).
+ * For a temporally-aligned composite the `Plan` canvas owns the whole
+ * alignment problem (one shared axis over heterogeneous rows) — the gutter
+ * prop remains for hand-stacked layouts.
  *
  * **px-only for cross-component alignment.** `StringType` admits any CSS length,
  * but pixel-exact alignment only holds if all gutters resolve to the same px
- * (Chart margins are numeric px). Use px values for `fixed`; `auto` is measured
+ * (Chart margins are numeric px). Use px values; `auto` is measured
  * and therefore inherently px.
  *
  * @packageDocumentation
@@ -28,8 +27,6 @@ import {
     OptionType,
     StringType,
     StructType,
-    VariantType,
-    NullType,
 } from "@elaraai/east";
 
 /**
@@ -57,17 +54,3 @@ export interface PlotGutter {
     /** Right inset (CSS length, px recommended); the data lane ends at `W − right`. */
     right?: SubtypeExprOrValue<StringType>;
 }
-
-/**
- * The `<AlignedStack>` gutter mode — either an explicit `fixed` {@link PlotGutterType}
- * imposed on every child, or `auto` (measure the max gutter the children need and
- * impose that).
- *
- * @property auto  - Measure each child's natural gutter, impose the max on all
- * @property fixed - Impose this explicit `{ left, right }` on every child
- */
-export const AlignedGutterType = VariantType({
-    auto:  NullType,
-    fixed: PlotGutterType,
-});
-export type AlignedGutterType = typeof AlignedGutterType;

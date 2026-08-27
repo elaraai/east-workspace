@@ -34,7 +34,7 @@ import {
 import { UIComponentType } from "../../component.js";
 import { mapRows } from "../../shared/reify.js";
 import { type DragEventType } from "../../contracts/drag.js";
-import { PlannerStateType } from "../planner/types.js";
+import { PlannerStateType } from "../../contracts/states.js";
 import {
     BlendRootType,
     BlendTargetType,

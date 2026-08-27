@@ -82,6 +82,21 @@ export {
     type FunctionCallArgs,
 } from "./func-runtime.js";
 
+// `Data.bindPaged` runtime — windowed reads of a collection dataset.
+export {
+    PagedRuntime,
+    defaultPagedRuntime,
+    PagedPlatform,
+    createScopedPagedPlatform,
+    createDefaultPagedApi,
+    initializePagedApi,
+    clearPagedApi,
+    pagedWindowKey,
+    pagedTotalKey,
+    type PagedApi,
+    type PagedWindow,
+} from "./paged-runtime.js";
+
 // `Record.bind` runtime — read + typed mutations over an e3.record.
 export {
     RecordRuntime,

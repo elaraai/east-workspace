@@ -462,6 +462,6 @@ export interface TableStyle<ColumnKeys extends string = string> {
     density?: SubtypeExprOrValue<DensityType> | DensityLiteral;
     /** Explicit pixel row height. Overrides the `density` preset when set, and is fed to the virtualizer so scroll offsets stay correct. */
     rowHeight?: SubtypeExprOrValue<IntegerType>;
-    /** Shared plot gutter (#147) — pins the data columns to `[left, W−right]` (px) so a Table stacked under a Chart lines up on shared categories; the frozen columns fill `left`. Usually supplied by an enclosing `<AlignedStack>`. */
+    /** Shared plot gutter (#147) — pins the data columns to `[left, W−right]` (px) so a Table stacked under a Chart lines up on shared categories; the frozen columns fill `left`. */
     plotGutter?: PlotGutter;
 }

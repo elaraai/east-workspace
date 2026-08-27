@@ -6,8 +6,8 @@
 /**
  * Shared review chrome — the renderer half of the review contract
  * (`contracts/review.ts` in `@elaraai/east-ui`), extracted from the Planner's
- * review rendering (PR #76) so every adopter (Planner, Gantt, Table, Roster,
- * Board) composes the same pieces:
+ * review rendering (PR #76) so every adopter (Table, Roster, Board, Plan)
+ * composes the same pieces:
  *
  * - {@link useReviewController} — the optimistic per-row decisions state
  *   (the mandatory interactive-state pattern: local `useState`, `useEffect`
@@ -60,7 +60,34 @@ function initialDecisions(approvals: readonly (ApprovalOptionValue | undefined)[
  * Everything an adopter needs to render the review chrome: the optimistic
  * decision map, the per-row / batch handlers, and the extracted config parts.
  */
-export interface ReviewController {
+/**
+ * What the batch foot needs — deliberately narrower than {@link ReviewController}.
+ *
+ * The foot's verbs are batch-level: none of them names a row. Splitting this
+ * out lets a surface whose per-row verdicts are NOT index-keyed (the Plan,
+ * whose rows are addressed by key — #568) reuse the foot without inventing an
+ * index-keyed controller it has no use for.
+ */
+export interface ReviewFootModel {
+    /** Whether the batch foot has anything to show. */
+    showFoot: boolean;
+    /** The host-composed foot summary, when set. */
+    summary: UIComponentValue | undefined;
+    /** The Rerun button's label. */
+    rerunLabel: string;
+    /** Whether the batch verbs are wired. */
+    hasApproveAll: boolean;
+    hasRejectAll: boolean;
+    hasRerun: boolean;
+    /** Approve every subject. */
+    approveAll(): void;
+    /** Reject every subject. */
+    rejectAll(): void;
+    /** Fire the host's re-run hook. */
+    rerun(): void;
+}
+
+export interface ReviewController extends ReviewFootModel {
     /** The decoded review config. */
     review: RowReviewValue;
     /** The optimistic per-row decisions (row index → verdict tag). */
@@ -71,20 +98,6 @@ export interface ReviewController {
     approveRow(rowIndex: number): void;
     /** Reject one row (optimistic + host callback). */
     rejectRow(rowIndex: number): void;
-    /** Approve every row (optimistic sweep + host callback). */
-    approveAll(): void;
-    /** Reject every row (optimistic sweep + host callback). */
-    rejectAll(): void;
-    /** Fire the host's re-run hook. */
-    rerun(): void;
-    /** The host-composed foot summary, when set. */
-    summary: UIComponentValue | undefined;
-    /** Whether the batch foot has anything to show. */
-    showFoot: boolean;
-    /** Whether the per-row callbacks / foot verbs are wired. */
-    hasApproveAll: boolean;
-    hasRejectAll: boolean;
-    hasRerun: boolean;
 }
 
 /**
@@ -153,6 +166,7 @@ export function useReviewController(
             rejectAll,
             rerun,
             summary,
+            rerunLabel: review.rerunLabel,
             showFoot: summary !== undefined || onApproveAll !== undefined || onRejectAll !== undefined || onRerun !== undefined,
             hasApproveAll: onApproveAll !== undefined,
             hasRejectAll: onRejectAll !== undefined,
@@ -201,13 +215,19 @@ export function DecisionButtons({ rowIndex, controller }: {
  * all (left→right). Renders `null` when the foot has nothing to show.
  */
 export function ReviewFoot({ controller, storageKey }: {
-    /** The surface's review controller. */
-    controller: ReviewController;
+    /** The surface's batch-review model — a full {@link ReviewController}
+     *  satisfies this, as does a surface with non-index-keyed verdicts. */
+    controller: ReviewFootModel;
     /** Storage key prefix for the summary component subtree. */
     storageKey: string;
 }) {
     const commitRecipe = useSlotRecipe({ key: "commitBar" });
     const cs = useMemo(() => commitRecipe({}) as unknown as Record<string, Record<string, unknown>>, [commitRecipe]);
+    // The BUTTONS come from the shared button recipe, not from `commitBar` —
+    // the bar owns its layout, the button recipe owns what a button looks
+    // like. `md` here, `xs` in a row's decision cell: one vocabulary, two
+    // points on its own size scale.
+    const btn = useRecipe({ key: "button" });
     if (!controller.showFoot) return null;
     return (
         <Box css={cs.root} data-slot="reviewFoot">
@@ -218,13 +238,16 @@ export function ReviewFoot({ controller, storageKey }: {
             </Box>
             <Box css={cs.btnRow}>
                 {controller.hasRejectAll && (
-                    <Box as="button" css={cs.btnDanger} onClick={controller.rejectAll}>Reject all</Box>
+                    <Box as="button" css={btn({ variant: "danger", size: "md" })}
+                        onClick={controller.rejectAll}>Reject all</Box>
                 )}
                 {controller.hasRerun && (
-                    <Box as="button" css={cs.btn} onClick={controller.rerun}>{controller.review.rerunLabel}</Box>
+                    <Box as="button" css={btn({ variant: "outline", size: "md" })}
+                        onClick={controller.rerun}>{controller.rerunLabel}</Box>
                 )}
                 {controller.hasApproveAll && (
-                    <Box as="button" css={cs.btnPrimary} onClick={controller.approveAll}>Approve all</Box>
+                    <Box as="button" css={btn({ variant: "solid", size: "md" })}
+                        onClick={controller.approveAll}>Approve all</Box>
                 )}
             </Box>
         </Box>

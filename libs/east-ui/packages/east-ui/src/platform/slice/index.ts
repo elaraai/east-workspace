@@ -88,6 +88,7 @@ import {
 import { ChartXType } from "../../charts/spec/types.js";
 import { SliceAffordanceType } from "../../contracts/slice-affordances.js";
 import { ValueFormatType } from "../../contracts/format.js";
+import { TimeResolutionType } from "../../contracts/time.js";
 
 // ============================================================================
 // DateTimeRange — generic { from, to } interval
@@ -443,6 +444,7 @@ function createSliceConfig<
  * @property search         - Typeahead query (`some(query)`) or `none`
  * @property visible        - Legend visibility whitelist (`some(set)`) or `none`
  * @property selectedIndex  - Master-detail selection (`some(index)`) or `none`
+ * @property resolution     - Shared time-bucket resolution (`some(variant("week", null))`) or `none`
  */
 export interface SliceStateOptions {
     range?:         SubtypeExprOrValue<OptionType<SliceRangeType>>;
@@ -454,6 +456,7 @@ export interface SliceStateOptions {
     search?:        SubtypeExprOrValue<OptionType<StringType>>;
     visible?:       SubtypeExprOrValue<OptionType<SetType<StringType>>>;
     selectedIndex?: SubtypeExprOrValue<OptionType<IntegerType>>;
+    resolution?:    SubtypeExprOrValue<OptionType<TimeResolutionType>>;
 }
 
 /**
@@ -486,6 +489,7 @@ function createSliceState(opts: SliceStateOptions = {}) {
         search:        opts.search        ?? none,
         visible:       opts.visible       ?? none,
         selectedIndex: opts.selectedIndex ?? none,
+        resolution:    opts.resolution    ?? none,
     }, SliceStateType);
 }
 
@@ -640,6 +644,10 @@ export type SliceBreakdownType = typeof SliceBreakdownType;
  * @property search         - Optional typeahead text query
  * @property visible        - Visible-series whitelist for `Slice.Legend`; none = all visible
  * @property selectedIndex  - Master-detail selection driven by `Slice.Layout`
+ * @property resolution     - Optional shared bucket unit for bound time-bucketed
+ *                            surfaces (the `Slice.Range` resolution segment) —
+ *                            presentation, not a narrowing; `none` = each
+ *                            surface keeps its own default
  */
 export const SliceStateType = StructType({
     range:         OptionType(SliceRangeType),
@@ -651,6 +659,9 @@ export const SliceStateType = StructType({
     search:        OptionType(StringType),
     visible:       OptionType(SetType(StringType)),
     selectedIndex: OptionType(IntegerType),
+    // Shared time-bucket resolution (Plan / Slice.Range segment) — appended
+    // last: wire-order compatibility.
+    resolution:    OptionType(TimeResolutionType),
 });
 export type SliceStateType = typeof SliceStateType;
 
@@ -965,6 +976,11 @@ export const SliceBindType = StructType({
          * filter-mode `Slice.Legend`.
          */
         facetGroups: FunctionType([], SliceBreakdownGroupArrayType),
+
+        // --- time resolution (Plan / Slice.Range segment — appended last: wire-order compatibility) ---
+        /** Set or clear the shared time-bucket resolution. `none` clears; every
+         *  bound time-bucketed surface re-buckets together. */
+        setResolution: FunctionType([OptionType(TimeResolutionType)], NullType),
 });
 export type SliceBindType = typeof SliceBindType;
 
@@ -992,6 +1008,7 @@ const slice_write         = East.platform("slice_write",         [StringType, Sl
 // --- range ---
 const slice_set_range     = East.platform("slice_set_range",     [StringType, OptionType(SliceRangeType)], NullType, { optional: true });
 const slice_set_compare   = East.platform("slice_set_compare",   [StringType, OptionType(SliceCompareType)], NullType, { optional: true });
+const slice_set_resolution = East.platform("slice_set_resolution", [StringType, OptionType(TimeResolutionType)], NullType, { optional: true });
 // --- filters ---
 const slice_add_filter    = East.platform("slice_add_filter",    [StringType, SlicePredicateType], NullType, { optional: true });
 const slice_remove_filter = East.platform("slice_remove_filter", [StringType, IntegerType], NullType, { optional: true });
@@ -1038,6 +1055,7 @@ export const SliceBindPrimitives = {
     write: slice_write,
     setRange: slice_set_range,
     setCompare: slice_set_compare,
+    setResolution: slice_set_resolution,
     addFilter: slice_add_filter,
     removeFilter: slice_remove_filter,
     clearFilters: slice_clear_filters,
@@ -1331,6 +1349,7 @@ export const Slice = {
         SearchMatch:    SliceSearchMatchType,
         Density:        SliceDensityType,
         PartitionRow:   SlicePartitionRowType,
+        Resolution:     TimeResolutionType,
     },
 
     /**

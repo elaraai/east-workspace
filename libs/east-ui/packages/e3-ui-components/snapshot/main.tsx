@@ -167,6 +167,12 @@ async function seedCache(mod: Record<string, unknown>): Promise<void> {
     for (const f of FALLBACK_FUNCTIONS) if (!fns.has(f.name)) fns.set(f.name, f);
     initializeFunctionApi(createInMemoryFunctionApi([...fns.values()]), WORKSPACE);
 
+    // NOTE: no offline `Data.bindPaged`. Paging is a server capability — the
+    // windows, the exact total and the key search all come from the stored
+    // segments — so there is nothing faithful to stand in with here. An example
+    // that binds a paged source refuses with that message instead of rendering
+    // against a fake; view it against a deployed workspace.
+
     // Offline `Record.bind` impls — seeds each record's initial state into the
     // cache (so `read()` resolves) and stands in for the mutation backend.
     const recordDefs = seedRecords(mod);

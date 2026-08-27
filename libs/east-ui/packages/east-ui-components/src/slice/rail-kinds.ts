@@ -5,7 +5,7 @@
 
 /**
  * Shared rail-affordance resolution for every slice-chrome host (standalone
- * `Slice.Rail`, and the Table / Gantt / Library / Chart chrome). Keeps the
+ * `Slice.Rail`, and the Table / Plan / Library / Chart chrome). Keeps the
  * "auto-surface saved cohorts" rule in one place instead of the five hand-copied
  * ternaries it used to live in.
  */

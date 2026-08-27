@@ -1,0 +1,532 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * The shared data-driven pipeline (`Plan Data Interface.md` §3.5a) — the
+ * accessor config surfaces, the reified groupBy engine, and the per-kind
+ * row/parent constructors that the `Plan.series.*` builders compose into
+ * their `derive` functions. Structure (groupBy levels) is host config; every
+ * per-row value flows through accessors as expressions, optional ones
+ * returning the fields' `Option` types.
+ *
+ * There is NO standalone authoring surface here — a canvas is defined as
+ * `data` + `series` (+ the root resolvers); this module is the series
+ * builders' internals.
+ *
+ * @packageDocumentation
+ */
+
+import {
+    type BlockBuilder,
+    type EastType,
+    type ExprType,
+    type SubtypeExprOrValue,
+    East,
+    Expr,
+    DictType,
+    OptionType,
+    StringType,
+    StructType,
+    variant,
+    some,
+    none,
+} from "@elaraai/east";
+
+import { StatusValueType } from "../../feedback/status/types.js";
+import { ApprovalStateType } from "../../contracts/approval.js";
+import { TableAggregateType, type TableAggregateLiteral } from "../table/types.js";
+import { TickFormatType } from "../../format/types.js";
+import {
+    PlanRowsCollectionType,
+    PlanRollupType,
+    type PlanRollupLiteral,
+    PlanAggregateType,
+    type PlanAggregateLiteral,
+    type PlanTableSeriesType,
+    PlanTableSplitType,
+    type PlanTableSplitLiteral,
+    PlanTableEmphasisType,
+    type PlanTableEmphasisLiteral,
+    PlanExpandType,
+    PlanRunType,
+    PlanDecisionMarkType,
+    PlanRowKindType,
+    type PlanRowsValue,
+    type PlanAxisKindLiteral,
+    type PlanElementsInput,
+    type PlanHeatCellsInput,
+    type PlanTableCellsInput,
+} from "./types.js";
+import { createHeatCells, resolveTag, type PlanHeatCellsOptions } from "./builders.js";
+import { PlanPortType } from "./types.js";
+import { applyRowOverrides, LAST_WINS, type PlanGroupParentFn } from "./assemble.js";
+import { createSpan, createHeat, createTable } from "./factories.js";
+
+// ============================================================================
+// Accessors + the reified grouping engine
+// ============================================================================
+
+/**
+ * An accessor over one data ENTRY — its value and its key.
+ *
+ * @remarks
+ * The key is passed because the source is a keyed collection and a keyed
+ * dataset does not repeat its key inside the value: `label: (_r, k) => k` is
+ * the normal spelling, not an oddity (#568). Single-parameter accessors keep
+ * working — TS lets a callback ignore trailing arguments.
+ */
+export type PlanAccessor<R extends StructType, T extends EastType> =
+    (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<T>;
+
+/**
+ * An accessor returning a list of ELEMENTS (runs, tiles, chips, marks, …) —
+ * a TS array of `Plan.run` / `event` / … results keeps their axis kind, which
+ * the series collects into its own brand ({@link PlanElementsInput}); an
+ * East-mapped list is kind-erased.
+ *
+ * @typeParam R - The data row type
+ * @typeParam T - The element's East type
+ * @typeParam K - The kind inferred from the returned elements
+ */
+export type PlanElementsAccessor<R extends StructType, T extends EastType, K extends PlanAxisKindLiteral = never> =
+    (row: ExprType<R>, key: ExprType<StringType>) => PlanElementsInput<T, K>;
+
+/** An accessor returning one kinded VALUE (a `Plan.heatCells` / `Plan.tableCells` result). */
+export type PlanKindedAccessor<R extends StructType, V> =
+    (row: ExprType<R>, key: ExprType<StringType>) => V;
+
+/** One resolved groupBy level — the reified key accessor + the level's parent constructor. */
+export interface PlanResolvedLevel {
+    /** The reified group-key accessor (an East function call per entry). */
+    by: (row: ExprType<StructType>, key: ExprType<StringType>) => ExprType<StringType>;
+    /** The level's shared parent constructor (see `groupParentFn`). */
+    parentFn: PlanGroupParentFn;
+}
+
+/** Reify a level's key accessor once (fixed `String` output — no inference). */
+export function reifyLevelKey(rowType: StructType, by: PlanAccessor<StructType, StringType>): PlanResolvedLevel["by"] {
+    const keyFn = East.function([rowType, StringType], StringType, (_$, r, k) => by(r, k));
+    return (row, key) => keyFn(row, key);
+}
+
+/**
+ * A leaf row's key — the DATA key, optionally wrapped by the series'
+ * `keyPrefix` / `keySuffix`.
+ *
+ * @remarks
+ * Bare (the default) the canvas key IS the source key, which is what keeps a
+ * paged canvas addressable: `seek` returns a row in the source's key order and
+ * the canvas has a row under that very key.
+ *
+ * Two series over ONE source both emit a row per entry, so both would land on
+ * the same key and the later would silently replace the earlier. Either affix
+ * separates them — but they are NOT equivalent, and which you reach for decides
+ * whether the canvas still works:
+ *
+ * - **`keySuffix` keeps the data key FIRST** (`m03/chart`), so the canvas stays
+ *   in the source's order, the two views of one asset sit ADJACENT, and seek
+ *   still lands: it positions on "the first row at-or-after the sought key"
+ *   (`use-seek.ts`), and `m03/chart` is at-or-after `m03`. A prefix SEARCH for
+ *   an asset now returns every row about it.
+ * - **`keyPrefix` puts the series first** (`chart/m03`), which sorts all of one
+ *   series together and takes those rows OFF the source key space — `chart/m03`
+ *   sorts before `m03`, so a seek for `m03` skips them entirely.
+ *
+ * So: `keySuffix` for several views of the same entity, `keyPrefix` only when
+ * you deliberately want a series banked together and do not need to seek it.
+ */
+export function rowKey(
+    keyPrefix: string | undefined,
+    key: ExprType<StringType>,
+    keySuffix?: string | undefined,
+): SubtypeExprOrValue<StringType> {
+    const pre = keyPrefix === undefined || keyPrefix === "" ? undefined : keyPrefix;
+    const suf = keySuffix === undefined || keySuffix === "" ? undefined : keySuffix;
+    if (pre === undefined && suf === undefined) return key;
+    if (pre === undefined) return East.str`${key}${suf as string}`;
+    if (suf === undefined) return East.str`${pre}${key}`;
+    return East.str`${pre}${key}${suf}`;
+}
+
+/**
+ * Recursive grouping engine — TS-recursive over the (static) levels,
+ * East-dynamic over the group values discovered in the data. Each level is
+ * ONE reified East function over `(pathPrefix, entries)`: the grouping is bound
+ * once (`groupToDicts` — never re-evaluated), the grouped dict is walked with
+ * group key and members in hand, and each group is built by the level's shared
+ * parent constructor over its recursively-grouped children.
+ *
+ * @remarks
+ * Grouping preserves the ENTRIES' keys (`groupToDicts`, not `groupToArrays`):
+ * the members of a group are still a keyed collection, so leaf rows keep
+ * inheriting the source's keys however deeply they are nested.
+ *
+ * `pathKey = ${prefix}${groupValue}` is the SYNTHESIZED parent's key, and the
+ * composite is what sorts a nested hierarchy into tree order (`L1` <
+ * `L1/M03` < `L1/M04` < `L2`). Leaf keys are the data's and are never
+ * rewritten here — doing so would dangle author-written `links`, break
+ * grandchild `parent` refs, change what `onSelect` reports, and take the
+ * canvas off the source key space.
+ *
+ * @param entries - The data entries to group
+ * @param levels - The resolved groupBy levels, outermost first
+ * @param makeLeaves - Builds the leaf rows of one fully-grouped subset, given the subset and its path prefix
+ * @param pathPrefix - Key prefix for this level's synthesized parents
+ * @returns The subtree of every discovered group at this level
+ */
+export function groupRows(
+    entries: ExprType<DictType<StringType, StructType>>,
+    levels: PlanResolvedLevel[],
+    makeLeaves: (subset: ExprType<DictType<StringType, StructType>>, pathPrefix: SubtypeExprOrValue<StringType>) => PlanRowsValue,
+    pathPrefix: SubtypeExprOrValue<StringType>,
+): PlanRowsValue {
+    if (levels.length === 0) return makeLeaves(entries, pathPrefix);
+    const [level, ...rest] = levels;
+    const elemType = (Expr.type(entries) as DictType<StringType, StructType>).value;
+    const entriesType = DictType(StringType, elemType);
+    const levelFn = East.function(
+        [StringType, entriesType],
+        PlanRowsCollectionType,
+        ($, prefix, rows) => {
+            const grouped = $.let(
+                rows.groupToDicts(
+                    (_$, v, k) => level!.by(v, k),
+                    (_$, _v, k) => k,
+                    (_$, v) => v),
+                DictType(StringType, entriesType));
+            const subtrees = $.let(
+                grouped.map(($2, members, gkey) => {
+                    const pathKey = $2.let(East.str`${prefix}${gkey}`, StringType);
+                    const children = $2.let(
+                        groupRows(members as ExprType<DictType<StringType, StructType>>, rest, makeLeaves, East.str`${pathKey}/`),
+                        PlanRowsCollectionType);
+                    return level!.parentFn(pathKey, gkey, children);
+                }),
+                DictType(StringType, PlanRowsCollectionType));
+            // The groups merged into ONE collection, in place — the pure
+            // `union` would copy the whole B-tree once per group. A level's own
+            // groups have distinct path keys by construction, so the policy
+            // only ever settles an authored key colliding with a synthesized
+            // one: last wins, like every other step.
+            return subtrees.reduce(($2, acc, subtree) => {
+                $2(acc.unionInPlace(subtree, LAST_WINS));
+                return acc;
+            }, East.value(new Map(), PlanRowsCollectionType)) as PlanRowsValue;
+        },
+    );
+    return levelFn(pathPrefix, entries) as PlanRowsValue;
+}
+
+// ============================================================================
+// The per-kind accessor configs (the series builders' surfaces)
+// ============================================================================
+
+/**
+ * Config for `Plan.series.span` (minus `match`) — accessor-driven span rows
+ * with arbitrary-depth rollup grouping.
+ *
+ * @property label - Gutter label accessor (over the entry's value and key)
+ * @property id - Render labels as mono row ids
+ * @property stacked - Two-line gutter layout (label over sub)
+ * @property sub - Gutter sub-line accessor
+ * @property value - Gutter value-slot accessor
+ * @property status - Per-row status-dot accessor (an `Option<StatusValueType>`)
+ * @property expand - Per-row expand-declaration accessor (an `Option<PlanExpandType>`)
+ * @property runs - Per-row runs accessor
+ * @property decisions - Per-row decision-diamonds accessor
+ * @property ports - Per-row ports accessor
+ * @property groupBy - Group-key accessors (span rollup parents per level)
+ * @property keyPrefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
+ * @property keySuffix - Key suffix for this series' LEAF rows — what lets several series show the same entity
+ * @property rollup - Parent rollup mode (default `"union"`)
+ * @property unit - Quantity unit for band sums
+ */
+export interface PlanSpanOfConfig<R extends StructType, K extends PlanAxisKindLiteral = never> {
+    /** Gutter label accessor. */
+    label: PlanAccessor<R, StringType>;
+    /** Render labels as mono row ids. */
+    id?: boolean;
+    /** Two-line gutter layout (label over sub). */
+    stacked?: boolean;
+    /** Gutter sub-line accessor — returns the field's `Option` (per-row presence). */
+    sub?: PlanAccessor<R, OptionType<StringType>>;
+    /** Gutter value-slot accessor — returns the field's `Option`. */
+    value?: PlanAccessor<R, OptionType<StringType>>;
+    /** Per-row status-dot accessor — returns the field's `Option`. */
+    status?: PlanAccessor<R, OptionType<StatusValueType>>;
+    /** Per-row review-verdict accessor — returns the field's `Option`. SEEDS
+     *  the review chrome's buttons only; how a decided row LOOKS is derived
+     *  through the other accessors, like every other pixel (#569). */
+    approval?: PlanAccessor<R, OptionType<ApprovalStateType>>;
+    /** Per-row expand-declaration accessor — returns the field's `Option<PlanExpandType>` (R2). */
+    expand?: PlanAccessor<R, OptionType<PlanExpandType>>;
+    /** Per-row runs accessor — the runs' axis kind brands the series. */
+    runs: PlanElementsAccessor<R, PlanRunType, K>;
+    /** Per-row decision-diamonds accessor. */
+    decisions?: PlanElementsAccessor<R, PlanDecisionMarkType, K>;
+    /** Per-row ports accessor. */
+    ports?: PlanElementsAccessor<R, typeof PlanPortType, K>;
+    /** Group-key accessors — one span rollup parent per discovered value per level. */
+    groupBy?: PlanAccessor<R, StringType>[];
+    /** Key prefix for this series' rows — leaf keys and synthesized group
+     *  keys alike. Omit (the default) and a leaf's key IS the source's key, so
+     *  the canvas stays addressable by the same keys `seek` searches. A prefix
+     *  banks the whole series together and takes it OFF that key space, so
+     *  `seek` can no longer reach it — prefer {@link rowKey}'s `keySuffix` when
+     *  the point is simply to show two series over one source. */
+    keyPrefix?: string;
+    /** Key suffix for this series' LEAF rows (`m03` → `m03/chart`).
+     *
+     *  This is how several series show the SAME entity: the data key stays
+     *  FIRST, so the canvas keeps the source's order, one asset's rows sit
+     *  adjacent, and `seek` still lands on it. Synthesized group parents do not
+     *  take it — their key is the group VALUE, not a data key. */
+    keySuffix?: string;
+    /** Parent rollup mode (default `"union"`; a literal or a `PlanRollupType` expression). */
+    rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
+    /** Quantity unit for band sums (`"t"`). */
+    unit?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * One series' per-ENTRY ROW constructor — the entry's value and key in, its
+ * 1-row keyed subtree out.
+ *
+ * @remarks
+ * Named for what it BUILDS, not for where it happens to sit: it is a leaf only
+ * when `groupBy` synthesizes parents above it, and the same function runs
+ * unchanged when there are none.
+ */
+export type PlanRowFn = (
+    $: BlockBuilder<PlanRowsCollectionType>,
+    row: ExprType<StructType>,
+    key: ExprType<StringType>,
+) => SubtypeExprOrValue<PlanRowsCollectionType>;
+
+/** The span PARENT kind — a rollup declaration (renderer derives bands). */
+export function spanParentKind(cfg: PlanSpanOfConfig<StructType>): ExprType<PlanRowKindType> {
+    return East.value(variant("span", {
+        runs:      [],
+        decisions: [],
+        ports:     [],
+        rollup:    some(resolveTag(cfg.rollup ?? "union", PlanRollupType)),
+        unit:      cfg.unit !== undefined ? some(cfg.unit) : none,
+    }), PlanRowKindType);
+}
+
+/** The span LEAF constructor — one data ENTRY to its 1-row subtree, keyed by
+ *  the entry's own key, the envelope's Option fields injected from the
+ *  accessors. */
+export function spanRowOf(cfg: PlanSpanOfConfig<StructType>): PlanRowFn {
+    return (_$, r, k) => applyRowOverrides(
+        createSpan({
+            key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
+            label: cfg.label(r, k),
+            ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+            ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
+            runs: cfg.runs(r, k),
+            ...(cfg.decisions !== undefined ? { decisions: cfg.decisions(r, k) } : {}),
+            ...(cfg.ports !== undefined ? { ports: cfg.ports(r, k) } : {}),
+        }),
+        {
+            ...(cfg.sub !== undefined ? { sub: cfg.sub(r, k) } : {}),
+            ...(cfg.value !== undefined ? { value: cfg.value(r, k) } : {}),
+            ...(cfg.status !== undefined ? { status: cfg.status(r, k) } : {}),
+            ...(cfg.approval !== undefined ? { approval: cfg.approval(r, k) } : {}),
+            ...(cfg.expand !== undefined ? { expand: cfg.expand(r, k) } : {}),
+        },
+    );
+}
+
+/**
+ * Config for `Plan.series.heat` (minus `match`).
+ *
+ * @property label - Gutter label accessor (over the entry's value and key)
+ * @property id - Render labels as mono row ids
+ * @property stacked - Two-line gutter layout (label over sub)
+ * @property sub - Gutter sub-line accessor
+ * @property value - Gutter value-slot accessor
+ * @property status - Per-row status-dot accessor
+ * @property cells - Per-row cells accessor (a `PlanHeatCellsType`)
+ * @property groupBy - Group-key accessors (aggregated heat parents per level)
+ * @property keyPrefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
+ * @property keySuffix - Key suffix for this series' LEAF rows — what lets several series show the same entity
+ * @property aggregate - Parent aggregation mode (default `"mean"`)
+ * @property scale - Heat scale applied to derived parent cells
+ */
+export interface PlanHeatOfConfig<R extends StructType, K extends PlanAxisKindLiteral = never> {
+    /** Gutter label accessor. */
+    label: PlanAccessor<R, StringType>;
+    /** Render labels as mono row ids. */
+    id?: boolean;
+    /** Two-line gutter layout (label over sub). */
+    stacked?: boolean;
+    /** Gutter sub-line accessor — returns the field's `Option` (per-row presence). */
+    sub?: PlanAccessor<R, OptionType<StringType>>;
+    /** Gutter value-slot accessor — returns the field's `Option`. */
+    value?: PlanAccessor<R, OptionType<StringType>>;
+    /** Per-row status-dot accessor — returns the field's `Option`. */
+    status?: PlanAccessor<R, OptionType<StatusValueType>>;
+    /** Per-row review-verdict accessor — returns the field's `Option`. SEEDS
+     *  the review chrome's buttons only; how a decided row LOOKS is derived
+     *  through the other accessors, like every other pixel (#569). */
+    approval?: PlanAccessor<R, OptionType<ApprovalStateType>>;
+    /** Per-row expand-declaration accessor — returns the field's `Option<PlanExpandType>` (R2). */
+    expand?: PlanAccessor<R, OptionType<PlanExpandType>>;
+    /** Per-row cells accessor (build with `Plan.heatCells` / `Plan.weightCells` / `Plan.segmentCells`) — its kind brands the series. */
+    cells: PlanKindedAccessor<R, PlanHeatCellsInput<K>>;
+    /** Group-key accessors — one aggregated heat parent per discovered value per level. */
+    groupBy?: PlanAccessor<R, StringType>[];
+    /** Key prefix for this series' rows — leaf keys and synthesized group
+     *  keys alike. Omit (the default) and a leaf's key IS the source's key, so
+     *  the canvas stays addressable by the same keys `seek` searches. A prefix
+     *  banks the whole series together and takes it OFF that key space, so
+     *  `seek` can no longer reach it — prefer {@link rowKey}'s `keySuffix` when
+     *  the point is simply to show two series over one source. */
+    keyPrefix?: string;
+    /** Key suffix for this series' LEAF rows (`m03` → `m03/chart`).
+     *
+     *  This is how several series show the SAME entity: the data key stays
+     *  FIRST, so the canvas keeps the source's order, one asset's rows sit
+     *  adjacent, and `seek` still lands on it. Synthesized group parents do not
+     *  take it — their key is the group VALUE, not a data key. */
+    keySuffix?: string;
+    /** Parent aggregation mode (default `"mean"`; a literal or a `PlanAggregateType` expression). */
+    aggregate?: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral;
+    /** Heat scale + warn threshold applied to derived parent cells. */
+    scale?: PlanHeatCellsOptions;
+}
+
+/** The heat PARENT kind — an aggregate declaration on empty scale-bearing cells. */
+export function heatParentKind(cfg: PlanHeatOfConfig<StructType>): ExprType<PlanRowKindType> {
+    return East.value(variant("heat", {
+        cells:     createHeatCells([], cfg.scale),
+        aggregate: some(resolveTag(cfg.aggregate ?? "mean", PlanAggregateType)),
+    }), PlanRowKindType);
+}
+
+/** The heat LEAF constructor. */
+export function heatRowOf(cfg: PlanHeatOfConfig<StructType>): PlanRowFn {
+    return (_$, r, k) => applyRowOverrides(
+        createHeat({
+            key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
+            label: cfg.label(r, k),
+            ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+            ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
+            cells: cfg.cells(r, k),
+        }),
+        {
+            ...(cfg.sub !== undefined ? { sub: cfg.sub(r, k) } : {}),
+            ...(cfg.value !== undefined ? { value: cfg.value(r, k) } : {}),
+            ...(cfg.status !== undefined ? { status: cfg.status(r, k) } : {}),
+            ...(cfg.approval !== undefined ? { approval: cfg.approval(r, k) } : {}),
+            ...(cfg.expand !== undefined ? { expand: cfg.expand(r, k) } : {}),
+        },
+    );
+}
+
+/**
+ * Config for `Plan.series.table` (minus `match`).
+ *
+ * @property label - Gutter label accessor (over the entry's value and key)
+ * @property id - Render labels as mono row ids
+ * @property stacked - Two-line gutter layout (label over sub)
+ * @property sub - Gutter sub-line accessor
+ * @property cells - Per-row cells accessor (sugar for one unstyled value series)
+ * @property series - Per-row multi-series accessor (exclusive with `cells`)
+ * @property split - Part layout when several value series render
+ * @property emphasis - Row emphasis (`"body"` / `"header"` / `"footer"`)
+ * @property groupBy - Group-key accessors (subtotal parents per level)
+ * @property keyPrefix - Key prefix for this series' rows (omit ⇒ the source's keys, unchanged)
+ * @property keySuffix - Key suffix for this series' LEAF rows — what lets several series show the same entity
+ * @property aggregate - Subtotal mode (default `"sum"`)
+ * @property format - Numeral format for derived subtotals
+ */
+export interface PlanTableOfConfig<R extends StructType, K extends PlanAxisKindLiteral = never> {
+    /** Gutter label accessor. */
+    label: PlanAccessor<R, StringType>;
+    /** Render labels as mono row ids. */
+    id?: boolean;
+    /** Two-line gutter layout (label over sub). */
+    stacked?: boolean;
+    /** Gutter sub-line accessor — returns the field's `Option` (per-row presence). */
+    sub?: PlanAccessor<R, OptionType<StringType>>;
+    /** Per-row review-verdict accessor — returns the field's `Option`. SEEDS
+     *  the review chrome's buttons only; how a decided row LOOKS is derived
+     *  through the other accessors, like every other pixel (#569). */
+    approval?: PlanAccessor<R, OptionType<ApprovalStateType>>;
+    /** Per-row expand-declaration accessor — returns the field's `Option<PlanExpandType>` (R2). */
+    expand?: PlanAccessor<R, OptionType<PlanExpandType>>;
+    /** Per-row cells accessor (build with `Plan.tableCells`) — sugar for one unstyled value series; its kind brands the series. */
+    cells?: PlanKindedAccessor<R, PlanTableCellsInput<K>>;
+    /** Per-row MULTI-SERIES accessor (`Array<PlanTableSeriesType>` in the data, or `Plan.tableSeries` results); exclusive with `cells`. */
+    series?: PlanElementsAccessor<R, PlanTableSeriesType, K>;
+    /** Part layout when several value series render — `"horizontal"` (default) / `"vertical"`. */
+    split?: SubtypeExprOrValue<PlanTableSplitType> | PlanTableSplitLiteral;
+    /** Row emphasis — `"body"` (default) / `"header"` / `"footer"`. */
+    emphasis?: SubtypeExprOrValue<PlanTableEmphasisType> | PlanTableEmphasisLiteral;
+    /** Group-key accessors — one subtotal parent per discovered value per level. */
+    groupBy?: PlanAccessor<R, StringType>[];
+    /** Key prefix for this series' rows — leaf keys and synthesized group
+     *  keys alike. Omit (the default) and a leaf's key IS the source's key, so
+     *  the canvas stays addressable by the same keys `seek` searches. A prefix
+     *  banks the whole series together and takes it OFF that key space, so
+     *  `seek` can no longer reach it — prefer {@link rowKey}'s `keySuffix` when
+     *  the point is simply to show two series over one source. */
+    keyPrefix?: string;
+    /** Key suffix for this series' LEAF rows (`m03` → `m03/chart`).
+     *
+     *  This is how several series show the SAME entity: the data key stays
+     *  FIRST, so the canvas keeps the source's order, one asset's rows sit
+     *  adjacent, and `seek` still lands on it. Synthesized group parents do not
+     *  take it — their key is the group VALUE, not a data key. */
+    keySuffix?: string;
+    /** Subtotal mode (default `"sum"`; a literal or a `TableAggregateType` expression). */
+    aggregate?: SubtypeExprOrValue<TableAggregateType> | TableAggregateLiteral;
+    /** Numeral format for the rows' values + derived subtotals — a `Format.*` spec. */
+    format?: SubtypeExprOrValue<TickFormatType>;
+}
+
+/**
+ * The table PARENT kind — a subtotal declaration (header emphasis).
+ *
+ * @remarks
+ * `split` is the series', not a fixed `horizontal`: a subtotal lays its
+ * positions out the way its members do, or a vertical series renders stacked
+ * rows under a parent that puts the same two numbers side by side — and, since
+ * the row height follows the split, a parent that is one line tall while its
+ * members are two.
+ */
+export function tableParentKind(cfg: PlanTableOfConfig<StructType>): ExprType<PlanRowKindType> {
+    return East.value(variant("table", {
+        series:    [],
+        split:     resolveTag(cfg.split ?? "horizontal", PlanTableSplitType),
+        aggregate: some(resolveTag(cfg.aggregate ?? "sum", TableAggregateType)),
+        format:    cfg.format !== undefined ? some(East.value(cfg.format, TickFormatType)) : none,
+        emphasis:  variant("header", null),
+    }), PlanRowKindType);
+}
+
+/** The table LEAF constructor. */
+export function tableRowOf(cfg: PlanTableOfConfig<StructType>): PlanRowFn {
+    return (_$, r, k) => applyRowOverrides(
+        createTable({
+            key:   rowKey(cfg.keyPrefix, k, cfg.keySuffix),
+            label: cfg.label(r, k),
+            ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+            ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
+            ...(cfg.cells !== undefined ? { cells: cfg.cells(r, k) } : {}),
+            ...(cfg.series !== undefined ? { series: cfg.series(r, k) } : {}),
+            ...(cfg.split !== undefined ? { split: cfg.split } : {}),
+            ...(cfg.emphasis !== undefined ? { emphasis: cfg.emphasis } : {}),
+            ...(cfg.format !== undefined ? { format: cfg.format } : {}),
+        }),
+        {
+            ...(cfg.sub !== undefined ? { sub: cfg.sub(r, k) } : {}),
+            ...(cfg.approval !== undefined ? { approval: cfg.approval(r, k) } : {}),
+            ...(cfg.expand !== undefined ? { expand: cfg.expand(r, k) } : {}),
+        },
+    );
+}

@@ -6,7 +6,7 @@
 /**
  * React context + hook for the `PlotGutter` cascade (#147).
  *
- * `<AlignedStack>` publishes one `{ left, right }` gutter; the axis/lane
+ * A `PlotGutterProvider` publishes one `{ left, right }` gutter; the axis/lane
  * components (Chart, Trace, Calendar, …) read it via {@link usePlotGutter} and
  * inset their data lane to `[left, W − right]` so stacked components line up on
  * a common x. A component's own `plotGutter` prop wins over the inherited value
@@ -35,7 +35,7 @@ export function PlotGutterProvider({ value, children }: PlotGutterProviderProps)
 
 /**
  * Read the inherited plot gutter from context, or `undefined` when no
- * `<AlignedStack>` provides one — so a lane component can tell "no shared gutter"
+ * provider imposes one — so a lane component can tell "no shared gutter"
  * (keep its own defaults) apart from an imposed value.
  */
 export function usePlotGutter(): PlotGutter | undefined {

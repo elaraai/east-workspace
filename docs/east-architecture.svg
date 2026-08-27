@@ -81,7 +81,7 @@
   <g>
     <text x="80" y="434" class="h">Render</text>
     <text x="80" y="454" class="b">Typed components — tables, charts,</text>
-    <text x="80" y="470" class="b">forms, Gantt — reactive, wired to</text>
+    <text x="80" y="470" class="b">forms, plans — reactive, wired to</text>
     <text x="80" y="486" class="b">live data; provenance built in.</text>
     <text x="80" y="507" class="pkg">east-ui · e3-ui</text>
 

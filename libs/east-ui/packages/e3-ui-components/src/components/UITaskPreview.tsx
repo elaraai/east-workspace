@@ -44,6 +44,7 @@ import {
 } from '../platform/dataset-hooks.js';
 import { useE3ConfigOptional, type E3Config } from '../platform/e3-config.js';
 import { createScopedBindPlatform } from '../platform/bind-runtime.js';
+import { createScopedPagedPlatform } from '../platform/paged-runtime.js';
 import { createScopedFuncPlatform } from '../platform/func-runtime.js';
 import { createScopedRecordPlatform } from '../platform/record-runtime.js';
 import { DecisionBindPlatform } from '../decision/handle-runtime.js';
@@ -104,7 +105,7 @@ export const UITaskPreview = memo(function UITaskPreview({
     const manifest = useMemo(() => {
         if (!details || !isUI) return null;
         const meta = getTaskMetadata(details);
-        return meta ? decodeManifest(meta) : { paths: [], functions: [], records: [] };
+        return meta ? decodeManifest(meta) : { paths: [], functions: [], records: [], pages: [] };
     }, [details, isUI]);
 
     const outputPath = details ? treePathToString(details.output as TreePath) : null;
@@ -137,6 +138,7 @@ export const UITaskPreview = memo(function UITaskPreview({
                     ...ShareImpl,
                     ...DecisionBindPlatform,
                     ...createScopedBindPlatform(manifest),
+                    ...createScopedPagedPlatform(manifest.pages),
                     ...createScopedFuncPlatform(manifest.functions),
                     ...createScopedRecordPlatform(manifest.records),
                 ]

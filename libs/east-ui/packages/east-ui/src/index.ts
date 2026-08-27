@@ -37,6 +37,7 @@ export type { UIElement } from "./runtime/runtime.js";
 // Style System
 export { Style } from "./style.js";
 export { DensityType, type DensityLiteral, StatusTokenType, type StatusTokenLiteral } from "./style/interaction.js";
+export { StatusValueType, type StatusValueLiteral } from "./feedback/status/types.js";
 
 // Drag & drop grammar contract — hosts type `onDrag` handlers against these
 export {
@@ -58,6 +59,39 @@ export {
     deriveApproval,
 } from "./contracts/review.js";
 
+// Event lifecycle contract — the estimated → proposed → confirmed →
+// in-progress → actual audit vocabulary scheduled-event surfaces speak
+export {
+    EventFlavourType, EventStateType, type EventStateLiteral,
+} from "./contracts/states.js";
+
+// Shared time contract — bucketed-axis resolution + drag/duration snap steps
+export {
+    TimeResolutionType, type TimeResolutionLiteral,
+} from "./contracts/time.js";
+
+// Row-source contract (#567) — how a collection takes its rows: inline, or a
+// windowed source fetched a page at a time. east-ui declares the shape;
+// whoever can fetch windows produces one (`Data.bindPaged` in @elaraai/e3-ui,
+// or `Paged.of` for a collection already in hand).
+export {
+    SeekRangeType, SeekQueryType,
+    PagedSourceType, type PagedSource,
+    RowSourceType, type RowSource,
+    type PagedSourceLike, type RowSourceInput,
+    Paged, type PagedOfOptions,
+} from "./contracts/source.js";
+
+// Pick contract (#590) — which of a component's declared things are shown. A
+// Plan picks row series, a Table would pick columns. The handle is what
+// decouples: `Pick.Panel` renders the library and never imports the component.
+export {
+    PickStateType, PickItemType, PickStateHandleType,
+    PickBindType, PickPanelType, PickHandleType, type PickHandle,
+    type PickOptions,
+} from "./contracts/pick.js";
+export { Pick, type PickPanelOptions } from "./pick/index.js";
+
 // Format helpers
 export { Format } from "./format/index.js";
 export type {
@@ -76,7 +110,7 @@ export {
 
 // Layout
 export {
-    Box, Flex, Stack, VStack, HStack, AlignedStack, Separator, Grid, Splitter,
+    Box, Flex, Stack, VStack, HStack, Separator, Grid, Splitter,
     Sticky, ScrollArea, Expandable, Dock, Configurator,
 } from "./runtime/layout/index.js";
 
@@ -106,12 +140,17 @@ export type {
 // Display
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail } from "./runtime/display/index.js";
 export type { IconName } from "./display/index.js";
+// The icon VALUE type + its plain-JS authoring payload. Public because any
+// per-item icon accessor (`Pick.bind`'s, a custom tag's) has to build one,
+// and `Button`/`Banner`/`Status` already make the concept part of authoring.
+export { IconType } from "./display/icon/types.js";
+export type { IconPayload } from "./buttons/button/types.js";
 
 // Containers
 export { Card } from "./runtime/container/index.js";
 
 // Collections
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Gantt, Planner, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
 
 // Charts
 export { Chart, Sparkline } from "./runtime/charts/index.js";

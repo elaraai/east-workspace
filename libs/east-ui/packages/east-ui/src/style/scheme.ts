@@ -12,7 +12,7 @@ import { East, NullType, variant, VariantType, type ExprType } from "@elaraai/ea
 // Note: a prior `TableVariantType(simple|striped|unstyled)` lived here and
 // clashed with the canonical `TableVariantType(line|outline)` in
 // `collections/table/types.ts`. The style.ts version was deleted; the
-// canonical type is the one referenced by Table, Planner, and Gantt.
+// canonical type is the one the Table references.
 
 /**
  * Size variant type for controlling component sizing.

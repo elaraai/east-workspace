@@ -24,16 +24,13 @@ import {
   decodeBeast2,
   decodeBeast2For,
   encodeBeast2For,
-  encodeBeast2PagedFor,
-  isVariant,
   printIdentifier,
   StructType,
-  toEastTypeValue,
   variant,
   type EastType,
   type EastTypeValue,
 } from '@elaraai/east';
-import { DataRefType, WorkspaceStateType, decodePackageObject, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
+import { DataRefType, WorkspaceStateType, decodePackageObject, encodeDatasetBlob, isCollectionRoot, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
 import { packageRead } from './packages.js';
 import {
   WorkspaceNotFoundError,
@@ -146,10 +143,11 @@ export async function datasetRead(
 }
 
 /** Whether a dataset root type is a collection (Array/Set/Dict) — the kinds
- *  stored segmented + indexed so the paged read API can seek. */
-export function isCollectionRoot(typeValue: EastTypeValue): boolean {
-  return typeValue.type === 'Array' || typeValue.type === 'Set' || typeValue.type === 'Dict';
-}
+ *  stored segmented + indexed so the paged read API can seek.
+ *
+ *  Re-exported from `@elaraai/e3-types`, which is where the rule now lives so
+ *  that the package EXPORT path obeys it too (#584). */
+export { isCollectionRoot };
 
 /**
  * Encode and write a dataset value to the object store.
@@ -172,11 +170,7 @@ export async function datasetWrite(
   value: unknown,
   type: EastType | EastTypeValue
 ): Promise<string> {
-  const typeValue: EastTypeValue = isVariant(type) ? type as EastTypeValue : toEastTypeValue(type as EastType);
-  if (isCollectionRoot(typeValue)) {
-    return storage.objects.write(repo, encodeBeast2PagedFor(typeValue)(value));
-  }
-  return storage.objects.write(repo, encodeBeast2For(typeValue)(value));
+  return storage.objects.write(repo, encodeDatasetBlob(type, value));
 }
 
 // =============================================================================

@@ -18,7 +18,7 @@ import { UIComponentType } from "../../component.js";
  * real-world entities (tanks, bays, lines, cells) in space, plus
  * annotation zones (rooms, hatched walkways) and key-addressed links — all
  * from flat data tables with chart-style field encodings. Renders bare like
- * Table / Planner; identity chrome is host composition.
+ * Table; identity chrome is host composition.
  *
  * @example
  * ```tsx

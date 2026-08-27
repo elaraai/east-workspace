@@ -42,7 +42,7 @@ in `east-ui/src/shared/reify.ts`:
 - `mapRowsBlock(rows, OutType, ($, row) => …)` — same, for bodies that
   need a block builder (`$.let`, statements).
 - `reifyAccessor([inputTypes], lambda)` — output type inferred from the
-  lambda's expansion (Table/Gantt column `value`, Chart encodings), via
+  lambda's expansion (Table column `value`, Chart encodings), via
   `East.function`'s inference overload (`East.function(inputs, undefined,
   body)`, `east/src/expr/block.ts:311`).
 
@@ -85,9 +85,9 @@ This is the general mechanism, not a workaround: IR-level generics were
 assessed and rejected in #203 — closures are the existential the language
 already ships, in all three runtimes.
 
-## Table/Gantt cell IR (#206)
+## Table cell IR (#206)
 
-Table/Gantt cells are bare `LiteralValueType` variants — the sortable value
+Table cells are bare `LiteralValueType` variants — the sortable value
 IS the cell. `TableColumnType.render` is **required**; the factory
 synthesizes a capture-free text default (`ctx.cellValue.unwrap(tag)` via the
 column's statically-known value tag) when the author omits it. The IR

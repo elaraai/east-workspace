@@ -42,7 +42,7 @@ const config = {
 const initialState = {
     range: none, compare: none, filters: [], cohorts: [],
     activeCohorts: new Set<string>(), breakdown: none, search: none,
-    visible: none, selectedIndex: none,
+    visible: none, selectedIndex: none, resolution: none,
 };
 const rows = [{ id: "a", n: 1n }, { id: "b", n: 2n }];
 
@@ -109,6 +109,7 @@ test("#170 — a FULLY-populated SliceState survives the beast2 round-trip field
         search: some("hello"),
         visible: some(new Set(["a", "other"])),
         selectedIndex: some(3n),
+        resolution: some(variant("week", null)),
     };
     const bytes = encodeBeast2For(Slice.Types.State)(full as never);
     const back = decodeBeast2For(Slice.Types.State)(bytes) as unknown as typeof full;
@@ -133,6 +134,7 @@ test("#170 — a FULLY-populated SliceState survives the beast2 round-trip field
     const vis = (back.visible as { value: Set<string> }).value;
     assert.equal(vis.has("a") && vis.has("other") && vis.size === 2, true);
     assert.equal((back.selectedIndex as { value: bigint }).value, 3n);
+    assert.equal((back.resolution as { value: { type: string } }).value.type, "week");
 });
 
 test("#106 — SliceImpl ships the backing primitives (decode path)", () => {

@@ -27,6 +27,10 @@ export {
     type DataBindOptions,
     bindPlatformFn,
     DataBindPrimitives,
+    DataPagedHandleType,
+    type PagedValue,
+    bindPagedPlatformFn,
+    DataPagedPrimitives,
 } from './bind/data.js';
 export {
     Func,

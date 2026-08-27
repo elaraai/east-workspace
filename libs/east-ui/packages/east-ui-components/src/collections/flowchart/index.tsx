@@ -21,6 +21,7 @@ import { equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Flowchart, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { formatDatePattern } from "../../charts/spec/index.js";
 import { SliceRailCluster } from "../../slice/rail";
 import { SliceDensityContext } from "../../slice/density";
 import { parseCssSize } from "../../style/parse-size.js";
@@ -497,7 +498,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                         <Box as="span">{freshness.label}</Box>
                         {getSomeorUndefined(freshness.date) !== undefined && (
                             <Box as="span" css={styles.freshnessDate}>
-                                {getSomeorUndefined(freshness.date)!.toLocaleDateString(undefined, { day: "2-digit", month: "short", timeZone: "UTC" })}
+                                {formatDatePattern("DD MMM", getSomeorUndefined(freshness.date)!)}
                             </Box>
                         )}
                     </Box>

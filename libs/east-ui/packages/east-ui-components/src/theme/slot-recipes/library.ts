@@ -28,7 +28,7 @@ export const librarySlotRecipe = defineSlotRecipe({
         "footer", "hiddenNote", "showAll", "addAction", "ghost",
     ],
     base: {
-        /* Bare like Table / Planner — identity chrome (title, outer frame)
+        /* Bare like the Table — identity chrome (title, outer frame)
          * is host composition via Card / Slice.Frame. */
         root: {
             background: "bg.surface",

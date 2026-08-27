@@ -55,7 +55,7 @@ program
     .option('--element <selector>', 'Capture a specific CSS selector instead of the component frame')
     .option('--wait <ms>', `Extra settle time after fonts/skeletons clear (default ${D.settleMs})`)
     .option('--timeout <ms>', `Max time to wait for the render to complete (default ${D.timeoutMs}); raise for slow live tasks`)
-    .option('--frame-width <w>', "Mount the component frame at a definite width: 'full' (viewport) or a CSS width like 900px — width-flexible components (Schematic/Gantt/Table) collapse in the default shrink-to-fit frame")
+    .option('--frame-width <w>', "Mount the component frame at a definite width: 'full' (viewport) or a CSS width like 900px — width-flexible components (Schematic/Plan/Table) collapse in the default shrink-to-fit frame")
     .option('--storage-key <key>', 'Storage key prefix for persisted component state')
     .option('--debug-layout', 'Outline any element whose content overflows its box — surfaces collapsed / clipped regions that are invisible in a normal shot (#320)')
     .action(shotCommand);

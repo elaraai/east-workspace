@@ -279,13 +279,13 @@ examples are under the slot budget already and are exempt.)
      (`tableVariants`).
    - **A static enumeration panel** (`VStack` of
      `<Separator label>`-bounded groups) ONLY where seeing every row at
-     once is the point — the aligned-stack catalogue
-     (`alignedStackAll`), the slice-effect pair (`schematicSlice`) and
+     once is the point — the per-kind Plan panels (`planSpanRows`,
+     `planBucketRows`), the slice-effect pair (`schematicSlice`) and
      the slice rails. Everything else — status grammars, event/lifecycle
      grammars, data-shape enumerations, canvas-content variants, sizing
      contracts — is a configurator axis (a preset/data axis swaps whole
      fixtures or component subtrees; `fill`/`scroll` are presets): see
-     `plannerVariants`, `ganttVariants`, `bannerStatusVariants`,
+     `planVariants`, `bannerStatusVariants`,
      `mapOverlayVariants`, `schematicVariants`, `columnBarVariants`.
      Control lanes carry controls ONLY — no hint strings, no caption
      `Text` beside switches; scope notes live in short label

@@ -338,7 +338,7 @@ export type ChartAxisTextStyleType = typeof ChartAxisTextStyleType;
  * @property tickFormat - How tick labels are formatted (see {@link ChartTickFormatType}); omit for the renderer default
  * @property tickStyle  - Typography override for the tick labels (see {@link ChartAxisTextStyleType}); omit for the spec default
  * @property titleStyle - Typography override for the axis caption (see {@link ChartAxisTextStyleType}); omit for the spec default
- * @property titleGap   - Extra px between the tick labels and the axis caption (#327). Widens the axis's own margin band (bottom for x, left for y, right for y2), NOT the shared plot gutter — so nudging a title cannot shift an `AlignedStack`-aligned plot lane. Omit for the spec default (0).
+ * @property titleGap   - Extra px between the tick labels and the axis caption (#327). Widens the axis's own margin band (bottom for x, left for y, right for y2), NOT the shared plot gutter — so nudging a title cannot shift a gutter-aligned plot lane. Omit for the spec default (0).
  */
 export const ChartAxisType = StructType({
     label:      OptionType(StringType),

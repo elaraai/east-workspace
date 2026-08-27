@@ -87,7 +87,7 @@ export const EastChakraTrace = memo(function EastChakraTrace({ value, storageKey
     // Optional label-gutter width override (#137) — overrides the density
     // default `--t-stub-w`, which both the grid columns and now-line read.
     const labelWidth = style ? getSomeorUndefined(style.labelWidth) : undefined;
-    // Shared plot gutter (#147) — own prop wins over an enclosing <AlignedStack>'s
+    // Shared plot gutter (#147) — own prop wins over an inherited plot-gutter
     // context. When active the step lane fills [left, W−right] via leading/trailing
     // gutter tracks (the flexible step columns keep their inter-cell gap) so the
     // lane lines up with a stacked Chart's plot.

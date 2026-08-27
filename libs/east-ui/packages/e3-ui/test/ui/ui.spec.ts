@@ -6,7 +6,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { East, FloatType, equalFor, variant } from "@elaraai/east";
+import { ArrayType, East, FloatType, StringType, StructType, equalFor, variant } from "@elaraai/east";
 import { TreePathType } from "@elaraai/e3-types";
 import { input } from "@elaraai/e3";
 import { Reactive, UIComponentType, Text } from "@elaraai/east-ui/internal";
@@ -43,7 +43,7 @@ describe("ui()", () => {
     test("derives an empty manifest when fn does not call Data.bind and no inputs", () => {
         const dashboard = ui("dashboard", [], blankUI);
         assert.ok(dashboard.metadata, "metadata should be set");
-        assert.ok(manifestEqual(decodeManifest(dashboard.metadata), { paths: [], functions: [], records: [] }),
+        assert.ok(manifestEqual(decodeManifest(dashboard.metadata), { paths: [], functions: [], records: [], pages: [] }),
             "expected empty manifest");
     });
 
@@ -71,6 +71,34 @@ describe("ui()", () => {
         assert.equal(manifest.paths.length, 1);
         assert.ok(pathEqual(manifest.paths[0]!,
             [variant("field", "inputs"), variant("field", "threshold")]));
+    });
+
+    test("a Data.bindPaged source lands in `pages`, never in `paths`", () => {
+        // The declared-reads contract for a paged source: it IS scoped (a ui()
+        // task may only window datasets it bound) but must NOT join `paths`,
+        // which is the preload + poll list — preloading a paged source would
+        // fetch the whole thing, the exact cost paging exists to avoid.
+        const ops = input("ops", ArrayType(StructType({ id: StringType })), []);
+        const threshold = input("threshold", FloatType, 100.0);
+        const dashboard = ui("paged_dashboard", [], East.function([], UIComponentType, (_$) =>
+            Reactive.Root(East.function([], UIComponentType, $ => {
+                const paged = $.let(Data.bindPaged(ops));
+                const whole = $.let(Data.bind(threshold));
+                const w = $.let(paged.page(0n, 100n));
+                const loaded = $.let(w.hasTag("some"));
+                void loaded;
+                const t = $.let(whole.read());
+                return Text.Root(East.print(t));
+            }))
+        ));
+        const manifest = decodeManifest(dashboard.metadata!);
+        // The whole-value bind is preloaded; the paged one is only declared.
+        assert.equal(manifest.paths.length, 1);
+        assert.ok(pathEqual(manifest.paths[0]!,
+            [variant("field", "inputs"), variant("field", "threshold")]));
+        assert.equal(manifest.pages.length, 1);
+        assert.ok(pathEqual(manifest.pages[0]!,
+            [variant("field", "inputs"), variant("field", "ops")]));
     });
 
     test("compute-time inputs and reactive paths union without duplicates", () => {

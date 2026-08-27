@@ -7,7 +7,8 @@
  * `<Table>` tag — see the export's JSDoc.
  */
 
-import type { SubtypeExprOrValue, ArrayType, StructType } from "@elaraai/east";
+import type { SubtypeExprOrValue, ArrayType, ExprType, StructType } from "@elaraai/east";
+import type { PagedSource } from "../../contracts/source.js";
 import {
     Table as TableFactory,
     type ColumnSpec,
@@ -26,12 +27,22 @@ import type { UIElement } from "../runtime.js";
  */
 function TableTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     props: { data: T; columns: ColumnSpec<T> } & TableOptions<DataFieldKeys<T>, DataRowType<T>>,
+): UIElement;
+/** The PAGED arm (#576) — `data` is a windowed source of the same rows; the
+ *  row type rides structurally in its `page` signature, so `columns` is checked
+ *  against it exactly as for an inline array. */
+function TableTag<R extends StructType>(
+    props: { data: PagedSource<ArrayType<R>>; columns: ColumnSpec<ExprType<ArrayType<R>>> }
+        & TableOptions<Extract<keyof R["fields"], string>, R>,
+): UIElement;
+function TableTag(
+    props: { data: unknown; columns: unknown },
 ): UIElement {
-    const { data, columns, ...options } = props as { data: T; columns: ColumnSpec<T> } & Record<string, unknown>;
-    return TableFactory.Root(
+    const { data, columns, ...options } = props as { data: unknown; columns: unknown } & Record<string, unknown>;
+    return (TableFactory.Root as (d: unknown, c: unknown, o?: unknown) => UIElement)(
         data,
         columns,
-        (hasKeys(options) ? options : undefined) as TableOptions<DataFieldKeys<T>, DataRowType<T>>,
+        hasKeys(options) ? options : undefined,
     );
 }
 

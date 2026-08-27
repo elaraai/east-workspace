@@ -139,6 +139,11 @@ function exampleFunctionApi() {
 async function seedE3DatasetCache(): Promise<void> {
     const seed = new Map<string, Uint8Array>();
     const inputPaths: TreePath[] = [];
+    // NOTE: `Data.bindPaged` is NOT seeded. Paging is a server capability —
+    // windows, exact totals and key search all come from the stored segments —
+    // so a local stand-in would only teach the canvas something the deployed
+    // dataset never promises. A paged example refuses here and is viewed
+    // against a real workspace instead.
     for (const mod of e3ExampleModules) {
         for (const value of Object.values(mod)) {
             if (!isSeedableInput(value)) continue;

@@ -27,14 +27,27 @@ import {
 // | Roster  | person key       | day key (e.g. `"wed"`)                        |
 // | Board   | area key         | shift key                                     |
 // | Blend   | target key       | `"alloc"` (synthetic single slot)             |
-// | Planner | row key          | axis key, with the bucket composed in — `"wed"` unbucketed, `"wed:am"` for the AM bucket |
-// | Gantt   | row index key    | snapped datetime key (ISO instant after the component's grid snap) |
+// | Plan    | canvas row key   | the pointed-at bucket's START instant, per the axis kind (#631): `time` ⇒ the Z-less ISO instant; `number` ⇒ the bucket start as a decimal; `ordinal` ⇒ the value |
 //
-// The composite rule: when a slot subdivides (Planner buckets), the sub-slot
-// key is appended with `":"` — the same composite key the renderer uses to
-// index its cells. Axis coordinates that are not strings (numbers, datetimes)
-// are printed canonically: numbers via their decimal form, datetimes as the
-// snapped ISO-8601 instant. Hosts map keys straight back to their source data.
+// The composite rule: if a target's slot subdivides, the sub-slot key is
+// appended with `":"` — the same composite key the renderer uses to index its
+// cells. (No current target subdivides: the Plan reports the bucket START
+// instant and leaves lane placement to the receiving series.) Axis coordinates
+// that are not strings (numbers, datetimes) are printed canonically: numbers
+// via their decimal form (`slot.parse(FloatType)`), datetimes as the snapped
+// ISO-8601 instant (`slot.parse(DateTimeType)`); an ordinal slot IS the value.
+// Hosts map keys straight back to their source data.
+//
+// The Plan prints every slot through one shared encoding
+// (`east-ui-components/src/dnd/slot-key.ts`), which any future axis-bearing
+// target must reuse so a host parses every slot the same way. A Plan row key
+// IS the data key its canvas is built from and searched by, so a Plan `add`
+// maps straight back to the source element with no lookup table.
+//
+// A Plan accepts drops only on the row kinds that hold discrete scheduled
+// objects — `span`, `buckets`, `events`, `cards`. Rows rendering derived values
+// (`chart`, `heat`, `table`) and group strips register no cell at all, so they
+// are inert to a drag before any `canDrop` predicate is consulted.
 
 /**
  * Reference to an item in a Library (a drag **source**).
@@ -158,9 +171,9 @@ export type DragEdgeLiteral = "start" | "end";
  *   `from.row ≠ to.row`.
  * - `remove` takes a {@link DragSinkType} destination: the trash affordance
  *   or back to the originating Library.
- * - `resize` exists only for span events with a duration (Gantt /
- *   Planner.Span); the edge variant says which boundary moved, and the
- *   destination slot of the moved edge is the `event` ref's `slot`.
+ * - `resize` exists only for span events with a duration; the edge variant
+ *   says which boundary moved, and the destination slot of the moved edge is
+ *   the `event` ref's `slot`.
  *
  * @property add - New item from a sibling Library landing on a target cell
  * @property move - An event moved within one surface

@@ -35,7 +35,7 @@ import { useDatasetStatus } from '../hooks/useDatasetStatus.js';
 import { useDatasetValue, useDatasetDownload } from '../hooks/useDatasetValue.js';
 import { useDatasetSet } from '../hooks/datasets.js';
 import { StatusDisplay } from './StatusDisplay.js';
-import { DatasetKeySearch, keyRangePredicates, type DatasetKeyMatchRange, type DatasetKeyQuery } from './DatasetKeySearch.js';
+import { DatasetKeySearch, keyRangePredicates, type DatasetKeyMatchRange, type DatasetKeyQuery } from '@elaraai/east-ui-components';
 import { PagedDatasetPreview } from './PagedDatasetPreview.js';
 import { formatApiError, formatError } from '../errors.js';
 

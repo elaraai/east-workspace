@@ -13,7 +13,7 @@
 - **Typography** - Text, Code, Heading, Link, Highlight, Mark, List, CodeBlock
 - **🔘 Buttons** - Button, IconButton with variants and states
 - **Forms** - Field, Input, Select, Checkbox, Switch, Slider, Textarea, TagsInput, FileUpload
-- **Collections** - Table, Gantt, DataList, TreeView
+- **Collections** - Table, Plan, DataList, TreeView
 - **Charts** - Area, Bar, Line, Pie, Radar, Scatter, Sparkline, BarList, BarSegment
 - **Feedback** - Alert, Progress
 - **Display** - Badge, Tag, Avatar, Stat, Icon
@@ -58,7 +58,7 @@ const ir = MyComponent.toIR();
 | **Typography** | `Text`, `Code`, `Heading`, `Link`, `Highlight`, `Mark`, `List`, `CodeBlock` | Text and typography components |
 | **Buttons** | `Button`, `IconButton` | Interactive button components |
 | **Forms** | `Input`, `Select`, `Checkbox`, `Switch`, `Slider`, `Textarea`, `TagsInput`, `FileUpload`, `Field` | Form input components |
-| **Collections** | `Table`, `Gantt`, `DataList`, `TreeView` | Data display components |
+| **Collections** | `Table`, `Plan`, `DataList`, `TreeView` | Data display components |
 | **Charts** | `Chart.Line`, `Chart.Column` (vertical), `Chart.Bar` (horizontal), `Chart.Area`, `Chart.Scatter`, `Chart.Band`, `Sparkline` | Data visualization |
 | **Display** | `Badge`, `Tag`, `Avatar`, `Stat`, `Icon` | Visual display components |
 | **Feedback** | `Alert`, `Progress` | User feedback components |

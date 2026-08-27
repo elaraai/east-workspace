@@ -51,7 +51,7 @@ import { UIComponentType } from "../../component.js";
  * @remarks
  * Carries the `Library.status` value constructor and `Library.Types`.
  * Secondary dimensions and group-by options are plain discriminated config
- * literals, like Planner column definitions.
+ * literals.
  * Desugars to `Library.Root(data, config)`.
  */
 function LibraryTag<T extends SubtypeExprOrValue<ArrayType<StructType>>>(

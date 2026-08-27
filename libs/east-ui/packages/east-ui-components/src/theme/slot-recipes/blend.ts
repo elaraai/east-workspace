@@ -8,7 +8,7 @@
  * the stacked composition bar (hatched headroom remainder + axis),
  * allocation rows under the event-state grammar, predicted-metric rows
  * with trust chips, the objective/actions foot, and the compare diff
- * table. Bare like Table / Planner — identity chrome is host composition.
+ * table. Bare like the Table — identity chrome is host composition.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -339,7 +339,7 @@ export const blendSlotRecipe = defineSlotRecipe({
         /* (The action buttons moved to the shared `commitBar` slots (#266) —
            Apply = btnPrimary, Discard = btnDanger, Reset = btn — so the
            apply/discard surface reads as the same chrome family as the
-           Planner review foot and the DecisionQueue staged footer.) */
+           shared review foot and the DecisionQueue staged footer.) */
         /* Compare foot — derived diff table + verdict. */
         diff: {
             marginTop: "{spacing.3}",

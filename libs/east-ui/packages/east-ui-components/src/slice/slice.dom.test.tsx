@@ -43,7 +43,7 @@ const predEqual = equalFor(Slice.Types.Predicate) as (x: unknown, y: unknown) =>
 function fakeSlice(init: Record<string, unknown> = {}, derived: Record<string, unknown> = {}) {
     let s: any = {
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, search: none, visible: none, selectedIndex: none, ...init,
+        breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none, ...init,
     };
     const set = (patch: Record<string, unknown>) => { s = { ...s, ...patch }; };
     return {
@@ -52,6 +52,7 @@ function fakeSlice(init: Record<string, unknown> = {}, derived: Record<string, u
         write: (ns: any) => { s = ns; },
         setRange: (o: unknown) => set({ range: o }),
         setCompare: (o: unknown) => set({ compare: o }),
+        setResolution: (o: unknown) => set({ resolution: o }),
         // Faithful to the real primitive: a structurally-equal predicate is a
         // no-op (#164 dedup).
         addFilter: (p: unknown) => { if (!s.filters.some((f: unknown) => predEqual(f, p))) set({ filters: [...s.filters, p] }); },
@@ -584,7 +585,7 @@ describe("Slice.Rail — the legend is an explicit affordance, never implicit (#
 describe("Slice.Rail brush — formatted axis + count histogram, rich by default (#190)", () => {
     const brushInitial = {
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, search: none, visible: none, selectedIndex: none,
+        breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
     };
     const currencyCfg = {
         fields: new Map<string, unknown>([
@@ -640,7 +641,7 @@ describe("Slice.Rail brush — slide + edge-resize the applied window (#192)", (
     const initial = {
         range: some(variant("integer", { from: 200n, to: 400n })),
         compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, search: none, visible: none, selectedIndex: none,
+        breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
     };
 
     const mount = (key: string) => {
@@ -665,28 +666,29 @@ describe("Slice.Rail brush — slide + edge-resize the applied window (#192)", (
 
     test("dragging the window body slides it — width preserved exactly", () => {
         const { container, track, appliedRange } = mount("brush.slide");
-        // The applied window renders grabbable with two edge hot zones.
-        expect(container.querySelector("[data-brush-window]")).not.toBeNull();
+        // The applied window renders as the spec vocabulary: excluded-region
+        // masks either side plus the two visible edge handles.
+        expect(container.querySelectorAll("[data-brush-mask]").length).toBe(2);
         expect(container.querySelectorAll("[data-brush-handle]").length).toBe(2);
 
-        fireEvent.pointerDown(track, { clientX: 300, pointerId: 1 }); // inside 200..400
-        fireEvent.pointerMove(track, { clientX: 400, pointerId: 1 }); // +100
+        fireEvent.pointerDown(track, { clientX: 300, pointerId: 1, buttons: 1 }); // inside 200..400
+        fireEvent.pointerMove(track, { clientX: 400, pointerId: 1, buttons: 1 }); // +100
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(appliedRange()).toEqual({ from: 300n, to: 500n });
     });
 
     test("dragging an edge hot zone resizes only that bound", () => {
         const { track, appliedRange } = mount("brush.resize");
-        fireEvent.pointerDown(track, { clientX: 200, pointerId: 1 }); // on the lo edge
-        fireEvent.pointerMove(track, { clientX: 100, pointerId: 1 });
+        fireEvent.pointerDown(track, { clientX: 200, pointerId: 1, buttons: 1 }); // on the lo edge
+        fireEvent.pointerMove(track, { clientX: 100, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(appliedRange()).toEqual({ from: 100n, to: 400n });
     });
 
     test("dragging empty track still draws a fresh window (regression)", () => {
         const { track, appliedRange } = mount("brush.draw");
-        fireEvent.pointerDown(track, { clientX: 600, pointerId: 1 });
-        fireEvent.pointerMove(track, { clientX: 800, pointerId: 1 });
+        fireEvent.pointerDown(track, { clientX: 600, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 800, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(appliedRange()).toEqual({ from: 600n, to: 800n });
     });
@@ -694,11 +696,11 @@ describe("Slice.Rail brush — slide + edge-resize the applied window (#192)", (
     test("a click outside the window clears; a click inside never nukes the selection", () => {
         const { track, appliedRange } = mount("brush.click");
         // Click ON the window: no-op.
-        fireEvent.pointerDown(track, { clientX: 300, pointerId: 1 });
+        fireEvent.pointerDown(track, { clientX: 300, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(appliedRange()).toEqual({ from: 200n, to: 400n });
         // Click on empty track: clears (the established gesture).
-        fireEvent.pointerDown(track, { clientX: 600, pointerId: 1 });
+        fireEvent.pointerDown(track, { clientX: 600, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(appliedRange()).toBeUndefined();
     });
@@ -718,7 +720,7 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
     ];
     const initial = {
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, search: none, visible: none, selectedIndex: none,
+        breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
     };
     const mountRange = (key: string, seed: object = initial) => {
         initializeStore(new UIStore());
@@ -832,7 +834,7 @@ describe("Slice.Filter against the REAL store — round-trip + reactivity (#170)
     };
     const realInitial = {
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, search: none, visible: none, selectedIndex: none,
+        breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
     };
     const rows = [
         { scenario: "v3", sessions: 42n },
@@ -950,7 +952,7 @@ describe("rail affordance resolution — presets IS the cohort surface (#319)", 
 describe("rail summary descriptors — capability when idle, active when narrowing (#319)", () => {
     const base = {
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, search: none, visible: none, selectedIndex: none,
+        breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
     };
     const dims = [{ fieldId: "region", label: "Region" }] as never;
 

@@ -11,7 +11,7 @@ const manifestEqual = equalFor(DataManifestType);
 
 describeEast("DataManifest", (test) => {
     test("encodes + decodes an empty manifest", _ => {
-        const manifest: DataManifest = { paths: [], functions: [], records: [] };
+        const manifest: DataManifest = { paths: [], functions: [], records: [], pages: [] };
         const blob = encodeManifest(manifest);
         if (!(blob instanceof Uint8Array) || blob.length === 0) throw new Error("expected non-empty Uint8Array");
         if (!manifestEqual(decodeManifest(blob), manifest)) throw new Error("round-trip mismatch");
@@ -22,11 +22,12 @@ describeEast("DataManifest", (test) => {
             paths: [[variant("field", "inputs"), variant("field", "sales")]],
             functions: [],
             records: [],
+            pages: [],
         };
         if (!manifestEqual(decodeManifest(encodeManifest(manifest)), manifest)) throw new Error("round-trip mismatch");
     });
 
-    test("round-trips paths, functions and records together", _ => {
+    test("round-trips paths, functions, records and paged sources together", _ => {
         const manifest: DataManifest = {
             paths: [
                 [variant("field", "inputs"), variant("field", "sales")],
@@ -35,6 +36,7 @@ describeEast("DataManifest", (test) => {
             ],
             functions: ["forecast", "rebalance"],
             records: ["counter"],
+            pages: [[variant("field", "inputs"), variant("field", "ops")]],
         };
         if (!manifestEqual(decodeManifest(encodeManifest(manifest)), manifest)) throw new Error("round-trip mismatch");
     });
@@ -44,6 +46,7 @@ describeEast("DataManifest", (test) => {
             paths: [[variant("field", "a")], [variant("field", "b")], [variant("field", "c")]],
             functions: ["f"],
             records: ["r"],
+            pages: [[variant("field", "p")]],
         };
         const a = encodeManifest(manifest);
         const b = encodeManifest(manifest);

@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, FloatType, NullType, type ExprType } from "@elaraai/east";
+import { ArrayType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, type ExprType } from "@elaraai/east";
 import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -16,6 +16,7 @@ describeEast("Data", (test) => {
         dataBindVariants: ex.dataBindVariants,
         dataBindStagedFloat: ex.dataBindStagedFloat,
         dataBindStagedVariants: ex.dataBindStagedVariants,
+        dataBindPagedPlan: ex.dataBindPagedPlan,
     });
 
     // Panels — every merged example stays mounted as a captioned row (#464).
@@ -60,6 +61,24 @@ describeEast("Data", (test) => {
                 $(bound.write(0.0));
             }));
             return Button.Root("Reset", { onClick: reset });
+        })));
+        $(Assert.equal(root.unwrap().getTag(), "ReactiveComponent"));
+    });
+
+    test("Data.bindPaged exposes page + total closures typed from the DatasetDef", $ => {
+        const Row = StructType({ id: StringType, v: FloatType });
+        const rows = e3.input("paged_rows", ArrayType(Row), []);
+        const root = $.let(Reactive.Root(East.function([], UIComponentType, $ => {
+            const paged = $.let(Data.bindPaged(rows));
+            // page(offset, limit) is Option<Array<Row>>; total() is Option<Integer>.
+            const window = $.let(paged.page(0n, 100n), OptionType(ArrayType(Row)));
+            const count = $.let(paged.total(), OptionType(IntegerType));
+            const shown = $.let(window.match({
+                some: (_$, w) => East.print(w.length()),
+                none: _$ => East.str`loading`,
+            }), StringType);
+            void count;
+            return Stat.Root({ label: "Rows", value: shown });
         })));
         $(Assert.equal(root.unwrap().getTag(), "ReactiveComponent"));
     });

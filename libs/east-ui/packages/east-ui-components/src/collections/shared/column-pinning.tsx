@@ -15,7 +15,7 @@ import { coarseHitArea } from "../../style/hit-area.js";
  * pin and sort sit adjacent; full halos would swallow each other). */
 const coarseControlHalo = coarseHitArea({ position: true, size: 36 });
 
-// The custom column meta both Table/Gantt and Planner attach. Declared here in
+// The custom column meta the Table attaches. Declared here in
 // the shared module so any consumer of these helpers carries the typing.
 declare module "@tanstack/react-table" {
     /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -187,7 +187,7 @@ export function ColumnDividerBar() {
 
 /** The interactive resize handle (drag to resize) showing the grip bar. Used by
  *  HeaderControls, and directly by surfaces that want resize WITHOUT the pin /
- *  sort controls (e.g. the Planner, whose left pane is frozen so pinning is moot). */
+ *  sort controls (a frozen left pane makes pinning moot). */
 export function ColumnResizeHandle<TData>({ header }: { header: Header<TData, unknown> }) {
     if (!header.column.getCanResize()) return null;
     return (
@@ -255,7 +255,7 @@ export function createGetSortIndex(sorting: SortingState) {
     };
 }
 
-// ── TanStack column-sizing derivations (shared by Table/Gantt/Planner) ──
+// ── TanStack column-sizing derivations (the Table's) ──
 
 /**
  * Memoized `--header-<id>-size` / `--col-<id>-size` CSS variables for the
