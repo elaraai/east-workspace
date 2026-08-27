@@ -597,7 +597,9 @@ describe("Plan bucket rows (§4·K2)", () => {
         expect(container.querySelector('[data-event="e1"] svg')).toBeTruthy();       // the resting ✓
         expect(container.querySelector('[data-event="e2"]')!.getAttribute("data-state")).toBe("prop");
         expect(screen.getByText("plan")).toBeTruthy();                                // proposed resting look
-        const trim = screen.getByText("TRIM · 4 t");
+        // The label is its own ellipsizing span inside the tile; the tile is
+        // what wears the tone.
+        const trim = screen.getByText("TRIM · 4 t").closest("[data-event]")!;
         expect(trim.getAttribute("data-tone")).toBe("warning");
         expect(container.querySelector('[data-status="danger"]')).toBeTruthy();       // marker ring + icon
     });

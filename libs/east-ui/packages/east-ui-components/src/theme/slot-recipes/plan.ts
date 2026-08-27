@@ -51,7 +51,7 @@ export const planSlotRecipe = defineSlotRecipe({
         // heat rows
         "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart",
         // bucket rows (K2), cards rows (K6), event rows (K7), table rows (K5)
-        "cell", "cellWash", "tile", "laneLabel", "markerIcon", "cardChip",
+        "cell", "cellWash", "tile", "tileLabel", "laneLabel", "markerIcon", "cardChip",
         "milestoneDot", "exceptionTri", "markIcon", "markLabel", "tableCellText", "tableCellPart",
         // overlays
         "nowLine", "cursorLine", "cursorChip", "elementOverlay",
@@ -886,6 +886,10 @@ export const planSlotRecipe = defineSlotRecipe({
             boxShadow: "inset 0 0 0 1.5px {colors.brand.600}, 0 0 0 2px {colors.bg.surface}",
             zIndex: 4,
             "&[data-applied]": { background: "{colors.brand.600}" },
+            // An EVENT-ROW decision mark (K7 — the diamond carries `data-mark`)
+            // is 11px, the §8 sheet's "◇/◆ 11px rotate-45 r1"; a span row's
+            // decision diamond on a run transition stays the 9px above.
+            "&[data-mark]": { width: "11px", height: "11px" },
             // ── R3 SHAPE KEEPS ITS SILHOUETTE, LOSES ITS SIZE (#591) ──
             // Milestone / decision / exception are told apart BY OUTLINE, so
             // the outline is the payload: shrink it, never make it
@@ -1125,6 +1129,15 @@ export const planSlotRecipe = defineSlotRecipe({
                 "@media (prefers-reduced-motion: reduce)": { transition: "none" },
             },
         },
+        // A labelled tile's text — its own flex item, so a label wider than
+        // the tile (a stretched tile in a 356px lane cell) ellipsizes instead
+        // of the centred text clipping on both sides ("MIXED" read "IXE").
+        tileLabel: {
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+        },
         // The per-cell lane caption (`.bl`) — printed at each cell's left.
         laneLabel: {
             fontFamily: "mono",
@@ -1227,8 +1240,8 @@ export const planSlotRecipe = defineSlotRecipe({
         // ── Event marks (K7) — ● milestone · ◇◆ decision (diamond slot) · ▲ exception ──
         milestoneDot: {
             position: "absolute",
-            width: "8px",
-            height: "8px",
+            width: "10px",
+            height: "10px",
             borderRadius: "full",
             background: "{colors.brand.600}",
             transform: "translate(-50%, -50%)",
@@ -1316,6 +1329,21 @@ export const planSlotRecipe = defineSlotRecipe({
             },
             "&[data-split='vertical']": {
                 display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
+                gap: "1px",
+                lineHeight: "11px",
+            },
+            // A 356px card body gives a bucket ~25px. The desktop's 10px
+            // right inset and 10.5px numerals were sized for 54px columns —
+            // a three-digit numeral clipped its first digit — so a card cell
+            // keeps a 2px inset at 9.5px (§10: density relaxes, the vocabulary
+            // does not), and two numerals side by side overlap there, so the
+            // narrow layout stacks a horizontal split the way `vertical`
+            // does; the row's `split` is a DESKTOP layout choice and the
+            // mobile answer is one column.
+            "[data-plan-narrow] &": { paddingRight: "2px", fontSize: "9.5px" },
+            "[data-plan-narrow] &[data-split='horizontal']": {
                 flexDirection: "column",
                 alignItems: "flex-end",
                 gap: "1px",

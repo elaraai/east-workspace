@@ -95,7 +95,7 @@ function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
             }}
         >
             {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />}
-            {label !== undefined ? label
+            {label !== undefined ? <Box as="span" css={styles.tileLabel}>{label}</Box>
                 : icon !== undefined ? null
                 : stateKey === "prop" ? (<><FontAwesomeIcon icon={faGripVertical} />plan</>)
                 : <FontAwesomeIcon icon={faCheck} />}
