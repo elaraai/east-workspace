@@ -75,6 +75,23 @@ test('loadComponentFromSource rejects a parameterized ui() task with the --from-
     await assert.rejects(() => loadComponentFromSource(fixture), /--from-task/);
 });
 
+test('loadComponentFromSource names the in-memory module after its file, so a payload is not bundle text (#606)', async () => {
+    // The bundle is imported from a `data:` URL; without a `sourceURL` V8
+    // reports that whole URL — the base64 of the entire bundle — as every
+    // frame's filename, and east's source map stores it per location, so a
+    // payload was ~99% duplicated bundle text (87 MB for a 64k-node IR) and
+    // the loader's heap scaled with locations × bundle size.
+    const fn = await loadComponentFromSource(FIXTURE);
+    const bundle = fn.toIR() as { source_map?: unknown };
+    assert.ok(bundle.source_map, 'the bundle carries a source map');
+    const text = JSON.stringify(bundle.source_map, (_k, v: unknown) => typeof v === 'bigint' ? v.toString() : v);
+    assert.ok(!text.includes('data:text/javascript'), 'no frame names the data: URL');
+    assert.ok(text.includes('component.tsx'), 'frames name the source file');
+    // And the whole encoded payload of this small fixture stays small.
+    const { b64 } = await buildPayload({ path: FIXTURE, from: 'ts' });
+    assert.ok(b64.length < 2_000_000, `payload is ${b64.length} b64 chars`);
+});
+
 test('buildPayload: .tsx source loads, encodes, and round-trips to a Function IR', async () => {
     const { kind, b64 } = await buildPayload({ path: FIXTURE, from: 'ts' });
     assert.equal(kind, 'component');
