@@ -86,7 +86,7 @@ def _call_builtin(name: str, type_params: list, args: list, output_type: EastTyp
 
     Every namespace builtin (``East.String.*``, ``East.Float.*``, …) and eager
     collection method funnels through here — so when any argument is a traced
-    ``Expression`` (the call is happening inside a ``kernel()`` lambda), the
+    ``Expression`` (the call is happening inside a captured body), the
     call emits East IR instead of executing (#393). That one seam makes the
     entire builtin surface traceable.
     """

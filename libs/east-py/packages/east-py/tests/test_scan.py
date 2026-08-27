@@ -15,10 +15,9 @@ These tests pin the operation that removes it:
 * the motivating forward-fill (a "same as above" encoding), including a
   sequence OPENING with a marker (resolves to the seed) and 500+-element
   runs — the shape the quadratic reformulation made pathological;
-* the eager-lambda, precompiled-kernel and traced (``kernel()``) paths agree
-  exactly, and both the pushed-down eager form and the traced form move zero
-  ``trampoline_calls`` — the check that proves the scan runs natively rather
-  than silently falling back;
+* the eager-lambda, precompiled-function and traced (``East.function``)
+  paths agree exactly — a body that cannot capture raises, so agreeing at
+  all proves the scan runs natively;
 * Set and Dict scans visit East order and agree with ``reduce``;
 * float accumulation order is identical between the eager and traced paths;
 * a multi-segment beast2 file's ``scan`` equals ``load().scan`` exactly —
@@ -38,10 +37,8 @@ from east import (
     StringType,
     array,
     if_else,
-    kernel,
 )
 from east.expression import greatest
-from east.runtime.compiler import eager_stats
 from east.types.values.collections import EastDict, EastSet
 
 
@@ -76,9 +73,9 @@ def test_scan_running_maximum():
 # ── the motivating forward-fill ──────────────────────────────────────────────
 
 def test_forward_fill_paths_agree_and_run_native():
-    """Eager lambda, precompiled kernel step, and a whole traced kernel all
-    produce the same fill — long runs included — with zero per-element python
-    on the pushed-down and traced paths."""
+    """Eager lambda, precompiled step, and a whole traced function all
+    produce the same fill — long runs included (the callbacks capture or
+    raise, so there is no python per element on any of them)."""
     cells = ["a", "", "", "b"] + [""] * 600 + ["c", ""]
     arr = array(StringType, cells)
     expected = []
@@ -87,17 +84,16 @@ def test_forward_fill_paths_agree_and_run_native():
         last = c if c != "" else last
         expected.append(last)
 
-    before = eager_stats()["trampoline_calls"]
     assert list(arr.scan("seed", _ffill_step)) == expected
 
-    step = kernel([StringType, StringType], _ffill_step)
+    step = East.function([StringType, StringType], StringType, _ffill_step)
     assert list(arr.scan("seed", step)) == expected
 
-    # kernel() raises ExpressionError rather than falling back, so this
-    # compiling at all proves scan is on the traced surface.
-    k = kernel(ArrayType(StringType), lambda a: a.scan("seed", _ffill_step))
+    # East.function raises ExpressionError rather than falling back, so this
+    # building at all proves scan is on the traced surface.
+    k = East.function([ArrayType(StringType)], ArrayType(StringType),
+                      lambda a: a.scan("seed", _ffill_step))
     assert list(k(arr)) == expected
-    assert eager_stats()["trampoline_calls"] == before
 
 
 def test_forward_fill_opening_marker_takes_the_seed():
@@ -126,10 +122,11 @@ def test_dict_scan_visits_key_order_and_matches_reduce():
 
 
 def test_traced_set_and_dict_scan():
-    ks = kernel(SetType(IntegerType), lambda s: s.scan(0, lambda acc, x: acc + x))
+    ks = East.function([SetType(IntegerType)], ArrayType(IntegerType),
+                       lambda s: s.scan(0, lambda acc, x: acc + x))
     assert list(ks(EastSet(IntegerType, [3, 1, 2]))) == [1, 3, 6]
 
-    kd = kernel(DictType(StringType, IntegerType),
+    kd = East.function([DictType(StringType, IntegerType)], ArrayType(IntegerType),
                 lambda d: d.scan(0, lambda acc, _k, v: acc + v))
     assert list(kd(EastDict(StringType, IntegerType, {"b": 2, "a": 1}))) == [1, 3]
 
@@ -142,15 +139,14 @@ def test_float_accumulation_order_traced_equals_eager():
     values = [0.1, 0.2, 0.3, 1e16, -1e16, 0.1]
     arr = array(FloatType, values)
     eager = list(arr.scan(0.0, lambda acc, x: acc + x))
-    k = kernel(ArrayType(FloatType), lambda a: a.scan(0.0, lambda acc, x: acc + x))
+    k = East.function([ArrayType(FloatType)], ArrayType(FloatType),
+                      lambda a: a.scan(0.0, lambda acc, x: acc + x))
     assert list(k(arr)) == eager
 
 
-def test_eager_scan_pushes_down():
+def test_eager_scan_captures():
     arr = array(FloatType, [float(i) for i in range(300)])
-    before = eager_stats()["trampoline_calls"]
     out = arr.scan(0.0, lambda acc, x: acc + x)
-    assert eager_stats()["trampoline_calls"] == before
     assert out[299] == pytest.approx(sum(range(300)))
 
 

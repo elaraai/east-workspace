@@ -24,7 +24,6 @@ from east import (
     FloatType,
     IntegerType,
     StructType,
-    kernel,
 )
 from east.expression import trace
 from east.types.values import is_east_struct, is_east_variant
@@ -131,7 +130,7 @@ def _builtin_names(node, out=None):
 
 
 def test_bound_and_unbound_spellings_stay_bit_identical():
-    assert kernel([Rec], _unbound)(REC) == kernel([Rec], _bound)(REC)
+    assert East.function([Rec], FloatType, _unbound)(REC) == East.function([Rec], FloatType, _bound)(REC)
 
 
 def test_a_derived_lookup_read_per_element_hoists():
@@ -147,7 +146,7 @@ def test_a_derived_lookup_read_per_element_hoists():
     ir = trace(fn, [Rec])[0]
     for body in _callback_bodies(ir):
         assert "ArrayToDict" not in _builtin_names(body)
-    got = kernel([Rec], fn)(REC)
+    got = East.function([Rec], FloatType, fn)(REC)
     want = sum((float(i % 7) - 2.0) * 2.0 for i in range(40))
     assert got == want
 
@@ -164,7 +163,7 @@ def test_an_element_dependent_read_stays_in_the_body():
     ir = trace(fn, [Rec])[0]
     bodies = _callback_bodies(ir)
     assert any("FloatMultiply" in _builtin_names(b) for b in bodies)
-    assert kernel([Rec], fn)(REC) == sum((float(i % 7) - 2.0) * 1.5 for i in range(40))
+    assert East.function([Rec], FloatType, fn)(REC) == sum((float(i % 7) - 2.0) * 1.5 for i in range(40))
 
 
 def test_a_fresh_container_per_element_is_not_shared():
@@ -180,7 +179,7 @@ def test_a_fresh_container_per_element_is_not_shared():
                 rows.get(1).size(),
             ))
 
-    got = kernel([INT_ARR], fn)(EastArray(IntegerType, [7, 8]))
+    got = East.function([INT_ARR], IntegerType, fn)(EastArray(IntegerType, [7, 8]))
     assert got == 1        # aliased, row 1 would have grown to 2
 
 
@@ -192,7 +191,7 @@ def test_a_guarded_partial_read_in_a_branch_still_refuses():
             p.filter(lambda e: e > 100),
             lambda a: East.if_else(a.size() > 0, a.get(0) + 1, -1))
 
-    assert kernel([INT_ARR], fn)(EastArray(IntegerType, [1, 2])) == -1
+    assert East.function([INT_ARR], IntegerType, fn)(EastArray(IntegerType, [1, 2])) == -1
 
 
 def test_an_invariant_inside_a_loop_body_stays_per_iteration():
@@ -204,4 +203,4 @@ def test_an_invariant_inside_a_loop_body_stays_per_iteration():
             lambda s, x: {"acc": s.acc + East.if_else(p.size() > 0, p.get(0), 0)},
         ).acc
 
-    assert kernel([INT_ARR], fn)(EastArray(IntegerType, [5, 3])) == 10
+    assert East.function([INT_ARR], IntegerType, fn)(EastArray(IntegerType, [5, 3])) == 10

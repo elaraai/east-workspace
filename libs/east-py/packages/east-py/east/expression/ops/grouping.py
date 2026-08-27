@@ -197,8 +197,7 @@ class _GroupOps(_ExprBase):
         ``key`` is optional on an Array — omitted, elements are counted by
         their own value — and required on a Set or Dict, mirroring the eager
         signatures exactly. Without the default a lambda that works eagerly
-        stops tracing, which silently drops the enclosing loop to the
-        per-element python path (#525).
+        would fail to capture inside a body (#525).
         """
         if key is None:
             if self.east_type.type != "Array":

@@ -30,6 +30,7 @@ import pytest
 from east import (
     BooleanType,
     DateTimeType,
+    East,
     FloatType,
     IntegerType,
     OptionType,
@@ -37,13 +38,12 @@ from east import (
     StructType,
     array,
     if_else,
-    kernel,
     none,
     some,
 )
 from east.types.values.structural import EastFunction
 
-# `from east import kernel` shadows the module — resolve it for internals.
+# The expression package's internals: capture_callback, trace, the error.
 _K = importlib.import_module("east.expression")
 
 Row = StructType([("g", StringType), ("v", FloatType), ("n", IntegerType)])
@@ -195,7 +195,7 @@ _EPOCH = datetime(2020, 1, 1, tzinfo=UTC)
 
 def test_option_datetime_unwrap_or_lifts_its_default():
     D = StructType([("at", OptionType(DateTimeType))])
-    k = kernel(D, lambda r: r["at"].unwrap_or(datetime(2020, 1, 1, tzinfo=UTC)))
+    k = East.function([D], DateTimeType, lambda r: r["at"].unwrap_or(datetime(2020, 1, 1, tzinfo=UTC)))
     t = datetime(2024, 6, 1, 12, 0, tzinfo=UTC)
     assert k({"at": some(t)}) == t
     assert k({"at": none}) == _EPOCH
@@ -204,7 +204,7 @@ def test_option_datetime_unwrap_or_lifts_its_default():
 def test_datetime_literals_lift_in_where_branches_and_captures():
     D = StructType([("at", DateTimeType)])
     cutoff = datetime(2023, 1, 1, tzinfo=UTC)
-    k = kernel(D, lambda r: if_else(r["at"] > cutoff, r["at"], cutoff))
+    k = East.function([D], DateTimeType, lambda r: if_else(r["at"] > cutoff, r["at"], cutoff))
     late = datetime(2024, 1, 1, tzinfo=UTC)
     assert k({"at": late}) == late
     assert k({"at": _EPOCH}) == cutoff
@@ -213,13 +213,9 @@ def test_datetime_literals_lift_in_where_branches_and_captures():
 def test_a_captured_datetime_is_an_allowed_capture():
     """A datetime capture is an immutable scalar, so an eager callback using
     one captures natively instead of being refused."""
-    from east.runtime.compiler import eager_stats
-
     D = StructType([("at", DateTimeType), ("v", FloatType)])
     cutoff = datetime(2023, 1, 1, tzinfo=UTC)
     rows = array(D, [{"at": _EPOCH, "v": 1.0},
                      {"at": datetime(2024, 2, 2, tzinfo=UTC), "v": 2.0}])
-    before = eager_stats()["trampoline_calls"]
     got = rows.filter(lambda r: r["at"] > cutoff)
-    assert eager_stats()["trampoline_calls"] == before
     assert [r["v"] for r in got] == [2.0]

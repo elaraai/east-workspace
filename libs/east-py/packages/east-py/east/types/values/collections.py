@@ -77,8 +77,8 @@ def _kernel_out_type(fn, param_types=None):
     So with ``param_types`` this ALWAYS answers or raises: there is no
     sampling path behind it, and an empty collection derives exactly what a
     full one derives. Returns None only for the handle-only probe (no
-    ``param_types``, used to read a precompiled kernel's declared output) or
-    a non-callable.
+    ``param_types``, used to read a precompiled kernel's declared output);
+    a non-callable in a callback slot is a caller error, named here.
     """
     handle = getattr(fn, "_eastc_handle", None)
     if handle is not None:
@@ -86,8 +86,12 @@ def _kernel_out_type(fn, param_types=None):
             return handle.get_output_type()
         except Exception:
             return None
-    if param_types is None or not callable(fn):
+    if param_types is None:
         return None
+    if not callable(fn):
+        raise TypeError(
+            "a callback slot takes an East.function artifact or a python body, "
+            f"got {type(fn).__name__}")
     from east.expression import _trace_out_type
 
     return _trace_out_type(fn, list(param_types))
@@ -200,8 +204,8 @@ def _check_kernel_out(fn, expected, param="out"):
     still reads fine (``len``, type labels, ``update_many``) and fails only
     when an element is decoded, arbitrarily far from the cause (#467).
 
-    Only fires for handle-carrying kernels; plain lambdas have no declared
-    signature here and keep their existing trace/sample paths.
+    Only fires for handle-carrying kernels; a plain python body has no
+    declared signature to compare — the capture checks it against the slot.
     """
     if fn is None or expected is None:
         return
@@ -597,8 +601,8 @@ class EastArray(MutableSequence, Generic[T]):
         Unlike the ``arr[i]`` protocol read (pythonic: negative indexing,
         ``IndexError``), this is the East ArrayGet: ``0 <= index < len`` or
         ``Array index N out of bounds``. With a traced ``index`` (inside a
-        ``kernel()`` lambda) this array is lifted as a constant and the
-        access emits IR (#393).
+        captured body) this array is lifted as a constant and the access
+        emits IR (#393).
         """
         if _is_traced(index):
             return _lift_traced(self).get(index)
@@ -717,8 +721,8 @@ class EastArray(MutableSequence, Generic[T]):
         Args:
             fn: ``fn(element) -> new value`` (``fn(element, index)`` also
                 accepted, matching the builtin's callback).
-            out: Optional result element type. When omitted, it is inferred by
-                applying ``fn`` to the first element.
+            out: Optional result element type. When omitted, it is the
+                callback's captured output type.
 
         Returns:
             A new array of the same length; an empty array yields an empty array
@@ -763,8 +767,8 @@ class EastArray(MutableSequence, Generic[T]):
         Args:
             fn: ``fn(element) -> some(value) | none``; the index is not passed.
                 Elements mapped to ``none`` are dropped.
-            out: Optional result element type. When omitted, it is inferred from
-                the ``some`` payload of ``fn`` on the first element.
+            out: Optional result element type. When omitted, it is the
+                ``some`` payload type the callback captures.
 
         Returns:
             A new array of the unwrapped ``some`` values; an empty input yields
@@ -797,7 +801,7 @@ class EastArray(MutableSequence, Generic[T]):
             fn: ``fn(element) -> some(value) | none``; the index is not passed.
                 The scan stops at the first ``some``.
             out: Optional payload type for the result variant. When omitted, it
-                is inferred from the ``some`` payload of ``fn`` on the first element.
+                is the ``some`` payload type the callback captures.
 
         Returns:
             ``some(value)`` for the first matching element, else ``none``; an
@@ -830,7 +834,7 @@ class EastArray(MutableSequence, Generic[T]):
             reduce_fn: ``fn(left, right) -> combined`` applied pairwise over the
                 mapped values; it should be associative for a well-defined result.
             out: Optional type of the mapped/result value. When omitted, it is
-                inferred from ``map_fn`` on the first element.
+                ``map_fn``'s captured output type.
 
         Returns:
             The single reduced value.
@@ -900,7 +904,7 @@ class EastArray(MutableSequence, Generic[T]):
         Args:
             fn: ``fn(element) -> array``; the index is not passed.
             out: Optional element type of the inner arrays. When omitted, it is
-                taken from the array ``fn`` returns for the first element.
+                the element type of the array ``fn`` captures.
 
         Returns:
             A new flat array; an empty input yields an empty array of element
@@ -923,7 +927,7 @@ class EastArray(MutableSequence, Generic[T]):
         Args:
             fn: ``fn(element) -> set``; the index is not passed.
             out: Optional element type of the inner sets. When omitted, it is
-                taken from the set ``fn`` returns for the first element.
+                the element type of the set ``fn`` captures.
 
         Returns:
             A set of the distinct (East-equal) elements across all produced sets;
@@ -945,8 +949,7 @@ class EastArray(MutableSequence, Generic[T]):
 
         Args:
             fn: ``fn(element) -> dict`` (``fn(element, index)`` also accepted).
-                The key and value types are sampled from the dict produced for
-                the first element.
+                The key and value types are those of the dict ``fn`` captures.
             combine: Optional ``fn(existing, incoming[, key]) -> value`` to
                 resolve a shared key. Without it a duplicate key errors, like
                 every other East runtime.
@@ -989,8 +992,8 @@ class EastArray(MutableSequence, Generic[T]):
         """Group elements into a dict of arrays keyed by ``key(element)`` (east-c ArrayGroupFold).
 
         Args:
-            key: ``fn(element) -> group key``; its result type, sampled on the
-                first element, becomes the dict key type.
+            key: ``fn(element) -> group key``; its captured result type becomes
+                the dict key type.
 
         Returns:
             A dict mapping each group key to an array of its elements, with keys
@@ -1303,7 +1306,7 @@ class EastArray(MutableSequence, Generic[T]):
         p_wants = _callback_arity(proj, 1) >= 2
         # `.unwrap_or` is dual-mode since #453 (Expression and eager Options
         # both have it), so the fold body is traceable — no import-laden
-        # helper in the closure, which would fail the purity scan (#470).
+        # helper in the closure, which the capture validator would refuse (#470).
         fold_cb = EastFunction(
             (lambda acc, el, i: _some(pick(acc.unwrap_or(proj(el, i)), proj(el, i)))) if p_wants
             else (lambda acc, el, _i: _some(pick(acc.unwrap_or(proj(el)), proj(el)))),
@@ -1345,7 +1348,7 @@ class EastArray(MutableSequence, Generic[T]):
             base: Added to every emitted index INSIDE the traced probe, so a
                 segment-streamed file rebases to global row indices natively.
                 Rebasing the grouped result afterwards instead would cost a
-                python callback per group per segment — O(rows) trampolines
+                python callback per group per segment — O(rows) python calls
                 on a file whose segments are small (#470).
         """
         from east.expression import Expression, if_else
@@ -1421,10 +1424,10 @@ class EastArray(MutableSequence, Generic[T]):
         found = pairs.group_to_arrays(lambda p: p["k"], lambda p: p["i"]) if len(pairs) \
             else EastDict(k2, ArrayType(IntegerType))
         # The compiled group-init kernel, not `lambda _k: EastArray(...)`: a
-        # python fill closes over EastArray/IntegerType, which the purity scan
-        # rejects, so east-c would trampoline once per UNMATCHED group — linear
-        # in an unbounded group count, and invisible whenever every group
-        # happens to match (#470).
+        # python fill closes over EastArray, an eager constructor the capture
+        # refuses — and before #625 it silently ran python once per UNMATCHED
+        # group, linear in an unbounded group count and invisible whenever
+        # every group happened to match (#470).
         return found.get_keys(groups, _empty_array_kernel(k2, IntegerType))
 
     def group_find_first(self, key: Any, value: Any, by: Any = None) -> EastDict:
@@ -1457,7 +1460,7 @@ class EastArray(MutableSequence, Generic[T]):
         ``a`` is the incumbent (earlier) pair and ``b`` the incoming one, so a
         NON-STRICT comparison keeps the first on ties — the reported index is
         the earliest extreme, matching TS. The East namespace is dual-mode, so
-        this traces instead of trampolining. Shared with the beast2 file
+        this captures natively. Shared with the beast2 file
         surface, which merges per-segment pairs under the same rule.
         """
         from east.expression import if_else
@@ -1779,8 +1782,8 @@ class EastArray(MutableSequence, Generic[T]):
         Args:
             count: Number of elements to produce.
             fn: ``fn(index) -> element`` for index ``0 .. count-1``.
-            element_type: Optional element type. When omitted, it is inferred
-                from ``fn(0)``.
+            element_type: Optional element type. When omitted, it is the
+                callback's captured output type.
 
         Returns:
             A new array of length ``count``; ``count == 0`` yields an empty array
@@ -2083,8 +2086,8 @@ class EastSet(Generic[T]):
 
         Args:
             fn: ``fn(element) -> new element``; collisions in the result collapse.
-            out: Pins the result element type; otherwise inferred by sampling
-                ``fn`` on the first element.
+            out: Pins the result element type; otherwise ``fn``'s captured
+                output type.
 
         Returns:
             A new set of the distinct mapped values.
@@ -2104,8 +2107,8 @@ class EastSet(Generic[T]):
         """Build a dict keyed by ``key(element)`` with ``value(element)`` (east-c SetToDict).
 
         Args:
-            key: ``key(element) -> dict key``; key and value types are inferred by
-                sampling the first element.
+            key: ``key(element) -> dict key``; the key and value types are the
+                callbacks' captured output types.
             value: ``value(element) -> dict value``.
             combine: On a key collision, ``combine(existing, incoming[, key])
                 -> value`` decides the kept value; without ``combine`` a
@@ -2137,8 +2140,8 @@ class EastSet(Generic[T]):
         """Map each element to a value, keyed by the element itself (east-c SetMap → Dict).
 
         Args:
-            fn: ``fn(element) -> value``; the value type is inferred by sampling
-                ``fn`` on the first element unless ``out`` is given.
+            fn: ``fn(element) -> value``; the value type is ``fn``'s captured
+                output type unless ``out`` is given.
             out: Pins the result value type.
 
         Returns:
@@ -2177,8 +2180,8 @@ class EastSet(Generic[T]):
 
         Args:
             fn: ``fn(element) -> some(value) | none``; ``some`` keeps the element
-                with that value, ``none`` drops it. The value type is inferred from
-                the ``some`` payload by sampling the first element unless ``out`` is given.
+                with that value, ``none`` drops it. The value type is the ``some``
+                payload type ``fn`` captures unless ``out`` is given.
             out: Pins the result value type.
 
         Returns:
@@ -2207,8 +2210,8 @@ class EastSet(Generic[T]):
         Elements are visited in East total order, so the result is deterministic.
 
         Args:
-            fn: ``fn(element) -> some(value) | none``; the value type is inferred
-                from the ``some`` payload by sampling the first element unless ``out`` is given.
+            fn: ``fn(element) -> some(value) | none``; the value type is the
+                ``some`` payload type ``fn`` captures unless ``out`` is given.
             out: Pins the ``some`` payload type.
 
         Returns:
@@ -2233,8 +2236,8 @@ class EastSet(Generic[T]):
         """Map each element then combine the results pairwise (east-c SetMapReduce).
 
         Args:
-            fn: ``fn(element) -> value``; the value/result type is inferred by
-                sampling ``fn`` on the first element.
+            fn: ``fn(element) -> value``; the value/result type is ``fn``'s
+                captured output type.
             reduce: ``reduce(a, b) -> combined`` folding the mapped values together.
 
         Returns:
@@ -2294,9 +2297,8 @@ class EastSet(Generic[T]):
         """Concatenate the arrays returned by ``fn`` over all elements (east-c SetFlattenToArray).
 
         Args:
-            fn: ``fn(element) -> array``; the result element type is inferred from
-                that array's element type by sampling the first element unless
-                ``out`` is given.
+            fn: ``fn(element) -> array``; the result element type is that of the
+                array ``fn`` captures unless ``out`` is given.
             out: Pins the result element type.
 
         Returns:
@@ -2317,9 +2319,8 @@ class EastSet(Generic[T]):
         """Union the sets returned by ``fn`` over all elements (east-c SetFlattenToSet).
 
         Args:
-            fn: ``fn(element) -> set``; the result element type is inferred from
-                that set's element type by sampling the first element unless
-                ``out`` is given.
+            fn: ``fn(element) -> set``; the result element type is that of the
+                set ``fn`` captures unless ``out`` is given.
             out: Pins the result element type.
 
         Returns:
@@ -2339,7 +2340,7 @@ class EastSet(Generic[T]):
     def flatten_to_dict(self, fn: Any, combine: Any = None) -> EastDict:
         """Merge the dicts returned by ``fn`` over all elements (east-c SetFlattenToDict).
 
-        Key and value types are inferred from the dict produced for the first element.
+        Key and value types are those of the dict ``fn`` captures.
 
         Args:
             fn: ``fn(element) -> dict`` whose entries are merged into the result.
@@ -2488,7 +2489,7 @@ class EastSet(Generic[T]):
     def group_reduce(self, key: Any, initial: Any, fold: Any) -> EastDict:
         """Group elements by ``key(element)`` and fold within each group (east-c SetGroupFold).
 
-        Key and accumulator types are inferred by sampling the first element.
+        Key and accumulator types are the callbacks' captured output types.
 
         Args:
             key: ``key(element) -> group key`` assigning each element to a bucket.
@@ -2661,7 +2662,7 @@ class EastDict(Generic[K, V]):
         A boundary convenience matching the method most Python readers reach
         for first. Unlike :meth:`get_or_default` the default may be omitted
         (returning ``None``, which is not an East value) — so inside a
-        ``kernel()`` lambda use :meth:`get_or_default` / :meth:`try_get`,
+        captured body use :meth:`get_or_default` / :meth:`try_get`,
         whose defaults stay in East-value land.
 
         Args:
@@ -2681,7 +2682,7 @@ class EastDict(Generic[K, V]):
     def get_or_default(self, key: Any, default: Any) -> Any:
         """Value for ``key``, or ``default`` if absent (east-c DictGetOrDefault).
 
-        With a traced ``key``/``default`` (inside a ``kernel()`` lambda) this
+        With a traced ``key``/``default`` (inside a captured body) this
         dict is lifted as a constant and the lookup emits IR (#393) — the
         TRANS-style side-table shape.
 
@@ -3002,8 +3003,8 @@ class EastDict(Generic[K, V]):
             values: Sequence of incoming values.
             combine: Optional ``combine(existing, incoming) -> value`` used
                 when a key is already present; the incoming value wins when
-                omitted. Accepts a python callable (traced into a native
-                kernel when pure) or a compiled East function.
+                omitted. Accepts a python body (captured into a native
+                kernel, or refused) or a compiled East function.
         """
         combine_ptr = 0
         combine_py = None
@@ -3422,7 +3423,7 @@ class EastDict(Generic[K, V]):
                 ``fn(value, key)`` when it accepts two arguments, matching
                 the builtin's callback signature.
             out: Optional East type pinning the result value type. When
-                omitted it is inferred by sampling ``fn`` on the first value.
+                omitted it is ``fn``'s captured output type.
 
         Returns:
             A new dict with the same keys and mapped values. Empty input
@@ -3476,8 +3477,7 @@ class EastDict(Generic[K, V]):
                 entries are dropped, ``some`` values are kept under the same
                 key.
             out: Optional East type pinning the result value type. When
-                omitted it is inferred from the first ``some`` sample,
-                falling back to the original value type.
+                omitted it is the ``some`` payload type ``fn`` captures.
 
         Returns:
             A new dict of the surviving, remapped entries. Empty input yields
@@ -3506,8 +3506,7 @@ class EastDict(Generic[K, V]):
             fn: Called as ``fn(key, value) -> some(result) | none`` for
                 entries in ascending key order until one returns ``some``.
             out: Optional East type pinning the result type. When omitted it
-                is inferred from the first ``some`` sample, falling back to
-                the value type.
+                is the ``some`` payload type ``fn`` captures.
 
         Returns:
             ``some(result)`` for the first entry that produced one, else
@@ -3538,7 +3537,7 @@ class EastDict(Generic[K, V]):
             reduce_fn: Called as ``reduce_fn(a, b) -> T2`` to fold the
                 projections together.
             out: Optional East type pinning ``T2``. When omitted it is
-                inferred by sampling ``map_fn`` on the first entry.
+                ``map_fn``'s captured output type.
 
         Returns:
             The single combined ``T2`` value.
@@ -3628,7 +3627,7 @@ class EastDict(Generic[K, V]):
             fn: Called as ``fn(key, value) -> element`` for each entry;
                 duplicate results collapse.
             out: Optional East type pinning the element type. When omitted it
-                is inferred by sampling ``fn`` on the first entry.
+                is ``fn``'s captured output type.
 
         Returns:
             The set of distinct ``fn`` results, ordered under East's total
@@ -3654,10 +3653,10 @@ class EastDict(Generic[K, V]):
                 build each new entry's value.
             combine: Called as ``combine(existing, incoming, new_key) ->
                 value`` when two source entries map to the same new key.
-            key_out: Optional East type pinning the new key type; inferred
-                from a first-entry sample when omitted.
+            key_out: Optional East type pinning the new key type; ``key_fn``'s
+                captured output type when omitted.
             value_out: Optional East type pinning the new value type;
-                inferred from a first-entry sample when omitted.
+                ``value_fn``'s captured output type when omitted.
 
         Returns:
             A new dict keyed by ``key_fn`` with values from ``value_fn``.
@@ -3692,7 +3691,7 @@ class EastDict(Generic[K, V]):
         Args:
             fn: Called as ``fn(key, value) -> array`` for each entry; the
                 resulting arrays are concatenated in key order. The element
-                type is taken from the first entry's sample array.
+                type is that of the array ``fn`` captures.
 
         Returns:
             A single array of all elements. Empty input yields an empty
@@ -3711,8 +3710,8 @@ class EastDict(Generic[K, V]):
 
         Args:
             fn: Called as ``fn(key, value) -> set`` for each entry; the
-                results are unioned. The element type is taken from the first
-                entry's sample set.
+                results are unioned. The element type is that of the set ``fn``
+                captures.
 
         Returns:
             The union set of distinct elements, ordered under East's total
@@ -3731,8 +3730,8 @@ class EastDict(Generic[K, V]):
 
         Args:
             fn: Called as ``fn(key, value) -> dict`` for each entry; the
-                results are merged. The key/value types are taken from the
-                first entry's sample dict.
+                results are merged. The key/value types are those of the dict
+                ``fn`` captures.
             combine: Called as ``combine(existing, incoming[, key]) -> value``
                 when a key appears in more than one of the produced dicts;
                 without it a duplicate key errors, like every other East
@@ -3761,10 +3760,10 @@ class EastDict(Generic[K, V]):
                 group's accumulator the first time the group is seen.
             fold_fn: Called as ``fold_fn(acc, key, value) -> acc`` to fold
                 each entry into its group's accumulator.
-            key_out: Optional East type pinning the group key type; inferred
-                from a first-entry sample when omitted.
+            key_out: Optional East type pinning the group key type; ``key_fn``'s
+                captured output type when omitted.
             acc_out: Optional East type pinning the accumulator type;
-                inferred from a first-entry sample when omitted.
+                ``init_fn``'s captured output type when omitted.
 
         Returns:
             A new dict from group key to its folded accumulator. Empty input

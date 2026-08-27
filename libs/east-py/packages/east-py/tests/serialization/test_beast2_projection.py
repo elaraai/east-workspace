@@ -26,6 +26,7 @@ import pytest
 from east import (
     ArrayType,
     DictType,
+    East,
     EastArray,
     EastDict,
     EastSet,
@@ -35,7 +36,6 @@ from east import (
     StringType,
     StructType,
     if_else,
-    kernel,
 )
 from east.runtime.compiler import eager_stats
 from east.serialization.beast2 import open_beast2_file, write_beast2_file
@@ -136,7 +136,7 @@ def test_precompiled_kernels_infer_from_their_ir(array_path):
     """A kernel's retained IR supplies the mask with nothing to trace; its
     wide native form cannot run against narrow rows, so execution re-traces
     the retained source — still zero python per element."""
-    qty2 = kernel(ROW, lambda r: r.qty * 2)
+    qty2 = East.function([ROW], IntegerType, lambda r: r.qty * 2)
     with open_beast2_file(array_path, AT) as f:
         table = f.load()
         before = eager_stats()
@@ -144,13 +144,11 @@ def test_precompiled_kernels_infer_from_their_ir(array_path):
         after = eager_stats()
         assert got == list(table.map(qty2))
         assert after["beast2_segments_projected"] > before["beast2_segments_projected"]
-        assert after["trampoline_calls"] == before["trampoline_calls"], \
-            "kernel projection dropped to per-element python"
 
 
 def test_bound_kernels_decline_with_the_kernel_reason(array_path):
     side = EastDict(IntegerType, IntegerType, {i: i for i in range(500)})
-    look = kernel([ROW, DictType(IntegerType, IntegerType)],
+    look = East.function([ROW, DictType(IntegerType, IntegerType)], IntegerType,
                   lambda r, t: t.get_or_default(r.id, 0)).bind(side)
     with open_beast2_file(array_path, AT) as f:
         got, counted = _delta(lambda: list(f.map(look)))
@@ -404,7 +402,7 @@ def test_paged_loop_task_inputs_project(array_path):
 
     data = Path(array_path).read_bytes()
 
-    narrow_k = kernel(AT, lambda rows: East.for_(
+    narrow_k = East.function([AT], IntegerType, lambda rows: East.for_(
         rows, 0, lambda acc, el: acc + el.qty))
     type_ptr = narrow_k._eastc_handle._input_types[0]
     lazy = open_paged_value(type_ptr, data, frozen=True)
@@ -420,7 +418,7 @@ def test_paged_loop_task_inputs_project(array_path):
 
     # The element compared WHOLE: nothing to skip, so the loop decodes whole
     # and says so.
-    whole_k = kernel(AT, lambda rows: East.for_(
+    whole_k = East.function([AT], IntegerType, lambda rows: East.for_(
         rows, 0, lambda acc, el: acc + if_else(el == el, 1, 0)))
     lazy2 = open_paged_value(whole_k._eastc_handle._input_types[0], data, frozen=True)
     before = eager_stats()

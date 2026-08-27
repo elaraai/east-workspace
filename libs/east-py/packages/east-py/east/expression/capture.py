@@ -76,8 +76,8 @@ def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
         return False
     if extra_allowed is not None and extra_allowed(value):
         return True
-    # A kernel() result retains its source lambda and re-traces when called
-    # with proxies (#470) — safe to reference at any nesting depth.
+    # An East.function artifact retains its source body and re-runs it when
+    # called with proxies (#470) — safe to reference at any nesting depth.
     if getattr(value, "_east_retrace", None) is not None:
         return True
     # A compiled East function VALUE — a `.bind` result, a `compile_from_*`
@@ -208,13 +208,15 @@ _MUTATES = "a closure or global it writes to"
 
 
 def _inner_refused(value: Any, depth: int, extra_allowed: Any) -> str | None:
-    """The refusal from INSIDE a captured python function.
+    """The refusal from INSIDE a python function held in a closure cell.
 
     The eager methods wrap the user's callback (arity adapters, argument-order
-    shims), so the binding worth naming is the one the WRAPPED body reads —
-    reporting the wrapper's own parameter name would point at library code.
-    ``None`` for anything with no python body to look inside (a module, a
-    C builtin, a collection).
+    shims) and hold it as a closure cell, so the binding worth naming is the
+    one the WRAPPED body reads — reporting the wrapper's own cell name would
+    point at library code. Only closure cells descend: a refused GLOBAL is
+    named as the body spells it (a body reaching for ``helper`` is told
+    ``helper``, not whatever ``helper`` reads). ``None`` for anything with no
+    python body to look inside (a module, a C builtin, a collection).
     """
     if depth > 0 and callable(value) and getattr(value, "__code__", None) is not None:
         return _refused_binding(value, depth - 1, extra_allowed)
@@ -254,7 +256,7 @@ def _refused_binding(fn: Any, depth: int = 4, extra_allowed: Any = None) -> str 
             else:
                 continue  # unresolvable global: fails at capture time if reached
             if not _allowed_global(value, depth, extra_allowed):
-                return _inner_refused(value, depth, extra_allowed) or name
+                return name
         # `co_freevars` names the closure cells in `__closure__` order, so a
         # captured variable is reported by the name the body reads it under.
         names = getattr(code, "co_freevars", ())

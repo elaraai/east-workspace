@@ -20,7 +20,9 @@ import pytest
 from east import (
     ArrayType,
     BlobType,
+    BooleanType,
     DictType,
+    East,
     EastArray,
     EastBlob,
     EastDict,
@@ -30,10 +32,8 @@ from east import (
     SetType,
     StringType,
     StructType,
-    kernel,
     type_of,
 )
-from east.runtime.compiler import eager_stats
 from east.runtime.errors import EastError
 from east.serialization.beast2 import open_beast2_file, write_beast2_file
 
@@ -122,23 +122,21 @@ class TestValueSemantics:
 class TestKernelBind:
     def test_a_bound_lazy_dict_answers_get_or_default_natively(self, tmp_path):
         with open_beast2_file(_dict_path(tmp_path, n=500, seg=16)) as d:
-            lookup = kernel([ROW, D_SF],
+            lookup = East.function([ROW, D_SF], FloatType,
                             lambda r, t: t.get_or_default(r["k"], -1.0)).bind(d)
             rows = EastArray(ROW, [{"k": "k0000", "v": 0.0},
                                    {"k": "k0250", "v": 0.0},
                                    {"k": "k0499", "v": 0.0},
                                    {"k": "MISS", "v": 0.0}])
-            before = eager_stats()["trampoline_calls"]
             out = list(rows.map(lookup))
             assert out == [0.0, 375.0, 748.5, -1.0]
-            assert eager_stats()["trampoline_calls"] == before
 
     def test_bind_under_a_one_byte_cache_budget_still_answers(self, tmp_path, monkeypatch):
         # A degenerate budget forces eviction on every miss — the answers
         # must not change, only the cache hit rate.
         monkeypatch.setenv("EAST_PAGED_CACHE_BYTES", "1")
         with open_beast2_file(_dict_path(tmp_path, n=200, seg=8)) as d:
-            lookup = kernel([StringType, D_SF],
+            lookup = East.function([StringType, D_SF], FloatType,
                             lambda k, t: t.get_or_default(k, -1.0)).bind(d)
             for i in range(0, 200, 7):
                 assert lookup(f"k{i:04d}") == i * 1.5
@@ -146,9 +144,9 @@ class TestKernelBind:
 
     def test_the_file_passes_straight_into_a_compiled_call(self, tmp_path):
         with open_beast2_file(_dict_path(tmp_path, n=50, seg=8)) as d:
-            size = kernel([D_SF], lambda t: t.size())
+            size = East.function([D_SF], IntegerType, lambda t: t.size())
             assert size(d) == 50
-            probe = kernel([StringType, D_SF], lambda k, t: t.has(k))
+            probe = East.function([StringType, D_SF], BooleanType, lambda k, t: t.has(k))
             assert probe("k0001", d) is True
             assert probe("zz", d) is False
 
@@ -157,22 +155,20 @@ class TestKernelBind:
         # another kernel lowers to an IR Call, so the whole projection —
         # loop, kernel, callee and pager — runs inside east-c.
         with open_beast2_file(_dict_path(tmp_path, n=300, seg=16)) as d:
-            lookup = kernel([StringType, D_SF],
+            lookup = East.function([StringType, D_SF], FloatType,
                             lambda k, t: t.get_or_default(k, 0.0)).bind(d)
-            project = kernel([ROW], lambda r: r["v"] + lookup(r["k"]))
+            project = East.function([ROW], FloatType, lambda r: r["v"] + lookup(r["k"]))
             rows = EastArray(ROW, [{"k": "k0000", "v": 1.0},
                                    {"k": "k0123", "v": 2.0},
                                    {"k": "MISS", "v": 3.0}])
-            before = eager_stats()["trampoline_calls"]
             assert list(rows.map(project)) == [1.0, 2.0 + 123 * 1.5, 3.0]
-            assert eager_stats()["trampoline_calls"] == before
 
     def test_close_defers_while_a_bind_still_holds_the_value(self, tmp_path):
         # Closing under a live bind would leave the native callee reading
         # unmapped memory — close defers, the bound kernel keeps answering,
         # and dropping the bind lets a later close complete.
         d = open_beast2_file(_dict_path(tmp_path))
-        lookup = kernel([StringType, D_SF],
+        lookup = East.function([StringType, D_SF], FloatType,
                         lambda k, t: t.get_or_default(k, -1.0)).bind(d)
         assert lookup("k0000") == 0.0
         d.close()
@@ -213,7 +209,7 @@ class TestWideRows:
         write_beast2_file(path, ArrayType(wide_row), rows)
         monkeypatch.setenv("EAST_PAGED_CACHE_BYTES", str(512 * 1024))
         with open_beast2_file(path) as f:
-            get = kernel([IntegerType, ArrayType(wide_row)],
+            get = East.function([IntegerType, ArrayType(wide_row)], IntegerType,
                          lambda i, a: a.get(i)["id"]).bind(f)
             for i in (0, 15, 7, 0, 11, 3):
                 assert get(i) == i

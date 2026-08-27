@@ -531,7 +531,7 @@ class Beast2File:
     East collection value (#560): it answers ``isinstance``/``type_of``,
     feeds every eager method (the streamed compute family below at one
     segment of decoded memory; anything else through ordinary iteration),
-    binds into kernels by reference (``kernel(...).bind(file)`` — keyed
+    binds into kernels by reference (``East.function(...).bind(file)`` — keyed
     reads inside the compiled body answer from the pager, one frame per
     hit/miss), and passes straight into compiled function calls. Mutation
     raises. The file is mmapped — bytes enter the OS page cache per
@@ -1496,7 +1496,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         global rows — the probe adds the segment base inside east-c — so the
         per-segment dicts merge by native concat and each group's indices stay
         in row order. Rebasing the grouped arrays afterwards instead would cost
-        a python callback per group per segment, i.e. O(rows) trampolines on a
+        a python callback per group per segment, i.e. O(rows) python calls on a
         finely segmented file (#470). The group set is the union across
         segments, so a group that matched nowhere still lists an empty array.
         """
@@ -1717,9 +1717,9 @@ class Beast2ArrayFile(Beast2File, EastArray):
         """``EastArray.group_reduce`` — each segment's group fold SEEDS its
         init from the running per-group accumulators, so every element folds
         exactly once, in stream order: the result (float ordering included)
-        is the eager one. Accumulator types are inferred per segment exactly
-        as the eager method infers them, so Option/Variant accumulators
-        carry the same single-case sampling caveat."""
+        is the eager one. The key and accumulator types come from the
+        callbacks' captured output types, exactly as the eager method derives
+        them (#625)."""
         from east.types.values.collections import EastDict, _elem_in, _kernel_out_type
 
         gk_t = _kernel_out_type(key, _elem_in(key, self.element_type))

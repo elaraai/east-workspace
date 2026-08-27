@@ -16,15 +16,14 @@ import pytest
 from east.serialization._beast2_eastc import _EmitAccumCore
 
 from east import (
+    East,
     EastArray,
     FloatType,
     FunctionType,
     NullType,
     StringType,
     StructType,
-    kernel,
 )
-from east.runtime.compiler import eager_stats
 from east.runtime.errors import EastError
 
 ROW = StructType([("k", StringType), ("v", FloatType)])
@@ -51,13 +50,11 @@ class TestNativeRows:
         # The streaming-projection shape: the emit callee is a hidden bound
         # parameter (#561 lowers the call), so loop + kernel + sink run
         # entirely inside east-c.
-        project = kernel([ROW, emit_t],
+        project = East.function([ROW, emit_t], NullType,
                          lambda r, emit: emit(r["k"], r["v"])).bind(emit_hold)
         rows = EastArray(ROW, [{"k": f"k{i:04d}", "v": float(i)}
                                for i in range(500)])
-        before = eager_stats()["trampoline_calls"]
         rows.map(project)
-        assert eager_stats()["trampoline_calls"] == before
         assert core.emitted == 500
         assert hooks == []  # under the limit: no boundary crossed
         keys, values = core.take_batch()

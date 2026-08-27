@@ -23,6 +23,7 @@ from east.serialization._beast2_eastc import _EmitAccumCore
 
 from east import (
     DictType,
+    East,
     EastArray,
     EastDict,
     FloatType,
@@ -32,17 +33,17 @@ from east import (
     OptionType,
     StringType,
     StructType,
+    VariantType,
     coerce_to,
     if_else,
     is_value_of,
-    kernel,
     none,
     platform_function,
     some,
 )
 from east.expression import ExpressionError
 from east.ir.builders import ir_function, ir_platform, ir_variable
-from east.runtime.compiler import compile_from_value, eager_stats
+from east.runtime.compiler import compile_from_value
 from east.runtime.errors import EastError, NonRetraceableCallError
 
 ROW = StructType([("k", StringType), ("v", FloatType)])
@@ -65,9 +66,14 @@ def _table() -> EastDict:
     return EastDict(StringType, FloatType, {"hit": 21.0})
 
 
+def _python_helper(s):
+    """A module-level helper that does python work — a refusal fixture."""
+    return len(s)
+
+
 def _bound_sink(base: float = 10.0):
     """A bound compiled callable — the shape of the e3 runner's ``emit``."""
-    return kernel([StringType, FloatType, FloatType],
+    return East.function([StringType, FloatType, FloatType], FloatType,
                   lambda key, v, b: v + b).bind(base)
 
 
@@ -157,6 +163,42 @@ class TestStructConstructor:
         with pytest.raises(ExpressionError, match=r"missing \['price'\]"):
             items.map(lambda r: struct({"name": r["name"]}, LINE))
 
+    def test_traced_parts_below_the_top_level_still_build_ir(self):
+        # The proxy may sit BELOW the top level — inside a nested dict
+        # literal or a some(...) — and the constructor must still build IR.
+        # An eager struct built around one registered as a build-time
+        # constant referencing the callback's own parameter, unbound where
+        # the constant is evaluated: `RuntimeError: Undefined variable: __k0`.
+        from east import struct
+
+        Nested = StructType([("name", StringType),
+                             ("inner", StructType([("x", FloatType)])),
+                             ("o", OptionType(FloatType))])
+        items = EastArray(LINE, [{"name": "a", "price": 1.0}])
+        out = items.map(lambda r: struct(
+            {"name": r["name"], "inner": {"x": r["price"] * 2.0},
+             "o": some(r["price"])}, Nested))
+        assert out.element_type == Nested
+        assert out[0]["inner"]["x"] == 2.0
+        assert out[0]["o"] == some(1.0)
+
+    def test_a_typed_variant_is_dual_mode_too(self):
+        # `variant(case, payload, T)` eagerly COERCES the payload, which
+        # cannot see a proxy — the 3-arg form builds Variant IR instead,
+        # checking the case and the payload's type right here.
+        from east import variant
+
+        Source = VariantType([("vessel", StringType), ("added", NullType)])
+        items = EastArray(LINE, [{"name": "a", "price": 1.0}])
+        out = items.map(lambda r: variant("vessel", r["name"], Source))
+        assert [(v.type, v.value) for v in out] == [("vessel", "a")]
+        with pytest.raises(ExpressionError, match="not in"):
+            items.map(lambda r: variant("boat", r["name"], Source))
+        with pytest.raises(ExpressionError, match="payload has type Float"):
+            items.map(lambda r: variant("vessel", r["price"], Source))
+        # ...and the eager form on plain values is untouched
+        assert variant("added", None, Source).type == "added"
+
 
 # ── a refusal names the binding it choked on (#625) ─────────────────────────
 
@@ -193,6 +235,37 @@ class TestRefusalNamesTheBinding:
             lambda r: (seen.append(r["name"]), r["price"])[1])
         assert seen == []
 
+    def test_a_global_helper_is_named_as_the_body_spells_it(self):
+        # A refused GLOBAL is reported by the name the body reads — not by
+        # whatever the helper reads internally, which the author never wrote.
+        assert "references _python_helper" in self._refusal(
+            lambda r: _python_helper(r["name"]))
+
+    def test_a_wrapped_callback_names_the_wrapped_bodys_binding(self):
+        # The eager methods' arity adapters hold the user callback in a
+        # closure cell; through THAT the refusal descends, so the name is the
+        # user's binding, not the adapter's cell.
+        import random
+
+        def user_callback(r):
+            return random.random()
+
+        def adapter(r):
+            return user_callback(r)
+
+        assert "references random" in self._refusal(adapter)
+
+
+class TestCallbackSlotArguments:
+    def test_a_non_callable_in_a_callback_slot_is_named(self):
+        # `_kernel_out_type` used to answer None for a non-callable and the
+        # method then died on `None.value` — the caller's mistake surfaced as
+        # an AttributeError deep inside the library.
+        for call in (lambda: _rows().map(5), lambda: _rows().flatten_to_array(5),
+                     lambda: _rows().sum(5), lambda: _rows().to_dict(5)):
+            with pytest.raises(TypeError, match="callback slot takes"):
+                call()
+
 
 # ── the CSE must not hoist across a conditional boundary (#558 A) ───────────
 
@@ -215,8 +288,10 @@ class TestConditionalHoist:
         def build(v):
             return {"x": v["a"], "y": v["b"], "z": v["c"]}
 
-        k = kernel([KEY_ROW, D], lambda r, d: if_else(d.has(r["k"]),
-                                                      some(build(d[r["k"]])), none))
+        k = East.function(
+            [KEY_ROW, D],
+            OptionType(StructType([("x", FloatType), ("y", FloatType), ("z", FloatType)])),
+            lambda r, d: if_else(d.has(r["k"]), some(build(d[r["k"]])), none))
         out = list(_key_rows().map(k.bind(t)))
         assert out[0].type == "some" and out[0].value["x"] == 1.0
         assert out[1].type == "none"
@@ -225,14 +300,14 @@ class TestConditionalHoist:
         # The same shared expression used in the PREDICATE and the branch is
         # evaluated on every path, so hoisting it stays legal — and the
         # result must be unchanged.
-        k = kernel([KEY_ROW, TABLE_T],
+        k = East.function([KEY_ROW, TABLE_T], FloatType,
                    lambda r, d: if_else(d.get_or_default(r["k"], 0.0) > 1.0,
                                         d.get_or_default(r["k"], 0.0), 0.0))
         assert list(_key_rows().map(k.bind(_table()))) == [21.0, 0.0]
 
     def test_a_guarded_partial_read_inside_match_does_not_leak_either(self):
         # Match case bodies are conditional arms too.
-        k = kernel([KEY_ROW, TABLE_T],
+        k = East.function([KEY_ROW, TABLE_T], FloatType,
                    lambda r, d: d.try_get(r["k"]).match({
                        "some": lambda v: v + v,          # shared payload use
                        "none": lambda _: 0.0,
@@ -254,17 +329,17 @@ class TestBindSubsumption:
 
     def test_a_none_valued_struct_binds_against_its_declared_type(self):
         sentinel = coerce_to({"name": none, "qty": none, "tag": ""}, self.V)
-        k = kernel([StringType, self.V], lambda s, ab: ab["name"].unwrap_or(s))
+        k = East.function([StringType, self.V], StringType, lambda s, ab: ab["name"].unwrap_or(s))
         assert k.bind(sentinel)("fallback") == "fallback"
 
     def test_a_some_valued_struct_binds_too(self):
         filled = coerce_to({"name": some("x"), "qty": some(1.0), "tag": "t"}, self.V)
-        k = kernel([StringType, self.V], lambda s, ab: ab["name"].unwrap_or(s))
+        k = East.function([StringType, self.V], StringType, lambda s, ab: ab["name"].unwrap_or(s))
         assert k.bind(filled)("fallback") == "x"
 
     def test_a_genuinely_wrong_value_is_still_refused(self):
         with pytest.raises(TypeError, match="expects"):
-            kernel([StringType, self.V],
+            East.function([StringType, self.V], StringType,
                    lambda s, ab: ab["tag"]).bind(coerce_to(1.0, FloatType))
 
 
@@ -281,7 +356,7 @@ class TestCallLowering:
 
     def test_explicit_kernel_over_a_bind_result_compiles_and_matches_eager(self):
         sink = _bound_sink()
-        k = kernel([ROW], lambda r: sink(r["k"], r["v"]))
+        k = East.function([ROW], FloatType, lambda r: sink(r["k"], r["v"]))
         assert [k(r) for r in _rows()] == [11.0, 12.0, 13.0]
         assert list(_rows().map(k)) == [11.0, 12.0, 13.0]
 
@@ -294,20 +369,19 @@ class TestCallLowering:
         add1 = compile_from_value(
             ir_function(FunctionType([IntegerType], IntegerType), [], [x], body))
         assert add1(41) == 42
-        assert kernel([IntegerType], lambda n: add1(n) * 2)(20) == 42
+        assert East.function([IntegerType], IntegerType, lambda n: add1(n) * 2)(20) == 42
 
     def test_the_captured_loop_runs_whole_native(self):
         # The production shape: a capturable lambda calling a bound native
-        # function captures whole — zero per-element python.
+        # function captures whole — the call lowers to an IR Call, and the
+        # capture succeeding IS the proof there is no python per element.
         sink = _bound_sink()
-        before = eager_stats()["trampoline_calls"]
         assert list(_rows().map(lambda e: sink(e["k"], e["v"]) * 2.0)) == \
             [22.0, 24.0, 26.0]
-        assert eager_stats()["trampoline_calls"] == before
 
     def test_one_callee_called_at_many_sites_binds_once(self):
         sink = _bound_sink()
-        k = kernel([ROW], lambda r: sink(r["k"], r["v"]) + sink(r["k"], 0.0))
+        k = East.function([ROW], FloatType, lambda r: sink(r["k"], r["v"]) + sink(r["k"], 0.0))
         assert k({"k": "x", "v": 2.0}) == 12.0 + 10.0
 
     def test_a_bound_side_table_lookup_observes_later_mutations(self):
@@ -315,9 +389,9 @@ class TestCallLowering:
         # bound function value, so the live semantics carry through the
         # nested kernel too.
         table = EastDict(StringType, FloatType, {"a": 21.0})
-        lookup = kernel([StringType, TABLE_T],
+        lookup = East.function([StringType, TABLE_T], FloatType,
                         lambda key, d: d.get_or_default(key, 0.0)).bind(table)
-        outer = kernel([ROW], lambda r: lookup(r["k"]))
+        outer = East.function([ROW], FloatType, lambda r: lookup(r["k"]))
         assert list(_rows().map(outer)) == [21.0, 0.0, 0.0]
         table["a"] = 5.0
         table["b"] = 7.0
@@ -326,24 +400,22 @@ class TestCallLowering:
     def test_dict_to_array_with_a_bound_kernel_runs_native(self):
         # The #558 C repro, upgraded: the (key, value) argument-order shim
         # captures, the call on the bound kernel lowers, and the whole
-        # conveniences path compiles — no ExpressionError, no trampoline.
+        # conveniences path compiles — no ExpressionError.
         d = EastDict(StringType, FloatType, {"a": 1.0, "b": 2.0})
         side = EastDict(StringType, FloatType, {"a": 10.0})
         out_t = StructType([("k", StringType), ("v", FloatType)])
-        entry = kernel(
-            [StringType, FloatType, TABLE_T],
+        entry = East.function(
+            [StringType, FloatType, TABLE_T], ROW,
             lambda key, val, s: {"k": key, "v": val + s.get_or_default(key, 0.0)})
-        before = eager_stats()["trampoline_calls"]
         rows = d.to_array(entry.bind(side))
         assert [(r["k"], r["v"]) for r in rows] == [("a", 11.0), ("b", 2.0)]
-        assert eager_stats()["trampoline_calls"] == before
         assert rows.element_type == out_t
 
     def test_a_well_typed_call_compiles_where_it_once_raised(self):
         # Superseded by #561: the call lowers to the IR Call node, so the
         # explicit kernel that used to raise now compiles and runs.
         sink = _bound_sink(0.0)
-        assert kernel([StringType], lambda s: sink(s, 1.0))("x") == 1.0
+        assert East.function([StringType], FloatType, lambda s: sink(s, 1.0))("x") == 1.0
 
 
 class TestFunctionTypeParameters:
@@ -352,27 +424,27 @@ class TestFunctionTypeParameters:
     FT = FunctionType([FloatType], FloatType)
 
     def test_a_function_typed_parameter_is_callable(self):
-        k = kernel([FloatType, self.FT], lambda x, f: f(x) + 1.0)
-        assert k(3.0, kernel([FloatType], lambda v: v * 2.0)) == 7.0
+        k = East.function([FloatType, self.FT], FloatType, lambda x, f: f(x) + 1.0)
+        assert k(3.0, East.function([FloatType], FloatType, lambda v: v * 2.0)) == 7.0
 
     def test_a_function_typed_parameter_binds_a_function_value(self):
-        k = kernel([FloatType, self.FT], lambda x, f: f(x) + 1.0)
-        bound = k.bind(kernel([FloatType], lambda v: v * 2.0))
+        k = East.function([FloatType, self.FT], FloatType, lambda x, f: f(x) + 1.0)
+        bound = k.bind(East.function([FloatType], FloatType, lambda v: v * 2.0))
         assert bound(3.0) == 7.0
         assert list(EastArray(FloatType, [1.0, 2.0]).map(bound)) == [3.0, 5.0]
 
     def test_a_wrong_signature_function_is_refused_by_bind(self):
-        k = kernel([FloatType, self.FT], lambda x, f: f(x) + 1.0)
+        k = East.function([FloatType, self.FT], FloatType, lambda x, f: f(x) + 1.0)
         with pytest.raises(TypeError, match="expects"):
-            k.bind(kernel([StringType], lambda s: s))
+            k.bind(East.function([StringType], StringType, lambda s: s))
 
     def test_calling_a_non_function_expression_raises(self):
         with pytest.raises(ExpressionError, match="non-function"):
-            kernel([FloatType], lambda x: x(1.0))
+            East.function([FloatType], FloatType, lambda x: x(1.0))
 
     def test_arity_mismatch_on_a_parameter_call_raises(self):
         with pytest.raises(ExpressionError, match="argument"):
-            kernel([FloatType, self.FT], lambda x, f: f(x, x))
+            East.function([FloatType, self.FT], FloatType, lambda x, f: f(x, x))
 
 
 class TestAsyncCallee:
@@ -387,7 +459,7 @@ class TestAsyncCallee:
             ir_async_function(AsyncFunctionType([IntegerType], IntegerType), [], [x], body),
             is_async=True)
         with pytest.raises(ExpressionError, match="sync traced kernel"):
-            kernel([IntegerType], lambda n: af(n))
+            East.function([IntegerType], IntegerType, lambda n: af(n))
 
 
 class TestStrictCapture:
@@ -409,7 +481,8 @@ class TestStrictCapture:
         # Lowering declines shapes it cannot type — the pre-#561 contract
         # (and the #558 C cause chain) survives for exactly those.
         sink = _bound_sink()
-        _assert_named_cause(lambda: kernel([StringType], lambda s: sink(s)))
+        _assert_named_cause(
+            lambda: East.function([StringType], FloatType, lambda s: sink(s)))
 
 
 # ── match settles its output type from a some(...) arm (#558 D) ─────────────
@@ -422,7 +495,7 @@ class TestMatchArmTyping:
     `if_else(...)` always has."""
 
     def test_a_none_arm_types_from_the_sibling_some_arm(self):
-        k = kernel([KEY_ROW, TABLE_T],
+        k = East.function([KEY_ROW, TABLE_T], OptionType(FloatType),
                    lambda r, d: d.try_get(r["k"]).match({
                        "some": lambda v: some(v * 2.0),
                        "none": lambda _: none,
@@ -435,7 +508,7 @@ class TestMatchArmTyping:
         # Option declares `none` first, so the none HANDLER is evaluated
         # first — the settle pass must look across all arms, not stop at
         # the first.
-        k = kernel([KEY_ROW, TABLE_T],
+        k = East.function([KEY_ROW, TABLE_T], OptionType(FloatType),
                    lambda r, d: d.try_get(r["k"]).match({
                        "none": lambda _: none,
                        "some": lambda v: some(v + 1.0),
@@ -514,11 +587,11 @@ class TestNonNullCallback:
     wraps it in ``Block([expr, null])`` so the wrapper still types -> Null."""
 
     def test_non_null_pure_body_compiles_and_runs(self):
-        add = kernel([FloatType, FloatType], lambda a, b: a + b).bind(1.0)
+        add = East.function([FloatType, FloatType], FloatType, lambda a, b: a + b).bind(1.0)
         _rows().for_each(lambda r: add(r["v"]))  # must not raise
 
     def test_non_null_body_before_an_emit_still_delivers_elsewhere(self):
-        add = kernel([FloatType, FloatType], lambda a, b: a + b).bind(1.0)
+        add = East.function([FloatType, FloatType], FloatType, lambda a, b: a + b).bind(1.0)
 
         def body(emit):
             _rows().for_each(lambda r: add(r["v"]))
@@ -611,11 +684,8 @@ class TestPythonDrivenBodyCaptures:
 
         rows = EastDict(StringType, FloatType,
                         {f"k{i}": float(i) for i in range(5)})
-        before = eager_stats()["trampoline_calls"]
         double_all(rows, core.function_value([StringType, FloatType]))
-        moved = eager_stats()["trampoline_calls"] - before
 
-        assert moved == 0, f"{moved} per-element python trampoline call(s)"
         keys, values = core.take_batch()
         assert list(keys) == [f"k{i}" for i in range(5)]
         assert list(values) == [2.0 * i for i in range(5)]
@@ -648,11 +718,10 @@ class TestPythonDrivenBodyCaptures:
         # compiled body's FunctionType parameter (never called from python).
         core = _accum()
         emit = core.function_value([StringType, FloatType])
-        project = kernel([ROW, EMIT_T], lambda r, e: e(r["k"], r["v"])).bind(emit)
-        before = eager_stats()["trampoline_calls"]
+        project = East.function([ROW, EMIT_T], NullType,
+                                lambda r, e: e(r["k"], r["v"])).bind(emit)
         _rows().map(project)
 
-        assert eager_stats()["trampoline_calls"] == before
         keys, _values = core.take_batch()
         assert list(keys) == ["a", "b", "c"]
 

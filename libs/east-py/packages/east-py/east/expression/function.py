@@ -11,13 +11,11 @@ the AsyncFunction twin, ``East.compile`` / ``East.compileAsync`` compile a
 builder artifact against platform implementations, and ``trace`` is the shared
 capture step every path uses (the eager methods' automatic push-down included).
 ``trace_builtin_call`` is the hook the eager builtin funnel calls when it
-notices a traced argument. ``kernel()`` survives as the deprecated inferring
-alias for one release.
+notices a traced argument.
 """
 
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 from east.expression.errors import ExpressionError
@@ -55,7 +53,7 @@ def trace_builtin_call(
     ``_call_builtin`` (east/types/values/_helpers.py) routes every namespace
     builtin (``East.String.*``, ``East.Float.*``, …) and eager collection
     method through one funnel. When any argument is a traced expression the
-    call is happening INSIDE a kernel lambda — emit a Builtin IR node instead
+    call is happening INSIDE a builder body — emit a Builtin IR node instead
     of executing eagerly. Returns None (caller runs the eager path) when no
     argument is traced.
 
@@ -91,7 +89,7 @@ def trace(fn: Any, param_types: list[EastType],
     The IR value is homoiconic — an ``EastVariant`` conforming to ``IRType``
     (compile with ``compile_from_value``). Raises ExpressionError when the
     lambda performs untraceable operations. ``out_hint`` types the traced
-    result expression — the kernel's declared ``out=`` — which is what lets
+    result expression — the build's declared output — which is what lets
     the root build a general variant or an ``if_else`` over variant arms
     (#541). ``is_async`` assembles the AsyncFunction node instead of the
     Function node (``East.asyncFunction``).
@@ -112,7 +110,7 @@ def trace(fn: Any, param_types: list[EastType],
         except ExpressionError:
             raise
         except Exception as e:
-            raise ExpressionError(f"kernel lambda is not traceable: {e}") from e
+            raise ExpressionError(f"the function body is not traceable: {e}") from e
         result = _lift(result, hint=out_hint)
         popped = True
         _pop_effects(result.ir)
@@ -301,8 +299,8 @@ def function(param_types: list[EastType], out: EastType, body: Any) -> Any:
 
     Args:
         param_types: The parameter East types, in order (``[]`` for a
-            zero-parameter function). A list is required — the single-type
-            shorthand belongs to the deprecated ``kernel()`` alias.
+            zero-parameter function). A list is required; there is no
+            single-type shorthand.
         out: The declared output East type. Required, and enforced: a body
             whose built expression has a different type raises immediately,
             naming both types. The declared type also types the root
@@ -446,42 +444,3 @@ def compile_async(fn: Any, platform: list | None = None) -> Any:
     if binds:
         compiled = compiled.bind(*binds)
     return compiled
-
-
-def kernel(param_types: EastType | list[EastType], fn: Any = None, *, out: EastType | None = None) -> Any:
-    """Deprecated alias of :func:`function` (``East.function``, #625).
-
-    Kept for one release with its historical lenient signature: a single bare
-    parameter type is accepted, and ``out`` is optional — inferred from the
-    built expression when omitted (the strict builder REQUIRES the declared
-    output).
-
-    Args:
-        param_types: East type of the lambda's parameter, or a list of types
-            for multi-parameter kernels (e.g. ``fold`` steps take
-            ``[acc_type, element_type]``).
-        fn: The lambda to trace. When omitted, returns a decorator.
-        out: Optional expected output type; a traced output of a different
-            type raises TypeError.
-
-    Returns:
-        The compiled kernel callable — the same dual-mode artifact
-        :func:`function` returns (native execution, ``.bind``, expression
-        splicing when referenced from another builder body).
-
-    Raises:
-        ExpressionError: If the lambda cannot be traced (uses python
-            ``if``/``and``/``or``, calls host libraries, etc.).
-        TypeError: If ``out`` is given and the traced output type differs.
-    """
-    warnings.warn(
-        "kernel() is deprecated — use East.function(param_types, out, body) (#625)",
-        DeprecationWarning, stacklevel=2,
-    )
-    types = [param_types] if isinstance(param_types, EastType) else list(param_types)
-    if fn is None:
-        return lambda f: kernel(types, f, out=out)
-    ir_value, out_type, fn_binds = trace(fn, types, out_hint=out)
-    if out is not None and out != out_type:
-        raise TypeError(f"kernel output is {out_type.type}, expected {out.type}")
-    return _assemble(fn, ir_value, out_type, types, fn_binds, is_async=False)

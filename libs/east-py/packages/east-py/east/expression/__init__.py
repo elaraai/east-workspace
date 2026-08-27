@@ -42,10 +42,6 @@ surface test pin. Eager collection methods capture a plain callback through
 the same machinery (``capture.capture_callback``), with the builtin's
 declared signature: one capture, one execution semantics, and a callback
 that does python work raises instead of running per element.
-
-Deprecated aliases, one release (#625): ``east.kernel`` (module),
-``kernel()`` (→ ``East.function`` with inferred ``out``), ``KernelExpr``
-(→ ``Expression``), ``KernelTraceError`` (→ ``ExpressionError``).
 """
 
 from east.expression.capture import _eligible, _trace_out_type, capture_callback
@@ -64,12 +60,11 @@ from east.expression.control import (
     try_catch,
     while_,
 )
-from east.expression.errors import ExpressionError, KernelTraceError, _trace_bail
+from east.expression.errors import ExpressionError, _trace_bail
 from east.expression.expr import (
     _SHADOWABLE,
     _TRACED_SURFACE,
     Expression,
-    KernelExpr,
     _shadowable_names,
 )
 from east.expression.finalize import _capturing_fn, _finalize_ir, _free_vars, _function_ir
@@ -78,7 +73,6 @@ from east.expression.function import (
     compile_,
     compile_async,
     function,
-    kernel,
     trace,
     trace_builtin_call,
 )
@@ -148,8 +142,4 @@ __all__ = [
     "new_array",
     "new_set",
     "new_dict",
-    # deprecated aliases (#625, one release)
-    "kernel",
-    "KernelExpr",
-    "KernelTraceError",
 ]

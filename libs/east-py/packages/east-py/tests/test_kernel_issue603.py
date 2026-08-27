@@ -21,7 +21,6 @@ from east import (
     StringType,
     StructType,
     coerce_to,
-    kernel,
     some,
 )
 from east.expression import ExpressionError
@@ -58,11 +57,11 @@ def _nested(read):
 ], ids=["inner-binding", "outer-plain-field", "outer-option-unwrap_or",
         "outer-option-match"])
 def test_inner_arm_reads_resolve_against_the_right_binding(read, expected):
-    assert kernel([T], _nested(read))(VAL) == expected
+    assert East.function([T], StringType, _nested(read))(VAL) == expected
 
 
 def test_outer_option_predicate_inside_inner_arm():
-    got = kernel([T], _nested(
+    got = East.function([T], StringType, _nested(
         lambda o, i: East.if_else(o["label"].is_some(), i["label"], "NO-LABEL")))(VAL)
     assert got == "INNER-LABEL"
 
@@ -71,7 +70,7 @@ def test_the_silent_shape_collision_case():
     """Both structs have a ``label`` field with compatible types — the
     original silent-wrong-value presentation. The outer's is an Option, so
     coalescing it must see OUTER-LABEL, never the inner's plain String."""
-    got = kernel([T], _nested(
+    got = East.function([T], StringType, _nested(
         lambda o, i: o["label"].unwrap_or(i["label"])))(VAL)
     assert got == "OUTER-LABEL"
 
@@ -79,7 +78,7 @@ def test_the_silent_shape_collision_case():
 def test_unwrap_or_defaults_still_see_their_own_option():
     """unwrap_or chained inside another unwrap_or's consumer — the
     _match_option spelling of the same nesting."""
-    got = kernel([T], lambda x: x.match({
+    got = East.function([T], StringType, lambda x: x.match({
         "none": lambda _n: "NO-OUTER",
         "some": lambda o: o["label"].unwrap_or(o["plain"]),
     }))(VAL)
@@ -88,4 +87,4 @@ def test_unwrap_or_defaults_still_see_their_own_option():
 
 def test_missing_field_still_fails_at_trace_time_naming_the_outer_struct():
     with pytest.raises(ExpressionError, match="label, plain, nested"):
-        kernel([T], _nested(lambda o, i: o["inner_only"]))
+        East.function([T], StringType, _nested(lambda o, i: o["inner_only"]))

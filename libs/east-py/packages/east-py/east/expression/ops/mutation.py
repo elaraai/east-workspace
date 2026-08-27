@@ -72,7 +72,7 @@ class _MutationOps(_ExprBase):
                 "the compiled kernel, so the mutation would leak between "
                 "calls. Build the collection inside the kernel with "
                 "East.new_array/new_set/new_dict, or pass it as a trailing "
-                "parameter and bind it by reference (kernel(...).bind(table))."
+                "parameter and bind it by reference (East.function(...).bind(table))."
             )
         return self.east_type
 

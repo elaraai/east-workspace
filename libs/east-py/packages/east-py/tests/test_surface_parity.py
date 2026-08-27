@@ -12,7 +12,9 @@ import pytest
 
 from east import (
     ArrayType,
+    BooleanType,
     DateTimeType,
+    DictType,
     East,
     EastBlob,
     FloatType,
@@ -24,7 +26,6 @@ from east import (
     VariantType,
     greatest,
     if_else,
-    kernel,
     least,
     none,
     some,
@@ -45,44 +46,44 @@ def _rows():
 def test_traced_math_tail():
     Row = StructType([("x", FloatType), ("n", IntegerType)])
     r = {"x": 4.0, "n": -7}
-    assert kernel(Row, lambda v: v.x.log().exp())(r) == pytest.approx(4.0)
-    assert kernel(Row, lambda v: v.x.sqrt().sign())(r) == 1.0
-    assert kernel(Row, lambda v: v.n.sign())(r) == -1
-    assert kernel(Row, lambda v: v.x.sin() ** 2.0 + v.x.cos() ** 2.0)(r) == pytest.approx(1.0)
+    assert East.function([Row], FloatType, lambda v: v.x.log().exp())(r) == pytest.approx(4.0)
+    assert East.function([Row], FloatType, lambda v: v.x.sqrt().sign())(r) == 1.0
+    assert East.function([Row], IntegerType, lambda v: v.n.sign())(r) == -1
+    assert East.function([Row], FloatType, lambda v: v.x.sin() ** 2.0 + v.x.cos() ** 2.0)(r) == pytest.approx(1.0)
 
 
 def test_traced_string_tail():
     Row = StructType([("s", StringType)])
     r = {"s": "  a,b,c  "}
-    assert kernel(Row, lambda v: v.s.strip().split(",").size())(r) == 3
-    assert kernel(Row, lambda v: v.s.lstrip().rstrip().replace(",", "-"))(r) == "a-b-c"
-    assert kernel(Row, lambda v: v.s.strip().substring(0, 3))(r) == "a,b"
-    assert kernel(Row, lambda v: v.s.index_of("b"))(r) == 4
-    assert kernel(Row, lambda v: v.s.strip().repeat(2).length())(r) == 10
-    assert kernel(Row, lambda v: v.s.regex_contains("[abc],"))(r) is True
-    assert kernel(Row, lambda v: v.s.regex_replace("[bc]", "x").strip())(r) == "a,x,x"
+    assert East.function([Row], IntegerType, lambda v: v.s.strip().split(",").size())(r) == 3
+    assert East.function([Row], StringType, lambda v: v.s.lstrip().rstrip().replace(",", "-"))(r) == "a-b-c"
+    assert East.function([Row], StringType, lambda v: v.s.strip().substring(0, 3))(r) == "a,b"
+    assert East.function([Row], IntegerType, lambda v: v.s.index_of("b"))(r) == 4
+    assert East.function([Row], IntegerType, lambda v: v.s.strip().repeat(2).length())(r) == 10
+    assert East.function([Row], BooleanType, lambda v: v.s.regex_contains("[abc],"))(r) is True
+    assert East.function([Row], StringType, lambda v: v.s.regex_replace("[bc]", "x").strip())(r) == "a,x,x"
 
 
 def test_traced_datetime():
     Row = StructType([("ts", DateTimeType)])
     r = {"ts": datetime(2026, 7, 10, 12, 30, tzinfo=UTC)}
-    assert kernel(Row, lambda v: v.ts.get_year() * 100 + v.ts.get_month())(r) == 202607
-    assert kernel(Row, lambda v: v.ts.add_days(2).get_day_of_month())(r) == 12
-    assert kernel(Row, lambda v: v.ts.subtract_hours(13).get_day_of_month())(r) == 9
-    assert kernel(Row, lambda v: v.ts.duration_days(v.ts.add_hours(36)))(r) == -1.5
-    assert kernel(Row, lambda v: v.ts.add_days(2).print_format("YYYY-MM-DD"))(r) == "2026-07-12"
-    epoch = kernel(Row, lambda v: v.ts.to_epoch_milliseconds())(r)
+    assert East.function([Row], IntegerType, lambda v: v.ts.get_year() * 100 + v.ts.get_month())(r) == 202607
+    assert East.function([Row], IntegerType, lambda v: v.ts.add_days(2).get_day_of_month())(r) == 12
+    assert East.function([Row], IntegerType, lambda v: v.ts.subtract_hours(13).get_day_of_month())(r) == 9
+    assert East.function([Row], FloatType, lambda v: v.ts.duration_days(v.ts.add_hours(36)))(r) == -1.5
+    assert East.function([Row], StringType, lambda v: v.ts.add_days(2).print_format("YYYY-MM-DD"))(r) == "2026-07-12"
+    epoch = East.function([Row], IntegerType, lambda v: v.ts.to_epoch_milliseconds())(r)
     assert epoch == int(r["ts"].timestamp() * 1000)
 
 
 def test_traced_option_access_and_construction():
     Row = StructType([("p", OptionType(FloatType))])
-    k_unwrap = kernel(Row, lambda v: v.p.unwrap_or(0.0))
+    k_unwrap = East.function([Row], FloatType, lambda v: v.p.unwrap_or(0.0))
     assert k_unwrap({"p": some(2.0)}) == 2.0
     assert k_unwrap({"p": none}) == 0.0
-    assert kernel(Row, lambda v: v.p.is_some())({"p": none}) is False
-    assert kernel(Row, lambda v: v.p.is_none())({"p": none}) is True
-    k_fill = kernel(Row, lambda v: if_else(v.p.is_some(), v.p, some(9.0)))
+    assert East.function([Row], BooleanType, lambda v: v.p.is_some())({"p": none}) is False
+    assert East.function([Row], BooleanType, lambda v: v.p.is_none())({"p": none}) is True
+    k_fill = East.function([Row], OptionType(FloatType), lambda v: if_else(v.p.is_some(), v.p, some(9.0)))
     assert k_fill({"p": none}).value == 9.0
     assert k_fill({"p": some(1.0)}).value == 1.0
 
@@ -92,27 +93,27 @@ def test_traced_general_variants():
     Row = StructType([("st", Status)])
     act = {"st": variant("active", 2.5, Status)}
     clo = {"st": variant("closed", None, Status)}
-    assert kernel(Row, lambda v: v.st.get_tag())(act) == "active"
-    assert kernel(Row, lambda v: v.st.has_tag("closed"))(clo) is True
-    m = kernel(Row, lambda v: v.st.match({"active": lambda x: x, "closed": lambda _x: 0.0}))
+    assert East.function([Row], StringType, lambda v: v.st.get_tag())(act) == "active"
+    assert East.function([Row], BooleanType, lambda v: v.st.has_tag("closed"))(clo) is True
+    m = East.function([Row], FloatType, lambda v: v.st.match({"active": lambda x: x, "closed": lambda _x: 0.0}))
     assert m(act) == 2.5
     assert m(clo) == 0.0
-    u = kernel(Row, lambda v: v.st.unwrap("active"))
+    u = East.function([Row], FloatType, lambda v: v.st.unwrap("active"))
     assert u(act) == 2.5
     with pytest.raises(Exception, match="unwrap: expected variant case"):
         u(clo)
-    c = kernel(Row, lambda v: if_else(v.st.has_tag("active"), v.st, variant("active", -1.0)))
+    c = East.function([Row], VariantType([("active", FloatType), ("closed", NullType)]), lambda v: if_else(v.st.has_tag("active"), v.st, variant("active", -1.0)))
     assert c(clo).value == -1.0
 
 
 def test_traced_collection_reads_and_struct_construction():
     Row = StructType([("tags", ArrayType(StringType))])
     r = {"tags": ["x", "y", "z"]}
-    assert kernel(Row, lambda v: v.tags.size())(r) == 3
-    assert kernel(Row, lambda v: v.tags.has(2))(r) is True
-    assert kernel(Row, lambda v: v.tags.get(1))(r) == "y"
-    assert kernel(Row, lambda v: v.tags.get_or_default(9, "?"))(r) == "?"
-    pair = kernel([Row, IntegerType], lambda v, i: {"i": i, "first": v.tags.get(0)})
+    assert East.function([Row], IntegerType, lambda v: v.tags.size())(r) == 3
+    assert East.function([Row], BooleanType, lambda v: v.tags.has(2))(r) is True
+    assert East.function([Row], StringType, lambda v: v.tags.get(1))(r) == "y"
+    assert East.function([Row], StringType, lambda v: v.tags.get_or_default(9, "?"))(r) == "?"
+    pair = East.function([Row, IntegerType], StructType([("i", IntegerType), ("first", StringType)]), lambda v, i: {"i": i, "first": v.tags.get(0)})
     out = pair(r, 5)
     assert out["i"] == 5 and out["first"] == "x"
 
@@ -131,8 +132,8 @@ def test_runtime_variant_methods():
 def test_greatest_least_dual_mode():
     assert greatest(1.0, 2.0) == 2.0 and least("b", "a") == "a"
     Row = StructType([("x", FloatType), ("y", FloatType)])
-    assert kernel(Row, lambda v: greatest(v.x, v.y))({"x": 1.0, "y": 3.0}) == 3.0
-    assert kernel(Row, lambda v: least(v.x, 0.5))({"x": 1.0, "y": 3.0}) == 0.5
+    assert East.function([Row], FloatType, lambda v: greatest(v.x, v.y))({"x": 1.0, "y": 3.0}) == 3.0
+    assert East.function([Row], FloatType, lambda v: least(v.x, 0.5))({"x": 1.0, "y": 3.0}) == 0.5
 
 
 # ─── array sugar ─────────────────────────────────────────────────────────────
@@ -271,7 +272,7 @@ def test_dict_sugar():
 def test_dict_python_get():
     """Issue #38: python-style ``get(k, default=None)`` on EastDict — including
     the C-backed proxy you get from a Dict field of a decoded struct."""
-    from east import DictType, coerce_to
+    from east import coerce_to
 
     d = _rows().to_dict(lambda r: r.sku, lambda r: r.price, combine=lambda a, b: a + b)
     assert d.get("A") == pytest.approx(12.5)

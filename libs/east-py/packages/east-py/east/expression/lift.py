@@ -110,8 +110,36 @@ def _lift(value: Any, hint: EastType | None = None) -> Expression:
             "from python (per-element) instead"
         )
     raise ExpressionError(
-        f"cannot lift python value of type {type(value).__name__} into an East kernel expression"
+        f"cannot lift python value of type {type(value).__name__} into an East expression"
     )
+
+
+def _holds_traced(value: Any) -> bool:
+    """Whether ``value`` is — or contains — a traced expression.
+
+    The dual-mode constructors (``struct``, ``variant``) decide by this
+    whether they build IR or an eager value. It looks THROUGH the python
+    containers a body writes by hand (dicts, lists, tuples) and the frozen
+    East values a constructor may already have wrapped (a ``some(…)``
+    payload, a struct's fields), because an eager value built AROUND a proxy
+    is exactly the failure every dual-mode form exists to prevent: lifted
+    later, it would register as a build-time constant referencing the body's
+    own parameters, which are unbound where that constant is evaluated.
+    """
+    from east.expression.expr import Expression
+    from east.types.values import is_east_struct
+
+    if isinstance(value, (Expression, _DeferredIfElse, _Jump)):
+        return True
+    if isinstance(value, dict):
+        return any(_holds_traced(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_holds_traced(v) for v in value)
+    if isinstance(value, EastVariant):
+        return _holds_traced(value.value)
+    if is_east_struct(value):
+        return any(_holds_traced(value[name]) for name in value)
+    return False
 
 
 class _ConstRegistry:
@@ -186,8 +214,8 @@ def _register_const(value: Any, expr: Expression) -> Expression:
 class _FnConstRegistry:
     """Per-trace registry of called compiled East function values (#561).
 
-    A traced lambda that CALLS an already-compiled East function value — a
-    ``kernel(...).bind(...)`` result, a ``compile_from_*`` function, a
+    A traced lambda that CALLS an already-compiled East function value — an
+    ``East.function(...).bind(...)`` result, a ``compile_from_*`` function, a
     runner-supplied ``FunctionType`` input such as a streamTask ``emit`` —
     cannot re-trace the callee (its body is native), so the call lowers to
     the IR's ``Call`` node instead: the callee becomes a HIDDEN TRAILING
@@ -427,15 +455,20 @@ def _lift_collection(value: Any) -> Expression | None:
         )
     if is_east_struct(value):
         # A captured struct constant (e.g. a config row) lifts field by field.
-        return _register_const(value, _lift_struct({name: value[name] for name in value}))
+        # One holding a traced part is no constant — it was built around a
+        # proxy — so it lifts inline rather than as a hoisted Let, which would
+        # be evaluated outside the function where the proxy's variable is
+        # unbound.
+        lifted = _lift_struct({name: value[name] for name in value})
+        return lifted if _holds_traced(value) else _register_const(value, lifted)
     return None
 
 
 def _lift_struct(value: dict, hint: EastType | None = None) -> Expression:
     """Lift a dict of traced expressions/literals into Struct IR.
 
-    Lets kernels build rows naturally: ``lambda el, i: {"i": i, "v": el.x}``.
-    With a Struct hint from context (the kernel's declared ``out=``), each
+    Lets bodies build rows naturally: ``lambda el, i: {"i": i, "v": el.x}``.
+    With a Struct hint from context (the build's declared output), each
     field lifts under its declared type — which is what lets a field hold a
     general ``variant(case, …)`` or a bare ``none`` (#541).
     """
@@ -486,7 +519,7 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
     if value.type == "none" and (is_east_null(value.value) or value.value is None):
         if hint is None or not _is_option(hint):
             raise ExpressionError(
-                "`none` in a traced kernel needs a type from context — pair it with a "
+                "`none` in a traced body needs a type from context — pair it with a "
                 "some(...) arm in East.if_else(), or declare the output type "
                 "(East.function(params, OptionType(T), body); out= on the method)"
             )
@@ -511,7 +544,7 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
     # A general variant — the 2-arg variant(case, payload) construction
     # carries no VariantType — reached here with no Variant hint (#541).
     raise ExpressionError(
-        f"variant({value.type!r}, …) in a traced kernel needs a VariantType from "
+        f"variant({value.type!r}, …) in a traced body needs a VariantType from "
         "context — declare the output (East.function(params, VariantType(...), "
         "body), or out= on the eager method), or build it in an East.if_else() "
         "with a typed sibling or a typed struct field"
@@ -619,7 +652,7 @@ class _DeferredIfElse:
     e.g. ``if_else(cond, variant("a", …), variant("b", …))`` (#541).
 
     The conditional materialises when the surrounding context supplies the
-    type: the kernel's declared ``out=`` (threaded to the root lift), a
+    type: the build's declared output (threaded to the root lift), a
     typed struct field, or an enclosing ``if_else`` sibling. Reaching
     ``_lift`` with no hint raises the actionable error instead of the
     opaque cannot-lift one.
@@ -778,8 +811,8 @@ def if_else(*branches: Any) -> Any:
 
     Returns:
         The chosen value: a traced expression when any condition is traced, a
-        plain python value otherwise (so the same lambda works on the traced
-        and the per-element python paths).
+        plain python value otherwise (so the same body works inside a build
+        and on plain East values).
 
     Raises:
         ExpressionError: If the argument count is even, a condition is not
@@ -817,8 +850,8 @@ def if_else(*branches: Any) -> Any:
     # An arm that cannot lift unaided — a bare `none`, a general
     # `variant(case, …)`, a break/continue, a nested deferred chain — types
     # itself from a sibling. When EVERY arm needs context the conditional
-    # defers whole, typed later by the surrounding context (the kernel's
-    # declared out=, a typed struct field, an enclosing if_else) — see
+    # defers whole, typed later by the surrounding context (the build's
+    # declared output, a typed struct field, an enclosing if_else) — see
     # _DeferredIfElse (#541).
     settled = next((_lift(v).east_type for v in values
                     if not _needs_type_context(v)), None)

@@ -33,7 +33,6 @@ from east import (
     East,
     EastArray,
     IntegerType,
-    kernel,
 )
 from east.expression import trace
 from east.types.values import is_east_struct, is_east_variant
@@ -64,7 +63,7 @@ def _emissions(fn, kind="ForArray", param_types=(INT_ARR,)):
 
 
 def _run(fn, data=DATA, param_types=(INT_ARR,)):
-    return kernel(list(param_types), fn)(data)
+    return East.function(list(param_types), IntegerType, fn)(data)
 
 
 def _sum_loop(src):

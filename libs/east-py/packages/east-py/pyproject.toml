@@ -176,7 +176,6 @@ ignore = [
 "east/_eastc_bridge.pyx" = ["ALL"]  # east-c bridge
 "east/types/*.py" = ["ARG005"]  # Lambda arguments in type constructors
 "east/expression/__init__.py" = ["F401"]  # Re-export barrel for the split expression package
-"east/kernel.py" = ["F401", "E402"]  # Deprecated alias module (#625): re-exports after the warning
 
 [tool.coverage.run]
 source = ["east"]

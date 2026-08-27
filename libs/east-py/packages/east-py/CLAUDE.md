@@ -66,8 +66,7 @@ All structured data uses two base classes:
    `East.platform` / `East.compile`, #625) and the capture behind every eager
    collection method's callback. One module per concern; `__init__.py`
    re-exports the whole surface, so importers only ever say
-   `from east.expression import …` (`east.kernel` is the one-release
-   deprecated alias).
+   `from east.expression import …`.
    - `nodes.py` / `lift.py` / `finalize.py` — IR construction, lifting python
      values into traced expressions, and the trace-time CSE
    - `expr.py` + `ops/` — `Expression` and its method surface, one op mixin
@@ -77,7 +76,7 @@ All structured data uses two base classes:
      `block`/`let`/`ref`/`label`/`break_`/`continue_`/`try_catch`)
    - `function.py` — `East.function`/`asyncFunction` (strict; declared `out`
      required + enforced), `East.compile`/`compileAsync` over
-     `compile_from_value`, the deprecated `kernel()` alias, and `trace()`
+     `compile_from_value`, and `trace()`
    - `platform.py` — `East.platform`/`asyncPlatform` declaration handles
      emitting `Platform` IR; a platform-declaring function raises
      `Platform function '<name>' is not available` until compiled

@@ -19,8 +19,15 @@ Three boundary defects, each pinned by the round trip it used to break:
 
 from east.runtime._compiler_eastc import call_builtin
 
-from east import BlobType, EastArray, FunctionType, IntegerType, type_of
-from east.expression import kernel, trace
+from east import (
+    BlobType,
+    East,
+    EastArray,
+    FunctionType,
+    IntegerType,
+    type_of,
+)
+from east.expression import trace
 from east.runtime.compiler import compile_from_value
 from east.types.values.structural import EastFunction
 
@@ -46,7 +53,7 @@ def test_a_compiled_function_round_trips_through_beast2():
 
 
 def test_a_kernel_round_trips_through_beast2():
-    k = kernel(IntegerType, lambda x: x * 2)
+    k = East.function([IntegerType], IntegerType, lambda x: x * 2)
     assert k._east_ir is not None
     blob = call_builtin("BlobEncodeBeast2", [FT], [k], BlobType)
     back = call_builtin("BlobDecodeBeast2", [FT], [blob], FT)
@@ -78,8 +85,8 @@ def test_functions_stored_in_an_array_call_correctly():
     # node into a fresh closure value and union-read it as the output type —
     # a pointer-sized integer where 6 belongs (#476 D).
     arr = EastArray(FT, [
-        kernel(IntegerType, lambda x: x * 2),
-        kernel(IntegerType, lambda x: x * 3),
+        East.function([IntegerType], IntegerType, lambda x: x * 2),
+        East.function([IntegerType], IntegerType, lambda x: x * 3),
     ])
     assert arr[0](3) == 6
     assert arr[1](3) == 9

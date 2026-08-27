@@ -16,13 +16,9 @@ class ExpressionError(TypeError):
     """The body performed an operation that cannot be captured into East IR."""
 
 
-#: Deprecated alias of :class:`ExpressionError` (renamed in #625; one release).
-KernelTraceError = ExpressionError
-
-
 def _trace_bail(op: str) -> ExpressionError:
     return ExpressionError(
-        f"python `{op}` cannot be traced into an East kernel — use `&`, `|`, `~` for "
+        f"python `{op}` cannot be traced into an East function body — use `&`, `|`, `~` for "
         "boolean logic and `East.if_else(cond, a, b)` for conditionals, or write "
         "an explicit python loop for genuine python semantics"
     )

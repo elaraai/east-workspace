@@ -7,7 +7,8 @@
 Pins the issue's acceptance criteria on the east-py side: the eager methods
 delegate to east-c (reduction order and East's total order are the C
 runtime's, not numpy's), the traced kernel surface covers the new builtins
-plus the structural ones with ZERO trampoline calls, the ``.length()`` error
+plus the structural ones (a body that cannot capture raises, so building is
+the native-execution proof), the ``.length()`` error
 no longer claims to need a String, and the two performance contracts hold —
 ``VectorScale`` within 2x of a plain C loop over the same buffer, and
 ``SparseAxpy`` at least 5x faster than the equivalent ``Dict<Integer,
@@ -31,11 +32,11 @@ from east import (
     IntegerType,
     StructType,
     VectorType,
-    kernel,
 )
 from east.expression import ExpressionError
-from east.runtime.compiler import eager_stats
 from east.runtime.errors import EastError
+
+VF = VectorType(FloatType)
 
 
 def fvec(items):
@@ -149,24 +150,23 @@ def test_select_compress_gather_scatter():
 
 # ── the traced kernel surface (#598 acceptance criterion 3) ────────────────
 
-def test_kernel_tensor_surface_is_trampoline_free():
-    """Kernels over the new builtins + the structural surface execute with
-    exactly zero per-element python calls."""
+def test_kernel_tensor_surface_builds_and_runs():
+    """Kernels over the new builtins + the structural surface build (a body
+    that cannot capture raises) and execute natively."""
     sp_t = StructType([("ix", VectorType(IntegerType)), ("v", VectorType(FloatType))])
     v = fvec([1.0, 2.0, 3.0])
     sa = {"ix": ivec([0, 2]), "v": fvec([1.0, 2.0])}
     sb = {"ix": ivec([1]), "v": fvec([5.0])}
-    before = eager_stats()
-    assert kernel(VectorType(FloatType), lambda t: t.scale(0.99).sum())(v) == pytest.approx(5.94)
-    assert kernel(VectorType(FloatType), lambda t: t.length())(v) == 3
-    assert kernel(VectorType(FloatType), lambda t: t.get(0))(v) == 1.0
-    assert kernel(VectorType(FloatType), lambda t: t.slice(1, 3).dot(t.slice(1, 3)))(v) == 13.0
-    assert kernel(VectorType(FloatType), lambda t: t.cum_sum().arg_max())(v) == 2
-    assert kernel(VectorType(FloatType), lambda t: t.gt(t.scale(0.0)).count_true())(v) == 3
-    assert kernel(VectorType(FloatType),
-                  lambda t: t.compress(t.gt(t.scale(0.0).add_scalar(1.5))).length())(v) == 2
+    assert East.function([VF], FloatType, lambda t: t.scale(0.99).sum())(v) == pytest.approx(5.94)
+    assert East.function([VF], IntegerType, lambda t: t.length())(v) == 3
+    assert East.function([VF], FloatType, lambda t: t.get(0))(v) == 1.0
+    assert East.function([VF], FloatType, lambda t: t.slice(1, 3).dot(t.slice(1, 3)))(v) == 13.0
+    assert East.function([VF], IntegerType, lambda t: t.cum_sum().arg_max())(v) == 2
+    assert East.function([VF], IntegerType, lambda t: t.gt(t.scale(0.0)).count_true())(v) == 3
+    assert East.function([VF], IntegerType,
+                         lambda t: t.compress(t.gt(t.scale(0.0).add_scalar(1.5))).length())(v) == 2
     # the motivating shape: a sparse accumulator step as ONE native kernel
-    step = kernel([sp_t, sp_t], lambda a, b: East.Vector.sparse_axpy(
+    step = East.function([sp_t, sp_t], sp_t, lambda a, b: East.Vector.sparse_axpy(
         a["ix"], a["v"], b["ix"], b["v"], 0.5))
     merged = step(sa, sb)
     assert merged["ix"].to_numpy().tolist() == [0, 1, 2]
@@ -174,34 +174,29 @@ def test_kernel_tensor_surface_is_trampoline_free():
     m = EastMatrix.from_array(FloatType, [[1.0, 2.0], [3.0, 4.0]])
     from east.types.types import MatrixType
 
-    assert kernel(MatrixType(FloatType), lambda t: t.row_sums().sum())(m) == 10.0
-    assert kernel(MatrixType(FloatType),
-                  lambda t: t.vec_mul(t.get_row(0)).get(1))(m) == 11.0
-    after = eager_stats()
-    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert East.function([MatrixType(FloatType)], FloatType, lambda t: t.row_sums().sum())(m) == 10.0
+    assert East.function([MatrixType(FloatType)], FloatType,
+                         lambda t: t.vec_mul(t.get_row(0)).get(1))(m) == 11.0
 
 
 def test_traced_length_error_is_fixed():
     """`.length()` on a traced Vector is VectorLength, not a String error, and
     a method miss names the tensor surface."""
-    assert kernel(VectorType(FloatType), lambda t: t.length())(fvec([1.0])) == 1
+    assert East.function([VF], IntegerType, lambda t: t.length())(fvec([1.0])) == 1
     with pytest.raises(ExpressionError, match="traced kernel surface.*Vector.*scale"):
-        kernel(VectorType(FloatType), lambda t: t.nonexistent())
+        East.function([VF], FloatType, lambda t: t.nonexistent())
     # .map()/.fold() are deliberately absent (callback boxing is inherent);
     # their misses name the real problem instead of "needs a String"
     with pytest.raises(ExpressionError, match=r"\.map\(\) on Vector"):
-        kernel(VectorType(FloatType), lambda t: t.map(lambda q: q * 0.99))
+        East.function([VF], VF, lambda t: t.map(lambda q: q * 0.99))
 
 
 def test_captured_tensor_constants_lift():
     cv = fvec([10.0, 20.0, 30.0])
     cm = EastMatrix.from_array(FloatType, [[1.0, 2.0], [3.0, 4.0]])
-    before = eager_stats()
-    assert kernel(IntegerType, lambda i: cv.get(i))(2) == 30.0
-    assert kernel(IntegerType, lambda i: cv.slice(0, i).sum())(2) == 30.0
-    assert kernel(IntegerType, lambda i: cm.get_row(i).sum())(1) == 7.0
-    after = eager_stats()
-    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert East.function([IntegerType], FloatType, lambda i: cv.get(i))(2) == 30.0
+    assert East.function([IntegerType], FloatType, lambda i: cv.slice(0, i).sum())(2) == 30.0
+    assert East.function([IntegerType], FloatType, lambda i: cm.get_row(i).sum())(1) == 7.0
 
 
 # ── the performance contracts (#598 acceptance criterion 4) ────────────────
@@ -235,7 +230,7 @@ def test_vector_scale_within_2x_of_c_loop():
             for _ in range(k):
                 out = out.scale(0.99)
             return out.length()
-        return kernel(VectorType(FloatType), build)
+        return East.function([VF], IntegerType, build)
 
     k1, k9 = chain(1), chain(9)
     k1(v)

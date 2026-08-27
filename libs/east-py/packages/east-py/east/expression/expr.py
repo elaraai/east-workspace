@@ -339,7 +339,7 @@ class Expression(
 
     def __str__(self) -> str:
         raise ExpressionError(
-            "f-strings / str() cannot be traced into an East kernel — the "
+            "f-strings / str() cannot be traced into an East function body — the "
             "expression proxy would constant-fold into the result. Build "
             "strings with `+` concatenation, or East.String.print(T, value) "
             "for a value's text"
@@ -347,7 +347,7 @@ class Expression(
 
     def __format__(self, format_spec: str) -> str:
         raise ExpressionError(
-            "f-strings / format() cannot be traced into an East kernel — the "
+            "f-strings / format() cannot be traced into an East function body — the "
             "expression proxy would constant-fold into the result. Build "
             "strings with `+` concatenation, or East.String.print(T, value) "
             "for a value's text"
@@ -373,7 +373,3 @@ class Expression(
 
     def __contains__(self, item: Any) -> bool:
         raise _trace_bail("in")
-
-
-#: Deprecated alias of :class:`Expression` (renamed in #625; one release).
-KernelExpr = Expression

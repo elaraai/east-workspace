@@ -13,6 +13,10 @@ general variant, #541).
 import pytest
 
 from east import (
+    ArrayType,
+    BooleanType,
+    DictType,
+    East,
     EastArray,
     EastDict,
     IntegerType,
@@ -23,7 +27,6 @@ from east import (
     VariantType,
     east_null,
     if_else,
-    kernel,
     variant,
 )
 from east.expression import ExpressionError
@@ -40,16 +43,16 @@ def _rows() -> EastArray:
 
 def test_fstring_in_an_explicit_kernel_raises():
     with pytest.raises(ExpressionError, match="constant-fold"):
-        kernel(StringType, lambda s: f"<{s}>")
+        East.function([StringType], StringType, lambda s: f"<{s}>")
 
 
 def test_str_call_in_an_explicit_kernel_raises():
     with pytest.raises(ExpressionError, match="constant-fold"):
-        kernel(StringType, lambda s: "<" + str(s) + ">")
+        East.function([StringType], StringType, lambda s: "<" + str(s) + ">")
 
 
 def test_repr_still_works_for_diagnostics():
-    got = kernel(StringType, lambda s: _probe_repr(s))("x")
+    got = East.function([StringType], StringType, lambda s: _probe_repr(s))("x")
     assert got == "x"
 
 
@@ -91,7 +94,8 @@ def test_map_out_is_accepted_and_types_a_variant_building_callback():
 
 def test_map_out_contradiction_raises():
     with pytest.raises(ExpressionError, match="out= declares"):
-        kernel(ArrayTypeOf(IntegerType), lambda a: a.map(lambda x: x + 1, out=StringType))
+        East.function([ArrayTypeOf(IntegerType)], ArrayType(IntegerType),
+                      lambda a: a.map(lambda x: x + 1, out=StringType))
 
 
 def ArrayTypeOf(t):
@@ -123,8 +127,8 @@ def test_flatten_out_pins_the_element_type():
     got = arr.flatten_to_array(lambda xs: xs, out=IntegerType)
     assert list(got) == [1, 2, 3]
     with pytest.raises(ExpressionError, match="out= declares"):
-        kernel(ArrayType(ArrayType(IntegerType)),
-               lambda a: a.flatten_to_array(lambda xs: xs, out=StringType))
+        East.function([ArrayType(ArrayType(IntegerType))], ArrayType(IntegerType),
+                      lambda a: a.flatten_to_array(lambda xs: xs, out=StringType))
 
 
 def test_to_dict_key_and_value_outs_type_the_projections():
@@ -155,23 +159,28 @@ def test_group_reduce_key_out_types_a_variant_group_key():
 
 def test_every_some_take_the_pred_keyword():
     arr = EastArray(IntegerType, [1, 2, 3])
-    assert kernel(ArrayTypeOf(IntegerType), lambda a: a.every(pred=lambda x: x > 0))(arr)
-    assert not kernel(ArrayTypeOf(IntegerType), lambda a: a.some(pred=lambda x: x > 5))(arr)
+    every_k = East.function([ArrayTypeOf(IntegerType)], BooleanType,
+                            lambda a: a.every(pred=lambda x: x > 0))
+    some_k = East.function([ArrayTypeOf(IntegerType)], BooleanType,
+                           lambda a: a.some(pred=lambda x: x > 5))
+    assert every_k(arr)
+    assert not some_k(arr)
 
 
 def test_set_to_array_takes_the_key_keyword():
     from east import EastSet
 
     s = EastSet(IntegerType, [3, 1, 2])
-    got = kernel(SetType(IntegerType), lambda x: x.to_array(key=lambda e: e * 10))(s)
+    got = East.function([SetType(IntegerType)], ArrayType(IntegerType),
+                        lambda x: x.to_array(key=lambda e: e * 10))(s)
     assert list(got) == [10, 20, 30]
 
 
 def test_group_to_arrays_takes_the_value_fn_keyword():
     d = EastDict(StringType, IntegerType, {"a": 1, "b": 2})
-    got = kernel(
-        _dict_t(), lambda x: x.group_to_arrays(lambda k, _v: k, value_fn=lambda _k, v: v)
-    )(d)
+    got = East.function(
+        [_dict_t()], DictType(StringType, ArrayType(IntegerType)),
+        lambda x: x.group_to_arrays(lambda k, _v: k, value_fn=lambda _k, v: v))(d)
     assert {k: list(v) for k, v in got.items()} == {"a": [1], "b": [2]}
 
 

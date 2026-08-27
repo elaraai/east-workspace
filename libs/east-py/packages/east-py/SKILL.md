@@ -156,10 +156,6 @@ referencing it inside another body splices its expression into that build
 (#470/#561). A platform-declaring artifact stays first-class (composable,
 serializable) but raises until `East.compile` pairs it with implementations.
 
-`kernel(param_types, fn, out=None)` is the **deprecated** one-release alias
-(#625): the same artifact with the old lenient signature (a bare parameter
-type, inferred `out`). New code takes `East.function`.
-
 ### Eager callbacks capture the same way
 
 Every eager callback method takes exactly two kinds of function:
@@ -477,13 +473,13 @@ python never runs per element**. In order of impact:
 5. **When logic must stay python, go columnar** (next section): one
    boundary crossing per column/batch instead of per row × field, then
    come back to East values with `from_columns`/`extend`.
-6. **Verify you're actually native** with
+6. **See how a hot call ran** with
    `east.runtime.compiler.eager_stats()` — `kernel_direct` counts callbacks
-   that rode a precompiled function value straight in, and
-   `trampoline_calls` counts invocations of a HOST python callable wrapped
-   as a function value (a runner's `emit`). An eager callback never lands
-   there — it captures or it raises — so a `trampoline_calls` delta around
-   `rows.map(k)` is a defect, not a slow path.
+   that rode a precompiled function value straight in, `c_to_py_decodes`
+   counts values boxed C→python (an eager method quietly decoding a whole
+   collection shows up here), and the `beast2_*` counters report column
+   projection. There is no per-element python counter because there is no
+   per-element python path: an eager callback captures or it raises.
 
 There is nothing to opt into: every callback is captured, and a body East
 cannot express fails at the call with the binding named — never by quietly
@@ -656,7 +652,7 @@ Task → What do you need?
     │   │   └─ Mutate (in place) → d[k]=v · insert ❗exists · get_or_insert(k, fn) · insert_or_update(k, v, combine) ·
     │   │                          update(k, fn) ❗missing · swap ❗missing · delete ❗missing/try_delete · pop · clear ·
     │   │                          merge_all(other, merge, default) (fold other in) · (bulk) update_many(keys, values, combine=)
-    │   ├─ Vector/Matrix → get/set(→new)/slice/concat/map/fold · transpose/get_row/get_col ·
+    │   ├─ Vector/Matrix → get/set(→new)/slice/concat · transpose/get_row/get_col ·
     │   │                   to_array/to_vector/to_matrix/to_rows · to_numpy(copy=False)/to_torch() ·
     │   │                   from_numpy/from_torch/zeros/ones/fill
     │   │   ├─ Elementwise arithmetic (east-c; #598) → scale(α) · add_scaled(other, α) · mul(other) ·
@@ -698,8 +694,7 @@ Task → What do you need?
     │   ├─ A lambda in ANY eager callback → captured automatically (nothing to import;
     │   │   a body East cannot express RAISES, naming the binding — there is no python fallback)
     │   ├─ Author a reusable/named function → East.function(param_types, out, body)   ❗out is required
-    │   │   (multi-param: East.function([acc_t, elem_t], acc_t, lambda acc, r: …) for fold-shaped callbacks;
-    │   │    `kernel(param_types, fn, out=)` is the DEPRECATED one-release alias, #625)
+    │   │   (multi-param: East.function([acc_t, elem_t], acc_t, lambda acc, r: …) for fold-shaped callbacks)
     │   ├─ Declare a platform call inside a body → East.platform(name, inputs, output) / East.asyncPlatform
     │   │   → pair with the @platform_function impl and East.compile(fn, platform=[…]) / East.compileAsync
     │   │   (uncompiled, calling it raises `Platform function 'X' is not available`)
@@ -709,8 +704,8 @@ Task → What do you need?
     │   ├─ Pass a precompiled function (incl. a .bind result) to any eager method → native loop, no out= needed
     │   │   (one contradicting a declared out= raises EastTypeError at the call — #467; artifacts also COMPOSE:
     │   │    reference one inside another body and it splices into that build — #470)
-    │   ├─ Check whether a hot call ran natively → east.runtime.compiler.eager_stats()
-    │   │   (kernel_direct = rode a compiled value in; trampoline_calls = a HOST callable — never an eager callback)
+    │   ├─ See how a hot call ran → east.runtime.compiler.eager_stats()
+    │   │   (kernel_direct = rode a compiled value in; c_to_py_decodes = values boxed to python; beast2_* = projection)
     │   ├─ What captures (the expression surface inside a body)
     │   │   ├─ Struct fields → r.price / r["price"] · build rows with dict literals {"k": expr, …}
     │   │   ├─ Arithmetic → + - * · / (Float) · Float ** · East.Integer.divide/remainder/pow · East.Float.remainder
@@ -731,8 +726,8 @@ Task → What do you need?
     │   │   │              python datetime literals lift as DateTime constants (unwrap_or defaults, if_else arms, captures)
     │   │   ├─ Option → .is_some()/.is_none() · .unwrap_or(default) · construct with some(expr) / none (in if_else arms)
     │   │   ├─ Variant → .get_tag() · .has_tag(tag) · .match({case: handler}) · .unwrap(tag) ❗ ·
-    │   │   │             construct with variant(case, payload) typed from context: the kernel's declared
-    │   │   │             out= (types the whole result, incl. an if_else() over variant arms), a typed
+    │   │   │             construct with variant(case, payload) typed from context: the build's declared
+    │   │   │             output (types the whole result, incl. an if_else() over variant arms), a typed
     │   │   │             if_else() sibling, or a declared struct field
     │   │   ├─ Collections → the FULL closed surface enumerated in [Expressions](#expressions--one-capture-one-execution)
     │   │   │                 (#452) — that list is the ONE registry, pinned against `_TRACED_SURFACE`; highlights:
@@ -852,14 +847,11 @@ Task → What do you need?
 Almost everything above delegates to native builtins — these are the paths
 that still run python, so you can reason about cost and semantics:
 
-- **Host callables passed as function VALUES** — a runner's `emit`
-  capability and friends: east-c invokes them per call through the foreign
-  function seam (`trampoline_calls` counts it). Eager collection callbacks
-  never come through here — they are captured or refused.
-- **`EastVector`/`EastMatrix` `map`/`fold`/`map_elements`/`map_rows`** run in
-  python (per-element boxing is inherent to their callback contract). The
-  arithmetic/reduction/mask/sparse methods delegate to the east-c builtins
-  (#598); free-form math beyond that surface goes via `to_numpy`/`to_torch`.
+- **`EastVector`/`EastMatrix` `map`/`fold`/`map_elements`/`map_rows`** are
+  DEPRECATED (#625): they ran a python callback per element, the one shape
+  the strict surface removes, so they warn and will go. Use the
+  arithmetic/reduction/mask/sparse methods, which delegate to the east-c
+  builtins (#598), or `to_numpy`/`to_torch` for free-form math.
 - **`Dict.get_or_insert`** composes membership + get python-side so `fn` is
   only called on a miss (deliberately lazier than East's strict default
   expression). The other singles (`insert`/`update`/`swap`/`delete`/
@@ -981,8 +973,8 @@ to East's storage width (Float→f64, Integer→i64, Boolean→u8) crossing into
 |-----------|-------------|---------|
 | **Ergonomic constructors** |
 | `array(element_type, items, *, validate=True) -> EastArray` | Each item coerced/validated to `element_type` (dict→struct, int→Float, …); `validate=False` stores as-is | `array(LineItem, [{"name":"a","price":1}])` |
-| `struct(fields: dict, typ: StructType\|None=None) -> EastStruct` | Reorders/coerces keys to `typ` (else infers from fields) | `struct({"price":1,"name":"a"}, LineItem)` |
-| `variant(case: str, value, typ: VariantType\|None=None) -> EastVariant` | Tagged value; validates `value` against case `case` (matched **by name**); read back via `.type`/`.value` | `variant("named", "red", Color)` |
+| `struct(fields: dict, typ: StructType\|None=None) -> EastStruct` | Reorders/coerces keys to `typ` (else infers from fields); dual-mode — a field holding a traced expression (at any depth) builds Struct IR instead | `struct({"price":1,"name":"a"}, LineItem)` |
+| `variant(case: str, value, typ: VariantType\|None=None) -> EastVariant` | Tagged value; validates `value` against case `case` (matched **by name**); read back via `.type`/`.value`; dual-mode — a traced payload builds Variant IR, typed by `typ` or by context | `variant("named", "red", Color)` |
 | `some(value) -> EastVariant` / `none` | Option `some`; `none` is a **constant**, not a function | `some(5)` / `none` |
 | `match(v, cases: dict, default=None)` | Dispatch on `v.type`; the handler is **always** called `handler(v.value)` — the `none` arm must be `lambda v: …`, not `lambda: …` | `match(o, {"some": lambda x: x, "none": lambda v: -1})` |
 | `east_ref(value) -> EastRef` | Make a mutable ref cell (same as `EastRef(value)`) | `east_ref(0)` |
@@ -1084,8 +1076,7 @@ constant and emit IR, like the eager collections.
 | Masks & selection (east-c) | `eq(other)`/`lt(other)`/`gt(other)` ❗len `-> Vector<Boolean>` (East equality/order) · `mask.select(a, b)` ❗len (mask receiver) · `v.compress(mask)` ❗len · `mask.count_true() -> int` |
 | Gather / scatter / search (east-c) | `gather(indices)` ❗bounds · `scatter_add(indices, src)` ❗len/bounds (duplicates accumulate in order) · `search_sorted(needles) -> Vector<Integer>` (leftmost insertion index; assumes sorted) |
 | Sparse accumulators (east-c; `East.Vector.*`) | `sparse_axpy(ixA, vA, ixB, vB, alpha)` (union merge `vA + alpha*vB`; absent entries stay absent) ❗ascending/len · `sparse_from_pairs(ix, v)` (sorts + sums duplicates stably, in input order) ❗len · `sparse_filter_gt(ix, v, threshold)` ❗ascending/len — all return `Struct{ix: Vector<Integer>, v: Vector<T>}` with strictly ascending `ix` |
-| Per-element | `map(fn(el), out=None) -> EastVector` (runs in Python, not delegated; pin `out` to fix result element type / storage dtype) |
-| Reduce (python) | `fold(initial, fn(acc, el))` (left fold in Python; returns `initial` if empty) |
+| Per-element (DEPRECATED, #625) | `map(fn(el), out=None)` · `fold(initial, fn(acc, el))` — a python callback per element; they warn and will go. Reach for the arithmetic/reduction surface above, or `to_numpy()` |
 | Convert | `to_array() -> EastArray` (promotes scalars; severs the zero-copy link) · `to_matrix(rows, cols) -> EastMatrix` (row-major reshape; `rows*cols == length`) |
 | NumPy / torch | `to_numpy(dtype=None, copy=False) -> ndarray` (read-only view by default; a cast or `copy=True` is writeable) · `to_torch(dtype=None) -> torch.Tensor` (always a writeable copy) · `np.asarray(v)` via `__array__` · props `.dtype` (storage) / `.element_type` (logical) |
 
@@ -1108,7 +1099,7 @@ argument lift the matrix as a constant and emit IR.
 | Arithmetic (east-c; Float/Integer elements) | `scale(alpha)` · `add_scaled(other, alpha)` ❗dims · `mul_elementwise(other)` ❗dims (Hadamard) |
 | Reduce (east-c; ascending index order) | `row_sums() -> EastVector` (ascending column order per row) · `col_sums() -> EastVector` (ascending row order per column) · `vec_mul(v) -> EastVector` ❗cols≠len (row-by-vector dot products) |
 | Rows & cols | `get_row(r) -> EastVector` (contiguous copy) · `get_col(c) -> EastVector` (contiguous copy) |
-| Per-element & per-row | `map_elements(fn(el), out=None) -> EastMatrix` (row-major, no row/col index) · `map_rows(fn(row: EastVector), out=None) -> EastMatrix` (returned rows must share one width) |
+| Per-element & per-row (DEPRECATED, #625) | `map_elements(fn(el), out=None)` · `map_rows(fn(row: EastVector), out=None)` — a python callback per element/row; they warn and will go. Use the arithmetic surface or `to_numpy()` |
 | Convert | `to_vector() -> EastVector` (row-major flatten) · `to_array() -> EastArray` (`Array<Array<el>>`, one inner array per row) · `to_rows() -> EastArray` (`Array<Vector<el>>`, one `EastVector` per row) |
 | NumPy / torch | `to_numpy(dtype=None, copy=False) -> ndarray` (2-D; read-only view by default) · `to_torch(dtype=None) -> torch.Tensor` (writeable copy) · `np.asarray(m)` via `__array__` · props `.dtype` / `.element_type` / `.rows` / `.cols` |
 

@@ -14,6 +14,9 @@ no per-element python path behind it.
 import pytest
 
 from east import (
+    ArrayType,
+    BooleanType,
+    East,
     EastBlob,
     ExpressionError,
     FloatType,
@@ -22,7 +25,6 @@ from east import (
     StringType,
     StructType,
     if_else,
-    kernel,
     none,
     some,
 )
@@ -42,49 +44,49 @@ def _rows():
 
 
 def test_kernel_arithmetic():
-    k = kernel(ROW, lambda r: r.price * r.qty)
+    k = East.function([ROW], FloatType, lambda r: r.price * r.qty)
     assert k({"sku": "x", "price": 2.5, "qty": 4.0}) == 10.0
 
 
 def test_kernel_comparison_and_boolean_algebra():
-    k = kernel(ROW, lambda r: (r.sku == "A-1") & (r.price > 100.0))
+    k = East.function([ROW], BooleanType, lambda r: (r.sku == "A-1") & (r.price > 100.0))
     assert k({"sku": "A-1", "price": 150.0, "qty": 1.0}) is True
     assert k({"sku": "B-2", "price": 150.0, "qty": 1.0}) is False
 
 
 def test_kernel_where_conditional():
-    k = kernel(ROW, lambda r: if_else(r.qty > 0.0, r.price / r.qty, 0.0))
+    k = East.function([ROW], FloatType, lambda r: if_else(r.qty > 0.0, r.price / r.qty, 0.0))
     assert k({"sku": "x", "price": 10.0, "qty": 4.0}) == 2.5
     assert k({"sku": "x", "price": 10.0, "qty": 0.0}) == 0.0
 
 
 def test_kernel_multi_param_fold_step():
-    step = kernel([FloatType, ROW], lambda acc, r: acc + r.price)
+    step = East.function([FloatType, ROW], FloatType, lambda acc, r: acc + r.price)
     assert step(1.0, {"sku": "x", "price": 2.5, "qty": 0.0}) == 3.5
 
 
 def test_kernel_integer_and_string_ops():
-    ki = kernel(IntegerType, lambda x: (x * x) + 1)
+    ki = East.function([IntegerType], IntegerType, lambda x: (x * x) + 1)
     assert ki(7) == 50
-    ks = kernel(ROW, lambda r: r.sku.upper() + "!")
+    ks = East.function([ROW], StringType, lambda r: r.sku.upper() + "!")
     assert ks({"sku": "abc", "price": 0.0, "qty": 0.0}) == "ABC!"
 
 
 def test_kernel_untraceable_raises():
     with pytest.raises(ExpressionError, match="cannot be traced"):
-        kernel(ROW, lambda r: r.price if r.qty > 0 else 0.0)
+        East.function([ROW], FloatType, lambda r: r.price if r.qty > 0 else 0.0)
 
 
 def test_kernel_out_mismatch_raises():
-    with pytest.raises(TypeError, match="expected"):
-        kernel(ROW, lambda r: r.price, out=StringType)
+    with pytest.raises(ExpressionError, match="produced Float, declared out is String"):
+        East.function([ROW], StringType, lambda r: r.price)
 
 
 def test_kernel_type_errors_are_loud():
     with pytest.raises(ExpressionError, match="no field"):
-        kernel(ROW, lambda r: r.missing)
+        East.function([ROW], FloatType, lambda r: r.missing)
     with pytest.raises(ExpressionError, match="coercion"):
-        kernel(ROW, lambda r: r.price + r.sku.length())
+        East.function([ROW], FloatType, lambda r: r.price + r.sku.length())
 
 
 # The #624 operator-fork pins live in test_expression_operators.py, spelled
@@ -141,7 +143,7 @@ def test_map_pushes_down_pure_lambda():
 
 
 def test_map_accepts_precompiled_kernel():
-    k = kernel(ROW, lambda r: r.price * r.qty)
+    k = East.function([ROW], FloatType, lambda r: r.price * r.qty)
     amounts = _rows().map(k)
     assert list(amounts) == [10.0, 150.0, 20.0]
 
@@ -262,24 +264,27 @@ def test_python_work_around_the_same_body_is_refused(name, invoke, fn):
 
 def test_kernel_where_some_none_traces_and_runs():
     # `none` as the else arm — its type resolves from the `some` sibling.
-    k = kernel(ROW, lambda r: if_else(r.sku == "A-1", some(r.price), none))
+    k = East.function([ROW], OptionType(FloatType), lambda r: if_else(r.sku == "A-1", some(r.price), none))
     rows = _rows()
     assert [k(rows[i]) for i in range(len(rows))] == [some(2.5), none, some(10.0)]
 
 
 def test_kernel_where_none_some_traces_and_runs():
     # `none` as the THEN arm (first) — if_else() must lift the sibling first.
-    k = kernel(ROW, lambda r: if_else(r.sku == "A-1", none, some(r.price)))
+    k = East.function([ROW], OptionType(FloatType), lambda r: if_else(r.sku == "A-1", none, some(r.price)))
     rows = _rows()
     assert [k(rows[i]) for i in range(len(rows))] == [none, some(150.0), none]
 
 
 def test_kernel_bare_none_reports_missing_type_context():
-    # A bare `none` has no type to infer — the type-from-context diagnostic must
-    # fire. It was dead code because `none.value` is east_null, not Python None,
-    # so callers got a generic "cannot lift" instead.
+    # A bare `none` with nothing to type it must hit the type-from-context
+    # diagnostic. It was dead code because `none.value` is east_null, not
+    # Python None, so callers got a generic "cannot lift" instead. A build's
+    # ROOT is always typed by the declared output, so the case lives one
+    # level down: a callback slot that carries no out=.
     with pytest.raises(ExpressionError, match="needs a type from context"):
-        kernel(ROW, lambda r: none)
+        East.function([ROW], BooleanType,
+                      lambda r: r.sku.split("-").first_map(lambda _v: none).is_none())
 
 
 def test_option_lambda_pushes_down_natively():
@@ -315,50 +320,49 @@ SROW = StructType([("id", StringType), ("data", StringType)])
 def test_namespace_builtins_trace():
     from east import East
 
-    k = kernel([SROW], lambda r: East.String.substring(r.id, 0, 3))
+    k = East.function([SROW], StringType, lambda r: East.String.substring(r.id, 0, 3))
     assert k({"id": "hello", "data": ""}) == "hel"
-    k2 = kernel([SROW], lambda r: East.String.length(r.id) + East.String.index_of(r.id, "l"))
+    k2 = East.function([SROW], IntegerType, lambda r: East.String.length(r.id) + East.String.index_of(r.id, "l"))
     assert k2({"id": "hello", "data": ""}) == 5 + 2
-    k3 = kernel([StructType([("f", FloatType)])], lambda r: East.Float.sqrt(r.f))
+    k3 = East.function([StructType([("f", FloatType)])], FloatType, lambda r: East.Float.sqrt(r.f))
     assert k3({"f": 9.0}) == 3.0
 
 
 def test_split_then_integer_index():
-    k = kernel([SROW], lambda r: r.data.split("|")[1])
+    k = East.function([SROW], StringType, lambda r: r.data.split("|")[1])
     assert k({"id": "", "data": "a|b|c"}) == "b"
 
 
 def test_collection_transforms_with_nested_lambdas():
     rows = {"id": "!", "data": "a|b|c"}
-    assert list(kernel([SROW], lambda r: r.data.split("|").map(lambda v: v + r.id))(rows)) == [
+    assert list(East.function([SROW], ArrayType(StringType), lambda r: r.data.split("|").map(lambda v: v + r.id))(rows)) == [
         "a!",
         "b!",
         "c!",
     ]
     assert list(
-        kernel([SROW], lambda r: r.data.split("|").filter(lambda v: v != "b"))(rows)
+        East.function([SROW], ArrayType(StringType), lambda r: r.data.split("|").filter(lambda v: v != "b"))(rows)
     ) == ["a", "c"]
-    assert kernel([SROW], lambda r: r.data.split("|").some(lambda v: v == "c"))(rows) is True
-    assert kernel([SROW], lambda r: r.data.split("|").every(lambda v: v == "a"))(rows) is False
+    assert East.function([SROW], BooleanType, lambda r: r.data.split("|").some(lambda v: v == "c"))(rows) is True
+    assert East.function([SROW], BooleanType, lambda r: r.data.split("|").every(lambda v: v == "a"))(rows) is False
     assert (
-        kernel([SROW], lambda r: r.data.split("|").fold(0, lambda acc, v: acc + v.length()))(rows)
+        East.function([SROW], IntegerType, lambda r: r.data.split("|").fold(0, lambda acc, v: acc + v.length()))(rows)
         == 3
     )
-    assert kernel([SROW], lambda r: r.data.split("|").string_join(","))(rows) == "a,b,c"
+    assert East.function([SROW], StringType, lambda r: r.data.split("|").string_join(","))(rows) == "a,b,c"
 
 
 def test_captured_side_table_lookup():
     from east import EastDict
 
     table = EastDict(StringType, StringType, {"a": "A", "b": "B"})
-    k = kernel([SROW], lambda r: table.get_or_default(r.id, "?"))
+    k = East.function([SROW], StringType, lambda r: table.get_or_default(r.id, "?"))
     assert k({"id": "a", "data": ""}) == "A"
     assert k({"id": "z", "data": ""}) == "?"
     # the multivalue TRANS shape: split -> per-value lookup -> re-join
-    k2 = kernel(
-        [SROW],
-        lambda r: r.data.split("|").map(lambda v: table.get_or_default(v, "")).string_join("|"),
-    )
+    k2 = East.function(
+        [SROW], StringType,
+        lambda r: r.data.split("|").map(lambda v: table.get_or_default(v, "")).string_join("|"))
     assert k2({"id": "", "data": "a|b|z"}) == "A|B|"
     # a table mutation after trace does NOT affect the compiled kernel (snapshot)
     table["a"] = "MUTATED"
@@ -369,14 +373,14 @@ def test_captured_array_and_struct_constants():
     from east import EastArray, struct
 
     arr = EastArray(IntegerType, [10, 20, 30])
-    k = kernel([StructType([("i", IntegerType)])], lambda r: arr.get(r.i))
+    k = East.function([StructType([("i", IntegerType)])], IntegerType, lambda r: arr.get(r.i))
     assert k({"i": 2}) == 30
     assert (
-        kernel([StructType([("i", IntegerType)])], lambda r: arr.get_or_default(r.i, -1))({"i": 9})
+        East.function([StructType([("i", IntegerType)])], IntegerType, lambda r: arr.get_or_default(r.i, -1))({"i": 9})
         == -1
     )
     cfg = struct({"scale": 2.0}, StructType([("scale", FloatType)]))
-    k2 = kernel([StructType([("f", FloatType)])], lambda r: r.f * cfg.scale)
+    k2 = East.function([StructType([("f", FloatType)])], FloatType, lambda r: r.f * cfg.scale)
     assert k2({"f": 3.0}) == 6.0
 
 
@@ -384,20 +388,20 @@ def test_try_get_array_and_dict():
     from east import EastDict
 
     table = EastDict(StringType, IntegerType, {"a": 1})
-    k = kernel([SROW], lambda r: table.try_get(r.id).unwrap_or(0))
+    k = East.function([SROW], IntegerType, lambda r: table.try_get(r.id).unwrap_or(0))
     assert k({"id": "a", "data": ""}) == 1
     assert k({"id": "z", "data": ""}) == 0
-    k2 = kernel([SROW], lambda r: r.data.split("|").try_get(5).unwrap_or("na"))
+    k2 = East.function([SROW], StringType, lambda r: r.data.split("|").try_get(5).unwrap_or("na"))
     assert k2({"id": "", "data": "a"}) == "na"
 
 
 def test_try_parse_strict_option():
-    k = kernel([SROW], lambda r: r.id.try_parse(FloatType).unwrap_or(-1.0))
+    k = East.function([SROW], FloatType, lambda r: r.id.try_parse(FloatType).unwrap_or(-1.0))
     assert k({"id": "5.5", "data": ""}) == 5.5
     # strict whole-string semantics (#392): prefix junk is none, not a prefix parse
     assert k({"id": "598-", "data": ""}) == -1.0
     assert k({"id": "$5", "data": ""}) == -1.0
-    is_num = kernel([SROW], lambda r: r.id.try_parse(FloatType).is_some())
+    is_num = East.function([SROW], BooleanType, lambda r: r.id.try_parse(FloatType).is_some())
     assert is_num({"id": "2e3", "data": ""}) is True
     assert is_num({"id": "1.2.3", "data": ""}) is False
 
@@ -406,14 +410,13 @@ def test_struct_returning_kernel_single_pass():
     from east import EastDict
 
     table = EastDict(StringType, StringType, {"a": "A"})
-    k = kernel(
-        [SROW],
+    k = East.function(
+        [SROW], StructType([("third", StringType), ("trans", StringType), ("n", FloatType)]),
         lambda r: {
             "third": r.data.split("|").get_or_default(2, ""),
             "trans": r.data.split("|").map(lambda v: table.get_or_default(v, "")).string_join("|"),
             "n": r.id.try_parse(FloatType).unwrap_or(0.0),
-        },
-    )
+        })
     out = k({"id": "7.5", "data": "a|b|c"})
     assert out["third"] == "c"
     assert out["trans"] == "A||"
@@ -422,7 +425,7 @@ def test_struct_returning_kernel_single_pass():
 
 def test_rows_map_with_string_kernel():
     rows = _rows()
-    k = kernel([ROW], lambda r: r.sku.split("-")[0])
+    k = East.function([ROW], StringType, lambda r: r.sku.split("-")[0])
     assert list(rows.map(k)) == ["A", "B", "A"]
 
 
@@ -435,9 +438,10 @@ def test_funnel_stays_eager_outside_kernels():
 
 def test_untraceable_ops_still_fail_loud():
     with pytest.raises(ExpressionError):
-        kernel([SROW], lambda r: r.data.split("|").map(lambda v: len(v)))
+        East.function([SROW], ArrayType(IntegerType),
+                      lambda r: r.data.split("|").map(lambda v: len(v)))
     with pytest.raises(ExpressionError):
-        kernel([SROW], lambda r: r.id.try_parse("not a type"))
+        East.function([SROW], OptionType(FloatType), lambda r: r.id.try_parse("not a type"))
 
 
 # ─── #393 hardening: differentials, empties, nesting, auto push-down ─────────
@@ -448,22 +452,22 @@ def test_traced_collection_ops_agree_with_eager():
 
     data = "aa|b|ccc"
     eager = EastArray(StringType, data.split("|"))
-    k_map = kernel([SROW], lambda r: r.data.split("|").map(lambda v: v.length()))
+    k_map = East.function([SROW], ArrayType(IntegerType), lambda r: r.data.split("|").map(lambda v: v.length()))
     assert list(k_map({"id": "", "data": data})) == list(
         eager.map(lambda v: v.length(), out=IntegerType)
     )
-    k_filter = kernel([SROW], lambda r: r.data.split("|").filter(lambda v: v.length() > 1))
+    k_filter = East.function([SROW], ArrayType(StringType), lambda r: r.data.split("|").filter(lambda v: v.length() > 1))
     assert list(k_filter({"id": "", "data": data})) == list(
         eager.filter(lambda v: v.length() > 1)
     )
-    k_fold = kernel([SROW], lambda r: r.data.split("|").fold(0, lambda acc, v: acc + v.length()))
+    k_fold = East.function([SROW], IntegerType, lambda r: r.data.split("|").fold(0, lambda acc, v: acc + v.length()))
     assert k_fold({"id": "", "data": data}) == eager.fold(0, lambda acc, v: acc + v.length())
 
 
 def test_quantifier_empty_semantics_match_eager():
     # some([]) is False, every([]) is True — on both paths.
-    k_some = kernel([SROW], lambda r: r.data.split("|").filter(lambda v: v == "x").some(lambda v: True))
-    k_every = kernel([SROW], lambda r: r.data.split("|").filter(lambda v: v == "x").every(lambda v: False))
+    k_some = East.function([SROW], BooleanType, lambda r: r.data.split("|").filter(lambda v: v == "x").some(lambda v: True))
+    k_every = East.function([SROW], BooleanType, lambda r: r.data.split("|").filter(lambda v: v == "x").every(lambda v: False))
     assert k_some({"id": "", "data": "a|b"}) is False
     assert k_every({"id": "", "data": "a|b"}) is True
 
@@ -471,8 +475,8 @@ def test_quantifier_empty_semantics_match_eager():
 def test_two_level_nesting_with_cross_references():
     # inner-inner lambda references BOTH the outer row and the mid lambda's
     # variable — regression for variable shadowing (fresh names per lambda).
-    k = kernel(
-        [SROW],
+    k = East.function(
+        [SROW], StringType,
         lambda r: r.data.split(";")
         .map(
             lambda grp: grp.split("|")
@@ -480,8 +484,7 @@ def test_two_level_nesting_with_cross_references():
             .map(lambda v: v + r.id)
             .string_join(",")
         )
-        .string_join(";"),
-    )
+        .string_join(";"))
     # group "ab|c": first char "a" drops nothing -> "ab!,c!"; group "d" drops itself
     assert k({"id": "!", "data": "ab|c;d"}) == "ab!,c!;"
 
@@ -490,18 +493,21 @@ def test_captured_set_membership():
     from east import EastSet
 
     allowed = EastSet(StringType, ["a", "b"])
-    k = kernel([SROW], lambda r: allowed.has(r.id))
+    k = East.function([SROW], BooleanType, lambda r: allowed.has(r.id))
     assert k({"id": "a", "data": ""}) is True
     assert k({"id": "z", "data": ""}) is False
 
 
 def test_new_op_errors_are_loud_and_specific():
     with pytest.raises(ExpressionError, match="predicate must return Boolean"):
-        kernel([SROW], lambda r: r.data.split("|").filter(lambda v: v.length()))
+        East.function([SROW], ArrayType(StringType),
+                      lambda r: r.data.split("|").filter(lambda v: v.length()))
     with pytest.raises(ExpressionError, match="accumulator"):
-        kernel([SROW], lambda r: r.data.split("|").fold(0, lambda acc, v: v))
+        East.function([SROW], IntegerType,
+                      lambda r: r.data.split("|").fold(0, lambda acc, v: v))
     with pytest.raises(ExpressionError, match="string_join"):
-        kernel([SROW], lambda r: r.data.split("|").map(lambda v: v.length()).string_join(","))
+        East.function([SROW], StringType,
+                      lambda r: r.data.split("|").map(lambda v: v.length()).string_join(","))
 
 
 def test_namespace_lambda_pushes_down_automatically():
@@ -531,7 +537,7 @@ def test_captured_collection_needs_an_explicit_capture():
     table = EastDict(StringType, StringType, {"A-1": "first"})
     fn = lambda r: table.get_or_default(r.sku, "other")  # noqa: E731
     # mutable capture: the auto-wrap refuses — snapshot-vs-live is an
-    # explicit choice (kernel()/East.function snapshots, .bind stays live)
+    # explicit choice (East.function snapshots, .bind stays live)
     assert not _eligible(fn)
     with pytest.raises(ExpressionError, match="captured automatically"):
         capture_callback(EastFunction(fn, [ROW], StringType))
@@ -578,10 +584,9 @@ def _bind_setup():
     from east.types.types import DictType
 
     table = EastDict(StringType, FloatType, {"A-1": 2.0, "B-2": 3.0})
-    k = kernel(
-        [ROW, DictType(StringType, FloatType)],
-        lambda r, t: t.get_or_default(r.sku, 0.0) * r.qty,
-    )
+    k = East.function(
+        [ROW, DictType(StringType, FloatType)], FloatType,
+        lambda r, t: t.get_or_default(r.sku, 0.0) * r.qty)
     return table, k
 
 
@@ -589,7 +594,7 @@ def test_bind_stays_native_and_computes():
     table, k = _bind_setup()
     bound = k.bind(table)
     # the bound callable is still a native function value — eager methods
-    # see _fn_val and keep the loop inside east-c (no trampoline)
+    # see _fn_val and keep the whole loop inside east-c
     assert bound._eastc_handle._fn_val != 0
     assert list(_rows().map(bound)) == [8.0, 3.0, 4.0]
     # direct call works with the remaining arity
@@ -633,7 +638,7 @@ def test_bind_type_mismatch_is_loud():
 
 
 def test_bind_requires_native_kernel():
-    with pytest.raises(TypeError, match="compiled East kernel"):
+    with pytest.raises(TypeError, match="compiled East function"):
         from east.runtime._compiler_eastc import bind_kernel
 
         bind_kernel(lambda x: x, (1.0,))
@@ -645,14 +650,13 @@ def test_bind_requires_native_kernel():
 def test_map_runs_precompiled_kernel_natively():
     from east.runtime.compiler import eager_stats
 
-    k = kernel([ROW], lambda r: r.sku.substring(0, 1))
+    k = East.function([ROW], StringType, lambda r: r.sku.substring(0, 1))
     rows = _rows()
     before = eager_stats()
     out = rows.map(k)
     after = eager_stats()
     # the kernel's native function value rides straight into ArrayMap:
-    # zero per-element python, no re-trace
-    assert after["trampoline_calls"] == before["trampoline_calls"]
+    # no re-trace, no python per element
     assert after["kernel_direct"] == before["kernel_direct"] + 1
     assert list(out) == ["A", "B", "A"]
 
@@ -662,11 +666,12 @@ def test_map_infers_output_from_kernel_handle_without_sampling():
 
     # struct-returning kernel, no out= — the output type comes from the
     # kernel's handle, not from sampling the kernel on a decoded row
-    k = kernel([ROW], lambda r: {"s": r.sku, "v": r.price * r.qty})
+    k = East.function([ROW], StructType([("s", StringType), ("v", FloatType)]),
+                      lambda r: {"s": r.sku, "v": r.price * r.qty})
     before = eager_stats()
     out = _rows().map(k)
     after = eager_stats()
-    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert after["kernel_direct"] == before["kernel_direct"] + 1
     assert [r["v"] for r in out] == [10.0, 150.0, 20.0]
 
 
@@ -676,44 +681,42 @@ def test_bound_kernel_maps_natively():
     from east.types.types import DictType
 
     table = EastDict(StringType, FloatType, {"A-1": 2.0})
-    k = kernel(
-        [ROW, DictType(StringType, FloatType)],
-        lambda r, t: t.get_or_default(r.sku, 0.0) * r.qty,
-    )
+    k = East.function(
+        [ROW, DictType(StringType, FloatType)], FloatType,
+        lambda r, t: t.get_or_default(r.sku, 0.0) * r.qty)
     bound = k.bind(table)
     before = eager_stats()
     out = _rows().map(bound)
     after = eager_stats()
-    assert after["trampoline_calls"] == before["trampoline_calls"]
-    assert after["kernel_direct"] == after["kernel_direct"]  # sanity: key exists
+    assert after["kernel_direct"] == before["kernel_direct"] + 1
     assert list(out) == [8.0, 0.0, 4.0]
 
 
 def test_fold_runs_precompiled_step_kernel_natively():
     from east.runtime.compiler import eager_stats
 
-    step = kernel([FloatType, ROW], lambda acc, r: acc + r.price)
+    step = East.function([FloatType, ROW], FloatType, lambda acc, r: acc + r.price)
     before = eager_stats()
     total = _rows().fold(0.0, step)
     after = eager_stats()
-    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert after["kernel_direct"] == before["kernel_direct"] + 1
     assert total == 162.5
 
 
 def test_sorted_and_to_dict_run_kernel_callbacks_natively():
     from east.runtime.compiler import eager_stats
 
-    kkey = kernel([ROW], lambda r: r.sku)
+    kkey = East.function([ROW], StringType, lambda r: r.sku)
     before = eager_stats()
     out = _rows().sorted(key=kkey)
     after = eager_stats()
-    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert after["kernel_direct"] == before["kernel_direct"] + 1
     assert [r["sku"] for r in out] == ["A-1", "A-1", "B-2"]
 
     totals = _rows().to_dict(
-        key=kernel([ROW], lambda r: r.sku),
-        value=kernel([ROW], lambda r: r.price * r.qty),
-        combine=kernel([FloatType, FloatType], lambda a, b: a + b),
+        key=East.function([ROW], StringType, lambda r: r.sku),
+        value=East.function([ROW], FloatType, lambda r: r.price * r.qty),
+        combine=East.function([FloatType, FloatType], FloatType, lambda a, b: a + b),
     )
     assert totals["A-1"] == 30.0
     assert totals["B-2"] == 150.0
@@ -739,11 +742,11 @@ def test_a_matching_out_keeps_the_kernel_on_the_direct_path():
     # The agreeing case, next to its refusal twin (test_kernel_out_mismatch
     # pins the raise): out= equal to the kernel's declared output rides the
     # native value straight in, with no re-capture and no python per element.
-    k = kernel([ROW], lambda r: r.price * r.qty)  # Float out
+    k = East.function([ROW], FloatType, lambda r: r.price * r.qty)  # Float out
     before = eager_stats()
     out = _rows().map(k, out=FloatType)
     after = eager_stats()
-    assert after["trampoline_calls"] == before["trampoline_calls"]
+    assert after["kernel_direct"] == before["kernel_direct"] + 1
     assert list(out) == [10.0, 150.0, 20.0]
 
 
@@ -753,12 +756,11 @@ def test_a_matching_out_keeps_the_kernel_on_the_direct_path():
 def test_first_map_traces_and_matches_eager():
     from east import EastArray
 
-    k = kernel(
-        [SROW],
+    k = East.function(
+        [SROW], StringType,
         lambda r: r.data.split("|")
         .first_map(lambda v: if_else(v.length() > 1, some(v.upper()), none))
-        .unwrap_or("<none>"),
-    )
+        .unwrap_or("<none>"))
     assert k({"id": "", "data": "a|bb|ccc"}) == "BB"
     assert k({"id": "", "data": "a|b"}) == "<none>"
     assert k({"id": "", "data": ""}) == "<none>"
@@ -803,15 +805,13 @@ def test_quantifiers_short_circuit_like_eager():
     from east.types.types import ArrayType
 
     IROW = StructType([("data", StringType)])
-    k_some = kernel(
-        [ArrayType(IntegerType)],
-        lambda arr: arr.some(lambda v: East.Integer.divide(10, v) > 0),
-    )
+    k_some = East.function(
+        [ArrayType(IntegerType)], BooleanType,
+        lambda arr: arr.some(lambda v: East.Integer.divide(10, v) > 0))
     assert k_some([2, 0]) is True  # v=2 decides; v=0 never evaluates
-    k_every = kernel(
-        [ArrayType(IntegerType)],
-        lambda arr: arr.every(lambda v: East.Integer.divide(10, v) > 100),
-    )
+    k_every = East.function(
+        [ArrayType(IntegerType)], BooleanType,
+        lambda arr: arr.every(lambda v: East.Integer.divide(10, v) > 100))
     assert k_every([2, 0]) is False  # v=2 is the counterexample; v=0 never evaluates
     # eager path agrees on the same data — the guard is spelled with the
     # dual-mode `if_else` (a python-`if` lambda would raise: a pure callback
@@ -825,20 +825,20 @@ def test_quantifiers_short_circuit_like_eager():
 
 def test_quantifier_error_message_unchanged():
     with pytest.raises(ExpressionError, match="predicate must return Boolean"):
-        kernel([SROW], lambda r: r.data.split("|").some(lambda v: v.length()))
+        East.function([SROW], BooleanType,
+                      lambda r: r.data.split("|").some(lambda v: v.length()))
 
 
 def test_first_map_out_pins_bare_none():
-    k = kernel(
-        [SROW],
-        lambda r: r.data.split("|").first_map(lambda _v: none, out=StringType).is_none(),
-    )
+    k = East.function(
+        [SROW], BooleanType,
+        lambda r: r.data.split("|").first_map(lambda _v: none, out=StringType).is_none())
     assert k({"id": "", "data": "a|b"}) is True
 
 
 def test_first_map_requires_option_result():
     with pytest.raises(ExpressionError, match="must return some"):
-        kernel([SROW], lambda r: r.data.split("|").first_map(lambda v: v.length()))
+        East.function([SROW], BooleanType, lambda r: r.data.split("|").first_map(lambda v: v.length()))
 
 
 def test_bind_multiple_trailing_parameters():
@@ -847,10 +847,9 @@ def test_bind_multiple_trailing_parameters():
 
     t1 = EastDict(StringType, FloatType, {"A-1": 2.0})
     t2 = EastDict(StringType, FloatType, {"B-2": 5.0})
-    k = kernel(
-        [ROW, DictType(StringType, FloatType), DictType(StringType, FloatType)],
-        lambda r, a, b: a.get_or_default(r.sku, 0.0) + b.get_or_default(r.sku, 0.0),
-    )
+    k = East.function(
+        [ROW, DictType(StringType, FloatType), DictType(StringType, FloatType)], FloatType,
+        lambda r, a, b: a.get_or_default(r.sku, 0.0) + b.get_or_default(r.sku, 0.0))
     bound = k.bind(t1, t2)
     assert list(_rows().map(bound)) == [2.0, 5.0, 2.0]
     # chained binding: bind the tables one at a time
@@ -875,7 +874,7 @@ def test_shared_subexpression_binds_once():
     assert lets[0].value["value"].type == "Builtin"
     assert lets[0].value["value"].value["builtin"] == "StringSplit"
     # behaviour identical to the python path
-    k = kernel([SROW], build)
+    k = East.function([SROW], StructType([("a", StringType), ("b", StringType)]), build)
     out = k({"id": "", "data": "x|y|z"})
     assert (out["a"], out["b"]) == ("x", "y")
 
@@ -892,7 +891,7 @@ def test_loop_invariant_shared_expr_hoists_out_of_inner_lambda():
 
     ir, _t, _binds = trace(build, [SROW])
     assert ir.value["body"].type == "Block"  # hoisted to the kernel body
-    k = kernel([SROW], build)
+    k = East.function([SROW], StringType, build)
     assert k({"id": "AB1", "data": "x|y"}) == "xAB,yAB" + "AB"
 
 
@@ -900,7 +899,7 @@ def test_inner_param_sharing_stays_inline():
     def build(r):
         return r.data.split("|").map(lambda v: v.substring(0, 1) + v.substring(0, 1)).string_join("")
 
-    k = kernel([SROW], build)
+    k = East.function([SROW], StringType, build)
     assert k({"id": "", "data": "ab|cd"}) == "aacc"
 
 
@@ -910,5 +909,5 @@ def test_inner_param_shadowing_top_param_does_not_hoist():
     def build(r):
         return r.data.split("|").map(lambda r: (lambda s: s + s)(r.upper())).string_join(",")
 
-    k = kernel([SROW], build)
+    k = East.function([SROW], StringType, build)
     assert k({"id": "", "data": "ab|c"}) == "ABAB,CC"

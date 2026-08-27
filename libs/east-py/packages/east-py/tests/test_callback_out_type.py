@@ -32,12 +32,12 @@ front, and a mutable-East-collection capture must be explicit —
 import pytest
 
 from east import (
+    East,
     EastDict,
     OptionType,
     StringType,
     StructType,
     array,
-    kernel,
     none,
     some,
 )
@@ -66,21 +66,21 @@ def all_some():
 # ── the reported failure: a `none` in the key ────────────────────────────────
 
 def test_group_by_bare_option_key_including_none(rows):
-    grouped = rows.group_by(kernel(ROW, lambda r: r["a"]))
+    grouped = rows.group_by(East.function([ROW], OptionType(StringType), lambda r: r["a"]))
     assert grouped.key_type == OptionType(StringType)
     assert {(k.type, k.value if k.type == "some" else None): len(v)
             for k, v in grouped.items()} == {("some", "x"): 2, ("none", None): 1}
 
 
 def test_group_by_struct_key_containing_a_none(rows):
-    grouped = rows.group_by(kernel(ROW, lambda r: {"a": r["a"], "n": r["n"]}))
+    grouped = rows.group_by(East.function([ROW], ROW, lambda r: {"a": r["a"], "n": r["n"]}))
     assert grouped.key_type == KEY
     assert len(grouped) == 3
 
 
 def test_to_dict_struct_key_containing_a_none(rows):
-    d = rows.to_dict(key=kernel(ROW, lambda r: {"a": r["a"], "n": r["n"]}),
-                     value=kernel(ROW, lambda r: r["n"]))
+    d = rows.to_dict(key=East.function([ROW], ROW, lambda r: {"a": r["a"], "n": r["n"]}),
+                     value=East.function([ROW], StringType, lambda r: r["n"]))
     assert d.key_type == KEY
     assert len(d) == 3
 
@@ -88,7 +88,7 @@ def test_to_dict_struct_key_containing_a_none(rows):
 # ── the SILENT half: the key type was wrong even when nothing raised ─────────
 
 def test_all_some_key_type_is_the_full_option_not_a_single_case(all_some):
-    grouped = all_some.group_by(kernel(ROW, lambda r: r["a"]))
+    grouped = all_some.group_by(East.function([ROW], OptionType(StringType), lambda r: r["a"]))
     assert grouped.key_type == OptionType(StringType), (
         "an all-`some` sample must not narrow the key to a single-case variant")
 
@@ -98,10 +98,10 @@ def test_all_some_key_type_is_the_full_option_not_a_single_case(all_some):
 def test_the_same_key_has_always_been_fine_elsewhere(rows):
     """`update_many`/`to_set`/`sorted` take the identical values without
     complaint; that is what localised #450 to the callback path."""
-    k = kernel(ROW, lambda r: {"a": r["a"], "n": r["n"]})
+    k = East.function([ROW], ROW, lambda r: {"a": r["a"], "n": r["n"]})
     keys = rows.map(k, out=KEY)
     d = EastDict(KEY, StringType)
-    d.update_many(keys, rows.map(kernel(ROW, lambda r: r["n"]), out=StringType))
+    d.update_many(keys, rows.map(East.function([ROW], StringType, lambda r: r["n"]), out=StringType))
     assert len(d) == 3
     assert len(keys.to_set()) == 3
     assert len(keys.sorted()) == 3
@@ -113,16 +113,16 @@ def test_group_to_dicts_key_or_value_containing_a_none(rows):
     still sampled, so a `none` anywhere in the key, second key or value failed
     with "Unknown variant case: none"."""
     out = rows.group_to_dicts(
-        kernel(ROW, lambda r: r["n"]),          # key
-        kernel(ROW, lambda r: r["a"]),          # key2 — Option, one row is none
-        kernel(ROW, lambda r: r["a"]),          # value — Option too
+        East.function([ROW], StringType, lambda r: r["n"]),          # key
+        East.function([ROW], OptionType(StringType), lambda r: r["a"]),          # key2 — Option, one row is none
+        East.function([ROW], OptionType(StringType), lambda r: r["a"]),          # value — Option too
     )
     assert len(out) == 3
 
 
 def test_group_to_arrays_value_containing_a_none(rows):
-    out = rows.group_to_arrays(kernel(ROW, lambda r: r["n"]),
-                               kernel(ROW, lambda r: r["a"]))
+    out = rows.group_to_arrays(East.function([ROW], StringType, lambda r: r["n"]),
+                               East.function([ROW], OptionType(StringType), lambda r: r["a"]))
     assert len(out) == 3
 
 
@@ -138,7 +138,7 @@ def test_plain_lambda_may_use_traced_only_methods(rows):
 
 
 def test_dict_map_value_fn_may_use_traced_only_methods(rows):
-    grouped = rows.group_by(kernel(ROW, lambda r: r["n"]))
+    grouped = rows.group_by(East.function([ROW], StringType, lambda r: r["n"]))
     sizes = grouped.map(lambda v: v.first_map(lambda r: r["a"]))
     assert sizes.value_type == OptionType(StringType)
 
@@ -152,7 +152,7 @@ def test_captured_side_table_needs_an_explicit_capture(rows):
     with pytest.raises(ExpressionError, match="captured automatically"):
         rows.group_by(lambda r: table.get_or_default(r["n"], none))
     grouped = rows.group_by(
-        kernel(ROW, lambda r: table.get_or_default(r["n"], none)))
+        East.function([ROW], OptionType(StringType), lambda r: table.get_or_default(r["n"], none)))
     assert grouped.key_type == OptionType(StringType)
     assert len(grouped) == 2  # some("hit") for row "1", none for "2"/"3"
 

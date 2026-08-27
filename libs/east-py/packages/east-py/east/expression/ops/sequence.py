@@ -236,8 +236,8 @@ class _SequenceOps(_ExprBase):
         the eager ``EastSet.is_superset_of`` added in #526.
 
         Without this the whole set algebra traced except this one member, so a
-        lambda that works eagerly silently dropped off the kernel surface and
-        degraded its enclosing loop to the per-element python path.
+        lambda that works eagerly silently dropped off the kernel surface —
+        and with it the enclosing capture.
         """
         if self.east_type.type != "Set":
             raise ExpressionError(f".is_superset_of() on {self.east_type.type} (needs Set)")
