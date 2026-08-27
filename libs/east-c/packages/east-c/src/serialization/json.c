@@ -2758,7 +2758,7 @@ EastValue *east_json_decode_with_error(const char *json, EastType *type, char **
 
 /* Build source map from decoded wrapper value.
  * sm_val is a Struct({stacks: Array(Array(Struct({column,filename,line})))}).
- * Returns heap-allocated EastSourceMap or NULL. */
+ * Returns a heap EastSourceMap holding one reference (the caller's), or NULL. */
 static EastSourceMap *build_source_map_from_value(EastValue *sm_val)
 {
     if (!sm_val || sm_val->kind != EAST_VAL_STRUCT) return NULL;
@@ -2768,7 +2768,8 @@ static EastSourceMap *build_source_map_from_value(EastValue *sm_val)
     size_t ns = stacks_val->data.array.len;
     if (ns == 0) return NULL;
 
-    EastSourceMap *sm = calloc(1, sizeof(EastSourceMap));
+    EastSourceMap *sm = east_source_map_new();
+    if (!sm) return NULL;
     sm->num_stacks = ns;
     sm->stacks = calloc(ns, sizeof(EastLocation *));
     sm->stack_counts = calloc(ns, sizeof(size_t));
@@ -2839,28 +2840,22 @@ IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out,
     }
 
     if (!ir_val) {
-        if (source_map) {
-            east_source_map_free(source_map);
-            free(source_map);
-        }
+        east_source_map_release(source_map);
         return NULL;
     }
 
     IRNode *ir = east_ir_from_value(ir_val);
     if (!ir) {
         east_value_release(ir_val);
-        if (source_map) {
-            east_source_map_free(source_map);
-            free(source_map);
-        }
+        east_source_map_release(source_map);
         return NULL;
     }
 
+    /* Hand the caller the map's one reference, or drop it. */
     if (source_map_out) {
         *source_map_out = source_map;
-    } else if (source_map) {
-        east_source_map_free(source_map);
-        free(source_map);
+    } else {
+        east_source_map_release(source_map);
     }
 
     if (ir_value_out) {

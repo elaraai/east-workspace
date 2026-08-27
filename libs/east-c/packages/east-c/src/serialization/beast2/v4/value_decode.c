@@ -368,8 +368,11 @@ static EastValue *beast2_decode_value_inner(const uint8_t *data, size_t len, siz
         fn->builtins = east_current_builtins();
         fn->source_ir = ir_value;
 
-        /* Share source map from decode context (not owned — blob outlives functions) */
+        /* Share the decode's source map: the closure takes its own reference
+         * (released with the function), so it can resolve — and re-encode —
+         * its loc_ids after the decode that read the map has been torn down. */
         fn->source_map = ctx->source_map;
+        east_source_map_retain(fn->source_map);
 
         EastValue *result = east_function_value(fn);
         return result;

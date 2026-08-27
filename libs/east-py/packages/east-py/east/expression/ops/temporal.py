@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError
 from east.expression.lift import _lift
+from east.expression.location import location_id as _loc_id
 from east.expression.nodes import _builtin, _k_new_array, _literal
 from east.expression.ops import _ExprBase
 from east.ir.builders import ir_variant
@@ -173,12 +174,13 @@ class _TemporalOps(_ExprBase):
 
         token_t = DateTimeFormatTokenType
         token_nodes = []
+        loc = _loc_id()
         for tok in tokenize_datetime_format(fmt):
             if tok.value is None or str(tok.value) == "null":
                 payload = _literal(None, NullType)
             else:
                 payload = _literal(str(tok.value), StringType)
-            token_nodes.append(ir_variant(token_t, tok.type, payload))
+            token_nodes.append(ir_variant(token_t, tok.type, payload, loc))
         arr_t = _ArrayType(token_t)
         tokens_ir = _k_new_array(arr_t, token_nodes)
         return self._expr(

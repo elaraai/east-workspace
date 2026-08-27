@@ -20,6 +20,7 @@ from typing import Any
 
 from east.expression.errors import ExpressionError, _trace_bail
 from east.expression.lift import _lift
+from east.expression.location import location_id as _loc_id
 from east.expression.nodes import _k_call
 from east.expression.ops.collections import _CollectionOps
 from east.expression.ops.grouping import _GroupOps
@@ -184,7 +185,7 @@ class Expression(
             if f["name"] == name:
                 out_t = f["type"]
                 return Expression(
-                    ir_get_field(out_t, name, self.ir),
+                    ir_get_field(out_t, name, self.ir, _loc_id()),
                     out_t,
                 )
         available = ", ".join(f["name"] for f in self.east_type.value)

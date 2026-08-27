@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError
 from east.expression.lift import _lift, _trace_inner_fn, _with_index, if_else
+from east.expression.location import location_id as _loc_id
 from east.expression.nodes import (
     _builtin,
     _fresh_name,
@@ -128,7 +129,7 @@ class _SearchOps(_ExprBase):
         out = _ArrayType(IntegerType)
         scan = _builtin("ArrayFilterMap", out, [elem_t, IntegerType], [self.ir, node])
         return self._expr(
-            _k_block(out, [ir_let(p_t, _var(tname, p_t), target.ir), scan]), out
+            _k_block(out, [ir_let(p_t, _var(tname, p_t), target.ir, _loc_id()), scan]), out
         )
 
     def _find_extreme(self, op: str, by: Any, pick: Any) -> Expression:

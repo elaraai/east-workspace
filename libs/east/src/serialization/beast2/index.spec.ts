@@ -21,6 +21,7 @@ import { toEastTypeValue, EastTypeValueType } from "../../type_of_type.js";
 import { IRType } from "../../ir.js";
 import { equalFor } from "../../comparison.js";
 import { East, variant, ref, some, none } from "../../index.js";
+import { EastError } from "../../error.js";
 import { matrix } from "../../containers/matrix.js";
 import {
   encodeBeast2For,
@@ -493,6 +494,27 @@ describe("Beast2 v2 — Functions (round-trip)", () => {
     const decoded = decodeBeast2For(ArrFnType)(encodeBeast2For(ArrFnType)(fns)) as ((x: bigint) => bigint)[];
     assert.equal(decoded[0]!(5n), 6n);
     assert.equal(decoded[1]!(5n), 10n);
+  });
+
+  test("decoded function resolves error locations against the blob's map (#626)", () => {
+    const FnType = FunctionType([IntegerType], IntegerType);
+    const compiled = East.compile(
+      East.function([IntegerType], IntegerType, ($, x) => x.divide(0n)),
+      [],
+    );
+    const decoded = decodeBeast2For(FnType)(encodeBeast2For(FnType)(compiled)) as (x: bigint) => bigint;
+    const raised = (fn: (x: bigint) => bigint): EastError => {
+      try { fn(1n); } catch (e) { if (e instanceof EastError) return e; throw e; }
+      throw new Error("expected the division by zero to raise");
+    };
+    const original = raised(compiled);
+    const replayed = raised(decoded);
+    // The map rides the blob, and the decoded compile runs under it — so the
+    // replayed error names the authoring site exactly as the original does,
+    // rather than whatever map happened to be ambient at decode time.
+    assert.ok(original.location.length > 0, "the original reports its authoring frames");
+    assert.match(original.location[0]!.filename, /index\.spec\.[cm]?[jt]s$/);
+    assert.deepEqual(replayed.location, original.location, "the decoded function reports the same frames");
   });
 });
 

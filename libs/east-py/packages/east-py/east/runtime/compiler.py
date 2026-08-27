@@ -71,16 +71,25 @@ def compile_from_value(
     ir_value: Any,
     platform: list[PlatformFunction] | None = None,
     is_async: bool = False,
+    source_map: Any = None,
 ) -> Callable:
     """Compile East IR from a homoiconic IR value — an ``EastVariant``
     conforming to ``IRType``, e.g. one built with :mod:`east.ir.builders`.
 
     The value converts directly to a C value and compiles with no
     serialization round-trip; this is the kernel tracer's path (#398).
+
+    ``source_map`` is the :class:`east.expression.location.SourceMap` the
+    IR's ``loc_id`` fields index (#626). It is installed for the compile and
+    handed to the compiled function, so a runtime error inside it reports the
+    python ``file:line:column`` that built the failing node — and the
+    function's beast2 encoding carries the map, so the same locations
+    resolve wherever the value is decoded. ``None`` compiles without one
+    (every ``loc_id`` is then read as 0, "no location").
     """
     from east.runtime._compiler_eastc import compile_eastc_from_value
 
-    return compile_eastc_from_value(ir_value, platform or [], is_async)
+    return compile_eastc_from_value(ir_value, platform or [], is_async, source_map)
 
 
 def compile_from_east(

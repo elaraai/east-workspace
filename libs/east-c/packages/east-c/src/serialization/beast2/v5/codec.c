@@ -893,9 +893,12 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
         fn->builtins = east_current_builtins();
         fn->source_ir = ir_value;
 
-        /* Share the source map from the decode context (not owned — same
-         * lifetime contract as the v4 decoder). */
+        /* Share the stream's source map: the closure takes its own reference
+         * (released with the function), so it still resolves — and re-encodes
+         * — its loc_ids after the decode, reader or pager that read the map
+         * off the wire has been torn down. */
         fn->source_map = ctx->sm;
+        east_source_map_retain(ctx->sm);
 
         return east_function_value(fn);
     }

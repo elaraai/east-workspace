@@ -12,6 +12,13 @@ builder artifact against platform implementations, and ``trace`` is the shared
 capture step every path uses (the eager methods' automatic push-down included).
 ``trace_builtin_call`` is the hook the eager builtin funnel calls when it
 notices a traced argument.
+
+A build opens an authoring-frame source map (``east.expression.location``,
+#626): every node the body builds carries the ``loc_id`` of the python
+frames that built it, the artifact carries the map (``_east_source_map``),
+and the compile hands it to east-c — so a runtime error inside the function
+names the python ``file:line:column`` of the failing expression, and the
+function's beast2 encoding carries the map for every other runner.
 """
 
 from __future__ import annotations
@@ -31,6 +38,7 @@ from east.expression.lift import (
     _registry_entries,
     _trace_inner_fn,
 )
+from east.expression.location import SourceMap, source_map_scope
 from east.expression.nodes import _builtin, _var
 from east.types.types import EastType
 
@@ -99,6 +107,12 @@ def trace(fn: Any, param_types: list[EastType],
     declares one extra trailing parameter per entry, and the caller must
     ``bind(*binds)`` the compiled result so those calls resolve. Empty for
     lambdas that call no compiled functions.
+
+    Node locations come from the AMBIENT source map: the builder entries
+    (``East.function``, ``capture_callback``) open one with
+    ``source_map_scope`` around this call and hand it to the compile; a bare
+    ``trace`` (a type-only derivation, a test) captures none — every
+    ``loc_id`` is 0 — and costs no frame walk.
     """
     proxies = [Expression(_var(f"__k{i}", t), t) for i, t in enumerate(param_types)]
     outer = _push_registries()
@@ -177,7 +191,7 @@ class _PlatformFunction:
 
     def __init__(self, fn: Any, ir_value: Any, out_type: EastType,
                  param_types: list[EastType], fn_binds: list,
-                 deps: tuple, is_async: bool) -> None:
+                 deps: tuple, is_async: bool, source_map: SourceMap | None) -> None:
         self._fn = fn
         self._east_ir = ir_value
         self._east_out_type = out_type
@@ -186,6 +200,7 @@ class _PlatformFunction:
         self._east_platforms = deps
         self._east_is_async = is_async
         self._east_retrace = fn
+        self._east_source_map = source_map
 
     def __repr__(self) -> str:
         names = ", ".join(name for name, _a in self._east_platforms)
@@ -209,17 +224,18 @@ class _PlatformFunction:
 
 def _assemble(fn: Any, ir_value: Any, out_type: EastType,
               param_types: list[EastType], fn_binds: list,
-              is_async: bool) -> Any:
+              is_async: bool, source_map: SourceMap | None) -> Any:
     """Compile a traced body and wrap it as the dual-mode artifact — or, when
     the body declares platform calls, return the uncompiled first-class value
-    (``East.compile`` finishes it)."""
+    (``East.compile`` finishes it). ``source_map`` is the build's authoring
+    map: the compile hands it to east-c and the artifact carries it."""
     deps = _platform_deps(ir_value)
     if deps:
         return _PlatformFunction(fn, ir_value, out_type, param_types,
-                                 fn_binds, deps, is_async)
+                                 fn_binds, deps, is_async, source_map)
     from east.runtime.compiler import compile_from_value
 
-    compiled = compile_from_value(ir_value, is_async=is_async)
+    compiled = compile_from_value(ir_value, is_async=is_async, source_map=source_map)
     if fn_binds:
         # The lambda called compiled East function values (#561): they are
         # hidden trailing parameters of the compiled kernel — bind them by
@@ -249,6 +265,7 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
     kernel_callable._east_fn_binds = tuple(fn_binds)
     kernel_callable._east_platforms = ()
     kernel_callable._east_is_async = is_async
+    kernel_callable._east_source_map = source_map
     return kernel_callable
 
 
@@ -278,14 +295,17 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str)
     previous = _async_build
     _async_build = is_async
     try:
-        ir_value, out_type, fn_binds = trace(body, types, out_hint=out, is_async=is_async)
+        # The build's source map: fresh, or the enclosing build's when this
+        # function is being built inside another body (#626).
+        with source_map_scope() as source_map:
+            ir_value, out_type, fn_binds = trace(body, types, out_hint=out, is_async=is_async)
     finally:
         _async_build = previous
     if out_type != out:
         raise ExpressionError(
             f"{entry} body produced {out_type.type}, declared out is {out.type}"
         )
-    return _assemble(body, ir_value, out_type, types, fn_binds, is_async)
+    return _assemble(body, ir_value, out_type, types, fn_binds, is_async, source_map)
 
 
 def function(param_types: list[EastType], out: EastType, body: Any) -> Any:
@@ -317,6 +337,11 @@ def function(param_types: list[EastType], out: EastType, body: Any) -> Any:
         the same first-class value UNCOMPILED — calling it raises
         ``Platform function '<name>' is not available`` until
         :func:`compile_` (``East.compile``) pairs it with implementations.
+
+        A runtime error raised inside the function carries the python
+        ``file:line:column`` of the expression that raised it
+        (``EastError.location``, innermost frame first), and the function's
+        beast2 encoding carries the same source map (#626).
 
     Raises:
         TypeError: If ``param_types`` is not a list of East types, ``out`` is
@@ -357,21 +382,23 @@ def async_function(param_types: list[EastType], out: EastType, body: Any) -> Any
     return _build(param_types, out, body, is_async=True, entry="East.asyncFunction")
 
 
-def _artifact_ir(fn: Any, entry: str) -> tuple[Any, bool, tuple]:
-    """``(IR value, is_async, fn_binds)`` for a compile entry's argument —
-    a builder artifact (carries ``_east_ir``) or a raw homoiconic IR value."""
+def _artifact_ir(fn: Any, entry: str) -> tuple[Any, bool, tuple, SourceMap | None]:
+    """``(IR value, is_async, fn_binds, source map)`` for a compile entry's
+    argument — a builder artifact (carries ``_east_ir`` and, when it was
+    built, ``_east_source_map``) or a raw homoiconic IR value (no map)."""
     from east.types.values import is_east_variant
 
     ir = getattr(fn, "_east_ir", None)
     if ir is not None:
         return ir, bool(getattr(fn, "_east_is_async", False)), \
-            tuple(getattr(fn, "_east_fn_binds", ()))
+            tuple(getattr(fn, "_east_fn_binds", ())), \
+            getattr(fn, "_east_source_map", None)
     if is_east_variant(fn):
         node = fn
         if node.type == "Block":
             statements = node.value["statements"]
             node = statements[len(statements) - 1]
-        return fn, node.type == "AsyncFunction", ()
+        return fn, node.type == "AsyncFunction", (), None
     raise TypeError(
         f"{entry} takes an East.function result or a homoiconic IR value, "
         f"got {type(fn).__name__}"
@@ -383,9 +410,11 @@ def compile_(fn: Any, platform: list | None = None) -> Any:
     the public ``East.compile``, a thin name over ``compile_from_value``.
 
     Platform-signature validation runs inside the east-c compile with the
-    same error text the TS analyzer produces; a platform the list does not
-    provide compiles to a stub that raises at the call, exactly like the TS
-    ``East.compile``.
+    same error text the TS analyzer produces — a mismatch names the offending
+    call by its python ``file:line:column`` when ``fn`` is a builder artifact
+    (its source map is installed for the compile, #626); a platform the list
+    does not provide compiles to a stub that raises at the call, exactly like
+    the TS ``East.compile``.
 
     Args:
         fn: An ``East.function`` result (pure or platform-declaring) or a
@@ -401,7 +430,7 @@ def compile_(fn: Any, platform: list | None = None) -> Any:
             it with ``East.compileAsync``) or is not a builder artifact/IR
             value.
     """
-    ir, is_async, binds = _artifact_ir(fn, "East.compile()")
+    ir, is_async, binds, source_map = _artifact_ir(fn, "East.compile()")
     if is_async:
         raise TypeError(
             "this function was built with East.asyncFunction — compile it "
@@ -409,7 +438,7 @@ def compile_(fn: Any, platform: list | None = None) -> Any:
         )
     from east.runtime.compiler import compile_from_value
 
-    compiled = compile_from_value(ir, list(platform or []))
+    compiled = compile_from_value(ir, list(platform or []), source_map=source_map)
     if binds:
         compiled = compiled.bind(*binds)
     return compiled
@@ -432,7 +461,7 @@ def compile_async(fn: Any, platform: list | None = None) -> Any:
             (compile it with ``East.compile``) or is not a builder
             artifact/IR value.
     """
-    ir, is_async, binds = _artifact_ir(fn, "East.compileAsync()")
+    ir, is_async, binds, source_map = _artifact_ir(fn, "East.compileAsync()")
     if not is_async:
         raise TypeError(
             "this function was built with East.function — compile it with "
@@ -440,7 +469,8 @@ def compile_async(fn: Any, platform: list | None = None) -> Any:
         )
     from east.runtime.compiler import compile_from_value
 
-    compiled = compile_from_value(ir, list(platform or []), is_async=True)
+    compiled = compile_from_value(ir, list(platform or []), is_async=True,
+                                  source_map=source_map)
     if binds:
         compiled = compiled.bind(*binds)
     return compiled

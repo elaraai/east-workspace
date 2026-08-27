@@ -335,7 +335,7 @@ struct Beast2SegmentReader {
     B2V5DecodeCtx ctx;
     B2V5OrderCheck order;        /* strict ascent across segments (Set/Dict) */
     EastValue *root_placeholder; /* definition 0; owned, never returned */
-    EastSourceMap sm;            /* owned (header + inline deltas) */
+    EastSourceMap *sm;           /* one reference (header + inline deltas) */
     B2V5Index index;
     const Beast2Projection *proj; /* borrowed column projection, or NULL (#599) */
     bool has_index;
@@ -390,10 +390,10 @@ Beast2SegmentReader *east_beast2_reader_new(const uint8_t *data, size_t len, Eas
     r->len = len;
     r->type = type;
     east_type_retain(type);
-    r->sm = h.sm; /* take ownership */
-    memset(&h.sm, 0, sizeof(h.sm));
+    r->sm = h.sm; /* take the header's reference */
+    h.sm = NULL;
     b2v5_frames_init(&r->frames, data, len, h.frame_offset);
-    b2v5_dec_ctx_init(&r->ctx, &r->sm);
+    b2v5_dec_ctx_init(&r->ctx, r->sm);
 
     int ix = b2v5_read_index(data, len, &r->index);
     if (ix == -1) {
@@ -534,7 +534,7 @@ void east_beast2_reader_free(Beast2SegmentReader *r)
     b2v5_order_check_dispose(&r->order);
     b2v5_frames_dispose(&r->frames);
     b2v5_dec_ctx_free(&r->ctx);
-    beast2_source_map_free(&r->sm);
+    east_source_map_release(r->sm);
     b2v5_index_free(&r->index);
     free(r);
 }
@@ -582,7 +582,7 @@ Beast2SpliceExtents *east_beast2_splice_extents(const uint8_t *data, size_t len)
         }
         return NULL;
     }
-    bool source_map_empty = h.sm.num_stacks == 0;
+    bool source_map_empty = h.sm->num_stacks == 0;
     size_t frame_offset = h.frame_offset;
     b2v5_header_dispose(&h);
 
@@ -705,7 +705,7 @@ struct Beast2Pages {
     const uint8_t *data; /* borrowed — caller keeps it alive and unchanged */
     size_t len;
     EastType *type;       /* retained decode type */
-    EastSourceMap sm;     /* owned (header) */
+    EastSourceMap *sm;    /* one reference (header) */
     B2V5Index index;      /* owned */
     size_t *cumulative;   /* prefix sums of index.counts; NULL when count == 0 */
     EastValue **fences;   /* lazily decoded first element/key per segment (owned) */
@@ -772,8 +772,8 @@ Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t len, EastType *ty
     p->len = len;
     p->type = type;
     east_type_retain(type);
-    p->sm = h.sm; /* take ownership */
-    memset(&h.sm, 0, sizeof(h.sm));
+    p->sm = h.sm; /* take the header's reference */
+    h.sm = NULL;
 
     int ix = b2v5_read_index(data, len, &p->index);
     if (ix == -1) {
@@ -866,10 +866,10 @@ static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Pro
     EastValue *segment = NULL;
     EastValue *result = NULL;
     uint64_t n = 0;
-    size_t sm_mark = p->sm.num_stacks;
+    size_t sm_mark = p->sm->num_stacks;
 
     b2v5_frames_init(&f, p->data, p->len, p->index.offsets[i]);
-    b2v5_dec_ctx_init(&ctx, &p->sm);
+    b2v5_dec_ctx_init(&ctx, p->sm);
     ctx.frozen = p->frozen;
     ctx.proj_active = pr != NULL;
 
@@ -920,7 +920,7 @@ static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Pro
     /* A self-contained stream may not grow the source map mid-segment —
      * stacks are whole-stream state, so an inline delta here means the
      * self_contained flag lied. */
-    if (p->sm.num_stacks != sm_mark) {
+    if (p->sm->num_stacks != sm_mark) {
         east_builtin_error("beast2 v5: self-contained segments cannot add source maps");
         goto done;
     }
@@ -1081,7 +1081,7 @@ void east_beast2_pages_free(Beast2Pages *p)
         free(p->fences);
     }
     if (p->type) east_type_release(p->type);
-    beast2_source_map_free(&p->sm);
+    east_source_map_release(p->sm);
     b2v5_index_free(&p->index);
     free(p->cumulative);
     free(p);
@@ -1129,13 +1129,13 @@ EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
     }
 
     EastValue *first = NULL;
-    size_t sm_mark = p->sm.num_stacks;
+    size_t sm_mark = p->sm->num_stacks;
     B2V5DecodeCtx ctx;
 
     if (codec == EAST_BEAST2_CODEC_NONE) {
         size_t coff = 0;
         uint64_t n;
-        b2v5_dec_ctx_init(&ctx, &p->sm);
+        b2v5_dec_ctx_init(&ctx, p->sm);
         ctx.frozen = p->frozen;
         if (read_varint_checked(p->data + off, (size_t)payload_len, &coff, &n) && n > 0)
             first = b2v5_decode_value(p->data + off, (size_t)payload_len, &coff,
@@ -1158,7 +1158,7 @@ EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
             }
             size_t coff = 0;
             uint64_t n;
-            b2v5_dec_ctx_init(&ctx, &p->sm);
+            b2v5_dec_ctx_init(&ctx, p->sm);
             ctx.frozen = p->frozen;
             if (read_varint_checked(buf, got, &coff, &n) && n > 0)
                 first = b2v5_decode_value(buf, got, &coff, pages_fence_type(p), &ctx);
@@ -1171,7 +1171,7 @@ EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
         }
     }
 
-    if (p->sm.num_stacks != sm_mark) {
+    if (p->sm->num_stacks != sm_mark) {
         if (first) east_value_release(first);
         east_builtin_error("beast2 v5: self-contained segments cannot add source maps");
         return NULL;

@@ -38,6 +38,7 @@ from east.expression.errors import ExpressionError
 from east.expression.expr import Expression
 from east.expression.function import trace
 from east.expression.lift import _sequence_effect, greatest, if_else, least
+from east.expression.location import source_map_scope
 from east.expression.nodes import _type_key
 from east.types.types import EastType
 from east.types.values import EastArray
@@ -509,8 +510,13 @@ def capture_callback(east_fn: Any) -> Any:
     refused = _refused_binding(east_fn.fn, extra_allowed=_immutable_east_capture)
     if refused is not None:
         raise _capture_error(refused)
-    ir_value, out_type, fn_binds = trace(east_fn.fn, list(east_fn.input_types),
-                                         out_hint=east_fn.output_type)
+    # The capture is a build like any other: its nodes carry the callback's
+    # authoring frames and the kernel compiles under the map (#626). A memo
+    # hit reuses the kernel captured at the FIRST call site — the callback's
+    # own frame is the same, its callers' may differ.
+    with source_map_scope() as source_map:
+        ir_value, out_type, fn_binds = trace(east_fn.fn, list(east_fn.input_types),
+                                             out_hint=east_fn.output_type)
     if out_type != east_fn.output_type:
         raise ExpressionError(
             f"callback produced {out_type.type}, the declared slot is "
@@ -519,7 +525,7 @@ def capture_callback(east_fn: Any) -> Any:
         )
     from east.runtime.compiler import compile_from_value
 
-    native = compile_from_value(ir_value)
+    native = compile_from_value(ir_value, source_map=source_map)
     if fn_binds:
         # Called compiled functions ride as hidden trailing parameters
         # (#561); binding them leaves exactly the builtin's callback
