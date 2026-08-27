@@ -70,7 +70,12 @@ static uint8_t *read_bin(const char *path, size_t *len_out)
 static int run(const char *cmd, const char *out_path)
 {
     char full[4096];
-    snprintf(full, sizeof(full), "%s > %s 2>&1", cmd, out_path);
+#ifdef _WIN32
+    /* cmd.exe strips a leading quote unless the whole line is re-quoted. */
+    snprintf(full, sizeof(full), "\"%s > \"%s\" 2>&1\"", cmd, out_path);
+#else
+    snprintf(full, sizeof(full), "%s > \"%s\" 2>&1", cmd, out_path);
+#endif
     int rc = system(full);
     char *out = read_text(out_path);
     if (out) {
