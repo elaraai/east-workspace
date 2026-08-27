@@ -86,25 +86,25 @@ def raises(ir, pattern, platforms=None):
 
 
 def test_accepts_a_valid_function():
-    built = East.function([], IntegerType, lambda: East.return_(42))
+    built = East.function([], IntegerType, lambda b: b.return_(42))
     analyze_ir(built._east_ir)  # every East.function already ran this; explicit here
 
 
 def test_rejects_an_unknown_platform_function():
     unknown = East.platform("unknownFunc", [], NullType)
-    built = East.function([], NullType, lambda: East.return_(unknown()))
+    built = East.function([], NullType, lambda b: b.return_(unknown()))
     raises(built._east_ir, r"Platform function 'unknownFunc' not found", platforms=[])
 
 
 def test_missing_platform_is_fine_without_an_implementation_list():
     unknown = East.platform("unknownFunc", [], NullType)
-    built = East.function([], NullType, lambda: East.return_(unknown()))
+    built = East.function([], NullType, lambda b: b.return_(unknown()))
     analyze_ir(built._east_ir)  # compiled later with East.compile — checked there
 
 
 def test_optional_platform_may_be_missing():
     maybe = East.platform("analytics", [StringType], NullType, optional=True)
-    built = East.function([], NullType, lambda: East.return_(maybe("x")))
+    built = East.function([], NullType, lambda b: b.return_(maybe("x")))
     analyze_ir(built._east_ir, platforms=[])
     assert built._east_ir.value["body"].value["value"].value["optional"] is True
 
@@ -112,18 +112,18 @@ def test_optional_platform_may_be_missing():
 def test_compile_reports_the_missing_platform():
     """analyze.spec.ts: compile() throws when a platform is not provided."""
     log = East.platform("log", [StringType], NullType)
-    built = East.function([], NullType, lambda: East.do(log("hello")))
+    built = East.function([], NullType, lambda b: b.do(log("hello")))
     with pytest.raises(IRAnalysisError, match=r"Platform function 'log' not found"):
         East.compile(built, platform=[])
     fetch = East.asyncPlatform("asyncFetch", [StringType], StringType)
-    built = East.asyncFunction([], StringType, lambda: East.return_(fetch("url")))
+    built = East.asyncFunction([], StringType, lambda b: b.return_(fetch("url")))
     with pytest.raises(IRAnalysisError, match=r"Platform function 'asyncFetch' not found"):
         East.compileAsync(built, platform=[])
 
 
 def test_platform_signature_is_checked_against_the_implementation():
     log = East.platform("log", [StringType], NullType)
-    built = East.function([], NullType, lambda: East.do(log("hello")))
+    built = East.function([], NullType, lambda b: b.do(log("hello")))
     ok = SimpleNamespace(name="log", inputs=[StringType], output=NullType)
     analyze_ir(built._east_ir, platforms=[ok])
     wrong_out = SimpleNamespace(name="log", inputs=[StringType], output=IntegerType)

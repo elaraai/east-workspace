@@ -2,20 +2,36 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Statement frames — python's twin of the TypeScript ``BlockBuilder`` (``$``).
+"""Statement blocks — python's twin of the TypeScript ``BlockBuilder`` (``$``).
 
-A TypeScript body receives ``$`` and appends STATEMENTS to it: ``$.let``,
-``$.assign``, ``$.if(...).elseIf(...).else(...)``, ``$.while``, ``$.for``,
-``$.match``, ``$.try(...).catch(...).finally(...)``, ``$.return``,
-``$.break`` / ``$.continue``, and ``$(expr)`` for an expression evaluated for
-its effect. Python cannot hand a body a ``$`` without changing the arity of
-every lambda, so the twin is AMBIENT: every ``East.function`` /
-``East.asyncFunction`` body, every callback, and every branch or loop body
-runs inside an open *frame*, and the statement constructors — ``East.let``,
-``East.const``, ``East.assign``, ``East.if_``, ``East.while_``,
-``East.for_``, ``East.match_``, ``East.try_``, ``East.return_``,
-``East.break_`` / ``East.continue_``, ``East.do`` — append to the innermost
-one. A body that never uses them is exactly the lambda body it always was.
+A TypeScript body receives ``$`` and appends STATEMENTS to it. A python body
+receives ``b`` — a :class:`Block` — as its FIRST parameter and appends
+statements the same way: ``b.let`` / ``b.const``, ``b.assign``,
+``b.if_(...).else_if(...).else_(...)``, ``b.match_``, ``b.while_``,
+``b.for_``, ``b.try_(...).catch(...).finally_(...)``, ``b.return_``,
+``b.break_`` / ``b.continue_``, ``b.error``, and ``b.do(expr)`` for an
+expression evaluated for its effect (TS ``$(expr)``). Every branch, loop
+and handler body receives ITS OWN block first, then whatever the construct
+hands it (an element, an index, a loop label, a case payload, an error
+message) — so which block a statement belongs to is always written down,
+and a statement issued on any other block is a build-time error.
+
+Who receives a block:
+
+- an ``East.function`` / ``East.asyncFunction`` body, when it declares one
+  more parameter than the function has (``lambda b, x: …``, ``def f(b,
+  x)``); a body declaring exactly the parameters (``lambda x: …``) is the
+  expression-only form and works as it always did;
+- a builtin's callback (``xs.map(...)``), when it declares the builtin's
+  FULL callback signature plus the block (``lambda b, el, i: …`` for map's
+  ``(element, index)``);
+- every body of a statement construct (``b.if_``, ``.else_if``, ``.else_``,
+  ``b.match_``, ``b.while_``, ``b.for_``, ``b.try_``, ``.catch``,
+  ``.finally_``) and of ``East.block`` — always; trailing parameters may be
+  omitted, the block cannot;
+- the expression forms (an ``East.if_else`` arm, a ``.match({...})``
+  handler, ``East.try_catch``) — never: they take expressions, and a
+  statement inside one is spelled ``East.block(lambda b: …)``.
 
 Bodies are assembled by the SAME rules the TypeScript builder applies, so a
 program spelled statement-for-statement in both languages builds identical
@@ -23,7 +39,7 @@ IR (the contract the IR→python printer and the conformance round-trip rely
 on):
 
 - the value a body returns is appended as its final statement unless it IS
-  the last statement already (``return`` after ``East.do`` of the same
+  the last statement already (``return`` after ``b.do`` of the same
   expression);
 - a function body (``East.function``, a callback) with no statements is
   ``Value null``, one statement is that statement, more is a ``Block``
@@ -93,22 +109,11 @@ from east.types.types import (
 from east.types.values import EastStruct, EastVariant
 
 __all__ = [
+    "Block",
     "LoopLabel",
     "IfBuilder",
     "TryBuilder",
-    "do",
-    "const",
-    "let_statement",
-    "assign",
-    "return_",
-    "if_",
-    "match_",
-    "while_statement",
-    "for_statement",
-    "break_statement",
-    "continue_statement",
     "error",
-    "try_",
     "block_expression",
 ]
 
@@ -118,7 +123,7 @@ __all__ = [
 
 class _Frame:
     """One open statement block: the statements appended so far and the
-    enclosing function's declared return type (what ``East.return_`` checks
+    enclosing function's declared return type (what ``b.return_`` checks
     against; ``None`` inside a callback whose output is inferred)."""
 
     __slots__ = ("statements", "return_type")
@@ -144,13 +149,22 @@ def _close_frame(frame: _Frame) -> None:
     _frames.pop()
 
 
-def _current_frame(op: str) -> _Frame:
-    if not _tracing() or not _frames:
+def _check_open(frame: _Frame, op: str) -> None:
+    """``frame`` must be the innermost OPEN frame: a statement belongs to the
+    block the body it sits in received (TypeScript's no-cross-block-builder
+    rule, a build-time error here), and is recorded while that body runs."""
+    if _tracing() and _frames and _frames[-1] is frame:
+        return
+    if any(f is frame for f in _frames):
         raise ExpressionError(
-            f"East.{op}() is a statement — it belongs inside an East.function / "
-            "East.asyncFunction body, a callback, or a branch/loop body"
+            f"b.{op}() was called on an OUTER block while a nested body is open — "
+            "a statement belongs to the block the body it sits in received (the "
+            "first parameter of every branch, loop and handler body)"
         )
-    return _frames[-1]
+    raise ExpressionError(
+        f"b.{op}() was called on a block whose body has already returned — "
+        "statements are recorded while the body that received the block runs"
+    )
 
 
 def _node_type(node: Any) -> EastType:
@@ -165,7 +179,7 @@ def _check_reachable(frame: _Frame, op: str) -> None:
     """The TypeScript builder's "Unreachable statement detected"."""
     if frame.statements and _is_never(_node_type(frame.statements[-1])):
         raise ExpressionError(
-            f"Unreachable statement detected: East.{op}() follows a statement that "
+            f"Unreachable statement detected: b.{op}() follows a statement that "
             "never completes (return_/break_/continue_/error)"
         )
 
@@ -174,19 +188,39 @@ def _null_value():
     return _literal(None, NullType)
 
 
-def _arity(fn: Any) -> int | None:
-    """Positional parameters ``fn`` declares; ``None`` for ``*args``."""
+def _positional(fn: Any) -> tuple[int, int] | None:
+    """``(required, total)`` positional parameters ``fn`` declares; ``None``
+    for ``*args`` or an uninspectable callable."""
     try:
         params = inspect.signature(fn).parameters.values()
     except (TypeError, ValueError):
         return None
-    n = 0
+    required = total = 0
     for p in params:
         if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
-            n += 1
+            total += 1
+            if p.default is p.empty:
+                required += 1
         elif p.kind is p.VAR_POSITIONAL:
             return None
-    return n
+    return required, total
+
+
+def _arity(fn: Any) -> int | None:
+    """Positional parameters ``fn`` declares (defaulted ones included);
+    ``None`` for ``*args`` or an uninspectable callable."""
+    counts = _positional(fn)
+    return None if counts is None else counts[1]
+
+
+def _takes_block(fn: Any, n: int) -> bool:
+    """Whether ``fn`` wants the block first: it declares exactly one more
+    REQUIRED positional parameter than the ``n`` the construct hands it
+    (``lambda b, x: …`` for one parameter). Defaulted parameters do not
+    count — a wrapper that pads its signature with optional parameters is
+    not asking for a block."""
+    counts = _positional(fn)
+    return counts is not None and counts[0] == n + 1
 
 
 def _call_trimmed(fn: Any, args: tuple) -> Any:
@@ -194,6 +228,23 @@ def _call_trimmed(fn: Any, args: tuple) -> Any:
     every argument and JavaScript ignores the extras; python must not)."""
     n = _arity(fn)
     return fn(*args) if n is None else fn(*args[:n])
+
+
+def _call_function_body(fn: Any, frame: _Frame, proxies: list, what: str) -> Any:
+    """Run an ``East.function`` body over its parameter proxies — with the
+    frame's :class:`Block` first when the body declares one more (required)
+    parameter than the function has (``lambda b, x: …``), without it when
+    the body declares the parameters (``lambda x: …``)."""
+    n = len(proxies)
+    if _takes_block(fn, n):
+        return fn(Block(frame), *proxies)
+    counts = _positional(fn)
+    if counts is not None and not (counts[0] <= n <= counts[1]):
+        raise ExpressionError(
+            f"{what} body declares {counts[0]} parameter(s) — it takes {n} (the "
+            f"function's parameters) or {n + 1} (the block first, then the parameters)"
+        )
+    return fn(*proxies)
 
 
 class _Run:
@@ -209,13 +260,16 @@ class _Run:
         self.noted = noted
 
 
-def _open_run(fn: Any, args: tuple, *, return_type: EastType | None) -> _Run:
-    """Run ``fn(*args)`` in a fresh frame; assemble later with :func:`_finish_run`."""
+def _open_run(fn: Any, args: tuple, *, return_type: EastType | None,
+              block: bool = True) -> _Run:
+    """Run ``fn`` in a fresh frame; assemble later with :func:`_finish_run`.
+    With ``block`` the body receives the frame's :class:`Block` first, then
+    ``args`` (trimmed to what it declares); without, ``args`` alone."""
     frame = _open_frame(return_type)
     _push_effects()
     try:
         try:
-            result = _call_trimmed(fn, args)
+            result = _call_trimmed(fn, (Block(frame), *args) if block else args)
         except ExpressionError:
             raise
         except Exception as e:
@@ -241,10 +295,10 @@ def _finish_run(run: _Run, mode: str, out: EastType | None = None) -> Any:
 
 
 def _run_block(fn: Any, args: tuple, *, return_type: EastType | None, mode: str,
-               out: EastType | None = None) -> Any:
-    """Run ``fn(*args)`` in a fresh frame and assemble the body per ``mode``;
+               out: EastType | None = None, block: bool = True) -> Any:
+    """Run ``fn`` in a fresh frame and assemble the body per ``mode``;
     returns the body as an ``Expression``."""
-    return _finish_run(_open_run(fn, args, return_type=return_type), mode, out)
+    return _finish_run(_open_run(fn, args, return_type=return_type, block=block), mode, out)
 
 
 def assemble(frame: _Frame, result: Any, mode: str, out: EastType | None = None) -> Any:
@@ -268,6 +322,10 @@ def assemble(frame: _Frame, result: Any, mode: str, out: EastType | None = None)
     from east.expression.expr import Expression
 
     stmts = frame.statements
+    if isinstance(result, (IfBuilder, TryBuilder)):
+        # `lambda b: b.if_(c, …)` — the statement is already appended; the
+        # chain builder it returned is not a value.
+        result = None
     if result is not None:
         r = _lift(result, hint=out)
         if not stmts or stmts[-1] is not r.ir:
@@ -310,8 +368,8 @@ def assemble(frame: _Frame, result: Any, mode: str, out: EastType | None = None)
 
 
 class LoopLabel:
-    """The label a statement-form loop body receives — what ``East.break_``
-    / ``East.continue_`` name to leave or continue it (TS ``Label``)."""
+    """The label a loop body receives — what ``b.break_`` / ``b.continue_``
+    name to leave or continue it (TS ``Label``)."""
 
     __slots__ = ("name", "loc_id")
 
@@ -326,37 +384,358 @@ class LoopLabel:
         return ir_label(self.name, self.loc_id)
 
 
-# ─── Statements ─────────────────────────────────────────────────────────────
+# ─── The block ──────────────────────────────────────────────────────────────
 
 
-def do(expr: Any) -> Any:
-    """Append an expression as a statement, evaluated for its effect (TS
-    ``$(expr)``): a platform call, a mutation, a call whose value is unused.
+class Block:
+    """The statement block a body receives as its first parameter — python's
+    ``$``. Each method appends one statement to the body and returns it
+    (or, for ``let``/``const``, the variable it bound)::
 
-    Args:
-        expr: The expression (or a liftable python value).
+        @East.function([IntegerType], StringType)
+        def classify(b, n):
+            acc = b.let(0)
+            def loop(b, label):
+                b.if_(acc >= n, lambda b: b.break_(label))
+                b.assign(acc, acc + 1)
+            b.while_(True, loop)
+            b.if_(acc > 10, lambda b: b.return_("big")) \\
+                .else_(lambda b: b.return_("small"))
 
-    Returns:
-        The expression, typed as it was.
+    A block is live only while the body that received it runs, and only
+    while no nested body is open: a statement on an outer block from inside
+    a branch, or on a block whose body has returned, raises.
     """
-    frame = _current_frame("do")
-    _check_reachable(frame, "do")
-    e = _lift(expr)
-    frame.statements.append(e.ir)
-    return e
+
+    __slots__ = ("_frame",)
+
+    def __init__(self, frame: _Frame) -> None:
+        self._frame = frame
+
+    def __repr__(self) -> str:
+        return f"<East block: {len(self._frame.statements)} statement(s)>"
+
+    def _use(self, op: str) -> _Frame:
+        _check_open(self._frame, op)
+        _check_reachable(self._frame, op)
+        return self._frame
+
+    def do(self, expr: Any) -> Any:
+        """Append an expression as a statement, evaluated for its effect (TS
+        ``$(expr)``): a platform call, a mutation, a call whose value is
+        unused.
+
+        Args:
+            expr: The expression (or a liftable python value).
+
+        Returns:
+            The expression, typed as it was.
+        """
+        frame = self._use("do")
+        e = _lift(expr)
+        frame.statements.append(e.ir)
+        return e
+
+    def const(self, value: Any, typ: EastType | None = None) -> Any:
+        """Bind a value to a new CONST variable (TS ``$.const``): the
+        variable cannot be reassigned, though a mutable value it holds may
+        be mutated.
+
+        Args:
+            value: The value — an expression or a liftable python value.
+            typ: Optional declared East type; the value's type must be a
+                subtype (a narrower struct/variant literal widens to it).
+
+        Returns:
+            The variable, as an expression of the declared (or the value's)
+            type.
+        """
+        return _bind(self._use("const"), value, typ, mutable=False, op="const")
+
+    def let(self, value: Any, typ: EastType | None = None) -> Any:
+        """Bind a value to a new MUTABLE variable (TS ``$.let``) — reassign
+        it with :meth:`assign`.
+
+        Args:
+            value: The value — an expression or a liftable python value.
+            typ: Optional declared East type (as for :meth:`const`).
+
+        Returns:
+            The variable, as an expression.
+        """
+        return _bind(self._use("let"), value, typ, mutable=True, op="let")
+
+    def assign(self, variable: Any, value: Any) -> Any:
+        """Reassign a variable bound with :meth:`let` (TS ``$.assign``).
+
+        Args:
+            variable: The variable expression ``b.let`` returned.
+            value: The new value — its type must be a subtype of the
+                variable's.
+
+        Returns:
+            The Null-typed Assign statement.
+
+        Raises:
+            ExpressionError: If ``variable`` is not a variable, was bound
+                with ``b.const``, or ``value`` has the wrong type.
+        """
+        from east.expression.expr import Expression
+
+        frame = self._use("assign")
+        if not isinstance(variable, Expression):
+            raise ExpressionError("Can only assign to a variable")
+        node = variable.ir
+        if node.type == "UnwrapRecursive":
+            node = node.value["value"]
+        if node.type != "Variable":
+            raise ExpressionError("Can only assign to a variable")
+        if not node.value["mutable"]:
+            raise ExpressionError(
+                "Cannot assign to a variable defined as const — bind it with b.let "
+                "to reassign it"
+            )
+        var_t = node.value["type"]
+        e = value if isinstance(value, Expression) else _lift(value, hint=var_t)
+        if not is_subtype(e.east_type, var_t):
+            raise ExpressionError(
+                f"b.assign() value has East type {e.east_type.type}, the variable "
+                f"holds {var_t.type}"
+            )
+        stmt = ir_assign(NullType, node, _coerce(e, var_t).ir, _loc_id())
+        frame.statements.append(stmt)
+        return Expression(stmt, NullType)
+
+    def return_(self, value: Any = None) -> Any:
+        """Return from the enclosing function now (TS ``$.return``).
+
+        Args:
+            value: The value to return — an expression or a liftable
+                python value; omitted for a Null-typed function.
+
+        Returns:
+            The Never-typed Return statement.
+
+        Raises:
+            ExpressionError: If the value's type is not a subtype of the
+                function's declared output.
+        """
+        from east.expression.expr import Expression
+
+        frame = self._use("return_")
+        e = (Expression(_null_value(), NullType) if value is None
+             else _lift(value, hint=frame.return_type))
+        if frame.return_type is not None and not is_subtype(e.east_type, frame.return_type):
+            raise ExpressionError(
+                f"b.return_() value has East type {e.east_type.type}, the function "
+                f"returns {frame.return_type.type}"
+            )
+        # The value may already be the last statement (a `b.do(x)` followed
+        # by `b.return_(x)`): the TypeScript builder pops it, so do we.
+        if isinstance(value, Expression) and frame.statements and frame.statements[-1] is e.ir:
+            frame.statements.pop()
+        stmt = ir_return(NeverType, e.ir, _loc_id())
+        frame.statements.append(stmt)
+        return Expression(stmt, NeverType)
+
+    def error(self, message: Any) -> Any:
+        """Raise an East runtime error now (TS ``$.error``): a Never-typed
+        statement — nothing after it in the body is reachable.
+
+        Args:
+            message: The error message — a String expression or python str.
+
+        Returns:
+            The Never-typed Error statement.
+        """
+        from east.expression.expr import Expression
+
+        frame = self._use("error")
+        node = _error_node(message)
+        frame.statements.append(node)
+        return Expression(node, NeverType)
+
+    def if_(self, predicate: Any, body: Any) -> IfBuilder:
+        """Run ``body`` when ``predicate`` holds (TS ``$.if``); chain
+        ``.else_if(...)`` and ``.else_(...)`` on the result.
+
+        Args:
+            predicate: A Boolean expression (or python bool).
+            body: ``body(b)`` — run in its own frame with its own block;
+                the value it returns (if any) is the arm's final statement.
+
+        Returns:
+            An :class:`IfBuilder` (the statement is already appended).
+        """
+        frame = self._use("if_")
+        p = _predicate(predicate, "if")
+        arm = _run_block(body, (), return_type=frame.return_type, mode="null_block")
+        node = _k_ifelse(NullType, [(p.ir, arm.ir)], _null_value())
+        frame.statements.append(node)
+        return IfBuilder(frame, node)
+
+    def match_(self, variant: Any, cases: dict) -> Any:
+        """Branch on a variant's case for effect (TS ``$.match``): each
+        handler ``handler(b, data)`` runs in its own frame with the case's
+        payload; a case without a handler does nothing.
+
+        Args:
+            variant: A Variant-typed expression.
+            cases: ``{case_name: handler}`` — a handler takes its block,
+                then the payload expression (either may be omitted).
+
+        Returns:
+            The Null-typed Match statement.
+        """
+        from east.expression.expr import Expression
+
+        frame = self._use("match_")
+        v = _lift(variant)
+        if v.east_type.type != "Variant":
+            raise ExpressionError(f"match not defined over {v.east_type.type}")
+        names = [c["name"] for c in v.east_type.value]
+        unknown = [k for k in cases if k not in names]
+        if unknown:
+            raise ExpressionError(f"b.match_() has no case {unknown[0]!r} (cases: {', '.join(names)})")
+        case_nodes = []
+        for c in v.east_type.value:
+            var = _var(_fresh_name(), c["type"])
+            handler = cases.get(c["name"])
+            if handler is None:
+                body = _null_value()
+            else:
+                body = _run_block(handler, (Expression(var, c["type"]),),
+                                  return_type=frame.return_type, mode="null_block").ir
+            case_nodes.append((c["name"], var, body))
+        node = _k_match(NullType, v.ir, case_nodes)
+        frame.statements.append(node)
+        return Expression(node, NullType)
+
+    def while_(self, predicate: Any, body: Any) -> Any:
+        """Loop while ``predicate`` holds (TS ``$.while``).
+
+        Args:
+            predicate: A Boolean expression, re-evaluated before every
+                iteration.
+            body: ``body(b, label)`` — run in its own frame; the
+                :class:`LoopLabel` names this loop for :meth:`break_` /
+                :meth:`continue_`.
+
+        Returns:
+            The Null-typed While statement.
+        """
+        from east.expression.expr import Expression
+
+        frame = self._use("while_")
+        p = _predicate(predicate, "while")
+        lbl = LoopLabel(_fresh_name(), _loc_id())
+        _push_loop_frame(_StatementLoop(lbl.name))
+        try:
+            arm = _run_block(body, (lbl,), return_type=frame.return_type, mode="null_block")
+        finally:
+            _pop_loop_frame()
+        node = ir_while(NullType, p.ir, lbl.ir(), arm.ir, _loc_id())
+        frame.statements.append(node)
+        return Expression(node, NullType)
+
+    def for_(self, collection: Any, body: Any) -> Any:
+        """Loop over a collection's elements (TS ``$.for``).
+
+        Args:
+            collection: An Array, Set or Dict expression.
+            body: The step, run in its own frame per element — Array
+                ``body(b, value, index, label)``, Set ``body(b, key,
+                label)``, Dict ``body(b, value, key, label)``; trailing
+                parameters may be omitted.
+
+        Returns:
+            The Null-typed ForArray / ForSet / ForDict statement.
+        """
+        from east.expression.expr import Expression
+
+        frame = self._use("for_")
+        src = _lift(collection)
+        tag = src.east_type.type
+        if tag == "Array":
+            elem_t = src.east_type.value
+            value_var = _var(_fresh_name(), elem_t)
+            key_var = _var(_fresh_name(), _integer())
+            lbl = LoopLabel(_fresh_name(), _loc_id())
+            args = (Expression(value_var, elem_t), Expression(key_var, _integer()), lbl)
+        elif tag == "Set":
+            elem_t = src.east_type.value
+            key_var = _var(_fresh_name(), elem_t)
+            value_var = None
+            lbl = LoopLabel(_fresh_name(), _loc_id())
+            args = (Expression(key_var, elem_t), lbl)
+        elif tag == "Dict":
+            kv = src.east_type.value
+            value_var = _var(_fresh_name(), kv["value"])
+            key_var = _var(_fresh_name(), kv["key"])
+            lbl = LoopLabel(_fresh_name(), _loc_id())
+            args = (Expression(value_var, kv["value"]), Expression(key_var, kv["key"]), lbl)
+        else:
+            raise ExpressionError(
+                f"for not defined over {tag} - you can only loop over arrays, sets and dictionaries"
+            )
+        _push_loop_frame(_StatementLoop(lbl.name))
+        try:
+            arm = _run_block(body, args, return_type=frame.return_type, mode="null_block")
+        finally:
+            _pop_loop_frame()
+        loc = _loc_id()
+        if tag == "Array":
+            node = ir_for_array(NullType, src.ir, lbl.ir(), key_var, value_var, arm.ir, loc)
+        elif tag == "Set":
+            node = ir_for_set(NullType, src.ir, lbl.ir(), key_var, arm.ir, loc)
+        else:
+            node = ir_for_dict(NullType, src.ir, lbl.ir(), key_var, value_var, arm.ir, loc)
+        frame.statements.append(node)
+        return Expression(node, NullType)
+
+    def break_(self, label: LoopLabel) -> Any:
+        """Leave the loop ``label`` names now (TS ``$.break``)."""
+        return _jump_statement(self._use("break_"), "Break", label, "break_")
+
+    def continue_(self, label: LoopLabel) -> Any:
+        """Start the next iteration of the loop ``label`` names (TS
+        ``$.continue``)."""
+        return _jump_statement(self._use("continue_"), "Continue", label, "continue_")
+
+    def try_(self, body: Any) -> TryBuilder:
+        """Run ``body`` and catch any East runtime error it raises (TS
+        ``$.try``); chain ``.catch(handler)`` and ``.finally_(body)``.
+
+        Args:
+            body: ``body(b)`` — run in its own frame.
+
+        Returns:
+            A :class:`TryBuilder` (the statement is already appended).
+        """
+        from east.types.type_of_type import LocationType
+
+        frame = self._use("try_")
+        tb = _run_block(body, (), return_type=frame.return_type, mode="null_block")
+        message = _var(_fresh_name(), StringType)
+        stack = _var(_fresh_name(), ArrayType(LocationType))
+        node = ir_trycatch(NullType, tb.ir, _null_value(), message, stack,
+                           finally_body=_null_value(), loc_id=_loc_id())
+        frame.statements.append(node)
+        return TryBuilder(frame, node, message, stack)
 
 
-def _bind(value: Any, typ: Any, mutable: bool, op: str) -> Any:
+# ─── Statement internals ────────────────────────────────────────────────────
+
+
+def _bind(frame: _Frame, value: Any, typ: Any, mutable: bool, op: str) -> Any:
     from east.expression.expr import Expression
 
-    frame = _current_frame(op)
-    _check_reachable(frame, op)
     if typ is not None and not isinstance(typ, EastType):
-        raise TypeError(f"East.{op}(value, type) takes an East type second, got {type(typ).__name__}")
+        raise TypeError(f"b.{op}(value, type) takes an East type second, got {type(typ).__name__}")
     e = value if isinstance(value, Expression) else _lift(value, hint=typ)
     if typ is not None and not is_subtype(e.east_type, typ):
         raise ExpressionError(
-            f"East.{op}() value has East type {e.east_type.type}, the declared "
+            f"b.{op}() value has East type {e.east_type.type}, the declared "
             f"type is {typ.type}"
         )
     var_t = typ if typ is not None else e.east_type
@@ -366,104 +745,6 @@ def _bind(value: Any, typ: Any, mutable: bool, op: str) -> Any:
     return Expression(var, var_t)
 
 
-def const(value: Any, typ: EastType | None = None) -> Any:
-    """Bind a value to a new CONST variable (TS ``$.const``): the variable
-    cannot be reassigned, though a mutable value it holds may be mutated.
-
-    Args:
-        value: The value — an expression or a liftable python value.
-        typ: Optional declared East type; the value's type must be a
-            subtype (a narrower struct/variant literal widens to it).
-
-    Returns:
-        The variable, as an expression of the declared (or the value's) type.
-    """
-    return _bind(value, typ, mutable=False, op="const")
-
-
-def let_statement(value: Any, typ: EastType | None = None) -> Any:
-    """Bind a value to a new MUTABLE variable (TS ``$.let``) — reassign it
-    with ``East.assign``. Reached as ``East.let(value)`` / ``East.let(value,
-    type)``; see ``east.expression.control.let`` for the dispatch."""
-    return _bind(value, typ, mutable=True, op="let")
-
-
-def assign(variable: Any, value: Any) -> Any:
-    """Reassign a variable bound with ``East.let`` (TS ``$.assign``).
-
-    Args:
-        variable: The variable expression ``East.let`` returned.
-        value: The new value — its type must be a subtype of the variable's.
-
-    Returns:
-        The Null-typed Assign statement.
-
-    Raises:
-        ExpressionError: If ``variable`` is not a variable, was bound with
-            ``East.const``, or ``value`` has the wrong type.
-    """
-    from east.expression.expr import Expression
-
-    frame = _current_frame("assign")
-    _check_reachable(frame, "assign")
-    if not isinstance(variable, Expression):
-        raise ExpressionError("Can only assign to a variable")
-    node = variable.ir
-    if node.type == "UnwrapRecursive":
-        node = node.value["value"]
-    if node.type != "Variable":
-        raise ExpressionError("Can only assign to a variable")
-    if not node.value["mutable"]:
-        raise ExpressionError(
-            "Cannot assign to a variable defined as const — bind it with East.let "
-            "to reassign it"
-        )
-    var_t = node.value["type"]
-    e = value if isinstance(value, Expression) else _lift(value, hint=var_t)
-    if not is_subtype(e.east_type, var_t):
-        raise ExpressionError(
-            f"East.assign() value has East type {e.east_type.type}, the variable "
-            f"holds {var_t.type}"
-        )
-    stmt = ir_assign(NullType, node, _coerce(e, var_t).ir, _loc_id())
-    frame.statements.append(stmt)
-    return Expression(stmt, NullType)
-
-
-def return_(value: Any = None) -> Any:
-    """Return from the enclosing function now (TS ``$.return``).
-
-    Args:
-        value: The value to return — an expression or a liftable python
-            value; omitted for a Null-typed function.
-
-    Returns:
-        The Never-typed Return statement.
-
-    Raises:
-        ExpressionError: If the value's type is not a subtype of the
-            function's declared output.
-    """
-    from east.expression.expr import Expression
-
-    frame = _current_frame("return_")
-    _check_reachable(frame, "return_")
-    e = (Expression(_null_value(), NullType) if value is None
-         else _lift(value, hint=frame.return_type))
-    if frame.return_type is not None and not is_subtype(e.east_type, frame.return_type):
-        raise ExpressionError(
-            f"East.return_() value has East type {e.east_type.type}, the function "
-            f"returns {frame.return_type.type}"
-        )
-    # The value may already be the last statement (an `East.do(x)` followed
-    # by `East.return_(x)`): the TypeScript builder pops it, so do we.
-    if isinstance(value, Expression) and frame.statements and frame.statements[-1] is e.ir:
-        frame.statements.pop()
-    stmt = ir_return(NeverType, e.ir, _loc_id())
-    frame.statements.append(stmt)
-    return Expression(stmt, NeverType)
-
-
 def _predicate(value: Any, op: str) -> Any:
     p = _lift(value, hint=BooleanType)
     if p.east_type.type != "Boolean":
@@ -471,8 +752,15 @@ def _predicate(value: Any, op: str) -> Any:
     return p
 
 
+def _error_node(message: Any) -> Any:
+    m = _lift(message, hint=StringType)
+    if m.east_type.type != "String":
+        raise ExpressionError(f"Error message must be String type, got {m.east_type.type}")
+    return ir_error(NeverType, m.ir, _loc_id())
+
+
 class IfBuilder:
-    """The ``East.if_`` chain: ``.else_if(pred, body)`` adds an arm,
+    """The ``b.if_`` chain: ``.else_if(pred, body)`` adds an arm,
     ``.else_(body)`` closes it (TS ``$.if(...).elseIf(...).else(...)``)."""
 
     __slots__ = ("_frame", "_node")
@@ -490,22 +778,24 @@ class IfBuilder:
         self._node = new_node
 
     def else_if(self, predicate: Any, body: Any) -> IfBuilder:
-        """Add an ``else if`` arm; ``body`` runs in its own frame."""
+        """Add an ``else if`` arm; ``body(b)`` runs in its own frame."""
+        _check_open(self._frame, "if_().else_if")
         p = _predicate(predicate, "elseIf")
-        b = _run_block(body, (), return_type=self._frame.return_type, mode="null_block")
+        arm = _run_block(body, (), return_type=self._frame.return_type, mode="null_block")
         payload = self._node.value
         self._replace(_rebuild_ifelse(
             payload["type"], payload["loc_id"],
-            [*payload["ifs"], EastStruct({"predicate": p.ir, "body": b.ir})],
+            [*payload["ifs"], EastStruct({"predicate": p.ir, "body": arm.ir})],
             payload["else_body"]))
         return self
 
     def else_(self, body: Any) -> Any:
-        """Close the chain with the ``else`` arm. The statement becomes
-        ``Never``-typed when every arm diverges."""
+        """Close the chain with the ``else`` arm (``body(b)``). The
+        statement becomes ``Never``-typed when every arm diverges."""
         from east.expression.expr import Expression
 
-        b = _run_block(body, (), return_type=self._frame.return_type, mode="null_block")
+        _check_open(self._frame, "if_().else_")
+        arm = _run_block(body, (), return_type=self._frame.return_type, mode="null_block")
         payload = self._node.value
         ifs = list(payload["ifs"])
         can_terminate = True
@@ -516,10 +806,10 @@ class IfBuilder:
             if not _is_never(_node_type(case["body"])):
                 break
         else:
-            if _is_never(b.east_type):
+            if _is_never(arm.east_type):
                 can_terminate = False
         out_t = payload["type"] if can_terminate else NeverType
-        self._replace(_rebuild_ifelse(out_t, payload["loc_id"], ifs, b.ir))
+        self._replace(_rebuild_ifelse(out_t, payload["loc_id"], ifs, arm.ir))
         return Expression(self._node, out_t)
 
 
@@ -529,68 +819,8 @@ def _rebuild_ifelse(t: EastType, loc_id: int, ifs: list, else_body: Any) -> Any:
     }))
 
 
-def if_(predicate: Any, body: Any) -> IfBuilder:
-    """Run ``body`` when ``predicate`` holds (TS ``$.if``); chain
-    ``.else_if(...)`` and ``.else_(...)`` on the result.
-
-    Args:
-        predicate: A Boolean expression (or python bool).
-        body: ``body()`` — a callable run in its own statement frame; the
-            value it returns (if any) is the arm's final statement.
-
-    Returns:
-        An :class:`IfBuilder` (the statement is already appended).
-    """
-    frame = _current_frame("if_")
-    _check_reachable(frame, "if_")
-    p = _predicate(predicate, "if")
-    b = _run_block(body, (), return_type=frame.return_type, mode="null_block")
-    node = _k_ifelse(NullType, [(p.ir, b.ir)], _null_value())
-    frame.statements.append(node)
-    return IfBuilder(frame, node)
-
-
-def match_(variant: Any, cases: dict) -> Any:
-    """Branch on a variant's case for effect (TS ``$.match``): each handler
-    ``handler(data)`` runs in its own frame with the case's payload; a case
-    without a handler does nothing.
-
-    Args:
-        variant: A Variant-typed expression.
-        cases: ``{case_name: handler}`` — a handler takes the payload
-            expression (or nothing).
-
-    Returns:
-        The Null-typed Match statement.
-    """
-    from east.expression.expr import Expression
-
-    frame = _current_frame("match_")
-    _check_reachable(frame, "match_")
-    v = _lift(variant)
-    if v.east_type.type != "Variant":
-        raise ExpressionError(f"match not defined over {v.east_type.type}")
-    names = [c["name"] for c in v.east_type.value]
-    unknown = [k for k in cases if k not in names]
-    if unknown:
-        raise ExpressionError(f"East.match_() has no case {unknown[0]!r} (cases: {', '.join(names)})")
-    case_nodes = []
-    for c in v.east_type.value:
-        var = _var(_fresh_name(), c["type"])
-        handler = cases.get(c["name"])
-        if handler is None:
-            body = _null_value()
-        else:
-            body = _run_block(handler, (Expression(var, c["type"]),),
-                              return_type=frame.return_type, mode="null_block").ir
-        case_nodes.append((c["name"], var, body))
-    node = _k_match(NullType, v.ir, case_nodes)
-    frame.statements.append(node)
-    return Expression(node, NullType)
-
-
 class _StatementLoop:
-    """A ``_LoopFrame`` twin for statement-form loops: a bare ``East.break_()``
+    """A ``_LoopFrame`` twin for statement loops: a bare ``East.break_()``
     (the state-threading sugar's jump value) inside one resolves to this
     loop's label; it has no state to commit."""
 
@@ -603,93 +833,9 @@ class _StatementLoop:
 
 def _no_state(_value: Any) -> Any:
     raise ExpressionError(
-        "a statement-form loop threads no state — spell the jump as "
-        "East.break_(label) / East.continue_(label) with the label the body received"
+        "a statement loop threads no state — spell the jump as "
+        "b.break_(label) / b.continue_(label) with the label the body received"
     )
-
-
-def while_statement(predicate: Any, body: Any) -> Any:
-    """Loop while ``predicate`` holds (TS ``$.while``).
-
-    Args:
-        predicate: A Boolean expression, re-evaluated before every iteration.
-        body: ``body(label)`` (or ``body()``) — run in its own frame; the
-            :class:`LoopLabel` names this loop for ``East.break_`` /
-            ``East.continue_``.
-
-    Returns:
-        The Null-typed While statement.
-    """
-    from east.expression.expr import Expression
-
-    frame = _current_frame("while_")
-    _check_reachable(frame, "while_")
-    p = _predicate(predicate, "while")
-    lbl = LoopLabel(_fresh_name(), _loc_id())
-    _push_loop_frame(_StatementLoop(lbl.name))
-    try:
-        b = _run_block(body, (lbl,), return_type=frame.return_type, mode="null_block")
-    finally:
-        _pop_loop_frame()
-    node = ir_while(NullType, p.ir, lbl.ir(), b.ir, _loc_id())
-    frame.statements.append(node)
-    return Expression(node, NullType)
-
-
-def for_statement(collection: Any, body: Any) -> Any:
-    """Loop over a collection's elements (TS ``$.for``).
-
-    Args:
-        collection: An Array, Set or Dict expression.
-        body: The step, run in its own frame per element — Array
-            ``body(value, index, label)``, Set ``body(key, label)``, Dict
-            ``body(value, key, label)``; trailing parameters may be omitted.
-
-    Returns:
-        The Null-typed ForArray / ForSet / ForDict statement.
-    """
-    from east.expression.expr import Expression
-
-    frame = _current_frame("for_")
-    _check_reachable(frame, "for_")
-    src = _lift(collection)
-    tag = src.east_type.type
-    if tag == "Array":
-        elem_t = src.east_type.value
-        value_var = _var(_fresh_name(), elem_t)
-        key_var = _var(_fresh_name(), _integer())
-        lbl = LoopLabel(_fresh_name(), _loc_id())
-        args = (Expression(value_var, elem_t), Expression(key_var, _integer()), lbl)
-    elif tag == "Set":
-        elem_t = src.east_type.value
-        key_var = _var(_fresh_name(), elem_t)
-        value_var = None
-        lbl = LoopLabel(_fresh_name(), _loc_id())
-        args = (Expression(key_var, elem_t), lbl)
-    elif tag == "Dict":
-        kv = src.east_type.value
-        value_var = _var(_fresh_name(), kv["value"])
-        key_var = _var(_fresh_name(), kv["key"])
-        lbl = LoopLabel(_fresh_name(), _loc_id())
-        args = (Expression(value_var, kv["value"]), Expression(key_var, kv["key"]), lbl)
-    else:
-        raise ExpressionError(
-            f"for not defined over {tag} - you can only loop over arrays, sets and dictionaries"
-        )
-    _push_loop_frame(_StatementLoop(lbl.name))
-    try:
-        b = _run_block(body, args, return_type=frame.return_type, mode="null_block")
-    finally:
-        _pop_loop_frame()
-    loc = _loc_id()
-    if tag == "Array":
-        node = ir_for_array(NullType, src.ir, lbl.ir(), key_var, value_var, b.ir, loc)
-    elif tag == "Set":
-        node = ir_for_set(NullType, src.ir, lbl.ir(), key_var, b.ir, loc)
-    else:
-        node = ir_for_dict(NullType, src.ir, lbl.ir(), key_var, value_var, b.ir, loc)
-    frame.statements.append(node)
-    return Expression(node, NullType)
 
 
 def _integer() -> EastType:
@@ -698,32 +844,26 @@ def _integer() -> EastType:
     return IntegerType
 
 
-def _jump_statement(kind: str, label: LoopLabel, op: str) -> Any:
+def _jump_statement(frame: _Frame, kind: str, label: Any, op: str) -> Any:
     from east.expression.expr import Expression
 
-    frame = _current_frame(op)
-    _check_reachable(frame, op)
+    if not isinstance(label, LoopLabel):
+        raise ExpressionError(
+            f"b.{op}() takes the label the loop body received (its last parameter), "
+            f"got {type(label).__name__}"
+        )
     build = ir_break if kind == "Break" else ir_continue
     node = build(NeverType, label.ir(), _loc_id())
     frame.statements.append(node)
     return Expression(node, NeverType)
 
 
-def break_statement(label: LoopLabel) -> Any:
-    """Leave the loop ``label`` names now (TS ``$.break``)."""
-    return _jump_statement("Break", label, "break_")
-
-
-def continue_statement(label: LoopLabel) -> Any:
-    """Start the next iteration of the loop ``label`` names (TS ``$.continue``)."""
-    return _jump_statement("Continue", label, "continue_")
-
-
 def error(message: Any) -> Any:
-    """Raise an East runtime error — a ``Never``-typed expression (TS
-    ``East.error``). Return it from a body or branch, or use it as an
-    ``East.if_else`` arm; a bare ``East.error(...)`` statement that reaches
-    no body raises at build time rather than vanishing.
+    """Raise an East runtime error — a ``Never``-typed EXPRESSION (TS
+    ``East.error``). Return it from a body, use it as an ``East.if_else``
+    arm, or append it as a statement with ``b.error(...)``; a bare
+    ``East.error(...)`` that reaches no body raises at build time rather
+    than vanishing.
 
     Args:
         message: The error message — a String expression or python str.
@@ -733,16 +873,13 @@ def error(message: Any) -> Any:
     """
     from east.expression.expr import Expression
 
-    m = _lift(message, hint=StringType)
-    if m.east_type.type != "String":
-        raise ExpressionError(f"Error message must be String type, got {m.east_type.type}")
-    node = ir_error(NeverType, m.ir, _loc_id())
+    node = _error_node(message)
     _note_effect(node, "error")
     return Expression(node, NeverType)
 
 
 class TryBuilder:
-    """The ``East.try_`` chain: ``.catch(handler)`` and ``.finally_(body)``
+    """The ``b.try_`` chain: ``.catch(handler)`` and ``.finally_(body)``
     (TS ``$.try(...).catch(...).finally(...)``)."""
 
     __slots__ = ("_frame", "_node", "_message", "_stack", "_caught")
@@ -767,48 +904,27 @@ class TryBuilder:
         self._node = new_node
 
     def catch(self, handler: Any) -> TryBuilder:
-        """Handle an error: ``handler(message, stack)`` (either or both may
-        be omitted) runs in its own frame."""
+        """Handle an error: ``handler(b, message, stack)`` (trailing
+        parameters may be omitted) runs in its own frame."""
         from east.expression.expr import Expression
 
+        _check_open(self._frame, "try_().catch")
         if self._caught:
             raise ExpressionError("Cannot call .catch() more than once on the same try block")
         self._caught = True
         args = (Expression(self._message, StringType),
                 Expression(self._stack, self._stack.value["type"]))
-        b = _run_block(handler, args, return_type=self._frame.return_type, mode="null_block")
+        arm = _run_block(handler, args, return_type=self._frame.return_type, mode="null_block")
         payload = self._node.value
-        both_never = _is_never(_node_type(payload["try_body"])) and _is_never(b.east_type)
-        self._replace(catch_body=b.ir, type=NeverType if both_never else payload["type"])
+        both_never = _is_never(_node_type(payload["try_body"])) and _is_never(arm.east_type)
+        self._replace(catch_body=arm.ir, type=NeverType if both_never else payload["type"])
         return self
 
     def finally_(self, body: Any) -> None:
-        """Run ``body`` whether or not an error occurred (effects only)."""
-        b = _run_block(body, (), return_type=self._frame.return_type, mode="null_block")
-        self._replace(finally_body=b.ir)
-
-
-def try_(body: Any) -> TryBuilder:
-    """Run ``body`` and catch any East runtime error it raises (TS
-    ``$.try``); chain ``.catch(handler)`` and ``.finally_(body)``.
-
-    Args:
-        body: ``body()`` — run in its own frame.
-
-    Returns:
-        A :class:`TryBuilder` (the statement is already appended).
-    """
-    from east.types.type_of_type import LocationType
-
-    frame = _current_frame("try_")
-    _check_reachable(frame, "try_")
-    tb = _run_block(body, (), return_type=frame.return_type, mode="null_block")
-    message = _var(_fresh_name(), StringType)
-    stack = _var(_fresh_name(), ArrayType(LocationType))
-    node = ir_trycatch(NullType, tb.ir, _null_value(), message, stack,
-                       finally_body=_null_value(), loc_id=_loc_id())
-    frame.statements.append(node)
-    return TryBuilder(frame, node, message, stack)
+        """Run ``body(b)`` whether or not an error occurred (effects only)."""
+        _check_open(self._frame, "try_().finally_")
+        arm = _run_block(body, (), return_type=self._frame.return_type, mode="null_block")
+        self._replace(finally_body=arm.ir)
 
 
 def block_expression(body: Any) -> Any:
@@ -816,8 +932,8 @@ def block_expression(body: Any) -> Any:
     value ``body`` returns. Reached as ``East.block(fn)``.
 
     Args:
-        body: ``body()`` — run in its own frame; must return a value or
-            diverge.
+        body: ``body(b)`` — run in its own frame with its own block; must
+            return a value or diverge.
 
     Returns:
         The block's value (the last statement's type).

@@ -121,7 +121,12 @@ def trace(fn: Any, param_types: list[EastType],
     ``trace`` (a type-only derivation, a test) captures none — every
     ``loc_id`` is 0 — and costs no frame walk.
     """
-    from east.expression.statements import _close_frame, _open_frame, assemble
+    from east.expression.statements import (
+        _call_function_body,
+        _close_frame,
+        _open_frame,
+        assemble,
+    )
 
     proxies = [Expression(_var(f"__k{i}", t), t) for i, t in enumerate(param_types)]
     outer = _push_registries()
@@ -130,7 +135,7 @@ def trace(fn: Any, param_types: list[EastType],
     popped = False
     try:
         try:
-            result = fn(*proxies)
+            result = _call_function_body(fn, frame, proxies, "East.function")
         except ExpressionError:
             raise
         except Exception as e:
@@ -170,10 +175,16 @@ def _nested_function(param_types: list[EastType], out: EastType, body: Any, *,
     """
     from east.expression.finalize import _capturing_fn
     from east.expression.nodes import _fresh_name
-    from east.expression.statements import _close_frame, _open_frame, assemble
+    from east.expression.statements import (
+        _call_function_body,
+        _close_frame,
+        _open_frame,
+        assemble,
+    )
     from east.types.types import AsyncFunctionType, FunctionType
 
     global _async_build
+    entry = "East.asyncFunction" if is_async else "East.function"
     names = [_fresh_name() for _ in param_types]
     proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
     previous = _async_build
@@ -183,7 +194,7 @@ def _nested_function(param_types: list[EastType], out: EastType, body: Any, *,
     popped = False
     try:
         try:
-            result = body(*proxies)
+            result = _call_function_body(body, frame, proxies, entry)
         except ExpressionError:
             raise
         except Exception as e:
@@ -197,7 +208,6 @@ def _nested_function(param_types: list[EastType], out: EastType, body: Any, *,
         _close_frame(frame)
         _async_build = previous
     if not _output_matches(assembled.east_type, out):
-        entry = "East.asyncFunction" if is_async else "East.function"
         raise ExpressionError(
             f"{entry} body produced {assembled.east_type.type}, declared out is {out.type}"
         )
@@ -270,6 +280,8 @@ class _PlatformFunction:
         self._east_is_async = is_async
         self._east_retrace = fn
         self._east_source_map = source_map
+        self.__name__ = getattr(fn, "__name__", "east_function")
+        self.__qualname__ = getattr(fn, "__qualname__", self.__name__)
 
     def __repr__(self) -> str:
         names = ", ".join(name for name, _a in self._east_platforms)
@@ -335,6 +347,11 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
     kernel_callable._east_platforms = ()
     kernel_callable._east_is_async = is_async
     kernel_callable._east_source_map = source_map
+    # A decorated `def` keeps its name: errors, reprs and the transpiler
+    # say `allocate`, not `kernel_callable`.
+    kernel_callable.__name__ = getattr(fn, "__name__", kernel_callable.__name__)
+    kernel_callable.__qualname__ = getattr(fn, "__qualname__", kernel_callable.__name__)
+    kernel_callable.__doc__ = getattr(fn, "__doc__", None)
     return kernel_callable
 
 
@@ -388,22 +405,34 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
     return _assemble(body, ir_value, out, types, fn_binds, is_async, source_map)
 
 
-def function(param_types: list[EastType], out: EastType, body: Any, *,
+def function(param_types: list[EastType], out: EastType, body: Any = None, *,
              cse: bool = True) -> Any:
     """Build an East function from a python body — the strict expression
     builder, mirroring the TypeScript ``East.function`` (#625).
 
-    ``body`` receives one typed expression per parameter and runs ONCE, at
-    definition time; the statements it appends (``East.let`` / ``East.if_``
-    / ``East.for_`` / ``East.return_`` … — ``east.expression.statements``)
-    and the expression it returns are the function's whole behavior.
-    Anything East cannot express raises immediately — there is no purity
-    gate and no per-element python fallback. The built IR is analyzed
-    (``east.ir.analyze``) exactly as the TypeScript compiler analyzes it
-    before it compiles.
+    ``body`` runs ONCE, at definition time, over one typed expression per
+    parameter. A body that declares one MORE parameter than the function
+    has receives the statement block first — python's ``$``
+    (:class:`~east.expression.statements.Block`)::
 
-    Spelled INSIDE another body, ``East.function`` builds the inline
-    Function node as a Function-typed expression instead of an artifact.
+        @East.function([IntegerType], StringType)
+        def classify(b, n):
+            acc = b.let(0)
+            b.if_(n > 10, lambda b: b.assign(acc, 1))
+            return East.if_else(acc == 1, "big", "small")
+
+        East.function([IntegerType], IntegerType, lambda x: x + 1)   # no block
+
+    The statements it appends and the expression it returns are the
+    function's whole behavior. Anything East cannot express raises
+    immediately — there is no purity gate and no per-element python
+    fallback. The built IR is analyzed (``east.ir.analyze``) exactly as the
+    TypeScript compiler analyzes it before it compiles.
+
+    With ``body`` omitted the call returns a DECORATOR (the two spellings
+    build the same artifact; the decorated ``def`` keeps its name). Spelled
+    INSIDE another body, ``East.function`` builds the inline Function node
+    as a Function-typed expression instead of an artifact.
 
     Args:
         param_types: The parameter East types, in order (``[]`` for a
@@ -414,7 +443,8 @@ def function(param_types: list[EastType], out: EastType, body: Any, *,
             naming both types. The declared type also types the root
             expression, so a body may return a general ``variant(case, …)``
             or an ``if_else`` over variant arms (#541).
-        body: The python callable to capture.
+        body: The python callable to capture — ``fn(*params)`` or
+            ``fn(b, *params)``; omit it to use the result as a decorator.
         cse: Keep the trace-time common-subexpression pass (a python
             expression object referenced twice binds to one ``Let``; a
             callback invariant hoists out of the callback). ``cse=False``
@@ -441,12 +471,17 @@ def function(param_types: list[EastType], out: EastType, body: Any, *,
         TypeError: If ``param_types`` is not a list of East types, ``out`` is
             missing or not an East type, or ``body`` is not callable.
         ExpressionError: If the body performs an operation with no East
-            spelling, or its built expression type differs from ``out``.
+            spelling, declares a parameter count that is neither the
+            function's nor one more, or its built expression type differs
+            from ``out``.
     """
+    if body is None:
+        return lambda fn: _build(param_types, out, fn, is_async=False,
+                                 entry="East.function", cse=cse)
     return _build(param_types, out, body, is_async=False, entry="East.function", cse=cse)
 
 
-def async_function(param_types: list[EastType], out: EastType, body: Any, *,
+def async_function(param_types: list[EastType], out: EastType, body: Any = None, *,
                    cse: bool = True) -> Any:
     """Build an East ASYNC function — the ``East.asyncFunction`` twin of
     :func:`function`, for bodies that call ``East.asyncPlatform`` declarations.
@@ -460,8 +495,10 @@ def async_function(param_types: list[EastType], out: EastType, body: Any, *,
     Args:
         param_types: The parameter East types, in order.
         out: The declared output East type (required and enforced).
-        body: The python callable to capture — it still runs once,
-            synchronously, at build time; only the COMPILED artifact is async.
+        body: The python callable to capture (``fn(*params)`` or ``fn(b,
+            *params)``; omit it for the decorator form) — it still runs
+            once, synchronously, at build time; only the COMPILED artifact
+            is async.
         cse: As for :func:`function`.
 
     Returns:
@@ -475,6 +512,9 @@ def async_function(param_types: list[EastType], out: EastType, body: Any, *,
         ExpressionError: If the body is untraceable or its type differs
             from ``out``.
     """
+    if body is None:
+        return lambda fn: _build(param_types, out, fn, is_async=True,
+                                 entry="East.asyncFunction", cse=cse)
     return _build(param_types, out, body, is_async=True, entry="East.asyncFunction", cse=cse)
 
 

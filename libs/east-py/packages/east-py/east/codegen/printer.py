@@ -6,31 +6,35 @@
 
 The printer walks an IR value and writes a python module whose
 ``East.function(...)`` rebuilds the same IR. Its spellings are the
-statement surface's (``east.expression.statements``) and the builtin
-table's (``east.codegen.spellings``):
+statement surface's (``east.expression.statements`` — the block ``b`` a
+body receives, python's ``$``) and the builtin table's
+(``east.codegen.spellings``):
 
-- a Function/AsyncFunction is a ``def _fN(params)`` handed to
-  ``East.function([types], out, _fN, cse=False)`` (nested functions are
-  expressions of the enclosing body, as in TypeScript);
+- a Function/AsyncFunction is a decorated ``def`` taking the block first —
+  ``@East.function([types], out) def _fN(b, params)`` (the root carries
+  ``cse=False``); nested functions are expressions of the enclosing body,
+  as in TypeScript;
 - a Block is that def's statements; the block's last node prints as
   ``return <expr>`` when it is an expression, or as the statement it is;
-- Let/Assign/Return/Break/Continue, a Null-typed IfElse/Match/While/For/
-  TryCatch, print as statements (``East.let``, ``East.if_(...).else_if(...)
-  .else_(...)``, …) whose bodies are ``def _bN(...)`` helpers defined just
-  before the statement that uses them;
+- Let/Assign/Return/Break/Continue/Error, a Null-typed IfElse/Match/While/
+  For/TryCatch, print as ``b.let`` / ``b.assign`` / ``b.if_(...).else_if(...)
+  .else_(...)`` / … whose bodies are ``lambda b, …: <one statement>`` when
+  they hold one statement and ``def _bN(b, …)`` helpers defined just before
+  the statement that uses them otherwise;
 - every other node prints as an expression: literals as python literals,
   Struct/Variant/NewArray/… through ``East.value(..., T)`` and the
   ``East.new_*`` constructors, an expression IfElse/Match/TryCatch through
   ``East.if_else`` / ``.match({...})`` / ``East.try_catch``, a Builtin
-  through its spelling row (callbacks as lambdas, or defs when they hold
-  statements) or the raw ``East.builtin(name, [T...], [args], out)``.
+  through its spelling row (callbacks as lambdas, or ``def _bN(b, …)``
+  helpers when they hold statements) or the raw ``East.builtin(name, [T...],
+  [args], out)``.
 
 Variables keep their IR names when they are python identifiers (the
-TypeScript ``_N``s are); anything else is renamed ``v_N``. Types are
-hoisted to module constants ``_tN`` (deduplicated structurally), platform
-declarations to ``_pN`` (one per distinct signature). Deep expression
-nesting is broken with ``_eN = <expr>`` temporaries, so any IR width or
-depth prints to parseable python.
+TypeScript ``_N``s are); anything else is renamed ``v_N``; ``b`` is
+reserved for the block. Types are hoisted to module constants ``_tN``
+(deduplicated structurally), platform declarations to ``_pN`` (one per
+distinct signature). Deep expression nesting is broken with ``_eN =
+<expr>`` temporaries, so any IR width or depth prints to parseable python.
 """
 
 from __future__ import annotations
@@ -57,10 +61,16 @@ _STATEMENT_KINDS = frozenset({
     "Let", "Assign", "Return", "Break", "Continue", "While", "ForArray", "ForSet", "ForDict",
 })
 _MAX_DEPTH = 24
+#: The block parameter every statement-bearing body declares first.
+_BLOCK = "b"
 
 
 def _ident(name: str) -> bool:
     return name.isidentifier() and not keyword.iskeyword(name)
+
+
+def _is_null_value(node: Any) -> bool:
+    return node.type == "Value" and node.value["type"].type == "Null"
 
 
 def _pyliteral(value: Any) -> str:
@@ -96,7 +106,7 @@ class _Scope:
     def __init__(self, parent: _Scope | None) -> None:
         self.names: dict[str, str] = {}
         self.parent = parent
-        self.used: set[str] = set(parent.used) if parent else set()
+        self.used: set[str] = set(parent.used) if parent else {_BLOCK}
 
     def lookup(self, ir_name: str) -> str | None:
         scope: _Scope | None = self
@@ -106,6 +116,14 @@ class _Scope:
                 return hit
             scope = scope.parent
         return None
+
+
+def _has_statements(body: Any) -> bool:
+    """Whether a function-mode body needs a block: a Block, a statement
+    node, or a statement-typed branch/loop/try at the root."""
+    return body.type == "Block" or body.type in _STATEMENT_KINDS or body.type == "Error" or (
+        body.type in ("IfElse", "Match", "TryCatch") and body.value["type"].type in ("Null", "Never")
+    )
 
 
 class _Printer:
@@ -181,52 +199,83 @@ class _Printer:
         scope.used.add(py)
         return py
 
-    def function_def(self, node: Any, scope: _Scope, name: str) -> list[str]:
-        """The ``def`` lines of a Function/AsyncFunction node."""
-        p = node.value
-        inner = _Scope(scope)
-        params = [self.bind(inner, v) for v in p["parameters"]]
-        body = self.body_lines(p["body"], inner)
-        return [f"def {name}({', '.join(params)}):", *["    " + ln for ln in body]]
-
-    def function_expr(self, node: Any, scope: _Scope, pre: list[str]) -> str:
-        """A nested Function as an expression: its def goes to ``pre``."""
-        name = self.fresh_helper("f")
-        pre.extend(self.function_def(node, scope, name))
+    def function_def(self, node: Any, scope: _Scope, name: str, *,
+                     consts: list | None = None, root: bool = False) -> list[str]:
+        """The decorated ``def name(b, params)`` lines of a Function /
+        AsyncFunction node; ``consts`` are hoisted Lets printed first as the
+        body's own bindings (a python artifact's captured constants)."""
         p = node.value
         fn_t = p["type"]
-        inputs = ", ".join(self.type_ref(t) for t in fn_t.value["inputs"])
+        inner = _Scope(scope)
+        params = [self.bind(inner, v) for v in p["parameters"]]
+        body: list[str] = []
+        for let in consts or []:
+            if let.type != "Let":
+                raise Unprintable(f"{let.type} before the root function")
+            body.extend(self.statement_lines(let, inner, last=False))
+        body.extend(self.body_lines(p["body"], inner, mode="function"))
         ctor = "East.asyncFunction" if node.type == "AsyncFunction" else "East.function"
-        return f"{ctor}([{inputs}], {self.type_ref(fn_t.value['output'])}, {name})"
+        inputs = ", ".join(self.type_ref(t) for t in fn_t.value["inputs"])
+        out = self.type_ref(fn_t.value["output"])
+        return [
+            f"@{ctor}([{inputs}], {out}{', cse=False' if root else ''})",
+            f"def {name}({', '.join([_BLOCK, *params])}):",
+            *["    " + ln for ln in body],
+        ]
 
-    def body_lines(self, body: Any, scope: _Scope) -> list[str]:
-        """The statements of a function body (a Block, or one node)."""
+    def function_expr(self, node: Any, scope: _Scope, pre: list[str]) -> str:
+        """A nested Function as an expression: its decorated def goes to
+        ``pre``; the expression is its name."""
+        name = self.fresh_helper("f")
+        pre.extend(self.function_def(node, scope, name))
+        return name
+
+    def body_lines(self, body: Any, scope: _Scope, *, mode: str) -> list[str]:
+        """The statements of a body (a Block, or one node).
+
+        ``mode`` is ``"function"`` (an ``East.function`` / callback /
+        ``East.block`` body: the last expression is ``return``ed) or
+        ``"null"`` (a branch, loop, case, try, catch or finally body: the
+        assembler pads a trailing non-Null statement with ``null``, so a
+        trailing ``Value null`` after one is not printed — rebuilding
+        restores it)."""
         nodes = list(body.value["statements"]) if body.type == "Block" else [body]
+        if mode == "null" and len(nodes) > 1 and _is_null_value(nodes[-1]) \
+                and nodes[-2].value["type"].type != "Null":
+            nodes.pop()
         lines: list[str] = []
         for i, node in enumerate(nodes):
-            last = i == len(nodes) - 1
-            lines.extend(self.statement_lines(node, scope, last))
+            lines.extend(self.statement_lines(node, scope, last=i == len(nodes) - 1))
         if not lines:
             lines.append("pass")
         return lines
 
-    def block_helper(self, body: Any, scope: _Scope, params: list[Any], pre: list[str],
-                     label: str | None = None, extra: tuple[str, ...] = ()) -> str:
-        """A branch/loop/handler body as ``def _bN(...)``; returns its name."""
-        name = self.fresh_helper("b")
+    def body_arg(self, body: Any, scope: _Scope, params: list[Any], pre: list[str],
+                 label: str | None = None) -> str:
+        """A branch/loop/handler body as the argument of its statement:
+        ``lambda b, …: <statement>`` when it is one statement, else the
+        name of a ``def _bN(b, …)`` helper appended to ``pre``."""
         inner = _Scope(scope)
-        names = [self.bind(inner, v) for v in params]
+        names = [_BLOCK, *(self.bind(inner, v) for v in params)]
         if label is not None:
-            lbl = self.fresh_label(inner, label)
-            names.append(lbl)
-        names.extend(extra)
-        lines = self.body_lines(body, inner)
+            names.append(self.fresh_label(inner, label))
+        lines = self.body_lines(body, inner, mode="null")
+        if lines == ["pass"]:
+            return f"lambda {', '.join(names)}: None"
+        if len(lines) == 1 and lines[0].startswith((f"{_BLOCK}.", "return ")):
+            # One statement call, or one expression: a lambda. (A `x =
+            # b.let(...)` line is an assignment and needs the def.)
+            text = lines[0]
+            if text.startswith("return "):
+                text = text[len("return "):]
+            return f"lambda {', '.join(names)}: {text}"
+        name = self.fresh_helper("b")
         pre.append(f"def {name}({', '.join(names)}):")
         pre.extend("    " + ln for ln in lines)
         return name
 
     def fresh_label(self, scope: _Scope, ir_label: str) -> str:
-        py = f"lbl_{ir_label}" if _ident(f"lbl_{ir_label}") else "lbl"
+        py = "label"
         n = 0
         base = py
         while py in scope.used:
@@ -244,7 +293,7 @@ class _Printer:
 
     # ── statements ───────────────────────────────────────────────────────
 
-    def statement_lines(self, node: Any, scope: _Scope, last: bool) -> list[str]:
+    def statement_lines(self, node: Any, scope: _Scope, *, last: bool) -> list[str]:
         kind = node.type
         p = node.value
         pre: list[str] = []
@@ -252,29 +301,31 @@ class _Printer:
             value = self.expr(p["value"], scope, pre)
             var_t = p["variable"].value["type"]
             py = self.bind(scope, p["variable"])
-            ctor = "East.let" if p["variable"].value["mutable"] else "East.const"
+            ctor = f"{_BLOCK}.let" if p["variable"].value["mutable"] else f"{_BLOCK}.const"
             typed = "" if type_key(var_t) == type_key(p["value"].value["type"]) \
                 else f", {self.type_ref(var_t)}"
             return [*pre, f"{py} = {ctor}({value}{typed})"]
         if kind == "Assign":
             value = self.expr(p["value"], scope, pre)
-            return [*pre, f"East.assign({self.var_ref(p['variable'], scope)}, {value})"]
+            return [*pre, f"{_BLOCK}.assign({self.var_ref(p['variable'], scope)}, {value})"]
         if kind == "Return":
             value = self.expr(p["value"], scope, pre)
-            return [*pre, f"East.return_({value})"]
+            return [*pre, f"{_BLOCK}.return_({value})"]
         if kind in ("Break", "Continue"):
-            fn = "East.break_" if kind == "Break" else "East.continue_"
+            fn = f"{_BLOCK}.break_" if kind == "Break" else f"{_BLOCK}.continue_"
             return [f"{fn}({self.label_ref(scope, p['label']['name'])})"]
+        if kind == "Error":
+            return [*pre, f"{_BLOCK}.error({self.expr(p['message'], scope, pre)})"]
         if kind == "While":
             pred = self.expr(p["predicate"], scope, pre)
-            helper = self.block_helper(p["body"], scope, [], pre, label=p["label"]["name"])
-            return [*pre, f"East.while_({pred}, {helper})"]
+            body = self.body_arg(p["body"], scope, [], pre, label=p["label"]["name"])
+            return [*pre, f"{_BLOCK}.while_({pred}, {body})"]
         if kind in ("ForArray", "ForSet", "ForDict"):
             src = {"ForArray": "array", "ForSet": "set", "ForDict": "dict"}[kind]
             coll = self.expr(p[src], scope, pre)
             params = [p["key"]] if kind == "ForSet" else [p["value"], p["key"]]
-            helper = self.block_helper(p["body"], scope, params, pre, label=p["label"]["name"])
-            return [*pre, f"East.for_({coll}, {helper})"]
+            body = self.body_arg(p["body"], scope, params, pre, label=p["label"]["name"])
+            return [*pre, f"{_BLOCK}.for_({coll}, {body})"]
         if kind == "IfElse" and p["type"].type in ("Null", "Never"):
             lines = self.if_statement(node, scope, pre)
             return [*pre, *lines]
@@ -286,24 +337,23 @@ class _Printer:
             return [*pre, *lines]
         # an expression in statement position
         if last:
-            if kind == "Value" and p["type"].type == "Null":
+            if _is_null_value(node):
                 return ["return east_null"]
             value = self.expr(node, scope, pre)
             return [*pre, f"return {value}"]
         value = self.expr(node, scope, pre)
-        return [*pre, f"East.do({value})"]
+        return [*pre, f"{_BLOCK}.do({value})"]
 
     def if_statement(self, node: Any, scope: _Scope, pre: list[str]) -> list[str]:
         p = node.value
         parts: list[str] = []
         for i, case in enumerate(p["ifs"]):
             pred = self.expr(case["predicate"], scope, pre)
-            helper = self.block_helper(case["body"], scope, [], pre)
-            parts.append(f"{'East.if_' if i == 0 else '.else_if'}({pred}, {helper})")
+            body = self.body_arg(case["body"], scope, [], pre)
+            parts.append(f"{f'{_BLOCK}.if_' if i == 0 else '.else_if'}({pred}, {body})")
         else_body = p["else_body"]
-        if not (else_body.type == "Value" and else_body.value["type"].type == "Null"):
-            helper = self.block_helper(else_body, scope, [], pre)
-            parts.append(f".else_({helper})")
+        if not _is_null_value(else_body):
+            parts.append(f".else_({self.body_arg(else_body, scope, [], pre)})")
         return ["".join(parts)]
 
     def match_statement(self, node: Any, scope: _Scope, pre: list[str]) -> list[str]:
@@ -312,22 +362,20 @@ class _Printer:
         arms = []
         for case in p["cases"]:
             body = case["body"]
-            if body.type == "Value" and body.value["type"].type == "Null":
+            if _is_null_value(body):
                 continue
-            helper = self.block_helper(body, scope, [case["variable"]], pre)
-            arms.append(f"{case['case']!r}: {helper}")
-        return [f"East.match_({subject}, {{{', '.join(arms)}}})"]
+            arms.append(f"{case['case']!r}: {self.body_arg(body, scope, [case['variable']], pre)}")
+        return [f"{_BLOCK}.match_({subject}, {{{', '.join(arms)}}})"]
 
     def try_statement(self, node: Any, scope: _Scope, pre: list[str]) -> list[str]:
         p = node.value
-        text = f"East.try_({self.block_helper(p['try_body'], scope, [], pre)})"
+        text = f"{_BLOCK}.try_({self.body_arg(p['try_body'], scope, [], pre)})"
         catch = p["catch_body"]
-        if not (catch.type == "Value" and catch.value["type"].type == "Null"):
-            helper = self.block_helper(catch, scope, [p["message"], p["stack"]], pre)
-            text += f".catch({helper})"
+        if not _is_null_value(catch):
+            text += f".catch({self.body_arg(catch, scope, [p['message'], p['stack']], pre)})"
         fin = p["finally_body"]
-        if not (fin.type == "Value" and fin.value["type"].type == "Null"):
-            text += f".finally_({self.block_helper(fin, scope, [], pre)})"
+        if not _is_null_value(fin):
+            text += f".finally_({self.body_arg(fin, scope, [], pre)})"
         return [text]
 
     # ── expressions ──────────────────────────────────────────────────────
@@ -373,7 +421,8 @@ class _Printer:
         if kind in ("Call", "CallAsync"):
             fn = self.expr(p["function"], scope, pre, d)
             args = ", ".join(self.expr(a, scope, pre, d) for a in p["arguments"])
-            if p["function"].type not in ("Variable", "GetField", "Call", "CallAsync"):
+            if p["function"].type not in ("Variable", "GetField", "Call", "CallAsync", "Function",
+                                          "AsyncFunction"):
                 fn = f"({fn})"
             return f"{fn}({args})"
         if kind == "GetField":
@@ -427,18 +476,18 @@ class _Printer:
             subject = self.expr(p["variant"], scope, pre, d)
             arms = []
             for case in p["cases"]:
-                arms.append(f"{case['case']!r}: {self.callback_expr(case['body'], [case['variable']], scope, pre)}")
+                arms.append(f"{case['case']!r}: {self.expr_callback(case['body'], [case['variable']], scope, pre)}")
             return f"{subject}.match({{{', '.join(arms)}}})"
         if kind == "TryCatch":
-            body = self.callback_expr(p["try_body"], [], scope, pre)
-            handler = self.callback_expr(p["catch_body"], [p["message"], p["stack"]], scope, pre)
+            body = self.expr_callback(p["try_body"], [], scope, pre)
+            handler = self.expr_callback(p["catch_body"], [p["message"], p["stack"]], scope, pre)
             fin = p["finally_body"]
             text = f"East.try_catch({body}, {handler}"
-            if not (fin.type == "Value" and fin.value["type"].type == "Null"):
-                text += f", {self.callback_expr(fin, [], scope, pre)}"
+            if not _is_null_value(fin):
+                text += f", {self.expr_callback(fin, [], scope, pre)}"
             return text + ")"
         if kind == "Block":
-            return f"East.block({self.callback_expr(node, [], scope, pre)})"
+            return self.block_expr(node, scope, pre)
         if kind in _STATEMENT_KINDS:
             raise Unprintable(f"{kind} node in expression position")
         raise Unprintable(f"unknown node kind {kind}")
@@ -456,28 +505,58 @@ class _Printer:
         return self.expr(node, scope, pre, depth)
 
     def arm_expr(self, body: Any, scope: _Scope, pre: list[str], depth: int) -> str:
-        """An if_else arm: an expression, or a Block as ``East.block(def)``."""
+        """An if_else arm: an expression, or a Block as ``East.block(...)``."""
         if body.type == "Block":
-            return f"East.block({self.callback_expr(body, [], scope, pre)})"
+            return self.block_expr(body, scope, pre)
         return self.expr(body, scope, pre, depth)
+
+    def block_expr(self, body: Any, scope: _Scope, pre: list[str]) -> str:
+        """A Block in expression position: ``East.block(lambda b: …)`` /
+        ``East.block(_bN)`` — the body receives the block first."""
+        inner = _Scope(scope)
+        lines = self.body_lines(body, inner, mode="function")
+        if len(lines) == 1 and lines[0].startswith("return "):
+            return f"East.block(lambda {_BLOCK}: {lines[0][len('return '):]})"
+        name = self.fresh_helper("b")
+        pre.append(f"def {name}({_BLOCK}):")
+        pre.extend("    " + ln for ln in lines)
+        return f"East.block({name})"
+
+    def expr_callback(self, body: Any, params: list[Any], scope: _Scope, pre: list[str]) -> str:
+        """A handler of an EXPRESSION form (a ``.match({...})`` arm, an
+        ``East.try_catch`` body): it receives no block, so a body holding
+        statements is ``lambda params: East.block(...)``."""
+        inner = _Scope(scope)
+        names = [self.bind(inner, v) for v in params]
+        names = [n if i == 0 else f"{n}=None" for i, n in enumerate(names)]
+        if _has_statements(body):
+            return f"lambda {', '.join(names)}: {self.block_expr(body, inner, pre)}"
+        sub: list[str] = []
+        text = self.expr(body, inner, sub)
+        if not sub:
+            return f"lambda {', '.join(names)}: {text}"
+        name = self.fresh_helper("b")
+        pre.append(f"def {name}({', '.join(names)}):")
+        pre.extend("    " + ln for ln in sub)
+        pre.append(f"    return {text}")
+        return name
 
     def callback_expr(self, body: Any, params: list[Any], scope: _Scope, pre: list[str],
                       order: list[int] | None = None) -> str:
         """A callback: ``lambda params: expr`` when the body is one
-        expression, else a ``def`` helper. ``order`` permutes the declared
+        expression, else a ``def _bN(b, params)`` helper — the block first,
+        so the traced twin hands it one. ``order`` permutes the declared
         parameters into the python surface's order (a ``dict_kv`` slot)."""
         inner = _Scope(scope)
         names = [self.bind(inner, v) for v in params]
         if order is not None:
             names = [names[i] for i in order]
-        # Trailing parameters default to None: a python method may call the
-        # callback with fewer arguments than the builtin declares (an index
-        # it does not pass), and the traced Function node still declares the
-        # builtin's full signature.
-        names = [n if i == 0 else f"{n}=None" for i, n in enumerate(names)]
-        if body.type != "Block" and body.type not in _STATEMENT_KINDS and not (
-            body.type in ("IfElse", "Match", "TryCatch") and body.value["type"].type in ("Null", "Never")
-        ):
+        if not _has_statements(body):
+            # Trailing parameters default to None: a python method may call
+            # the callback with fewer arguments than the builtin declares (an
+            # index it does not pass), and the traced Function node still
+            # declares the builtin's full signature.
+            names = [n if i == 0 else f"{n}=None" for i, n in enumerate(names)]
             sub: list[str] = []
             text = self.expr(body, inner, sub)
             if not sub:
@@ -489,8 +568,8 @@ class _Printer:
             pre.append(f"    return {text}")
             return name
         name = self.fresh_helper("b")
-        lines = self.body_lines(body, inner)
-        pre.append(f"def {name}({', '.join(names)}):")
+        lines = self.body_lines(body, inner, mode="function")
+        pre.append(f"def {name}({', '.join([_BLOCK, *names])}):")
         pre.extend("    " + ln for ln in lines)
         return name
 
@@ -538,6 +617,12 @@ class _Printer:
         params = list(fp["parameters"])
         if adapter == "cb":
             return self.callback_expr(fp["body"], params, scope, pre)
+        if _has_statements(fp["body"]):
+            # A statement-bearing callback receives the block only when it
+            # declares the builtin's FULL signature first — which the
+            # trimming/reordering adapters do not spell; the raw builtin
+            # form (a nested East.function) always does.
+            return None
         if adapter == "dict_kv":
             if len(params) != 2:
                 return None
@@ -554,7 +639,7 @@ class _Printer:
             if self.mentions(fp["body"], [v.value["name"] for v in params]):
                 return None
             if adapter == "value":
-                return self.expr(fp["body"], scope, pre) if fp["body"].type != "Block" else None
+                return self.expr(fp["body"], scope, pre)
             return self.callback_expr(fp["body"], [], scope, pre)
         return None
 
@@ -595,22 +680,8 @@ class _Printer:
             root = stmts[-1]
         if root.type not in ("Function", "AsyncFunction"):
             raise Unprintable(f"the root must be a Function or AsyncFunction, got {root.type}")
-        scope = _Scope(None)
-        p = root.value
-        fn_t = p["type"]
-        inner = _Scope(scope)
-        params = [self.bind(inner, v) for v in p["parameters"]]
-        body: list[str] = []
-        for let in consts:
-            # A python artifact's hoisted constants become the body's consts.
-            if let.type != "Let":
-                raise Unprintable(f"{let.type} before the root function")
-            body.extend(self.statement_lines(let, inner, False))
-        body.extend(self.body_lines(p["body"], inner))
-        ctor = "East.asyncFunction" if root.type == "AsyncFunction" else "East.function"
-        inputs = ", ".join(self.type_ref(t) for t in fn_t.value["inputs"])
-        out = self.type_ref(fn_t.value["output"])
-        fn_name = f"_{self.root_name}"
+        # A python artifact's hoisted constants become the body's consts.
+        fn_lines = self.function_def(root, _Scope(None), self.root_name, consts=consts, root=True)
         lines = [
             "# Generated by east-py transpile — East IR printed as the East.function",
             "# builder surface. Rebuilding this module yields the same IR (normalized).",
@@ -630,10 +701,7 @@ class _Printer:
         lines.extend(self.platform_decls)
         if self.platform_decls:
             lines.append("")
-        lines.append(f"def {fn_name}({', '.join(params)}):")
-        lines.extend("    " + ln for ln in body)
-        lines.append("")
-        lines.append(f"{self.root_name} = {ctor}([{inputs}], {out}, {fn_name}, cse=False)")
+        lines.extend(fn_lines)
         lines.append("")
         return "\n".join(lines)
 
@@ -654,13 +722,13 @@ def to_python_source(fn_or_ir: Any, *, name: str | None = None) -> str:
         fn_or_ir: A built ``East.function`` / ``East.asyncFunction`` artifact,
             or a homoiconic IR value (a Function/AsyncFunction node, or the
             ``Block[Let…, Function]`` a build with hoisted constants emits —
-            its constants become the body's first ``East.const``s).
+            its constants become the body's first ``b.const``s).
         name: The module-level name bound to the rebuilt function
             (default ``"main"``).
 
     Returns:
         The module source. Importing it (or ``exec``-ing it) binds ``name``
-        to an ``East.function`` built with ``cse=False``, whose IR
+        to a ``@East.function(..., cse=False)``-decorated def, whose IR
         normalizes equal to the input's (``east-c ir normalize``).
 
     Raises:

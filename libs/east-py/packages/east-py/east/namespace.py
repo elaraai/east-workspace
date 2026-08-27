@@ -65,16 +65,7 @@ from east.expression.platform import (
 from east.expression.platform import (
     platform as _platform,
 )
-from east.expression.statements import (
-    assign,
-    const,
-    do,
-    error,
-    if_,
-    match_,
-    return_,
-    try_,
-)
+from east.expression.statements import error
 from east.types.types import (
     ArrayType,
     BlobType,
@@ -1541,17 +1532,10 @@ class _East:
     compile = staticmethod(_compile)
     compileAsync = staticmethod(_compile_async)  # noqa: N815 — TS parity name
 
-    # ── the statement surface (east/expression/statements.py) ────────────
-    # Python's twin of the TypeScript `$` builder: statements append to the
-    # innermost open body. `let`/`while_`/`for_`/`block`/`break_`/`continue_`
-    # below dispatch between their statement and expression forms.
-    const = staticmethod(const)
-    assign = staticmethod(assign)
-    return_ = staticmethod(return_)
-    if_ = staticmethod(if_)
-    match_ = staticmethod(match_)
-    try_ = staticmethod(try_)
-    do = staticmethod(do)
+    # The STATEMENT surface — python's twin of the TypeScript `$` builder —
+    # is the Block a body receives as its first parameter (`b.let`, `b.if_`,
+    # `b.for_`, … — east/expression/statements.py); nothing here is a
+    # statement. `East.error` is the Never-typed error EXPRESSION.
     error = staticmethod(error)
     # expression-level spellings every IR node kind needs (TS parity names)
     value = staticmethod(value)

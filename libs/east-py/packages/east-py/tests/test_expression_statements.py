@@ -9,8 +9,9 @@ builds, how the TypeScript builder's assembly and typing rules apply
 (``Let``/``Assign`` are Null, ``Return``/``Break``/``Continue``/``Error``
 are Never, a branch pads to Null, a body's returned value is its last
 statement, an all-diverging chain is Never, a statement after a diverging
-one is unreachable), and that every built program still executes. What
-the builtins COMPUTE is the compliance corpus's business.
+one is unreachable), who receives the block and what a misused block
+raises, and that every built program still executes. What the builtins
+COMPUTE is the compliance corpus's business.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from east import (
     none,
     some,
 )
-from east.expression import ExpressionError
+from east.expression import Block, ExpressionError
 from east.types.types import recursive_type
 
 
@@ -53,21 +54,112 @@ def kinds(node):
     return [s.type for s in stmts(node)]
 
 
+# ── who receives the block ───────────────────────────────────────────────────
+
+
+def test_a_body_declaring_one_more_parameter_receives_the_block():
+    seen = []
+
+    def body(b, x):
+        seen.append(b)
+        return x + 1
+
+    built = East.function([IntegerType], IntegerType, body)
+    assert isinstance(seen[0], Block)
+    assert built(1) == 2
+    plain = East.function([IntegerType], IntegerType, lambda x: x + 1)  # no block: as always
+    assert plain(1) == 2
+
+
+def test_the_decorator_form_builds_the_same_artifact_and_keeps_the_name():
+    @East.function([IntegerType], IntegerType)
+    def double(b, x):
+        y = b.let(x)
+        b.assign(y, y * 2)
+        return y
+
+    assert double.__name__ == "double"
+    assert double(4) == 8
+    assert kinds(body_of(double)) == ["Let", "Assign", "Variable"]
+
+    @East.asyncFunction([], IntegerType)
+    def seven(b):
+        b.return_(7)
+
+    assert seven._east_is_async and seven.__name__ == "seven"
+
+
+def test_a_body_with_the_wrong_parameter_count_is_named():
+    with pytest.raises(ExpressionError, match=r"declares 3 parameter\(s\) — it takes 1 .* or 2"):
+        East.function([IntegerType], IntegerType, lambda a, b, c: a)
+
+
+def test_a_statement_on_an_outer_block_inside_a_nested_body_raises():
+    def body(b, x):
+        b.if_(x > 0, lambda _inner: b.assign(b.let(1), 2))  # the OUTER b
+        return x
+
+    with pytest.raises(ExpressionError, match="OUTER block while a nested body is open"):
+        East.function([IntegerType], IntegerType, body)
+
+
+def test_a_statement_on_a_closed_block_raises():
+    kept = []
+
+    def body(b, x):
+        def arm(b):
+            kept.append(b)
+
+        b.if_(x > 0, arm)
+        kept[0].let(1)  # the arm's block, after the arm returned
+
+    with pytest.raises(ExpressionError, match="body has already returned"):
+        East.function([IntegerType], IntegerType, body)
+
+
+def test_a_callback_declaring_the_full_signature_plus_one_receives_the_block():
+    def body(xs):
+        def step(b, v, i):
+            t = b.let(v * 2)
+            b.if_(i == 0, lambda b: b.assign(t, 0))
+            return t
+
+        return xs.map(step)
+
+    built = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), body)
+    cb = body_of(built).value["arguments"][1]
+    assert cb.type == "Function" and kinds(cb.value["body"]) == ["Let", "IfElse", "Variable"]
+    assert list(built([5, 6])) == [0, 12]
+
+
+def test_statements_inside_an_expression_form_are_spelled_east_block():
+    def body(b, v):
+        return v.match({
+            "some": lambda x: East.block(lambda b: (b.do(x + 1), x * 2)[1]),
+            "none": lambda _n: 0,
+        })
+
+    built = East.function([OptionType(IntegerType)], IntegerType, body)
+    arm = body_of(built).value["cases"][1]["body"]
+    assert arm.type == "Block" and kinds(arm) == ["Builtin", "Builtin"]
+    assert built(some(3)) == 6 and built(none) == 0
+
+
 # ── let / const / assign ─────────────────────────────────────────────────────
 
 
 def test_let_and_const_bind_variables_with_the_typescript_flags():
-    def body(x):
-        a = East.let(x + 1)
-        b = East.const(a * 2)
-        East.assign(a, b)
+    def body(b, x):
+        a = b.let(x + 1)
+        c = b.const(a * 2)
+        b.assign(a, c)
         return a
 
     built = East.function([IntegerType], IntegerType, body)
-    let_a, let_b, assign, ret = stmts(body_of(built))
+    let_a, let_c, assign, ret = stmts(body_of(built))
     assert let_a.type == "Let" and let_a.value["type"].type == "Null"
     assert let_a.value["variable"].value["mutable"] is True
-    assert let_b.value["variable"].value["mutable"] is False
+    assert let_c.value["variable"].value["mutable"] is False
     assert assign.type == "Assign" and assign.value["type"].type == "Null"
     assert ret.type == "Variable"
     assert built(4) == 10
@@ -75,19 +167,19 @@ def test_let_and_const_bind_variables_with_the_typescript_flags():
 
 def test_a_const_cannot_be_reassigned_and_types_are_checked():
     with pytest.raises(ExpressionError, match="defined as const"):
-        East.function([IntegerType], IntegerType, lambda x: East.assign(East.const(x), 1) or x)
+        East.function([IntegerType], IntegerType, lambda b, x: b.assign(b.const(x), 1) or x)
     with pytest.raises(ExpressionError, match="the variable holds Integer"):
-        East.function([IntegerType], IntegerType, lambda x: East.assign(East.let(x), "s") or x)
+        East.function([IntegerType], IntegerType, lambda b, x: b.assign(b.let(x), "s") or x)
     with pytest.raises(ExpressionError, match="Can only assign to a variable"):
-        East.function([IntegerType], IntegerType, lambda x: East.assign(x + 1, 2) or x)
+        East.function([IntegerType], IntegerType, lambda b, x: b.assign(x + 1, 2) or x)
 
 
 def test_a_typed_let_widens_its_value():
     opt = OptionType(IntegerType)
 
-    def body(x):
-        v = East.let(some(x), opt)  # a literal variant re-typed to the Option
-        w = East.let(v, opt)        # an expression of the exact type: no As
+    def body(b, x):
+        v = b.let(some(x), opt)  # a literal variant re-typed to the Option
+        w = b.let(v, opt)        # an expression of the exact type: no As
         return w
 
     built = East.function([IntegerType], opt, body)
@@ -102,8 +194,8 @@ def test_a_narrower_expression_under_a_typed_let_gets_an_as():
     narrow = VariantType([("some", IntegerType)])
     wide = OptionType(IntegerType)
 
-    def body(v):
-        w = East.let(v, wide)
+    def body(b, v):
+        w = b.let(v, wide)
         return w
 
     built = East.function([narrow], wide, body)
@@ -112,11 +204,20 @@ def test_a_narrower_expression_under_a_typed_let_gets_an_as():
     assert let_w.value["value"].value["type"] == wide
 
 
+def test_the_expression_forms_refuse_the_old_statement_spellings():
+    with pytest.raises(ExpressionError, match=r"b\.let\(value\[, type\]\)"):
+        East.function([IntegerType], IntegerType, lambda x: East.let(x))
+    with pytest.raises(ExpressionError, match=r"b\.while_\(predicate, body\)"):
+        East.function([IntegerType], IntegerType, lambda x: East.while_(True, lambda: None))
+    with pytest.raises(ExpressionError, match=r"b\.for_\(collection, body\)"):
+        East.function([ArrayType(IntegerType)], IntegerType, lambda xs: East.for_(xs, lambda: None))
+
+
 # ── return / do / unreachable ────────────────────────────────────────────────
 
 
 def test_return_is_never_typed_and_the_function_type_keeps_the_declared_output():
-    built = East.function([IntegerType], IntegerType, lambda x: East.return_(x + 1))
+    built = East.function([IntegerType], IntegerType, lambda b, x: b.return_(x + 1))
     body = body_of(built)
     assert body.type == "Return" and body.value["type"].type == "Never"
     assert built._east_ir.value["type"].value["output"] == IntegerType
@@ -124,10 +225,10 @@ def test_return_is_never_typed_and_the_function_type_keeps_the_declared_output()
 
 
 def test_do_then_return_of_the_same_expression_does_not_duplicate_it():
-    def body(x):
+    def body(b, x):
         y = x + 1
-        East.do(y)
-        East.return_(y)
+        b.do(y)
+        b.return_(y)
 
     built = East.function([IntegerType], IntegerType, body)
     assert body_of(built).type == "Return"
@@ -135,8 +236,8 @@ def test_do_then_return_of_the_same_expression_does_not_duplicate_it():
 
 
 def test_returned_value_already_last_statement_is_not_appended_twice():
-    def body(x):
-        y = East.do(x + 1)
+    def body(b, x):
+        y = b.do(x + 1)
         return y
 
     built = East.function([IntegerType], IntegerType, body)
@@ -144,9 +245,9 @@ def test_returned_value_already_last_statement_is_not_appended_twice():
 
 
 def test_a_statement_after_a_diverging_one_is_unreachable():
-    def body(x):
-        East.return_(x)
-        East.do(x + 1)
+    def body(b, x):
+        b.return_(x)
+        b.do(x + 1)
 
     with pytest.raises(ExpressionError, match="Unreachable statement detected"):
         East.function([IntegerType], IntegerType, body)
@@ -154,21 +255,18 @@ def test_a_statement_after_a_diverging_one_is_unreachable():
 
 def test_return_type_is_checked_against_the_declared_output():
     with pytest.raises(ExpressionError, match="the function returns Integer"):
-        East.function([IntegerType], IntegerType, lambda x: East.return_("s"))
-
-
-def test_statements_outside_a_body_raise():
-    with pytest.raises(ExpressionError, match="is a statement"):
-        East.let(1)
+        East.function([IntegerType], IntegerType, lambda b, x: b.return_("s"))
 
 
 # ── if_ / else_if / else_ ────────────────────────────────────────────────────
 
 
 def test_if_chain_shape_and_null_typing():
-    def body(x):
-        r = East.let("small")
-        East.if_(x > 10, lambda: East.assign(r, "big")).else_if(x > 5, lambda: East.assign(r, "mid")).else_(lambda: None)
+    def body(b, x):
+        r = b.let("small")
+        b.if_(x > 10, lambda b: b.assign(r, "big")) \
+            .else_if(x > 5, lambda b: b.assign(r, "mid")) \
+            .else_(lambda b: None)
         return r
 
     built = East.function([IntegerType], StringType, body)
@@ -181,8 +279,8 @@ def test_if_chain_shape_and_null_typing():
 
 
 def test_if_without_else_has_a_null_else_body_and_a_branch_pads_to_null():
-    def body(x):
-        East.if_(x > 0, lambda: x + 1)  # an Integer value: padded with null
+    def body(b, x):
+        b.if_(x > 0, lambda b: x + 1)  # an Integer value: padded with null
         return x
 
     built = East.function([IntegerType], IntegerType, body)
@@ -193,9 +291,19 @@ def test_if_without_else_has_a_null_else_body_and_a_branch_pads_to_null():
     assert ifelse.value["else_body"].type == "Value"
 
 
+def test_a_body_may_return_the_if_chain_itself():
+    def body(b, x):
+        r = b.let(0)
+        b.if_(x > 0, lambda b: b.if_(x > 5, lambda b: b.assign(r, 2)))  # returns the IfBuilder
+        return r
+
+    built = East.function([IntegerType], IntegerType, body)
+    assert built(7) == 2 and built(1) == 0
+
+
 def test_an_all_diverging_if_chain_is_never_and_ends_the_body():
-    def body(x):
-        East.if_(x > 0, lambda: East.return_("pos")).else_(lambda: East.return_("nonpos"))
+    def body(b, x):
+        b.if_(x > 0, lambda b: b.return_("pos")).else_(lambda b: b.return_("nonpos"))
 
     built = East.function([IntegerType], StringType, body)
     body_node = body_of(built)
@@ -205,7 +313,7 @@ def test_an_all_diverging_if_chain_is_never_and_ends_the_body():
 
 def test_if_predicate_must_be_boolean():
     with pytest.raises(ExpressionError, match="expected to have type Boolean"):
-        East.function([IntegerType], IntegerType, lambda x: East.if_(x, lambda: None) and x)
+        East.function([IntegerType], IntegerType, lambda b, x: b.if_(x, lambda b: None) and x)
 
 
 # ── match_ ───────────────────────────────────────────────────────────────────
@@ -214,9 +322,9 @@ def test_if_predicate_must_be_boolean():
 def test_match_statement_is_null_typed_with_null_bodies_for_missing_cases():
     opt = OptionType(IntegerType)
 
-    def body(v):
-        out = East.let(0)
-        East.match_(v, {"some": lambda x: East.assign(out, x)})
+    def body(b, v):
+        out = b.let(0)
+        b.match_(v, {"some": lambda b, x: b.assign(out, x)})
         return out
 
     built = East.function([opt], IntegerType, body)
@@ -230,23 +338,23 @@ def test_match_statement_is_null_typed_with_null_bodies_for_missing_cases():
 def test_match_statement_rejects_an_unknown_case():
     opt = OptionType(IntegerType)
     with pytest.raises(ExpressionError, match="has no case 'other'"):
-        East.function([opt], IntegerType, lambda v: East.match_(v, {"other": lambda x: None}) and 0)
+        East.function([opt], IntegerType, lambda b, v: b.match_(v, {"other": lambda b, x: None}) and 0)
 
 
 # ── while_ / for_ / break_ / continue_ ───────────────────────────────────────
 
 
 def test_while_statement_with_a_labelled_break():
-    def body(n):
-        i = East.let(0)
-        acc = East.let(0)
+    def body(b, n):
+        i = b.let(0)
+        acc = b.let(0)
 
-        def loop(label):
-            East.if_(i >= n, lambda: East.break_(label))
-            East.assign(acc, acc + i)
-            East.assign(i, i + 1)
+        def loop(b, label):
+            b.if_(i >= n, lambda b: b.break_(label))
+            b.assign(acc, acc + i)
+            b.assign(i, i + 1)
 
-        East.while_(True, loop)
+        b.while_(True, loop)
         return acc
 
     built = East.function([IntegerType], IntegerType, body)
@@ -259,75 +367,83 @@ def test_while_statement_with_a_labelled_break():
 
 
 def test_for_statement_over_array_set_and_dict():
-    def over_array(xs):
-        s = East.let(0)
-        East.for_(xs, lambda v, i, label: East.assign(s, s + v + i))
+    def over_array(b, xs):
+        s = b.let(0)
+        b.for_(xs, lambda b, v, i, label: b.assign(s, s + v + i))
         return s
 
-    def over_set(xs):
-        s = East.let(0)
-        East.for_(xs, lambda k: East.assign(s, s + k))
+    def over_set(b, xs):
+        s = b.let(0)
+        b.for_(xs, lambda b, k: b.assign(s, s + k))
         return s
 
-    def over_dict(d):
-        s = East.let(0)
-        East.for_(d, lambda v, k: East.assign(s, s + v))
+    def over_dict(b, d):
+        s = b.let(0)
+        b.for_(d, lambda b, v, k: b.assign(s, s + v))
         return s
 
     a = East.function([ArrayType(IntegerType)], IntegerType, over_array)
     assert stmts(body_of(a))[1].type == "ForArray"
     assert a([10, 20, 30]) == 63
-    b = East.function([SetType(IntegerType)], IntegerType, over_set)
-    assert stmts(body_of(b))[1].type == "ForSet"
-    assert b({1, 2, 3}) == 6
+    b_ = East.function([SetType(IntegerType)], IntegerType, over_set)
+    assert stmts(body_of(b_))[1].type == "ForSet"
+    assert b_({1, 2, 3}) == 6
     d = East.function([DictType(StringType, IntegerType)], IntegerType, over_dict)
     assert stmts(body_of(d))[1].type == "ForDict"
     assert d({"a": 1, "b": 2}) == 3
 
 
 def test_continue_statement_and_the_bare_jump_inside_a_statement_loop():
-    def body(xs):
-        s = East.let(0)
+    def body(b, xs):
+        s = b.let(0)
 
-        def step(v, i, label):
-            East.if_(v < 0, lambda: East.continue_(label))
-            East.assign(s, s + v)
+        def step(b, v, i, label):
+            b.if_(v < 0, lambda b: b.continue_(label))
+            b.assign(s, s + v)
 
-        East.for_(xs, step)
+        b.for_(xs, step)
         return s
 
     built = East.function([ArrayType(IntegerType)], IntegerType, body)
     assert built([1, -5, 2]) == 3
 
-    def bare(xs):
-        s = East.let(0)
+    def bare(b, xs):
+        s = b.let(0)
 
-        def step(v, i, label):
-            East.if_(v < 0, lambda: East.break_())  # the sugar's jump, resolved to this loop
-            East.assign(s, s + v)
+        def step(b, v, i, label):
+            b.if_(v < 0, lambda b: East.break_())  # the sugar's jump, resolved to this loop
+            b.assign(s, s + v)
 
-        East.for_(xs, step)
+        b.for_(xs, step)
         return s
 
     built = East.function([ArrayType(IntegerType)], IntegerType, bare)
     assert built([1, 2, -1, 5]) == 3
 
 
+def test_a_jump_needs_the_loops_label():
+    with pytest.raises(ExpressionError, match="takes the label the loop body received"):
+        East.function([IntegerType], IntegerType, lambda b, x: b.break_("outer") or x)
+    with pytest.raises(ExpressionError, match=r"b\.break_\(label\)"):
+        East.function([IntegerType], IntegerType,
+                      lambda b, x: b.while_(True, lambda b, label: East.break_(label)) or x)
+
+
 def test_for_over_a_scalar_raises():
     with pytest.raises(ExpressionError, match="only loop over arrays, sets and dictionaries"):
-        East.function([IntegerType], IntegerType, lambda x: East.for_(x, lambda v: None) and x)
+        East.function([IntegerType], IntegerType, lambda b, x: b.for_(x, lambda b, v: None) and x)
 
 
 # ── try_ ─────────────────────────────────────────────────────────────────────
 
 
 def test_try_catch_finally_statement_shape():
-    def body(x):
-        r = East.let("ok")
-        log = East.let(0)
-        East.try_(lambda: East.assign(r, East.if_else(x > 0, "pos", East.error("neg")))) \
-            .catch(lambda msg: East.assign(r, msg)) \
-            .finally_(lambda: East.assign(log, 1))
+    def body(b, x):
+        r = b.let("ok")
+        log = b.let(0)
+        b.try_(lambda b: b.assign(r, East.if_else(x > 0, "pos", East.error("neg")))) \
+            .catch(lambda b, msg: b.assign(r, msg)) \
+            .finally_(lambda b: b.assign(log, 1))
         return r
 
     built = East.function([IntegerType], StringType, body)
@@ -339,14 +455,14 @@ def test_try_catch_finally_statement_shape():
 
 
 def test_try_is_never_when_both_bodies_diverge_and_catch_runs_once():
-    def body(x):
-        East.try_(lambda: East.return_(x)).catch(lambda m: East.return_(0))
+    def body(b, x):
+        b.try_(lambda b: b.return_(x)).catch(lambda b, m: b.return_(0))
 
     built = East.function([IntegerType], IntegerType, body)
     assert body_of(built).type == "TryCatch" and body_of(built).value["type"].type == "Never"
     with pytest.raises(ExpressionError, match="more than once"):
         East.function([IntegerType], IntegerType,
-                      lambda x: East.try_(lambda: None).catch(lambda m: None).catch(lambda m: None) or x)
+                      lambda b, x: b.try_(lambda b: None).catch(lambda b, m: None).catch(lambda b, m: None) or x)
 
 
 # ── block(fn) / error / do ───────────────────────────────────────────────────
@@ -354,7 +470,7 @@ def test_try_is_never_when_both_bodies_diverge_and_catch_runs_once():
 
 def test_block_expression_form_yields_its_returned_value():
     def body(x):
-        return East.block(lambda: (East.do(x + 1), x * 2)[1])
+        return East.block(lambda b: (b.do(x + 1), x * 2)[1])
 
     built = East.function([IntegerType], IntegerType, body)
     blk = body_of(built)
@@ -363,19 +479,33 @@ def test_block_expression_form_yields_its_returned_value():
 
 
 def test_block_expression_without_a_value_must_diverge():
-    def no_value():
-        East.do(East.value(1))
+    def no_value(b):
+        b.do(East.value(1))
 
     with pytest.raises(ExpressionError, match="block without return must have type Never"):
         East.function([IntegerType], IntegerType, lambda x: East.block(no_value))
 
 
+def test_error_statement_is_never_typed_and_ends_the_arm():
+    def body(b, x):
+        b.if_(x < 0, lambda b: b.error("neg"))
+        return x
+
+    built = East.function([IntegerType], IntegerType, body)
+    ifelse, _ = stmts(body_of(built))
+    arm = ifelse.value["ifs"][0]["body"]
+    assert arm.type == "Error" and arm.value["type"].type == "Never"
+    assert built(2) == 2
+    with pytest.raises(Exception, match="neg"):
+        built(-1)
+
+
 def test_a_dropped_error_expression_is_refused():
-    def arm():
+    def arm(b):
         East.error("neg")  # evaluated and thrown away
 
     with pytest.raises(ExpressionError, match="thrown away"):
-        East.function([IntegerType], IntegerType, lambda x: East.if_(x < 0, arm) and x)
+        East.function([IntegerType], IntegerType, lambda b, x: b.if_(x < 0, arm) and x)
 
 
 def test_error_is_never_typed_and_absorbed_by_if_else():
@@ -392,8 +522,8 @@ def test_error_is_never_typed_and_absorbed_by_if_else():
 
 
 def test_a_nested_function_is_an_inline_function_node_with_captures():
-    def body(x):
-        f = East.const(East.function([IntegerType], IntegerType, lambda y: y + x))
+    def body(b, x):
+        f = b.const(East.function([IntegerType], IntegerType, lambda y: y + x))
         return f(1) + f(2)
 
     built = East.function([IntegerType], IntegerType, body)
@@ -405,9 +535,26 @@ def test_a_nested_function_is_an_inline_function_node_with_captures():
     assert built(10) == 23
 
 
+def test_a_nested_decorated_function_receives_its_own_block():
+    def body(b, x):
+        @East.function([IntegerType], IntegerType)
+        def bump(b, y):
+            t = b.let(y + x)
+            b.assign(t, t * 2)
+            return t
+
+        f = b.const(bump)
+        return f(1)
+
+    built = East.function([IntegerType], IntegerType, body)
+    let_f, _ret = stmts(body_of(built))
+    assert kinds(let_f.value["value"].value["body"]) == ["Let", "Assign", "Variable"]
+    assert built(10) == 22
+
+
 def test_a_function_typed_expression_serves_as_a_callback():
-    def body(xs, x):
-        f = East.const(East.function([IntegerType, IntegerType], IntegerType, lambda v, i: v + x))
+    def body(b, xs, x):
+        f = b.const(East.function([IntegerType, IntegerType], IntegerType, lambda v, i: v + x))
         return xs.map(f)
 
     built = East.function([ArrayType(IntegerType), IntegerType], ArrayType(IntegerType), body)
@@ -416,43 +563,28 @@ def test_a_function_typed_expression_serves_as_a_callback():
     assert list(built([1, 2], 10)) == [11, 12]
 
 
-def test_callbacks_may_use_statements():
-    def body(xs):
-        def step(v, i):
-            t = East.let(v * 2)
-            East.if_(i == 0, lambda: East.assign(t, 0))
-            return t
-
-        return xs.map(step)
-
-    built = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), body)
-    cb = body_of(built).value["arguments"][1]
-    assert cb.type == "Function" and kinds(cb.value["body"]) == ["Let", "IfElse", "Variable"]
-    assert list(built([5, 6])) == [0, 12]
-
-
 def test_an_async_function_may_await_a_nested_async_function():
-    def body():
-        inner = East.const(East.asyncFunction([], IntegerType, lambda: East.return_(7)))
-        East.return_(inner())
+    def body(b):
+        inner = b.const(East.asyncFunction([], IntegerType, lambda b: b.return_(7)))
+        b.return_(inner())
 
     built = East.asyncFunction([], IntegerType, body)
     _let, ret = stmts(body_of(built))
     assert ret.value["value"].type == "CallAsync"
     with pytest.raises(ExpressionError, match="CallAsync"):
         East.function([], IntegerType,
-                      lambda: East.const(East.asyncFunction([], IntegerType, lambda: 1))())
+                      lambda b: b.const(East.asyncFunction([], IntegerType, lambda: 1))())
 
 
 # ── value / as_ / wrap_recursive / unwrap ────────────────────────────────────
 
 
 def test_value_builds_typed_literals_and_containers():
-    def body(x):
+    def body(b, x):
         f = East.value(1, FloatType)
         arr = East.value([1, 2], ArrayType(IntegerType))
         s = East.value({"a": 1}, StructType([("a", IntegerType)]))
-        _blob = East.const(East.value(b"\x01\x02"))
+        _blob = b.const(East.value(b"\x01\x02"))
         return arr.size() + s.a + East.if_else(f > 0.5, 1, 0)
 
     built = East.function([IntegerType], IntegerType, body)
@@ -495,8 +627,8 @@ def test_platform_optional_generic_and_widening_arguments():
     log = East.platform("log", [wide], NullType, optional=True)
     gen = East.genericPlatform("show", ["T"], ["T"], StringType)
 
-    def body(v):
-        East.do(log(v))
+    def body(b, v):
+        b.do(log(v))
         return gen([IntegerType], 1)
 
     built = East.function([narrow], StringType, body)
@@ -523,10 +655,10 @@ def test_cse_false_builds_exactly_what_the_body_spells():
 
 
 def test_a_mutable_variable_is_never_bound_once_by_cse():
-    def body(x):
-        a = East.let(x)
+    def body(b, x):
+        a = b.let(x)
         y = a + 1
-        East.assign(a, 10)
+        b.assign(a, 10)
         return y + y
 
     built = East.function([IntegerType], IntegerType, body)
@@ -534,8 +666,8 @@ def test_a_mutable_variable_is_never_bound_once_by_cse():
 
 
 def test_east_null_is_an_explicit_null_statement():
-    def body(x):
-        East.do(x)
+    def body(b, x):
+        b.do(x)
         return east_null
 
     built = East.function([IntegerType], NullType, body)

@@ -565,8 +565,8 @@ def _check_effects(noted: list, body_ir: Any) -> None:
             raise ExpressionError(
                 f".{op}() was evaluated and thrown away — a bare expression "
                 "statement does not reach the compiled body and the loop would "
-                f"silently do nothing. Append it with East.do(x.{op}(...)), or "
-                f"sequence it: East.block(x.{op}(...), result)")
+                f"silently do nothing. Append it with b.do(x.{op}(...)) on the "
+                f"body's block, or sequence it: East.block(x.{op}(...), result)")
 
 
 def _tracing() -> bool:
@@ -1015,14 +1015,22 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
 
     ``param_types`` is the builtin's full callback signature (e.g. map takes
     ``(element, index)``); a lambda declaring fewer parameters simply ignores
-    the tail. ``out_hint`` types the traced body — a declared callback output
-    slot (a filter's Boolean, a fold step's accumulator) or a caller's
-    ``out=`` pin — which is what lets a callback build a general variant or a
-    ``if_else`` over variant arms (#541, #536). Returns
+    the tail, and one declaring the FULL signature plus one receives the
+    statement block first (``lambda b, el, i: …`` — the TypeScript
+    ``($, el, i) => …``). ``out_hint`` types the traced body — a declared
+    callback output slot (a filter's Boolean, a fold step's accumulator) or
+    a caller's ``out=`` pin — which is what lets a callback build a general
+    variant or a ``if_else`` over variant arms (#541, #536). Returns
     ``(Function node, traced output type)``.
     """
     from east.expression.expr import Expression
-    from east.expression.statements import _close_frame, _open_frame, assemble
+    from east.expression.statements import (
+        Block,
+        _close_frame,
+        _open_frame,
+        _takes_block,
+        assemble,
+    )
 
     if isinstance(fn, Expression):
         # A Function-typed EXPRESSION in a callback slot — a variable bound
@@ -1049,7 +1057,10 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
             )
         return fn.ir, out_t
 
-    arity = declared
+    # The full signature plus one (required) parameter: the callback wants
+    # the block first.
+    with_block = _takes_block(fn, len(param_types))
+    arity = len(param_types) if with_block else declared
     if arity is None:
         code = getattr(fn, "__code__", None)
         if code is None or code.co_flags & 0x04:  # CO_VARARGS: *args takes all
@@ -1059,7 +1070,7 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     if not (1 <= arity <= len(param_types)):
         raise ExpressionError(
             f"inner lambda takes {arity} parameters; the callback signature has "
-            f"{len(param_types)}"
+            f"{len(param_types)} (or {len(param_types) + 1} with the block first)"
         )
     names = [_fresh_name() for _ in param_types]
     proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
@@ -1068,7 +1079,7 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     popped = False
     try:
         try:
-            result = fn(*proxies[:arity])
+            result = fn(Block(frame), *proxies) if with_block else fn(*proxies[:arity])
         except ExpressionError:
             raise
         except Exception as e:  # pragma: no cover - message carries the cause

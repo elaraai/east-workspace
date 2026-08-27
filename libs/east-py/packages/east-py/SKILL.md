@@ -392,10 +392,10 @@ plain East values. A worked example is in
 | Call | Emits | Notes |
 |---|---|---|
 | `East.if_else(cond, value, …, otherwise)` | `IfElse` | cond/value pairs then the else — an if/elif/else chain is ONE node; exactly one arm evaluates |
-| `East.while_(state, cond, body, label=…)` | `While` | `cond(s) -> Boolean`, `body(s) -> next state` (the 2-argument form is the statement, below) |
-| `East.for_(coll, state, body, label=…)` | `ForArray`/`ForSet`/`ForDict` | Array `body(s, el[, i])`, Set `body(s, el)`, Dict `body(s, k, v)` (the 2-argument form is the statement, below) |
-| `East.block(a, b, …)` | `Block` | evaluates in order, yields the last — the sequencing point for mutators (`East.block(fn)` is the statement-frame form, below) |
-| `East.let(value, fn)` | `Let` | bind once, use many times (explicit CSE inside a loop); `East.let(value[, type])` is the statement, below |
+| `East.while_(state, cond, body, label=…)` | `While` | `cond(s) -> Boolean`, `body(s) -> next state` (the statement form is `b.while_`, below) |
+| `East.for_(coll, state, body, label=…)` | `ForArray`/`ForSet`/`ForDict` | Array `body(s, el[, i])`, Set `body(s, el)`, Dict `body(s, k, v)` (the statement form is `b.for_`, below) |
+| `East.block(a, b, …)` | `Block` | evaluates in order, yields the last — the sequencing point for mutators (`East.block(lambda b: …)` is the block form: statements inside an expression, below) |
+| `East.let(value, fn)` | `Let` | bind once, use many times (explicit CSE inside a loop); the statement is `b.let(value[, type])`, below |
 | `East.ref(v)` | `NewRef` | a cell — `.get()` / `.set(v)` / `.update(fn)` / `.merge(v, fn)` |
 | `East.label(name=None)` | — | names a loop, for `break_`/`continue_` from a NESTED one |
 | `East.break_(state=…, label=…)` | `Break` | leave, optionally committing a last state |
@@ -426,50 +426,66 @@ between calls.
 
 ### Statements — the TypeScript `$` twin (#627)
 
-A TypeScript body receives `$` and appends STATEMENTS to it; a python body
-gets the same surface **ambiently**: every `East.function` body, callback and
-branch runs inside an open statement frame, and the statement constructors
-append to it. Write the body as a `def` (a lambda cannot hold statements) and
-`return` its value; python `None` is TypeScript's "no return" and the
-`east_null` sentinel an explicit `null`:
+A TypeScript body receives `$` and appends STATEMENTS to it. A python body
+receives **`b`** — the block — as its FIRST parameter and does the same:
+`East.function([types], out)` with the body omitted is a decorator, and a
+`def` declaring one more parameter than the function has gets the block.
+Every branch, loop and handler body receives ITS OWN block first, then
+what the construct hands it, so which block a statement belongs to is
+always written down — and a statement on any other block is a build-time
+error. Python `None` returned from a body is TypeScript's "no return"; the
+`east_null` sentinel is an explicit `null`:
 
 ```python
-from east import East, IntegerType, StringType, east_null
+from east import East, IntegerType, StringType
 
-def classify(n):
-    acc = East.let(0)                                  # $.let — reassignable
-    limit = East.const(n * 2)                          # $.const
-    def loop(label):                                   # $.while body: (label) → statements
-        East.if_(acc >= limit, lambda: East.break_(label))
-        East.assign(acc, acc + 1)                      # $.assign
-    East.while_(True, loop)
-    East.if_(acc > 10, lambda: East.return_("big")) \
-        .else_if(acc > 5, lambda: East.return_("mid")) \
-        .else_(lambda: East.return_("small"))          # every arm returns → Never
+@East.function([IntegerType], StringType)
+def classify(b, n):
+    acc = b.let(0)                                     # $.let — reassignable
+    limit = b.const(n * 2)                             # $.const
+    def loop(b, label):                                # $.while body: (b, label)
+        b.if_(acc >= limit, lambda b: b.break_(label))
+        b.assign(acc, acc + 1)                         # $.assign
+    b.while_(True, loop)
+    b.if_(acc > 10, lambda b: b.return_("big")) \
+        .else_if(acc > 5, lambda b: b.return_("mid")) \
+        .else_(lambda b: b.return_("small"))           # every arm returns → Never
 
-size = East.function([IntegerType], StringType, classify)
+classify(3)                                            # "mid"
 ```
+
+A one-statement body is a `lambda b: …`; a longer one is a `def` written
+just before the statement that uses it. **Who receives a block:**
+
+| Body | Gets the block when | Example |
+|---|---|---|
+| `East.function` / `East.asyncFunction` body | it declares one more (required) parameter than the function has | `def f(b, x)`, `lambda b, x: …`; `lambda x: …` is the expression-only form and works as it always did |
+| a builtin's callback (`xs.map(...)`, `fold`, …) | it declares the builtin's FULL callback signature plus one | `xs.map(lambda b, el, i: …)` — map's `(element, index)`; `xs.fold(0, lambda b, acc, el, i: …)` |
+| a statement construct's body (`b.if_`/`.else_if`/`.else_`, `b.match_`, `b.while_`, `b.for_`, `b.try_`/`.catch`/`.finally_`) and `East.block(fn)` | always — trailing parameters may be omitted, the block cannot | `b.for_(xs, lambda b, v, i, label: …)`, `b.match_(v, {"some": lambda b, x: …})` |
+| an expression form's handler (`East.if_else` arm, `.match({...})`, `East.try_catch`) | never — they take expressions | statements inside: `East.block(lambda b: …)` |
 
 | Statement | Emits | Notes |
 |---|---|---|
-| `East.let(value[, type])` / `East.const(value[, type])` | `Let` (Null) | the variable, mutable / not; a declared `type` widens a narrower literal (a `Variable` of a subtype gets an `As`) |
-| `East.assign(var, value)` | `Assign` (Null) | `var` must come from `East.let` |
-| `East.return_([value])` | `Return` (Never) | checked against the declared output; a `do` of the same expression just before is not duplicated |
-| `East.if_(pred, fn).else_if(pred, fn).else_(fn)` | `IfElse` (Null; Never when every arm diverges) | each `fn()` runs in its own frame; a branch ending in a non-Null value pads with `null` |
-| `East.match_(variant, {case: fn(data)})` | `Match` (Null) | a case without a handler does nothing |
-| `East.while_(pred, fn)` / `East.for_(coll, fn)` | `While` / `ForArray`/`ForSet`/`ForDict` (Null) | `fn(label)`; Array `fn(value, index, label)`, Set `fn(key, label)`, Dict `fn(value, key, label)` — trailing parameters may be omitted |
-| `East.break_(label)` / `East.continue_(label)` | `Break` / `Continue` (Never) | the loop's `label` is what the body received; a bare `East.break_()` (the sugar's jump) inside a statement loop targets it too |
-| `East.try_(fn).catch(fn(message, stack)).finally_(fn)` | `TryCatch` (Null) | `.catch` at most once; Never when both bodies diverge |
-| `East.do(expr)` | the expression as a statement | `$(expr)` — a platform call or mutation evaluated for its effect |
-| `East.block(fn)` | `Block` | the EXPRESSION form: statements, then the value `fn` returns (a block returning nothing must diverge) |
-| `East.error(msg)` | `Error` (Never) | an expression — return it, or use it as an `if_else` arm; a bare `East.error(...)` that reaches no body raises at build time |
+| `b.let(value[, type])` / `b.const(value[, type])` | `Let` (Null) | the variable, mutable / not; a declared `type` widens a narrower literal (a `Variable` of a subtype gets an `As`) |
+| `b.assign(var, value)` | `Assign` (Null) | `var` must come from `b.let` — a python `x = …` rebinds the NAME and changes nothing |
+| `b.return_([value])` | `Return` (Never) | checked against the declared output; a `do` of the same expression just before is not duplicated |
+| `b.if_(pred, fn).else_if(pred, fn).else_(fn)` | `IfElse` (Null; Never when every arm diverges) | each `fn(b)` runs in its own frame; a branch ending in a non-Null value pads with `null`; a body may return the chain itself (`lambda b: b.if_(…)`) |
+| `b.match_(variant, {case: fn(b, data)})` | `Match` (Null) | a case without a handler does nothing |
+| `b.while_(pred, fn)` / `b.for_(coll, fn)` | `While` / `ForArray`/`ForSet`/`ForDict` (Null) | `fn(b, label)`; Array `fn(b, value, index, label)`, Set `fn(b, key, label)`, Dict `fn(b, value, key, label)` |
+| `b.break_(label)` / `b.continue_(label)` | `Break` / `Continue` (Never) | the loop's `label` is what the body received; a bare `East.break_()` (the sugar's jump) inside a statement loop targets it too |
+| `b.try_(fn).catch(fn(b, message, stack)).finally_(fn)` | `TryCatch` (Null) | `.catch` at most once; Never when both bodies diverge |
+| `b.do(expr)` | the expression as a statement | `$(expr)` — a platform call or mutation evaluated for its effect; a bare `arr.append(x)` line is thrown away, and the build says so |
+| `b.error(msg)` | `Error` (Never) | `$.error` — raise now; `East.error(msg)` is the expression twin (return it, or use it as an `if_else` arm) |
+| `East.block(fn)` | `Block` | the EXPRESSION form: `fn(b)`'s statements, then the value it returns (a block returning nothing must diverge) |
 
 A statement after one that never completes raises `Unreachable statement
-detected`, as in TypeScript. `East.function(...)` spelled INSIDE a body is
-not an artifact but the inline `Function` node as a Function-typed
-expression — bind it with `East.const`, hand it to a callback slot, or call
-it (a `Call`; inside `East.asyncFunction`, calling an async one is a
-`CallAsync`). Every other IR node kind has a spelling too, so any program
+detected`, as in TypeScript; a statement on an OUTER block from inside a
+nested body, or on a block whose body has returned, raises naming it (the
+TypeScript `no-cross-block-builder` lint is a hard error here). `East.function(...)`
+spelled INSIDE a body is not an artifact but the inline `Function` node as a
+Function-typed expression — bind it with `b.const`, hand it to a callback
+slot, or call it (a `Call`; inside `East.asyncFunction`, calling an async one
+is a `CallAsync`). Every other IR node kind has a spelling too, so any program
 TypeScript can build, python can build name for name: `East.value(v, T)` (a
 typed literal / struct / list / dict), `East.as_(v, T)` (an explicit
 widening `As`), `East.wrap_recursive(v, R)` and `expr.unwrap()` on a
@@ -497,7 +513,7 @@ that REBUILDS it through the surface above:
 
 ```python
 from east.codegen import to_python_source
-print(to_python_source(size))            # defs + `main = East.function(..., cse=False)`
+print(to_python_source(classify))        # `@East.function(..., cse=False)` / `def main(b, …)`
 ```
 
 ```bash
@@ -866,7 +882,13 @@ Task → What do you need?
     │   │                  chain is ONE IfElse node; exactly one arm evaluates; dual-mode (eager off-trace)
     │   ├─ Sequential logic — the next step depends on the LAST (worklist · BFS/DFS · fixpoint · topological replay)
     │   │   │   (no data-parallel method expresses it; before #578 this ran per element in PYTHON)
-    │   │   ├─ Loop with state → East.while_(state, cond, body, label=) · East.for_(coll, state, body, label=)
+    │   │   ├─ STATEMENTS, TypeScript-`$`-style → the block `b` a body receives first (#627):
+    │   │   │   @East.function(types, out) def f(b, …): b.let/b.const · b.assign · b.if_(…).else_if(…).else_(…) ·
+    │   │   │   b.while_(pred, fn(b, label)) · b.for_(coll, fn(b, v, i, label)) · b.break_/continue_(label) ·
+    │   │   │   b.match_(v, {case: fn(b, x)}) · b.try_(fn).catch(fn(b, msg, stack)).finally_(fn) · b.return_ · b.error · b.do
+    │   │   │   (every branch/loop body gets ITS OWN b first; a callback declaring the full signature + 1 gets one too;
+    │   │   │    inside an expression form use East.block(lambda b: …)) — see “Statements” above
+    │   │   ├─ Loop with state (expression form) → East.while_(state, cond, body, label=) · East.for_(coll, state, body, label=)
     │   │   │   ├─ state = a dict of fields (read `s.name`) or one value; the body RETURNS the next state,
     │   │   │   │   with the SAME fields and East types (a change in either is a named ExpressionError)
     │   │   │   ├─ branch in the body → East.if_else · keep a field → s.field · change one → {**s, "k": …}
@@ -1668,9 +1690,37 @@ forward_fill = East.function(
 
 To stop early, put `East.break_(state)` in an `if_else` arm — the state
 argument commits before the jump, so the answer survives; `East.label(...)` on
-an outer loop lets an inner one break all the way out. Reach for all of this
-only when the work is genuinely sequential: a `group_reduce` or a `fold` is
-both shorter and faster when it fits.
+an outer loop lets an inner one break all the way out.
+
+The same algorithm as STATEMENTS (the TypeScript `$` shape, #627) — no state
+struct, locals are `b.let`/`b.const` variables, the worklist cursor is
+reassigned, and it builds the same `While`/`ForArray` nodes:
+
+```python
+@East.function([ArrayType(Node), Edges, Indeg], ArrayType(Node))
+def topo_order(b, roots, succ, indeg):
+    ready = b.const(roots.copy())          # task inputs arrive frozen: copy
+    remaining = b.const(indeg.copy())
+    order = b.const(East.new_array(Node))
+    i = b.let(0)
+
+    def step(b, label):
+        node = b.const(ready.get(i))
+        b.do(order.append(node))
+
+        def visit(b, v):
+            b.do(remaining.insert_or_update(v, -1, lambda old, d: old + d))
+            b.if_(remaining.get(v) == 0, lambda b: b.do(ready.append(v)))
+
+        b.for_(succ.get_or_default(node, East.new_array(Node)), visit)
+        b.assign(i, i + 1)
+
+    b.while_(i < ready.size(), step)
+    return order
+```
+
+Reach for all of this only when the work is genuinely sequential: a
+`group_reduce` or a `fold` is both shorter and faster when it fits.
 
 ### Sort uses East's total order
 

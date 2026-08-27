@@ -29,7 +29,7 @@ def test_transpile_writes_a_module_that_rebuilds_the_ir(tmp_path):
     result = _run("transpile", str(src), "-o", str(out), "--name", "program")
     assert result.returncode == 0, result.stderr
     text = out.read_text(encoding="utf-8")
-    assert "program = East." in text
+    assert "@East.function(" in text and "\ndef program(b" in text
     namespace: dict = {}
     exec(compile(text, str(out), "exec"), namespace)
     assert diff_ir(load_ir(src), namespace["program"]._east_ir) is None

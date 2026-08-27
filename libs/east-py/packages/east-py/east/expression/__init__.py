@@ -141,17 +141,11 @@ from east.expression.platform import (
     platform,
 )
 from east.expression.statements import (
+    Block,
     IfBuilder,
     LoopLabel,
     TryBuilder,
-    assign,
-    const,
-    do,
     error,
-    if_,
-    match_,
-    return_,
-    try_,
 )
 
 __all__ = [
@@ -163,18 +157,13 @@ __all__ = [
     "generic_platform",
     "async_generic_platform",
     "PlatformDeclaration",
-    # the statement surface (the TypeScript `$` twin)
-    "const",
-    "assign",
-    "return_",
-    "if_",
-    "match_",
-    "try_",
-    "do",
-    "error",
+    # the statement surface (the TypeScript `$` twin): the block a body
+    # receives first, and the builders its if_/try_ chains return
+    "Block",
     "IfBuilder",
     "TryBuilder",
     "LoopLabel",
+    "error",
     # expression spellings for every IR node kind
     "value",
     "as_",
