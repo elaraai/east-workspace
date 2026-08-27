@@ -355,9 +355,9 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
     return kernel_callable
 
 
-def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
-           cse: bool = True) -> Any:
-    """The shared strict-builder core behind ``East.function``/``asyncFunction``."""
+def _check_signature(param_types: Any, out: Any, entry: str) -> list[EastType]:
+    """Validate ``(param_types, out)`` — at the call, so the decorator form
+    fails where it is written, not where it is applied."""
     if isinstance(param_types, EastType) or not isinstance(param_types, (list, tuple)):
         raise TypeError(
             f"{entry}(param_types, out, body) takes a LIST of parameter East "
@@ -376,6 +376,13 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
             f"{entry}(param_types, out, body) requires the declared output "
             f"East type second — got {type(out).__name__}"
         )
+    return types
+
+
+def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
+           cse: bool = True) -> Any:
+    """The shared strict-builder core behind ``East.function``/``asyncFunction``."""
+    types = _check_signature(param_types, out, entry)
     if not callable(body):
         raise TypeError(f"{entry} body must be callable, got {type(body).__name__}")
     from east.expression.lift import _tracing
@@ -476,6 +483,7 @@ def function(param_types: list[EastType], out: EastType, body: Any = None, *,
             from ``out``.
     """
     if body is None:
+        _check_signature(param_types, out, "East.function")
         return lambda fn: _build(param_types, out, fn, is_async=False,
                                  entry="East.function", cse=cse)
     return _build(param_types, out, body, is_async=False, entry="East.function", cse=cse)
@@ -513,6 +521,7 @@ def async_function(param_types: list[EastType], out: EastType, body: Any = None,
             from ``out``.
     """
     if body is None:
+        _check_signature(param_types, out, "East.asyncFunction")
         return lambda fn: _build(param_types, out, fn, is_async=True,
                                  entry="East.asyncFunction", cse=cse)
     return _build(param_types, out, body, is_async=True, entry="East.asyncFunction", cse=cse)
