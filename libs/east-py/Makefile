@@ -12,7 +12,7 @@
 export CMAKE_GENERATOR := Ninja
 
 .PHONY: install install-cli test test-east-py test-east-py-std test-east-py-io test-east-py-datascience \
-        test-east-py-cli \
+        test-east-py-cli test-conformance \
         reinstall-east-py reinstall-east-py-std reinstall-east-py-io reinstall-east-py-datascience build-deps \
         test-export lint lint-headers lint-headers-fix format typecheck check \
         vendor build-wheels clean build help
@@ -94,6 +94,14 @@ test-east-py:
 
 test-east-py-cli:
 	cd packages/east-py-cli && uv run pytest tests -q --no-cov
+
+## The IR -> python codegen conformance round trip (#627): every exported
+## compliance-corpus program and every *.examples.ts example prints as python,
+## rebuilds, and normalizes equal (needs /tmp/east-test-ir from `make
+## test-export` in libs/east; exports the examples IR itself).
+test-conformance:
+	@cd ../east && npm run export:examples
+	cd packages/east-py && EAST_CONFORMANCE_EXECUTE=1 uv run pytest tests/conformance -q --no-cov
 
 test-east-py-std:
 	uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-std -p east_py_std $(QUIET_FLAG)
@@ -214,7 +222,8 @@ help:
 	@echo ""
 	@echo "  test              - Run all tests"
 	@echo "  test-east-py      - Run east-py compliance tests"
-	@echo "  test-east-py-cli  - Run east-py-cli tests (runner --emit/--stream)"
+	@echo "  test-east-py-cli  - Run east-py-cli tests (runner --emit/--stream, transpile)"
+	@echo "  test-conformance  - IR -> python -> IR round trip over the corpus + examples (#627)"
 	@echo "  test-east-py-std  - Run east-py-std tests"
 	@echo "  test-east-py-io   - Run east-py-io tests"
 	@echo "  test-east-py-datascience - Run east-py-datascience tests"

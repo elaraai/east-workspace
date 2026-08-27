@@ -71,6 +71,8 @@ def _literal(value: Any, t: EastType):
     elif tag == "DateTime":
         # a python datetime IS the East DateTime value — nothing to cast
         coerced = value
+    elif tag == "Blob":
+        coerced = bytes(value)
     else:
         raise ExpressionError(f"cannot embed a literal of East type {tag} in a kernel")
     return ir_value(t, coerced, _loc_id())
@@ -173,11 +175,12 @@ def _k_async_function(fn_t: EastType, captures: list, params: list, body):
     }))
 
 
-def _k_platform(name: str, out: EastType, args: list, is_async: bool):
+def _k_platform(name: str, out: EastType, args: list, is_async: bool,
+                type_params: list | None = None, optional: bool = False):
     return EastVariant("Platform", EastStruct({
         "type": out, "loc_id": _loc_id(), "name": name,
-        "type_parameters": [], "arguments": list(args),
-        "async": is_async, "optional": False,
+        "type_parameters": list(type_params or []), "arguments": list(args),
+        "async": is_async, "optional": bool(optional),
     }))
 
 
@@ -241,5 +244,11 @@ def _k_ifelse(t: EastType, ifs: list, else_body):
 
 def _k_call(t: EastType, function, arguments: list):
     return EastVariant("Call", EastStruct({
+        "type": t, "loc_id": _loc_id(), "function": function, "arguments": list(arguments),
+    }))
+
+
+def _k_call_async(t: EastType, function, arguments: list):
+    return EastVariant("CallAsync", EastStruct({
         "type": t, "loc_id": _loc_id(), "function": function, "arguments": list(arguments),
     }))

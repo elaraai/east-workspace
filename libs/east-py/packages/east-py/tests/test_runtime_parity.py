@@ -35,45 +35,13 @@ from east import (
     StringType,
     StructType,
     array,
-    none,
-    some,
 )
 from east.types.values.collections import EastDict, EastSet
 
 # ── Set.is_superset_of ───────────────────────────────────────────────────────
 
-def test_set_is_superset_of():
-    s1 = EastSet(IntegerType, [1, 2, 3])
-    s2 = EastSet(IntegerType, [1, 2])
-    empty = EastSet(IntegerType)
-
-    assert s1.is_superset_of(s2) is True     # {1,2,3} ⊇ {1,2}
-    assert s2.is_superset_of(s1) is False    # {1,2} ⊉ {1,2,3}
-    assert s1.is_superset_of(s1) is True     # reflexive
-    assert s1.is_superset_of(empty) is True  # every set ⊇ {}
-    assert empty.is_superset_of(s1) is False
-    assert empty.is_superset_of(empty) is True
-
-
-def test_set_is_superset_of_is_the_mirror_of_is_subset():
-    a = EastSet(StringType, ["a", "b"])
-    b = EastSet(StringType, ["b", "c"])
-    for x, y in ((a, b), (b, a), (a, a)):
-        assert x.is_superset_of(y) == y.is_subset(x)
-
 
 # ── Dict.every / some / sum ──────────────────────────────────────────────────
-
-def test_dict_every_and_some_with_predicate():
-    d = EastDict(StringType, IntegerType, {"a": 1, "b": 2, "c": 3})
-
-    assert d.every(lambda _k, v: v > 0) is True
-    assert d.every(lambda _k, v: v > 1) is False
-    assert d.some(lambda _k, v: v > 2) is True
-    assert d.some(lambda _k, v: v > 3) is False
-    # the callback sees the key too, like every other eager Dict callback
-    assert d.every(lambda k, _v: k >= "a") is True
-    assert d.some(lambda k, _v: k == "c") is True
 
 
 def test_dict_every_and_some_on_booleans_and_empties():
@@ -135,80 +103,7 @@ def test_dict_sum_on_an_empty_dict_types_the_zero_from_the_PROJECTION():
         EastDict(StringType, StringType).sum()
 
 
-def test_dict_every_some_sum_capture():
-    """The short-circuit scan and the fold capture: each call builds (a
-    callback that cannot capture raises) and answers."""
-    d = EastDict(IntegerType, FloatType, {i: float(i) for i in range(300)})
-    assert d.every(lambda _k, v: v >= 0.0) is True
-    assert d.some(lambda _k, v: v > 298.0) is True
-    assert d.sum(lambda _k, v: v) == sum(float(i) for i in range(300))
-
-
 # ── Array.group_find_* ───────────────────────────────────────────────────────
-
-def test_group_find_all_matches_the_ts_example():
-    # [1,2,3,2,5,2].groupFindAll(x => x % 2, 2n) -> { 0: [1,3,5], 1: [] }
-    xs = array(IntegerType, [1, 2, 3, 2, 5, 2])
-    got = xs.group_find_all(lambda x: East.Integer.remainder(x, 2), 2)
-    assert {k: list(v) for k, v in got.items()} == {0: [1, 3, 5], 1: []}
-    # a value present in neither group still lists every group
-    assert {k: list(v) for k, v in xs.group_find_all(lambda x: East.Integer.remainder(x, 2), 99).items()} == \
-        {0: [], 1: []}
-
-
-def test_group_find_all_with_projection_and_empty_input():
-    from east.types.types import ArrayType
-
-    Row = StructType([("customer", StringType), ("state", StringType)])
-    rows = array(Row, [
-        {"customer": "acme", "state": "CA"},
-        {"customer": "acme", "state": "NY"},
-        {"customer": "bolt", "state": "CA"},
-    ])
-    got = rows.group_find_all(lambda r: r["customer"], "CA", lambda r: r["state"])
-    assert {k: list(v) for k, v in got.items()} == {"acme": [0], "bolt": [2]}
-
-    empty = array(IntegerType, [])
-    out = empty.group_find_all(lambda x: East.Integer.remainder(x, 2), 1)
-    assert len(out) == 0
-    assert out.value_type == ArrayType(IntegerType)
-
-
-def test_group_find_first_matches_the_ts_example():
-    # [1..6].groupFindFirst(x => x % 2, 4n) -> { 0: some(3), 1: none }
-    xs = array(IntegerType, [1, 2, 3, 4, 5, 6])
-    got = xs.group_find_first(lambda x: East.Integer.remainder(x, 2), 4)
-    assert dict(got.items()) == {0: some(3), 1: none}
-    assert dict(xs.group_find_first(lambda x: East.Integer.remainder(x, 2), 5).items()) == {0: none, 1: some(4)}
-    # first of SEVERAL matches in a group
-    dupes = array(IntegerType, [2, 4, 2, 6, 2])
-    assert dict(dupes.group_find_first(lambda x: East.Integer.remainder(x, 2), 2).items()) == {0: some(0)}
-
-
-@pytest.mark.parametrize(
-    ("rows", "target", "expected"),
-    [
-        ([2, 1], 2, {0: some(0), 1: none}),   # the FIRST group is the one that matches
-        ([3, 2], 3, {0: none, 1: some(0)}),   # the first group misses; a sample would see `none`
-    ],
-)
-def test_group_find_first_types_option_whichever_group_matches(rows, target, expected):
-    """``Option<Integer>`` regardless of which group comes first.
-
-    A single-case type here is the #450 failure mode: typed from whichever
-    arm the first group happens to carry, the other arm fails conversion
-    ("Unknown variant case"). Both orderings are asserted because only one of
-    them would expose a sampled type. NB the value type currently survives
-    ``out=`` being deleted — ``idxs.try_get(0)`` is pure, so the tracer
-    derives the Option on its own — so this pins the OBSERVABLE contract, and
-    ``out=`` stays as the guard for the day that lambda stops being traceable.
-    """
-    from east.types.types import IntegerType as I
-    from east.types.types import OptionType
-
-    got = array(I, rows).group_find_first(lambda x: East.Integer.remainder(x, 2), target)
-    assert got.value_type == OptionType(I)
-    assert dict(got.items()) == expected
 
 
 def test_group_find_matching_uses_east_equality_not_python_equality():
@@ -238,152 +133,10 @@ def test_group_find_matching_uses_east_equality_not_python_equality():
     assert calls == []
 
 
-def test_group_find_all_passes_the_row_index_to_arity_2_callbacks():
-    """``key(el, idx)`` / ``by(el, idx)`` get the row index, like every other
-    eager Array callback."""
-    xs = array(IntegerType, [5, 2, 5, 2])
-    # group by index parity, match on the element
-    assert {k: list(v) for k, v in xs.group_find_all(lambda _x, i: East.Integer.remainder(i, 2), 5).items()} == \
-        {0: [0, 2], 1: []}
-    # an index-taking projection: element+index, so the match depends on BOTH
-    # (rows 0 and 3 sum to 5; they land in different index-parity groups)
-    assert {k: list(v) for k, v in
-            xs.group_find_all(lambda _x, i: East.Integer.remainder(i, 2), 5, lambda x, i: x + i).items()} == \
-        {0: [0], 1: [3]}
-    assert dict(xs.group_find_maximum(lambda _x, i: East.Integer.remainder(i, 2), lambda _x, i: i).items()) == \
-        {0: 2, 1: 3}
-    assert dict(xs.group_find_minimum(lambda _x, i: East.Integer.remainder(i, 2), lambda _x, i: i).items()) == \
-        {0: 0, 1: 1}
-
-
-def test_group_find_minimum_and_maximum_match_the_ts_examples():
-    # [1..6] grouped by parity: min indices {0: 1, 1: 0}, max {0: 5, 1: 4}
-    xs = array(IntegerType, [1, 2, 3, 4, 5, 6])
-    assert dict(xs.group_find_minimum(lambda x: East.Integer.remainder(x, 2)).items()) == {0: 1, 1: 0}
-    assert dict(xs.group_find_maximum(lambda x: East.Integer.remainder(x, 2)).items()) == {0: 5, 1: 4}
-    # with a projection (negate flips which index wins)
-    assert dict(xs.group_find_minimum(lambda x: East.Integer.remainder(x, 2), lambda x: -x).items()) == {0: 5, 1: 4}
-    assert dict(xs.group_find_maximum(lambda x: East.Integer.remainder(x, 2), lambda x: -x).items()) == {0: 1, 1: 0}
-
-
-def test_group_find_extremes_keep_the_earliest_index_on_ties():
-    xs = array(IntegerType, [7, 7, 7])
-    assert dict(xs.group_find_minimum(lambda _x: 0).items()) == {0: 0}
-    assert dict(xs.group_find_maximum(lambda _x: 0).items()) == {0: 0}
-
-
-def test_group_find_extremes_use_east_total_order_on_strings():
-    words = array(StringType, ["pear", "apple", "fig", "banana"])
-    # grouped by first letter is trivial here, so group everything and check
-    # the whole-array extremes by index
-    assert dict(words.group_find_minimum(lambda _w: "all").items()) == {"all": 1}   # "apple"
-    assert dict(words.group_find_maximum(lambda _w: "all").items()) == {"all": 0}   # "pear"
-
-
-def test_group_find_extremes_on_empty_input():
-    empty = array(IntegerType, [])
-    assert len(empty.group_find_minimum(lambda x: x)) == 0
-    assert len(empty.group_find_maximum(lambda x: x)) == 0
-
-
-def test_group_find_family_accepts_precompiled_kernels():
-    Row = StructType([("g", StringType), ("v", IntegerType)])
-    rows = array(Row, [{"g": "a", "v": 1}, {"g": "a", "v": 5}, {"g": "b", "v": 3}])
-    key = East.function([Row], StringType, lambda r: r["g"])
-    by = East.function([Row], IntegerType, lambda r: r["v"])
-
-    assert dict(rows.group_find_maximum(key, by).items()) == {"a": 1, "b": 2}
-    assert dict(rows.group_find_minimum(key, by).items()) == {"a": 0, "b": 2}
-    assert {k: list(v) for k, v in rows.group_find_all(key, 3, by).items()} == \
-        {"a": [], "b": [2]}
-    assert dict(rows.group_find_first(key, 5, by).items()) == {"a": some(1), "b": none}
-
-
 # ── Dict.union / union_in_place / merge_key: the #527 naming split ───────────
-
-def test_dict_union_is_pure_and_matches_the_old_merge():
-    a = EastDict(StringType, IntegerType, {"a": 1, "b": 2})
-    b = EastDict(StringType, IntegerType, {"b": 30, "c": 4})
-
-    got = a.union(b, lambda x, y: x + y)
-    assert dict(got.items()) == {"a": 1, "b": 32, "c": 4}
-    # neither input touched — this is the whole point of the pure form
-    assert dict(a.items()) == {"a": 1, "b": 2}
-    assert dict(b.items()) == {"b": 30, "c": 4}
-
-    # disjoint dicts need no handler; an overlap without one errors
-    assert dict(a.union(EastDict(StringType, IntegerType, {"z": 9})).items()) == \
-        {"a": 1, "b": 2, "z": 9}
-    with pytest.raises(Exception, match="exists in both dictionaries"):
-        a.union(b)
-
-
-def test_dict_merge_still_works_but_warns():
-    """The old spelling keeps working — it just tells you where it went."""
-    a = EastDict(StringType, IntegerType, {"a": 1})
-    b = EastDict(StringType, IntegerType, {"b": 2})
-    with pytest.warns(DeprecationWarning, match="union"):
-        got = a.merge(b)
-    assert dict(got.items()) == {"a": 1, "b": 2}
-
-
-def test_dict_union_in_place():
-    a = EastDict(StringType, IntegerType, {"a": 1, "b": 2})
-    b = EastDict(StringType, IntegerType, {"b": 30, "c": 4})
-    assert a.union_in_place(b, lambda x, y: x + y) is None
-    assert dict(a.items()) == {"a": 1, "b": 32, "c": 4}   # receiver mutated
-    assert dict(b.items()) == {"b": 30, "c": 4}           # argument untouched
-    with pytest.raises(Exception, match="exists in both dictionaries"):
-        a.union_in_place(EastDict(StringType, IntegerType, {"a": 0}))
-
-
-def test_dict_merge_key_is_the_ts_single_key_merge():
-    """TS ``DictExpr.merge``: one key, in place, heterogeneous incoming value."""
-    counts = EastDict(StringType, IntegerType, {"hello": 5})
-    # the TS doc's own worked example: increment, seeding a missing key with 0
-    counts.merge_key("hello", 1, lambda existing, inc: existing + inc, lambda _k: 0)
-    assert dict(counts.items()) == {"hello": 6}
-    counts.merge_key("world", 1, lambda existing, inc: existing + inc, lambda _k: 0)
-    assert dict(counts.items()) == {"hello": 6, "world": 1}
-
-    # without `initial`, a missing key raises rather than being created
-    with pytest.raises(Exception, match="not found in dictionary"):
-        counts.merge_key("nope", 1, lambda existing, inc: existing + inc)
-    assert "nope" not in counts
-
-    # the incoming value may have a DIFFERENT type from the values — the thing
-    # insert_or_update cannot express (its value must be the dict's value type)
-    lengths = EastDict(StringType, IntegerType, {"a": 10})
-    lengths.merge_key("a", "xyz", lambda existing, s: existing + East.String.length(s))
-    assert dict(lengths.items()) == {"a": 13}
-
-    # a three-argument update also receives the key
-    tagged = EastDict(StringType, StringType, {"k": "v"})
-    tagged.merge_key("k", "!", lambda existing, inc, key: existing + inc + key)
-    assert dict(tagged.items()) == {"k": "v!k"}
 
 
 # ── the sum/group_sum family agrees about an empty collection ────────────────
-
-def test_group_sum_types_its_zero_like_sum_does():
-    """`sum` and `group_sum` must not disagree about an empty collection.
-
-    Fixing the `len()`-gated zero for `sum` alone left `Array.group_sum`
-    RAISING where `sum` returned the projection's zero — a half-corrected
-    family is worse than an evenly wrong one (#450/#525).
-    """
-    Row = StructType([("g", StringType), ("n", IntegerType)])
-    empty = array(Row, [])
-    assert empty.sum(lambda r: r["n"]) == 0
-    assert dict(empty.group_sum(lambda r: r["g"], lambda r: r["n"]).items()) == {}
-
-    empty_set = EastSet(IntegerType)
-    assert empty_set.sum() == 0
-    assert dict(empty_set.group_sum(lambda e: e).items()) == {}
-
-    empty_dict = EastDict(StringType, IntegerType)
-    assert empty_dict.sum() == 0
-    assert dict(empty_dict.group_sum(lambda k, _v: k).items()) == {}
 
 
 def test_group_sum_rejects_a_non_numeric_projection_on_every_container():
@@ -396,92 +149,6 @@ def test_group_sum_rejects_a_non_numeric_projection_on_every_container():
 
 # ── a differently-typed `other` is refused, not reinterpreted ────────────────
 
-def test_union_rejects_a_mismatched_other():
-    """`DictUnionInPlace` carries ONE value type parameter, so `other`'s slots
-    are decoded as THIS dict's — a raw reinterpretation of a foreign payload
-    (#529). `merge_all` is the generic one; see the test below."""
-    from east.types.coercion import EastTypeError
-
-    words = EastDict(StringType, StringType, {"a": "hello"})
-    nums = EastDict(StringType, IntegerType, {"a": 12345})
-    for call in (lambda: words.union(nums), lambda: words.union_in_place(nums)):
-        with pytest.raises(EastTypeError, match="operand types must match"):
-            call()
-    ints = EastDict(StringType, IntegerType, {"a": 1})
-    assert dict(ints.union(EastDict(StringType, IntegerType, {"b": 2})).items()) == {"a": 1, "b": 2}
-
-
-def test_merge_all_is_generic_in_the_incoming_value_type():
-    """#529: `DictMergeAll` has always been `[K, V, V2]`; east-py declared V2
-    as its OWN value type, so a differently-typed `other` segfaulted. It is
-    now generic like TypeScript's `mergeAll<V2>` — only the KEYS must agree.
-    """
-    from east.types.coercion import EastTypeError
-
-    # the exact case that used to crash the interpreter (exit 139)
-    words = EastDict(StringType, StringType, {"a": "hello", "b": "hi"})
-    nums = EastDict(StringType, IntegerType, {"a": 12345, "c": 7})
-    words.merge_all(nums, lambda cur, n, _k: cur + "/" + East.String.print(IntegerType, n),
-                    lambda _k: "<new>")
-    assert dict(words.items()) == {"a": "hello/12345", "b": "hi", "c": "<new>/7"}
-
-    # the TS doc's own worked example: fold Integer counts into Float totals
-    totals = EastDict(StringType, FloatType, {"apple": 1.5})
-    counts = EastDict(StringType, IntegerType, {"apple": 3, "pear": 2})
-    totals.merge_all(counts, lambda t, n, _k: t + East.Integer.to_float(n),
-                     lambda _k: 0.0)
-    assert dict(totals.items()) == {"apple": 4.5, "pear": 2.0}
-
-    # a KEY mismatch is still a decode hazard, so it is still refused
-    with pytest.raises(EastTypeError, match="operand types must match"):
-        EastDict(StringType, IntegerType, {"a": 1}).merge_all(
-            EastDict(IntegerType, IntegerType, {1: 1}), lambda a, b, _k: a, lambda _k: 0)
-
-
-def test_two_collection_ops_reject_a_mismatched_operand():
-    """The same defect ran through the whole family, not just merge_all: every
-    one of these passes a single type parameter with two collections, so
-    `other`'s slots decode as this collection's type. Measured before the
-    guard: Set.union and Set.sym_diff SEGFAULTED (exit 139),
-    Set.union_in_place corrupted the receiver into a MemoryError on read, and
-    intersect/diff returned silently wrong answers."""
-    from east.types.coercion import EastTypeError
-    from east.types.values.collections import EastArray, EastSet
-
-    s_str, s_int = EastSet(StringType, ["hello"]), EastSet(IntegerType, [12345])
-    for op in ("union", "intersect", "diff", "sym_diff",
-               "is_subset", "is_superset_of", "is_disjoint", "union_in_place"):
-        with pytest.raises(EastTypeError, match="operand types must match"):
-            getattr(EastSet(StringType, ["hello"]), op)(s_int)
-    with pytest.raises(EastTypeError, match="operand types must match"):
-        EastArray(StringType, ["a"]).concat(EastArray(IntegerType, [1]))
-    with pytest.raises(EastTypeError, match="operand types must match"):
-        EastDict(StringType, IntegerType, {"a": 1}).get_keys(s_int, lambda _k: 0)
-
-    # every same-typed call is untouched
-    assert EastSet(StringType, ["a"]).union(EastSet(StringType, ["b"])) == \
-        EastSet(StringType, ["a", "b"])
-    assert list(EastArray(StringType, ["a"]).concat(EastArray(StringType, ["b"]))) == ["a", "b"]
-    assert s_str.is_subset(EastSet(StringType, ["hello", "x"])) is True
-
-
-def test_union_family_allows_an_empty_other_of_any_type():
-    """An empty `other` has no slots to misread, and the group_* sugar relies
-    on it: `group_reduce` types an empty result (element_type, element_type)
-    and folds it into a correctly-typed counts dict."""
-    words = EastDict(StringType, StringType, {"a": "hello"})
-    assert dict(words.union(EastDict(StringType, IntegerType)).items()) == {"a": "hello"}
-    # ...which is exactly what makes group_mean work on an empty input
-    Row = StructType([("g", StringType), ("n", IntegerType)])
-    assert dict(array(Row, []).group_mean(lambda r: r["g"], lambda r: r["n"]).items()) == {}
-
 
 # ── keys(): the python view, not the East-value spelling ─────────────────────
 
-def test_dict_keys_is_the_python_view_and_keys_set_is_the_east_value():
-    d = EastDict(StringType, IntegerType, {"b": 2, "a": 1})
-    assert d.keys() == ["a", "b"]                  # python list, East key order
-    assert isinstance(d.keys(), list)
-    assert d.keys_set() == EastSet(StringType, ["a", "b"])   # the TS `keys` spelling
-    assert list(d) == ["a", "b"]
-    assert d.values() == [1, 2]

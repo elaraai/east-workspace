@@ -1240,20 +1240,17 @@ def _combine_arity(a: Closure) -> int:
     return len(a.payload["parameters"])
 
 
-# ─── scalar rows derived from the East namespaces ────────────────────────────
-# Each namespace method is a thin 1:1 mirror of one builtin; the builtin name
-# is a string constant in its code object, so the user surface itself supplies
-# the mapping — no hand-written scalar table to drift.
+# ─── scalar rows derived from the shared spelling table ─────────────────────
+# The builtin → python spelling table lives in east.codegen.spellings (the
+# IR→python printer's table, #627); the replay's scalar rows are derived from
+# it, so the spelling the printer writes and the spelling the replay executes
+# are one table. tests/test_codegen_spellings.py pins the hand rows above
+# against the same table.
 
-_NAMESPACES = (East, East.Boolean, East.Integer, East.Float, East.String, East.DateTime)
 
-
-def _scalar_row(fn: Any) -> Any:
+def _scalar_row(fn: Any, n_params: int) -> Any:
     """A row calling a namespace method: generic methods take the builtin's
     type parameter(s) as their leading python argument(s); the arity decides."""
-    import inspect
-
-    n_params = len(inspect.signature(fn).parameters)
 
     def row(ev: EagerEvaluator, n: EastVariant, a: list) -> Any:
         tps = [ev.canon(t) for t in n.value["type_parameters"]]
@@ -1268,37 +1265,11 @@ def _scalar_row(fn: Any) -> Any:
     return row
 
 
-def _known_builtin_hints() -> set[str]:
-    """Builtin-name string constants appearing in the namespace methods —
-    the user surface itself supplies the mapping candidates; the exactly-one
-    filter below removes docstring-style collisions."""
-    import inspect
-    import re
-
-    pat = re.compile(r"^[A-Z][A-Za-z0-9]+$")
-    hints: set[str] = set()
-    for space in _NAMESPACES:
-        for _m, fn in inspect.getmembers(space, callable):
-            for c in getattr(getattr(fn, "__code__", None), "co_consts", ()):
-                if isinstance(c, str) and pat.match(c):
-                    hints.add(c)
-    return hints
-
-
 def _namespace_rows() -> dict[str, Any]:
-    import inspect
+    from east.codegen.spellings import namespace_spellings
 
-    hints = _known_builtin_hints()
-    rows: dict[str, Any] = {}
-    for space in _NAMESPACES:
-        for mname, fn in inspect.getmembers(space, callable):
-            if mname.startswith("_"):  # private helpers are not the surface
-                continue
-            consts = getattr(getattr(fn, "__code__", None), "co_consts", ())
-            names = [c for c in consts if isinstance(c, str) and c in hints]
-            if len(names) == 1 and names[0] not in rows:
-                rows[names[0]] = _scalar_row(fn)
-    return rows
+    return {name: _scalar_row(fn, arity)
+            for name, (_prefix, fn, arity) in namespace_spellings().items()}
 
 
 for _name, _row in _namespace_rows().items():

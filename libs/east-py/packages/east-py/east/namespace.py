@@ -33,7 +33,9 @@ from east.expression.control import (
     let,
     new_array,
     new_dict,
+    new_matrix,
     new_set,
+    new_vector,
     ref,
     try_catch,
     while_,
@@ -50,23 +52,42 @@ from east.expression.function import (
 from east.expression.function import (
     function as _function,
 )
-from east.expression.lift import if_else
+from east.expression.lift import as_, builtin, greatest, if_else, least, value, wrap_recursive
+from east.expression.platform import (
+    async_generic_platform as _async_generic_platform,
+)
 from east.expression.platform import (
     async_platform as _async_platform,
 )
 from east.expression.platform import (
+    generic_platform as _generic_platform,
+)
+from east.expression.platform import (
     platform as _platform,
+)
+from east.expression.statements import (
+    assign,
+    const,
+    do,
+    error,
+    if_,
+    match_,
+    return_,
+    try_,
 )
 from east.types.types import (
     ArrayType,
     BlobType,
     BooleanType,
     DateTimeType,
+    DictType,
     EastType,
     FloatType,
     IntegerType,
     MatrixType,
+    NullType,
     PatchType,
+    SetType,
     StringType,
     StructType,
     VectorType,
@@ -1401,6 +1422,98 @@ class _MatrixNamespace:
         return _call_builtin("MatrixFill", [elem], [rows, cols, value], MatrixType(elem))
 
 
+class _ArrayNamespace:
+    """``East.Array`` — the Array constructors that are builtins (dual-mode)."""
+
+    @staticmethod
+    def generate(count: Any, fn: Any, element_type: EastType) -> Any:
+        """``ArrayGenerate``: ``[fn(0), …, fn(count-1)]`` of ``element_type``."""
+        from east.expression import _lift, _trace_inner_fn, _tracing
+        from east.expression.expr import Expression
+        from east.expression.nodes import _builtin as _b
+        from east.types.values import EastArray
+
+        if not _tracing():
+            return EastArray.generate(count, fn, element_type=element_type)
+        n = _lift(count, hint=IntegerType)
+        node, _t = _trace_inner_fn(fn, [IntegerType], out_hint=element_type)
+        out = ArrayType(element_type)
+        return Expression(_b("ArrayGenerate", out, [element_type], [n.ir, node]), out)
+
+    @staticmethod
+    def range(start: Any, end: Any, step: Any = 1) -> Any:
+        """``ArrayRange``: the Integers from ``start`` to ``end`` by ``step``."""
+        from east.expression import _lift, _tracing
+        from east.expression.expr import Expression
+        from east.expression.nodes import _builtin as _b
+        from east.types.values import EastArray
+
+        if not _tracing():
+            return EastArray.range(start, end, step)
+        args = [_lift(x, hint=IntegerType).ir for x in (start, end, step)]
+        out = ArrayType(IntegerType)
+        return Expression(_b("ArrayRange", out, [], args), out)
+
+    @staticmethod
+    def linspace(start: Any, end: Any, count: Any) -> Any:
+        """``ArrayLinspace``: ``count`` Floats evenly spaced from ``start`` to ``end``."""
+        from east.expression import _lift, _tracing
+        from east.expression.expr import Expression
+        from east.expression.nodes import _builtin as _b
+        from east.types.values import EastArray
+
+        if not _tracing():
+            return EastArray.linspace(start, end, count)
+        args = [_lift(start, hint=FloatType).ir, _lift(end, hint=FloatType).ir,
+                _lift(count, hint=IntegerType).ir]
+        out = ArrayType(FloatType)
+        return Expression(_b("ArrayLinspace", out, [], args), out)
+
+
+class _SetNamespace:
+    """``East.Set`` — the Set constructors that are builtins (dual-mode)."""
+
+    @staticmethod
+    def generate(count: Any, fn: Any, on_duplicate: Any, element_type: EastType) -> Any:
+        """``SetGenerate``: the set of ``fn(0..count-1)``; ``on_duplicate(key)``
+        runs for a key generated twice."""
+        from east.expression import _lift, _trace_inner_fn, _tracing
+        from east.expression.expr import Expression
+        from east.expression.nodes import _builtin as _b
+        from east.types.values import EastSet
+
+        if not _tracing():
+            return EastSet.generate(count, fn, element_type=element_type)
+        n = _lift(count, hint=IntegerType)
+        node, _t = _trace_inner_fn(fn, [IntegerType], out_hint=element_type)
+        dup, _t2 = _trace_inner_fn(on_duplicate, [element_type], out_hint=NullType)
+        out = SetType(element_type)
+        return Expression(_b("SetGenerate", out, [element_type], [n.ir, node, dup]), out)
+
+
+class _DictNamespace:
+    """``East.Dict`` — the Dict constructors that are builtins (dual-mode)."""
+
+    @staticmethod
+    def generate(count: Any, key_fn: Any, value_fn: Any, combine: Any,
+                 key_type: EastType, value_type: EastType) -> Any:
+        """``DictGenerate``: ``count`` entries ``key_fn(i) → value_fn(i)``;
+        ``combine(existing, incoming, key)`` resolves a repeated key."""
+        from east.expression import _lift, _trace_inner_fn, _tracing
+        from east.expression.expr import Expression
+        from east.expression.nodes import _builtin as _b
+        from east.types.values import EastDict
+
+        if not _tracing():
+            return EastDict.generate(count, key_fn, value_fn, combine, key_type, value_type)
+        n = _lift(count, hint=IntegerType)
+        kf, _a = _trace_inner_fn(key_fn, [IntegerType], out_hint=key_type)
+        vf, _b2 = _trace_inner_fn(value_fn, [IntegerType], out_hint=value_type)
+        cf, _c = _trace_inner_fn(combine, [value_type, value_type, key_type], out_hint=value_type)
+        out = DictType(key_type, value_type)
+        return Expression(_b("DictGenerate", out, [key_type, value_type], [n.ir, kf, vf, cf]), out)
+
+
 class _East:
     """The ``East`` namespace object — primitive builtins, comparisons and
     the block-level control flow."""
@@ -1412,6 +1525,9 @@ class _East:
     DateTime = _DateTimeNamespace()
     Vector = _VectorNamespace()
     Matrix = _MatrixNamespace()
+    Array = _ArrayNamespace()
+    Set = _SetNamespace()
+    Dict = _DictNamespace()
 
     # ── the strict expression builders (#625, east/expression/function.py) ──
     # Name-for-name with the TypeScript trio: East.function / East.platform /
@@ -1420,8 +1536,29 @@ class _East:
     asyncFunction = staticmethod(_async_function)  # noqa: N815 — TS parity name
     platform = staticmethod(_platform)
     asyncPlatform = staticmethod(_async_platform)  # noqa: N815 — TS parity name
+    genericPlatform = staticmethod(_generic_platform)  # noqa: N815 — TS parity name
+    asyncGenericPlatform = staticmethod(_async_generic_platform)  # noqa: N815 — TS parity name
     compile = staticmethod(_compile)
     compileAsync = staticmethod(_compile_async)  # noqa: N815 — TS parity name
+
+    # ── the statement surface (east/expression/statements.py) ────────────
+    # Python's twin of the TypeScript `$` builder: statements append to the
+    # innermost open body. `let`/`while_`/`for_`/`block`/`break_`/`continue_`
+    # below dispatch between their statement and expression forms.
+    const = staticmethod(const)
+    assign = staticmethod(assign)
+    return_ = staticmethod(return_)
+    if_ = staticmethod(if_)
+    match_ = staticmethod(match_)
+    try_ = staticmethod(try_)
+    do = staticmethod(do)
+    error = staticmethod(error)
+    # expression-level spellings every IR node kind needs (TS parity names)
+    value = staticmethod(value)
+    as_ = staticmethod(as_)
+    wrap_recursive = staticmethod(wrap_recursive)
+    greatest = staticmethod(greatest)
+    least = staticmethod(least)
 
     # ── block-level control flow (#578, east/kernel/control.py) ──────────
     # Attached rather than defined here: they are dual-mode expression
@@ -1440,6 +1577,9 @@ class _East:
     new_array = staticmethod(new_array)
     new_set = staticmethod(new_set)
     new_dict = staticmethod(new_dict)
+    new_vector = staticmethod(new_vector)
+    new_matrix = staticmethod(new_matrix)
+    builtin = staticmethod(builtin)
 
     @staticmethod
     def equal(typ: EastType, a: EastValue, b: EastValue) -> bool:

@@ -1122,6 +1122,64 @@ cdef _eastc.EastType* _ensure_c_ir_type() except NULL:
     return _c_ir_type
 
 
+def normalize_ir(object ir_value):
+    """The canonical form of an IR value — east-c's ``east_ir_normalize``
+    (the round-trip equality contract, implemented once): loc_ids stripped,
+    variables and labels renamed in the TypeScript lowering's order, captures
+    recomputed, recursive type ids renumbered. Returns a fresh IR value."""
+    cdef _eastc.EastType* ir_type = _ensure_c_ir_type()
+    cdef _eastc.EastValue* c_ir = py_value_to_c(ir_value, ir_type)
+    cdef _eastc.EastValue* norm
+    try:
+        norm = _eastc.east_ir_normalize(c_ir)
+    finally:
+        _eastc.east_value_release(c_ir)
+    if norm == NULL:
+        raise ValueError("IR normalization failed (unknown node kind)")
+    try:
+        return c_value_to_py(norm, ir_type)
+    finally:
+        _eastc.east_value_release(norm)
+
+
+def diff_ir(object a, object b, bint normalize=True):
+    """The first structural difference between two IR values as a path
+    (``$(Function).value.body...``), or None when they are equal — normalized
+    first unless ``normalize=False``."""
+    cdef _eastc.EastType* ir_type = _ensure_c_ir_type()
+    cdef _eastc.EastValue* ca = py_value_to_c(a, ir_type)
+    cdef _eastc.EastValue* cb
+    cdef _eastc.EastValue* na = NULL
+    cdef _eastc.EastValue* nb = NULL
+    cdef char* path = NULL
+    try:
+        cb = py_value_to_c(b, ir_type)
+    except BaseException:
+        _eastc.east_value_release(ca)
+        raise
+    try:
+        if normalize:
+            na = _eastc.east_ir_normalize(ca)
+            nb = _eastc.east_ir_normalize(cb)
+            if na == NULL or nb == NULL:
+                raise ValueError("IR normalization failed (unknown node kind)")
+            path = _eastc.east_value_diff_path(na, nb)
+        else:
+            path = _eastc.east_value_diff_path(ca, cb)
+        if path == NULL:
+            return None
+        result = path.decode("utf-8")
+        free(path)
+        return result
+    finally:
+        if na != NULL:
+            _eastc.east_value_release(na)
+        if nb != NULL:
+            _eastc.east_value_release(nb)
+        _eastc.east_value_release(ca)
+        _eastc.east_value_release(cb)
+
+
 cpdef object compile_eastc_from_value(object ir_value, list platform_list, bint is_async,
                                       object source_map=None):
     """Compile East IR from a homoiconic IR value (an EastVariant conforming

@@ -103,6 +103,8 @@ __all__ = [
     "new_array",
     "new_set",
     "new_dict",
+    "new_vector",
+    "new_matrix",
 ]
 
 
@@ -160,8 +162,11 @@ def _jump(kind: str, state: Any, lbl: Any) -> _Jump:
     return _Jump(kind, None if lbl is None else _label_name(lbl), state)
 
 
-def break_(state: Any = _NO_STATE, *, label: Any = None) -> _Jump:
-    """Leave the loop now, optionally committing one last state.
+def break_(state: Any = _NO_STATE, *, label: Any = None) -> Any:
+    """Leave the loop now — the statement (TS ``$.break(label)``) when given
+    the :class:`~east.expression.statements.LoopLabel` a statement-form loop
+    body received, otherwise the state-threading sugar's jump value,
+    optionally committing one last state.
 
     Use it as an ``if_else`` arm inside a loop body — that is what types it::
 
@@ -182,14 +187,21 @@ def break_(state: Any = _NO_STATE, *, label: Any = None) -> _Jump:
             are for, and the state then belongs to that outer loop.
 
     Returns:
-        A jump that takes its East type from the surrounding ``if_else`` arm or
-        the loop state it stands in for.
+        The Never-typed Break statement (label form), or a jump value for an
+        ``if_else`` arm (sugar form).
     """
+    from east.expression.statements import LoopLabel, break_statement
+
+    if isinstance(state, LoopLabel):
+        return break_statement(state)
     return _jump("Break", state, label)
 
 
-def continue_(state: Any = _NO_STATE, *, label: Any = None) -> _Jump:
-    """Start the next iteration now, skipping the rest of the body.
+def continue_(state: Any = _NO_STATE, *, label: Any = None) -> Any:
+    """Start the next iteration now, skipping the rest of the body — the
+    statement (TS ``$.continue(label)``) when given a statement-form loop's
+    :class:`~east.expression.statements.LoopLabel`, otherwise the sugar's
+    jump value.
 
     Args:
         state: The state to commit before continuing. Omitting it in a
@@ -199,8 +211,13 @@ def continue_(state: Any = _NO_STATE, *, label: Any = None) -> _Jump:
         label: The loop to continue — defaults to the innermost.
 
     Returns:
-        A jump typed from context, like :func:`break_`.
+        The Never-typed Continue statement (label form), or a jump value for
+        an ``if_else`` arm (sugar form).
     """
+    from east.expression.statements import LoopLabel, continue_statement
+
+    if isinstance(state, LoopLabel):
+        return continue_statement(state)
     return _jump("Continue", state, label)
 
 
@@ -367,34 +384,53 @@ def _jumped(result: Any, current: Any, name: str) -> tuple:
 # ─── while_ ─────────────────────────────────────────────────────────────────
 
 
-def while_(state: Any, cond: Any, body: Any, *, label: Any = None) -> Any:
-    """Loop while ``cond`` holds, threading a state through each iteration.
+def while_(state: Any, cond: Any, body: Any = None, *, label: Any = None) -> Any:
+    """Loop while a condition holds — two forms.
 
-    The traced form lowers to a ``Ref`` holding ``state``, a ``While`` whose
-    predicate is ``cond(state)`` and whose body is one ``RefUpdate`` to
-    ``body(state)``, then a final read — so the whole loop runs inside east-c
-    with no per-iteration python. Outside a trace it runs the plain python
-    loop, so the same lambda works on both paths.
+    The STATEMENT form (TS ``$.while``), ``East.while_(predicate, body)``:
+    ``predicate`` is a Boolean expression re-tested before every iteration
+    and ``body(label)`` (or ``body()``) runs in its own statement frame — it
+    reads and reassigns ``East.let`` variables, appends statements, and
+    leaves through ``East.break_(label)``. The loop is a Null-typed
+    statement of the enclosing body.
+
+    The STATE-THREADING form, ``East.while_(state, cond, body)``: the traced
+    form lowers to a ``Ref`` holding ``state``, a ``While`` whose predicate
+    is ``cond(state)`` and whose body is one ``RefUpdate`` to
+    ``body(state)``, then a final read — so the whole loop runs inside
+    east-c with no per-iteration python. Outside a trace it runs the plain
+    python loop, so the same lambda works on both paths.
 
     Args:
         state: The initial state — a dict of named fields (read as ``s.name``
             in the callbacks, and the usual shape) or a single value. Its East
-            types are fixed for the whole loop.
+            types are fixed for the whole loop. In the statement form this
+            is the Boolean predicate.
         cond: ``cond(state) -> Boolean expression``. Evaluated before every
             iteration, so a zero-iteration loop returns ``state`` unchanged.
+            In the statement form this is the body callable.
         body: ``body(state) -> next state``, with the same fields and types.
             Branch with ``if_else``; a field left as ``s.field`` is unchanged.
         label: An optional :class:`Label` so a nested loop can ``break_`` out
-            of this one.
+            of this one (state-threading form).
 
     Returns:
         The state after the last iteration (a traced expression when tracing,
-        a plain dict/value otherwise).
+        a plain dict/value otherwise); the Null-typed While statement in the
+        statement form.
 
     Raises:
         ExpressionError: If ``cond`` does not return a Boolean, or ``body``
             returns different fields or different East types than ``state``.
     """
+    if body is None:
+        from east.expression.statements import while_statement
+
+        if label is not None:
+            raise ExpressionError(
+                "East.while_(predicate, body) names its loop through the label the "
+                "body receives — the label= keyword belongs to the state-threading form")
+        return while_statement(state, cond)
     name = _label_name(label)
     if not _tracing():
         return _while_eager(state, cond, body, name)
@@ -459,7 +495,7 @@ def _loop_block(cell: str, ref_t: EastType, state_t: EastType,
     loc = _loc_id()
     return Expression(
         _k_block(state_t, [
-            ir_let(ref_t, _var(cell, ref_t), ir_new_ref(ref_t, init.ir, loc), loc),
+            ir_let(NullType, _var(cell, ref_t), ir_new_ref(ref_t, init.ir, loc), loc),
             loop,
             _builtin("RefGet", state_t, [state_t], [_var(cell, ref_t)]),
         ]),
@@ -487,31 +523,49 @@ def _while_eager(state: Any, cond: Any, body: Any, name: str) -> Any:
 # ─── for_ ───────────────────────────────────────────────────────────────────
 
 
-def for_(collection: Any, state: Any, body: Any, *, label: Any = None) -> Any:
-    """Iterate a collection, threading a state through each element.
+def for_(collection: Any, state: Any, body: Any = None, *, label: Any = None) -> Any:
+    """Iterate a collection — two forms.
 
-    Sugar over the same state threading as :func:`while_`, lowered to the
+    The STATEMENT form (TS ``$.for``), ``East.for_(collection, body)``:
+    ``body`` runs in its own statement frame per element — Array
+    ``body(value, index, label)``, Set ``body(key, label)``, Dict
+    ``body(value, key, label)`` (trailing parameters may be omitted) — and
+    the loop is a Null-typed statement of the enclosing body.
+
+    The STATE-THREADING form, ``East.for_(collection, state, body)``: sugar
+    over the same state threading as :func:`while_`, lowered to the
     ``ForArray`` / ``ForSet`` / ``ForDict`` node for the container's kind —
     the nodes TypeScript's ``$.for`` emits, and the only way to walk a Set or
     a Dict, which have no positional access to index with.
 
     Args:
         collection: An Array, Set or Dict expression (or an eager one).
-        state: The initial state, exactly as :func:`while_` takes it.
+        state: The initial state, exactly as :func:`while_` takes it — or,
+            in the statement form, the body callable.
         body: The step, in the container's own callback shape — Array
             ``body(state, element)`` (a third parameter receives the index),
             Set ``body(state, element)``, Dict ``body(state, key, value)``.
             It returns the next state.
-        label: An optional :class:`Label` for ``break_`` / ``continue_``.
+        label: An optional :class:`Label` for ``break_`` / ``continue_``
+            (state-threading form).
 
     Returns:
         The state after the last element; ``state`` unchanged when the
-        collection is empty.
+        collection is empty. The Null-typed For statement in the statement
+        form.
 
     Raises:
         ExpressionError: If ``collection`` is not a container, or ``body``
             returns a state of a different shape.
     """
+    if body is None:
+        from east.expression.statements import for_statement
+
+        if label is not None:
+            raise ExpressionError(
+                "East.for_(collection, body) names its loop through the label the "
+                "body receives — the label= keyword belongs to the state-threading form")
+        return for_statement(collection, state)
     name = _label_name(label)
     if not _tracing():
         return _for_eager(collection, state, body, name)
@@ -604,21 +658,34 @@ def _for_eager(collection: Any, state: Any, body: Any, name: str) -> Any:
 
 
 def block(*exprs: Any) -> Any:
-    """Evaluate each expression in order; the value is the last one.
+    """A block — two forms.
 
-    The sequencing point for the in-place mutators, which — like their eager
-    twins — yield Null rather than the receiver::
+    ``East.block(fn)`` (TS ``East.block``) runs ``fn()`` in its own statement
+    frame and is the EXPRESSION whose value is the last statement's: the
+    statements ``fn`` appends, then the value it returns (a block that
+    returns nothing must diverge).
+
+    ``East.block(e1, e2, …)`` evaluates each expression in order; the value
+    is the last one — the sequencing point for the in-place mutators, which
+    like their eager twins yield Null rather than the receiver::
 
         East.block(s.order.append(s.ready[0]), {**s, "i": s.i + 1})
 
     Args:
-        exprs: The expressions, in evaluation order. At least one.
+        exprs: One callable (the frame form), or the expressions in
+            evaluation order (at least one).
 
     Returns:
-        The last expression's value.
+        The block's value.
     """
     if not exprs:
         raise ExpressionError("East.block() needs at least one expression")
+    if len(exprs) == 1 and callable(exprs[0]) and not isinstance(exprs[0], Expression):
+        from east.expression.statements import block_expression
+
+        if not _tracing():
+            return exprs[0]()
+        return block_expression(exprs[0])
     if not _tracing():
         return exprs[-1]
     lifted = [_lift(e) for e in exprs]
@@ -626,22 +693,34 @@ def block(*exprs: Any) -> Any:
     return Expression(_k_block(out_t, [e.ir for e in lifted]), out_t)
 
 
-def let(value: Any, fn: Any) -> Any:
-    """Bind ``value`` once, then use it as often as you like.
+def let(value: Any, fn: Any = None) -> Any:
+    """Bind a value to a variable — two forms.
 
-    The tracer already binds a python-shared subexpression whose inputs are
-    the kernel's own parameters; this is the explicit form, for a value that
-    depends on a loop or lambda binding — where the automatic pass cannot
-    hoist and the expression would otherwise be re-emitted, and re-executed,
-    at every use site.
+    The STATEMENT form (TS ``$.let``), ``East.let(value)`` /
+    ``East.let(value, type)``: appends a ``Let`` to the enclosing body and
+    returns the new MUTABLE variable — reassign it with ``East.assign``.
+    ``East.const`` is the non-reassignable twin.
+
+    The EXPRESSION form, ``East.let(value, fn)``: bind ``value`` once and
+    use it as often as you like inside ``fn(bound)``, whose value is the
+    result. The tracer already binds a python-shared subexpression whose
+    inputs are the kernel's own parameters; this is the explicit form, for
+    a value that depends on a loop or lambda binding — where the automatic
+    pass cannot hoist and the expression would otherwise be re-emitted, and
+    re-executed, at every use site.
 
     Args:
-        value: The expression to evaluate once.
-        fn: ``fn(bound) -> expression`` — the body, with ``value`` bound.
+        value: The expression to bind.
+        fn: ``fn(bound) -> expression`` — the expression form's body; or the
+            declared East type of the statement form's variable; or omitted.
 
     Returns:
-        The body's value.
+        The variable (statement form) or the body's value (expression form).
     """
+    if fn is None or isinstance(fn, EastType):
+        from east.expression.statements import let_statement
+
+        return let_statement(value, fn)
     if not _tracing():
         return fn(value)
     bound = _lift(value)
@@ -649,7 +728,7 @@ def let(value: Any, fn: Any) -> Any:
     body = _lift(fn(Expression(_var(name, bound.east_type), bound.east_type)))
     return Expression(
         _k_block(body.east_type, [
-            ir_let(bound.east_type, _var(name, bound.east_type), bound.ir, _loc_id()),
+            ir_let(NullType, _var(name, bound.east_type), bound.ir, _loc_id()),
             body.ir,
         ]),
         body.east_type,
@@ -751,6 +830,53 @@ def new_dict(key_type: EastType, value_type: EastType, entries: Any = ()) -> Any
     )
 
 
+def new_vector(element_type: EastType, values: Any = ()) -> Any:
+    """A FRESH Vector from scalar values (the ``NewVector`` node).
+
+    Args:
+        element_type: The element East type (Float, Integer or Boolean).
+        values: The elements, in order.
+
+    Returns:
+        A Vector expression when tracing, an ``EastVector`` otherwise.
+    """
+    if not _tracing():
+        from east.types.values import EastVector
+
+        return EastVector(element_type, list(values))
+    from east.expression.nodes import _k_new_vector
+    from east.types.types import VectorType
+
+    t = VectorType(element_type)
+    return Expression(
+        _k_new_vector(t, [_lift(v, hint=element_type).ir for v in values]), t)
+
+
+def new_matrix(element_type: EastType, rows: int, cols: int, values: Any = ()) -> Any:
+    """A FRESH ``rows`` × ``cols`` Matrix from row-major scalar values (the
+    ``NewMatrix`` node).
+
+    Args:
+        element_type: The element East type (Float, Integer or Boolean).
+        rows: The row count.
+        cols: The column count.
+        values: The ``rows * cols`` elements, row-major.
+
+    Returns:
+        A Matrix expression when tracing, an ``EastMatrix`` otherwise.
+    """
+    if not _tracing():
+        from east.types.values import EastMatrix
+
+        return EastMatrix(element_type, list(values), rows, cols)
+    from east.expression.nodes import _k_new_matrix
+    from east.types.types import MatrixType
+
+    t = MatrixType(element_type)
+    return Expression(
+        _k_new_matrix(t, int(rows), int(cols), [_lift(v, hint=element_type).ir for v in values]), t)
+
+
 # ─── try_catch ──────────────────────────────────────────────────────────────
 
 
@@ -779,26 +905,35 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
             if finally_ is not None:
                 finally_()
 
+    from east.expression.lift import _coerce, _union_type
+    from east.expression.statements import _frames, _run_block
     from east.types.type_of_type import LocationType
 
-    guarded = _lift(body())
+    ret_t = _frames[-1].return_type if _frames else None
+    # The guarded body and the handler each run in their own statement frame
+    # (TS `East.tryCatch(expr, handler)` builds the handler with `block`);
+    # a body that appends no statement is exactly the expression it returns.
+    guarded = _run_block(body, (), return_type=ret_t, mode="block_expr")
     message = _var(_fresh_name(), StringType)
     stack_t = ArrayType(LocationType)
     stack = _var(_fresh_name(), stack_t)
-    caught = _lift(
-        _call_handler(handler,
-                      Expression(message, StringType),
-                      Expression(stack, stack_t)),
-        hint=guarded.east_type,
-    )
-    if caught.east_type != guarded.east_type:
+    caught = _run_block(
+        handler, (Expression(message, StringType), Expression(stack, stack_t)),
+        return_type=ret_t, mode="block_expr",
+        out=None if guarded.east_type.type == "Never" else guarded.east_type)
+    if (guarded.east_type.type != "Never" and caught.east_type.type != "Never"
+            and caught.east_type != guarded.east_type):
         raise ExpressionError(
             f"try_catch handler returns {caught.east_type.type}, the body "
             f"returns {guarded.east_type.type} — both arms must agree")
-    ending = _lift(finally_()) if finally_ is not None else None
+    out_t = _union_type([guarded.east_type, caught.east_type], "try_catch()")
+    guarded = guarded if guarded.east_type.type == "Never" else _coerce(guarded, out_t)
+    caught = caught if caught.east_type.type == "Never" else _coerce(caught, out_t)
+    ending = (_run_block(finally_, (), return_type=ret_t, mode="null_block")
+              if finally_ is not None else None)
     return Expression(
         ir_trycatch(
-            guarded.east_type,
+            out_t,
             guarded.ir,
             caught.ir,
             message,
@@ -806,7 +941,7 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
             finally_body=ending.ir if ending is not None else _literal(None, NullType),
             loc_id=_loc_id(),
         ),
-        guarded.east_type,
+        out_t,
     )
 
 

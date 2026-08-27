@@ -24,7 +24,7 @@ from east.expression.nodes import (
     _var,
 )
 from east.ir.builders import ir_let
-from east.types.types import EastType, FunctionType
+from east.types.types import EastType, FunctionType, NullType
 from east.types.values import EastArray, EastStruct, EastVariant
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ def _free_vars(node: Any, bound: frozenset, out: dict) -> None:
     """
     from east.types.values import is_east_struct, is_east_variant
 
-    if isinstance(node, list):
+    if isinstance(node, (list, EastArray)):
         for x in node:
             _free_vars(x, bound, out)
         return
@@ -81,6 +81,25 @@ def _free_vars(node: Any, bound: frozenset, out: dict) -> None:
         for case in p["cases"]:
             _free_vars(case["body"], bound | {case["variable"].value["name"]}, out)
         return
+    if kind == "Let":
+        # A Let outside a Block (a single-statement body): its variable is
+        # a BINDING, not a reference — only its value is walked. (Inside a
+        # Block the Block case scopes it over the statements that follow.)
+        _free_vars(p["value"], bound, out)
+        return
+    if kind == "Assign":
+        _free_vars(p["variable"], bound, out)
+        _free_vars(p["value"], bound, out)
+        return
+    if kind == "TryCatch":
+        # The message/stack variables BIND over the catch arm only; the
+        # generic walk below would report them free (and an enclosing
+        # function would list them as captures east-c cannot resolve).
+        _free_vars(p["try_body"], bound, out)
+        caught = bound | {p["message"].value["name"], p["stack"].value["name"]}
+        _free_vars(p["catch_body"], caught, out)
+        _free_vars(p["finally_body"], bound, out)
+        return
     if kind in ("ForArray", "ForSet", "ForDict"):
         # The loop variables BIND in the body. Left to the generic walk below
         # they would be collected as free and land in an enclosing function's
@@ -103,11 +122,33 @@ def _free_vars(node: Any, bound: frozenset, out: dict) -> None:
         _free_vars(v, bound, out)
 
 
-def _capturing_fn(fn_t: EastType, params: list, body_ir: Any):
-    """A Function IR node whose ``captures`` are computed from the body."""
+def _with_recomputed_captures(fn_node: Any) -> Any:
+    """``fn_node`` (a finalized Function/AsyncFunction) with its ``captures``
+    recomputed from its body: every outer variable the body reads, minus
+    its own parameters, in first-use order."""
+    from east.types.type_of_type import IRType
+
+    payload = fn_node.value
+    free: dict[str, Any] = {}
+    _free_vars(payload["body"], frozenset(p.value["name"] for p in payload["parameters"]), free)
+    old = [c.value["name"] for c in payload["captures"]]
+    if old == list(free):
+        return fn_node
+    fields = {k: payload[k] for k in payload}
+    fields["captures"] = EastArray(IRType, list(free.values()))
+    return EastVariant(fn_node.type, EastStruct(fields))
+
+
+def _capturing_fn(fn_t: EastType, params: list, body_ir: Any, is_async: bool = False):
+    """A Function (or AsyncFunction) IR node whose ``captures`` are computed
+    from the body — every outer variable the body reads, in first-use order,
+    each capture node the Variable node the body reads through."""
+    from east.expression.nodes import _k_async_function
+
     free: dict[str, Any] = {}
     _free_vars(body_ir, frozenset(p.value["name"] for p in params), free)
-    return _k_function(fn_t, list(free.values()), params, body_ir)
+    make = _k_async_function if is_async else _k_function
+    return make(fn_t, list(free.values()), params, body_ir)
 
 
 def _const_fn_node(param_types: list, body: Expression, out_t: EastType) -> Any:
@@ -138,6 +179,15 @@ _CSE_SKIP_KINDS = frozenset({"Value", "Variable"})
 _SOLO_SKIP_KINDS = frozenset({
     "Function", "AsyncFunction", "Error", "Let", "Break", "Continue", "Platform",
 })
+
+#: Statement kinds whose effect reaches OUTSIDE the subtree they sit in: a
+#: subtree holding one is never bound once by the CSE, however often it is
+#: referenced — a hoisted Let evaluates it elsewhere (and once), which is not
+#: what a return, an assignment to an outer variable, or a jump to an outer
+#: loop means (#627, the statement surface). A jump to a loop the subtree
+#: itself contains, or an assignment to a variable it binds, is self-contained
+#: (the state-threading sugar's loops are exactly that) and hoists as before.
+_ESCAPING_KINDS = frozenset({"Assign", "Return", "Break", "Continue"})
 
 
 def _reaches_mutable(t) -> bool:
@@ -189,6 +239,12 @@ def _node_specs():
         "Function": ((("captures", "list", ir), ("parameters", "list", ir), "body"), ()),
         "AsyncFunction": ((("captures", "list", ir), ("parameters", "list", ir), "body"), ()),
         "Let": (("variable", "value"), ()),
+        "Assign": (("variable", "value"), ()),
+        "Return": (("value",), ()),
+        "As": (("value",), ()),
+        "WrapRecursive": (("value",), ()),
+        "UnwrapRecursive": (("value",), ()),
+        "CallAsync": (("function", ("arguments", "list", ir)), ()),
         "Block": ((("statements", "list", ir),), ()),
         "Error": (("message",), ()),
         "NewRef": (("value",), ()),
@@ -228,16 +284,106 @@ def _node_children(node):
                     yield sub[f]
 
 
-def _finalize_ir(top, param_names: set, kernel_fn=None):
+def _arrayify(node, children):
+    """Rebuild ``node`` with ``children`` (its direct children, in
+    ``_node_children`` order) as the final homoiconic value: every plain
+    python list becomes the ``EastArray`` its IR field declares."""
+    spec = _specs()[node.type]
+    payload = node.value
+    fields = {k: payload[k] for k in payload}
+    it = iter(children)
+    for entry in spec[0]:
+        if isinstance(entry, str):
+            fields[entry] = next(it)
+        elif entry[1] == "list":
+            fields[entry[0]] = EastArray(entry[2](), [next(it) for _ in payload[entry[0]]])
+        else:
+            rebuilt: list[Any] = []
+            for sub in payload[entry[0]]:
+                sf = {k: sub[k] for k in sub}
+                for f in entry[3]:
+                    sf[f] = next(it)
+                rebuilt.append(EastStruct(sf))
+            fields[entry[0]] = EastArray(entry[2](), rebuilt)
+    for fname, etype in spec[1]:
+        fields[fname] = EastArray(etype, list(payload[fname]))
+    return EastVariant(node.type, EastStruct(fields))
+
+
+def _arrayify_tree(top):
+    """The no-CSE finalize: convert every lazy list child in the tree into its
+    ``EastArray`` and return the final homoiconic value. Shared subtrees stay
+    shared (one rebuild per node); nothing is hoisted or re-typed — the IR is
+    exactly what the body spelled, which is what ``East.function(...,
+    cse=False)`` promises and what the IR→python printer relies on."""
+    memo: dict[int, Any] = {}
+
+    def rewrite(node):
+        i = id(node)
+        hit = memo.get(i)
+        if hit is not None:
+            return hit
+        result = _arrayify(node, [rewrite(c) for c in _node_children(node)])
+        memo[i] = result
+        return result
+
+    return rewrite(top)
+
+
+def _rehome_ir(node, from_map, to_map):
+    """A copy of ``node`` whose ``loc_id``s index ``to_map`` instead of
+    ``from_map`` (each location stack re-interned); a node from no map, or
+    into no map, has its locations dropped (0). Labels carry a ``loc_id`` of
+    their own and are re-homed too."""
+    from east.types.values import EastStruct as _Struct
+
+    memo: dict[int, Any] = {}
+
+    def loc(old):
+        if from_map is None or to_map is None or not old:
+            return 0
+        if from_map is to_map:
+            return old
+        return to_map.intern_stack(from_map.resolve(old))
+
+    def rewrite(n):
+        i = id(n)
+        hit = memo.get(i)
+        if hit is not None:
+            return hit
+        children = [rewrite(c) for c in _node_children(n)]
+        result = _arrayify(n, children)
+        payload = result.value
+        fields = {k: payload[k] for k in payload}
+        fields["loc_id"] = loc(payload["loc_id"])
+        if "label" in fields:
+            lbl = fields["label"]
+            fields["label"] = _Struct({"name": lbl["name"], "loc_id": loc(lbl["loc_id"])})
+        result = EastVariant(result.type, _Struct(fields))
+        memo[i] = result
+        return result
+
+    return rewrite(node)
+
+
+def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
     """CSE + arrayify the whole lazy tree; returns the final homoiconic node.
 
     ``top`` is the (lazy) top-level Function node — or a Block wrapping it
     when constants hoisted; the CSE lets land inside ``kernel_fn``'s body
-    (the FIRST Function node encountered from the top).
+    (the FIRST Function node encountered from the top). With ``cse=False``
+    the pass only converts lazy lists (``_arrayify_tree``): no shared
+    subtree binds to a Let and no callback invariant hoists.
     """
+    if not cse:
+        return _arrayify_tree(top)
     counts: dict[int, int] = {}
     keep: dict[int, Any] = {}
     visited: set[int] = set()
+    #: names bound MUTABLE (``East.let`` statements) anywhere in the tree. A
+    #: node reading one must never hoist or bind once: an ``Assign`` between
+    #: two of its occurrences means the two reads see different values.
+    mutable_names: set[str] = set()
     #: node id -> every parent reference is a non-mutating Builtin (a READ).
     #: A single-occurrence mutable-typed node may only hoist when its one
     #: consumer reads it — anywhere else (a Struct field, a callback's result
@@ -250,6 +396,8 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         if node.type not in _CSE_SKIP_KINDS:
             counts[i] = counts.get(i, 0) + 1
             keep[i] = node
+        elif node.type == "Variable" and node.value["mutable"]:
+            mutable_names.add(node.value["name"])
         if i in visited:
             return
         visited.add(i)
@@ -520,6 +668,9 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         # native (#593). Each sub-expression is walked in exactly the scope
         # it runs in, and the binder DECLARATIONS are not walked at all.
         payload = node.value
+        if node.type == "Let":
+            # a Let outside a Block: its variable binds, only the value reads
+            return free_vars(payload["value"], bound)
         if node.type in ("ForArray", "ForSet", "ForDict"):
             # The source is evaluated OUTSIDE the loop; only the body sees
             # the loop variables (the module-level `_free_vars` agrees).
@@ -615,6 +766,33 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
     # collection builtins run it per element — and it provably cannot tell
     # the difference: no rebound name (invariant), no effect, no mutable
     # value escaping anywhere but a read.
+    def escapes(node, labels=frozenset(), bound=frozenset(), in_fn=False) -> bool:
+        """Whether a statement inside ``node`` acts OUTSIDE it: a Return not
+        enclosed by a nested function, a Break/Continue naming a loop the
+        subtree does not contain, an Assign to a variable it does not bind."""
+        kind = node.type
+        payload = node.value
+        if kind == "Return":
+            return not in_fn
+        if kind in ("Break", "Continue"):
+            return payload["label"]["name"] not in labels
+        if kind == "Assign":
+            return payload["variable"].value["name"] not in bound
+        if kind in ("Function", "AsyncFunction"):
+            return any(escapes(c, labels, bound, True) for c in _node_children(node))
+        if kind in ("While", "ForArray", "ForSet", "ForDict"):
+            inner = labels | {payload["label"]["name"]}
+            return any(escapes(c, inner, bound, in_fn) for c in _node_children(node))
+        if kind == "Block":
+            scope = set(bound)
+            for stmt in payload["statements"]:
+                if escapes(stmt, labels, frozenset(scope), in_fn):
+                    return True
+                if getattr(stmt, "type", None) == "Let":
+                    scope.add(stmt.value["variable"].value["name"])
+            return False
+        return any(escapes(c, labels, bound, in_fn) for c in _node_children(node))
+
     hoistable: dict[int, str] = {}
     #: node id -> (Block id, statement index), or (None, 0) for the kernel body
     site: dict[int, tuple] = {}
@@ -623,11 +801,15 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         solo = n < 2
         if solo and (i not in in_callback or node.type in _SOLO_SKIP_KINDS):
             continue
+        if escapes(node):
+            continue          # a statement acting outside the subtree stays put
         if i not in uncond_seen:
             continue          # every occurrence is branch-guarded — see above
         fv = free_vars(node, set())
         if fv & scope[i]:
             continue
+        if fv & mutable_names:
+            continue          # a reassignable binding: each read must stay put
         if mutated_free(node, set()):
             continue          # the effect must stay where the trace put it
         if solo:
@@ -652,27 +834,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
     kernel_fn_seen = False
     emit_order = 0
 
-    def arrayify(node, children):
-        spec = _specs()[node.type]
-        payload = node.value
-        fields = {k: payload[k] for k in payload}
-        it = iter(children)
-        for entry in spec[0]:
-            if isinstance(entry, str):
-                fields[entry] = next(it)
-            elif entry[1] == "list":
-                fields[entry[0]] = EastArray(entry[2](), [next(it) for _ in payload[entry[0]]])
-            else:
-                rebuilt: list[Any] = []
-                for sub in payload[entry[0]]:
-                    sf = {k: sub[k] for k in sub}
-                    for f in entry[3]:
-                        sf[f] = next(it)
-                    rebuilt.append(EastStruct(sf))
-                fields[entry[0]] = EastArray(entry[2](), rebuilt)
-        for fname, etype in spec[1]:
-            fields[fname] = EastArray(etype, list(payload[fname]))
-        return EastVariant(node.type, EastStruct(fields))
+    arrayify = _arrayify
 
     def emit_let(i):
         nonlocal emit_order
@@ -683,7 +845,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
         value = rewrite(node, binding=i)
         # The hoisted Let stands in for the node it binds: it reports that
         # node's authoring location, not the finalize pass's.
-        let = ir_let(node.value["type"], _var(hoistable[i], node.value["type"]), value,
+        let = ir_let(NullType, _var(hoistable[i], node.value["type"]), value,
                      node.value["loc_id"])
         home, at = site[i]
         if home is None:
@@ -717,13 +879,22 @@ def _finalize_ir(top, param_names: set, kernel_fn=None):
             if lets:
                 from east.types.type_of_type import IRType
 
-                body_type = node.value["type"].value["output"]
+                # A Block takes its last statement's type — the body's,
+                # which is Never for a body that always returns.
+                body_type = body.value["type"]
                 block: Any = EastVariant("Block", EastStruct({
                     "type": body_type, "loc_id": node.value["loc_id"],
                     "statements": EastArray(IRType, [*lets, body]),
                 }))
                 children[-1] = block
         result = arrayify(node, children)
+        if node.type in ("Function", "AsyncFunction"):
+            # The hoisting above may have replaced a subtree inside this
+            # function's body with a reference to a Let bound OUTSIDE it
+            # (a callback invariant, a shared node): its captures must list
+            # that variable, or the IR is invalid — a nested function names
+            # every outer variable it reads (the TS analyzer's rule).
+            result = _with_recomputed_captures(result)
         own = block_lets.get(i) if node.type == "Block" else None
         if own:
             # Splice this Block's own lets in AFTER the rebuild: arrayify
@@ -753,18 +924,24 @@ def _function_ir(
     body: Expression,
     consts: list[tuple[str, Any, EastType]] = (),  # type: ignore[assignment]
     is_async: bool = False,
+    out: EastType | None = None,
+    cse: bool = True,
 ) -> Any:
     """The kernel's top-level IR value: a Function node, or — when constants
     hoisted — ``Block[Let …, Function(captures)]`` so each constant evaluates
     ONCE when the kernel compiles, not per call. Finalization runs the
     identity CSE (#411) and converts the lazy tree to real East arrays.
-    ``is_async`` builds the AsyncFunction node/type instead (East.asyncFunction)."""
+    ``is_async`` builds the AsyncFunction node/type instead (East.asyncFunction).
+    ``out`` is the DECLARED output type — the function type's output even
+    when the body diverges (a ``Never``-typed body that always returns);
+    it defaults to the body's type. ``cse=False`` skips the CSE/hoisting
+    pass entirely."""
     from east.expression.nodes import _k_async_function
     from east.types.types import AsyncFunctionType
 
     make_type = AsyncFunctionType if is_async else FunctionType
     make_node = _k_async_function if is_async else _k_function
-    fn_type = make_type(list(param_types), body.east_type)
+    fn_type = make_type(list(param_types), out if out is not None else body.east_type)
     fn_node = make_node(
         fn_type,
         # Hoisted constants are captured so they survive the enclosing block.
@@ -776,7 +953,8 @@ def _function_ir(
     if consts:
         # Each constant's Let reports the constructor node's own location —
         # the site that captured the constant.
-        lets = [ir_let(t, _var(name, t), node, node.value["loc_id"]) for name, node, t in consts]
+        lets = [ir_let(NullType, _var(name, t), node, node.value["loc_id"])
+                for name, node, t in consts]
         top = _k_block(fn_type, [*lets, fn_node])
     param_names = {p.value["name"] for p in params} | {name for name, _n, _t in consts}
-    return _finalize_ir(top, param_names, kernel_fn=fn_node)
+    return _finalize_ir(top, param_names, kernel_fn=fn_node, cse=cse)

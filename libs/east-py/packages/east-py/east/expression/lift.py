@@ -40,18 +40,22 @@ from east.expression.nodes import (
     _option_type,
     _var,
 )
-from east.ir.builders import ir_variant
+from east.ir.builders import ir_as, ir_variant, ir_wrap_recursive
 from east.types.types import (
+    BlobType,
     BooleanType,
     DateTimeType,
     EastType,
     FloatType,
     FunctionType,
     IntegerType,
+    NeverType,
     NullType,
     StringType,
+    is_subtype,
+    is_type_equal,
 )
-from east.types.values import EastArray, EastVariant
+from east.types.values import EastArray, EastStruct, EastVariant
 
 if TYPE_CHECKING:
     from east.expression.expr import Expression
@@ -91,6 +95,8 @@ def _lift(value: Any, hint: EastType | None = None) -> Expression:
         # arm, a captured datetime constant — all lift as DateTime
         # literals (#422); every other scalar already did.
         return Expression(_literal(value, DateTimeType), DateTimeType)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return Expression(_literal(bytes(value), BlobType), BlobType)
     lifted = _lift_variant(value, hint)
     if lifted is not None:
         return lifted
@@ -98,7 +104,21 @@ def _lift(value: Any, hint: EastType | None = None) -> Expression:
     if lifted is not None:
         return lifted
     if isinstance(value, dict):
+        if hint is not None and hint.type == "Dict":
+            return _lift_python_dict(value, hint)
         return _lift_struct(value, hint)
+    if isinstance(value, (list, tuple)) and hint is not None and hint.type == "Array":
+        elem_t = hint.value
+        nodes = [_coerce(_lift(v, hint=elem_t), elem_t).ir for v in value]
+        return Expression(_k_new_array(hint, nodes), hint)
+    if isinstance(value, (set, frozenset, list, tuple)) and hint is not None \
+            and hint.type == "Set":
+        elem_t = hint.value
+        nodes = [_coerce(_lift(v, hint=elem_t), elem_t).ir for v in value]
+        return Expression(_k_new_set(hint, nodes), hint)
+    embedded = _lift_artifact(value)
+    if embedded is not None:
+        return embedded
     import asyncio
 
     if asyncio.iscoroutine(value):
@@ -113,6 +133,216 @@ def _lift(value: Any, hint: EastType | None = None) -> Expression:
     raise ExpressionError(
         f"cannot lift python value of type {type(value).__name__} into an East expression"
     )
+
+
+def _unroll(rec: EastType) -> EastType:
+    """A recursive type's inner type, self-contained: every ``ref`` back to
+    the wrapper is replaced by the wrapper itself — the type a value of the
+    inner shape carries, and what ``WrapRecursive`` takes /
+    ``UnwrapRecursive`` yields (TS ``type.node``)."""
+    from east.types.types import _close_recursive_refs
+
+    payload = rec.value
+    if payload.type != "wrapper":
+        raise ExpressionError("a bare recursive `ref` has no inner type")
+    rec_id = payload.value["id"]
+    return _close_recursive_refs(payload.value["inner"], {rec_id: rec})
+
+
+def _coerce(expr: Expression, target: EastType, _visited: set | None = None) -> Expression:
+    """Widen ``expr`` to ``target`` the way the TypeScript lowering does
+    (``ast_to_ir.coerce_to``): an equal type is left alone; a Struct or
+    Variant LITERAL node is re-typed to the wider type (its fields/payload
+    coerced in turn); anything else is wrapped in an ``As`` node. A type that
+    is not a subtype raises."""
+    from east.expression.expr import Expression
+    from east.expression.nodes import _type_key
+
+    src = expr.east_type
+    if is_type_equal(src, target):
+        return expr
+    if not is_subtype(src, target):
+        raise ExpressionError(
+            f"cannot widen a value of East type {src.type} to {target.type}: not a subtype"
+        )
+    key = (_type_key(src), _type_key(target))
+    if _visited is not None and key in _visited:
+        return Expression(ir_as(target, expr.ir, _loc_id()), target)
+    visited = _visited if _visited is not None else set()
+    visited.add(key)
+    s = _unroll(src) if src.type == "Recursive" else src
+    t = _unroll(target) if target.type == "Recursive" else target
+    node = expr.ir
+    if node.type == "Struct" and s.type == "Struct" and t.type == "Struct":
+        s_fields = {f["name"]: f["type"] for f in s.value}
+        t_fields = {f["name"]: f["type"] for f in t.value}
+        fields: list[Any] = []
+        for entry in node.value["fields"]:
+            name, value = entry["name"], entry["value"]
+            s_f, t_f = s_fields.get(name), t_fields.get(name)
+            if s_f is not None and t_f is not None:
+                value = _coerce(Expression(value, s_f), t_f, visited).ir
+            fields.append(EastStruct({"name": name, "value": value}))
+        rebuilt: Any = EastVariant("Struct", EastStruct({
+            "type": target, "loc_id": node.value["loc_id"], "fields": fields}))
+        return Expression(rebuilt, target)
+    if node.type == "Variant" and s.type == "Variant" and t.type == "Variant":
+        case = node.value["case"]
+        s_c = next((c["type"] for c in s.value if c["name"] == case), None)
+        t_c = next((c["type"] for c in t.value if c["name"] == case), None)
+        inner = node.value["value"]
+        if s_c is not None and t_c is not None:
+            inner = _coerce(Expression(inner, s_c), t_c, visited).ir
+        rebuilt = EastVariant("Variant", EastStruct({
+            "type": target, "loc_id": node.value["loc_id"], "case": case, "value": inner}))
+        return Expression(rebuilt, target)
+    return Expression(ir_as(target, expr.ir, _loc_id()), target)
+
+
+def _lift_python_dict(value: dict, hint: EastType) -> Expression:
+    """A python dict under a Dict hint is a NewDict (TS ``Map`` → NewDict)."""
+    from east.expression.expr import Expression
+
+    k_t, v_t = hint.value["key"], hint.value["value"]
+    entries = [(_coerce(_lift(k, hint=k_t), k_t).ir, _coerce(_lift(v, hint=v_t), v_t).ir)
+               for k, v in value.items()]
+    return Expression(_k_new_dict(hint, entries), hint)
+
+
+def _lift_artifact(value: Any) -> Expression | None:
+    """A built ``East.function`` referenced as a VALUE inside another body
+    embeds as its Function node — a Function-typed expression that can be
+    bound, stored, passed as a callback, or called (``Call`` IR). Only a
+    plain Function/AsyncFunction artifact embeds (one with hoisted captured
+    constants is a Block, and its constants belong to its own build); its
+    locations are re-interned under the open build's map."""
+    ir = getattr(value, "_east_ir", None)
+    if ir is None or not isinstance(ir, EastVariant):
+        return None
+    if ir.type not in ("Function", "AsyncFunction"):
+        return None
+    if not _tracing():
+        return None
+    from east.expression.expr import Expression
+    from east.expression.finalize import _rehome_ir
+    from east.expression.location import current_source_map
+
+    node = _rehome_ir(ir, getattr(value, "_east_source_map", None), current_source_map())
+    return Expression(node, node.value["type"])
+
+
+def value(v: Any, typ: EastType | None = None) -> Any:
+    """An expression from a python value (TS ``East.value``).
+
+    Args:
+        v: The value — a python literal, a dict (a struct, or a Dict under a
+            Dict type), a list/set (an Array/Set under that type), a
+            ``variant``/``some``/``none``, an East value, a built
+            ``East.function``, or an expression (returned as is).
+        typ: The East type to build under. Required for anything a python
+            value cannot type on its own (``none``, a general variant, a
+            list); a literal under a wider type takes that type (``1`` under
+            ``FloatType`` is ``1.0``); a value under a recursive type is
+            wrapped.
+
+    Returns:
+        The expression, typed ``typ`` (or the value's own type).
+    """
+    from east.expression.expr import Expression
+
+    if isinstance(v, Expression):
+        if typ is not None and not is_subtype(v.east_type, typ):
+            raise ExpressionError(
+                f"East.value(): expression of East type {v.east_type.type} is not "
+                f"a subtype of {typ.type}"
+            )
+        return v
+    if typ is not None and typ.type in (
+        "Null", "Boolean", "Integer", "Float", "String", "DateTime", "Blob",
+    ) and not isinstance(v, (EastVariant, dict, list, tuple, set)):
+        from east.types.values import is_east_null
+
+        if typ.type == "Blob":
+            return Expression(_literal(bytes(v), typ), typ)
+        if typ.type == "Null" and not (v is None or is_east_null(v)):
+            raise ExpressionError(f"East.value(): expected null but got {v!r}")
+        return Expression(_literal(v, typ), typ)
+    return _lift(v, hint=typ)
+
+
+def builtin(name: str, type_parameters: list, arguments: list, out: EastType) -> Any:
+    """The raw ``Builtin`` node — the spelling of last resort for a builtin
+    the python surface has no named spelling for (``east.codegen.RAW_ONLY``).
+
+    Args:
+        name: The builtin's name (``"VectorFold"``).
+        type_parameters: Its type parameters, as East types.
+        arguments: Its arguments — expressions, liftable python values, or
+            nested ``East.function`` expressions for callback slots.
+        out: The node's declared output type.
+
+    Returns:
+        The Builtin expression, typed ``out``.
+    """
+    from east.expression.expr import Expression
+    from east.expression.nodes import _k_builtin
+
+    if not isinstance(name, str) or not name:
+        raise ExpressionError("East.builtin() takes the builtin's name first")
+    if not isinstance(out, EastType):
+        raise ExpressionError("East.builtin() takes the output East type last")
+    tps = list(type_parameters)
+    for t in tps:
+        if not isinstance(t, EastType):
+            raise ExpressionError("East.builtin() type parameters must be East types")
+    args = [_lift(a).ir for a in arguments]
+    return Expression(_k_builtin(name, out, tps, args), out)
+
+
+def as_(v: Any, typ: EastType) -> Any:
+    """The explicit subtype widening ``As`` (the node the TypeScript lowering
+    inserts where a narrower value meets a wider slot). A value already of
+    ``typ`` is returned unchanged — an unnecessary ``As`` is an analysis
+    error, as in TypeScript.
+
+    Args:
+        v: The expression (or liftable value) to widen.
+        typ: The wider East type.
+
+    Returns:
+        The expression typed ``typ``.
+    """
+    from east.expression.expr import Expression
+
+    e = _lift(v, hint=typ)
+    if is_type_equal(e.east_type, typ):
+        return e
+    if not is_subtype(e.east_type, typ):
+        raise ExpressionError(
+            f"East.as_(): East type {e.east_type.type} is not a subtype of {typ.type}"
+        )
+    return Expression(ir_as(typ, e.ir, _loc_id()), typ)
+
+
+def wrap_recursive(v: Any, typ: EastType) -> Any:
+    """Wrap a value of a recursive type's inner shape into the recursive type
+    (TS ``RecursiveExpr.wrap`` — the ``WrapRecursive`` node).
+
+    Args:
+        v: An expression (or liftable value) of the type's unrolled inner type.
+        typ: The recursive type (``recursive_type(...)``).
+
+    Returns:
+        The expression typed ``typ``.
+    """
+    from east.expression.expr import Expression
+
+    if typ.type != "Recursive":
+        raise ExpressionError(f"East.wrap_recursive() takes a recursive type, got {typ.type}")
+    inner_t = _unroll(typ)
+    e = _lift(v, hint=inner_t)
+    e = _coerce(e, inner_t)
+    return Expression(ir_wrap_recursive(typ, e.ir, _loc_id()), typ)
 
 
 def _holds_traced(value: Any) -> bool:
@@ -299,9 +529,20 @@ def _note_effect(node: Any, op: str) -> None:
         _effect_frames[-1].append((node, op))
 
 
+def _take_effects() -> list:
+    """Close the innermost effects frame and hand back what it noted, for a
+    deferred :func:`_check_effects` (a body whose statements assemble only
+    once a sibling has settled the type)."""
+    return _effect_frames.pop()
+
+
 def _pop_effects(body_ir: Any) -> None:
     """Fail if a mutation traced in this scope never reached ``body_ir``."""
-    noted = _effect_frames.pop()
+    _check_effects(_effect_frames.pop(), body_ir)
+
+
+def _check_effects(noted: list, body_ir: Any) -> None:
+    """Fail if an effect in ``noted`` never reached ``body_ir``."""
     if not noted:
         return
     from east.expression.finalize import _node_children
@@ -316,11 +557,16 @@ def _pop_effects(body_ir: Any) -> None:
         stack.extend(_node_children(node))
     for node, op in noted:
         if id(node) not in seen:
+            if op == "error":
+                raise ExpressionError(
+                    "East.error(...) was evaluated and thrown away — return it "
+                    "from the body or branch, or use it as an East.if_else arm, "
+                    "so the error reaches the compiled program")
             raise ExpressionError(
-                f".{op}() was evaluated and thrown away — a traced callback is "
-                "ONE expression, so a mutation written as a statement does not "
-                "reach the compiled body and the loop would silently do "
-                f"nothing. Sequence it: East.block(x.{op}(...), result)")
+                f".{op}() was evaluated and thrown away — a bare expression "
+                "statement does not reach the compiled body and the loop would "
+                f"silently do nothing. Append it with East.do(x.{op}(...)), or "
+                f"sequence it: East.block(x.{op}(...), result)")
 
 
 def _tracing() -> bool:
@@ -476,16 +722,42 @@ def _lift_struct(value: dict, hint: EastType | None = None) -> Expression:
     from east.expression.expr import Expression
     from east.types.types import StructType as _StructType
 
-    field_hints: dict[str, EastType] = {}
-    if hint is not None and getattr(hint, "type", None) == "Struct":
-        field_hints = {f["name"]: f["type"] for f in hint.value}
+    shape = hint
+    if hint is not None and hint.type == "Recursive":
+        # A struct literal typed by a recursive wrapper: the node carries the
+        # wrapper (the TS lowering's widened Struct node); the fields come
+        # from the unrolled inner type.
+        shape = _unroll(hint)
+    if shape is not None and getattr(shape, "type", None) == "Struct":
+        # Under a declared Struct type the node IS that type (TS
+        # `valueOrExprToAstTyped(obj, StructType)`): fields are taken in the
+        # type's order, each lifted under — and widened to — its field type.
+        names = [f["name"] for f in shape.value]
+        missing = [n for n in names if n not in value]
+        unknown = [k for k in value if k not in names]
+        if missing or unknown:
+            raise ExpressionError(
+                f"struct literal does not match the declared type — missing "
+                f"{missing}, unknown {unknown}"
+            )
+        lifted = [(f["name"], _lift(value[f["name"]], hint=f["type"]), f["type"])
+                  for f in shape.value]
+        if all(is_subtype(e.east_type, t) for _n, e, t in lifted):
+            typed_fields = [(n, _coerce(e, t).ir) for n, e, t in lifted]
+            return Expression(_k_struct(hint, typed_fields), hint)
+        # A field that does not fit its declared type: build the struct the
+        # fields describe and let the caller name the mismatch (a loop
+        # state's drift, a declared output) in its own words.
+        fields = [(n, e.ir) for n, e, _t in lifted]
+        struct_t = _StructType([(n, e.east_type) for n, e, _t in lifted])
+        return Expression(_k_struct(struct_t, fields), struct_t)
 
     fields = []
     field_types = []
     for name, item in value.items():
         if not isinstance(name, str):
             raise ExpressionError("struct construction needs string field names")
-        e = _lift(item, hint=field_hints.get(name))
+        e = _lift(item)
         fields.append((name, e.ir))
         field_types.append((name, e.east_type))
     struct_t = _StructType(field_types)
@@ -504,6 +776,15 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
 
     if not is_east_variant(value) or not isinstance(value, EastVariant):
         return None
+    # A recursive wrapper as the hint: the node carries the wrapper type (the
+    # TS lowering's widened Variant node); the cases come from the inner.
+    shape = _unroll(hint) if hint is not None and hint.type == "Recursive" else hint
+    if (shape is not None and shape.type == "Variant" and not _is_option(shape)
+            and any(c["name"] == value.type for c in shape.value)):
+        # Under a declared (non-Option) variant type naming the case, the
+        # general construction below types the node exactly as declared —
+        # `some(...)` under a wider variant included.
+        return _general_variant(value, hint, shape)
     if value.type == "some":
         payload = value.value
         # An Option hint threads into the payload, so `some(variant(case, …))`
@@ -512,36 +793,27 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
             if hint is not None and _is_option(hint) else None
         inner = payload if isinstance(payload, Expression) \
             else _lift(payload, hint=inner_hint)
-        opt_t = _option_type(inner.east_type)
+        if inner_hint is not None and is_subtype(inner.east_type, inner_hint):
+            inner = _coerce(inner, inner_hint)
+            opt_t = hint
+        else:
+            opt_t = _option_type(inner.east_type)
         node = ir_variant(opt_t, "some", inner.ir, _loc_id())
         return Expression(node, opt_t)
     # `none.value` is the east_null sentinel, not Python None — test the sentinel
     # so this branch (and its type-from-context diagnostic) is actually reachable.
     if value.type == "none" and (is_east_null(value.value) or value.value is None):
-        if hint is None or not _is_option(hint):
+        if shape is None or shape.type != "Variant":
             raise ExpressionError(
                 "`none` in a traced body needs a type from context — pair it with a "
                 "some(...) arm in East.if_else(), or declare the output type "
                 "(East.function(params, OptionType(T), body); out= on the method)"
             )
-        node = ir_variant(hint, "none", _literal(None, NullType), _loc_id())
-        return Expression(node, hint)
-    if hint is not None and hint.type == "Variant":
-        # General variant construction: variant("case", payload) with the
-        # type from context (e.g. an if_else() arm or a declared output);
-        # the payload may be a traced expression or a liftable literal.
-        case_t = next((c["type"] for c in hint.value if c["name"] == value.type), None)
-        if case_t is None:
-            names = ", ".join(c["name"] for c in hint.value)
-            raise ExpressionError(f"variant case {value.type!r} not in {{{names}}}")
-        payload = _lift(value.value, hint=case_t)
-        if payload.east_type != case_t:
-            raise ExpressionError(
-                f"variant case {value.type!r} payload has type {payload.east_type.type}, "
-                f"expected {case_t.type}"
-            )
-        node = ir_variant(hint, value.type, payload.ir, _loc_id())
-        return Expression(node, hint)
+        if _is_option(shape):
+            node = ir_variant(hint, "none", _literal(None, NullType), _loc_id())
+            return Expression(node, hint)
+    if shape is not None and shape.type == "Variant":
+        return _general_variant(value, hint, shape)
     # A general variant — the 2-arg variant(case, payload) construction
     # carries no VariantType — reached here with no Variant hint (#541).
     raise ExpressionError(
@@ -550,6 +822,27 @@ def _lift_variant(value: Any, hint: EastType | None) -> Expression | None:
         "body), or out= on the eager method), or build it in an East.if_else() "
         "with a typed sibling or a typed struct field"
     )
+
+
+def _general_variant(value: Any, hint: EastType, shape: EastType) -> Expression:
+    """General variant construction: variant("case", payload) with the type
+    from context (an if_else() arm, a declared output); the payload may be a
+    traced expression or a liftable literal. ``shape`` is the Variant type
+    the cases come from (``hint`` unrolled when it is recursive)."""
+    from east.expression.expr import Expression
+
+    case_t = next((c["type"] for c in shape.value if c["name"] == value.type), None)
+    if case_t is None:
+        names = ", ".join(c["name"] for c in shape.value)
+        raise ExpressionError(f"variant case {value.type!r} not in {{{names}}}")
+    payload = _lift(value.value, hint=case_t)
+    if not is_subtype(payload.east_type, case_t):
+        raise ExpressionError(
+            f"variant case {value.type!r} payload has type {payload.east_type.type}, "
+            f"expected {case_t.type}"
+        )
+    node = ir_variant(hint, value.type, _coerce(payload, case_t).ir, _loc_id())
+    return Expression(node, hint)
 
 
 def _needs_type_context(value: Any) -> bool:
@@ -630,23 +923,20 @@ class _Jump:
     def __repr__(self) -> str:
         return f"<{self.kind.lower()} {self.label!r}>"
 
-    def resolve(self, hint: EastType | None) -> Expression:
+    def resolve(self, _hint: EastType | None) -> Expression:
+        """The jump as IR. A jump never produces a value, so the node is
+        ``Never``-typed whatever the context asked for (the TypeScript
+        builder's typing); an ``if_else`` sibling of any type absorbs it."""
         from east.expression.expr import Expression
         from east.ir.builders import ir_break, ir_continue, ir_label
 
-        if hint is None:
-            raise ExpressionError(
-                f"{self.kind.lower()}_() needs a type from context — put it in a "
-                "East.if_else() arm inside a while_/for_ body, where the loop state "
-                "types it"
-            )
         frame = _loop_frame(self.label, f"{self.kind.lower()}_")
         build = ir_break if self.kind == "Break" else ir_continue
         loc = _loc_id()
-        jump = build(hint, ir_label(frame.name, loc), loc)
+        jump = build(NeverType, ir_label(frame.name, loc), loc)
         if self.state is _NO_STATE:
-            return Expression(jump, hint)
-        return Expression(_k_block(hint, [frame.commit(self.state), jump]), hint)
+            return Expression(jump, NeverType)
+        return Expression(_k_block(NeverType, [frame.commit(self.state), jump]), NeverType)
 
 
 class _DeferredIfElse:
@@ -732,6 +1022,32 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     ``(Function node, traced output type)``.
     """
     from east.expression.expr import Expression
+    from east.expression.statements import _close_frame, _open_frame, assemble
+
+    if isinstance(fn, Expression):
+        # A Function-typed EXPRESSION in a callback slot — a variable bound
+        # to a function, a nested `East.function` — is the callback itself
+        # (TS `arr.map(fnExpr)`): the builtin takes the expression directly.
+        fn_t = fn.east_type
+        if fn_t.type != "Function":
+            raise ExpressionError(
+                f"callback slot given a {fn_t.type}-typed expression, not a function"
+            )
+        inputs = list(fn_t.value["inputs"])
+        if len(inputs) != len(param_types) or not all(
+            is_subtype(p, i) for p, i in zip(param_types, inputs, strict=True)
+        ):
+            raise ExpressionError(
+                "callback expression's parameter types do not match the "
+                "builtin's callback signature"
+            )
+        out_t = fn_t.value["output"]
+        if out_hint is not None and not is_subtype(out_t, out_hint):
+            raise ExpressionError(
+                f"callback expression returns {out_t.type}, the slot declares "
+                f"{out_hint.type}"
+            )
+        return fn.ir, out_t
 
     arity = declared
     if arity is None:
@@ -747,6 +1063,7 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
         )
     names = [_fresh_name() for _ in param_types]
     proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
+    frame = _open_frame(out_hint)
     _push_effects()
     popped = False
     try:
@@ -756,29 +1073,49 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
             raise
         except Exception as e:  # pragma: no cover - message carries the cause
             raise ExpressionError(f"inner lambda is not traceable: {e}") from e
-        body = _lift(result, hint=out_hint)
+        # The callback is an `East.function` body (TS `Expr.function`): its
+        # statements and returned value assemble by the function rules.
+        body = assemble(frame, result, "function", out_hint)
         popped = True
         _pop_effects(body.ir)
     finally:
         if not popped:  # a failed trace must not leak this callback's frame
             _effect_frames.pop()
+        _close_frame(frame)
     params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
-    fn_t = FunctionType(list(param_types), body.east_type)
+    out_t = body.east_type
+    if out_hint is not None and out_t.type == "Never":
+        out_t = out_hint
+    fn_t = FunctionType(list(param_types), out_t)
     node = _capturing_fn(fn_t, params, body.ir)
-    return node, body.east_type
+    return node, out_t
+
+
+def _union_type(types: list, what: str) -> EastType:
+    """The TypeScript ``TypeUnion`` fold over arm types: ``Never`` is the
+    identity (a diverging arm), equal types agree, anything else is the
+    arms disagreeing."""
+    from east.types.types import TypeMismatchError, type_union
+
+    out_t: EastType = NeverType
+    for t in types:
+        try:
+            out_t = type_union(out_t, t)
+        except TypeMismatchError as e:
+            raise ExpressionError(
+                f"{what} arms must have the same East type ({out_t.type} vs {t.type})"
+            ) from e
+    return out_t
 
 
 def _ifelse_expr(conds: list, arms: list) -> Expression:
-    """Build the IfElse from lifted conditions and lifted arms (else last)."""
+    """Build the IfElse from lifted conditions and lifted arms (else last).
+    The node's type is the union of the arms' types (a ``Never`` arm — an
+    error, a jump — is absorbed); a narrower arm widens to it."""
     from east.expression.expr import Expression
 
-    out_t = arms[0].east_type
-    for arm in arms:
-        if arm.east_type != out_t:
-            raise ExpressionError(
-                f"if_else() arms must have the same East type "
-                f"({out_t.type} vs {arm.east_type.type})"
-            )
+    out_t = _union_type([a.east_type for a in arms], "if_else()")
+    arms = [a if a.east_type.type == "Never" else _coerce(a, out_t) for a in arms]
     node = _k_ifelse(
         out_t,
         [(c.ir, a.ir) for c, a in zip(conds, arms[:-1], strict=True)],
@@ -861,8 +1198,9 @@ def if_else(*branches: Any) -> Any:
         return _DeferredIfElse(cond_exprs, values)
     arms = [_lift(v, hint=settled) for v in values]
     # One reconciliation pass, so an Integer/Float mix agrees whichever arm
-    # states its type first.
-    widened = next((a.east_type for a in arms if a.east_type != settled), None)
+    # states its type first. A diverging (Never) arm has no say.
+    widened = next((a.east_type for a in arms
+                    if a.east_type != settled and a.east_type.type != "Never"), None)
     if widened is not None:
         arms = [_lift(v, hint=widened) for v in values]
     return _ifelse_expr(cond_exprs, arms)

@@ -148,7 +148,7 @@ run("bob")
 | `East.asyncFunction(param_types, out, body)` | an `AsyncFunction` artifact | for bodies calling async platform declarations; compile with `East.compileAsync` |
 | `East.platform(name, inputs, output)` | a declaration handle | callable INSIDE a body (emits the `Platform` node); calling one outside raises `expression-level` |
 | `East.asyncPlatform(name, inputs, output)` | an async declaration | calling it from a SYNC body is a build error naming `East.asyncFunction` |
-| `East.compile(fn, platform=[])` / `East.compileAsync(...)` | a native callable | takes an artifact or a raw IR value; platform signatures validate with the TS analyzer's message; a missing impl compiles to a stub that raises at the call (TS parity) |
+| `East.compile(fn, platform=[])` / `East.compileAsync(...)` | a native callable | takes an artifact or a raw IR value; the IR is analyzed against `platform` first (`east.ir.analyze`, the TS `analyzeIR`): a signature mismatch or a missing implementation is an `EastError` naming the call — unless the declaration is `optional=True`, which compiles to a stub that raises at the call (TS parity) |
 
 A **pure** artifact needs no compile step: it is already a native callable,
 `.bind(*values)` pre-binds trailing parameters by reference (#399), and
@@ -202,7 +202,8 @@ Every eager callback method takes exactly two kinds of function:
      `group_minimum` `group_to_arrays` `group_to_sets` `group_to_dicts`
      `group_find_all` `group_find_first` `group_find_maximum`
      `group_find_minimum` `[index_expr]` — plus the in-place `append`
-     `extend` `clear`
+     `extend` `clear` `prepend` `pop` `pop_first` `set_at`
+     `reverse_in_place` `sort_in_place` and the effect-only `for_each`
    - **Set**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `flatten_to_dict` `to_array`
      `to_dict` `to_set` `union` `intersect` `diff` `sym_diff` `is_subset` `is_superset_of` `is_disjoint`
@@ -210,7 +211,8 @@ Every eager callback method takes exactly two kinds of function:
      (`group_fold` = deprecated alias, #535)
      `group_size` `group_sum` `group_mean` `group_every` `group_some`
      `group_to_arrays` `group_to_sets` `group_to_dicts` — plus the in-place
-     `insert` `try_insert` `delete` `try_delete` `clear`
+     `insert` `try_insert` `delete` `try_delete` `clear` `union_in_place`
+     and the effect-only `for_each`
    - **Dict**: `map` `filter` `filter_map` `first_map` `map_reduce` `scan`
      `flatten_to_array` `flatten_to_set` `flatten_to_dict` `to_array`
      `to_set` `to_dict` `union` `keys_set` `get_keys` `copy` `size` `has` `get` `get_or_default`
@@ -218,7 +220,9 @@ Every eager callback method takes exactly two kinds of function:
      (`group_fold` = deprecated alias, #535) `group_size`
      `group_sum` `group_mean` `group_every` `group_some` `group_to_arrays`
      `group_to_sets` `group_to_dicts` `[key_expr]` — plus the in-place
-     `insert` `insert_or_update` `delete` `try_delete` `clear`
+     `insert` `insert_or_update` `delete` `try_delete` `clear` `update_at`
+     `swap` `pop` `get_or_insert` `merge_key` `merge_all` `union_in_place`
+     and the effect-only `for_each`
    - **Vector** (#598 — structural ops plus the elementwise arithmetic,
      reductions in strict left-to-right index order, masks and
      gather/scatter; the callback ops map and fold are deliberately absent,
@@ -388,16 +392,17 @@ plain East values. A worked example is in
 | Call | Emits | Notes |
 |---|---|---|
 | `East.if_else(cond, value, …, otherwise)` | `IfElse` | cond/value pairs then the else — an if/elif/else chain is ONE node; exactly one arm evaluates |
-| `East.while_(state, cond, body, label=…)` | `While` | `cond(s) -> Boolean`, `body(s) -> next state` |
-| `East.for_(coll, state, body, label=…)` | `ForArray`/`ForSet`/`ForDict` | Array `body(s, el[, i])`, Set `body(s, el)`, Dict `body(s, k, v)` |
-| `East.block(a, b, …)` | `Block` | evaluates in order, yields the last — the sequencing point for mutators |
-| `East.let(value, fn)` | `Let` | bind once, use many times (explicit CSE inside a loop) |
-| `East.ref(v)` | `NewRef` | a cell — `.get()` / `.set(v)` / `.update(fn)` |
+| `East.while_(state, cond, body, label=…)` | `While` | `cond(s) -> Boolean`, `body(s) -> next state` (the 2-argument form is the statement, below) |
+| `East.for_(coll, state, body, label=…)` | `ForArray`/`ForSet`/`ForDict` | Array `body(s, el[, i])`, Set `body(s, el)`, Dict `body(s, k, v)` (the 2-argument form is the statement, below) |
+| `East.block(a, b, …)` | `Block` | evaluates in order, yields the last — the sequencing point for mutators (`East.block(fn)` is the statement-frame form, below) |
+| `East.let(value, fn)` | `Let` | bind once, use many times (explicit CSE inside a loop); `East.let(value[, type])` is the statement, below |
+| `East.ref(v)` | `NewRef` | a cell — `.get()` / `.set(v)` / `.update(fn)` / `.merge(v, fn)` |
 | `East.label(name=None)` | — | names a loop, for `break_`/`continue_` from a NESTED one |
 | `East.break_(state=…, label=…)` | `Break` | leave, optionally committing a last state |
 | `East.continue_(state=…, label=…)` | `Continue` | next iteration, optionally committing |
 | `East.try_catch(body, handler, finally_=None)` | `TryCatch` | `handler(message[, stack])`, same East type as `body` |
 | `East.new_array/new_set/new_dict(…)` | `NewArray`/`NewSet`/`NewDict` | a FRESH collection per evaluation — the loop accumulator |
+| `East.new_vector(T, values)` / `East.new_matrix(T, rows, cols, values)` | `NewVector`/`NewMatrix` | a fresh tensor from scalar expressions |
 
 **Accumulate in place.** Threading a collection through the state rebuilds it
 every iteration (`order.concat(…)` copies — O(n²) over the loop). The
@@ -418,6 +423,101 @@ counts = East.for_(rows, {"counts": East.new_dict(StringType, IntegerType)},
 anywhere ELSE in a kernel a captured collection is a build-time snapshot
 shared by every call, and mutating one raises rather than leaking state
 between calls.
+
+### Statements — the TypeScript `$` twin (#627)
+
+A TypeScript body receives `$` and appends STATEMENTS to it; a python body
+gets the same surface **ambiently**: every `East.function` body, callback and
+branch runs inside an open statement frame, and the statement constructors
+append to it. Write the body as a `def` (a lambda cannot hold statements) and
+`return` its value; python `None` is TypeScript's "no return" and the
+`east_null` sentinel an explicit `null`:
+
+```python
+from east import East, IntegerType, StringType, east_null
+
+def classify(n):
+    acc = East.let(0)                                  # $.let — reassignable
+    limit = East.const(n * 2)                          # $.const
+    def loop(label):                                   # $.while body: (label) → statements
+        East.if_(acc >= limit, lambda: East.break_(label))
+        East.assign(acc, acc + 1)                      # $.assign
+    East.while_(True, loop)
+    East.if_(acc > 10, lambda: East.return_("big")) \
+        .else_if(acc > 5, lambda: East.return_("mid")) \
+        .else_(lambda: East.return_("small"))          # every arm returns → Never
+
+size = East.function([IntegerType], StringType, classify)
+```
+
+| Statement | Emits | Notes |
+|---|---|---|
+| `East.let(value[, type])` / `East.const(value[, type])` | `Let` (Null) | the variable, mutable / not; a declared `type` widens a narrower literal (a `Variable` of a subtype gets an `As`) |
+| `East.assign(var, value)` | `Assign` (Null) | `var` must come from `East.let` |
+| `East.return_([value])` | `Return` (Never) | checked against the declared output; a `do` of the same expression just before is not duplicated |
+| `East.if_(pred, fn).else_if(pred, fn).else_(fn)` | `IfElse` (Null; Never when every arm diverges) | each `fn()` runs in its own frame; a branch ending in a non-Null value pads with `null` |
+| `East.match_(variant, {case: fn(data)})` | `Match` (Null) | a case without a handler does nothing |
+| `East.while_(pred, fn)` / `East.for_(coll, fn)` | `While` / `ForArray`/`ForSet`/`ForDict` (Null) | `fn(label)`; Array `fn(value, index, label)`, Set `fn(key, label)`, Dict `fn(value, key, label)` — trailing parameters may be omitted |
+| `East.break_(label)` / `East.continue_(label)` | `Break` / `Continue` (Never) | the loop's `label` is what the body received; a bare `East.break_()` (the sugar's jump) inside a statement loop targets it too |
+| `East.try_(fn).catch(fn(message, stack)).finally_(fn)` | `TryCatch` (Null) | `.catch` at most once; Never when both bodies diverge |
+| `East.do(expr)` | the expression as a statement | `$(expr)` — a platform call or mutation evaluated for its effect |
+| `East.block(fn)` | `Block` | the EXPRESSION form: statements, then the value `fn` returns (a block returning nothing must diverge) |
+| `East.error(msg)` | `Error` (Never) | an expression — return it, or use it as an `if_else` arm; a bare `East.error(...)` that reaches no body raises at build time |
+
+A statement after one that never completes raises `Unreachable statement
+detected`, as in TypeScript. `East.function(...)` spelled INSIDE a body is
+not an artifact but the inline `Function` node as a Function-typed
+expression — bind it with `East.const`, hand it to a callback slot, or call
+it (a `Call`; inside `East.asyncFunction`, calling an async one is a
+`CallAsync`). Every other IR node kind has a spelling too, so any program
+TypeScript can build, python can build name for name: `East.value(v, T)` (a
+typed literal / struct / list / dict), `East.as_(v, T)` (an explicit
+widening `As`), `East.wrap_recursive(v, R)` and `expr.unwrap()` on a
+recursive-typed expression, `East.builtin(name, [T…], [args], out)` (a raw
+builtin, for the few with no named spelling — `east.codegen.RAW_ONLY`),
+`East.platform(..., optional=True)` and `East.genericPlatform(name,
+["T"], inputs, output)`.
+
+**The analyzer.** Every build (and every `East.compile`) runs
+`east.ir.analyze.analyze_ir` — the python twin of TypeScript's `analyzeIR`:
+scope, exact-type rules (a `Let`/`Assign`/argument/element/field must have
+exactly its slot's type, subtyping spelled with `As`), divergence rules and
+node well-formedness, with the TypeScript messages and the python
+`file:line:column` of the node. A body that cannot pass it never compiles.
+
+`East.function(..., cse=False)` switches off the trace-time CSE (shared
+python objects binding to one `Let`, callback invariants hoisting) and builds
+exactly the IR the body spells — what the transpiler emits.
+
+### IR → python: `east-py transpile` and the `east-c ir` toolbox (#627)
+
+Any East IR — an `East.function` artifact, or a `.json` / `.beast2` export
+from TypeScript, east-c or east-node — prints as an idiomatic python module
+that REBUILDS it through the surface above:
+
+```python
+from east.codegen import to_python_source
+print(to_python_source(size))            # defs + `main = East.function(..., cse=False)`
+```
+
+```bash
+east-py transpile program.json -o program.py --name main   # the same, from a file
+east-c ir normalize program.json -o canonical.json         # the canonical form
+east-c ir diff a.json b.beast2                             # first difference, or "identical"
+east-c ir convert program.json -o program.beast2           # json <-> beast2, source map intact
+```
+
+The contract, pinned by `tests/conformance` over the whole compliance corpus
+and every exported `*.examples.ts` example: `build(print(IR))` equals `IR`
+under `east-c ir normalize` (loc_ids stripped, variables and labels renamed
+in the TypeScript lowering's order, captures recomputed, recursive type ids
+renumbered — the one normalizer, in libeast-c, reached from python as
+`east.runtime._compiler_eastc.normalize_ir` / `diff_ir`). Builtins print
+through the spelling table `east.codegen.spellings` (operators only where the
+exactness table permits — `+ - *` on numbers, `/` on Floats, comparisons,
+`& | ^ ~` on Booleans, `+` on Strings; named `East.<Type>.*` / method
+spellings elsewhere; `East.builtin(...)` for `RAW_ONLY`), and the eager
+compliance replay derives its rows from the same table.
 
 ### Maximum performance — the levers, ranked
 

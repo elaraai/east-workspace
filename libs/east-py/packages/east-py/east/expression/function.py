@@ -76,7 +76,8 @@ def trace_builtin_call(
     ir_args: list[dict] = []
     for a in args:
         if isinstance(a, EastFunction):
-            node, out_t = _trace_inner_fn(a.fn, list(a.input_types))
+            node, out_t = _trace_inner_fn(a.fn, list(a.input_types),
+                                          out_hint=a.output_type)
             if out_t != a.output_type:
                 raise ExpressionError(
                     f"traced callback for {name} returns {out_t.type}, "
@@ -90,9 +91,15 @@ def trace_builtin_call(
 
 def trace(fn: Any, param_types: list[EastType],
           out_hint: EastType | None = None,
-          is_async: bool = False) -> tuple[Any, EastType, list]:
+          is_async: bool = False, *, cse: bool = True) -> tuple[Any, EastType, list]:
     """Trace ``fn`` over expression proxies; return
     ``(IR value, output type, called-function binds)``.
+
+    The body runs inside a statement frame (``east.expression.statements``):
+    the statements it appends and the value it returns assemble by the
+    TypeScript ``East.function`` rules, and the reported output type is the
+    assembled body's — ``Never`` for a body that always returns/raises, in
+    which case the function type's output is ``out_hint``.
 
     The IR value is homoiconic — an ``EastVariant`` conforming to ``IRType``
     (compile with ``compile_from_value``). Raises ExpressionError when the
@@ -114,8 +121,11 @@ def trace(fn: Any, param_types: list[EastType],
     ``trace`` (a type-only derivation, a test) captures none — every
     ``loc_id`` is 0 — and costs no frame walk.
     """
+    from east.expression.statements import _close_frame, _open_frame, assemble
+
     proxies = [Expression(_var(f"__k{i}", t), t) for i, t in enumerate(param_types)]
     outer = _push_registries()
+    frame = _open_frame(out_hint)
     _push_effects()
     popped = False
     try:
@@ -125,20 +135,76 @@ def trace(fn: Any, param_types: list[EastType],
             raise
         except Exception as e:
             raise ExpressionError(f"the function body is not traceable: {e}") from e
-        result = _lift(result, hint=out_hint)
+        result = assemble(frame, result, "function", out_hint)
         popped = True
         _pop_effects(result.ir)
         consts, fn_consts = _registry_entries() if outer else ([], [])
     finally:
         if not popped:
             _effect_frames.pop()
+        _close_frame(frame)
         if outer:
             _clear_registries()
     params = [_var(f"__k{i}", t) for i, t in enumerate(param_types)]
     all_types = list(param_types) + [t for _name, _hold, t in fn_consts]
     all_params = params + [_var(name, t) for name, _hold, t in fn_consts]
-    ir = _function_ir(all_types, all_params, result, consts, is_async=is_async)
+    ir = _function_ir(all_types, all_params, result, consts, is_async=is_async,
+                      out=out_hint, cse=cse)
     return ir, result.east_type, [hold for _name, hold, _t in fn_consts]
+
+
+def _output_matches(out_type: EastType, declared: EastType) -> bool:
+    """Whether a built body's type satisfies the declared output: equal, or
+    ``Never`` for a body that always returns or raises (the TypeScript
+    analyzer's rule for function bodies)."""
+    return out_type == declared or out_type.type == "Never"
+
+
+def _nested_function(param_types: list[EastType], out: EastType, body: Any, *,
+                     is_async: bool) -> Any:
+    """``East.function`` / ``East.asyncFunction`` spelled INSIDE another body:
+    a Function-typed EXPRESSION — the inline Function node the TypeScript
+    builder produces, its ``captures`` the outer variables the body reads —
+    rather than a compiled artifact. Bind it with ``East.const``, store it,
+    hand it to a callback slot, or call it (a ``Call`` node).
+    """
+    from east.expression.finalize import _capturing_fn
+    from east.expression.nodes import _fresh_name
+    from east.expression.statements import _close_frame, _open_frame, assemble
+    from east.types.types import AsyncFunctionType, FunctionType
+
+    global _async_build
+    names = [_fresh_name() for _ in param_types]
+    proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
+    previous = _async_build
+    _async_build = is_async
+    frame = _open_frame(out)
+    _push_effects()
+    popped = False
+    try:
+        try:
+            result = body(*proxies)
+        except ExpressionError:
+            raise
+        except Exception as e:
+            raise ExpressionError(f"the function body is not traceable: {e}") from e
+        assembled = assemble(frame, result, "function", out)
+        popped = True
+        _pop_effects(assembled.ir)
+    finally:
+        if not popped:
+            _effect_frames.pop()
+        _close_frame(frame)
+        _async_build = previous
+    if not _output_matches(assembled.east_type, out):
+        entry = "East.asyncFunction" if is_async else "East.function"
+        raise ExpressionError(
+            f"{entry} body produced {assembled.east_type.type}, declared out is {out.type}"
+        )
+    params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
+    fn_t = (AsyncFunctionType if is_async else FunctionType)(list(param_types), out)
+    node = _capturing_fn(fn_t, params, assembled.ir, is_async=is_async)
+    return Expression(node, fn_t)
 
 
 def _platform_deps(ir_value: Any) -> tuple[tuple[str, bool], ...]:
@@ -151,12 +217,15 @@ def _platform_deps(ir_value: Any) -> tuple[tuple[str, bool], ...]:
     from east.types.values import is_east_struct, is_east_variant
 
     deps: dict[str, bool] = {}
-    seen: set[int] = set()
+    # id -> node: the visited nodes are kept ALIVE. Reading an EastArray
+    # element materializes a fresh python object, whose id is free for reuse
+    # the moment it dies — a bare id set would mark the next element "seen".
+    seen: dict[int, Any] = {}
 
     def walk(node: Any) -> None:
         if id(node) in seen:
             return
-        seen.add(id(node))
+        seen[id(node)] = node
         if is_east_variant(node):
             payload = node.value
             if node.type == "Platform" and payload["name"] not in deps:
@@ -259,7 +328,7 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
     kernel_callable._eastc_handle = compiled._eastc_handle
     kernel_callable._east_ir = getattr(compiled, "_east_ir", None)
     kernel_callable._east_captures = getattr(compiled, "_east_captures", {})
-    kernel_callable.bind = compiled.bind
+    kernel_callable.bind = getattr(compiled, "bind", None)
     kernel_callable._east_compiled = compiled  # owns the C resources; keep alive
     kernel_callable._east_retrace = fn         # marks the callable trace-safe
     kernel_callable._east_fn_binds = tuple(fn_binds)
@@ -269,7 +338,8 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
     return kernel_callable
 
 
-def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str) -> Any:
+def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
+           cse: bool = True) -> Any:
     """The shared strict-builder core behind ``East.function``/``asyncFunction``."""
     if isinstance(param_types, EastType) or not isinstance(param_types, (list, tuple)):
         raise TypeError(
@@ -291,6 +361,12 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str)
         )
     if not callable(body):
         raise TypeError(f"{entry} body must be callable, got {type(body).__name__}")
+    from east.expression.lift import _tracing
+
+    if _tracing():
+        # Spelled inside another body: an inline Function node, not an
+        # artifact (TS `$.const(East.function(...))`).
+        return _nested_function(types, out, body, is_async=is_async)
     global _async_build
     previous = _async_build
     _async_build = is_async
@@ -298,24 +374,36 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str)
         # The build's source map: fresh, or the enclosing build's when this
         # function is being built inside another body (#626).
         with source_map_scope() as source_map:
-            ir_value, out_type, fn_binds = trace(body, types, out_hint=out, is_async=is_async)
+            ir_value, out_type, fn_binds = trace(body, types, out_hint=out,
+                                                 is_async=is_async, cse=cse)
     finally:
         _async_build = previous
-    if out_type != out:
+    if not _output_matches(out_type, out):
         raise ExpressionError(
             f"{entry} body produced {out_type.type}, declared out is {out.type}"
         )
-    return _assemble(body, ir_value, out_type, types, fn_binds, is_async, source_map)
+    from east.ir.analyze import analyze_ir
+
+    analyze_ir(ir_value, source_map=source_map)
+    return _assemble(body, ir_value, out, types, fn_binds, is_async, source_map)
 
 
-def function(param_types: list[EastType], out: EastType, body: Any) -> Any:
+def function(param_types: list[EastType], out: EastType, body: Any, *,
+             cse: bool = True) -> Any:
     """Build an East function from a python body — the strict expression
     builder, mirroring the TypeScript ``East.function`` (#625).
 
     ``body`` receives one typed expression per parameter and runs ONCE, at
-    definition time; the expression it returns is the function's whole
-    behavior. Anything East cannot express raises immediately — there is no
-    purity gate and no per-element python fallback.
+    definition time; the statements it appends (``East.let`` / ``East.if_``
+    / ``East.for_`` / ``East.return_`` … — ``east.expression.statements``)
+    and the expression it returns are the function's whole behavior.
+    Anything East cannot express raises immediately — there is no purity
+    gate and no per-element python fallback. The built IR is analyzed
+    (``east.ir.analyze``) exactly as the TypeScript compiler analyzes it
+    before it compiles.
+
+    Spelled INSIDE another body, ``East.function`` builds the inline
+    Function node as a Function-typed expression instead of an artifact.
 
     Args:
         param_types: The parameter East types, in order (``[]`` for a
@@ -327,6 +415,12 @@ def function(param_types: list[EastType], out: EastType, body: Any) -> Any:
             expression, so a body may return a general ``variant(case, …)``
             or an ``if_else`` over variant arms (#541).
         body: The python callable to capture.
+        cse: Keep the trace-time common-subexpression pass (a python
+            expression object referenced twice binds to one ``Let``; a
+            callback invariant hoists out of the callback). ``cse=False``
+            builds exactly the IR the body spells — the form the IR→python
+            printer emits, so a printed program rebuilds structurally
+            identical IR.
 
     Returns:
         A python callable. A PURE body compiles immediately: the result runs
@@ -349,10 +443,11 @@ def function(param_types: list[EastType], out: EastType, body: Any) -> Any:
         ExpressionError: If the body performs an operation with no East
             spelling, or its built expression type differs from ``out``.
     """
-    return _build(param_types, out, body, is_async=False, entry="East.function")
+    return _build(param_types, out, body, is_async=False, entry="East.function", cse=cse)
 
 
-def async_function(param_types: list[EastType], out: EastType, body: Any) -> Any:
+def async_function(param_types: list[EastType], out: EastType, body: Any, *,
+                   cse: bool = True) -> Any:
     """Build an East ASYNC function — the ``East.asyncFunction`` twin of
     :func:`function`, for bodies that call ``East.asyncPlatform`` declarations.
 
@@ -367,6 +462,7 @@ def async_function(param_types: list[EastType], out: EastType, body: Any) -> Any
         out: The declared output East type (required and enforced).
         body: The python callable to capture — it still runs once,
             synchronously, at build time; only the COMPILED artifact is async.
+        cse: As for :func:`function`.
 
     Returns:
         The built artifact: uncompiled when platform declarations are
@@ -379,7 +475,7 @@ def async_function(param_types: list[EastType], out: EastType, body: Any) -> Any
         ExpressionError: If the body is untraceable or its type differs
             from ``out``.
     """
-    return _build(param_types, out, body, is_async=True, entry="East.asyncFunction")
+    return _build(param_types, out, body, is_async=True, entry="East.asyncFunction", cse=cse)
 
 
 def _artifact_ir(fn: Any, entry: str) -> tuple[Any, bool, tuple, SourceMap | None]:
@@ -409,12 +505,11 @@ def compile_(fn: Any, platform: list | None = None) -> Any:
     """Compile a built East function against platform implementations —
     the public ``East.compile``, a thin name over ``compile_from_value``.
 
-    Platform-signature validation runs inside the east-c compile with the
-    same error text the TS analyzer produces — a mismatch names the offending
-    call by its python ``file:line:column`` when ``fn`` is a builder artifact
-    (its source map is installed for the compile, #626); a platform the list
-    does not provide compiles to a stub that raises at the call, exactly like
-    the TS ``East.compile``.
+    The IR is analyzed against ``platform`` first (``east.ir.analyze``, the
+    TypeScript ``analyzeIR``): a platform the list does not provide is an
+    error unless the declaration is ``optional`` (then the call raises at
+    run time), and a signature mismatch names the offending call by its
+    python ``file:line:column`` when ``fn`` is a builder artifact (#626).
 
     Args:
         fn: An ``East.function`` result (pure or platform-declaring) or a
@@ -436,8 +531,10 @@ def compile_(fn: Any, platform: list | None = None) -> Any:
             "this function was built with East.asyncFunction — compile it "
             "with East.compileAsync(fn, platform=[...])"
         )
+    from east.ir.analyze import analyze_ir
     from east.runtime.compiler import compile_from_value
 
+    analyze_ir(ir, list(platform or []), source_map=source_map)
     compiled = compile_from_value(ir, list(platform or []), source_map=source_map)
     if binds:
         compiled = compiled.bind(*binds)
@@ -467,8 +564,10 @@ def compile_async(fn: Any, platform: list | None = None) -> Any:
             "this function was built with East.function — compile it with "
             "East.compile(fn, platform=[...])"
         )
+    from east.ir.analyze import analyze_ir
     from east.runtime.compiler import compile_from_value
 
+    analyze_ir(ir, list(platform or []), source_map=source_map)
     compiled = compile_from_value(ir, list(platform or []), is_async=True,
                                   source_map=source_map)
     if binds:

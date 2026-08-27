@@ -6,6 +6,7 @@
 
 Usage:
     east-py run [--runtime PKG]... [--input FILE]... [--output FILE] <ir_file>
+    east-py transpile <ir_file> [-o out.py] [--name NAME]
     east-py version
 """
 

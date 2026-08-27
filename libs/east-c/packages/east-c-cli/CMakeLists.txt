@@ -31,3 +31,12 @@ add_executable(test_cli_paged tests/test_cli_paged.c)
 add_test(NAME cli_paged COMMAND test_cli_paged $<TARGET_FILE:east-c-cli>
          ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
 set_tests_properties(cli_paged PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# CLI `ir` toolbox gate (#627): spawns the binary over checked-in IR fixtures
+# and pins normalize (a fixed point, loc_ids zero, no map), diff (exit code +
+# path, --raw) and convert (json <-> beast2 with the source map intact).
+add_executable(test_cli_ir tests/test_cli_ir.c)
+target_link_libraries(test_cli_ir east-c)
+add_test(NAME cli_ir COMMAND test_cli_ir $<TARGET_FILE:east-c-cli>
+         ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
+set_tests_properties(cli_ir PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

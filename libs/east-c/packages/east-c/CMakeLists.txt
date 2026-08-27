@@ -48,6 +48,7 @@ set(EAST_C_SOURCES
     src/serialization/binary_utils.c
     src/type_of_type.c
     src/source_map.c
+    src/ir_normalize.c
 )
 
 add_library(east-c ${EAST_C_SOURCES})
@@ -258,6 +259,17 @@ add_test(NAME beast2_projection COMMAND test_beast2_projection)
 add_executable(test_paged_value tests/test_paged_value.c)
 target_link_libraries(test_paged_value east-c)
 add_test(NAME paged_value COMMAND test_paged_value)
+
+# IR normalization gate (#627): east_ir_normalize is the round-trip equality
+# contract — loc_ids stripped, variables/labels renamed in the TypeScript
+# lowering's order, captures recomputed, recursive type ids renumbered. Pins
+# that a TypeScript-shaped program normalizes to itself, that a python-shaped
+# twin (its own names, unlisted captures) normalizes to the same value, and
+# the first-difference path east_value_diff_path reports. Run under ASan/LSan
+# for the rebuild-every-node allocation paths.
+add_executable(test_ir_normalize tests/test_ir_normalize.c)
+target_link_libraries(test_ir_normalize east-c)
+add_test(NAME ir_normalize COMMAND test_ir_normalize)
 
 # Source-map lifetime gate (#626): a closure — created while a map was current,
 # or decoded from a blob's source-map section — holds its own reference to the

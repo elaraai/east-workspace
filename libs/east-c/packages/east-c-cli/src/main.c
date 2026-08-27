@@ -9,6 +9,7 @@
 #include <east/east.h>
 #include <east/eval_result.h>
 #include <east/type_of_type.h>
+#include <east/ir_normalize.h>
 #include <east_std/east_std.h>
 
 #include "snapshot.h"
@@ -1535,6 +1536,201 @@ static int cmd_convert(const char *in_path, const char *out_path, const char *ty
     return rc;
 }
 
+/* ------------------------------------------------------------------ */
+/*  ir: the IR toolbox (normalize / diff / convert), issue #627           */
+/* ------------------------------------------------------------------ */
+
+/* Load an IR file with its source map: the JSON wrapper {ir, source_map}
+ * (or raw IR JSON), or a beast2 blob whose header carries the map. */
+static EastValue *load_ir_with_map(const char *path, EastSourceMap **map_out)
+{
+    *map_out = NULL;
+    FileFormat fmt = detect_format(path);
+    if (fmt == FMT_JSON) {
+        size_t len = 0;
+        char *text = read_file_text(path, &len);
+        if (!text) return NULL;
+        EastValue *ir_val = NULL;
+        IRNode *node = east_json_decode_ir(text, &ir_val, map_out);
+        free(text);
+        if (node) ir_node_release(node);
+        if (!ir_val) fprintf(stderr, "Error: Failed to decode JSON IR from %s\n", path);
+        return ir_val;
+    }
+    if (fmt == FMT_BEAST2) {
+        size_t len = 0;
+        uint8_t *data = read_file_binary(path, &len);
+        if (!data) return NULL;
+        EastValue *ir_val = NULL;
+        IRNode *node = east_beast2_decode_ir(data, len, &ir_val, map_out);
+        free(data);
+        if (node) ir_node_release(node);
+        if (!ir_val) fprintf(stderr, "Error: Failed to decode Beast2 IR from %s\n", path);
+        return ir_val;
+    }
+    EastValue *v = load_ir(path, false);
+    return v;
+}
+
+/* Write an IR value with its map: .json (the wrapper) or .beast2 (header map). */
+static int save_ir_with_map(const char *path, EastValue *ir, EastSourceMap *map)
+{
+    FileFormat fmt = path ? detect_format(path) : FMT_JSON;
+    if (fmt == FMT_BEAST2) {
+        ByteBuffer *buf = east_beast2_encode_ir(ir, map);
+        if (!buf) {
+            fprintf(stderr, "Error: beast2 encode failed\n");
+            return 1;
+        }
+        int rc = write_file_binary(path, buf->data, buf->len);
+        byte_buffer_free(buf);
+        return rc;
+    }
+    if (fmt != FMT_JSON) {
+        fprintf(stderr, "Error: ir writes .json or .beast2, got %s\n", path);
+        return 1;
+    }
+    EastValue *sm_val = east_source_map_to_value(map);
+    EastValue *fields[2] = {ir, sm_val};
+    EastValue *wrapper =
+        east_struct_new((const char *[]){"ir", "source_map"}, fields, 2, east_ir_wrapper_type());
+    east_value_release(sm_val);
+    char *text = east_json_encode(wrapper, east_ir_wrapper_type());
+    east_value_release(wrapper);
+    if (!text) {
+        fprintf(stderr, "Error: JSON encode failed\n");
+        return 1;
+    }
+    int rc = 0;
+    if (path) {
+        rc = write_file_text(path, text);
+    } else {
+        fputs(text, stdout);
+        fputc('\n', stdout);
+    }
+    free(text);
+    return rc;
+}
+
+static int cmd_ir_normalize(const char *in_path, const char *out_path)
+{
+    east_type_of_type_init();
+    EastSourceMap *map = NULL;
+    EastValue *ir = load_ir_with_map(in_path, &map);
+    if (!ir) return 1;
+    EastValue *norm = east_ir_normalize(ir);
+    east_value_release(ir);
+    east_source_map_release(map);
+    if (!norm) {
+        fprintf(stderr, "Error: IR normalization failed (unknown node kind?)\n");
+        return 1;
+    }
+    int rc = save_ir_with_map(out_path, norm, NULL);
+    east_value_release(norm);
+    return rc;
+}
+
+static int cmd_ir_diff(const char *a_path, const char *b_path, bool raw)
+{
+    east_type_of_type_init();
+    EastSourceMap *ma = NULL, *mb = NULL;
+    EastValue *a = load_ir_with_map(a_path, &ma);
+    EastValue *b = a ? load_ir_with_map(b_path, &mb) : NULL;
+    east_source_map_release(ma);
+    east_source_map_release(mb);
+    if (!a || !b) {
+        if (a) east_value_release(a);
+        return 2;
+    }
+    EastValue *na = a, *nb = b;
+    if (!raw) {
+        na = east_ir_normalize(a);
+        nb = east_ir_normalize(b);
+        east_value_release(a);
+        east_value_release(b);
+        if (!na || !nb) {
+            fprintf(stderr, "Error: IR normalization failed\n");
+            if (na) east_value_release(na);
+            if (nb) east_value_release(nb);
+            return 2;
+        }
+    }
+    char *path = east_value_diff_path(na, nb);
+    east_value_release(na);
+    east_value_release(nb);
+    if (path) {
+        printf("differ at %s\n", path);
+        free(path);
+        return 1;
+    }
+    printf("identical\n");
+    return 0;
+}
+
+static int cmd_ir_convert(const char *in_path, const char *out_path)
+{
+    east_type_of_type_init();
+    if (!out_path) {
+        fprintf(stderr, "Error: ir convert requires -o <out.json|out.beast2>\n");
+        return 1;
+    }
+    EastSourceMap *map = NULL;
+    EastValue *ir = load_ir_with_map(in_path, &map);
+    if (!ir) return 1;
+    int rc = save_ir_with_map(out_path, ir, map);
+    east_value_release(ir);
+    east_source_map_release(map);
+    return rc;
+}
+
+static int cmd_ir(int argc, char **argv)
+{
+    if (argc < 3) {
+        fprintf(stderr, "Error: ir requires a subcommand: normalize | diff | convert\n");
+        return 1;
+    }
+    const char *sub = argv[2];
+    const char *positional[2] = {NULL, NULL};
+    int n_pos = 0;
+    const char *out_path = NULL;
+    bool raw = false;
+    for (int i = 3; i < argc; i++) {
+        if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) && i + 1 < argc) {
+            out_path = argv[++i];
+        } else if (strcmp(argv[i], "--raw") == 0) {
+            raw = true;
+        } else if (argv[i][0] != '-' && n_pos < 2) {
+            positional[n_pos++] = argv[i];
+        } else {
+            fprintf(stderr, "Error: Unknown option: %s\n", argv[i]);
+            return 1;
+        }
+    }
+    if (strcmp(sub, "normalize") == 0) {
+        if (n_pos != 1) {
+            fprintf(stderr, "Error: ir normalize <ir_file> [-o FILE]\n");
+            return 1;
+        }
+        return cmd_ir_normalize(positional[0], out_path);
+    }
+    if (strcmp(sub, "diff") == 0) {
+        if (n_pos != 2) {
+            fprintf(stderr, "Error: ir diff <ir_file_a> <ir_file_b> [--raw]\n");
+            return 1;
+        }
+        return cmd_ir_diff(positional[0], positional[1], raw);
+    }
+    if (strcmp(sub, "convert") == 0) {
+        if (n_pos != 1) {
+            fprintf(stderr, "Error: ir convert <ir_file> -o FILE\n");
+            return 1;
+        }
+        return cmd_ir_convert(positional[0], out_path);
+    }
+    fprintf(stderr, "Error: Unknown ir subcommand: %s (normalize | diff | convert)\n", sub);
+    return 1;
+}
+
 static int cmd_version(const char **packages, int num_packages)
 {
     printf("east-c-cli %s\n", EAST_CLI_VERSION);
@@ -1572,6 +1768,9 @@ static void print_usage(const char *prog)
             "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v] [--snapshot PATH]\n"
             "  %s run --from-snapshot PATH [-o FILE] [-v]\n"
             "  %s convert <in_file> [-o FILE] [--type TYPE] [-v]\n"
+            "  %s ir normalize <ir_file> [-o FILE]\n"
+            "  %s ir diff <ir_file_a> <ir_file_b> [--raw]\n"
+            "  %s ir convert <ir_file> -o FILE\n"
             "  %s version [-p PACKAGE...]\n"
             "\n"
             "Commands:\n"
@@ -1580,6 +1779,13 @@ static void print_usage(const char *prog)
             "           Output format is determined by -o's extension; omit -o to\n"
             "           print east-text to stdout. Auto-extracts the type from\n"
             "           .beast2 input; --type (east-text) required for other formats.\n"
+            "  ir       The IR toolbox. normalize: the canonical form of an IR file\n"
+            "           (loc_ids stripped, variables/labels renamed in lowering order,\n"
+            "           captures recomputed, recursive type ids renumbered) — the\n"
+            "           round-trip equality contract. diff: normalize two IR files and\n"
+            "           report the first structural difference (exit 1) or 'identical'\n"
+            "           (--raw compares as-is). convert: json <-> beast2 with the\n"
+            "           source map intact.\n"
             "  version  Show version information\n"
             "\n"
             "Options:\n"
@@ -1596,7 +1802,7 @@ static void print_usage(const char *prog)
             "                            with <ir_file>, -i, -p)\n"
             "\n"
             "Supported formats: .json, .beast2, .beast, .east\n",
-            prog, prog, prog, prog);
+            prog, prog, prog, prog, prog, prog, prog);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1764,6 +1970,9 @@ static int cli_main(void *arg)
             return 1;
         }
         return cmd_convert(in_path, output_file, type_text, verbose);
+
+    } else if (strcmp(command, "ir") == 0) {
+        return cmd_ir(argc, argv);
 
     } else if (strcmp(command, "version") == 0) {
         /* Parse version arguments */

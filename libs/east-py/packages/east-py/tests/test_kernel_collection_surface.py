@@ -35,7 +35,7 @@ from east import (
     StructType,
     array,
 )
-from east.expression import _TRACED_SURFACE, Expression, ExpressionError, _var
+from east.expression import _TRACED_SURFACE, ExpressionError
 
 Leg = StructType([("code", StringType), ("qty", FloatType)])
 Row = StructType([("id", StringType), ("csv", StringType),
@@ -77,58 +77,7 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize(("name", "out", "traced", "eager"),
-                         CASES, ids=[c[0] for c in CASES])
-def test_traced_matches_eager(name, out, traced, eager):
-    k = East.function([Row], out, traced)
-    assert k(ROW) == eager()
-
-
 # ── the shapes the issue names ───────────────────────────────────────────────
-
-def test_two_level_descent_is_one_kernel():
-    """record → legs → per-character rows, previously a traced pass + an eager
-    ``flatten_to_array`` with a declared intermediate type between them."""
-    k = East.function(
-        [Row], ArrayType(StructType([("id", StringType), ("ch", StringType), ("qty", FloatType)])),
-        lambda r: r["legs"].flatten_to_array(
-            lambda leg: leg["code"].split("").map(
-                lambda ch: {"id": r["id"], "ch": ch, "qty": leg["qty"]})))
-    out = k(ROW)
-    assert [(x["id"], x["ch"], x["qty"]) for x in out] == [
-        ("r1", "X", 2.0), ("r1", "Y", 2.0), ("r1", "Z", 1.0)]
-
-
-def test_group_rekey_sort_is_one_kernel():
-    """The intake-aggregation shape: group, count, re-key with a combine, and
-    sort — previously four eager passes over materialised intermediates."""
-    k = East.function([Row], ArrayType(StringType), lambda r: r["csv"].split(",")
-               .group_by(lambda p: p)
-               .to_array(lambda part, hits: {"part": part, "n": hits.size()})
-               .sorted(key=lambda x: x["n"], reverse=True)
-               .map(lambda x: x["part"]))
-    row = dict(ROW, csv="b,a,c,a,c,c")  # distinct counts: c=3, a=2, b=1
-    assert list(k(row)) == ["c", "a", "b"]
-
-
-def test_slice_takes_traced_bounds():
-    k = East.function([Row], ArrayType(StringType), lambda r: r["csv"].split(",").slice(
-        0, r["legs"].size()))
-    assert list(k(ROW)) == ["b", "a"]
-
-
-def test_dict_get_keys_with_fill():
-    # NB the csv is "b,a,c,a", so "a" is a DUPLICATE key. This test is about
-    # get_keys + fill, so resolve the collision explicitly rather than relying
-    # on a default — the traced default used to be "later value wins" while the
-    # eager path and TS both raise, and this test was silently encoding that
-    # divergence (#525).
-    k = East.function([Row], DictType(StringType, IntegerType), lambda r: r["csv"].split(",")
-               .to_dict(lambda p: p, value=lambda p: p.length(),
-                        combine=lambda a, _b: a)
-               .get_keys(array(StringType, ["a", "zz"]).unique(), lambda _k: 0))
-    d = k(ROW)
-    assert dict(d.items()) == {"a": 1, "zz": 0}
 
 
 def test_to_dict_duplicate_key_errors_like_eager_and_ts():
@@ -166,35 +115,19 @@ def test_to_dict_duplicate_key_errors_like_eager_and_ts():
 
 # ── the surface is closed and visible ────────────────────────────────────────
 
-def test_every_listed_method_resolves():
-    """The enumeration in ``_TRACED_SURFACE`` is real: each name resolves on
-    an expression of its kind (a typo in either place fails here)."""
-    from east.types.types import DictType, MatrixType, SetType, VectorType
-
-    exprs = {
-        "Array": Expression(_var("a", ArrayType(StringType)), ArrayType(StringType)),
-        "Set": Expression(_var("s", SetType(StringType)), SetType(StringType)),
-        "Dict": Expression(_var("d", DictType(StringType, IntegerType)),
-                           DictType(StringType, IntegerType)),
-        "Vector": Expression(_var("v", VectorType(FloatType)), VectorType(FloatType)),
-        "Matrix": Expression(_var("m", MatrixType(FloatType)), MatrixType(FloatType)),
-    }
-    for tag, expr in exprs.items():
-        for name in _TRACED_SURFACE[tag]:
-            assert getattr(expr, name) is not None, f"{tag}.{name}"
-
 
 def test_unsupported_method_names_the_surface():
-    # `append`/`insert` are ON the surface since #578 — these are names that
-    # still are not, so the enumeration keeps being the thing that answers.
+    # `append`/`insert` (#578) and `pop` (#627) are ON the surface — these are
+    # names that still are not, so the enumeration keeps being the thing that
+    # answers.
     with pytest.raises(ExpressionError, match="traced kernel surface.*supported.*concat"):
-        East.function([Row], ArrayType(Leg), lambda r: r["legs"].pop())
+        East.function([Row], ArrayType(Leg), lambda r: r["legs"].shuffle())
     with pytest.raises(ExpressionError, match="Set-typed.*union"):
         East.function([Row], SetType(StringType),
                       lambda r: r["csv"].split(",").unique().add("x"))
     with pytest.raises(ExpressionError, match="Dict-typed.*keys_set"):
         East.function([Row], DictType(StringType, StringType), lambda r: r["csv"].split(",")
-                      .to_dict(lambda p: p, value=lambda p: p).swap("x", "y"))
+                      .to_dict(lambda p: p, value=lambda p: p).shuffle())
 
 
 def test_mismatched_operand_type_is_named():

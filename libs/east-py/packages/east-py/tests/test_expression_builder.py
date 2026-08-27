@@ -194,13 +194,19 @@ def test_compile_validates_platform_signatures_with_the_ts_error():
             fn=lambda s: None)])
 
 
-def test_compile_missing_platform_matches_ts_stub_behavior():
-    # TS compiles a missing platform to a stub that throws at the call —
-    # East.compile mirrors that (the runtime message is east-c's).
+def test_compile_missing_platform_matches_ts_behavior():
+    # TS analyzes before it compiles: a platform the list does not provide is
+    # an error at compile time (analyze.ts) — unless the declaration is
+    # optional, which compiles to a stub that throws at the call (the runtime
+    # message is east-c's).
     log = East.platform("t.absent", [StringType], NullType)
     f = East.function([StringType], NullType, lambda s: log(s))
-    compiled = East.compile(f, platform=[])
-    with pytest.raises(EastError, match="Unknown platform function"):
+    with pytest.raises(EastError, match="Platform function 't.absent' not found"):
+        East.compile(f, platform=[])
+    maybe = East.platform("t.absent", [StringType], NullType, optional=True)
+    g = East.function([StringType], NullType, lambda s: maybe(s))
+    compiled = East.compile(g, platform=[])
+    with pytest.raises(EastError, match="is not available"):
         compiled("x")
 
 
