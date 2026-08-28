@@ -968,67 +968,68 @@ class _DeferredIfElse:
 
 
 def _with_index(fn: Any) -> Any:
-    """Normalise an element callback to the two-argument ``(el, idx)`` shape.
+    """Normalise an element body to the ``(b, el, idx)`` shape.
 
-    The eager methods all decide this with ``_callback_arity``, so
-    ``a.sum(lambda el, i: …)`` is a supported eager call and the traced twins
-    must accept it too or a working lambda stops working inside a kernel
-    (#525). Delegating to that same oracle rather than re-deriving from
-    ``__code__.co_argcount`` matters: a bound method's ``co_argcount`` counts
-    ``self`` and a ``functools.partial`` has no ``__code__`` at all, so a
-    hand-rolled probe disagrees with eager on exactly the callables that are
-    not plain lambdas. The lazy import mirrors collections.py, which already
-    imports from this module lazily.
+    The eager methods all decide this with ``_callback_arity`` (payload
+    parameters, the block excluded), so ``a.sum(lambda b, el, i: …)`` is a
+    supported eager call and the traced twins must accept it too or a
+    working lambda stops working inside a build (#525). Delegating to that
+    same oracle rather than re-deriving from ``__code__.co_argcount``
+    matters: a bound method's ``co_argcount`` counts ``self`` and a
+    ``functools.partial`` has no ``__code__`` at all, so a hand-rolled probe
+    disagrees with eager on exactly the callables that are not plain
+    lambdas. The lazy import mirrors collections.py, which already imports
+    from this module lazily.
     """
     from east.types.values.collections import _callback_arity
 
-    return fn if _callback_arity(fn, 1) >= 2 else (lambda el, _i: fn(el))
+    return fn if _callback_arity(fn, 1) >= 2 else (lambda b, el, _i: fn(b, el))
 
 
 def _with_acc_index(fn: Any) -> Any:
-    """Normalise a fold callback to the three-argument ``(acc, el, idx)`` shape.
+    """Normalise a fold body to the ``(b, acc, el, idx)`` shape.
 
     The Array fold slots carry the element index, and the eager methods accept
-    a callback that takes it (`_acc_idx_cb` in collections.py), so the traced
+    a body that takes it (`_acc_idx_cb` in collections.py), so the traced
     twins must too.
     """
     from east.types.values.collections import _callback_arity
 
-    return fn if _callback_arity(fn, 2) >= 3 else (lambda acc, el, _i: fn(acc, el))
+    return fn if _callback_arity(fn, 2) >= 3 else (lambda b, acc, el, _i: fn(b, acc, el))
 
 
 def _with_key_arg(fn: Any) -> Any:
-    """Normalise a collision handler to the builtin's ``(existing, incoming, key)``.
+    """Normalise a collision handler to the builtin's ``(b, existing,
+    incoming, key)``.
 
     The eager ``_combine_cb`` accepts a 2- or 3-argument handler, so both are
     supported EAGER calls and the traced twins must take both — otherwise a
-    working lambda stops working inside a kernel (#525).
+    working lambda stops working inside a build (#525).
     """
     from east.types.values.collections import _callback_arity
 
-    return fn if _callback_arity(fn, 2) >= 3 else (lambda a, b, _k: fn(a, b))
+    return fn if _callback_arity(fn, 2) >= 3 else (lambda b, x, y, _k: fn(b, x, y))
 
 
 def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None = None,
                     out_hint: EastType | None = None) -> tuple[Any, EastType]:
-    """Trace an inner (nested) lambda into a Function IR node.
+    """Trace an inner (nested) body into a Function IR node.
 
     ``param_types`` is the builtin's full callback signature (e.g. map takes
-    ``(element, index)``); a lambda declaring fewer parameters simply ignores
-    the tail, and one declaring the FULL signature plus one receives the
-    statement block first (``lambda b, el, i: …`` — the TypeScript
-    ``($, el, i) => …``). ``out_hint`` types the traced body — a declared
-    callback output slot (a filter's Boolean, a fold step's accumulator) or
-    a caller's ``out=`` pin — which is what lets a callback build a general
-    variant or a ``if_else`` over variant arms (#541, #536). Returns
-    ``(Function node, traced output type)``.
+    ``(element, index)``); the body takes the statement block first (the
+    TypeScript ``($, el, i) => …``) and may declare fewer of the trailing
+    parameters, which it simply ignores. ``out_hint`` types the traced body
+    — a declared callback output slot (a filter's Boolean, a fold step's
+    accumulator) or a caller's ``out=`` pin — which is what lets a callback
+    build a general variant or a ``if_else`` over variant arms (#541, #536).
+    Returns ``(Function node, traced output type)``.
     """
     from east.expression.expr import Expression
     from east.expression.statements import (
         Block,
+        _body_arity,
         _close_frame,
         _open_frame,
-        _takes_block,
         assemble,
     )
 
@@ -1057,20 +1058,17 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
             )
         return fn.ir, out_t
 
-    # The full signature plus one (required) parameter: the callback wants
-    # the block first.
-    with_block = _takes_block(fn, len(param_types))
-    arity = len(param_types) if with_block else declared
+    # The payload parameters the body declares after the block; a caller
+    # that already normalised the shape passes ``declared``.
+    arity = declared
     if arity is None:
-        code = getattr(fn, "__code__", None)
-        if code is None or code.co_flags & 0x04:  # CO_VARARGS: *args takes all
+        arity = _body_arity(fn)
+        if arity is None:  # *args takes everything the builtin offers
             arity = len(param_types)
-        else:
-            arity = code.co_argcount
-    if not (1 <= arity <= len(param_types)):
+    if not (0 <= arity <= len(param_types)):
         raise ExpressionError(
-            f"inner lambda takes {arity} parameters; the callback signature has "
-            f"{len(param_types)} (or {len(param_types) + 1} with the block first)"
+            f"a callback here takes the block and up to {len(param_types)} "
+            f"parameter(s) — this one declares {arity} after the block"
         )
     names = [_fresh_name() for _ in param_types]
     proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
@@ -1079,7 +1077,7 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
     popped = False
     try:
         try:
-            result = fn(Block(frame), *proxies) if with_block else fn(*proxies[:arity])
+            result = fn(Block(frame), *proxies[:arity])
         except ExpressionError:
             raise
         except Exception as e:  # pragma: no cover - message carries the cause

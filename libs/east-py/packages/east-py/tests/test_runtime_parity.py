@@ -61,10 +61,10 @@ def test_dict_every_and_some_on_booleans_and_empties():
 def test_dict_sum():
     d = EastDict(StringType, IntegerType, {"a": 1, "b": 2, "c": 3})
     assert d.sum() == 6
-    assert d.sum(lambda _k, v: v * 2) == 12
+    assert d.sum(lambda _b, _k, v: v * 2) == 12
     # a projection over the KEYS is just as valid
     strings = EastDict(StringType, StringType, {"a": "hello", "b": "world"})
-    assert strings.sum(lambda _k, v: East.String.length(v)) == 10
+    assert strings.sum(lambda _b, _k, v: East.String.length(v)) == 10
     # floats keep their own zero
     floats = EastDict(StringType, FloatType, {"a": 1.5, "b": 2.5})
     assert floats.sum() == pytest.approx(4.0)
@@ -87,12 +87,12 @@ def test_dict_sum_on_an_empty_dict_types_the_zero_from_the_PROJECTION():
     from east.namespace import East
 
     # A numeric projection over String values: 0 when empty, like TS.
-    length = East.function([StringType, StringType], IntegerType, lambda _k, v: East.String.length(v))
+    length = East.function([StringType, StringType], IntegerType, lambda _b, _k, v: East.String.length(v))
     assert EastDict(StringType, StringType, {"a": "hello", "b": "hi"}).sum(length) == 7
     assert EastDict(StringType, StringType).sum(length) == 0
 
     # A Float projection over Integer values keeps its Float zero.
-    widen = lambda _k, v: East.Integer.to_float(v)  # noqa: E731
+    widen = lambda _b, _k, v: East.Integer.to_float(v)  # noqa: E731
     assert isinstance(EastDict(StringType, IntegerType, {"a": 1}).sum(widen), float)
     empty_total = EastDict(StringType, IntegerType).sum(widen)
     assert isinstance(empty_total, float) and empty_total == 0.0
@@ -118,7 +118,7 @@ def test_group_find_matching_uses_east_equality_not_python_equality():
         {"g": "a", "v": 0.0}, {"g": "a", "v": -0.0},
         {"g": "b", "v": 1.0}, {"g": "b", "v": 0.0},
     ])
-    pure = rows.group_find_all(lambda r: r["g"], 0.0, lambda r: r["v"])
+    pure = rows.group_find_all(lambda _b, r: r["g"], 0.0, lambda _b, r: r["v"])
     # East equality distinguishes -0.0 from 0.0, so row 1 must NOT match.
     assert {k: list(v) for k, v in pure.items()} == {"a": [0], "b": [3]}
 
@@ -129,7 +129,7 @@ def test_group_find_matching_uses_east_equality_not_python_equality():
         return r["v"]
 
     with pytest.raises(ExpressionError, match="captured automatically"):
-        rows.group_find_all(lambda r: r["g"], 0.0, impure_by)
+        rows.group_find_all(lambda _b, r: r["g"], 0.0, impure_by)
     assert calls == []
 
 
@@ -142,9 +142,9 @@ def test_group_find_matching_uses_east_equality_not_python_equality():
 def test_group_sum_rejects_a_non_numeric_projection_on_every_container():
     """Set/Dict used to fall back to a Float zero and sum non-numeric data."""
     with pytest.raises(TypeError, match="numeric"):
-        EastSet(StringType, ["a"]).group_sum(lambda e: e)
+        EastSet(StringType, ["a"]).group_sum(lambda _b, e: e)
     with pytest.raises(TypeError, match="numeric"):
-        EastDict(StringType, StringType, {"a": "x"}).group_sum(lambda k, _v: k)
+        EastDict(StringType, StringType, {"a": "x"}).group_sum(lambda _b, k, _v: k)
 
 
 # ── a differently-typed `other` is refused, not reinterpreted ────────────────

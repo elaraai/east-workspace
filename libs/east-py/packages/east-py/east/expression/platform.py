@@ -72,7 +72,11 @@ class PlatformDeclaration:
     def __call__(self, *args: Any) -> Any:
         from east.expression.expr import Expression
         from east.expression.function import _in_async_build
+        from east.expression.statements import _drop_block
 
+        # A declaration is a value, not a body: handed to a callback slot
+        # it is invoked body-style and drops the block.
+        args = _drop_block(args)
         if not _tracing():
             raise ExpressionError(
                 f"platform declaration '{self.name}' is expression-level — "

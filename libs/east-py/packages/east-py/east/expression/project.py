@@ -184,12 +184,13 @@ def _retrace_wrapper(fn: Any, arity: int) -> Any:
     inspect — and needs not: a ``_east_retrace`` carrier is allowed capture
     anyway.
     """
+    # A body takes the block first; a compiled kernel takes none.
     if arity == 1:
-        return lambda a, *, _k=fn: _k(a)
+        return lambda _b, a, *, _k=fn: _k(a)
     if arity == 2:
-        return lambda a, b, *, _k=fn: _k(a, b)
+        return lambda _b, a, c, *, _k=fn: _k(a, c)
     if arity == 3:
-        return lambda a, b, c, *, _k=fn: _k(a, b, c)
+        return lambda _b, a, c, d, *, _k=fn: _k(a, c, d)
     return None
 
 

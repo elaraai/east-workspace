@@ -102,7 +102,7 @@ class _SearchOps(_ExprBase):
         from east.types.types import ArrayType as _ArrayType
 
         elem_t = self._array_elem("find_all")
-        proj = _with_index(by if by is not None else (lambda el: el))
+        proj = _with_index(by if by is not None else (lambda _b, el: el))
         _probe, p_t = _trace_inner_fn(proj, [elem_t, IntegerType], declared=2)
         target = _lift(value, hint=p_t)
         if target.east_type != p_t:
@@ -123,7 +123,7 @@ class _SearchOps(_ExprBase):
         tname = _fresh_name()
         bound = self._expr(_var(tname, p_t), p_t)
         node, _out_t = _trace_inner_fn(
-            lambda el, i: if_else(_lift(proj(el, i)) == bound, _some(i), _none),
+            lambda b, el, i: if_else(_lift(proj(b, el, i)) == bound, _some(i), _none),
             [elem_t, IntegerType], declared=2,
         )
         out = _ArrayType(IntegerType)

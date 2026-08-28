@@ -35,13 +35,13 @@ FT = FunctionType([IntegerType], IntegerType)
 
 
 def test_compile_from_value_attaches_the_source_ir():
-    ir, _, _binds = trace(lambda x: x + 1, [IntegerType])
+    ir, _, _binds = trace(lambda _b, x: x + 1, [IntegerType])
     fn = compile_from_value(ir)
     assert fn._east_ir is ir
 
 
 def test_a_compiled_function_round_trips_through_beast2():
-    ir, _, _binds = trace(lambda x: x + 1, [IntegerType])
+    ir, _, _binds = trace(lambda _b, x: x + 1, [IntegerType])
     fn = compile_from_value(ir)
     blob = call_builtin("BlobEncodeBeast2", [FT], [fn], BlobType)
     assert len(blob.data) > 0
@@ -53,7 +53,7 @@ def test_a_compiled_function_round_trips_through_beast2():
 
 
 def test_a_kernel_round_trips_through_beast2():
-    k = East.function([IntegerType], IntegerType, lambda x: x * 2)
+    k = East.function([IntegerType], IntegerType, lambda _b, x: x * 2)
     assert k._east_ir is not None
     blob = call_builtin("BlobEncodeBeast2", [FT], [k], BlobType)
     back = call_builtin("BlobDecodeBeast2", [FT], [blob], FT)
@@ -62,11 +62,11 @@ def test_a_kernel_round_trips_through_beast2():
 
 def test_type_of_reads_declared_function_signatures():
     # An EastFunction declares its signature directly.
-    ef = EastFunction(lambda x: x + 1, [IntegerType], IntegerType)
+    ef = EastFunction(lambda _b, x: x + 1, [IntegerType], IntegerType)
     assert type_of(ef) == FT
 
     # A compiled kernel exposes it via its handle.
-    ir, _, _binds = trace(lambda x: x + 1, [IntegerType])
+    ir, _, _binds = trace(lambda _b, x: x + 1, [IntegerType])
     fn = compile_from_value(ir)
     assert type_of(fn) == FT
 
@@ -85,8 +85,8 @@ def test_functions_stored_in_an_array_call_correctly():
     # node into a fresh closure value and union-read it as the output type —
     # a pointer-sized integer where 6 belongs (#476 D).
     arr = EastArray(FT, [
-        East.function([IntegerType], IntegerType, lambda x: x * 2),
-        East.function([IntegerType], IntegerType, lambda x: x * 3),
+        East.function([IntegerType], IntegerType, lambda _b, x: x * 2),
+        East.function([IntegerType], IntegerType, lambda _b, x: x * 3),
     ])
     assert arr[0](3) == 6
     assert arr[1](3) == 9

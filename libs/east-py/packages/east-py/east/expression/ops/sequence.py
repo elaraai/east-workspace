@@ -140,7 +140,7 @@ class _SequenceOps(_ExprBase):
             if idx.east_type != ArrayType(IntegerType):
                 raise ExpressionError(".get_keys() takes an Array<Integer> of indices")
             node, out_t = _trace_inner_fn(
-                lambda i: self.get(i), [IntegerType], declared=1)
+                lambda _b, i: self.get(i), [IntegerType], declared=1)
             return self._expr(
                 _builtin("ArrayGetKeys", self.east_type, [elem_t],
                          [self.ir, idx.ir, node]),

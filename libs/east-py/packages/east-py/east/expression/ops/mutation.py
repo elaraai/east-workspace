@@ -17,8 +17,8 @@ not either — sequence them with ``East.block(…)``, which is the one spelling
 that works on the traced and the python paths alike::
 
     East.for_(rows, {"seen": East.new_set(StringType), "n": 0},
-              lambda s, r: East.block(s.seen.try_insert(r.sku),
-                                      {**s, "n": s.n + 1}))
+              lambda b, s, r: East.block(s.seen.try_insert(r.sku),
+                                         {**s, "n": s.n + 1}))
 """
 
 from __future__ import annotations
@@ -160,10 +160,10 @@ class _MutationOps(_ExprBase):
 
     def insert_or_update(self, key: Any, value: Any, combine: Any) -> Expression:
         """Traced DictInsertOrUpdate: insert ``value`` at ``key``, or resolve a
-        collision as ``combine(existing, incoming)`` (a third parameter
+        collision as ``combine(b, existing, incoming)`` (a fourth parameter
         receives the key). The counter idiom::
 
-            counts.insert_or_update(sku, 1, lambda old, new: old + new)
+            counts.insert_or_update(sku, 1, lambda b, old, new: old + new)
         """
         kv = self._mutable("insert_or_update", "Dict").value
         k_t, v_t = kv["key"], kv["value"]
@@ -251,12 +251,15 @@ class _MutationOps(_ExprBase):
         )
 
     def update(self, fn: Any) -> Expression:
-        """Traced read-modify-write of a Ref: ``fn(current)`` becomes the new
-        contents (yields Null), mirroring the eager ``EastRef.update``."""
+        """Traced read-modify-write of a Ref: ``fn(b, current)`` becomes the
+        new contents (yields Null), mirroring the eager ``EastRef.update``."""
+        from east.expression.statements import _frames, _run_block
+
         inner_t = self._mutable("update", "Ref").value
         current = self._expr(
             _builtin("RefGet", inner_t, [inner_t], [self.ir]), inner_t)
-        nxt = _lift(fn(current), hint=inner_t)
+        ret_t = _frames[-1].return_type if _frames else None
+        nxt = _run_block(fn, (current,), return_type=ret_t, mode="block_expr", out=inner_t)
         if nxt.east_type != inner_t:
             raise ExpressionError(
                 f".update() returns {nxt.east_type.type}, the cell holds {inner_t.type}")
@@ -295,8 +298,8 @@ def _extend_mutation_ops() -> None:
         if order is not None and not _is_expr(fn):
             user = fn
 
-            def fn(*args):  # type: ignore[no-redef]
-                return user(*[args[i] for i in order])
+            def fn(b, *args):  # type: ignore[no-redef]
+                return user(b, *[args[i] for i in order])
         node, got = _trace_inner_fn(fn, list(param_types), out_hint=out_t)
         if out_t is not None and got != out_t and got.type != "Never":
             raise ExpressionError(

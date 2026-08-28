@@ -9,9 +9,10 @@ builds, how the TypeScript builder's assembly and typing rules apply
 (``Let``/``Assign`` are Null, ``Return``/``Break``/``Continue``/``Error``
 are Never, a branch pads to Null, a body's returned value is its last
 statement, an all-diverging chain is Never, a statement after a diverging
-one is unreachable), who receives the block and what a misused block
-raises, and that every built program still executes. What the builtins
-COMPUTE is the compliance corpus's business.
+one is unreachable), that EVERY body receives the block first and what a
+misused or missing block raises, that a function VALUE in a callback slot
+takes no block, and that every built program still executes. What the
+builtins COMPUTE is the compliance corpus's business.
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ from east import (
     ArrayType,
     DictType,
     East,
+    EastArray,
+    EastDict,
     FloatType,
     IntegerType,
     NullType,
@@ -35,6 +38,7 @@ from east import (
     some,
 )
 from east.expression import Block, ExpressionError
+from east.expression.statements import EagerBlock
 from east.types.types import recursive_type
 
 
@@ -57,7 +61,7 @@ def kinds(node):
 # ── who receives the block ───────────────────────────────────────────────────
 
 
-def test_a_body_declaring_one_more_parameter_receives_the_block():
+def test_every_body_receives_the_block_first():
     seen = []
 
     def body(b, x):
@@ -67,8 +71,40 @@ def test_a_body_declaring_one_more_parameter_receives_the_block():
     built = East.function([IntegerType], IntegerType, body)
     assert isinstance(seen[0], Block)
     assert built(1) == 2
-    plain = East.function([IntegerType], IntegerType, lambda x: x + 1)  # no block: as always
-    assert plain(1) == 2
+    # A body declaring only the function's parameters has no room for the
+    # block — refused with the fix-it, not run with x as the block.
+    with pytest.raises(ExpressionError, match=r"declares 1 parameter\(s\) for a 1-parameter function.*takes the block first"):
+        East.function([IntegerType], IntegerType, lambda x: x + 1)
+    # The right count with the block used as the element: fails on the
+    # block's first use, naming the mistake.
+    with pytest.raises(ExpressionError, match=r"cannot be used as a value \(__add__\)"):
+        East.function([IntegerType], IntegerType, lambda x, _y: x + 1)
+    with pytest.raises(ExpressionError, match="has no attribute 'size'"):
+        East.function([ArrayType(IntegerType)], IntegerType, lambda xs, _y: xs.size())
+    with pytest.raises(ExpressionError, match="no parameters cannot receive the block"):
+        East.function([], IntegerType, lambda _b: East.block(lambda: 1))
+
+
+def test_a_function_value_in_a_slot_takes_no_block():
+    # A compiled function is a VALUE, not a body: every slot invokes what it
+    # holds body-style (the wrappers that reorder a builtin's arguments
+    # included), and the value drops the block — the TypeScript
+    # Expr<FunctionType> accepted wherever a ($, …) => … is.
+    inc = East.function([IntegerType], IntegerType, lambda _b, x: x + 1)
+    by_value = East.function([StringType, IntegerType], IntegerType, lambda _b, _k, v: v * 10)
+    assert inc(EagerBlock(), 1) == 2 == inc(1)
+    d = EastDict(StringType, IntegerType, {"a": 1, "b": 2})
+    assert list(d.to_array(by_value)) == [10, 20]                 # the (v, k) → (k, v) wrapper
+    assert d.copy().get_or_insert("z", East.function([StringType], IntegerType, lambda _b, _k: 9)) == 9
+    assert list(EastArray(IntegerType, [1, 2]).map(inc)) == [2, 3]
+    scaled = East.function([StringType, IntegerType, IntegerType], IntegerType,
+                           lambda _b, _k, v, m: v * m).bind(3)
+    assert list(d.to_array(scaled)) == [3, 6]                     # a bound function, likewise
+    # Inside a build the slot passes the builtin's whole callback signature
+    # (element, index); a one-parameter function value takes the prefix.
+    traced = East.function([ArrayType(IntegerType)], ArrayType(IntegerType),
+                           lambda _b, xs: xs.map(inc))
+    assert list(traced([1, 2])) == [2, 3]
 
 
 def test_the_decorator_form_builds_the_same_artifact_and_keeps_the_name():
@@ -90,7 +126,7 @@ def test_the_decorator_form_builds_the_same_artifact_and_keeps_the_name():
 
 
 def test_a_body_with_the_wrong_parameter_count_is_named():
-    with pytest.raises(ExpressionError, match=r"declares 3 parameter\(s\) — it takes 1 .* or 2"):
+    with pytest.raises(ExpressionError, match=r"declares 3 parameter\(s\) for a 1-parameter function"):
         East.function([IntegerType], IntegerType, lambda a, b, c: a)
 
 
@@ -117,8 +153,8 @@ def test_a_statement_on_a_closed_block_raises():
         East.function([IntegerType], IntegerType, body)
 
 
-def test_a_callback_declaring_the_full_signature_plus_one_receives_the_block():
-    def body(xs):
+def test_a_callback_receives_the_block_then_the_builtins_arguments():
+    def body(_b, xs):
         def step(b, v, i):
             t = b.let(v * 2)
             b.if_(i == 0, lambda b: b.assign(t, 0))
@@ -135,8 +171,8 @@ def test_a_callback_declaring_the_full_signature_plus_one_receives_the_block():
 def test_statements_inside_an_expression_form_are_spelled_east_block():
     def body(b, v):
         return v.match({
-            "some": lambda x: East.block(lambda b: (b.do(x + 1), x * 2)[1]),
-            "none": lambda _n: 0,
+            "some": lambda _b, x: East.block(lambda b: (b.do(x + 1), x * 2)[1]),
+            "none": lambda _b, _n: 0,
         })
 
     built = East.function([OptionType(IntegerType)], IntegerType, body)
@@ -206,11 +242,11 @@ def test_a_narrower_expression_under_a_typed_let_gets_an_as():
 
 def test_the_expression_forms_refuse_the_old_statement_spellings():
     with pytest.raises(ExpressionError, match=r"b\.let\(value\[, type\]\)"):
-        East.function([IntegerType], IntegerType, lambda x: East.let(x))
+        East.function([IntegerType], IntegerType, lambda _b, x: East.let(x))
     with pytest.raises(ExpressionError, match=r"b\.while_\(predicate, body\)"):
-        East.function([IntegerType], IntegerType, lambda x: East.while_(True, lambda: None))
+        East.function([IntegerType], IntegerType, lambda _b, x: East.while_(True, lambda _b: None))
     with pytest.raises(ExpressionError, match=r"b\.for_\(collection, body\)"):
-        East.function([ArrayType(IntegerType)], IntegerType, lambda xs: East.for_(xs, lambda: None))
+        East.function([ArrayType(IntegerType)], IntegerType, lambda _b, xs: East.for_(xs, lambda _b: None))
 
 
 # ── return / do / unreachable ────────────────────────────────────────────────
@@ -469,7 +505,7 @@ def test_try_is_never_when_both_bodies_diverge_and_catch_runs_once():
 
 
 def test_block_expression_form_yields_its_returned_value():
-    def body(x):
+    def body(_b, x):
         return East.block(lambda b: (b.do(x + 1), x * 2)[1])
 
     built = East.function([IntegerType], IntegerType, body)
@@ -483,7 +519,7 @@ def test_block_expression_without_a_value_must_diverge():
         b.do(East.value(1))
 
     with pytest.raises(ExpressionError, match="block without return must have type Never"):
-        East.function([IntegerType], IntegerType, lambda x: East.block(no_value))
+        East.function([IntegerType], IntegerType, lambda _b, x: East.block(no_value))
 
 
 def test_error_statement_is_never_typed_and_ends_the_arm():
@@ -510,7 +546,7 @@ def test_a_dropped_error_expression_is_refused():
 
 def test_error_is_never_typed_and_absorbed_by_if_else():
     built = East.function([IntegerType], IntegerType,
-                          lambda x: East.if_else(x < 0, East.error("neg"), x))
+                          lambda _b, x: East.if_else(x < 0, East.error("neg"), x))
     ifelse = body_of(built)
     assert ifelse.value["type"] == IntegerType
     assert ifelse.value["ifs"][0]["body"].type == "Error"
@@ -523,7 +559,7 @@ def test_error_is_never_typed_and_absorbed_by_if_else():
 
 def test_a_nested_function_is_an_inline_function_node_with_captures():
     def body(b, x):
-        f = b.const(East.function([IntegerType], IntegerType, lambda y: y + x))
+        f = b.const(East.function([IntegerType], IntegerType, lambda _b, y: y + x))
         return f(1) + f(2)
 
     built = East.function([IntegerType], IntegerType, body)
@@ -554,7 +590,7 @@ def test_a_nested_decorated_function_receives_its_own_block():
 
 def test_a_function_typed_expression_serves_as_a_callback():
     def body(b, xs, x):
-        f = b.const(East.function([IntegerType, IntegerType], IntegerType, lambda v, i: v + x))
+        f = b.const(East.function([IntegerType, IntegerType], IntegerType, lambda _b, v, i: v + x))
         return xs.map(f)
 
     built = East.function([ArrayType(IntegerType), IntegerType], ArrayType(IntegerType), body)
@@ -573,7 +609,7 @@ def test_an_async_function_may_await_a_nested_async_function():
     assert ret.value["value"].type == "CallAsync"
     with pytest.raises(ExpressionError, match="CallAsync"):
         East.function([], IntegerType,
-                      lambda b: b.const(East.asyncFunction([], IntegerType, lambda: 1))())
+                      lambda b: b.const(East.asyncFunction([], IntegerType, lambda _b: 1))())
 
 
 # ── value / as_ / wrap_recursive / unwrap ────────────────────────────────────
@@ -597,18 +633,18 @@ def test_value_builds_typed_literals_and_containers():
 def test_as_widens_only_a_strict_subtype():
     narrow = VariantType([("some", IntegerType)])
     wide = OptionType(IntegerType)
-    built = East.function([narrow], wide, lambda v: East.as_(v, wide))
+    built = East.function([narrow], wide, lambda _b, v: East.as_(v, wide))
     assert body_of(built).type == "As"
-    same = East.function([wide], wide, lambda v: East.as_(v, wide))
+    same = East.function([wide], wide, lambda _b, v: East.as_(v, wide))
     assert body_of(same).type == "Variable"
     with pytest.raises(ExpressionError, match="not a subtype"):
-        East.function([IntegerType], StringType, lambda v: East.as_(v, StringType))
+        East.function([IntegerType], StringType, lambda _b, v: East.as_(v, StringType))
 
 
 def test_recursive_values_wrap_and_unwrap():
     Tree = recursive_type(lambda self: StructType([("v", IntegerType), ("kids", ArrayType(self))]))
 
-    def body(t):
+    def body(_b, t):
         leaf = East.wrap_recursive({"v": 1, "kids": East.value([], ArrayType(Tree))}, Tree)
         return t.unwrap().v + leaf.unwrap().v
 
@@ -643,7 +679,7 @@ def test_platform_optional_generic_and_widening_arguments():
 
 
 def test_cse_false_builds_exactly_what_the_body_spells():
-    def body(x):
+    def body(_b, x):
         y = x + 1
         return y * y
 

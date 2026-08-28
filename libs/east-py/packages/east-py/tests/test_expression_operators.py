@@ -22,31 +22,31 @@ from east import East, ExpressionError, FloatType, IntegerType
 
 def test_operator_fork_spellings_raise_with_their_named_twins():
     for fn, twin in [
-        (lambda v: v // 3, r"East\.Integer\.divide"),
-        (lambda v: 10 // v, r"East\.Integer\.divide"),
-        (lambda v: v % 3, r"East\.Integer\.remainder"),
-        (lambda v: 10 % v, r"East\.Integer\.remainder"),
-        (lambda v: v ** 2, r"East\.Integer\.pow"),
-        (lambda v: 2 ** v, r"East\.Integer\.pow"),
+        (lambda _b, v: v // 3, r"East\.Integer\.divide"),
+        (lambda _b, v: 10 // v, r"East\.Integer\.divide"),
+        (lambda _b, v: v % 3, r"East\.Integer\.remainder"),
+        (lambda _b, v: 10 % v, r"East\.Integer\.remainder"),
+        (lambda _b, v: v ** 2, r"East\.Integer\.pow"),
+        (lambda _b, v: 2 ** v, r"East\.Integer\.pow"),
         # `/` on Integers already raised; its fix-it must name the spelling
         # that works, not the `//` that raises too
-        (lambda v: v / 3, r"East\.Integer\.divide"),
+        (lambda _b, v: v / 3, r"East\.Integer\.divide"),
     ]:
         with pytest.raises(ExpressionError, match=twin):
             East.function([IntegerType], IntegerType, fn)
     with pytest.raises(ExpressionError, match=r"East\.Float\.remainder"):
-        East.function([FloatType], FloatType, lambda v: v % 3.0)
+        East.function([FloatType], FloatType, lambda _b, v: v % 3.0)
     # ...and the builder accepts each named twin (the corpus pins the values)
     assert East.function([IntegerType], IntegerType,
-                         lambda v: East.Integer.divide(v, 3))(-10) == -3
+                         lambda _b, v: East.Integer.divide(v, 3))(-10) == -3
     assert East.function([IntegerType], IntegerType,
-                         lambda v: East.Integer.remainder(v, 3))(-10) == -1
+                         lambda _b, v: East.Integer.remainder(v, 3))(-10) == -1
     assert East.function([IntegerType], IntegerType,
-                         lambda v: East.Integer.pow(v, -1))(2) == 0
+                         lambda _b, v: East.Integer.pow(v, -1))(2) == 0
     assert East.function([FloatType], FloatType,
-                         lambda v: East.Float.remainder(v, 3.0))(-10.0) == -1.0
+                         lambda _b, v: East.Float.remainder(v, 3.0))(-10.0) == -1.0
     # Float ** coincides with python on ordinary inputs, so it stays
-    assert East.function([FloatType], FloatType, lambda v: v ** 2.0)(3.0) == 9.0
+    assert East.function([FloatType], FloatType, lambda _b, v: v ** 2.0)(3.0) == 9.0
 
 
 def test_negative_array_index_raises_and_the_spelled_form_works():
@@ -54,15 +54,15 @@ def test_negative_array_index_raises_and_the_spelled_form_works():
 
     t = ArrayType(IntegerType)
     with pytest.raises(ExpressionError, match=r"a\.get\(a\.size\(\) - 1\)"):
-        East.function([t], IntegerType, lambda a: a[-1])
+        East.function([t], IntegerType, lambda _b, a: a[-1])
     assert East.function([t], IntegerType,
-                         lambda a: a.get(a.size() - 1))([10, 20, 30]) == 30
-    assert East.function([t], IntegerType, lambda a: a[1])([10, 20, 30]) == 20
+                         lambda _b, a: a.get(a.size() - 1))([10, 20, 30]) == 30
+    assert East.function([t], IntegerType, lambda _b, a: a[1])([10, 20, 30]) == 20
     # a Dict's Integer keys are real keys, so a negative KEY stays legal
     from east import EastDict
 
     dt = DictType(IntegerType, IntegerType)
-    assert East.function([dt], IntegerType, lambda d: d[-1])(
+    assert East.function([dt], IntegerType, lambda _b, d: d[-1])(
         EastDict(IntegerType, IntegerType, {-1: 42})) == 42
 
 
@@ -74,6 +74,6 @@ def test_operator_fork_raises_reach_the_eager_path():
 
     arr = EastArray(IntegerType, [-10, 10])
     with pytest.raises(ExpressionError, match=r"East\.Integer\.remainder"):
-        arr.map(lambda x: x % 3)
+        arr.map(lambda _b, x: x % 3)
     with pytest.raises(ExpressionError, match=r"East\.Integer\.divide"):
-        arr.map(lambda x: x // 3)
+        arr.map(lambda _b, x: x // 3)

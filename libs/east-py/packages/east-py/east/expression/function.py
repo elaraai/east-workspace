@@ -288,10 +288,13 @@ class _PlatformFunction:
         return f"<East.function declaring platform {names} (uncompiled)>"
 
     def __call__(self, *args: Any) -> Any:
+        from east.expression.statements import _drop_block
+
+        args = _drop_block(args)  # a value, not a body: no block
         if any(isinstance(a, Expression) for a in args):
             # Composition: splice this function's expression into the
             # surrounding build by re-running its (pure) body.
-            return self._fn(*args)
+            return _splice(self, self._fn, args)
         from east.runtime.errors import EastError
 
         entry = "East.compileAsync" if self._east_is_async else "East.compile"
@@ -301,6 +304,46 @@ class _PlatformFunction:
             f"{entry}(fn, platform=[...])",
             [],
         )
+
+
+def _returns(ir: Any) -> bool:
+    """Whether a built function's body holds a ``Return`` node."""
+    from east.expression.finalize import _node_children
+
+    stack = [ir]
+    while stack:
+        node = stack.pop()
+        kind = getattr(node, "type", None)
+        if kind == "Return":
+            return True
+        if kind is not None:
+            stack.extend(_node_children(node))
+    return False
+
+
+def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
+    """An artifact called with expression proxies INSIDE another body: its
+    source body re-runs against the caller's block, splicing its expression
+    into the surrounding build (#470). A body that ``b.return_``s cannot be
+    spliced — the return would leave the CALLER — so it embeds as the inline
+    Function node and the call lowers to a ``Call`` (the TypeScript shape)."""
+    from east.expression.lift import _lift_artifact
+    from east.expression.statements import _call_function_body, _frames
+
+    # A callback slot hands a function value every argument of the
+    # builtin's callback signature (ArrayMap: element, index); a value
+    # declaring fewer takes the prefix — the traced twin of the eager
+    # arity adapter (#409).
+    declared = getattr(artifact, "_east_param_types", None)
+    if declared is not None and len(args) > len(declared):
+        args = tuple(args[: len(declared)])
+    if _returns(artifact._east_ir):
+        embedded = _lift_artifact(artifact)
+        if embedded is not None:
+            return embedded(*args)
+    if not _frames:
+        raise ExpressionError("an East.function was called with expression arguments outside a build")
+    return _call_function_body(fn, _frames[-1], list(args), "East.function")
 
 
 def _assemble(fn: Any, ir_value: Any, out_type: EastType,
@@ -324,14 +367,20 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
         # call site resolves to its native callee.
         compiled = compiled.bind(*fn_binds)
 
+    from east.expression.statements import _drop_block
+
     def kernel_callable(*args):
+        # A compiled function is a value, not a body: a slot's body-style
+        # call (``fn(b, *values)``) drops the block.
+        args = _drop_block(args)
         # Dual-mode (#470): called with expression proxies — i.e. from inside
         # another trace, e.g. a composing wrapper like
-        # ``lambda el: {"k": key(el), "v": value(el)}`` — re-run the (pure)
-        # source lambda on the proxies so this kernel's expression splices
-        # inline into the surrounding trace. On plain values, execute natively.
+        # ``lambda b, el: {"k": key(el), "v": value(el)}`` — re-run the
+        # (pure) source body on the proxies so this kernel's expression
+        # splices inline into the surrounding trace. On plain values,
+        # execute natively.
         if any(isinstance(a, Expression) for a in args):
-            return fn(*args)
+            return _splice(kernel_callable, fn, args)
         return compiled(*args)
 
     # The wrapper carries the compiled callable's whole public surface, so
@@ -344,6 +393,7 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
     kernel_callable._east_compiled = compiled  # owns the C resources; keep alive
     kernel_callable._east_retrace = fn         # marks the callable trace-safe
     kernel_callable._east_fn_binds = tuple(fn_binds)
+    kernel_callable._east_param_types = tuple(param_types)
     kernel_callable._east_platforms = ()
     kernel_callable._east_is_async = is_async
     kernel_callable._east_source_map = source_map
@@ -417,10 +467,10 @@ def function(param_types: list[EastType], out: EastType, body: Any = None, *,
     """Build an East function from a python body — the strict expression
     builder, mirroring the TypeScript ``East.function`` (#625).
 
-    ``body`` runs ONCE, at definition time, over one typed expression per
-    parameter. A body that declares one MORE parameter than the function
-    has receives the statement block first — python's ``$``
-    (:class:`~east.expression.statements.Block`)::
+    ``body`` runs ONCE, at definition time, over the statement block —
+    python's ``$`` (:class:`~east.expression.statements.Block`) — followed
+    by one typed expression per parameter, exactly as a TypeScript body is
+    ``($, …) => …``::
 
         @East.function([IntegerType], StringType)
         def classify(b, n):
@@ -428,7 +478,7 @@ def function(param_types: list[EastType], out: EastType, body: Any = None, *,
             b.if_(n > 10, lambda b: b.assign(acc, 1))
             return East.if_else(acc == 1, "big", "small")
 
-        East.function([IntegerType], IntegerType, lambda x: x + 1)   # no block
+        East.function([IntegerType], IntegerType, lambda b, x: x + 1)
 
     The statements it appends and the expression it returns are the
     function's whole behavior. Anything East cannot express raises
@@ -450,8 +500,8 @@ def function(param_types: list[EastType], out: EastType, body: Any = None, *,
             naming both types. The declared type also types the root
             expression, so a body may return a general ``variant(case, …)``
             or an ``if_else`` over variant arms (#541).
-        body: The python callable to capture — ``fn(*params)`` or
-            ``fn(b, *params)``; omit it to use the result as a decorator.
+        body: The python callable to capture — ``fn(b, *params)``; omit it
+            to use the result as a decorator.
         cse: Keep the trace-time common-subexpression pass (a python
             expression object referenced twice binds to one ``Let``; a
             callback invariant hoists out of the callback). ``cse=False``
@@ -478,9 +528,8 @@ def function(param_types: list[EastType], out: EastType, body: Any = None, *,
         TypeError: If ``param_types`` is not a list of East types, ``out`` is
             missing or not an East type, or ``body`` is not callable.
         ExpressionError: If the body performs an operation with no East
-            spelling, declares a parameter count that is neither the
-            function's nor one more, or its built expression type differs
-            from ``out``.
+            spelling, does not declare the block plus the function's
+            parameters, or its built expression type differs from ``out``.
     """
     if body is None:
         _check_signature(param_types, out, "East.function")
@@ -503,10 +552,9 @@ def async_function(param_types: list[EastType], out: EastType, body: Any = None,
     Args:
         param_types: The parameter East types, in order.
         out: The declared output East type (required and enforced).
-        body: The python callable to capture (``fn(*params)`` or ``fn(b,
-            *params)``; omit it for the decorator form) — it still runs
-            once, synchronously, at build time; only the COMPILED artifact
-            is async.
+        body: The python callable to capture (``fn(b, *params)``; omit it
+            for the decorator form) — it still runs once, synchronously, at
+            build time; only the COMPILED artifact is async.
         cse: As for :func:`function`.
 
     Returns:

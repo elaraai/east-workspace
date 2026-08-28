@@ -61,7 +61,8 @@ class _TransformOps(_ExprBase):
         if tag == "Array":
             elem_t = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda el, i: lift_result(_with_index(fn)(el, i)), [elem_t, IntegerType], declared=2
+                lambda b, el, i: lift_result(_with_index(fn)(b, el, i)), [elem_t, IntegerType],
+                declared=2
             )
             if not _is_option(out_t):
                 raise ExpressionError(
@@ -74,7 +75,8 @@ class _TransformOps(_ExprBase):
             )
         if tag == "Set":
             elem_t = self.east_type.value
-            node, out_t = _trace_inner_fn(lambda el: lift_result(fn(el)), [elem_t], declared=1)
+            node, out_t = _trace_inner_fn(
+                lambda b, el: lift_result(fn(b, el)), [elem_t], declared=1)
             if not _is_option(out_t):
                 raise ExpressionError(
                     ".first_map() lambda must return some(...)/none, got "
@@ -89,7 +91,7 @@ class _TransformOps(_ExprBase):
             # The builtin's callback signature is (value, key); the user fn
             # takes (key, value) like the eager method.
             node, out_t = _trace_inner_fn(
-                lambda v, k: lift_result(fn(k, v)), [kv["value"], kv["key"]], declared=2
+                lambda b, v, k: lift_result(fn(b, k, v)), [kv["value"], kv["key"]], declared=2
             )
             if not _is_option(out_t):
                 raise ExpressionError(
@@ -161,7 +163,7 @@ class _TransformOps(_ExprBase):
         if tag == "Dict":
             kv = self.east_type.value
             node, inner_t = self._option_callback(
-                lambda v, k: fn(k, v), [kv["value"], kv["key"]], 2, out)
+                lambda b, v, k: fn(b, k, v), [kv["value"], kv["key"]], 2, out)
             self._check_out(".filter_map()", inner_t, out)
             out_d = _DictType(kv["key"], inner_t)
             return self._expr(
@@ -193,7 +195,7 @@ class _TransformOps(_ExprBase):
         elif tag == "Dict":
             kv = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2, out_hint=hint)
+                lambda b, v, k: fn(b, k, v), [kv["value"], kv["key"]], declared=2, out_hint=hint)
             builtin, tps = "DictFlattenToArray", [kv["key"], kv["value"]]
         else:
             raise ExpressionError(f".flatten_to_array() on {tag}")
@@ -225,7 +227,7 @@ class _TransformOps(_ExprBase):
         elif tag == "Dict":
             kv = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2, out_hint=hint)
+                lambda b, v, k: fn(b, k, v), [kv["value"], kv["key"]], declared=2, out_hint=hint)
             builtin, tps = "DictFlattenToSet", [kv["key"], kv["value"]]
         else:
             raise ExpressionError(f".flatten_to_set() on {tag}")
@@ -257,7 +259,7 @@ class _TransformOps(_ExprBase):
         elif tag == "Dict":
             kv = self.east_type.value
             map_node, t2 = _trace_inner_fn(
-                lambda v, k: map_fn(k, v), [kv["value"], kv["key"]], declared=2,
+                lambda b, v, k: map_fn(b, k, v), [kv["value"], kv["key"]], declared=2,
                 out_hint=out)
             builtin, tps = "DictMapReduce", [kv["key"], kv["value"]]
         else:
@@ -328,22 +330,22 @@ class _TransformOps(_ExprBase):
             key_node, k2 = _trace_inner_fn(
                 _with_index(key), [elem_t, IntegerType], declared=2,
                 out_hint=key_out)
-            val = value if value is not None else (lambda el: el)
+            val = value if value is not None else (lambda _b, el: el)
             val_node, t2 = _trace_inner_fn(
                 _with_index(val), [elem_t, IntegerType], declared=2,
                 out_hint=value_out)
         elif tag == "Dict":
             kv = self.east_type.value
             key_node, k2 = _trace_inner_fn(
-                lambda v, k: key(k, v), [kv["value"], kv["key"]], declared=2,
+                lambda b, v, k: key(b, k, v), [kv["value"], kv["key"]], declared=2,
                 out_hint=key_out)
             if value is None:
                 val_node, t2 = _trace_inner_fn(
-                    lambda v, _k: v, [kv["value"], kv["key"]], declared=2,
+                    lambda _b, v, _k: v, [kv["value"], kv["key"]], declared=2,
                     out_hint=value_out)
             else:
                 val_node, t2 = _trace_inner_fn(
-                    lambda v, k: value(k, v), [kv["value"], kv["key"]], declared=2,
+                    lambda b, v, k: value(b, k, v), [kv["value"], kv["key"]], declared=2,
                     out_hint=value_out)
         elif tag == "Set":
             elem_t = self.east_type.value
@@ -402,7 +404,7 @@ class _TransformOps(_ExprBase):
         elif tag == "Dict":
             kv = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2)
+                lambda b, v, k: fn(b, k, v), [kv["value"], kv["key"]], declared=2)
             builtin, tps = "DictFlattenToDict", [kv["key"], kv["value"]]
         else:
             raise ExpressionError(f".flatten_to_dict() on {tag}")
@@ -450,7 +452,7 @@ class _TransformOps(_ExprBase):
             )
         if tag == "Array":
             elem_t = self.east_type.value
-            proj = key if key is not None else (lambda el: el)
+            proj = key if key is not None else (lambda _b, el: el)
             node, k2 = _trace_inner_fn(
                 _with_index(proj), [elem_t, IntegerType], declared=2)
             self._check_out(".to_set()", k2, out)
@@ -460,10 +462,10 @@ class _TransformOps(_ExprBase):
             )
         if tag == "Dict":
             if key is None:
-                raise ExpressionError(".to_set() on a Dict needs a projection fn(key, value)")
+                raise ExpressionError(".to_set() on a Dict needs a projection fn(b, key, value)")
             kv = self.east_type.value
             node, k2 = _trace_inner_fn(
-                lambda v, k: key(k, v), [kv["value"], kv["key"]], declared=2)
+                lambda b, v, k: key(b, k, v), [kv["value"], kv["key"]], declared=2)
             self._check_out(".to_set()", k2, out)
             out_t = _SetType(k2)
             return self._expr(
@@ -489,7 +491,7 @@ class _TransformOps(_ExprBase):
         tag = self.east_type.type
         if tag == "Set":
             elem_t = self.east_type.value
-            proj = fn if fn is not None else (lambda el: el)
+            proj = fn if fn is not None else (lambda _b, el: el)
             node, t2 = _trace_inner_fn(proj, [elem_t], declared=1, out_hint=out)
             self._check_out(".to_array()", t2, out)
             out_a = _ArrayType(t2)
@@ -498,10 +500,10 @@ class _TransformOps(_ExprBase):
             )
         if tag == "Dict":
             if fn is None:
-                raise ExpressionError(".to_array() on a Dict needs a projection fn(key, value)")
+                raise ExpressionError(".to_array() on a Dict needs a projection fn(b, key, value)")
             kv = self.east_type.value
             node, t2 = _trace_inner_fn(
-                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2, out_hint=out)
+                lambda b, v, k: fn(b, k, v), [kv["value"], kv["key"]], declared=2, out_hint=out)
             self._check_out(".to_array()", t2, out)
             out_a = _ArrayType(t2)
             return self._expr(

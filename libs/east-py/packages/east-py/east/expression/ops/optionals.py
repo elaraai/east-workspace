@@ -125,12 +125,11 @@ class _OptionOps(_ExprBase):
 
     def match(self, cases: dict) -> Expression:
         """Traced match — the EXPRESSION form (TS ``East.match``):
-        ``{case: handler(payload_expr) -> expr}``. (The STATEMENT, TS
+        ``{case: handler(b, payload_expr) -> expr}``. (The STATEMENT, TS
         ``$.match``, is ``b.match_`` on the block a body received.)
 
-        Each handler runs in its own statement frame and returns the arm's
-        value (statements inside one are spelled ``East.block(lambda b:
-        …)``; a handler may also diverge). The result type
+        Each handler runs in its own statement frame, its block first, and
+        returns the arm's value (or diverges). The result type
         is the union of the arms' types — a diverging ``Never`` arm is
         absorbed, a narrower arm widens — so every arm must agree on one
         East type (a scalar handler value is lifted with the other arms'
@@ -160,8 +159,7 @@ class _OptionOps(_ExprBase):
             elif callable(handler) and not isinstance(handler, Expression):
                 # Run now, assemble once the arms have settled a type: a
                 # `none` arm lifts under its `some` sibling's Option type.
-                raw = _open_run(handler, (self._expr(var, c["type"]),), return_type=ret_t,
-                                block=False)
+                raw = _open_run(handler, (self._expr(var, c["type"]),), return_type=ret_t)
             else:
                 raw = handler
             results.append((c["name"], var, raw))

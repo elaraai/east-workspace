@@ -5,8 +5,8 @@
 """The eager-path capture cache and datetime lifting (issue #422).
 
 Eager methods take a FRESH lambda object per call, so a per-group aggregate
-loop — ``group_to_arrays(key).to_array(lambda k, es: {…aggregates…})`` —
-used to re-capture an identical lambda once per group: 1,686 groups × ~15
+loop — ``group_to_arrays(key).to_array(lambda _b, k, es: {…aggregates…})`` —
+used to re-capture an identical lambda _b, once per group: 1,686 groups × ~15
 inner eager calls measured 145 s of pure re-tracing, silently, from code
 that reads as the idiomatic East spelling. ``capture_callback`` (and the
 type-derivation twin ``_trace_out_type``) memoise on the callback's code
@@ -57,7 +57,7 @@ def _rows():
 def _fresh_projection():
     """A fresh lambda OBJECT per call over one code object — the shape every
     per-group loop produces."""
-    return lambda r: r["v"] * 2.0
+    return lambda _b, r: r["v"] * 2.0
 
 
 # ── cache hits ───────────────────────────────────────────────────────────────
@@ -84,11 +84,11 @@ def test_a_per_group_aggregate_loop_captures_each_lambda_once(monkeypatch):
         return original(*args, **kwargs)
 
     def census(a):
-        return a.group_to_arrays(lambda r: r["g"]).to_array(
-            lambda k, es: {
+        return a.group_to_arrays(lambda _b, r: r["g"]).to_array(
+            lambda _b, k, es: {
                 "k": k,
-                "total": es.sum(lambda r: r["v"]),
-                "top": es.maximum(lambda r: r["n"]),
+                "total": es.sum(lambda _b, r: r["v"]),
+                "top": es.maximum(lambda _b, r: r["n"]),
             })
 
     want = census(rows)                             # warm the cache un-counted
@@ -120,7 +120,7 @@ def test_the_out_type_derivation_is_cached_too(monkeypatch):
 
 def test_different_closure_values_do_not_share_a_kernel():
     def mk(threshold):
-        return lambda r: r["v"] > threshold
+        return lambda _b, r: r["v"] > threshold
 
     rows = _rows()
     low = rows.filter(mk(3.0))
@@ -137,7 +137,7 @@ THRESHOLD = 5.0
 def test_a_mutated_global_is_a_cache_miss(monkeypatch):
     """A global scalar bakes into the trace like a closure scalar does, so
     its VALUE is part of the key — rebinding it must not hit the old bake."""
-    fn = lambda r: r["v"] > THRESHOLD  # noqa: E731
+    fn = lambda _b, r: r["v"] > THRESHOLD  # noqa: E731
     rows = _rows()
     before = rows.filter(fn)
     monkeypatch.setattr(sys.modules[__name__], "THRESHOLD", 40.0)
@@ -157,7 +157,7 @@ def test_different_declared_signatures_do_not_collide():
 
 def test_a_default_bound_mutable_accumulator_is_uncacheable():
     """Parameter DEFAULTS are bindings too. The beast2 segment folds bind
-    their RUNNING accumulator as a default (`lambda gk, _acc=result: …`),
+    their RUNNING accumulator as a default (`lambda _b, gk, _acc=result: …`),
     counting on a fresh capture per segment to snapshot the current state — a
     default the key cannot soundly hold must force a miss, or segment 2
     folds into segment 1's stale snapshot."""
@@ -166,7 +166,7 @@ def test_a_default_bound_mutable_accumulator_is_uncacheable():
     acc = EastDict(StringType, IntegerType, {"a": 1})
 
     def mk():
-        return lambda gk, _acc=acc: _acc.get_or_default(gk, 0)
+        return lambda _b, gk, _acc=acc: _acc.get_or_default(gk, 0)
 
     first = _K.capture_callback(EastFunction(mk(), [StringType], IntegerType))
     acc["a"] = 100
@@ -195,7 +195,7 @@ _EPOCH = datetime(2020, 1, 1, tzinfo=UTC)
 
 def test_option_datetime_unwrap_or_lifts_its_default():
     D = StructType([("at", OptionType(DateTimeType))])
-    k = East.function([D], DateTimeType, lambda r: r["at"].unwrap_or(datetime(2020, 1, 1, tzinfo=UTC)))
+    k = East.function([D], DateTimeType, lambda _b, r: r["at"].unwrap_or(datetime(2020, 1, 1, tzinfo=UTC)))
     t = datetime(2024, 6, 1, 12, 0, tzinfo=UTC)
     assert k({"at": some(t)}) == t
     assert k({"at": none}) == _EPOCH
@@ -204,7 +204,7 @@ def test_option_datetime_unwrap_or_lifts_its_default():
 def test_datetime_literals_lift_in_where_branches_and_captures():
     D = StructType([("at", DateTimeType)])
     cutoff = datetime(2023, 1, 1, tzinfo=UTC)
-    k = East.function([D], DateTimeType, lambda r: if_else(r["at"] > cutoff, r["at"], cutoff))
+    k = East.function([D], DateTimeType, lambda _b, r: if_else(r["at"] > cutoff, r["at"], cutoff))
     late = datetime(2024, 1, 1, tzinfo=UTC)
     assert k({"at": late}) == late
     assert k({"at": _EPOCH}) == cutoff
@@ -217,5 +217,5 @@ def test_a_captured_datetime_is_an_allowed_capture():
     cutoff = datetime(2023, 1, 1, tzinfo=UTC)
     rows = array(D, [{"at": _EPOCH, "v": 1.0},
                      {"at": datetime(2024, 2, 2, tzinfo=UTC), "v": 2.0}])
-    got = rows.filter(lambda r: r["at"] > cutoff)
+    got = rows.filter(lambda _b, r: r["at"] > cutoff)
     assert [r["v"] for r in got] == [2.0]

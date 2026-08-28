@@ -214,21 +214,21 @@ def test_update_many_impure_combine_is_refused():
     seen = []
     with pytest.raises(ExpressionError, match="captured automatically"):
         d.update_many(["a", "a", "b"], [2.0, 3.0, 5.0],
-                      combine=lambda cur, new: (seen.append(1), cur + new)[1])
+                      combine=lambda _b, cur, new: (seen.append(1), cur + new)[1])
     assert seen == []  # refused before any collision ran
     assert d["a"] == 1.0 and "b" not in d
 
 
 def test_update_many_traced_combine():
     d = EastDict(StringType, FloatType, {"a": 1.0})
-    d.update_many(["a", "a", "b"], [2.0, 3.0, 5.0], combine=lambda cur, new: cur + new)
+    d.update_many(["a", "a", "b"], [2.0, 3.0, 5.0], combine=lambda _b, cur, new: cur + new)
     assert d["a"] == 6.0
     assert d["b"] == 5.0
 
 
 def test_update_many_precompiled_kernel_combine():
     d = EastDict(StringType, FloatType, {"a": 1.0})
-    k = East.function([FloatType, FloatType], FloatType, lambda cur, new: cur + new)
+    k = East.function([FloatType, FloatType], FloatType, lambda _b, cur, new: cur + new)
     d.update_many(["a", "b", "a"], [2.0, 7.0, 4.0], combine=k)
     assert d["a"] == 7.0
     assert d["b"] == 7.0
@@ -245,7 +245,7 @@ def test_update_many_accumulator_pattern():
     rows = _rows()
     cols = rows.to_columns(["sku", "price"])
     d = EastDict(StringType, FloatType)
-    d.update_many(cols["sku"], cols["price"], combine=lambda cur, new: cur + new)
+    d.update_many(cols["sku"], cols["price"], combine=lambda _b, cur, new: cur + new)
     assert d["A-1"] == 12.5
     assert d["B-2"] == 150.0
 
@@ -287,7 +287,7 @@ def test_update_many_east_arrays_with_native_combine():
     d = EastDict(StringType, FloatType, {"a": 1.0})
     d.update_many(array(StringType, ["a", "a", "b"]),
                   array(FloatType, [2.0, 3.0, 5.0]),
-                  combine=lambda cur, new: cur + new)
+                  combine=lambda _b, cur, new: cur + new)
     assert d["a"] == 6.0 and d["b"] == 5.0
 
 
@@ -341,9 +341,9 @@ def test_update_many_deeply_nested_option_values_at_scale():
                                     "level_before": some(1.0),
                                     "level_after": none}]} for i in range(n)])
 
-    k_key = East.function([src], StructType([("job", StringType), ("station", StringType)]), lambda r: {"job": r["id"],
+    k_key = East.function([src], StructType([("job", StringType), ("station", StringType)]), lambda _b, r: {"job": r["id"],
                                    "station": r["station"].unwrap_or("")})
-    k_val = East.function([src], StructType([("allocations", ArrayType(StructType([("grade", OptionType(StringType)), ("batch", OptionType(StringType)), ("level_before", OptionType(FloatType)), ("level_after", OptionType(FloatType))]))), ("unallocated", StructType([("before", OptionType(FloatType)), ("after", OptionType(FloatType))])), ("quality", OptionType(StringType))]), lambda r: {
+    k_val = East.function([src], StructType([("allocations", ArrayType(StructType([("grade", OptionType(StringType)), ("batch", OptionType(StringType)), ("level_before", OptionType(FloatType)), ("level_after", OptionType(FloatType))]))), ("unallocated", StructType([("before", OptionType(FloatType)), ("after", OptionType(FloatType))])), ("quality", OptionType(StringType))]), lambda _b, r: {
         "allocations": r["allocs"],
         "unallocated": {"before": if_else(r["station"].is_some(), some(1.0), none),
                         "after": if_else(r["station"].is_some(), some(2.0), none)},

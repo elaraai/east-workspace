@@ -34,7 +34,7 @@ def _rows() -> EastArray:
     return EastArray(Row, [{"code": "TANK-1"}, {"code": "ADDED"}])
 
 
-def _classify(r):
+def _classify(_b, r):
     return if_else(r["code"] == "ADDED", variant("added", east_null),
                  variant("vessel", r["code"]))
 
@@ -48,16 +48,16 @@ def test_where_with_variant_branches_without_context_raises_the_actionable_error
 
 def test_unknown_case_names_the_declared_cases():
     with pytest.raises(ExpressionError, match="not in"):
-        East.function([Row], Source, lambda r: variant("boat", r["code"]))
+        East.function([Row], Source, lambda _b, r: variant("boat", r["code"]))
 
 
 def test_payload_type_mismatch_is_named():
     with pytest.raises(ExpressionError, match="payload has type Integer, expected String"):
-        East.function([Row], Source, lambda r: variant("vessel", 1))
+        East.function([Row], Source, lambda _b, r: variant("vessel", 1))
 
 
 def test_bare_variant_without_any_context_raises_the_actionable_error():
     with pytest.raises(ExpressionError, match="needs a VariantType from context"):
-        _rows().map(lambda r: variant("vessel", r["code"]))
+        _rows().map(lambda _b, r: variant("vessel", r["code"]))
 
 

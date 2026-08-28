@@ -100,8 +100,8 @@ class TestValueSemantics:
         rows = [{"k": f"s{9 - i}", "v": float(i)} for i in range(10)]
         write_beast2_file(at_path, A_ROW, EastArray(ROW, rows), segment_rows=3)
         with open_beast2_file(at_path) as f:
-            got = f.sorted(key=lambda r: r["k"])
-            want = f.load().sorted(key=lambda r: r["k"])
+            got = f.sorted(key=lambda _b, r: r["k"])
+            want = f.load().sorted(key=lambda _b, r: r["k"])
             assert [r["k"] for r in got] == [r["k"] for r in want]
             # copy() is the mutable escape hatch
             copied = f.copy()
@@ -123,7 +123,7 @@ class TestKernelBind:
     def test_a_bound_lazy_dict_answers_get_or_default_natively(self, tmp_path):
         with open_beast2_file(_dict_path(tmp_path, n=500, seg=16)) as d:
             lookup = East.function([ROW, D_SF], FloatType,
-                            lambda r, t: t.get_or_default(r["k"], -1.0)).bind(d)
+                            lambda _b, r, t: t.get_or_default(r["k"], -1.0)).bind(d)
             rows = EastArray(ROW, [{"k": "k0000", "v": 0.0},
                                    {"k": "k0250", "v": 0.0},
                                    {"k": "k0499", "v": 0.0},
@@ -137,16 +137,16 @@ class TestKernelBind:
         monkeypatch.setenv("EAST_PAGED_CACHE_BYTES", "1")
         with open_beast2_file(_dict_path(tmp_path, n=200, seg=8)) as d:
             lookup = East.function([StringType, D_SF], FloatType,
-                            lambda k, t: t.get_or_default(k, -1.0)).bind(d)
+                            lambda _b, k, t: t.get_or_default(k, -1.0)).bind(d)
             for i in range(0, 200, 7):
                 assert lookup(f"k{i:04d}") == i * 1.5
             assert lookup("nope") == -1.0
 
     def test_the_file_passes_straight_into_a_compiled_call(self, tmp_path):
         with open_beast2_file(_dict_path(tmp_path, n=50, seg=8)) as d:
-            size = East.function([D_SF], IntegerType, lambda t: t.size())
+            size = East.function([D_SF], IntegerType, lambda _b, t: t.size())
             assert size(d) == 50
-            probe = East.function([StringType, D_SF], BooleanType, lambda k, t: t.has(k))
+            probe = East.function([StringType, D_SF], BooleanType, lambda _b, k, t: t.has(k))
             assert probe("k0001", d) is True
             assert probe("zz", d) is False
 
@@ -156,8 +156,8 @@ class TestKernelBind:
         # loop, kernel, callee and pager — runs inside east-c.
         with open_beast2_file(_dict_path(tmp_path, n=300, seg=16)) as d:
             lookup = East.function([StringType, D_SF], FloatType,
-                            lambda k, t: t.get_or_default(k, 0.0)).bind(d)
-            project = East.function([ROW], FloatType, lambda r: r["v"] + lookup(r["k"]))
+                            lambda _b, k, t: t.get_or_default(k, 0.0)).bind(d)
+            project = East.function([ROW], FloatType, lambda _b, r: r["v"] + lookup(r["k"]))
             rows = EastArray(ROW, [{"k": "k0000", "v": 1.0},
                                    {"k": "k0123", "v": 2.0},
                                    {"k": "MISS", "v": 3.0}])
@@ -169,7 +169,7 @@ class TestKernelBind:
         # and dropping the bind lets a later close complete.
         d = open_beast2_file(_dict_path(tmp_path))
         lookup = East.function([StringType, D_SF], FloatType,
-                        lambda k, t: t.get_or_default(k, -1.0)).bind(d)
+                        lambda _b, k, t: t.get_or_default(k, -1.0)).bind(d)
         assert lookup("k0000") == 0.0
         d.close()
         assert not d.closed
@@ -210,7 +210,7 @@ class TestWideRows:
         monkeypatch.setenv("EAST_PAGED_CACHE_BYTES", str(512 * 1024))
         with open_beast2_file(path) as f:
             get = East.function([IntegerType, ArrayType(wide_row)], IntegerType,
-                         lambda i, a: a.get(i)["id"]).bind(f)
+                         lambda _b, i, a: a.get(i)["id"]).bind(f)
             for i in (0, 15, 7, 0, 11, 3):
                 assert get(i) == i
 

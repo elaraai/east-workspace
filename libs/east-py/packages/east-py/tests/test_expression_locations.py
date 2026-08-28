@@ -78,7 +78,7 @@ def _column_of(line: int, text: str) -> int:
 
 def _build_divider():
     return East.function([IntegerType], IntegerType,
-                         lambda x: East.Integer.divide(x, 0))
+                         lambda _b, x: East.Integer.divide(x, 0))
 
 
 DIVIDER_CALL_LINE = _build_divider.__code__.co_firstlineno + 1   # East.function(...)
@@ -114,16 +114,16 @@ def test_artifact_carries_its_source_map():
 
 def test_bound_function_reports_the_same_frames():
     divide = East.function([IntegerType, IntegerType], IntegerType,
-                           lambda a, b: East.Integer.divide(a, b))
+                           lambda _b, a, b: East.Integer.divide(a, b))
     body_line = test_bound_function_reports_the_same_frames.__code__.co_firstlineno + 2
     assert _frames(_raises(divide.bind(0), 7))[0][1] == body_line
 
 
 def test_nested_build_names_the_inner_expression():
     inner = East.function([IntegerType], IntegerType,
-                          lambda x: East.Integer.divide(x, 0))
+                          lambda _b, x: East.Integer.divide(x, 0))
     outer = East.function([IntegerType], IntegerType,
-                          lambda x: inner(x + 1))
+                          lambda _b, x: inner(x + 1))
     base = test_nested_build_names_the_inner_expression.__code__.co_firstlineno
     frames = _frames(_raises(outer, 1))
     # The inner body re-ran inside the outer build (one shared map), so the
@@ -134,7 +134,7 @@ def test_nested_build_names_the_inner_expression():
 
 
 def test_captured_callback_carries_its_authoring_frames():
-    kernel = capture_callback(EastFunction(lambda v: East.Integer.divide(v, 0),
+    kernel = capture_callback(EastFunction(lambda _b, v: East.Integer.divide(v, 0),
                                            [IntegerType], IntegerType))
     line = test_captured_callback_carries_its_authoring_frames.__code__.co_firstlineno + 1
     frames = _frames(_raises(kernel, 3))
@@ -145,7 +145,7 @@ def test_captured_callback_carries_its_authoring_frames():
 def test_compiled_platform_function_reports_locations():
     probe = East.platform("t.loc_probe", [IntegerType], IntegerType)
     f = East.function([IntegerType], IntegerType,
-                      lambda x: East.Integer.divide(probe(x), 0))
+                      lambda _b, x: East.Integer.divide(probe(x), 0))
     line = test_compiled_platform_function_reports_locations.__code__.co_firstlineno + 3
     compiled = East.compile(f, platform=[PlatformFunction(
         name="t.loc_probe", inputs=[IntegerType], output=IntegerType, type="sync",
@@ -155,7 +155,7 @@ def test_compiled_platform_function_reports_locations():
 
 def test_platform_signature_mismatch_names_the_call_site():
     log = East.platform("t.loc_sig", [StringType], NullType)
-    f = East.function([StringType], NullType, lambda s: log(s))
+    f = East.function([StringType], NullType, lambda _b, s: log(s))
     line = test_platform_signature_mismatch_names_the_call_site.__code__.co_firstlineno + 2
     with pytest.raises(EastError, match="requires exact type match") as info:
         East.compile(f, platform=[PlatformFunction(
@@ -212,7 +212,7 @@ def test_nodes_outside_a_build_carry_no_location():
     assert current_source_map() is None
     assert location_id() == UNKNOWN_LOC_ID
     # A bare trace (a type-only derivation) captures nothing.
-    ir, _out, _binds = trace(lambda x: East.Integer.divide(x, 0), [IntegerType])
+    ir, _out, _binds = trace(lambda _b, x: East.Integer.divide(x, 0), [IntegerType])
     assert ir.value["loc_id"] == UNKNOWN_LOC_ID
     assert ir.value["body"].value["loc_id"] == UNKNOWN_LOC_ID
     with source_map_scope() as source_map:

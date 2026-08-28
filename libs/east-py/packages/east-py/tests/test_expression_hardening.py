@@ -43,16 +43,16 @@ def _rows() -> EastArray:
 
 def test_fstring_in_an_explicit_kernel_raises():
     with pytest.raises(ExpressionError, match="constant-fold"):
-        East.function([StringType], StringType, lambda s: f"<{s}>")
+        East.function([StringType], StringType, lambda _b, s: f"<{s}>")
 
 
 def test_str_call_in_an_explicit_kernel_raises():
     with pytest.raises(ExpressionError, match="constant-fold"):
-        East.function([StringType], StringType, lambda s: "<" + str(s) + ">")
+        East.function([StringType], StringType, lambda _b, s: "<" + str(s) + ">")
 
 
 def test_repr_still_works_for_diagnostics():
-    got = East.function([StringType], StringType, lambda s: _probe_repr(s))("x")
+    got = East.function([StringType], StringType, lambda _b, s: _probe_repr(s))("x")
     assert got == "x"
 
 
@@ -72,7 +72,7 @@ def test_an_untraceable_callback_raises_on_the_eager_path():
     # hours-not-errors failure mode, #524). The error names the traced
     # spelling.
     with pytest.raises(ExpressionError, match="constant-fold"):
-        arr.map(lambda s: f"<{s}>", out=StringType)
+        arr.map(lambda _b, s: f"<{s}>", out=StringType)
 
 
 def test_impure_callbacks_are_refused():
@@ -81,21 +81,21 @@ def test_impure_callbacks_are_refused():
     # Mutating a closure has no East capture (#625): refused before any
     # element runs — there is no silent per-element python path anymore.
     with pytest.raises(ExpressionError, match="captured automatically"):
-        arr.map(lambda x: (log.append(x) or x + 1), out=IntegerType)
+        arr.map(lambda _b, x: (log.append(x) or x + 1), out=IntegerType)
     assert log == []
 
 
 # ── #536: the out= sweep, threading the hint into the callback ─────────────
 
 def test_map_out_is_accepted_and_types_a_variant_building_callback():
-    out = _rows().map(lambda r: variant("vessel", r["code"]), out=Source)
+    out = _rows().map(lambda _b, r: variant("vessel", r["code"]), out=Source)
     assert [(v.type, v.value) for v in out] == [("vessel", "TANK-1"), ("vessel", "ADDED")]
 
 
 def test_map_out_contradiction_raises():
     with pytest.raises(ExpressionError, match="out= declares"):
         East.function([ArrayTypeOf(IntegerType)], ArrayType(IntegerType),
-                      lambda a: a.map(lambda x: x + 1, out=StringType))
+                      lambda _b, a: a.map(lambda _b, x: x + 1, out=StringType))
 
 
 def ArrayTypeOf(t):
@@ -108,7 +108,7 @@ def test_filter_map_out_types_the_some_payload():
     from east import none, some
 
     out = _rows().filter_map(
-        lambda r: if_else(r["code"] == "ADDED", none, some(variant("vessel", r["code"]))),
+        lambda _b, r: if_else(r["code"] == "ADDED", none, some(variant("vessel", r["code"]))),
         out=Source,
     )
     assert [(v.type, v.value) for v in out] == [("vessel", "TANK-1")]
@@ -116,7 +116,7 @@ def test_filter_map_out_types_the_some_payload():
 
 def test_map_reduce_out_is_accepted():
     arr = EastArray(IntegerType, [1, 2, 3])
-    got = arr.map_reduce(lambda x: x * 2, lambda a, b: a + b, out=IntegerType)
+    got = arr.map_reduce(lambda _b, x: x * 2, lambda _b, a, b: a + b, out=IntegerType)
     assert got == 12
 
 
@@ -124,18 +124,18 @@ def test_flatten_out_pins_the_element_type():
     from east import ArrayType
 
     arr = EastArray(ArrayType(IntegerType), [[1, 2], [3]])
-    got = arr.flatten_to_array(lambda xs: xs, out=IntegerType)
+    got = arr.flatten_to_array(lambda _b, xs: xs, out=IntegerType)
     assert list(got) == [1, 2, 3]
     with pytest.raises(ExpressionError, match="out= declares"):
         East.function([ArrayType(ArrayType(IntegerType))], ArrayType(IntegerType),
-                      lambda a: a.flatten_to_array(lambda xs: xs, out=StringType))
+                      lambda _b, a: a.flatten_to_array(lambda _b, xs: xs, out=StringType))
 
 
 def test_to_dict_key_and_value_outs_type_the_projections():
     d = EastDict(StringType, IntegerType, {"a": 1, "b": 2})
     got = d.to_dict(
-        lambda k, _v: variant("vessel", k),
-        lambda _k, v: v,
+        lambda _b, k, _v: variant("vessel", k),
+        lambda _b, _k, v: v,
         None,
         key_out=Source,
         value_out=IntegerType,
@@ -146,10 +146,10 @@ def test_to_dict_key_and_value_outs_type_the_projections():
 def test_group_reduce_key_out_types_a_variant_group_key():
     d = EastDict(StringType, IntegerType, {"a": 1, "ADDED": 2})
     got = d.group_reduce(
-        lambda k, _v: if_else(k == "ADDED", variant("added", east_null),
+        lambda _b, k, _v: if_else(k == "ADDED", variant("added", east_null),
                             variant("vessel", k)),
-        lambda _gk: 0,
-        lambda acc, _k, v: acc + v,
+        lambda _b, _gk: 0,
+        lambda _b, acc, _k, v: acc + v,
         key_out=Source,
         acc_out=IntegerType,
     )
@@ -160,9 +160,9 @@ def test_group_reduce_key_out_types_a_variant_group_key():
 def test_every_some_take_the_pred_keyword():
     arr = EastArray(IntegerType, [1, 2, 3])
     every_k = East.function([ArrayTypeOf(IntegerType)], BooleanType,
-                            lambda a: a.every(pred=lambda x: x > 0))
+                            lambda _b, a: a.every(pred=lambda _b, x: x > 0))
     some_k = East.function([ArrayTypeOf(IntegerType)], BooleanType,
-                           lambda a: a.some(pred=lambda x: x > 5))
+                           lambda _b, a: a.some(pred=lambda _b, x: x > 5))
     assert every_k(arr)
     assert not some_k(arr)
 
@@ -172,7 +172,7 @@ def test_set_to_array_takes_the_key_keyword():
 
     s = EastSet(IntegerType, [3, 1, 2])
     got = East.function([SetType(IntegerType)], ArrayType(IntegerType),
-                        lambda x: x.to_array(key=lambda e: e * 10))(s)
+                        lambda _b, x: x.to_array(key=lambda _b, e: e * 10))(s)
     assert list(got) == [10, 20, 30]
 
 
@@ -180,7 +180,7 @@ def test_group_to_arrays_takes_the_value_fn_keyword():
     d = EastDict(StringType, IntegerType, {"a": 1, "b": 2})
     got = East.function(
         [_dict_t()], DictType(StringType, ArrayType(IntegerType)),
-        lambda x: x.group_to_arrays(lambda k, _v: k, value_fn=lambda _k, v: v))(d)
+        lambda _b, x: x.group_to_arrays(lambda _b, k, _v: k, value_fn=lambda _b, _k, v: v))(d)
     assert {k: list(v) for k, v in got.items()} == {"a": [1], "b": [2]}
 
 

@@ -360,7 +360,7 @@ def test_break_outside_a_loop_is_not_the_analyzers_business():
 
 
 def test_location_is_named_when_a_source_map_is_given():
-    built = East.function([IntegerType], IntegerType, lambda x: x)
+    built = East.function([IntegerType], IntegerType, lambda _b, x: x)
     body = ir_get_field(IntegerType, "a", value(IntegerType, 1))
     bad = fn(IntegerType, body)
     with pytest.raises(IRAnalysisError, match=r"at loc_id 0$"):

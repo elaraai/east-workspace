@@ -274,12 +274,15 @@ cdef class CyEastVariant:
         return self.type == "none"
 
     def match(self, dict cases, default=None):
-        """Dispatch on the case: ``handler(payload)`` of the matching arm,
-        else ``default`` (mirrors the TS variant ``match`` as a method)."""
+        """Dispatch on the case: the matching arm's handler is a BODY,
+        called ``handler(b, payload)`` with an eager block first — the same
+        handler serves the traced ``Expression.match`` — else ``default``
+        (mirrors the TS variant ``match`` as a method)."""
         handler = cases.get(self.type)
         if handler is None:
             return default
-        return handler(self.value)
+        from east.expression.statements import EagerBlock
+        return handler(EagerBlock(), self.value)
 
     def keys(self):
         """Return keys."""

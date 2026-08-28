@@ -31,7 +31,7 @@ LineItem = StructType([("name", StringType), ("price", FloatType)])
 items = array(LineItem, [{"name": "a", "price": 1}, {"name": "b", "price": 2.0}])
 
 # Eager methods execute now and chain
-cheap = items.filter(lambda r: r["price"] < 2.0).sorted(key=lambda r: r["price"])
+cheap = items.filter(lambda b, r: r["price"] < 2.0).sorted(key=lambda b, r: r["price"])
 
 # Primitive builtins live on the East.<Type> namespaces (you can't add methods
 # to Python's float/str/int) — they delegate to east-c too
@@ -54,7 +54,7 @@ from east import platform_function, platform_functions, struct, FloatType, Array
 
 @platform_function(inputs=[FloatType, ArrayType(LineItem)], output=ArrayType(LineItem))
 def convert_prices(fx_rate, items):
-    return items.map(lambda r: struct({"name": r["name"], "price": r["price"] * fx_rate}, LineItem))
+    return items.map(lambda b, r: struct({"name": r["name"], "price": r["price"] * fx_rate}, LineItem))
 
 platform = platform_functions(__name__)   # pass to compile() to register
 ```

@@ -74,7 +74,7 @@ def _python_helper(s):
 def _bound_sink(base: float = 10.0):
     """A bound compiled callable — the shape of the e3 runner's ``emit``."""
     return East.function([StringType, FloatType, FloatType], FloatType,
-                  lambda key, v, b: v + b).bind(base)
+                  lambda _b, key, v, b: v + b).bind(base)
 
 
 def _accum(kind: str = "dict", emit_types=(StringType, FloatType)):
@@ -137,7 +137,7 @@ class TestStructConstructor:
         items = EastArray(LINE, [{"name": "a", "price": 1.0},
                                  {"name": "b", "price": 2.0}])
         fx = 1.5
-        out = items.map(lambda r: struct(
+        out = items.map(lambda _b, r: struct(
             {"name": r["name"], "price": r["price"] * fx}, LINE))
         assert out.element_type == LINE
         assert [dict(r.items()) for r in out] == [
@@ -153,7 +153,7 @@ class TestStructConstructor:
         from east import struct
 
         items = EastArray(LINE, [{"name": "a", "price": 1.0}])
-        out = items.map(lambda r: struct({"price": r["price"], "name": r["name"]}, LINE))
+        out = items.map(lambda _b, r: struct({"price": r["price"], "name": r["name"]}, LINE))
         assert out.element_type == LINE
 
     def test_fields_that_do_not_match_the_declared_type_are_named(self):
@@ -161,7 +161,7 @@ class TestStructConstructor:
 
         items = EastArray(LINE, [{"name": "a", "price": 1.0}])
         with pytest.raises(ExpressionError, match=r"missing \['price'\]"):
-            items.map(lambda r: struct({"name": r["name"]}, LINE))
+            items.map(lambda _b, r: struct({"name": r["name"]}, LINE))
 
     def test_traced_parts_below_the_top_level_still_build_ir(self):
         # The proxy may sit BELOW the top level — inside a nested dict
@@ -175,7 +175,7 @@ class TestStructConstructor:
                              ("inner", StructType([("x", FloatType)])),
                              ("o", OptionType(FloatType))])
         items = EastArray(LINE, [{"name": "a", "price": 1.0}])
-        out = items.map(lambda r: struct(
+        out = items.map(lambda _b, r: struct(
             {"name": r["name"], "inner": {"x": r["price"] * 2.0},
              "o": some(r["price"])}, Nested))
         assert out.element_type == Nested
@@ -190,12 +190,12 @@ class TestStructConstructor:
 
         Source = VariantType([("vessel", StringType), ("added", NullType)])
         items = EastArray(LINE, [{"name": "a", "price": 1.0}])
-        out = items.map(lambda r: variant("vessel", r["name"], Source))
+        out = items.map(lambda _b, r: variant("vessel", r["name"], Source))
         assert [(v.type, v.value) for v in out] == [("vessel", "a")]
         with pytest.raises(ExpressionError, match="not in"):
-            items.map(lambda r: variant("boat", r["name"], Source))
+            items.map(lambda _b, r: variant("boat", r["name"], Source))
         with pytest.raises(ExpressionError, match="payload has type Float"):
-            items.map(lambda r: variant("vessel", r["price"], Source))
+            items.map(lambda _b, r: variant("vessel", r["price"], Source))
         # ...and the eager form on plain values is untouched
         assert variant("added", None, Source).type == "added"
 
@@ -219,27 +219,27 @@ class TestRefusalNamesTheBinding:
     def test_a_module_reference_is_named(self):
         import random
 
-        assert "references random" in self._refusal(lambda r: random.random())
+        assert "references random" in self._refusal(lambda _b, r: random.random())
 
     def test_a_python_builtin_is_named(self):
-        assert "references len" in self._refusal(lambda r: len(r["name"]))
+        assert "references len" in self._refusal(lambda _b, r: len(r["name"]))
 
     def test_a_captured_mutable_collection_is_named(self):
         table = EastDict(StringType, FloatType, {"a": 1.0})
         assert "references table" in self._refusal(
-            lambda r: table.get_or_default(r["name"], 0.0))
+            lambda _b, r: table.get_or_default(r["name"], 0.0))
 
     def test_a_mutated_python_capture_is_named(self):
         seen: list = []
         assert "references seen" in self._refusal(
-            lambda r: (seen.append(r["name"]), r["price"])[1])
+            lambda _b, r: (seen.append(r["name"]), r["price"])[1])
         assert seen == []
 
     def test_a_global_helper_is_named_as_the_body_spells_it(self):
         # A refused GLOBAL is reported by the name the body reads — not by
         # whatever the helper reads internally, which the author never wrote.
         assert "references _python_helper" in self._refusal(
-            lambda r: _python_helper(r["name"]))
+            lambda _b, r: _python_helper(r["name"]))
 
     def test_a_wrapped_callback_names_the_wrapped_bodys_binding(self):
         # The eager methods' arity adapters hold the user callback in a
@@ -291,7 +291,7 @@ class TestConditionalHoist:
         k = East.function(
             [KEY_ROW, D],
             OptionType(StructType([("x", FloatType), ("y", FloatType), ("z", FloatType)])),
-            lambda r, d: if_else(d.has(r["k"]), some(build(d[r["k"]])), none))
+            lambda _b, r, d: if_else(d.has(r["k"]), some(build(d[r["k"]])), none))
         out = list(_key_rows().map(k.bind(t)))
         assert out[0].type == "some" and out[0].value["x"] == 1.0
         assert out[1].type == "none"
@@ -301,16 +301,16 @@ class TestConditionalHoist:
         # evaluated on every path, so hoisting it stays legal — and the
         # result must be unchanged.
         k = East.function([KEY_ROW, TABLE_T], FloatType,
-                   lambda r, d: if_else(d.get_or_default(r["k"], 0.0) > 1.0,
+                   lambda _b, r, d: if_else(d.get_or_default(r["k"], 0.0) > 1.0,
                                         d.get_or_default(r["k"], 0.0), 0.0))
         assert list(_key_rows().map(k.bind(_table()))) == [21.0, 0.0]
 
     def test_a_guarded_partial_read_inside_match_does_not_leak_either(self):
         # Match case bodies are conditional arms too.
         k = East.function([KEY_ROW, TABLE_T], FloatType,
-                   lambda r, d: d.try_get(r["k"]).match({
-                       "some": lambda v: v + v,          # shared payload use
-                       "none": lambda _: 0.0,
+                   lambda _b, r, d: d.try_get(r["k"]).match({
+                       "some": lambda _b, v: v + v,          # shared payload use
+                       "none": lambda _b, _: 0.0,
                    }))
         assert list(_key_rows().map(k.bind(_table()))) == [42.0, 0.0]
 
@@ -329,18 +329,18 @@ class TestBindSubsumption:
 
     def test_a_none_valued_struct_binds_against_its_declared_type(self):
         sentinel = coerce_to({"name": none, "qty": none, "tag": ""}, self.V)
-        k = East.function([StringType, self.V], StringType, lambda s, ab: ab["name"].unwrap_or(s))
+        k = East.function([StringType, self.V], StringType, lambda _b, s, ab: ab["name"].unwrap_or(s))
         assert k.bind(sentinel)("fallback") == "fallback"
 
     def test_a_some_valued_struct_binds_too(self):
         filled = coerce_to({"name": some("x"), "qty": some(1.0), "tag": "t"}, self.V)
-        k = East.function([StringType, self.V], StringType, lambda s, ab: ab["name"].unwrap_or(s))
+        k = East.function([StringType, self.V], StringType, lambda _b, s, ab: ab["name"].unwrap_or(s))
         assert k.bind(filled)("fallback") == "x"
 
     def test_a_genuinely_wrong_value_is_still_refused(self):
         with pytest.raises(TypeError, match="expects"):
             East.function([StringType, self.V], StringType,
-                   lambda s, ab: ab["tag"]).bind(coerce_to(1.0, FloatType))
+                   lambda _b, s, ab: ab["tag"]).bind(coerce_to(1.0, FloatType))
 
 
 # ── calling an already-compiled East function from a captured body (#561) ───
@@ -356,7 +356,7 @@ class TestCallLowering:
 
     def test_explicit_kernel_over_a_bind_result_compiles_and_matches_eager(self):
         sink = _bound_sink()
-        k = East.function([ROW], FloatType, lambda r: sink(r["k"], r["v"]))
+        k = East.function([ROW], FloatType, lambda _b, r: sink(r["k"], r["v"]))
         assert [k(r) for r in _rows()] == [11.0, 12.0, 13.0]
         assert list(_rows().map(k)) == [11.0, 12.0, 13.0]
 
@@ -369,19 +369,19 @@ class TestCallLowering:
         add1 = compile_from_value(
             ir_function(FunctionType([IntegerType], IntegerType), [], [x], body))
         assert add1(41) == 42
-        assert East.function([IntegerType], IntegerType, lambda n: add1(n) * 2)(20) == 42
+        assert East.function([IntegerType], IntegerType, lambda _b, n: add1(n) * 2)(20) == 42
 
     def test_the_captured_loop_runs_whole_native(self):
         # The production shape: a capturable lambda calling a bound native
         # function captures whole — the call lowers to an IR Call, and the
         # capture succeeding IS the proof there is no python per element.
         sink = _bound_sink()
-        assert list(_rows().map(lambda e: sink(e["k"], e["v"]) * 2.0)) == \
+        assert list(_rows().map(lambda _b, e: sink(e["k"], e["v"]) * 2.0)) == \
             [22.0, 24.0, 26.0]
 
     def test_one_callee_called_at_many_sites_binds_once(self):
         sink = _bound_sink()
-        k = East.function([ROW], FloatType, lambda r: sink(r["k"], r["v"]) + sink(r["k"], 0.0))
+        k = East.function([ROW], FloatType, lambda _b, r: sink(r["k"], r["v"]) + sink(r["k"], 0.0))
         assert k({"k": "x", "v": 2.0}) == 12.0 + 10.0
 
     def test_a_bound_side_table_lookup_observes_later_mutations(self):
@@ -390,8 +390,8 @@ class TestCallLowering:
         # nested kernel too.
         table = EastDict(StringType, FloatType, {"a": 21.0})
         lookup = East.function([StringType, TABLE_T], FloatType,
-                        lambda key, d: d.get_or_default(key, 0.0)).bind(table)
-        outer = East.function([ROW], FloatType, lambda r: lookup(r["k"]))
+                        lambda _b, key, d: d.get_or_default(key, 0.0)).bind(table)
+        outer = East.function([ROW], FloatType, lambda _b, r: lookup(r["k"]))
         assert list(_rows().map(outer)) == [21.0, 0.0, 0.0]
         table["a"] = 5.0
         table["b"] = 7.0
@@ -406,7 +406,7 @@ class TestCallLowering:
         out_t = StructType([("k", StringType), ("v", FloatType)])
         entry = East.function(
             [StringType, FloatType, TABLE_T], ROW,
-            lambda key, val, s: {"k": key, "v": val + s.get_or_default(key, 0.0)})
+            lambda _b, key, val, s: {"k": key, "v": val + s.get_or_default(key, 0.0)})
         rows = d.to_array(entry.bind(side))
         assert [(r["k"], r["v"]) for r in rows] == [("a", 11.0), ("b", 2.0)]
         assert rows.element_type == out_t
@@ -415,7 +415,7 @@ class TestCallLowering:
         # Superseded by #561: the call lowers to the IR Call node, so the
         # explicit kernel that used to raise now compiles and runs.
         sink = _bound_sink(0.0)
-        assert East.function([StringType], FloatType, lambda s: sink(s, 1.0))("x") == 1.0
+        assert East.function([StringType], FloatType, lambda _b, s: sink(s, 1.0))("x") == 1.0
 
 
 class TestFunctionTypeParameters:
@@ -424,27 +424,27 @@ class TestFunctionTypeParameters:
     FT = FunctionType([FloatType], FloatType)
 
     def test_a_function_typed_parameter_is_callable(self):
-        k = East.function([FloatType, self.FT], FloatType, lambda x, f: f(x) + 1.0)
-        assert k(3.0, East.function([FloatType], FloatType, lambda v: v * 2.0)) == 7.0
+        k = East.function([FloatType, self.FT], FloatType, lambda _b, x, f: f(x) + 1.0)
+        assert k(3.0, East.function([FloatType], FloatType, lambda _b, v: v * 2.0)) == 7.0
 
     def test_a_function_typed_parameter_binds_a_function_value(self):
-        k = East.function([FloatType, self.FT], FloatType, lambda x, f: f(x) + 1.0)
-        bound = k.bind(East.function([FloatType], FloatType, lambda v: v * 2.0))
+        k = East.function([FloatType, self.FT], FloatType, lambda _b, x, f: f(x) + 1.0)
+        bound = k.bind(East.function([FloatType], FloatType, lambda _b, v: v * 2.0))
         assert bound(3.0) == 7.0
         assert list(EastArray(FloatType, [1.0, 2.0]).map(bound)) == [3.0, 5.0]
 
     def test_a_wrong_signature_function_is_refused_by_bind(self):
-        k = East.function([FloatType, self.FT], FloatType, lambda x, f: f(x) + 1.0)
+        k = East.function([FloatType, self.FT], FloatType, lambda _b, x, f: f(x) + 1.0)
         with pytest.raises(TypeError, match="expects"):
-            k.bind(East.function([StringType], StringType, lambda s: s))
+            k.bind(East.function([StringType], StringType, lambda _b, s: s))
 
     def test_calling_a_non_function_expression_raises(self):
         with pytest.raises(ExpressionError, match="non-function"):
-            East.function([FloatType], FloatType, lambda x: x(1.0))
+            East.function([FloatType], FloatType, lambda _b, x: x(1.0))
 
     def test_arity_mismatch_on_a_parameter_call_raises(self):
         with pytest.raises(ExpressionError, match="argument"):
-            East.function([FloatType, self.FT], FloatType, lambda x, f: f(x, x))
+            East.function([FloatType, self.FT], FloatType, lambda _b, x, f: f(x, x))
 
 
 class TestAsyncCallee:
@@ -459,7 +459,7 @@ class TestAsyncCallee:
             ir_async_function(AsyncFunctionType([IntegerType], IntegerType), [], [x], body),
             is_async=True)
         with pytest.raises(ExpressionError, match="sync traced kernel"):
-            East.function([IntegerType], IntegerType, lambda n: af(n))
+            East.function([IntegerType], IntegerType, lambda _b, n: af(n))
 
 
 class TestStrictCapture:
@@ -471,7 +471,7 @@ class TestStrictCapture:
         sink = _bound_sink()
         seen: list[float] = []
         with pytest.raises(ExpressionError, match="captured automatically"):
-            _rows().for_each(lambda e: seen.append(sink(e["k"], e["v"])))
+            _rows().for_each(lambda _b, e: seen.append(sink(e["k"], e["v"])))
         assert seen == []
         for e in _rows():
             seen.append(sink(e["k"], e["v"]))
@@ -482,7 +482,7 @@ class TestStrictCapture:
         # (and the #558 C cause chain) survives for exactly those.
         sink = _bound_sink()
         _assert_named_cause(
-            lambda: East.function([StringType], FloatType, lambda s: sink(s)))
+            lambda: East.function([StringType], FloatType, lambda _b, s: sink(s)))
 
 
 # ── match settles its output type from a some(...) arm (#558 D) ─────────────
@@ -496,9 +496,9 @@ class TestMatchArmTyping:
 
     def test_a_none_arm_types_from_the_sibling_some_arm(self):
         k = East.function([KEY_ROW, TABLE_T], OptionType(FloatType),
-                   lambda r, d: d.try_get(r["k"]).match({
-                       "some": lambda v: some(v * 2.0),
-                       "none": lambda _: none,
+                   lambda _b, r, d: d.try_get(r["k"]).match({
+                       "some": lambda _b, v: some(v * 2.0),
+                       "none": lambda _b, _: none,
                    }))
         out = list(_key_rows().map(k.bind(_table())))
         assert out[0].type == "some" and out[0].value == 42.0
@@ -509,9 +509,9 @@ class TestMatchArmTyping:
         # first — the settle pass must look across all arms, not stop at
         # the first.
         k = East.function([KEY_ROW, TABLE_T], OptionType(FloatType),
-                   lambda r, d: d.try_get(r["k"]).match({
-                       "none": lambda _: none,
-                       "some": lambda v: some(v + 1.0),
+                   lambda _b, r, d: d.try_get(r["k"]).match({
+                       "none": lambda _b, _: none,
+                       "some": lambda _b, v: some(v + 1.0),
                    }))
         out = list(_key_rows().map(k.bind(_table())))
         assert out[0].value == 22.0 and out[1].type == "none"
@@ -529,7 +529,7 @@ class TestForEachDelivers:
 
     def test_array_for_each_delivers_every_row(self):
         def body(emit):
-            _rows().for_each(lambda r: emit(r["k"]))
+            _rows().for_each(lambda _b, r: emit(r["k"]))
 
         (elems,) = _drive("regr565.array", "array", [StringType], body)
         assert list(elems) == ["a", "b", "c"]
@@ -537,14 +537,14 @@ class TestForEachDelivers:
     def test_array_for_each_with_index_delivers(self):
         # the arity-2 wrapper branch
         def body(emit):
-            _rows().for_each(lambda r, i: emit(r["k"]))
+            _rows().for_each(lambda _b, r, i: emit(r["k"]))
 
         (elems,) = _drive("regr565.array2", "array", [StringType], body)
         assert list(elems) == ["a", "b", "c"]
 
     def test_dict_kind_emit_delivers_pairs(self):
         def body(emit):
-            _rows().for_each(lambda r: emit(r["k"], r["v"]))
+            _rows().for_each(lambda _b, r: emit(r["k"], r["v"]))
 
         keys, values = _drive("regr565.dict", "dict", [StringType, FloatType], body)
         assert list(keys) == ["a", "b", "c"]
@@ -554,7 +554,7 @@ class TestForEachDelivers:
         from east import EastSet
 
         def body(emit):
-            EastSet(StringType, ["x", "y"]).for_each(lambda e: emit(e))
+            EastSet(StringType, ["x", "y"]).for_each(lambda _b, e: emit(e))
 
         (elems,) = _drive("regr565.set", "array", [StringType], body)
         assert sorted(elems) == ["x", "y"]
@@ -562,7 +562,7 @@ class TestForEachDelivers:
     def test_dict_for_each_delivers(self):
         def body(emit):
             EastDict(StringType, FloatType, {"p": 1.0, "q": 2.0}).for_each(
-                lambda k, v: emit(k, v))
+                lambda _b, k, v: emit(k, v))
 
         keys, values = _drive("regr565.dfe", "dict", [StringType, FloatType], body)
         assert list(keys) == ["p", "q"]
@@ -572,10 +572,10 @@ class TestForEachDelivers:
         # map always delivered (its call IS the returned expression); the fix
         # makes for_each equivalent for effect.
         def via_map(emit):
-            _rows().map(lambda r: emit(r["k"]))
+            _rows().map(lambda _b, r: emit(r["k"]))
 
         def via_for_each(emit):
-            _rows().for_each(lambda r: emit(r["k"]))
+            _rows().for_each(lambda _b, r: emit(r["k"]))
 
         (m,) = _drive("regr565.viamap", "array", [StringType], via_map)
         (f,) = _drive("regr565.viafe", "array", [StringType], via_for_each)
@@ -587,15 +587,15 @@ class TestNonNullCallback:
     wraps it in ``Block([expr, null])`` so the wrapper still types -> Null."""
 
     def test_non_null_pure_body_compiles_and_runs(self):
-        add = East.function([FloatType, FloatType], FloatType, lambda a, b: a + b).bind(1.0)
-        _rows().for_each(lambda r: add(r["v"]))  # must not raise
+        add = East.function([FloatType, FloatType], FloatType, lambda _b, a, b: a + b).bind(1.0)
+        _rows().for_each(lambda _b, r: add(r["v"]))  # must not raise
 
     def test_non_null_body_before_an_emit_still_delivers_elsewhere(self):
-        add = East.function([FloatType, FloatType], FloatType, lambda a, b: a + b).bind(1.0)
+        add = East.function([FloatType, FloatType], FloatType, lambda _b, a, b: a + b).bind(1.0)
 
         def body(emit):
-            _rows().for_each(lambda r: add(r["v"]))
-            _rows().for_each(lambda r: emit(r["k"]))
+            _rows().for_each(lambda _b, r: add(r["v"]))
+            _rows().for_each(lambda _b, r: emit(r["k"]))
 
         (elems,) = _drive("regr565.mixed", "array", [StringType], body)
         assert list(elems) == ["a", "b", "c"]
@@ -605,7 +605,7 @@ class TestPythonEffectBoundary:
     def test_python_side_effects_need_an_explicit_loop(self):
         seen: list[str] = []
         with pytest.raises(ExpressionError, match="captured automatically"):
-            _rows().for_each(lambda r: seen.append(r["k"]))
+            _rows().for_each(lambda _b, r: seen.append(r["k"]))
         assert seen == []
         for r in _rows():
             seen.append(r["k"])
@@ -680,7 +680,7 @@ class TestPythonDrivenBodyCaptures:
         @platform_function(inputs=[DictType(StringType, FloatType), EMIT_T],
                            output=NullType, name="regr592.double_all")
         def double_all(rows, emit):
-            rows.for_each(lambda k, v: emit(k, v * 2.0))
+            rows.for_each(lambda _b, k, v: emit(k, v * 2.0))
 
         rows = EastDict(StringType, FloatType,
                         {f"k{i}": float(i) for i in range(5)})
@@ -695,7 +695,7 @@ class TestPythonDrivenBodyCaptures:
         # is an ordinary closure capture of the callback.
         core = _accum()
         emit = core.function_value([StringType, FloatType])
-        _rows().for_each(lambda r: emit(r["k"], r["v"]))
+        _rows().for_each(lambda _b, r: emit(r["k"], r["v"]))
 
         keys, values = core.take_batch()
         assert list(keys) == ["a", "b", "c"]
@@ -707,8 +707,8 @@ class TestPythonDrivenBodyCaptures:
         # both sets of rows land.
         core = _accum("array", (StringType,))
         emit = core.function_value([StringType])
-        _rows().for_each(lambda r: emit(r["k"]))
-        _rows().for_each(lambda r: emit(r["k"]))
+        _rows().for_each(lambda _b, r: emit(r["k"]))
+        _rows().for_each(lambda _b, r: emit(r["k"]))
 
         (elems,) = core.take_batch()
         assert list(elems) == ["a", "b", "c", "a", "b", "c"]
@@ -719,7 +719,7 @@ class TestPythonDrivenBodyCaptures:
         core = _accum()
         emit = core.function_value([StringType, FloatType])
         project = East.function([ROW, EMIT_T], NullType,
-                                lambda r, e: e(r["k"], r["v"])).bind(emit)
+                                lambda _b, r, e: e(r["k"], r["v"])).bind(emit)
         _rows().map(project)
 
         keys, _values = core.take_batch()
@@ -764,7 +764,7 @@ class TestSinkStrictBoundary:
         emit = core.function_value([StringType, FloatType])
         order: list[str] = []
         with pytest.raises(ExpressionError, match="captured automatically"):
-            _rows().for_each(lambda r: (order.append(r["k"]), emit(r["k"], r["v"]))[1])
+            _rows().for_each(lambda _b, r: (order.append(r["k"]), emit(r["k"], r["v"]))[1])
         assert order == []
         for r in _rows():
             order.append(r["k"])
@@ -780,4 +780,4 @@ class TestSinkStrictBoundary:
         # NonRetraceableCallError in the cause chain (#558 C) — instead of the
         # old per-element fallback surfacing the sink's own runtime refusal.
         emit = _accum().function_value([StringType, FloatType])
-        _assert_named_cause(lambda: _rows().for_each(lambda r: emit(r["k"])))
+        _assert_named_cause(lambda: _rows().for_each(lambda _b, r: emit(r["k"])))

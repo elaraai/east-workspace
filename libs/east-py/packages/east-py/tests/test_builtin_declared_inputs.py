@@ -75,14 +75,14 @@ def test_wrong_key_type_is_refused_on_an_empty_dict():
 def test_dict_insert_or_update_wrong_key_type_is_refused():
     d = EastDict(StringType, IntegerType, {"a": 1})
     with pytest.raises(TypeError, match="DictInsertOrUpdate argument 1"):
-        d.insert_or_update(12345, 2, lambda existing, incoming: incoming)
+        d.insert_or_update(12345, 2, lambda _b, existing, incoming: incoming)
     assert dict(d.items()) == {"a": 1}
 
 
 def test_dict_insert_or_update_wrong_value_type_is_refused():
     d = EastDict(StringType, IntegerType, {"a": 1})
     with pytest.raises(TypeError, match="DictInsertOrUpdate argument 2"):
-        d.insert_or_update("a", "not an integer", lambda existing, incoming: incoming)
+        d.insert_or_update("a", "not an integer", lambda _b, existing, incoming: incoming)
     assert dict(d.items()) == {"a": 1}
 
 
@@ -117,7 +117,7 @@ def test_dict_try_delete_wrong_key_type_is_refused():
 def test_dict_update_wrong_key_type_is_refused():
     d = EastDict(StringType, IntegerType, {"a": 1})
     with pytest.raises(TypeError, match="DictGet argument 1"):
-        d.update(12345, lambda v: v + 1)
+        d.update(12345, lambda _b, v: v + 1)
     assert dict(d.items()) == {"a": 1}
 
 

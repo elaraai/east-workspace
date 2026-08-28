@@ -308,9 +308,12 @@ class Expression(
         parameter, a function-typed struct field, or any other traced
         function value. Emits the IR ``Call`` node, so the callee — whatever
         function value the expression evaluates to at run time — is invoked
-        natively per element."""
+        natively per element. A function value is not a body, so a slot's
+        body-style call (``fn(b, *values)``) drops the leading block."""
+        from east.expression.statements import _drop_block
         from east.types.types import is_subtype
 
+        args = _drop_block(args)
         tag = self.east_type.type
         if tag == "AsyncFunction":
             from east.expression.function import _in_async_build

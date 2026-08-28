@@ -18,7 +18,7 @@ The #409 contract this pins — a precompiled kernel keeps the whole loop
 inside east-c with zero per-element python — held for ``map``/``filter``/
 ``to_dict`` and silently inverted for the grouping methods: a kernel was
 4.4×–7.6× SLOWER than the identical plain lambda, because wrappers composing
-a kernel (``lambda el: {"k": key(el), ...}``) could neither be captured (a
+a kernel (``lambda _b, el: {"k": key(el), ...}``) could neither be captured (a
 compiled kernel was an opaque callable) nor recognised by
 ``capture_callback`` (which ignored the ``_east_kernel`` mark that the bridge
 honoured — the counter and the branch disagreed, so ``group_by`` looked
@@ -67,23 +67,23 @@ def _callbacks(mode):
     """The same projections in both spellings; ``if_else``/``some``/``none``
     are dual-mode, so one body serves eager and traced execution."""
     specs = {
-        "g":      ([Row], StringType, lambda r: r["g"]),
-        "k":      ([Row], StringType, lambda r: r["k"]),
-        "v":      ([Row], FloatType, lambda r: r["v"]),
-        "pred":   ([Row], BooleanType, lambda r: r["v"] > 5.0),
+        "g":      ([Row], StringType, lambda _b, r: r["g"]),
+        "k":      ([Row], StringType, lambda _b, r: r["k"]),
+        "v":      ([Row], FloatType, lambda _b, r: r["v"]),
+        "pred":   ([Row], BooleanType, lambda _b, r: r["v"] > 5.0),
         "opt":    ([Row], OptionType(StringType),
-                   lambda r: if_else(r["v"] > 5.0, some(r["g"]), none)),
-        "flat":   ([Row], ArrayType(StringType), lambda r: r["k"].split("|")),
-        "folder": ([FloatType, Row], FloatType, lambda acc, r: acc + r["v"]),
-        "comb":   ([FloatType, FloatType], FloatType, lambda a, b: a + b),
-        "su":     ([StringType], StringType, lambda x: x.upper()),
-        "spred":  ([StringType], BooleanType, lambda x: x.contains("1")),
-        "mv":     ([FloatType], FloatType, lambda x: x * 2.0),
-        "dg":     ([StringType, FloatType], StringType, lambda k, v: k),
-        "dv":     ([StringType, FloatType], FloatType, lambda k, v: v),
-        "dpred":  ([StringType, FloatType], BooleanType, lambda k, v: v > 5.0),
+                   lambda _b, r: if_else(r["v"] > 5.0, some(r["g"]), none)),
+        "flat":   ([Row], ArrayType(StringType), lambda _b, r: r["k"].split("|")),
+        "folder": ([FloatType, Row], FloatType, lambda _b, acc, r: acc + r["v"]),
+        "comb":   ([FloatType, FloatType], FloatType, lambda _b, a, b: a + b),
+        "su":     ([StringType], StringType, lambda _b, x: x.upper()),
+        "spred":  ([StringType], BooleanType, lambda _b, x: x.contains("1")),
+        "mv":     ([FloatType], FloatType, lambda _b, x: x * 2.0),
+        "dg":     ([StringType, FloatType], StringType, lambda _b, k, v: k),
+        "dv":     ([StringType, FloatType], FloatType, lambda _b, k, v: v),
+        "dpred":  ([StringType, FloatType], BooleanType, lambda _b, k, v: v > 5.0),
         "dopt":   ([StringType, FloatType], OptionType(StringType),
-                   lambda k, v: if_else(v > 5.0, some(k), none)),
+                   lambda _b, k, v: if_else(v > 5.0, some(k), none)),
     }
     if mode == "kernel":
         return {name: East.function(types, out, fn)
@@ -120,7 +120,7 @@ ARRAY_CASES = {
     "group_find_first":   lambda a, c: a.group_find_first(c["g"], -1.0, c["v"]),
     "group_find_maximum": lambda a, c: a.group_find_maximum(c["g"], by=c["v"]),
     "group_find_minimum": lambda a, c: a.group_find_minimum(c["g"], by=c["v"]),
-    "group_reduce":    lambda a, c: a.group_reduce(c["g"], lambda _k: 0.0, c["folder"]),
+    "group_reduce":    lambda a, c: a.group_reduce(c["g"], lambda _b, _k: 0.0, c["folder"]),
     "group_to_arrays": lambda a, c: a.group_to_arrays(c["g"], c["v"]),
     "group_to_sets":   lambda a, c: a.group_to_sets(c["g"], c["v"]),
     "group_to_dicts":  lambda a, c: a.group_to_dicts(c["g"], c["k"], c["v"]),
@@ -135,7 +135,7 @@ DICT_CASES = {
     "union":           lambda d, c: d.union(d, c["comb"]),
     "mean":            lambda d, c: d.mean(c["dv"]),
     "group_reduce":    lambda d, c: d.group_reduce(
-        c["dg"], lambda _k: 0.0, lambda acc, k, v: acc + v),
+        c["dg"], lambda _b, _k: 0.0, lambda _b, acc, k, v: acc + v),
     "group_size":      lambda d, c: d.group_size(c["dg"]),
     "group_sum":       lambda d, c: d.group_sum(c["dg"], c["dv"]),
     "group_mean":      lambda d, c: d.group_mean(c["dg"], c["dv"]),
@@ -165,7 +165,7 @@ def test_array_method_runs_native(case, mode):
 @pytest.mark.parametrize("case", sorted(SET_CASES), ids=str)
 def test_set_method_runs_native(case, mode):
     cbs = _callbacks(mode)
-    strings = _rows().to_set(East.function([Row], StringType, lambda r: r["k"]))
+    strings = _rows().to_set(East.function([Row], StringType, lambda _b, r: r["k"]))
     _assert_captures(lambda: SET_CASES[case](strings, cbs))
 
 
@@ -173,8 +173,8 @@ def test_set_method_runs_native(case, mode):
 @pytest.mark.parametrize("case", sorted(DICT_CASES), ids=str)
 def test_dict_method_runs_native(case, mode):
     cbs = _callbacks(mode)
-    d = _rows().to_dict(East.function([Row], StringType, lambda r: r["k"]),
-                        value=East.function([Row], FloatType, lambda r: r["v"]))
+    d = _rows().to_dict(East.function([Row], StringType, lambda _b, r: r["k"]),
+                        value=East.function([Row], FloatType, lambda _b, r: r["v"]))
     _assert_captures(lambda: DICT_CASES[case](d, cbs))
 
 
@@ -189,8 +189,8 @@ def test_capture_callback_honours_the_mark():
     from east.types.values.collections import _mark_kernel
     from east.types.values.structural import EastFunction
 
-    key = East.function([Row], StringType, lambda r: r["g"])
-    wrapper = _mark_kernel(lambda el, _i: key(el), key)
+    key = East.function([Row], StringType, lambda _b, r: r["g"])
+    wrapper = _mark_kernel(lambda _b, el, _i: key(el), key)
     native = capture_callback(EastFunction(wrapper, [Row, IntegerType], StringType))
     assert native is not None
     assert getattr(native._eastc_handle, "_fn_val", 0)
@@ -204,8 +204,8 @@ def test_capture_callback_still_rejects_a_mismatched_marked_kernel():
     from east.types.values.collections import _mark_kernel
     from east.types.values.structural import EastFunction
 
-    key = East.function([Row], StringType, lambda r: r["g"])            # String
-    wrapper = _mark_kernel(lambda el, _i: key(el), key)
+    key = East.function([Row], StringType, lambda _b, r: r["g"])            # String
+    wrapper = _mark_kernel(lambda _b, el, _i: key(el), key)
     with pytest.raises(ExpressionError, match="produced String"):
         capture_callback(EastFunction(wrapper, [Row, IntegerType], FloatType))
 
@@ -213,8 +213,8 @@ def test_capture_callback_still_rejects_a_mismatched_marked_kernel():
 def test_kernels_compose_inside_kernels_and_wrappers():
     """Dual-mode: a kernel called with a trace proxy re-runs its source, so
     kernels splice into other kernels and into composing wrappers."""
-    inner = East.function([Row], FloatType, lambda r: r["v"])
-    outer = East.function([Row], FloatType, lambda r: inner(r) * 2.0)
+    inner = East.function([Row], FloatType, lambda _b, r: r["v"])
+    outer = East.function([Row], FloatType, lambda _b, r: inner(r) * 2.0)
     rows = _rows()
     assert outer({"g": "g0", "k": "k1", "v": 3.0}) == 6.0
     doubled = rows.map(outer, out=FloatType)
@@ -224,7 +224,7 @@ def test_kernels_compose_inside_kernels_and_wrappers():
 def test_group_by_kernel_matches_lambda_result():
     rows, cbs = _rows(), _callbacks("kernel")
     by_kernel = rows.group_by(cbs["g"])
-    by_lambda = rows.group_by(lambda r: r["g"])
+    by_lambda = rows.group_by(lambda _b, r: r["g"])
     assert len(by_kernel) == len(by_lambda) == 5
     assert {k: len(v) for k, v in by_kernel.items()} == \
         {k: len(v) for k, v in by_lambda.items()}
@@ -243,7 +243,7 @@ def test_mean_family_values_are_correct(mode):
         assert means[f"g{g}"] == pytest.approx(sum(expected) / len(expected))
     ints = array(StructType([("n", IntegerType)]),
                  [{"n": i} for i in range(1, 5)])
-    assert ints.mean(lambda r: r["n"]) == pytest.approx(2.5)
+    assert ints.mean(lambda _b, r: r["n"]) == pytest.approx(2.5)
 
 
 def test_no_bulk_decode_probing():

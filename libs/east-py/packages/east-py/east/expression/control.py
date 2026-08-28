@@ -16,25 +16,27 @@ sees them. The STATEMENT twin of the TypeScript ``$`` lives on the block a
 body receives (``b.let`` / ``b.while_`` / ``b.for_`` / … —
 ``east.expression.statements``); what lives here is the EXPRESSION-level
 sugar: **``while_`` is to ``while`` what ``if_else`` is to ``if``**.
-The body is a pure function of the state that RETURNS the next state::
+The body is a pure function of the state that RETURNS the next state; like
+every body it takes the block first::
 
     East.while_({"i": 0, "acc": 0},
-                cond=lambda s: s.i < n,
-                body=lambda s: {"acc": s.acc + s.i, "i": s.i + 1})
+                cond=lambda b, s: s.i < n,
+                body=lambda b, s: {"acc": s.acc + s.i, "i": s.i + 1})
 
 which lowers to a ``Ref`` holding the state struct, a ``While`` whose predicate
 reads it and whose body does one ``RefUpdate``, and a final read. The state IS
 the loop's local variables; ``if_else`` is the ``if``; a field left unchanged is
 the empty else. Branching therefore composes for free::
 
-    body=lambda s: {"i":     s.i + 1,
-                    "total": if_else(items[s.i].qty > 0,
-                                     s.total + items[s.i].qty,
-                                     s.total)}
+    body=lambda b, s: {"i":     s.i + 1,
+                       "total": if_else(items[s.i].qty > 0,
+                                        s.total + items[s.i].qty,
+                                        s.total)}
 
 Everything here is dual-mode, exactly like ``if_else``: handed a trace it emits
-IR, and outside one it runs the ordinary python loop — so one body serves both
-a captured callback and a direct call on plain East values.
+IR, and outside one it runs the ordinary python loop (the body then receives
+an ``EagerBlock``) — so one body serves both a captured callback and a direct
+call on plain East values.
 
 The python names are the IR node names, so an error message, an IR dump and
 the docs all say the same word. The trailing underscore on ``while_`` /
@@ -171,14 +173,14 @@ def break_(state: Any = _NO_STATE, *, label: Any = None) -> Any:
 
     Use it as an ``if_else`` arm inside a loop body — that is what types it::
 
-        body=lambda s: if_else(s.queue.size() == 0, East.break_(), step(s))
+        body=lambda b, s: if_else(s.queue.size() == 0, East.break_(), step(b, s))
 
     Without ``state`` the loop keeps what the iteration started with, so
     record the answer by passing the state you want::
 
-        body=lambda s: if_else(rows[s.i].sku == target,
-                               East.break_({**s, "found": s.i}),
-                               {**s, "i": s.i + 1})
+        body=lambda b, s: if_else(rows[s.i].sku == target,
+                                  East.break_({**s, "found": s.i}),
+                                  {**s, "i": s.i + 1})
 
     Args:
         state: The state to commit before leaving, in the loop's own shape.
@@ -401,10 +403,12 @@ def while_(state: Any, cond: Any, body: Any = None, *, label: Any = None) -> Any
         state: The initial state — a dict of named fields (read as ``s.name``
             in the callbacks, and the usual shape) or a single value. Its East
             types are fixed for the whole loop.
-        cond: ``cond(state) -> Boolean expression``. Evaluated before every
-            iteration, so a zero-iteration loop returns ``state`` unchanged.
-        body: ``body(state) -> next state``, with the same fields and types.
-            Branch with ``if_else``; a field left as ``s.field`` is unchanged.
+        cond: ``cond(b, state) -> Boolean expression``. Evaluated before
+            every iteration, so a zero-iteration loop returns ``state``
+            unchanged.
+        body: ``body(b, state) -> next state``, with the same fields and
+            types. Branch with ``if_else``; a field left as ``s.field`` is
+            unchanged.
         label: An optional :class:`Label` so a nested loop can ``break_`` out
             of this one.
 
@@ -429,18 +433,45 @@ def while_(state: Any, cond: Any, body: Any = None, *, label: Any = None) -> Any
     state_t = init.east_type
     cell, ref_t, read, commit = _state_cell(state_t)
 
-    _push_loop_frame(_LoopFrame(name, commit))
-    try:
-        test = _lift(cond(read))
+    def test_of(raw: Any) -> Any:
+        test = _lift(raw)
         if test.east_type.type != "Boolean":
             raise ExpressionError(
                 f"while_ cond must return a Boolean, got {test.east_type.type}")
-        step = commit(body(read))
+        return test.ir
+
+    _push_loop_frame(_LoopFrame(name, commit))
+    try:
+        test = _sugar_body(cond, (read,), test_of)
+        step = _sugar_body(body, (read,), commit)
     finally:
         _pop_loop_frame()
 
-    loop = ir_while(NullType, test.ir, ir_label(name, _loc_id()), step, loc_id=_loc_id())
+    loop = ir_while(NullType, test, ir_label(name, _loc_id()), step, loc_id=_loc_id())
     return _loop_block(cell, ref_t, state_t, init, loop)
+
+
+def _sugar_body(fn: Any, args: tuple, finish: Any) -> Any:
+    """Run a state-threading body in its own frame, block first, and lower
+    what it returns with ``finish`` (which yields the node's IR); statements
+    the body appended precede that node in a Block."""
+    from east.expression.lift import _check_effects
+    from east.expression.statements import _open_run
+
+    run = _open_run(fn, args, return_type=None)
+    node = finish(run.result)
+    if run.frame.statements:
+        node = _k_block(node.value["type"], [*run.frame.statements, node])
+    _check_effects(run.noted, node)
+    return node
+
+
+def _call_eager(fn: Any, args: tuple) -> Any:
+    """Run a body eagerly: an ``EagerBlock`` first, then as many of ``args``
+    as it declares."""
+    from east.expression.statements import EagerBlock, _call_trimmed
+
+    return _call_trimmed(fn, (EagerBlock(), *args))
 
 
 def _lift_initial(state: Any) -> Expression:
@@ -497,10 +528,10 @@ def _while_eager(state: Any, cond: Any, body: Any, name: str) -> Any:
     current = state
     while True:
         view = _state_view(current)
-        if not cond(view):
+        if not _call_eager(cond, (view,)):
             return current
         try:
-            result = body(view)
+            result = _call_eager(body, (view,))
         except _JumpSignal as signal:
             if not _here(signal.jump, name):
                 raise
@@ -526,10 +557,10 @@ def for_(collection: Any, state: Any, body: Any = None, *, label: Any = None) ->
     Args:
         collection: An Array, Set or Dict expression (or an eager one).
         state: The initial state, exactly as :func:`while_` takes it.
-        body: The step, in the container's own callback shape — Array
-            ``body(state, element)`` (a third parameter receives the index),
-            Set ``body(state, element)``, Dict ``body(state, key, value)``.
-            It returns the next state.
+        body: The step, in the container's own callback shape, the block
+            first — Array ``body(b, state, element)`` (a fourth parameter
+            receives the index), Set ``body(b, state, element)``, Dict
+            ``body(b, state, key, value)``. It returns the next state.
         label: An optional :class:`Label` for ``break_`` / ``continue_``.
 
     Returns:
@@ -564,19 +595,19 @@ def for_(collection: Any, state: Any, body: Any = None, *, label: Any = None) ->
             elem_t = source.east_type.value
             key = _var(_fresh_name(), IntegerType)
             value = _var(_fresh_name(), elem_t)
-            args = (read, Expression(value, elem_t), Expression(key, IntegerType))
-            step = commit(_call_step(body, 2, args))
+            step = _sugar_body(
+                body, (read, Expression(value, elem_t), Expression(key, IntegerType)), commit)
         elif tag == "Set":
             elem_t = source.east_type.value
             key = _var(_fresh_name(), elem_t)
             value = None
-            step = commit(body(read, Expression(key, elem_t)))
+            step = _sugar_body(body, (read, Expression(key, elem_t)), commit)
         else:
             kv = source.east_type.value
             key = _var(_fresh_name(), kv["key"])
             value = _var(_fresh_name(), kv["value"])
-            step = commit(
-                body(read, Expression(key, kv["key"]), Expression(value, kv["value"])))
+            step = _sugar_body(
+                body, (read, Expression(key, kv["key"]), Expression(value, kv["value"])), commit)
     finally:
         _pop_loop_frame()
 
@@ -591,38 +622,21 @@ def for_(collection: Any, state: Any, body: Any = None, *, label: Any = None) ->
     return _loop_block(cell, ref_t, state_t, init, loop)
 
 
-def _call_step(body: Any, base: int, args: tuple) -> Any:
-    """Call an Array step with or without the index, as it declares.
-
-    The eager methods all decide this with ``_callback_arity``; delegating to
-    the same oracle keeps a bound method or a ``functools.partial`` reading the
-    same way here as it does there.
-    """
-    from east.types.values.collections import _callback_arity
-
-    wanted = len(args) if _callback_arity(body, base) > base else base
-    return body(*args[:wanted])
-
-
 def _for_eager(collection: Any, state: Any, body: Any, name: str) -> Any:
     from east.types.values import EastDict, EastSet
 
     step_args: list[tuple]
     if isinstance(collection, EastDict):
         step_args = [(k, v) for k, v in collection.items()]
-        indexed = False
     elif isinstance(collection, EastSet):
         step_args = [(el,) for el in collection]
-        indexed = False
     else:
         step_args = [(el, i) for i, el in enumerate(collection)]
-        indexed = True
     current = state
     for args in step_args:
         view = _state_view(current)
         try:
-            result = (_call_step(body, 2, (view, *args)) if indexed
-                      else body(view, *args))
+            result = _call_eager(body, (view, *args))
         except _JumpSignal as signal:
             if not _here(signal.jump, name):
                 raise
@@ -667,7 +681,7 @@ def block(*exprs: Any) -> Any:
         from east.expression.statements import block_expression
 
         if not _tracing():
-            return exprs[0]()
+            return _call_eager(exprs[0], ())
         return block_expression(exprs[0])
     if not _tracing():
         return exprs[-1]
@@ -678,7 +692,7 @@ def block(*exprs: Any) -> Any:
 
 def let(value: Any, fn: Any = None) -> Any:
     """Bind a value once and use it as often as you like inside
-    ``fn(bound)``, whose value is the result — the EXPRESSION form. (The
+    ``fn(b, bound)``, whose value is the result — the EXPRESSION form. (The
     STATEMENT, TS ``$.let``, is ``b.let(value[, type])`` on the block the
     body received; ``b.const`` is its non-reassignable twin.)
 
@@ -690,7 +704,7 @@ def let(value: Any, fn: Any = None) -> Any:
 
     Args:
         value: The expression to bind.
-        fn: ``fn(bound) -> expression`` — the body.
+        fn: ``fn(b, bound) -> expression`` — the body.
 
     Returns:
         The body's value.
@@ -700,14 +714,19 @@ def let(value: Any, fn: Any = None) -> Any:
             "East.let(value[, type]) is the statement — spell it b.let(value[, type]) "
             "on the block the body received; East.let(value, fn) is the expression form")
     if not _tracing():
-        return fn(value)
+        return _call_eager(fn, (value,))
+    from east.expression.statements import _frames, _run_block
+
     bound = _lift(value)
     name = _fresh_name()
-    body = _lift(fn(Expression(_var(name, bound.east_type), bound.east_type)))
+    ret_t = _frames[-1].return_type if _frames else None
+    body = _run_block(fn, (Expression(_var(name, bound.east_type), bound.east_type),),
+                      return_type=ret_t, mode="block_expr")
+    inner = list(body.ir.value["statements"]) if body.ir.type == "Block" else [body.ir]
     return Expression(
         _k_block(body.east_type, [
             ir_let(NullType, _var(name, bound.east_type), bound.ir, _loc_id()),
-            body.ir,
+            *inner,
         ]),
         body.east_type,
     )
@@ -864,12 +883,11 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
     is ``b.try_(body).catch(handler).finally_(body)``.)
 
     Args:
-        body: ``body() -> expression`` — the guarded computation (statements
-            inside it are spelled ``East.block(lambda b: …)``).
-        handler: ``handler(message)`` (a second parameter receives the
+        body: ``body(b) -> expression`` — the guarded computation.
+        handler: ``handler(b, message)`` (a third parameter receives the
             location stack) returning a value of the SAME East type as
             ``body``'s.
-        finally_: Optional ``finally_()``, evaluated for effect either way.
+        finally_: Optional ``finally_(b)``, evaluated for effect either way.
 
     Returns:
         The body's value, or the handler's when the body failed.
@@ -879,12 +897,12 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
     """
     if not _tracing():
         try:
-            return body()
+            return _call_eager(body, ())
         except Exception as exc:  # the eager twin of "the body failed"
-            return _call_handler(handler, str(exc), [])
+            return _call_eager(handler, (str(exc), []))
         finally:
             if finally_ is not None:
-                finally_()
+                _call_eager(finally_, ())
 
     from east.expression.lift import _coerce, _union_type
     from east.expression.statements import _frames, _run_block
@@ -894,13 +912,13 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
     # The guarded body and the handler each run in their own statement frame
     # (TS `East.tryCatch(expr, handler)` builds the handler with `block`);
     # a body that appends no statement is exactly the expression it returns.
-    guarded = _run_block(body, (), return_type=ret_t, mode="block_expr", block=False)
+    guarded = _run_block(body, (), return_type=ret_t, mode="block_expr")
     message = _var(_fresh_name(), StringType)
     stack_t = ArrayType(LocationType)
     stack = _var(_fresh_name(), stack_t)
     caught = _run_block(
         handler, (Expression(message, StringType), Expression(stack, stack_t)),
-        return_type=ret_t, mode="block_expr", block=False,
+        return_type=ret_t, mode="block_expr",
         out=None if guarded.east_type.type == "Never" else guarded.east_type)
     if (guarded.east_type.type != "Never" and caught.east_type.type != "Never"
             and caught.east_type != guarded.east_type):
@@ -910,7 +928,7 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
     out_t = _union_type([guarded.east_type, caught.east_type], "try_catch()")
     guarded = guarded if guarded.east_type.type == "Never" else _coerce(guarded, out_t)
     caught = caught if caught.east_type.type == "Never" else _coerce(caught, out_t)
-    ending = (_run_block(finally_, (), return_type=ret_t, mode="null_block", block=False)
+    ending = (_run_block(finally_, (), return_type=ret_t, mode="null_block")
               if finally_ is not None else None)
     return Expression(
         ir_trycatch(
@@ -924,10 +942,3 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
         ),
         out_t,
     )
-
-
-def _call_handler(handler: Any, message: Any, stack: Any) -> Any:
-    """Call a catch handler with the message, and the stack if it wants it."""
-    from east.types.values.collections import _callback_arity
-
-    return handler(message, stack) if _callback_arity(handler, 1) >= 2 else handler(message)

@@ -98,12 +98,15 @@ def _kernel_out_type(fn, param_types=None):
 
 
 def _callback_arity(fn, default):
-    """How many positional arguments ``fn`` accepts.
+    """How many PAYLOAD arguments a callback accepts — the block it takes
+    first excluded.
 
     Decides whether a callback gets the extra context some builtins carry
     (DictMap's key). Precompiled kernels answer from their declared
-    signature; plain callables from ``inspect.signature`` (``*args`` accepts
-    everything); ``default`` covers callables python cannot introspect.
+    signature (they take no block); plain bodies from ``inspect.signature``
+    minus the block (``*args`` accepts everything); ``default`` covers
+    callables python cannot introspect. A body with no parameter at all
+    cannot receive the block and is refused here, at the call.
     """
     handle = getattr(fn, "_eastc_handle", None)
     if handle is None:
@@ -126,7 +129,13 @@ def _callback_arity(fn, default):
             n += 1
         elif p.kind is p.VAR_POSITIONAL:
             return 1 << 30  # *args — accepts everything the builtin offers
-    return n
+    if n == 0:
+        from east.expression.errors import ExpressionError
+
+        raise ExpressionError(
+            "a callback takes the block first (TS `($, …) => …`): lambda b, …: … — "
+            "this one declares no parameters")
+    return n - 1
 
 
 def _mark_kernel(wrapper, fn):
@@ -146,28 +155,30 @@ def _mark_kernel(wrapper, fn):
 def _idx_cb(fn):
     """Wrapper for an ``(element, index)`` builtin callback slot.
 
-    The TS callbacks all receive the index, so forward it when ``fn`` accepts
-    two arguments; a one-argument ``fn`` keeps getting just the element.
+    The TS callbacks all receive the index, so forward it when ``fn`` takes
+    two payload arguments; a one-argument ``fn`` keeps getting just the
+    element. Every body takes the block first.
     """
     if _callback_arity(fn, 1) >= 2:
-        return _mark_kernel(lambda el, idx: fn(el, idx), fn)
-    return _mark_kernel(lambda el, idx: fn(el), fn)
+        return _mark_kernel(lambda b, el, idx: fn(b, el, idx), fn)
+    return _mark_kernel(lambda b, el, idx: fn(b, el), fn)
 
 
 def _acc_idx_cb(fn):
     """Wrapper for an ``(accumulator, element, index)`` fold slot (index optional)."""
     if _callback_arity(fn, 2) >= 3:
-        return _mark_kernel(lambda acc, el, idx: fn(acc, el, idx), fn)
-    return _mark_kernel(lambda acc, el, idx: fn(acc, el), fn)
+        return _mark_kernel(lambda b, acc, el, idx: fn(b, acc, el, idx), fn)
+    return _mark_kernel(lambda b, acc, el, idx: fn(b, acc, el), fn)
 
 
 def _combine_cb(fn, key_type, value_type):
     """Wrapper for an ``(existing, incoming, key)`` conflict slot.
 
-    Forwards the key when ``fn`` accepts three arguments. ``None`` means
-    East's default: error on the duplicate with the key printed — a COMPILED
-    error kernel (the traced twin's ``_key_error_node`` message, byte for
-    byte), so the strict surface needs no python error callback (#625).
+    Forwards the key when ``fn`` takes three payload arguments. ``None``
+    means East's default: error on the duplicate with the key printed — a
+    COMPILED error kernel (the traced twin's ``_key_error_node`` message,
+    byte for byte), so the strict surface needs no python error callback
+    (#625).
     """
     if fn is None:
         from east.expression import _error_combine_kernel
@@ -175,16 +186,16 @@ def _combine_cb(fn, key_type, value_type):
         return _error_combine_kernel(
             value_type, key_type, "Cannot insert duplicate key ", " into dict")
     if _callback_arity(fn, 2) >= 3:
-        return _mark_kernel(lambda v1, v2, k: fn(v1, v2, k), fn)
-    return _mark_kernel(lambda v1, v2, k: fn(v1, v2), fn)
+        return _mark_kernel(lambda b, v1, v2, k: fn(b, v1, v2, k), fn)
+    return _mark_kernel(lambda b, v1, v2, k: fn(b, v1, v2), fn)
 
 
 def _as_idx_fn(fn):
-    """Normalize an element callback to a two-argument ``(el, idx)`` callable
-    (the arity decision is made once, not per element)."""
+    """Normalize an element callback to a ``(b, el, idx)`` callable (the
+    arity decision is made once, not per element)."""
     if _callback_arity(fn, 1) >= 2:
         return fn
-    return lambda el, _i: fn(el)
+    return lambda b, el, _i: fn(b, el)
 
 
 def _elem_in(fn, element_type):
@@ -303,13 +314,13 @@ def _float_proj(fn, t):
     from east.namespace import East
 
     if t.type == "Float":
-        return fn if fn is not None else (lambda el: el)
+        return fn if fn is not None else (lambda _b, el: el)
     if t.type == "Integer":
         if fn is None:
-            return lambda el: East.Integer.to_float(el)
+            return lambda _b, el: East.Integer.to_float(el)
         if _callback_arity(fn, 1) >= 2:
-            return lambda el, i: East.Integer.to_float(fn(el, i))
-        return lambda el: East.Integer.to_float(fn(el))
+            return lambda b, el, i: East.Integer.to_float(fn(b, el, i))
+        return lambda b, el: East.Integer.to_float(fn(b, el))
     raise TypeError(f"expected a numeric (Integer/Float) type, got {t.type}")
 
 
@@ -413,7 +424,7 @@ class EastArray(MutableSequence, Generic[T]):
 
         if key is None:
             t2 = self.element_type
-            callback = EastFunction(lambda el: el, [self.element_type], t2)
+            callback = EastFunction(lambda _b, el: el, [self.element_type], t2)
         else:
             t2 = _kernel_out_type(key, [self.element_type])
             callback = EastFunction(key, [self.element_type], t2)
@@ -438,7 +449,7 @@ class EastArray(MutableSequence, Generic[T]):
 
         if key is None:
             t2 = self.element_type
-            callback = EastFunction(lambda el: el, [self.element_type], t2)
+            callback = EastFunction(lambda _b, el: el, [self.element_type], t2)
         else:
             t2 = _kernel_out_type(key, [self.element_type])
             callback = EastFunction(key, [self.element_type], t2)
@@ -645,7 +656,7 @@ class EastArray(MutableSequence, Generic[T]):
 
         if key is None:
             k2 = self.element_type
-            callback = EastFunction(lambda el, idx: el, [self.element_type, IntegerType], k2)
+            callback = EastFunction(lambda _b, el, _idx: el, [self.element_type, IntegerType], k2)
         else:
             k2 = _kernel_out_type(key, _elem_in(key, self.element_type))
             callback = EastFunction(_idx_cb(key), [self.element_type, IntegerType], k2)
@@ -704,7 +715,7 @@ class EastArray(MutableSequence, Generic[T]):
         # The callbacks' captured output types ARE the dict's types — an empty
         # array derives exactly what a full one derives, so the same program
         # cannot change result type with the data (#450/#525).
-        value_fn = (lambda el: el) if value is None else value
+        value_fn = (lambda _b, el: el) if value is None else value
         k2 = _kernel_out_type(key, _elem_in(key, self.element_type))
         t2 = self.element_type if value is None else _kernel_out_type(
             value, _elem_in(value, self.element_type))
@@ -754,8 +765,8 @@ class EastArray(MutableSequence, Generic[T]):
         # Boolean expression so pure lambdas push down into east-c
         wants_idx = _callback_arity(predicate, 1) >= 2
 
-        def _pred(el, idx):  # noqa: ANN001, ANN202
-            r = predicate(el, idx) if wants_idx else predicate(el)
+        def _pred(b, el, idx):  # noqa: ANN001, ANN202
+            r = predicate(b, el, idx) if wants_idx else predicate(b, el)
             return r if isinstance(r, Expression) else bool(r)
 
         callback = EastFunction(_mark_kernel(_pred, predicate), [self.element_type, IntegerType], BooleanType)
@@ -854,7 +865,7 @@ class EastArray(MutableSequence, Generic[T]):
         t2 = out if out is not None else _kernel_out_type(
             map_fn, _elem_in(map_fn, self.element_type))
         map_cb = EastFunction(_idx_cb(map_fn), [self.element_type, IntegerType], t2)
-        reduce_cb = EastFunction(_mark_kernel(lambda a, b: reduce_fn(a, b), reduce_fn), [t2, t2], t2)
+        reduce_cb = EastFunction(_mark_kernel(lambda b, x, y: reduce_fn(b, x, y), reduce_fn), [t2, t2], t2)
         return _call_builtin("ArrayMapReduce", [self.element_type, t2], [self, map_cb, reduce_cb], t2)
 
     def fold(self, initial: Any, fn: Any) -> Any:
@@ -983,8 +994,8 @@ class EastArray(MutableSequence, Generic[T]):
         from east.expression import _sequence_effect
         from east.types.types import IntegerType, NullType
 
-        run = (lambda el, idx: _sequence_effect(fn(el, idx))) if _callback_arity(fn, 1) >= 2 \
-            else (lambda el, idx: _sequence_effect(fn(el)))
+        run = (lambda b, el, idx: _sequence_effect(fn(b, el, idx))) if _callback_arity(fn, 1) >= 2 \
+            else (lambda b, el, _idx: _sequence_effect(fn(b, el)))
         callback = EastFunction(run, [self.element_type, IntegerType], NullType)
         _call_builtin("ArrayForEach", [self.element_type, NullType], [self, callback], NullType)
 
@@ -1043,7 +1054,7 @@ class EastArray(MutableSequence, Generic[T]):
         if fn is None:
             t = self.element_type
             zero = self._numeric_zero(t)
-            step = EastFunction(lambda acc, el, _i: acc + el, [t, t, IntegerType], t)
+            step = EastFunction(lambda _b, acc, el, _i: acc + el, [t, t, IntegerType], t)
             return _call_builtin("ArrayFold", [t, t], [self, zero, step], t)
         # The zero is typed from the PROJECTION, empty array or not: gating the
         # derivation on `len(self)` typed an empty array's zero from the
@@ -1053,7 +1064,8 @@ class EastArray(MutableSequence, Generic[T]):
         zero = self._numeric_zero(t2)
         wants_idx = _callback_arity(fn, 1) >= 2
         step = EastFunction(
-            (lambda acc, el, i: acc + fn(el, i)) if wants_idx else (lambda acc, el, _i: acc + fn(el)),
+            (lambda b, acc, el, i: acc + fn(b, el, i)) if wants_idx
+            else (lambda b, acc, el, _i: acc + fn(b, el)),
             [t2, self.element_type, IntegerType], t2
         )
         return _call_builtin("ArrayFold", [self.element_type, t2], [self, zero, step], t2)
@@ -1078,7 +1090,8 @@ class EastArray(MutableSequence, Generic[T]):
         proj = _float_proj(fn, t2)
         p_wants = _callback_arity(proj, 1) >= 2
         step = EastFunction(
-            (lambda acc, el, i: acc + proj(el, i)) if p_wants else (lambda acc, el, _i: acc + proj(el)),
+            (lambda b, acc, el, i: acc + proj(b, el, i)) if p_wants
+            else (lambda b, acc, el, _i: acc + proj(b, el)),
             [FloatType, self.element_type, IntegerType], FloatType
         )
         total = _call_builtin("ArrayFold", [self.element_type, FloatType], [self, 0.0, step], FloatType)
@@ -1094,11 +1107,11 @@ class EastArray(MutableSequence, Generic[T]):
         t2 = _kernel_out_type(by, _elem_in(by, self.element_type)) \
             if by is not None else self.element_type
         map_cb = EastFunction(
-            _idx_cb(by) if by is not None else (lambda el, _i: el),
+            _idx_cb(by) if by is not None else (lambda _b, el, _i: el),
             [self.element_type, IntegerType],
             t2,
         )
-        reduce_cb = EastFunction(lambda a, b: greatest(a, b), [t2, t2], t2)
+        reduce_cb = EastFunction(lambda _b, x, y: greatest(x, y), [t2, t2], t2)
         return _call_builtin("ArrayMapReduce", [self.element_type, t2], [self, map_cb, reduce_cb], t2)
 
     def minimum(self, by: Any = None) -> Any:
@@ -1109,11 +1122,11 @@ class EastArray(MutableSequence, Generic[T]):
         t2 = _kernel_out_type(by, _elem_in(by, self.element_type)) \
             if by is not None else self.element_type
         map_cb = EastFunction(
-            _idx_cb(by) if by is not None else (lambda el, _i: el),
+            _idx_cb(by) if by is not None else (lambda _b, el, _i: el),
             [self.element_type, IntegerType],
             t2,
         )
-        reduce_cb = EastFunction(lambda a, b: least(a, b), [t2, t2], t2)
+        reduce_cb = EastFunction(lambda _b, x, y: least(x, y), [t2, t2], t2)
         return _call_builtin("ArrayMapReduce", [self.element_type, t2], [self, map_cb, reduce_cb], t2)
 
     def find_maximum(self, by: Any = None) -> Any:
@@ -1149,8 +1162,8 @@ class EastArray(MutableSequence, Generic[T]):
 
         wants_idx = _callback_arity(pred, 1) >= 2
 
-        def _probe(el, i):  # noqa: ANN001, ANN202
-            r = pred(el, i) if wants_idx else pred(el)
+        def _probe(b, el, i):  # noqa: ANN001, ANN202
+            r = pred(b, el, i) if wants_idx else pred(b, el)
             decided = (r if isinstance(r, Expression) else bool(r)) if want else (
                 ~r if isinstance(r, Expression) else not bool(r)
             )
@@ -1173,7 +1186,7 @@ class EastArray(MutableSequence, Generic[T]):
         if pred is None:
             if self.element_type.type != "Boolean":
                 raise TypeError("every() without a predicate needs Boolean elements")
-            pred = lambda el: el  # noqa: E731
+            pred = lambda _b, el: el  # noqa: E731
         return not self._first_map_bool(False, pred)
 
     def some(self, pred: Any = None) -> bool:
@@ -1184,7 +1197,7 @@ class EastArray(MutableSequence, Generic[T]):
         if pred is None:
             if self.element_type.type != "Boolean":
                 raise TypeError("some() without a predicate needs Boolean elements")
-            pred = lambda el: el  # noqa: E731
+            pred = lambda _b, el: el  # noqa: E731
         return self._first_map_bool(True, pred)
 
     def find_all(self, value: Any, by: Any = None) -> EastArray:
@@ -1196,11 +1209,11 @@ class EastArray(MutableSequence, Generic[T]):
         from east.types.construct import some as _some
         from east.types.types import ArrayType, IntegerType, NullType, VariantType
 
-        proj: Any = by if by is not None else (lambda el: el)
+        proj: Any = by if by is not None else (lambda _b, el: el)
         wants_idx = _callback_arity(proj, 1) >= 2
 
-        def _probe(el, i):  # noqa: ANN001, ANN202
-            r = (proj(el, i) if wants_idx else proj(el)) == value
+        def _probe(b, el, i):  # noqa: ANN001, ANN202
+            r = (proj(b, el, i) if wants_idx else proj(b, el)) == value
             if isinstance(r, Expression):
                 return if_else(r, _some(i), _none)
             return _some(i) if r else _none
@@ -1245,9 +1258,9 @@ class EastArray(MutableSequence, Generic[T]):
     def group_size(self, key: Any = None) -> EastDict:
         """Count per group key (native; identity key when omitted)."""
         return self.to_dict(
-            key if key is not None else (lambda el: el),
-            value=lambda _el: 1,
-            combine=lambda a, b: a + b,
+            key if key is not None else (lambda _b, el: el),
+            value=lambda _b, _el: 1,
+            combine=lambda _b, x, y: x + y,
         )
 
     def group_sum(self, key: Any, fn: Any = None) -> EastDict:
@@ -1259,10 +1272,11 @@ class EastArray(MutableSequence, Generic[T]):
         t2 = self.element_type if fn is None else _kernel_out_type(
             fn, _elem_in(fn, self.element_type))
         zero = self._numeric_zero(t2)
-        proj: Any = fn if fn is not None else (lambda el: el)
+        proj: Any = fn if fn is not None else (lambda _b, el: el)
         wants_idx = _callback_arity(proj, 1) >= 2
-        step = (lambda acc, el, i: acc + proj(el, i)) if wants_idx else (lambda acc, el: acc + proj(el))
-        return self.group_reduce(key, lambda _k: zero, step)
+        step = (lambda b, acc, el, i: acc + proj(b, el, i)) if wants_idx \
+            else (lambda b, acc, el: acc + proj(b, el))
+        return self.group_reduce(key, lambda _b, _k: zero, step)
 
     def group_mean(self, key: Any, fn: Any = None) -> EastDict:
         """Float mean per group (sum, count and the division all native)."""
@@ -1278,13 +1292,14 @@ class EastArray(MutableSequence, Generic[T]):
             fn, _elem_in(fn, self.element_type))
         proj = _float_proj(fn, t2)
         p_wants = _callback_arity(proj, 1) >= 2
-        step = (lambda acc, el, i: acc + proj(el, i)) if p_wants else (lambda acc, el: acc + proj(el))
-        sums = self.group_reduce(key, lambda _k: 0.0, step)
+        step = (lambda b, acc, el, i: acc + proj(b, el, i)) if p_wants \
+            else (lambda b, acc, el: acc + proj(b, el))
+        sums = self.group_reduce(key, lambda _b, _k: 0.0, step)
         # Divide sum by count native-side: merge the (widened) counts into the
         # fresh sums dict instead of rebuilding through a python closure over
         # the counts dict, which could never trace (#470).
-        counts = self.group_size(key).map(lambda c: East.Integer.to_float(c), out=FloatType)
-        sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
+        counts = self.group_size(key).map(lambda _b, c: East.Integer.to_float(c), out=FloatType)
+        sums.merge_all(counts, lambda _b, s, c, _k: s / c, lambda _b, _k: 0.0)
         return sums
 
     def _group_extreme(self, key: Any, by: Any, pick: Any) -> EastDict:
@@ -1292,7 +1307,7 @@ class EastArray(MutableSequence, Generic[T]):
         from east.types.construct import some as _some
         from east.types.types import DictType, IntegerType, OptionType
 
-        proj: Any = by if by is not None else (lambda el: el)
+        proj: Any = by if by is not None else (lambda _b, el: el)
         # Derived BEFORE the empty check: an empty array has the same result
         # type a full one has, and the traced twin derives it unconditionally,
         # so bailing to `(element_type, element_type)` made the two disagree
@@ -1308,8 +1323,9 @@ class EastArray(MutableSequence, Generic[T]):
         # both have it), so the fold body is traceable — no import-laden
         # helper in the closure, which the capture validator would refuse (#470).
         fold_cb = EastFunction(
-            (lambda acc, el, i: _some(pick(acc.unwrap_or(proj(el, i)), proj(el, i)))) if p_wants
-            else (lambda acc, el, _i: _some(pick(acc.unwrap_or(proj(el)), proj(el)))),
+            (lambda b, acc, el, i: _some(pick(acc.unwrap_or(proj(b, el, i)), proj(b, el, i))))
+            if p_wants
+            else (lambda b, acc, el, _i: _some(pick(acc.unwrap_or(proj(b, el)), proj(b, el)))),
             [opt_t, self.element_type, IntegerType],
             opt_t,
         )
@@ -1319,7 +1335,7 @@ class EastArray(MutableSequence, Generic[T]):
             [self, key_cb, _none_init_kernel(k2, p_t), fold_cb],
             DictType(k2, opt_t),
         )
-        return grouped.map(lambda v: v.unwrap("some"), out=p_t)
+        return grouped.map(lambda _b, v: v.unwrap("some"), out=p_t)
 
     def group_maximum(self, key: Any, by: Any = None) -> EastDict:
         """Largest element/projection per group (East total order, native)."""
@@ -1358,7 +1374,7 @@ class EastArray(MutableSequence, Generic[T]):
         from east.types.construct import some as _some
         from east.types.types import ArrayType, IntegerType, NullType, StructType, VariantType
 
-        proj: Any = by if by is not None else (lambda el: el)
+        proj: Any = by if by is not None else (lambda _b, el: el)
         k2 = _kernel_out_type(key, _elem_in(key, self.element_type))
         p_t = _kernel_out_type(proj, _elem_in(proj, self.element_type))
         # Coerce the target INTO the projection's type, exactly as `_search_key`
@@ -1373,16 +1389,16 @@ class EastArray(MutableSequence, Generic[T]):
         pair_t = StructType([("i", IntegerType), ("k", k2)])
         kf, pf = _as_idx_fn(key), _as_idx_fn(proj)
 
-        def _probe(el, i):  # noqa: ANN001, ANN202
+        def _probe(b, el, i):  # noqa: ANN001, ANN202
             # East equality, not python `==`: the East namespace is dual-mode,
             # so a traced callback emits IR and an untraceable one runs east-c
             # on the values — the two paths then agree on -0.0/NaN and on every
             # structured type, which python `==` does not guarantee.
-            r = East.equal(p_t, pf(el, i), value)
+            r = East.equal(p_t, pf(b, el, i), value)
             gi = i + base if base else i
             if isinstance(r, Expression):
-                return if_else(r, _some({"i": gi, "k": kf(el, i)}), _none)
-            return _some({"i": gi, "k": kf(el, i)}) if r else _none
+                return if_else(r, _some({"i": gi, "k": kf(b, el, i)}), _none)
+            return _some({"i": gi, "k": kf(b, el, i)}) if r else _none
 
         out_variant = VariantType([("none", NullType), ("some", pair_t)])
         callback = EastFunction(_probe, [self.element_type, IntegerType], out_variant)
@@ -1421,7 +1437,7 @@ class EastArray(MutableSequence, Generic[T]):
         # The groups come from the WHOLE array and the matches fill them in, so
         # a group whose members all failed still appears (with an empty array).
         groups = self.to_set(key)
-        found = pairs.group_to_arrays(lambda p: p["k"], lambda p: p["i"]) if len(pairs) \
+        found = pairs.group_to_arrays(lambda _b, p: p["k"], lambda _b, p: p["i"]) if len(pairs) \
             else EastDict(k2, ArrayType(IntegerType))
         # The compiled group-init kernel, not `lambda _k: EastArray(...)`: a
         # python fill closes over EastArray, an eager constructor the capture
@@ -1451,7 +1467,7 @@ class EastArray(MutableSequence, Generic[T]):
         # first match is element 0 — and `out=` pins Option<Integer> rather
         # than letting a `some`-only sample type the dict (#450).
         return self.group_find_all(key, value, by).map(
-            lambda idxs: idxs.try_get(0), out=OptionType(IntegerType))
+            lambda _b, idxs: idxs.try_get(0), out=OptionType(IntegerType))
 
     @staticmethod
     def _group_extreme_combine(pair_t: EastType, key_type: EastType, want_max: bool) -> EastFunction:
@@ -1468,8 +1484,9 @@ class EastArray(MutableSequence, Generic[T]):
 
         p_t = next(f["type"] for f in pair_t.value if f["name"] == "by")
         return EastFunction(
-            (lambda a, b, _k: if_else(East.greater_equal(p_t, a["by"], b["by"]), a, b)) if want_max
-            else (lambda a, b, _k: if_else(East.less_equal(p_t, a["by"], b["by"]), a, b)),
+            (lambda _b, x, y, _k: if_else(East.greater_equal(p_t, x["by"], y["by"]), x, y))
+            if want_max
+            else (lambda _b, x, y, _k: if_else(East.less_equal(p_t, x["by"], y["by"]), x, y)),
             [pair_t, pair_t, key_type], pair_t)
 
     def _group_find_extreme_pairs(self, key: Any, by: Any, want_max: bool) -> EastDict:
@@ -1479,13 +1496,13 @@ class EastArray(MutableSequence, Generic[T]):
         the shape a segment-streamed file merges across segments."""
         from east.types.types import DictType, IntegerType, StructType
 
-        proj: Any = by if by is not None else (lambda el: el)
+        proj: Any = by if by is not None else (lambda _b, el: el)
         k2 = _kernel_out_type(key, _elem_in(key, self.element_type))
         p_t = _kernel_out_type(proj, _elem_in(proj, self.element_type))
         pair_t = StructType([("by", p_t), ("index", IntegerType)])
         kf, pf = _as_idx_fn(key), _as_idx_fn(proj)
         key_cb = EastFunction(kf, [self.element_type, IntegerType], k2)
-        val_cb = EastFunction(lambda el, i: {"by": pf(el, i), "index": i},
+        val_cb = EastFunction(lambda b, el, i: {"by": pf(b, el, i), "index": i},
                               [self.element_type, IntegerType], pair_t)
         return _call_builtin(
             "ArrayToDict", [self.element_type, k2, pair_t],
@@ -1499,7 +1516,7 @@ class EastArray(MutableSequence, Generic[T]):
         if len(self) == 0:
             return EastDict(k2e, IntegerType)
         pairs = self._group_find_extreme_pairs(key, by, want_max)
-        return pairs.map(lambda v: v["index"], out=IntegerType)
+        return pairs.map(lambda _b, v: v["index"], out=IntegerType)
 
     def group_find_minimum(self, key: Any, by: Any = None) -> EastDict:
         """Index of the smallest element/projection per group (East total
@@ -1513,15 +1530,15 @@ class EastArray(MutableSequence, Generic[T]):
 
     def group_every(self, key: Any, pred: Any) -> EastDict:
         """Per group: True when ``pred`` holds for all members (native)."""
-        step = (lambda acc, el, i: acc & pred(el, i)) if _callback_arity(pred, 1) >= 2 \
-            else (lambda acc, el: acc & pred(el))
-        return self.group_reduce(key, lambda _k: True, step)
+        step = (lambda b, acc, el, i: acc & pred(b, el, i)) if _callback_arity(pred, 1) >= 2 \
+            else (lambda b, acc, el: acc & pred(b, el))
+        return self.group_reduce(key, lambda _b, _k: True, step)
 
     def group_some(self, key: Any, pred: Any) -> EastDict:
         """Per group: True when ``pred`` holds for any member (native)."""
-        step = (lambda acc, el, i: acc | pred(el, i)) if _callback_arity(pred, 1) >= 2 \
-            else (lambda acc, el: acc | pred(el))
-        return self.group_reduce(key, lambda _k: False, step)
+        step = (lambda b, acc, el, i: acc | pred(b, el, i)) if _callback_arity(pred, 1) >= 2 \
+            else (lambda b, acc, el: acc | pred(b, el))
+        return self.group_reduce(key, lambda _b, _k: False, step)
 
     def _group_pairs(self, key: Any, value: Any, extra: Any = None) -> tuple:
         from east.types.types import IntegerType, StructType
@@ -1537,7 +1554,7 @@ class EastArray(MutableSequence, Generic[T]):
         if extra is None:
             pair_t = StructType([("k", k_t), ("v", v_t)])
             pair_cb = EastFunction(
-                lambda el, i: {"k": kf(el, i), "v": vf(el, i)},
+                lambda b, el, i: {"k": kf(b, el, i), "v": vf(b, el, i)},
                 [self.element_type, IntegerType],
                 pair_t,
             )
@@ -1549,7 +1566,7 @@ class EastArray(MutableSequence, Generic[T]):
                  ("v", v_t)]
             )
             pair_cb = EastFunction(
-                lambda el, i: {"k": kf(el, i), "k2": xf(el, i), "v": vf(el, i)},
+                lambda b, el, i: {"k": kf(b, el, i), "k2": xf(b, el, i), "v": vf(b, el, i)},
                 [self.element_type, IntegerType],
                 pair_t,
             )
@@ -1578,7 +1595,7 @@ class EastArray(MutableSequence, Generic[T]):
         pairs, pair_t = self._group_pairs(key, value)
         k2 = next(f["type"] for f in pair_t.value if f["name"] == "k")
         v_t = next(f["type"] for f in pair_t.value if f["name"] == "v")
-        key_cb = EastFunction(lambda p, _i: p["k"], [pair_t, IntegerType], k2)
+        key_cb = EastFunction(lambda _b, p, _i: p["k"], [pair_t, IntegerType], k2)
         return _call_builtin(
             "ArrayGroupFold",
             [pair_t, k2, ArrayType(v_t)],
@@ -1591,7 +1608,7 @@ class EastArray(MutableSequence, Generic[T]):
         from east.expression import _empty_set_kernel, _set_insert_field_kernel
         from east.types.types import DictType, IntegerType, SetType
 
-        val = value if value is not None else (lambda el: el)
+        val = value if value is not None else (lambda _b, el: el)
         k2e = _kernel_out_type(key, _elem_in(key, self.element_type))
         v_te = _kernel_out_type(val, _elem_in(val, self.element_type))
         if len(self) == 0:
@@ -1599,7 +1616,7 @@ class EastArray(MutableSequence, Generic[T]):
         pairs, pair_t = self._group_pairs(key, val)
         k2 = next(f["type"] for f in pair_t.value if f["name"] == "k")
         v_t = next(f["type"] for f in pair_t.value if f["name"] == "v")
-        key_cb = EastFunction(lambda p, _i: p["k"], [pair_t, IntegerType], k2)
+        key_cb = EastFunction(lambda _b, p, _i: p["k"], [pair_t, IntegerType], k2)
         return _call_builtin(
             "ArrayGroupFold",
             [pair_t, k2, SetType(v_t)],
@@ -1616,7 +1633,7 @@ class EastArray(MutableSequence, Generic[T]):
         from east.expression import _dict_insert_fields_kernel, _empty_dict_kernel
         from east.types.types import DictType, IntegerType
 
-        val = value if value is not None else (lambda el: el)
+        val = value if value is not None else (lambda _b, el: el)
         k1e = _kernel_out_type(key, _elem_in(key, self.element_type))
         k2e = _kernel_out_type(key2, _elem_in(key2, self.element_type))
         v_te = _kernel_out_type(val, _elem_in(val, self.element_type))
@@ -1626,7 +1643,7 @@ class EastArray(MutableSequence, Generic[T]):
         k1 = next(f["type"] for f in pair_t.value if f["name"] == "k")
         k2t = next(f["type"] for f in pair_t.value if f["name"] == "k2")
         v_t = next(f["type"] for f in pair_t.value if f["name"] == "v")
-        key_cb = EastFunction(lambda p, _i: p["k"], [pair_t, IntegerType], k1)
+        key_cb = EastFunction(lambda _b, p, _i: p["k"], [pair_t, IntegerType], k1)
         if combine is None:
             return _call_builtin(
                 "ArrayGroupFold",
@@ -1637,7 +1654,7 @@ class EastArray(MutableSequence, Generic[T]):
             )
 
         inner = combine if _callback_arity(combine, 2) >= 3 \
-            else (lambda ex, inc, _key: combine(ex, inc))
+            else (lambda b, ex, inc, _key: combine(b, ex, inc))
 
         from east.expression import block
 
@@ -1647,7 +1664,7 @@ class EastArray(MutableSequence, Generic[T]):
         # would trace to a body of just `acc`, silently dropping every insert.
         # `acc` is an EastDict on the python path and a traced expression on
         # the native one, so it is typed for both.
-        def _fold(acc: Any, p: Any, _i: Any) -> Any:
+        def _fold(_b: Any, acc: Any, p: Any, _i: Any) -> Any:
             return block(acc.insert_or_update(p["k2"], p["v"], inner), acc)
 
         init_cb = _empty_dict_kernel(k1, k2t, v_t)
@@ -1927,7 +1944,7 @@ class EastSet(Generic[T]):
         if int(n) == 0:
             return EastSet(k)
         gen = EastFunction(fn, [IntegerType], k)
-        side = EastFunction(lambda el: east_null, [k], NullType)
+        side = EastFunction(lambda _b, _el: east_null, [k], NullType)
         return _call_builtin("SetGenerate", [k], [int(n), gen, side], SetType(k))
 
     def has(self, value: Any) -> bool:
@@ -2057,7 +2074,7 @@ class EastSet(Generic[T]):
         from east.expression import _sequence_effect
         from east.types.types import NullType
 
-        callback = EastFunction(lambda el: _sequence_effect(fn(el)), [self.element_type], NullType)
+        callback = EastFunction(lambda b, el: _sequence_effect(fn(b, el)), [self.element_type], NullType)
         _call_builtin("SetForEach", [self.element_type, NullType], [self, callback], NullType)
 
     def to_array(self, key: Any = None) -> EastArray:
@@ -2075,7 +2092,7 @@ class EastSet(Generic[T]):
 
         if key is None:
             t2 = self.element_type
-            callback = EastFunction(lambda el: el, [self.element_type], t2)
+            callback = EastFunction(lambda _b, el: el, [self.element_type], t2)
         else:
             t2 = _kernel_out_type(key, [self.element_type])
             callback = EastFunction(key, [self.element_type], t2)
@@ -2168,8 +2185,8 @@ class EastSet(Generic[T]):
         from east.expression import Expression
         from east.types.types import BooleanType, SetType
 
-        def _pred(el):  # noqa: ANN001, ANN202
-            r = predicate(el)
+        def _pred(b, el):  # noqa: ANN001, ANN202
+            r = predicate(b, el)
             return r if isinstance(r, Expression) else bool(r)
 
         callback = EastFunction(_mark_kernel(_pred, predicate), [self.element_type], BooleanType)
@@ -2250,7 +2267,7 @@ class EastSet(Generic[T]):
             raise ValueError("map_reduce on an empty set has no result (no identity element)")
         t2 = _kernel_out_type(fn, [self.element_type])
         map_cb = EastFunction(fn, [self.element_type], t2)
-        reduce_cb = EastFunction(_mark_kernel(lambda a, b: reduce(a, b), reduce), [t2, t2], t2)
+        reduce_cb = EastFunction(_mark_kernel(lambda b, x, y: reduce(b, x, y), reduce), [t2, t2], t2)
         return _call_builtin("SetMapReduce", [self.element_type, t2], [self, map_cb, reduce_cb], t2)
 
     def reduce(self, initial: Any, fn: Any) -> Any:
@@ -2266,7 +2283,7 @@ class EastSet(Generic[T]):
             The final accumulator.
         """
         t2 = _ev.type_of(initial)
-        callback = EastFunction(_mark_kernel(lambda acc, el: fn(acc, el), fn), [t2, self.element_type], t2)
+        callback = EastFunction(_mark_kernel(lambda b, acc, el: fn(b, acc, el), fn), [t2, self.element_type], t2)
         return _call_builtin("SetReduce", [self.element_type, t2], [self, callback, initial], t2)
 
     def scan(self, initial: Any, fn: Any) -> EastArray:
@@ -2290,7 +2307,7 @@ class EastSet(Generic[T]):
         from east.types.types import ArrayType
 
         t2 = _ev.type_of(initial)
-        callback = EastFunction(_mark_kernel(lambda acc, el: fn(acc, el), fn), [t2, self.element_type], t2)
+        callback = EastFunction(_mark_kernel(lambda b, acc, el: fn(b, acc, el), fn), [t2, self.element_type], t2)
         return _call_builtin("SetScan", [self.element_type, t2], [self, callback, initial], ArrayType(t2))
 
     def flatten_to_array(self, fn: Any, out: EastType | None = None) -> EastArray:
@@ -2373,8 +2390,8 @@ class EastSet(Generic[T]):
         t2 = self.element_type if fn is None else _kernel_out_type(
             fn, [self.element_type])
         zero = _numeric_zero_for(t2)
-        proj = fn if fn is not None else (lambda el: el)
-        step = EastFunction(lambda acc, el: acc + proj(el), [t2, self.element_type], t2)
+        proj = fn if fn is not None else (lambda _b, el: el)
+        step = EastFunction(lambda b, acc, el: acc + proj(b, el), [t2, self.element_type], t2)
         return _call_builtin("SetReduce", [self.element_type, t2], [self, step, zero], t2)
 
     def mean(self, fn: Any = None) -> float:
@@ -2387,7 +2404,7 @@ class EastSet(Generic[T]):
         t2 = self.element_type if fn is None else _kernel_out_type(
             fn, [self.element_type])
         proj = _float_proj(fn, t2)
-        step = EastFunction(lambda acc, el: acc + proj(el), [FloatType, self.element_type], FloatType)
+        step = EastFunction(lambda b, acc, el: acc + proj(b, el), [FloatType, self.element_type], FloatType)
         total = _call_builtin("SetReduce", [self.element_type, FloatType], [self, step, 0.0], FloatType)
         return total / float(n)
 
@@ -2397,8 +2414,8 @@ class EastSet(Generic[T]):
         from east.types.construct import some as _some
         from east.types.types import BooleanType, NullType, VariantType
 
-        def _probe(el):  # noqa: ANN001, ANN202
-            r = pred(el)
+        def _probe(b, el):  # noqa: ANN001, ANN202
+            r = pred(b, el)
             decided = (r if isinstance(r, Expression) else bool(r)) if want else (
                 ~r if isinstance(r, Expression) else not bool(r)
             )
@@ -2419,7 +2436,7 @@ class EastSet(Generic[T]):
         if pred is None:
             if self.element_type.type != "Boolean":
                 raise TypeError("every() without a predicate needs Boolean elements")
-            pred = lambda el: el  # noqa: E731
+            pred = lambda _b, el: el  # noqa: E731
         return not self._first_map_bool(False, pred)
 
     def some(self, pred: Any = None) -> bool:
@@ -2427,12 +2444,12 @@ class EastSet(Generic[T]):
         if pred is None:
             if self.element_type.type != "Boolean":
                 raise TypeError("some() without a predicate needs Boolean elements")
-            pred = lambda el: el  # noqa: E731
+            pred = lambda _b, el: el  # noqa: E731
         return self._first_map_bool(True, pred)
 
     def group_size(self, key: Any) -> EastDict:
         """Count per group key (native)."""
-        return self.to_dict(key, lambda _el: 1, combine=lambda a, b, _k: a + b)
+        return self.to_dict(key, lambda _b, _el: 1, combine=lambda _b, x, y, _k: x + y)
 
     def group_sum(self, key: Any, fn: Any = None) -> EastDict:
         """Sum per group (native SetGroupFold).
@@ -2441,10 +2458,10 @@ class EastSet(Generic[T]):
         non-numeric projection raises rather than silently picking ``0.0``
         (#450/#525).
         """
-        proj = fn if fn is not None else (lambda el: el)
+        proj = fn if fn is not None else (lambda _b, el: el)
         t2 = _kernel_out_type(proj, [self.element_type])
         zero = _numeric_zero_for(t2)
-        return self.group_reduce(key, lambda _k: zero, lambda acc, el: acc + proj(el))
+        return self.group_reduce(key, lambda _b, _k: zero, lambda b, acc, el: acc + proj(b, el))
 
     def group_mean(self, key: Any, fn: Any = None) -> EastDict:
         """Float mean per group (sum, count and the division all native)."""
@@ -2461,22 +2478,22 @@ class EastSet(Generic[T]):
         t2 = self.element_type if fn is None else _kernel_out_type(
             fn, [self.element_type])
         proj = _float_proj(fn, t2)
-        sums = self.group_reduce(key, lambda _k: 0.0, lambda acc, el: acc + proj(el))
-        counts = self.group_size(key).map(lambda c: East.Integer.to_float(c), out=FloatType)
-        sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
+        sums = self.group_reduce(key, lambda _b, _k: 0.0, lambda b, acc, el: acc + proj(b, el))
+        counts = self.group_size(key).map(lambda _b, c: East.Integer.to_float(c), out=FloatType)
+        sums.merge_all(counts, lambda _b, s, c, _k: s / c, lambda _b, _k: 0.0)
         return sums
 
     def group_every(self, key: Any, pred: Any) -> EastDict:
         """Per group: True when ``pred`` holds for all members (native)."""
-        return self.group_reduce(key, lambda _k: True, lambda acc, el: acc & pred(el))
+        return self.group_reduce(key, lambda _b, _k: True, lambda b, acc, el: acc & pred(b, el))
 
     def group_some(self, key: Any, pred: Any) -> EastDict:
         """Per group: True when ``pred`` holds for any member (native)."""
-        return self.group_reduce(key, lambda _k: False, lambda acc, el: acc | pred(el))
+        return self.group_reduce(key, lambda _b, _k: False, lambda b, acc, el: acc | pred(b, el))
 
     def group_to_arrays(self, key: Any, value: Any = None) -> EastDict:
         """Arrays of members/values per group key (native via to_array)."""
-        return self.to_array().group_to_arrays(key, value if value is not None else (lambda el: el))
+        return self.to_array().group_to_arrays(key, value if value is not None else (lambda _b, el: el))
 
     def group_to_sets(self, key: Any, value: Any = None) -> EastDict:
         """Sets of members/values per group key (native via to_array)."""
@@ -2513,7 +2530,7 @@ class EastSet(Generic[T]):
             return EastDict(k2, t2)
         key_cb = EastFunction(key, [self.element_type], k2)
         init_cb = EastFunction(initial, [k2], t2)
-        fold_cb = EastFunction(_mark_kernel(lambda acc, el: fold(acc, el), fold), [t2, self.element_type], t2)
+        fold_cb = EastFunction(_mark_kernel(lambda b, acc, el: fold(b, acc, el), fold), [t2, self.element_type], t2)
         return _call_builtin(
             "SetGroupFold", [self.element_type, k2, t2], [self, key_cb, init_cb, fold_cb], DictType(k2, t2)
         )
@@ -2733,14 +2750,17 @@ class EastDict(Generic[K, V]):
 
         Args:
             key: The key to look up, ordered under East's total ordering.
-            fn: Called as ``fn(key) -> value`` only when ``key`` is missing;
-                its result is inserted before being returned.
+            fn: Called as ``fn(b, key) -> value`` only when ``key`` is missing
+                (python-side, with an eager block); its result is inserted
+                before being returned.
 
         Returns:
-            The existing value, or the newly inserted ``fn(key)``.
+            The existing value, or the newly inserted ``fn(b, key)``.
         """
         if key not in self:
-            self[key] = fn(key)
+            from east.expression.statements import EagerBlock
+
+            self[key] = fn(EagerBlock(), key)
         return self[key]
 
     def insert_or_update(self, key: Any, value: Any, combine: Any) -> None:
@@ -2759,16 +2779,19 @@ class EastDict(Generic[K, V]):
         _call_builtin("DictInsertOrUpdate", [self.key_type, self.value_type], [self, key, value, cb], NullType)
 
     def update(self, key: Any, fn: Any) -> None:
-        """Replace the value at ``key`` with ``fn(current)``, in place (east-c DictUpdate).
+        """Replace the value at ``key`` with ``fn(b, current)``, in place (east-c DictUpdate).
 
         Args:
             key: The key whose value is transformed; must already be present.
-            fn: Called as ``fn(current) -> new value``.
+            fn: Called as ``fn(b, current) -> new value`` (python-side, with
+                an eager block).
         """
+        from east.expression.statements import EagerBlock
+
         # The must-exist read goes through the builtin so a missing key
         # raises East's own error, not a pythonic KeyError.
         current = _call_builtin("DictGet", [self.key_type, self.value_type], [self, key], self.value_type)
-        self[key] = fn(current)
+        self[key] = fn(EagerBlock(), current)
 
     def swap(self, key: Any, value: Any) -> Any:
         """Set ``key`` to ``value`` and return the previous value, in place (east-c DictSwap).
@@ -2817,8 +2840,8 @@ class EastDict(Generic[K, V]):
         from east.types.construct import some as _some
         from east.types.types import BooleanType, NullType, VariantType
 
-        def _probe(v, k):  # noqa: ANN001, ANN202
-            r = pred(k, v)
+        def _probe(b, v, k):  # noqa: ANN001, ANN202
+            r = pred(b, k, v)
             decided = (r if isinstance(r, Expression) else bool(r)) if want else (
                 ~r if isinstance(r, Expression) else not bool(r)
             )
@@ -2834,25 +2857,25 @@ class EastDict(Generic[K, V]):
         return result.type == "some"
 
     def every(self, pred: Any = None) -> bool:
-        """True when ``pred(key, value)`` holds for every entry (native
+        """True when ``pred(b, key, value)`` holds for every entry (native
         short-circuiting DictFirstMap scan, like TS). Without ``pred`` the
         values must be Booleans. True for an empty dict.
         """
         if pred is None:
             if self.value_type.type != "Boolean":
                 raise TypeError("every() without a predicate needs Boolean values")
-            pred = lambda _k, v: v  # noqa: E731
+            pred = lambda _b, _k, v: v  # noqa: E731
         return not self._first_map_bool(False, pred)
 
     def some(self, pred: Any = None) -> bool:
-        """True when ``pred(key, value)`` holds for any entry (native
+        """True when ``pred(b, key, value)`` holds for any entry (native
         short-circuit). Without ``pred`` the values must be Booleans. False
         for an empty dict.
         """
         if pred is None:
             if self.value_type.type != "Boolean":
                 raise TypeError("some() without a predicate needs Boolean values")
-            pred = lambda _k, v: v  # noqa: E731
+            pred = lambda _b, _k, v: v  # noqa: E731
         return self._first_map_bool(True, pred)
 
     def sum(self, fn: Any = None) -> Any:
@@ -2873,9 +2896,9 @@ class EastDict(Generic[K, V]):
         t2 = self.value_type if fn is None else _kernel_out_type(
             fn, [self.key_type, self.value_type])
         zero = _numeric_zero_for(t2)
-        proj = fn if fn is not None else (lambda _k, v: v)
+        proj = fn if fn is not None else (lambda _b, _k, v: v)
         step = EastFunction(
-            lambda acc, v, k: acc + proj(k, v), [t2, self.value_type, self.key_type], t2
+            lambda b, acc, v, k: acc + proj(b, k, v), [t2, self.value_type, self.key_type], t2
         )
         return _call_builtin(
             "DictReduce", [self.key_type, self.value_type, t2], [self, step, zero], t2
@@ -2893,14 +2916,15 @@ class EastDict(Generic[K, V]):
         t2 = self.value_type if fn is None else _kernel_out_type(
             fn, [self.key_type, self.value_type])
         if t2.type == "Integer":
-            proj = (lambda k, v: East.Integer.to_float(fn(k, v))) if fn is not None else (
-                lambda _k, v: East.Integer.to_float(v))
+            proj = (lambda b, k, v: East.Integer.to_float(fn(b, k, v))) if fn is not None else (
+                lambda _b, _k, v: East.Integer.to_float(v))
         elif t2.type == "Float":
-            proj = fn if fn is not None else (lambda _k, v: v)
+            proj = fn if fn is not None else (lambda _b, _k, v: v)
         else:
             raise TypeError(f"expected a numeric (Integer/Float) type, got {t2.type}")
         step = EastFunction(
-            lambda acc, v, k: acc + proj(k, v), [FloatType, self.value_type, self.key_type], FloatType
+            lambda b, acc, v, k: acc + proj(b, k, v), [FloatType, self.value_type, self.key_type],
+            FloatType
         )
         total = _call_builtin(
             "DictReduce", [self.key_type, self.value_type, FloatType], [self, step, 0.0], FloatType
@@ -2908,20 +2932,20 @@ class EastDict(Generic[K, V]):
         return total / float(n)
 
     def group_size(self, key_fn: Any) -> EastDict:
-        """Count per ``key_fn(key, value)`` group (native)."""
-        return self.to_dict(key_fn, lambda _k, _v: 1, combine=lambda a, b, _key: a + b)
+        """Count per ``key_fn(b, key, value)`` group (native)."""
+        return self.to_dict(key_fn, lambda _b, _k, _v: 1, combine=lambda _b, x, y, _key: x + y)
 
     def group_sum(self, key_fn: Any, fn: Any = None) -> EastDict:
-        """Sum per group of ``fn(key, value)`` (values when omitted; native).
+        """Sum per group of ``fn(b, key, value)`` (values when omitted; native).
 
         The zero is typed from the projection, as :meth:`sum` types it, and a
         non-numeric projection raises rather than silently picking ``0.0``
         (#450/#525).
         """
-        proj = fn if fn is not None else (lambda _k, v: v)
+        proj = fn if fn is not None else (lambda _b, _k, v: v)
         t2 = _kernel_out_type(proj, [self.key_type, self.value_type])
         zero = _numeric_zero_for(t2)
-        return self.group_reduce(key_fn, lambda _k: zero, lambda acc, k, v: acc + proj(k, v))
+        return self.group_reduce(key_fn, lambda _b, _k: zero, lambda b, acc, k, v: acc + proj(b, k, v))
 
     def group_mean(self, key_fn: Any, fn: Any = None) -> EastDict:
         """Float mean per group (sum, count and the division all native)."""
@@ -2937,52 +2961,52 @@ class EastDict(Generic[K, V]):
         t2 = self.value_type if fn is None else _kernel_out_type(
             fn, [self.key_type, self.value_type])
         if t2.type == "Integer":
-            proj = (lambda k, v: East.Integer.to_float(fn(k, v))) if fn is not None else (
-                lambda _k, v: East.Integer.to_float(v))
+            proj = (lambda b, k, v: East.Integer.to_float(fn(b, k, v))) if fn is not None else (
+                lambda _b, _k, v: East.Integer.to_float(v))
         elif t2.type == "Float":
-            proj = fn if fn is not None else (lambda _k, v: v)
+            proj = fn if fn is not None else (lambda _b, _k, v: v)
         else:
             raise TypeError(f"expected a numeric (Integer/Float) type, got {t2.type}")
-        sums = self.group_reduce(key_fn, lambda _k: 0.0, lambda acc, k, v: acc + proj(k, v))
-        counts = self.group_size(key_fn).map(lambda c: East.Integer.to_float(c), out=FloatType)
-        sums.merge_all(counts, lambda s, c, _k: s / c, lambda _k: 0.0)
+        sums = self.group_reduce(key_fn, lambda _b, _k: 0.0, lambda b, acc, k, v: acc + proj(b, k, v))
+        counts = self.group_size(key_fn).map(lambda _b, c: East.Integer.to_float(c), out=FloatType)
+        sums.merge_all(counts, lambda _b, s, c, _k: s / c, lambda _b, _k: 0.0)
         return sums
 
     def group_every(self, key_fn: Any, pred: Any) -> EastDict:
-        """Per group: True when ``pred(key, value)`` holds for all entries."""
-        return self.group_reduce(key_fn, lambda _k: True, lambda acc, k, v: acc & pred(k, v))
+        """Per group: True when ``pred(b, key, value)`` holds for all entries."""
+        return self.group_reduce(key_fn, lambda _b, _k: True, lambda b, acc, k, v: acc & pred(b, k, v))
 
     def group_some(self, key_fn: Any, pred: Any) -> EastDict:
-        """Per group: True when ``pred(key, value)`` holds for any entry."""
-        return self.group_reduce(key_fn, lambda _k: False, lambda acc, k, v: acc | pred(k, v))
+        """Per group: True when ``pred(b, key, value)`` holds for any entry."""
+        return self.group_reduce(key_fn, lambda _b, _k: False, lambda b, acc, k, v: acc | pred(b, k, v))
 
     def group_to_arrays(self, key_fn: Any, value_fn: Any = None) -> EastDict:
-        """Arrays of ``value_fn(key, value)`` per group (native via to_array).
+        """Arrays of ``value_fn(b, key, value)`` per group (native via to_array).
 
         ``value_fn`` is optional — omitted, the dict's VALUES are collected —
         matching TypeScript's ``groupToArrays(keyFn, valueFn?)`` and the traced
         twin. Requiring it here made east-py the outlier of the three runtimes
         (#525).
         """
-        vf = value_fn if value_fn is not None else (lambda _k, v: v)
-        pairs = self.to_array(lambda k, v: {"k": key_fn(k, v), "v": vf(k, v)})
-        return pairs.group_to_arrays(lambda p: p["k"], lambda p: p["v"])
+        vf = value_fn if value_fn is not None else (lambda _b, _k, v: v)
+        pairs = self.to_array(lambda b, k, v: {"k": key_fn(b, k, v), "v": vf(b, k, v)})
+        return pairs.group_to_arrays(lambda _b, p: p["k"], lambda _b, p: p["v"])
 
     def group_to_sets(self, key_fn: Any, value_fn: Any = None) -> EastDict:
-        """Sets of ``value_fn(key, value)`` per group (the VALUES when omitted)."""
-        vf = value_fn if value_fn is not None else (lambda _k, v: v)
-        pairs = self.to_array(lambda k, v: {"k": key_fn(k, v), "v": vf(k, v)})
-        return pairs.group_to_sets(lambda p: p["k"], lambda p: p["v"])
+        """Sets of ``value_fn(b, key, value)`` per group (the VALUES when omitted)."""
+        vf = value_fn if value_fn is not None else (lambda _b, _k, v: v)
+        pairs = self.to_array(lambda b, k, v: {"k": key_fn(b, k, v), "v": vf(b, k, v)})
+        return pairs.group_to_sets(lambda _b, p: p["k"], lambda _b, p: p["v"])
 
     def group_to_dicts(self, key_fn: Any, key2_fn: Any, value_fn: Any = None,
                        combine: Any = None) -> EastDict:
         """Dicts of ``key2 -> value`` per group (the VALUES when omitted)."""
-        vf = value_fn if value_fn is not None else (lambda _k, v: v)
+        vf = value_fn if value_fn is not None else (lambda _b, _k, v: v)
         pairs = self.to_array(
-            lambda k, v: {"k": key_fn(k, v), "k2": key2_fn(k, v), "v": vf(k, v)}
+            lambda b, k, v: {"k": key_fn(b, k, v), "k2": key2_fn(b, k, v), "v": vf(b, k, v)}
         )
         return pairs.group_to_dicts(
-            lambda p: p["k"], lambda p: p["k2"], lambda p: p["v"], combine
+            lambda _b, p: p["k"], lambda _b, p: p["k2"], lambda _b, p: p["v"], combine
         )
 
     def update_many(
@@ -3288,7 +3312,7 @@ class EastDict(Generic[K, V]):
 
         v2 = _ev.type_of(value)
         update_fn = update if _callback_arity(update, 2) >= 3 else (
-            lambda existing, incoming, _k: update(existing, incoming))
+            lambda b, existing, incoming, _k: update(b, existing, incoming))
         update_cb = EastFunction(_mark_kernel(update_fn, update),
                                  [self.value_type, v2, self.key_type], self.value_type)
         if initial is None:
@@ -3343,14 +3367,14 @@ class EastDict(Generic[K, V]):
         # rejecting the identical plain lambda was an inconsistency inside one
         # method, on the path this change makes the recommended one.
         merge_fn = merge if _callback_arity(merge, 2) >= 3 else (
-            lambda existing, incoming, _key: merge(existing, incoming))
+            lambda b, existing, incoming, _key: merge(b, existing, incoming))
         merge_cb = EastFunction(
             _mark_kernel(merge_fn, merge),
             [self.value_type, v2, self.key_type],
             self.value_type,
         )
         default_cb = EastFunction(
-            _mark_kernel(lambda key: default(key), default),
+            _mark_kernel(lambda b, key: default(b, key), default),
             [self.key_type],
             self.value_type,
         )
@@ -3412,7 +3436,7 @@ class EastDict(Generic[K, V]):
         from east.expression import _sequence_effect
         from east.types.types import NullType
 
-        callback = EastFunction(lambda v, k: _sequence_effect(fn(k, v)), [self.value_type, self.key_type], NullType)
+        callback = EastFunction(lambda b, v, k: _sequence_effect(fn(b, k, v)), [self.value_type, self.key_type], NullType)
         _call_builtin("DictForEach", [self.key_type, self.value_type, NullType], [self, callback], NullType)
 
     def map(self, fn: Any, out: EastType | None = None) -> EastDict:
@@ -3442,7 +3466,7 @@ class EastDict(Generic[K, V]):
         v2 = out if out is not None else _kernel_out_type(fn, in_types)
         if len(self) == 0:
             return EastDict(self.key_type, v2)
-        wrapper = (lambda v, k: fn(v, k)) if wants_key else (lambda v, k: fn(v))
+        wrapper = (lambda b, v, k: fn(b, v, k)) if wants_key else (lambda b, v, _k: fn(b, v))
         callback = EastFunction(_mark_kernel(wrapper, fn), [self.value_type, self.key_type], v2)
         return _call_builtin("DictMap", [self.key_type, self.value_type, v2], [self, callback], DictType(self.key_type, v2))
 
@@ -3459,8 +3483,8 @@ class EastDict(Generic[K, V]):
         from east.expression import Expression
         from east.types.types import BooleanType, DictType
 
-        def _pred(v, k):  # noqa: ANN001, ANN202
-            r = predicate(k, v)
+        def _pred(b, v, k):  # noqa: ANN001, ANN202
+            r = predicate(b, k, v)
             return r if isinstance(r, Expression) else bool(r)
 
         # No _mark_kernel: the wrapper SWAPS (k, v) — a marked kernel would be
@@ -3496,7 +3520,7 @@ class EastDict(Generic[K, V]):
                 _kernel_out_type(fn, [self.key_type, self.value_type]))
         if len(self) == 0:
             return EastDict(self.key_type, v2)
-        callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], OptionType(v2))
+        callback = EastFunction(lambda b, v, k: fn(b, k, v), [self.value_type, self.key_type], OptionType(v2))
         return _call_builtin("DictFilterMap", [self.key_type, self.value_type, v2], [self, callback], DictType(self.key_type, v2))
 
     def first_map(self, fn: Any, out: EastType | None = None) -> EastVariant:
@@ -3525,7 +3549,7 @@ class EastDict(Generic[K, V]):
                 _kernel_out_type(fn, [self.key_type, self.value_type]))
         if len(self) == 0:
             return EastVariant("none", east_null)
-        callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], OptionType(t2))
+        callback = EastFunction(lambda b, v, k: fn(b, k, v), [self.value_type, self.key_type], OptionType(t2))
         return _call_builtin("DictFirstMap", [self.key_type, self.value_type, t2], [self, callback], OptionType(t2))
 
     def map_reduce(self, map_fn: Any, reduce_fn: Any, out: EastType | None = None) -> Any:
@@ -3551,7 +3575,7 @@ class EastDict(Generic[K, V]):
             raise ValueError("map_reduce on an empty Dict")
         t2 = out if out is not None else _kernel_out_type(
             map_fn, [self.key_type, self.value_type])
-        map_cb = EastFunction(lambda v, k: map_fn(k, v), [self.value_type, self.key_type], t2)
+        map_cb = EastFunction(lambda b, v, k: map_fn(b, k, v), [self.value_type, self.key_type], t2)
         reduce_cb = EastFunction(reduce_fn, [t2, t2], t2)
         return _call_builtin("DictMapReduce", [self.key_type, self.value_type, t2], [self, map_cb, reduce_cb], t2)
 
@@ -3568,7 +3592,7 @@ class EastDict(Generic[K, V]):
             The final accumulator (``initial`` if the dict is empty).
         """
         t2 = _ev.type_of(initial)
-        callback = EastFunction(lambda acc, v, k: fn(acc, k, v), [t2, self.value_type, self.key_type], t2)
+        callback = EastFunction(lambda b, acc, v, k: fn(b, acc, k, v), [t2, self.value_type, self.key_type], t2)
         return _call_builtin("DictReduce", [self.key_type, self.value_type, t2], [self, callback, initial], t2)
 
     def scan(self, initial: Any, fn: Any) -> EastArray:
@@ -3592,7 +3616,7 @@ class EastDict(Generic[K, V]):
         from east.types.types import ArrayType
 
         t2 = _ev.type_of(initial)
-        callback = EastFunction(lambda acc, v, k: fn(acc, k, v), [t2, self.value_type, self.key_type], t2)
+        callback = EastFunction(lambda b, acc, v, k: fn(b, acc, k, v), [t2, self.value_type, self.key_type], t2)
         return _call_builtin("DictScan", [self.key_type, self.value_type, t2], [self, callback, initial], ArrayType(t2))
 
     def to_array(self, fn: Any, out: EastType | None = None) -> EastArray:
@@ -3617,7 +3641,7 @@ class EastDict(Generic[K, V]):
         t2 = out if out is not None else _kernel_out_type(fn, [self.key_type, self.value_type])
         if len(self) == 0:
             return EastArray(t2, [])
-        callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], t2)
+        callback = EastFunction(lambda b, v, k: fn(b, k, v), [self.value_type, self.key_type], t2)
         return _call_builtin("DictToArray", [self.key_type, self.value_type, t2], [self, callback], ArrayType(t2))
 
     def to_set(self, fn: Any, out: EastType | None = None) -> EastSet:
@@ -3640,7 +3664,7 @@ class EastDict(Generic[K, V]):
             fn, [self.key_type, self.value_type])
         if len(self) == 0:
             return EastSet(k2)
-        callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], k2)
+        callback = EastFunction(lambda b, v, k: fn(b, k, v), [self.value_type, self.key_type], k2)
         return _call_builtin("DictToSet", [self.key_type, self.value_type, k2], [self, callback], SetType(k2))
 
     def to_dict(self, key_fn: Any, value_fn: Any, combine: Any, key_out: EastType | None = None, value_out: EastType | None = None) -> EastDict:
@@ -3676,8 +3700,8 @@ class EastDict(Generic[K, V]):
             value_fn, [self.key_type, self.value_type])
         if len(self) == 0:
             return EastDict(k2, v2)
-        key_cb = EastFunction(lambda v, k: key_fn(k, v), [self.value_type, self.key_type], k2)
-        value_cb = EastFunction(lambda v, k: value_fn(k, v), [self.value_type, self.key_type], v2)
+        key_cb = EastFunction(lambda b, v, k: key_fn(b, k, v), [self.value_type, self.key_type], k2)
+        value_cb = EastFunction(lambda b, v, k: value_fn(b, k, v), [self.value_type, self.key_type], v2)
         # `_combine_cb`, like the Array and Set twins: it accepts a 2- OR
         # 3-argument handler. Wiring `combine` raw made a 2-arg lambda — which
         # works on every other collection, and which the traced twin accepts —
@@ -3702,7 +3726,7 @@ class EastDict(Generic[K, V]):
         t2 = _kernel_out_type(fn, [self.key_type, self.value_type]).value
         if len(self) == 0:
             return EastArray(t2, [])
-        callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], ArrayType(t2))
+        callback = EastFunction(lambda b, v, k: fn(b, k, v), [self.value_type, self.key_type], ArrayType(t2))
         return _call_builtin("DictFlattenToArray", [self.key_type, self.value_type, t2], [self, callback], ArrayType(t2))
 
     def flatten_to_set(self, fn: Any) -> EastSet:
@@ -3722,7 +3746,7 @@ class EastDict(Generic[K, V]):
         k2 = _kernel_out_type(fn, [self.key_type, self.value_type]).value
         if len(self) == 0:
             return EastSet(k2)
-        callback = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], SetType(k2))
+        callback = EastFunction(lambda b, v, k: fn(b, k, v), [self.value_type, self.key_type], SetType(k2))
         return _call_builtin("DictFlattenToSet", [self.key_type, self.value_type, k2], [self, callback], SetType(k2))
 
     def flatten_to_dict(self, fn: Any, combine: Any = None) -> EastDict:
@@ -3746,7 +3770,7 @@ class EastDict(Generic[K, V]):
         # (#450/#525).
         _ko = _kernel_out_type(fn, [self.key_type, self.value_type])
         k2, v2 = _ko.value["key"], _ko.value["value"]
-        map_cb = EastFunction(lambda v, k: fn(k, v), [self.value_type, self.key_type], DictType(k2, v2))
+        map_cb = EastFunction(lambda b, v, k: fn(b, k, v), [self.value_type, self.key_type], DictType(k2, v2))
         combine_cb = EastFunction(_combine_cb(combine, k2, v2), [v2, v2, k2], v2)
         return _call_builtin("DictFlattenToDict", [self.key_type, self.value_type, k2, v2], [self, map_cb, combine_cb], DictType(k2, v2))
 
@@ -3783,9 +3807,9 @@ class EastDict(Generic[K, V]):
         t2 = acc_out if acc_out is not None else _kernel_out_type(init_fn, [k2])
         if len(self) == 0:
             return EastDict(k2, t2)
-        key_cb = EastFunction(lambda v, k: key_fn(k, v), [self.value_type, self.key_type], k2)
+        key_cb = EastFunction(lambda b, v, k: key_fn(b, k, v), [self.value_type, self.key_type], k2)
         init_cb = EastFunction(init_fn, [k2], t2)
-        fold_cb = EastFunction(lambda acc, v, k: fold_fn(acc, k, v), [t2, self.value_type, self.key_type], t2)
+        fold_cb = EastFunction(lambda b, acc, v, k: fold_fn(b, acc, k, v), [t2, self.value_type, self.key_type], t2)
         return _call_builtin("DictGroupFold", [self.key_type, self.value_type, k2, t2], [self, key_cb, init_cb, fold_cb], DictType(k2, t2))
 
     def group_fold(self, key_fn: Any, init_fn: Any, fold_fn: Any, key_out: EastType | None = None, acc_out: EastType | None = None) -> EastDict:

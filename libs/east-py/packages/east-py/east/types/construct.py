@@ -91,13 +91,18 @@ def some(value: EastValue) -> EastVariant:
 none: EastVariant = EastVariant("none", east_null)
 
 
-def match(v: EastVariant, cases: dict[str, Callable[[Any], R]], default: R | None = None) -> R | None:
-    """Dispatch on a variant's tag, calling the matching handler with its value.
+def match(v: EastVariant, cases: dict[str, Callable[[Any, Any], R]], default: R | None = None) -> R | None:
+    """Dispatch on a variant's tag, calling the matching handler — a body,
+    ``handler(b, value)`` with an eager block first — with its value.
 
     Returns ``default`` if no case matches — the one true gap versus the TS API.
     """
     handler = cases.get(v.type)
-    return default if handler is None else handler(v.value)
+    if handler is None:
+        return default
+    from east.expression.statements import EagerBlock
+
+    return handler(EagerBlock(), v.value)
 
 
 def struct(fields: dict[str, EastValue], typ: EastType | None = None) -> EastStruct | Expression:

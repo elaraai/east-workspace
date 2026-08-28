@@ -49,7 +49,7 @@ KEY = StructType([
     ("side", StringType),
 ])
 # What the reported kernel actually emitted: a bare String in the Option slot.
-BAD_KEY_KERNEL = East.function([ROW], StructType([("chit", StringType), ("tank", StringType), ("side", StringType)]), lambda r: {
+BAD_KEY_KERNEL = East.function([ROW], StructType([("chit", StringType), ("tank", StringType), ("side", StringType)]), lambda _b, r: {
     "chit": r["id"],
     "tank": r["csv"],
     "side": "from",
@@ -80,13 +80,13 @@ def test_map_rejects_the_shape_that_used_to_segfault(rows):
     """A kernel emitting Array<String> under out=Array<Option<String>> used to
     be accepted SILENTLY — the array crossed the bridge by pointer, and the
     first read decoded String bytes as a variant header (SIGSEGV, exit 139)."""
-    k = East.function([ROW], ArrayType(StringType), lambda r: r["csv"].split(","))
+    k = East.function([ROW], ArrayType(StringType), lambda _b, r: r["csv"].split(","))
     with pytest.raises(EastTypeError, match="kernel output is"):
         rows.map(k, out=ArrayType(OptionType(StringType)))
 
 
 def test_matched_kernel_with_out_still_runs(rows):
-    k = East.function([ROW], ArrayType(StringType), lambda r: r["csv"].split(","))
+    k = East.function([ROW], ArrayType(StringType), lambda _b, r: r["csv"].split(","))
     tags = rows.map(k, out=ArrayType(StringType))
     assert [list(t) for t in tags] == [["T1", "T2"], ["T3"]]
 
@@ -95,40 +95,40 @@ def test_matched_kernel_with_out_still_runs(rows):
 
 def test_filter_map_checks_the_option_wrapped_output(rows):
     """``out=`` names the INNER type; the kernel must emit some(...)/none."""
-    plain = East.function([ROW], StringType, lambda r: r["id"])          # String, not Option<String>
+    plain = East.function([ROW], StringType, lambda _b, r: r["id"])          # String, not Option<String>
     with pytest.raises(EastTypeError, match="kernel output is"):
         rows.filter_map(plain, out=StringType)
-    good = East.function([ROW], OptionType(StringType), lambda r: some(r["id"]))
+    good = East.function([ROW], OptionType(StringType), lambda _b, r: some(r["id"]))
     assert list(rows.filter_map(good, out=StringType)) == ["c1", "c2"]
 
 
 def test_first_map_checks_the_option_wrapped_output(rows):
-    plain = East.function([ROW], StringType, lambda r: r["id"])
+    plain = East.function([ROW], StringType, lambda _b, r: r["id"])
     with pytest.raises(EastTypeError, match="kernel output is"):
         rows.first_map(plain, out=StringType)
 
 
 def test_flatten_to_array_checks_the_array_wrapped_output(rows):
-    scalar = East.function([ROW], StringType, lambda r: r["id"])         # String, not Array<String>
+    scalar = East.function([ROW], StringType, lambda _b, r: r["id"])         # String, not Array<String>
     with pytest.raises(EastTypeError, match="kernel output is"):
         rows.flatten_to_array(scalar, out=StringType)
 
 
 def test_generate_checks_element_type():
-    k = East.function([IntegerType], IntegerType, lambda i: i + 1)        # Integer
+    k = East.function([IntegerType], IntegerType, lambda _b, i: i + 1)        # Integer
     with pytest.raises(EastTypeError, match="kernel output is"):
         array(IntegerType, []).generate(3, k, element_type=StringType)
 
 
 def test_set_and_dict_map_check_out(rows):
-    ids = rows.map(East.function([ROW], StringType, lambda r: r["id"]), out=StringType)
+    ids = rows.map(East.function([ROW], StringType, lambda _b, r: r["id"]), out=StringType)
     s = ids.to_set()
-    wrong = East.function([StringType], IntegerType, lambda x: x.length())    # Integer, not String
+    wrong = East.function([StringType], IntegerType, lambda _b, x: x.length())    # Integer, not String
     with pytest.raises(EastTypeError, match="kernel output is"):
         s.map(wrong, out=StringType)
-    d = s.map(East.function([StringType], IntegerType, lambda x: x.length()), out=IntegerType)
+    d = s.map(East.function([StringType], IntegerType, lambda _b, x: x.length()), out=IntegerType)
     with pytest.raises(EastTypeError, match="kernel output is"):
-        d.map(East.function([IntegerType], IntegerType, lambda v: v + 1), out=StringType)
+        d.map(East.function([IntegerType], IntegerType, lambda _b, v: v + 1), out=StringType)
     assert sorted(d.values()) == [2, 2]
 
 
@@ -136,8 +136,8 @@ def test_set_and_dict_map_check_out(rows):
 
 def test_update_many_still_rejects_wrong_key_array_labels(rows):
     """The pre-existing label check — pinned because the report leaned on it."""
-    ids = rows.map(East.function([ROW], StringType, lambda r: r["id"]), out=StringType)
-    ones = rows.map(East.function([ROW], IntegerType, lambda r: 1), out=IntegerType)
+    ids = rows.map(East.function([ROW], StringType, lambda _b, r: r["id"]), out=StringType)
+    ones = rows.map(East.function([ROW], IntegerType, lambda _b, r: 1), out=IntegerType)
     d = EastDict(KEY, IntegerType)
     with pytest.raises(EastTypeError, match="keyed by"):
         d.update_many(ids, ones)
@@ -146,14 +146,14 @@ def test_update_many_still_rejects_wrong_key_array_labels(rows):
 def test_update_many_rejects_a_mismatched_combine_kernel(rows):
     """A precompiled combine runs C-to-C with no conversion; its signature is
     the only check its values ever get."""
-    ids = rows.map(East.function([ROW], StringType, lambda r: r["id"]), out=StringType)
-    ones = rows.map(East.function([ROW], IntegerType, lambda r: 1), out=IntegerType)
+    ids = rows.map(East.function([ROW], StringType, lambda _b, r: r["id"]), out=StringType)
+    ones = rows.map(East.function([ROW], IntegerType, lambda _b, r: 1), out=IntegerType)
     d = EastDict(StringType, IntegerType)
-    bad_combine = East.function([StringType, StringType], StringType, lambda a, b: a + b)
+    bad_combine = East.function([StringType, StringType], StringType, lambda _b, a, b: a + b)
     with pytest.raises(EastTypeError, match="combine kernel"):
         d.update_many(ids, ones, combine=bad_combine)
     d.update_many(ids, ones, combine=East.function([IntegerType, IntegerType], IntegerType,
-                                            lambda a, b: a + b))
+                                            lambda _b, a, b: a + b))
     assert dict(d.items()) == {"c1": 1, "c2": 1}
 
 
@@ -165,7 +165,7 @@ def test_plain_lambda_capturing_a_mislabelled_array_is_refused(rows):
     is refused at the wrap, before any mislabelled pointer could cross."""
     wrong = array(StringType, ["a", "b"])
     with pytest.raises(ExpressionError, match="captured automatically"):
-        rows.map(lambda r: wrong, out=ArrayType(OptionType(StringType)))
+        rows.map(lambda _b, r: wrong, out=ArrayType(OptionType(StringType)))
 
 
 def test_wrong_input_kernel_does_not_run_native(rows):
@@ -175,7 +175,7 @@ def test_wrong_input_kernel_does_not_run_native(rows):
     names the missing field, and the push-down's loud contract raises it
     (previously the wrong kernel silently trampolined to a runtime error)."""
     other = StructType([("zz", StringType)])
-    k = East.function([other], StringType, lambda r: r["zz"])
+    k = East.function([other], StringType, lambda _b, r: r["zz"])
     with pytest.raises(ExpressionError, match="no field 'zz'"):
         rows.map(k, out=StringType)
 
@@ -186,7 +186,7 @@ def test_scalar_variant_mismatch_gets_a_named_error(rows):
     previously the per-element conversion died with "'str' object has no
     attribute 'type'"."""
     with pytest.raises(ExpressionError, match="produced String"):
-        rows.map(lambda r: r["id"], out=OptionType(StringType))
+        rows.map(lambda _b, r: r["id"], out=OptionType(StringType))
 
 
 # ── nested collection fields: the exact latent shape from the report ─────────
@@ -196,6 +196,6 @@ def test_struct_with_mislabelled_collection_field_is_refused(rows):
     collection FIELD crossed by pointer and corrupted. Both types statically
     known -> rejected at the call."""
     inner = StructType([("id", StringType), ("tags", ArrayType(OptionType(StringType)))])
-    k = East.function([ROW], StructType([("id", StringType), ("tags", ArrayType(StringType))]), lambda r: {"id": r["id"], "tags": r["csv"].split(",")})
+    k = East.function([ROW], StructType([("id", StringType), ("tags", ArrayType(StringType))]), lambda _b, r: {"id": r["id"], "tags": r["csv"].split(",")})
     with pytest.raises(EastTypeError, match="kernel output is"):
         rows.map(k, out=inner)

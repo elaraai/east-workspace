@@ -41,7 +41,7 @@ Row = StructType([("k", StringType), ("v", ArrayType(Inner))])
 def test_fixed_work_stays_flat_while_live_set_grows():
     # Maps Row -> Row: allocates a struct + an array per row (both GC-kind
     # containers; mapping to a leaf kind would not exercise the collector).
-    k = East.function([Row], Row, lambda r: {"k": r["k"], "v": r["v"]})
+    k = East.function([Row], Row, lambda _b, r: {"k": r["k"], "v": r["v"]})
     work = array(Row, [{"k": str(i), "v": [{"a": "x", "b": 1.0}]} for i in range(20_000)])
 
     def chunk(n: int):

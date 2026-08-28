@@ -799,7 +799,7 @@ class EagerEvaluator:
     def _replay_fn(self, clo: Closure) -> Any:
         p = clo.payload
 
-        def replay(*proxies: Any) -> Any:
+        def replay(_b: Any, *proxies: Any) -> Any:
             env = Env(clo.env)
             for var, proxy in zip(p["parameters"], proxies, strict=False):
                 env.define(var.value["name"], proxy)
@@ -1100,7 +1100,7 @@ _ROWS: dict[str, Any] = {
     "RefGet": lambda ev, n, a: a[0].value,
     "RefUpdate": lambda ev, n, a: (setattr(a[0], "value", a[1]), east_null)[1],
     "RefMerge": lambda ev, n, a: (setattr(
-        a[0], "value", _arity_trim(ev, a[2])(a[0].value, a[1])), east_null)[1],
+        a[0], "value", _arity_trim(ev, a[2])(None, a[0].value, a[1])), east_null)[1],
     # Vector/Matrix arithmetic + sparse accumulators (#598) — the eager
     # EastVector/EastMatrix methods and the East.Vector namespace, whose
     # traced twins share the same spellings.
@@ -1175,25 +1175,29 @@ class _MissingArg:
 
 
 def _kv_user(ev: EagerEvaluator, a: Any, keep: int) -> Any:
-    """Adapt a single-value user callback: keep only the first ``keep`` args."""
+    """Adapt a single-value user callback: keep only the first ``keep`` args.
+    The python surface hands every body the block first; the compiled
+    callback takes none."""
     if not isinstance(a, Closure):
         return a
     cb = ev.make_callback(a)
-    return lambda *args: cb(*args[:keep])
+    return lambda _b, *args: cb(*args[:keep])
 
 
 def _arity_trim(ev: EagerEvaluator, a: Any) -> Any:
-    """Call the closure with only as many arguments as it declares."""
+    """A body calling the closure with only as many arguments as it declares
+    (the block the surface passes first is dropped — a compiled callback
+    takes none)."""
     if not isinstance(a, Closure):
-        return lambda *_args: a
+        return lambda _b, *_args: a
     n = len(a.payload["parameters"])
     cb = ev.make_callback(a)
-    return lambda *args: cb(*args[:n])
+    return lambda _b, *args: cb(*args[:n])
 
 
 def _dict_kv(ev: EagerEvaluator, a: Any) -> Any:
     """Builtin callbacks over dict entries are (value, key); the python
-    methods call user functions as (key, value). The reordering wrapper
+    methods call user bodies as (b, key, value). The reordering wrapper
     cannot ride natively itself — the compiled callable's ``_east_retrace``
     lets the method's own tracing push it down; when that cannot fire the
     call is per-element by construction, so it is not a path violation."""
@@ -1201,7 +1205,7 @@ def _dict_kv(ev: EagerEvaluator, a: Any) -> Any:
         return a
     cb = ev.make_callback(a)
 
-    def swapped(k, v):
+    def swapped(_b, k, v):
         return cb(v, k)
 
     # The reorder captures strictly: `cb` called with proxies lowers to a
@@ -1210,12 +1214,12 @@ def _dict_kv(ev: EagerEvaluator, a: Any) -> Any:
 
 
 def _acc_kv(ev: EagerEvaluator, a: Any) -> Any:
-    """DictReduce: builtin (acc, value, key) → user fn(acc, key, value)."""
+    """DictReduce: builtin (acc, value, key) → user fn(b, acc, key, value)."""
     if not isinstance(a, Closure):
         return a
     cb = ev.make_callback(a)
 
-    def swapped(acc, k, v):
+    def swapped(_b, acc, k, v):
         return cb(acc, v, k)
 
     # The reorder captures strictly: `cb` called with proxies lowers to a
@@ -1224,16 +1228,16 @@ def _acc_kv(ev: EagerEvaluator, a: Any) -> Any:
 
 
 def _acc_kv3(ev: EagerEvaluator, a: Any) -> Any:
-    """DictGroupFold fold: builtin (acc, value, key) → user fn(acc, key, value)."""
+    """DictGroupFold fold: builtin (acc, value, key) → user fn(b, acc, key, value)."""
     return _acc_kv(ev, a)
 
 
 def _two_arg_combine(ev: EagerEvaluator, a: Any) -> Any:
-    """(v1, v2, key) builtin combine → the user surface's (v1, v2) combine."""
+    """(v1, v2, key) builtin combine → the user surface's (b, v1, v2) combine."""
     if not isinstance(a, Closure):
         return a
     cb = ev.make_callback(a)
-    return lambda v1, v2: cb(v1, v2, None) if _combine_arity(a) == 3 else cb(v1, v2)
+    return lambda _b, v1, v2: cb(v1, v2, None) if _combine_arity(a) == 3 else cb(v1, v2)
 
 
 def _combine_arity(a: Closure) -> int:

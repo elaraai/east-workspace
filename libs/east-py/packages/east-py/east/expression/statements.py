@@ -16,22 +16,25 @@ hands it (an element, an index, a loop label, a case payload, an error
 message) — so which block a statement belongs to is always written down,
 and a statement issued on any other block is a build-time error.
 
-Who receives a block:
+EVERY body takes the block first — exactly as every TypeScript callback is
+``($, …) => …``. An ``East.function`` body is ``lambda b, x: …``; a
+builtin's callback is ``xs.map(lambda b, el: …)`` (trailing parameters of
+the builtin's signature may be omitted, the block cannot); a statement
+construct's body is ``b.if_(c, lambda b: …)``; an expression form's handler
+is ``v.match({"some": lambda b, x: …})``; ``East.block(lambda b: …)``. A
+callable declaring no first parameter for the block is refused with the
+fix-it, and a body that uses the block as if it were the element (``lambda
+x: x + 1``) fails on the block's first use. The same rule holds on the eager
+value surface (``EastArray.map`` and friends capture their callback as a
+body); a body a dual-mode construct runs eagerly receives an
+:class:`EagerBlock`, whose statement methods refuse.
 
-- an ``East.function`` / ``East.asyncFunction`` body, when it declares one
-  more parameter than the function has (``lambda b, x: …``, ``def f(b,
-  x)``); a body declaring exactly the parameters (``lambda x: …``) is the
-  expression-only form and works as it always did;
-- a builtin's callback (``xs.map(...)``), when it declares the builtin's
-  FULL callback signature plus the block (``lambda b, el, i: …`` for map's
-  ``(element, index)``);
-- every body of a statement construct (``b.if_``, ``.else_if``, ``.else_``,
-  ``b.match_``, ``b.while_``, ``b.for_``, ``b.try_``, ``.catch``,
-  ``.finally_``) and of ``East.block`` — always; trailing parameters may be
-  omitted, the block cannot;
-- the expression forms (an ``East.if_else`` arm, a ``.match({...})``
-  handler, ``East.try_catch``) — never: they take expressions, and a
-  statement inside one is spelled ``East.block(lambda b: …)``.
+What is NOT a body takes no block: a compiled ``East.function``, a bound
+function, a Function-typed expression, a platform declaration. Every slot
+invokes what it holds body-style — ``fn(b, *values)`` — so such a callable
+drops a leading block (:func:`_drop_block`) and serves any slot, exactly
+as a TypeScript ``Expr<FunctionType>`` does where a ``($, …) => …`` is
+accepted.
 
 Bodies are assembled by the SAME rules the TypeScript builder applies, so a
 program spelled statement-for-statement in both languages builds identical
@@ -110,12 +113,16 @@ from east.types.values import EastStruct, EastVariant
 
 __all__ = [
     "Block",
+    "EagerBlock",
     "LoopLabel",
     "IfBuilder",
     "TryBuilder",
     "error",
     "block_expression",
 ]
+
+#: The fix-it every "no block" refusal carries.
+_BLOCK_FIRST = "a body takes the block first (TS `($, …) => …`): lambda b, …: …"
 
 
 # ─── Frames ─────────────────────────────────────────────────────────────────
@@ -213,38 +220,54 @@ def _arity(fn: Any) -> int | None:
     return None if counts is None else counts[1]
 
 
-def _takes_block(fn: Any, n: int) -> bool:
-    """Whether ``fn`` wants the block first: it declares exactly one more
-    REQUIRED positional parameter than the ``n`` the construct hands it
-    (``lambda b, x: …`` for one parameter). Defaulted parameters do not
-    count — a wrapper that pads its signature with optional parameters is
-    not asking for a block."""
+def _body_arity(fn: Any) -> int | None:
+    """How many PAYLOAD parameters a body declares after the block — the
+    count the constructs trim their arguments to; ``None`` for ``*args``.
+    A callable with no parameter at all has no room for the block and is
+    refused."""
     counts = _positional(fn)
-    return counts is not None and counts[0] == n + 1
+    if counts is None:
+        return None
+    if counts[1] == 0:
+        raise ExpressionError(f"a body with no parameters cannot receive the block — {_BLOCK_FIRST}")
+    return counts[1] - 1
 
 
 def _call_trimmed(fn: Any, args: tuple) -> Any:
-    """Call ``fn`` with as many of ``args`` as it declares (TypeScript passes
-    every argument and JavaScript ignores the extras; python must not)."""
-    n = _arity(fn)
-    return fn(*args) if n is None else fn(*args[:n])
+    """Call a body with the block first and as many of the payload ``args``
+    as it declares (TypeScript passes every argument and JavaScript ignores
+    the extras; python must not). ``args[0]`` is the block."""
+    n = _body_arity(fn)
+    return fn(*args) if n is None else fn(*args[: n + 1])
 
 
 def _call_function_body(fn: Any, frame: _Frame, proxies: list, what: str) -> Any:
-    """Run an ``East.function`` body over its parameter proxies — with the
-    frame's :class:`Block` first when the body declares one more (required)
-    parameter than the function has (``lambda b, x: …``), without it when
-    the body declares the parameters (``lambda x: …``)."""
+    """Run an ``East.function`` body over its parameter proxies, the frame's
+    :class:`Block` first (``lambda b, x: …``): the body must declare the
+    block plus exactly the function's parameters."""
     n = len(proxies)
-    if _takes_block(fn, n):
-        return fn(Block(frame), *proxies)
     counts = _positional(fn)
-    if counts is not None and not (counts[0] <= n <= counts[1]):
+    if counts is not None and not (counts[0] <= n + 1 <= counts[1]):
         raise ExpressionError(
-            f"{what} body declares {counts[0]} parameter(s) — it takes {n} (the "
-            f"function's parameters) or {n + 1} (the block first, then the parameters)"
+            f"{what} body declares {counts[1]} parameter(s) for a {n}-parameter "
+            f"function — {_BLOCK_FIRST}"
         )
-    return fn(*proxies)
+    return fn(Block(frame), *proxies)
+
+
+def _drop_block(args: tuple) -> tuple:
+    """``args`` without a leading block — for a callable that is NOT a body.
+
+    A compiled ``East.function``, a bound function, a Function-typed
+    expression and a platform declaration are values, not bodies: they take
+    no block. Every slot invokes what it holds body-style, ``fn(b,
+    *values)`` (the wrappers that reorder or pad a builtin's arguments do
+    too), so such a callable drops the block and serves any slot. Checked
+    on the TYPE: an expression proxy's ``__getattr__`` must not fire.
+    """
+    if args and getattr(type(args[0]), "_east_block", False):
+        return tuple(args[1:])
+    return args
 
 
 class _Run:
@@ -260,16 +283,15 @@ class _Run:
         self.noted = noted
 
 
-def _open_run(fn: Any, args: tuple, *, return_type: EastType | None,
-              block: bool = True) -> _Run:
+def _open_run(fn: Any, args: tuple, *, return_type: EastType | None) -> _Run:
     """Run ``fn`` in a fresh frame; assemble later with :func:`_finish_run`.
-    With ``block`` the body receives the frame's :class:`Block` first, then
-    ``args`` (trimmed to what it declares); without, ``args`` alone."""
+    The body receives the frame's :class:`Block` first, then ``args``
+    (trimmed to what it declares)."""
     frame = _open_frame(return_type)
     _push_effects()
     try:
         try:
-            result = _call_trimmed(fn, (Block(frame), *args) if block else args)
+            result = _call_trimmed(fn, (Block(frame), *args))
         except ExpressionError:
             raise
         except Exception as e:
@@ -295,10 +317,10 @@ def _finish_run(run: _Run, mode: str, out: EastType | None = None) -> Any:
 
 
 def _run_block(fn: Any, args: tuple, *, return_type: EastType | None, mode: str,
-               out: EastType | None = None, block: bool = True) -> Any:
+               out: EastType | None = None) -> Any:
     """Run ``fn`` in a fresh frame and assemble the body per ``mode``;
     returns the body as an ``Expression``."""
-    return _finish_run(_open_run(fn, args, return_type=return_type, block=block), mode, out)
+    return _finish_run(_open_run(fn, args, return_type=return_type), mode, out)
 
 
 def assemble(frame: _Frame, result: Any, mode: str, out: EastType | None = None) -> Any:
@@ -408,12 +430,22 @@ class Block:
     """
 
     __slots__ = ("_frame",)
+    _east_block = True  # what _drop_block recognises
 
     def __init__(self, frame: _Frame) -> None:
         self._frame = frame
 
     def __repr__(self) -> str:
         return f"<East block: {len(self._frame.statements)} statement(s)>"
+
+    def __getattr__(self, name: str) -> Any:
+        # `lambda x: x.price` — the body's first parameter IS the block, so
+        # `x` is this object: say so, with the fix-it, instead of an
+        # AttributeError about a Block.
+        raise ExpressionError(
+            f"the first parameter of a body is the block, which has no attribute "
+            f"{name!r} — {_BLOCK_FIRST}"
+        )
 
     def _use(self, op: str) -> _Frame:
         _check_open(self._frame, op)
@@ -722,6 +754,60 @@ class Block:
                            finally_body=_null_value(), loc_id=_loc_id())
         frame.statements.append(node)
         return TryBuilder(frame, node, message, stack)
+
+
+def _block_misuse(op: str) -> Any:
+    def refuse(_self: Any, *_args: Any, **_kwargs: Any) -> Any:
+        raise ExpressionError(
+            f"the first parameter of a body is the block, which cannot be used "
+            f"as a value ({op}) — {_BLOCK_FIRST}"
+        )
+
+    refuse.__name__ = op
+    return refuse
+
+
+# A block used as a value (`lambda x: x + 1` with x the block) fails on the
+# first operator, naming the mistake instead of a TypeError about a Block.
+for _op in ("__add__", "__radd__", "__sub__", "__rsub__", "__mul__", "__rmul__",
+            "__truediv__", "__rtruediv__", "__neg__", "__lt__", "__le__", "__gt__",
+            "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__invert__",
+            "__getitem__", "__call__", "__iter__", "__bool__", "__len__"):
+    setattr(Block, _op, _block_misuse(_op))
+Block.__hash__ = object.__hash__  # type: ignore[method-assign]
+del _op
+
+
+class EagerBlock:
+    """The block a body receives when a dual-mode construct runs it EAGERLY
+    on plain values (``East.while_`` outside a build, ``EastVariant.match``,
+    ``EastRef.update``, …): the same first parameter as always, so one body
+    serves both paths — but there is no program to append to, so every
+    statement method refuses."""
+
+    __slots__ = ()
+    _east_block = True
+
+    def __repr__(self) -> str:
+        return "<East block (eager)>"
+
+    def __getattr__(self, name: str) -> Any:
+        if name in _STATEMENT_METHODS:
+            raise ExpressionError(
+                f"b.{name}() is a build-time statement — this body is running "
+                "eagerly on plain values, where there is no program to append "
+                "to; build the function with East.function to use statements"
+            )
+        raise ExpressionError(
+            f"the first parameter of a body is the block, which has no attribute "
+            f"{name!r} — {_BLOCK_FIRST}"
+        )
+
+
+_STATEMENT_METHODS = frozenset({
+    "do", "const", "let", "assign", "return_", "error", "if_", "match_", "while_",
+    "for_", "break_", "continue_", "try_",
+})
 
 
 # ─── Statement internals ────────────────────────────────────────────────────

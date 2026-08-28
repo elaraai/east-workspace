@@ -69,7 +69,7 @@ The callback-free ops (`sort`/`sorted`, `unique`, `union`/`intersect`/`diff`,
 the whole loop in east-c. And `map`/`filter`/`fold`/… callbacks are
 **captured into native East kernels** (see
 [Expressions](#expressions--one-capture-one-execution)) — a lambda like
-`lambda r: r.price * r.qty` never executes per element. There is no second
+`lambda b, r: r.price * r.qty` never executes per element. There is no second
 execution path: a callback that does genuine python work RAISES, naming the
 binding with no East form, so two identical-looking callbacks can never
 quietly differ in cost or semantics.
@@ -80,10 +80,10 @@ quietly differ in cost or semantics.
 |---|---|
 | `[dict(r) for r in items]` then Python loops | keep `items` as the `EastArray`; `.map`/`.filter`/`.group_by`/`.fold` |
 | `sorted(items, key=…)` / `sorted(list(arr))` | `items.sorted(key=…)` (East order, in C) |
-| `{r["k"]: r for r in items}` | `items.to_dict(lambda r: r["k"])` |
+| `{r["k"]: r for r in items}` | `items.to_dict(lambda b, r: r["k"])` |
 | `set(a) & set(b)` / `set(a) - set(b)` | `a.intersect(b)` / `a.diff(b)` |
 | `EastArray(T, [f(x) for x in arr])` | `arr.map(f)` (pin `out=` for a widening map) |
-| a `for` loop that sums/accumulates | `arr.fold(init, lambda acc, x: …)` / `arr.map_reduce(…)` |
+| a `for` loop that sums/accumulates | `arr.fold(init, lambda b, acc, x: …)` / `arr.map_reduce(…)` |
 | a helper that takes/returns `list`/`dict`/`set` | a helper over East values, or inline the eager chain |
 
 ```python
@@ -98,9 +98,9 @@ def totals_by_region(items):
 # CORRECT — stays C-side, East-ordered, no round trip
 def totals_by_region(items):
     return (items
-        .group_by(lambda r: r["region"])                                    # Dict<region, Array<row>>
-        .map(lambda rows: rows.fold(0.0, lambda acc, r: acc + r["amount"])) # Dict<region, total>
-        .to_array(lambda region, total: struct({"region": region, "total": total}, Row)))
+        .group_by(lambda b, r: r["region"])                                       # Dict<region, Array<row>>
+        .map(lambda b, rows: rows.fold(0.0, lambda b, acc, r: acc + r["amount"])) # Dict<region, total>
+        .to_array(lambda b, region, total: struct({"region": region, "total": total}, Row)))
 ```
 
 ## Expressions — one capture, one execution
@@ -123,8 +123,9 @@ from east import (East, EastArray, FloatType, IntegerType, NullType,
 Row = StructType([("sku", StringType), ("qty", IntegerType)])
 rows = EastArray(Row, [{"sku": "a", "qty": 2}, {"sku": "b", "qty": 4}])
 
-# East.function(param_types, out, body) — `out` is REQUIRED and enforced
-amount = East.function([Row], FloatType, lambda r: r.qty.to_float() * 1.5)
+# East.function(param_types, out, body) — `out` is REQUIRED and enforced;
+# every body takes the block `b` first (TS `($, r) => …`), then the parameters
+amount = East.function([Row], FloatType, lambda b, r: r.qty.to_float() * 1.5)
 amount({"sku": "a", "qty": 2})            # 3.0 — pure bodies run immediately
 rows.map(amount)                          # [3.0, 6.0] — every eager method
                                           #   accepts one
@@ -133,7 +134,7 @@ rows.map(amount)                          # [3.0, 6.0] — every eager method
 # @platform_function is the implementation side
 log   = East.platform("t.log", [StringType], NullType)
 greet = East.function([StringType], NullType,
-                      lambda name: log(East.String.concat("hello ", name)))
+                      lambda b, name: log(East.String.concat("hello ", name)))
 
 greet("bob")                              # EastError: Platform function 't.log'
                                           #   is not available — compile with
@@ -144,7 +145,7 @@ run("bob")
 
 | Call | Builds | Notes |
 |---|---|---|
-| `East.function(param_types, out, body)` | a `Function` artifact | `param_types` is a LIST (`[]` for none); `out` is required, and a body whose expression has another type raises naming both |
+| `East.function(param_types, out, body)` | a `Function` artifact | `param_types` is a LIST (`[]` for none); the body takes the block first — `lambda b, x: …` / `def f(b, x)`, as EVERY body does (`lambda x: …` is refused with the fix-it); `out` is required, and a body whose expression has another type raises naming both |
 | `East.asyncFunction(param_types, out, body)` | an `AsyncFunction` artifact | for bodies calling async platform declarations; compile with `East.compileAsync` |
 | `East.platform(name, inputs, output)` | a declaration handle | callable INSIDE a body (emits the `Platform` node); calling one outside raises `expression-level` |
 | `East.asyncPlatform(name, inputs, output)` | an async declaration | calling it from a SYNC body is a build error naming `East.asyncFunction` |
@@ -173,7 +174,9 @@ runner.
 Every eager callback method takes exactly two kinds of function:
 
 1. **A python body — captured automatically.** The method captures it as an
-   `East.function` body against the builtin's declared signature: the whole
+   `East.function` body — the block first, then the builtin's callback
+   arguments (`lambda b, el: …`; trailing arguments may be omitted, the
+   block cannot) — against the builtin's declared signature: the whole
    builtin surface records East IR — field access, arithmetic, comparisons,
    boolean algebra, string/datetime methods, every `East.<Type>.*` namespace
    call, `struct`/`some`/`none`/`variant` construction, option consume
@@ -248,14 +251,14 @@ Every eager callback method takes exactly two kinds of function:
 
    ```python
    rows    = EastBlob(csv_bytes).decode_csv(Row)          # C-backed Array<Row>
-   amounts = rows.map(lambda r: r.price * r.qty)          # traced -> native
-   hot     = rows.filter(lambda r: (r.sku == "A-1") & (r.price > 100.0))
-   total   = rows.fold(0.0, lambda acc, r: acc + r.price) # multi-param traces too
-   by_sku  = rows.group_by(lambda r: r.sku)               # fully native grouping
-   top     = rows.sorted(key=lambda r: -r.price)
-   spend   = rows.to_dict(key=lambda r: r.sku,
-                          value=lambda r: r.price * r.qty,
-                          combine=lambda a, b: a + b)
+   amounts = rows.map(lambda b, r: r.price * r.qty)          # traced -> native
+   hot     = rows.filter(lambda b, r: (r.sku == "A-1") & (r.price > 100.0))
+   total   = rows.fold(0.0, lambda b, acc, r: acc + r.price) # multi-param traces too
+   by_sku  = rows.group_by(lambda b, r: r.sku)               # fully native grouping
+   top     = rows.sorted(key=lambda b, r: -r.price)
+   spend   = rows.to_dict(key=lambda b, r: r.sku,
+                          value=lambda b, r: r.price * r.qty,
+                          combine=lambda b, x, y: x + y)
    ```
 
 2. **A precompiled East function** — `East.function(param_types, out, fn)`
@@ -271,13 +274,13 @@ Every eager callback method takes exactly two kinds of function:
    cause (#467). Artifacts are also **dual-mode** (#470): called with plain
    values they execute natively; referenced inside another body they re-run
    their source and splice into that build — so they compose
-   (`East.function([Row], FloatType, lambda r: amount(r) * 1.1)`), and every
+   (`East.function([Row], FloatType, lambda b, r: amount(r) * 1.1)`), and every
    grouping/sugar method runs them with zero per-element python. A
    `.bind(...)` result (or any compiled function value) cannot re-run its
    body — instead a captured body that CALLS one lowers the call to the IR
    `Call` node (#561): the callee rides as a hidden bound parameter and the
    loop, the kernel and the callee all execute inside east-c. So
-   `East.function([Row], FloatType, lambda r: lookup(r.k))` over a
+   `East.function([Row], FloatType, lambda b, r: lookup(r.k))` over a
    `lookup = East.function(...).bind(table)` compiles whole, and
    `FunctionType` PARAMETERS are first-class — callable in the body and
    bindable with function values. (Calling an `AsyncFunctionType` value in a
@@ -289,16 +292,16 @@ Every eager callback method takes exactly two kinds of function:
    ```python
    from east import East, FloatType
 
-   amount = East.function([Row], FloatType, lambda r: r.price * r.qty)
+   amount = East.function([Row], FloatType, lambda b, r: r.price * r.qty)
    for blob in batches:
        out = blob.decode_csv(Row).map(amount)          # reuse — no re-capture
-
+                                                       # (a VALUE takes no block)
    step = East.function([FloatType, Row], FloatType,   # fold arity
-                        lambda acc, r: acc + r.price)
+                        lambda b, acc, r: acc + r.price)
    k = compile_from_beast2(bytes_)                     # compiled in TS
 
    conv = East.function([Row, TableT], FloatType,
-                        lambda r, t: t.get_or_default(r.sku, 0.0))
+                        lambda b, r, t: t.get_or_default(r.sku, 0.0))
    rows.map(conv.bind(table))   # bind a live side-table BY REFERENCE (#399):
                                 # zero-copy at any size, mutations observed,
                                 # still native — see "Maximum performance" #3
@@ -347,10 +350,10 @@ Anything else in a callback slot RAISES — there is no third kind.
 - Captures are CACHED (#422): an eager callback whose code object, captured
   bindings and declared signature match a previous call reuses the compiled
   kernel — so the per-group aggregate shape,
-  `group_to_arrays(key).to_array(lambda k, es: {…aggregates over es…})`,
+  `group_to_arrays(key).to_array(lambda b, k, es: {…aggregates over es…})`,
   captures each inner lambda once, not once per group (this exact shape
   measured 145 s of pure re-tracing before the cache). ⚠️ A lambda whose
-  CAPTURES change per call (`lambda r: r.v > g` inside a loop over `g`)
+  CAPTURES change per call (`lambda b, r: r.v > g` inside a loop over `g`)
   re-captures every time, because each capture value bakes into a different
   kernel — hoist an `East.function(...)` and pass the varying value as a
   bound parameter instead.
@@ -372,14 +375,14 @@ state struct IS the loop's local variables:
 from east import East
 
 total = East.while_({"i": 0, "acc": 0},
-                    cond=lambda s: s.i < n,
-                    body=lambda s: {"acc": s.acc + s.i, "i": s.i + 1}).acc
+                    cond=lambda b, s: s.i < n,
+                    body=lambda b, s: {"acc": s.acc + s.i, "i": s.i + 1}).acc
 
 # `East.if_else` is the `if`; a field left as `s.field` is the empty else;
 # `{**s, …}` changes one field and keeps the rest
 East.for_(rows, {"n": 0, "hi": 0.0},
-          lambda s, r: {"n": s.n + 1,
-                        "hi": East.if_else(r.price > s.hi, r.price, s.hi)})
+          lambda b, s, r: {"n": s.n + 1,
+                           "hi": East.if_else(r.price > s.hi, r.price, s.hi)})
 ```
 
 This lowers to a `Ref` holding the state, a `While`/`For*` node whose body is
@@ -392,15 +395,15 @@ plain East values. A worked example is in
 | Call | Emits | Notes |
 |---|---|---|
 | `East.if_else(cond, value, …, otherwise)` | `IfElse` | cond/value pairs then the else — an if/elif/else chain is ONE node; exactly one arm evaluates |
-| `East.while_(state, cond, body, label=…)` | `While` | `cond(s) -> Boolean`, `body(s) -> next state` (the statement form is `b.while_`, below) |
-| `East.for_(coll, state, body, label=…)` | `ForArray`/`ForSet`/`ForDict` | Array `body(s, el[, i])`, Set `body(s, el)`, Dict `body(s, k, v)` (the statement form is `b.for_`, below) |
+| `East.while_(state, cond, body, label=…)` | `While` | `cond(b, s) -> Boolean`, `body(b, s) -> next state` (the statement form is `b.while_`, below) |
+| `East.for_(coll, state, body, label=…)` | `ForArray`/`ForSet`/`ForDict` | Array `body(b, s, el[, i])`, Set `body(b, s, el)`, Dict `body(b, s, k, v)` (the statement form is `b.for_`, below) |
 | `East.block(a, b, …)` | `Block` | evaluates in order, yields the last — the sequencing point for mutators (`East.block(lambda b: …)` is the block form: statements inside an expression, below) |
-| `East.let(value, fn)` | `Let` | bind once, use many times (explicit CSE inside a loop); the statement is `b.let(value[, type])`, below |
-| `East.ref(v)` | `NewRef` | a cell — `.get()` / `.set(v)` / `.update(fn)` / `.merge(v, fn)` |
+| `East.let(value, fn)` | `Let` | `fn(b, bound)` — bind once, use many times (explicit CSE inside a loop); the statement is `b.let(value[, type])`, below |
+| `East.ref(v)` | `NewRef` | a cell — `.get()` / `.set(v)` / `.update(fn(b, current))` / `.merge(v, fn(b, current, patch))` |
 | `East.label(name=None)` | — | names a loop, for `break_`/`continue_` from a NESTED one |
 | `East.break_(state=…, label=…)` | `Break` | leave, optionally committing a last state |
 | `East.continue_(state=…, label=…)` | `Continue` | next iteration, optionally committing |
-| `East.try_catch(body, handler, finally_=None)` | `TryCatch` | `handler(message[, stack])`, same East type as `body` |
+| `East.try_catch(body, handler, finally_=None)` | `TryCatch` | `body(b)`, `handler(b, message[, stack])`, same East type as `body` |
 | `East.new_array/new_set/new_dict(…)` | `NewArray`/`NewSet`/`NewDict` | a FRESH collection per evaluation — the loop accumulator |
 | `East.new_vector(T, values)` / `East.new_matrix(T, rows, cols, values)` | `NewVector`/`NewMatrix` | a fresh tensor from scalar expressions |
 
@@ -413,8 +416,8 @@ loop that silently does nothing:
 
 ```python
 counts = East.for_(rows, {"counts": East.new_dict(StringType, IntegerType)},
-                   lambda s, r: East.block(
-                       s.counts.insert_or_update(r.sku, 1, lambda a, b: a + b),
+                   lambda b, s, r: East.block(
+                       s.counts.insert_or_update(r.sku, 1, lambda b, x, y: x + y),
                        s)).counts
 ```
 
@@ -427,14 +430,17 @@ between calls.
 ### Statements — the TypeScript `$` twin (#627)
 
 A TypeScript body receives `$` and appends STATEMENTS to it. A python body
-receives **`b`** — the block — as its FIRST parameter and does the same:
-`East.function([types], out)` with the body omitted is a decorator, and a
-`def` declaring one more parameter than the function has gets the block.
-Every branch, loop and handler body receives ITS OWN block first, then
-what the construct hands it, so which block a statement belongs to is
-always written down — and a statement on any other block is a build-time
-error. Python `None` returned from a body is TypeScript's "no return"; the
-`east_null` sentinel is an explicit `null`:
+receives **`b`** — the block — as its FIRST parameter and does the same.
+EVERY body does, always — an `East.function` body, a builtin's callback, a
+branch, a loop, a handler — exactly as every TypeScript body is `($, …) =>
+…`: a `lambda x: …` that leaves it out is refused with the fix-it, and a
+body that uses the block as if it were the element fails on the block's
+first use. (`East.function([types], out)` with the body omitted is a
+decorator.) Every branch, loop and handler body receives ITS OWN block
+first, then what the construct hands it, so which block a statement belongs
+to is always written down — and a statement on any other block is a
+build-time error. Python `None` returned from a body is TypeScript's "no
+return"; the `east_null` sentinel is an explicit `null`:
 
 ```python
 from east import East, IntegerType, StringType
@@ -455,14 +461,16 @@ classify(3)                                            # "mid"
 ```
 
 A one-statement body is a `lambda b: …`; a longer one is a `def` written
-just before the statement that uses it. **Who receives a block:**
+just before the statement that uses it. Name the block `_b` when the body
+does not use it. **Every body takes the block first:**
 
-| Body | Gets the block when | Example |
-|---|---|---|
-| `East.function` / `East.asyncFunction` body | it declares one more (required) parameter than the function has | `def f(b, x)`, `lambda b, x: …`; `lambda x: …` is the expression-only form and works as it always did |
-| a builtin's callback (`xs.map(...)`, `fold`, …) | it declares the builtin's FULL callback signature plus one | `xs.map(lambda b, el, i: …)` — map's `(element, index)`; `xs.fold(0, lambda b, acc, el, i: …)` |
-| a statement construct's body (`b.if_`/`.else_if`/`.else_`, `b.match_`, `b.while_`, `b.for_`, `b.try_`/`.catch`/`.finally_`) and `East.block(fn)` | always — trailing parameters may be omitted, the block cannot | `b.for_(xs, lambda b, v, i, label: …)`, `b.match_(v, {"some": lambda b, x: …})` |
-| an expression form's handler (`East.if_else` arm, `.match({...})`, `East.try_catch`) | never — they take expressions | statements inside: `East.block(lambda b: …)` |
+| Body | Spelling |
+|---|---|
+| `East.function` / `East.asyncFunction` body | `lambda b, x: …`, `def f(b, x)` — the block plus exactly the function's parameters; `lambda x: …` is refused (`a body takes the block first`) |
+| a builtin's callback (`xs.map(...)`, `fold`, …) | `xs.map(lambda b, el, i: …)` — the block, then the builtin's callback signature (map's `(element, index)`; `xs.fold(0, lambda b, acc, el, i: …)`); trailing parameters may be omitted, the block cannot |
+| a statement construct's body (`b.if_`/`.else_if`/`.else_`, `b.match_`, `b.while_`, `b.for_`, `b.try_`/`.catch`/`.finally_`) and `East.block(fn)` | `b.for_(xs, lambda b, v, i, label: …)`, `b.match_(v, {"some": lambda b, x: …})`, `East.block(lambda b: …)` |
+| an expression form's handler (`.match({...})`, `East.try_catch`, `East.let`, the `East.while_`/`for_` bodies) | bodies too: `v.match({"some": lambda b, x: …})`, `East.try_catch(lambda b: …, lambda b, msg: …)` — statements inside them go in `East.block(lambda b: …)`; `East.if_else` arms are expressions, not bodies |
+| a function VALUE — a compiled `East.function`, a `.bind` result, a Function-typed expression, a platform declaration | takes NO block: a slot invokes what it holds body-style and the value drops the block, so `xs.map(amount)` and `xs.map(lambda b, el: amount(el))` both work (TS: an `Expr<FunctionType>` wherever a `($, …) => …` is accepted); a value declaring fewer parameters than the slot passes takes the prefix |
 
 | Statement | Emits | Notes |
 |---|---|---|
@@ -549,7 +557,7 @@ python never runs per element**. In order of impact:
    boxing crossing — convert at most once, at the very end.
 2. **Let the callbacks capture** (form 1 above), and chain on the results —
    a chain of captured `map`/`filter`/`fold` stays native between steps.
-   Return a dict literal (`lambda r: {"a": …, "b": …}`) to compute every
+   Return a dict literal (`lambda b, r: {"a": …, "b": …}`) to compute every
    derived column in ONE pass instead of one `map` per column. **Reuse a
    python variable to share work** (trace-time CSE): assigning
    `fields = r.data.split("|")` and reading `fields` for 30 columns
@@ -582,11 +590,11 @@ python never runs per element**. In order of impact:
    ```python
    fx = EastDict(StringType, FloatType, rates)          # small table → capture
    to_usd = East.function([Row], FloatType,             # (the EXPLICIT build
-       lambda r: r.amount * fx.get_or_default(r.ccy, 1.0))   # opts into snapshot)
+       lambda b, r: r.amount * fx.get_or_default(r.ccy, 1.0))   # opts into snapshot)
 
    TableT = DictType(StringType, FloatType)             # huge table → bind
    conv = East.function([Row, TableT], FloatType,
-       lambda r, t: r.amount * t.get_or_default(r.ccy, 1.0))
+       lambda b, r, t: r.amount * t.get_or_default(r.ccy, 1.0))
    rows.map(conv.bind(big_table))                       # loop + lookup stay in east-c
    conv.bind(t1, t2)  # multi-table: binds the TRAILING parameters in order
    ```
@@ -632,7 +640,7 @@ result = rows.map_batches(f, out=Out, batch_size=50_000)    # f sees columnar ch
                                                             # batches may shrink (filter-like)
 
 acc = EastDict(StringType, FloatType)                       # dicts as accumulators:
-acc.update_many(keys, values, combine=lambda cur, new: cur + new)  # one crossing,
+acc.update_many(keys, values, combine=lambda b, cur, new: cur + new)  # one crossing,
                                                             # combine traces -> collisions in C
 arr.extend(np_array)                                        # bulk push, one crossing
 
@@ -692,7 +700,7 @@ LineItem = StructType([("name", StringType), ("price", FloatType)])
 items = array(LineItem, [{"name": "a", "price": 1}, {"name": "b", "price": 2.0}])
 
 # 2. Eager methods run NOW (delegating to east-c) and chain
-dear = items.filter(lambda r: r["price"] >= 2.0).sorted(key=lambda r: r["price"])
+dear = items.filter(lambda b, r: r["price"] >= 2.0).sorted(key=lambda b, r: r["price"])
 
 # 3. Primitive builtins live on East.<Type> namespaces (can't add methods to float/str)
 East.Float.sqrt(2.0)
@@ -701,7 +709,7 @@ East.String.upper_case("hi")
 # 4. Expose a Python function to East — typed, validated, auto-collected
 @platform_function(inputs=[FloatType, ArrayType(LineItem)], output=ArrayType(LineItem))
 def convert_prices(fx_rate, items):
-    return items.map(lambda r: struct({"name": r["name"], "price": r["price"] * fx_rate}, LineItem))
+    return items.map(lambda b, r: struct({"name": r["name"], "price": r["price"] * fx_rate}, LineItem))
 
 platform = platform_functions(__name__)   # pass to compile() to register
 ```
@@ -731,7 +739,7 @@ Task → What do you need?
     │
     ├─ Transform a value (eager — runs NOW in east-c; results stay C-side and chain;
     │   callbacks are CAPTURED into native kernels — see “Expressions” — and East.function()/East.if_else()/greatest()/least() author them explicitly)
-    │   ├─ Array<T>  (element callbacks take fn(el) — or fn(el, idx) when declared, the builtin's index)
+    │   ├─ Array<T>  (callbacks take the block first: fn(b, el) — or fn(b, el, idx) when declared, the builtin's index)
     │   │   ├─ Access → get(i) ❗bounds · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · arr[i] (pythonic) · len() · iterate
     │   │   ├─ Reorder → sort(key=, reverse=) (in place) · sorted(key=, reverse=) · reverse() · reversed()
     │   │   ├─ Slice & combine → slice(start, end) · concat(other) · copy()
@@ -765,7 +773,7 @@ Task → What do you need?
     │   │   ├─ Flatten → flatten_to_array(fn, out=) · flatten_to_set(fn, out=) · flatten_to_dict(fn, combine=) ❗dup w/o combine
     │   │   └─ Mutate (in place) → add · insert ❗exists · try_insert(v)→bool · remove · delete ❗missing ·
     │   │                          try_delete(v)→bool · discard · clear · copy()
-    │   ├─ Dict<K,V>  (callbacks: map=fn(v)|fn(v,k) · filter/first_map/to_*/flatten_*/group_reduce=fn(k,v) · reduce=fn(acc,k,v))
+    │   ├─ Dict<K,V>  (callbacks, after the block: map=fn(b,v)|fn(b,v,k) · filter/first_map/to_*/flatten_*/group_reduce=fn(b,k,v) · reduce=fn(b,acc,k,v))
     │   │   ├─ Access → d[k] · get(k, default=None) · get_or_default(k, d) · try_get(k) · has(k) · len() ·
     │   │   │            keys()/values()/items() (python views — TS's `keys` is keys_set())
     │   │   ├─ Combine → union(other, combine=) ❗shared key w/o combine (pure; `merge` = deprecated alias #527) · union_in_place(other, combine=) · merge_key(key, value, update, initial=) (ONE key, in place) · get_keys(keys, fill)
@@ -800,8 +808,8 @@ Task → What do you need?
     │   │                seed/construct → arr.to_vector() · East.Vector.zeros/ones(T, n) ·
     │   │                East.Vector.fill(T, n, value) (eager-classmethod arity, #601)
     │   ├─ Struct        → s["field"] or s.field (methods shadow same-named fields) · items()/keys()/values()
-    │   ├─ Variant       → .type/.get_tag() · .has_tag(tag) · .unwrap(tag) ❗ · .match({case: handler}, default=)
-    │   ├─ Ref           → get() · set(value) · update(fn(current)) · merge(patch, combine)
+    │   ├─ Variant       → .type/.get_tag() · .has_tag(tag) · .unwrap(tag) ❗ · .match({case: handler(b, x)}, default=)
+    │   ├─ Ref           → get() · set(value) · update(fn(b, current)) · merge(patch, combine(b, current, patch))
     │   └─ Blob          → size/get_uint8/.data · decode_utf8/utf16 · encode_beast2/decode_beast2 ·
     │                      decode_csv(row_type, csv_parse_config(null_strings=…, defaults=…, …))
     │
@@ -822,7 +830,7 @@ Task → What do you need?
     │   ├─ A lambda in ANY eager callback → captured automatically (nothing to import;
     │   │   a body East cannot express RAISES, naming the binding — there is no python fallback)
     │   ├─ Author a reusable/named function → East.function(param_types, out, body)   ❗out is required
-    │   │   (multi-param: East.function([acc_t, elem_t], acc_t, lambda acc, r: …) for fold-shaped callbacks)
+    │   │   (the body takes the block first: East.function([acc_t, elem_t], acc_t, lambda b, acc, r: …) for fold-shaped callbacks)
     │   ├─ Declare a platform call inside a body → East.platform(name, inputs, output) / East.asyncPlatform
     │   │   → pair with the @platform_function impl and East.compile(fn, platform=[…]) / East.compileAsync
     │   │   (uncompiled, calling it raises `Platform function 'X' is not available`)
@@ -886,13 +894,14 @@ Task → What do you need?
     │   │   │   @East.function(types, out) def f(b, …): b.let/b.const · b.assign · b.if_(…).else_if(…).else_(…) ·
     │   │   │   b.while_(pred, fn(b, label)) · b.for_(coll, fn(b, v, i, label)) · b.break_/continue_(label) ·
     │   │   │   b.match_(v, {case: fn(b, x)}) · b.try_(fn).catch(fn(b, msg, stack)).finally_(fn) · b.return_ · b.error · b.do
-    │   │   │   (every branch/loop body gets ITS OWN b first; a callback declaring the full signature + 1 gets one too;
-    │   │   │    inside an expression form use East.block(lambda b: …)) — see “Statements” above
+    │   │   │   (EVERY body gets the block first — function, callback, branch, loop, handler; a bare lambda x: is
+    │   │   │    refused; a function VALUE in a slot takes none; inside an expression form use East.block(lambda b: …))
+    │   │   │   — see “Statements” above
     │   │   ├─ Loop with state (expression form) → East.while_(state, cond, body, label=) · East.for_(coll, state, body, label=)
     │   │   │   ├─ state = a dict of fields (read `s.name`) or one value; the body RETURNS the next state,
     │   │   │   │   with the SAME fields and East types (a change in either is a named ExpressionError)
     │   │   │   ├─ branch in the body → East.if_else · keep a field → s.field · change one → {**s, "k": …}
-    │   │   │   └─ callbacks: while_ cond(s)/body(s) · for_ Array body(s, el[, i]) · Set body(s, el) · Dict body(s, k, v)
+    │   │   │   └─ callbacks: while_ cond(b, s)/body(b, s) · for_ Array body(b, s, el[, i]) · Set body(b, s, el) · Dict body(b, s, k, v)
     │   │   ├─ Leave / skip → East.break_(state=…, label=…) · East.continue_(state=…, label=…) — as an if_else arm;
     │   │   │   the optional state COMMITS before the jump (without it the iteration's work is discarded)
     │   │   ├─ Leave an OUTER loop from an inner one → lbl = East.label("outer") on it + break_(state, label=lbl)
@@ -906,9 +915,9 @@ Task → What do you need?
     │   │   │   │   trace time and thrown away, so the tracer raises rather than compile a loop that does nothing
     │   │   │   └─ ❗mutating a CAPTURED collection raises — it is a build-time snapshot shared by every call;
     │   │   │       build it with new_* (a loop's SEED is exempt: it is rebuilt per call) or bind it as a parameter
-    │   │   ├─ Sequence / bind / cell → East.block(a, b, …) (yields the last) · East.let(value, fn(bound)) ·
-    │   │   │   East.ref(v) → .get() / .set(v) / .update(fn(current))
-    │   │   └─ Catch an East runtime error → East.try_catch(body, handler(message[, stack]), finally_=…)
+    │   │   ├─ Sequence / bind / cell → East.block(a, b, …) (yields the last) · East.let(value, fn(b, bound)) ·
+    │   │   │   East.ref(v) → .get() / .set(v) / .update(fn(b, current))
+    │   │   └─ Catch an East runtime error → East.try_catch(body(b), handler(b, message[, stack]), finally_=…)
     │   │       (both arms must produce the SAME East type)
     │   ├─ Load a kernel compiled elsewhere (e.g. TS, serialized) → compile_from_beast2/json/east — pass to any eager method
     │   ├─ Compile IR you built programmatically (east.ir.builders values) → from east import compile_from_value
@@ -1006,6 +1015,12 @@ that still run python, so you can reason about cost and semantics:
 
 ## Sharp edges
 
+- **Every body takes the block first** — `lambda b, x: …` / `def f(b, x)`,
+  never `lambda x: …` (refused with the fix-it) — an `East.function` body, a
+  builtin's callback, a branch, a loop, a `.match` handler alike, exactly as
+  every TypeScript body is `($, …) => …`. A function VALUE (a compiled
+  `East.function`, a `.bind` result) takes none. Name the block `_b` when the
+  body does not use it.
 - **Type constructors take PAIRS, not a dict** (unlike the TS DSL):
   `StructType([("name", StringType), ("price", FloatType)])` /
   `VariantType([("ok", T), ("err", E)])`.
@@ -1110,7 +1125,7 @@ to East's storage width (Float→f64, Integer→i64, Boolean→u8) crossing into
 | `struct(fields: dict, typ: StructType\|None=None) -> EastStruct` | Reorders/coerces keys to `typ` (else infers from fields); dual-mode — a field holding a traced expression (at any depth) builds Struct IR instead | `struct({"price":1,"name":"a"}, LineItem)` |
 | `variant(case: str, value, typ: VariantType\|None=None) -> EastVariant` | Tagged value; validates `value` against case `case` (matched **by name**); read back via `.type`/`.value`; dual-mode — a traced payload builds Variant IR, typed by `typ` or by context | `variant("named", "red", Color)` |
 | `some(value) -> EastVariant` / `none` | Option `some`; `none` is a **constant**, not a function | `some(5)` / `none` |
-| `match(v, cases: dict, default=None)` | Dispatch on `v.type`; the handler is **always** called `handler(v.value)` — the `none` arm must be `lambda v: …`, not `lambda: …` | `match(o, {"some": lambda x: x, "none": lambda v: -1})` |
+| `match(v, cases: dict, default=None)` | Dispatch on `v.type`; the handler is a body, **always** called `handler(b, v.value)` — the `none` arm is `lambda b, v: …`, not `lambda: …` | `match(o, {"some": lambda b, x: x, "none": lambda b, v: -1})` |
 | `east_ref(value) -> EastRef` | Make a mutable ref cell (same as `EastRef(value)`) | `east_ref(0)` |
 | **Validation / coercion** — raise `EastTypeError` (`expected X, got Y (at $.path)`) |
 | `coerce_to(value, typ, *, path="$") -> EastValue` | Canonicalize any Python value to a bridge-ready East value, type-driven; a 1-D numpy array fills `Array<Float/Integer/Boolean>` C-side in one bulk crossing (hand struct fields numpy columns directly) | `coerce_to({"qty": np_i64}, InputType)` |
@@ -1126,9 +1141,10 @@ Container constructors are also direct: `EastArray(elem, items=None)`, `EastSet(
 ### EastArray — complete method surface
 
 Eager; results are live east-c-backed values that chain. `arr[i]`, `len(arr)`, `for x in arr`
-work via the sequence protocol. Callback methods accept a python body (captured into a native
-kernel) or a precompiled `East.function(...)`; anything East cannot express raises with the
-binding named. Result types come from the capture, so `out`/`element_type` is optional — pass it
+work via the sequence protocol. Callback methods accept a python body — the block first, then
+the arguments the table lists, so `fn(el)` is written `lambda b, el: …` — (captured into a native
+kernel) or a precompiled `East.function(...)` (a value: it takes no block); anything East cannot
+express raises with the binding named. Result types come from the capture, so `out`/`element_type` is optional — pass it
 to PIN a type (a widening map, an Option payload) and a contradicting precompiled function raises
 at the call. `.element_type` is the logical element type.
 
@@ -1149,7 +1165,8 @@ at the call. `.element_type` is the logical element type.
 ### EastSet — complete method surface
 
 Mutable, unique, **East-sorted**. `.element_type` is the element type; iteration / `to_array` /
-`reduce` visit in East order. **`map` and `filter_map` return an `EastDict`** keyed by the element
+`reduce` visit in East order. Every callback takes the block first (`lambda b, el: …`); the
+signatures below list the arguments after it. **`map` and `filter_map` return an `EastDict`** keyed by the element
 (Set→Set is `to_set`).
 
 | Group | Methods |
@@ -1164,7 +1181,8 @@ Mutable, unique, **East-sorted**. `.element_type` is the element type; iteration
 
 ### EastDict — complete method surface
 
-Mutable, **East-sorted by key**. `.key_type` / `.value_type`. **Callback arities differ:**
+Mutable, **East-sorted by key**. `.key_type` / `.value_type`. **Callback arities differ**
+(every callback takes the block first — the arities below are what follows it):
 `map` takes `fn(value)` (no key); `filter`/`first_map`/`to_*`/`flatten_to_*`/`group_reduce`/`map_reduce`
 and the predicates/projections of `every`/`some`/`sum`/`mean` take `fn(key, value)`;
 `reduce` takes `fn(acc, key, value)`; collision `combine` is
@@ -1292,17 +1310,17 @@ write_beast2_file(path, rows_t, rows)             # any size, one call
 
 with open_beast2_file(path) as f:                 # self-describing: type from the
     row = f[1_234_567]                            #   header (f.wire_type); pass rows_t
-    totals = f.group_sum(lambda r: r["sku"],      #   instead to VALIDATE it at open
-                         lambda r: r["qty"])      # whole-file compute: segment folds,
-    top = f.maximum(by=lambda r: r["qty"])        #   never materialized, == load() exactly
+    totals = f.group_sum(lambda b, r: r["sku"],   #   instead to VALIDATE it at open
+                         lambda b, r: r["qty"])   # whole-file compute: segment folds,
+    top = f.maximum(by=lambda b, r: r["qty"])     #   never materialized, == load() exactly
     table = f.load()                              # whole table when you truly need it
 
 # The file IS a collection value (#560): bind it into a function and the
 # compiled body's keyed reads answer from the pager — one frame per lookup.
 with open_beast2_file("table.beast2") as t:       # Dict<String, Float>
     lookup = East.function([StringType, DictType(StringType, FloatType)], FloatType,
-                           lambda k, d: d.get_or_default(k, 0.0)).bind(t)
-    joined = rows.map(lambda r: r.v + lookup(r.k))   # loop + callee + pager: all east-c
+                           lambda b, k, d: d.get_or_default(k, 0.0)).bind(t)
+    joined = rows.map(lambda b, r: r.v + lookup(r.k))   # loop + callee + pager: all east-c
 ```
 
 **Pick the right pair first — `_for` is NOT the same format as `_with_header_for`:**
@@ -1359,12 +1377,12 @@ with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as
   works). Build/transform with `struct({...}, StructType)`.
 - **`EastVariant`** — frozen tagged value; `.type` is the case name, `.value` the payload.
   Build with `variant(case, value, T)` / `some` / `none`. Dispatch with the
-  `.match({case: handler}, default=None)` method (handlers are `handler(payload)`;
+  `.match({case: handler}, default=None)` method (handlers are bodies, `handler(b, payload)`;
   the module-level `match(v, cases, default)` is equivalent). Also `get_tag()`,
   `has_tag(tag)`, and `unwrap(tag)` ❗ValueError on a different case — mirroring
   the TS variant expr surface, and the same shapes trace inside kernels.
-- **`EastRef`** — mutable cell: `get()` · `set(value)` · `update(fn(current))` ·
-  `merge(patch, combine(current, patch))` (delegates to east-c `RefMerge`). Use `set`/`update`
+- **`EastRef`** — mutable cell: `get()` · `set(value)` · `update(fn(b, current))` ·
+  `merge(patch, combine(b, current, patch))` (delegates to east-c `RefMerge`). Use `set`/`update`
   for a bare local `EastRef`; `merge` is for refs East passes a platform function. Inside a
   kernel the traced twin is `East.ref(v)` with the same `get`/`set`/`update`.
 
@@ -1380,9 +1398,9 @@ evaluation inside a kernel (see the decision tree's *Sequential logic* branch).
 |-----------|---------|
 | `EastArray.range(start, end, step=1)` | `EastArray.range(0, 5, 2)` → `[0, 2, 4]` |
 | `EastArray.linspace(start, end, count)` | `EastArray.linspace(0., 1., 3)` → `[0.0, 0.5, 1.0]` |
-| `EastArray.generate(count, fn(i), element_type=None)` | `EastArray.generate(3, lambda i: i*i, IntegerType)` |
-| `EastSet.generate(n, fn(i), element_type=None)` | `EastSet.generate(4, lambda i: East.Integer.remainder(i, 2), IntegerType)` |
-| `EastDict.generate(n, key_fn(i), value_fn(i), combine, key_type, value_type)` | `EastDict.generate(3, lambda i:i, lambda i:i*10, None, IntegerType, IntegerType)` |
+| `EastArray.generate(count, fn(b, i), element_type=None)` | `EastArray.generate(3, lambda b, i: i*i, IntegerType)` |
+| `EastSet.generate(n, fn(b, i), element_type=None)` | `EastSet.generate(4, lambda b, i: East.Integer.remainder(i, 2), IntegerType)` |
+| `EastDict.generate(n, key_fn(b, i), value_fn(b, i), combine(b, x, y, k), key_type, value_type)` | `EastDict.generate(3, lambda b, i: i, lambda b, i: i*10, lambda b, x, y, k: x + y, IntegerType, IntegerType)` |
 | `EastVector.zeros/ones(element_type, length)` · `fill(element_type, length, value)` · `from_array(element_type, items)` · `from_numpy(array, element_type=None)` · `from_torch(tensor, element_type=None)` | `EastVector.zeros(FloatType, 3)` |
 | `EastMatrix.zeros/ones(element_type, rows, cols)` · `fill(…, value)` · `from_array/from_rows(element_type, rows)` · `from_numpy(array, element_type=None)` · `from_torch(tensor, element_type=None)` | `EastMatrix.from_array(FloatType, [[1.,2.],[3.,4.]])` |
 
@@ -1501,7 +1519,7 @@ LineItem = StructType([("name", StringType), ("price", FloatType)])   # Struct<S
 @platform_function(inputs=[FloatType, ArrayType(LineItem)], output=ArrayType(LineItem))
 def convert_prices(fx_rate, items):
     # items: an east-c-backed array with eager methods; row["price"] is a plain float
-    return items.map(lambda row: struct(
+    return items.map(lambda b, row: struct(
         {"name": row["name"], "price": row["price"] * fx_rate},   # plain f64 * f64
         LineItem,                                                 # tag + validate the result
     ))
@@ -1616,7 +1634,7 @@ from east.serialization.beast2 import open_beast2_file
 
 with open_beast2_file("orders.beast2") as orders:   # Dict<String, Order>, type from header
     order = orders[order_id]                        # fence search → ONE segment decode
-    hot = orders.get_keys(wanted_ids, lambda k: default_order)   # each owning segment
+    hot = orders.get_keys(wanted_ids, lambda b, k: default_order)   # each owning segment
     if candidate_id in orders:                      #   decodes once for the whole batch
         ...
 
@@ -1653,18 +1671,18 @@ Indeg = DictType(StringType, IntegerType)
 # into it, and per-node successors decremented in place.
 topo_order = East.function(
     [ArrayType(Node), Edges, Indeg], ArrayType(Node),
-    lambda roots, succ, indeg: East.while_(
+    lambda b, roots, succ, indeg: East.while_(
         # .copy() because task inputs arrive frozen and the loop mutates
         {"ready": roots.copy(), "indeg": indeg.copy(),
          "order": East.new_array(Node), "i": 0},
-        cond=lambda s: s.i < s.ready.size(),
-        body=lambda s: East.let(s.ready.get(s.i), lambda node: East.block(
+        cond=lambda b, s: s.i < s.ready.size(),
+        body=lambda b, s: East.let(s.ready.get(s.i), lambda b, node: East.block(
             s.order.append(node),
             East.for_(
                 succ.get_or_default(node, East.new_array(Node)),
                 {**s, "i": s.i + 1},                      # inner loop's state
-                lambda t, v: East.block(
-                    t.indeg.insert_or_update(v, -1, lambda old, d: old + d),
+                lambda b, t, v: East.block(
+                    t.indeg.insert_or_update(v, -1, lambda b, old, d: old + d),
                     East.if_else(t.indeg.get(v) == 0,     # newly ready?
                                  East.block(t.ready.append(v), t),
                                  t))))),                  # else: unchanged
@@ -1681,11 +1699,11 @@ state remembers the last stated value:
 ```python
 forward_fill = East.function(
     [ArrayType(StringType)], ArrayType(StringType),
-    lambda cells: East.for_(
+    lambda b, cells: East.for_(
         cells, {"last": "", "out": East.new_array(StringType)},
-        lambda s, cell: East.let(
+        lambda b, s, cell: East.let(
             East.if_else(cell == "", s.last, cell),
-            lambda v: East.block(s.out.append(v), {"last": v, "out": s.out}))).out)
+            lambda b, v: East.block(s.out.append(v), {"last": v, "out": s.out}))).out)
 ```
 
 To stop early, put `East.break_(state)` in an `if_else` arm — the state
@@ -1709,7 +1727,7 @@ def topo_order(b, roots, succ, indeg):
         b.do(order.append(node))
 
         def visit(b, v):
-            b.do(remaining.insert_or_update(v, -1, lambda old, d: old + d))
+            b.do(remaining.insert_or_update(v, -1, lambda _b, old, d: old + d))
             b.if_(remaining.get(v) == 0, lambda b: b.do(ready.append(v)))
 
         b.for_(succ.get_or_default(node, East.new_array(Node)), visit)
@@ -1731,7 +1749,7 @@ sorted(list(arr))
 # CORRECT — East total order, in east-c
 arr.sorted()                      # new array
 arr.sort()                        # in place
-arr.sorted(key=lambda r: r["x"])  # by a projection, still East-ordered
+arr.sorted(key=lambda b, r: r["x"])  # by a projection, still East-ordered
 ```
 
 ### Scalars: use the `East.<Type>` utilities for consistency — above all String & DateTime

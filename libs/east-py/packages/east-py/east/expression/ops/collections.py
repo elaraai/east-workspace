@@ -207,7 +207,7 @@ class _CollectionOps(_ExprBase):
         if tag == "Dict":
             kv = self.east_type.value
             node, out_t = _trace_inner_fn(
-                lambda v, k: fn(k, v), [kv["value"], kv["key"]], declared=2,
+                lambda b, v, k: fn(b, k, v), [kv["value"], kv["key"]], declared=2,
                 out_hint=BooleanType
             )
             if out_t.type != "Boolean":
@@ -272,7 +272,7 @@ class _CollectionOps(_ExprBase):
             # The builtin's callback signature is (acc, value, key); the user
             # fn takes (acc, key, value) like the eager method.
             node, out_t = _trace_inner_fn(
-                lambda a, v, k: fn(a, k, v), [acc_t, kv["value"], kv["key"]], declared=3,
+                lambda b, a, v, k: fn(b, a, k, v), [acc_t, kv["value"], kv["key"]], declared=3,
                 out_hint=acc_t
             )
             if out_t != acc_t:
@@ -327,7 +327,7 @@ class _CollectionOps(_ExprBase):
                     f"{'values' if self.east_type.type == 'Dict' else 'elements'}, "
                     f"got {getattr(probed, 'type', self.east_type.type)}"
                 )
-            fn = (lambda _k, v: v) if self.east_type.type == "Dict" else (lambda el: el)
+            fn = (lambda _b, _k, v: v) if self.east_type.type == "Dict" else (lambda _b, el: el)
 
         def decide(raw: Any) -> Expression:
             pred = _lift(raw)
@@ -343,18 +343,19 @@ class _CollectionOps(_ExprBase):
             elem_t = self.east_type.value
             pred = _with_index(fn)
             node, out_t = _trace_inner_fn(
-                lambda el, i: decide(pred(el, i)), [elem_t, IntegerType], declared=2
+                lambda b, el, i: decide(pred(b, el, i)), [elem_t, IntegerType], declared=2
             )
             builtin, tps = "ArrayFirstMap", [elem_t, BooleanType]
         elif tag == "Set":
             elem_t = self.east_type.value
-            node, out_t = _trace_inner_fn(lambda el: decide(fn(el)), [elem_t], declared=1)
+            node, out_t = _trace_inner_fn(
+                lambda b, el: decide(fn(b, el)), [elem_t], declared=1)
             builtin, tps = "SetFirstMap", [elem_t, BooleanType]
         elif tag == "Dict":
             kv = self.east_type.value
             # The builtin's slot is (value, key); the user fn takes (key, value).
             node, out_t = _trace_inner_fn(
-                lambda v, k: decide(fn(k, v)), [kv["value"], kv["key"]], declared=2
+                lambda b, v, k: decide(fn(b, k, v)), [kv["value"], kv["key"]], declared=2
             )
             builtin, tps = "DictFirstMap", [kv["key"], kv["value"], BooleanType]
         else:

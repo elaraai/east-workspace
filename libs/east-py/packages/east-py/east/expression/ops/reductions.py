@@ -55,7 +55,7 @@ class _ReductionOps(_ExprBase):
             # The builtin's slot is (acc, value, key); the user fn takes
             # (acc, key, value), matching the eager Dict callbacks.
             node, out_t = _trace_inner_fn(
-                lambda a, v, k: fn(a, k, v), [acc_t, kv["value"], kv["key"]], declared=3,
+                lambda b, a, v, k: fn(b, a, k, v), [acc_t, kv["value"], kv["key"]], declared=3,
                 out_hint=acc_t
             )
             builtin = "DictReduce"
@@ -87,17 +87,17 @@ class _ReductionOps(_ExprBase):
         proj: Any
         if tag == "Array":
             elem_t = self.east_type.value
-            proj = _with_index(fn if fn is not None else (lambda el: el))
+            proj = _with_index(fn if fn is not None else (lambda _b, el: el))
             _n, t2 = _trace_inner_fn(proj, [elem_t, IntegerType], declared=2)
         elif tag == "Set":
             elem_t = self.east_type.value
-            proj = fn if fn is not None else (lambda el: el)
+            proj = fn if fn is not None else (lambda _b, el: el)
             _n, t2 = _trace_inner_fn(proj, [elem_t], declared=1)
         elif tag == "Dict":
             kv = self.east_type.value
-            proj = fn if fn is not None else (lambda _k, v: v)
+            proj = fn if fn is not None else (lambda _b, _k, v: v)
             _n, t2 = _trace_inner_fn(
-                lambda v, k: proj(k, v), [kv["value"], kv["key"]], declared=2
+                lambda b, v, k: proj(b, k, v), [kv["value"], kv["key"]], declared=2
             )
         else:
             raise ExpressionError(f".{op}() on {tag}")
@@ -136,10 +136,10 @@ class _ReductionOps(_ExprBase):
         callback shape (Array folds with the index in scope)."""
         tag = self.east_type.type
         if tag == "Dict":
-            return self.reduce(zero, lambda acc, k, v: acc + wrap(proj(k, v)))
+            return self.reduce(zero, lambda b, acc, k, v: acc + wrap(proj(b, k, v)))
         if tag == "Array":
-            return self.fold(zero, lambda acc, el, i: acc + wrap(proj(el, i)))
-        return self.reduce(zero, lambda acc, el: acc + wrap(proj(el)))
+            return self.fold(zero, lambda b, acc, el, i: acc + wrap(proj(b, el, i)))
+        return self.reduce(zero, lambda b, acc, el: acc + wrap(proj(b, el)))
 
     def sum(self, fn: Any = None) -> Expression:
         """Traced sum of the elements, or of ``fn(...)`` over them.
@@ -184,12 +184,12 @@ class _ReductionOps(_ExprBase):
         there is no identity element for a max.
         """
         self._array_elem("maximum")
-        return self.map_reduce(by if by is not None else (lambda el: el),
-                               lambda a, b: greatest(a, b))
+        return self.map_reduce(by if by is not None else (lambda _b, el: el),
+                               lambda _b, x, y: greatest(x, y))
 
     def minimum(self, by: Any = None) -> Expression:
         """Traced ArrayMapReduce under ``least``; errors on empty, like the
         eager ``minimum``."""
         self._array_elem("minimum")
-        return self.map_reduce(by if by is not None else (lambda el: el),
-                               lambda a, b: least(a, b))
+        return self.map_reduce(by if by is not None else (lambda _b, el: el),
+                               lambda _b, x, y: least(x, y))

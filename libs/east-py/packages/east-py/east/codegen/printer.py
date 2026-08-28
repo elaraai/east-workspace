@@ -25,9 +25,9 @@ body receives, python's ``$``) and the builtin table's
   Struct/Variant/NewArray/… through ``East.value(..., T)`` and the
   ``East.new_*`` constructors, an expression IfElse/Match/TryCatch through
   ``East.if_else`` / ``.match({...})`` / ``East.try_catch``, a Builtin
-  through its spelling row (callbacks as lambdas, or ``def _bN(b, …)``
-  helpers when they hold statements) or the raw ``East.builtin(name, [T...],
-  [args], out)``.
+  through its spelling row (callbacks as ``lambda b, …: …``, or ``def
+  _bN(b, …)`` helpers when they hold statements — every body takes the
+  block first) or the raw ``East.builtin(name, [T...], [args], out)``.
 
 Variables keep their IR names when they are python identifiers (the
 TypeScript ``_N``s are); anything else is renamed ``v_N``; ``b`` is
@@ -524,39 +524,21 @@ class _Printer:
 
     def expr_callback(self, body: Any, params: list[Any], scope: _Scope, pre: list[str]) -> str:
         """A handler of an EXPRESSION form (a ``.match({...})`` arm, an
-        ``East.try_catch`` body): it receives no block, so a body holding
-        statements is ``lambda params: East.block(...)``."""
-        inner = _Scope(scope)
-        names = [self.bind(inner, v) for v in params]
-        names = [n if i == 0 else f"{n}=None" for i, n in enumerate(names)]
-        if _has_statements(body):
-            return f"lambda {', '.join(names)}: {self.block_expr(body, inner, pre)}"
-        sub: list[str] = []
-        text = self.expr(body, inner, sub)
-        if not sub:
-            return f"lambda {', '.join(names)}: {text}"
-        name = self.fresh_helper("b")
-        pre.append(f"def {name}({', '.join(names)}):")
-        pre.extend("    " + ln for ln in sub)
-        pre.append(f"    return {text}")
-        return name
+        ``East.try_catch`` body) — a body like any other, the block first."""
+        return self.callback_expr(body, params, scope, pre)
 
     def callback_expr(self, body: Any, params: list[Any], scope: _Scope, pre: list[str],
                       order: list[int] | None = None) -> str:
-        """A callback: ``lambda params: expr`` when the body is one
-        expression, else a ``def _bN(b, params)`` helper — the block first,
-        so the traced twin hands it one. ``order`` permutes the declared
-        parameters into the python surface's order (a ``dict_kv`` slot)."""
+        """A callback body, the block first: ``lambda b, params: expr`` when
+        the body is one expression, else a ``def _bN(b, params)`` helper.
+        ``order`` permutes the declared parameters into the python surface's
+        order (a ``dict_kv`` slot)."""
         inner = _Scope(scope)
         names = [self.bind(inner, v) for v in params]
         if order is not None:
             names = [names[i] for i in order]
+        names = [_BLOCK, *names]
         if not _has_statements(body):
-            # Trailing parameters default to None: a python method may call
-            # the callback with fewer arguments than the builtin declares (an
-            # index it does not pass), and the traced Function node still
-            # declares the builtin's full signature.
-            names = [n if i == 0 else f"{n}=None" for i, n in enumerate(names)]
             sub: list[str] = []
             text = self.expr(body, inner, sub)
             if not sub:
@@ -569,7 +551,7 @@ class _Printer:
             return name
         name = self.fresh_helper("b")
         lines = self.body_lines(body, inner, mode="function")
-        pre.append(f"def {name}({', '.join([_BLOCK, *names])}):")
+        pre.append(f"def {name}({', '.join(names)}):")
         pre.extend("    " + ln for ln in lines)
         return name
 
@@ -617,12 +599,6 @@ class _Printer:
         params = list(fp["parameters"])
         if adapter == "cb":
             return self.callback_expr(fp["body"], params, scope, pre)
-        if _has_statements(fp["body"]):
-            # A statement-bearing callback receives the block only when it
-            # declares the builtin's FULL signature first — which the
-            # trimming/reordering adapters do not spell; the raw builtin
-            # form (a nested East.function) always does.
-            return None
         if adapter == "dict_kv":
             if len(params) != 2:
                 return None

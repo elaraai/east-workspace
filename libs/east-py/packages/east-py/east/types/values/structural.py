@@ -257,14 +257,18 @@ class EastVariant(Generic[V]):
         """Dispatch on the case, calling the matching handler with the payload.
 
         Mirrors the TS variant ``match`` as a method (the module-level
-        ``east.match(v, cases, default)`` is equivalent): handlers are always
-        called ``handler(payload)`` — a ``none`` arm is ``lambda v: ...``.
-        Returns ``default`` when no case matches.
+        ``east.match(v, cases, default)`` is equivalent): handlers are
+        bodies, always called ``handler(b, payload)`` with an eager block
+        first — a ``none`` arm is ``lambda b, v: ...`` — so the same handler
+        serves the traced ``Expression.match``. Returns ``default`` when no
+        case matches.
         """
         handler = cases.get(self.type)
         if handler is None:
             return default
-        return handler(self.value)
+        from east.expression.statements import EagerBlock
+
+        return handler(EagerBlock(), self.value)
 
     def keys(self) -> tuple[str, str]:
         """Return keys."""
@@ -427,14 +431,16 @@ class EastRef(Generic[T]):
     def update(self, fn: Any) -> None:
         """Replace the contained value with the result of applying ``fn`` (in place).
 
-        Reads the cell, applies the callback, and writes the result back; not
+        Reads the cell, applies the body, and writes the result back; not
         delegated to a builtin.
 
         Args:
-            fn: Callback ``fn(current) -> new value`` receiving the current
-                cell contents and returning the replacement.
+            fn: Body ``fn(b, current) -> new value`` receiving an eager block
+                and the current cell contents, returning the replacement.
         """
-        self.value = fn(self.value)
+        from east.expression.statements import EagerBlock
+
+        self.value = fn(EagerBlock(), self.value)
 
     def merge(self, patch: Any, combine: Any) -> None:
         """Combine ``patch`` into the cell in place (east-c RefMerge).
@@ -442,7 +448,7 @@ class EastRef(Generic[T]):
         Args:
             patch: The value to merge into the cell. Its East type is inferred
                 by ``type_of`` and may differ from the cell's element type.
-            combine: Callback ``combine(current, patch) -> new value`` that
+            combine: Body ``combine(b, current, patch) -> new value`` that
                 folds ``patch`` into the current contents; its result becomes
                 the new cell value and must match the cell's element type.
         """
@@ -450,7 +456,7 @@ class EastRef(Generic[T]):
 
         t = _ev.type_of(self.value)
         t2 = _ev.type_of(patch)
-        callback = EastFunction(lambda cur, p: combine(cur, p), [t, t2], t)
+        callback = EastFunction(lambda b, cur, p: combine(b, cur, p), [t, t2], t)
         _call_builtin("RefMerge", [t, t2], [self, patch, callback], NullType)
 
 class EastFunction:

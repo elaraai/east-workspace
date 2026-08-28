@@ -381,6 +381,8 @@ def compile_function_carrier(object carrier, object input_types, object output_t
     carrier_handle = _CarrierHandle()
 
     def carrier_fn(*args):
+
+        args = _without_block(args)
         try:
             return _eastc_call(carrier_handle._compiled, carrier_handle._input_types,
                                carrier_handle._output_type, args)
@@ -620,6 +622,21 @@ def freeze_value(object east_type, object value):
             _eastc.east_value_release(c_val)
         if own_type:
             _eastc.east_type_release(c_type)
+
+
+cdef inline tuple _without_block(tuple args):
+    """``args`` without a leading statement block.
+
+    A compiled function is a value, not a body: it takes no block. Every
+    callback slot invokes what it holds body-style — ``fn(b, *values)``, the
+    wrappers that reorder or pad a builtin's arguments included — so a
+    compiled, bound or carrier function called that way drops the block
+    (east.expression.statements._drop_block, on the C side). Checked on the
+    TYPE: an expression proxy's ``__getattr__`` must not fire.
+    """
+    if len(args) > 0 and getattr(type(args[0]), "_east_block", False):
+        return args[1:]
+    return args
 
 
 cdef uintptr_t _native_fn_val_ptr(object obj) noexcept:
@@ -1459,6 +1476,7 @@ cdef object _make_callable(_eastc.EastCompiledFn* compiled,
 
     if is_async_fn:
         async def eastc_fn_async(*args):
+            args = _without_block(args)
             # east-c's eval_ir is synchronous, so we call east_call directly.
             # Async platform callbacks are handled by _run_async in the
             # platform bridge which uses _set_running_loop(None) to allow
@@ -1472,6 +1490,7 @@ cdef object _make_callable(_eastc.EastCompiledFn* compiled,
         return eastc_fn_async
     else:
         def eastc_fn(*args):
+            args = _without_block(args)
             return _eastc_call(handle._compiled, handle._input_types,
                                handle._output_type, args)
 
@@ -1702,6 +1721,8 @@ def bind_kernel(object kernel_callable, tuple bound_values):
     bound_handle = _EastCBoundHandle()
 
     def bound_fn(*args):
+
+        args = _without_block(args)
         try:
             return _eastc_call(bound_handle._compiled, bound_handle._input_types,
                                bound_handle._output_type, args)
@@ -1807,6 +1828,7 @@ cdef object _make_callable_from_value(_eastc.EastValue* fn_val,
 
     if is_async_fn:
         async def eastc_fn_async(*args):
+            args = _without_block(args)
             # east-c's eval_ir is synchronous, so we call east_call directly.
             # Async platform callbacks are handled by _run_async in the
             # platform bridge which uses _set_running_loop(None) to allow
@@ -1820,6 +1842,7 @@ cdef object _make_callable_from_value(_eastc.EastValue* fn_val,
         return eastc_fn_async
     else:
         def eastc_fn(*args):
+            args = _without_block(args)
             try:
                 return _eastc_call(handle._compiled, handle._input_types,
                                    handle._output_type, args)

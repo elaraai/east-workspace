@@ -51,7 +51,7 @@ class TestNativeRows:
         # parameter (#561 lowers the call), so loop + kernel + sink run
         # entirely inside east-c.
         project = East.function([ROW, emit_t], NullType,
-                         lambda r, emit: emit(r["k"], r["v"])).bind(emit_hold)
+                         lambda _b, r, emit: emit(r["k"], r["v"])).bind(emit_hold)
         rows = EastArray(ROW, [{"k": f"k{i:04d}", "v": float(i)}
                                for i in range(500)])
         rows.map(project)

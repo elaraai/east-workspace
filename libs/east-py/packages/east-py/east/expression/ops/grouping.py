@@ -107,7 +107,7 @@ class _GroupOps(_ExprBase):
             # The builtin's key slot is (value, key); the user fn takes
             # (key, value), like every other eager Dict callback.
             key_node, k2 = _trace_inner_fn(
-                lambda v, k: key(k, v), [kv["value"], kv["key"]], declared=2,
+                lambda b, v, k: key(b, k, v), [kv["value"], kv["key"]], declared=2,
                 out_hint=key_out)
             return ("DictGroupFold", [kv["key"], kv["value"]], key_node, k2,
                     [kv["value"], kv["key"]])
@@ -125,7 +125,7 @@ class _GroupOps(_ExprBase):
         self._check_out(f".{op}() accumulator", acc_t, acc_out)
         if self.east_type.type == "Dict":
             fold_node, out_t = _trace_inner_fn(
-                lambda a, v, k: fold(a, k, v), [acc_t, *elem_params], declared=3,
+                lambda b, a, v, k: fold(b, a, k, v), [acc_t, *elem_params], declared=3,
                 out_hint=acc_t)
         else:
             fold_node, out_t = _trace_inner_fn(
@@ -189,8 +189,8 @@ class _GroupOps(_ExprBase):
     def _per_element(self, fn: Any) -> Any:
         """Normalise a user element callback to the container's fold shape."""
         if self.east_type.type == "Dict":
-            return fn if fn is not None else (lambda _k, v: v)
-        return fn if fn is not None else (lambda el: el)
+            return fn if fn is not None else (lambda _b, _k, v: v)
+        return fn if fn is not None else (lambda _b, el: el)
 
     def group_size(self, key: Any = None) -> Expression:
         """Traced count per group key.
@@ -206,13 +206,13 @@ class _GroupOps(_ExprBase):
                     f".group_size() on a {self.east_type.type} needs a key "
                     "function — only an Array defaults to the identity key"
                 )
-            key = lambda el: el  # noqa: E731
-        zero = lambda _gk: 0  # noqa: E731
+            key = lambda _b, el: el  # noqa: E731
+        zero = lambda _b, _gk: 0  # noqa: E731
         if self.east_type.type == "Dict":
-            return self._grouped("group_size", key, zero, lambda acc, _k, _v: acc + 1)
+            return self._grouped("group_size", key, zero, lambda _b, acc, _k, _v: acc + 1)
         if self.east_type.type == "Array":
-            return self._grouped("group_size", key, zero, lambda acc, _el, _i: acc + 1)
-        return self._grouped("group_size", key, zero, lambda acc, _el: acc + 1)
+            return self._grouped("group_size", key, zero, lambda _b, acc, _el, _i: acc + 1)
+        return self._grouped("group_size", key, zero, lambda _b, acc, _el: acc + 1)
 
     def group_sum(self, key: Any, fn: Any = None) -> Expression:
         """Traced sum per group of ``fn(...)`` — the elements (a Dict's
@@ -220,28 +220,28 @@ class _GroupOps(_ExprBase):
         proj, t2 = self._numeric_projection("group_sum", fn)
         zero: Any = 0 if t2.type == "Integer" else 0.0
         if self.east_type.type == "Dict":
-            return self._grouped("group_sum", key, lambda _gk: zero,
-                                 lambda acc, k, v: acc + proj(k, v))
+            return self._grouped("group_sum", key, lambda _b, _gk: zero,
+                                 lambda b, acc, k, v: acc + proj(b, k, v))
         if self.east_type.type == "Array":
-            return self._grouped("group_sum", key, lambda _gk: zero,
-                                 lambda acc, el, i: acc + proj(el, i))
-        return self._grouped("group_sum", key, lambda _gk: zero,
-                             lambda acc, el: acc + proj(el))
+            return self._grouped("group_sum", key, lambda _b, _gk: zero,
+                                 lambda b, acc, el, i: acc + proj(b, el, i))
+        return self._grouped("group_sum", key, lambda _b, _gk: zero,
+                             lambda b, acc, el: acc + proj(b, el))
 
     def _group_quantifier(self, op: str, key: Any, pred: Any, seed: bool) -> Expression:
         """group_every / group_some as a grouped boolean fold."""
         step: Any
         if self.east_type.type == "Dict":
-            step = (lambda acc, k, v: acc & _lift(pred(k, v))) if seed \
-                else (lambda acc, k, v: acc | _lift(pred(k, v)))
+            step = (lambda b, acc, k, v: acc & _lift(pred(b, k, v))) if seed \
+                else (lambda b, acc, k, v: acc | _lift(pred(b, k, v)))
         elif self.east_type.type == "Array":
             p = _with_index(pred)
-            step = (lambda acc, el, i: acc & _lift(p(el, i))) if seed \
-                else (lambda acc, el, i: acc | _lift(p(el, i)))
+            step = (lambda b, acc, el, i: acc & _lift(p(b, el, i))) if seed \
+                else (lambda b, acc, el, i: acc | _lift(p(b, el, i)))
         else:
-            step = (lambda acc, el: acc & _lift(pred(el))) if seed \
-                else (lambda acc, el: acc | _lift(pred(el)))
-        return self._grouped(op, key, lambda _gk: seed, step)
+            step = (lambda b, acc, el: acc & _lift(pred(b, el))) if seed \
+                else (lambda b, acc, el: acc | _lift(pred(b, el)))
+        return self._grouped(op, key, lambda _b, _gk: seed, step)
 
     def group_every(self, key: Any, pred: Any) -> Expression:
         """Traced per group: True when ``pred`` holds for every member."""
@@ -261,16 +261,16 @@ class _GroupOps(_ExprBase):
         from east.types.construct import some as _some
 
         self._array_elem(op)
-        proj = _with_index(by if by is not None else (lambda el: el))
+        proj = _with_index(by if by is not None else (lambda _b, el: el))
         _n, p_t = _trace_inner_fn(proj, [self.east_type.value, IntegerType], declared=2)
         opt_t = _option_type(p_t)
         grouped = self._grouped(
             op, key,
-            lambda _gk: self._expr(
+            lambda _b, _gk: self._expr(
                 ir_variant(opt_t, "none", _literal(None, NullType), _loc_id()), opt_t),
-            lambda acc, el, i: _some(pick(acc.unwrap_or(proj(el, i)), proj(el, i))),
+            lambda b, acc, el, i: _some(pick(acc.unwrap_or(proj(b, el, i)), proj(b, el, i))),
         )
-        return grouped.map(lambda v: v.unwrap("some"))
+        return grouped.map(lambda _b, v: v.unwrap("some"))
 
     def group_maximum(self, key: Any, by: Any = None) -> Expression:
         """Traced largest element/projection per group (East total order)."""
@@ -296,16 +296,16 @@ class _GroupOps(_ExprBase):
             lifted = _lift(value)
             return lifted.to_float() if widen else lifted
 
-        seed = lambda _gk: {"t": 0.0, "n": 0}  # noqa: E731
+        seed = lambda _b, _gk: {"t": 0.0, "n": 0}  # noqa: E731
         step: Any
         if self.east_type.type == "Dict":
-            step = lambda acc, k, v: {"t": acc.t + as_float(proj(k, v)), "n": acc.n + 1}  # noqa: E731
+            step = lambda b, acc, k, v: {"t": acc.t + as_float(proj(b, k, v)), "n": acc.n + 1}  # noqa: E731
         elif self.east_type.type == "Array":
-            step = lambda acc, el, i: {"t": acc.t + as_float(proj(el, i)), "n": acc.n + 1}  # noqa: E731
+            step = lambda b, acc, el, i: {"t": acc.t + as_float(proj(b, el, i)), "n": acc.n + 1}  # noqa: E731
         else:
-            step = lambda acc, el: {"t": acc.t + as_float(proj(el)), "n": acc.n + 1}  # noqa: E731
+            step = lambda b, acc, el: {"t": acc.t + as_float(proj(b, el)), "n": acc.n + 1}  # noqa: E731
         return self._grouped("group_mean", key, seed, step).map(
-            lambda acc: acc.t / acc.n.to_float())
+            lambda _b, acc: acc.t / acc.n.to_float())
 
     # ── group_to_* / group_find_* (#525 phase 3b) ───────────────────────
     # The collect-into-a-collection and per-group search families — the last
@@ -325,17 +325,17 @@ class _GroupOps(_ExprBase):
         proj: Any
         if tag == "Array":
             elem_t = self.east_type.value
-            proj = _with_index(fn if fn is not None else (lambda el: el))
+            proj = _with_index(fn if fn is not None else (lambda _b, el: el))
             _n, t2 = _trace_inner_fn(proj, [elem_t, IntegerType], declared=2)
         elif tag == "Set":
             elem_t = self.east_type.value
-            proj = fn if fn is not None else (lambda el: el)
+            proj = fn if fn is not None else (lambda _b, el: el)
             _n, t2 = _trace_inner_fn(proj, [elem_t], declared=1)
         elif tag == "Dict":
             kv = self.east_type.value
-            proj = fn if fn is not None else (lambda _k, v: v)
+            proj = fn if fn is not None else (lambda _b, _k, v: v)
             _n, t2 = _trace_inner_fn(
-                lambda v, k: proj(k, v), [kv["value"], kv["key"]], declared=2)
+                lambda b, v, k: proj(b, k, v), [kv["value"], kv["key"]], declared=2)
         else:
             raise ExpressionError(f".{op}() on {tag}")
         return proj, t2
@@ -368,11 +368,11 @@ class _GroupOps(_ExprBase):
             # on an existing element — the defect the eager helper carried.
             add_name, add_out = "SetTryInsert", BooleanType
 
-        def init(_gk: Any) -> Expression:
+        def init(_b: Any, _gk: Any) -> Expression:
             return self._expr(empty(acc_t, []), acc_t)
 
-        def step(acc: Any, *rest: Any) -> Expression:
-            v = _lift(proj(*rest))
+        def step(b: Any, acc: Any, *rest: Any) -> Expression:
+            v = _lift(proj(b, *rest))
             add = _builtin(add_name, add_out, [v_t], [acc.ir, v.ir])
             return self._expr(_k_block(acc_t, [add, acc.ir]), acc_t)
 
@@ -422,12 +422,12 @@ class _GroupOps(_ExprBase):
                     f"values are {v_t.type}")
             add_name, add_args = "DictInsertOrUpdate", [node]
 
-        def init(_gk: Any) -> Expression:
+        def init(_b: Any, _gk: Any) -> Expression:
             return self._expr(_k_new_dict(acc_t, []), acc_t)
 
-        def step(acc: Any, *rest: Any) -> Expression:
-            ik = _lift(k2proj(*rest))
-            v = _lift(proj(*rest))
+        def step(b: Any, acc: Any, *rest: Any) -> Expression:
+            ik = _lift(k2proj(b, *rest))
+            v = _lift(proj(b, *rest))
             add = _builtin(add_name, NullType, [k2_t, v_t],
                            [acc.ir, ik.ir, v.ir, *add_args])
             return self._expr(_k_block(acc_t, [add, acc.ir]), acc_t)
@@ -451,7 +451,7 @@ class _GroupOps(_ExprBase):
         elem_t = self._array_elem(op)
         kf = _with_index(key)
         key_node, k2 = _trace_inner_fn(kf, [elem_t, IntegerType], declared=2)
-        proj = _with_index(by if by is not None else (lambda el: el))
+        proj = _with_index(by if by is not None else (lambda _b, el: el))
         _n, p_t = _trace_inner_fn(proj, [elem_t, IntegerType], declared=2)
         target = _lift(value, hint=p_t)
         if target.east_type != p_t:
@@ -465,8 +465,8 @@ class _GroupOps(_ExprBase):
         tname = _fresh_name()
         bound = self._expr(_var(tname, p_t), p_t)
         node, _o = _trace_inner_fn(
-            lambda el, i: if_else(_lift(proj(el, i)) == bound,
-                                _some({"i": i, "k": kf(el, i)}), _none),
+            lambda b, el, i: if_else(_lift(proj(b, el, i)) == bound,
+                                   _some({"i": i, "k": kf(b, el, i)}), _none),
             [elem_t, IntegerType], declared=2)
         pairs_t = _ArrayType(pair_t)
         scan = _builtin("ArrayFilterMap", pairs_t, [elem_t, pair_t], [self.ir, node])
@@ -492,9 +492,9 @@ class _GroupOps(_ExprBase):
         def build(recv: Expression) -> Expression:
             pairs, groups, _k2, _pair_t = recv._find_index_pairs(
                 "group_find_all", key, value, by)
-            found = pairs.group_to_arrays(lambda p: p.k, lambda p: p.i)
+            found = pairs.group_to_arrays(lambda _b, p: p.k, lambda _b, p: p.i)
             return found.get_keys(
-                groups, lambda _k: self._expr(_k_new_array(idx_t, []), idx_t))
+                groups, lambda _b, _k: self._expr(_k_new_array(idx_t, []), idx_t))
 
         # the receiver is scanned twice (matches, and the group set), so bind it
         return self._with_bound_receiver(build)
@@ -506,7 +506,7 @@ class _GroupOps(_ExprBase):
         ``group_find_all`` already yields matches in row order within a group,
         so the first is element 0.
         """
-        return self.group_find_all(key, value, by).map(lambda idxs: idxs.try_get(0))
+        return self.group_find_all(key, value, by).map(lambda _b, idxs: idxs.try_get(0))
 
     def _group_find_extreme(self, op: str, key: Any, by: Any, want_max: bool) -> Expression:
         """Index of each group's extreme, via ArrayToDict over ``{by, index}``.
@@ -520,16 +520,16 @@ class _GroupOps(_ExprBase):
         elem_t = self._array_elem(op)
         kf = _with_index(key)
         key_node, k2 = _trace_inner_fn(kf, [elem_t, IntegerType], declared=2)
-        proj = _with_index(by if by is not None else (lambda el: el))
+        proj = _with_index(by if by is not None else (lambda _b, el: el))
         # Take the pair type from the TRACE rather than declaring it, so the
         # struct's field order cannot drift from what the lambda builds.
         val_node, pair_t = _trace_inner_fn(
-            lambda el, i: {"by": proj(el, i), "index": i},
+            lambda b, el, i: {"by": proj(b, el, i), "index": i},
             [elem_t, IntegerType], declared=2)
-        keep = (lambda a, b: if_else(a.by >= b.by, a, b)) if want_max \
-            else (lambda a, b: if_else(a.by <= b.by, a, b))
+        keep = (lambda x, y: if_else(x.by >= y.by, x, y)) if want_max \
+            else (lambda x, y: if_else(x.by <= y.by, x, y))
         comb_node, c_out = _trace_inner_fn(
-            lambda a, b, _k: keep(a, b), [pair_t, pair_t, k2], declared=3)
+            lambda _b, x, y, _k: keep(x, y), [pair_t, pair_t, k2], declared=3)
         if c_out != pair_t:
             raise ExpressionError(
                 f".{op}() collision handler returns {c_out.type}, pairs are Struct")
@@ -539,7 +539,7 @@ class _GroupOps(_ExprBase):
                      [self.ir, key_node, val_node, comb_node]),
             out,
         )
-        return pairs.map(lambda v: v.index)
+        return pairs.map(lambda _b, v: v.index)
 
     def group_find_maximum(self, key: Any, by: Any = None) -> Expression:
         """Traced index of the largest element/projection per group (East total
