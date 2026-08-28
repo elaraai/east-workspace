@@ -48,7 +48,7 @@ def _builtins(built) -> set[str]:
 
 def test_string_repeat_spelling():
     Row = StructType([("s", StringType)])
-    k = East.function([Row], IntegerType, lambda _b, v: v.s.strip().repeat(2).length())
+    k = East.function([Row], IntegerType, lambda _b, v: v.s.trim().repeat(2).length())
     assert "StringRepeat" in _builtins(k)
     assert k({"s": "  a,b,c  "}) == 10
 
@@ -79,15 +79,25 @@ def test_find_first_targets_type_from_the_projection_not_the_target():
 
 
 def test_sorted_without_a_key_is_the_keyless_builtin():
+    """The deprecated python spelling keeps emitting the east-c-only keyless
+    builtin, so IR built with it round-trips unchanged; the TypeScript
+    ``sort()`` is ArraySort over the identity key."""
+    import warnings
+
     t = ArrayType(IntegerType)
-    k = East.function([t], t, lambda _b, a: a.sorted())
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        k = East.function([t], t, lambda _b, a: a.sorted())
     assert "ArraySortDefault" in _builtins(k)
     assert list(k(EastArray(IntegerType, [3, 1, 2]))) == [1, 2, 3]
+    k2 = East.function([t], t, lambda _b, a: a.sort())
+    assert "ArraySort" in _builtins(k2) and "ArraySortDefault" not in _builtins(k2)
+    assert list(k2(EastArray(IntegerType, [3, 1, 2]))) == [1, 2, 3]
 
 
 def test_dict_map_reduce_spelling():
     d = DictType(StringType, IntegerType)
-    k = East.function([d], IntegerType, lambda _b, m: m.map_reduce(lambda _b, key, v: v * 2, lambda _b, x, y: x + y))
+    k = East.function([d], IntegerType, lambda _b, m: m.map_reduce(lambda _b, v, _key: v * 2, lambda _b, x, y: x + y))
     assert "DictMapReduce" in _builtins(k)
     assert k(EastDict(StringType, IntegerType, {"a": 1, "b": 2})) == 6
 

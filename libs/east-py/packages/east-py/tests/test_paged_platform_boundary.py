@@ -108,7 +108,7 @@ def test_platform_fn_whole_value_ops_hydrate_once(tmp_path):
     data = _dict_blob(tmp_path)
 
     def probe(d):
-        return int(d.to_array(lambda _b, _k, v: v["qty"], out=IntegerType).sum())
+        return int(d.to_array(lambda _b, v: v["qty"], out=IntegerType).sum())
 
     compiled = _compile_probe(DT, IntegerType, probe)
     lazy = _open_lazy(compiled, data)

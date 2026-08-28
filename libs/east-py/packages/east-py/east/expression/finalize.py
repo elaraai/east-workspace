@@ -310,34 +310,71 @@ def _arrayify(node, children):
     return EastVariant(node.type, EastStruct(fields))
 
 
+def _listify(node, children):
+    """Rebuild ``node`` with ``children`` (in ``_node_children`` order) as a
+    LAZY node — python lists where :func:`_arrayify` makes ``EastArray``s —
+    the shape the trace builds and every pass here walks by object identity.
+    A finalized value's array elements materialize as fresh python objects
+    on every read, so an identity-keyed pass over one sees a different
+    object each time; a copy made of python lists is stable."""
+    spec = _specs()[node.type]
+    payload = node.value
+    fields = {k: payload[k] for k in payload}
+    it = iter(children)
+    for entry in spec[0]:
+        if isinstance(entry, str):
+            fields[entry] = next(it)
+        elif entry[1] == "list":
+            fields[entry[0]] = [next(it) for _ in payload[entry[0]]]
+        else:
+            rebuilt: list[Any] = []
+            for sub in payload[entry[0]]:
+                sf = {k: sub[k] for k in sub}
+                for f in entry[3]:
+                    sf[f] = next(it)
+                rebuilt.append(EastStruct(sf))
+            fields[entry[0]] = rebuilt
+    for fname, _etype in spec[1]:
+        fields[fname] = list(payload[fname])
+    return EastVariant(node.type, EastStruct(fields))
+
+
 def _arrayify_tree(top):
     """The no-CSE finalize: convert every lazy list child in the tree into its
     ``EastArray`` and return the final homoiconic value. Shared subtrees stay
     shared (one rebuild per node); nothing is hoisted or re-typed — the IR is
     exactly what the body spelled, which is what ``East.function(...,
     cse=False)`` promises and what the IR→python printer relies on."""
-    memo: dict[int, Any] = {}
+    # id -> (rewritten, original): the original is kept alive so a memo hit
+    # is never a dead object's reused id (see _listify).
+    memo: dict[int, tuple] = {}
 
     def rewrite(node):
         i = id(node)
         hit = memo.get(i)
         if hit is not None:
-            return hit
+            return hit[0]
         result = _arrayify(node, [rewrite(c) for c in _node_children(node)])
-        memo[i] = result
+        memo[i] = (result, node)
         return result
 
     return rewrite(top)
 
 
 def _rehome_ir(node, from_map, to_map):
-    """A copy of ``node`` whose ``loc_id``s index ``to_map`` instead of
-    ``from_map`` (each location stack re-interned); a node from no map, or
-    into no map, has its locations dropped (0). Labels carry a ``loc_id`` of
-    their own and are re-homed too."""
+    """A LAZY copy of ``node`` (python lists, see :func:`_listify` — the
+    caller's finalize arrayifies it with the rest of its tree) whose
+    ``loc_id``s index ``to_map`` instead of ``from_map`` (each location stack
+    re-interned); a node from no map, or into no map, has its locations
+    dropped (0). Labels carry a ``loc_id`` of their own and are re-homed too."""
     from east.types.values import EastStruct as _Struct
 
-    memo: dict[int, Any] = {}
+    # id -> (rewritten, original): the ORIGINAL is kept alive. Reading an
+    # EastArray element materializes a fresh python object whose id is free
+    # for reuse the moment it dies — a memo of bare ids handed a later
+    # sibling the wrong rewrite (a Let statement swapped for an unrelated
+    # node, leaving its variable unbound in the embedded body).
+    memo: dict[int, tuple] = {}
 
     def loc(old):
         if from_map is None or to_map is None or not old:
@@ -350,9 +387,9 @@ def _rehome_ir(node, from_map, to_map):
         i = id(n)
         hit = memo.get(i)
         if hit is not None:
-            return hit
+            return hit[0]
         children = [rewrite(c) for c in _node_children(n)]
-        result = _arrayify(n, children)
+        result = _listify(n, children)
         payload = result.value
         fields = {k: payload[k] for k in payload}
         fields["loc_id"] = loc(payload["loc_id"])
@@ -360,7 +397,7 @@ def _rehome_ir(node, from_map, to_map):
             lbl = fields["label"]
             fields["label"] = _Struct({"name": lbl["name"], "loc_id": loc(lbl["loc_id"])})
         result = EastVariant(result.type, _Struct(fields))
-        memo[i] = result
+        memo[i] = (result, n)
         return result
 
     return rewrite(node)

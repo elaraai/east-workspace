@@ -124,18 +124,18 @@ def test_flatten_out_pins_the_element_type():
     from east import ArrayType
 
     arr = EastArray(ArrayType(IntegerType), [[1, 2], [3]])
-    got = arr.flatten_to_array(lambda _b, xs: xs, out=IntegerType)
+    got = arr.flat_map(lambda _b, xs: xs, out=IntegerType)
     assert list(got) == [1, 2, 3]
     with pytest.raises(ExpressionError, match="out= declares"):
         East.function([ArrayType(ArrayType(IntegerType))], ArrayType(IntegerType),
-                      lambda _b, a: a.flatten_to_array(lambda _b, xs: xs, out=StringType))
+                      lambda _b, a: a.flat_map(lambda _b, xs: xs, out=StringType))
 
 
 def test_to_dict_key_and_value_outs_type_the_projections():
     d = EastDict(StringType, IntegerType, {"a": 1, "b": 2})
     got = d.to_dict(
-        lambda _b, k, _v: variant("vessel", k),
-        lambda _b, _k, v: v,
+        lambda _b, _v, k: variant("vessel", k),
+        lambda _b, v: v,
         None,
         key_out=Source,
         value_out=IntegerType,
@@ -146,10 +146,10 @@ def test_to_dict_key_and_value_outs_type_the_projections():
 def test_group_reduce_key_out_types_a_variant_group_key():
     d = EastDict(StringType, IntegerType, {"a": 1, "ADDED": 2})
     got = d.group_reduce(
-        lambda _b, k, _v: if_else(k == "ADDED", variant("added", east_null),
+        lambda _b, _v, k: if_else(k == "ADDED", variant("added", east_null),
                             variant("vessel", k)),
         lambda _b, _gk: 0,
-        lambda _b, acc, _k, v: acc + v,
+        lambda _b, acc, v: acc + v,
         key_out=Source,
         acc_out=IntegerType,
     )
@@ -180,7 +180,7 @@ def test_group_to_arrays_takes_the_value_fn_keyword():
     d = EastDict(StringType, IntegerType, {"a": 1, "b": 2})
     got = East.function(
         [_dict_t()], DictType(StringType, ArrayType(IntegerType)),
-        lambda _b, x: x.group_to_arrays(lambda _b, k, _v: k, value_fn=lambda _b, _k, v: v))(d)
+        lambda _b, x: x.group_to_arrays(lambda _b, _v, k: k, value_fn=lambda _b, v: v))(d)
     assert {k: list(v) for k, v in got.items()} == {"a": [1], "b": [2]}
 
 

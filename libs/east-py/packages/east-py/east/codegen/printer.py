@@ -527,17 +527,13 @@ class _Printer:
         ``East.try_catch`` body) — a body like any other, the block first."""
         return self.callback_expr(body, params, scope, pre)
 
-    def callback_expr(self, body: Any, params: list[Any], scope: _Scope, pre: list[str],
-                      order: list[int] | None = None) -> str:
+    def callback_expr(self, body: Any, params: list[Any], scope: _Scope, pre: list[str]) -> str:
         """A callback body, the block first: ``lambda b, params: expr`` when
-        the body is one expression, else a ``def _bN(b, params)`` helper.
-        ``order`` permutes the declared parameters into the python surface's
-        order (a ``dict_kv`` slot)."""
+        the body is one expression, else a ``def _bN(b, params)`` helper. The
+        parameters keep the builtin's own order — the python surface takes it
+        on every collection (the TypeScript ``(value, key)`` Dict order)."""
         inner = _Scope(scope)
-        names = [self.bind(inner, v) for v in params]
-        if order is not None:
-            names = [names[i] for i in order]
-        names = [_BLOCK, *names]
+        names = [_BLOCK, *(self.bind(inner, v) for v in params)]
         if not _has_statements(body):
             sub: list[str] = []
             text = self.expr(body, inner, sub)
@@ -599,23 +595,9 @@ class _Printer:
         params = list(fp["parameters"])
         if adapter == "cb":
             return self.callback_expr(fp["body"], params, scope, pre)
-        if adapter == "dict_kv":
-            if len(params) != 2:
-                return None
-            return self.callback_expr(fp["body"], params, scope, pre, order=[1, 0])
-        if adapter == "acc_kv":
-            if len(params) != 3:
-                return None
-            return self.callback_expr(fp["body"], params, scope, pre, order=[0, 2, 1])
-        if adapter == "kv1":
-            if len(params) < 1 or self.mentions(fp["body"], [v.value["name"] for v in params[1:]]):
-                return None
-            return self.callback_expr(fp["body"], params[:1], scope, pre)
-        if adapter in ("trim", "value"):
+        if adapter == "trim":
             if self.mentions(fp["body"], [v.value["name"] for v in params]):
                 return None
-            if adapter == "value":
-                return self.expr(fp["body"], scope, pre)
             return self.callback_expr(fp["body"], [], scope, pre)
         return None
 

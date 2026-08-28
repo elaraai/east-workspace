@@ -108,7 +108,7 @@ def test_a_derivation_read_once_inside_a_callback_hoists_out_of_it():
     Rec = StructType([("items", ArrayType(Row))])
 
     def fn(_b, rec):
-        table = rec.items.sorted(key=lambda _b, r: r.v)   # a NAME, read once, inside .map
+        table = rec.items.sort(lambda _b, r: r.v)   # a NAME, read once, inside .map
         return (rec.items.slice(0, 8)
                 .map(lambda _b, it: table.sum(lambda _b, d: d.v) + it.v, out=FloatType)
                 .sum(lambda _b, x: x))
@@ -181,7 +181,7 @@ def test_a_read_of_a_value_mutated_after_its_binding_is_not_hoisted():
     def fn(_b, p):
         return East.let(
             East.new_array(IntegerType, [1, 2]),
-            lambda _b, a: East.block(a.append(99), (lambda n: n + n)(a.size())))
+            lambda _b, a: East.block(a.push_last(99), (lambda n: n + n)(a.size())))
 
     assert East.function([INT_ARR], IntegerType, fn)(DATA) == 6
 

@@ -91,14 +91,14 @@ def test_a_function_value_in_a_slot_takes_no_block():
     # included), and the value drops the block — the TypeScript
     # Expr<FunctionType> accepted wherever a ($, …) => … is.
     inc = East.function([IntegerType], IntegerType, lambda _b, x: x + 1)
-    by_value = East.function([StringType, IntegerType], IntegerType, lambda _b, _k, v: v * 10)
+    by_value = East.function([IntegerType, StringType], IntegerType, lambda _b, v, _k: v * 10)
     assert inc(EagerBlock(), 1) == 2 == inc(1)
     d = EastDict(StringType, IntegerType, {"a": 1, "b": 2})
-    assert list(d.to_array(by_value)) == [10, 20]                 # the (v, k) → (k, v) wrapper
+    assert list(d.to_array(by_value)) == [10, 20]                 # the builtin's (value, key) order
     assert d.copy().get_or_insert("z", East.function([StringType], IntegerType, lambda _b, _k: 9)) == 9
     assert list(EastArray(IntegerType, [1, 2]).map(inc)) == [2, 3]
-    scaled = East.function([StringType, IntegerType, IntegerType], IntegerType,
-                           lambda _b, _k, v, m: v * m).bind(3)
+    scaled = East.function([IntegerType, StringType, IntegerType], IntegerType,
+                           lambda _b, v, _k, m: v * m).bind(3)
     assert list(d.to_array(scaled)) == [3, 6]                     # a bound function, likewise
     # Inside a build the slot passes the builtin's whole callback signature
     # (element, index); a one-parameter function value takes the prefix.

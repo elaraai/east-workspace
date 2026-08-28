@@ -233,7 +233,7 @@ def test_sink_drives_a_python_invoked_platform_function_natively(tmp_path):
     @platform_function(inputs=[STR_FLOAT_DICT, emit_t], output=NullType,
                        name="issue592.double_all")
     def double_all(rows, emit):
-        rows.for_each(lambda _b, k, v: emit(k, v * 2.0))
+        rows.for_each(lambda _b, v, k: emit(k, v * 2.0))
 
     out = tmp_path / "doubled.beast2"
     sink = _EmitSink("dict", emit_t, out)

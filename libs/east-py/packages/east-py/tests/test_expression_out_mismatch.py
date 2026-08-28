@@ -108,10 +108,10 @@ def test_first_map_checks_the_option_wrapped_output(rows):
         rows.first_map(plain, out=StringType)
 
 
-def test_flatten_to_array_checks_the_array_wrapped_output(rows):
+def test_flat_map_checks_the_array_wrapped_output(rows):
     scalar = East.function([ROW], StringType, lambda _b, r: r["id"])         # String, not Array<String>
     with pytest.raises(EastTypeError, match="kernel output is"):
-        rows.flatten_to_array(scalar, out=StringType)
+        rows.flat_map(scalar, out=StringType)
 
 
 def test_generate_checks_element_type():

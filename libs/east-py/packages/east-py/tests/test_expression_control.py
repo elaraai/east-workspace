@@ -195,7 +195,7 @@ def test_for_needs_a_container():
 def test_append_accumulates_in_place_and_starts_fresh_each_call():
     k = East.function([INTS], INTS, lambda _b, a: East.for_(
         a, {"out": East.new_array(IntegerType)},
-        lambda _b, s, el: East.block(s.out.append(el * 2), s)).out)
+        lambda _b, s, el: East.block(s.out.push_last(el * 2), s)).out)
     assert list(k(_ints(1, 2, 3))) == [2, 4, 6]
     assert list(k(_ints(1, 2, 3))) == [2, 4, 6], "state leaked between calls"
 
@@ -206,7 +206,7 @@ def test_a_captured_seed_collection_is_also_built_per_call():
     would otherwise share (the spelling the issue's own example uses)."""
     seed = EastArray(IntegerType, [])
     k = East.function([INTS], INTS, lambda _b, a: East.for_(
-        a, {"out": seed}, lambda _b, s, el: East.block(s.out.append(el), s)).out)
+        a, {"out": seed}, lambda _b, s, el: East.block(s.out.push_last(el), s)).out)
     assert list(k(_ints(1, 2))) == [1, 2]
     assert list(k(_ints(1, 2))) == [1, 2]
     assert list(seed) == [], "the captured object itself was mutated"
@@ -229,11 +229,11 @@ def test_dict_and_set_accumulators():
 
 
 def test_a_mutation_written_as_a_statement_is_refused():
-    """A traced callback is ONE expression, so a bare ``acc.append(x)`` is
+    """A traced callback is ONE expression, so a bare ``acc.push_last(x)`` is
     evaluated at trace time and thrown away — the compiled loop would silently
     do nothing, which is the worst way to be wrong."""
     def step(_b, s, el):
-        s.out.append(el)
+        s.out.push_last(el)
         return s
 
     with pytest.raises(ExpressionError, match="thrown away.*East.block"):
@@ -253,10 +253,10 @@ def test_mutating_a_captured_constant_is_refused():
 
 def _capture_append(table, el):
     """Reach the captured constant AS A TRACED EXPRESSION, which is the shape
-    the guard is about — a bare ``table.append`` would hit the eager method."""
+    the guard is about — a bare ``table.push_last`` would hit the eager method."""
     from east.expression import _lift
 
-    return _lift(table).append(el)
+    return _lift(table).push_last(el)
 
 
 def test_mutators_yield_what_their_eager_twins_yield():
@@ -426,9 +426,9 @@ def test_let_binds_once():
 
 def test_ref_reads_writes_and_updates():
     assert East.function([IntegerType], IntegerType, lambda _b, n: East.let(
-        East.ref(n), lambda _b, r: East.block(r.set(r.get() + 10), r.get())))(7) == 17
+        East.ref(n), lambda _b, r: East.block(r.update(r.get() + 10), r.get())))(7) == 17
     assert East.function([IntegerType], IntegerType, lambda _b, n: East.let(
-        East.ref(n), lambda _b, r: East.block(r.update(lambda _b, v: v * 3), r.get())))(4) == 12
+        East.ref(n), lambda _b, r: East.block(r.update(r.get() * 3), r.get())))(4) == 12
 
 
 def test_new_collections_are_typed_and_can_start_populated():
@@ -470,7 +470,7 @@ def test_try_catch_runs_finally_either_way():
         East.ref(0),
         lambda _b, r: East.block(
             East.try_catch(lambda _b: a.get(10), lambda _b, _m: -1,
-                           finally_=lambda _b: r.set(1)),
+                           finally_=lambda _b: r.update(1)),
             r.get())))
     assert k(_ints(1)) == 1
 
@@ -503,7 +503,7 @@ def test_eager_break_and_continue_match():
 
 def test_eager_mutators_block_and_try_catch_match():
     out = East.for_(_ints(1, 2, 3), {"out": East.new_array(IntegerType)},
-                    lambda _b, s, el: East.block(s.out.append(el * 2), s))["out"]
+                    lambda _b, s, el: East.block(s.out.push_last(el * 2), s))["out"]
     assert list(out) == [2, 4, 6]
     assert East.try_catch(lambda _b: 1 // 0, lambda _b, _m: -1) == -1
     assert East.let(3, lambda _b, x: x + 1) == 4
@@ -549,14 +549,14 @@ def test_kahns_algorithm_is_one_kernel():
             body=lambda _b, s: East.let(
                 s.ready.get(s.i),
                 lambda _b, node: East.block(
-                    s.order.append(node),
+                    s.order.push_last(node),
                     East.for_(
                         succ.get_or_default(node, East.new_array(node_t)),
                         {**s, "i": s.i + 1},
                         lambda _b, t, v: East.block(
                             t.indeg.insert_or_update(v, -1, lambda _b, old, d: old + d),
                             if_else(t.indeg.get(v) == 0,
-                                    East.block(t.ready.append(v), t),
+                                    East.block(t.ready.push_last(v), t),
                                     t)))))).order)
 
     #   1 → 2 → 4 ;  1 → 3 → 4

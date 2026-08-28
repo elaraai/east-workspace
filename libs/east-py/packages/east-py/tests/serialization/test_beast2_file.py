@@ -185,7 +185,7 @@ def test_dict_file_rebatches_key_disjoint_and_streams(tmp_path):
                 assert keys[0] > previous_last
             previous_last = keys[-1]
 
-        assert len(d.keys_set()) == 20_000
+        assert len(d.keys()) == 20_000
         merged = d.load()
         assert merged["k00042"] == 42
         first_key, first_value = next(iter(d.items()))
@@ -231,7 +231,9 @@ def test_dict_keyed_reads_match_the_eager_dict(tmp_path):
             assert d.has(key) and key in d
         for miss in ["a", "k00500x", "k10000", "zzz"]:
             assert miss not in d and not d.has(miss)
-            assert d.get(miss) is None and d.get(miss, -1) == -1
+            assert d.get(miss, -1) == -1
+            with pytest.raises(KeyError, match="Dict does not contain key"):
+                d.get(miss)
             assert d.get_or_default(miss, -1) == -1
             assert d.try_get(miss).type == "none"
         with pytest.raises(KeyError, match="Dict does not contain key"):
@@ -409,8 +411,8 @@ ARRAY_COMPUTE_CASES = [
         lambda _b, r: some(r["qty"]) if East.Integer.remainder(r["qty"], 3) == 0 else none, out=IntegerType)),
     ("first_map", lambda c: c.first_map(
         lambda _b, r: some(r["sku"]) if r["qty"] > 17 else none, out=StringType)),
-    ("fold_float", lambda c: c.fold(0.0, lambda _b, a, r: a + r["amt"])),
-    ("fold_global_idx", lambda c: c.fold(0, lambda _b, a, r, i: a + i)),
+    ("reduce_float", lambda c: c.reduce(lambda _b, a, r: a + r["amt"], 0.0)),
+    ("reduce_global_idx", lambda c: c.reduce(lambda _b, a, r, i: a + i, 0)),
     ("map_reduce_noncommutative", lambda c: c.map_reduce(
         lambda _b, r: r["sku"], lambda _b, a, b: a + b)),
     ("sum", lambda c: c.sum(lambda _b, r: r["amt"])),
@@ -454,15 +456,15 @@ ARRAY_COMPUTE_CASES = [
         lambda _b, r: r["sku"], lambda _b, r: r["amt"])),
     ("group_find_max_ties", lambda c: c.group_find_maximum(lambda _b, r: r["sku"], lambda _b, _r: 0)),
     ("group_find_min_ties", lambda c: c.group_find_minimum(lambda _b, r: r["sku"], lambda _b, _r: 0)),
-    ("scan", lambda c: list(c.scan(0, lambda _b, a, r: a + r["qty"]))),
-    ("scan_idx", lambda c: list(c.scan(0, lambda _b, a, r, i: a + r["qty"] + i))),
+    ("scan", lambda c: list(c.scan(lambda _b, a, r: a + r["qty"], 0))),
+    ("scan_idx", lambda c: list(c.scan(lambda _b, a, r, i: a + r["qty"] + i, 0))),
     ("group_every", lambda c: c.group_every(lambda _b, r: r["sku"], lambda _b, r: r["qty"] > 2)),
     ("group_some", lambda c: c.group_some(lambda _b, r: r["sku"], lambda _b, r: r["qty"] > 30)),
     ("group_to_arrays", lambda c: c.group_to_arrays(lambda _b, r: r["sku"], lambda _b, r: r["qty"])),
     ("group_to_sets", lambda c: c.group_to_sets(lambda _b, r: r["sku"], lambda _b, r: r["qty"])),
     ("group_to_dicts", lambda c: c.group_to_dicts(
         lambda _b, r: r["sku"], lambda _b, r: r["qty"], lambda _b, r: r["amt"])),
-    ("flatten_to_array", lambda c: list(c.flatten_to_array(
+    ("flat_map", lambda c: list(c.flat_map(
         lambda _b, r: East.new_array(IntegerType, [r["qty"], -r["qty"]])))),
     ("flatten_to_set", lambda c: c.flatten_to_set(
         lambda _b, r: East.new_set(StringType, [r["sku"]]))),
@@ -536,50 +538,52 @@ def test_array_compute_string_join_and_columns(tmp_path):
             list(want.map(lambda _b, r: r["qty"], out=IntegerType))
 
 
+# Dict callbacks take the builtin's own (value, key) order — the TypeScript
+# order, canonical on both surfaces.
 DICT_COMPUTE_CASES = [
-    ("reduce", lambda c: c.reduce(0.0, lambda _b, a, k, v: a + v)),
-    ("scan", lambda c: list(c.scan(0.0, lambda _b, a, k, v: a + v))),
+    ("reduce", lambda c: c.reduce(lambda _b, a, v, k: a + v, 0.0)),
+    ("scan", lambda c: list(c.scan(lambda _b, a, v, k: a + v, 0.0))),
     ("mean", lambda c: c.mean()),
-    ("mean_proj", lambda c: c.mean(lambda _b, k, v: v * 2.0)),
+    ("mean_proj", lambda c: c.mean(lambda _b, v, k: v * 2.0)),
     # #526: Dict gained every/some/sum, so the file surface mirrors them.
     ("sum", lambda c: c.sum()),
-    ("sum_proj", lambda c: c.sum(lambda _b, k, v: v * 2.0)),
-    ("every", lambda c: c.every(lambda _b, k, v: v >= 0.0)),
-    ("every_false", lambda c: c.every(lambda _b, k, v: v > 5.0)),
-    ("some", lambda c: c.some(lambda _b, k, v: v > 5.0)),
-    ("some_false", lambda c: c.some(lambda _b, k, v: v > 1e9)),
+    ("sum_proj", lambda c: c.sum(lambda _b, v, k: v * 2.0)),
+    ("every", lambda c: c.every(lambda _b, v, k: v >= 0.0)),
+    ("every_false", lambda c: c.every(lambda _b, v, k: v > 5.0)),
+    ("some", lambda c: c.some(lambda _b, v, k: v > 5.0)),
+    ("some_false", lambda c: c.some(lambda _b, v, k: v > 1e9)),
     ("map", lambda c: c.map(lambda _b, v: v * 2)),
     ("map_with_key", lambda c: c.map(lambda _b, v, k: k)),
-    ("filter", lambda c: c.filter(lambda _b, k, v: v > 5.0)),
+    ("filter", lambda c: c.filter(lambda _b, v, k: v > 5.0)),
     ("filter_map", lambda c: c.filter_map(
-        lambda _b, k, v: some(v) if v > 5.0 else none, out=FloatType)),
+        lambda _b, v, k: some(v) if v > 5.0 else none, out=FloatType)),
     ("first_map", lambda c: c.first_map(
-        lambda _b, k, v: some(k) if v > 5.0 else none, out=StringType)),
-    ("map_reduce", lambda c: c.map_reduce(lambda _b, k, v: k, lambda _b, a, b: a + b)),
-    ("to_array", lambda c: list(c.to_array(lambda _b, k, v: k))),
-    ("to_set", lambda c: c.to_set(lambda _b, k, v: k[:2])),
+        lambda _b, v, k: some(k) if v > 5.0 else none, out=StringType)),
+    ("map_reduce", lambda c: c.map_reduce(lambda _b, v, k: k, lambda _b, a, b: a + b)),
+    ("to_array", lambda c: list(c.to_array(lambda _b, v, k: k))),
+    ("to_set", lambda c: c.to_set(lambda _b, v, k: k[:2])),
     # Collision-heavy re-key: a COUNTING combine (1.0 sums are exact under
     # any association) — cross-segment float-sum collisions carry the
     # documented associativity caveat, pinned separately below.
     ("to_dict", lambda c: c.to_dict(
-        lambda _b, k, v: k[:2], lambda _b, k, v: 1.0, lambda _b, a, b, _k: a + b)),
+        lambda _b, v, k: k[:2], lambda _b, v, k: 1.0, lambda _b, a, b, _k: a + b)),
     ("flatten_to_array", lambda c: list(c.flatten_to_array(
-        lambda _b, k, v: East.new_array(FloatType, [v, v])))),
+        lambda _b, v, k: East.new_array(FloatType, [v, v])))),
     ("flatten_to_set", lambda c: c.flatten_to_set(
-        lambda _b, k, v: East.new_set(StringType, [k]))),
+        lambda _b, v, k: East.new_set(StringType, [k]))),
     ("flatten_to_dict", lambda c: c.flatten_to_dict(
-        lambda _b, k, v: East.new_dict(StringType, FloatType, [(k, v)]))),
+        lambda _b, v, k: East.new_dict(StringType, FloatType, [(k, v)]))),
     ("group_reduce", lambda c: c.group_reduce(
-        lambda _b, k, v: k[:2], lambda _b, _k: 0.0, lambda _b, a, k, v: a + v)),
-    ("group_size", lambda c: c.group_size(lambda _b, k, v: k[:2])),
-    ("group_sum", lambda c: c.group_sum(lambda _b, k, v: k[:2])),
-    ("group_mean", lambda c: c.group_mean(lambda _b, k, v: k[:2])),
-    ("group_every", lambda c: c.group_every(lambda _b, k, v: k[:2], lambda _b, k, v: v >= 0.0)),
-    ("group_some", lambda c: c.group_some(lambda _b, k, v: k[:2], lambda _b, k, v: v > 8.0)),
-    ("group_to_arrays", lambda c: c.group_to_arrays(lambda _b, k, v: k[:2], lambda _b, k, v: v)),
-    ("group_to_sets", lambda c: c.group_to_sets(lambda _b, k, v: k[:2], lambda _b, k, v: k)),
+        lambda _b, v, k: k[:2], lambda _b, _k: 0.0, lambda _b, a, v, k: a + v)),
+    ("group_size", lambda c: c.group_size(lambda _b, v, k: k[:2])),
+    ("group_sum", lambda c: c.group_sum(lambda _b, v, k: k[:2])),
+    ("group_mean", lambda c: c.group_mean(lambda _b, v, k: k[:2])),
+    ("group_every", lambda c: c.group_every(lambda _b, v, k: k[:2], lambda _b, v, k: v >= 0.0)),
+    ("group_some", lambda c: c.group_some(lambda _b, v, k: k[:2], lambda _b, v, k: v > 8.0)),
+    ("group_to_arrays", lambda c: c.group_to_arrays(lambda _b, v, k: k[:2], lambda _b, v, k: v)),
+    ("group_to_sets", lambda c: c.group_to_sets(lambda _b, v, k: k[:2], lambda _b, v, k: k)),
     ("group_to_dicts", lambda c: c.group_to_dicts(
-        lambda _b, k, v: k[:2], lambda _b, k, v: k, lambda _b, k, v: v)),
+        lambda _b, v, k: k[:2], lambda _b, v, k: k, lambda _b, v, k: v)),
 ]
 
 
@@ -645,8 +649,8 @@ def test_cross_segment_float_collisions_carry_the_documented_caveat(tmp_path):
     write_beast2_file(path, dt, EastDict(StringType, FloatType, data), segment_rows=6)
     with open_beast2_file(path, dt) as d:
         table = d.load()
-        got = d.to_dict(lambda _b, k, v: k[:2], lambda _b, k, v: v, lambda _b, a, b, _k: a + b)
-        want = table.to_dict(lambda _b, k, v: k[:2], lambda _b, k, v: v, lambda _b, a, b, _k: a + b)
+        got = d.to_dict(lambda _b, v, k: k[:2], lambda _b, v: v, lambda _b, a, b, _k: a + b)
+        want = table.to_dict(lambda _b, v, k: k[:2], lambda _b, v: v, lambda _b, a, b, _k: a + b)
         assert set(got.keys()) == set(want.keys())
         for k in want.keys():  # noqa: SIM118 — EastDict, not a python dict
             assert math.isclose(got[k], want[k], rel_tol=1e-12), k
@@ -664,9 +668,9 @@ def test_dict_compute_with_variant_keys(tmp_path):
     write_beast2_file(path, dt, data, segment_rows=3)
     with open_beast2_file(path, dt) as d:
         table = d.load()
-        assert d.reduce(0.0, lambda _b, a, k, v: a + v) == table.reduce(0.0, lambda _b, a, k, v: a + v)
-        got = d.group_reduce(lambda _b, k, v: k.type, lambda _b, _k: 0.0, lambda _b, a, k, v: a + v)
-        want = table.group_reduce(lambda _b, k, v: k.type, lambda _b, _k: 0.0, lambda _b, a, k, v: a + v)
+        assert d.reduce(lambda _b, a, v, k: a + v, 0.0) == table.reduce(lambda _b, a, v, k: a + v, 0.0)
+        got = d.group_reduce(lambda _b, v, k: k.type, lambda _b, _k: 0.0, lambda _b, a, v, k: a + v)
+        want = table.group_reduce(lambda _b, v, k: k.type, lambda _b, _k: 0.0, lambda _b, a, v, k: a + v)
         assert dict(got.items()) == dict(want.items())
 
 
@@ -679,11 +683,11 @@ def test_file_group_fold_aliases_warn_and_delegate(tmp_path):
                                {f"k{i:02d}": float(i) for i in range(9)}),
                       segment_rows=3)
     with open_beast2_file(dict_path) as d:
-        want = d.group_reduce(lambda _b, k, v: k[:2], lambda _b, _k: 0.0,
-                              lambda _b, a, k, v: a + v)
+        want = d.group_reduce(lambda _b, v, k: k[:2], lambda _b, _k: 0.0,
+                              lambda _b, a, v, k: a + v)
         with pytest.warns(DeprecationWarning, match="group_reduce"):
-            got = d.group_fold(lambda _b, k, v: k[:2], lambda _b, _k: 0.0,
-                               lambda _b, a, k, v: a + v)
+            got = d.group_fold(lambda _b, v, k: k[:2], lambda _b, _k: 0.0,
+                               lambda _b, a, v, k: a + v)
         assert dict(got.items()) == dict(want.items())
 
     set_path = tmp_path / "alias_s.beast2"
@@ -697,8 +701,8 @@ def test_file_group_fold_aliases_warn_and_delegate(tmp_path):
 
 
 SET_COMPUTE_CASES = [
-    ("reduce", lambda c: c.reduce(0, lambda _b, a, el: a + el)),
-    ("scan", lambda c: list(c.scan(0, lambda _b, a, el: a + el))),
+    ("reduce", lambda c: c.reduce(lambda _b, a, el: a + el, 0)),
+    ("scan", lambda c: list(c.scan(lambda _b, a, el: a + el, 0))),
     ("sum", lambda c: c.sum()),
     ("mean", lambda c: c.mean()),
     ("map", lambda c: c.map(lambda _b, el: el * 2)),
@@ -748,11 +752,11 @@ def test_set_compute_matches_load(tmp_path):
             other = EastSet(IntegerType, range(0, 90, 5))
             for name, run in [
                 ("union", lambda c, o=other: c.union(o)),
-                ("intersect", lambda c, o=other: c.intersect(o)),
-                ("diff", lambda c, o=other: c.diff(o)),
-                ("sym_diff", lambda c, o=other: c.sym_diff(o)),
-                ("is_subset", lambda c, o=other: c.is_subset(o)),
-                ("is_disjoint", lambda c, o=other: c.is_disjoint(o)),
+                ("intersection", lambda c, o=other: c.intersection(o)),
+                ("difference", lambda c, o=other: c.difference(o)),
+                ("symmetric_difference", lambda c, o=other: c.symmetric_difference(o)),
+                ("is_subset_of", lambda c, o=other: c.is_subset_of(o)),
+                ("is_disjoint_from", lambda c, o=other: c.is_disjoint_from(o)),
                 # #526: is_superset_of — the file drains the outstanding
                 # remainder segment by segment, so it must agree with the
                 # whole-value answer for covered AND uncovered `other`s.
@@ -868,7 +872,7 @@ def test_dict_set_compute_requires_canonical_segments(tmp_path):
         open_beast2_file(path, DT) as bad,
         pytest.raises(RuntimeError, match="not disjoint ascending"),
     ):
-        bad.reduce(0, lambda _b, a, k, v: a + v)
+        bad.reduce(lambda _b, a, v, k: a + v, 0)
 
 
 def test_file_surface_covers_the_eager_read_surface():
@@ -878,9 +882,11 @@ def test_file_surface_covers_the_eager_read_surface():
     excluded = {
         Beast2ArrayFile: {
             # mutators — the file is read-only
-            "sort", "reverse", "insert", "append", "extend", "pop", "remove", "clear",
+            "push_last", "push_first", "pop_last", "pop_first", "append", "prepend",
+            "update", "set_at", "merge", "merge_all", "sort_in_place", "reverse_in_place",
+            "insert", "extend", "pop", "remove", "clear",
             # whole-collection materializers/reorderers — load() first
-            "sorted", "reversed", "copy", "concat",
+            "sort", "sorted", "reverse", "reversed", "copy", "concat",
             # constructors / statics
             "generate", "range", "linspace", "from_columns",
         },
@@ -895,11 +901,10 @@ def test_file_surface_covers_the_eager_read_surface():
             # mutators
             "insert", "get_or_insert", "insert_or_update", "update", "swap",
             "delete", "try_delete", "pop", "clear", "update_many", "merge_all",
-            "union_in_place", "merge_key",
-            # materializers / constructor — `union` (and its deprecated `merge`
-            # spelling, #527) would pull the whole file into one dict, so it
-            # keeps the exclusion the old `merge` name already had.
-            "union", "merge", "copy", "generate",
+            "union_in_place", "merge", "merge_key",
+            # materializers / constructor — `union` would pull the whole file
+            # into one dict.
+            "union", "copy", "generate",
         },
     }
     pairs = [

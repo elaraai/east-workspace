@@ -84,7 +84,7 @@ class TestValueSemantics:
             with pytest.raises(EastError, match="read-only view"):
                 f += EastArray(ROW, [])
             with pytest.raises(EastError, match="read-only view"):
-                f.sort()
+                f.sort_in_place()
         st_path = tmp_path / "set.beast2"
         write_beast2_file(st_path, SetType(IntegerType), EastSet(IntegerType, [1]))
         with open_beast2_file(st_path) as s:
@@ -100,12 +100,12 @@ class TestValueSemantics:
         rows = [{"k": f"s{9 - i}", "v": float(i)} for i in range(10)]
         write_beast2_file(at_path, A_ROW, EastArray(ROW, rows), segment_rows=3)
         with open_beast2_file(at_path) as f:
-            got = f.sorted(key=lambda _b, r: r["k"])
-            want = f.load().sorted(key=lambda _b, r: r["k"])
+            got = f.sort(lambda _b, r: r["k"])
+            want = f.load().sort(lambda _b, r: r["k"])
             assert [r["k"] for r in got] == [r["k"] for r in want]
             # copy() is the mutable escape hatch
             copied = f.copy()
-            copied.append({"k": "zz", "v": 0.0})
+            copied.push_last({"k": "zz", "v": 0.0})
             assert len(copied) == len(f) + 1
 
     def test_segments_is_a_deprecated_alias(self, tmp_path):

@@ -946,47 +946,54 @@ _ROWS: dict[str, Any] = {
     if not isinstance(a[0], Expression) else a[0].filter_map(_cb(ev, a[1])),
     "ArrayFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_opt_inner(_out(n)))
     if not isinstance(a[0], Expression) else a[0].first_map(_cb(ev, a[1])),
-    "ArrayFold": lambda ev, n, a: a[0].fold(a[1], _cb(ev, a[2])),
-    # scan IS the running fold, so it takes fold's argument order (#524).
-    "ArrayScan": lambda ev, n, a: a[0].scan(a[1], _cb(ev, a[2])),
+    "ArrayFold": lambda ev, n, a: a[0].reduce(_cb(ev, a[2]), a[1]),
+    # scan IS the running fold, so it takes reduce's argument order (#524).
+    "ArrayScan": lambda ev, n, a: a[0].scan(_cb(ev, a[2]), a[1]),
     "ArrayMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2]))
     if isinstance(a[0], Expression) else a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2]), out=_out(n)),
     "ArraySize": lambda ev, n, a: a[0].size() if isinstance(a[0], Expression) else len(a[0]),
     "ArrayHas": lambda ev, n, a: a[0].has(a[1]),
     "ArrayGet": lambda ev, n, a: a[0].get(a[1]),
-    "ArrayGetOrDefault": lambda ev, n, a: a[0].get_or_default(a[1], ev.call(a[2], [a[1]]) if isinstance(a[2], Closure) else a[2])
-    if not isinstance(a[0], Expression) else a[0].get_or_default(a[1], _default_of(ev, a[2])),
+    # TS `get(index, onMissing)`: the eager default body takes the block
+    # first, the compiled callback none — `_kv_user` bridges the two.
+    "ArrayGetOrDefault": lambda ev, n, a: a[0].get(a[1], _kv_user(ev, a[2], 1))
+    if not isinstance(a[0], Expression) else a[0].get(a[1], _cb(ev, a[2])),
     "ArrayTryGet": lambda ev, n, a: a[0].try_get(a[1]),
     "ArrayConcat": lambda ev, n, a: a[0].concat(a[1]),
     "ArraySlice": lambda ev, n, a: a[0].slice(a[1], a[2]),
-    "ArrayReverse": lambda ev, n, a: a[0].reversed(),
+    "ArrayReverse": lambda ev, n, a: a[0].reverse(),
     "ArrayCopy": lambda ev, n, a: a[0].copy(),
-    "ArraySortDefault": lambda ev, n, a: a[0].sorted(),
-    "ArraySort": lambda ev, n, a: a[0].sorted(key=_cb(ev, a[1])),
-    "ArrayIsSorted": lambda ev, n, a: a[0].is_sorted(key=_cb(ev, a[1])),
+    # the keyless east-c sort computes exactly what the identity-keyed
+    # TS `sort()` computes
+    "ArraySortDefault": lambda ev, n, a: a[0].sort(),
+    "ArraySort": lambda ev, n, a: a[0].sort(_cb(ev, a[1])),
+    "ArrayIsSorted": lambda ev, n, a: a[0].is_sorted(_cb(ev, a[1])),
     "ArrayToSet": lambda ev, n, a: a[0].to_set(_cb(ev, a[1])),
     "ArrayToDict": lambda ev, n, a: a[0].to_dict(
         _cb(ev, a[1]), value=_cb(ev, a[2]), combine=_cb(ev, a[3])),
     "ArrayGroupFold": lambda ev, n, a: a[0].group_reduce(
         _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3]))
     if not isinstance(a[0], Expression) else _unsup("traced group_reduce"),
-    "ArrayFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], Expression) else a[0].flatten_to_array(_cb(ev, a[1])),
+    "ArrayFlattenToArray": lambda ev, n, a: a[0].flat_map(_cb(ev, a[1]), out=child_type(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].flat_map(_cb(ev, a[1])),
     "ArrayFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], Expression) else a[0].flatten_to_set(_cb(ev, a[1])),
     "ArrayFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_cb(ev, a[1]), _cb(ev, a[2])),
     "ArrayStringJoin": lambda ev, n, a: a[0].string_join(a[1]),
-    "ArrayUpdate": lambda ev, n, a: (a[0].__setitem__(a[1], a[2]), east_null)[1],
+    "ArrayEncodeCsv": lambda ev, n, a: a[0].encode_csv(a[1]),
+    "ArrayUpdate": lambda ev, n, a: (a[0].update(a[1], a[2]), east_null)[1],
+    "ArrayMerge": lambda ev, n, a: (a[0].merge(a[1], a[2], _cb(ev, a[3])), east_null)[1],
+    "ArrayMergeAll": lambda ev, n, a: (a[0].merge_all(a[1], _cb(ev, a[2])), east_null)[1],
     "ArrayClear": lambda ev, n, a: (a[0].clear(), east_null)[1],
-    "ArrayPushLast": lambda ev, n, a: (a[0].append(a[1]), east_null)[1],
-    "ArrayPushFirst": lambda ev, n, a: (a[0].insert(0, a[1]), east_null)[1],
-    "ArrayPopLast": lambda ev, n, a: a[0].pop(),
-    "ArrayPopFirst": lambda ev, n, a: a[0].pop(0),
-    "ArrayAppend": lambda ev, n, a: (a[0].extend(a[1]), east_null)[1],
-    "ArrayReverseInPlace": lambda ev, n, a: (a[0].reverse(), east_null)[1],
-    "ArraySortInPlace": lambda ev, n, a: (a[0].sort(), east_null)[1]
-    if len(a) == 1 else (a[0].sort(key=_cb(ev, a[1])), east_null)[1],
-    "ArrayGenerate": lambda ev, n, a: EastArray.generate(a[0], _cb(ev, a[1]), element_type=ev.canon(n.value["type_parameters"][0])),
+    "ArrayPushLast": lambda ev, n, a: (a[0].push_last(a[1]), east_null)[1],
+    "ArrayPushFirst": lambda ev, n, a: (a[0].push_first(a[1]), east_null)[1],
+    "ArrayPopLast": lambda ev, n, a: a[0].pop_last(),
+    "ArrayPopFirst": lambda ev, n, a: a[0].pop_first(),
+    "ArrayAppend": lambda ev, n, a: (a[0].append(a[1]), east_null)[1],
+    "ArrayPrepend": lambda ev, n, a: (a[0].prepend(a[1]), east_null)[1],
+    "ArrayReverseInPlace": lambda ev, n, a: (a[0].reverse_in_place(), east_null)[1],
+    "ArraySortInPlace": lambda ev, n, a: (a[0].sort_in_place(_cb(ev, a[1])), east_null)[1],
+    "ArrayGenerate": lambda ev, n, a: East.Array.generate(a[0], ev.canon(n.value["type_parameters"][0]), _cb(ev, a[1])),
     "ArrayRange": lambda ev, n, a: EastArray.range(a[0], a[1], a[2]),
     "ArrayLinspace": lambda ev, n, a: EastArray.linspace(a[0], a[1], a[2]),
     "ArrayForEach": lambda ev, n, a: a[0].for_each(_cb(ev, a[1])),
@@ -1003,11 +1010,11 @@ _ROWS: dict[str, Any] = {
     "SetTryInsert": lambda ev, n, a: a[0].try_insert(a[1]),
     "SetTryDelete": lambda ev, n, a: a[0].try_delete(a[1]),
     "SetUnion": lambda ev, n, a: a[0].union(a[1]),
-    "SetIntersect": lambda ev, n, a: a[0].intersect(a[1]),
-    "SetDiff": lambda ev, n, a: a[0].diff(a[1]),
-    "SetSymDiff": lambda ev, n, a: a[0].sym_diff(a[1]),
-    "SetIsSubset": lambda ev, n, a: a[0].is_subset(a[1]),
-    "SetIsDisjoint": lambda ev, n, a: a[0].is_disjoint(a[1]),
+    "SetIntersect": lambda ev, n, a: a[0].intersection(a[1]),
+    "SetDiff": lambda ev, n, a: a[0].difference(a[1]),
+    "SetSymDiff": lambda ev, n, a: a[0].symmetric_difference(a[1]),
+    "SetIsSubset": lambda ev, n, a: a[0].is_subset_of(a[1]),
+    "SetIsDisjoint": lambda ev, n, a: a[0].is_disjoint_from(a[1]),
     "SetCopy": lambda ev, n, a: a[0].copy(),
     "SetUnionInPlace": lambda ev, n, a: a[0].union_in_place(a[1]),
     "SetToArray": lambda ev, n, a: a[0].to_array(_cb(ev, a[1])),
@@ -1022,24 +1029,25 @@ _ROWS: dict[str, Any] = {
     "SetFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_opt_inner(_out(n)))
     if not isinstance(a[0], Expression) else a[0].first_map(_cb(ev, a[1])),
     "SetMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2])),
-    "SetReduce": lambda ev, n, a: a[0].reduce(a[2], _cb(ev, a[1])),
+    "SetReduce": lambda ev, n, a: a[0].reduce(_cb(ev, a[1]), a[2]),
     # SetScan mirrors SetReduce's (set, fn, init) argument order (#524).
-    "SetScan": lambda ev, n, a: a[0].scan(a[2], _cb(ev, a[1])),
+    "SetScan": lambda ev, n, a: a[0].scan(_cb(ev, a[1]), a[2]),
     "SetGroupFold": lambda ev, n, a: a[0].group_reduce(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "SetFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], Expression) else a[0].flatten_to_array(_cb(ev, a[1])),
     "SetFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], Expression) else a[0].flatten_to_set(_cb(ev, a[1])),
     "SetFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_cb(ev, a[1]), _cb(ev, a[2])),
-    "SetGenerate": lambda ev, n, a: EastSet.generate(a[0], _cb(ev, a[1]), element_type=ev.canon(n.value["type_parameters"][0])),
+    "SetGenerate": lambda ev, n, a: East.Set.generate(
+        a[0], ev.canon(n.value["type_parameters"][0]), _cb(ev, a[1]), _cb(ev, a[2])),
     "SetForEach": lambda ev, n, a: a[0].for_each(_cb(ev, a[1])),
-    # Dict — note the builtin invokes callbacks (value, key); the python
-    # methods take user (key, value) argument order
+    # Dict — the python methods take the builtin's own (value, key) callback
+    # order (the TypeScript order, canonical on both surfaces)
     "DictSize": lambda ev, n, a: a[0].size() if isinstance(a[0], Expression) else len(a[0]),
     "DictHas": lambda ev, n, a: a[0].has(a[1]),
-    "DictGet": lambda ev, n, a: a[0].get(a[1]) if isinstance(a[0], Expression) else a[0][a[1]],
-    "DictGetOrDefault": lambda ev, n, a: a[0].get_or_default(a[1], ev.call(a[2], [a[1]]) if isinstance(a[2], Closure) else a[2])
-    if not isinstance(a[0], Expression) else a[0].get_or_default(a[1], _default_of(ev, a[2])),
+    "DictGet": lambda ev, n, a: a[0].get(a[1]),
+    "DictGetOrDefault": lambda ev, n, a: a[0].get(a[1], _kv_user(ev, a[2], 1))
+    if not isinstance(a[0], Expression) else a[0].get(a[1], _cb(ev, a[2])),
     "DictTryGet": lambda ev, n, a: a[0].try_get(a[1]),
     "DictInsert": lambda ev, n, a: a[0].insert(a[1], a[2]),
     # DictGetOrInsert's third arg is a nullary default producer in TS
@@ -1047,37 +1055,36 @@ _ROWS: dict[str, Any] = {
         a[1], _arity_trim(ev, a[2])),
     "DictInsertOrUpdate": lambda ev, n, a: a[0].insert_or_update(
         a[1], a[2], _cb(ev, a[3])),
-    # east-c DictUpdate SETS the value at an existing key (TS `.update(k, v)`);
-    # the user spelling with must-exist semantics is `swap` (old value dropped)
-    "DictUpdate": lambda ev, n, a: (a[0].swap(a[1], a[2]), east_null)[1],
+    "DictUpdate": lambda ev, n, a: (a[0].update(a[1], a[2]), east_null)[1],
     "DictSwap": lambda ev, n, a: a[0].swap(a[1], a[2]),
     "DictPop": lambda ev, n, a: a[0].pop(a[1]),
     "DictClear": lambda ev, n, a: (a[0].clear(), east_null)[1],
     "DictDelete": lambda ev, n, a: a[0].delete(a[1]),
     "DictTryDelete": lambda ev, n, a: a[0].try_delete(a[1]),
     "DictCopy": lambda ev, n, a: a[0].copy(),
-    "DictKeys": lambda ev, n, a: a[0].keys_set(),
+    "DictKeys": lambda ev, n, a: a[0].keys(),
     "DictGetKeys": lambda ev, n, a: a[0].get_keys(a[1], _kv_user(ev, a[2], 1)),
     "DictMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
     if not isinstance(a[0], Expression) else a[0].map(_cb(ev, a[1])),
-    "DictFilter": lambda ev, n, a: a[0].filter(_dict_kv(ev, a[1])),
-    "DictFilterMap": lambda ev, n, a: a[0].filter_map(_dict_kv(ev, a[1]), out=dict_child(_out(n), "value"))
-    if not isinstance(a[0], Expression) else a[0].filter_map(_dict_kv(ev, a[1])),
-    "DictFirstMap": lambda ev, n, a: a[0].first_map(_dict_kv(ev, a[1]), out=_opt_inner(_out(n)))
-    if not isinstance(a[0], Expression) else a[0].first_map(_dict_kv(ev, a[1])),
-    "DictMapReduce": lambda ev, n, a: a[0].map_reduce(_dict_kv(ev, a[1]), _cb(ev, a[2])),
-    "DictReduce": lambda ev, n, a: a[0].reduce(a[2], _acc_kv(ev, a[1])),
-    # DictScan mirrors DictReduce: builtin (acc, value, key) -> user
-    # fn(acc, key, value), and the seed is the trailing argument (#524).
-    "DictScan": lambda ev, n, a: a[0].scan(a[2], _acc_kv(ev, a[1])),
-    "DictToArray": lambda ev, n, a: a[0].to_array(_dict_kv(ev, a[1])),
-    "DictToSet": lambda ev, n, a: a[0].to_set(_dict_kv(ev, a[1])),
-    "DictToDict": lambda ev, n, a: a[0].to_dict(_dict_kv(ev, a[1]), _dict_kv(ev, a[2]), _cb(ev, a[3])),
+    "DictFilter": lambda ev, n, a: a[0].filter(_cb(ev, a[1])),
+    "DictFilterMap": lambda ev, n, a: a[0].filter_map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
+    if not isinstance(a[0], Expression) else a[0].filter_map(_cb(ev, a[1])),
+    "DictFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_opt_inner(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].first_map(_cb(ev, a[1])),
+    "DictMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2])),
+    "DictReduce": lambda ev, n, a: a[0].reduce(_cb(ev, a[1]), a[2]),
+    # DictScan mirrors DictReduce's (dict, fn, init) argument order (#524).
+    "DictScan": lambda ev, n, a: a[0].scan(_cb(ev, a[1]), a[2]),
+    "DictToArray": lambda ev, n, a: a[0].to_array(_cb(ev, a[1])),
+    "DictToSet": lambda ev, n, a: a[0].to_set(_cb(ev, a[1])),
+    "DictToDict": lambda ev, n, a: a[0].to_dict(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "DictGroupFold": lambda ev, n, a: a[0].group_reduce(
-        _dict_kv(ev, a[1]), _cb(ev, a[2]), _acc_kv3(ev, a[3])),
-    "DictFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_dict_kv(ev, a[1])),
-    "DictFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_dict_kv(ev, a[1])),
-    "DictFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_dict_kv(ev, a[1]), _cb(ev, a[2])),
+        _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
+    "DictFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].flatten_to_array(_cb(ev, a[1])),
+    "DictFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].flatten_to_set(_cb(ev, a[1])),
+    "DictFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_cb(ev, a[1]), _cb(ev, a[2])),
     # in-place union with a combine: the user spelling is update_many (#255).
     # update_many's combine contract is (existing, incoming) — a corpus
     # merger that reads the KEY has no user spelling here → funnel (counted).
@@ -1086,32 +1093,53 @@ _ROWS: dict[str, Any] = {
     # `update_many` spelling is now expressible and no longer funnels.
     "DictUnionInPlace": lambda ev, n, a: (
         a[0].union_in_place(a[1], _cb(ev, a[2])), east_null)[1],
-    # #527 also added `merge_key`, the single-key upsert that IS DictMerge
-    # (dict, key, value, updateFn, initialFn) — argument-for-argument.
+    # `merge` is the single-key upsert that IS DictMerge (dict, key, value,
+    # updateFn, initialFn) — argument-for-argument (TS `merge`).
     "DictMerge": lambda ev, n, a: (
-        a[0].merge_key(a[1], a[2], _cb(ev, a[3]), _cb(ev, a[4])), east_null)[1],
+        a[0].merge(a[1], a[2], _cb(ev, a[3]), _cb(ev, a[4])), east_null)[1],
     "DictMergeAll": lambda ev, n, a: a[0].merge_all(a[1], _cb(ev, a[2]), _cb(ev, a[3])),
-    "DictForEach": lambda ev, n, a: a[0].for_each(_dict_kv(ev, a[1])),
-    "DictGenerate": lambda ev, n, a: EastDict.generate(
-        a[0], _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3]),
-        ev.canon(n.value["type_parameters"][0]), ev.canon(n.value["type_parameters"][1])),
-    # Ref — the user surface is the `.value` property; RefUpdate SETS (TS
-    # `.update(value)`), RefMerge folds the incoming value into the current
-    "RefGet": lambda ev, n, a: a[0].value,
-    "RefUpdate": lambda ev, n, a: (setattr(a[0], "value", a[1]), east_null)[1],
-    "RefMerge": lambda ev, n, a: (setattr(
-        a[0], "value", _arity_trim(ev, a[2])(None, a[0].value, a[1])), east_null)[1],
-    # Vector/Matrix arithmetic + sparse accumulators (#598) — the eager
-    # EastVector/EastMatrix methods and the East.Vector namespace, whose
-    # traced twins share the same spellings.
+    "DictForEach": lambda ev, n, a: a[0].for_each(_cb(ev, a[1])),
+    "DictGenerate": lambda ev, n, a: East.Dict.generate(
+        a[0], ev.canon(n.value["type_parameters"][0]), ev.canon(n.value["type_parameters"][1]),
+        _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
+    # Ref — the TS names: get / update(value) / merge(value, fn)
+    "RefGet": lambda ev, n, a: a[0].get(),
+    "RefUpdate": lambda ev, n, a: (a[0].update(a[1]), east_null)[1],
+    "RefMerge": lambda ev, n, a: (a[0].merge(a[1], _arity_trim(ev, a[2])), east_null)[1],
+    # Vector/Matrix — the structural surface, the arithmetic and the sparse
+    # accumulators (#598): the eager EastVector/EastMatrix methods and the
+    # East.Vector namespace, whose traced twins share the same spellings.
+    "VectorLength": lambda ev, n, a: a[0].length(),
+    "VectorGet": lambda ev, n, a: a[0].get(a[1]),
+    "VectorSet": lambda ev, n, a: a[0].set(a[1], a[2]),
+    "VectorSlice": lambda ev, n, a: a[0].slice(a[1], a[2]),
+    "VectorConcat": lambda ev, n, a: a[0].concat(a[1]),
+    "VectorToArray": lambda ev, n, a: a[0].to_array(),
+    "VectorToMatrix": lambda ev, n, a: a[0].to_matrix(a[1], a[2]),
+    "VectorFromArray": lambda ev, n, a: a[0].to_vector(),
+    "VectorMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=child_type(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].map(_cb(ev, a[1])),
+    "VectorFold": lambda ev, n, a: a[0].reduce(_cb(ev, a[2]), a[1]),
+    "MatrixRows": lambda ev, n, a: a[0].rows(),
+    "MatrixCols": lambda ev, n, a: a[0].cols(),
+    "MatrixGet": lambda ev, n, a: a[0].get(a[1], a[2]),
+    "MatrixSet": lambda ev, n, a: a[0].set(a[1], a[2], a[3]),
+    "MatrixGetRow": lambda ev, n, a: a[0].get_row(a[1]),
+    "MatrixGetCol": lambda ev, n, a: a[0].get_col(a[1]),
+    "MatrixTranspose": lambda ev, n, a: a[0].transpose(),
+    "MatrixToVector": lambda ev, n, a: a[0].to_vector(),
+    "MatrixToArray": lambda ev, n, a: a[0].to_array(),
+    "MatrixToRows": lambda ev, n, a: a[0].to_rows(),
+    "MatrixMapRows": lambda ev, n, a: a[0].map_rows(_cb(ev, a[1]), out=child_type(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].map_rows(_cb(ev, a[1])),
     "VectorScale": lambda ev, n, a: a[0].scale(a[1]),
     "VectorSum": lambda ev, n, a: a[0].sum(),
     "VectorAddScaled": lambda ev, n, a: a[0].add_scaled(a[1], a[2]),
     "VectorMul": lambda ev, n, a: a[0].mul(a[1]),
     "VectorAddScalar": lambda ev, n, a: a[0].add_scalar(a[1]),
     "VectorDot": lambda ev, n, a: a[0].dot(a[1]),
-    "VectorMax": lambda ev, n, a: a[0].maximum(),
-    "VectorMin": lambda ev, n, a: a[0].minimum(),
+    "VectorMax": lambda ev, n, a: a[0].max(),
+    "VectorMin": lambda ev, n, a: a[0].min(),
     "VectorArgMax": lambda ev, n, a: a[0].arg_max(),
     "VectorArgMin": lambda ev, n, a: a[0].arg_min(),
     "VectorMean": lambda ev, n, a: a[0].mean(),
@@ -1137,30 +1165,21 @@ _ROWS: dict[str, Any] = {
     "MatrixRowSums": lambda ev, n, a: a[0].row_sums(),
     "MatrixColSums": lambda ev, n, a: a[0].col_sums(),
     "MatrixVecMul": lambda ev, n, a: a[0].vec_mul(a[1]),
+    # Blob — the TS names
+    "BlobSize": lambda ev, n, a: a[0].size(),
+    "BlobGetUint8": lambda ev, n, a: a[0].get_uint8(a[1]),
+    "BlobDecodeUtf8": lambda ev, n, a: a[0].decode_utf8(),
+    "BlobDecodeUtf16": lambda ev, n, a: a[0].decode_utf16(),
+    "BlobDecodeBeast": lambda ev, n, a: a[0].decode_beast(ev.canon(n.value["type_parameters"][0])),
+    "BlobDecodeBeast2": lambda ev, n, a: a[0].decode_beast(ev.canon(n.value["type_parameters"][0]), "v2"),
+    "BlobDecodeCsv": lambda ev, n, a: a[0].decode_csv(ev.canon(n.value["type_parameters"][0]), a[1]),
+    "BlobEncodeBeast": lambda ev, n, a: East.Blob.encode_beast(a[0], typ=ev.canon(n.value["type_parameters"][0])),
+    "BlobEncodeBeast2": lambda ev, n, a: East.Blob.encode_beast(a[0], "v2", typ=ev.canon(n.value["type_parameters"][0])),
 }
 
 
 def _unsup(reason: str) -> Any:
     raise _Unsupported(reason)
-
-
-def _default_of(ev: EagerEvaluator, a: Any) -> Any:
-    """A get_or_default default: the builtin takes a (key)->default function;
-    the user surface takes the VALUE. Constant-fn bodies evaluate directly."""
-    if not isinstance(a, Closure):
-        return a
-    p = a.payload
-    env = Env(a.env)
-    for var in p["parameters"]:
-        env.define(var.value["name"], _Poison())
-    return ev.eval(p["body"], env)
-
-
-class _Poison:
-    """Trips if a supposedly-constant default function reads its parameter."""
-
-    def __getattr__(self, name: str) -> Any:
-        raise _Unsupported("non-constant default function")
 
 
 class _MissingArg:
@@ -1193,43 +1212,6 @@ def _arity_trim(ev: EagerEvaluator, a: Any) -> Any:
     n = len(a.payload["parameters"])
     cb = ev.make_callback(a)
     return lambda _b, *args: cb(*args[:n])
-
-
-def _dict_kv(ev: EagerEvaluator, a: Any) -> Any:
-    """Builtin callbacks over dict entries are (value, key); the python
-    methods call user bodies as (b, key, value). The reordering wrapper
-    cannot ride natively itself — the compiled callable's ``_east_retrace``
-    lets the method's own tracing push it down; when that cannot fire the
-    call is per-element by construction, so it is not a path violation."""
-    if not isinstance(a, Closure):
-        return a
-    cb = ev.make_callback(a)
-
-    def swapped(_b, k, v):
-        return cb(v, k)
-
-    # The reorder captures strictly: `cb` called with proxies lowers to a
-    # native IR Call (#561), so the body is never re-derived.
-    return swapped
-
-
-def _acc_kv(ev: EagerEvaluator, a: Any) -> Any:
-    """DictReduce: builtin (acc, value, key) → user fn(b, acc, key, value)."""
-    if not isinstance(a, Closure):
-        return a
-    cb = ev.make_callback(a)
-
-    def swapped(_b, acc, k, v):
-        return cb(acc, v, k)
-
-    # The reorder captures strictly: `cb` called with proxies lowers to a
-    # native IR Call (#561), so the body is never re-derived.
-    return swapped
-
-
-def _acc_kv3(ev: EagerEvaluator, a: Any) -> Any:
-    """DictGroupFold fold: builtin (acc, value, key) → user fn(b, acc, key, value)."""
-    return _acc_kv(ev, a)
 
 
 def _two_arg_combine(ev: EagerEvaluator, a: Any) -> Any:

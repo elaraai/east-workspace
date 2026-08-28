@@ -76,14 +76,15 @@ def _callbacks(mode):
         "flat":   ([Row], ArrayType(StringType), lambda _b, r: r["k"].split("|")),
         "folder": ([FloatType, Row], FloatType, lambda _b, acc, r: acc + r["v"]),
         "comb":   ([FloatType, FloatType], FloatType, lambda _b, a, b: a + b),
-        "su":     ([StringType], StringType, lambda _b, x: x.upper()),
+        "su":     ([StringType], StringType, lambda _b, x: x.upper_case()),
         "spred":  ([StringType], BooleanType, lambda _b, x: x.contains("1")),
         "mv":     ([FloatType], FloatType, lambda _b, x: x * 2.0),
-        "dg":     ([StringType, FloatType], StringType, lambda _b, k, v: k),
-        "dv":     ([StringType, FloatType], FloatType, lambda _b, k, v: v),
-        "dpred":  ([StringType, FloatType], BooleanType, lambda _b, k, v: v > 5.0),
-        "dopt":   ([StringType, FloatType], OptionType(StringType),
-                   lambda _b, k, v: if_else(v > 5.0, some(k), none)),
+        # Dict callbacks: the builtin's own (value, key) order (TS)
+        "dg":     ([FloatType, StringType], StringType, lambda _b, v, k: k),
+        "dv":     ([FloatType, StringType], FloatType, lambda _b, v, k: v),
+        "dpred":  ([FloatType, StringType], BooleanType, lambda _b, v, k: v > 5.0),
+        "dopt":   ([FloatType, StringType], OptionType(StringType),
+                   lambda _b, v, k: if_else(v > 5.0, some(k), none)),
     }
     if mode == "kernel":
         return {name: East.function(types, out, fn)
@@ -135,7 +136,7 @@ DICT_CASES = {
     "union":           lambda d, c: d.union(d, c["comb"]),
     "mean":            lambda d, c: d.mean(c["dv"]),
     "group_reduce":    lambda d, c: d.group_reduce(
-        c["dg"], lambda _b, _k: 0.0, lambda _b, acc, k, v: acc + v),
+        c["dg"], lambda _b, _k: 0.0, lambda _b, acc, v, k: acc + v),
     "group_size":      lambda d, c: d.group_size(c["dg"]),
     "group_sum":       lambda d, c: d.group_sum(c["dg"], c["dv"]),
     "group_mean":      lambda d, c: d.group_mean(c["dg"], c["dv"]),
@@ -257,8 +258,8 @@ def test_no_bulk_decode_probing():
     rows, cbs = _rows(), _callbacks("kernel")
     before_d = eager_stats()["c_to_py_decodes"]
 
-    rows.sorted(key=cbs["v"])
-    rows.sort(key=cbs["v"])                 # in-place: native sorted + C-to-C rebind
+    rows.sort(cbs["v"])
+    rows.sort_in_place(cbs["v"])            # in-place: the native ArraySortInPlace
     rows.to_dict(cbs["k"], value=cbs["v"])
     rows.group_sum(cbs["g"], cbs["v"])
     rows.group_mean(cbs["g"], cbs["v"])

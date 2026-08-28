@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Generic, TypeGuard
 
 import east.types.values as _ev
-from east.types.values._helpers import OptionT, T, V, _call_builtin, _intern_keys
+from east.types.values._helpers import OptionT, T, V, _call_builtin, _deprecated_alias, _intern_keys
 from east.types.values.primitives import east_null
 
 if TYPE_CHECKING:
@@ -224,19 +224,27 @@ class EastVariant(Generic[V]):
         """Whether the variant's case is ``tag`` (mirrors the TS ``hasTag``)."""
         return self.type == tag
 
-    def unwrap(self, tag: str) -> Any:
-        """The payload of case ``tag``; raises if the case differs.
+    def unwrap(self, tag: str | None = None, on_other: Any = None) -> Any:
+        """The payload of case ``tag`` (default ``"some"``); for any other
+        case a ``ValueError``, or the value of the ``on_other(b)`` body when
+        one is given (TS ``unwrap(name, onOther)``).
 
-        Mirrors the TS ``unwrap``: use when a different case is a logic
-        error. For a fallback value use ``match`` (or ``unwrap_or`` in
-        traced kernels).
+        Use it when a different case is a logic error; for a fallback value
+        use :meth:`match` or ``unwrap_or``.
 
         Raises:
-            ValueError: If the variant holds a different case.
+            ValueError: If the variant holds a different case and no
+                ``on_other`` body is given.
         """
-        if self.type != tag:
-            raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
-        return self.value
+        if tag is None:
+            tag = "some"
+        if self.type == tag:
+            return self.value
+        if on_other is not None:
+            from east.expression.statements import EagerBlock
+
+            return on_other(EagerBlock())
+        raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
 
     def unwrap_or(self, default):
         """Option sugar: the payload when the case is ``some``, else ``default``.
@@ -260,15 +268,21 @@ class EastVariant(Generic[V]):
         ``east.match(v, cases, default)`` is equivalent): handlers are
         bodies, always called ``handler(b, payload)`` with an eager block
         first — a ``none`` arm is ``lambda b, v: ...`` — so the same handler
-        serves the traced ``Expression.match``. Returns ``default`` when no
-        case matches.
+        serves the traced ``Expression.match``. For a case without a
+        handler ``default`` is a ``default(b)`` body (TS's partial match) —
+        or a plain value, returned as is.
         """
-        handler = cases.get(self.type)
-        if handler is None:
-            return default
         from east.expression.statements import EagerBlock
 
+        handler = cases.get(self.type)
+        if handler is None:
+            return default(EagerBlock()) if callable(default) else default
         return handler(EagerBlock(), self.value)
+
+    def match_tag(self, tag: str, handler: Any, default: Any) -> Any:
+        """Match one case — ``handler(b, payload)`` — with ``default(b)`` for
+        every other (TS ``matchTag``)."""
+        return self.match({tag: handler}, default)
 
     def keys(self) -> tuple[str, str]:
         """Return keys."""
@@ -417,30 +431,34 @@ class EastRef(Generic[T]):
         """
         return self.value
 
-    def set(self, value: Any) -> None:
-        """Replace the contained value in place.
+    def update(self, value: Any) -> None:
+        """Replace the contained value in place (east-c RefUpdate; TS
+        ``update``).
 
         Writes the cell directly (the live C-backed cell on an EastRefProxy,
-        the plain slot on a bare EastRef); O(1), not delegated.
+        the plain slot on a bare EastRef); O(1), not delegated. The python
+        read-modify-write spelling ``update(fn)`` — ``fn(b, current)``
+        becoming the new contents — is deprecated: write
+        ``ref.update(f(ref.get()))``.
 
         Args:
             value: The new value to store in the cell.
         """
+        if callable(value) and not callable(self.value):
+            import warnings
+
+            from east.expression.statements import EagerBlock
+
+            warnings.warn(
+                ".update(fn) is deprecated: TypeScript's update(value) stores a "
+                "value — spell the read-modify-write as ref.update(f(ref.get()))",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            value = value(EagerBlock(), self.value)
         self.value = value
 
-    def update(self, fn: Any) -> None:
-        """Replace the contained value with the result of applying ``fn`` (in place).
-
-        Reads the cell, applies the body, and writes the result back; not
-        delegated to a builtin.
-
-        Args:
-            fn: Body ``fn(b, current) -> new value`` receiving an eager block
-                and the current cell contents, returning the replacement.
-        """
-        from east.expression.statements import EagerBlock
-
-        self.value = fn(EagerBlock(), self.value)
+    set = _deprecated_alias("set", "update")
 
     def merge(self, patch: Any, combine: Any) -> None:
         """Combine ``patch`` into the cell in place (east-c RefMerge).
@@ -456,6 +474,15 @@ class EastRef(Generic[T]):
 
         t = _ev.type_of(self.value)
         t2 = _ev.type_of(patch)
+        if not hasattr(self, "_c_ptr"):
+            # A bare python cell: the builtin funnel would marshal a COPY of
+            # it into east-c and merge into that copy — the cell itself would
+            # never change. Fold in python: the combine is a body (block
+            # first) or a compiled kernel (which drops the block).
+            from east.expression.statements import EagerBlock
+
+            self.value = combine(EagerBlock(), self.value, patch)
+            return
         callback = EastFunction(lambda b, cur, p: combine(b, cur, p), [t, t2], t)
         _call_builtin("RefMerge", [t, t2], [self, patch, callback], NullType)
 

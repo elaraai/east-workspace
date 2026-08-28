@@ -209,7 +209,7 @@ def equal_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
         def equal_matrix(x: EastMatrix, y: EastMatrix, _ctx=None) -> bool:
             if x is y:
                 return True
-            if x.rows != y.rows or x.cols != y.cols:
+            if x._rows != y._rows or x._cols != y._cols:
                 return False
             xd = x._data.ravel()
             yd = y._data.ravel()
@@ -678,10 +678,10 @@ def compare_for(type_val: Any, type_ctx: dict[int, Any] | None = None) -> Any:
         def compare_matrix(x: EastMatrix, y: EastMatrix, _ctx: Any = None) -> int:
             if x is y:
                 return 0
-            if x.rows != y.rows:
-                return -1 if x.rows < y.rows else 1
-            if x.cols != y.cols:
-                return -1 if x.cols < y.cols else 1
+            if x._rows != y._rows:
+                return -1 if x._rows < y._rows else 1
+            if x._cols != y._cols:
+                return -1 if x._cols < y._cols else 1
             flat_x = x._data.ravel()
             flat_y = y._data.ravel()
             for i in range(len(flat_x)):

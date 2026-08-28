@@ -261,7 +261,7 @@ class TestCallbackSlotArguments:
         # `_kernel_out_type` used to answer None for a non-callable and the
         # method then died on `None.value` — the caller's mistake surfaced as
         # an AttributeError deep inside the library.
-        for call in (lambda: _rows().map(5), lambda: _rows().flatten_to_array(5),
+        for call in (lambda: _rows().map(5), lambda: _rows().flat_map(5),
                      lambda: _rows().sum(5), lambda: _rows().to_dict(5)):
             with pytest.raises(TypeError, match="callback slot takes"):
                 call()
@@ -398,15 +398,15 @@ class TestCallLowering:
         assert list(_rows().map(outer)) == [5.0, 7.0, 0.0]
 
     def test_dict_to_array_with_a_bound_kernel_runs_native(self):
-        # The #558 C repro, upgraded: the (key, value) argument-order shim
-        # captures, the call on the bound kernel lowers, and the whole
-        # conveniences path compiles — no ExpressionError.
+        # The #558 C repro, upgraded: the Dict callback takes the builtin's
+        # own (value, key) order, the call on the bound kernel lowers, and
+        # the whole conveniences path compiles — no ExpressionError.
         d = EastDict(StringType, FloatType, {"a": 1.0, "b": 2.0})
         side = EastDict(StringType, FloatType, {"a": 10.0})
         out_t = StructType([("k", StringType), ("v", FloatType)])
         entry = East.function(
-            [StringType, FloatType, TABLE_T], ROW,
-            lambda _b, key, val, s: {"k": key, "v": val + s.get_or_default(key, 0.0)})
+            [FloatType, StringType, TABLE_T], ROW,
+            lambda _b, val, key, s: {"k": key, "v": val + s.get_or_default(key, 0.0)})
         rows = d.to_array(entry.bind(side))
         assert [(r["k"], r["v"]) for r in rows] == [("a", 11.0), ("b", 2.0)]
         assert rows.element_type == out_t
@@ -562,7 +562,7 @@ class TestForEachDelivers:
     def test_dict_for_each_delivers(self):
         def body(emit):
             EastDict(StringType, FloatType, {"p": 1.0, "q": 2.0}).for_each(
-                lambda _b, k, v: emit(k, v))
+                lambda _b, v, k: emit(k, v))
 
         keys, values = _drive("regr565.dfe", "dict", [StringType, FloatType], body)
         assert list(keys) == ["p", "q"]
@@ -680,7 +680,7 @@ class TestPythonDrivenBodyCaptures:
         @platform_function(inputs=[DictType(StringType, FloatType), EMIT_T],
                            output=NullType, name="regr592.double_all")
         def double_all(rows, emit):
-            rows.for_each(lambda _b, k, v: emit(k, v * 2.0))
+            rows.for_each(lambda _b, v, k: emit(k, v * 2.0))
 
         rows = EastDict(StringType, FloatType,
                         {f"k{i}": float(i) for i in range(5)})

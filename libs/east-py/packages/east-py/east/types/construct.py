@@ -91,17 +91,18 @@ def some(value: EastValue) -> EastVariant:
 none: EastVariant = EastVariant("none", east_null)
 
 
-def match(v: EastVariant, cases: dict[str, Callable[[Any, Any], R]], default: R | None = None) -> R | None:
+def match(v: EastVariant, cases: dict[str, Callable[[Any, Any], R]], default: Any = None) -> Any:
     """Dispatch on a variant's tag, calling the matching handler — a body,
     ``handler(b, value)`` with an eager block first — with its value.
 
-    Returns ``default`` if no case matches — the one true gap versus the TS API.
+    For a case without a handler ``default`` is a ``default(b)`` body (TS's
+    partial match) or a plain value, returned as is.
     """
-    handler = cases.get(v.type)
-    if handler is None:
-        return default
     from east.expression.statements import EagerBlock
 
+    handler = cases.get(v.type)
+    if handler is None:
+        return default(EagerBlock()) if callable(default) else default
     return handler(EagerBlock(), v.value)
 
 

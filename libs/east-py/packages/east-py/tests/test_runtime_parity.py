@@ -13,16 +13,15 @@ The expectations below are the TS docs' own worked examples, so these tests
 double as the cross-runtime parity pin:
 
 * ``Set.is_superset_of`` — ``SetIsSubset`` with the operands swapped;
-* ``Dict.every`` / ``Dict.some`` / ``Dict.sum`` — the ``(key, value)``
-  callback convention every other eager Dict method uses, with the
-  empty-collection answers TS gives (true / false / zero);
+* ``Dict.every`` / ``Dict.some`` / ``Dict.sum`` — the ``(value, key)``
+  callback convention (the TypeScript order) every other Dict method uses,
+  with the empty-collection answers TS gives (true / false / zero);
 * ``Array.group_find_all`` / ``group_find_first`` / ``group_find_maximum`` /
   ``group_find_minimum`` — GLOBAL row indices, every group present (a group
   with no match maps to an empty array / ``none``), and ties keeping the
   earliest index.
 
-``keys()`` is covered too: it is the python mapping view (the sibling of
-``items()``/``values()``), while TS's ``DictExpr.keys`` is ``keys_set()``.
+``keys()`` is the TypeScript spelling — the east-c DictKeys set.
 """
 
 import pytest
@@ -61,10 +60,10 @@ def test_dict_every_and_some_on_booleans_and_empties():
 def test_dict_sum():
     d = EastDict(StringType, IntegerType, {"a": 1, "b": 2, "c": 3})
     assert d.sum() == 6
-    assert d.sum(lambda _b, _k, v: v * 2) == 12
+    assert d.sum(lambda _b, v: v * 2) == 12
     # a projection over the KEYS is just as valid
     strings = EastDict(StringType, StringType, {"a": "hello", "b": "world"})
-    assert strings.sum(lambda _b, _k, v: East.String.length(v)) == 10
+    assert strings.sum(lambda _b, v: East.String.length(v)) == 10
     # floats keep their own zero
     floats = EastDict(StringType, FloatType, {"a": 1.5, "b": 2.5})
     assert floats.sum() == pytest.approx(4.0)
@@ -87,12 +86,12 @@ def test_dict_sum_on_an_empty_dict_types_the_zero_from_the_PROJECTION():
     from east.namespace import East
 
     # A numeric projection over String values: 0 when empty, like TS.
-    length = East.function([StringType, StringType], IntegerType, lambda _b, _k, v: East.String.length(v))
+    length = East.function([StringType, StringType], IntegerType, lambda _b, v, _k: East.String.length(v))
     assert EastDict(StringType, StringType, {"a": "hello", "b": "hi"}).sum(length) == 7
     assert EastDict(StringType, StringType).sum(length) == 0
 
     # A Float projection over Integer values keeps its Float zero.
-    widen = lambda _b, _k, v: East.Integer.to_float(v)  # noqa: E731
+    widen = lambda _b, v: East.Integer.to_float(v)  # noqa: E731
     assert isinstance(EastDict(StringType, IntegerType, {"a": 1}).sum(widen), float)
     empty_total = EastDict(StringType, IntegerType).sum(widen)
     assert isinstance(empty_total, float) and empty_total == 0.0
@@ -144,7 +143,7 @@ def test_group_sum_rejects_a_non_numeric_projection_on_every_container():
     with pytest.raises(TypeError, match="numeric"):
         EastSet(StringType, ["a"]).group_sum(lambda _b, e: e)
     with pytest.raises(TypeError, match="numeric"):
-        EastDict(StringType, StringType, {"a": "x"}).group_sum(lambda _b, k, _v: k)
+        EastDict(StringType, StringType, {"a": "x"}).group_sum(lambda _b, _v, k: k)
 
 
 # ── a differently-typed `other` is refused, not reinterpreted ────────────────

@@ -202,8 +202,8 @@ def test_east_array_same_type_is_copied_not_aliased():
     out = coerce_to(src, ArrayType(IntegerType))
     assert out is not src
     assert list(out) == [1, 2, 3]
-    out.append(4)
-    src.append(9)
+    out.push_last(4)
+    src.push_last(9)
     assert list(src) == [1, 2, 3, 9]
     assert list(out) == [1, 2, 3, 4]
 

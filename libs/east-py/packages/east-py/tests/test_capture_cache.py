@@ -85,7 +85,7 @@ def test_a_per_group_aggregate_loop_captures_each_lambda_once(monkeypatch):
 
     def census(a):
         return a.group_to_arrays(lambda _b, r: r["g"]).to_array(
-            lambda _b, k, es: {
+            lambda _b, es, k: {
                 "k": k,
                 "total": es.sum(lambda _b, r: r["v"]),
                 "top": es.maximum(lambda _b, r: r["n"]),

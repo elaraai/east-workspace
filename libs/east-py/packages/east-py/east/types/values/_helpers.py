@@ -143,6 +143,46 @@ def ensure_utc_datetime(dt: datetime) -> datetime:
     return dt
 
 
+def _deprecated_alias(old: str, new: str) -> Any:
+    """A method that warns ``old`` is deprecated and delegates to ``new`` —
+    the eager twin of ``east.expression.expr.base._deprecated_alias``, so a
+    python-idiom spelling keeps working while the TypeScript name is the
+    one documented."""
+
+    def alias(self: Any, *args: Any, **kwargs: Any) -> Any:
+        import warnings
+
+        warnings.warn(
+            f".{old}() is deprecated: the spelling is .{new}() (the TypeScript name)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return getattr(self, new)(*args, **kwargs)
+
+    alias.__name__ = old
+    alias.__qualname__ = old
+    alias.__doc__ = f"Deprecated alias of :meth:`{new}` (the TypeScript name)."
+    return alias
+
+
+def _fn_init(op: str, fn: Any, init: Any) -> tuple:
+    """``(fn, init)`` in the TypeScript order ``reduce(fn, init)``. The python
+    order ``(init, fn)`` — a non-callable first, the body second — is
+    accepted with a DeprecationWarning, so a program written against the old
+    spelling keeps its meaning while it migrates."""
+    if not callable(fn) and callable(init):
+        import warnings
+
+        warnings.warn(
+            f".{op}(init, fn) is deprecated: the argument order is .{op}(fn, init) "
+            "(the TypeScript order)",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return init, fn
+    return fn, init
+
+
 # =============================================================================
 # EastValue - Union of all East value types
 # =============================================================================

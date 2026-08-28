@@ -66,8 +66,11 @@ def test_a_method_miss_names_the_tensor_surface():
     assert East.function([VF], IntegerType, lambda _b, t: t.length())(fvec([1.0])) == 1
     with pytest.raises(ExpressionError, match="Vector.*scale"):
         East.function([VF], FloatType, lambda _b, t: t.nonexistent())
-    with pytest.raises(ExpressionError, match=r"\.map\(\) on Vector"):
-        East.function([VF], VF, lambda _b, t: t.map(lambda _b, q: q * 0.99))
+    with pytest.raises(ExpressionError, match=r"\.filter\(\) on Vector"):
+        East.function([VF], VF, lambda _b, t: t.filter(lambda _b, q: q > 0.0))
+    # `map` IS on the surface now (VectorMap, TS `map`) — the native per-element builtin
+    doubled = East.function([VF], VF, lambda _b, t: t.map(lambda _b, q: q * 2.0))(fvec([1.0, 2.5]))
+    assert doubled.to_numpy().tolist() == [2.0, 5.0]
 
 
 def test_captured_tensor_constants_lift():

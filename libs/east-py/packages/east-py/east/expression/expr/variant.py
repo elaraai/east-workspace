@@ -2,17 +2,16 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Option and general-variant access, plus the strict optional parse."""
+"""``VariantExpression`` — TS ``VariantExpr`` (``libs/east/src/expr/variant.ts``)."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError
+from east.expression.expr.base import Expression
 from east.expression.lift import _lift
-from east.expression.location import location_id as _loc_id
 from east.expression.nodes import (
-    _builtin,
     _fresh_name,
     _is_option,
     _k_match,
@@ -21,28 +20,36 @@ from east.expression.nodes import (
     _option_type,
     _var,
 )
-from east.expression.ops import _ExprBase
 from east.expression.statements import _Run as _RunT
-from east.ir.builders import ir_error, ir_trycatch, ir_unwrap_recursive, ir_variant
-from east.types.types import ArrayType, BooleanType, EastType, IntegerType, NullType, StringType
+from east.ir.builders import ir_error
+from east.types.types import BooleanType, EastType, NullType, StringType
 from east.types.values import EastVariant
 
 if TYPE_CHECKING:
-    from east.expression.expr import Expression
+    from east.expression.expr.boolean import BooleanExpression
+    from east.expression.expr.string import StringExpression
 
 
-class _OptionOps(_ExprBase):
-    """Traced consumption of options and general variants.
+class VariantExpression(Expression):
+    """Option and general-variant access.
 
     Every one of these lowers to a Match, so exactly one arm evaluates at run
     time — the same shape the TypeScript variant expressions build.
     """
 
     __slots__ = ()
+    _kind = "Variant"
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "type":
+            # The eager EastVariant's `.type` tag attribute — the traced twin
+            # is get_tag(), so the one spelling works on both paths.
+            return self.get_tag()
+        return Expression.__getattr__(self, name)
 
     # ── option access (Match IR) ───────────────────────────────────────
 
-    def _match_option(self, some_body_fn: Any, none_value: Expression, out_t: EastType) -> Expression:
+    def _match_option(self, some_body_fn: Any, none_value: Any, out_t: EastType) -> Any:
         if not _is_option(self.east_type):
             raise ExpressionError(
                 f"option access on a non-Option expression ({self.east_type.type})"
@@ -65,14 +72,14 @@ class _OptionOps(_ExprBase):
         )
         return self._expr(node, out_t)
 
-    def is_some(self) -> Expression:
+    def is_some(self) -> BooleanExpression:
         return self._match_option(
             lambda _x: self._expr(_literal(True, BooleanType), BooleanType),
             self._expr(_literal(False, BooleanType), BooleanType),
             BooleanType,
         )
 
-    def is_none(self) -> Expression:
+    def is_none(self) -> BooleanExpression:
         return self._match_option(
             lambda _x: self._expr(_literal(False, BooleanType), BooleanType),
             self._expr(_literal(True, BooleanType), BooleanType),
@@ -94,52 +101,51 @@ class _OptionOps(_ExprBase):
 
     # ── general variant access (Match IR, like the TS variant expr) ─────
 
-    def _variant_cases(self) -> list:
-        if self.east_type.type != "Variant":
-            raise ExpressionError(
-                f"variant access on a non-variant expression ({self.east_type.type})"
-            )
+    def _cases(self) -> list:
         return list(self.east_type.value)
 
-    def get_tag(self) -> Expression:
+    def get_tag(self) -> StringExpression:
         """The case name as a String (Match over every case)."""
         cases = []
-        for c in self._variant_cases():
+        for c in self._cases():
             var = _var(_fresh_name(), c["type"])
             cases.append((c["name"], var, _literal(c["name"], StringType)))
         node = _k_match(StringType, self.ir, cases)
         return self._expr(node, StringType)
 
-    def has_tag(self, tag: str) -> Expression:
+    def has_tag(self, tag: str) -> BooleanExpression:
         if not isinstance(tag, str):
             raise ExpressionError(".has_tag() takes a literal case name")
-        names = [c["name"] for c in self._variant_cases()]
+        names = [c["name"] for c in self._cases()]
         if tag not in names:
             raise ExpressionError(f"variant has no case {tag!r} (cases: {', '.join(names)})")
         cases = []
-        for c in self._variant_cases():
+        for c in self._cases():
             var = _var(_fresh_name(), c["type"])
             cases.append((c["name"], var, _literal(c["name"] == tag, BooleanType)))
         node = _k_match(BooleanType, self.ir, cases)
         return self._expr(node, BooleanType)
 
-    def match(self, cases: dict) -> Expression:
-        """Traced match — the EXPRESSION form (TS ``East.match``):
-        ``{case: handler(b, payload_expr) -> expr}``. (The STATEMENT, TS
-        ``$.match``, is ``b.match_`` on the block a body received.)
+    def match(self, cases: dict, default: Any = None) -> Expression:
+        """Traced match — the EXPRESSION form (TS ``match``):
+        ``{case: handler(b, payload_expr) -> expr}``, plus an optional
+        ``default(b)`` body for the cases without a handler (TS's partial
+        match). (The STATEMENT, TS ``$.match``, is ``b.match_`` on the block
+        a body received.)
 
         Each handler runs in its own statement frame, its block first, and
         returns the arm's value (or diverges). The result type
         is the union of the arms' types — a diverging ``Never`` arm is
         absorbed, a narrower arm widens — so every arm must agree on one
         East type (a scalar handler value is lifted with the other arms'
-        type as the hint). A case without a handler evaluates to ``null``,
-        which only types when every other arm is Null too.
+        type as the hint). Without ``default`` a case without a handler
+        evaluates to ``null``, which only types when every other arm is Null
+        too.
         """
-        from east.expression.expr import Expression
+        from east.expression.lift import _coerce, _union_type
         from east.expression.statements import _finish_run, _frames, _open_run
 
-        declared = self._variant_cases()
+        declared = self._cases()
         names = [c["name"] for c in declared]
         extra = [n for n in cases if n not in names]
         if extra:
@@ -151,7 +157,9 @@ class _OptionOps(_ExprBase):
         for c in declared:
             var = _var(_fresh_name(), c["type"])
             handler = cases.get(c["name"])
-            # A Expression arm is a VALUE arm, not a handler — expressions
+            if handler is None and default is not None:
+                handler = lambda b, _payload, _d=default: _d(b)  # noqa: E731
+            # An Expression arm is a VALUE arm, not a handler — expressions
             # became callable when Function-typed expressions gained Call
             # lowering (#561), and invoking a non-function one would raise.
             if handler is None:
@@ -180,8 +188,6 @@ class _OptionOps(_ExprBase):
                     and isinstance(probe.value, Expression)):
                 out_t = _option_type(probe.value.east_type)
                 break
-        from east.expression.lift import _coerce, _union_type
-
         lifted = [(name, var,
                    _finish_run(raw, "block_expr", out_t) if isinstance(raw, _RunT)
                    else _lift(raw, hint=out_t))
@@ -195,28 +201,23 @@ class _OptionOps(_ExprBase):
         node = _k_match(out_t, self.ir, case_nodes)
         return self._expr(node, out_t)
 
-    def unwrap(self, tag: str | None = None) -> Expression:
-        """The payload of `tag`; an East runtime error for any other case.
+    def unwrap(self, tag: str | None = None, on_other: Any = None) -> Expression:
+        """The payload of ``tag`` (default ``"some"``); for any other case an
+        East runtime error, or the value of the ``on_other(b)`` body when one
+        is given (TS ``unwrap(name, onOther)``)."""
+        from east.expression.location import location_id as _loc_id
 
-        On a RECURSIVE-typed expression ``.unwrap()`` takes no tag: it is the
-        recursive type's one level of unrolling (TS ``RecursiveExpr.unwrap``,
-        the ``UnwrapRecursive`` node) — the value as its inner type.
-        """
-        if self.east_type.type == "Recursive":
-            from east.expression.lift import _unroll
-
-            if tag is not None:
-                raise ExpressionError(
-                    ".unwrap() on a recursive-typed expression takes no case name")
-            inner_t = _unroll(self.east_type)
-            return self._expr(ir_unwrap_recursive(inner_t, self.ir, _loc_id()), inner_t)
+        if tag is None:
+            tag = "some"
         if not isinstance(tag, str):
             raise ExpressionError(".unwrap() takes a literal case name")
-        declared = self._variant_cases()
+        declared = self._cases()
         target = next((c for c in declared if c["name"] == tag), None)
         if target is None:
             names = ", ".join(c["name"] for c in declared)
             raise ExpressionError(f"variant has no case {tag!r} (cases: {names})")
+        if on_other is not None:
+            return self.match({tag: lambda _b, payload: payload}, on_other)
         out_t = target["type"]
         case_nodes = []
         for c in declared:
@@ -230,34 +231,9 @@ class _OptionOps(_ExprBase):
         node = _k_match(out_t, self.ir, case_nodes)
         return self._expr(node, out_t)
 
-    # ── strict optional parse (TryCatch IR, #392/#393) ──────────────────
-
-    def try_parse(self, t: EastType) -> Expression:
-        """Parse this String as ``t``; ``some(value)`` on success, ``none`` on
-        any parse failure (the strict whole-string parse of #392 wrapped in
-        TryCatch IR). ``if_else(x.is_some(), …)`` / ``.unwrap_or(…)`` consume it.
-        """
-        if self.east_type.type != "String":
-            raise ExpressionError(".try_parse() needs a String")
-        if not isinstance(t, EastType):
-            raise ExpressionError(".try_parse() takes an East type")
-        from east.types.types import StructType as _StructType
-
-        out_t = _option_type(t)
-        loc = _loc_id()
-        parsed = _builtin("Parse", t, [t], [self.ir])
-        some_node = ir_variant(out_t, "some", parsed, loc)
-        none_node = ir_variant(out_t, "none", _literal(None, NullType), loc)
-        loc_t = _StructType(
-            [("filename", StringType), ("line", IntegerType), ("column", IntegerType)]
-        )
-        node = ir_trycatch(
-            out_t,
-            some_node,
-            none_node,
-            _var(_fresh_name(), StringType),
-            _var(_fresh_name(), ArrayType(loc_t)),
-            finally_body=_literal(None, NullType),
-            loc_id=loc,
-        )
-        return self._expr(node, out_t)
+    def match_tag(self, tag: str, handler: Any, default: Any) -> Expression:
+        """Match one case — ``handler(b, payload)`` — with ``default(b)`` for
+        every other (TS ``matchTag``)."""
+        if not isinstance(tag, str):
+            raise ExpressionError(".match_tag() takes a literal case name")
+        return self.match({tag: handler}, default)

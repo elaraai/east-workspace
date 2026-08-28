@@ -10,9 +10,9 @@ a dict struct literal, or an expression that is already traced. ``if_else`` /
 ``greatest`` / ``least`` sit here too — they emit IfElse when handed traced
 operands and evaluate eagerly otherwise, so one lambda works on both paths.
 
-``Expression`` is imported inside the functions that need it: ``expr.py``
-imports this module (through the op mixins), so the class is not yet bound
-when this module executes.
+``Expression`` is imported inside the functions that need it: the
+expression classes (``east.expression.expr``) import this module, so the
+class is not yet bound when this module executes.
 """
 
 from __future__ import annotations
@@ -681,7 +681,7 @@ def _lift_collection(value: Any) -> Expression | None:
         nodes = [_lift(x, hint=elem_t).ir for x in flat]
         return _register_const(
             value,
-            Expression(_k_new_matrix(mat_t, value.rows, value.cols, nodes), mat_t),
+            Expression(_k_new_matrix(mat_t, value._rows, value._cols, nodes), mat_t),
         )
     if isinstance(value, EastSet):
         elem_t = value.element_type
@@ -967,62 +967,52 @@ class _DeferredIfElse:
         return _ifelse_expr(self.conds, [_lift(v, hint=hint) for v in self.values])
 
 
-def _with_index(fn: Any) -> Any:
-    """Normalise an element body to the ``(b, el, idx)`` shape.
+def _body(fn: Any) -> Any:
+    """``fn`` as a ``(b, *payload)`` callable that takes only the payload it
+    declares — for composing a user body inside one of our own lambdas
+    (``lambda b, acc, el, i: acc + proj(b, el, i)``), where the composer
+    hands every argument the builtin offers and TypeScript would simply
+    ignore the extras. A Function-typed expression declares through its
+    type; a ``*args`` body takes everything."""
+    from east.expression.expr import Expression
+    from east.expression.statements import _body_arity
 
-    The eager methods all decide this with ``_callback_arity`` (payload
-    parameters, the block excluded), so ``a.sum(lambda b, el, i: …)`` is a
-    supported eager call and the traced twins must accept it too or a
-    working lambda stops working inside a build (#525). Delegating to that
-    same oracle rather than re-deriving from ``__code__.co_argcount``
-    matters: a bound method's ``co_argcount`` counts ``self`` and a
-    ``functools.partial`` has no ``__code__`` at all, so a hand-rolled probe
-    disagrees with eager on exactly the callables that are not plain
-    lambdas. The lazy import mirrors collections.py, which already imports
-    from this module lazily.
-    """
-    from east.types.values.collections import _callback_arity
-
-    return fn if _callback_arity(fn, 1) >= 2 else (lambda b, el, _i: fn(b, el))
-
-
-def _with_acc_index(fn: Any) -> Any:
-    """Normalise a fold body to the ``(b, acc, el, idx)`` shape.
-
-    The Array fold slots carry the element index, and the eager methods accept
-    a body that takes it (`_acc_idx_cb` in collections.py), so the traced
-    twins must too.
-    """
-    from east.types.values.collections import _callback_arity
-
-    return fn if _callback_arity(fn, 2) >= 3 else (lambda b, acc, el, _i: fn(b, acc, el))
+    n: int | None
+    if isinstance(fn, Expression):
+        if fn.east_type.type not in ("Function", "AsyncFunction"):
+            raise ExpressionError(
+                f"callback slot given a {fn.east_type.type}-typed expression, not a function")
+        n = len(fn.east_type.value["inputs"])
+    else:
+        n = _body_arity(fn)
+    if n is None:
+        return fn
+    return lambda b, *ps: fn(b, *ps[:n])
 
 
-def _with_key_arg(fn: Any) -> Any:
-    """Normalise a collision handler to the builtin's ``(b, existing,
-    incoming, key)``.
-
-    The eager ``_combine_cb`` accepts a 2- or 3-argument handler, so both are
-    supported EAGER calls and the traced twins must take both — otherwise a
-    working lambda stops working inside a build (#525).
-    """
-    from east.types.values.collections import _callback_arity
-
-    return fn if _callback_arity(fn, 2) >= 3 else (lambda b, x, y, _k: fn(b, x, y))
-
-
-def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None = None,
-                    out_hint: EastType | None = None) -> tuple[Any, EastType]:
+def _trace_inner_fn(fn: Any, param_types: list[EastType], out_hint: EastType | None = None, *,
+                    order: tuple[int, ...] | None = None,
+                    wrap: Any = None) -> tuple[Any, EastType]:
     """Trace an inner (nested) body into a Function IR node.
 
     ``param_types`` is the builtin's full callback signature (e.g. map takes
     ``(element, index)``); the body takes the statement block first (the
     TypeScript ``($, el, i) => …``) and may declare fewer of the trailing
-    parameters, which it simply ignores. ``out_hint`` types the traced body
-    — a declared callback output slot (a filter's Boolean, a fold step's
-    accumulator) or a caller's ``out=`` pin — which is what lets a callback
-    build a general variant or a ``if_else`` over variant arms (#541, #536).
-    Returns ``(Function node, traced output type)``.
+    parameters, which it simply ignores. ``order`` is the python-facing
+    permutation of those slots (a Dict callback receives ``(key, value)``
+    where the builtin passes ``(value, key)``); ``wrap`` transforms the
+    body's result before it assembles (a quantifier's decision). ``out_hint``
+    types the traced body — a declared callback output slot (a filter's
+    Boolean, a fold step's accumulator) or a caller's ``out=`` pin — which is
+    what lets a callback build a general variant or an ``if_else`` over
+    variant arms (#541, #536).
+
+    A Function-typed EXPRESSION in the slot — a variable bound to a
+    function, a nested ``East.function`` — is the callback itself when its
+    signature is the builtin's (TS ``arr.map(fnExpr)``); declaring a prefix
+    of it, it is called from a wrapper body (a ``Call`` node), as a python
+    body declaring a prefix is. Returns ``(Function node, traced output
+    type)``.
     """
     from east.expression.expr import Expression
     from east.expression.statements import (
@@ -1033,55 +1023,57 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], declared: int | None =
         assemble,
     )
 
+    slots = list(order) if order is not None else list(range(len(param_types)))
+    arity: int | None
     if isinstance(fn, Expression):
-        # A Function-typed EXPRESSION in a callback slot — a variable bound
-        # to a function, a nested `East.function` — is the callback itself
-        # (TS `arr.map(fnExpr)`): the builtin takes the expression directly.
         fn_t = fn.east_type
         if fn_t.type != "Function":
             raise ExpressionError(
                 f"callback slot given a {fn_t.type}-typed expression, not a function"
             )
         inputs = list(fn_t.value["inputs"])
-        if len(inputs) != len(param_types) or not all(
-            is_subtype(p, i) for p, i in zip(param_types, inputs, strict=True)
+        facing = [param_types[i] for i in slots]
+        if len(inputs) > len(facing) or not all(
+            is_subtype(p, i) for p, i in zip(facing, inputs, strict=False)
         ):
             raise ExpressionError(
                 "callback expression's parameter types do not match the "
                 "builtin's callback signature"
             )
-        out_t = fn_t.value["output"]
-        if out_hint is not None and not is_subtype(out_t, out_hint):
-            raise ExpressionError(
-                f"callback expression returns {out_t.type}, the slot declares "
-                f"{out_hint.type}"
-            )
-        return fn.ir, out_t
-
-    # The payload parameters the body declares after the block; a caller
-    # that already normalised the shape passes ``declared``.
-    arity = declared
-    if arity is None:
+        if order is None and wrap is None and len(inputs) == len(param_types):
+            out_t = fn_t.value["output"]
+            if out_hint is not None and not is_subtype(out_t, out_hint):
+                raise ExpressionError(
+                    f"callback expression returns {out_t.type}, the slot declares "
+                    f"{out_hint.type}"
+                )
+            return fn.ir, out_t
+        arity = len(inputs)
+    else:
+        # The payload parameters the body declares after the block.
         arity = _body_arity(fn)
-        if arity is None:  # *args takes everything the builtin offers
-            arity = len(param_types)
-    if not (0 <= arity <= len(param_types)):
+    if arity is None:  # *args takes everything the builtin offers
+        arity = len(slots)
+    if not (0 <= arity <= len(slots)):
         raise ExpressionError(
-            f"a callback here takes the block and up to {len(param_types)} "
+            f"a callback here takes the block and up to {len(slots)} "
             f"parameter(s) — this one declares {arity} after the block"
         )
     names = [_fresh_name() for _ in param_types]
     proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
+    args = [proxies[i] for i in slots][:arity]
     frame = _open_frame(out_hint)
     _push_effects()
     popped = False
     try:
         try:
-            result = fn(Block(frame), *proxies[:arity])
+            result = fn(Block(frame), *args)
         except ExpressionError:
             raise
         except Exception as e:  # pragma: no cover - message carries the cause
             raise ExpressionError(f"inner lambda is not traceable: {e}") from e
+        if wrap is not None:
+            result = wrap(result)
         # The callback is an `East.function` body (TS `Expr.function`): its
         # statements and returned value assemble by the function rules.
         body = assemble(frame, result, "function", out_hint)

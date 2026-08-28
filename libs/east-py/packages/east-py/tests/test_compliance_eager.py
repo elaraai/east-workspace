@@ -31,23 +31,10 @@ from tests.test_compliance import TEST_IR_DIR, get_test_ir_files
 
 # Builtins the corpus exercises that still route through the funnel — the
 # measured register gap (#452's ratchet): shrinking it is progress, growing
-# it fails here. The Vector/Matrix tensor surface is mid-redesign; the rest
-# have no user spelling yet (a finding, kept visible).
-FUNNEL_ONLY = frozenset({
-    "ArrayEncodeCsv", "ArrayGetKeys", "ArrayMerge", "ArrayMergeAll",
-    "ArrayPrepend", "BlobDecodeBeast", "BlobDecodeBeast2", "BlobDecodeCsv",
-    "BlobDecodeUtf8", "BlobDecodeUtf16", "BlobEncodeBeast", "BlobEncodeBeast2",
-    "BlobGetUint8", "BlobSize", "DateTimeParseFormat", "DateTimePrintFormat",
-    # DictMerge / DictUnionInPlace left this set in #527: east-py gained
-    # `merge_key` and `union_in_place`, so both now route through the surface.
-    "MatrixCols", "MatrixFill", "MatrixFromArray", "MatrixFromRows",
-    "MatrixGet", "MatrixGetCol", "MatrixGetRow", "MatrixMapRows", "MatrixOnes",
-    "MatrixRows", "MatrixSet", "MatrixToArray", "MatrixToRows",
-    "MatrixToVector", "MatrixTranspose", "MatrixZeros",
-    "VectorConcat", "VectorFill", "VectorFold", "VectorFromArray", "VectorGet",
-    "VectorLength", "VectorMap", "VectorOnes", "VectorSet", "VectorSlice",
-    "VectorToArray", "VectorToMatrix", "VectorZeros",
-})
+# it fails here. ArrayGetKeys carries a hand-built getter callback the surface
+# derives from the receiver; the formatted-datetime pair takes a pre-tokenized
+# token array the namespace sugar builds from a format STRING.
+FUNNEL_ONLY = frozenset({"ArrayGetKeys", "DateTimeParseFormat", "DateTimePrintFormat"})
 
 KNOWN_DIFFS: dict[str, tuple[str, frozenset[str]]] = {}
 
@@ -100,7 +87,7 @@ def test_register_gap_is_pinned():
         pytest.skip("no replay data collected")
     seen_funnel = {b for (b, r), v in _TOTAL.routes.items() if r == "funnel" and v}
     new = seen_funnel - FUNNEL_ONLY
-    gone = FUNNEL_ONLY - seen_funnel - {"BlobDecodeUtf16"}  # not in every export
+    gone = FUNNEL_ONLY - seen_funnel
     assert not new, f"builtins newly off the user surface: {sorted(new)}"
     assert not gone, (
         f"builtins now mapped (or no longer exercised): {sorted(gone)} — "

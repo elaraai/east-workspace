@@ -36,12 +36,15 @@ block-level control constructs (#578): ``East.while_`` / ``East.for_`` /
 ``block`` / ``let`` / ``ref`` / ``label`` / ``break_`` / ``continue_`` /
 ``try_catch`` / ``new_array`` / ``new_set`` / ``new_dict``.
 
-The traced collection surface is the closed enumeration in
-``_TRACED_SURFACE`` (#452) — the per-container method lists the docs and the
-surface test pin. Eager collection methods capture a plain callback through
-the same machinery (``capture.capture_callback``), with the builtin's
-declared signature: one capture, one execution semantics, and a callback
-that does python work raises instead of running per element.
+The expression surface is one class per East type kind
+(``east.expression.expr``, mirroring ``libs/east/src/expr/*.ts``): an
+``ArrayExpression`` carries the Array methods, a ``DictExpression`` the
+Dict ones, and a method that does not exist on the receiver's kind is a
+build-time error naming the receiver's surface (#452). Eager collection
+methods capture a plain callback through the same machinery
+(``capture.capture_callback``), with the builtin's declared signature: one
+capture, one execution semantics, and a callback that does python work
+raises instead of running per element.
 
 Every build records an authoring-frame source map (``location.py``, #626):
 a runtime error inside a python-built function names the python
@@ -70,10 +73,26 @@ from east.expression.control import (
 )
 from east.expression.errors import ExpressionError, _trace_bail
 from east.expression.expr import (
-    _SHADOWABLE,
-    _TRACED_SURFACE,
+    ArrayExpression,
+    AsyncFunctionExpression,
+    BlobExpression,
+    BooleanExpression,
+    DateTimeExpression,
+    DictExpression,
     Expression,
-    _shadowable_names,
+    FloatExpression,
+    FunctionExpression,
+    IntegerExpression,
+    MatrixExpression,
+    NeverExpression,
+    NullExpression,
+    RecursiveExpression,
+    RefExpression,
+    SetExpression,
+    StringExpression,
+    StructExpression,
+    VariantExpression,
+    VectorExpression,
 )
 from east.expression.finalize import _capturing_fn, _finalize_ir, _free_vars, _function_ir
 from east.expression.function import (
@@ -172,6 +191,25 @@ __all__ = [
     "compile_",
     "compile_async",
     "Expression",
+    "NullExpression",
+    "NeverExpression",
+    "BooleanExpression",
+    "IntegerExpression",
+    "FloatExpression",
+    "StringExpression",
+    "DateTimeExpression",
+    "BlobExpression",
+    "RefExpression",
+    "ArrayExpression",
+    "SetExpression",
+    "DictExpression",
+    "StructExpression",
+    "VariantExpression",
+    "RecursiveExpression",
+    "FunctionExpression",
+    "AsyncFunctionExpression",
+    "VectorExpression",
+    "MatrixExpression",
     "ExpressionError",
     "if_else",
     "greatest",

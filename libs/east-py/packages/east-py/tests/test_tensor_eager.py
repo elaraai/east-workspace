@@ -38,7 +38,7 @@ def test_matrix_set_is_functional():
     assert m2 is not m
     assert m2.get(0, 1) == 99.0
     assert m.get(0, 1) == 2.0  # original unchanged
-    assert (m2.num_rows(), m2.num_cols()) == (2, 2)
+    assert (m2.rows(), m2.cols()) == (2, 2)
     assert m2.dtype == m.dtype
 
 

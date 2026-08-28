@@ -268,10 +268,10 @@ def cy_compare_for(type_val, type_ctx=None):
             cdef int i, cmp_val
             if x is y:
                 return 0
-            if x.rows != y.rows:
-                return -1 if x.rows < y.rows else 1
-            if x.cols != y.cols:
-                return -1 if x.cols < y.cols else 1
+            if x._rows != y._rows:
+                return -1 if x._rows < y._rows else 1
+            if x._cols != y._cols:
+                return -1 if x._cols < y._cols else 1
             flat_x = x._data.ravel()
             flat_y = y._data.ravel()
             for i in range(len(flat_x)):
@@ -549,7 +549,7 @@ def cy_equal_for(type_val, type_ctx=None):
             cdef int i
             if x is y:
                 return True
-            if x.rows != y.rows or x.cols != y.cols:
+            if x._rows != y._rows or x._cols != y._cols:
                 return False
             xd = x._data.ravel()
             yd = y._data.ravel()

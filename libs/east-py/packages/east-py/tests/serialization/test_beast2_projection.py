@@ -100,7 +100,7 @@ def test_traced_callbacks_infer_projection_and_agree(array_path):
             ("map", lambda c: list(c.map(lambda _b, r: r["qty"] * 2))),
             ("map_nested", lambda c: list(c.map(lambda _b, r: r["meta"]["code"]))),
             ("sum", lambda c: c.sum(lambda _b, r: r["amt"])),
-            ("fold", lambda c: c.fold(0, lambda _b, a, r: a + r["id"])),
+            ("reduce", lambda c: c.reduce(lambda _b, a, r: a + r["id"], 0)),
             ("every", lambda c: c.every(lambda _b, r: r["qty"] >= 0)),
             ("group_reduce", lambda c: dict(c.group_reduce(
                 lambda _b, r: r["meta"]["code"], lambda _b, _k: 0,
@@ -121,13 +121,13 @@ def test_dict_callbacks_infer_value_projection(dict_path):
     with open_beast2_file(dict_path, DT) as d:
         table = d.load()
         got, counted = _delta(
-            lambda: list(d.to_array(lambda _b, k, v: v["qty"], out=IntegerType)))
-        assert got == list(table.to_array(lambda _b, k, v: v["qty"], out=IntegerType))
+            lambda: list(d.to_array(lambda _b, v: v["qty"], out=IntegerType)))
+        assert got == list(table.to_array(lambda _b, v: v["qty"], out=IntegerType))
         assert counted["beast2_segments_projected"] > 0
 
-        # keys_set reads NOTHING of the value — the empty projection
+        # keys() reads NOTHING of the value — the empty projection
         # (variant K in the issue's measurements).
-        got, counted = _delta(lambda: d.keys_set())
+        got, counted = _delta(lambda: d.keys())
         assert len(got) == 400
         assert counted["beast2_segments_projected"] > 0
 
@@ -199,7 +199,7 @@ def test_projection_never_poisons_wider_reads(dict_path):
     sequence each see their own fields."""
     with open_beast2_file(dict_path, DT) as d:
         _, counted = _delta(
-            lambda: list(d.to_array(lambda _b, k, v: v["qty"], out=IntegerType)))
+            lambda: list(d.to_array(lambda _b, v: v["qty"], out=IntegerType)))
         assert counted["beast2_segments_projected"] > 0
 
         full = d["k00042"]
@@ -207,9 +207,9 @@ def test_projection_never_poisons_wider_reads(dict_path):
         assert full["name"] == "name-00042"
         assert list(full["tags"]) == [f"t42-{j}" for j in range(42 % 4)]
 
-        amts = list(d.to_array(lambda _b, k, v: v["amt"], out=FloatType))
+        amts = list(d.to_array(lambda _b, v: v["amt"], out=FloatType))
         assert amts[42] == 42 * 0.37
-        names = list(d.to_array(lambda _b, k, v: v["name"], out=StringType))
+        names = list(d.to_array(lambda _b, v: v["name"], out=StringType))
         assert names[7] == "name-00007"
 
 

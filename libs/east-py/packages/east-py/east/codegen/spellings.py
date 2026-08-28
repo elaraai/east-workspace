@@ -13,13 +13,10 @@ drift. A row says:
 - ``template`` — python source with ``{0}``, ``{1}``, … for the builtin's
   arguments in IR order and ``{T0}``, ``{T1}``, … for its type parameters;
 - ``callbacks`` — which argument slots are callbacks, and how the python
-  surface's callback signature relates to the builtin's (``"cb"`` — same
-  order; ``"dict_kv"`` — the builtin passes ``(value, key)``, python calls
-  ``(key, value)``; ``"acc_kv"`` — ``(acc, value, key)`` → ``(acc, key,
-  value)``; ``"kv1"`` — python passes only the first argument; ``"trim"`` —
-  a nullary/narrowed producer; ``"value"`` — the builtin takes a producer
-  function where python takes the VALUE (printable only when the function
-  ignores its parameters));
+  surface's callback signature relates to the builtin's (``"cb"`` — the
+  builtin's own order, which the python surface takes on every collection
+  since the TypeScript ``(value, key)`` Dict order became canonical;
+  ``"trim"`` — a nullary/narrowed producer);
 - ``operator`` — the row is an operator spelling (the #624 exactness
   table: only where python and East semantics coincide).
 
@@ -86,39 +83,45 @@ _HAND: dict[str, Spelling] = {
     "ArrayFilter": _s("{0}.filter({1})", {1: CB}),
     "ArrayFilterMap": _s("{0}.filter_map({1})", {1: CB}),
     "ArrayFirstMap": _s("{0}.first_map({1})", {1: CB}),
-    "ArrayFold": _s("{0}.fold({1}, {2})", {2: CB}),
-    "ArrayScan": _s("{0}.scan({1}, {2})", {2: CB}),
+    "ArrayFold": _s("{0}.reduce({2}, {1})", {2: CB}),
+    "ArrayScan": _s("{0}.scan({2}, {1})", {2: CB}),
     "ArrayMapReduce": _s("{0}.map_reduce({1}, {2})", {1: CB, 2: CB}),
     "ArraySize": _s("{0}.size()"),
     "ArrayHas": _s("{0}.has({1})"),
     "ArrayGet": _s("{0}.get({1})"),
-    "ArrayGetOrDefault": _s("{0}.get_or_default({1}, {2})", {2: "value"}),
+    "ArrayGetOrDefault": _s("{0}.get({1}, {2})", {2: CB}),
     "ArrayTryGet": _s("{0}.try_get({1})"),
     "ArrayConcat": _s("{0}.concat({1})"),
     "ArraySlice": _s("{0}.slice({1}, {2})"),
-    "ArrayReverse": _s("{0}.reversed()"),
+    "ArrayReverse": _s("{0}.reverse()"),
     "ArrayCopy": _s("{0}.copy()"),
+    # ArraySortDefault is the python-only keyless sort the deprecated
+    # `.sorted()` still emits (TS `sort()` is ArraySort over the identity).
     "ArraySortDefault": _s("{0}.sorted()"),
-    "ArraySort": _s("{0}.sorted(key={1})", {1: CB}),
-    "ArrayIsSorted": _s("{0}.is_sorted(key={1})", {1: CB}),
+    "ArraySort": _s("{0}.sort({1})", {1: CB}),
+    "ArrayIsSorted": _s("{0}.is_sorted({1})", {1: CB}),
     "ArrayToSet": _s("{0}.to_set({1})", {1: CB}),
     "ArrayToDict": _s("{0}.to_dict({1}, value={2}, combine={3})", {1: CB, 2: CB, 3: CB}),
     "ArrayGroupFold": _s("{0}.group_reduce({1}, {2}, {3})", {1: CB, 2: CB, 3: CB}),
-    "ArrayFlattenToArray": _s("{0}.flatten_to_array({1})", {1: CB}),
+    "ArrayFlattenToArray": _s("{0}.flat_map({1})", {1: CB}),
     "ArrayFlattenToSet": _s("{0}.flatten_to_set({1})", {1: CB}),
     "ArrayFlattenToDict": _s("{0}.flatten_to_dict({1}, {2})", {1: CB, 2: CB}),
     "ArrayStringJoin": _s("{0}.string_join({1})"),
-    "ArrayUpdate": _s("{0}.set_at({1}, {2})"),
+    "ArrayEncodeCsv": _s("{0}.encode_csv({1})"),
+    "ArrayUpdate": _s("{0}.update({1}, {2})"),
+    "ArrayMerge": _s("{0}.merge({1}, {2}, {3})", {3: CB}),
+    "ArrayMergeAll": _s("{0}.merge_all({1}, {2})", {2: CB}),
     "ArrayClear": _s("{0}.clear()"),
-    "ArrayPushLast": _s("{0}.append({1})"),
-    "ArrayPushFirst": _s("{0}.prepend({1})"),
-    "ArrayPopLast": _s("{0}.pop()"),
+    "ArrayPushLast": _s("{0}.push_last({1})"),
+    "ArrayPushFirst": _s("{0}.push_first({1})"),
+    "ArrayPopLast": _s("{0}.pop_last()"),
     "ArrayPopFirst": _s("{0}.pop_first()"),
-    "ArrayAppend": _s("{0}.extend({1})"),
+    "ArrayAppend": _s("{0}.append({1})"),
+    "ArrayPrepend": _s("{0}.prepend({1})"),
     "ArrayReverseInPlace": _s("{0}.reverse_in_place()"),
     "ArraySortInPlace": _s("{0}.sort_in_place({1})", {1: CB}),
-    "SetGenerate": _s("East.Set.generate({0}, {1}, {2}, {T0})", {1: CB, 2: CB}),
-    "ArrayGenerate": _s("East.Array.generate({0}, {1}, {T0})", {1: CB}),
+    "SetGenerate": _s("East.Set.generate({0}, {T0}, {1}, {2})", {1: CB, 2: CB}),
+    "ArrayGenerate": _s("East.Array.generate({0}, {T0}, {1})", {1: CB}),
     "ArrayRange": _s("East.Array.range({0}, {1}, {2})"),
     "ArrayLinspace": _s("East.Array.linspace({0}, {1}, {2})"),
     "ArrayForEach": _s("{0}.for_each({1})", {1: CB}),
@@ -135,11 +138,11 @@ _HAND: dict[str, Spelling] = {
     "SetTryInsert": _s("{0}.try_insert({1})"),
     "SetTryDelete": _s("{0}.try_delete({1})"),
     "SetUnion": _s("{0}.union({1})"),
-    "SetIntersect": _s("{0}.intersect({1})"),
-    "SetDiff": _s("{0}.diff({1})"),
-    "SetSymDiff": _s("{0}.sym_diff({1})"),
-    "SetIsSubset": _s("{0}.is_subset({1})"),
-    "SetIsDisjoint": _s("{0}.is_disjoint({1})"),
+    "SetIntersect": _s("{0}.intersection({1})"),
+    "SetDiff": _s("{0}.difference({1})"),
+    "SetSymDiff": _s("{0}.symmetric_difference({1})"),
+    "SetIsSubset": _s("{0}.is_subset_of({1})"),
+    "SetIsDisjoint": _s("{0}.is_disjoint_from({1})"),
     "SetCopy": _s("{0}.copy()"),
     "SetUnionInPlace": _s("{0}.union_in_place({1})"),
     "SetToArray": _s("{0}.to_array({1})", {1: CB}),
@@ -150,63 +153,84 @@ _HAND: dict[str, Spelling] = {
     "SetFilterMap": _s("{0}.filter_map({1})", {1: CB}),
     "SetFirstMap": _s("{0}.first_map({1})", {1: CB}),
     "SetMapReduce": _s("{0}.map_reduce({1}, {2})", {1: CB, 2: CB}),
-    "SetReduce": _s("{0}.reduce({2}, {1})", {1: CB}),
-    "SetScan": _s("{0}.scan({2}, {1})", {1: CB}),
+    "SetReduce": _s("{0}.reduce({1}, {2})", {1: CB}),
+    "SetScan": _s("{0}.scan({1}, {2})", {1: CB}),
     "SetGroupFold": _s("{0}.group_reduce({1}, {2}, {3})", {1: CB, 2: CB, 3: CB}),
     "SetFlattenToArray": _s("{0}.flatten_to_array({1})", {1: CB}),
     "SetFlattenToSet": _s("{0}.flatten_to_set({1})", {1: CB}),
     "SetFlattenToDict": _s("{0}.flatten_to_dict({1}, {2})", {1: CB, 2: CB}),
     "SetForEach": _s("{0}.for_each({1})", {1: CB}),
-    # ── Dict (the builtin calls callbacks (value, key); python (key, value)) ──
+    # ── Dict (callbacks take the builtin's own (value, key) — the TS order) ──
     "DictSize": _s("{0}.size()"),
     "DictHas": _s("{0}.has({1})"),
     "DictGet": _s("{0}.get({1})"),
-    "DictGetOrDefault": _s("{0}.get_or_default({1}, {2})", {2: "value"}),
+    "DictGetOrDefault": _s("{0}.get({1}, {2})", {2: CB}),
     "DictTryGet": _s("{0}.try_get({1})"),
     "DictInsert": _s("{0}.insert({1}, {2})"),
     "DictGetOrInsert": _s("{0}.get_or_insert({1}, {2})", {2: "trim"}),
     "DictInsertOrUpdate": _s("{0}.insert_or_update({1}, {2}, {3})", {3: CB}),
-    "DictUpdate": _s("{0}.update_at({1}, {2})"),
+    "DictUpdate": _s("{0}.update({1}, {2})"),
     "DictSwap": _s("{0}.swap({1}, {2})"),
     "DictPop": _s("{0}.pop({1})"),
     "DictClear": _s("{0}.clear()"),
     "DictDelete": _s("{0}.delete({1})"),
     "DictTryDelete": _s("{0}.try_delete({1})"),
     "DictCopy": _s("{0}.copy()"),
-    "DictKeys": _s("{0}.keys_set()"),
+    "DictKeys": _s("{0}.keys()"),
     "DictGetKeys": _s("{0}.get_keys({1}, {2})", {2: CB}),
-    "DictMap": _s("{0}.map({1})", {1: CB}),  # DictMap is the one Dict callback python calls (value, key)
-    "DictFilter": _s("{0}.filter({1})", {1: "dict_kv"}),
-    "DictFilterMap": _s("{0}.filter_map({1})", {1: "dict_kv"}),
-    "DictFirstMap": _s("{0}.first_map({1})", {1: "dict_kv"}),
-    "DictMapReduce": _s("{0}.map_reduce({1}, {2})", {1: "dict_kv", 2: CB}),
-    "DictReduce": _s("{0}.reduce({2}, {1})", {1: "acc_kv"}),
-    "DictScan": _s("{0}.scan({2}, {1})", {1: "acc_kv"}),
-    "DictToArray": _s("{0}.to_array({1})", {1: "dict_kv"}),
-    "DictToSet": _s("{0}.to_set({1})", {1: "dict_kv"}),
-    "DictToDict": _s("{0}.to_dict({1}, {2}, {3})", {1: "dict_kv", 2: "dict_kv", 3: CB}),
-    "DictGroupFold": _s("{0}.group_reduce({1}, {2}, {3})", {1: "dict_kv", 2: CB, 3: "acc_kv"}),
-    "DictFlattenToArray": _s("{0}.flatten_to_array({1})", {1: "dict_kv"}),
-    "DictFlattenToSet": _s("{0}.flatten_to_set({1})", {1: "dict_kv"}),
-    "DictFlattenToDict": _s("{0}.flatten_to_dict({1}, {2})", {1: "dict_kv", 2: CB}),
+    "DictMap": _s("{0}.map({1})", {1: CB}),
+    "DictFilter": _s("{0}.filter({1})", {1: CB}),
+    "DictFilterMap": _s("{0}.filter_map({1})", {1: CB}),
+    "DictFirstMap": _s("{0}.first_map({1})", {1: CB}),
+    "DictMapReduce": _s("{0}.map_reduce({1}, {2})", {1: CB, 2: CB}),
+    "DictReduce": _s("{0}.reduce({1}, {2})", {1: CB}),
+    "DictScan": _s("{0}.scan({1}, {2})", {1: CB}),
+    "DictToArray": _s("{0}.to_array({1})", {1: CB}),
+    "DictToSet": _s("{0}.to_set({1})", {1: CB}),
+    "DictToDict": _s("{0}.to_dict({1}, {2}, {3})", {1: CB, 2: CB, 3: CB}),
+    "DictGroupFold": _s("{0}.group_reduce({1}, {2}, {3})", {1: CB, 2: CB, 3: CB}),
+    "DictFlattenToArray": _s("{0}.flatten_to_array({1})", {1: CB}),
+    "DictFlattenToSet": _s("{0}.flatten_to_set({1})", {1: CB}),
+    "DictFlattenToDict": _s("{0}.flatten_to_dict({1}, {2})", {1: CB, 2: CB}),
     "DictUnionInPlace": _s("{0}.union_in_place({1}, {2})", {2: CB}),
-    "DictMerge": _s("{0}.merge_key({1}, {2}, {3}, {4})", {3: CB, 4: CB}),
+    "DictMerge": _s("{0}.merge({1}, {2}, {3}, {4})", {3: CB, 4: CB}),
     "DictMergeAll": _s("{0}.merge_all({1}, {2}, {3})", {2: CB, 3: CB}),
-    "DictForEach": _s("{0}.for_each({1})", {1: "dict_kv"}),
-    "DictGenerate": _s("East.Dict.generate({0}, {1}, {2}, {3}, {T0}, {T1})", {1: CB, 2: CB, 3: CB}),
+    "DictForEach": _s("{0}.for_each({1})", {1: CB}),
+    "DictGenerate": _s("East.Dict.generate({0}, {T0}, {T1}, {1}, {2}, {3})", {1: CB, 2: CB, 3: CB}),
     # ── Ref ──────────────────────────────────────────────────────────────
     "RefGet": _s("{0}.get()"),
-    "RefUpdate": _s("{0}.set({1})"),
+    "RefUpdate": _s("{0}.update({1})"),
     "RefMerge": _s("{0}.merge({1}, {2})", {2: CB}),
-    # ── Vector / Matrix arithmetic (#598) ────────────────────────────────
+    # ── Vector / Matrix — the structural surface, then the arithmetic (#598) ──
+    "VectorLength": _s("{0}.length()"),
+    "VectorGet": _s("{0}.get({1})"),
+    "VectorSet": _s("{0}.set({1}, {2})"),
+    "VectorSlice": _s("{0}.slice({1}, {2})"),
+    "VectorConcat": _s("{0}.concat({1})"),
+    "VectorToArray": _s("{0}.to_array()"),
+    "VectorToMatrix": _s("{0}.to_matrix({1}, {2})"),
+    "VectorFromArray": _s("{0}.to_vector()"),
+    "VectorMap": _s("{0}.map({1})", {1: CB}),
+    "VectorFold": _s("{0}.reduce({2}, {1})", {2: CB}),
+    "MatrixRows": _s("{0}.rows()"),
+    "MatrixCols": _s("{0}.cols()"),
+    "MatrixGet": _s("{0}.get({1}, {2})"),
+    "MatrixSet": _s("{0}.set({1}, {2}, {3})"),
+    "MatrixGetRow": _s("{0}.get_row({1})"),
+    "MatrixGetCol": _s("{0}.get_col({1})"),
+    "MatrixTranspose": _s("{0}.transpose()"),
+    "MatrixToVector": _s("{0}.to_vector()"),
+    "MatrixToArray": _s("{0}.to_array()"),
+    "MatrixToRows": _s("{0}.to_rows()"),
+    "MatrixMapRows": _s("{0}.map_rows({1})", {1: CB}),
     "VectorScale": _s("{0}.scale({1})"),
     "VectorSum": _s("{0}.sum()"),
     "VectorAddScaled": _s("{0}.add_scaled({1}, {2})"),
     "VectorMul": _s("{0}.mul({1})"),
     "VectorAddScalar": _s("{0}.add_scalar({1})"),
     "VectorDot": _s("{0}.dot({1})"),
-    "VectorMax": _s("{0}.maximum()"),
-    "VectorMin": _s("{0}.minimum()"),
+    "VectorMax": _s("{0}.max()"),
+    "VectorMin": _s("{0}.min()"),
     "VectorArgMax": _s("{0}.arg_max()"),
     "VectorArgMin": _s("{0}.arg_min()"),
     "VectorMean": _s("{0}.mean()"),
@@ -231,6 +255,16 @@ _HAND: dict[str, Spelling] = {
     "MatrixRowSums": _s("{0}.row_sums()"),
     "MatrixColSums": _s("{0}.col_sums()"),
     "MatrixVecMul": _s("{0}.vec_mul({1})"),
+    # ── Blob ─────────────────────────────────────────────────────────────
+    "BlobSize": _s("{0}.size()"),
+    "BlobGetUint8": _s("{0}.get_uint8({1})"),
+    "BlobDecodeUtf8": _s("{0}.decode_utf8()"),
+    "BlobDecodeUtf16": _s("{0}.decode_utf16()"),
+    "BlobDecodeBeast": _s("{0}.decode_beast({T0})"),
+    "BlobDecodeBeast2": _s("{0}.decode_beast({T0}, 'v2')"),
+    "BlobDecodeCsv": _s("{0}.decode_csv({T0}, {1})"),
+    "BlobEncodeBeast": _s("East.Blob.encode_beast({0})"),
+    "BlobEncodeBeast2": _s("East.Blob.encode_beast({0}, 'v2')"),
 }
 
 
@@ -239,7 +273,7 @@ _HAND: dict[str, Spelling] = {
 # is a string constant in its code object, so the user surface itself supplies
 # the mapping — no hand-written scalar table to drift.
 
-_NAMESPACE_NAMES = ("Boolean", "Integer", "Float", "String", "DateTime")
+_NAMESPACE_NAMES = ("Boolean", "Integer", "Float", "String", "DateTime", "Vector", "Matrix")
 
 
 def _known_builtin_hints(spaces: list[tuple[str, Any]]) -> set[str]:
@@ -296,6 +330,20 @@ def _namespace_template(prefix: str, arity: int, n_tps: int, n_args: int) -> str
     return f"{prefix}({args})"
 
 
+def _arg_count(sig: Any, n_tps: int) -> int | None:
+    """How many arguments a builtin signature takes: the signature is
+    called with placeholder type parameters (a signature that builds argument
+    types FROM its parameters — ``Array<Array<T>>`` — needs a real type)."""
+    from east.types.types import FloatType
+
+    for placeholder in (None, FloatType):
+        try:
+            return len(sig(*([placeholder] * n_tps)))
+        except Exception:
+            continue
+    return None
+
+
 _derived: dict[str, Spelling] | None = None
 
 
@@ -310,9 +358,8 @@ def _derived_rows() -> dict[str, Spelling]:
             if sig is None:
                 continue
             n_tps = sig.__code__.co_argcount
-            try:
-                n_args = len(sig(*([None] * n_tps)))
-            except Exception:
+            n_args = _arg_count(sig, n_tps)
+            if n_args is None:
                 continue
             rows[name] = Spelling(_namespace_template(prefix, arity, n_tps, n_args))
         _derived = rows
@@ -351,14 +398,8 @@ SPELLINGS: _Table = _Table(_HAND)
 #: tests pin that this set only ever shrinks.
 RAW_ONLY: frozenset[str] = frozenset({
     "MatrixMapElements",
-    "ArrayEncodeCsv", "ArrayGetKeys", "ArrayMerge", "ArrayMergeAll", "ArrayPrepend",
-    "BlobDecodeBeast", "BlobDecodeBeast2", "BlobDecodeCsv", "BlobDecodeUtf16",
-    "BlobDecodeUtf8", "BlobEncodeBeast", "BlobEncodeBeast2", "BlobGetUint8", "BlobSize",
-    "DateTimeParseFormat", "DateTimePrintFormat",
-    "MatrixCols", "MatrixFill", "MatrixFromArray", "MatrixFromRows", "MatrixGet",
-    "MatrixGetCol", "MatrixGetRow", "MatrixMapRows", "MatrixOnes", "MatrixRows", "MatrixSet",
-    "MatrixToArray", "MatrixToRows", "MatrixToVector", "MatrixTranspose", "MatrixZeros",
-    "VectorConcat", "VectorFill", "VectorFold", "VectorFromArray", "VectorGet", "VectorLength",
-    "VectorMap", "VectorOnes", "VectorSet", "VectorSlice", "VectorToArray", "VectorToMatrix",
-    "VectorZeros",
+    # ArrayGetKeys carries a hand-built getter callback the surface derives
+    # from the receiver; the formatted-datetime pair takes a pre-tokenized
+    # token array the namespace sugar builds from a format STRING.
+    "ArrayGetKeys", "DateTimeParseFormat", "DateTimePrintFormat",
 })

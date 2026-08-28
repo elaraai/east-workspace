@@ -249,11 +249,18 @@ cdef class CyEastVariant:
         """Whether the variant's case is ``tag`` (mirrors the TS ``hasTag``)."""
         return self.type == tag
 
-    def unwrap(self, str tag):
-        """The payload of case ``tag``; raises ValueError if the case differs."""
-        if self.type != tag:
-            raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
-        return self.value
+    def unwrap(self, tag=None, on_other=None):
+        """The payload of case ``tag`` (default ``"some"``); for any other
+        case a ValueError, or the value of the ``on_other(b)`` body when one
+        is given (TS ``unwrap(name, onOther)``)."""
+        if tag is None:
+            tag = "some"
+        if self.type == tag:
+            return self.value
+        if on_other is not None:
+            from east.expression.statements import EagerBlock
+            return on_other(EagerBlock())
+        raise ValueError(f"unwrap: expected variant case '{tag}', got '{self.type}'")
 
     def unwrap_or(self, default):
         """Option sugar: the payload when the case is ``some``, else ``default``.
@@ -276,13 +283,19 @@ cdef class CyEastVariant:
     def match(self, dict cases, default=None):
         """Dispatch on the case: the matching arm's handler is a BODY,
         called ``handler(b, payload)`` with an eager block first — the same
-        handler serves the traced ``Expression.match`` — else ``default``
-        (mirrors the TS variant ``match`` as a method)."""
+        handler serves the traced ``Expression.match`` — else ``default``:
+        a ``default(b)`` body (TS's partial match) or a plain value (mirrors
+        the TS variant ``match`` as a method)."""
+        from east.expression.statements import EagerBlock
         handler = cases.get(self.type)
         if handler is None:
-            return default
-        from east.expression.statements import EagerBlock
+            return default(EagerBlock()) if callable(default) else default
         return handler(EagerBlock(), self.value)
+
+    def match_tag(self, str tag, handler, default):
+        """Match one case — ``handler(b, payload)`` — with ``default(b)`` for
+        every other (TS ``matchTag``)."""
+        return self.match({tag: handler}, default)
 
     def keys(self):
         """Return keys."""
