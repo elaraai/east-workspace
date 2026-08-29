@@ -60,3 +60,20 @@ export {
   InMemoryStorage,
   InMemoryRepoStore,
 } from './in-memory/index.js';
+
+// Composable content addressing (prototype — not yet wired into ObjectStore;
+// see libs/e3/design/composable-addressing.md)
+export {
+  COMPOSABLE_ADDRESS_SCHEME,
+  objectLeaves,
+  addressFromLeafDigests,
+  computeAddress,
+  digestsOf,
+  digestsOfCarve,
+  digestsOfSplice,
+  addressOfCarve,
+  addressOfSplice,
+  encodeObjectDigests,
+  decodeObjectDigests,
+  type ObjectDigests,
+} from './composable-address.js';
