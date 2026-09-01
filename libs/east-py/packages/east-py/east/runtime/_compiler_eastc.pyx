@@ -50,18 +50,19 @@ cdef void _ensure_runtime() except *:
 #
 # How eager-method callbacks actually executed, read via
 # east.runtime.compiler.eager_stats(). Under the strict surface (#625) an
-# eager callback is captured into a native kernel or refused — there is no
-# per-element python path to count — so the counters measure what CAN still
-# vary: whether a precompiled function value rode straight in
-# (kernel_direct), how many values crossed C→python (c_to_py_decodes, kept
+# eager callback is built into a native East function or refused — there is
+# no per-element python path to count — so the counters measure what CAN
+# still vary: whether a precompiled function value rode straight in
+# (function_direct), how many values crossed C→python (c_to_py_decodes, kept
 # in the bridge), and the beast2_* column-projection counters (#599): an
 # inferred optimisation that silently stops applying is an invisible
 # performance cliff, so every segment decode in the compute family counts as
 # projected or whole, and every declined inference counts with its reason
-# (an untraceable callback, the element escaping whole, a kernel with no
-# retraceable source, an unpageable blob, or a per-segment alias fallback).
+# (a callback that cannot build, the element escaping whole, a compiled
+# function with no source to rebuild, an unpageable blob, or a per-segment
+# alias fallback).
 _eager_counters = {
-    "kernel_direct": 0,
+    "function_direct": 0,
     "beast2_segments_projected": 0, "beast2_segments_whole": 0,
     "beast2_projection_declined_untraceable": 0,
     "beast2_projection_declined_escape": 0,
@@ -212,11 +213,11 @@ cdef object _native_kernel_for(object east_fn):
         if not in_matched:
             return None
     if n_kernel == n_declared:
-        _eager_counters["kernel_direct"] += 1
+        _eager_counters["function_direct"] += 1
         return fn
     adapted = _adapt_kernel_arity(fn, <size_t>n_kernel)
     if adapted is not None:
-        _eager_counters["kernel_direct"] += 1
+        _eager_counters["function_direct"] += 1
     return adapted
 
 

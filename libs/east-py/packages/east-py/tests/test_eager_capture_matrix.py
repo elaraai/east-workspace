@@ -32,7 +32,7 @@ adaptation; and the eligibility check reaches two wrapper levels while the
 ``mean`` family decides Integer-vs-Float from the type system.
 
 Per the issue: a spot-check is not enough — ``group_by`` had the right code,
-the right comment, and a healthy-looking ``kernel_direct`` counter while
+the right comment, and a healthy-looking ``function_direct`` counter while
 being 7.6× slower.
 """
 

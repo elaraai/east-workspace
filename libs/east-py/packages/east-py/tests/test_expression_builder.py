@@ -86,9 +86,9 @@ def test_artifact_runs_natively_through_eager_methods():
 
     double = East.function([ROW], IntegerType, lambda _b, r: r.qty * 2)
     rows = EastArray(ROW, [{"sku": "a", "qty": 1}, {"sku": "b", "qty": 2}])
-    before = eager_stats()["kernel_direct"]
+    before = eager_stats()["function_direct"]
     assert list(rows.map(double)) == [2, 4]
-    assert eager_stats()["kernel_direct"] == before + 1  # rode straight in
+    assert eager_stats()["function_direct"] == before + 1  # rode straight in
 
 
 def test_artifact_composes_by_splicing_into_another_build():

@@ -43,12 +43,12 @@ def compile_from_beast2(
 def eager_stats() -> dict[str, int]:
     """Counters for how eager-method callbacks actually executed (#409).
 
-    Under the strict surface (#625) an eager callback is captured into a
-    native function or refused — there is no per-element python path, so
-    nothing measures one. The counters cover what can still vary:
+    Under the strict surface (#625) an eager callback is built into a
+    native East function or refused — there is no per-element python path,
+    so nothing measures one. The counters cover what can still vary:
 
-    - ``kernel_direct`` — calls where a precompiled function's native value
-      was passed straight to the builtin (no capture needed).
+    - ``function_direct`` — calls where a precompiled function's native
+      value was passed straight to the builtin (nothing to build).
     - ``c_to_py_decodes`` — values boxed C→python (the bridge's decode
       counter): an eager method that quietly decodes a whole collection to
       python shows up here, correct results notwithstanding.
@@ -60,7 +60,7 @@ def eager_stats() -> dict[str, int]:
 
         before = eager_stats()
         rows.map(k)
-        assert eager_stats()["kernel_direct"] == before["kernel_direct"] + 1
+        assert eager_stats()["function_direct"] == before["function_direct"] + 1
     """
     from east.runtime._compiler_eastc import _eager_counters_snapshot
 
