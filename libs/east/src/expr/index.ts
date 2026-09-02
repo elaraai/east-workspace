@@ -33,6 +33,7 @@ export { type CallableAsyncFunctionExpr, AsyncFunctionExpr } from './asyncfuncti
 // Import factory implementation
 import { from, equal, notEqual, less, lessEqual, print, is, greaterEqual, greater, func, str, platform, asyncFunction, asyncPlatform, genericPlatform, asyncGenericPlatform, compile, compileAsync, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch, builtin, as, wrapRecursive, error } from './block.js';
 import { toSource } from '../codegen/index.js';
+import { importFunction, exportFunctions, encodeFunctionManifest, decodeFunctionManifest, linkImports, platformDependencies } from '../functions.js';
 export { BlockBuilder, type AsyncPlatformDefinition, type PlatformDefinition, type GenericPlatformDefinition, type AsyncGenericPlatformDefinition, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch } from './block.js';
 
 // Import standard libraries
@@ -377,6 +378,83 @@ export const East = {
    * ```
    */
   toSource,
+
+  /**
+   * Refers to a function exported by another package — authored in either
+   * language — as a typed, callable function expression. Unresolved it is a
+   * `Platform` node named `east.importFunction`; `East.linkImports` (which
+   * `e3 export` runs on every task) embeds the exported IR after checking
+   * the declared type equals the exported type exactly. Python's
+   * `East.import_function`.
+   *
+   * @param pkg - The exporting package's name (its manifest's `package`)
+   * @param name - The function's name in that package
+   * @param type - The declared `FunctionType` / `AsyncFunctionType`
+   * @returns A callable function expression of `type`
+   *
+   * @example
+   * ```ts
+   * const score = East.importFunction("pricing", "score", FunctionType([RowType], FloatType));
+   * const total = East.function([ArrayType(RowType)], FloatType, ($, rows) => rows.map(($, r) => score(r)).sum());
+   * ```
+   */
+  importFunction,
+
+  /**
+   * Builds a package's function manifest — each function's IR, declared
+   * type and platform dependencies — for other packages (in either language)
+   * to import. Functions must be closed values: no captures, no unresolved
+   * imports. Python's `East.export_functions`; the CLIs are `east-node
+   * export-functions` / `east-py export-functions`.
+   *
+   * @param pkg - The package name importers will use
+   * @param version - Its version
+   * @param functions - Name → `East.function` result
+   * @param options - `providers`: platform name → the package implementing it
+   * @returns The manifest value (`East.encodeFunctionManifest` writes it)
+   *
+   * @example
+   * ```ts
+   * const manifest = East.exportFunctions("maths", "1.0.0", { double, halve });
+   * writeFileSync("maths.functions.beast2", East.encodeFunctionManifest(manifest));
+   * ```
+   */
+  exportFunctions,
+
+  /** Encodes a function manifest as beast2 (readable by either language). */
+  encodeFunctionManifest,
+
+  /** Decodes a function manifest written by either language. */
+  decodeFunctionManifest,
+
+  /**
+   * Resolves every `East.importFunction` in a function against the given
+   * manifests: exact type check, then the exported IR embedded as a
+   * `Let`-bound constant. Returns the linked IR and the imports resolved
+   * (with their platform dependencies, which `e3 export` validates against
+   * the task's runner). Python's `East.link_imports`.
+   *
+   * @param fnOrIr - The importing function (or its IR)
+   * @param manifests - The exporting packages' manifests
+   * @returns `{ ir, imports }`
+   *
+   * @example
+   * ```ts
+   * const { ir } = East.linkImports(total, [East.decodeFunctionManifest(readFileSync("pricing.functions.beast2"))]);
+   * East.compile(new EastIR(ir), [])(rows);
+   * ```
+   */
+  linkImports,
+
+  /**
+   * The platform functions a function calls — name, signature, asyncness —
+   * in first-use order. What an export manifest records per function.
+   *
+   * @param fnOrIr - The function (or its IR)
+   * @param providers - Platform name → the package implementing it, recorded when given
+   * @returns The dependencies
+   */
+  platformDependencies,
 
   /**
    * Calls an East builtin by name — the raw spelling for a builtin the

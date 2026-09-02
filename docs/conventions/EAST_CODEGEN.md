@@ -67,10 +67,10 @@ python), so the mapping is one table.
 | `Assign` | `$.assign(x, v)` | `b.assign(x, v)` |
 | `Return` / `Break` / `Continue` / `Error` | `$.return(v)` / `$.break(label)` / `$.continue(label)` / `$.error(m)` | `b.return_(v)` / `b.break_(label)` / `b.continue_(label)` / `b.error(m)` |
 | Null-typed `IfElse` (statement) | `$.if(p, $ => {…}).elseIf(p, …).else(…)` | `b.if_(p, …).else_if(p, …).else_(…)` |
-| Null-typed `Match` | `$.match(v, { case: ($, x) => {…} })` | `b.match(v, {"case": …})` |
+| Null-typed `Match` | `$.match(v, { case: ($, x) => {…} })` | `b.match_(v, {"case": …})` |
 | `While` / `ForArray` / `ForSet` / `ForDict` | `$.while(p, ($, label) => {…})` / `$.for(coll, ($, value, key, label) => {…})` | `b.while_(…)` / `b.for_(…)` |
-| Null-typed `TryCatch` | `$.try(…).catch(($, message, stack) => {…}).finally(…)` | `b.try_(…).catch_(…).finally_(…)` |
-| an expression in statement position | `$(expr)` | `b(expr)` |
+| Null-typed `TryCatch` | `$.try(…).catch(($, message, stack) => {…}).finally(…)` | `b.try_(…).catch(…).finally_(…)` |
+| an expression in statement position | `$(expr)` | `b.do(expr)` |
 | `Value` literal | `1n`, `1.5`, `"s"`, `true`, `null`, `new Date(…)`, `new Uint8Array([…])` | `1`, `1.5`, `'s'`, `True`, `None`, `datetime(…)`, `b'…'` |
 | `Struct` / `Variant` / `NewArray` / `NewSet` / `NewDict` / `NewRef` / `NewVector` / `NewMatrix` | `East.value({…} / variant(c, v) / […] / new Set([…]) / new Map([…]) / ref(v) / new Float64Array([…]) / matrix(…), T)` | `East.value(…, T)` and the `East.new_*` constructors |
 | `GetField` | `s.field` (or `s["odd-name"]`) | `s.field` |

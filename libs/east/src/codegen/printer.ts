@@ -33,7 +33,9 @@
  *   `Expr.tryCatch(...)` / `Expr.block(...)`, a Builtin through its spelling
  *   row (callbacks as `($, ...) => ...` arrows) or the raw
  *   `East.builtin(name, [T...], [args], out)`, an As through `East.as`, a
- *   WrapRecursive through `East.wrapRecursive`.
+ *   WrapRecursive through `East.wrapRecursive`, an unresolved cross-language
+ *   import (the `east.importFunction` Platform node) through
+ *   `East.importFunction(pkg, name, T)`.
  *
  * Variables keep their IR names when they are JavaScript identifiers (the
  * TypeScript `_N`s are); anything else is renamed `v_N`; `$` is reserved for
@@ -50,6 +52,7 @@
 
 import { Expr } from "../expr/expr.js";
 import type { EastTypeValue } from "../type_of_type.js";
+import { IMPORT_PLATFORM } from "../functions.js";
 import { spellingFor, type Spelling } from "./spellings.js";
 import { TYPE_IMPORTS, objectKey, typeKey, typeSource } from "./types.js";
 
@@ -483,7 +486,13 @@ class Printer {
       case "Builtin":
         return this.builtinExpr(node, scope, pre, indent, d);
       case "Platform": {
-        const args = (p.arguments as Node[]).map(a => this.expr(a, scope, pre, indent, d)).join(", ");
+        const argNodes = p.arguments as Node[];
+        if (p.name === IMPORT_PLATFORM && argNodes.length === 2 && argNodes.every(a => a.type === "Value")) {
+          // an unresolved cross-language import: its own spelling, not a platform declaration
+          const [pkg, name] = argNodes.map(a => literal(a.value.value));
+          return `East.importFunction(${pkg}, ${name}, ${this.typeRef(p.type)})`;
+        }
+        const args = argNodes.map(a => this.expr(a, scope, pre, indent, d)).join(", ");
         const ref = this.platformRef(p);
         if ((p.type_parameters as EastTypeValue[]).length > 0) {
           const tps = (p.type_parameters as EastTypeValue[]).map(t => this.typeRef(t)).join(", ");

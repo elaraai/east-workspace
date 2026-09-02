@@ -25,3 +25,4 @@ export * from './eastir.js';
 export * from './patch/index.js';
 export * from './example.js';
 export * from './codegen/index.js';
+export * from './functions.js';
