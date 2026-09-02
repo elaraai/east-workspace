@@ -11,7 +11,6 @@ in turn), anything else widens through one outer ``As``.
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime
 
 import pytest
@@ -287,12 +286,20 @@ def test_equal_recursive_types_are_a_no_op():
     assert _coerce(e, R) is e
 
 
-def test_nested_recursive_widening_terminates():
+def test_nested_recursive_widening_terminates(monkeypatch):
+    """A recursive type coerced to itself is the identity in ONE step — the
+    equal-type fast path answers before anything descends into the wrapper,
+    so a nested self-reference cannot recurse (a clock used to guard this;
+    the call count is the mechanism)."""
+    import east.expression.lift as lift
+
+    calls = []
+    real = lift._coerce
+    monkeypatch.setattr(lift, "_coerce", lambda *a, **k: calls.append(1) or real(*a, **k))
     R = recursive_type(lambda self: VariantType([("nil", NullType), ("cons", self)]))
     e = Expression(ir_variant(R, "cons", ir_variable(R, "inner", LOC), LOC), R)
-    start = time.monotonic()
-    _coerce(e, R)
-    assert time.monotonic() - start < 1.0
+    assert lift._coerce(e, R) is e
+    assert len(calls) == 1
 
 
 # ── §9 determinism ──────────────────────────────────────────────────────────

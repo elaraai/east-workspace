@@ -49,9 +49,10 @@ publish: build
 build-cython:
 	uv run python scripts/build_cython.py
 
-## Run benchmarks (if implemented)
+## Run the wall-clock benchmarks — the `perf`-marked tests, skipped by
+## `make test` and by CI (tests/conftest.py: a clock is not a mechanism)
 bench:
-	uv run python -m pytest tests/bench --benchmark-only
+	EAST_PERF=1 uv run pytest tests -m perf -q --no-cov -p no:cacheprovider
 
 ## Generate coverage report
 coverage:
@@ -75,6 +76,7 @@ help:
 	@echo "  format        - Format code"
 	@echo "  typecheck     - Type check"
 	@echo "  check         - lint + typecheck + test"
+	@echo "  bench         - Run the perf-marked wall-clock benchmarks (EAST_PERF=1)"
 	@echo "  build         - Build distribution"
 	@echo "  build-cython  - Build Cython modules"
 	@echo "  clean         - Clean artifacts"

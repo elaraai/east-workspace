@@ -134,6 +134,10 @@ dynamically typed at the boundary. See `pyproject.toml`.
   on the rebuilt IR and must agree with the original test by test.
   `EAST_CONFORMANCE_REQUIRED=1` fails instead of skipping when a corpus is
   missing (the per-OS CI sweep sets it). About a minute in all.
+- **No clocks in CI.** A test that asserts on elapsed time is
+  `@pytest.mark.perf` and runs only under `EAST_PERF=1` (`make bench`);
+  `tests/conftest.py` skips it otherwise. CI pins the mechanism a timing
+  claim rests on (a counter, a decode plan, a call count), never the clock.
 - `SKILL.md` is the `east:east-py` plugin skill — edit it as one document,
   never by grep-patching, and keep its decision tree exhaustive.
 

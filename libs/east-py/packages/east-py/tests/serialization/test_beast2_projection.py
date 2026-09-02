@@ -19,7 +19,6 @@ The oracle everywhere is the whole decode: projected results must equal the
 wide results' kept fields, and a segment decoded under a mask must never be
 served to an operation needing more (the cache-correctness pin)."""
 
-import os
 import time
 
 import pytest
@@ -340,26 +339,16 @@ def test_projected_and_whole_reads_share_one_wire(array_path):
 # ── The performance claim (AC 1) ──────────────────────────────────────────
 
 
-def test_projected_scan_beats_the_bare_whole_decode(tmp_path):
-    """The issue's K-vs-F cliff, inverted: a traced scan reading ONE shallow
-    field of a wide record — the whole operation, trace and fold included —
-    must beat even a bare whole decode that does no work at all, because
-    value materialisation (not byte-walking) dominates decode cost. Before
-    projection, reading nothing cost 88% of reading everything.
+WIDE_ROW = StructType(
+    [("id", IntegerType)]
+    + [(f"s{i}", StringType) for i in range(16)]
+    + [("tags", ArrayType(StringType))]
+)
 
-    The MECHANISM is pinned unconditionally: every segment of the scan
-    decodes projected, none whole. The wall-clock ratio (measured ~2.5x
-    locally) is pinned only under ``EAST_PERF=1``: a shared CI runner
-    produced 0.73 on main and 0.77 on a branch against the 0.7 bound, and a
-    clock is not a mechanism — a flaky red on a real regression's PR hides
-    the regression."""
-    wide_row = StructType(
-        [("id", IntegerType)]
-        + [(f"s{i}", StringType) for i in range(16)]
-        + [("tags", ArrayType(StringType))]
-    )
-    at = ArrayType(wide_row)
-    rows = EastArray(wide_row, [
+
+def _wide_file(tmp_path):
+    """20,000 wide rows in 5 segments — the issue's K-vs-F repro shape."""
+    rows = EastArray(WIDE_ROW, [
         {
             "id": i,
             **{f"s{j}": f"string-payload-{i}-{j}" for j in range(16)},
@@ -368,7 +357,29 @@ def test_projected_scan_beats_the_bare_whole_decode(tmp_path):
         for i in range(20_000)
     ])
     path = tmp_path / "perf.beast2"
-    write_beast2_file(path, at, rows, segment_rows=4000)
+    write_beast2_file(path, ArrayType(WIDE_ROW), rows, segment_rows=4000)
+    return path
+
+
+def test_projected_scan_decodes_every_segment_projected(tmp_path):
+    """The mechanism behind the performance claim (AC 1): a traced scan
+    reading ONE shallow field of a wide record decodes every segment under
+    its field mask and none whole — value materialisation, not byte-walking,
+    is the decode cost, so this is what makes reading one field cheap."""
+    with open_beast2_file(_wide_file(tmp_path), ArrayType(WIDE_ROW)) as f:
+        got, counted = _delta(lambda: f.sum(lambda _b, r: r["id"]))
+    assert got == sum(range(20_000))
+    assert counted["beast2_segments_projected"] == 5
+    assert counted["beast2_segments_whole"] == 0
+
+
+@pytest.mark.perf
+def test_projected_scan_beats_the_bare_whole_decode(tmp_path):
+    """The issue's K-vs-F cliff, inverted: the projected scan — trace and
+    fold included — beats even a bare whole decode that does no work at all
+    (measured ~2.5x; before projection, reading nothing cost 88% of reading
+    everything). A wall-clock ratio, so a ``perf`` benchmark: a shared CI
+    runner read 0.73 on main and 0.77 on a branch against the 0.7 bound."""
 
     def best_of(runs, fn):
         best = float("inf")
@@ -384,17 +395,12 @@ def test_projected_scan_beats_the_bare_whole_decode(tmp_path):
             n += len(segment)
         return n
 
-    with open_beast2_file(path, at) as f:
+    with open_beast2_file(_wide_file(tmp_path), ArrayType(WIDE_ROW)) as f:
         projected_op = best_of(3, lambda: f.sum(lambda _b, r: r["id"]))
         whole_decode = best_of(3, lambda: bare_whole_decode(f))
-        got, counted = _delta(lambda: f.sum(lambda _b, r: r["id"]))
-        assert got == sum(range(20_000))
-        assert counted["beast2_segments_projected"] == 5
-        assert counted["beast2_segments_whole"] == 0
-    if os.environ.get("EAST_PERF") == "1":
-        assert projected_op < whole_decode * 0.7, \
-            f"projected op {projected_op * 1e3:.1f}ms vs bare whole decode " \
-            f"{whole_decode * 1e3:.1f}ms"
+    assert projected_op < whole_decode * 0.7, \
+        f"projected op {projected_op * 1e3:.1f}ms vs bare whole decode " \
+        f"{whole_decode * 1e3:.1f}ms"
 
 
 def test_paged_loop_task_inputs_project(array_path):
