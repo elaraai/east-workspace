@@ -2,32 +2,32 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""east-py's own sugar captures whole, for kernels AND lambdas (issue #470).
+"""east-py's own sugar captures whole, for compiled functions AND lambdas (issue #470).
 
 The corpus (``test_compliance_eager``) covers every BUILTIN's callback path
 corpus-wide. What it cannot express is east-py's NATIVE sugar — the
 ``sum``/``mean``/``min``/``max``/``every``/``some``/``group_*`` compositions,
-which exist only here — so this matrix drives each of them × {kernel, lambda}
+which exist only here — so this matrix drives each of them × {function, lambda}
 and asserts the whole composition stays inside east-c.
 
 Under the strict surface (#625) a callback either captures or RAISES, so a
 composition whose internal wrapper stopped being capturable fails loudly
 here — there is no per-element python path left to measure.
 
-The #409 contract this pins — a precompiled kernel keeps the whole loop
+The #409 contract this pins — a compiled East function keeps the whole loop
 inside east-c with zero per-element python — held for ``map``/``filter``/
-``to_dict`` and silently inverted for the grouping methods: a kernel was
+``to_dict`` and silently inverted for the grouping methods: a compiled function was
 4.4×–7.6× SLOWER than the identical plain lambda, because wrappers composing
-a kernel (``lambda _b, el: {"k": key(el), ...}``) could neither be captured (a
-compiled kernel was an opaque callable) nor recognised by
-``capture_callback`` (which ignored the ``_east_kernel`` mark that the bridge
+a function (``lambda _b, el: {"k": key(el), ...}``) could neither be captured (a
+compiled function was an opaque callable) nor recognised by
+``capture_callback`` (which ignored the ``_east_function`` mark that the bridge
 honoured — the counter and the branch disagreed, so ``group_by`` looked
 healthy and trampolined anyway). Three mechanisms close it, and the matrix
-pins all of them at once: kernels are dual-mode (called with proxies they
+pins all of them at once: compiled functions are dual-mode (called with proxies they
 re-run their retained source, so any composing wrapper captures with correct
 argument order, including the ``(k, v)``-swapped dict wrappers a mark could
-not express); ``capture_callback`` resolves the ``_east_kernel`` mark through
-the bridge's ``native_kernel_for`` — same signature checks (#467), same arity
+not express); ``capture_callback`` resolves the ``_east_function`` mark through
+the bridge's ``native_function_for`` — same signature checks (#467), same arity
 adaptation; and the eligibility check reaches two wrapper levels while the
 ``mean`` family decides Integer-vs-Float from the type system.
 
@@ -86,7 +86,7 @@ def _callbacks(mode):
         "dopt":   ([FloatType, StringType], OptionType(StringType),
                    lambda _b, v, k: if_else(v > 5.0, some(k), none)),
     }
-    if mode == "kernel":
+    if mode == "function":
         return {name: East.function(types, out, fn)
                 for name, (types, out, fn) in specs.items()}
     return {name: fn for name, (_types, _out, fn) in specs.items()}
@@ -155,14 +155,14 @@ def _assert_captures(run):
     run()
 
 
-@pytest.mark.parametrize("mode", ["kernel", "lambda"])
+@pytest.mark.parametrize("mode", ["function", "lambda"])
 @pytest.mark.parametrize("case", sorted(ARRAY_CASES), ids=str)
 def test_array_method_runs_native(case, mode):
     rows, cbs = _rows(), _callbacks(mode)
     _assert_captures(lambda: ARRAY_CASES[case](rows, cbs))
 
 
-@pytest.mark.parametrize("mode", ["kernel", "lambda"])
+@pytest.mark.parametrize("mode", ["function", "lambda"])
 @pytest.mark.parametrize("case", sorted(SET_CASES), ids=str)
 def test_set_method_runs_native(case, mode):
     cbs = _callbacks(mode)
@@ -170,7 +170,7 @@ def test_set_method_runs_native(case, mode):
     _assert_captures(lambda: SET_CASES[case](strings, cbs))
 
 
-@pytest.mark.parametrize("mode", ["kernel", "lambda"])
+@pytest.mark.parametrize("mode", ["function", "lambda"])
 @pytest.mark.parametrize("case", sorted(DICT_CASES), ids=str)
 def test_dict_method_runs_native(case, mode):
     cbs = _callbacks(mode)
@@ -182,38 +182,38 @@ def test_dict_method_runs_native(case, mode):
 # ── the specific #470 mechanics ──────────────────────────────────────────────
 
 def test_capture_callback_honours_the_mark():
-    """A wrapper carrying ``_east_kernel`` resolves to the kernel's own native
+    """A wrapper carrying ``_east_function`` resolves to the function's own native
     value — before, the bridge honoured the mark while capture_callback judged
     the wrapper's own closure, so ``group_by`` branched to its per-element
     python path anyway."""
     from east.expression import capture_callback
-    from east.types.values.collections import _mark_kernel
+    from east.types.values.collections import _mark_function
     from east.types.values.structural import EastFunction
 
     key = East.function([Row], StringType, lambda _b, r: r["g"])
-    wrapper = _mark_kernel(lambda _b, el, _i: key(el), key)
+    wrapper = _mark_function(lambda _b, el, _i: key(el), key)
     native = capture_callback(EastFunction(wrapper, [Row, IntegerType], StringType))
     assert native is not None
     assert getattr(native._eastc_handle, "_fn_val", 0)
 
 
-def test_capture_callback_still_rejects_a_mismatched_marked_kernel():
+def test_capture_callback_still_rejects_a_mismatched_marked_function():
     """The mark rides the same #467 signature checks as the bridge: a marked
-    kernel whose output is not the declared callback output must not pass —
+    function whose output is not the declared callback output must not pass —
     the strict capture re-traces the wrapper and names the mismatch (#625)."""
     from east.expression import ExpressionError, capture_callback
-    from east.types.values.collections import _mark_kernel
+    from east.types.values.collections import _mark_function
     from east.types.values.structural import EastFunction
 
     key = East.function([Row], StringType, lambda _b, r: r["g"])            # String
-    wrapper = _mark_kernel(lambda _b, el, _i: key(el), key)
+    wrapper = _mark_function(lambda _b, el, _i: key(el), key)
     with pytest.raises(ExpressionError, match="produced String"):
         capture_callback(EastFunction(wrapper, [Row, IntegerType], FloatType))
 
 
-def test_kernels_compose_inside_kernels_and_wrappers():
-    """Dual-mode: a kernel called with a trace proxy re-runs its source, so
-    kernels splice into other kernels and into composing wrappers."""
+def test_functions_compose_inside_functions_and_wrappers():
+    """Dual-mode: a function called with a trace proxy re-runs its source, so
+    functions splice into other functions and into composing wrappers."""
     inner = East.function([Row], FloatType, lambda _b, r: r["v"])
     outer = East.function([Row], FloatType, lambda _b, r: inner(r) * 2.0)
     rows = _rows()
@@ -222,16 +222,16 @@ def test_kernels_compose_inside_kernels_and_wrappers():
     assert list(doubled)[:3] == [0.0, 2.0, 4.0]
 
 
-def test_group_by_kernel_matches_lambda_result():
-    rows, cbs = _rows(), _callbacks("kernel")
-    by_kernel = rows.group_by(cbs["g"])
+def test_group_by_function_matches_lambda_result():
+    rows, cbs = _rows(), _callbacks("function")
+    by_function = rows.group_by(cbs["g"])
     by_lambda = rows.group_by(lambda _b, r: r["g"])
-    assert len(by_kernel) == len(by_lambda) == 5
-    assert {k: len(v) for k, v in by_kernel.items()} == \
+    assert len(by_function) == len(by_lambda) == 5
+    assert {k: len(v) for k, v in by_function.items()} == \
         {k: len(v) for k, v in by_lambda.items()}
 
 
-@pytest.mark.parametrize("mode", ["kernel", "lambda"])
+@pytest.mark.parametrize("mode", ["function", "lambda"])
 def test_mean_family_values_are_correct(mode):
     """The type-driven Integer/Float decision must not change the numbers."""
     cbs = _callbacks(mode)
@@ -250,12 +250,12 @@ def test_mean_family_values_are_correct(mode):
 def test_no_bulk_decode_probing():
     """The historical failure mode: an eager method that DECODES the whole
     collection to python (then probes/sorts/rebuilds) moves none of the
-    corpus assertions — correct results, silently O(n) python. Pin the top-level C→py decode counter instead: with kernel
+    corpus assertions — correct results, silently O(n) python. Pin the top-level C→py decode counter instead: with function
     callbacks, each of these once-guilty operations may sample at most a
     handful of values (type fallbacks read ONE element), never the
     collection. The bound is deliberately generous per call but ~N/10 below
     a per-element decode."""
-    rows, cbs = _rows(), _callbacks("kernel")
+    rows, cbs = _rows(), _callbacks("function")
     before_d = eager_stats()["c_to_py_decodes"]
 
     rows.sort(cbs["v"])

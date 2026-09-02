@@ -18,7 +18,7 @@ at the boundary, and a C-backed proxy in a collection slot gets the
 Each entry mirrors ``libs/east/src/builtins.ts`` — the declared source of
 truth all runtimes share — as a lambda from the builtin's type parameters to
 its input list. ``FN`` marks a Function-typed slot: callbacks carry their own
-declared signature on the ``EastFunction`` wrapper (or the compiled kernel's
+declared signature on the ``EastFunction`` wrapper (or the compiled function's
 handle, checked at the native seam), so the funnel only needs to know the slot
 is a function. A name missing from this table is a hard error, not a fallback
 to the unsafe path — extend the table when a new builtin is exposed.

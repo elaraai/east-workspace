@@ -7,7 +7,7 @@ functions. uv workspace; self-contained under `libs/east-py/`.
 
 | Package | Purpose |
 |---|---|
-| `packages/east-py` | Core Python runtime — type system, IR compiler, 212+ builtins, serialization. See `packages/east-py/CLAUDE.md` for architecture. |
+| `packages/east-py` | Core Python runtime — the East type system, the `East.function` expression builders, the east-c bridge (compile, builtins, serialization). See `packages/east-py/CLAUDE.md` for architecture. |
 | `packages/east-py-std` | Standard platform functions (console, fs, path, crypto, time, random). |
 | `packages/east-py-io` | I/O platform functions — SQL/NoSQL databases, S3, file formats, compression. |
 | `packages/east-py-datascience` | ML and optimization platform functions (XGBoost, Optuna, PyMC, SHAP, etc.). |

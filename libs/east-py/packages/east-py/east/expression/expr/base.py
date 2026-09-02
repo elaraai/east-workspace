@@ -178,7 +178,7 @@ class Expression:
 
         Any composed method that reads the receiver more than a single time
         needs this. ``_finalize_ir``'s CSE only hoists a shared subtree whose
-        free variables are the kernel's own parameters, so at the top level a
+        free variables are the function's own parameters, so at the top level a
         repeated receiver is bound for free — but inside an inner lambda it
         closes over that lambda's parameter, the hoist is refused, and the
         subtree is emitted AND EXECUTED once per use, squaring with nesting
@@ -204,7 +204,7 @@ class Expression:
 
         A CAPTURED East collection is a build-time SNAPSHOT hoisted to a
         ``Let`` that the compiled function closes over, so ONE value is shared
-        by every call to the kernel — mutating it would leak state between
+        by every call to the function — mutating it would leak state between
         calls, silently and only at scale. Refusing it here turns that into a
         trace-time error naming the two spellings that do work.
         """
@@ -213,8 +213,8 @@ class Expression:
             raise ExpressionError(
                 f".{op}() would mutate a captured constant. A captured East "
                 "collection is a build-time snapshot shared by every call to "
-                "the compiled kernel, so the mutation would leak between "
-                "calls. Build the collection inside the kernel with "
+                "the compiled function, so the mutation would leak between "
+                "calls. Build the collection inside the function with "
                 "East.new_array/new_set/new_dict, or pass it as a trailing "
                 "parameter and bind it by reference (East.function(...).bind(table))."
             )

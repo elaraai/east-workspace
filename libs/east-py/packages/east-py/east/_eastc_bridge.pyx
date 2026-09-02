@@ -1402,16 +1402,16 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
             _eastc.east_value_retain(existing)
             return existing
 
-    # A compiled kernel carries its native function value on its handle —
+    # A compiled function carries its native function value on its handle —
     # pass it through, exactly like the decoded-wrapper fast path above. A
-    # kernel converted into a Function-typed slot (an array of functions, a
+    # function converted into a Function-typed slot (an array of functions, a
     # struct field) must cross as its real closure: the IR-fallback carrier
     # below is encode-only, and CALLING it evaluates its Function node into
     # a fresh closure value that the caller then union-reads as the declared
     # output type — a pointer-sized integer where a result should be (#476 D).
-    kernel_handle = getattr(val, "_eastc_handle", None)
-    if kernel_handle is not None:
-        handle_int = <uintptr_t>getattr(kernel_handle, "_fn_val", 0)
+    function_handle = getattr(val, "_eastc_handle", None)
+    if function_handle is not None:
+        handle_int = <uintptr_t>getattr(function_handle, "_fn_val", 0)
         existing = <_eastc.EastValue*>handle_int
         if existing != NULL and existing.kind == _eastc.EAST_VAL_FUNCTION:
             _eastc.east_value_retain(existing)
@@ -1480,7 +1480,7 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
     capture_values = getattr(val, EAST_CAPTURES_ATTR, {})
     try:
         # The attached IR may be a bare Function node or a capture-baked
-        # Block[Let…, Function] (the kernel tracer's and the replay's
+        # Block[Let…, Function] (the expression builder's and the replay's
         # hoisted-constant shape) — a Block declares no captures.
         fn_payload = py_ir["value"]
         captures_list = fn_payload["captures"] if "captures" in fn_payload else []

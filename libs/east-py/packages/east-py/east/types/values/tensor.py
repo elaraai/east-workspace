@@ -22,11 +22,11 @@ from east.types.values.collections import (
     EastArray,
     EastFunction,
     _acc_idx_cb,
-    _check_kernel_out,
+    _check_function_out,
     _elem_in,
+    _function_out_type,
     _idx_cb,
     _is_traced,
-    _kernel_out_type,
     _lift_traced,
 )
 
@@ -331,8 +331,8 @@ class EastVector:
         """
         from east.types.types import IntegerType, VectorType
 
-        _check_kernel_out(fn, out)
-        t2 = out if out is not None else _kernel_out_type(fn, _elem_in(fn, self.element_type))
+        _check_function_out(fn, out)
+        t2 = out if out is not None else _function_out_type(fn, _elem_in(fn, self.element_type))
         if t2.type not in EAST_ELEMENT_TO_DTYPE:
             raise TypeError(
                 f".map() on a Vector must produce Float, Integer or Boolean elements, got {t2.type}")
@@ -1113,8 +1113,8 @@ class EastMatrix:
 
         row_t = VectorType(self.element_type)
         if out is not None:
-            _check_kernel_out(fn, VectorType(out))
-        out_elem = out if out is not None else _kernel_out_type(fn, _elem_in(fn, row_t)).value
+            _check_function_out(fn, VectorType(out))
+        out_elem = out if out is not None else _function_out_type(fn, _elem_in(fn, row_t)).value
         callback = EastFunction(_idx_cb(fn), [row_t, IntegerType], VectorType(out_elem))
         return _call_builtin(
             "MatrixMapRows", [self.element_type, out_elem], [self, callback], MatrixType(out_elem))

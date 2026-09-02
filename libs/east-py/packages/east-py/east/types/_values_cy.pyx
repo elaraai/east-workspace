@@ -87,7 +87,7 @@ cdef class CyEastStruct:
 
         Fires only when normal attribute lookup fails, so methods and slots
         shadow same-named fields (use item access for those). Keeps struct
-        lambdas uniform across the traced-kernel and python paths.
+        lambdas uniform across the expression and python paths.
         """
         cdef int idx
         if name.startswith("_"):

@@ -336,7 +336,7 @@ def location_id() -> int:
 
     The interned authoring stack when a build is open; ``UNKNOWN_LOC_ID`` (0)
     when none is — nodes built outside any build (the internal helper
-    kernels, a type-only trace) carry no location, like TS's
+    functions, a type-only trace) carry no location, like TS's
     ``get_location_id`` outside a ``with_source_map`` scope.
     """
     current = _current

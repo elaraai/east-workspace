@@ -784,11 +784,11 @@ def test_compute_callback_modes_stay_native(tmp_path):
         table = f.load()
         double = East.function([W4_ROW], IntegerType, lambda _b, r: r.qty * 2)
 
-        via_kernel = list(f.map(double))
+        via_function = list(f.map(double))
         via_traced = list(f.map(lambda _b, r: r.qty * 2))
         traced_sum = f.sum(lambda _b, r: r.amt)
 
-        assert via_kernel == via_traced == list(table.map(double))
+        assert via_function == via_traced == list(table.map(double))
         assert traced_sum == table.sum(lambda _b, r: r.amt)
 
         # The group-find family, which rebases per-segment indices to global
@@ -818,7 +818,7 @@ def test_compute_callback_modes_stay_native(tmp_path):
         with pytest.raises(ExpressionError, match="captured automatically"):
             f.map(impure, out=IntegerType)
         assert seen == []
-        assert [r["qty"] * 2 for r in f] == via_kernel
+        assert [r["qty"] * 2 for r in f] == via_function
 
 
 def test_first_map_short_circuits_segment_decoding(tmp_path, monkeypatch):

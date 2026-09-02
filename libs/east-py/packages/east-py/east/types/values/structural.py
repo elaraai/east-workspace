@@ -64,7 +64,7 @@ class EastStruct(Generic[T]):
 
         Fires only when normal attribute lookup fails, so methods and slots
         shadow same-named fields (use item access for those). Keeps struct
-        lambdas uniform across the traced-kernel and python paths.
+        lambdas uniform across the expression and python paths.
         """
         if name.startswith("_"):
             raise AttributeError(name)
@@ -478,7 +478,7 @@ class EastRef(Generic[T]):
             # A bare python cell: the builtin funnel would marshal a COPY of
             # it into east-c and merge into that copy — the cell itself would
             # never change. Fold in python: the combine is a body (block
-            # first) or a compiled kernel (which drops the block).
+            # first) or a compiled function (which drops the block).
             from east.expression.statements import EagerBlock
 
             self.value = combine(EagerBlock(), self.value, patch)

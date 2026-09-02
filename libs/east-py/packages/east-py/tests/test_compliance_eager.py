@@ -2,7 +2,7 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Compliance-replay the TS test corpus through the eager/kernel surface (#474).
+"""Compliance-replay the TS test corpus through the eager/expression surface (#474).
 
 The same exported spec programs ``test_compliance.py`` runs through
 ``compile_from_json`` are replayed by ``tests/eager_replay.py`` — the
@@ -18,7 +18,7 @@ eager surface and compiled East, each awaiting either a fix or an explicit
 policy blessing. The funnel-only builtin set — builtins with no
 user-surface spelling yet — is pinned exactly and may only shrink (#452's
 ratchet). Under the strict surface (#625) there is exactly one execution
-path, so the old kernel/trampoline/traced mode matrix collapsed to this one
+path, so the old three-mode matrix collapsed to this one
 replay.
 """
 

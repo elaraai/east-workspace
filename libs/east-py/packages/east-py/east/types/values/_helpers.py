@@ -78,7 +78,7 @@ def _make_east_key(element_type: EastType) -> Any:
 # Same cycle-break pattern as make_east_key: values.py loads before the
 # compiler/bridge Cython extensions.
 _cached_call_builtin: Any = None
-_kernel_trace_call: Any = None
+_cached_trace_builtin_call: Any = None
 
 
 def _call_builtin(name: str, type_params: list, args: list, output_type: EastType) -> Any:
@@ -90,12 +90,12 @@ def _call_builtin(name: str, type_params: list, args: list, output_type: EastTyp
     call emits East IR instead of executing (#393). That one seam makes the
     entire builtin surface traceable.
     """
-    global _cached_call_builtin, _kernel_trace_call
-    if _kernel_trace_call is None:
+    global _cached_call_builtin, _cached_trace_builtin_call
+    if _cached_trace_builtin_call is None:
         from east.expression import trace_builtin_call
 
-        _kernel_trace_call = trace_builtin_call
-    traced = _kernel_trace_call(name, type_params, args, output_type)
+        _cached_trace_builtin_call = trace_builtin_call
+    traced = _cached_trace_builtin_call(name, type_params, args, output_type)
     if traced is not None:
         return traced
     if _cached_call_builtin is None:

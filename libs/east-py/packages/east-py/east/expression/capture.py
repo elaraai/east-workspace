@@ -5,7 +5,7 @@
 """Capturing an eager-method callback as an East function.
 
 ``call_builtin`` funnels every eager callback through an ``EastFunction``;
-``capture_callback`` turns it into a native kernel by capturing it exactly as
+``capture_callback`` turns it into a native function by capturing it exactly as
 an ``East.function`` body with the builtin's declared signature. The capture
 runs the callback ONCE over expression proxies, so a body that does python
 work cannot be captured: ``_refused_binding`` finds the reference with no
@@ -47,7 +47,7 @@ from east.types.values import EastArray
 #
 # The capture runs the callback once, over proxies, so a body that observes
 # per-element python state has no East form: it may reference its parameters,
-# plain scalar constants, East types/values, `if_else`, precompiled kernels
+# plain scalar constants, East types/values, `if_else`, compiled East functions
 # (re-traced from their retained source, #470), and — two levels deep, enough
 # for the group-sugar wrappers that compose a user callback through an
 # internal lambda — other lambdas that pass the same check. Anything else —
@@ -68,7 +68,7 @@ _CONTROL_FLOW = (
 def _allowed_global(value: Any, depth: int, extra_allowed: Any = None) -> bool:
     # A captured Expression INSTANCE is another trace's proxy. Compiling a
     # callback around one would mis-bind the foreign variable against the new
-    # kernel's own parameters — a silently wrong answer — so it is REFUSED,
+    # function's own parameters — a silently wrong answer — so it is REFUSED,
     # first and explicitly (Expression.__getattr__ raises non-AttributeError
     # on the attribute probes below, so probing one is also unsafe). The
     # sanctioned spellings pass the receiver as a parameter (`.bind`) or use
@@ -319,7 +319,7 @@ def _capture_error(refused: str | None = None) -> ExpressionError:
 # eager methods' own arity/argument-order wrappers, user helper lambdas) by
 # recursing into their code + bindings — identity would make every wrapper
 # over a fresh lambda a miss, and worse, a stable lambda over a REBOUND
-# global a stale hit; kernels by recursing into their retained source the
+# global a stale hit; compiled functions by recursing into their retained source the
 # same way. Anything else — mutable collections, bound methods, arbitrary
 # objects — makes the call uncacheable and it captures exactly as before:
 # soundness never rides on an object staying unchanged.
@@ -345,10 +345,10 @@ def _capture_key(value: Any, depth: int) -> tuple | None:
         return ("null",)
     retrace = getattr(value, "_east_retrace", None)
     if retrace is not None:
-        # A precompiled kernel re-traces from its SOURCE when spliced into a
+        # A compiled East function re-traces from its SOURCE when spliced into a
         # surrounding trace, so the source's bindings are what bake — key
         # those, not the wrapper's identity.
-        sub = _trace_cache_key(retrace, ("kernel",), depth - 1) if depth > 0 else None
+        sub = _trace_cache_key(retrace, ("function",), depth - 1) if depth > 0 else None
         return None if sub is None else ("k", sub)
     if getattr(value, "_eastc_handle", None) is not None or \
             getattr(value, "_east_c_handle", None) is not None:
@@ -436,7 +436,7 @@ def _trace_cache_key(fn: Any, declared: tuple, depth: int = 2) -> tuple | None:
 def _trace_out_type(fn: Any, param_types: list[EastType]) -> EastType:
     """The captured output type of a callback, memoised (#422).
 
-    ``_kernel_out_type`` asks this once per eager call; the answer depends
+    ``_function_out_type`` asks this once per eager call; the answer depends
     only on the code, the bindings and the parameter types, so the same
     projection asked per group answers from the cache. A callback that cannot
     be captured RAISES here — before any element is touched.
@@ -465,7 +465,7 @@ def _trace_out_type(fn: Any, param_types: list[EastType]) -> EastType:
 
 
 def capture_callback(east_fn: Any) -> Any:
-    """Compile an eager-method callback into a native kernel (#625).
+    """Compile an eager-method callback into a native function (#625).
 
     ``east_fn`` is an ``EastFunction`` (python callable + declared East
     signature). The callback is captured exactly as an ``East.function``
@@ -475,18 +475,18 @@ def capture_callback(east_fn: Any) -> Any:
     per-element python path behind it, so two syntactically identical
     callbacks can never differ by purity. Captures are memoised as a pure
     cache (#422): a fresh-but-identical lambda — same code object, same
-    captured bindings, same declared signature — reuses the compiled kernel
+    captured bindings, same declared signature — reuses the compiled function
     instead of capturing again.
 
-    A callback that already IS a precompiled kernel — directly, or recorded
-    on its wrapper by ``_mark_kernel`` — resolves through the bridge's
-    ``_native_kernel_for``: the same signature checks (#467) and arity
+    A callback that already IS a compiled East function — directly, or recorded
+    on its wrapper by ``_mark_function`` — resolves through the bridge's
+    ``_native_function_for``: the same signature checks (#467) and arity
     adaptation, so the mark means the same thing to every consumer (#470).
     """
     try:
-        from east.runtime._compiler_eastc import native_kernel_for
+        from east.runtime._compiler_eastc import native_function_for
 
-        native = native_kernel_for(east_fn)
+        native = native_function_for(east_fn)
         if native is not None:
             return native
     except Exception:
@@ -511,8 +511,8 @@ def capture_callback(east_fn: Any) -> Any:
     if refused is not None:
         raise _capture_error(refused)
     # The capture is a build like any other: its nodes carry the callback's
-    # authoring frames and the kernel compiles under the map (#626). A memo
-    # hit reuses the kernel captured at the FIRST call site — the callback's
+    # authoring frames and the function compiles under the map (#626). A memo
+    # hit reuses the function captured at the FIRST call site — the callback's
     # own frame is the same, its callers' may differ.
     with source_map_scope() as source_map:
         ir_value, out_type, fn_binds = trace(east_fn.fn, list(east_fn.input_types),

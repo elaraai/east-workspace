@@ -22,7 +22,7 @@ class AsyncFunctionExpression(FunctionExpression):
 
         if not _in_async_build():
             raise ExpressionError(
-                "an AsyncFunction value cannot be called inside a sync traced "
-                "kernel — call it from an East.asyncFunction body (a CallAsync) "
+                "an AsyncFunction value cannot be called inside a sync East function "
+                "body — call it from an East.asyncFunction body (a CallAsync) "
                 "or from python (per-element) instead"
             )

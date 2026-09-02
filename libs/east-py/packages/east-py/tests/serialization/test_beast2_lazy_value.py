@@ -6,7 +6,7 @@
 
 ``open_beast2_file`` returns a read-only SUBCLASS of the eager collection
 class, so the file is an ordinary East value: it answers ``isinstance`` and
-``type_of``, binds into kernels by reference (keyed reads inside the compiled
+``type_of``, binds into East functions by reference (keyed reads inside the compiled
 body answer from the pager, one frame per hit/miss), passes straight into
 compiled function calls, and refuses mutation. The managed writer batches
 byte-adaptively, so pathologically wide rows produce right-sized segments,
@@ -119,7 +119,7 @@ class TestValueSemantics:
             assert "Beast2DictFile" in repr(d) and "200 elements" in repr(d)
 
 
-class TestKernelBind:
+class TestFunctionBind:
     def test_a_bound_lazy_dict_answers_get_or_default_natively(self, tmp_path):
         with open_beast2_file(_dict_path(tmp_path, n=500, seg=16)) as d:
             lookup = East.function([ROW, D_SF], FloatType,
@@ -152,8 +152,8 @@ class TestKernelBind:
 
     def test_fused_pipeline_lazy_dict_through_a_nested_call(self, tmp_path):
         # The #560/#561 composition: a bound lazy-dict lookup CALLED from
-        # another kernel lowers to an IR Call, so the whole projection —
-        # loop, kernel, callee and pager — runs inside east-c.
+        # another function lowers to an IR Call, so the whole projection —
+        # loop, function, callee and pager — runs inside east-c.
         with open_beast2_file(_dict_path(tmp_path, n=300, seg=16)) as d:
             lookup = East.function([StringType, D_SF], FloatType,
                             lambda _b, k, t: t.get_or_default(k, 0.0)).bind(d)
@@ -165,7 +165,7 @@ class TestKernelBind:
 
     def test_close_defers_while_a_bind_still_holds_the_value(self, tmp_path):
         # Closing under a live bind would leave the native callee reading
-        # unmapped memory — close defers, the bound kernel keeps answering,
+        # unmapped memory — close defers, the bound function keeps answering,
         # and dropping the bind lets a later close complete.
         d = open_beast2_file(_dict_path(tmp_path))
         lookup = East.function([StringType, D_SF], FloatType,

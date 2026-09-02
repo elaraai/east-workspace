@@ -88,7 +88,7 @@ class ArrayExpression(Expression):
 
     def _numeric_projection(self, op: str, fn: Any) -> tuple:
         """As :meth:`_projection`, requiring an Integer/Float projection. The
-        type comes from TRACING the projection, never from a value — a kernel
+        type comes from TRACING the projection, never from a value — a function
         has no data to sample (the #450 single-case-variant trap)."""
         p, t2 = self._projection(fn)
         if t2.type not in ("Integer", "Float"):
@@ -764,7 +764,7 @@ class ArrayExpression(Expression):
     # ── group_* (#525 phase 3) ──────────────────────────────────────────
     # The grouped fold is the primitive; everything else composes from it,
     # exactly as the eager methods do, so a whole aggregate is ONE compiled
-    # kernel (TS `groupReduce` parity, #535).
+    # function (TS `groupReduce` parity, #535).
 
     def group_by(self, key: Any) -> DictExpression:
         """Traced ArrayGroupFold: a Dict from ``key(element)`` to the Array of

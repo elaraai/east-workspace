@@ -6,7 +6,7 @@
 
 Eight operations existed on ``ArrayExpr``/``SetExpr``/``DictExpr`` with no
 east-py spelling at all, so a TS East program using them had nothing to port
-to — and they blocked #525, since an operation cannot join the traced kernel
+to — and they blocked #525, since an operation cannot join the expression
 surface when the runtime has no implementation of it.
 
 The expectations below are the TS docs' own worked examples, so these tests

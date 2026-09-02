@@ -9,7 +9,7 @@ expression proxies and compiles the recorded IR — the python twin of the
 TypeScript builder, name-for-name (#623/#625). ``East.asyncFunction`` builds
 the AsyncFunction twin, ``East.compile`` / ``East.compileAsync`` compile a
 builder artifact against platform implementations, and ``trace`` is the shared
-capture step every path uses (the eager methods' automatic push-down included).
+capture step every path uses (the eager methods' callback capture included).
 ``trace_builtin_call`` is the hook the eager builtin funnel calls when it
 notices a traced argument.
 
@@ -56,7 +56,7 @@ def _in_async_build() -> bool:
 def trace_builtin_call(
     name: str, type_params: list, args: list, output_type: EastType
 ) -> Expression | None:
-    """The eager-builtin funnel's kernel hook (#393).
+    """The eager-builtin funnel's build hook (#393).
 
     ``_call_builtin`` (east/types/values/_helpers.py) routes every namespace
     builtin (``East.String.*``, ``East.Float.*``, …) and eager collection
@@ -362,47 +362,47 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
     compiled = compile_from_value(ir_value, is_async=is_async, source_map=source_map)
     if fn_binds:
         # The lambda called compiled East function values (#561): they are
-        # hidden trailing parameters of the compiled kernel — bind them by
+        # hidden trailing parameters of the compiled function — bind them by
         # reference so the visible signature is the declared one and every
         # call site resolves to its native callee.
         compiled = compiled.bind(*fn_binds)
 
     from east.expression.statements import _drop_block
 
-    def kernel_callable(*args):
+    def function_callable(*args):
         # A compiled function is a value, not a body: a slot's body-style
         # call (``fn(b, *values)``) drops the block.
         args = _drop_block(args)
         # Dual-mode (#470): called with expression proxies — i.e. from inside
         # another trace, e.g. a composing wrapper like
         # ``lambda b, el: {"k": key(el), "v": value(el)}`` — re-run the
-        # (pure) source body on the proxies so this kernel's expression
+        # (pure) source body on the proxies so this function's expression
         # splices inline into the surrounding trace. On plain values,
         # execute natively.
         if any(isinstance(a, Expression) for a in args):
-            return _splice(kernel_callable, fn, args)
+            return _splice(function_callable, fn, args)
         return compiled(*args)
 
     # The wrapper carries the compiled callable's whole public surface, so
     # every existing consumer (the native pass-through via _eastc_handle,
-    # _mark_kernel, _kernel_out_type, bind) sees an ordinary kernel.
-    kernel_callable._eastc_handle = compiled._eastc_handle
-    kernel_callable._east_ir = getattr(compiled, "_east_ir", None)
-    kernel_callable._east_captures = getattr(compiled, "_east_captures", {})
-    kernel_callable.bind = getattr(compiled, "bind", None)
-    kernel_callable._east_compiled = compiled  # owns the C resources; keep alive
-    kernel_callable._east_retrace = fn         # marks the callable trace-safe
-    kernel_callable._east_fn_binds = tuple(fn_binds)
-    kernel_callable._east_param_types = tuple(param_types)
-    kernel_callable._east_platforms = ()
-    kernel_callable._east_is_async = is_async
-    kernel_callable._east_source_map = source_map
+    # _mark_function, _function_out_type, bind) sees an ordinary compiled function.
+    function_callable._eastc_handle = compiled._eastc_handle
+    function_callable._east_ir = getattr(compiled, "_east_ir", None)
+    function_callable._east_captures = getattr(compiled, "_east_captures", {})
+    function_callable.bind = getattr(compiled, "bind", None)
+    function_callable._east_compiled = compiled  # owns the C resources; keep alive
+    function_callable._east_retrace = fn         # marks the callable trace-safe
+    function_callable._east_fn_binds = tuple(fn_binds)
+    function_callable._east_param_types = tuple(param_types)
+    function_callable._east_platforms = ()
+    function_callable._east_is_async = is_async
+    function_callable._east_source_map = source_map
     # A decorated `def` keeps its name: errors, reprs and the transpiler
-    # say `allocate`, not `kernel_callable`.
-    kernel_callable.__name__ = getattr(fn, "__name__", kernel_callable.__name__)
-    kernel_callable.__qualname__ = getattr(fn, "__qualname__", kernel_callable.__name__)
-    kernel_callable.__doc__ = getattr(fn, "__doc__", None)
-    return kernel_callable
+    # say `allocate`, not `function_callable`.
+    function_callable.__name__ = getattr(fn, "__name__", function_callable.__name__)
+    function_callable.__qualname__ = getattr(fn, "__qualname__", function_callable.__name__)
+    function_callable.__doc__ = getattr(fn, "__doc__", None)
+    return function_callable
 
 
 def _check_signature(param_types: Any, out: Any, entry: str) -> list[EastType]:

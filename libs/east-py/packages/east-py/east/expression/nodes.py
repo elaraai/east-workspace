@@ -35,11 +35,11 @@ from east.types.values import EastStruct, EastVariant
 # loc_id of the python frames that built it (east/expression/location.py,
 # #626) — the same authoring-frame source map the TypeScript builders attach
 # — so a runtime error names the python file:line of its expression; a node
-# built outside any build (an internal helper kernel) carries 0.
+# built outside any build (an internal helper function) carries 0.
 
 
 def _type_key(t: EastType) -> str:
-    """A stable string key for a type (helper-kernel memoization)."""
+    """A stable string key for a type (helper-function memoization)."""
     from east.serialization.json import encode_json_for
 
     encoded = encode_json_for(EastTypeType)(t)
@@ -74,7 +74,7 @@ def _literal(value: Any, t: EastType):
     elif tag == "Blob":
         coerced = bytes(value)
     else:
-        raise ExpressionError(f"cannot embed a literal of East type {tag} in a kernel")
+        raise ExpressionError(f"cannot embed a literal of East type {tag} in an East function body")
     return ir_value(t, coerced, _loc_id())
 
 #: The builtins that MUTATE their first argument. Two callers need to know:

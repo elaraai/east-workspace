@@ -15,7 +15,7 @@ from east.expression.nodes import _k_call, _k_call_async
 
 
 class FunctionExpression(Expression):
-    """A Function-typed expression — a ``FunctionType`` kernel parameter, a
+    """A Function-typed expression — a ``FunctionType`` parameter, a
     function-typed struct field, a nested ``East.function`` referenced as a
     value. Calling it emits the IR ``Call`` node, so the callee — whatever
     function value the expression evaluates to at run time — is invoked

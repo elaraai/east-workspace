@@ -9,7 +9,7 @@ east-py's own spelling of the expression layer, not what a builtin computes.
 Runtime-shared values belong to the TS compliance corpus, which every runtime
 inherits.
 
-Consolidated in #625 phase 3 from the issue-numbered kernel suites — #558
+Consolidated in #625 phase 3 from the issue-numbered suites — #558
 (conditional hoisting, bind subsumption, the non-retraceable callee, match arm
 typing), #561 (call lowering), #565 (for_each effect delivery) and #592 (the
 runner emit sink) — which had grown three copies of the emit-sink helper, three
@@ -258,7 +258,7 @@ class TestRefusalNamesTheBinding:
 
 class TestCallbackSlotArguments:
     def test_a_non_callable_in_a_callback_slot_is_named(self):
-        # `_kernel_out_type` used to answer None for a non-callable and the
+        # `_function_out_type` used to answer None for a non-callable and the
         # method then died on `None.value` — the caller's mistake surfaced as
         # an AttributeError deep inside the library.
         for call in (lambda: _rows().map(5), lambda: _rows().flat_map(5),
@@ -351,10 +351,10 @@ class TestCallLowering:
     result, a `compile_from_value` function, a runner-supplied FunctionType
     input — lowers the call to the IR ``Call`` node instead of re-tracing the
     callee: the callee rides as a hidden trailing parameter, bound by
-    reference after compilation, so the loop, the kernel and the callee all
+    reference after compilation, so the loop, the function and the callee all
     execute inside east-c."""
 
-    def test_explicit_kernel_over_a_bind_result_compiles_and_matches_eager(self):
+    def test_explicit_function_over_a_bind_result_compiles_and_matches_eager(self):
         sink = _bound_sink()
         k = East.function([ROW], FloatType, lambda _b, r: sink(r["k"], r["v"]))
         assert [k(r) for r in _rows()] == [11.0, 12.0, 13.0]
@@ -387,7 +387,7 @@ class TestCallLowering:
     def test_a_bound_side_table_lookup_observes_later_mutations(self):
         # bind is BY REFERENCE (#399): the lowered Call goes through the same
         # bound function value, so the live semantics carry through the
-        # nested kernel too.
+        # nested function too.
         table = EastDict(StringType, FloatType, {"a": 21.0})
         lookup = East.function([StringType, TABLE_T], FloatType,
                         lambda _b, key, d: d.get_or_default(key, 0.0)).bind(table)
@@ -397,9 +397,9 @@ class TestCallLowering:
         table["b"] = 7.0
         assert list(_rows().map(outer)) == [5.0, 7.0, 0.0]
 
-    def test_dict_to_array_with_a_bound_kernel_runs_native(self):
+    def test_dict_to_array_with_a_bound_function_runs_native(self):
         # The #558 C repro, upgraded: the Dict callback takes the builtin's
-        # own (value, key) order, the call on the bound kernel lowers, and
+        # own (value, key) order, the call on the bound function lowers, and
         # the whole conveniences path compiles — no ExpressionError.
         d = EastDict(StringType, FloatType, {"a": 1.0, "b": 2.0})
         side = EastDict(StringType, FloatType, {"a": 10.0})
@@ -413,7 +413,7 @@ class TestCallLowering:
 
     def test_a_well_typed_call_compiles_where_it_once_raised(self):
         # Superseded by #561: the call lowers to the IR Call node, so the
-        # explicit kernel that used to raise now compiles and runs.
+        # explicit function that used to raise now compiles and runs.
         sink = _bound_sink(0.0)
         assert East.function([StringType], FloatType, lambda _b, s: sink(s, 1.0))("x") == 1.0
 
@@ -458,7 +458,7 @@ class TestAsyncCallee:
         af = compile_from_value(
             ir_async_function(AsyncFunctionType([IntegerType], IntegerType), [], [x], body),
             is_async=True)
-        with pytest.raises(ExpressionError, match="sync traced kernel"):
+        with pytest.raises(ExpressionError, match="sync East function body"):
             East.function([IntegerType], IntegerType, lambda _b, n: af(n))
 
 
@@ -775,7 +775,7 @@ class TestSinkStrictBoundary:
         assert list(keys) == ["a", "b", "c"]
 
     def test_an_arity_mismatched_call_on_the_sink_names_its_cause(self):
-        # The foreign-function-value callee (not a bound kernel): lowering
+        # The foreign-function-value callee (not a bound function): lowering
         # declines the arity mismatch, the capture then raises (#625) with
         # NonRetraceableCallError in the cause chain (#558 C) — instead of the
         # old per-element fallback surfacing the sink's own runtime refusal.

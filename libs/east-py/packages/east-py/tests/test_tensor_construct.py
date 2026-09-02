@@ -2,10 +2,10 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Vector CONSTRUCTION inside kernels (issue #601).
+"""Vector CONSTRUCTION inside East function bodies (issue #601).
 
 #598 made the tensor surface traceable for transforms and reads; these tests
-pin the construction seam that was missing — without it a kernel could carry
+pin the construction seam that was missing — without it a function could carry
 a sparse accumulator through a fold but never produce one from per-row
 values, forcing an eager pre-pass with one python crossing per table:
 
@@ -16,11 +16,11 @@ values, forcing an eager pre-pass with one python crossing per table:
 * ``East.Vector.zeros/ones/fill`` (and the Matrix siblings) take the element
   type first, matching the eager classmethods, with the pre-#601 Float-pinned
   spellings kept;
-* a kernel that builds and then folds a sparse accumulator end to end is ONE
+* a function that builds and then folds a sparse accumulator end to end is ONE
   build (the issue's acceptance bar — a body that cannot capture raises, so
   building is the proof it runs natively).
 
-Every case checks the RESULT, not just that the kernel compiled.
+Every case checks the RESULT, not just that the function compiled.
 """
 
 import pytest
@@ -83,7 +83,7 @@ def test_array_to_vector_refuses_non_numeric_elements():
 
 def test_computed_per_row_values_seed_a_vector():
     """The motivating shape: indices and values computed from rows, inside
-    the kernel, become the Vectors the sparse builtins need."""
+    the function, become the Vectors the sparse builtins need."""
     Row = StructType([("id", IntegerType), ("qty", FloatType)])
     rows = EastArray(Row, [{"id": 3, "qty": 1.5}, {"id": 1, "qty": 2.0}])
     got = East.function([ArrayType(Row)], FloatType, lambda _b, rs: rs.map(
@@ -200,8 +200,8 @@ def test_constructor_misuse_raises_named_errors():
 # ── the acceptance bar: build + fold, zero python per element ──────────────
 
 
-def test_a_kernel_builds_and_folds_a_sparse_accumulator_natively():
-    """The issue's motivating workload in one kernel: seed a sparse table
+def test_a_function_builds_and_folds_a_sparse_accumulator_natively():
+    """The issue's motivating workload in one function: seed a sparse table
     from per-row values, scale it, merge a second deposit, compact, and
     reduce — one build, one call."""
     Row = StructType([("id", IntegerType), ("qty", FloatType)])

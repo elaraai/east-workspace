@@ -439,7 +439,7 @@ def read_beast2_type(source):
 #
 # The compute family (issue #481 W4) runs every remaining eager read method
 # as a segment fold: each decoded segment executes the ordinary eager method
-# — kernels and traced lambdas push down into east-c per segment exactly as
+# — compiled functions and captured callbacks run inside east-c per segment exactly as
 # in memory — and the partials combine through east-c containers in stream
 # order. Order-dependent folds thread ONE accumulator (and grouped folds
 # seed each segment's init from the running per-group accumulators), so
@@ -451,7 +451,7 @@ def _shift_idx(fn, base):
     """Rebase an Array element body so a ``(b, el, idx)`` form sees global
     row indices while folding one segment at a time. Bodies without the
     index (and the first segment) pass through untouched, preserving
-    precompiled-kernel passthrough; the arity decision is made once, as in
+    compiled-function passthrough; the arity decision is made once, as in
     the eager wrappers."""
     from east.types.values.collections import _callback_arity
 
@@ -499,14 +499,14 @@ def _merge_partial(acc, part, combine) -> None:
 def _inner_dict_merge(value_type, combine):
     """The ``group_to_dicts`` cross-segment merge, precompiled: two groups'
     inner dicts union, shared inner keys resolving through ``combine`` — or
-    through the native duplicate-key error kernel, the eager builders'
+    through the native duplicate-key error function, the eager builders'
     message. Built once per operation, when the first merge knows the inner
     dict type."""
-    from east.expression import _error_combine_kernel, function
+    from east.expression import _error_combine_function, function
 
     ikt = value_type.value["key"]
     ivt = value_type.value["value"]
-    on_shared = combine if combine is not None else _error_combine_kernel(
+    on_shared = combine if combine is not None else _error_combine_function(
         ivt, ikt, "Cannot insert duplicate key ", " into dict")
     return function([value_type, value_type], value_type,
                     lambda _b, x, y: x.union(y, on_shared))
@@ -532,7 +532,7 @@ class Beast2File:
     East collection value (#560): it answers ``isinstance``/``type_of``,
     feeds every eager method (the streamed compute family below at one
     segment of decoded memory; anything else through ordinary iteration),
-    binds into kernels by reference (``East.function(...).bind(file)`` — keyed
+    binds into East functions by reference (``East.function(...).bind(file)`` — keyed
     reads inside the compiled body answer from the pager, one frame per
     hit/miss), and passes straight into compiled function calls. Mutation
     raises. The file is mmapped — bytes enter the OS page cache per
@@ -605,7 +605,7 @@ class Beast2File:
                 self._pages._core.set_projection(self._projection)
             if self._pages is not None and self._pages.self_contained \
                     and self._projection is None:
-                # The pager-backed C VALUE behind the kernel-bind and
+                # The pager-backed C VALUE behind the function-bind and
                 # compiled-argument seams (#560): a borrowed view over the
                 # mmap (no byte copy), opened FROZEN so a compiled body's
                 # mutating builtins refuse with the uniform cross-runtime
@@ -645,11 +645,11 @@ class Beast2File:
         """Release the lazy value, the pager, the mapping, and the file.
         Idempotent.
 
-        A file whose lazy value is still bound into a kernel or compiled
+        A file whose lazy value is still bound into a function or compiled
         call DEFERS instead: the call returns with the file open (the bound
-        kernel's reads borrow the mapping — closing it would leave the
+        function's reads borrow the mapping — closing it would leave the
         native callee reading unmapped memory), and everything releases
-        when the last bound reference is collected. Drop the bound kernels
+        when the last bound reference is collected. Drop the bound functions
         first to close eagerly.
 
         Raises:
@@ -833,7 +833,7 @@ class Beast2File:
           (``to_columns``; ``[]`` reads nothing of the row).
 
         Returns ``(projection | None, [exec_fn per spec])`` — the exec fns
-        replace the originals (a precompiled kernel substitutes a re-trace
+        replace the originals (a compiled East function substitutes a re-trace
         wrapper, since its wide native form cannot run against narrow rows).
         Every decline is counted in ``eager_stats()`` with its reason; a row
         type that is not a struct returns silently (nothing to project).
@@ -1326,7 +1326,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.values.collections import (
             _callback_arity,
             _elem_in,
-            _kernel_out_type,
+            _function_out_type,
             _numeric_zero_for,
         )
 
@@ -1359,7 +1359,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         # Empty file: type the zero from the PROJECTION when there is one, as
         # the eager EastArray.sum does — reading element_type instead would
         # raise for a numeric projection over non-numeric elements (#450/#525).
-        t = self.element_type if fn is None else _kernel_out_type(
+        t = self.element_type if fn is None else _function_out_type(
             fn, _elem_in(fn, self.element_type))
         return _numeric_zero_for(t)
 
@@ -1370,7 +1370,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
             _callback_arity,
             _elem_in,
             _float_proj,
-            _kernel_out_type,
+            _function_out_type,
         )
 
         project, (fn,) = self._project(("el", fn)) if fn is not None else (None, (None,))
@@ -1381,7 +1381,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         p_wants = False
         for segment in self._iter_segments(project):
             if proj is None:
-                t2 = self.element_type if fn is None else _kernel_out_type(
+                t2 = self.element_type if fn is None else _function_out_type(
                     fn, _elem_in(fn, self.element_type))
                 proj = _float_proj(fn, t2)
                 p_wants = _callback_arity(proj, 1) >= 2
@@ -1503,7 +1503,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         finely segmented file (#470). The group set is the union across
         segments, so a group that matched nowhere still lists an empty array.
         """
-        from east.expression import _empty_array_kernel
+        from east.expression import _empty_array_function
         from east.types.types import ArrayType, IntegerType
         from east.types.values.collections import EastDict
 
@@ -1531,7 +1531,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
                 groups.union_in_place(seg_groups)
         if matched is None:
             return EastDict(self.element_type, ArrayType(IntegerType))
-        return matched.get_keys(groups, _empty_array_kernel(k2, IntegerType))
+        return matched.get_keys(groups, _empty_array_function(k2, IntegerType))
 
     def group_find_first(self, key: Any, value: Any, by: Any = None):
         """``EastArray.group_find_first`` — ``some(global index)`` of each
@@ -1738,10 +1738,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
         is the eager one. The key and accumulator types come from the
         callbacks' captured output types, exactly as the eager method derives
         them (#625)."""
-        from east.types.values.collections import EastDict, _elem_in, _kernel_out_type
+        from east.types.values.collections import EastDict, _elem_in, _function_out_type
 
-        gk_t = _kernel_out_type(key, _elem_in(key, self.element_type))
-        acc_t = _kernel_out_type(init, [gk_t])
+        gk_t = _function_out_type(key, _elem_in(key, self.element_type))
+        acc_t = _function_out_type(init, [gk_t])
         project, (key, fold) = self._project(("el", key), ("acc_el", fold, acc_t))
         result = None
         base = 0
@@ -1774,14 +1774,14 @@ class Beast2ArrayFile(Beast2File, EastArray):
         from east.types.values.collections import (
             _callback_arity,
             _elem_in,
-            _kernel_out_type,
+            _function_out_type,
             _numeric_zero_for,
         )
 
         # The zero is typed from the PROJECTION, rows or none — matching the
         # eager EastArray.group_sum, so a file and its loaded value cannot
         # answer with differently-typed dicts (#450/#525).
-        t2 = self.element_type if fn is None else _kernel_out_type(
+        t2 = self.element_type if fn is None else _function_out_type(
             fn, _elem_in(fn, self.element_type))
         zero = _numeric_zero_for(t2)
         proj: Any = fn if fn is not None else (lambda _b, el: el)
@@ -1799,10 +1799,10 @@ class Beast2ArrayFile(Beast2File, EastArray):
             _callback_arity,
             _elem_in,
             _float_proj,
-            _kernel_out_type,
+            _function_out_type,
         )
 
-        t2 = self.element_type if fn is None else _kernel_out_type(
+        t2 = self.element_type if fn is None else _function_out_type(
             fn, _elem_in(fn, self.element_type))
         proj = _float_proj(fn, t2)
         p_wants = _callback_arity(proj, 1) >= 2
@@ -1822,7 +1822,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
         merged under the same first-wins collision rule (max/min are
         associative, so the merge is exact; a boundary tie keeps the
         earlier-stream element, like the eager left fold), then the element."""
-        from east.types.values.collections import EastArray, EastDict, _elem_in, _kernel_out_type
+        from east.types.values.collections import EastArray, EastDict, _elem_in, _function_out_type
 
         self._project(("whole",))  # group values ARE elements
         result = None
@@ -1836,7 +1836,7 @@ class Beast2ArrayFile(Beast2File, EastArray):
                 combine = EastArray._group_extreme_combine(part.value_type, result.key_type, want_max)
                 _merge_partial(result, part, combine.fn)
         if result is None:
-            k2 = _kernel_out_type(key, _elem_in(key, self.element_type))
+            k2 = _function_out_type(key, _elem_in(key, self.element_type))
             return EastDict(k2, self.element_type)
         return result.map(lambda _b, pair: pair["elem"], out=self.element_type)
 
@@ -2317,7 +2317,7 @@ class Beast2DictFile(Beast2File, EastDict):
     def sum(self, fn: Any = None) -> Any:
         """``EastDict.sum`` — one accumulator threads the segments in key
         order, exactly the eager fold's element order."""
-        from east.types.values.collections import _kernel_out_type, _numeric_zero_for
+        from east.types.values.collections import _function_out_type, _numeric_zero_for
 
         project, (fn,) = self._project(("kv", fn)) if fn is not None else (None, (None,))
         acc = None
@@ -2340,14 +2340,14 @@ class Beast2DictFile(Beast2File, EastDict):
         # Integer zero where a Float projection returns 0.0 (#450).
         from east.types.values.collections import _kv_in
 
-        t = self.value_type if fn is None else _kernel_out_type(
+        t = self.value_type if fn is None else _function_out_type(
             fn, _kv_in(fn, self.value_type, self.key_type))
         return _numeric_zero_for(t)
 
     def mean(self, fn: Any = None) -> float:
         """``EastDict.mean`` — widened total threads the segments; NaN when
         empty, like eager."""
-        from east.types.values.collections import _as_kv_fn, _float_proj, _kernel_out_type, _kv_in
+        from east.types.values.collections import _as_kv_fn, _float_proj, _function_out_type, _kv_in
 
         project, (fn,) = self._project(("kv", fn)) if fn is not None else (None, (None,))
         total = 0.0
@@ -2355,7 +2355,7 @@ class Beast2DictFile(Beast2File, EastDict):
         proj = None
         for segment in self._disjoint_segments(project):
             if proj is None:
-                t2 = self.value_type if fn is None else _kernel_out_type(
+                t2 = self.value_type if fn is None else _function_out_type(
                     fn, _kv_in(fn, self.value_type, self.key_type))
                 proj = _as_kv_fn(_float_proj(fn, t2))
             def step(b, a, v, k, *, _p=proj):  # noqa: ANN001, ANN202
@@ -2475,10 +2475,10 @@ class Beast2DictFile(Beast2File, EastDict):
         """``EastDict.group_reduce`` — each segment's fold SEEDS its init from
         the running per-group accumulators, so every entry folds exactly
         once, in key order: the eager result, float ordering included."""
-        from east.types.values.collections import EastDict, _kernel_out_type, _kv_in
+        from east.types.values.collections import EastDict, _function_out_type, _kv_in
 
-        gk_t = _kernel_out_type(key_fn, _kv_in(key_fn, self.value_type, self.key_type))
-        acc_t = _kernel_out_type(init_fn, [gk_t])
+        gk_t = _function_out_type(key_fn, _kv_in(key_fn, self.value_type, self.key_type))
+        acc_t = _function_out_type(init_fn, [gk_t])
         project, (key_fn, fold_fn) = self._project(
             ("kv", key_fn), ("acc_kv", fold_fn, acc_t))
         result = None
@@ -2524,12 +2524,12 @@ class Beast2DictFile(Beast2File, EastDict):
         :meth:`group_reduce`."""
         from east.types.values.collections import (
             _as_kv_fn,
-            _kernel_out_type,
+            _function_out_type,
             _kv_in,
             _numeric_zero_for,
         )
 
-        t2 = self.value_type if fn is None else _kernel_out_type(
+        t2 = self.value_type if fn is None else _function_out_type(
             fn, _kv_in(fn, self.value_type, self.key_type))
         zero = _numeric_zero_for(t2)
         proj = _as_kv_fn(fn) if fn is not None else (lambda _b, v, _k: v)
@@ -2541,9 +2541,9 @@ class Beast2DictFile(Beast2File, EastDict):
         over the seeded :meth:`group_reduce`."""
         from east.namespace import East
         from east.types.types import FloatType
-        from east.types.values.collections import _as_kv_fn, _float_proj, _kernel_out_type, _kv_in
+        from east.types.values.collections import _as_kv_fn, _float_proj, _function_out_type, _kv_in
 
-        t2 = self.value_type if fn is None else _kernel_out_type(
+        t2 = self.value_type if fn is None else _function_out_type(
             fn, _kv_in(fn, self.value_type, self.key_type))
         proj = _as_kv_fn(_float_proj(fn, t2))
         sums = self.group_reduce(key_fn, lambda _b, _k: 0.0,
@@ -2776,7 +2776,7 @@ class Beast2SetFile(Beast2File, EastSet):
 
     def sum(self, fn: Any = None) -> Any:
         """``EastSet.sum`` — one accumulator threads the segments."""
-        from east.types.values.collections import _kernel_out_type, _numeric_zero_for
+        from east.types.values.collections import _function_out_type, _numeric_zero_for
 
         acc = None
         for segment in self._disjoint_segments():
@@ -2792,21 +2792,21 @@ class Beast2SetFile(Beast2File, EastSet):
             return acc
         # Empty file: the zero is typed from the PROJECTION, as the eager
         # EastSet.sum types it (#450/#525).
-        t = self.element_type if fn is None else _kernel_out_type(
+        t = self.element_type if fn is None else _function_out_type(
             fn, [self.element_type])
         return _numeric_zero_for(t)
 
     def mean(self, fn: Any = None) -> float:
         """``EastSet.mean`` — widened total threads the segments; NaN when
         empty."""
-        from east.types.values.collections import _float_proj, _kernel_out_type
+        from east.types.values.collections import _float_proj, _function_out_type
 
         total = 0.0
         n = 0
         proj = None
         for segment in self._disjoint_segments():
             if proj is None:
-                t2 = self.element_type if fn is None else _kernel_out_type(
+                t2 = self.element_type if fn is None else _function_out_type(
                     fn, [self.element_type])
                 proj = _float_proj(fn, t2)
 
@@ -2961,10 +2961,10 @@ class Beast2SetFile(Beast2File, EastSet):
     def group_sum(self, key: Any, fn: Any = None):
         """``EastSet.group_sum`` — element-order-exact via the seeded
         :meth:`group_reduce`."""
-        from east.types.values.collections import _kernel_out_type, _numeric_zero_for
+        from east.types.values.collections import _function_out_type, _numeric_zero_for
 
         proj = fn if fn is not None else (lambda _b, el: el)
-        t2 = _kernel_out_type(proj, [self.element_type])
+        t2 = _function_out_type(proj, [self.element_type])
         zero = _numeric_zero_for(t2)
         return self.group_reduce(key, lambda _b, _k: zero, lambda b, acc, el: acc + proj(b, el))
 
@@ -2972,9 +2972,9 @@ class Beast2SetFile(Beast2File, EastSet):
         """``EastSet.group_mean`` — the eager sum/count/divide composition."""
         from east.namespace import East
         from east.types.types import FloatType
-        from east.types.values.collections import _float_proj, _kernel_out_type
+        from east.types.values.collections import _float_proj, _function_out_type
 
-        t2 = self.element_type if fn is None else _kernel_out_type(
+        t2 = self.element_type if fn is None else _function_out_type(
             fn, [self.element_type])
         proj = _float_proj(fn, t2)
         sums = self.group_reduce(key, lambda _b, _k: 0.0, lambda b, acc, el: acc + proj(b, el))

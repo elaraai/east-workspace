@@ -1100,7 +1100,7 @@ def _as_vector(x: Any, what: str) -> Any:
 
     Serves both paths like every namespace function: a traced Array emits the
     conversion as IR, an eager ``EastArray`` converts natively — so the sparse
-    entry points accept the ``rows.map(...)`` results a kernel actually has,
+    entry points accept the ``rows.map(...)`` results a function body actually has,
     at exactly the point the values are materialised.
     """
     east_type = getattr(x, "east_type", None)
@@ -1255,7 +1255,7 @@ class _VectorNamespace:
 
         Each index/value input may also be an ``Array`` (converted in order
         via VectorFromArray, #601), so per-row values computed inside a
-        kernel feed the merge directly.
+        function feed the merge directly.
 
         Args:
             ix_a: The left accumulator's strictly ascending Integer indices.
@@ -1289,7 +1289,7 @@ class _VectorNamespace:
         order — so the float result is deterministic for a given input order.
         Either input may be an ``Array`` (converted in order via
         VectorFromArray, #601) — the natural way to seed an accumulator from
-        ``rows.map(...)`` results inside a kernel — and the conversion
+        ``rows.map(...)`` results inside an East function body — and the conversion
         preserves input order, so the duplicate-summing stability is
         identical whichever input type is given.
 
@@ -1556,7 +1556,7 @@ class _SetNamespace:
         ``generate(size, keyType, keyFn, onConflict?)``); ``on_conflict(key)``
         runs for a key generated twice — without it a duplicate is an East
         runtime error ``Duplicate key <key> in set``."""
-        from east.expression import _error_init_kernel, _lift, _trace_inner_fn, _tracing
+        from east.expression import _error_init_function, _lift, _trace_inner_fn, _tracing
         from east.expression.expr import Expression
         from east.expression.nodes import _builtin as _b
         from east.types.values import EastSet
@@ -1567,7 +1567,7 @@ class _SetNamespace:
         n = _lift(size, hint=IntegerType)
         node, _t = _trace_inner_fn(key_fn, [IntegerType], out_hint=key_type)
         if on_conflict is None:
-            dup = _error_init_kernel(NullType, key_type, "Duplicate key ", " in set")._east_ir
+            dup = _error_init_function(NullType, key_type, "Duplicate key ", " in set")._east_ir
         else:
             dup, _t2 = _trace_inner_fn(on_conflict, [key_type], out_hint=NullType)
         out = SetType(key_type)
@@ -1585,7 +1585,7 @@ class _DictNamespace:
         ``on_conflict(existing, incoming, key)`` resolves a repeated key —
         without it a duplicate is an East runtime error ``Duplicate key
         <key> in dict``."""
-        from east.expression import _error_combine_kernel, _lift, _trace_inner_fn, _tracing
+        from east.expression import _error_combine_function, _lift, _trace_inner_fn, _tracing
         from east.expression.expr import Expression
         from east.expression.nodes import _builtin as _b
         from east.types.values import EastDict
@@ -1606,7 +1606,7 @@ class _DictNamespace:
         kf, _a = _trace_inner_fn(key_fn, [IntegerType], out_hint=key_type)
         vf, _b2 = _trace_inner_fn(value_fn, [IntegerType], out_hint=value_type)
         if on_conflict is None:
-            cf = _error_combine_kernel(value_type, key_type, "Duplicate key ", " in dict")._east_ir
+            cf = _error_combine_function(value_type, key_type, "Duplicate key ", " in dict")._east_ir
         else:
             cf, _c = _trace_inner_fn(on_conflict, [value_type, value_type, key_type], out_hint=value_type)
         out = DictType(key_type, value_type)
@@ -1663,7 +1663,7 @@ class _East:
         ``East.clamp``): dual-mode like ``greatest``/``least``."""
         return least(greatest(value, lo), hi)
 
-    # ── block-level control flow (#578, east/kernel/control.py) ──────────
+    # ── block-level control flow (#578, east/expression/control.py) ──────────
     # Attached rather than defined here: they are dual-mode expression
     # builders, and this is the spelling — the python name is the IR node
     # name, so an error, an IR dump and the docs all say the same word.

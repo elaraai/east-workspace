@@ -22,11 +22,11 @@ Sampling also *calls* the callback on a DECODED value, so any callback written
 against the traced surface (`unwrap_or`, `substring`, `try_parse`, `is_some`)
 died with an `AttributeError` from inside the library before it ever ran.
 
-The types were always available: a precompiled kernel carries its signature,
+The types were always available: a compiled East function carries its signature,
 and a traceable lambda gets one from the tracer. Since #625 there is no
 sampling fallback at all: a callback with no East capture is refused up
 front, and a mutable-East-collection capture must be explicit —
-``kernel``/``East.function`` (a build-time snapshot) or ``.bind`` (live).
+``East.function`` (a build-time snapshot) or ``.bind`` (live).
 """
 
 import pytest
@@ -146,7 +146,7 @@ def test_dict_map_value_fn_may_use_traced_only_methods(rows):
 def test_captured_side_table_needs_an_explicit_capture(rows):
     """A lambda closing over a MUTABLE East dict has no automatic capture —
     snapshot-vs-live must be an explicit choice (#625) — so the auto-wrap
-    refuses it with the fix-it, and the explicit ``kernel`` snapshot types
+    refuses it with the fix-it, and the explicit ``East.function`` snapshot types
     from the tracer exactly as before."""
     table = EastDict(StringType, OptionType(StringType), {"1": some("hit")})
     with pytest.raises(ExpressionError, match="captured automatically"):

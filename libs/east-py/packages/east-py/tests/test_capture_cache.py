@@ -62,7 +62,7 @@ def _fresh_projection():
 
 # ── cache hits ───────────────────────────────────────────────────────────────
 
-def test_fresh_identical_lambdas_reuse_the_compiled_kernel():
+def test_fresh_identical_lambdas_reuse_the_compiled_function():
     f1 = EastFunction(_fresh_projection(), [Row], FloatType)
     f2 = EastFunction(_fresh_projection(), [Row], FloatType)
     assert f1.fn is not f2.fn                      # genuinely fresh objects
@@ -99,9 +99,9 @@ def test_a_per_group_aggregate_loop_captures_each_lambda_once(monkeypatch):
 
 
 def test_the_out_type_derivation_is_cached_too(monkeypatch):
-    from east.types.values.collections import _kernel_out_type
+    from east.types.values.collections import _function_out_type
 
-    t1 = _kernel_out_type(_fresh_projection(), [Row])
+    t1 = _function_out_type(_fresh_projection(), [Row])
     calls = 0
     original = _K.trace
 
@@ -111,14 +111,14 @@ def test_the_out_type_derivation_is_cached_too(monkeypatch):
         return original(*args, **kwargs)
 
     monkeypatch.setattr(_K, "trace", counting)
-    t2 = _kernel_out_type(_fresh_projection(), [Row])
+    t2 = _function_out_type(_fresh_projection(), [Row])
     assert calls == 0
     assert t1 == t2 == FloatType
 
 
 # ── cache misses: every binding that bakes into the trace is in the key ─────
 
-def test_different_closure_values_do_not_share_a_kernel():
+def test_different_closure_values_do_not_share_a_function():
     def mk(threshold):
         return lambda _b, r: r["v"] > threshold
 

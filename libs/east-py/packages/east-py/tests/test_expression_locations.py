@@ -134,10 +134,10 @@ def test_nested_build_names_the_inner_expression():
 
 
 def test_captured_callback_carries_its_authoring_frames():
-    kernel = capture_callback(EastFunction(lambda _b, v: East.Integer.divide(v, 0),
-                                           [IntegerType], IntegerType))
+    captured = capture_callback(EastFunction(lambda _b, v: East.Integer.divide(v, 0),
+                                             [IntegerType], IntegerType))
     line = test_captured_callback_carries_its_authoring_frames.__code__.co_firstlineno + 1
-    frames = _frames(_raises(kernel, 3))
+    frames = _frames(_raises(captured, 3))
     assert frames[0][1] == line
     assert _is_this_file(frames[0][0])
 

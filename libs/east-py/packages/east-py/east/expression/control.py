@@ -6,7 +6,7 @@
 
 east-c has always compiled and executed ``While``, the ``For*`` family,
 ``Block``, ``Let``, ``NewRef``, ``TryCatch``, ``Break`` and ``Continue``. The
-tracer emitted none of them, so a traced kernel could only ever be one pure
+tracer emitted none of them, so a built East function could only ever be one pure
 expression: a worklist, a BFS, a topological replay — anything whose next step
 depends on the last — had no traced form and ran per element in python.
 
@@ -697,7 +697,7 @@ def let(value: Any, fn: Any = None) -> Any:
     body received; ``b.const`` is its non-reassignable twin.)
 
     The tracer already binds a python-shared subexpression whose inputs are
-    the kernel's own parameters; this is the explicit form, for a value that
+    the function's own parameters; this is the explicit form, for a value that
     depends on a loop or lambda binding — where the automatic pass cannot
     hoist and the expression would otherwise be re-emitted, and re-executed,
     at every use site.
@@ -762,7 +762,7 @@ def new_array(element_type: EastType, values: Any = ()) -> Any:
     """A FRESH Array, built each time the expression evaluates.
 
     This is the loop accumulator's constructor. A captured ``EastArray`` is a
-    build-time snapshot the compiled kernel closes over — one value shared by
+    build-time snapshot the compiled function closes over — one value shared by
     every call — so appending to it would leak between calls; this builds a
     new one per evaluation instead.
 

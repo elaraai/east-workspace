@@ -66,7 +66,7 @@ _eager_counters = {
     "beast2_segments_projected": 0, "beast2_segments_whole": 0,
     "beast2_projection_declined_untraceable": 0,
     "beast2_projection_declined_escape": 0,
-    "beast2_projection_declined_kernel": 0,
+    "beast2_projection_declined_function": 0,
     "beast2_projection_declined_unpageable": 0,
     "beast2_projection_declined_shape": 0,
     "beast2_projection_alias_fallback": 0,
@@ -90,16 +90,16 @@ def _eager_counters_snapshot():
     return snap
 
 
-# ─── Precompiled kernels as eager callbacks (#409) ────────────────────────
+# ─── Compiled East functions as eager callbacks (#409) ────────────────────────
 #
 # A callback that is ALREADY a compiled East function (east.expression /
 # compile_from_* / .bind) carries its native function value on its
 # handle — re-capturing it can only fail (its python body is the bridge
 # closure), so it would raise where the value is usable as it stands.
 # Use the function value directly. When the builtin's callback signature
-# passes more arguments than the kernel takes (ArrayMap invokes (element,
+# passes more arguments than the function takes (ArrayMap invokes (element,
 # index); an East.function([RowT], …) takes one), a pure-C prefix adapter
-# forwards only the kernel's arity — the same east_foreign_function seam as
+# forwards only the function's arity — the same east_foreign_function seam as
 # bind.
 
 cdef struct _ArityData:
@@ -124,13 +124,13 @@ cdef void _arity_release(void* ud) noexcept:
     free(ad)
 
 
-cdef object _adapt_kernel_arity(object kernel_callable, size_t n_keep):
-    """Wrap a compiled kernel in a C-level prefix adapter of arity n_keep.
+cdef object _adapt_function_arity(object function_callable, size_t n_keep):
+    """Wrap a compiled function in a C-level prefix adapter of arity n_keep.
 
     Returns a tiny holder carrying the adapter's retained function value in
     ``_eastc_handle._fn_val`` shape, or None on allocation failure.
     """
-    cdef uintptr_t inner_ptr = _native_fn_val_ptr(kernel_callable)
+    cdef uintptr_t inner_ptr = _native_fn_val_ptr(function_callable)
     if inner_ptr == 0:
         return None
     cdef _ArityData* ad = <_ArityData*>malloc(sizeof(_ArityData))
@@ -160,34 +160,34 @@ cdef object _adapt_kernel_arity(object kernel_callable, size_t n_keep):
             self._released = True
             _proxy_value_release(self._fn_val)
 
-    class _AdaptedKernel:
+    class _AdaptedFunction:
         __slots__ = ("_eastc_handle", "_inner")
 
         def __init__(self):
             self._eastc_handle = _ArityHandle()
-            self._inner = kernel_callable  # keep the inner kernel alive
+            self._inner = function_callable  # keep the inner function alive
 
-    return _AdaptedKernel()
+    return _AdaptedFunction()
 
 
-cdef object _native_kernel_for(object east_fn):
+cdef object _native_function_for(object east_fn):
     """The directly-usable native form of an EastFunction whose ``.fn`` is a
-    precompiled kernel, or None when it is not one (or cannot be used).
+    compiled East function, or None when it is not one (or cannot be used).
 
-    Verifies the kernel's declared signature against the callback's — output
-    AND the input prefix it will receive: the kernel reads its arguments raw
+    Verifies the function's declared signature against the callback's — output
+    AND the input prefix it will receive: the function reads its arguments raw
     with no per-element conversion, so a mismatch on either side would read
     or write values as the wrong type (#467). A mismatch declines the native
     pass-through, and the capture then re-traces the callback against the
     signature it will actually receive and raises what is wrong with it
     (#625). Prefix-adapts arity when the callback signature passes more
-    arguments than the kernel takes. Eager methods that wrap the user
-    callback tag the wrapper with the underlying kernel via ``_east_kernel``
-    (collections._mark_kernel) — resolve through it.
+    arguments than the function takes. Eager methods that wrap the user
+    callback tag the wrapper with the underlying function via ``_east_function``
+    (collections._mark_function) — resolve through it.
     """
     cdef _eastc.EastType* want_in
     cdef bint in_matched
-    fn = getattr(east_fn.fn, "_east_kernel", None)
+    fn = getattr(east_fn.fn, "_east_function", None)
     if fn is None:
         fn = east_fn.fn
     cdef uintptr_t fn_ptr = _native_fn_val_ptr(fn)
@@ -196,40 +196,40 @@ cdef object _native_kernel_for(object east_fn):
     try:
         handle = fn._eastc_handle
         input_ptrs = list(handle._input_types)
-        n_kernel = len(input_ptrs)
-        kernel_out = handle.get_output_type()
+        n_function = len(input_ptrs)
+        function_out = handle.get_output_type()
     except BaseException:
         return None
-    if kernel_out != east_fn.output_type:
+    if function_out != east_fn.output_type:
         return None
     n_declared = len(east_fn.input_types)
-    if n_kernel > n_declared:
+    if n_function > n_declared:
         return None
-    for j in range(n_kernel):
+    for j in range(n_function):
         want_in = py_type_to_c(east_fn.input_types[j])
         in_matched = _eastc.east_type_equal(
             <_eastc.EastType*><uintptr_t>input_ptrs[j], want_in)
         _eastc.east_type_release(want_in)
         if not in_matched:
             return None
-    if n_kernel == n_declared:
+    if n_function == n_declared:
         _eager_counters["function_direct"] += 1
         return fn
-    adapted = _adapt_kernel_arity(fn, <size_t>n_kernel)
+    adapted = _adapt_function_arity(fn, <size_t>n_function)
     if adapted is not None:
         _eager_counters["function_direct"] += 1
     return adapted
 
 
-def native_kernel_for(object east_fn):
-    """Python-visible ``_native_kernel_for`` (used by ``capture_callback``, #470).
+def native_function_for(object east_fn):
+    """Python-visible ``_native_function_for`` (used by ``capture_callback``, #470).
 
-    Resolves a precompiled kernel from the callback — directly or via its
-    ``_east_kernel`` mark — with the same declared-signature checks (#467)
+    Resolves a compiled East function from the callback — directly or via its
+    ``_east_function`` mark — with the same declared-signature checks (#467)
     and arity adaptation as the eager-callback path, so the mark means one
     thing to every consumer. Returns the native callable or None.
     """
-    return _native_kernel_for(east_fn)
+    return _native_function_for(east_fn)
 
 
 def hold_function_value(uintptr_t fn_val_ptr):
@@ -329,8 +329,8 @@ def compile_function_carrier(object carrier, object input_types, object output_t
     executes natively — the strict surface's replacement for interpreting
     such callbacks per element in python (#625). The returned callable
     carries the ordinary ``_eastc_handle`` (with ``_fn_val``), so eager
-    methods, ``_mark_kernel`` and the arity adapter treat it as any other
-    compiled kernel.
+    methods, ``_mark_function`` and the arity adapter treat it as any other
+    compiled function.
     """
     _ensure_runtime()
     from east.types.types import FunctionType as _FnType
@@ -400,8 +400,8 @@ def compile_function_carrier(object carrier, object input_types, object output_t
     object.__setattr__(carrier_fn, "_east_carrier_ref", carrier)
 
     def bind(*values):
-        """Pre-bind further trailing parameters by reference (see bind_kernel)."""
-        return bind_kernel(carrier_fn, values)
+        """Pre-bind further trailing parameters by reference (see bind_function)."""
+        return bind_function(carrier_fn, values)
 
     object.__setattr__(carrier_fn, "bind", bind)
     return carrier_fn
@@ -459,7 +459,7 @@ def open_paged_value_view(object east_type, object buffer, bint frozen=False):
 
 def paged_value_ref_count(uintptr_t ptr):
     """The C refcount of a paged value — the close-safety probe (#560): a
-    count above the hold's own reference means a kernel bind or compiled
+    count above the hold's own reference means a function bind or compiled
     call still retains the value, so its borrowed bytes must stay mapped."""
     if ptr == 0:
         return 0
@@ -663,17 +663,17 @@ cdef uintptr_t _native_fn_val_ptr(object obj) noexcept:
 cdef _eastc.EastValue* _callback_value_for(object arg, list native_holds) except NULL:
     """The C function value for an EastFunction in a Function-typed slot.
 
-    A precompiled kernel used as the callback rides its own native function
+    A compiled East function used as the callback rides its own native function
     value straight into the builtin (#409); a callable carrying attached IR
     (a replayed closure, a decoded function) converts through the bridge —
     live captures ride its identity-mapped captures env (#476 E); any other
-    python callback captures STRICTLY into a native kernel (#625) — a
+    python callback captures STRICTLY into a native function (#625) — a
     capture failure raises.
     """
     cdef uintptr_t fn_ptr
     cdef _eastc.EastValue* out
     cdef _eastc.EastType* c_fn_t
-    native = _native_kernel_for(arg)
+    native = _native_function_for(arg)
     if native is None and getattr(arg.fn, EAST_IR_ATTR, None) is not None:
         from east.types.types import FunctionType as _FnType
         fn_t = _FnType(list(arg.input_types), arg.output_type)
@@ -733,7 +733,7 @@ def call_builtin(str name, list type_params, list args, object output_type):
     cdef bint builtin_paged_ok
     cdef _eastc.PlatformRegistry* saved_platform
     cdef _eastc.BuiltinRegistry* saved_builtins
-    # Keeps traced kernels alive until their function values are released.
+    # Keeps captured callbacks alive until their function values are released.
     cdef list native_holds = []
 
     from east.runtime.builtin_signatures import FN, builtin_inputs
@@ -786,7 +786,7 @@ def call_builtin(str name, list type_params, list args, object output_type):
                         if fn_ptr == 0:
                             raise TypeError(
                                 f"{name} argument {i} is Function-typed and takes a "
-                                f"callback (an EastFunction or a compiled kernel); "
+                                f"callback (an EastFunction or a compiled function); "
                                 f"got {type(args[i]).__name__}")
                         c_args[i] = <_eastc.EastValue*>fn_ptr
                         _eastc.east_value_retain(c_args[i])
@@ -826,7 +826,7 @@ def call_builtin(str name, list type_params, list args, object output_type):
                             # last: that re-derives the body, which executes
                             # identically but is a different function value
                             # than the one the slot holds (#476).
-                            native = _native_kernel_for(args[i])
+                            native = _native_function_for(args[i])
                             fn_ptr = _native_fn_val_ptr(native) if native is not None else 0
                             if fn_ptr != 0:
                                 native_holds.append(native)
@@ -1203,11 +1203,11 @@ cpdef object compile_eastc_from_value(object ir_value, list platform_list, bint 
     """Compile East IR from a homoiconic IR value (an EastVariant conforming
     to IRType) — the python value converts straight to a C value and
     east_ir_from_value builds the IR tree, with no serialization round-trip.
-    This is the kernel tracer's path (#398).
+    This is the expression builder's path (#398).
 
     The IR value is attached to the compiled callable's ``_east_ir`` (#476):
     it is the serialization fallback's source, and dropping it here made
-    east-py unable to serialize its own compiled kernels.
+    east-py unable to serialize its own compiled functions.
 
     ``source_map`` is the ``east.expression.location.SourceMap`` the IR's
     loc_ids index (#626). It is installed as the current map around the
@@ -1501,9 +1501,9 @@ cdef object _make_callable(_eastc.EastCompiledFn* compiled,
         return eastc_fn
 
 
-# ─── C-level partial application: kernel.bind(*values) (#399) ─────────────
+# ─── C-level partial application: function.bind(*values) (#399) ─────────────
 #
-# Binds the TRAILING parameters of a compiled kernel to live East values BY
+# Binds the TRAILING parameters of a compiled function to live East values BY
 # REFERENCE — no snapshot, no copy: each bound value's C pointer is retained
 # once and appended to every call's argument list by a pure-C invoke, so the
 # result is still a native function value (it carries _fn_val) and eager
@@ -1562,26 +1562,26 @@ cdef void _bind_release(void* ud) noexcept:
     free(bd)
 
 
-def bind_kernel(object kernel_callable, tuple bound_values):
+def bind_function(object function_callable, tuple bound_values):
     """C-level partial application of a compiled East function (#399).
 
     Returns a new native callable whose TRAILING parameters are pre-bound to
     ``bound_values`` by reference: collection proxies contribute their live C
-    pointer (zero copy, any size — the kernel observes later mutations),
+    pointer (zero copy, any size — the function observes later mutations),
     other East values convert once at bind time. The result carries its own
     ``_eastc_handle`` (with ``_fn_val``), so every eager method treats it as
-    native and the loop stays inside east-c. Rebinding the same kernel with
-    other values yields independent callables; the unbound kernel remains
+    native and the loop stays inside east-c. Rebinding the same function with
+    other values yields independent callables; the unbound function remains
     usable.
 
     Raises:
-        TypeError: If ``kernel_callable`` is not a compiled East function,
-            more values are bound than the kernel has parameters, or a bound
+        TypeError: If ``function_callable`` is not a compiled East function,
+            more values are bound than the function has parameters, or a bound
             value's East type does not match the declared parameter type.
     """
     _ensure_runtime()
     try:
-        handle = kernel_callable._eastc_handle
+        handle = function_callable._eastc_handle
     except AttributeError:
         raise TypeError(
             "bind() needs a compiled East function (from East.function or compile_from_*)"
@@ -1593,7 +1593,7 @@ def bind_kernel(object kernel_callable, tuple bound_values):
         raise TypeError("bind() needs at least one value")
     if n_bound > n_inputs:
         raise TypeError(
-            f"bind() got {n_bound} values for a {n_inputs}-parameter kernel"
+            f"bind() got {n_bound} values for a {n_inputs}-parameter function"
         )
     cdef size_t first = n_inputs - n_bound
 
@@ -1646,7 +1646,7 @@ def bind_kernel(object kernel_callable, tuple bound_values):
     try:
         for k in range(n_bound):
             # A pager-backed value (a beast2 file opened as a collection
-            # value, #560) binds BY POINTER: the compiled kernel's keyed
+            # value, #560) binds BY POINTER: the compiled function's keyed
             # builtins then answer from the pager — O(one frame) per read,
             # no materialisation. Same declared-type discipline as the
             # _eastc_call seam (#467).
@@ -1736,14 +1736,14 @@ def bind_kernel(object kernel_callable, tuple bound_values):
             return lowered
 
     object.__setattr__(bound_fn, "_eastc_handle", bound_handle)
-    # Keep the inner kernel callable and the bound python values alive: the
+    # Keep the inner function callable and the bound python values alive: the
     # C side retains its own references, but the inner handle also owns the
     # wrapper/platform the compiled function runs against.
-    object.__setattr__(bound_fn, "_east_bind_refs", (kernel_callable, bound_values))
+    object.__setattr__(bound_fn, "_east_bind_refs", (function_callable, bound_values))
 
     def bind(*values):
-        """Pre-bind further trailing parameters by reference (see bind_kernel)."""
-        return bind_kernel(bound_fn, values)
+        """Pre-bind further trailing parameters by reference (see bind_function)."""
+        return bind_function(bound_fn, values)
 
     object.__setattr__(bound_fn, "bind", bind)
     return bound_fn
@@ -1863,8 +1863,8 @@ cdef object _make_callable_from_value(_eastc.EastValue* fn_val,
             """Pre-bind the TRAILING parameters to live East values by
             reference — C-level partial application (#399). The result stays
             native (eager methods keep the loop in east-c) and observes later
-            mutations to bound collections. See ``bind_kernel``."""
-            return bind_kernel(eastc_fn, values)
+            mutations to bound collections. See ``bind_function``."""
+            return bind_function(eastc_fn, values)
 
         object.__setattr__(eastc_fn, "bind", bind)
         return eastc_fn

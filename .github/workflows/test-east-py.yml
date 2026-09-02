@@ -42,12 +42,20 @@ jobs:
       - name: Export IR (east + east-node-std + east-py-datascience)
         run: |
           pnpm --filter @elaraai/east run test:export
+          pnpm --filter @elaraai/east run export:examples
           pnpm --filter @elaraai/east-node-std run test:export
           pnpm --filter @elaraai/east-py-datascience run test:export
       - uses: actions/upload-artifact@v4
         with:
           name: ir-east
           path: /tmp/east-test-ir/
+          if-no-files-found: error
+      # Every *.examples.ts example as IR + inputs + returns — the examples leg
+      # of the IR → python → IR conformance round trip (#627).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-examples
+          path: /tmp/east-examples-ir/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
@@ -118,24 +126,82 @@ jobs:
         working-directory: libs/east-py
         run: uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py --ir-dir "$GITHUB_WORKSPACE/ir-east"
 
-      # The WHOLE tests/ tree — kernel/tracer suites, the eager-replay
+      # The WHOLE tests/ tree — the expression-builder suites, the eager-replay
       # differential and its ratchets included (#531: these were dormant
-      # while only tests/serialization ran). The exported IR is staged into
-      # the temp dir the corpus-driven suites read (python's gettempdir, so
-      # the path agrees with the MSYS-rewritten one on Windows).
+      # while only tests/serialization ran) — except tests/conformance, which
+      # is the `conformance` job below: the IR → python → IR round trip over
+      # the corpus takes longer than this job's budget on its own. The
+      # exported IR is staged into the temp dir the corpus-driven suites read
+      # (python's gettempdir, so the path agrees with the MSYS-rewritten one
+      # on Windows).
       - name: Run east-py tests (full pytest sweep)
         working-directory: libs/east-py/packages/east-py
         env:
           IR_SRC: ${{ github.workspace }}/ir-east
         run: |
           uv run python -c "import os, shutil, tempfile, pathlib; d = pathlib.Path(tempfile.gettempdir()) / 'east-test-ir'; d.mkdir(parents=True, exist_ok=True); [shutil.copy(p, d) for p in pathlib.Path(os.environ['IR_SRC']).glob('*.json')]"
-          uv run pytest tests -q --no-cov
+          uv run pytest tests -q --no-cov --ignore=tests/conformance
 
       # Runner streaming execution (--emit / --stream) through run_program,
       # against the checked-in cross-runner IR fixtures (#507).
       - name: Run east-py-cli tests
         working-directory: libs/east-py/packages/east-py-cli
         run: uv run pytest tests -q --no-cov
+
+  # The IR → python → IR conformance round trip (#627), REQUIRED: every
+  # compliance-corpus program and every exported example prints as python,
+  # rebuilds, normalizes equal (east-c's `east_ir_normalize`) and — the corpus
+  # with EAST_CONFORMANCE_EXECUTE=1 — runs its compliance suite identically to
+  # the original. Its own job: the corpus round trip alone is ~40 minutes on a
+  # runner, and EAST_CONFORMANCE_REQUIRED=1 turns a missing IR directory into a
+  # failure instead of a silent skip (the legs used to skip wherever the temp
+  # dir did not match the default path, which is every OS but Linux).
+  conformance:
+    name: IR ↔ python conformance (corpus executed + examples)
+    needs: export-ir
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      UV_PYTHON: "3.11"
+      CMAKE_GENERATOR: Ninja
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install C build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Download east IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-east
+          path: ir-east
+
+      - name: Download examples IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-examples
+          path: ir-examples
+
+      - name: Build east-py
+        working-directory: libs/east-py
+        run: |
+          uv venv
+          uv pip install scikit-build-core cython numpy setuptools ninja
+          uv sync --all-packages --no-build-isolation \
+            --reinstall-package elaraai-east-py --refresh-package elaraai-east-py
+
+      - name: Round trip the corpus (executed) and every example
+        working-directory: libs/east-py/packages/east-py
+        env:
+          EAST_TEST_IR_DIR: ${{ github.workspace }}/ir-east
+          EAST_EXAMPLES_IR_DIR: ${{ github.workspace }}/ir-examples
+          EAST_CONFORMANCE_EXECUTE: "1"
+          EAST_CONFORMANCE_REQUIRED: "1"
+        run: uv run pytest tests/conformance -q --no-cov
 
   test-east-py-std:
     name: Test east-py-std (${{ matrix.os }})

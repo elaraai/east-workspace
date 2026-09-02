@@ -2,11 +2,11 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Block-level control flow in traced kernels (issue #578).
+"""Block-level control flow in East function bodies (issue #578).
 
 east-c has always executed ``While``, the ``For*`` family, ``Block``, ``Let``,
 ``NewRef``, ``TryCatch``, ``Break`` and ``Continue``; the tracer emitted none
-of them, so a kernel could only ever be one pure expression and any algorithm
+of them, so a function could only ever be one pure expression and any algorithm
 whose next step depends on the last ran per element in python.
 
 ``IfElse`` is here too: the conditional is ``East.if_else``, named for its
@@ -22,9 +22,9 @@ These tests pin four things:
   one body serves a build and a plain-value call;
 * the failure modes are LOUD — a state that changes shape or type, a mutation
   written as a statement (evaluated and thrown away), a mutation of a
-  build-time constant (shared by every call to the kernel);
+  build-time constant (shared by every call to the function);
 * the workload the issue is about — Kahn's algorithm over a DAG — is ONE
-  compiled kernel.
+  compiled function.
 """
 
 import pytest
@@ -530,7 +530,7 @@ def test_a_loop_inside_an_eager_callback_captures():
 # ── the workload the issue is about ─────────────────────────────────────────
 
 
-def test_kahns_algorithm_is_one_kernel():
+def test_kahns_algorithm_is_one_function():
     """A worklist over a DAG: the shape the issue names, and the one no
     data-parallel reformulation reproduces (pointer jumping measured ~12×
     slower and answered differently wherever a chain forks)."""

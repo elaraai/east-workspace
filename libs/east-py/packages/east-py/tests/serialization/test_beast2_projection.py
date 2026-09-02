@@ -10,7 +10,7 @@ Two forms over one decode plan:
   of struct fields the traced IR reads, and decodes each segment to exactly
   that subset — no API, no declaration. Non-inferable callbacks decline
   projection with the reason counted in ``eager_stats()``: element-escaping
-  shapes and bound kernels decode whole, and an impure callback then raises
+  shapes and bound functions decode whole, and an impure callback then raises
   the strict-capture error before any row runs (#625).
 - EXPLICIT: ``open_beast2_file(path, project=NARROW)`` — ``NARROW`` is a
   subset of the wire type; every read serves the projected shape.
@@ -132,8 +132,8 @@ def test_dict_callbacks_infer_value_projection(dict_path):
         assert counted["beast2_segments_projected"] > 0
 
 
-def test_precompiled_kernels_infer_from_their_ir(array_path):
-    """A kernel's retained IR supplies the mask with nothing to trace; its
+def test_precompiled_functions_infer_from_their_ir(array_path):
+    """A compiled function's retained IR supplies the mask with nothing to trace; its
     wide native form cannot run against narrow rows, so execution re-traces
     the retained source — still zero python per element."""
     qty2 = East.function([ROW], IntegerType, lambda _b, r: r.qty * 2)
@@ -146,14 +146,14 @@ def test_precompiled_kernels_infer_from_their_ir(array_path):
         assert after["beast2_segments_projected"] > before["beast2_segments_projected"]
 
 
-def test_bound_kernels_decline_with_the_kernel_reason(array_path):
+def test_bound_functions_decline_with_the_function_reason(array_path):
     side = EastDict(IntegerType, IntegerType, {i: i for i in range(500)})
     look = East.function([ROW, DictType(IntegerType, IntegerType)], IntegerType,
                   lambda _b, r, t: t.get_or_default(r.id, 0)).bind(side)
     with open_beast2_file(array_path, AT) as f:
         got, counted = _delta(lambda: list(f.map(look)))
         assert got == list(range(500))
-        assert counted["beast2_projection_declined_kernel"] == 1
+        assert counted["beast2_projection_declined_function"] == 1
         assert counted["beast2_segments_projected"] == 0
 
 
@@ -438,7 +438,7 @@ def test_eager_stats_carries_the_projection_counters():
         "beast2_segments_whole",
         "beast2_projection_declined_untraceable",
         "beast2_projection_declined_escape",
-        "beast2_projection_declined_kernel",
+        "beast2_projection_declined_function",
         "beast2_projection_declined_unpageable",
         "beast2_projection_declined_shape",
         "beast2_projection_alias_fallback",

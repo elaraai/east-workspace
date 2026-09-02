@@ -77,7 +77,7 @@ def compile_from_value(
     conforming to ``IRType``, e.g. one built with :mod:`east.ir.builders`.
 
     The value converts directly to a C value and compiles with no
-    serialization round-trip; this is the kernel tracer's path (#398).
+    serialization round-trip; this is the expression builder's path (#398).
 
     ``source_map`` is the :class:`east.expression.location.SourceMap` the
     IR's ``loc_id`` fields index (#626). It is installed for the compile and

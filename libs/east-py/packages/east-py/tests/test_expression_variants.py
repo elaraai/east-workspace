@@ -2,10 +2,10 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""General variant construction in traced kernels (#541).
+"""General variant construction in East function bodies (#541).
 
 The 2-arg ``variant(case, payload)`` construction carries no VariantType, so
-a traced kernel needs the type from context. These pin every context that
+a built East function needs the type from context. These pin every context that
 supplies it — the build's declared output (threaded to the root lift), a
 ``if_else()`` sibling, a typed struct field — and the deferred ``if_else`` over
 variant branches in both arms. The exact spellings are the issue's repro.

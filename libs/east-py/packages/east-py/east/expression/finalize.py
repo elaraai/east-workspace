@@ -7,7 +7,7 @@
 Three concerns, in dependency order: computing a nested function's ``captures``
 (``_free_vars``), the trace-time common-subexpression pass that binds a shared
 subtree to one ``Let`` (``_finalize_ir``, which also converts every plain-list
-child into its proper ``EastArray``), and the top-level assembly of a kernel's
+child into its proper ``EastArray``), and the top-level assembly of a function's
 Function node (``_function_ir``).
 """
 
@@ -163,8 +163,8 @@ def _const_fn_node(param_types: list, body: Expression, out_t: EastType) -> Any:
 #
 # Reusing one Expression object at N sites makes the traced (lazy) tree a
 # DAG. The finalize pass walks it once: every non-trivial node referenced
-# more than once — whose free variables are the kernel's own parameters or
-# hoisted constants — binds to a Let at the top of the kernel body (this
+# more than once — whose free variables are the function's own parameters or
+# hoisted constants — binds to a Let at the top of the function body (this
 # includes loop-invariant hoisting out of nested lambdas); everything else
 # re-emits inline. The SAME rebuild converts every plain-list child into its
 # proper EastArray, producing the final homoiconic value.
@@ -403,11 +403,11 @@ def _rehome_ir(node, from_map, to_map):
     return rewrite(node)
 
 
-def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
+def _finalize_ir(top, param_names: set, top_fn=None, cse: bool = True):
     """CSE + arrayify the whole lazy tree; returns the final homoiconic node.
 
     ``top`` is the (lazy) top-level Function node — or a Block wrapping it
-    when constants hoisted; the CSE lets land inside ``kernel_fn``'s body
+    when constants hoisted; the CSE lets land inside ``top_fn``'s body
     (the FIRST Function node encountered from the top). With ``cse=False``
     the pass only converts lazy lists (``_arrayify_tree``): no shared
     subtree binds to a Let and no callback invariant hoists.
@@ -448,7 +448,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
     count(top)
 
     # Occurrences inside a CALLBACK body — any Function that is not the
-    # kernel itself. The collection builtins apply these per element, so a
+    # function itself. The collection builtins apply these per element, so a
     # subtree in one runs n times; that is the only place a single-occurrence
     # hoist buys anything (#602).
     in_callback: set[int] = set()
@@ -461,15 +461,15 @@ def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
         cb_walked.add(key)
         if inside:
             in_callback.add(id(node))
-        enter = inside or (kernel_fn is not None
+        enter = inside or (top_fn is not None
                            and node.type in ("Function", "AsyncFunction")
-                           and node is not kernel_fn)
+                           and node is not top_fn)
         for child in _node_children(node):
             callback_walk(child, enter)
 
     callback_walk(top, False)
 
-    # A name that is REBOUND between the kernel body and a node's occurrence
+    # A name that is REBOUND between the function body and a node's occurrence
     # (an inner-lambda param or match/catch variable shadowing a top param)
     # must block the hoist — at the top the name resolves to the wrong
     # binder. scope[i] accumulates every such rebound name over all of the
@@ -477,7 +477,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
     scope: dict[int, set] = {}
 
     def binder_names(node):
-        if node.type in ("Function", "AsyncFunction") and node is not kernel_fn:
+        if node.type in ("Function", "AsyncFunction") and node is not top_fn:
             return {p.value["name"] for p in node.value["parameters"]}
         if node.type == "Match":
             return {c["variable"].value["name"] for c in node.value["cases"]}
@@ -509,7 +509,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
 
     # A node whose EVERY occurrence sits inside a conditional arm (an IfElse
     # case body / else body, a Match case body, a catch/finally) must NOT
-    # hoist to the top of the kernel: the hoisted Let evaluates it
+    # hoist to the top of the function: the hoisted Let evaluates it
     # unconditionally, so a guarded PARTIAL operation — `d[k]` under
     # `if_else(d.has(k), …)` — raises on the very path the guard excludes
     # (#558 A). Sharing the value through one python variable is what makes
@@ -570,8 +570,8 @@ def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
 
     # ── Where a hoisted Let may LAND (issue #595) ───────────────────────────
     #
-    # A Let at the head of the kernel body is a valid site only for a node
-    # whose free variables are the kernel's own parameters. But the natural
+    # A Let at the head of the function body is a valid site only for a node
+    # whose free variables are the function's own parameters. But the natural
     # way to write a traced algorithm binds its derived inputs first —
     # `East.let(derive(p), lambda a: <loop over a, read more than once>)` —
     # and that loop's free `a` is bound by an enclosing Block, not by a
@@ -587,7 +587,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
     # conditional arm, a guarded body), so a Block seen across one is never
     # offered as a site: hoisting out of a loop would change how many times
     # the node runs, and out of a branch whether it runs at all. A node
-    # needing nothing but parameters keeps the kernel-body site, so the #525
+    # needing nothing but parameters keeps the function-body site, so the #525
     # loop-invariant hoisting out of nested lambdas is unchanged.
 
     #: Block id -> {name it binds: the statement index that binds it}
@@ -743,7 +743,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
     def mutated_free(node, bound):
         """Names a subtree MUTATES without itself binding them.
 
-        Hoisting evaluates a node ONCE at the top of the kernel, so a node
+        Hoisting evaluates a node ONCE at the top of the function, so a node
         that mutates something it did not create must never hoist: the effect
         would leave its loop or its conditional and happen a different number
         of times. A self-contained mutation — the ``Let``-bound copy inside a
@@ -831,7 +831,7 @@ def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
         return any(escapes(c, labels, bound, in_fn) for c in _node_children(node))
 
     hoistable: dict[int, str] = {}
-    #: node id -> (Block id, statement index), or (None, 0) for the kernel body
+    #: node id -> (Block id, statement index), or (None, 0) for the function body
     site: dict[int, tuple] = {}
     for i, n in counts.items():
         node = keep[i]
@@ -860,15 +860,15 @@ def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
             if home is None:
                 continue      # a name no enclosing Block on this path binds
         else:
-            home, at = None, 0            # the kernel body, as before #595
+            home, at = None, 0            # the function body, as before #595
         site[i] = (home, at)
         hoistable[i] = _fresh_name()
 
-    lets: list = []                       # the kernel-body site
+    lets: list = []                       # the function-body site
     block_lets: dict[int, list] = {}      # Block id -> [(index, order, let)]
     emitted: set[int] = set()
     memo: dict[int, Any] = {}
-    kernel_fn_seen = False
+    top_fn_seen = False
     emit_order = 0
 
     arrayify = _arrayify
@@ -896,21 +896,21 @@ def _finalize_ir(top, param_names: set, kernel_fn=None, cse: bool = True):
         block_lets.setdefault(home, []).append((at, emit_order, let))
 
     def rewrite(node, binding=None):
-        nonlocal kernel_fn_seen
+        nonlocal top_fn_seen
         i = id(node)
         if i in hoistable and i != binding:
             emit_let(i)
             return _var(hoistable[i], node.value["type"])
         if binding is None and i in memo:
             return memo[i]
-        is_kernel_fn = node is kernel_fn or (
-            kernel_fn is None and node.type == "Function" and not kernel_fn_seen
+        is_top_fn = node is top_fn or (
+            top_fn is None and node.type == "Function" and not top_fn_seen
         )
-        if is_kernel_fn:
-            kernel_fn_seen = True
+        if is_top_fn:
+            top_fn_seen = True
         children = [rewrite(c) for c in _node_children(node)]
-        if is_kernel_fn and (lets or hoistable):
-            # splice the collected lets at the head of the kernel body —
+        if is_top_fn and (lets or hoistable):
+            # splice the collected lets at the head of the function body —
             # rewriting the body above already emitted every needed let
             body = children[-1]
             if lets:
@@ -964,9 +964,9 @@ def _function_ir(
     out: EastType | None = None,
     cse: bool = True,
 ) -> Any:
-    """The kernel's top-level IR value: a Function node, or — when constants
+    """The function's top-level IR value: a Function node, or — when constants
     hoisted — ``Block[Let …, Function(captures)]`` so each constant evaluates
-    ONCE when the kernel compiles, not per call. Finalization runs the
+    ONCE when the function compiles, not per call. Finalization runs the
     identity CSE (#411) and converts the lazy tree to real East arrays.
     ``is_async`` builds the AsyncFunction node/type instead (East.asyncFunction).
     ``out`` is the DECLARED output type — the function type's output even
@@ -994,4 +994,4 @@ def _function_ir(
                 for name, node, t in consts]
         top = _k_block(fn_type, [*lets, fn_node])
     param_names = {p.value["name"] for p in params} | {name for name, _n, _t in consts}
-    return _finalize_ir(top, param_names, kernel_fn=fn_node, cse=cse)
+    return _finalize_ir(top, param_names, top_fn=fn_node, cse=cse)

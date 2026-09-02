@@ -2,12 +2,12 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Field-mask inference over traced kernel IR (issue #599).
+"""Field-mask inference over built function IR (issue #599).
 
 The beast2 compute family decodes a segment BEFORE the eager method traces
 its callback — yet the traced IR knows exactly which struct fields the
-callback reads. This module runs the trace FIRST (or reads a precompiled
-kernel's retained IR) and derives the set of ``GetField`` paths the IR
+callback reads. This module runs the trace FIRST (or reads a compiled East
+function's retained IR) and derives the set of ``GetField`` paths the IR
 reaches from the element parameter, as a mask tree:
 
 - a ``dict`` maps kept field names to sub-masks;
@@ -145,7 +145,7 @@ def _collect_mask(body: Any, target: str) -> Any:
 
 
 def _function_node(ir: Any) -> Any | None:
-    """The Function node of a finalized kernel IR (possibly under a Block of
+    """The Function node of a finalized function IR (possibly under a Block of
     hoisted-constant Lets)."""
     kind = getattr(ir, "type", None)
     if kind == "Function":
@@ -173,18 +173,18 @@ def narrow_type_for(wire_t: EastType, mask: Any) -> EastType:
 
 
 def _retrace_wrapper(fn: Any, arity: int) -> Any:
-    """A capturable wrapper around a precompiled kernel.
+    """A capturable wrapper around a compiled East function.
 
-    A kernel's declared input types name the WIDE element, so on a projected
+    A compiled function's declared input types name the WIDE element, so on a projected
     (narrow) segment the native pass-through refuses it (#467) and the
-    wrapper's re-trace takes over: called with proxies, the kernel's
+    wrapper's re-trace takes over: called with proxies, the function's
     dual-mode callable re-runs its retained source lambda, splicing the same
-    expression against the narrow types. The kernel rides a keyword-only
+    expression against the narrow types. The function rides a keyword-only
     default (not a closure cell), which the eligibility check does not
     inspect — and needs not: a ``_east_retrace`` carrier is allowed capture
     anyway.
     """
-    # A body takes the block first; a compiled kernel takes none.
+    # A body takes the block first; a compiled function takes none.
     if arity == 1:
         return lambda _b, a, *, _k=fn: _k(a)
     if arity == 2:
@@ -204,9 +204,9 @@ def infer_field_mask(fn: Any, param_types: list[EastType], elem_pos: int) -> tup
     Returns ``(mask, exec_fn, reason)``: on success ``mask`` is a mask tree
     (possibly ``WHOLE_MASK`` — the element is used whole) and ``exec_fn`` is
     the callable the operation should EXECUTE with (the original ``fn``, or
-    a re-trace wrapper for a precompiled kernel, which cannot run its wide
+    a re-trace wrapper for a compiled East function, which cannot run its wide
     native form against narrow values). On failure ``mask`` is None and
-    ``reason`` is ``"untraceable"`` or ``"kernel"``.
+    ``reason`` is ``"untraceable"`` or ``"function"``.
     """
     handle = getattr(fn, "_eastc_handle", None)
     if handle is not None:
@@ -215,17 +215,17 @@ def infer_field_mask(fn: Any, param_types: list[EastType], elem_pos: int) -> tup
         if ir is None or retrace is None:
             # A .bind result or a decoded function value: no retained IR to
             # read, or no source to re-trace against the narrow type.
-            return None, None, "kernel"
+            return None, None, "function"
         fn_node = _function_node(ir)
         if fn_node is None:
-            return None, None, "kernel"
+            return None, None, "function"
         params = fn_node.value["parameters"]
         if elem_pos >= len(params):
-            return {}, fn, None  # the kernel never receives the element
+            return {}, fn, None  # the function never receives the element
         mask = _collect_mask(fn_node.value["body"], params[elem_pos].value["name"])
         wrapper = _retrace_wrapper(fn, len(params))
         if wrapper is None:
-            return None, None, "kernel"
+            return None, None, "function"
         return mask, wrapper, None
 
     if not callable(fn):

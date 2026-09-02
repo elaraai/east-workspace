@@ -126,7 +126,7 @@ def _lift(value: Any, hint: EastType | None = None) -> Expression:
         # coroutine unexecuted — name the actual problem (#561).
         value.close()
         raise ExpressionError(
-            "an AsyncFunction value was called inside a sync traced kernel — "
+            "an AsyncFunction value was called inside a sync East function body — "
             "its result is a coroutine, which has no traced form; call it "
             "from python (per-element) instead"
         )
@@ -374,10 +374,10 @@ def _holds_traced(value: Any) -> bool:
 
 
 class _ConstRegistry:
-    """Per-trace registry of captured constants, hoisted to kernel build.
+    """Per-trace registry of captured constants, hoisted to the function build.
 
     A captured East collection/struct is SNAPSHOT once: its constructor IR
-    becomes a ``Let`` evaluated when the kernel compiles, and every use site
+    becomes a ``Let`` evaluated when the function compiles, and every use site
     (including inside nested lambdas) references the bound variable. Without
     hoisting the constructor would sit inline at the use site and re-build
     the constant on every evaluation — per row, or per ELEMENT inside a
@@ -407,14 +407,14 @@ class _ConstRegistry:
 
 
 # The active (outermost) trace's constant registry; inner-lambda traces share
-# it so constants hoist to the kernel scope. None outside any trace — then
+# it so constants hoist to the function scope. None outside any trace — then
 # constants inline at the use site (correct, just unhoisted).
 _const_registry: _ConstRegistry | None = None
 
 
 # Hoisting is suspended while a loop's INITIAL STATE is lifted. That state is
 # the loop's mutable working set, and a hoisted constant is built ONCE when
-# the kernel compiles and shared by every call — so seeding an accumulator
+# the function compiles and shared by every call — so seeding an accumulator
 # with a captured `EastArray(T)` (the spelling #578 itself uses) would have
 # every call append to the same array. Inlined, it is rebuilt per call, which
 # is what a working set means. Constants read from the loop's body or
@@ -450,7 +450,7 @@ class _FnConstRegistry:
     runner-supplied ``FunctionType`` input such as a streamTask ``emit`` —
     cannot re-trace the callee (its body is native), so the call lowers to
     the IR's ``Call`` node instead: the callee becomes a HIDDEN TRAILING
-    PARAMETER of the kernel, referenced by name at every call site, and
+    PARAMETER of the function, referenced by name at every call site, and
     ``East.function`` / ``capture_callback`` bind the recorded function values
     right after compiling (the #399 machinery), so the compiled loop invokes
     the callee natively. Entries are deduped by the callee's C function-value
@@ -482,7 +482,7 @@ def _push_registries() -> bool:
     """Install fresh registries for an OUTER trace.
 
     Returns whether this call opened one: an inner-lambda trace shares the
-    outer trace's registries, so its constants hoist to the kernel scope.
+    outer trace's registries, so its constants hoist to the function scope.
     """
     global _const_registry, _fn_registry
     if _const_registry is not None:
@@ -583,7 +583,7 @@ def _hoisted_const_names() -> frozenset[str]:
     """The names the open trace bound to build-time constants.
 
     A captured East collection hoists to a ``Let`` evaluated ONCE when the
-    kernel compiles (see :class:`_ConstRegistry`), so the compiled function
+    function compiles (see :class:`_ConstRegistry`), so the compiled function
     closes over one shared value. Mutating it would leak between calls, which
     is what the traced mutators check for.
     """
@@ -615,8 +615,8 @@ def _lower_compiled_call(fn_val_ptr: int, input_type_ptrs: list,
     declared = c_function_value_type(fn_val_ptr)
     if declared is not None and declared.type == "AsyncFunction":
         raise ExpressionError(
-            "an AsyncFunction value cannot be called inside a sync traced "
-            "kernel — call it from python (per-element) instead"
+            "an AsyncFunction value cannot be called inside a sync East function "
+            "body — call it from python (per-element) instead"
         )
     inputs = [c_type_ptr_to_py_type(p) for p in input_type_ptrs]
     if len(args) != len(inputs):
@@ -646,8 +646,8 @@ def _lift_collection(value: Any) -> Expression | None:
 
     The value snapshots into constructor IR (NewArray/NewSet/NewDict/Struct,
     each element lifted recursively) and — inside a trace — hoists to a
-    kernel-build-time ``Let`` (see ``_ConstRegistry``), so a TRANS-style
-    side-table is built once per compiled kernel, not per evaluation.
+    function-build-time ``Let`` (see ``_ConstRegistry``), so a TRANS-style
+    side-table is built once per compiled function, not per evaluation.
     Very large tables should bind by reference instead (no snapshot at
     all): declare a trailing parameter and use
     ``East.function(...).bind(table)`` (#399).
@@ -867,7 +867,7 @@ def _needs_type_context(value: Any) -> bool:
 # ``East.while_``/``for_`` push a frame while they trace their callbacks. A
 # frame carries the loop's label NAME — east-c matches a jump to a loop by
 # name, so an unlabelled jump inside a named loop would otherwise match
-# nothing and travel out of the kernel — and a ``commit`` that builds the
+# nothing and travel out of the function — and a ``commit`` that builds the
 # loop's state update, so a jump can hand back a final state.
 _loop_frames: list = []
 
@@ -1129,7 +1129,7 @@ def if_else(*branches: Any) -> Any:
     """Conditional expression — East ``IfElse`` when traced, eager otherwise.
 
     Python's ``if``/``and``/``or`` cannot be overloaded, so this IS the
-    conditional inside a kernel (``&``, ``|``, ``~`` are the boolean algebra).
+    conditional inside an East function body (``&``, ``|``, ``~`` are the boolean algebra).
     Exactly one arm evaluates at run time, so a guarded partial operation is
     safe.
 
@@ -1172,7 +1172,7 @@ def if_else(*branches: Any) -> Any:
         if any(isinstance(v, (Expression, _DeferredIfElse)) for v in values):
             raise ExpressionError(
                 "if_else() received python conditions with traced arms — the "
-                "condition must come from the kernel's parameters"
+                "condition must come from the function's parameters"
             )
         for cond, value in zip(conds, values, strict=False):
             if cond:

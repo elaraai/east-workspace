@@ -2,7 +2,7 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Hand-built helper kernels used by the eager collection methods.
+"""Hand-built helper functions used by the eager collection methods.
 
 These tiny compiled functions replace the internal python lambdas the eager
 methods previously used for identity keys, default combines and group-append —
@@ -30,9 +30,9 @@ from east.expression.nodes import (
 from east.ir.builders import ir_error, ir_get_field, ir_variant
 from east.types.types import ArrayType, BooleanType, EastType, NullType, StringType
 
-# ─── Hand-built helper kernels (internal — used by eager methods) ───────────
+# ─── Hand-built helper functions (internal — used by eager methods) ───────────
 #
-# These tiny kernels replace the internal python lambdas that eager methods
+# These tiny functions replace the internal python lambdas that eager methods
 # previously used for identity keys, default combines and group-append —
 # with them the whole method goes native. Memoized by the type's JSON form
 # (types are structural, so the string is a stable key).
@@ -40,7 +40,7 @@ from east.types.types import ArrayType, BooleanType, EastType, NullType, StringT
 _helper_memo: dict[str, Any] = {}
 
 
-def _identity_kernel(t: EastType) -> Any:
+def _identity_function(t: EastType) -> Any:
     """Compiled (x: t) -> x."""
     from east.runtime.compiler import compile_from_value
 
@@ -54,7 +54,7 @@ def _identity_kernel(t: EastType) -> Any:
     return k
 
 
-def _second_kernel(t: EastType) -> Any:
+def _second_function(t: EastType) -> Any:
     """Compiled (a: t, b: t) -> b (default combine: later value wins)."""
     from east.runtime.compiler import compile_from_value
 
@@ -69,7 +69,7 @@ def _second_kernel(t: EastType) -> Any:
     return k
 
 
-def _empty_array_kernel(key_t: EastType, element_t: EastType) -> Any:
+def _empty_array_function(key_t: EastType, element_t: EastType) -> Any:
     """Compiled (k: key_t) -> [] of element_t (group init)."""
     from east.runtime.compiler import compile_from_value
 
@@ -84,7 +84,7 @@ def _empty_array_kernel(key_t: EastType, element_t: EastType) -> Any:
     return k
 
 
-def _none_init_kernel(key_t: EastType, inner_t: EastType) -> Any:
+def _none_init_function(key_t: EastType, inner_t: EastType) -> Any:
     """Compiled (k: key_t) -> none : Option<inner_t> (group max/min init)."""
     from east.runtime.compiler import compile_from_value
 
@@ -107,7 +107,7 @@ def _pair_field(pair_t: EastType, var: Any, name: str) -> tuple:
     return ir_get_field(f_t, name, var), f_t
 
 
-def _append_field_kernel(pair_t: EastType, value_field: str) -> Any:
+def _append_field_function(pair_t: EastType, value_field: str) -> Any:
     """Compiled (acc: [V], p: pair_t, i) -> acc with p.<value_field> pushed."""
     from east.runtime.compiler import compile_from_value
 
@@ -126,7 +126,7 @@ def _append_field_kernel(pair_t: EastType, value_field: str) -> Any:
     return k
 
 
-def _empty_set_kernel(key_t: EastType, element_t: EastType) -> Any:
+def _empty_set_function(key_t: EastType, element_t: EastType) -> Any:
     """Compiled (k: key_t) -> {} : Set<element_t> (group init)."""
     from east.runtime.compiler import compile_from_value
     from east.types.types import SetType as _SetType
@@ -142,7 +142,7 @@ def _empty_set_kernel(key_t: EastType, element_t: EastType) -> Any:
     return k
 
 
-def _set_insert_field_kernel(pair_t: EastType, value_field: str) -> Any:
+def _set_insert_field_function(pair_t: EastType, value_field: str) -> Any:
     """Compiled (acc: Set<V>, p: pair_t, i) -> acc with p.<value_field> inserted.
 
     ``SetTryInsert``, not ``SetInsert``: this backs ``group_to_sets``, whose
@@ -173,7 +173,7 @@ def _set_insert_field_kernel(pair_t: EastType, value_field: str) -> Any:
     return k
 
 
-def _empty_dict_kernel(key_t: EastType, k2_t: EastType, v_t: EastType) -> Any:
+def _empty_dict_function(key_t: EastType, k2_t: EastType, v_t: EastType) -> Any:
     """Compiled (k: key_t) -> {} : Dict<k2_t, v_t> (group init)."""
     from east.runtime.compiler import compile_from_value
     from east.types.types import DictType as _DictType
@@ -189,7 +189,7 @@ def _empty_dict_kernel(key_t: EastType, k2_t: EastType, v_t: EastType) -> Any:
     return k
 
 
-def _dict_insert_fields_kernel(pair_t: EastType, key_field: str, value_field: str) -> Any:
+def _dict_insert_fields_function(pair_t: EastType, key_field: str, value_field: str) -> Any:
     """Compiled (acc: Dict<K2,V>, p, i) -> acc with (p.<key>, p.<value>) inserted.
 
     Uses DictInsert, so a duplicate inner key errors — mirroring the TS
@@ -227,7 +227,7 @@ def _key_error_message(k2: EastType, key_var: Any, prefix: str, suffix: str):
     )
 
 
-def _error_combine_kernel(t2: EastType, k2: EastType, prefix: str, suffix: str) -> Any:
+def _error_combine_function(t2: EastType, k2: EastType, prefix: str, suffix: str) -> Any:
     """Compiled ``(v1, v2, k) -> Error(prefix + key + suffix)`` — the default
     collision handler (duplicate-key / exists-in-both), native so the strict
     surface needs no python error callback (#625). The traced twin is
@@ -245,7 +245,7 @@ def _error_combine_kernel(t2: EastType, k2: EastType, prefix: str, suffix: str) 
     return k
 
 
-def _error_init_kernel(out_t: EastType, k2: EastType, prefix: str, suffix: str) -> Any:
+def _error_init_function(out_t: EastType, k2: EastType, prefix: str, suffix: str) -> Any:
     """Compiled ``(k) -> Error(prefix + key + suffix)`` — ``merge_key``'s
     missing-key default, native (#625)."""
     from east.runtime.compiler import compile_from_value
@@ -261,11 +261,11 @@ def _error_init_kernel(out_t: EastType, k2: EastType, prefix: str, suffix: str) 
     return k
 
 
-def _array_get_kernel(element_t: EastType) -> Any:
+def _array_get_function(element_t: EastType) -> Any:
     """Compiled (i: Integer, a: [t]) -> a[i] — ``get_keys``' element getter.
 
     The array parameter binds BY REFERENCE at the call site
-    (``_array_get_kernel(t).bind(arr)``), so the gather never snapshots the
+    (``_array_get_function(t).bind(arr)``), so the gather never snapshots the
     source — the python ``lambda idx: self[idx]`` closure it replaces has no
     strict capture (#625).
     """
@@ -285,7 +285,7 @@ def _array_get_kernel(element_t: EastType) -> Any:
     return k
 
 
-def _append_kernel(element_t: EastType) -> Any:
+def _append_function(element_t: EastType) -> Any:
     """Compiled (acc: [t], el: t) -> acc with el pushed (group fold)."""
     from east.runtime.compiler import compile_from_value
 

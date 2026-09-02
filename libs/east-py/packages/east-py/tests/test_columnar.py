@@ -226,7 +226,7 @@ def test_update_many_traced_combine():
     assert d["b"] == 5.0
 
 
-def test_update_many_precompiled_kernel_combine():
+def test_update_many_precompiled_function_combine():
     d = EastDict(StringType, FloatType, {"a": 1.0})
     k = East.function([FloatType, FloatType], FloatType, lambda _b, cur, new: cur + new)
     d.update_many(["a", "b", "a"], [2.0, 7.0, 4.0], combine=k)
@@ -326,13 +326,13 @@ def test_update_many_rejects_length_mismatch_for_east_arrays():
 
 
 def test_update_many_deeply_nested_option_values_at_scale():
-    """The regression: 61k kernel-produced nested Option values used to SIGSEGV."""
+    """The regression: 61k function-produced nested Option values used to SIGSEGV."""
     val_t = _nested_value_type()
     key_t = StructType([("job", StringType), ("station", StringType)])
     n = 61_238
 
     # `allocations` comes from a source field: a bare `[]` cannot be lifted
-    # into a kernel, and the point here is the value SHAPE, not how it is built.
+    # into a function, and the point here is the value SHAPE, not how it is built.
     inner = val_t.value[0]["type"].value
     src = StructType([("id", StringType), ("station", OptionType(StringType)),
                       ("allocs", ArrayType(inner))])

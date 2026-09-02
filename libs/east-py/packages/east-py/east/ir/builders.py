@@ -12,7 +12,7 @@ unrepresentable and a node tree compiles directly via
 
 Locations use the v4 dialect: every node carries a ``loc_id`` integer
 indexing into a source map held alongside the IR (0 when there is no
-source map — e.g. traced kernels). ``location``/``location_stack`` build
+source map — e.g. built East functions). ``location``/``location_stack`` build
 the source-map ``Location`` structs themselves.
 
 All IR struct values use EastStruct and all node arrays use EastArray, to

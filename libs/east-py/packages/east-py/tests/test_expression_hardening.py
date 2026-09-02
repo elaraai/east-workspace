@@ -2,7 +2,7 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Kernel-tracer hardening (#543): the proxy bail for f-strings (#530), the
+"""Expression-builder hardening (#543): the proxy bail for f-strings (#530), the
 strict one-mode contract (any callback that fails to capture RAISES — there
 is no per-element python fallback, #625), and the #536 keyword sweep —
 ``out=``-family pins accepted by the traced twins AND threaded into the
@@ -41,12 +41,12 @@ def _rows() -> EastArray:
 
 # ── #530: f-strings / str() bail loudly instead of constant-folding ────────
 
-def test_fstring_in_an_explicit_kernel_raises():
+def test_fstring_in_an_explicit_function_raises():
     with pytest.raises(ExpressionError, match="constant-fold"):
         East.function([StringType], StringType, lambda _b, s: f"<{s}>")
 
 
-def test_str_call_in_an_explicit_kernel_raises():
+def test_str_call_in_an_explicit_function_raises():
     with pytest.raises(ExpressionError, match="constant-fold"):
         East.function([StringType], StringType, lambda _b, s: "<" + str(s) + ">")
 

@@ -48,7 +48,7 @@ class TestNativeRows:
         emit_hold = core.function_value([StringType, FloatType])
         emit_t = FunctionType([StringType, FloatType], NullType)
         # The streaming-projection shape: the emit callee is a hidden bound
-        # parameter (#561 lowers the call), so loop + kernel + sink run
+        # parameter (#561 lowers the call), so loop + function + sink run
         # entirely inside east-c.
         project = East.function([ROW, emit_t], NullType,
                          lambda _b, r, emit: emit(r["k"], r["v"])).bind(emit_hold)

@@ -25,6 +25,12 @@ Structural equality under the normalizer already IS identical execution
 corpus programs' compliance-run comparison — two full test-suite runs per
 program, ~12 minutes over the corpus — is opt-in: ``EAST_CONFORMANCE_EXECUTE=1``
 (``make test-conformance`` sets it). The examples always execute (fast).
+
+Without an exported IR directory a leg SKIPS — the local default. CI sets
+``EAST_CONFORMANCE_REQUIRED=1``, under which a missing directory is a
+collection ERROR: the round trip is a required gate there, and a leg that
+quietly skipped because the temp dir did not match the default path was
+how it went unrun for a while.
 """
 
 from __future__ import annotations
@@ -46,9 +52,19 @@ CORPUS_DIR = os.environ.get("EAST_TEST_IR_DIR", "/tmp/east-test-ir")
 EXAMPLES_DIR = os.environ.get("EAST_EXAMPLES_IR_DIR", "/tmp/east-examples-ir")
 SAVE_DIR = os.environ.get("EAST_CONFORMANCE_SAVE")
 EXECUTE_CORPUS = os.environ.get("EAST_CONFORMANCE_EXECUTE") == "1"
+REQUIRED = os.environ.get("EAST_CONFORMANCE_REQUIRED") == "1"
 
 CORPUS = sorted(glob.glob(os.path.join(CORPUS_DIR, "*.json")))
 EXAMPLES = sorted(glob.glob(os.path.join(EXAMPLES_DIR, "*", "*.json")))
+
+if REQUIRED and not CORPUS:
+    raise RuntimeError(
+        f"EAST_CONFORMANCE_REQUIRED=1 but no exported IR corpus in {CORPUS_DIR} "
+        "(`make test-export` in libs/east, or set EAST_TEST_IR_DIR)")
+if REQUIRED and not EXAMPLES:
+    raise RuntimeError(
+        f"EAST_CONFORMANCE_REQUIRED=1 but no exported examples in {EXAMPLES_DIR} "
+        "(`npm run export:examples` in libs/east, or set EAST_EXAMPLES_IR_DIR)")
 
 
 def _rebuild(ir, label: str):

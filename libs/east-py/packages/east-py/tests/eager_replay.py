@@ -2,7 +2,7 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Replay TS-exported compliance IR through the eager/kernel surface (#474).
+"""Replay TS-exported compliance IR through the eager/expression surface (#474).
 
 The exported corpus is East IR — an East VALUE conforming to ``IRType`` — so
 loading is one call through the standard serialization layer, and every node
@@ -389,7 +389,7 @@ class EagerEvaluator:
 
     @staticmethod
     def _in_trace() -> bool:
-        """Whether a kernel trace is active. A MUTABLE-container construction
+        """Whether an expression build is active. A MUTABLE-container construction
         inside a trace must emit constructor IR even with no traced children:
         an eager value would lift as a hoisted CONSTANT shared across calls —
         an init callback returning `[]` would hand every group one aliased
@@ -476,8 +476,8 @@ class EagerEvaluator:
             if any(isinstance(v, Expression) for _n, v in fields) or self._in_trace():
                 # construction from traced parts IS a traced expression —
                 # an eager value holding proxies would hoist as a "constant"
-                # referencing kernel parameters (unbound outside the fn).
-                # Use the kernel's LAZY constructors: the eager builders'
+                # referencing function parameters (unbound outside the fn).
+                # Use the expression builder's LAZY constructors: the eager builders'
                 # EastArray children convert nodes mid-trace (#411)
                 from east.expression import _k_struct
 
@@ -721,7 +721,7 @@ class EagerEvaluator:
         """A python callable for a Function-typed builtin argument.
 
         Immutable captures bake as ``Let``s of quoted values and the callback
-        IR compiles into a native kernel. By-reference (mutable/container)
+        IR compiles into a native function. By-reference (mutable/container)
         captures must NOT bake — East captures by reference, and a baked copy
         would hide mutations (an accumulating forEach would silently count on
         the copy) — so the callable carries the UNBAKED node and its live
@@ -788,8 +788,8 @@ class EagerEvaluator:
 
     def _compile_closure(self, clo: Closure) -> Any:
         """``compile_from_value`` on the callback IR, captures baked as Lets of
-        quoted values — the same ``Block[Let…, Function]`` shape the kernel
-        tracer emits for hoisted constants.
+        quoted values — the same ``Block[Let…, Function]`` shape the expression
+        builder emits for hoisted constants.
 
         The compiled callable is used AS-IS: called with expression proxies
         (an argument-reordering wrapper under the strict wrap) it lowers to a
