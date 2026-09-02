@@ -30,9 +30,9 @@ class NoPythonBoolean:
 
     def check(self, body: Body, ctx: Context) -> None:
         for node in body_nodes(body):
-            if isinstance(node, ast.BoolOp) and any(body.is_expression(v) for v in node.values):
+            if isinstance(node, ast.BoolOp) and any(_truthy_expression(v, body) for v in node.values):
                 ctx.report(node, self, _bail("if/and/or/not"))
-            elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not) and body.is_expression(node.operand):
+            elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not) and _truthy_expression(node.operand, body):
                 ctx.report(node, self, _bail("if/and/or/not"))
             elif isinstance(node, (ast.If, ast.While, ast.IfExp, ast.Assert)) and _truthy_expression(node.test, body):
                 ctx.report(node.test, self, _bail("if/and/or/not"))
@@ -48,9 +48,10 @@ class NoPythonBoolean:
 
 
 def _truthy_expression(test: ast.AST, body: Body) -> bool:
-    """An `if`/`while` test that IS an expression: a name/chain the body holds
-    an expression under, or a comparison on one (which builds a Boolean
-    expression the `if` would then collapse)."""
+    """An `if`/`while` test or an `and`/`or`/`not` operand that IS an
+    expression: a name/chain the body holds an expression under, or a
+    comparison / arithmetic on one (which builds an expression the python
+    boolean would then collapse)."""
     if body.is_expression(test):
         return True
     if isinstance(test, ast.Compare):

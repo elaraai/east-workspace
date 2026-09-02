@@ -2,11 +2,13 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""``no-python-work``: a body reaching for python — a module object
-(``np``, ``random``, ``datetime``), a python builtin over an expression
-(``sum``, ``sorted``, ``list``…), or a module-level python ``def`` — has no
-East form. The build refuses the capture naming the binding (#625); here
-the same text names it at edit time.
+"""``no-python-work``: an EAGER callback reaching for python — a module
+object (``np``, ``random``, ``datetime``), a python builtin over an
+expression (``sum``, ``sorted``, ``list``…), or a module-level python
+``def`` — has no East form: the capture refuses it naming the binding
+(#625), and here the same text names it at edit time. Only the eager
+capture refuses this; an ``East.function`` body may call a helper ``def``
+(a build-time macro the builder runs) and is not a capture.
 """
 
 from __future__ import annotations
@@ -36,6 +38,8 @@ class NoPythonWork:
                    "expressions, no python helper calls; capture side-tables with East.function / .bind.")
 
     def check(self, body: Body, ctx: Context) -> None:
+        if _root(body).kind != "eager":
+            return  # the capture refusal is the eager callback's alone
         reported: set[int] = set()
         for node in body_nodes(body):
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
@@ -56,6 +60,12 @@ class NoPythonWork:
                 elif fn in BUILTIN_WORK and fn not in ctx.imports and fn not in ctx.python_defs \
                         and any(body.is_expression(a) for a in [*node.args, *(k.value for k in node.keywords)]):
                     ctx.report(node, self, _message(fn))
+
+
+def _root(body: Body) -> Body:
+    while body.parent is not None:
+        body = body.parent
+    return body
 
 
 def _enclosing_names(body: Body) -> set[str]:

@@ -14,8 +14,13 @@ the TypeScript rules self-gate on an ``@elaraai/*`` import. A **body** is:
 - any callable nested in a body — a builtin's callback (``xs.map(lambda b,
   x: …)``) or a statement construct's body (``b.if_(p, lambda b: …)``);
 - outside any body, a callable passed to a callback-taking expression
-  method — an eager callback (``items.map(lambda b, row: …)`` inside a
-  ``@platform_function``), which the builder builds exactly the same way.
+  method of an EAST value — an eager callback (``items.map(lambda b, row:
+  …)`` inside a ``@platform_function``), which the builder builds exactly
+  the same way. The receiver must be evidenced as East: a name bound by a
+  call rooted at an ``east`` import (``EastArray(…)``, ``East.new_dict(…)``),
+  a parameter a ``@platform_function`` declares with an East input type, or
+  a name assigned from a chain on one of those. A python list's
+  ``.sort(key=lambda d: …)`` shares the method name and is not a body.
 
 The callback-taking method names come from the codegen spelling table and
 the statement-construct names from the ``Block`` class itself, so this
@@ -131,6 +136,60 @@ def _declared_arity(call: ast.Call) -> int | None:
     return None
 
 
+def _chain_root(node: ast.AST) -> ast.AST:
+    """The name a call / attribute / subscript chain is rooted at."""
+    while isinstance(node, (ast.Attribute, ast.Call, ast.Subscript)):
+        node = node.func if isinstance(node, ast.Call) else node.value
+    return node
+
+
+def _rooted_at_east(node: ast.AST, ctx: Context) -> bool:
+    """Whether a chain is rooted at an ``east`` import (``East.new_dict(…)``,
+    ``EastArray(…)``, ``east.types.values.EastDict(…)``)."""
+    root = _chain_root(node)
+    if not isinstance(root, ast.Name):
+        return False
+    if root.id in ctx.east_names:
+        return True
+    module = ctx.imports.get(root.id)
+    return module is not None and (module == "east" or module.startswith("east."))
+
+
+def east_evidence(ctx: Context) -> set[str]:
+    """The names that evidently hold East VALUES outside any body: bound by
+    a call rooted at an ``east`` import, declared as a ``@platform_function``
+    input with an East type, or assigned from a chain on such a name — to a
+    fixpoint. What makes an eager callback's receiver an East value."""
+    names: set[str] = set()
+    for node in ast.walk(ctx.tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for d in node.decorator_list:
+                if not (isinstance(d, ast.Call) and _is_platform_decorator(d, ctx)):
+                    continue
+                inputs = next((k.value for k in d.keywords if k.arg == "inputs"), None)
+                if not isinstance(inputs, (ast.List, ast.Tuple)):
+                    continue
+                params = [a.arg for a in [*node.args.posonlyargs, *node.args.args]]
+                for param, declared in zip(params, inputs.elts, strict=False):
+                    if _rooted_at_east(declared, ctx):
+                        names.add(param)
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(ctx.tree):
+            if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)):
+                continue
+            target = node.targets[0].id
+            if target in names:
+                continue
+            root = _chain_root(node.value)
+            if _rooted_at_east(node.value, ctx) or (isinstance(root, ast.Name) and root.id in names):
+                names.add(target)
+                changed = True
+    return names
+
+
 def collect_bodies(ctx: Context) -> None:
     """Find every body and its nesting; fill their parameter and expression names."""
     defs = {n.name: n for n in ctx.tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
@@ -158,9 +217,15 @@ def collect_bodies(ctx: Context) -> None:
             for d in node.decorator_list:
                 if _is_east_ctor_call(d, ctx):
                     root(node, "function", _declared_arity(d))  # type: ignore[arg-type]
-    # eager callbacks: a lambda / def passed straight to a callback-taking method
+    # eager callbacks: a lambda / def passed straight to a callback-taking
+    # method of an evidenced East value
+    evidence = east_evidence(ctx)
     for node in ast.walk(ctx.tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in CALLBACK_METHODS:
+            receiver = _chain_root(node.func.value)
+            if not (isinstance(receiver, ast.Name) and receiver.id in evidence) \
+                    and not _rooted_at_east(node.func.value, ctx):
+                continue
             for arg in [*node.args, *(k.value for k in node.keywords)]:
                 if isinstance(arg, ast.Lambda):
                     root(arg, "eager", None)

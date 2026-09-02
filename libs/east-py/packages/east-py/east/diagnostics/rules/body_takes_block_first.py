@@ -7,7 +7,9 @@
 The build refuses a body with no parameters, a function body whose
 parameter count is not the declared count plus the block, and any use of
 the block as a value (``lambda x: x.price`` reads ``x.price`` off the
-block). The same three messages, at edit time.
+block). The same three messages, at edit time. Handing the block on to a
+python helper (``helper(b, x)``) is how bodies compose and is not a use
+as a value.
 """
 
 from __future__ import annotations
@@ -54,6 +56,9 @@ class BodyTakesBlockFirst:
                 parent = parents.get(id(node))
                 if isinstance(parent, ast.Attribute) and parent.value is node:
                     continue  # `b.let(...)` — the block used as the block
+                if isinstance(parent, ast.Call) and any(a is node for a in parent.args) \
+                        and not body.is_expression(parent.func):
+                    continue  # `helper(b, x)` — the block handed to a builder helper
                 ctx.report(node, self,
                            f"the first parameter of a body is the block, which cannot be used as a "
                            f"value ({_op(parent, node)}) — {_BLOCK_FIRST}")
