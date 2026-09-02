@@ -12,8 +12,10 @@ body receives, python's ``$``) and the builtin table's
 
 - a Function/AsyncFunction is a decorated ``def`` taking the block first —
   ``@East.function([types], out) def _fN(b, params)`` (the root carries
-  ``cse=False``); nested functions are expressions of the enclosing body,
-  as in TypeScript;
+  ``cse=False``); a nested function is an expression of the enclosing body,
+  as in TypeScript — ``East.function([types], out, lambda b, …: expr)`` when
+  its body is one expression, else a decorated ``def _fN`` defined just
+  before the statement that uses it;
 - a Block is that def's statements; the block's last node prints as
   ``return <expr>`` when it is an expression, or as the statement it is;
 - Let/Assign/Return/Break/Continue/Error, a Null-typed IfElse/Match/While/
@@ -24,10 +26,12 @@ body receives, python's ``$``) and the builtin table's
 - every other node prints as an expression: literals as python literals,
   Struct/Variant/NewArray/… through ``East.value(..., T)`` and the
   ``East.new_*`` constructors — a construction bound by a Let as the python
-  literal with the type on the binding, ``x = b.let({1: 'a'}, T)`` (a dict
-  literal only when python can hash its keys, i.e. they are literals; a set
-  keeps ``East.new_set`` — a python set literal loses the element order),
-  and an Option case as ``some(v)`` / ``none`` — an expression
+  literal with the type on the binding, ``x = b.let({1: 'a'}, T)``, printed
+  by ``literal_for(T)``, a factory over the type (as ``compare_for`` is)
+  under which a construction nested anywhere prints bare (a dict literal
+  only when python can hash its keys, i.e. they are literals; a set keeps
+  ``East.new_set`` — a python set literal loses the element order), and an
+  Option case as ``some(v)`` / ``none`` — an expression
   IfElse/Match/TryCatch through
   ``East.if_else`` / ``.match({...})`` / ``East.try_catch``, a Builtin
   through its spelling row (callbacks as ``lambda b, …: …``, or ``def
@@ -60,7 +64,7 @@ from datetime import datetime
 from typing import Any
 
 from east.codegen.spellings import spelling_for
-from east.codegen.types import TYPE_IMPORTS, type_key, type_source
+from east.codegen.types import TYPE_IMPORTS, type_constructors, type_key, type_source
 from east.functions import IMPORT_PLATFORM
 from east.types.types import EastType
 from east.types.values import EastVariant
@@ -160,6 +164,7 @@ class _Printer:
     def __init__(self, root_name: str) -> None:
         self.root_name = root_name
         self.types: dict[str, tuple[str, str]] = {}      # type key -> (const name, source)
+        self.literals: dict[str, Any] = {}               # type key -> its host-literal printer
         self.platforms: dict[tuple, str] = {}             # signature -> const name
         self.platform_decls: list[str] = []
         self.helper_counter = 0
@@ -167,7 +172,8 @@ class _Printer:
         self.var_counter = 0
         self.raw_builtins: set[str] = set()
         self.uses_datetime = False
-        self.uses_variant = False
+        #: the names the printed module imports from ``east`` — exactly the ones it uses
+        self.used: set[str] = {"East"}
 
     # ── module-level pieces ──────────────────────────────────────────────
 
@@ -175,6 +181,7 @@ class _Printer:
         """A type as source: a primitive name, or a constructor source that
         fits on a line, inline; a wider or recursive type hoisted to a
         ``_tN`` constant."""
+        type_constructors(t, self.used)
         if t.type in ("Null", "Never", "Boolean", "Integer", "Float", "String", "DateTime", "Blob"):
             return type_source(t)
         source = type_source(t)
@@ -260,8 +267,22 @@ class _Printer:
         ]
 
     def function_expr(self, node: Any, scope: _Scope, pre: list[str]) -> str:
-        """A nested Function as an expression: its decorated def goes to
-        ``pre``; the expression is its name."""
+        """A nested Function as an expression: ``East.function([types], out,
+        lambda b, params: expr)`` when its body is one expression (as a
+        callback prints); otherwise its decorated ``def _fN`` goes to
+        ``pre`` and the expression is its name."""
+        p = node.value
+        if not _has_statements(p["body"]):
+            inner = _Scope(scope)
+            params = [self.bind(inner, v) for v in p["parameters"]]
+            sub: list[str] = []
+            text = self.expr(p["body"], inner, sub)
+            if not sub:
+                fn_t = p["type"]
+                ctor = "East.asyncFunction" if node.type == "AsyncFunction" else "East.function"
+                inputs = ", ".join(self.type_ref(t) for t in fn_t.value["inputs"])
+                out = self.type_ref(fn_t.value["output"])
+                return f"{ctor}([{inputs}], {out}, lambda {', '.join([_BLOCK, *params])}: {text})"
         name = self.fresh_helper("f")
         pre.extend(self.function_def(node, scope, name))
         return name
@@ -338,8 +359,10 @@ class _Printer:
             typed = "" if type_key(var_t) == type_key(p["value"].value["type"]) \
                 else f", {self.type_ref(var_t)}"
             # A bound construction is the python literal with the type on the
-            # binding (`x = b.let({1: 'a'}, T)`), as the surface is written.
-            literal = self.host_literal(p["value"], scope, pre, 0) if typed == "" else None
+            # binding (`x = b.let({1: 'a'}, T)`), as the surface is written; a
+            # scalar literal needs no type (`b.let(0)`) and stays an expression.
+            literal = (self.literal_for(var_t)(p["value"], scope, pre, 0)
+                       if typed == "" and p["value"].type != "Value" else None)
             if literal is not None:
                 typed = f", {self.type_ref(var_t)}"
             value = literal if literal is not None else self.expr(p["value"], scope, pre)
@@ -379,6 +402,7 @@ class _Printer:
         # an expression in statement position
         if last:
             if _is_null_value(node):
+                self.used.add("east_null")
                 return ["return east_null"]
             value = self.expr(node, scope, pre)
             return [*pre, f"return {value}"]
@@ -442,6 +466,7 @@ class _Printer:
         if kind == "Value":
             lit = p["value"]
             if lit.type == "Null":
+                self.used.add("east_null")
                 return "east_null"
             if lit.type == "DateTime":
                 self.uses_datetime = True
@@ -469,8 +494,9 @@ class _Printer:
         if kind in ("Call", "CallAsync"):
             fn = self.expr(p["function"], scope, pre, d)
             args = ", ".join(self.expr(a, scope, pre, d) for a in p["arguments"])
+            # a callee that already prints as a call, a member or a name needs no parentheses
             if p["function"].type not in ("Variable", "GetField", "Call", "CallAsync", "Function",
-                                          "AsyncFunction"):
+                                          "AsyncFunction", "Builtin", "Platform"):
                 fn = f"({fn})"
             return f"{fn}({args})"
         if kind == "GetField":
@@ -480,7 +506,7 @@ class _Printer:
                 return f"{base}.{name}"
             return f"{base}.field({name!r})"
         if kind in ("Struct", "Variant"):
-            return f"East.value({self.host_literal(node, scope, pre, depth)}, {self.type_ref(p['type'])})"
+            return f"East.value({self.literal_for(p['type'])(node, scope, pre, depth)}, {self.type_ref(p['type'])})"
         if kind in ("NewArray", "NewSet", "NewVector"):
             values = ", ".join(self.expr(v, scope, pre, d) for v in p["values"])
             ctor = {"NewArray": "new_array", "NewSet": "new_set", "NewVector": "new_vector"}[kind]
@@ -501,8 +527,12 @@ class _Printer:
         if kind == "As":
             return f"East.as_({self.expr(p['value'], scope, pre, d)}, {self.type_ref(p['type'])})"
         if kind == "WrapRecursive":
-            return (f"East.wrap_recursive({self.expr(p['value'], scope, pre, d)}, "
-                    f"{self.type_ref(p['type'])})")
+            # the wrapper's inner type governs the wrapped value: a construction prints bare
+            payload = p["type"].value
+            inner = payload.value["inner"] if payload.type == "wrapper" else None
+            literal = self.literal_for(inner)(p["value"], scope, pre, d) if inner is not None else None
+            value = literal if literal is not None else self.expr(p["value"], scope, pre, d)
+            return f"East.wrap_recursive({value}, {self.type_ref(p['type'])})"
         if kind == "UnwrapRecursive":
             return f"{self.expr(p['value'], scope, pre, d)}.unwrap()"
         if kind == "Error":
@@ -534,39 +564,96 @@ class _Printer:
             raise Unprintable(f"{kind} node in expression position")
         raise Unprintable(f"unknown node kind {kind}")
 
-    def host_literal(self, node: Any, scope: _Scope, pre: list[str], depth: int) -> str | None:
-        """A construction node as the python value the surface lifts — a dict
-        for a Struct, ``some(v)`` / ``none`` / ``variant(c, v)``, a list, and
-        a dict literal when every key is a literal (python hashes them) — or
-        ``None`` for any other node: a dict keyed by expressions and every
-        set (``East.new_dict`` / ``East.new_set`` spell those — a python set
-        literal iterates in hash order and would lose the element order the
-        IR carries). ``East.value(<literal>, T)`` in expression position;
-        ``x = b.let(<literal>, T)`` for a binding."""
-        p = node.value
-        d = depth + 1
-        kind = node.type
+    def literal_for(self, t: EastType) -> Any:
+        """The host-literal printer for values of type ``t`` — a factory over
+        the TYPE, as ``compare_for(t)`` and ``equal_for(t)`` are: the factory
+        for a Dict holds the factories for its key and value types, and so on
+        down, so the one type on a binding governs every position of the
+        literal and a construction nested anywhere prints bare. Applied to a
+        node it returns the literal, or ``None`` when the node is not the
+        construction its position's type expects (a variable, a call, a
+        widening, a function) — the caller prints that as an expression. A
+        Set position always yields ``None`` (a python set literal iterates in
+        hash order and would lose the element order the IR carries), as does
+        a Dict keyed by expressions (python cannot hash them):
+        ``East.new_set`` / ``East.new_dict`` spell those."""
+        key = type_key(t)
+        hit = self.literals.get(key)
+        if hit is None:
+            hit = self.literals[key] = self._make_literal(t)
+        return hit
+
+    def _make_literal(self, t: EastType) -> Any:
+        kind = t.type
+
+        def child(u: EastType) -> Any:
+            inner = self.literal_for(u)
+
+            def print_child(node: Any, scope: _Scope, pre: list[str], depth: int) -> str:
+                text = inner(node, scope, pre, depth)
+                return text if text is not None else self.expr(node, scope, pre, depth)
+            return print_child
+
+        def as_expr(node: Any, scope: _Scope, pre: list[str], depth: int) -> str:
+            return self.expr(node, scope, pre, depth)
+
+        if kind in ("Null", "Boolean", "Integer", "Float", "String", "DateTime", "Blob"):
+            def scalar(node: Any, scope: _Scope, pre: list[str], depth: int) -> str | None:
+                return self.expr(node, scope, pre, depth) if node.type == "Value" else None
+            return scalar
+        if kind == "Array":
+            elem = child(t.value)
+
+            def array(node: Any, scope: _Scope, pre: list[str], depth: int) -> str | None:
+                if node.type != "NewArray":
+                    return None
+                return f"[{', '.join(elem(v, scope, pre, depth + 1) for v in node.value['values'])}]"
+            return array
+        if kind == "Dict":
+            key_print, value = child(t.value["key"]), child(t.value["value"])
+
+            def dict_(node: Any, scope: _Scope, pre: list[str], depth: int) -> str | None:
+                if node.type != "NewDict":
+                    return None
+                entries = list(node.value["values"])
+                if not all(e["key"].type == "Value" for e in entries):
+                    return None
+                items = ", ".join(
+                    f"{key_print(e['key'], scope, pre, depth + 1)}: {value(e['value'], scope, pre, depth + 1)}"
+                    for e in entries)
+                return f"{{{items}}}"
+            return dict_
         if kind == "Struct":
-            fields = ", ".join(f"{f['name']!r}: {self.expr(f['value'], scope, pre, d)}"
-                               for f in p["fields"])
-            return f"{{{fields}}}"
+            fields = {f["name"]: child(f["type"]) for f in t.value}
+
+            def struct(node: Any, scope: _Scope, pre: list[str], depth: int) -> str | None:
+                if node.type != "Struct":
+                    return None
+                items = ", ".join(
+                    f"{f['name']!r}: {fields.get(f['name'], as_expr)(f['value'], scope, pre, depth + 1)}"
+                    for f in node.value["fields"])
+                return f"{{{items}}}"
+            return struct
         if kind == "Variant":
-            self.uses_variant = True
-            if _is_option_type(p["type"]):
-                if p["case"] == "none":
+            cases = {c["name"]: child(c["type"]) for c in t.value}
+            option = _is_option_type(t)
+
+            def variant_(node: Any, scope: _Scope, pre: list[str], depth: int) -> str | None:
+                if node.type != "Variant":
+                    return None
+                case = node.value["case"]
+                if option and case == "none":
+                    self.used.add("none")
                     return "none"
-                return f"some({self.expr(p['value'], scope, pre, d)})"
-            return f"variant({p['case']!r}, {self.expr(p['value'], scope, pre, d)})"
-        if kind == "NewArray":
-            return f"[{', '.join(self.expr(v, scope, pre, d) for v in p['values'])}]"
-        if kind == "NewDict":
-            entries = list(p["values"])
-            if not all(e["key"].type == "Value" for e in entries):
-                return None
-            items = ", ".join(f"{self.expr(e['key'], scope, pre, d)}: {self.expr(e['value'], scope, pre, d)}"
-                              for e in entries)
-            return f"{{{items}}}"
-        return None
+                payload = cases.get(case, as_expr)(node.value["value"], scope, pre, depth + 1)
+                self.used.add("some" if option else "variant")
+                return f"some({payload})" if option else f"variant({case!r}, {payload})"
+            return variant_
+
+        # Set, Ref, Vector, Matrix, Function, AsyncFunction, Recursive, Never: no python literal here
+        def none_(_node: Any, _scope: _Scope, _pre: list[str], _depth: int) -> str | None:
+            return None
+        return none_
 
     def traced_expr(self, node: Any, scope: _Scope, pre: list[str], depth: int) -> str:
         """An expression that must be a traced Expression, not a python
@@ -574,6 +661,7 @@ class _Printer:
         if node.type == "Value":
             lit = node.value["value"]
             if lit.type == "Null":
+                self.used.update(("east_null", "NullType"))
                 return "East.value(east_null, NullType)"
             if lit.type == "DateTime":
                 self.uses_datetime = True
@@ -717,14 +805,13 @@ class _Printer:
         self.var_counter = _next_v_index(ir)
         # A python artifact's hoisted constants become the body's consts.
         fn_lines = self.function_def(root, _Scope(None), self.root_name, consts=consts, root=True)
+        # exactly the names the module uses, in one fixed order
+        names = [n for n in ("East", "variant", "some", "none", "east_null", "recursive_type", *TYPE_IMPORTS)
+                 if n in self.used]
         lines = [
             "# Generated by east-py transpile — East IR printed as the East.function",
             "# builder surface. Rebuilding this module yields the same IR (normalized).",
-            "from east import (  # noqa: F401",
-            "    East, variant, some, none, east_null,",
-            "    " + ", ".join(TYPE_IMPORTS) + ",",
-            ")",
-            "from east.types.types import recursive_type  # noqa: F401",
+            f"from east import {', '.join(names)}",
         ]
         if self.uses_datetime:
             lines.append("from datetime import datetime, timezone")

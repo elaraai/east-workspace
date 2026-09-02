@@ -19,7 +19,7 @@ from typing import Any
 
 from east.types.types import EastType
 
-__all__ = ["type_source", "TYPE_IMPORTS"]
+__all__ = ["type_source", "type_constructors", "TYPE_IMPORTS"]
 
 #: The names a printed module imports from ``east`` for type source.
 TYPE_IMPORTS = (
@@ -77,6 +77,52 @@ def type_source(t: EastType, scope: list[tuple[int, str]] | None = None) -> str:
         name = "self" if not scope else f"self{len(scope) + 1}"
         inner = type_source(payload.value["inner"], [*scope, (rec_id, name)])
         return f"recursive_type(lambda {name}: {inner})"
+    raise ValueError(f"unknown type kind {kind}")
+
+
+def type_constructors(t: EastType, into: set[str]) -> None:
+    """Adds to ``into`` the constructor names ``type_source(t)`` spells —
+    what a printed module must import for the type. A walk over the type,
+    case for case with :func:`type_source`."""
+    kind = t.type
+    if kind in _PRIMITIVES:
+        into.add(_PRIMITIVES[kind])
+        return
+    if kind in ("Array", "Set", "Ref", "Vector", "Matrix"):
+        into.add(f"{kind}Type")
+        type_constructors(t.value, into)
+        return
+    if kind == "Dict":
+        into.add("DictType")
+        type_constructors(t.value["key"], into)
+        type_constructors(t.value["value"], into)
+        return
+    if kind == "Struct":
+        into.add("StructType")
+        for f in t.value:
+            type_constructors(f["type"], into)
+        return
+    if kind == "Variant":
+        if _is_option(t):
+            into.add("OptionType")
+            type_constructors(t.value[1]["type"], into)
+            return
+        into.add("VariantType")
+        for c in t.value:
+            type_constructors(c["type"], into)
+        return
+    if kind in ("Function", "AsyncFunction"):
+        into.add(f"{kind}Type")
+        for i in t.value["inputs"]:
+            type_constructors(i, into)
+        type_constructors(t.value["output"], into)
+        return
+    if kind == "Recursive":
+        payload = t.value
+        if payload.type == "wrapper":
+            into.add("recursive_type")
+            type_constructors(payload.value["inner"], into)
+        return
     raise ValueError(f"unknown type kind {kind}")
 
 

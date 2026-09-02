@@ -263,9 +263,12 @@ describe("codegen: toSource round trips the builder surface", () => {
       const opt = $.const(some(n), OptionType(IntegerType));
       const nothing = $.const(none, OptionType(IntegerType));
       const picked = $.const(East.value([some(n), none], ArrayType(OptionType(IntegerType))));
+      const nested = $.const(new Map([["a", new Set([1n, 2n])], ["b", new Set([3n])]]), DictType(StringType, SetType(IntegerType)));
+      const rows = $.const([{ x: 1.5, y: 2.5, "odd-name": n }, { x: 0.0, y: 0.0, "odd-name": 0n }], ArrayType(Point));
+      const deep = $.const(some({ x: 1.0, y: 2.0, "odd-name": n }), OptionType(Point));
       return p["odd-name"].add(arr.size()).add(set.size()).add(dict.size()).add(vec.length()).add(head)
         .add(unwide).add(cell.get()).add(opt.unwrap()).add(nothing.match({ some: ($, v) => v, none: ($) => 0n }))
-        .add(picked.size());
+        .add(picked.size()).add(nested.size()).add(rows.size()).add(deep.unwrap()["odd-name"]);
     });
     const source = toSource(fn, { importFrom: INDEX_URL });
     // A bound construction is the host literal with the type on the binding; an Option is `some` / `none`.
@@ -277,10 +280,18 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.match(source, /const wide = \$\.const\(variant\("a", n\), VariantType\(\{ a: IntegerType, b: StringType \}\)\);/);  // a literal under East.as is retyped, no As node
     assert.match(source, /const opt = \$\.const\(some\(n\), OptionType\(IntegerType\)\);/);
     assert.match(source, /const nothing = \$\.const\(none, OptionType\(IntegerType\)\);/);
-    assert.match(source, /const picked = \$\.const\(\[East\.value\(some\(n\), OptionType\(IntegerType\)\), East\.value\(none, OptionType\(IntegerType\)\)\], ArrayType\(OptionType\(IntegerType\)\)\);/);
+    // The binding's type governs the whole literal: a construction nested anywhere inside prints bare.
+    assert.match(source, /const picked = \$\.const\(\[some\(n\), none\], ArrayType\(OptionType\(IntegerType\)\)\);/);
+    assert.match(source, /const nested = \$\.const\(new Map\(\[\["a", new Set\(\[1n, 2n\]\)\], \["b", new Set\(\[3n\]\)\]\]\), DictType\(StringType, SetType\(IntegerType\)\)\);/);
+    assert.match(source, /const rows = \$\.const\(\[\{ x: 1\.5, y: 2\.5, "odd-name": n \}, \{ x: 0, y: 0, "odd-name": 0n \}\], ArrayType\(StructType\(\{ x: FloatType, y: FloatType, "odd-name": IntegerType \}\)\)\);/);
+    assert.match(source, /const deep = \$\.const\(some\(\{ x: 1, y: 2, "odd-name": n \}\), OptionType\(StructType\(\{ x: FloatType, y: FloatType, "odd-name": IntegerType \}\)\)\);/);
+    assert.doesNotMatch(source, /\$\.const\([^\n]*East\.value\(/, "no East.value inside a bound literal");
+    // The module imports exactly what it uses: the literal helpers and type constructors this program spells, nothing else.
+    assert.match(source, /^import \{ East, variant, some, none, ref, NullType, IntegerType, FloatType, StringType, ArrayType, SetType, DictType, StructType, VariantType, OptionType, RefType, VectorType, RecursiveType \} from /m);
     assert.doesNotMatch(source, /^const _t\d+ = (?:OptionType|ArrayType|DictType)\(/m);
     assert.match(source, /^const _t\d+ = RecursiveType\(self => /m);  // a recursive type is always hoisted
-    assert.match(source, /const nil = \$\.const\(East\.wrapRecursive\(East\.value\(variant\("nil", null\), _t\d+\), _t\d+\)\);/);
+    assert.match(source, /const nil = \$\.const\(East\.wrapRecursive\(variant\("nil", null\), _t\d+\)\);/);  // the wrapper's inner type governs the wrapped literal
+    assert.match(source, /const list = \$\.const\(East\.wrapRecursive\(variant\("cons", \{ head: n, tail: nil \}\), _t\d+\)\);/);
     const main = await roundTrip(fn, "values");
     assert.equal(main.toIR().compile([])(5n), fn.toIR().compile([])(5n));
   });

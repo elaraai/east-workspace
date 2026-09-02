@@ -391,9 +391,7 @@ const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n
 console.log(East.toSource(double));
 // import { East, Expr, variant, ref, matrix, IntegerType, ... } from "@elaraai/east";
 //
-// export const main = East.function([IntegerType], IntegerType, ($, x) => {
-//   return x.multiply(2n);
-// });
+// export const main = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
 
 writeFileSync("double.beast2", encodeEastIR(double.toIR()));   // hand the IR to python …
 ```

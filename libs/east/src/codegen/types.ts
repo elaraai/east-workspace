@@ -110,3 +110,64 @@ export function typeSource(t: EastTypeValue, scope: [bigint, string][] = []): st
 export function typeKey(t: EastTypeValue): string {
   return typeSource(t);
 }
+
+/**
+ * Adds to `into` the constructor names `typeSource(t)` spells — what a
+ * printed module must import for the type. A walk over the type, case for
+ * case with {@link typeSource}.
+ *
+ * @param t - The type value
+ * @param into - The set of imported names being collected
+ */
+export function typeConstructors(t: EastTypeValue, into: Set<string>): void {
+  const kind = t.type;
+  const primitive = PRIMITIVES[kind];
+  if (primitive !== undefined) {
+    into.add(primitive);
+    return;
+  }
+  if (kind === "Array" || kind === "Set" || kind === "Ref" || kind === "Vector" || kind === "Matrix") {
+    into.add(`${kind}Type`);
+    typeConstructors(t.value as EastTypeValue, into);
+    return;
+  }
+  if (kind === "Dict") {
+    const d = t.value as { key: EastTypeValue, value: EastTypeValue };
+    into.add("DictType");
+    typeConstructors(d.key, into);
+    typeConstructors(d.value, into);
+    return;
+  }
+  if (kind === "Struct") {
+    into.add("StructType");
+    for (const f of t.value as { name: string, type: EastTypeValue }[]) typeConstructors(f.type, into);
+    return;
+  }
+  if (kind === "Variant") {
+    const cases = t.value as { name: string, type: EastTypeValue }[];
+    if (isOptionValue(t)) {
+      into.add("OptionType");
+      typeConstructors(cases[1]!.type, into);
+      return;
+    }
+    into.add("VariantType");
+    for (const c of cases) typeConstructors(c.type, into);
+    return;
+  }
+  if (kind === "Function" || kind === "AsyncFunction") {
+    const f = t.value as { inputs: EastTypeValue[], output: EastTypeValue };
+    into.add(`${kind}Type`);
+    for (const i of f.inputs) typeConstructors(i, into);
+    typeConstructors(f.output, into);
+    return;
+  }
+  if (kind === "Recursive") {
+    const payload = t.value as { type: "ref", value: bigint } | { type: "wrapper", value: { id: bigint, inner: EastTypeValue } };
+    if (payload.type === "wrapper") {
+      into.add("RecursiveType");
+      typeConstructors(payload.value.inner, into);
+    }
+    return;
+  }
+  throw new Error(`unknown type kind ${kind}`);
+}

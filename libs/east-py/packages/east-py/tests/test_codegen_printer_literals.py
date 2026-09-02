@@ -24,6 +24,7 @@ from east.types.types import (
     DictType,
     IntegerType,
     OptionType,
+    SetType,
     StringType,
     StructType,
 )
@@ -42,8 +43,12 @@ def bound(b, n):
     keyed = b.let(East.new_dict(IntegerType, StringType, [(n, "k")]))  # an expression key: no python literal
     empty = b.let({}, DictType(IntegerType, StringType))
     picked = b.const([some(n), none], ArrayType(OptionType(IntegerType)))
+    nested = b.const({"a": East.new_set(IntegerType, [2, 1]), "b": East.new_set(IntegerType, [n])},
+                     DictType(StringType, SetType(IntegerType)))
+    rows = b.const([{"x": n, "y": "s"}, {"x": 0, "y": ""}], ArrayType(Row))
+    deep = b.const(some({"x": n, "y": "s"}), OptionType(Row))
     return (d.size() + a.size() + s.size() + row.x + o.unwrap() + nothing.unwrap_or(0)
-            + keyed.size() + empty.size() + picked.size())
+            + keyed.size() + empty.size() + picked.size() + nested.size() + rows.size() + deep.unwrap().x)
 
 
 def test_bound_constructions_print_as_literals_with_the_type():
@@ -57,10 +62,17 @@ def test_bound_constructions_print_as_literals_with_the_type():
         r"nothing = b\.const\(none, OptionType\(IntegerType\)\)",
         r"keyed = b\.let\(East\.new_dict\(IntegerType, StringType, \[\(n, 'k'\)\]\)\)",
         r"empty = b\.let\(\{\}, DictType\(IntegerType, StringType\)\)",
-        r"picked = b\.const\(\[East\.value\(some\(n\), OptionType\(IntegerType\)\), East\.value\(none, OptionType\(IntegerType\)\)\], ArrayType\(OptionType\(IntegerType\)\)\)",
+        # the binding's type governs the whole literal: a construction nested inside prints bare
+        r"picked = b\.const\(\[some\(n\), none\], ArrayType\(OptionType\(IntegerType\)\)\)",
+        r"nested = b\.const\(\{'a': East\.new_set\(IntegerType, \[2, 1\]\), 'b': East\.new_set\(IntegerType, \[n\]\)\}, DictType\(StringType, SetType\(IntegerType\)\)\)",
+        r"rows = b\.const\(\[\{'x': n, 'y': 's'\}, \{'x': 0, 'y': ''\}\], ArrayType\(StructType\(\[\(.x., IntegerType\), \(.y., StringType\)\]\)\)\)",
+        r"deep = b\.const\(some\(\{'x': n, 'y': 's'\}\), OptionType\(StructType\(\[\(.x., IntegerType\), \(.y., StringType\)\]\)\)\)",
     ]:
         assert re.search(expected, src), f"{expected}\n{src}"
-    assert "b.let(East.value(" not in src and "b.const(East.value(" not in src
+    assert "East.value(" not in src, src  # never inside a bound literal, at any depth
+    # the module imports exactly what it uses, from the package root
+    assert "noqa" not in src and "east.types.types" not in src, src
+    assert re.search(r"^from east import East, some, none, IntegerType, StringType, ArrayType, SetType, DictType, StructType, OptionType$", src, re.M), src
     # a type whose source fits on a line is never hoisted
     assert not re.search(r"^_t\d+ = ", src, re.M), src
 

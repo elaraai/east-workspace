@@ -51,6 +51,14 @@ build(print(IR)) ≡ IR        under east-c's normalizer
   constant (deduplicated structurally), as an author names the types worth
   naming; platform declarations hoist to `_pN` (one per distinct
   signature), in first-use order.
+- **Self-contained and minimal.** A printed module imports exactly the
+  names it uses, from the package root (`@elaraai/east` / `east`): a walk
+  over every type it spells collects the constructors (`typeConstructors` /
+  `type_constructors`, case for case with `typeSource`), and the literal
+  printer the helpers (`variant`, `some`, `none`, `ref`, `matrix`,
+  `east_null`). A function whose body is one expression prints as the
+  concise form — `($, x) => x.multiply(2n)`, `lambda b: x` for a nested
+  python function — and as a block / decorated `def` otherwise.
 - **Idiomatic.** The printed source is what an author would write: the
   `$` / `b` statement forms, expression methods, `East.value(v, T)` for
   constructions, host values (a `RegExp`, a CSV options object) where the
@@ -71,7 +79,7 @@ python), so the mapping is one table.
 | `Block` | the body's statements; a last expression is `return`ed | the def's statements; a last expression is `return`ed |
 | `Let` (immutable / mutable) | `const x = $.const(v)` / `$.let(v)` | `x = b.const(v)` / `b.let(v)` |
 | `Let` with a widening `As` | `$.const(v, T)` | `b.const(v, T)` |
-| `Let` of a construction (Struct / Variant / NewArray / NewSet / NewDict / …) | the host literal, the type on the binding: `const d = $.let(new Map([…]), T)`, `$.const(some(v), T)` | `d = b.let({…}, T)`, `b.const(some(v), T)` — a dict literal only when its keys are literals (python hashes them), otherwise `East.new_dict`; a set always `East.new_set` (a python set literal iterates in hash order and would lose the element order the IR carries) |
+| `Let` of a construction (Struct / Variant / NewArray / NewSet / NewDict / …) | the host literal, the type on the binding: `const d = $.let(new Map([…]), T)`, `$.const(some(v), T)` — printed by `literalFor(T)`, a factory over the type like `compareFor`, so the one type governs every nested position and a construction inside prints bare (`new Map([["a", new Set([1n])]])`) | `d = b.let({…}, T)`, `b.const(some(v), T)` — a dict literal only when its keys are literals (python hashes them), otherwise `East.new_dict`; a set always `East.new_set` (a python set literal iterates in hash order and would lose the element order the IR carries) |
 | `Assign` | `$.assign(x, v)` | `b.assign(x, v)` |
 | `Return` / `Break` / `Continue` / `Error` | `$.return(v)` / `$.break(label)` / `$.continue(label)` / `$.error(m)` | `b.return_(v)` / `b.break_(label)` / `b.continue_(label)` / `b.error(m)` |
 | Null-typed `IfElse` (statement) | `$.if(p, $ => {…}).elseIf(p, …).else(…)` | `b.if_(p, …).else_if(p, …).else_(…)` |

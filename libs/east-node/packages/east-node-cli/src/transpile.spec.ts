@@ -43,7 +43,7 @@ describe('east-node transpile', () => {
 
             const { source, rebuilt } = await transpile(path, { rebuild: true });
             assert.match(source, /^import \{ East, .* \} from "@elaraai\/east";$/m);
-            assert.match(source, /export const main = East\.function\(\[IntegerType\], IntegerType, \(\$, x\) => \{/);
+            assert.match(source, /export const main = East\.function\(\[IntegerType\], IntegerType, \(\$, x\) => x\.multiply\(2n\)\);/);
             assert.ok(rebuilt !== undefined);
             // The rebuild is a fixpoint: printing it gives the same module back.
             assert.equal(toSource(rebuilt, {}), toSource(ir, {}));
