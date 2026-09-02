@@ -17,25 +17,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from east.codegen.doc import Doc, bracket, flat
 from east.types.types import EastType
 
-__all__ = ["type_source", "type_constructors", "layout", "LINE_WIDTH", "TYPE_IMPORTS"]
-
-#: The width past which a bracketed list breaks, one item per line.
-LINE_WIDTH = 80
-
-
-def layout(open_: str, items: list[str], close: str) -> str:
-    """``open_`` + ``items`` + ``close`` on one line when that fits
-    :data:`LINE_WIDTH` and no item breaks lines itself; otherwise one item per
-    line, indented four spaces relative to the line the bracket opens on, the
-    close back at the start — python's relative indentation, which every
-    line emitter re-indents along with the line it sits in."""
-    inline = f"{open_}{', '.join(items)}{close}"
-    if not items or (len(inline) <= LINE_WIDTH and "\n" not in inline):
-        return inline
-    body = ",\n".join("    " + item.replace("\n", "\n    ") for item in items)
-    return f"{open_}\n{body},\n{close}"
+__all__ = ["type_source", "type_doc", "type_constructors", "TYPE_IMPORTS"]
 
 #: The names a printed module imports from ``east`` for type source.
 TYPE_IMPORTS = (
@@ -59,29 +44,31 @@ def _is_option(t: EastType) -> bool:
             and t.value[1]["name"] == "some")
 
 
-def type_source(t: EastType, scope: list[tuple[int, str]] | None = None) -> str:
-    """The python source rebuilding ``t``. ``scope`` is the stack of
-    enclosing recursive wrappers as ``(id, lambda parameter name)``."""
+def type_doc(t: EastType, scope: list[tuple[int, str]] | None = None) -> Doc:
+    """The layout document of the python source rebuilding ``t``: a struct,
+    variant or parameter list breaks one entry per line when the line it
+    sits on would pass the width (``east.codegen.doc``). ``scope`` is the
+    stack of enclosing recursive wrappers as ``(id, lambda parameter
+    name)``."""
     scope = scope if scope is not None else []
     kind = t.type
     if kind in _PRIMITIVES:
         return _PRIMITIVES[kind]
     if kind in ("Array", "Set", "Ref", "Vector", "Matrix"):
-        return f"{kind}Type({type_source(t.value, scope)})"
+        return [f"{kind}Type(", type_doc(t.value, scope), ")"]
     if kind == "Dict":
-        return (f"DictType({type_source(t.value['key'], scope)}, "
-                f"{type_source(t.value['value'], scope)})")
+        return ["DictType(", type_doc(t.value["key"], scope), ", ", type_doc(t.value["value"], scope), ")"]
     if kind == "Struct":
-        fields = [f"({f['name']!r}, {type_source(f['type'], scope)})" for f in t.value]
-        return layout("StructType([", fields, "])")
+        fields = [["(", repr(f["name"]), ", ", type_doc(f["type"], scope), ")"] for f in t.value]
+        return ["StructType(", bracket("[", fields, "]"), ")"]
     if kind == "Variant":
         if _is_option(t):
-            return f"OptionType({type_source(t.value[1]['type'], scope)})"
-        cases = [f"({c['name']!r}, {type_source(c['type'], scope)})" for c in t.value]
-        return layout("VariantType([", cases, "])")
+            return ["OptionType(", type_doc(t.value[1]["type"], scope), ")"]
+        cases = [["(", repr(c["name"]), ", ", type_doc(c["type"], scope), ")"] for c in t.value]
+        return ["VariantType(", bracket("[", cases, "]"), ")"]
     if kind in ("Function", "AsyncFunction"):
-        inputs = layout("[", [type_source(i, scope) for i in t.value["inputs"]], "]")
-        return f"{kind}Type({inputs}, {type_source(t.value['output'], scope)})"
+        inputs = bracket("[", [type_doc(i, scope) for i in t.value["inputs"]], "]")
+        return [f"{kind}Type(", inputs, ", ", type_doc(t.value["output"], scope), ")"]
     if kind == "Recursive":
         payload = t.value
         if payload.type == "ref":
@@ -91,9 +78,15 @@ def type_source(t: EastType, scope: list[tuple[int, str]] | None = None) -> str:
             raise ValueError(f"recursive ref {payload.value} outside its wrapper")
         rec_id = payload.value["id"]
         name = "self" if not scope else f"self{len(scope) + 1}"
-        inner = type_source(payload.value["inner"], [*scope, (rec_id, name)])
-        return f"recursive_type(lambda {name}: {inner})"
+        inner = type_doc(payload.value["inner"], [*scope, (rec_id, name)])
+        return [f"recursive_type(lambda {name}: ", inner, ")"]
     raise ValueError(f"unknown type kind {kind}")
+
+
+def type_source(t: EastType, scope: list[tuple[int, str]] | None = None) -> str:
+    """The python source rebuilding ``t``, on one line. ``scope`` is the
+    stack of enclosing recursive wrappers as ``(id, lambda parameter name)``."""
+    return flat(type_doc(t, scope))
 
 
 def type_constructors(t: EastType, into: set[str]) -> None:

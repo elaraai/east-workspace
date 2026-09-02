@@ -87,9 +87,11 @@ uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
    IR in east-c, bind platform functions, `native_function_for` — the eager
    callbacks' native handles), `platform.py`, `builtin_signatures.py` (the
    builtin → type signature table), `memo.py`, `errors.py`.
-6. **`east/codegen/`** — the IR → python printer (`printer.py`) and the
+6. **`east/codegen/`** — the IR → python printer (`printer.py`), the
    builtin spelling table (`spellings.py`) it shares with the compliance
-   replay, so what the printer writes is what the replay executes (#627).
+   replay, so what the printer writes is what the replay executes (#627),
+   and `doc.py`, the layout document algebra the source is written in
+   (black's shape over prettier's model; pinned in `tests/test_codegen_doc.py`).
 7. **`east/functions.py`** — cross-language functions (#628): the function
    manifest type, `East.export_functions` / `import_function` /
    `link_imports` (name for name with `libs/east/src/functions.ts`); the CLI

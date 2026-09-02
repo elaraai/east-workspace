@@ -17,6 +17,7 @@
  */
 
 import type { EastTypeValue } from "../type_of_type.js";
+import { type Doc, bracket, flat } from "./doc.js";
 
 /** The names a printed module imports from `@elaraai/east` for type source. */
 export const TYPE_IMPORTS = [
@@ -41,71 +42,47 @@ export function isOptionValue(t: EastTypeValue): boolean {
 
 const IDENT = /^[A-Za-z_$][\w$]*$/;
 
-/** The width past which a bracketed list breaks, one item per line. */
-export const LINE_WIDTH = 80;
-
-/**
- * `open` + `items` + `close` on one line when that fits {@link LINE_WIDTH}
- * and no item breaks lines itself; otherwise one item per line, indented
- * two past `indent`, the close back at `indent`. `pad` is the space inside
- * the one-line brackets (`{ a: T }`).
- */
-export function layout(open: string, items: string[], close: string, indent: string, pad: string = ""): string {
-  const inline = `${open}${pad}${items.join(", ")}${pad}${close}`;
-  if (items.length === 0 || (inline.length <= LINE_WIDTH && !inline.includes("\n"))) return inline;
-  const inner = `${indent}  `;
-  return `${open}\n${items.map(i => `${inner}${i},`).join("\n")}\n${indent}${close}`;
-}
-
 /** A struct field / variant case name as a JavaScript object key. */
 export function objectKey(name: string): string {
   return IDENT.test(name) ? name : JSON.stringify(name);
 }
 
 /**
- * Prints an East type value as the TypeScript source that rebuilds it. A
- * struct, variant or parameter list wider than {@link LINE_WIDTH} breaks
- * one entry per line, indented past `indent`.
+ * An East type value as the layout document of the TypeScript source that
+ * rebuilds it: a struct, variant or parameter list breaks one entry per
+ * line when the line it sits on would pass the width (`codegen/doc`).
  *
  * @param t - The type value (the `type` field of an IR node, a type parameter)
  * @param scope - The stack of enclosing recursive wrappers as `[id, parameter name]`
- * @param indent - The indentation of the line the type starts on
- * @returns TypeScript source such as `DictType(StringType, ArrayType(IntegerType))`
+ * @returns The document; {@link typeSource} is its one-line rendering
  * @throws {Error} When a recursive `ref` has no enclosing wrapper in `scope`
- *
- * @example
- * ```ts
- * typeSource(toEastTypeValue(ArrayType(OptionType(IntegerType))));
- * // "ArrayType(OptionType(IntegerType))"
- * ```
  */
-export function typeSource(t: EastTypeValue, scope: [bigint, string][] = [], indent: string = ""): string {
+export function typeDoc(t: EastTypeValue, scope: [bigint, string][] = []): Doc {
   const kind = t.type;
   const primitive = PRIMITIVES[kind];
   if (primitive !== undefined) return primitive;
-  const inner = `${indent}  `;
   if (kind === "Array" || kind === "Set" || kind === "Ref" || kind === "Vector" || kind === "Matrix") {
-    return `${kind}Type(${typeSource(t.value as EastTypeValue, scope, indent)})`;
+    return [`${kind}Type(`, typeDoc(t.value as EastTypeValue, scope), ")"];
   }
   if (kind === "Dict") {
     const d = t.value as { key: EastTypeValue, value: EastTypeValue };
-    return `DictType(${typeSource(d.key, scope, indent)}, ${typeSource(d.value, scope, indent)})`;
+    return ["DictType(", typeDoc(d.key, scope), ", ", typeDoc(d.value, scope), ")"];
   }
   if (kind === "Struct") {
     const fields = (t.value as { name: string, type: EastTypeValue }[])
-      .map(f => `${objectKey(f.name)}: ${typeSource(f.type, scope, inner)}`);
-    return layout("StructType({", fields, "})", indent, " ");
+      .map((f): Doc => [objectKey(f.name), ": ", typeDoc(f.type, scope)]);
+    return ["StructType(", bracket("{", fields, "}", " "), ")"];
   }
   if (kind === "Variant") {
     const cases = t.value as { name: string, type: EastTypeValue }[];
-    if (isOptionValue(t)) return `OptionType(${typeSource(cases[1]!.type, scope, indent)})`;
-    const parts = cases.map(c => `${objectKey(c.name)}: ${typeSource(c.type, scope, inner)}`);
-    return layout("VariantType({", parts, "})", indent, " ");
+    if (isOptionValue(t)) return ["OptionType(", typeDoc(cases[1]!.type, scope), ")"];
+    const parts = cases.map((c): Doc => [objectKey(c.name), ": ", typeDoc(c.type, scope)]);
+    return ["VariantType(", bracket("{", parts, "}", " "), ")"];
   }
   if (kind === "Function" || kind === "AsyncFunction") {
     const f = t.value as { inputs: EastTypeValue[], output: EastTypeValue };
-    const inputs = layout("[", f.inputs.map(i => typeSource(i, scope, inner)), "]", indent);
-    return `${kind}Type(${inputs}, ${typeSource(f.output, scope, indent)})`;
+    const inputs = bracket("[", f.inputs.map(i => typeDoc(i, scope)), "]");
+    return [`${kind}Type(`, inputs, ", ", typeDoc(f.output, scope), ")"];
   }
   if (kind === "Recursive") {
     const payload = t.value as { type: "ref", value: bigint } | { type: "wrapper", value: { id: bigint, inner: EastTypeValue } };
@@ -116,10 +93,29 @@ export function typeSource(t: EastTypeValue, scope: [bigint, string][] = [], ind
       throw new Error(`recursive ref ${payload.value} outside its wrapper`);
     }
     const name = scope.length === 0 ? "self" : `self${scope.length + 1}`;
-    const body = typeSource(payload.value.inner, [...scope, [payload.value.id, name]], indent);
-    return `RecursiveType(${name} => ${body})`;
+    const body = typeDoc(payload.value.inner, [...scope, [payload.value.id, name]]);
+    return [`RecursiveType(${name} => `, body, ")"];
   }
   throw new Error(`unknown type kind ${kind}`);
+}
+
+/**
+ * Prints an East type value as the TypeScript source that rebuilds it, on
+ * one line.
+ *
+ * @param t - The type value (the `type` field of an IR node, a type parameter)
+ * @param scope - The stack of enclosing recursive wrappers as `[id, parameter name]`
+ * @returns TypeScript source such as `DictType(StringType, ArrayType(IntegerType))`
+ * @throws {Error} When a recursive `ref` has no enclosing wrapper in `scope`
+ *
+ * @example
+ * ```ts
+ * typeSource(toEastTypeValue(ArrayType(OptionType(IntegerType))));
+ * // "ArrayType(OptionType(IntegerType))"
+ * ```
+ */
+export function typeSource(t: EastTypeValue, scope: [bigint, string][] = []): string {
+  return flat(typeDoc(t, scope));
 }
 
 /**

@@ -270,7 +270,8 @@ describe("codegen: toSource round trips the builder surface", () => {
         .add(unwide).add(cell.get()).add(opt.unwrap()).add(nothing.match({ some: ($, v) => v, none: ($) => 0n }))
         .add(picked.size()).add(nested.size()).add(rows.size()).add(deep.unwrap()["odd-name"]);
     });
-    const source = toSource(fn, { importFrom: INDEX_URL });
+    // The SHAPES, printed on one line each (`width: Infinity`); the layout has its own test.
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
     // A bound construction is the host literal with the type on the binding; an Option is `some` / `none`.
     assert.doesNotMatch(source, /\$\.(?:let|const)\(East\.value\(/, source);
     // A type whose source fits on a line prints inline wherever it is used; a recursive one is hoisted.
@@ -336,13 +337,14 @@ describe("codegen: toSource round trips the builder surface", () => {
             [k, k === "name" && typeof x === "string" ? (/^_\d+$/.test(x) ? `__n${x.slice(1)}` : x === "acc" ? "v_0" : x) : foreign(x)]))
           : v;
     const ir = foreign(fn.toIR().ir);
-    const source = toSource(ir, { importFrom: INDEX_URL });
-    assert.match(source, /xs\.map\(\(\$, x, v_1\) => x\.multiply\(2n\)\)\.reduce\(\(\$, v_0, x, v_2\) => v_0\.add\(x\), 0n\)/);
+    const wide = toSource(ir, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(wide, /xs\.map\(\(\$, x, v_1\) => x\.multiply\(2n\)\)\.reduce\(\(\$, v_0, x, v_2\) => v_0\.add\(x\), 0n\)/);
     const main = await roundTrip(ir, "foreign names");
-    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL }), source, "print → build → print is the identity");
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL, width: Infinity }), wide, "print → build → print is the identity");
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL }), toSource(ir, { importFrom: INDEX_URL }), "… at the default width too");
   });
 
-  test("a wide literal, its type and an argument list break one entry per line", async () => {
+  test("layout: a wide literal, its type and an argument list break one entry per line, as prettier lays them out", async () => {
     const Ops = StructType({ add: FunctionType([IntegerType, IntegerType], IntegerType), multiply: FunctionType([IntegerType, IntegerType], IntegerType) });
     const fn = East.function([], IntegerType, ($) => {
       const mathOps = $.const({ add: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)), multiply: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.multiply(b)) }, Ops);
@@ -351,13 +353,16 @@ describe("codegen: toSource round trips the builder surface", () => {
     const source = toSource(fn, { importFrom: INDEX_URL });
     assert.ok(source.includes([
       "export const main = East.function([], IntegerType, ($) => {",
-      "  const mathOps = $.const({",
-      "    add: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)),",
-      "    multiply: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.multiply(b)),",
-      "  }, StructType({",
-      "    add: FunctionType([IntegerType, IntegerType], IntegerType),",
-      "    multiply: FunctionType([IntegerType, IntegerType], IntegerType),",
-      "  }));",
+      "  const mathOps = $.const(",
+      "    {",
+      "      add: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)),",
+      "      multiply: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.multiply(b)),",
+      "    },",
+      "    StructType({",
+      "      add: FunctionType([IntegerType, IntegerType], IntegerType),",
+      "      multiply: FunctionType([IntegerType, IntegerType], IntegerType),",
+      "    }),",
+      "  );",
       "  return mathOps.add(mathOps.multiply(2n, 3n), 4n);",
       "});",
     ].join("\n")), source);
@@ -366,12 +371,65 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.equal(main.toIR().compile([])(), 10n);
   });
 
+  test("layout: a call hugs a trailing block, a chain of three or more calls breaks one call per line, and a block inside a plain argument breaks the call out", async () => {
+    const fn = East.function([ArrayType(IntegerType), StringType], StringType, ($, xs, label) => {
+      const doubled = $.const(xs.map(($, x) => x.multiply(2n)));
+      const big = $.const(East.less(doubled.size(), 10n).ifElse($ => "small", $ => Expr.block($ => {
+        const s = $.const(East.value("big").concat("!"));
+        return s;
+      })));
+      $.for(xs, ($, x, i, loop) => {
+        $.if(East.equal(x, 0n), $ => { $.continue(loop); });
+      });
+      return label.concat(" ").concat(big).concat(" ").concat(East.print(doubled.size())).concat(" ").concat(East.print(xs.size()));
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL });
+    const has = (text: string): void => assert.ok(source.includes(text), `expected:\n${text}\nin:\n${source}`);
+    has("    const doubled = $.const(xs.map(($, x, _3) => x.multiply(2n)));");  // fits: one line
+    has([
+      "    const big = $.const(",                                     // a block inside a plain argument: the call breaks out …
+      "      East.less(doubled.size(), 10n).ifElse(",                 // … and two trailing callbacks hug neither: one arm per line
+      "        ($) => \"small\",",
+      "        ($) => {",
+      "          const s = $.const(East.value(\"big\").concat(\"!\"));",
+      "          return s;",
+      "        },",
+      "      ),",
+      "    );",
+    ].join("\n"));
+    has([
+      "    $.for(xs, ($, x, i, label_1) => {",                                    // a statement hugs its body
+      "      $.if(East.equal(x, 0n), ($) => {",
+      "        $.continue(label_1);",
+      "      });",
+      "    });",
+    ].join("\n"));
+    has([
+      "    return label",                                                           // three or more calls that do not fit: one per line
+      "      .concat(\" \")",
+      "      .concat(big)",
+      "      .concat(\" \")",
+      "      .concat(East.print(doubled.size()))",
+      "      .concat(\" \")",
+      "      .concat(East.print(xs.size()));",
+    ].join("\n"));
+    has([
+      "export const main = East.function(",                                         // a head that does not fit: every argument on its own line
+      "  [ArrayType(IntegerType), StringType],",
+      "  StringType,",
+      "  ($, xs, label) => {",
+    ].join("\n"));
+    assert.ok(source.split("\n").every(l => l.length <= 100 || l.startsWith("import ")), `a line passes 100 columns:\n${source}`);
+    const main = await roundTrip(fn, "layout hug+chain");
+    assert.equal(main.toIR().compile([])([1n, 2n, 3n], "n"), fn.toIR().compile([])([1n, 2n, 3n], "n"));
+  });
+
   test("a raw builtin prints through East.builtin and rebuilds", async () => {
     const fn = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, xs) => {
       return xs.getKeys([0n, 1n]);
     });
     const source = toSource(fn, { importFrom: INDEX_URL });
-    assert.match(source, /East\.builtin\("ArrayGetKeys"/);
+    assert.match(source, /East\.builtin\(\s*"ArrayGetKeys"/);
     await roundTrip(fn, "raw builtin");
   });
 });

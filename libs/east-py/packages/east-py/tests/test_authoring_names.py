@@ -10,6 +10,7 @@ build, and come back out of ``to_python_source`` — the python twin of
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Any
 
@@ -114,7 +115,7 @@ class TestIRCarriesTheAuthoringNames:
         assert "b" not in self.names
 
     def test_the_names_come_back_out_of_the_printer(self):
-        source = to_python_source(demo)
+        source = to_python_source(demo, width=math.inf)  # the names, whatever the layout
         assert "total = b.let(0)" in source
         assert "lambda b, item, index, " in source
         assert "'circle': lambda b, radius: (radius * radius)" in source

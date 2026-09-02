@@ -49,11 +49,30 @@ build(print(IR)) ≡ IR        under east-c's normalizer
   DictType(IntegerType, StringType))`, as an author writes it); a recursive
   type hoists to a `_tN` constant (deduplicated structurally); platform
   declarations hoist to `_pN` (one per distinct signature), in first-use
-  order. A literal, an argument list, or a struct / variant / parameter-list
-  type wider than 80 characters breaks one entry per line with a trailing
-  comma (`layout` in `codegen/types`), as a formatter lays it out — a
-  struct of functions reads one field per line, its type one field per
-  line beneath it.
+  order; a closure-free function called where it stands (the `Call` of a
+  Function literal a TypeScript artifact leaves at its call) hoists to a
+  `_fN` constant in TypeScript and is called by name, as the source called
+  it — python prints it inline, `East.function(…)(x)`, because a python
+  artifact called inside another body splices its body into the caller
+  (#470) rather than emitting a `Call`. The source is written as a **layout
+  document** (`codegen/doc.ts`, `east/codegen/doc.py`: Wadler's algebra as
+  prettier and black realise it — text, line breaks, indentation, groups)
+  and rendered once, top down: a group prints on one line when its
+  contents and what follows on that line fit 100 columns (ruff's
+  `line-length` here), and breaks every line of its own otherwise, its
+  nested groups then taking their own turn. So a literal, an argument list
+  or a struct / variant / parameter-list type that does not fit breaks one
+  entry per line with a trailing comma; a TypeScript call hugs a trailing
+  callback (`xs.map(($, x) => {` stays on its line, the body breaks
+  inside) or a sole literal, and a concise arrow that does not fit breaks
+  after its `=>`; python hugs a sole literal argument (`StructType([`) and
+  lays a run of operands at one precedence level out as one group breaking
+  before each operator, dropping the parentheses precedence allows
+  (`((a + b) + c)` is `a + b + c`); a chain of three or more calls that
+  does not fit prints one call per line (in parentheses after a python
+  `return`); and a block body inside a plain argument breaks the call out
+  (`$.const(` / the call / `)`), as prettier does. `width` (`Infinity` /
+  `math.inf` for one construct per line) is an option of both printers.
 - **Self-contained and minimal.** A printed module imports exactly the
   names it uses, from the package root (`@elaraai/east` / `east`): a walk
   over every type it spells collects the constructors (`typeConstructors` /
@@ -93,7 +112,7 @@ python), so the mapping is one table.
 | `Value` literal | `1n`, `1.5`, `"s"`, `true`, `null`, `new Date(…)`, `new Uint8Array([…])` | `1`, `1.5`, `'s'`, `True`, `None`, `datetime(…)`, `b'…'` |
 | `Struct` / `Variant` / `NewArray` / `NewSet` / `NewDict` / `NewRef` / `NewVector` / `NewMatrix` | `East.value({…} / variant(c, v) / […] / new Set([…]) / new Map([…]) / ref(v) / new Float64Array([…]) / matrix(…), T)`; an Option case is `some(v)` / `none` | `East.value({…} / some(v) / none / variant(c, v), T)` and the `East.new_*` constructors |
 | `GetField` | `s.field` (or `s["odd-name"]`) | `s.field` |
-| `Call` / `CallAsync` | `f(args)` | `f(args)` |
+| `Call` / `CallAsync` | `f(args)`; a closure-free Function literal called where it stands hoists to `const _fN = East.function(…)` and is called `_fN(args)` | `f(args)`; a Function literal called where it stands stays inline, `East.function(…)(args)` (an artifact call splices, #470) |
 | expression `IfElse` (one predicate per node) | `p.ifElse($ => a, $ => b)` — more branches nest in the else arm | `East.if_else(…)` |
 | expression `Match` | `v.match({ case: ($, x) => e })` | `v.match({…})` |
 | expression `TryCatch` (no finally) | `Expr.tryCatch(body, ($, message, stack) => e)` | `East.try_catch(…)` |

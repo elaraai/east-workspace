@@ -12,6 +12,7 @@ TypeScript twin is pinned in ``libs/east/src/codegen/codegen.spec.ts``
 
 from __future__ import annotations
 
+import math
 import re
 
 from east.runtime._compiler_eastc import diff_ir
@@ -53,7 +54,8 @@ def bound(b, n):
 
 
 def test_bound_constructions_print_as_literals_with_the_type():
-    src = to_python_source(bound)
+    # the SHAPES, one construct per line (``width=math.inf``); the layout has its own test
+    src = to_python_source(bound, width=math.inf)
     for expected in [
         r"d = b\.let\(\{1: 'a', 2: 'b'\}, DictType\(IntegerType, StringType\)\)",
         r"a = b\.let\(\[n, \(n \+ 1\)\], ArrayType\(IntegerType\)\)",
@@ -92,22 +94,72 @@ def wide(b):
 
 
 def test_a_wide_literal_its_type_and_an_argument_list_break_one_entry_per_line():
+    """As black lays python out: an argument list that does not fit breaks
+    one argument per line, a sole literal argument is hugged
+    (``StructType([``), and every line keeps to the width."""
     src = to_python_source(wide)
     expected = "\n".join([
         "@East.function([], IntegerType, cse=False)",
         "def main(b):",
-        "    mathOps = b.const({",
-        "        'add': East.function([IntegerType, IntegerType], IntegerType, lambda b, a, b_: (a + b_)),",
-        "        'multiply': East.function([IntegerType, IntegerType], IntegerType, lambda b, a, b_: (a * b_)),",
-        "    }, StructType([",
-        "        ('add', FunctionType([IntegerType, IntegerType], IntegerType)),",
-        "        ('multiply', FunctionType([IntegerType, IntegerType], IntegerType)),",
-        "    ]))",
+        "    mathOps = b.const(",
+        "        {",
+        "            'add': East.function(",
+        "                [IntegerType, IntegerType],",
+        "                IntegerType,",
+        "                lambda b, a, b_: (a + b_),",
+        "            ),",
+        "            'multiply': East.function(",
+        "                [IntegerType, IntegerType],",
+        "                IntegerType,",
+        "                lambda b, a, b_: (a * b_),",
+        "            ),",
+        "        },",
+        "        StructType([",
+        "            ('add', FunctionType([IntegerType, IntegerType], IntegerType)),",
+        "            ('multiply', FunctionType([IntegerType, IntegerType], IntegerType)),",
+        "        ]),",
+        "    )",
         "    return mathOps.add(mathOps.multiply(2, 3), 4)",
     ])
     assert expected in src, src
     assert not re.search(r"^_t\d+ = ", src, re.M), src  # no type is hoisted for its width
+    assert all(len(ln) <= 100 for ln in src.splitlines() if not ln.startswith("from ")), src
     assert wide() == 10
+
+
+@East.function([ArrayType(IntegerType), IntegerType], IntegerType)
+def chained(b, xs, n):
+    total = b.let(0)
+    b.for_(xs, lambda b, x, i: b.assign(total, total + x * i))
+    return (xs.filter(lambda b, x: x > n).map(lambda b, x: x * 2).reduce(lambda b, acc, x: acc + x, 0)
+            + total + (n * n + n * n) - (n - n) + xs.size() * 2 + (n - (n - n)) + (-n))
+
+
+def test_a_long_chain_breaks_one_call_per_line_and_an_operator_run_before_each_operator():
+    """Three or more calls that do not fit print one call per line — in
+    parentheses when returned; a run of operands at one precedence level
+    is one group breaking before each operator, with the parentheses
+    precedence allows dropped (``((a + b) + c)`` is ``a + b + c``; ``n - (n
+    - n)`` and ``a + (b + c)`` keep their own)."""
+    src = to_python_source(chained)
+    expected = "\n".join([
+        "    return (",
+        "        xs",
+        "        .filter(lambda b, x, v_0: (x > n))",
+        "        .map(lambda b, x, v_1: (x * 2))",
+        "        .reduce(lambda b, acc, x, v_2: (acc + x), 0)",
+        "        + total",
+        "        + (n * n + n * n)",  # a right operand at the same level keeps its parentheses
+        "        - (n - n)",
+        "        + xs.size() * 2",
+        "        + (n - (n - n))",
+        "        + -n",
+        "    )",
+    ])
+    assert expected in src, src
+    assert "b.for_(xs, lambda b, x, i, label: b.assign(total, (total + x * i)))" in src, src
+    assert all(len(ln) <= 100 for ln in src.splitlines() if not ln.startswith("from ")), src
+    assert chained([1, 2, 3], 1) == (2 + 3) * 2 + (0 + 2 + 6) + 2 + 0 + 6 + 1 - 1
 
 
 def test_the_printed_module_rebuilds_the_same_ir_and_prints_to_itself(tmp_path):
