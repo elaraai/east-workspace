@@ -28,7 +28,9 @@
  * - every other node prints as an expression: literals as TypeScript
  *   literals (`1n`, `1.5`, `"s"`, `new Date(...)`, `new Uint8Array([...])`),
  *   Struct / Variant / NewArray / NewSet / NewDict / NewRef / NewVector /
- *   NewMatrix through `East.value(..., T)`, an expression IfElse / Match /
+ *   NewMatrix through `East.value(..., T)` — a construction bound by a Let
+ *   as the host literal with the type on the binding, `$.let(new Map([...]),
+ *   T)`, and an Option case as `some(v)` / `none` — an expression IfElse / Match /
  *   TryCatch / Block through `.ifElse(...)` / `.match({...})` /
  *   `Expr.tryCatch(...)` / `Expr.block(...)`, a Builtin through its spelling
  *   row (callbacks as `($, ...) => ...` arrows) or the raw
@@ -57,7 +59,7 @@ import { Expr } from "../expr/expr.js";
 import type { EastTypeValue } from "../type_of_type.js";
 import { IMPORT_PLATFORM } from "../functions.js";
 import { spellingFor, type Spelling } from "./spellings.js";
-import { TYPE_IMPORTS, objectKey, typeKey, typeSource } from "./types.js";
+import { TYPE_IMPORTS, isOptionValue, objectKey, typeKey, typeSource } from "./types.js";
 
 /** An IR node: a variant whose payload is the node's struct. */
 type Node = { type: string, value: any };
@@ -373,7 +375,12 @@ class Printer {
         valueNode = valueNode.value.value;
         typed = `, ${this.typeRef(varT)}`;
       }
-      const value = this.expr(valueNode, scope, pre, indent);
+      // A bound construction is the host literal with the type on the binding
+      // (`$.let(new Map([...]), T)`): an `East.value(..., T)` wrapper there is
+      // the redundancy the surface's own diagnostics flag.
+      const literal = typed === "" ? this.hostLiteral(valueNode, scope, pre, indent, 0) : null;
+      if (literal !== null) typed = `, ${this.typeRef(varT)}`;
+      const value = literal ?? this.expr(valueNode, scope, pre, indent);
       const name = this.bind(scope, p.variable);
       const ctor = p.variable.value.mutable ? `${BLOCK}.let` : `${BLOCK}.const`;
       return out(`const ${name} = ${ctor}(${value}${typed});`);
@@ -522,39 +529,15 @@ class Printer {
         const name = p.field as string;
         return IDENT.test(name) && !name.startsWith("_") ? `${base}.${name}` : `${base}[${JSON.stringify(name)}]`;
       }
-      case "Struct": {
-        const fields = (p.fields as { name: string, value: Node }[])
-          .map(f => `${objectKey(f.name)}: ${this.expr(f.value, scope, pre, indent, d)}`);
-        return `East.value({ ${fields.join(", ")} }, ${this.typeRef(p.type)})`;
-      }
-      case "Variant": {
-        const value = this.expr(p.value, scope, pre, indent, d);
-        return `East.value(variant(${JSON.stringify(p.case)}, ${value}), ${this.typeRef(p.type)})`;
-      }
-      case "NewArray": {
-        const values = (p.values as Node[]).map(v => this.expr(v, scope, pre, indent, d)).join(", ");
-        return `East.value([${values}], ${this.typeRef(p.type)})`;
-      }
-      case "NewSet": {
-        const values = (p.values as Node[]).map(v => this.expr(v, scope, pre, indent, d)).join(", ");
-        return `East.value(new Set([${values}]), ${this.typeRef(p.type)})`;
-      }
-      case "NewDict": {
-        const entries = (p.values as { key: Node, value: Node }[])
-          .map(e => `[${this.expr(e.key, scope, pre, indent, d)}, ${this.expr(e.value, scope, pre, indent, d)}]`);
-        return `East.value(new Map([${entries.join(", ")}]), ${this.typeRef(p.type)})`;
-      }
+      case "Struct":
+      case "Variant":
+      case "NewArray":
+      case "NewSet":
+      case "NewDict":
       case "NewRef":
-        return `East.value(ref(${this.expr(p.value, scope, pre, indent, d)}), ${this.typeRef(p.type)})`;
-      case "NewVector": {
-        const elem = (p.type as EastTypeValue).value as EastTypeValue;
-        return `East.value(${this.typedArray(p.values, elem, "NewVector")}, ${this.typeRef(p.type)})`;
-      }
-      case "NewMatrix": {
-        const elem = (p.type as EastTypeValue).value as EastTypeValue;
-        const data = this.typedArray(p.values, elem, "NewMatrix");
-        return `East.value(matrix(${data}, ${p.rows}, ${p.cols}), ${this.typeRef(p.type)})`;
-      }
+      case "NewVector":
+      case "NewMatrix":
+        return `East.value(${this.hostLiteral(node, scope, pre, indent, depth)!}, ${this.typeRef(p.type)})`;
       case "As":
         return `East.as(${this.expr(p.value, scope, pre, indent, d)}, ${this.typeRef(p.type)})`;
       case "WrapRecursive":
@@ -584,6 +567,51 @@ class Printer {
       default:
         if (STATEMENT_KINDS.has(kind)) throw new Unprintable(`${kind} node in expression position`);
         throw new Unprintable(`unknown node kind ${kind}`);
+    }
+  }
+
+  /**
+   * A construction node as the host value the surface lifts — `{ ... }`,
+   * `some(v)` / `none` / `variant(c, v)`, `[...]`, `new Set([...])`,
+   * `new Map([...])`, `ref(v)`, a typed array, `matrix(...)` — or `null` for
+   * any other node. `East.value(<literal>, T)` in expression position;
+   * `$.let(<literal>, T)` for a binding.
+   */
+  hostLiteral(node: Node, scope: Scope, pre: string[], indent: string, depth: number): string | null {
+    const p = node.value;
+    const d = depth + 1;
+    switch (node.type) {
+      case "Struct": {
+        const fields = (p.fields as { name: string, value: Node }[])
+          .map(f => `${objectKey(f.name)}: ${this.expr(f.value, scope, pre, indent, d)}`);
+        return `{ ${fields.join(", ")} }`;
+      }
+      case "Variant": {
+        if (isOptionValue(p.type as EastTypeValue)) {
+          if (p.case === "none") return "none";
+          return `some(${this.expr(p.value, scope, pre, indent, d)})`;
+        }
+        return `variant(${JSON.stringify(p.case)}, ${this.expr(p.value, scope, pre, indent, d)})`;
+      }
+      case "NewArray":
+        return `[${(p.values as Node[]).map(v => this.expr(v, scope, pre, indent, d)).join(", ")}]`;
+      case "NewSet":
+        return `new Set([${(p.values as Node[]).map(v => this.expr(v, scope, pre, indent, d)).join(", ")}])`;
+      case "NewDict": {
+        const entries = (p.values as { key: Node, value: Node }[])
+          .map(e => `[${this.expr(e.key, scope, pre, indent, d)}, ${this.expr(e.value, scope, pre, indent, d)}]`);
+        return `new Map([${entries.join(", ")}])`;
+      }
+      case "NewRef":
+        return `ref(${this.expr(p.value, scope, pre, indent, d)})`;
+      case "NewVector":
+        return this.typedArray(p.values, (p.type as EastTypeValue).value as EastTypeValue, "NewVector");
+      case "NewMatrix": {
+        const data = this.typedArray(p.values, (p.type as EastTypeValue).value as EastTypeValue, "NewMatrix");
+        return `matrix(${data}, ${p.rows}, ${p.cols})`;
+      }
+      default:
+        return null;
     }
   }
 
@@ -793,7 +821,7 @@ class Printer {
     const lines = [
       "// Generated by east-node transpile — East IR printed as the East.function",
       "// builder surface. Rebuilding this module yields the same IR (normalized).",
-      `import { East, Expr, variant, ref, matrix, ${TYPE_IMPORTS.join(", ")} } from ${JSON.stringify(importFrom)};`,
+      `import { East, Expr, variant, some, none, ref, matrix, ${TYPE_IMPORTS.join(", ")} } from ${JSON.stringify(importFrom)};`,
       "",
     ];
     for (const [name, src] of this.types.values()) lines.push(`const ${name} = ${src};`);

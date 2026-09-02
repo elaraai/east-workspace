@@ -26,7 +26,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
-  East, Expr, variant, ref,
+  East, Expr, variant, ref, some, none,
   ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType,
   SetType, StringType, StructType, VariantType, VectorType,
   IRType, EastTypeType, fromJSONFor, equalFor, isVariant, toSource, RAW_ONLY,
@@ -260,9 +260,23 @@ describe("codegen: toSource round trips the builder surface", () => {
       const wide = $.const(East.as(East.value(variant("a", n)), Wide));
       const head = $.const(list.unwrap().match({ nil: ($) => 0n, cons: ($, c) => c.head }));
       const unwide = $.const(wide.match({ a: ($, v) => v, b: ($, s) => s.length() }));
+      const opt = $.const(some(n), OptionType(IntegerType));
+      const nothing = $.const(none, OptionType(IntegerType));
+      const picked = $.const(East.value([some(n), none], ArrayType(OptionType(IntegerType))));
       return p["odd-name"].add(arr.size()).add(set.size()).add(dict.size()).add(vec.length()).add(head)
-        .add(unwide).add(cell.get());
+        .add(unwide).add(cell.get()).add(opt.unwrap()).add(nothing.match({ some: ($, v) => v, none: ($) => 0n }))
+        .add(picked.size());
     });
+    const source = toSource(fn, { importFrom: INDEX_URL });
+    // A bound construction is the host literal with the type on the binding; an Option is `some` / `none`.
+    assert.doesNotMatch(source, /\$\.(?:let|const)\(East\.value\(/, source);
+    assert.match(source, /const p = \$\.const\(\{ x: 1\.5, y: 2\.5, "odd-name": n \}, _t\d+\);/);
+    assert.match(source, /const dict = \$\.const\(new Map\(\[\["k", n\]\]\), _t\d+\);/);
+    assert.match(source, /const cell = \$\.const\(ref\(n\), _t\d+\);/);
+    assert.match(source, /const wide = \$\.const\(variant\("a", n\), _t\d+\);/);  // a literal under East.as is retyped, no As node
+    assert.match(source, /const opt = \$\.const\(some\(n\), _t\d+\);/);
+    assert.match(source, /const nothing = \$\.const\(none, _t\d+\);/);
+    assert.match(source, /const picked = \$\.const\(\[East\.value\(some\(n\), _t\d+\), East\.value\(none, _t\d+\)\], _t\d+\);/);
     const main = await roundTrip(fn, "values");
     assert.equal(main.toIR().compile([])(5n), fn.toIR().compile([])(5n));
   });

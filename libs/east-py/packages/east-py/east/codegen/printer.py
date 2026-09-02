@@ -23,7 +23,12 @@ body receives, python's ``$``) and the builtin table's
   the statement that uses them otherwise;
 - every other node prints as an expression: literals as python literals,
   Struct/Variant/NewArray/… through ``East.value(..., T)`` and the
-  ``East.new_*`` constructors, an expression IfElse/Match/TryCatch through
+  ``East.new_*`` constructors — a construction bound by a Let as the python
+  literal with the type on the binding, ``x = b.let({1: 'a'}, T)`` (a dict
+  literal only when python can hash its keys, i.e. they are literals; a set
+  keeps ``East.new_set`` — a python set literal loses the element order),
+  and an Option case as ``some(v)`` / ``none`` — an expression
+  IfElse/Match/TryCatch through
   ``East.if_else`` / ``.match({...})`` / ``East.try_catch``, a Builtin
   through its spelling row (callbacks as ``lambda b, …: …``, or ``def
   _bN(b, …)`` helpers when they hold statements — every body takes the
@@ -80,6 +85,16 @@ def _ident(name: str) -> bool:
 
 def _is_null_value(node: Any) -> bool:
     return node.type == "Value" and node.value["type"].type == "Null"
+
+
+def _is_option_type(t: EastType) -> bool:
+    """The exact Option shape, ``Variant{none: Null, some: T}`` — the TypeScript
+    printer's ``isOptionValue``."""
+    if t.type != "Variant" or len(t.value) != 2:
+        return False
+    cases = list(t.value)
+    return (cases[0]["name"] == "none" and cases[0]["type"].type == "Null"
+            and cases[1]["name"] == "some")
 
 
 def _pyliteral(value: Any) -> str:
@@ -308,12 +323,17 @@ class _Printer:
         p = node.value
         pre: list[str] = []
         if kind == "Let":
-            value = self.expr(p["value"], scope, pre)
             var_t = p["variable"].value["type"]
-            py = self.bind(scope, p["variable"])
-            ctor = f"{_BLOCK}.let" if p["variable"].value["mutable"] else f"{_BLOCK}.const"
             typed = "" if type_key(var_t) == type_key(p["value"].value["type"]) \
                 else f", {self.type_ref(var_t)}"
+            # A bound construction is the python literal with the type on the
+            # binding (`x = b.let({1: 'a'}, T)`), as the surface is written.
+            literal = self.host_literal(p["value"], scope, pre, 0) if typed == "" else None
+            if literal is not None:
+                typed = f", {self.type_ref(var_t)}"
+            value = literal if literal is not None else self.expr(p["value"], scope, pre)
+            py = self.bind(scope, p["variable"])
+            ctor = f"{_BLOCK}.let" if p["variable"].value["mutable"] else f"{_BLOCK}.const"
             return [*pre, f"{py} = {ctor}({value}{typed})"]
         if kind == "Assign":
             value = self.expr(p["value"], scope, pre)
@@ -448,14 +468,8 @@ class _Printer:
             if _ident(name) and not name.startswith("_"):
                 return f"{base}.{name}"
             return f"{base}.field({name!r})"
-        if kind == "Struct":
-            fields = ", ".join(f"{f['name']!r}: {self.expr(f['value'], scope, pre, d)}"
-                               for f in p["fields"])
-            return f"East.value({{{fields}}}, {self.type_ref(p['type'])})"
-        if kind == "Variant":
-            self.uses_variant = True
-            value = self.expr(p["value"], scope, pre, d)
-            return f"East.value(variant({p['case']!r}, {value}), {self.type_ref(p['type'])})"
+        if kind in ("Struct", "Variant"):
+            return f"East.value({self.host_literal(node, scope, pre, depth)}, {self.type_ref(p['type'])})"
         if kind in ("NewArray", "NewSet", "NewVector"):
             values = ", ".join(self.expr(v, scope, pre, d) for v in p["values"])
             ctor = {"NewArray": "new_array", "NewSet": "new_set", "NewVector": "new_vector"}[kind]
@@ -508,6 +522,40 @@ class _Printer:
         if kind in _STATEMENT_KINDS:
             raise Unprintable(f"{kind} node in expression position")
         raise Unprintable(f"unknown node kind {kind}")
+
+    def host_literal(self, node: Any, scope: _Scope, pre: list[str], depth: int) -> str | None:
+        """A construction node as the python value the surface lifts — a dict
+        for a Struct, ``some(v)`` / ``none`` / ``variant(c, v)``, a list, and
+        a dict literal when every key is a literal (python hashes them) — or
+        ``None`` for any other node: a dict keyed by expressions and every
+        set (``East.new_dict`` / ``East.new_set`` spell those — a python set
+        literal iterates in hash order and would lose the element order the
+        IR carries). ``East.value(<literal>, T)`` in expression position;
+        ``x = b.let(<literal>, T)`` for a binding."""
+        p = node.value
+        d = depth + 1
+        kind = node.type
+        if kind == "Struct":
+            fields = ", ".join(f"{f['name']!r}: {self.expr(f['value'], scope, pre, d)}"
+                               for f in p["fields"])
+            return f"{{{fields}}}"
+        if kind == "Variant":
+            self.uses_variant = True
+            if _is_option_type(p["type"]):
+                if p["case"] == "none":
+                    return "none"
+                return f"some({self.expr(p['value'], scope, pre, d)})"
+            return f"variant({p['case']!r}, {self.expr(p['value'], scope, pre, d)})"
+        if kind == "NewArray":
+            return f"[{', '.join(self.expr(v, scope, pre, d) for v in p['values'])}]"
+        if kind == "NewDict":
+            entries = list(p["values"])
+            if not all(e["key"].type == "Value" for e in entries):
+                return None
+            items = ", ".join(f"{self.expr(e['key'], scope, pre, d)}: {self.expr(e['value'], scope, pre, d)}"
+                              for e in entries)
+            return f"{{{items}}}"
+        return None
 
     def traced_expr(self, node: Any, scope: _Scope, pre: list[str], depth: int) -> str:
         """An expression that must be a traced Expression, not a python

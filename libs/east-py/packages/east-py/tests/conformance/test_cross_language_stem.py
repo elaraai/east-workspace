@@ -33,6 +33,7 @@ from east.types.types import (
     DictType,
     FloatType,
     IntegerType,
+    OptionType,
     SetType,
     StringType,
     StructType,
@@ -110,6 +111,13 @@ def while_loop(b, n):
     return acc
 
 
+@East.function([DictType(StringType, IntegerType), OptionType(IntegerType)], IntegerType)
+def unwrap_merge(b, d, o):
+    m = b.let(d.copy())
+    b.do(m.merge("k", o.unwrap(), lambda b, old, v, _k: old + v))
+    return m.get("k")
+
+
 STEM = {
     "crosslangArithmetic": arithmetic,
     "crosslangStatements": statements,
@@ -120,6 +128,7 @@ STEM = {
     "crosslangStringsDatetime": strings_datetime,
     "crosslangTryCatch": try_catch,
     "crosslangWhile": while_loop,
+    "crosslangUnwrapMerge": unwrap_merge,
 }
 
 STEM_DIR = os.path.join(EXAMPLES_DIR, "crosslang")

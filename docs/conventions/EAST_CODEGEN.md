@@ -67,6 +67,7 @@ python), so the mapping is one table.
 | `Block` | the body's statements; a last expression is `return`ed | the def's statements; a last expression is `return`ed |
 | `Let` (immutable / mutable) | `const x = $.const(v)` / `$.let(v)` | `x = b.const(v)` / `b.let(v)` |
 | `Let` with a widening `As` | `$.const(v, T)` | `b.const(v, T)` |
+| `Let` of a construction (Struct / Variant / NewArray / NewSet / NewDict / …) | the host literal, the type on the binding: `const d = $.let(new Map([…]), T)`, `$.const(some(v), T)` | `d = b.let({…}, T)`, `b.const(some(v), T)` — a dict literal only when its keys are literals (python hashes them), otherwise `East.new_dict`; a set always `East.new_set` (a python set literal iterates in hash order and would lose the element order the IR carries) |
 | `Assign` | `$.assign(x, v)` | `b.assign(x, v)` |
 | `Return` / `Break` / `Continue` / `Error` | `$.return(v)` / `$.break(label)` / `$.continue(label)` / `$.error(m)` | `b.return_(v)` / `b.break_(label)` / `b.continue_(label)` / `b.error(m)` |
 | Null-typed `IfElse` (statement) | `$.if(p, $ => {…}).elseIf(p, …).else(…)` | `b.if_(p, …).else_if(p, …).else_(…)` |
@@ -75,7 +76,7 @@ python), so the mapping is one table.
 | Null-typed `TryCatch` | `$.try(…).catch(($, message, stack) => {…}).finally(…)` | `b.try_(…).catch(…).finally_(…)` |
 | an expression in statement position | `$(expr)` | `b.do(expr)` |
 | `Value` literal | `1n`, `1.5`, `"s"`, `true`, `null`, `new Date(…)`, `new Uint8Array([…])` | `1`, `1.5`, `'s'`, `True`, `None`, `datetime(…)`, `b'…'` |
-| `Struct` / `Variant` / `NewArray` / `NewSet` / `NewDict` / `NewRef` / `NewVector` / `NewMatrix` | `East.value({…} / variant(c, v) / […] / new Set([…]) / new Map([…]) / ref(v) / new Float64Array([…]) / matrix(…), T)` | `East.value(…, T)` and the `East.new_*` constructors |
+| `Struct` / `Variant` / `NewArray` / `NewSet` / `NewDict` / `NewRef` / `NewVector` / `NewMatrix` | `East.value({…} / variant(c, v) / […] / new Set([…]) / new Map([…]) / ref(v) / new Float64Array([…]) / matrix(…), T)`; an Option case is `some(v)` / `none` | `East.value({…} / some(v) / none / variant(c, v), T)` and the `East.new_*` constructors |
 | `GetField` | `s.field` (or `s["odd-name"]`) | `s.field` |
 | `Call` / `CallAsync` | `f(args)` | `f(args)` |
 | expression `IfElse` (one predicate per node) | `p.ifElse($ => a, $ => b)` — more branches nest in the else arm | `East.if_else(…)` |

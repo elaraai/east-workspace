@@ -404,8 +404,9 @@ east-node transpile ./ir/ -o ./ts/ --rebuild ./rebuilt/    # a directory, plus t
 east-py transpile double.beast2 -o double.py               # the python twin (to_python_source)
 ```
 
-- Statements print as the `$`-forms, values as `East.value(v, T)`, builtins
-  as their methods; a builtin the surface has no spelling for prints as
+- Statements print as the `$`-forms, a bound value as `$.let(new Map([…]), T)`
+  (the type on the binding, an Option as `some(v)` / `none`), other values as
+  `East.value(v, T)`, builtins as their methods; a builtin the surface has no spelling for prints as
   `East.builtin(name, [T...], [args], out)` (it rebuilds; it is just not
   idiomatic). `East.as(v, T)` and `East.wrapRecursive(v, T)` are the
   spellings of the `As` / `WrapRecursive` nodes.

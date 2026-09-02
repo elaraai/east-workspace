@@ -23,7 +23,7 @@ from east.expression.nodes import (
 )
 from east.expression.statements import _Run as _RunT
 from east.ir.builders import ir_error
-from east.types.types import BooleanType, EastType, NullType, StringType
+from east.types.types import BooleanType, EastType, NeverType, NullType, StringType
 from east.types.values import EastVariant
 
 if TYPE_CHECKING:
@@ -230,8 +230,12 @@ class VariantExpression(Expression):
             if c["name"] == tag:
                 body = var
             else:
-                msg = _literal(f"unwrap: expected variant case '{tag}', got '{c['name']}'", StringType)
-                body = ir_error(out_t, msg, _loc_id())
+                # TypeScript's wording, byte for byte — the same IR from either language.
+                msg = _literal(f"Variant does not have case {tag}", StringType)
+                # The arm diverges: the node is Never-typed, as TypeScript's
+                # `$.error` arm is — the same IR from either language, and what
+                # the printers' `error` spelling rebuilds.
+                body = ir_error(NeverType, msg, _loc_id())
             case_nodes.append((c["name"], var, body))
         node = _k_match(out_t, self.ir, case_nodes)
         return self._expr(node, out_t)

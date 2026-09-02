@@ -41,6 +41,7 @@ from east.types.types import (
     EastType,
     FunctionType,
     IntegerType,
+    NeverType,
     NullType,
     SetType,
     StringType,
@@ -120,8 +121,10 @@ class ArrayExpression(Expression):
                       [_literal(prefix, StringType), printed]),
              _literal(suffix, StringType)],
         )
+        # The handler diverges: its Error node is Never-typed, as TypeScript's
+        # `$.error` body is — the same IR from either language.
         return _k_function(
-            FunctionType([t2, t2, k2], t2), [], [v1, v2, ck], ir_error(t2, msg, _loc_id())
+            FunctionType([t2, t2, k2], t2), [], [v1, v2, ck], ir_error(NeverType, msg, _loc_id())
         )
 
     def _combine_node(self, op: str, combine: Any, t2: EastType, k2: EastType) -> Any:
