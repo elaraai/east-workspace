@@ -1,10 +1,10 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1109,
-    "totalFiles": 192,
+    "totalEntries": 1118,
+    "totalFiles": 193,
     "packages": {
-      "east": 532,
+      "east": 541,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 94,
@@ -2419,6 +2419,179 @@
         "import { East, BooleanType, IntegerType, StringType, example } from \"@elaraai/east\";"
       ],
       "source": "// Short-circuit AND capturing outer variables\n// inputs: []  returns: true\nEast.function([], BooleanType, ($) => {\n        const threshold = $.const(5n, IntegerType);\n        const value = $.const(3n, IntegerType);\n        return East.greater(value, 0n).and(_$ => East.less(value, threshold));\n    })"
+    },
+    {
+      "id": "east:crosslang.examples.ts:crosslangArithmetic",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/crosslang.examples.ts",
+      "suite": "",
+      "test": "Integer and float arithmetic — the same builtins from either language",
+      "keywords": [
+        "cross-language",
+        "python",
+        "arithmetic",
+        "toFloat"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "source": "// Integer and float arithmetic — the same builtins from either language\n// inputs: [4n, 1.5]  returns: 13.0\nEast.function([IntegerType, FloatType], FloatType, ($, n, x) =>\n        n.multiply(2n).add(1n).toFloat().multiply(x).subtract(0.5))"
+    },
+    {
+      "id": "east:crosslang.examples.ts:crosslangStatements",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/crosslang.examples.ts",
+      "suite": "",
+      "test": "let / assign / for / if statements — the $ and b block surfaces agree",
+      "keywords": [
+        "cross-language",
+        "python",
+        "let",
+        "assign",
+        "for",
+        "if"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "source": "// let / assign / for / if statements — the $ and b block surfaces agree\n// inputs: [[1n, 2n, 3n, 4n]]  returns: 7n\nEast.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {\n        const total = $.let(0n);\n        $.for(xs, ($, x) => {\n            $.if(East.greater(x, 2n), $ => { $.assign(total, total.add(x)); });\n        });\n        return total;\n    })"
+    },
+    {
+      "id": "east:crosslang.examples.ts:crosslangCallbacks",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/crosslang.examples.ts",
+      "suite": "",
+      "test": "filter / map / reduce callbacks — bodies taking the block first in both languages",
+      "keywords": [
+        "cross-language",
+        "python",
+        "filter",
+        "map",
+        "reduce",
+        "callback"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "source": "// filter / map / reduce callbacks — bodies taking the block first in both languages\n// inputs: [[1n, 2n, 3n, 4n]]  returns: 20n\nEast.function([ArrayType(IntegerType)], IntegerType, ($, xs) =>\n        xs.filter(($, x) => East.equal(x.remainder(2n), 0n))\n            .map(($, x) => x.multiply(x))\n            .reduce(($, acc, x) => acc.add(x), 0n))"
+    },
+    {
+      "id": "east:crosslang.examples.ts:crosslangStructIfElse",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/crosslang.examples.ts",
+      "suite": "",
+      "test": "Struct fields and a conditional expression",
+      "keywords": [
+        "cross-language",
+        "python",
+        "struct",
+        "ifElse",
+        "concat"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "source": "// Struct fields and a conditional expression\n// inputs: [{ name: \"Ann\", age: 12n }]  returns: \"Ann (minor)\"\nEast.function([Person], StringType, ($, p) =>\n        East.less(p.age, 18n).ifElse($ => p.name.concat(\" (minor)\"), $ => p.name))"
+    },
+    {
+      "id": "east:crosslang.examples.ts:crosslangVariantMatch",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/crosslang.examples.ts",
+      "suite": "",
+      "test": "A match expression over a variant",
+      "keywords": [
+        "cross-language",
+        "python",
+        "variant",
+        "match"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "source": "// A match expression over a variant\n// inputs: [variant(\"square\", 3.0)]  returns: 9.0\nEast.function([Shape], FloatType, ($, s) => s.match({\n        circle: ($, r) => r.multiply(r).multiply(3.0),\n        square: ($, w) => w.multiply(w),\n    }))"
+    },
+    {
+      "id": "east:crosslang.examples.ts:crosslangDictSet",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/crosslang.examples.ts",
+      "suite": "",
+      "test": "Dict lookups with a default callback, folded over a set",
+      "keywords": [
+        "cross-language",
+        "python",
+        "dict",
+        "set",
+        "get",
+        "reduce"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "source": "// Dict lookups with a default callback, folded over a set\n// inputs: [new Map([[\"a\", 1n], [\"b\", 2n]]), new Set([\"a\", \"c\"])]  returns: 1n\nEast.function([DictType(StringType, IntegerType), SetType(StringType)], IntegerType, ($, d, keys) =>\n        keys.reduce(($, acc, k) => acc.add(d.get(k, ($, _k) => 0n)), 0n))"
+    },
+    {
+      "id": "east:crosslang.examples.ts:crosslangStringsDatetime",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/crosslang.examples.ts",
+      "suite": "",
+      "test": "String and datetime builtins from either language",
+      "keywords": [
+        "cross-language",
+        "python",
+        "string",
+        "datetime",
+        "upperCase",
+        "getYear"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "source": "// String and datetime builtins from either language\n// inputs: [\"hello\", 1700000000000n]  returns: 2028n\nEast.function([StringType, IntegerType], IntegerType, ($, s, ms) =>\n        s.upperCase().length().add(East.DateTime.fromEpochMilliseconds(ms).getYear()))"
+    },
+    {
+      "id": "east:crosslang.examples.ts:crosslangTryCatch",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/crosslang.examples.ts",
+      "suite": "",
+      "test": "A try / catch statement recovering from an out-of-bounds get",
+      "keywords": [
+        "cross-language",
+        "python",
+        "try",
+        "catch",
+        "error"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "source": "// A try / catch statement recovering from an out-of-bounds get\n// inputs: [[1n]]  returns: -1n\nEast.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {\n        const r = $.let(0n);\n        $.try($ => { $.assign(r, xs.get(99n)); }).catch(($, _message, _stack) => { $.assign(r, -1n); });\n        return r;\n    })"
+    },
+    {
+      "id": "east:crosslang.examples.ts:crosslangWhile",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/crosslang.examples.ts",
+      "suite": "",
+      "test": "A while loop with a labelled continue",
+      "keywords": [
+        "cross-language",
+        "python",
+        "while",
+        "continue",
+        "label"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "source": "// A while loop with a labelled continue\n// inputs: [5n]  returns: 12n\nEast.function([IntegerType], IntegerType, ($, n) => {\n        const i = $.let(0n);\n        const acc = $.let(0n);\n        $.while(East.less(i, n), ($, label) => {\n            $.assign(i, i.add(1n));\n            $.if(East.equal(i, 3n), $ => { $.continue(label); });\n            $.assign(acc, acc.add(i));\n        });\n        return acc;\n    })"
     },
     {
       "id": "east:datetime.examples.ts:datetimeGetYear",
