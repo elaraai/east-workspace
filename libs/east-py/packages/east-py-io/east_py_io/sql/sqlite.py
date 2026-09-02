@@ -437,7 +437,7 @@ async def sqlite_query_impl(handle: str, sql: str, params: EastArray) -> EastVar
                 row_dict: EastDict = EastDict(StringType, SqlParameterType)
                 for (col_name, col_type), value in zip(column_info, row, strict=True):
                     row_dict[col_name] = convert_native_to_param(value, col_type)
-                east_rows.append(row_dict)
+                east_rows.push_last(row_dict)
 
             return EastVariant("select", EastStruct({"rows": east_rows}))
         elif trimmed_sql.startswith("INSERT"):

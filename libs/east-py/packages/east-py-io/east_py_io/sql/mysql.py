@@ -331,7 +331,7 @@ async def mysql_query_impl(handle: str, sql: str, params: EastArray) -> EastVari
                     for key, value in row.items():
                         field_type = field_type_map.get(key)
                         row_dict[key] = convert_native_to_param(value, field_type)
-                    east_rows.append(row_dict)
+                    east_rows.push_last(row_dict)
 
                 return EastVariant("select", EastStruct({"rows": east_rows}))
             elif trimmed_sql.startswith("INSERT"):

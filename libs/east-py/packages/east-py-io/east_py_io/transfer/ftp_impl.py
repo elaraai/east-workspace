@@ -173,7 +173,7 @@ async def ftp_list_impl(handle: str, remote_path: str) -> EastArray:
 
         entries: EastArray = EastArray(FileEntryType, [])
         async for path, info in client.list(remote_path):
-            entries.append(
+            entries.push_last(
                 EastStruct(
                     {
                         "name": path.name,

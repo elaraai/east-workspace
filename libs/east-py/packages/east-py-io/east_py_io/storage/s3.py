@@ -346,7 +346,7 @@ async def s3_list_objects_impl(
                 EastVariant("some", obj["ETag"]) if obj.get("ETag") else EastVariant("none", None)
             )
 
-            objects.append(
+            objects.push_last(
                 EastStruct(
                     {
                         "key": obj.get("Key", ""),

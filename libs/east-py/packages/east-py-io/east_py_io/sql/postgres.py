@@ -262,7 +262,7 @@ async def postgres_query_impl(handle: str, sql: str, params: EastArray) -> EastV
                     row_dict: EastDict = EastDict(StringType, SqlParameterType)
                     for key, value in row.items():
                         row_dict[key] = convert_native_to_param(value)
-                    east_rows.append(row_dict)
+                    east_rows.push_last(row_dict)
 
                 return EastVariant("select", EastStruct({"rows": east_rows}))
             elif trimmed_sql.startswith("INSERT"):

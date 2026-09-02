@@ -88,7 +88,7 @@ def snake(name: str) -> str:
 
 def ts_class_methods(file: str, cls: str) -> set[str]:
     """The method names declared in ``export class <cls>`` of ``file``."""
-    src = (TS_EXPR / file).read_text()
+    src = (TS_EXPR / file).read_text(encoding="utf-8")
     # `export class X`, `class X`, or struct.ts's `const _X = class X<…>`
     m = re.search(r"class " + cls + r"\b.*?^\}", src, re.M | re.S)
     assert m, f"class {cls} not found in {file}"
@@ -110,7 +110,7 @@ def ts_class_aliases(file: str, cls: str) -> set[str]:
     """The property aliases (``  name = this.other;``) of ``export class
     <cls>`` — the ``eq``/``lt``/``plus`` family, which every python twin
     carries on the expression class but a namespace does not repeat."""
-    src = (TS_EXPR / file).read_text()
+    src = (TS_EXPR / file).read_text(encoding="utf-8")
     m = re.search(r"class " + cls + r"\b.*?^\}", src, re.M | re.S)
     assert m, f"class {cls} not found in {file}"
     return {mm.group(1) for mm in re.finditer(r"^  ([a-zA-Z_]\w*) = this\.", m.group(0), re.M)}
@@ -118,7 +118,7 @@ def ts_class_aliases(file: str, cls: str) -> set[str]:
 
 def ts_lib_functions(file: str) -> set[str]:
     """The keys of the ``export default { … }`` object of ``libs/<file>``."""
-    src = (TS_EXPR / "libs" / file).read_text()
+    src = (TS_EXPR / "libs" / file).read_text(encoding="utf-8")
     m = re.search(r"^export default \{.*?^\}", src, re.M | re.S)
     assert m, f"no default export in {file}"
     names = set()

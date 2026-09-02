@@ -167,7 +167,7 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
                     cdata_text = cdata_text.strip()
 
                 if cdata_text:
-                    children.append(EastVariant("TEXT", cdata_text))
+                    children.push_last(EastVariant("TEXT", cdata_text))
 
             elif pos + 3 < length and xml[pos : pos + 4] == "<!--":
                 advance(4)
@@ -182,7 +182,7 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
 
             elif pos < length and xml[pos] == "<":
                 child_element = parse_element()
-                children.append(EastVariant("ELEMENT", child_element))
+                children.push_last(EastVariant("ELEMENT", child_element))
 
             else:
                 text_start = pos
@@ -196,7 +196,7 @@ def parse_xml(xml: str, preserve_whitespace: bool, decode_entities: bool) -> Eas
 
                 if text:
                     text = decode_xml_entities(text)
-                    children.append(EastVariant("TEXT", text))
+                    children.push_last(EastVariant("TEXT", text))
 
         return EastStruct(
             {
