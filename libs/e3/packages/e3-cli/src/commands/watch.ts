@@ -35,6 +35,8 @@ interface WatchOptions {
   start?: boolean;
   concurrency?: string;
   abortOnChange?: boolean;
+  /** Function manifests resolving `East.importFunction` references (#628). */
+  functions?: string[];
 }
 
 /**
@@ -102,7 +104,7 @@ export async function watchCommand(
     // Export to temp zip
     const tempZip = path.join(os.tmpdir(), `e3-watch-${Date.now()}.zip`);
     try {
-      await e3.export(pkg, tempZip);
+      await e3.export(pkg, tempZip, { functions: options.functions ?? [] });
     } catch (err) {
       console.log(`[${timestamp()}] Error exporting package:`);
       console.log(`  ${formatError(err)}`);
