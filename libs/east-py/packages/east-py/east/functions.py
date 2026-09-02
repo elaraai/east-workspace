@@ -26,6 +26,7 @@ import re
 from typing import Any
 
 from east.ir.builders import ir_block, ir_let, ir_platform, ir_value, ir_variable
+from east.types.construct import none, some
 from east.types.type_of_type import EastTypeType, IRType
 from east.types.types import (
     ArrayType,
@@ -36,7 +37,6 @@ from east.types.types import (
     StringType,
     StructType,
 )
-from east.types.construct import none, some
 from east.types.values import EastArray, EastStruct, EastVariant
 from east.types.values.guards import is_east_array, is_east_struct, is_east_variant
 
