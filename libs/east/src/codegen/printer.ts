@@ -28,7 +28,11 @@
  * - every other node prints as an expression: literals as TypeScript
  *   literals (`1n`, `1.5`, `"s"`, `new Date(...)`, `new Uint8Array([...])`),
  *   Struct / Variant / NewArray / NewSet / NewDict / NewRef / NewVector /
- *   NewMatrix through `East.value(..., T)`, an expression IfElse / Match /
+ *   NewMatrix through `East.value(..., T)` — a construction bound by a Let
+ *   as the host literal with the type on the binding, `$.let(new Map([...]),
+ *   T)`, printed by `literalFor(T)`, a factory over the type (as `compareFor`
+ *   is) under which a construction nested anywhere prints bare, and an
+ *   Option case as `some(v)` / `none` — an expression IfElse / Match /
  *   TryCatch / Block through `.ifElse(...)` / `.match({...})` /
  *   `Expr.tryCatch(...)` / `Expr.block(...)`, a Builtin through its spelling
  *   row (callbacks as `($, ...) => ...` arrows) or the raw
@@ -37,12 +41,28 @@
  *   import (the `east.importFunction` Platform node) through
  *   `East.importFunction(pkg, name, T)`.
  *
- * Variables keep their IR names when they are JavaScript identifiers (the
- * TypeScript `_N`s are); anything else is renamed `v_N`; `$` is reserved for
- * the block. Types are hoisted to module constants `_tN` (deduplicated
- * structurally), platform declarations to `_pN` (one per distinct
- * signature). Deep expression nesting is broken with `const _eN = <expr>`
- * temporaries, so any IR width or depth prints to parseable source.
+ * Variables keep their IR names when they are JavaScript identifiers — the
+ * authoring names both builders carry (#639) and TypeScript's `_N` for a
+ * slot the body did not name; python's `__nN` and a name the scope already
+ * uses are renamed `v_N`, numbered once per module (above any `v_N` the IR
+ * holds) so a printed module rebuilds to itself; `$` is reserved for the
+ * block. Every type prints inline where it is used (`$.let(new Map([...]),
+ * DictType(IntegerType, StringType))`, as an author writes it); a recursive
+ * type is hoisted to a module constant `_tN` (deduplicated structurally).
+ * Platform declarations are hoisted to `_pN` (one per distinct signature).
+ * A closure-free function called where it stands — an `East.function`
+ * artifact the compiler inlined at its call, `(East.function(...))(x)` — is
+ * hoisted to a module constant `_fN` (one per distinct function) and called
+ * by name, as the source called it. Deep expression nesting is broken with
+ * `const _eN = <expr>` temporaries, so any IR width or depth prints to
+ * parseable source.
+ *
+ * The source is written as a layout document ({@link render}) and laid out
+ * as prettier lays TypeScript out: a literal, an argument list or a type
+ * breaks one entry per line when the line it sits on would pass
+ * {@link LINE_WIDTH}, a call hugs a trailing callback (`xs.map(($, x) => {`
+ * stays on its line, the body breaks inside), and a chain of three or more
+ * calls that does not fit prints one call per line.
  *
  * The contract, shared with the python printer (`east/codegen/printer.py`):
  * `build(print(IR)) ≡ IR` after normalization (`east-c ir normalize`) —
@@ -54,10 +74,20 @@ import { Expr } from "../expr/expr.js";
 import type { EastTypeValue } from "../type_of_type.js";
 import { IMPORT_PLATFORM } from "../functions.js";
 import { spellingFor, type Spelling } from "./spellings.js";
-import { TYPE_IMPORTS, objectKey, typeKey, typeSource } from "./types.js";
+import { TYPE_IMPORTS, isOptionValue, objectKey, typeConstructors, typeDoc, typeKey } from "./types.js";
+import {
+  type Doc, LINE_WIDTH, bracket, callArgs, choice, fn, group, hardline, hug, ifBreak, indent, join, line, render, softline,
+  willBreak,
+} from "./doc.js";
 
 /** An IR node: a variant whose payload is the node's struct. */
 type Node = { type: string, value: any };
+/** Prints a node at a typed position: the host literal, or `null` when the node is not that construction. */
+type Literal = (node: Node, scope: Scope, pre: Doc[], depth: number) => Doc | null;
+/** Prints a node at a typed position: the host literal, else the node as an expression. */
+type Printed = (node: Node, scope: Scope, pre: Doc[], depth: number) => Doc;
+/** A member chain: the receiver and the `.name(args)` segments applied to it, in order. */
+interface Chain { receiver: Doc, segments: Doc[] }
 
 /**
  * Thrown for an IR shape the TypeScript surface cannot spell.
@@ -77,7 +107,7 @@ export class Unprintable extends Error {
 const STATEMENT_KINDS = new Set([
   "Let", "Assign", "Return", "Break", "Continue", "While", "ForArray", "ForSet", "ForDict",
 ]);
-/** How a body's last node prints — see {@link Printer.bodyLines}. */
+/** How a body's last node prints — see {@link Printer.bodyDocs}. */
 type BodyMode = "function" | "callback" | "null";
 const MAX_DEPTH = 24;
 /** The block parameter every statement-bearing body declares first. */
@@ -91,6 +121,10 @@ const RESERVED = new Set([
   "arguments", "eval", "East", "Expr", "variant", "ref", "matrix", "undefined", "NaN", "Infinity",
 ]);
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** A template slot: an argument, a type parameter, the RegExp or the CSV options. */
+const SLOT = /\{(R|C|T\d+|\d+)\}/g;
+/** A template head that is a method on a slot: `{0}.map`. */
+const METHOD_HEAD = /^\{(\d+)\}\.([A-Za-z_]\w*)$/;
 
 function isIdent(name: string): boolean {
   return IDENT.test(name) && !RESERVED.has(name) && !name.startsWith("__");
@@ -149,38 +183,185 @@ function isStatement(node: Node): boolean {
   );
 }
 
+/** `($, x) =>` — an arrow's head. */
+function arrowHead(names: string[]): string {
+  return `(${names.join(", ")}) =>`;
+}
+
+/**
+ * A concise arrow, `($, x) => body`: a group, so that when the arrow is
+ * hugged onto a line the body does not fit, it breaks after the `=>` with
+ * the body indented on the next line — and, as the expanded last argument
+ * of a call, ends with a trailing comma and the call's close on its own
+ * line — as prettier lays it out.
+ */
+function arrow(names: string[], body: Doc): Doc {
+  const head = arrowHead(names);
+  return fn(group([head, indent([line, body])]), group([head, indent([line, body]), ifBreak(","), softline]));
+}
+
+/**
+ * The arrow of a block body: `($, x) => { ...; }` (`($) => {}` when empty).
+ * A group, so that its statements lay out in their own right when the
+ * arrow is hugged onto a line that fits.
+ */
+function arrowBlock(names: string[], stmts: Doc[]): Doc {
+  if (stmts.length === 0) return fn([arrowHead(names), " {}"]);
+  return fn(group([arrowHead(names), " {", indent([hardline, join(hardline, stmts)]), hardline, "}"]));
+}
+
+/**
+ * A spelling template split into its call shape — the head before the
+ * argument list and the argument templates — or `null` when the template
+ * is not `head(args)`.
+ */
+function parseCallTemplate(template: string): { head: string, args: string[] } | null {
+  if (!template.endsWith(")")) return null;
+  let depth = 0;
+  for (let i = template.length - 1; i >= 0; i--) {
+    const ch = template[i];
+    if (ch === ")") depth += 1;
+    else if (ch === "(") {
+      depth -= 1;
+      if (depth === 0) {
+        const head = template.slice(0, i);
+        return head === "" ? null : { head, args: splitArgs(template.slice(i + 1, -1)) };
+      }
+    }
+  }
+  return null;
+}
+
+/** The top-level comma-separated pieces of an argument-list template. */
+function splitArgs(inner: string): string[] {
+  if (inner.trim() === "") return [];
+  const args: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === "(" || ch === "[" || ch === "{") depth += 1;
+    else if (ch === ")" || ch === "]" || ch === "}") depth -= 1;
+    else if (ch === "," && depth === 0) {
+      args.push(inner.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  args.push(inner.slice(start).trim());
+  return args;
+}
+
+/** `text` with every slot replaced by `slot(name)`; a lone slot is the slot's document itself. */
+function fill(text: string, slot: (name: string) => Doc): Doc {
+  const parts: Doc[] = [];
+  let last = 0;
+  for (const m of text.matchAll(SLOT)) {
+    const at = m.index ?? 0;
+    if (at > last) parts.push(text.slice(last, at));
+    parts.push(slot(m[1]!));
+    last = at + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts.length === 1 ? parts[0]! : parts;
+}
+
+/**
+ * The variables a Function node refers to but does not bind: none, and the
+ * function is closure-free — it can stand at module level. Names are unique
+ * along a scope chain (both builders and the normalizer keep them so), so
+ * one set of the names bound anywhere inside suffices.
+ */
+function freeVariables(fn: Node): Set<string> {
+  const referenced = new Set<string>();
+  const bound = new Set<string>();
+  const nameOf = (v: Node): string => v.value.name as string;
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) {
+      for (const x of v) walk(x);
+      return;
+    }
+    if (v === null || typeof v !== "object" || v instanceof Date || v instanceof Uint8Array) return;
+    const node = v as { type?: unknown, value?: any };
+    if (typeof node.type === "string" && node.value !== null && typeof node.value === "object") {
+      const p = node.value;
+      switch (node.type) {
+        case "Variable": referenced.add(p.name as string); break;
+        case "Function": case "AsyncFunction": for (const q of p.parameters as Node[]) bound.add(nameOf(q)); break;
+        case "Let": bound.add(nameOf(p.variable)); break;
+        case "ForArray": case "ForDict": bound.add(nameOf(p.value)); bound.add(nameOf(p.key)); break;
+        case "ForSet": bound.add(nameOf(p.key)); break;
+        case "Match": for (const c of p.cases as { variable: Node }[]) bound.add(nameOf(c.variable)); break;
+        case "TryCatch": bound.add(nameOf(p.message)); bound.add(nameOf(p.stack)); break;
+        default: break;
+      }
+    }
+    // a type never holds a variable — and a type value has a `type` field of its own
+    for (const [k, x] of Object.entries(v)) if (k !== "type" && k !== "type_parameters") walk(x);
+  };
+  walk(fn);
+  return new Set([...referenced].filter(n => !bound.has(n)));
+}
+
+/** A structural key for a Function node: two inlined copies of one artifact print once. */
+function functionKey(fn: Node): string {
+  return JSON.stringify(fn, (_k, v) =>
+    typeof v === "bigint" ? `${v}n` : v instanceof Date ? v.toISOString() : v instanceof Uint8Array ? Array.from(v) : v);
+}
+
+/**
+ * A member chain's document: the receiver and its segments on one line
+ * when they fit, else — for three or more calls not rooted at the block —
+ * one call per line, indented under the receiver; a chain holding a block
+ * body always expands.
+ */
+function chainDoc({ receiver, segments }: Chain): Doc {
+  if (segments.length < 3 || receiver === BLOCK) return [receiver, ...segments];
+  const oneLine: Doc = [receiver, ...segments];
+  const expanded = group([receiver, indent(segments.map(s => [hardline, s]))]);
+  return segments.some(willBreak) ? expanded : choice(oneLine, expanded);
+}
+
 /** Options for {@link toSource}. */
 export interface ToSourceOptions {
   /** The module-level export bound to the rebuilt function (default `"main"`). */
   name?: string;
   /** The module specifier the printed module imports from (default `"@elaraai/east"`). */
   importFrom?: string;
+  /** The line width the layout keeps to (default {@link LINE_WIDTH}); `Infinity` prints every construct on one line. */
+  width?: number;
 }
 
 class Printer {
-  readonly types = new Map<string, [string, string]>();     // type key -> [const name, source]
+  readonly types = new Map<string, [string, Doc]>();        // type key -> [const name, source]
+  /** Type value -> its host-literal printer. Keyed by the type object, not its source: a recursive wrapper's inner type has refs that only print inside the wrapper. */
+  readonly literals = new WeakMap<object, Literal>();
+  /** The names the printed module imports from `@elaraai/east` — exactly the ones it uses. */
+  readonly used = new Set<string>(["East"]);
   readonly platforms = new Map<string, string>();            // signature -> const name
-  readonly platformDecls: string[] = [];
+  readonly platformDecls: Doc[] = [];
+  /** Closure-free functions called where they stand: structural key -> `_fN`, and their declarations. */
+  readonly hoisted = new Map<string, string>();
+  readonly hoistedDecls: Doc[] = [];
   readonly rawBuiltins = new Set<string>();
+  /** Method-call documents -> the chain they end. */
+  readonly chains = new WeakMap<object, Chain>();
   helperCounter = 0;
   tempCounter = 0;
+  varCounter = 0;
 
-  constructor(readonly rootName: string) {}
+  constructor(readonly rootName: string, readonly width: number) {}
 
   // ── module-level pieces ──────────────────────────────────────────────
 
-  /** A type as source: a primitive name inline, anything else hoisted. */
-  typeRef(t: EastTypeValue): string {
-    const kind = t.type;
-    if (kind === "Null" || kind === "Never" || kind === "Boolean" || kind === "Integer"
-        || kind === "Float" || kind === "String" || kind === "DateTime" || kind === "Blob") {
-      return typeSource(t);
-    }
+  /** A type as source, inline; a recursive type hoisted to a `_tN` constant. */
+  typeRef(t: EastTypeValue): Doc {
+    typeConstructors(t, this.used);
     const key = typeKey(t);
+    if (!key.includes("RecursiveType(")) return typeDoc(t);
     const hit = this.types.get(key);
     if (hit === undefined) {
       const name = `_t${this.types.size}`;
-      this.types.set(key, [name, typeSource(t)]);
+      this.types.set(key, [name, typeDoc(t)]);
       return name;
     }
     return hit[0];
@@ -194,20 +375,22 @@ class Printer {
     if (hit !== undefined) return hit;
     const name = `_p${this.platforms.size}`;
     this.platforms.set(sig, name);
-    const args = (p.arguments as Node[]).map(a => this.typeRef(a.value.type)).join(", ");
-    const opt = p.optional ? ", { optional: true }" : "";
+    const args = bracket("[", (p.arguments as Node[]).map(a => this.typeRef(a.value.type)), "]");
+    const opt: Doc[] = p.optional ? ["{ optional: true }"] : [];
     if (tps.length > 0) {
       // A generic call: the concrete type arguments are all the node
       // records, so the declaration is spelled with placeholders for
       // them in order and the inputs/output as the call has them.
-      const params = tps.map((_t, i) => JSON.stringify(`T${i}`)).join(", ");
+      const params = bracket("[", tps.map((_t, i) => JSON.stringify(`T${i}`)), "]");
       const decl = p.async ? "East.asyncGenericPlatform" : "East.genericPlatform";
-      this.platformDecls.push(
-        `const ${name} = ${decl}(${JSON.stringify(p.name)}, [${params}], [${args}], ${this.typeRef(p.type)}${opt});`);
+      this.platformDecls.push([
+        "const ", name, " = ", decl, callArgs([JSON.stringify(p.name), params, args, this.typeRef(p.type), ...opt]), ";",
+      ]);
     } else {
       const decl = p.async ? "East.asyncPlatform" : "East.platform";
-      this.platformDecls.push(
-        `const ${name} = ${decl}(${JSON.stringify(p.name)}, [${args}], ${this.typeRef(p.type)}${opt});`);
+      this.platformDecls.push([
+        "const ", name, " = ", decl, callArgs([JSON.stringify(p.name), args, this.typeRef(p.type), ...opt]), ";",
+      ]);
     }
     return name;
   }
@@ -217,6 +400,37 @@ class Printer {
     return `_${prefix}${this.helperCounter}`;
   }
 
+  /**
+   * A closure-free Function node as a module constant `_fN`: its
+   * declaration is emitted after any it hoists itself (a constant is built
+   * where it is declared), once per distinct function.
+   */
+  hoistFunction(node: Node): string {
+    const key = functionKey(node);
+    const hit = this.hoisted.get(key);
+    if (hit !== undefined) return hit;
+    const name = this.freshHelper("f");
+    this.hoisted.set(key, name);
+    const doc = this.functionExpr(node, new Scope(null));
+    this.hoistedDecls.push(["const ", name, " = ", doc, ";"]);
+    return name;
+  }
+
+  /**
+   * `receiver.name(args)`: a segment of the member chain `receiver` ends
+   * (when it is one) or starts, laid out by {@link chainDoc}.
+   */
+  methodCall(receiver: Doc, name: string, args: Doc[]): Doc {
+    const segment: Doc = [".", name, callArgs(args)];
+    const prior = typeof receiver === "string" ? undefined : this.chains.get(receiver);
+    const chain: Chain = prior
+      ? { receiver: prior.receiver, segments: [...prior.segments, segment] }
+      : { receiver, segments: [segment] };
+    const doc = chainDoc(chain);
+    this.chains.set(doc as object, chain);
+    return doc;
+  }
+
   // ── functions ────────────────────────────────────────────────────────
 
   /** Binds an IR Variable node in `scope` and returns its identifier. */
@@ -224,9 +438,11 @@ class Printer {
     const irName = variable.value.name as string;
     let name: string | null = isIdent(irName) ? irName : null;
     if (name === null || scope.used.has(name)) {
-      let n = 0;
-      while (scope.used.has(`v_${n}`)) n += 1;
-      name = `v_${n}`;
+      // The other builder's own spelling, or a name this scope already
+      // uses: `v_N` from one module-wide counter, so the rebuilt module
+      // names the slot the same way and prints to itself.
+      name = `v_${this.varCounter}`;
+      this.varCounter += 1;
     }
     scope.names.set(irName, name);
     scope.used.add(name);
@@ -234,32 +450,38 @@ class Printer {
   }
 
   /**
-   * The `East.function([types], out, ($, params) => { ... })` source of a
+   * The `East.function([types], out, ($, params) => { ... })` document of a
    * Function / AsyncFunction node; `consts` are hoisted Lets printed first
    * as the body's own bindings (a python artifact's captured constants).
    */
-  functionExprSource(node: Node, scope: Scope, indent: string, consts: Node[] = []): string {
+  functionExpr(node: Node, scope: Scope, consts: Node[] = []): Doc {
     const p = node.value;
     const fnType = p.type as EastTypeValue;
     const inner = new Scope(scope);
     const params = (p.parameters as Node[]).map(v => this.bind(inner, v));
-    const bodyIndent = indent + "  ";
-    const body: string[] = [];
-    for (const let_ of consts) {
-      if (let_.type !== "Let") throw new Unprintable(`${let_.type} before the root function`);
-      body.push(...this.statementLines(let_, inner, bodyIndent));
-    }
-    body.push(...this.bodyLines(p.body, inner, bodyIndent, "function"));
     const ctor = node.type === "AsyncFunction" ? "East.asyncFunction" : "East.function";
     const f = fnType.value as { inputs: EastTypeValue[], output: EastTypeValue };
-    const inputs = f.inputs.map(t => this.typeRef(t)).join(", ");
+    const inputs = bracket("[", f.inputs.map(t => this.typeRef(t)), "]");
     const out = this.typeRef(f.output);
-    const head = `${ctor}([${inputs}], ${out}, (${[BLOCK, ...params].join(", ")}) => {`;
-    return [head, ...body, `${indent}})`].join("\n");
+    const names = [BLOCK, ...params];
+    // A body that is one expression is a concise arrow, as a callback is
+    // and as the source writes it: `($, x) => x.multiply(2n)`.
+    if (consts.length === 0 && (p.body as Node).type !== "Block" && !isStatement(p.body)) {
+      const sub: Doc[] = [];
+      const text = this.expr(p.body, inner, sub);
+      if (sub.length === 0) return [ctor, callArgs([inputs, out, arrow(names, text)])];
+    }
+    const stmts: Doc[] = [];
+    for (const let_ of consts) {
+      if (let_.type !== "Let") throw new Unprintable(`${let_.type} before the root function`);
+      stmts.push(...this.statementDocs(let_, inner));
+    }
+    stmts.push(...this.bodyDocs(p.body, inner, "function"));
+    return [ctor, callArgs([inputs, out, arrowBlock(names, stmts)])];
   }
 
   /**
-   * The statements of a body (a Block, or one node), indented.
+   * The statements of a body (a Block, or one node), one document each.
    *
    * `mode` says how the last node prints. `"function"` is an
    * `East.function` body with a declared output: a last expression is
@@ -275,7 +497,7 @@ class Printer {
    * null;` and prints as one; a body that is only a `Value null` prints
    * empty.
    */
-  bodyLines(body: Node, scope: Scope, indent: string, mode: BodyMode): string[] {
+  bodyDocs(body: Node, scope: Scope, mode: BodyMode): Doc[] {
     const nodes: Node[] = body.type === "Block" ? [...body.value.statements] : [body];
     if (mode === "null" && nodes.length > 1 && isNullValue(nodes[nodes.length - 1]!)
         && !isNullType(nodes[nodes.length - 2]!.value.type)) {
@@ -284,19 +506,19 @@ class Printer {
     if (mode === "null" && nodes.length === 1 && isNullValue(nodes[0]!)) {
       return [];
     }
-    const lines: string[] = [];
+    const docs: Doc[] = [];
     nodes.forEach((node, i) => {
       if (i < nodes.length - 1) {
-        lines.push(...this.statementLines(node, scope, indent));
+        docs.push(...this.statementDocs(node, scope));
       } else if (mode === "null" && isNullValue(node)) {
-        lines.push(`${indent}return null;`);
+        docs.push("return null;");
       } else if (mode === "callback" || (mode === "function" && !isStatement(node))) {
-        lines.push(...this.returnLines(node, scope, indent));
+        docs.push(...this.returnDocs(node, scope));
       } else {
-        lines.push(...this.statementLines(node, scope, indent));
+        docs.push(...this.statementDocs(node, scope));
       }
     });
-    return lines;
+    return docs;
   }
 
   /**
@@ -305,18 +527,18 @@ class Printer {
    * so a TryCatch with a finally body is bound first and the binding
    * returned; a Let has no value to return.
    */
-  returnLines(node: Node, scope: Scope, indent: string): string[] {
-    const pre: string[] = [];
-    const out = (text: string): string[] => [...pre.map(l => indent + l), indent + text];
+  returnDocs(node: Node, scope: Scope): Doc[] {
+    const pre: Doc[] = [];
     if (node.type === "Let") throw new Unprintable("a Let as the last statement of a body whose value is returned");
     if (node.type === "TryCatch" && isNullType(node.value.type) && !isNullValue(node.value.finally_body)) {
       const name = this.freshHelper("s");
-      pre.push(`const ${name} = ${this.tryStatement(node, scope, pre, indent, false)};`);
-      pre.push(`${name}.finally(${this.bodyArg(node.value.finally_body, scope, [], indent)});`);
-      return out(`return ${name};`);
+      const tried = this.tryStatement(node, scope, pre, false);
+      pre.push(["const ", name, " = ", tried, ";"]);
+      pre.push([name, ".finally", callArgs([this.bodyArg(node.value.finally_body, scope, [])]), ";"]);
+      return [...pre, `return ${name};`];
     }
-    const text = this.statementExpr(node, scope, pre, indent) ?? this.expr(node, scope, pre, indent);
-    return out(`return ${text};`);
+    const text = this.statementExpr(node, scope, pre) ?? this.expr(node, scope, pre);
+    return [...pre, ["return ", text, ";"]];
   }
 
   /**
@@ -324,13 +546,11 @@ class Printer {
    * `($, ...) => { ... }`, the block first; `label` binds the loop label
    * parameter.
    */
-  bodyArg(body: Node, scope: Scope, params: Node[], indent: string, label: string | null = null): string {
+  bodyArg(body: Node, scope: Scope, params: Node[], label: string | null = null): Doc {
     const inner = new Scope(scope);
     const names = [BLOCK, ...params.map(v => this.bind(inner, v))];
     if (label !== null) names.push(this.freshLabel(inner, label));
-    const lines = this.bodyLines(body, inner, indent + "  ", "null");
-    if (lines.length === 0) return `(${names.join(", ")}) => {}`;
-    return [`(${names.join(", ")}) => {`, ...lines, `${indent}}`].join("\n");
+    return arrowBlock(names, this.bodyDocs(body, inner, "null"));
   }
 
   freshLabel(scope: Scope, irLabel: string): string {
@@ -353,106 +573,110 @@ class Printer {
 
   // ── statements ───────────────────────────────────────────────────────
 
-  /** A node in statement position: a Let binding, a `$.` form, or `$(expr)`. */
-  statementLines(node: Node, scope: Scope, indent: string): string[] {
+  /** A node in statement position: a Let binding, a `$.` form, or `$(expr)` — its helpers first. */
+  statementDocs(node: Node, scope: Scope): Doc[] {
     const p = node.value;
-    const pre: string[] = [];
-    const out = (text: string): string[] => [...pre.map(l => indent + l), indent + text];
+    const pre: Doc[] = [];
     if (node.type === "Let") {
       const varT = p.variable.value.type as EastTypeValue;
       let valueNode: Node = p.value;
       // A widening at the binding is the binding's declared type: `$.const(v, T)`.
-      let typed = typeKey(varT) === typeKey(valueNode.value.type) ? "" : `, ${this.typeRef(varT)}`;
+      let typed: Doc | null = typeKey(varT) === typeKey(valueNode.value.type) ? null : this.typeRef(varT);
       if (valueNode.type === "As" && typeKey(valueNode.value.type) === typeKey(varT)) {
         valueNode = valueNode.value.value;
-        typed = `, ${this.typeRef(varT)}`;
+        typed = this.typeRef(varT);
       }
-      const value = this.expr(valueNode, scope, pre, indent);
+      // A bound construction is the host literal with the type on the binding
+      // (`$.let(new Map([...]), T)`): an `East.value(..., T)` wrapper there is
+      // the redundancy the surface's own diagnostics flag. A scalar literal
+      // needs no type (`$.let(0n)`), so it stays on the expression path.
+      const literal = typed === null && valueNode.type !== "Value" ? this.literalFor(varT)(valueNode, scope, pre, 0) : null;
+      if (literal !== null) typed = this.typeRef(varT);
+      const value = literal ?? this.expr(valueNode, scope, pre);
       const name = this.bind(scope, p.variable);
       const ctor = p.variable.value.mutable ? `${BLOCK}.let` : `${BLOCK}.const`;
-      return out(`const ${name} = ${ctor}(${value}${typed});`);
+      return [...pre, ["const ", name, " = ", ctor, callArgs(typed === null ? [value] : [value, typed]), ";"]];
     }
-    const text = this.statementExpr(node, scope, pre, indent);
-    if (text !== null) return out(`${text};`);
-    return out(`${BLOCK}(${this.expr(node, scope, pre, indent)});`);
+    const text = this.statementExpr(node, scope, pre);
+    if (text !== null) return [...pre, [text, ";"]];
+    return [...pre, [BLOCK, callArgs([this.expr(node, scope, pre)]), ";"]];
   }
 
   /**
    * The `$.` form of a statement node (`$.assign(a, b)`, `$.if(...)...`),
    * or `null` for a node with none (an expression, a Let).
    */
-  statementExpr(node: Node, scope: Scope, pre: string[], indent: string): string | null {
+  statementExpr(node: Node, scope: Scope, pre: Doc[]): Doc | null {
     const kind = node.type;
     const p = node.value;
     if (kind === "Assign") {
-      const value = this.expr(p.value, scope, pre, indent);
-      return `${BLOCK}.assign(${this.varRef(p.variable, scope)}, ${value})`;
+      const value = this.expr(p.value, scope, pre);
+      return this.methodCall(BLOCK, "assign", [this.varRef(p.variable, scope), value]);
     }
     if (kind === "Return") {
-      return `${BLOCK}.return(${this.expr(p.value, scope, pre, indent)})`;
+      return this.methodCall(BLOCK, "return", [this.expr(p.value, scope, pre)]);
     }
     if (kind === "Break" || kind === "Continue") {
-      const fn = kind === "Break" ? `${BLOCK}.break` : `${BLOCK}.continue`;
-      return `${fn}(${this.labelRef(scope, p.label.name)})`;
+      return this.methodCall(BLOCK, kind === "Break" ? "break" : "continue", [this.labelRef(scope, p.label.name)]);
     }
     if (kind === "Error") {
-      return `${BLOCK}.error(${this.expr(p.message, scope, pre, indent)})`;
+      return this.methodCall(BLOCK, "error", [this.expr(p.message, scope, pre)]);
     }
     if (kind === "While") {
-      const pred = this.expr(p.predicate, scope, pre, indent);
-      const body = this.bodyArg(p.body, scope, [], indent, p.label.name);
-      return `${BLOCK}.while(${pred}, ${body})`;
+      const pred = this.expr(p.predicate, scope, pre);
+      const body = this.bodyArg(p.body, scope, [], p.label.name);
+      return this.methodCall(BLOCK, "while", [pred, body]);
     }
     if (kind === "ForArray" || kind === "ForSet" || kind === "ForDict") {
       const src = kind === "ForArray" ? "array" : kind === "ForSet" ? "set" : "dict";
-      const coll = this.expr(p[src], scope, pre, indent);
+      const coll = this.expr(p[src], scope, pre);
       const params = kind === "ForSet" ? [p.key] : [p.value, p.key];
-      const body = this.bodyArg(p.body, scope, params, indent, p.label.name);
-      return `${BLOCK}.for(${coll}, ${body})`;
+      const body = this.bodyArg(p.body, scope, params, p.label.name);
+      return this.methodCall(BLOCK, "for", [coll, body]);
     }
-    if (kind === "IfElse" && isNullType(p.type)) return this.ifStatement(node, scope, pre, indent);
-    if (kind === "Match" && isNullType(p.type)) return this.matchStatement(node, scope, pre, indent);
-    if (kind === "TryCatch" && isNullType(p.type)) return this.tryStatement(node, scope, pre, indent);
+    if (kind === "IfElse" && isNullType(p.type)) return this.ifStatement(node, scope, pre);
+    if (kind === "Match" && isNullType(p.type)) return this.matchStatement(node, scope, pre);
+    if (kind === "TryCatch" && isNullType(p.type)) return this.tryStatement(node, scope, pre);
     return null;
   }
 
-  ifStatement(node: Node, scope: Scope, pre: string[], indent: string): string {
+  ifStatement(node: Node, scope: Scope, pre: Doc[]): Doc {
     const p = node.value;
-    const parts: string[] = [];
+    let doc: Doc = BLOCK;
     (p.ifs as { predicate: Node, body: Node }[]).forEach((branch, i) => {
-      const pred = this.expr(branch.predicate, scope, pre, indent);
-      const body = this.bodyArg(branch.body, scope, [], indent);
-      parts.push(`${i === 0 ? `${BLOCK}.if` : ".elseIf"}(${pred}, ${body})`);
+      const pred = this.expr(branch.predicate, scope, pre);
+      const body = this.bodyArg(branch.body, scope, []);
+      doc = this.methodCall(doc, i === 0 ? "if" : "elseIf", [pred, body]);
     });
     if (!isNullValue(p.else_body)) {
-      parts.push(`.else(${this.bodyArg(p.else_body, scope, [], indent)})`);
+      doc = this.methodCall(doc, "else", [this.bodyArg(p.else_body, scope, [])]);
     }
-    return parts.join("");
+    return doc;
   }
 
-  matchStatement(node: Node, scope: Scope, pre: string[], indent: string): string {
+  matchStatement(node: Node, scope: Scope, pre: Doc[]): Doc {
     const p = node.value;
-    const subject = this.expr(p.variant, scope, pre, indent);
-    const arms: string[] = [];
+    const subject = this.expr(p.variant, scope, pre);
+    const arms: Doc[] = [];
     for (const c of p.cases as { case: string, variable: Node, body: Node }[]) {
       if (isNullValue(c.body)) continue;
-      arms.push(`${objectKey(c.case)}: ${this.bodyArg(c.body, scope, [c.variable], indent + "  ")}`);
+      arms.push([objectKey(c.case), ": ", this.bodyArg(c.body, scope, [c.variable])]);
     }
-    if (arms.length === 0) return `${BLOCK}.match(${subject}, {})`;
-    return `${BLOCK}.match(${subject}, {\n${arms.map(a => `${indent}  ${a},`).join("\n")}\n${indent}})`;
+    return this.methodCall(BLOCK, "match", [subject, hug(bracket("{", arms, "}", " "))]);
   }
 
   /** `$.try(...).catch(...).finally(...)`; `withFinally: false` leaves the finally off. */
-  tryStatement(node: Node, scope: Scope, pre: string[], indent: string, withFinally: boolean = true): string {
+  tryStatement(node: Node, scope: Scope, pre: Doc[], withFinally: boolean = true): Doc {
+    void pre;
     const p = node.value;
-    let text = `${BLOCK}.try(${this.bodyArg(p.try_body, scope, [], indent)})`;
+    let doc = this.methodCall(BLOCK, "try", [this.bodyArg(p.try_body, scope, [])]);
     if (!isNullValue(p.catch_body)) {
-      text += `.catch(${this.bodyArg(p.catch_body, scope, [p.message, p.stack], indent)})`;
+      doc = this.methodCall(doc, "catch", [this.bodyArg(p.catch_body, scope, [p.message, p.stack])]);
     }
     if (withFinally && !isNullValue(p.finally_body)) {
-      text += `.finally(${this.bodyArg(p.finally_body, scope, [], indent)})`;
+      doc = this.methodCall(doc, "finally", [this.bodyArg(p.finally_body, scope, [])]);
     }
-    return text;
+    return doc;
   }
 
   // ── expressions ──────────────────────────────────────────────────────
@@ -464,15 +688,15 @@ class Printer {
   }
 
   /**
-   * The source of an expression node; helper declarations and temporaries
-   * go to `pre` (statements to emit before the user, unindented).
+   * The document of an expression node; helper declarations and
+   * temporaries go to `pre` (statements to emit before the user).
    */
-  expr(node: Node, scope: Scope, pre: string[], indent: string, depth: number = 0): string {
+  expr(node: Node, scope: Scope, pre: Doc[], depth: number = 0): Doc {
     if (depth > MAX_DEPTH) {
-      const text = this.expr(node, scope, pre, indent, 0);
+      const text = this.expr(node, scope, pre, 0);
       this.tempCounter += 1;
       const name = `_e${this.tempCounter}`;
-      pre.push(`const ${name} = ${text};`);
+      pre.push(["const ", name, " = ", text, ";"]);
       return name;
     }
     const d = depth + 1;
@@ -484,154 +708,238 @@ class Printer {
       case "Variable":
         return this.varRef(node, scope);
       case "Builtin":
-        return this.builtinExpr(node, scope, pre, indent, d);
+        return this.builtinExpr(node, scope, pre, d);
       case "Platform": {
         const argNodes = p.arguments as Node[];
         if (p.name === IMPORT_PLATFORM && argNodes.length === 2 && argNodes.every(a => a.type === "Value")) {
           // an unresolved cross-language import: its own spelling, not a platform declaration
           const [pkg, name] = argNodes.map(a => literal(a.value.value));
-          return `East.importFunction(${pkg}, ${name}, ${this.typeRef(p.type)})`;
+          return ["East.importFunction", callArgs([pkg!, name!, this.typeRef(p.type)])];
         }
-        const args = argNodes.map(a => this.expr(a, scope, pre, indent, d)).join(", ");
+        const args = argNodes.map(a => this.expr(a, scope, pre, d));
         const ref = this.platformRef(p);
         if ((p.type_parameters as EastTypeValue[]).length > 0) {
-          const tps = (p.type_parameters as EastTypeValue[]).map(t => this.typeRef(t)).join(", ");
-          return `${ref}([${tps}]${args ? ", " : ""}${args})`;
+          const tps = bracket("[", (p.type_parameters as EastTypeValue[]).map(t => this.typeRef(t)), "]");
+          return [ref, callArgs([tps, ...args])];
         }
-        return `${ref}(${args})`;
+        return [ref, callArgs(args)];
       }
       case "Function":
       case "AsyncFunction":
-        return this.functionExprSource(node, scope, indent);
+        return this.functionExpr(node, scope);
       case "Call":
       case "CallAsync": {
-        let fn = this.expr(p.function, scope, pre, indent, d);
-        const args = (p.arguments as Node[]).map(a => this.expr(a, scope, pre, indent, d)).join(", ");
+        const head = p.function as Node;
+        const args = (p.arguments as Node[]).map(a => this.expr(a, scope, pre, d));
+        if ((head.type === "Function" || head.type === "AsyncFunction") && freeVariables(head).size === 0) {
+          // an artifact inlined at its call: hoisted, and called by name as the source called it
+          return [this.hoistFunction(head), callArgs(args)];
+        }
+        let callee = this.expr(head, scope, pre, d);
+        // a callee that already prints as a call, a member or a name needs no parentheses
         const fk = (p.function as Node).type;
-        if (fk !== "Variable" && fk !== "GetField" && fk !== "Call" && fk !== "CallAsync") fn = `(${fn})`;
-        return `${fn}(${args})`;
+        if (!["Variable", "GetField", "Call", "CallAsync", "Builtin", "Platform"].includes(fk)) callee = ["(", callee, ")"];
+        return [callee, callArgs(args)];
       }
       case "GetField": {
-        const base = this.expr(p.struct, scope, pre, indent, d);
+        const base = this.expr(p.struct, scope, pre, d);
         const name = p.field as string;
-        return IDENT.test(name) && !name.startsWith("_") ? `${base}.${name}` : `${base}[${JSON.stringify(name)}]`;
+        return IDENT.test(name) && !name.startsWith("_") ? [base, ".", name] : [base, "[", JSON.stringify(name), "]"];
       }
-      case "Struct": {
-        const fields = (p.fields as { name: string, value: Node }[])
-          .map(f => `${objectKey(f.name)}: ${this.expr(f.value, scope, pre, indent, d)}`);
-        return `East.value({ ${fields.join(", ")} }, ${this.typeRef(p.type)})`;
-      }
-      case "Variant": {
-        const value = this.expr(p.value, scope, pre, indent, d);
-        return `East.value(variant(${JSON.stringify(p.case)}, ${value}), ${this.typeRef(p.type)})`;
-      }
-      case "NewArray": {
-        const values = (p.values as Node[]).map(v => this.expr(v, scope, pre, indent, d)).join(", ");
-        return `East.value([${values}], ${this.typeRef(p.type)})`;
-      }
-      case "NewSet": {
-        const values = (p.values as Node[]).map(v => this.expr(v, scope, pre, indent, d)).join(", ");
-        return `East.value(new Set([${values}]), ${this.typeRef(p.type)})`;
-      }
-      case "NewDict": {
-        const entries = (p.values as { key: Node, value: Node }[])
-          .map(e => `[${this.expr(e.key, scope, pre, indent, d)}, ${this.expr(e.value, scope, pre, indent, d)}]`);
-        return `East.value(new Map([${entries.join(", ")}]), ${this.typeRef(p.type)})`;
-      }
+      case "Struct":
+      case "Variant":
+      case "NewArray":
+      case "NewSet":
+      case "NewDict":
       case "NewRef":
-        return `East.value(ref(${this.expr(p.value, scope, pre, indent, d)}), ${this.typeRef(p.type)})`;
-      case "NewVector": {
-        const elem = (p.type as EastTypeValue).value as EastTypeValue;
-        return `East.value(${this.typedArray(p.values, elem, "NewVector")}, ${this.typeRef(p.type)})`;
-      }
-      case "NewMatrix": {
-        const elem = (p.type as EastTypeValue).value as EastTypeValue;
-        const data = this.typedArray(p.values, elem, "NewMatrix");
-        return `East.value(matrix(${data}, ${p.rows}, ${p.cols}), ${this.typeRef(p.type)})`;
-      }
+      case "NewVector":
+      case "NewMatrix":
+        return ["East.value", callArgs([this.literalFor(p.type as EastTypeValue)(node, scope, pre, depth)!, this.typeRef(p.type)])];
       case "As":
-        return `East.as(${this.expr(p.value, scope, pre, indent, d)}, ${this.typeRef(p.type)})`;
-      case "WrapRecursive":
-        return `East.wrapRecursive(${this.expr(p.value, scope, pre, indent, d)}, ${this.typeRef(p.type)})`;
+        return ["East.as", callArgs([this.expr(p.value, scope, pre, d), this.typeRef(p.type)])];
+      case "WrapRecursive": {
+        // the wrapper's inner type governs the wrapped value: a construction prints bare
+        const payload = (p.type as EastTypeValue).value as { type: string, value: any };
+        const inner: EastTypeValue | null = payload.type === "wrapper" ? payload.value.inner : null;
+        const text = inner === null ? null : this.literalFor(inner)(p.value, scope, pre, d);
+        return ["East.wrapRecursive", callArgs([text ?? this.expr(p.value, scope, pre, d), this.typeRef(p.type)])];
+      }
       case "UnwrapRecursive":
-        return `${this.expr(p.value, scope, pre, indent, d)}.unwrap()`;
+        return this.methodCall(this.expr(p.value, scope, pre, d), "unwrap", []);
       case "Error":
-        return `Expr.error(${this.expr(p.message, scope, pre, indent, d)})`;
+        this.used.add("Expr");
+        return ["Expr.error", callArgs([this.expr(p.message, scope, pre, d)])];
       case "IfElse":
-        return this.ifExpr(p.ifs as { predicate: Node, body: Node }[], p.else_body, scope, pre, indent, d);
+        return this.ifExpr(p.ifs as { predicate: Node, body: Node }[], p.else_body, scope, pre, d);
       case "Match": {
-        const subject = this.expr(p.variant, scope, pre, indent, d);
+        const subject = this.expr(p.variant, scope, pre, d);
         const arms = (p.cases as { case: string, variable: Node, body: Node }[])
-          .map(c => `${objectKey(c.case)}: ${this.callbackExpr(c.body, [c.variable], scope, pre, indent + "  ")}`);
-        return `${subject}.match({\n${arms.map(a => `${indent}  ${a},`).join("\n")}\n${indent}})`;
+          .map((c): Doc => [objectKey(c.case), ": ", this.callbackExpr(c.body, [c.variable], scope, pre)]);
+        return this.methodCall(subject, "match", [hug(bracket("{", arms, "}", " "))]);
       }
       case "TryCatch": {
         if (!isNullValue(p.finally_body)) {
           throw new Unprintable("a TryCatch with a finally body in expression position — TypeScript's Expr.tryCatch has no finally");
         }
-        const body = this.armExpr(p.try_body, scope, pre, indent, d);
-        const handler = this.callbackExpr(p.catch_body, [p.message, p.stack], scope, pre, indent);
-        return `Expr.tryCatch(${body}, ${handler})`;
+        const body = this.armExpr(p.try_body, scope, pre, d);
+        const handler = this.callbackExpr(p.catch_body, [p.message, p.stack], scope, pre);
+        this.used.add("Expr");
+        return ["Expr.tryCatch", callArgs([body, handler])];
       }
       case "Block":
-        return this.blockExpr(node, scope, indent);
+        return this.blockExpr(node, scope);
       default:
         if (STATEMENT_KINDS.has(kind)) throw new Unprintable(`${kind} node in expression position`);
         throw new Unprintable(`unknown node kind ${kind}`);
     }
   }
 
+  /**
+   * The host-literal printer for values of type `t` — a factory over the
+   * TYPE, as `compareFor(t)` and `equalFor(t)` are: the factory for a Dict
+   * holds the factories for its key and value types, and so on down, so the
+   * one type on a binding governs every position of the literal and a
+   * construction nested anywhere prints bare (`new Map([["a", new Set([1n])]])`).
+   * Applied to a node it returns the literal, or `null` when the node is not
+   * the construction its position's type expects (a variable, a call, a
+   * widening, a function) — the caller prints that as an expression.
+   * `East.value(<literal>, T)` in expression position; `$.let(<literal>, T)`
+   * for a binding.
+   */
+  literalFor(t: EastTypeValue): Literal {
+    const hit = this.literals.get(t);
+    if (hit !== undefined) return hit;
+    const made = this.makeLiteral(t);
+    this.literals.set(t, made);
+    return made;
+  }
+
+  makeLiteral(t: EastTypeValue): Literal {
+    const child = (u: EastTypeValue): Printed => {
+      const inner = this.literalFor(u);
+      return (node, scope, pre, depth) => inner(node, scope, pre, depth) ?? this.expr(node, scope, pre, depth);
+    };
+    const asExpr: Printed = (node, scope, pre, depth) => this.expr(node, scope, pre, depth);
+    switch (t.type) {
+      case "Null": case "Boolean": case "Integer": case "Float": case "String": case "DateTime": case "Blob":
+        return node => node.type === "Value" ? literal(node.value.value) : null;
+      case "Array": {
+        const elem = child(t.value as EastTypeValue);
+        return (node, scope, pre, depth) => node.type === "NewArray"
+          ? hug(bracket("[", (node.value.values as Node[]).map(v => elem(v, scope, pre, depth + 1)), "]"))
+          : null;
+      }
+      case "Set": {
+        const elem = child(t.value as EastTypeValue);
+        return (node, scope, pre, depth) => node.type === "NewSet"
+          ? hug(["new Set(", bracket("[", (node.value.values as Node[]).map(v => elem(v, scope, pre, depth + 1)), "]"), ")"])
+          : null;
+      }
+      case "Dict": {
+        const kv = t.value as { key: EastTypeValue, value: EastTypeValue };
+        const key = child(kv.key);
+        const value = child(kv.value);
+        return (node, scope, pre, depth) => node.type === "NewDict"
+          ? hug(["new Map(", bracket("[", (node.value.values as { key: Node, value: Node }[])
+            .map(e => bracket("[", [key(e.key, scope, pre, depth + 1), value(e.value, scope, pre, depth + 1)], "]")), "]"), ")"])
+          : null;
+      }
+      case "Struct": {
+        const fields = new Map((t.value as { name: string, type: EastTypeValue }[]).map(f => [f.name, child(f.type)] as const));
+        return (node, scope, pre, depth) => node.type === "Struct"
+          ? hug(bracket("{", (node.value.fields as { name: string, value: Node }[])
+            .map((f): Doc => [objectKey(f.name), ": ", (fields.get(f.name) ?? asExpr)(f.value, scope, pre, depth + 1)]), "}", " "))
+          : null;
+      }
+      case "Variant": {
+        const cases = new Map((t.value as { name: string, type: EastTypeValue }[]).map(c => [c.name, child(c.type)] as const));
+        const option = isOptionValue(t);
+        return (node, scope, pre, depth) => {
+          if (node.type !== "Variant") return null;
+          const c = node.value.case as string;
+          if (option && c === "none") {
+            this.used.add("none");
+            return "none";
+          }
+          const payload = (cases.get(c) ?? asExpr)(node.value.value, scope, pre, depth + 1);
+          this.used.add(option ? "some" : "variant");
+          return option ? ["some", callArgs([payload])] : ["variant", callArgs([JSON.stringify(c), payload])];
+        };
+      }
+      case "Ref": {
+        const inner = child(t.value as EastTypeValue);
+        return (node, scope, pre, depth) => {
+          if (node.type !== "NewRef") return null;
+          this.used.add("ref");
+          return ["ref", callArgs([inner(node.value.value, scope, pre, depth + 1)])];
+        };
+      }
+      case "Vector":
+        return node => node.type === "NewVector" ? this.typedArray(node.value.values, t.value as EastTypeValue, "NewVector") : null;
+      case "Matrix":
+        return node => {
+          if (node.type !== "NewMatrix") return null;
+          this.used.add("matrix");
+          return ["matrix", callArgs([this.typedArray(node.value.values, t.value as EastTypeValue, "NewMatrix"), String(node.value.rows), String(node.value.cols)])];
+        };
+      default:
+        // Never, Function, AsyncFunction, Recursive: no host literal at this position
+        return () => null;
+    }
+  }
+
   /** A literal-only NewVector / NewMatrix payload as its typed array. */
-  typedArray(values: Node[], elem: EastTypeValue, what: string): string {
+  typedArray(values: Node[], elem: EastTypeValue, what: string): Doc {
     const lits = values.map(v => {
       if (v.type !== "Value") throw new Unprintable(`a ${what} of expressions — TypeScript builds vectors from typed arrays of literals`);
       return v.value.value as { type: string, value: any };
     });
-    if (elem.type === "Float") return `new Float64Array([${lits.map(l => literal(l)).join(", ")}])`;
-    if (elem.type === "Integer") return `new BigInt64Array([${lits.map(l => literal(l)).join(", ")}])`;
-    if (elem.type === "Boolean") return `new Uint8ClampedArray([${lits.map(l => (l.value ? "1" : "0")).join(", ")}])`;
+    if (elem.type === "Float") return ["new Float64Array(", bracket("[", lits.map(l => literal(l)), "]"), ")"];
+    if (elem.type === "Integer") return ["new BigInt64Array(", bracket("[", lits.map(l => literal(l)), "]"), ")"];
+    if (elem.type === "Boolean") return ["new Uint8ClampedArray(", bracket("[", lits.map(l => (l.value ? "1" : "0")), "]"), ")"];
     throw new Unprintable(`a ${what} of ${elem.type} elements`);
   }
 
   /** An expression that must be an Expr, not a bare literal (a method receiver). */
-  tracedExpr(node: Node, scope: Scope, pre: string[], indent: string, depth: number): string {
+  tracedExpr(node: Node, scope: Scope, pre: Doc[], depth: number): Doc {
     if (node.type === "Value") {
       const lit = node.value.value as { type: string, value: any };
       if (lit.type === "Null") return "East.value(null)";
-      return `East.value(${literal(lit)})`;
+      return ["East.value", callArgs([literal(lit)])];
     }
-    return this.expr(node, scope, pre, indent, depth);
+    return this.expr(node, scope, pre, depth);
   }
 
   /** An `ifElse` chain: TypeScript spells one predicate per node, so a
    * multi-branch IfElse nests in the else arm. */
-  ifExpr(ifs: { predicate: Node, body: Node }[], elseBody: Node, scope: Scope, pre: string[], indent: string, depth: number): string {
+  ifExpr(ifs: { predicate: Node, body: Node }[], elseBody: Node, scope: Scope, pre: Doc[], depth: number): Doc {
     const [first, ...rest] = ifs;
-    const pred = this.tracedExpr(first!.predicate, scope, pre, indent, depth);
-    const then = this.armCallback(first!.body, scope, pre, indent);
+    const pred = this.tracedExpr(first!.predicate, scope, pre, depth);
+    const then = this.armCallback(first!.body, scope, pre);
     const otherwise = rest.length === 0
-      ? this.armCallback(elseBody, scope, pre, indent)
-      : `(${BLOCK}) => ${this.ifExpr(rest, elseBody, scope, pre, indent, depth)}`;
-    return `${pred}.ifElse(${then}, ${otherwise})`;
+      ? this.armCallback(elseBody, scope, pre)
+      : arrow([BLOCK], this.ifExpr(rest, elseBody, scope, pre, depth));
+    return this.methodCall(pred, "ifElse", [then, otherwise]);
   }
 
   /** An if-arm body as the `($) => ...` callback `ifElse` takes. */
-  armCallback(body: Node, scope: Scope, pre: string[], indent: string): string {
-    return this.callbackExpr(body, [], scope, pre, indent);
+  armCallback(body: Node, scope: Scope, pre: Doc[]): Doc {
+    return this.callbackExpr(body, [], scope, pre);
   }
 
   /** An expression arm that must be an Expr: a Block as `Expr.block(...)`,
    * a literal through `East.value`. */
-  armExpr(body: Node, scope: Scope, pre: string[], indent: string, depth: number): string {
-    if (body.type === "Block") return this.blockExpr(body, scope, indent);
-    return this.tracedExpr(body, scope, pre, indent, depth);
+  armExpr(body: Node, scope: Scope, pre: Doc[], depth: number): Doc {
+    if (body.type === "Block") return this.blockExpr(body, scope);
+    return this.tracedExpr(body, scope, pre, depth);
   }
 
   /** A Block in expression position: `Expr.block(($) => { ... })`. */
-  blockExpr(body: Node, scope: Scope, indent: string): string {
+  blockExpr(body: Node, scope: Scope): Doc {
     const inner = new Scope(scope);
-    const lines = this.bodyLines(body, inner, indent + "  ", "callback");
-    return [`Expr.block((${BLOCK}) => {`, ...lines, `${indent}})`].join("\n");
+    const stmts = this.bodyDocs(body, inner, "callback");
+    this.used.add("Expr");
+    return ["Expr.block", callArgs([arrowBlock([BLOCK], stmts)])];
   }
 
   /**
@@ -640,41 +948,40 @@ class Printer {
    * params) => { ...; return expr; }`. The parameters keep the builtin's
    * own order.
    */
-  callbackExpr(body: Node, params: Node[], scope: Scope, pre: string[], indent: string): string {
+  callbackExpr(body: Node, params: Node[], scope: Scope, pre: Doc[]): Doc {
     const inner = new Scope(scope);
     const names = [BLOCK, ...params.map(v => this.bind(inner, v))];
     void pre;
     const tryWithFinally = body.type === "TryCatch" && !isNullValue(body.value.finally_body);
     if (body.type !== "Block" && body.type !== "Let" && !tryWithFinally) {
-      const sub: string[] = [];
-      const text = this.statementExpr(body, inner, sub, indent + "  ") ?? this.expr(body, inner, sub, indent + "  ");
-      if (sub.length === 0) return `(${names.join(", ")}) => ${text}`;
-      return [`(${names.join(", ")}) => {`, ...sub.map(l => `${indent}  ${l}`), `${indent}  return ${text};`, `${indent}}`].join("\n");
+      const sub: Doc[] = [];
+      const text = this.statementExpr(body, inner, sub) ?? this.expr(body, inner, sub);
+      if (sub.length === 0) return arrow(names, text);
+      return arrowBlock(names, [...sub, ["return ", text, ";"]]);
     }
-    const lines = this.bodyLines(body, inner, indent + "  ", "callback");
-    return [`(${names.join(", ")}) => {`, ...lines, `${indent}}`].join("\n");
+    return arrowBlock(names, this.bodyDocs(body, inner, "callback"));
   }
 
   // ── builtins ─────────────────────────────────────────────────────────
 
-  builtinExpr(node: Node, scope: Scope, pre: string[], indent: string, depth: number): string {
+  builtinExpr(node: Node, scope: Scope, pre: Doc[], depth: number): Doc {
     const p = node.value;
     const name = p.builtin as string;
     const row = spellingFor(name);
     if (row !== undefined) {
-      const rendered = this.renderRow(row, p, scope, pre, indent, depth);
+      const rendered = this.renderRow(row, p, scope, pre, depth);
       if (rendered !== null) return rendered;
     }
-    return this.rawBuiltin(node, scope, pre, indent, depth);
+    return this.rawBuiltin(node, scope, pre, depth);
   }
 
-  renderRow(row: Spelling, p: any, scope: Scope, pre: string[], indent: string, depth: number): string | null {
+  renderRow(row: Spelling, p: any, scope: Scope, pre: Doc[], depth: number): Doc | null {
     const args = p.arguments as Node[];
     const tps = p.type_parameters as EastTypeValue[];
     if (row.floatOnly && !(tps.length > 0 && tps[0]!.type === "Float")) return null;
     const callbacks = new Set(row.callbacks ?? []);
     const exprs = new Set(row.exprs ?? []);
-    const texts: string[] = [];
+    const texts: Doc[] = [];
     let regex: string | null = null;
     let csv: string | null = null;
     if (row.adapter === "regex") {
@@ -694,31 +1001,46 @@ class Printer {
       if (row.adapter === "csv" && i === args.length - 1) { texts.push(""); return; }
       if (callbacks.has(i) && arg.type === "Function") {
         const fp = arg.value;
-        texts.push(this.callbackExpr(fp.body, [...fp.parameters], scope, pre, indent));
+        texts.push(this.callbackExpr(fp.body, [...fp.parameters], scope, pre));
         return;
       }
       // The first operand is always an Expr (a literal receiver has no
-      // methods), as is every slot the row marks `exprs`.
+      // methods, and the namespace helpers read their first argument's
+      // type), as is every slot the row marks `exprs`.
       texts.push(i === 0 || exprs.has(i)
-        ? this.tracedExpr(arg, scope, pre, indent, depth)
-        : this.expr(arg, scope, pre, indent, depth));
+        ? this.tracedExpr(arg, scope, pre, depth)
+        : this.expr(arg, scope, pre, depth));
     });
-    // One pass over the template, so substituted text (a `\\d{4}` pattern,
-    // a "{0}" string literal) is never itself read as a slot.
     let template = row.template;
     if (csv === "") template = template.replace(", {C}", "").replace("{C}", "");
-    return template.replace(/\{(R|C|T\d+|\d+)\}/g, (_m, slot: string) => {
-      if (slot === "R") return regex ?? "";
-      if (slot === "C") return csv ?? "";
-      if (slot.startsWith("T")) {
-        const t = tps[Number(slot.slice(1))];
-        if (t === undefined) throw new Unprintable(`${p.builtin}: type parameter ${slot.slice(1)} missing`);
+    const slot = (name: string): Doc => {
+      if (name === "R") return regex ?? "";
+      if (name === "C") return csv ?? "";
+      if (name.startsWith("T")) {
+        const t = tps[Number(name.slice(1))];
+        if (t === undefined) throw new Unprintable(`${p.builtin}: type parameter ${name.slice(1)} missing`);
         return this.typeRef(t);
       }
-      const a = texts[Number(slot)];
-      if (a === undefined) throw new Unprintable(`${p.builtin}: argument ${slot} missing`);
+      const a = texts[Number(name)];
+      if (a === undefined) throw new Unprintable(`${p.builtin}: argument ${name} missing`);
       return a;
-    });
+    };
+    return this.templateDoc(template, slot);
+  }
+
+  /**
+   * A spelling template as a document: a method on a slot (`{0}.map({1})`)
+   * is a member-chain segment on that argument, any other call lays its
+   * arguments out as one, and a template that is not a call is filled in
+   * as it stands.
+   */
+  templateDoc(template: string, slot: (name: string) => Doc): Doc {
+    const call = parseCallTemplate(template);
+    if (call === null) return fill(template, slot);
+    const args = call.args.map(a => fill(a, slot));
+    const method = METHOD_HEAD.exec(call.head);
+    if (method !== null) return this.methodCall(slot(method[1]!), method[2]!, args);
+    return [fill(call.head, slot), callArgs(args)];
   }
 
   /**
@@ -759,13 +1081,13 @@ class Printer {
     return null;
   }
 
-  rawBuiltin(node: Node, scope: Scope, pre: string[], indent: string, depth: number): string {
+  rawBuiltin(node: Node, scope: Scope, pre: Doc[], depth: number): Doc {
     const p = node.value;
     this.rawBuiltins.add(p.builtin);
     const args = (p.arguments as Node[]).map((a, i) =>
-      i === 0 ? this.tracedExpr(a, scope, pre, indent, depth) : this.expr(a, scope, pre, indent, depth)).join(", ");
-    const tps = (p.type_parameters as EastTypeValue[]).map(t => this.typeRef(t)).join(", ");
-    return `East.builtin(${JSON.stringify(p.builtin)}, [${tps}], [${args}], ${this.typeRef(p.type)})`;
+      i === 0 ? this.tracedExpr(a, scope, pre, depth) : this.expr(a, scope, pre, depth));
+    const tps = (p.type_parameters as EastTypeValue[]).map(t => this.typeRef(t));
+    return ["East.builtin", callArgs([JSON.stringify(p.builtin), bracket("[", tps, "]"), bracket("[", args, "]"), this.typeRef(p.type)])];
   }
 
   // ── the module ───────────────────────────────────────────────────────
@@ -781,22 +1103,48 @@ class Printer {
     if (root.type !== "Function" && root.type !== "AsyncFunction") {
       throw new Unprintable(`the root must be a Function or AsyncFunction, got ${root.type}`);
     }
+    this.varCounter = nextVIndex(ir);
     // A python artifact's hoisted constants become the body's own consts.
-    const fn = this.functionExprSource(root, new Scope(null), "", consts);
-    const lines = [
+    const fnDoc = this.functionExpr(root, new Scope(null), consts);
+    // exactly the names the module uses, in one fixed order
+    const names = ["East", "Expr", "variant", "some", "none", "ref", "matrix", ...TYPE_IMPORTS].filter(n => this.used.has(n));
+    const parts: Doc[] = [
       "// Generated by east-node transpile — East IR printed as the East.function",
       "// builder surface. Rebuilding this module yields the same IR (normalized).",
-      `import { East, Expr, variant, ref, matrix, ${TYPE_IMPORTS.join(", ")} } from ${JSON.stringify(importFrom)};`,
+      `import { ${names.join(", ")} } from ${JSON.stringify(importFrom)};`,
       "",
     ];
-    for (const [name, src] of this.types.values()) lines.push(`const ${name} = ${src};`);
-    if (this.types.size > 0) lines.push("");
-    lines.push(...this.platformDecls);
-    if (this.platformDecls.length > 0) lines.push("");
-    lines.push(`export const ${this.rootName} = ${fn};`);
-    lines.push("");
-    return lines.join("\n");
+    for (const [name, src] of this.types.values()) parts.push(["const ", name, " = ", src, ";"]);
+    if (this.types.size > 0) parts.push("");
+    parts.push(...this.platformDecls);
+    if (this.platformDecls.length > 0) parts.push("");
+    for (const decl of this.hoistedDecls) parts.push(decl, "");
+    parts.push(["export const ", this.rootName, " = ", fnDoc, ";"]);
+    parts.push("");
+    return render(join(hardline, parts), this.width);
   }
+}
+
+/** The printer's own spelling for a variable it cannot name as the IR does. */
+const V_NAME = /^v_(\d+)$/;
+
+/** One above the highest `v_N` variable name in `ir` — a minted `v_N` never collides with one the program authored. */
+function nextVIndex(ir: Node): number {
+  let highest = -1;
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) {
+      for (const x of v) walk(x);
+    } else if (v !== null && typeof v === "object" && !(v instanceof Date) && !(v instanceof Uint8Array)) {
+      const node = v as { type?: unknown, value?: any };
+      if (node.type === "Variable" && node.value !== null && typeof node.value === "object" && typeof node.value.name === "string") {
+        const m = V_NAME.exec(node.value.name);
+        if (m) highest = Math.max(highest, Number(m[1]));
+      }
+      for (const x of Object.values(v)) walk(x);
+    }
+  };
+  walk(ir);
+  return highest + 1;
 }
 
 /** The IR value behind a function expression, an `EastIR`, or an IR value. */
@@ -823,8 +1171,8 @@ function irOf(fnOrIr: unknown): Node {
  *   its `toIR()` result, or a homoiconic IR value (a Function / AsyncFunction
  *   node, or the `Block[Let…, Function]` a python build with hoisted
  *   constants emits — its constants become the body's first `$.const`s)
- * @param options - The export name (default `main`) and the module the
- *   printed source imports from (default `@elaraai/east`)
+ * @param options - The export name (default `main`), the module the
+ *   printed source imports from (default `@elaraai/east`) and the line width
  * @returns The module source: importing it binds `name` to an
  *   `East.function(...)` whose IR normalizes equal to the input's
  * @throws {Unprintable} For a shape the TypeScript surface cannot spell — a
@@ -838,12 +1186,10 @@ function irOf(fnOrIr: unknown): Node {
  * console.log(East.toSource(double));
  * // import { East, Expr, ... } from "@elaraai/east";
  * //
- * // export const main = East.function([IntegerType], IntegerType, ($, _0) => {
- * //   return _0.multiply(2n);
- * // });
+ * // export const main = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
  * ```
  */
 export function toSource(fnOrIr: unknown, options: ToSourceOptions = {}): string {
-  const printer = new Printer(options.name ?? "main");
+  const printer = new Printer(options.name ?? "main", options.width ?? LINE_WIDTH);
   return printer.module(irOf(fnOrIr), options.importFrom ?? "@elaraai/east");
 }

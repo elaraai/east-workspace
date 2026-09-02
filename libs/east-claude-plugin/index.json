@@ -1,10 +1,10 @@
 {
   "version": 1,
   "stats": {
-    "totalEntries": 1134,
+    "totalEntries": 1135,
     "totalFiles": 193,
     "packages": {
-      "east": 541,
+      "east": 542,
       "east-node-std": 43,
       "east-node-io": 63,
       "east-py-datascience": 94,
@@ -2592,6 +2592,26 @@
         "import {"
       ],
       "source": "// A while loop with a labelled continue\n// inputs: [5n]  returns: 12n\nEast.function([IntegerType], IntegerType, ($, n) => {\n        const i = $.let(0n);\n        const acc = $.let(0n);\n        $.while(East.less(i, n), ($, label) => {\n            $.assign(i, i.add(1n));\n            $.if(East.equal(i, 3n), $ => { $.continue(label); });\n            $.assign(acc, acc.add(i));\n        });\n        return acc;\n    })"
+    },
+    {
+      "id": "east:crosslang.examples.ts:crosslangUnwrapMerge",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/crosslang.examples.ts",
+      "suite": "",
+      "test": "unwrap and a dict merge with the default missing-key handler — the diverging error arms are Never-typed in both languages",
+      "keywords": [
+        "cross-language",
+        "python",
+        "unwrap",
+        "merge",
+        "error",
+        "Never"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "source": "// unwrap and a dict merge with the default missing-key handler — the diverging error arms are Never-typed in both languages\n// inputs: [new Map([[\"k\", 1n]]), some(2n)]  returns: 3n\nEast.function([DictType(StringType, IntegerType), OptionType(IntegerType)], IntegerType, ($, d, o) => {\n        const m = $.let(d.copy());\n        $(m.merge(\"k\", o.unwrap(), ($, old, v, _k) => old.add(v)));\n        return m.get(\"k\");\n    })"
     },
     {
       "id": "east:datetime.examples.ts:datetimeGetYear",

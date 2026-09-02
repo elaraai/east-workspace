@@ -17,9 +17,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from east.codegen.doc import Doc, bracket, flat
 from east.types.types import EastType
 
-__all__ = ["type_source", "TYPE_IMPORTS"]
+__all__ = ["type_source", "type_doc", "type_constructors", "TYPE_IMPORTS"]
 
 #: The names a printed module imports from ``east`` for type source.
 TYPE_IMPORTS = (
@@ -43,29 +44,31 @@ def _is_option(t: EastType) -> bool:
             and t.value[1]["name"] == "some")
 
 
-def type_source(t: EastType, scope: list[tuple[int, str]] | None = None) -> str:
-    """The python source rebuilding ``t``. ``scope`` is the stack of
-    enclosing recursive wrappers as ``(id, lambda parameter name)``."""
+def type_doc(t: EastType, scope: list[tuple[int, str]] | None = None) -> Doc:
+    """The layout document of the python source rebuilding ``t``: a struct,
+    variant or parameter list breaks one entry per line when the line it
+    sits on would pass the width (``east.codegen.doc``). ``scope`` is the
+    stack of enclosing recursive wrappers as ``(id, lambda parameter
+    name)``."""
     scope = scope if scope is not None else []
     kind = t.type
     if kind in _PRIMITIVES:
         return _PRIMITIVES[kind]
     if kind in ("Array", "Set", "Ref", "Vector", "Matrix"):
-        return f"{kind}Type({type_source(t.value, scope)})"
+        return [f"{kind}Type(", type_doc(t.value, scope), ")"]
     if kind == "Dict":
-        return (f"DictType({type_source(t.value['key'], scope)}, "
-                f"{type_source(t.value['value'], scope)})")
+        return ["DictType(", type_doc(t.value["key"], scope), ", ", type_doc(t.value["value"], scope), ")"]
     if kind == "Struct":
-        fields = ", ".join(f"({f['name']!r}, {type_source(f['type'], scope)})" for f in t.value)
-        return f"StructType([{fields}])"
+        fields = [["(", repr(f["name"]), ", ", type_doc(f["type"], scope), ")"] for f in t.value]
+        return ["StructType(", bracket("[", fields, "]"), ")"]
     if kind == "Variant":
         if _is_option(t):
-            return f"OptionType({type_source(t.value[1]['type'], scope)})"
-        cases = ", ".join(f"({c['name']!r}, {type_source(c['type'], scope)})" for c in t.value)
-        return f"VariantType([{cases}])"
+            return ["OptionType(", type_doc(t.value[1]["type"], scope), ")"]
+        cases = [["(", repr(c["name"]), ", ", type_doc(c["type"], scope), ")"] for c in t.value]
+        return ["VariantType(", bracket("[", cases, "]"), ")"]
     if kind in ("Function", "AsyncFunction"):
-        inputs = ", ".join(type_source(i, scope) for i in t.value["inputs"])
-        return f"{kind}Type([{inputs}], {type_source(t.value['output'], scope)})"
+        inputs = bracket("[", [type_doc(i, scope) for i in t.value["inputs"]], "]")
+        return [f"{kind}Type(", inputs, ", ", type_doc(t.value["output"], scope), ")"]
     if kind == "Recursive":
         payload = t.value
         if payload.type == "ref":
@@ -75,8 +78,60 @@ def type_source(t: EastType, scope: list[tuple[int, str]] | None = None) -> str:
             raise ValueError(f"recursive ref {payload.value} outside its wrapper")
         rec_id = payload.value["id"]
         name = "self" if not scope else f"self{len(scope) + 1}"
-        inner = type_source(payload.value["inner"], [*scope, (rec_id, name)])
-        return f"recursive_type(lambda {name}: {inner})"
+        inner = type_doc(payload.value["inner"], [*scope, (rec_id, name)])
+        return [f"recursive_type(lambda {name}: ", inner, ")"]
+    raise ValueError(f"unknown type kind {kind}")
+
+
+def type_source(t: EastType, scope: list[tuple[int, str]] | None = None) -> str:
+    """The python source rebuilding ``t``, on one line. ``scope`` is the
+    stack of enclosing recursive wrappers as ``(id, lambda parameter name)``."""
+    return flat(type_doc(t, scope))
+
+
+def type_constructors(t: EastType, into: set[str]) -> None:
+    """Adds to ``into`` the constructor names ``type_source(t)`` spells —
+    what a printed module must import for the type. A walk over the type,
+    case for case with :func:`type_source`."""
+    kind = t.type
+    if kind in _PRIMITIVES:
+        into.add(_PRIMITIVES[kind])
+        return
+    if kind in ("Array", "Set", "Ref", "Vector", "Matrix"):
+        into.add(f"{kind}Type")
+        type_constructors(t.value, into)
+        return
+    if kind == "Dict":
+        into.add("DictType")
+        type_constructors(t.value["key"], into)
+        type_constructors(t.value["value"], into)
+        return
+    if kind == "Struct":
+        into.add("StructType")
+        for f in t.value:
+            type_constructors(f["type"], into)
+        return
+    if kind == "Variant":
+        if _is_option(t):
+            into.add("OptionType")
+            type_constructors(t.value[1]["type"], into)
+            return
+        into.add("VariantType")
+        for c in t.value:
+            type_constructors(c["type"], into)
+        return
+    if kind in ("Function", "AsyncFunction"):
+        into.add(f"{kind}Type")
+        for i in t.value["inputs"]:
+            type_constructors(i, into)
+        type_constructors(t.value["output"], into)
+        return
+    if kind == "Recursive":
+        payload = t.value
+        if payload.type == "wrapper":
+            into.add("recursive_type")
+            type_constructors(payload.value["inner"], into)
+        return
     raise ValueError(f"unknown type kind {kind}")
 
 

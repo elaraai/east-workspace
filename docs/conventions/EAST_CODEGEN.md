@@ -44,9 +44,43 @@ build(print(IR)) ≡ IR        under east-c's normalizer
   (`East.builtin(name, [T...], [args], out)`) and is listed in the
   printer's `RAW_ONLY` set — a **ratchet** the tests pin, which may only
   shrink as spellings are added.
-- **Deterministic.** The same IR prints the same text; types hoist to
-  `_tN` constants (deduplicated structurally), platform declarations to
-  `_pN` (one per distinct signature), in first-use order.
+- **Deterministic, and laid out.** The same IR prints the same text. Every
+  type prints inline where it is used (`$.let(new Map([…]),
+  DictType(IntegerType, StringType))`, as an author writes it); a recursive
+  type hoists to a `_tN` constant (deduplicated structurally); platform
+  declarations hoist to `_pN` (one per distinct signature), in first-use
+  order; a closure-free function called where it stands (the `Call` of a
+  Function literal a TypeScript artifact leaves at its call) hoists to a
+  `_fN` constant in TypeScript and is called by name, as the source called
+  it — python prints it inline, `East.function(…)(x)`, because a python
+  artifact called inside another body splices its body into the caller
+  (#470) rather than emitting a `Call`. The source is written as a **layout
+  document** (`codegen/doc.ts`, `east/codegen/doc.py`: Wadler's algebra as
+  prettier and black realise it — text, line breaks, indentation, groups)
+  and rendered once, top down: a group prints on one line when its
+  contents and what follows on that line fit 100 columns (ruff's
+  `line-length` here), and breaks every line of its own otherwise, its
+  nested groups then taking their own turn. So a literal, an argument list
+  or a struct / variant / parameter-list type that does not fit breaks one
+  entry per line with a trailing comma; a TypeScript call hugs a trailing
+  callback (`xs.map(($, x) => {` stays on its line, the body breaks
+  inside) or a sole literal, and a concise arrow that does not fit breaks
+  after its `=>`; python hugs a sole literal argument (`StructType([`) and
+  lays a run of operands at one precedence level out as one group breaking
+  before each operator, dropping the parentheses precedence allows
+  (`((a + b) + c)` is `a + b + c`); a chain of three or more calls that
+  does not fit prints one call per line (in parentheses after a python
+  `return`); and a block body inside a plain argument breaks the call out
+  (`$.const(` / the call / `)`), as prettier does. `width` (`Infinity` /
+  `math.inf` for one construct per line) is an option of both printers.
+- **Self-contained and minimal.** A printed module imports exactly the
+  names it uses, from the package root (`@elaraai/east` / `east`): a walk
+  over every type it spells collects the constructors (`typeConstructors` /
+  `type_constructors`, case for case with `typeSource`), and the literal
+  printer the helpers (`variant`, `some`, `none`, `ref`, `matrix`,
+  `east_null`). A function whose body is one expression prints as the
+  concise form — `($, x) => x.multiply(2n)`, `lambda b: x` for a nested
+  python function — and as a block / decorated `def` otherwise.
 - **Idiomatic.** The printed source is what an author would write: the
   `$` / `b` statement forms, expression methods, `East.value(v, T)` for
   constructions, host values (a `RegExp`, a CSV options object) where the
@@ -67,6 +101,7 @@ python), so the mapping is one table.
 | `Block` | the body's statements; a last expression is `return`ed | the def's statements; a last expression is `return`ed |
 | `Let` (immutable / mutable) | `const x = $.const(v)` / `$.let(v)` | `x = b.const(v)` / `b.let(v)` |
 | `Let` with a widening `As` | `$.const(v, T)` | `b.const(v, T)` |
+| `Let` of a construction (Struct / Variant / NewArray / NewSet / NewDict / …) | the host literal, the type on the binding: `const d = $.let(new Map([…]), T)`, `$.const(some(v), T)` — printed by `literalFor(T)`, a factory over the type like `compareFor`, so the one type governs every nested position and a construction inside prints bare (`new Map([["a", new Set([1n])]])`) | `d = b.let({…}, T)`, `b.const(some(v), T)` — a dict literal only when its keys are literals (python hashes them), otherwise `East.new_dict`; a set always `East.new_set` (a python set literal iterates in hash order and would lose the element order the IR carries) |
 | `Assign` | `$.assign(x, v)` | `b.assign(x, v)` |
 | `Return` / `Break` / `Continue` / `Error` | `$.return(v)` / `$.break(label)` / `$.continue(label)` / `$.error(m)` | `b.return_(v)` / `b.break_(label)` / `b.continue_(label)` / `b.error(m)` |
 | Null-typed `IfElse` (statement) | `$.if(p, $ => {…}).elseIf(p, …).else(…)` | `b.if_(p, …).else_if(p, …).else_(…)` |
@@ -75,9 +110,9 @@ python), so the mapping is one table.
 | Null-typed `TryCatch` | `$.try(…).catch(($, message, stack) => {…}).finally(…)` | `b.try_(…).catch(…).finally_(…)` |
 | an expression in statement position | `$(expr)` | `b.do(expr)` |
 | `Value` literal | `1n`, `1.5`, `"s"`, `true`, `null`, `new Date(…)`, `new Uint8Array([…])` | `1`, `1.5`, `'s'`, `True`, `None`, `datetime(…)`, `b'…'` |
-| `Struct` / `Variant` / `NewArray` / `NewSet` / `NewDict` / `NewRef` / `NewVector` / `NewMatrix` | `East.value({…} / variant(c, v) / […] / new Set([…]) / new Map([…]) / ref(v) / new Float64Array([…]) / matrix(…), T)` | `East.value(…, T)` and the `East.new_*` constructors |
+| `Struct` / `Variant` / `NewArray` / `NewSet` / `NewDict` / `NewRef` / `NewVector` / `NewMatrix` | `East.value({…} / variant(c, v) / […] / new Set([…]) / new Map([…]) / ref(v) / new Float64Array([…]) / matrix(…), T)`; an Option case is `some(v)` / `none` | `East.value({…} / some(v) / none / variant(c, v), T)` and the `East.new_*` constructors |
 | `GetField` | `s.field` (or `s["odd-name"]`) | `s.field` |
-| `Call` / `CallAsync` | `f(args)` | `f(args)` |
+| `Call` / `CallAsync` | `f(args)`; a closure-free Function literal called where it stands hoists to `const _fN = East.function(…)` and is called `_fN(args)` | `f(args)`; a Function literal called where it stands stays inline, `East.function(…)(args)` (an artifact call splices, #470) |
 | expression `IfElse` (one predicate per node) | `p.ifElse($ => a, $ => b)` — more branches nest in the else arm | `East.if_else(…)` |
 | expression `Match` | `v.match({ case: ($, x) => e })` | `v.match({…})` |
 | expression `TryCatch` (no finally) | `Expr.tryCatch(body, ($, message, stack) => e)` | `East.try_catch(…)` |
@@ -252,8 +287,46 @@ pins that the same program authored in either language is the same IR.
 
 ## 7. Where the source names went
 
-The IR carries variable names, but the builders write `_N` (TypeScript) and
-`_fresh_name()` (python), so printed source reads `_3.add(_4)`. Carrying
-authoring names into the IR is a **builder** change, not a wire change —
-`VariableIR.name` is already a free string and the normalizer renames
-canonically — tracked in #639.
+The IR carries a name on every variable, and since #639 the builders write
+the **authoring names** there, in both languages and with no new API:
+
+| Variable | TypeScript reads it from | python reads it from |
+|---|---|---|
+| a body's parameters (`($, items, threshold) => …`, a callback's `($, x, i)`, a loop's `($, value, key, label)`, a match arm's `($, radius)`, a catch's `($, message, stack)`) | the function's own source text (`Function.prototype.toString`), parsed by the TypeScript compiler | its signature (`inspect.signature`) |
+| a `$.let` / `$.const` binding (`const total = $.let(0n)`) | the authoring file, parsed by the TypeScript compiler: the declaration whose initializer is the call at the location the source map already resolves (`bindingNameAt`) | the authoring file, parsed by `ast`: the assignment whose value is the call the frame is executing, matched by the call's exact span (`binding_name_here`) |
+
+Neither side matches patterns against text. The TypeScript side needs the
+`typescript` package at run time — an **optional peer dependency** of
+`@elaraai/east`, required lazily from node on the first build (about 100 ms
+and 45 MB once per process; nothing where it is absent, as in a browser,
+where every variable stays `_N`). A call inside another call's arguments,
+or one with a further call chained onto it (`$.let(0n).add(1n)`),
+initializes nothing and stays unnamed.
+
+Names are **unique within their scope chain**. The compilers resolve
+variables lexically, so sibling bodies reuse a name freely — three
+callbacks each naming their element `x` are three `x`s — but a name still
+in scope from an enclosing body takes a `_2`, `_3`… suffix: an alias to the
+outer variable used inside the inner body (`const outer = x; xs.map(($, x)
+=> x.add(outer))`) would otherwise resolve to the inner one. Every body is
+a scope (`ast_to_ir`'s scope chain; python's frame stack, a body's
+parameters registered for the frame about to open). Where no name can be
+read — a slot the body did not declare (`($, x) => …` for a `(value, index)`
+callback), destructuring, a `*args` body, a browser bundle, a REPL line
+that is gone — the builder's fresh name stands: `_N` (TypeScript) or
+`__nN` (python). A `$`/`b` block parameter is never a variable.
+
+The printers keep every name that is an identifier, so printed source
+reads `total.add(item.multiply(index))`; TypeScript's `_N` survives a trip
+through python and back. The other builder's fresh spelling (python's
+`__nN` seen from TypeScript, and any name a scope already uses — the
+block parameter included) prints as `v_N` from one module-wide counter
+that starts above any `v_N` the IR holds, in both printers, so **print →
+build → print is the identity** in both languages: the corpus tests pin
+`build(print(IR)) ≡ IR`, and `codegen.spec.ts` / `naming.spec.ts` /
+`test_authoring_names.py` pin that the second print equals the first. The
+normalizer still renames canonically, so `≡` never depended on this.
+
+Helpers: `libs/east/src/naming.ts` (`parameterNames`, `bindingNameAt`) and
+`east/expression/naming.py` (`parameter_names`, `binding_name_here`,
+`authored_name`, `reset_names`).

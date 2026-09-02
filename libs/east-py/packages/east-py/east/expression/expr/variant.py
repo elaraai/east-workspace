@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from east.expression.errors import ExpressionError
 from east.expression.expr.base import Expression
 from east.expression.lift import _lift
+from east.expression.naming import authored_name, hint_at, parameter_names
 from east.expression.nodes import (
     _fresh_name,
     _is_option,
@@ -22,7 +23,7 @@ from east.expression.nodes import (
 )
 from east.expression.statements import _Run as _RunT
 from east.ir.builders import ir_error
-from east.types.types import BooleanType, EastType, NullType, StringType
+from east.types.types import BooleanType, EastType, NeverType, NullType, StringType
 from east.types.values import EastVariant
 
 if TYPE_CHECKING:
@@ -155,8 +156,12 @@ class VariantExpression(Expression):
         ret_t = _frames[-1].return_type if _frames else None
         results = []
         for c in declared:
-            var = _var(_fresh_name(), c["type"])
             handler = cases.get(c["name"])
+            # The arm variable takes the handler's own parameter name
+            # (`lambda b, radius: …` names `radius`, #639); a value arm, a
+            # missing arm and the default body have no name to give.
+            hint = None if isinstance(handler, Expression) else hint_at(parameter_names(handler), 1)
+            var = _var(authored_name(hint, _fresh_name, parameter=True), c["type"])
             if handler is None and default is not None:
                 handler = lambda b, _payload, _d=default: _d(b)  # noqa: E731
             # An Expression arm is a VALUE arm, not a handler — expressions
@@ -225,8 +230,12 @@ class VariantExpression(Expression):
             if c["name"] == tag:
                 body = var
             else:
-                msg = _literal(f"unwrap: expected variant case '{tag}', got '{c['name']}'", StringType)
-                body = ir_error(out_t, msg, _loc_id())
+                # TypeScript's wording, byte for byte — the same IR from either language.
+                msg = _literal(f"Variant does not have case {tag}", StringType)
+                # The arm diverges: the node is Never-typed, as TypeScript's
+                # `$.error` arm is — the same IR from either language, and what
+                # the printers' `error` spelling rebuilds.
+                body = ir_error(NeverType, msg, _loc_id())
             case_nodes.append((c["name"], var, body))
         node = _k_match(out_t, self.ir, case_nodes)
         return self._expr(node, out_t)

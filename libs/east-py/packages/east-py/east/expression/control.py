@@ -591,21 +591,28 @@ def for_(collection: Any, state: Any, body: Any = None, *, label: Any = None) ->
 
     _push_loop_frame(_LoopFrame(name, commit))
     try:
+        from east.expression.naming import authored_name, hint_at, parameter_names
+
+        hints = parameter_names(body)  # (block, state, value, key) — a body may declare fewer
+
+        def named(index: int) -> str:
+            return authored_name(hint_at(hints, index), _fresh_name, parameter=True)
+
         if tag == "Array":
             elem_t = source.east_type.value
-            key = _var(_fresh_name(), IntegerType)
-            value = _var(_fresh_name(), elem_t)
+            value = _var(named(2), elem_t)
+            key = _var(named(3), IntegerType)
             step = _sugar_body(
                 body, (read, Expression(value, elem_t), Expression(key, IntegerType)), commit)
         elif tag == "Set":
             elem_t = source.east_type.value
-            key = _var(_fresh_name(), elem_t)
+            key = _var(named(2), elem_t)
             value = None
             step = _sugar_body(body, (read, Expression(key, elem_t)), commit)
         else:
             kv = source.east_type.value
-            key = _var(_fresh_name(), kv["key"])
-            value = _var(_fresh_name(), kv["value"])
+            key = _var(named(2), kv["key"])
+            value = _var(named(3), kv["value"])
             step = _sugar_body(
                 body, (read, Expression(key, kv["key"]), Expression(value, kv["value"])), commit)
     finally:
@@ -715,10 +722,11 @@ def let(value: Any, fn: Any = None) -> Any:
             "on the block the body received; East.let(value, fn) is the expression form")
     if not _tracing():
         return _call_eager(fn, (value,))
+    from east.expression.naming import authored_name, hint_at, parameter_names
     from east.expression.statements import _frames, _run_block
 
     bound = _lift(value)
-    name = _fresh_name()
+    name = authored_name(hint_at(parameter_names(fn), 1), _fresh_name, parameter=True)
     ret_t = _frames[-1].return_type if _frames else None
     body = _run_block(fn, (Expression(_var(name, bound.east_type), bound.east_type),),
                       return_type=ret_t, mode="block_expr")
@@ -912,10 +920,13 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
     # The guarded body and the handler each run in their own statement frame
     # (TS `East.tryCatch(expr, handler)` builds the handler with `block`);
     # a body that appends no statement is exactly the expression it returns.
+    from east.expression.naming import authored_name, hint_at, parameter_names
+
     guarded = _run_block(body, (), return_type=ret_t, mode="block_expr")
-    message = _var(_fresh_name(), StringType)
+    hints = parameter_names(handler)
+    message = _var(authored_name(hint_at(hints, 1), _fresh_name, parameter=True), StringType)
     stack_t = ArrayType(LocationType)
-    stack = _var(_fresh_name(), stack_t)
+    stack = _var(authored_name(hint_at(hints, 2), _fresh_name, parameter=True), stack_t)
     caught = _run_block(
         handler, (Expression(message, StringType), Expression(stack, stack_t)),
         return_type=ret_t, mode="block_expr",

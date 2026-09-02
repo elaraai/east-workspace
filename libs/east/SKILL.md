@@ -391,9 +391,7 @@ const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n
 console.log(East.toSource(double));
 // import { East, Expr, variant, ref, matrix, IntegerType, ... } from "@elaraai/east";
 //
-// export const main = East.function([IntegerType], IntegerType, ($, _0) => {
-//   return _0.multiply(2n);
-// });
+// export const main = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
 
 writeFileSync("double.beast2", encodeEastIR(double.toIR()));   // hand the IR to python …
 ```
@@ -404,13 +402,17 @@ east-node transpile ./ir/ -o ./ts/ --rebuild ./rebuilt/    # a directory, plus t
 east-py transpile double.beast2 -o double.py               # the python twin (to_python_source)
 ```
 
-- Statements print as the `$`-forms, values as `East.value(v, T)`, builtins
-  as their methods; a builtin the surface has no spelling for prints as
+- Statements print as the `$`-forms, a bound value as `$.let(new Map([…]), T)`
+  (the type on the binding, an Option as `some(v)` / `none`), other values as
+  `East.value(v, T)`, builtins as their methods; a builtin the surface has no spelling for prints as
   `East.builtin(name, [T...], [args], out)` (it rebuilds; it is just not
   idiomatic). `East.as(v, T)` and `East.wrapRecursive(v, T)` are the
   spellings of the `As` / `WrapRecursive` nodes.
-- Variables print as `_N`: the builders do not carry authoring names yet
-  (#639).
+- Variables keep the names you wrote — parameters, `$.let` / `$.const`
+  bindings, callback, loop, match-arm and catch parameters — read by the
+  TypeScript compiler (`typescript`, an optional peer of `@elaraai/east`;
+  without it, or in a browser, they print as `_N`). A slot the body did not
+  name (`($, x) =>` for a `(value, index)` callback) prints as `_N`.
 - The contract, the construct table and the three round-trip suites:
   `docs/conventions/EAST_CODEGEN.md`.
 

@@ -53,6 +53,8 @@ export type VariableAST = {
   type: EastType,
   loc_id: bigint,
   mutable: boolean,
+  /** The authoring name (#639), when the builder could read it; the lowering keeps it unique. */
+  name?: string | undefined,
 };
 
 /** @internal */

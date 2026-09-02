@@ -146,14 +146,22 @@ _frames: list[_Frame] = []
 
 
 def _open_frame(return_type: EastType | None) -> _Frame:
+    from east.expression.naming import open_scope, reset_names
+
+    if not _frames:
+        reset_names()  # a new build: authoring names start afresh (#639)
     frame = _Frame(return_type)
     _frames.append(frame)
+    open_scope()  # the body's names live while its frame is open
     return frame
 
 
 def _close_frame(frame: _Frame) -> None:
+    from east.expression.naming import close_scope
+
     assert _frames and _frames[-1] is frame, "statement frames closed out of order"
     _frames.pop()
+    close_scope()
 
 
 def _check_open(frame: _Frame, op: str) -> None:
@@ -629,10 +637,13 @@ class Block:
         unknown = [k for k in cases if k not in names]
         if unknown:
             raise ExpressionError(f"b.match_() has no case {unknown[0]!r} (cases: {', '.join(names)})")
+        from east.expression.naming import authored_name, hint_at, parameter_names
+
         case_nodes = []
         for c in v.east_type.value:
-            var = _var(_fresh_name(), c["type"])
             handler = cases.get(c["name"])
+            var = _var(authored_name(hint_at(parameter_names(handler), 1), _fresh_name,
+                                     parameter=True), c["type"])
             if handler is None:
                 body = _null_value()
             else:
@@ -657,10 +668,12 @@ class Block:
             The Null-typed While statement.
         """
         from east.expression.expr import Expression
+        from east.expression.naming import authored_name, hint_at, parameter_names
 
         frame = self._use("while_")
         p = _predicate(predicate, "while")
-        lbl = LoopLabel(_fresh_name(), _loc_id())
+        lbl = LoopLabel(authored_name(hint_at(parameter_names(body), 1), _fresh_name, parameter=True),
+                        _loc_id())
         _push_loop_frame(_StatementLoop(lbl.name))
         try:
             arm = _run_block(body, (lbl,), return_type=frame.return_type, mode="null_block")
@@ -684,27 +697,33 @@ class Block:
             The Null-typed ForArray / ForSet / ForDict statement.
         """
         from east.expression.expr import Expression
+        from east.expression.naming import authored_name, hint_at, parameter_names
 
         frame = self._use("for_")
         src = _lift(collection)
         tag = src.east_type.type
+        hints = parameter_names(body)  # (block, value, key, label) — a body may declare fewer
+
+        def named(index: int) -> str:
+            return authored_name(hint_at(hints, index), _fresh_name, parameter=True)
+
         if tag == "Array":
             elem_t = src.east_type.value
-            value_var = _var(_fresh_name(), elem_t)
-            key_var = _var(_fresh_name(), _integer())
-            lbl = LoopLabel(_fresh_name(), _loc_id())
+            value_var = _var(named(1), elem_t)
+            key_var = _var(named(2), _integer())
+            lbl = LoopLabel(named(3), _loc_id())
             args = (Expression(value_var, elem_t), Expression(key_var, _integer()), lbl)
         elif tag == "Set":
             elem_t = src.east_type.value
-            key_var = _var(_fresh_name(), elem_t)
+            key_var = _var(named(1), elem_t)
             value_var = None
-            lbl = LoopLabel(_fresh_name(), _loc_id())
+            lbl = LoopLabel(named(2), _loc_id())
             args = (Expression(key_var, elem_t), lbl)
         elif tag == "Dict":
             kv = src.east_type.value
-            value_var = _var(_fresh_name(), kv["value"])
-            key_var = _var(_fresh_name(), kv["key"])
-            lbl = LoopLabel(_fresh_name(), _loc_id())
+            value_var = _var(named(1), kv["value"])
+            key_var = _var(named(2), kv["key"])
+            lbl = LoopLabel(named(3), _loc_id())
             args = (Expression(value_var, kv["value"]), Expression(key_var, kv["key"]), lbl)
         else:
             raise ExpressionError(
@@ -826,7 +845,9 @@ def _bind(frame: _Frame, value: Any, typ: Any, mutable: bool, op: str) -> Any:
         )
     var_t = typ if typ is not None else e.east_type
     bound = _coerce(e, var_t)
-    var = ir_variable(var_t, _fresh_name(), _loc_id(), mutable=mutable)
+    from east.expression.naming import authored_name, binding_name_here
+
+    var = ir_variable(var_t, authored_name(binding_name_here(), _fresh_name), _loc_id(), mutable=mutable)
     frame.statements.append(ir_let(NullType, var, bound.ir, _loc_id()))
     return Expression(var, var_t)
 
@@ -993,17 +1014,24 @@ class TryBuilder:
         """Handle an error: ``handler(b, message, stack)`` (trailing
         parameters may be omitted) runs in its own frame."""
         from east.expression.expr import Expression
+        from east.expression.naming import authored_name, hint_at, parameter_names
 
         _check_open(self._frame, "try_().catch")
         if self._caught:
             raise ExpressionError("Cannot call .catch() more than once on the same try block")
         self._caught = True
+        # the handler names the catch variables (#639): `lambda b, message, stack: …`
+        hints = parameter_names(handler)
+        self._message = _var(authored_name(hint_at(hints, 1), _fresh_name, parameter=True), StringType)
+        self._stack = _var(authored_name(hint_at(hints, 2), _fresh_name, parameter=True),
+                           self._stack.value["type"])
         args = (Expression(self._message, StringType),
                 Expression(self._stack, self._stack.value["type"]))
         arm = _run_block(handler, args, return_type=self._frame.return_type, mode="null_block")
         payload = self._node.value
         both_never = _is_never(_node_type(payload["try_body"])) and _is_never(arm.east_type)
-        self._replace(catch_body=arm.ir, type=NeverType if both_never else payload["type"])
+        self._replace(catch_body=arm.ir, message=self._message, stack=self._stack,
+                      type=NeverType if both_never else payload["type"])
         return self
 
     def finally_(self, body: Any) -> None:

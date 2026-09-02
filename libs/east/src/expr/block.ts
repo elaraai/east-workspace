@@ -5,6 +5,7 @@
 
 import { type AST, type IfElseAST, type Label, type TryCatchAST, type VariableAST } from "../ast.js";
 import { ensure_source_map, get_current_source_map, get_location, get_location_id, printLocations } from "../location.js";
+import { bindingNameAt, parameterNames } from "../naming.js";
 import { type EastType, FunctionType, isSubtype, NullType, printType, isTypeEqual, StringType, NeverType, VariantType, BooleanType, TypeUnion, IntegerType, StructType, ArrayType, type ValueTypeOf, AsyncFunctionType, type RefType, type SetType, type DictType, type RecursiveType, type RecursiveTypeMarker, assignTypeId } from "../types.js";
 import { typeMismatchError } from "../type_diff.js";
 
@@ -139,11 +140,12 @@ export function from(value: any, type?: EastType): Expr<any> {
     // pointer to user code (issue #204).
     return ensure_source_map(() => {
     const { inputs, output } = type;
-    const input_variables: VariableAST[] = inputs.map(i => ({
+    const input_variables: VariableAST[] = inputs.map((i, k) => ({
       ast_type: "Variable",
       type: i,
       loc_id: get_location_id(),
       mutable: false,
+      name: parameterNames(value)?.[k + 1],
     }));
 
     const $ = BlockBuilder(output);
@@ -227,11 +229,12 @@ export function from(value: any, type?: EastType): Expr<any> {
 
     return ensure_source_map(() => {
     const { inputs, output } = type;
-    const input_variables: VariableAST[] = inputs.map(i => ({
+    const input_variables: VariableAST[] = inputs.map((i, k) => ({
       ast_type: "Variable",
       type: i,
       loc_id: get_location_id(),
       mutable: false,
+      name: parameterNames(value)?.[k + 1],
     }));
 
     const $ = BlockBuilder(output);
@@ -337,11 +340,12 @@ export function func<const I extends EastType[], O extends EastType>(input_types
 export function func<const I extends EastType[], F extends ($: BlockBuilder<NeverType>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => any>(input_types: I, output_type: undefined, body: F): CallableFunctionExpr<I, TypeOf<ReturnType<F> extends void ? NeverType : ReturnType<F>>>
 export function func(input_types: EastType[], output_type: EastType | undefined, body: ($: BlockBuilder<any>, ...inputs: Expr[]) => any): Expr<FunctionType<any[], any>> {
   return ensure_source_map(() => {
-  const parameters: VariableAST[] = input_types.map(i => ({
+  const parameters: VariableAST[] = input_types.map((i, k) => ({
     ast_type: "Variable",
     type: i,
     loc_id: get_location_id(),
     mutable: false,
+    name: parameterNames(body)?.[k + 1],
   }));
   const $ = BlockBuilder<any>(output_type ?? NeverType);
   let ret = body($, ...parameters.map(fromAst));
@@ -435,11 +439,12 @@ export function asyncFunction<const I extends EastType[], O extends EastType>(in
 export function asyncFunction<const I extends EastType[], F extends ($: BlockBuilder<NeverType>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => any>(input_types: I, output_type: undefined, body: F): CallableAsyncFunctionExpr<I, TypeOf<ReturnType<F> extends void ? NeverType : ReturnType<F>>>
 export function asyncFunction(input_types: EastType[], output_type: EastType | undefined, body: ($: BlockBuilder<any>, ...inputs: Expr[]) => any): Expr<AsyncFunctionType<any[], any>> {
   return ensure_source_map(() => {
-  const parameters: VariableAST[] = input_types.map(i => ({
+  const parameters: VariableAST[] = input_types.map((i, k) => ({
     ast_type: "Variable",
     type: i,
     loc_id: get_location_id(),
     mutable: false,
+    name: parameterNames(body)?.[k + 1],
   }));
   const $ = BlockBuilder<any>(output_type ?? NeverType);
   let ret = body($, ...parameters.map(fromAst));
@@ -793,6 +798,7 @@ export function matchExpr<Cases extends Record<string, any>, Handlers extends { 
       type: t,
       loc_id: get_location_id(),
       mutable: false,
+      name: parameterNames(handler)?.[1],
     };
 
     const ast = handler === undefined ? valueOrExprToAstTyped(null, NullType) : block($ => handler($, fromAst(data_variable) as any))[AstSymbol];
@@ -825,6 +831,7 @@ export function tryCatch<T1, F extends ($: BlockBuilder<NeverType>, message: Exp
     type: StringType,
     loc_id: get_location_id(),
     mutable: false,
+    name: parameterNames(catch_body)?.[1],
   };
 
   const stack_variable = {
@@ -832,6 +839,7 @@ export function tryCatch<T1, F extends ($: BlockBuilder<NeverType>, message: Exp
     type: ArrayType(StructType({ filename: StringType, line: IntegerType, column: IntegerType })),
     loc_id: get_location_id(),
     mutable: false,
+    name: parameterNames(catch_body)?.[2],
   };
 
   if (typeof catch_body !== "function") {
@@ -2003,6 +2011,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       type: type ?? ast.type,
       loc_id: get_location_id(),
       mutable: false,
+      name: bindingNameAt(get_location()) ?? undefined,
     };
 
     statements.push({
@@ -2036,6 +2045,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       type: type ?? ast.type,
       loc_id: get_location_id(),
       mutable: true,
+      name: bindingNameAt(get_location()) ?? undefined,
     };
 
     statements.push({
@@ -2220,6 +2230,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: t,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(f)?.[1],
       };
 
 
@@ -2344,6 +2355,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: Expr.type(collection).value as EastType,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(body)?.[1],
       };
       const value = fromAst(value_variable);
 
@@ -2352,6 +2364,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: IntegerType,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(body)?.[2],
       };
       const key = fromAst(key_variable) as IntegerExpr;
 
@@ -2404,6 +2417,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: Expr.type(collection).key as EastType,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(body)?.[1],
       };
       const key = fromAst(key_variable) as IntegerExpr;
 
@@ -2455,6 +2469,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: Expr.type(collection).value as EastType,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(body)?.[1],
       };
       const value = fromAst(value_variable);
 
@@ -2463,6 +2478,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: Expr.type(collection).key as EastType,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(body)?.[2],
       };
       const key = fromAst(key_variable) as IntegerExpr;
 
@@ -2708,6 +2724,10 @@ class TryCatchExpr<Ret> extends NullExpr {
     }
     this.catchCalled = true;
     const $ = BlockBuilder<Ret>(this.return_type);
+    // the handler names the catch variables (#639): `($, message, stack) => …`
+    const names = parameterNames(body);
+    if (names?.[1] !== undefined) this.message_variable.name = names[1];
+    if (names?.[2] !== undefined) this.stack_variable.name = names[2];
     const ret = body($, fromAst(this.message_variable) as StringExpr, fromAst(this.stack_variable) as ArrayExpr<StructType<{ filename: StringType, line: IntegerType, column: IntegerType }>>);
     const stmts = $.statements;
     if (ret !== undefined) {

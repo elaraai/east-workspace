@@ -12,8 +12,10 @@ body receives, python's ``$``) and the builtin table's
 
 - a Function/AsyncFunction is a decorated ``def`` taking the block first —
   ``@East.function([types], out) def _fN(b, params)`` (the root carries
-  ``cse=False``); nested functions are expressions of the enclosing body,
-  as in TypeScript;
+  ``cse=False``); a nested function is an expression of the enclosing body,
+  as in TypeScript — ``East.function([types], out, lambda b, …: expr)`` when
+  its body is one expression, else a decorated ``def _fN`` defined just
+  before the statement that uses it;
 - a Block is that def's statements; the block's last node prints as
   ``return <expr>`` when it is an expression, or as the statement it is;
 - Let/Assign/Return/Break/Continue/Error, a Null-typed IfElse/Match/While/
@@ -23,7 +25,14 @@ body receives, python's ``$``) and the builtin table's
   the statement that uses them otherwise;
 - every other node prints as an expression: literals as python literals,
   Struct/Variant/NewArray/… through ``East.value(..., T)`` and the
-  ``East.new_*`` constructors, an expression IfElse/Match/TryCatch through
+  ``East.new_*`` constructors — a construction bound by a Let as the python
+  literal with the type on the binding, ``x = b.let({1: 'a'}, T)``, printed
+  by ``literal_for(T)``, a factory over the type (as ``compare_for`` is)
+  under which a construction nested anywhere prints bare (a dict literal
+  only when python can hash its keys, i.e. they are literals; a set keeps
+  ``East.new_set`` — a python set literal loses the element order), and an
+  Option case as ``some(v)`` / ``none`` — an expression
+  IfElse/Match/TryCatch through
   ``East.if_else`` / ``.match({...})`` / ``East.try_catch``, a Builtin
   through its spelling row (callbacks as ``lambda b, …: …``, or ``def
   _bN(b, …)`` helpers when they hold statements — every body takes the
@@ -31,23 +40,60 @@ body receives, python's ``$``) and the builtin table's
   unresolved cross-language import (the ``east.importFunction`` Platform
   node, #628) through ``East.import_function(pkg, name, T)``.
 
-Variables keep their IR names when they are python identifiers (the
-TypeScript ``_N``s are); anything else is renamed ``v_N``; ``b`` is
-reserved for the block. Types are hoisted to module constants ``_tN``
-(deduplicated structurally), platform declarations to ``_pN`` (one per
-distinct signature). Deep expression nesting is broken with ``_eN =
-<expr>`` temporaries, so any IR width or depth prints to parseable python.
+Variables keep their IR names when they are python identifiers — the
+authoring names both builders carry (#639) and TypeScript's ``_N`` for a
+slot the body did not name; the python builder's own ``__nN`` and a name
+the module already uses are renamed ``v_N``, numbered once per module
+(above any ``v_N`` the IR holds) so a printed module rebuilds to itself;
+``b`` is reserved for the block (a parameter the author named ``b`` prints
+as ``b_``). Every type prints inline where it is used (``b.let({1: 'a'},
+DictType(IntegerType, StringType))``, as an author writes it); a recursive
+type is hoisted to a module constant ``_tN`` (deduplicated structurally).
+Platform declarations are hoisted to ``_pN`` (one per distinct signature).
+A function called where it stands — the ``Call`` of a Function literal a
+TypeScript artifact leaves at its call site — prints inline,
+``East.function(...)(x)``: a python artifact called inside another body
+SPLICES its body into the caller (#470) rather than emitting a ``Call``, so
+a module-level ``def`` would not rebuild it (the TypeScript printer hoists
+one to ``_fN``). Deep expression nesting is broken with ``_eN = <expr>``
+temporaries, so any IR width or depth prints to parseable python.
+
+The source is written as a layout document (``east.codegen.doc``) and
+laid out as black lays python out: a literal, an argument list or a type
+breaks one entry per line when the line it sits on would pass
+``LINE_WIDTH``, a call hugs a sole literal argument (``StructType([``
+stays on its line, the entries break inside), and a chain of three or
+more calls that does not fit prints one call per line — in parentheses
+when it is what a ``return`` returns.
 """
 
 from __future__ import annotations
 
 import keyword
 import math
+import re
 from datetime import datetime
 from typing import Any
 
+from east.codegen.doc import (
+    LINE_WIDTH,
+    Doc,
+    bracket,
+    call_args,
+    choice,
+    group,
+    hardline,
+    hug,
+    if_break,
+    indent,
+    join,
+    line,
+    render,
+    softline,
+    will_break,
+)
 from east.codegen.spellings import spelling_for
-from east.codegen.types import TYPE_IMPORTS, type_key, type_source
+from east.codegen.types import TYPE_IMPORTS, type_constructors, type_doc, type_key
 from east.functions import IMPORT_PLATFORM
 from east.types.types import EastType
 from east.types.values import EastVariant
@@ -66,6 +112,25 @@ _STATEMENT_KINDS = frozenset({
 _MAX_DEPTH = 24
 #: The block parameter every statement-bearing body declares first.
 _BLOCK = "b"
+#: The printer's own spelling for a variable it cannot name as the IR does.
+_V_NAME = re.compile(r"v_(\d+)")
+#: A template slot: an argument or a type parameter.
+_SLOT = re.compile(r"\{(T\d+|\d+)\}")
+#: A template head that is a method on a slot: ``{0}.map``.
+_METHOD_HEAD = re.compile(r"^\{(\d+)\}\.([A-Za-z_]\w*)$")
+#: An operator template: ``({0} + {1})`` / ``(-{0})``.
+_BINARY = re.compile(r"^\(\{(\d+)\} (\S+) \{(\d+)\}\)$")
+_UNARY = re.compile(r"^\((\S+?)\{(\d+)\}\)$")
+#: python's operator precedence, low to high, for the operator rows: a
+#: comparison (which python chains, so its operands keep their parentheses),
+#: the bitwise operators, the arithmetic ones, the unary ones.
+_PRECEDENCE = {
+    "==": 1, "!=": 1, "<": 1, "<=": 1, ">": 1, ">=": 1,
+    "|": 2, "^": 3, "&": 4, "+": 5, "-": 5, "*": 6, "/": 6,
+}
+_UNARY_LEVEL = 7
+#: the levels whose operators are left-associative and safe to run on in one chain
+_CHAINABLE = frozenset({2, 3, 4, 5, 6})
 
 
 def _ident(name: str) -> bool:
@@ -74,6 +139,16 @@ def _ident(name: str) -> bool:
 
 def _is_null_value(node: Any) -> bool:
     return node.type == "Value" and node.value["type"].type == "Null"
+
+
+def _is_option_type(t: EastType) -> bool:
+    """The exact Option shape, ``Variant{none: Null, some: T}`` — the TypeScript
+    printer's ``isOptionValue``."""
+    if t.type != "Variant" or len(t.value) != 2:
+        return False
+    cases = list(t.value)
+    return (cases[0]["name"] == "none" and cases[0]["type"].type == "Null"
+            and cases[1]["name"] == "some")
 
 
 def _pyliteral(value: Any) -> str:
@@ -129,29 +204,104 @@ def _has_statements(body: Any) -> bool:
     )
 
 
+def _def(name: str, names: list[str], lines: list[Doc], decorator: Doc | None = None) -> Doc:
+    """A ``def name(names): lines`` — a group, so its statements lay out in
+    their own right wherever the def sits."""
+    head: list[Doc] = [] if decorator is None else [decorator, hardline]
+    return group([*head, f"def {name}({', '.join(names)}):", indent([hardline, join(hardline, lines)])])
+
+
+def _parse_call_template(template: str) -> tuple[str, list[str]] | None:
+    """A spelling template split into its call shape — the head before the
+    argument list and the argument templates — or ``None`` when the
+    template is not ``head(args)``."""
+    if not template.endswith(")"):
+        return None
+    depth = 0
+    for i in range(len(template) - 1, -1, -1):
+        ch = template[i]
+        if ch == ")":
+            depth += 1
+        elif ch == "(":
+            depth -= 1
+            if depth == 0:
+                head = template[:i]
+                return None if head == "" else (head, _split_args(template[i + 1:-1]))
+    return None
+
+
+def _split_args(inner: str) -> list[str]:
+    """The top-level comma-separated pieces of an argument-list template."""
+    if not inner.strip():
+        return []
+    args: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(inner):
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            args.append(inner[start:i].strip())
+            start = i + 1
+    args.append(inner[start:].strip())
+    return args
+
+
+def _fill(text: str, slot: Any) -> Doc:
+    """``text`` with every slot replaced by ``slot(name)``; a lone slot is the
+    slot's document itself."""
+    parts: list[Doc] = []
+    last = 0
+    for m in _SLOT.finditer(text):
+        if m.start() > last:
+            parts.append(text[last:m.start()])
+        parts.append(slot(m.group(1)))
+        last = m.end()
+    if last < len(text):
+        parts.append(text[last:])
+    return parts[0] if len(parts) == 1 else parts
+
+
 class _Printer:
-    def __init__(self, root_name: str) -> None:
+    def __init__(self, root_name: str, width: float) -> None:
         self.root_name = root_name
-        self.types: dict[str, tuple[str, str]] = {}      # type key -> (const name, source)
+        self.width = width
+        self.types: dict[str, tuple[str, Doc]] = {}     # type key -> (const name, source)
+        self.literals: dict[str, Any] = {}               # type key -> its host-literal printer
         self.platforms: dict[tuple, str] = {}             # signature -> const name
-        self.platform_decls: list[str] = []
+        self.platform_decls: list[Doc] = []
+        #: method-call documents (by id) -> (receiver, segments, the document itself, kept alive)
+        self.chains: dict[int, tuple[Doc, list[Doc], Doc]] = {}
+        #: the chain documents that may expand one call per line (need parentheses after ``return``)
+        self.expandable: set[int] = set()
+        #: operator documents (by id) -> (precedence level, the run of operands and operators, the
+        #: run's document without its parentheses, the document itself, kept alive)
+        self.operators: dict[int, tuple[int, list[Doc], Doc, Doc]] = {}
         self.helper_counter = 0
         self.temp_counter = 0
+        self.var_counter = 0
         self.raw_builtins: set[str] = set()
         self.uses_datetime = False
-        self.uses_variant = False
+        #: the names the printed module imports from ``east`` — exactly the ones it uses
+        self.used: set[str] = {"East"}
 
     # ── module-level pieces ──────────────────────────────────────────────
 
-    def type_ref(self, t: EastType) -> str:
-        """A type as source: a primitive name inline, anything else hoisted."""
+    def type_ref(self, t: EastType) -> Doc:
+        """A type as source, inline; a recursive type hoisted to a ``_tN``
+        constant."""
+        type_constructors(t, self.used)
         if t.type in ("Null", "Never", "Boolean", "Integer", "Float", "String", "DateTime", "Blob"):
-            return type_source(t)
+            return type_doc(t)
         key = type_key(t)
+        if "recursive_type(" not in key and "Recursive" not in key:
+            return type_doc(t)
         hit = self.types.get(key)
         if hit is None:
             name = f"_t{len(self.types)}"
-            self.types[key] = (name, type_source(t))
+            self.types[key] = (name, type_doc(t))
             return name
         return hit[0]
 
@@ -164,27 +314,52 @@ class _Printer:
             return hit
         name = f"_p{len(self.platforms)}"
         self.platforms[sig] = name
+        args = bracket("[", [self.type_ref(a.value["type"]) for a in p["arguments"]], "]")
+        opt: list[Doc] = ["optional=True"] if p["optional"] else []
         if tps:
             # A generic call: the concrete type arguments are all the node
             # records, so the declaration is spelled with placeholders for
             # them in order and the inputs/output as the call has them.
-            params = [f"T{i}" for i in range(len(tps))]
+            params = bracket("[", [repr(f"T{i}") for i in range(len(tps))], "]")
             decl = "East.asyncGenericPlatform" if p["async"] else "East.genericPlatform"
-            args = ", ".join(self.type_ref(a.value["type"]) for a in p["arguments"])
             self.platform_decls.append(
-                f"{name} = {decl}({p['name']!r}, {params!r}, [{args}], "
-                f"{self.type_ref(p['type'])}{', optional=True' if p['optional'] else ''})")
+                [name, " = ", decl, call_args([repr(p["name"]), params, args, self.type_ref(p["type"]), *opt])])
         else:
             decl = "East.asyncPlatform" if p["async"] else "East.platform"
-            args = ", ".join(self.type_ref(a.value["type"]) for a in p["arguments"])
             self.platform_decls.append(
-                f"{name} = {decl}({p['name']!r}, [{args}], {self.type_ref(p['type'])}"
-                f"{', optional=True' if p['optional'] else ''})")
+                [name, " = ", decl, call_args([repr(p["name"]), args, self.type_ref(p["type"]), *opt])])
         return name
 
     def fresh_helper(self, prefix: str) -> str:
         self.helper_counter += 1
         return f"_{prefix}{self.helper_counter}"
+
+
+    def method_call(self, receiver: Doc, name: str, args: list[Doc]) -> Doc:
+        """``receiver.name(args)``: a segment of the member chain ``receiver``
+        ends (when it is one) or starts. Three or more calls not rooted at
+        the block print one call per line when they do not fit; a chain
+        holding a ``def`` never does (one is never inside an expression)."""
+        segment: Doc = [".", name, call_args(args)]
+        prior = None if isinstance(receiver, str) else self.chains.get(id(receiver))
+        root, segments = (prior[0], [*prior[1], segment]) if prior is not None else (receiver, [segment])
+        doc: Doc
+        if len(segments) < 3 or root == _BLOCK:
+            doc = [root, *segments]
+        else:
+            one_line: Doc = [root, *segments]
+            expanded = group([root, *[[hardline, s] for s in segments]])
+            doc = expanded if any(will_break(s) for s in segments) else choice(one_line, expanded)
+            self.expandable.add(id(doc))
+        self.chains[id(doc)] = (root, segments, doc)
+        return doc
+
+    def returned(self, value: Doc) -> Doc:
+        """``value`` as what a ``return`` returns: a chain that may expand
+        one call per line is parenthesised when it does."""
+        if id(value) not in self.expandable:
+            return value
+        return group([if_break("("), indent([softline, value]), softline, if_break(")")])
 
     # ── functions ────────────────────────────────────────────────────────
 
@@ -192,69 +367,87 @@ class _Printer:
         """Bind an IR Variable node in ``scope`` and return its python name."""
         ir_name = var.value["name"]
         py = ir_name if _ident(ir_name) and not ir_name.startswith("__") else None
+        if py == _BLOCK and f"{py}_" not in scope.used:
+            py = f"{py}_"  # the author's `b` is the block's name here
         if py is None or py in scope.used:
-            base = "v"
-            n = 0
-            while f"{base}_{n}" in scope.used:
-                n += 1
-            py = f"{base}_{n}"
+            # The builder's own spelling, or a name this scope already
+            # uses: ``v_N`` from one module-wide counter, so the rebuilt
+            # module names the slot the same way and prints to itself.
+            py = f"v_{self.var_counter}"
+            self.var_counter += 1
         scope.names[ir_name] = py
         scope.used.add(py)
         return py
 
     def function_def(self, node: Any, scope: _Scope, name: str, *,
-                     consts: list | None = None, root: bool = False) -> list[str]:
-        """The decorated ``def name(b, params)`` lines of a Function /
+                     consts: list | None = None, root: bool = False) -> Doc:
+        """The decorated ``def name(b, params)`` of a Function /
         AsyncFunction node; ``consts`` are hoisted Lets printed first as the
         body's own bindings (a python artifact's captured constants)."""
         p = node.value
         fn_t = p["type"]
         inner = _Scope(scope)
         params = [self.bind(inner, v) for v in p["parameters"]]
-        body: list[str] = []
+        body: list[Doc] = []
         for let in consts or []:
             if let.type != "Let":
                 raise Unprintable(f"{let.type} before the root function")
             body.extend(self.statement_lines(let, inner, last=False))
         body.extend(self.body_lines(p["body"], inner, mode="function"))
         ctor = "East.asyncFunction" if node.type == "AsyncFunction" else "East.function"
-        inputs = ", ".join(self.type_ref(t) for t in fn_t.value["inputs"])
+        inputs = bracket("[", [self.type_ref(t) for t in fn_t.value["inputs"]], "]")
         out = self.type_ref(fn_t.value["output"])
-        return [
-            f"@{ctor}([{inputs}], {out}{', cse=False' if root else ''})",
-            f"def {name}({', '.join([_BLOCK, *params])}):",
-            *["    " + ln for ln in body],
-        ]
+        decorator: Doc = ["@", ctor, call_args([inputs, out, *(["cse=False"] if root else [])])]
+        return _def(name, [_BLOCK, *params], body, decorator)
 
-    def function_expr(self, node: Any, scope: _Scope, pre: list[str]) -> str:
-        """A nested Function as an expression: its decorated def goes to
-        ``pre``; the expression is its name."""
+    def function_expr(self, node: Any, scope: _Scope, pre: list[Doc]) -> Doc:
+        """A nested Function as an expression: ``East.function([types], out,
+        lambda b, params: expr)`` when its body is one expression (as a
+        callback prints); otherwise its decorated ``def _fN`` goes to
+        ``pre`` and the expression is its name."""
+        p = node.value
+        if not _has_statements(p["body"]):
+            inner = _Scope(scope)
+            params = [self.bind(inner, v) for v in p["parameters"]]
+            sub: list[Doc] = []
+            text = self.expr(p["body"], inner, sub)
+            if not sub:
+                fn_t = p["type"]
+                ctor = "East.asyncFunction" if node.type == "AsyncFunction" else "East.function"
+                inputs = bracket("[", [self.type_ref(t) for t in fn_t.value["inputs"]], "]")
+                out = self.type_ref(fn_t.value["output"])
+                return [ctor, call_args([inputs, out, [f"lambda {', '.join([_BLOCK, *params])}: ", text]])]
         name = self.fresh_helper("f")
-        pre.extend(self.function_def(node, scope, name))
+        pre.append(self.function_def(node, scope, name))
         return name
 
-    def body_lines(self, body: Any, scope: _Scope, *, mode: str) -> list[str]:
-        """The statements of a body (a Block, or one node).
-
-        ``mode`` is ``"function"`` (an ``East.function`` / callback /
-        ``East.block`` body: the last expression is ``return``ed) or
-        ``"null"`` (a branch, loop, case, try, catch or finally body: the
-        assembler pads a trailing non-Null statement with ``null``, so a
-        trailing ``Value null`` after one is not printed — rebuilding
-        restores it)."""
+    @staticmethod
+    def body_nodes(body: Any, *, mode: str) -> list[Any]:
+        """The nodes a body prints. ``mode`` is ``"function"`` (an
+        ``East.function`` / callback / ``East.block`` body: the last
+        expression is ``return``ed) or ``"null"`` (a branch, loop, case, try,
+        catch or finally body: the assembler pads a trailing non-Null
+        statement with ``null``, so a trailing ``Value null`` after one is
+        not printed — rebuilding restores it)."""
         nodes = list(body.value["statements"]) if body.type == "Block" else [body]
         if mode == "null" and len(nodes) > 1 and _is_null_value(nodes[-1]) \
                 and nodes[-2].value["type"].type != "Null":
             nodes.pop()
-        lines: list[str] = []
+        return nodes
+
+    def body_lines(self, body: Any, scope: _Scope, *, mode: str) -> list[Doc]:
+        """The statements of a body (a Block, or one node), one document
+        each — ``pass`` when there are none."""
+        nodes = self.body_nodes(body, mode=mode)
+        lines: list[Doc] = []
         for i, node in enumerate(nodes):
             lines.extend(self.statement_lines(node, scope, last=i == len(nodes) - 1))
         if not lines:
             lines.append("pass")
         return lines
 
-    def body_arg(self, body: Any, scope: _Scope, params: list[Any], pre: list[str],
-                 label: str | None = None) -> str:
+    def body_arg(self, body: Any, scope: _Scope, params: list[Any], pre: list[Doc],
+                 label: str | None = None) -> Doc:
         """A branch/loop/handler body as the argument of its statement:
         ``lambda b, …: <statement>`` when it is one statement, else the
         name of a ``def _bN(b, …)`` helper appended to ``pre``."""
@@ -262,19 +455,21 @@ class _Printer:
         names = [_BLOCK, *(self.bind(inner, v) for v in params)]
         if label is not None:
             names.append(self.fresh_label(inner, label))
-        lines = self.body_lines(body, inner, mode="null")
-        if lines == ["pass"]:
+        nodes = self.body_nodes(body, mode="null")
+        if not nodes:
             return f"lambda {', '.join(names)}: None"
-        if len(lines) == 1 and lines[0].startswith((f"{_BLOCK}.", "return ")):
-            # One statement call, or one expression: a lambda. (A `x =
-            # b.let(...)` line is an assignment and needs the def.)
-            text = lines[0]
-            if text.startswith("return "):
-                text = text[len("return "):]
-            return f"lambda {', '.join(names)}: {text}"
+        if len(nodes) == 1:
+            sub: list[Doc] = []
+            doc, lam = self.statement(nodes[0], inner, sub, last=True)
+            if lam is not None and not sub:
+                # One statement call, or one expression: a lambda. (A `x =
+                # b.let(...)` line is an assignment and needs the def.)
+                return [f"lambda {', '.join(names)}: ", lam]
+            lines = [*sub, doc]
+        else:
+            lines = self.body_lines(body, inner, mode="null")
         name = self.fresh_helper("b")
-        pre.append(f"def {name}({', '.join(names)}):")
-        pre.extend("    " + ln for ln in lines)
+        pre.append(_def(name, names, lines))
         return name
 
     def fresh_label(self, scope: _Scope, ir_label: str) -> str:
@@ -296,90 +491,112 @@ class _Printer:
 
     # ── statements ───────────────────────────────────────────────────────
 
-    def statement_lines(self, node: Any, scope: _Scope, *, last: bool) -> list[str]:
+    def statement_lines(self, node: Any, scope: _Scope, *, last: bool) -> list[Doc]:
+        """A node in statement position, its helpers first."""
+        pre: list[Doc] = []
+        doc, _ = self.statement(node, scope, pre, last=last)
+        return [*pre, doc]
+
+    def statement(self, node: Any, scope: _Scope, pre: list[Doc], *, last: bool) -> tuple[Doc, Doc | None]:
+        """A node in statement position: its document, and — when the
+        statement is one expression a lambda can return (a ``b.`` form, a
+        returned expression; never a binding) — that expression."""
         kind = node.type
         p = node.value
-        pre: list[str] = []
         if kind == "Let":
-            value = self.expr(p["value"], scope, pre)
             var_t = p["variable"].value["type"]
+            typed: Doc | None = None if type_key(var_t) == type_key(p["value"].value["type"]) \
+                else self.type_ref(var_t)
+            # A bound construction is the python literal with the type on the
+            # binding (`x = b.let({1: 'a'}, T)`), as the surface is written; a
+            # scalar literal needs no type (`b.let(0)`) and stays an expression.
+            literal = (self.literal_for(var_t)(p["value"], scope, pre, 0)
+                       if typed is None and p["value"].type != "Value" else None)
+            if literal is not None:
+                typed = self.type_ref(var_t)
+            value = literal if literal is not None else self.expr(p["value"], scope, pre)
             py = self.bind(scope, p["variable"])
             ctor = f"{_BLOCK}.let" if p["variable"].value["mutable"] else f"{_BLOCK}.const"
-            typed = "" if type_key(var_t) == type_key(p["value"].value["type"]) \
-                else f", {self.type_ref(var_t)}"
-            return [*pre, f"{py} = {ctor}({value}{typed})"]
+            return [py, " = ", ctor, call_args([value] if typed is None else [value, typed])], None
         if kind == "Assign":
             value = self.expr(p["value"], scope, pre)
-            return [*pre, f"{_BLOCK}.assign({self.var_ref(p['variable'], scope)}, {value})"]
+            doc = self.method_call(_BLOCK, "assign", [self.var_ref(p["variable"], scope), value])
+            return doc, doc
         if kind == "Return":
-            value = self.expr(p["value"], scope, pre)
-            return [*pre, f"{_BLOCK}.return_({value})"]
+            doc = self.method_call(_BLOCK, "return_", [self.expr(p["value"], scope, pre)])
+            return doc, doc
         if kind in ("Break", "Continue"):
-            fn = f"{_BLOCK}.break_" if kind == "Break" else f"{_BLOCK}.continue_"
-            return [f"{fn}({self.label_ref(scope, p['label']['name'])})"]
+            doc = self.method_call(_BLOCK, "break_" if kind == "Break" else "continue_",
+                                   [self.label_ref(scope, p["label"]["name"])])
+            return doc, doc
         if kind == "Error":
-            return [*pre, f"{_BLOCK}.error({self.expr(p['message'], scope, pre)})"]
+            doc = self.method_call(_BLOCK, "error", [self.expr(p["message"], scope, pre)])
+            return doc, doc
         if kind == "While":
             pred = self.expr(p["predicate"], scope, pre)
             body = self.body_arg(p["body"], scope, [], pre, label=p["label"]["name"])
-            return [*pre, f"{_BLOCK}.while_({pred}, {body})"]
+            doc = self.method_call(_BLOCK, "while_", [pred, body])
+            return doc, doc
         if kind in ("ForArray", "ForSet", "ForDict"):
             src = {"ForArray": "array", "ForSet": "set", "ForDict": "dict"}[kind]
             coll = self.expr(p[src], scope, pre)
             params = [p["key"]] if kind == "ForSet" else [p["value"], p["key"]]
             body = self.body_arg(p["body"], scope, params, pre, label=p["label"]["name"])
-            return [*pre, f"{_BLOCK}.for_({coll}, {body})"]
+            doc = self.method_call(_BLOCK, "for_", [coll, body])
+            return doc, doc
         if kind == "IfElse" and p["type"].type in ("Null", "Never"):
-            lines = self.if_statement(node, scope, pre)
-            return [*pre, *lines]
+            doc = self.if_statement(node, scope, pre)
+            return doc, doc
         if kind == "Match" and p["type"].type in ("Null", "Never"):
-            lines = self.match_statement(node, scope, pre)
-            return [*pre, *lines]
+            doc = self.match_statement(node, scope, pre)
+            return doc, doc
         if kind == "TryCatch" and p["type"].type in ("Null", "Never"):
-            lines = self.try_statement(node, scope, pre)
-            return [*pre, *lines]
+            doc = self.try_statement(node, scope, pre)
+            return doc, doc
         # an expression in statement position
         if last:
             if _is_null_value(node):
-                return ["return east_null"]
+                self.used.add("east_null")
+                return "return east_null", "east_null"
             value = self.expr(node, scope, pre)
-            return [*pre, f"return {value}"]
+            return ["return ", self.returned(value)], value
         value = self.expr(node, scope, pre)
-        return [*pre, f"{_BLOCK}.do({value})"]
+        doc = self.method_call(_BLOCK, "do", [value])
+        return doc, doc
 
-    def if_statement(self, node: Any, scope: _Scope, pre: list[str]) -> list[str]:
+    def if_statement(self, node: Any, scope: _Scope, pre: list[Doc]) -> Doc:
         p = node.value
-        parts: list[str] = []
+        doc: Doc = _BLOCK
         for i, case in enumerate(p["ifs"]):
             pred = self.expr(case["predicate"], scope, pre)
             body = self.body_arg(case["body"], scope, [], pre)
-            parts.append(f"{f'{_BLOCK}.if_' if i == 0 else '.else_if'}({pred}, {body})")
+            doc = self.method_call(doc, "if_" if i == 0 else "else_if", [pred, body])
         else_body = p["else_body"]
         if not _is_null_value(else_body):
-            parts.append(f".else_({self.body_arg(else_body, scope, [], pre)})")
-        return ["".join(parts)]
+            doc = self.method_call(doc, "else_", [self.body_arg(else_body, scope, [], pre)])
+        return doc
 
-    def match_statement(self, node: Any, scope: _Scope, pre: list[str]) -> list[str]:
+    def match_statement(self, node: Any, scope: _Scope, pre: list[Doc]) -> Doc:
         p = node.value
         subject = self.expr(p["variant"], scope, pre)
-        arms = []
+        arms: list[Doc] = []
         for case in p["cases"]:
             body = case["body"]
             if _is_null_value(body):
                 continue
-            arms.append(f"{case['case']!r}: {self.body_arg(body, scope, [case['variable']], pre)}")
-        return [f"{_BLOCK}.match_({subject}, {{{', '.join(arms)}}})"]
+            arms.append([repr(case["case"]), ": ", self.body_arg(body, scope, [case["variable"]], pre)])
+        return self.method_call(_BLOCK, "match_", [subject, hug(bracket("{", arms, "}"))])
 
-    def try_statement(self, node: Any, scope: _Scope, pre: list[str]) -> list[str]:
+    def try_statement(self, node: Any, scope: _Scope, pre: list[Doc]) -> Doc:
         p = node.value
-        text = f"{_BLOCK}.try_({self.body_arg(p['try_body'], scope, [], pre)})"
+        doc = self.method_call(_BLOCK, "try_", [self.body_arg(p["try_body"], scope, [], pre)])
         catch = p["catch_body"]
         if not _is_null_value(catch):
-            text += f".catch({self.body_arg(catch, scope, [p['message'], p['stack']], pre)})"
+            doc = self.method_call(doc, "catch", [self.body_arg(catch, scope, [p["message"], p["stack"]], pre)])
         fin = p["finally_body"]
         if not _is_null_value(fin):
-            text += f".finally_({self.body_arg(fin, scope, [], pre)})"
-        return [text]
+            doc = self.method_call(doc, "finally_", [self.body_arg(fin, scope, [], pre)])
+        return doc
 
     # ── expressions ──────────────────────────────────────────────────────
 
@@ -389,14 +606,14 @@ class _Printer:
             raise Unprintable(f"variable {node.value['name']!r} is not bound")
         return hit
 
-    def expr(self, node: Any, scope: _Scope, pre: list[str], depth: int = 0) -> str:
-        """The python source of an expression node; helper defs and
-        temporaries go to ``pre`` (statements to emit before the user)."""
+    def expr(self, node: Any, scope: _Scope, pre: list[Doc], depth: int = 0) -> Doc:
+        """The document of an expression node; helper defs and temporaries
+        go to ``pre`` (statements to emit before the user)."""
         if depth > _MAX_DEPTH:
             text = self.expr(node, scope, pre, 0)
             self.temp_counter += 1
             name = f"_e{self.temp_counter}"
-            pre.append(f"{name} = {text}")
+            pre.append([name, " = ", text])
             return name
         d = depth + 1
         kind = node.type
@@ -404,6 +621,7 @@ class _Printer:
         if kind == "Value":
             lit = p["value"]
             if lit.type == "Null":
+                self.used.add("east_null")
                 return "east_null"
             if lit.type == "DateTime":
                 self.uses_datetime = True
@@ -419,125 +637,233 @@ class _Printer:
                 # an unresolved cross-language import: its own spelling, not
                 # a platform declaration
                 pkg, fn_name = (_pyliteral(a.value["value"].value) for a in arg_nodes)
-                return f"East.import_function({pkg}, {fn_name}, {self.type_ref(p['type'])})"
-            args = ", ".join(self.expr(a, scope, pre, d) for a in arg_nodes)
+                return ["East.import_function", call_args([pkg, fn_name, self.type_ref(p["type"])])]
+            args = [self.expr(a, scope, pre, d) for a in arg_nodes]
             ref = self.platform_ref(p)
             if p["type_parameters"]:
-                tps = ", ".join(self.type_ref(t) for t in p["type_parameters"])
-                return f"{ref}([{tps}]{', ' if args else ''}{args})"
-            return f"{ref}({args})"
+                tps = bracket("[", [self.type_ref(t) for t in p["type_parameters"]], "]")
+                return [ref, call_args([tps, *args])]
+            return [ref, call_args(args)]
         if kind in ("Function", "AsyncFunction"):
             return self.function_expr(node, scope, pre)
         if kind in ("Call", "CallAsync"):
             fn = self.expr(p["function"], scope, pre, d)
-            args = ", ".join(self.expr(a, scope, pre, d) for a in p["arguments"])
+            args = [self.expr(a, scope, pre, d) for a in p["arguments"]]
+            # a callee that already prints as a call, a member or a name needs no parentheses
             if p["function"].type not in ("Variable", "GetField", "Call", "CallAsync", "Function",
-                                          "AsyncFunction"):
-                fn = f"({fn})"
-            return f"{fn}({args})"
+                                          "AsyncFunction", "Builtin", "Platform"):
+                fn = ["(", fn, ")"]
+            return [fn, call_args(args)]
         if kind == "GetField":
             base = self.expr(p["struct"], scope, pre, d)
             name = p["field"]
             if _ident(name) and not name.startswith("_"):
-                return f"{base}.{name}"
-            return f"{base}.field({name!r})"
-        if kind == "Struct":
-            fields = ", ".join(f"{f['name']!r}: {self.expr(f['value'], scope, pre, d)}"
-                               for f in p["fields"])
-            return f"East.value({{{fields}}}, {self.type_ref(p['type'])})"
-        if kind == "Variant":
-            self.uses_variant = True
-            value = self.expr(p["value"], scope, pre, d)
-            return f"East.value(variant({p['case']!r}, {value}), {self.type_ref(p['type'])})"
+                return [base, ".", name]
+            return [base, ".field(", repr(name), ")"]
+        if kind in ("Struct", "Variant"):
+            return ["East.value", call_args([self.literal_for(p["type"])(node, scope, pre, depth), self.type_ref(p["type"])])]
         if kind in ("NewArray", "NewSet", "NewVector"):
-            values = ", ".join(self.expr(v, scope, pre, d) for v in p["values"])
+            # the constructor types its elements: a construction among them prints bare
+            elem = self.printed(p["type"].value)
+            values = bracket("[", [elem(v, scope, pre, d) for v in p["values"]], "]")
             ctor = {"NewArray": "new_array", "NewSet": "new_set", "NewVector": "new_vector"}[kind]
-            return f"East.{ctor}({self.type_ref(p['type'].value)}, [{values}])"
+            return [f"East.{ctor}", call_args([self.type_ref(p["type"].value), values])]
         if kind == "NewMatrix":
-            values = ", ".join(self.expr(v, scope, pre, d) for v in p["values"])
-            return (f"East.new_matrix({self.type_ref(p['type'].value)}, {p['rows']}, "
-                    f"{p['cols']}, [{values}])")
+            elem = self.printed(p["type"].value)
+            values = bracket("[", [elem(v, scope, pre, d) for v in p["values"]], "]")
+            return ["East.new_matrix", call_args([self.type_ref(p["type"].value), str(p["rows"]), str(p["cols"]), values])]
         if kind == "NewDict":
-            entries = ", ".join(
-                f"({self.expr(e['key'], scope, pre, d)}, {self.expr(e['value'], scope, pre, d)})"
-                for e in p["values"])
             t = p["type"]
-            return (f"East.new_dict({self.type_ref(t.value['key'])}, "
-                    f"{self.type_ref(t.value['value'])}, [{entries}])")
+            key, value = self.printed(t.value["key"]), self.printed(t.value["value"])
+            entries = bracket("[", [
+                bracket("(", [key(e["key"], scope, pre, d), value(e["value"], scope, pre, d)], ")")
+                for e in p["values"]], "]")
+            return ["East.new_dict", call_args([self.type_ref(t.value["key"]), self.type_ref(t.value["value"]), entries])]
         if kind == "NewRef":
-            return f"East.ref({self.expr(p['value'], scope, pre, d)})"
+            return ["East.ref", call_args([self.expr(p["value"], scope, pre, d)])]
         if kind == "As":
-            return f"East.as_({self.expr(p['value'], scope, pre, d)}, {self.type_ref(p['type'])})"
+            return ["East.as_", call_args([self.expr(p["value"], scope, pre, d), self.type_ref(p["type"])])]
         if kind == "WrapRecursive":
-            return (f"East.wrap_recursive({self.expr(p['value'], scope, pre, d)}, "
-                    f"{self.type_ref(p['type'])})")
+            # the wrapper's inner type governs the wrapped value: a construction prints bare
+            payload = p["type"].value
+            inner = payload.value["inner"] if payload.type == "wrapper" else None
+            literal = self.literal_for(inner)(p["value"], scope, pre, d) if inner is not None else None
+            value = literal if literal is not None else self.expr(p["value"], scope, pre, d)
+            return ["East.wrap_recursive", call_args([value, self.type_ref(p["type"])])]
         if kind == "UnwrapRecursive":
-            return f"{self.expr(p['value'], scope, pre, d)}.unwrap()"
+            return self.method_call(self.expr(p["value"], scope, pre, d), "unwrap", [])
         if kind == "Error":
-            return f"East.error({self.expr(p['message'], scope, pre, d)})"
+            return ["East.error", call_args([self.expr(p["message"], scope, pre, d)])]
         if kind == "IfElse":
-            parts = []
+            parts: list[Doc] = []
             for case in p["ifs"]:
                 parts.append(self.traced_expr(case["predicate"], scope, pre, d))
                 parts.append(self.arm_expr(case["body"], scope, pre, d))
             parts.append(self.arm_expr(p["else_body"], scope, pre, d))
-            return f"East.if_else({', '.join(parts)})"
+            return ["East.if_else", call_args(parts)]
         if kind == "Match":
             subject = self.expr(p["variant"], scope, pre, d)
-            arms = []
+            arms: list[Doc] = []
             for case in p["cases"]:
-                arms.append(f"{case['case']!r}: {self.expr_callback(case['body'], [case['variable']], scope, pre)}")
-            return f"{subject}.match({{{', '.join(arms)}}})"
+                arms.append([repr(case["case"]), ": ", self.expr_callback(case["body"], [case["variable"]], scope, pre)])
+            return self.method_call(subject, "match", [hug(bracket("{", arms, "}"))])
         if kind == "TryCatch":
             body = self.expr_callback(p["try_body"], [], scope, pre)
             handler = self.expr_callback(p["catch_body"], [p["message"], p["stack"]], scope, pre)
             fin = p["finally_body"]
-            text = f"East.try_catch({body}, {handler}"
+            args = [body, handler]
             if not _is_null_value(fin):
-                text += f", {self.expr_callback(fin, [], scope, pre)}"
-            return text + ")"
+                args.append(self.expr_callback(fin, [], scope, pre))
+            return ["East.try_catch", call_args(args)]
         if kind == "Block":
             return self.block_expr(node, scope, pre)
         if kind in _STATEMENT_KINDS:
             raise Unprintable(f"{kind} node in expression position")
         raise Unprintable(f"unknown node kind {kind}")
 
-    def traced_expr(self, node: Any, scope: _Scope, pre: list[str], depth: int) -> str:
+    def printed(self, t: EastType) -> Any:
+        """A node at a position of type ``t``: its literal when it is the
+        construction the type expects, else the node as an expression."""
+        literal = self.literal_for(t)
+
+        def print_at(node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc:
+            text = literal(node, scope, pre, depth)
+            return text if text is not None else self.expr(node, scope, pre, depth)
+        return print_at
+
+    def literal_for(self, t: EastType) -> Any:
+        """The host-literal printer for values of type ``t`` — a factory over
+        the TYPE, as ``compare_for(t)`` and ``equal_for(t)`` are: the factory
+        for a Dict holds the factories for its key and value types, and so on
+        down, so the one type on a binding governs every position of the
+        literal and a construction nested anywhere prints bare. Applied to a
+        node it returns the literal, or ``None`` when the node is not the
+        construction its position's type expects (a variable, a call, a
+        widening, a function) — the caller prints that as an expression. A
+        Set position always yields ``None`` (a python set literal iterates in
+        hash order and would lose the element order the IR carries), as does
+        a Dict keyed by expressions (python cannot hash them):
+        ``East.new_set`` / ``East.new_dict`` spell those."""
+        key = type_key(t)
+        hit = self.literals.get(key)
+        if hit is None:
+            hit = self.literals[key] = self._make_literal(t)
+        return hit
+
+    def _make_literal(self, t: EastType) -> Any:
+        kind = t.type
+
+        def child(u: EastType) -> Any:
+            inner = self.literal_for(u)
+
+            def print_child(node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc:
+                text = inner(node, scope, pre, depth)
+                return text if text is not None else self.expr(node, scope, pre, depth)
+            return print_child
+
+        def as_expr(node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc:
+            return self.expr(node, scope, pre, depth)
+
+        if kind in ("Null", "Boolean", "Integer", "Float", "String", "DateTime", "Blob"):
+            def scalar(node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc | None:
+                return self.expr(node, scope, pre, depth) if node.type == "Value" else None
+            return scalar
+        if kind == "Array":
+            elem = child(t.value)
+
+            def array(node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc | None:
+                if node.type != "NewArray":
+                    return None
+                return hug(bracket("[", [elem(v, scope, pre, depth + 1) for v in node.value["values"]], "]"))
+            return array
+        if kind == "Dict":
+            key_print, value = child(t.value["key"]), child(t.value["value"])
+
+            def dict_(node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc | None:
+                if node.type != "NewDict":
+                    return None
+                entries = list(node.value["values"])
+                if not all(e["key"].type == "Value" for e in entries):
+                    return None
+                items: list[Doc] = [
+                    [key_print(e["key"], scope, pre, depth + 1), ": ", value(e["value"], scope, pre, depth + 1)]
+                    for e in entries]
+                return hug(bracket("{", items, "}"))
+            return dict_
+        if kind == "Struct":
+            fields = {f["name"]: child(f["type"]) for f in t.value}
+
+            def struct(node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc | None:
+                if node.type != "Struct":
+                    return None
+                items: list[Doc] = [
+                    [repr(f["name"]), ": ", fields.get(f["name"], as_expr)(f["value"], scope, pre, depth + 1)]
+                    for f in node.value["fields"]]
+                return hug(bracket("{", items, "}"))
+            return struct
+        if kind == "Variant":
+            cases = {c["name"]: child(c["type"]) for c in t.value}
+            option = _is_option_type(t)
+
+            def variant_(node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc | None:
+                if node.type != "Variant":
+                    return None
+                case = node.value["case"]
+                if option and case == "none":
+                    self.used.add("none")
+                    return "none"
+                payload = cases.get(case, as_expr)(node.value["value"], scope, pre, depth + 1)
+                self.used.add("some" if option else "variant")
+                return ["some", call_args([payload])] if option else ["variant", call_args([repr(case), payload])]
+            return variant_
+
+        # Set, Ref, Vector, Matrix, Function, AsyncFunction, Recursive, Never: no python literal here
+        def none_(_node: Any, _scope: _Scope, _pre: list[Doc], _depth: int) -> Doc | None:
+            return None
+        return none_
+
+    def traced_expr(self, node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc:
         """An expression that must be a traced Expression, not a python
         literal (an ``if_else`` predicate): literals go through East.value."""
         if node.type == "Value":
             lit = node.value["value"]
             if lit.type == "Null":
+                self.used.update(("east_null", "NullType"))
                 return "East.value(east_null, NullType)"
             if lit.type == "DateTime":
                 self.uses_datetime = True
-            return f"East.value({_pyliteral(lit.value)}, {self.type_ref(node.value['type'])})"
+            return ["East.value", call_args([_pyliteral(lit.value), self.type_ref(node.value["type"])])]
         return self.expr(node, scope, pre, depth)
 
-    def arm_expr(self, body: Any, scope: _Scope, pre: list[str], depth: int) -> str:
+    def arm_expr(self, body: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc:
         """An if_else arm: an expression, or a Block as ``East.block(...)``."""
         if body.type == "Block":
             return self.block_expr(body, scope, pre)
         return self.expr(body, scope, pre, depth)
 
-    def block_expr(self, body: Any, scope: _Scope, pre: list[str]) -> str:
+    def block_expr(self, body: Any, scope: _Scope, pre: list[Doc]) -> Doc:
         """A Block in expression position: ``East.block(lambda b: …)`` /
         ``East.block(_bN)`` — the body receives the block first."""
         inner = _Scope(scope)
-        lines = self.body_lines(body, inner, mode="function")
-        if len(lines) == 1 and lines[0].startswith("return "):
-            return f"East.block(lambda {_BLOCK}: {lines[0][len('return '):]})"
+        nodes = self.body_nodes(body, mode="function")
+        if len(nodes) == 1:
+            sub: list[Doc] = []
+            doc, lam = self.statement(nodes[0], inner, sub, last=True)
+            if lam is not None and not sub and nodes[0].type not in _STATEMENT_KINDS:
+                return ["East.block(lambda ", _BLOCK, ": ", lam, ")"]
+            lines = [*sub, doc]
+        else:
+            lines = self.body_lines(body, inner, mode="function")
         name = self.fresh_helper("b")
-        pre.append(f"def {name}({_BLOCK}):")
-        pre.extend("    " + ln for ln in lines)
-        return f"East.block({name})"
+        pre.append(_def(name, [_BLOCK], lines))
+        return ["East.block(", name, ")"]
 
-    def expr_callback(self, body: Any, params: list[Any], scope: _Scope, pre: list[str]) -> str:
+    def expr_callback(self, body: Any, params: list[Any], scope: _Scope, pre: list[Doc]) -> Doc:
         """A handler of an EXPRESSION form (a ``.match({...})`` arm, an
         ``East.try_catch`` body) — a body like any other, the block first."""
         return self.callback_expr(body, params, scope, pre)
 
-    def callback_expr(self, body: Any, params: list[Any], scope: _Scope, pre: list[str]) -> str:
+    def callback_expr(self, body: Any, params: list[Any], scope: _Scope, pre: list[Doc]) -> Doc:
         """A callback body, the block first: ``lambda b, params: expr`` when
         the body is one expression, else a ``def _bN(b, params)`` helper. The
         parameters keep the builtin's own order — the python surface takes it
@@ -545,25 +871,21 @@ class _Printer:
         inner = _Scope(scope)
         names = [_BLOCK, *(self.bind(inner, v) for v in params)]
         if not _has_statements(body):
-            sub: list[str] = []
+            sub: list[Doc] = []
             text = self.expr(body, inner, sub)
             if not sub:
-                return f"lambda {', '.join(names)}: {text}"
+                return [f"lambda {', '.join(names)}: ", text]
             # the expression needed helpers: a def carries them
             name = self.fresh_helper("b")
-            pre.append(f"def {name}({', '.join(names)}):")
-            pre.extend("    " + ln for ln in sub)
-            pre.append(f"    return {text}")
+            pre.append(_def(name, names, [*sub, ["return ", self.returned(text)]]))
             return name
         name = self.fresh_helper("b")
-        lines = self.body_lines(body, inner, mode="function")
-        pre.append(f"def {name}({', '.join(names)}):")
-        pre.extend("    " + ln for ln in lines)
+        pre.append(_def(name, names, self.body_lines(body, inner, mode="function")))
         return name
 
     # ── builtins ─────────────────────────────────────────────────────────
 
-    def builtin_expr(self, node: Any, scope: _Scope, pre: list[str], depth: int) -> str:
+    def builtin_expr(self, node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc:
         p = node.value
         name = p["builtin"]
         row = spelling_for(name)
@@ -575,8 +897,8 @@ class _Printer:
         return self.raw_builtin(node, scope, pre, depth)
 
     def render_row(self, row: Any, args: list, p: Any, scope: _Scope,
-                   pre: list[str], depth: int) -> str | None:
-        texts: list[str] = []
+                   pre: list[Doc], depth: int) -> Doc | None:
+        texts: list[Doc] = []
         for i, arg in enumerate(args):
             adapter = row.callbacks.get(i)
             if adapter is None:
@@ -594,13 +916,80 @@ class _Printer:
             if rendered is None:
                 return None
             texts.append(rendered)
-        tps = {f"T{i}": self.type_ref(t) for i, t in enumerate(p["type_parameters"])}
+        tps = [self.type_ref(t) for t in p["type_parameters"]]
+
+        def slot(name: str) -> Doc:
+            if name.startswith("T"):
+                return tps[int(name[1:])]
+            return texts[int(name)]
+
         try:
-            return row.template.format(*texts, **tps)
-        except (IndexError, KeyError):
+            return self.template_doc(row.template, slot)
+        except IndexError:
             return None
 
-    def callback_for(self, adapter: str, fn: Any, scope: _Scope, pre: list[str]) -> str | None:
+    def template_doc(self, template: str, slot: Any) -> Doc:
+        """A spelling template as a document: a method on a slot
+        (``{0}.map({1})``) is a member-chain segment on that argument, any
+        other call lays its arguments out as one, an operator row breaks
+        before its operator, and a template that is not a call is filled in
+        as it stands."""
+        call = _parse_call_template(template)
+        if call is not None:
+            head, arg_templates = call
+            args = [_fill(a, slot) for a in arg_templates]
+            method = _METHOD_HEAD.match(head)
+            if method is not None:
+                return self.method_call(slot(method.group(1)), method.group(2), args)
+            return [_fill(head, slot), call_args(args)]
+        binary = _BINARY.match(template)
+        if binary is not None:
+            return self.operator_chain(slot(binary.group(1)), binary.group(2), slot(binary.group(3)))
+        unary = _UNARY.match(template)
+        if unary is not None:
+            operand = self.operand(slot(unary.group(2)), _UNARY_LEVEL, strict=True)
+            return self.operator_doc(_UNARY_LEVEL, [[unary.group(1), operand]])
+        return _fill(template, slot)
+
+    def operator_chain(self, left: Doc, op: str, right: Doc) -> Doc:
+        """``(left op right)`` as black lays it out: a run of operands at one
+        precedence level is one group — flat, or one operand per line
+        breaking before each operator — and an operand that binds tighter
+        drops its parentheses. ``((a + b) + c)`` prints ``(a + b + c)``; a
+        comparison keeps its operands parenthesised (python chains them)."""
+        level = _PRECEDENCE[op]
+        prior = self.operators.get(id(left)) if level in _CHAINABLE else None
+        if prior is not None and prior[0] == level:
+            parts = [*prior[1], op, self.operand(right, level, strict=True)]
+        else:
+            parts = [self.operand(left, level, strict=False), op, self.operand(right, level, strict=True)]
+        return self.operator_doc(level, parts)
+
+    def operand(self, doc: Doc, level: int, *, strict: bool) -> Doc:
+        """``doc`` as an operand at ``level``: an operator document binding
+        tighter (or, on the left of a chainable operator, as tight) needs
+        no parentheses."""
+        prior = self.operators.get(id(doc))
+        if prior is None:
+            return doc
+        own = prior[0]
+        if own > level or (not strict and own == level and level in _CHAINABLE):
+            return prior[2]
+        return doc
+
+    def operator_doc(self, level: int, parts: list[Doc]) -> Doc:
+        """The document of an operator run ``[a, op, b, op, c]`` (a unary run
+        is ``[[op, a]]``), parenthesised; registered so a parent operator can
+        continue or unwrap it."""
+        run: list[Doc] = [parts[0]]
+        for i in range(1, len(parts), 2):
+            run.append([line, parts[i], " ", parts[i + 1]])
+        bare = group(run)
+        doc = group(["(", indent([softline, run]), softline, ")"])
+        self.operators[id(doc)] = (level, parts, bare, doc)
+        return doc
+
+    def callback_for(self, adapter: str, fn: Any, scope: _Scope, pre: list[Doc]) -> Doc | None:
         fp = fn.value
         params = list(fp["parameters"])
         if adapter == "cb":
@@ -627,15 +1016,14 @@ class _Printer:
             stack.extend(_node_children(n))
         return False
 
-    def raw_builtin(self, node: Any, scope: _Scope, pre: list[str], depth: int) -> str:
+    def raw_builtin(self, node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc:
         p = node.value
         self.raw_builtins.add(p["builtin"])
-        args = ", ".join(self.traced_expr(a, scope, pre, depth) if i == 0
-                         else self.expr(a, scope, pre, depth)
-                         for i, a in enumerate(p["arguments"]))
-        tps = ", ".join(self.type_ref(t) for t in p["type_parameters"])
-        return (f"East.builtin({p['builtin']!r}, [{tps}], [{args}], "
-                f"{self.type_ref(p['type'])})")
+        args = [self.traced_expr(a, scope, pre, depth) if i == 0 else self.expr(a, scope, pre, depth)
+                for i, a in enumerate(p["arguments"])]
+        tps = [self.type_ref(t) for t in p["type_parameters"]]
+        return ["East.builtin", call_args([repr(p["builtin"]), bracket("[", tps, "]"), bracket("[", args, "]"),
+                                           self.type_ref(p["type"])])]
 
     # ── the module ───────────────────────────────────────────────────────
 
@@ -648,30 +1036,47 @@ class _Printer:
             root = stmts[-1]
         if root.type not in ("Function", "AsyncFunction"):
             raise Unprintable(f"the root must be a Function or AsyncFunction, got {root.type}")
+        self.var_counter = _next_v_index(ir)
         # A python artifact's hoisted constants become the body's consts.
-        fn_lines = self.function_def(root, _Scope(None), self.root_name, consts=consts, root=True)
-        lines = [
+        fn_doc = self.function_def(root, _Scope(None), self.root_name, consts=consts, root=True)
+        # exactly the names the module uses, in one fixed order
+        names = [n for n in ("East", "variant", "some", "none", "east_null", "recursive_type", *TYPE_IMPORTS)
+                 if n in self.used]
+        parts: list[Doc] = [
             "# Generated by east-py transpile — East IR printed as the East.function",
             "# builder surface. Rebuilding this module yields the same IR (normalized).",
-            "from east import (  # noqa: F401",
-            "    East, variant, some, none, east_null,",
-            "    " + ", ".join(TYPE_IMPORTS) + ",",
-            ")",
-            "from east.types.types import recursive_type  # noqa: F401",
+            f"from east import {', '.join(names)}",
         ]
         if self.uses_datetime:
-            lines.append("from datetime import datetime, timezone")
-        lines.append("")
+            parts.append("from datetime import datetime, timezone")
+        parts.append("")
         for _key, (name, src) in self.types.items():
-            lines.append(f"{name} = {src}")
+            parts.append([name, " = ", src])
         if self.types:
-            lines.append("")
-        lines.extend(self.platform_decls)
+            parts.append("")
+        parts.extend(self.platform_decls)
         if self.platform_decls:
-            lines.append("")
-        lines.extend(fn_lines)
-        lines.append("")
-        return "\n".join(lines)
+            parts.append("")
+        parts.append(fn_doc)
+        parts.append("")
+        return render(join(hardline, parts), self.width)
+
+
+def _next_v_index(ir: Any) -> int:
+    """One above the highest ``v_N`` variable name in ``ir`` — a minted
+    ``v_N`` never collides with one the program authored."""
+    from east.expression.finalize import _node_children
+
+    highest = -1
+    stack = [ir]
+    while stack:
+        n = stack.pop()
+        if n.type == "Variable":
+            m = _V_NAME.fullmatch(n.value["name"])
+            if m:
+                highest = max(highest, int(m.group(1)))
+        stack.extend(_node_children(n))
+    return highest + 1
 
 
 def _ir_of(fn_or_ir: Any) -> Any:
@@ -683,7 +1088,7 @@ def _ir_of(fn_or_ir: Any) -> Any:
     raise TypeError("to_python_source takes an East.function result or an IR value")
 
 
-def to_python_source(fn_or_ir: Any, *, name: str | None = None) -> str:
+def to_python_source(fn_or_ir: Any, *, name: str | None = None, width: float = LINE_WIDTH) -> str:
     """Print East IR as a python module that rebuilds it.
 
     Args:
@@ -693,6 +1098,8 @@ def to_python_source(fn_or_ir: Any, *, name: str | None = None) -> str:
             its constants become the body's first ``b.const``s).
         name: The module-level name bound to the rebuilt function
             (default ``"main"``).
+        width: The line width the layout keeps to (default
+            ``LINE_WIDTH``); ``math.inf`` prints every construct on one line.
 
     Returns:
         The module source. Importing it (or ``exec``-ing it) binds ``name``
@@ -705,5 +1112,5 @@ def to_python_source(fn_or_ir: Any, *, name: str | None = None) -> str:
             unknown node kind. Builtins without a python spelling print
             through ``East.builtin(...)`` and are never unprintable.
     """
-    printer = _Printer(name or "main")
+    printer = _Printer(name or "main", width)
     return printer.module(_ir_of(fn_or_ir))

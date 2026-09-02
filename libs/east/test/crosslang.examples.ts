@@ -13,8 +13,8 @@
  */
 
 import {
-    East, example, variant,
-    ArrayType, DictType, FloatType, IntegerType, SetType, StringType, StructType, VariantType,
+    East, example, variant, some,
+    ArrayType, DictType, FloatType, IntegerType, OptionType, SetType, StringType, StructType, VariantType,
 } from "@elaraai/east";
 
 export const crosslangArithmetic = example({
@@ -120,4 +120,16 @@ export const crosslangWhile = example({
     }),
     inputs: [5n],
     returns: 12n,
+});
+
+export const crosslangUnwrapMerge = example({
+    keywords: ["cross-language", "python", "unwrap", "merge", "error", "Never"],
+    description: "unwrap and a dict merge with the default missing-key handler — the diverging error arms are Never-typed in both languages",
+    fn: East.function([DictType(StringType, IntegerType), OptionType(IntegerType)], IntegerType, ($, d, o) => {
+        const m = $.let(d.copy());
+        $(m.merge("k", o.unwrap(), ($, old, v, _k) => old.add(v)));
+        return m.get("k");
+    }),
+    inputs: [new Map([["k", 1n]]), some(2n)],
+    returns: 3n,
 });

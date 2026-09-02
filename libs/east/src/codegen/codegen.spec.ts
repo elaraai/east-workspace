@@ -26,8 +26,8 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
-  East, Expr, variant, ref,
-  ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType,
+  East, Expr, variant, ref, some, none,
+  ArrayType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType,
   SetType, StringType, StructType, VariantType, VectorType,
   IRType, EastTypeType, fromJSONFor, equalFor, isVariant, toSource, RAW_ONLY,
 } from "../index.js";
@@ -260,9 +260,39 @@ describe("codegen: toSource round trips the builder surface", () => {
       const wide = $.const(East.as(East.value(variant("a", n)), Wide));
       const head = $.const(list.unwrap().match({ nil: ($) => 0n, cons: ($, c) => c.head }));
       const unwide = $.const(wide.match({ a: ($, v) => v, b: ($, s) => s.length() }));
+      const opt = $.const(some(n), OptionType(IntegerType));
+      const nothing = $.const(none, OptionType(IntegerType));
+      const picked = $.const(East.value([some(n), none], ArrayType(OptionType(IntegerType))));
+      const nested = $.const(new Map([["a", new Set([1n, 2n])], ["b", new Set([3n])]]), DictType(StringType, SetType(IntegerType)));
+      const rows = $.const([{ x: 1.5, y: 2.5, "odd-name": n }, { x: 0.0, y: 0.0, "odd-name": 0n }], ArrayType(Point));
+      const deep = $.const(some({ x: 1.0, y: 2.0, "odd-name": n }), OptionType(Point));
       return p["odd-name"].add(arr.size()).add(set.size()).add(dict.size()).add(vec.length()).add(head)
-        .add(unwide).add(cell.get());
+        .add(unwide).add(cell.get()).add(opt.unwrap()).add(nothing.match({ some: ($, v) => v, none: ($) => 0n }))
+        .add(picked.size()).add(nested.size()).add(rows.size()).add(deep.unwrap()["odd-name"]);
     });
+    // The SHAPES, printed on one line each (`width: Infinity`); the layout has its own test.
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    // A bound construction is the host literal with the type on the binding; an Option is `some` / `none`.
+    assert.doesNotMatch(source, /\$\.(?:let|const)\(East\.value\(/, source);
+    // A type whose source fits on a line prints inline wherever it is used; a recursive one is hoisted.
+    assert.match(source, /const p = \$\.const\(\{ x: 1\.5, y: 2\.5, "odd-name": n \}, StructType\(\{ x: FloatType, y: FloatType, "odd-name": IntegerType \}\)\);/);
+    assert.match(source, /const dict = \$\.const\(new Map\(\[\["k", n\]\]\), DictType\(StringType, IntegerType\)\);/);
+    assert.match(source, /const cell = \$\.const\(ref\(n\), RefType\(IntegerType\)\);/);
+    assert.match(source, /const wide = \$\.const\(variant\("a", n\), VariantType\(\{ a: IntegerType, b: StringType \}\)\);/);  // a literal under East.as is retyped, no As node
+    assert.match(source, /const opt = \$\.const\(some\(n\), OptionType\(IntegerType\)\);/);
+    assert.match(source, /const nothing = \$\.const\(none, OptionType\(IntegerType\)\);/);
+    // The binding's type governs the whole literal: a construction nested anywhere inside prints bare.
+    assert.match(source, /const picked = \$\.const\(\[some\(n\), none\], ArrayType\(OptionType\(IntegerType\)\)\);/);
+    assert.match(source, /const nested = \$\.const\(new Map\(\[\["a", new Set\(\[1n, 2n\]\)\], \["b", new Set\(\[3n\]\)\]\]\), DictType\(StringType, SetType\(IntegerType\)\)\);/);
+    assert.match(source, /const rows = \$\.const\(\[\{ x: 1\.5, y: 2\.5, "odd-name": n \}, \{ x: 0, y: 0, "odd-name": 0n \}\], ArrayType\(StructType\(\{ x: FloatType, y: FloatType, "odd-name": IntegerType \}\)\)\);/);
+    assert.match(source, /const deep = \$\.const\(some\(\{ x: 1, y: 2, "odd-name": n \}\), OptionType\(StructType\(\{ x: FloatType, y: FloatType, "odd-name": IntegerType \}\)\)\);/);
+    assert.doesNotMatch(source, /\$\.const\([^\n]*East\.value\(/, "no East.value inside a bound literal");
+    // The module imports exactly what it uses: the literal helpers and type constructors this program spells, nothing else.
+    assert.match(source, /^import \{ East, variant, some, none, ref, NullType, IntegerType, FloatType, StringType, ArrayType, SetType, DictType, StructType, VariantType, OptionType, RefType, VectorType, RecursiveType \} from /m);
+    assert.doesNotMatch(source, /^const _t\d+ = (?:OptionType|ArrayType|DictType)\(/m);
+    assert.match(source, /^const _t\d+ = RecursiveType\(self => /m);  // a recursive type is always hoisted
+    assert.match(source, /const nil = \$\.const\(East\.wrapRecursive\(variant\("nil", null\), _t\d+\)\);/);  // the wrapper's inner type governs the wrapped literal
+    assert.match(source, /const list = \$\.const\(East\.wrapRecursive\(variant\("cons", \{ head: n, tail: nil \}\), _t\d+\)\);/);
     const main = await roundTrip(fn, "values");
     assert.equal(main.toIR().compile([])(5n), fn.toIR().compile([])(5n));
   });
@@ -295,12 +325,111 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.equal(main.toIR().compile([])("aab foo", [{ a: 1n }]), fn.toIR().compile([])("aab foo", [{ a: 1n }]));
   });
 
+  test("another builder's fresh names print as one v_N sequence, and the printed module prints to itself", async () => {
+    const fn = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) =>
+      xs.map(($, x) => x.multiply(2n)).reduce(($, acc, x) => acc.add(x), 0n));
+    // python spells a slot the body did not name `__nN` (TypeScript: `_N`),
+    // and an author may have used the printer's own `v_N` spelling.
+    const foreign = (v: any): any => Array.isArray(v) ? v.map(foreign)
+      : isVariant(v) ? variant(v.type, foreign(v.value))
+        : v !== null && typeof v === "object" && !(v instanceof Date) && !(v instanceof Uint8Array)
+          ? Object.fromEntries(Object.entries(v).map(([k, x]) =>
+            [k, k === "name" && typeof x === "string" ? (/^_\d+$/.test(x) ? `__n${x.slice(1)}` : x === "acc" ? "v_0" : x) : foreign(x)]))
+          : v;
+    const ir = foreign(fn.toIR().ir);
+    const wide = toSource(ir, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(wide, /xs\.map\(\(\$, x, v_1\) => x\.multiply\(2n\)\)\.reduce\(\(\$, v_0, x, v_2\) => v_0\.add\(x\), 0n\)/);
+    const main = await roundTrip(ir, "foreign names");
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL, width: Infinity }), wide, "print → build → print is the identity");
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL }), toSource(ir, { importFrom: INDEX_URL }), "… at the default width too");
+  });
+
+  test("layout: a wide literal, its type and an argument list break one entry per line, as prettier lays them out", async () => {
+    const Ops = StructType({ add: FunctionType([IntegerType, IntegerType], IntegerType), multiply: FunctionType([IntegerType, IntegerType], IntegerType) });
+    const fn = East.function([], IntegerType, ($) => {
+      const mathOps = $.const({ add: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)), multiply: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.multiply(b)) }, Ops);
+      return mathOps.add(mathOps.multiply(2n, 3n), 4n);
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL });
+    assert.ok(source.includes([
+      "export const main = East.function([], IntegerType, ($) => {",
+      "  const mathOps = $.const(",
+      "    {",
+      "      add: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)),",
+      "      multiply: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.multiply(b)),",
+      "    },",
+      "    StructType({",
+      "      add: FunctionType([IntegerType, IntegerType], IntegerType),",
+      "      multiply: FunctionType([IntegerType, IntegerType], IntegerType),",
+      "    }),",
+      "  );",
+      "  return mathOps.add(mathOps.multiply(2n, 3n), 4n);",
+      "});",
+    ].join("\n")), source);
+    assert.doesNotMatch(source, /^const _t/m, "no type is hoisted for its width");
+    const main = await roundTrip(fn, "layout");
+    assert.equal(main.toIR().compile([])(), 10n);
+  });
+
+  test("layout: a call hugs a trailing block, a chain of three or more calls breaks one call per line, and a block inside a plain argument breaks the call out", async () => {
+    const fn = East.function([ArrayType(IntegerType), StringType], StringType, ($, xs, label) => {
+      const doubled = $.const(xs.map(($, x) => x.multiply(2n)));
+      const big = $.const(East.less(doubled.size(), 10n).ifElse($ => "small", $ => Expr.block($ => {
+        const s = $.const(East.value("big").concat("!"));
+        return s;
+      })));
+      $.for(xs, ($, x, i, loop) => {
+        $.if(East.equal(x, 0n), $ => { $.continue(loop); });
+      });
+      return label.concat(" ").concat(big).concat(" ").concat(East.print(doubled.size())).concat(" ").concat(East.print(xs.size()));
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL });
+    const has = (text: string): void => assert.ok(source.includes(text), `expected:\n${text}\nin:\n${source}`);
+    has("    const doubled = $.const(xs.map(($, x, _3) => x.multiply(2n)));");  // fits: one line
+    has([
+      "    const big = $.const(",                                     // a block inside a plain argument: the call breaks out …
+      "      East.less(doubled.size(), 10n).ifElse(",                 // … and two trailing callbacks hug neither: one arm per line
+      "        ($) => \"small\",",
+      "        ($) => {",
+      "          const s = $.const(East.value(\"big\").concat(\"!\"));",
+      "          return s;",
+      "        },",
+      "      ),",
+      "    );",
+    ].join("\n"));
+    has([
+      "    $.for(xs, ($, x, i, label_1) => {",                                    // a statement hugs its body
+      "      $.if(East.equal(x, 0n), ($) => {",
+      "        $.continue(label_1);",
+      "      });",
+      "    });",
+    ].join("\n"));
+    has([
+      "    return label",                                                           // three or more calls that do not fit: one per line
+      "      .concat(\" \")",
+      "      .concat(big)",
+      "      .concat(\" \")",
+      "      .concat(East.print(doubled.size()))",
+      "      .concat(\" \")",
+      "      .concat(East.print(xs.size()));",
+    ].join("\n"));
+    has([
+      "export const main = East.function(",                                         // a head that does not fit: every argument on its own line
+      "  [ArrayType(IntegerType), StringType],",
+      "  StringType,",
+      "  ($, xs, label) => {",
+    ].join("\n"));
+    assert.ok(source.split("\n").every(l => l.length <= 100 || l.startsWith("import ")), `a line passes 100 columns:\n${source}`);
+    const main = await roundTrip(fn, "layout hug+chain");
+    assert.equal(main.toIR().compile([])([1n, 2n, 3n], "n"), fn.toIR().compile([])([1n, 2n, 3n], "n"));
+  });
+
   test("a raw builtin prints through East.builtin and rebuilds", async () => {
     const fn = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, xs) => {
       return xs.getKeys([0n, 1n]);
     });
     const source = toSource(fn, { importFrom: INDEX_URL });
-    assert.match(source, /East\.builtin\("ArrayGetKeys"/);
+    assert.match(source, /East\.builtin\(\s*"ArrayGetKeys"/);
     await roundTrip(fn, "raw builtin");
   });
 });
