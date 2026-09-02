@@ -114,7 +114,8 @@ Task → What do you need?
     │   │   │            .abs .sign .negate .log(base) · .to_float() · == != < <= > >= (.less_than/.lt … .greater_equal/.ge) ·
     │   │   │            ❗ // % ** / RAISE at build time with fix-its (#624): .divide · .remainder · .pow · .to_float() / y
     │   │   ├─ Float → + - * / ** (unary -) · the same named math · .sqrt .exp .log .sin .cos .tan · .to_integer() ❗non-integral ·
-    │   │   │          .floor()/.ceil()/.round()/.trunc() → Integer (#604; round = half AWAY from zero; python round() raises)
+    │   │   │          Float → Integer is the stdlib: East.Float.round_floor/round_ceil/round_trunc/round_half(x) (math.floor/ceil/trunc(x) build them;
+    │   │   │          .floor()/.ceil()/.trunc()/.round() are deprecated aliases; round_half = ties AWAY from zero — python round() raises)
     │   │   ├─ String → + (concat) · .concat .repeat .substring .upper_case .lower_case .trim .trim_start .trim_end · .replace .split ·
     │   │   │           .length .starts_with .ends_with .contains .index_of · .parse(T) ❗ .parse_json(T) .try_parse(T)→Option ·
     │   │   │           .encode_utf8 .encode_utf16 · .regex_contains/.regex_index_of/.regex_replace(pat, …, flags=) · East.str(…) — never an f-string
@@ -160,7 +161,7 @@ Task → What do you need?
     │   │   │          Dict → East.Dict.generate(size, K, V, key_fn, value_fn, on_conflict=)   (a duplicate key ERRORS without a handler)
     │   │   └─ Vector → East.Vector.zeros · ones · fill · from_array · sparse_axpy · sparse_from_pairs · sparse_filter_gt ·
     │   │              Matrix → East.Matrix.zeros · ones · fill · from_array · from_rows
-    │   ├─ Root helpers → East.str(*parts) (TS East.str`…`) · East.min/max(a, b) · East.clamp(x, lo, hi) · greatest/least ·
+    │   ├─ Root helpers → East.str(*parts) (TS East.str`…`) · East.print(value[, T]) (East text) · East.min/max(a, b) · East.clamp(x, lo, hi) · greatest/least ·
     │   │   East.equal/not_equal/less/less_equal/greater/greater_equal/compare(T, a, b) · East.value(v, T) · East.as_(v, T) · East.error(msg) ·
     │   │   East.wrap_recursive(v, R) / expr.unwrap() · East.builtin(name, [T…], [args], out) (the few with no named spelling)
     │   ├─ Control flow, expression forms → East.if_else(cond, v, …, otherwise) · East.while_(state, cond, body) · East.for_(coll, state, body) ·
@@ -519,9 +520,12 @@ One class per East type in `east.expression.expr`, each mirroring its
 name, the same builtin and argument order behind each one, and — where
 TypeScript has alias spellings (`plus`/`minus`/…, `eq`/`equal`/`equals`) — the
 same aliases. `tests/test_ts_name_parity.py` pins this against the TypeScript
-sources: every TypeScript method exists here, and every python-only name is
-declared with its reason (a deprecated python-idiom alias, a python protocol
-twin, or a convenience). Python differs from TypeScript in exactly the places
+sources: every TypeScript method exists here, on the expression class AND on
+the eager value class (for a scalar, whose python value takes no methods, the
+eager twin is the `East.<Type>` function of the same name, value first:
+`d.add_days(n)` ↔ `East.DateTime.add_days(d, n)`), and every python-only
+name is declared with its reason (a deprecated python-idiom alias, a python
+protocol twin, or a convenience). Python differs from TypeScript in exactly the places
 the language forces: operators where they agree (`+ - * / ** & | ^ ~`, the
 comparisons), keyword-mangled `and_`/`or_`/`not_`, a trailing underscore on
 `as_`, and keyword arguments (`out=`, `key=`, `combine=`) where TypeScript
@@ -531,9 +535,9 @@ overloads.
 |---|---|---|
 | **Boolean** | `&` `\|` `^` `~` — never `and`/`or`/`not`/`if` (python collapses them to `bool`) · `==` `!=` | `.bit_and(y) .bit_or(y) .bit_xor(y) .not_()` (the builtins — both operands evaluate) · `.and_(fn(b))` `.or_(fn(b))` (TS `and`/`or`: SHORT-CIRCUIT, the other operand is a body) · `.if_else(fn(b), fn(b))` (TS `ifElse`; `East.if_else(cond, value, …, otherwise)` is the value form — pairs then the else, one `IfElse` node) · `.equals/.equal/.eq` `.not_equals/.not_equal/.ne` |
 | **Integer** | `+` `-` `*` and unary `-`; `==` `!=` `<` `<=` `>` `>=` (East total order) · ❗ `//` `%` `**` `/` RAISE at build time with the fix-it (#624): python floors/takes the divisor's sign/promotes a negative exponent where East truncates/takes the dividend's sign/yields 0 — spell `.divide(y)` / `East.Integer.divide`, `.remainder(y)` / `East.Integer.remainder`, `.pow(y)` / `East.Integer.pow`, `.to_float() / y` | `.add .subtract .multiply .divide .remainder .pow` (a Float argument widens `self`, like TS; aliases `.plus .sub .minus .mul .times .div .mod .rem .modulo`) · `.negate() .abs() .sign() .log(base)` · `.to_float()` · `.less_than/.less/.lt .greater_than/.greater/.gt .less_than_or_equal/.less_equal/.lte/.le .greater_than_or_equal/.greater_equal/.gte/.ge .equals/.equal/.eq .not_equals/.not_equal/.ne` |
-| **Float** | `+` `-` `*` `/` `**` and unary `-`; comparisons · ❗ `//` `%` RAISE (`.remainder(y)` / `East.Float.remainder`) · `math.floor/ceil/trunc(x)` build via the dunders; python `round(x)` raises (its tie rule differs — call `.round()`) | the same named arithmetic and aliases (an Integer argument widens) · `.negate .abs .sign .sqrt .exp .log .sin .cos .tan` · `.to_integer()` ❗ errors at run time on a non-integral/NaN/infinite value · `.floor() .ceil() .trunc() .round()` → Integer (#604; `round` = half AWAY from zero; the stdlib twins are `East.Float.round_floor/ceil/trunc/half`) · comparisons as Integer |
+| **Float** | `+` `-` `*` `/` `**` and unary `-`; comparisons · ❗ `//` `%` RAISE (`.remainder(y)` / `East.Float.remainder`) · `math.floor/ceil/trunc(x)` build the stdlib `East.Float.round_floor/round_ceil/round_trunc`; python `round(x)` raises (its tie rule differs — `East.Float.round_half(x)`) | the same named arithmetic and aliases (an Integer argument widens) · `.negate .abs .sign .sqrt .exp .log .sin .cos .tan` · `.to_integer()` ❗ errors at run time on a non-integral/NaN/infinite value · Float → Integer rounding is the stdlib `East.Float.round_floor/round_ceil/round_trunc/round_half(x)` (`round_half` = ties AWAY from zero; `.floor() .ceil() .trunc() .round()` are deprecated aliases) · comparisons as Integer |
 | **String** | `+` (concat); comparisons | `.concat(s) .repeat(n) .substring(a, b) .upper_case() .lower_case() .trim() .trim_start() .trim_end()` · `.replace(old, new) .split(sep)` · `.length() .starts_with(p) .ends_with(s) .contains(s) .index_of(s)` · `.parse(T)` ❗ (strict whole-string) `.parse_json(T)` · `.try_parse(T) -> Option<T>` (none on any failure) · `.encode_utf8() .encode_utf16()` · `.regex_contains(pat, flags="") .regex_index_of(pat, flags="") .regex_replace(pat, repl, flags="")` (the builtins TypeScript has no method for) · never an f-string (it would constant-fold the proxy) — `East.str(…)` or `+` |
-| **DateTime** | comparisons; a python `datetime` literal lifts as a DateTime | `.get_year() .get_month() .get_day_of_month() .get_day_of_week()` (Monday = 1) `.get_hour() .get_minute() .get_second() .get_millisecond()` · `.add_milliseconds(n) .add_seconds .add_minutes .add_hours .add_days .add_weeks` and `.subtract_*` · `.duration_milliseconds(other) -> Integer`, `.duration_seconds/minutes/hours/days/weeks(other) -> Float` ❗ `a.duration_days(b)` is `b − a` (positive when `b` is later — the TS method; the namespace `East.DateTime.duration_milliseconds(a, b)` is the raw builtin, `a − b`) · `.to_epoch_milliseconds()` · `.print_formatted(fmt)` (Day.js tokens) |
+| **DateTime** | comparisons; a python `datetime` literal lifts as a DateTime | `.get_year() .get_month() .get_day_of_month() .get_day_of_week()` (Monday = 1) `.get_hour() .get_minute() .get_second() .get_millisecond()` · `.add_milliseconds(n) .add_seconds .add_minutes .add_hours .add_days .add_weeks` and `.subtract_milliseconds … .subtract_weeks` (an Integer or Float `n`) · `.duration_milliseconds(other) -> Integer`, `.duration_seconds/minutes/hours/days/weeks(other) -> Float` ❗ `a.duration_days(b)` is `b − a` (positive when `b` is later — the TS method; the namespace `East.DateTime.duration_milliseconds(a, b)` is the raw builtin, `a − b`) · `.to_epoch_milliseconds()` · `.print_formatted(fmt)` (Day.js tokens) |
 | **Blob** | comparisons | `.size() .get_uint8(i)` · `.decode_utf8() .decode_utf16()` · `.decode_beast(T, version="v1")` (`"v2"` = the beast2 family) · `.decode_csv(RowT, config=None, **options)` |
 | **Array** | `xs[i]` (a negative LITERAL index raises — spell `xs.get(xs.size() - 1)`); comparisons | Read `.size() .length() .has(i) .get(i[, on_missing(b, i)])` ❗bounds `.at(i) .try_get(i) .get_keys(idxs)` · Mutate (yield Null / Boolean, sequence with `East.block` or `b.do`) `.update(i, v) .push_last(v) .pop_last() .push_first(v) .pop_first() .append(array) .prepend(array) .merge(i, v, fn) .merge_all(array, fn) .clear() .sort_in_place(by=) .reverse_in_place()` · Transform `.copy() .slice(a, b) .concat(other) .sort(by=, reverse=) .reverse() .map(fn, out=) .filter(fn) .filter_map(fn, out=) .flat_map(fn, out=)` · Search `.find_first(target, key=) .find_all(v, by=) .first_map(fn, out=) .is_sorted(key=) .find_sorted_first/last/range(target, key=)` · Reduce `.reduce(fn(acc, el[, i]), init) .scan(fn, init) .every(pred=) .some(pred=) .sum(fn=) .mean(fn=) .maximum(by=) .minimum(by=)` ❗empty `.find_maximum(by=) .find_minimum(by=)` · Convert `.string_join(sep) .to_set(key=) .to_dict(key, value=, combine=) .flatten_to_set(fn) .flatten_to_dict(fn, combine=) .encode_csv(config=) .to_vector() .unique()` · Group `.group_by(key) .group_reduce(key, init, fold) .group_size(key=) .group_sum(key, fn=) .group_mean(key, fn=) .group_maximum/.group_minimum(key, by=) .group_to_arrays/.group_to_sets(key, value=) .group_to_dicts(key, key2, value=, combine=) .group_every/.group_some(key, pred) .group_find_all/.group_find_first(key, v, by=) .group_find_maximum/.group_find_minimum(key, by=)` · effect `.for_each(fn)` |
 | **Set** | comparisons | Read `.size() .has(v)` · Mutate `.insert(v)` ❗exists `.try_insert(v)→Boolean .delete(v)` ❗absent `.try_delete(v)→Boolean .clear() .union_in_place(other)` · Set ops `.copy() .union(o) .intersection(o) .difference(o) .symmetric_difference(o) .is_subset_of(o) .is_superset_of(o) .is_disjoint_from(o)` · Transform `.filter(fn) .filter_map(fn, out=)→Dict .map(fn, out=)→Dict .for_each(fn) .first_map(fn, out=)` · Reduce `.reduce(fn(acc, el), init) .scan(fn, init) .every .some .sum .mean` · Convert `.to_array(fn=) .to_set(fn) .to_dict(key, value, combine=) .flatten_to_array(fn) .flatten_to_set(fn) .flatten_to_dict(fn, combine=)` (a Set spells it `flatten_to_array` in TypeScript — only an Array has `flat_map`) · Group `.group_reduce .group_size .group_sum .group_mean .group_to_arrays .group_to_sets .group_to_dicts .group_every .group_some` |
@@ -590,7 +594,7 @@ compact forms carry two decimals below ten units (`print_compact(1500)` is
 | `East.Blob` | `encode_beast(value, version="v1", typ=None)` |
 | `East.Array` / `East.Set` / `East.Dict` | `range(start, end, step=1)` `linspace(a, b, n)` `generate(size, T, fn)` · `generate(size, K, fn, on_conflict=None)` · `generate(size, K, V, key_fn, value_fn, on_conflict=None)` — the TypeScript argument order; a key generated twice is a runtime error `Duplicate key <k> in set/dict` without a handler |
 | `East.Vector` / `East.Matrix` | `zeros ones fill from_array sparse_axpy sparse_from_pairs sparse_filter_gt` · `zeros ones fill from_array from_rows` |
-| `East` root | `East.str(*parts)` (TS `East.str`\`…\` — the parts concatenated, non-String parts printed) · `East.min(a, b)` `East.max(a, b)` `East.clamp(x, lo, hi)` (`greatest`/`least` under East's total order) · `East.equal/not_equal/less/less_equal/greater/greater_equal/compare(T, a, b)` · `East.value(v, T)` `East.as_(v, T)` `East.error(msg)` |
+| `East` root | `East.str(*parts)` (TS `East.str`\`…\` — the parts concatenated, non-String parts printed) · `East.print(value[, T])` (East text under the value's own type) · `East.min(a, b)` `East.max(a, b)` `East.clamp(x, lo, hi)` (`greatest`/`least` under East's total order) · `East.equal/not_equal/less/less_equal/greater/greater_equal/compare(T, a, b)` · `East.value(v, T)` `East.as_(v, T)` `East.error(msg)` |
 
 ### Control flow — the expression forms (`East.while_`, `East.for_`, …)
 
@@ -1192,7 +1196,7 @@ expressions it emits IR. The `stdlib:` rows are the TypeScript standard library
 | `replace(s, find, replacement)` · `split(s, separator) -> Array<String>` | edit / tokenize |
 | `contains(s, substring)` · `starts_with(s, prefix)` · `ends_with(s, suffix)` · `index_of(s, substring) -> int` | search (`-> bool`/`int`) |
 | `regex_contains(s, pattern, flags="")` · `regex_index_of(s, pattern, flags="")` · `regex_replace(s, pattern, replacement, flags="")` | regex |
-| `parse(typ, s)` ❗ · `print(typ, value) -> str` | East **text** format; `parse` is a **strict whole-string** parser — trailing or leading junk raises (`"598-"`, `"$5"`, `"1.2.3"` all raise; in a body use `.try_parse(T)` for the optional form) |
+| `parse(typ, s)` ❗ · `print(typ, value) -> str` (the root `East.print(value[, typ])` is the same builtin, value first) | East **text** format; `parse` is a **strict whole-string** parser — trailing or leading junk raises (`"598-"`, `"$5"`, `"1.2.3"` all raise; in a body use `.try_parse(T)` for the optional form) |
 | `parse_json(typ, s)` · `print_json(typ, value) -> str` / `print_json(value)` | East **JSON** (`Integer` encodes as a JSON *string*: `print_json(ArrayType(IntegerType), [1,2,3]) == '["1","2","3"]'`); the one-argument form (TS `printJson(value)`) takes the value's own type |
 | stdlib: `print_error(message, stack) -> str` | `"Error: <message>"` + one `[i] file line:column` per `{filename, line, column}` frame (TS `printError`) |
 
@@ -1203,7 +1207,8 @@ expressions it emits IR. The `stdlib:` rows are the TypeScript standard library
 | `encode_beast(value, version="v1", *, typ=None) -> EastBlob` | TS `East.Blob.encodeBeast`: `"v1"` the original BEAST format, `"v2"` the beast2 family; the type is the expression's declared type / `type_of(value)`, or `typ` to encode a plain value under a wider type |
 
 **`East`** root: `East.str(*parts)` (TS `East.str` — the parts concatenated, non-String parts printed
-in East text format: `East.str("n=", 5, "!")`), `East.min(a, b)` / `East.max(a, b)` (`least`/`greatest`
+in East text format: `East.str("n=", 5, "!")`), `East.print(value[, typ])` (TS `East.print` — the East
+text format under the value's own type, or `typ`), `East.min(a, b)` / `East.max(a, b)` (`least`/`greatest`
 under East's total order) and `East.clamp(value, lo, hi)` — all dual-mode.
 
 **`East.DateTime`** (see [DateTime format codes](#datetime-format-codes))
@@ -1214,8 +1219,8 @@ under East's total order) and `East.clamp(value, lo, hi)` — all dual-mode.
 | `from_epoch_milliseconds(millis)` · `to_epoch_milliseconds(dt) -> int` | epoch round-trip |
 | `get_year/get_month/get_day_of_month/get_day_of_week(dt) -> int` | `get_day_of_week`: Monday == 1 |
 | `get_hour/get_minute/get_second/get_millisecond(dt) -> int` | components |
-| `add_milliseconds(dt, millis)` · `duration_milliseconds(a, b) -> int` | the raw builtin: `duration` returns **a − b** (the expression METHOD `a.duration_milliseconds(b)` is the TS method, `b − a`) |
-| `add_/subtract_{seconds,minutes,hours,days,weeks}(dt, n)` | unit sugar over `add_milliseconds` (int or float `n`) |
+| `add_milliseconds(dt, millis)` · `subtract_milliseconds(dt, millis)` · `duration_milliseconds(a, b) -> int` | the raw builtin (`subtract` negates the amount, TS `subtractMilliseconds`): `duration` returns **a − b** (the expression METHOD `a.duration_milliseconds(b)` is the TS method, `b − a`) |
+| `add_/subtract_{seconds,minutes,hours,days,weeks}(dt, n)` | unit sugar over `add_milliseconds` (an int or float `n`; an expression `n` scales inside the body, a Float after scaling) |
 | `duration_{seconds,minutes,hours,days,weeks}(a, b) -> float` | unit sugar over `duration_milliseconds` |
 | `print_formatted(dt, fmt) -> str` · `parse_formatted(s, fmt) -> datetime` | Day.js-style tokens (TS names; `print_format`/`parse_format` are deprecated spellings) |
 | stdlib: `round_down_/round_up_/round_nearest_{millisecond,second,minute,hour,day,week}(dt, step)` | `step` units of the name; weeks align to Mondays (the reference Monday 1969-12-29) |
@@ -1225,7 +1230,7 @@ under East's total order) and `East.clamp(value, lo, hi)` — all dual-mode.
 
 | Signature | Notes |
 |-----------|-------|
-| `not_(x)` · `and_(a, b)` · `or_(a, b)` · `xor(a, b)` | the BooleanNot / BooleanAnd / BooleanOr / BooleanXor builtins (both operands are values here, so there is nothing to short-circuit — the expression twins are `.not_()`, `.bit_and`, `.bit_or`, `.bit_xor`) |
+| `not_(x)` · `bit_and(a, b)` · `bit_or(a, b)` · `bit_xor(a, b)` | the BooleanNot / BooleanAnd / BooleanOr / BooleanXor builtins under the TypeScript names (`not`, `bitAnd`, `bitOr`, `bitXor`; `and_`/`or_`/`xor` are deprecated spellings) — both operands are values here, so there is nothing to short-circuit; the expression twins are `.not_()`, `.bit_and`, `.bit_or`, `.bit_xor`, and the short-circuit `.and_(fn(b))`/`.or_(fn(b))` take bodies |
 
 **`East`** comparisons (East total order; element type `T` first): `compare(T, a, b) -> int`,
 `equal/not_equal/less/less_equal/greater/greater_equal(T, a, b) -> bool`.

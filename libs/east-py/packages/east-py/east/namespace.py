@@ -894,10 +894,35 @@ class _DateTimeNamespace:
         """
         return _call_builtin("DateTimeAddMilliseconds", [], [dt, millis], DateTimeType)
 
+    @staticmethod
+    def subtract_milliseconds(dt: datetime, millis: int) -> datetime:
+        """Offset a datetime backwards by ``millis`` milliseconds (TS
+        ``subtractMilliseconds``: DateTimeAddMilliseconds of the negated amount).
+
+        Args:
+            dt: The base datetime, interpreted as UTC.
+            millis: Milliseconds to subtract; negative values move forwards.
+
+        Returns:
+            A new datetime shifted back by ``millis``; the input is unchanged.
+        """
+        return East.DateTime.add_milliseconds(dt, -millis)
+
     # ── unit sugar over add/duration_milliseconds (TS-expr parity) ──
 
     @staticmethod
-    def _shift(dt: datetime, n: int | float, scale: int) -> datetime:
+    def _shift(dt: Any, n: Any, scale: int) -> Any:
+        # Dual-mode like every namespace function: a plain amount scales to
+        # whole milliseconds here; an EXPRESSION amount scales inside the
+        # body exactly as the expression method does (a Float converts
+        # after scaling), so `East.DateTime.add_days(d, n)` builds for a
+        # parameter `n` too.
+        from east.expression.expr import Expression
+
+        if isinstance(n, Expression):
+            from east.expression import _lift
+
+            return _lift(dt, hint=DateTimeType)._shift(n, scale, False)
         millis = int(n * scale)
         return _call_builtin("DateTimeAddMilliseconds", [], [dt, millis], DateTimeType)
 
@@ -1041,27 +1066,60 @@ class _DateTimeNamespace:
 
 
 class _BooleanNamespace:
-    """East ``Boolean`` builtins."""
+    """East ``Boolean`` builtins — the TypeScript method names: ``not`` and
+    the non-short-circuit ``bitAnd``/``bitOr``/``bitXor`` (both operands are
+    values here, so there is nothing to short-circuit; TypeScript's
+    ``and``/``or`` take bodies and are the expression's ``.and_``/``.or_``)."""
 
     @staticmethod
     def not_(x: bool) -> bool:
-        """Logical not (east-c BooleanNot)."""
+        """Logical not (east-c BooleanNot; TS ``not``)."""
         return _call_builtin("BooleanNot", [], [x], BooleanType)
 
     @staticmethod
-    def and_(a: bool, b: bool) -> bool:
-        """Logical and (east-c BooleanAnd)."""
+    def bit_and(a: bool, b: bool) -> bool:
+        """Logical and of two values (east-c BooleanAnd; TS ``bitAnd``)."""
         return _call_builtin("BooleanAnd", [], [a, b], BooleanType)
 
     @staticmethod
-    def or_(a: bool, b: bool) -> bool:
-        """Logical or (east-c BooleanOr)."""
+    def bit_or(a: bool, b: bool) -> bool:
+        """Logical or of two values (east-c BooleanOr; TS ``bitOr``)."""
         return _call_builtin("BooleanOr", [], [a, b], BooleanType)
 
     @staticmethod
-    def xor(a: bool, b: bool) -> bool:
-        """Logical xor (east-c BooleanXor)."""
+    def bit_xor(a: bool, b: bool) -> bool:
+        """Logical xor (east-c BooleanXor; TS ``bitXor``)."""
         return _call_builtin("BooleanXor", [], [a, b], BooleanType)
+
+    @staticmethod
+    def and_(a: bool, b: bool) -> bool:
+        """Deprecated alias of :meth:`bit_and` (the TypeScript name)."""
+        import warnings
+
+        warnings.warn(
+            "East.Boolean.and_ is deprecated: the spelling is bit_and "
+            "(the TypeScript name)", DeprecationWarning, stacklevel=2)
+        return East.Boolean.bit_and(a, b)
+
+    @staticmethod
+    def or_(a: bool, b: bool) -> bool:
+        """Deprecated alias of :meth:`bit_or` (the TypeScript name)."""
+        import warnings
+
+        warnings.warn(
+            "East.Boolean.or_ is deprecated: the spelling is bit_or "
+            "(the TypeScript name)", DeprecationWarning, stacklevel=2)
+        return East.Boolean.bit_or(a, b)
+
+    @staticmethod
+    def xor(a: bool, b: bool) -> bool:
+        """Deprecated alias of :meth:`bit_xor` (the TypeScript name)."""
+        import warnings
+
+        warnings.warn(
+            "East.Boolean.xor is deprecated: the spelling is bit_xor "
+            "(the TypeScript name)", DeprecationWarning, stacklevel=2)
+        return East.Boolean.bit_xor(a, b)
 
 
 def _tensor_elem_of(value: Any, kind: str) -> EastType:
@@ -1662,6 +1720,20 @@ class _East:
         """``value`` pinned into ``[lo, hi]`` under East's total order (TS
         ``East.clamp``): dual-mode like ``greatest``/``least``."""
         return least(greatest(value, lo), hi)
+
+    @staticmethod
+    def print(value: Any, typ: EastType | None = None) -> Any:
+        """``value`` rendered in East text format (east-c Print; TS
+        ``East.print(value)``), dual-mode. The type is the value's own — an
+        expression's declared type, or ``type_of`` on a plain value — unless
+        ``typ`` says otherwise (a plain value whose inferred type is narrower
+        than the declared one, a single-case variant).
+        ``East.String.print(typ, value)`` is the same builtin, type first.
+        """
+        if typ is None:
+            east_type = getattr(value, "east_type", None)
+            typ = east_type if east_type is not None else _type_of(value)
+        return _StringNamespace.print(typ, value)
 
     # ── block-level control flow (#578, east/expression/control.py) ──────────
     # Attached rather than defined here: they are dual-mode expression

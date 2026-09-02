@@ -6,12 +6,13 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError
 from east.expression.expr.base import Expression
 from east.expression.lift import _lift
-from east.expression.nodes import _builtin, _k_ifelse
+from east.expression.nodes import _builtin
 from east.types.types import FloatType, IntegerType
 
 _FLOORDIV_FORK = (
@@ -31,10 +32,12 @@ if TYPE_CHECKING:
 
 
 class FloatExpression(Expression):
-    """IEEE-754 double arithmetic, the math tail, and the Float → Integer
-    roundings. Operators overload only where python agrees with East
-    (#624): ``+`` ``-`` ``*`` ``/`` ``**`` and unary ``-``; ``//`` and ``%``
-    raise naming the explicit East spelling."""
+    """IEEE-754 double arithmetic and the math tail. Operators overload
+    only where python agrees with East (#624): ``+`` ``-`` ``*`` ``/``
+    ``**`` and unary ``-``; ``//`` and ``%`` raise naming the explicit East
+    spelling. The Float → Integer roundings are the stdlib's
+    (``East.Float.round_floor/round_ceil/round_half/round_trunc``, the
+    TypeScript names), reached here through the math protocol."""
 
     __slots__ = ()
     _kind = "Float"
@@ -144,72 +147,76 @@ class FloatExpression(Expression):
         """Traced FloatTan (radians)."""
         return self._unary("FloatTan")
 
-    # ── Float → Integer rounding (#604) ─────────────────────────────────
+    # ── Float → Integer rounding: the stdlib (#604, then TS parity) ─────
     #
-    # Composed from Remainder/Subtract/IfElse/FloatToInteger, so every
-    # runtime executes them with no new builtins. The compositions emit
-    # FloatRemainder directly — the `%` dunder raises (#624), and the
-    # builtin's sign-of-dividend contract is exactly what they want.
-    # `frac = FloatRemainder(x, 1.0) + 0.0` is the fractional part, exactly
-    # (fmod is exact), with `+ 0.0` folding the -0.0 that fmod returns for
-    # negative integral x — East's float TOTAL order puts -0.0 below 0.0, so
-    # an unnormalized frac would make every sign test lie on whole negatives.
-    # All decisions compare that exact frac; never add 0.5 to x, which
-    # double-rounds at the tie boundary (0.49999999999999994 + 0.5 rounds
-    # to 1.0).
-
-    def _frac(self) -> FloatExpression:
-        return self._binary("FloatRemainder", 1.0) + 0.0
-
-    def _pick(self, pred: Any, then: Any, other: Any) -> FloatExpression:
-        return self._expr(_k_ifelse(FloatType, [(pred.ir, then.ir)], other.ir), FloatType)
-
-    def trunc(self) -> IntegerExpression:
-        """Truncate toward zero, as an Integer: 3.7 → 3, -3.7 → -3."""
-        return (self - self._binary("FloatRemainder", 1.0)).to_integer()
-
-    def floor(self) -> IntegerExpression:
-        """Round toward negative infinity, as an Integer: -3.2 → -4."""
-        frac = self._frac()
-        whole = self - frac
-        return self._pick(frac < 0.0, whole - 1.0, whole).to_integer()
-
-    def ceil(self) -> IntegerExpression:
-        """Round toward positive infinity, as an Integer: 3.2 → 4."""
-        frac = self._frac()
-        whole = self - frac
-        return self._pick(frac > 0.0, whole + 1.0, whole).to_integer()
-
-    def round(self) -> IntegerExpression:
-        """Round half AWAY FROM ZERO, as an Integer: 2.5 → 3, -2.5 → -3.
-
-        Deliberately not python's round(): the builtin rounds ties to even,
-        and a silently different tie rule between the traced and eager paths
-        would surface as one-unit discrepancies long after the fact — so the
-        traced spelling is an explicit method with an explicit rule.
-        """
-        frac = self._frac()
-        whole = self - frac
-        return self._pick(
-            frac >= 0.5, whole + 1.0,
-            self._pick(frac <= -0.5, whole - 1.0, whole),
-        ).to_integer()
+    # TypeScript spells these `East.Float.roundFloor(x)` and friends — stdlib
+    # functions, not methods — so the python spellings are the namespace's
+    # `East.Float.round_floor/round_ceil/round_half/round_trunc`, one body
+    # each (east/expression/libs/float.py). The math protocol (`math.floor`,
+    # `math.ceil`, `math.trunc`) routes there; the old method spellings are
+    # deprecated aliases. Python's `round(x)` rounds ties to even where
+    # `round_half` rounds them away from zero, so `__round__` refuses
+    # rather than silently differ.
 
     def __trunc__(self) -> IntegerExpression:
-        return self.trunc()
+        from east.namespace import East
+
+        return East.Float.round_trunc(self)
 
     def __floor__(self) -> IntegerExpression:
-        return self.floor()
+        from east.namespace import East
+
+        return East.Float.round_floor(self)
 
     def __ceil__(self) -> IntegerExpression:
-        return self.ceil()
+        from east.namespace import East
+
+        return East.Float.round_ceil(self)
 
     def __round__(self, ndigits: Any = None) -> IntegerExpression:
         raise ExpressionError(
-            "python round() rounds ties to even; the traced surface rounds "
-            "half away from zero — call .round() explicitly (or compose "
-            ".floor()/.ceil()/.trunc())"
+            "python round() rounds ties to even; East.Float.round_half(x) rounds "
+            "half away from zero — call it explicitly (or East.Float.round_floor/"
+            "round_ceil/round_trunc)"
         )
+
+    def trunc(self) -> IntegerExpression:
+        """Deprecated alias of ``East.Float.round_trunc(x)`` (the TypeScript
+        stdlib name); ``math.trunc(x)`` stays."""
+        warnings.warn(
+            ".trunc() is deprecated: the spelling is East.Float.round_trunc(x) "
+            "(the TypeScript stdlib name; math.trunc(x) stays)",
+            DeprecationWarning, stacklevel=2)
+        return self.__trunc__()
+
+    def floor(self) -> IntegerExpression:
+        """Deprecated alias of ``East.Float.round_floor(x)`` (the TypeScript
+        stdlib name); ``math.floor(x)`` stays."""
+        warnings.warn(
+            ".floor() is deprecated: the spelling is East.Float.round_floor(x) "
+            "(the TypeScript stdlib name; math.floor(x) stays)",
+            DeprecationWarning, stacklevel=2)
+        return self.__floor__()
+
+    def ceil(self) -> IntegerExpression:
+        """Deprecated alias of ``East.Float.round_ceil(x)`` (the TypeScript
+        stdlib name); ``math.ceil(x)`` stays."""
+        warnings.warn(
+            ".ceil() is deprecated: the spelling is East.Float.round_ceil(x) "
+            "(the TypeScript stdlib name; math.ceil(x) stays)",
+            DeprecationWarning, stacklevel=2)
+        return self.__ceil__()
+
+    def round(self) -> IntegerExpression:
+        """Deprecated alias of ``East.Float.round_half(x)`` (the TypeScript
+        stdlib name: ties away from zero)."""
+        from east.namespace import East
+
+        warnings.warn(
+            ".round() is deprecated: the spelling is East.Float.round_half(x) "
+            "(the TypeScript stdlib name; ties away from zero)",
+            DeprecationWarning, stacklevel=2)
+        return East.Float.round_half(self)
 
     # ── the named arithmetic (TS ``add`` … ``pow``): an Integer operand widens ──
 

@@ -5,13 +5,16 @@
 """Name parity with the TypeScript surface (#623 part 2).
 
 Every method of a TypeScript expression class (``libs/east/src/expr/*.ts``)
-exists on its python twin under the snake_cased name, on the traced
-``Expression`` class AND on the eager value class; every stdlib function
-(``expr/libs/*.ts``) exists on its ``East.<Type>`` namespace; and every
-python-only name on a traced class is DECLARED here with its reason (a
-deprecated python-idiom alias, a python protocol method, a convenience) —
-so a TypeScript rename shows up as a failing test, and a python name that
-drifts from TypeScript cannot appear unannounced.
+exists on its python twin under the snake_cased name, on the
+``Expression`` class AND on the eager value class — for a scalar, whose
+python value class (``int``/``float``/``str``/``bool``/``datetime``) takes no
+methods, the eager twin is the namespace function of the same name on
+``East.<Type>``, value first; every stdlib function (``expr/libs/*.ts``)
+exists on its ``East.<Type>`` namespace; and every python-only name on an
+expression class is DECLARED here with its reason (a deprecated python-idiom
+alias, a python protocol method, a convenience) — so a TypeScript rename
+shows up as a failing test, and a python name that drifts from TypeScript
+cannot appear unannounced.
 
 The TypeScript sources are read from the monorepo checkout; outside it the
 module skips.
@@ -103,6 +106,16 @@ def ts_class_methods(file: str, cls: str) -> set[str]:
     return names
 
 
+def ts_class_aliases(file: str, cls: str) -> set[str]:
+    """The property aliases (``  name = this.other;``) of ``export class
+    <cls>`` — the ``eq``/``lt``/``plus`` family, which every python twin
+    carries on the expression class but a namespace does not repeat."""
+    src = (TS_EXPR / file).read_text()
+    m = re.search(r"class " + cls + r"\b.*?^\}", src, re.M | re.S)
+    assert m, f"class {cls} not found in {file}"
+    return {mm.group(1) for mm in re.finditer(r"^  ([a-zA-Z_]\w*) = this\.", m.group(0), re.M)}
+
+
 def ts_lib_functions(file: str) -> set[str]:
     """The keys of the ``export default { … }`` object of ``libs/<file>``."""
     src = (TS_EXPR / "libs" / file).read_text()
@@ -174,10 +187,10 @@ ALLOWED_EXTRAS: dict[str, dict[str, str]] = {
         "sum": "convenience the TypeScript Dict lacks (its Set has it)",
     },
     "FloatExpr": {
-        "floor": "Float → Integer rounding (#604), the python math.floor protocol twin",
-        "ceil": "Float → Integer rounding (#604), the python math.ceil protocol twin",
-        "trunc": "Float → Integer rounding (#604), the python math.trunc protocol twin",
-        "round": "Float → Integer rounding (#604), half away from zero",
+        "floor": DEPRECATED + " — East.Float.round_floor(x); math.floor(x) stays",
+        "ceil": DEPRECATED + " — East.Float.round_ceil(x); math.ceil(x) stays",
+        "trunc": DEPRECATED + " — East.Float.round_trunc(x); math.trunc(x) stays",
+        "round": DEPRECATED + " — East.Float.round_half(x)",
     },
     "StringExpr": {
         "upper": DEPRECATED, "lower": DEPRECATED, "strip": DEPRECATED,
@@ -242,6 +255,37 @@ def test_every_typescript_method_exists_on_the_eager_class(file, cls, traced, ea
     assert not missing, f"{cls}: TypeScript methods with no eager twin on {eager.__name__}: {missing}"
 
 
+#: (TypeScript file, class, the namespace carrying the scalar's value twins)
+SCALARS = [
+    ("integer.ts", "IntegerExpr", East.Integer),
+    ("float.ts", "FloatExpr", East.Float),
+    ("string.ts", "StringExpr", East.String),
+    ("boolean.ts", "BooleanExpr", East.Boolean),
+    ("datetime.ts", "DateTimeExpr", East.DateTime),
+]
+
+#: scalar methods with no namespace twin: the comparison family is the root
+#: `East.equal/not_equal/less/…` (and python's operators on values); `and`/
+#: `or`/`ifElse` take BODIES, which on values are python's own `and`/`or`/
+#: `if` (the value form of `ifElse` is the root `East.if_else`)
+_NO_NAMESPACE_TWIN = {
+    "equals", "not_equals", "less_than", "less_than_or_equal", "greater_than",
+    "greater_than_or_equal", "and_", "or_", "if_else",
+}
+
+
+@pytest.mark.parametrize("file, cls, space", SCALARS, ids=[c[1] for c in SCALARS])
+def test_every_scalar_method_has_a_namespace_twin(file, cls, space):
+    """``x.add_days(n)`` on an expression is ``East.DateTime.add_days(x, n)``
+    on a value: the namespace is the scalar's eager class."""
+    want = ({snake(n) for n in ts_class_methods(file, cls) - ts_class_aliases(file, cls)}
+            - _NO_NAMESPACE_TWIN)
+    have = public_names(space)
+    missing = sorted(want - have)
+    assert not missing, (
+        f"{cls}: TypeScript methods with no eager twin on East.{cls[:-4]}: {missing}")
+
+
 #: (stdlib file, the namespace carrying it)
 LIBS = [
     ("integer.ts", East.Integer), ("float.ts", East.Float), ("datetime.ts", East.DateTime),
@@ -261,5 +305,6 @@ def test_every_stdlib_function_exists_on_its_namespace(file, space):
 
 
 def test_the_root_names():
-    for name in ("str", "min", "max", "clamp", "function", "value", "equal", "less", "compile"):
+    for name in ("str", "min", "max", "clamp", "function", "value", "equal", "less", "compile",
+                 "print", "is_", "diff", "apply_patch", "compose_patch", "invert_patch"):
         assert hasattr(East, name), f"East.{name} (a TypeScript root name) is missing"

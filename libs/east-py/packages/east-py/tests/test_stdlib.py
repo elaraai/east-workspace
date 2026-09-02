@@ -16,6 +16,7 @@ import pytest
 
 from east import (
     ArrayType,
+    BooleanType,
     DateTimeType,
     East,
     FloatType,
@@ -191,6 +192,35 @@ def test_float_non_finite_refused(value, what):
         F.print_fixed(value, 2)
 
 
+def test_float_expression_rounding_is_the_stdlib():
+    """``math.floor/ceil/trunc(x)`` on an expression build the stdlib
+    bodies; the old method spellings are deprecated aliases of them; python's
+    ``round(x)`` (ties to even) refuses, naming ``round_half``."""
+    import math
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        protocol = East.function(
+            [FloatType], ArrayType(IntegerType),
+            lambda b, x: [math.floor(x), math.ceil(x), math.trunc(x)])
+    assert protocol(2.5) == [2, 3, 2]
+    assert protocol(-2.5) == [-3, -2, -2]
+    assert protocol(3.0) == [3, 3, 3]
+    with pytest.warns(DeprecationWarning, match="round_half"):
+        half = East.function([FloatType], IntegerType, lambda b, x: x.round())
+    assert half(2.5) == 3
+    assert half(-2.5) == -3
+    assert half(2.4) == 2
+    def deprecated(method):
+        return East.function([FloatType], IntegerType, lambda b, x: getattr(x, method)())
+
+    for method, lib in (("floor", "round_floor"), ("ceil", "round_ceil"), ("trunc", "round_trunc")):
+        with pytest.warns(DeprecationWarning, match=lib):
+            assert deprecated(method)(2.5) == F.__getattribute__(lib)(2.5)
+    with pytest.raises(Exception, match="round_half"):
+        East.function([FloatType], IntegerType, lambda b, x: round(x))
+
+
 # ── DateTime ───────────────────────────────────────────────────────────────
 
 _SUNDAY = _utc(2024, 3, 17, 14, 30, 45, 123000)
@@ -240,6 +270,21 @@ def test_datetime_from_components_defaults_like_typescript():
     assert D.from_components(2024, 6, 15, 8) == _utc(2024, 6, 15, 8)
 
 
+def test_datetime_subtract_milliseconds_and_expression_amounts():
+    d = _utc(2025, 1, 15, 14, 30, 45, 500000)
+    assert D.subtract_milliseconds(d, 500) == _utc(2025, 1, 15, 14, 30, 45)
+    assert D.subtract_milliseconds(d, 1000) == _utc(2025, 1, 15, 14, 30, 44, 500000)
+    assert D.add_seconds(d, 1.5) == _utc(2025, 1, 15, 14, 30, 47)
+    # the unit sugar is dual-mode: an EXPRESSION amount scales inside the body
+    shift = East.function(
+        [DateTimeType, IntegerType], DateTimeType,
+        lambda b, x, n: D.subtract_milliseconds(D.add_days(x, n), n * 2))
+    assert shift(d, 1) == _utc(2025, 1, 16, 14, 30, 45, 498000)
+    fractional = East.function(
+        [DateTimeType, FloatType], DateTimeType, lambda b, x, n: D.subtract_hours(x, n))
+    assert fractional(d, 0.5) == _utc(2025, 1, 15, 14, 0, 45, 500000)
+
+
 def test_datetime_formatted_names():
     d = _utc(2024, 3, 17, 14, 30)
     assert D.print_formatted(d, "YYYY-MM-DD HH:mm") == "2024-03-17 14:30"
@@ -261,6 +306,33 @@ def test_string_print_error():
 def test_string_print_json_one_argument_form():
     assert S.print_json({"name": "Alice", "age": 30}) == '{"name":"Alice","age":"30"}'
     assert S.print_json(IntegerType, 5) == '"5"'
+
+
+def test_root_print_is_the_print_builtin_under_the_value_type():
+    assert East.print(5) == S.print(IntegerType, 5) == "5"
+    assert East.print("hi") == '"hi"'
+    assert East.print({"a": 1, "b": True}) == "(a=1, b=true)"
+    assert East.print(2.0, FloatType) == "2.0"
+    rendered = East.function([IntegerType], StringType, lambda b, x: East.print(x * 2))
+    assert rendered(21) == "42"
+
+
+def test_boolean_namespace_spells_the_typescript_names():
+    B = East.Boolean
+    assert B.not_(True) is False
+    assert B.bit_and(True, False) is False
+    assert B.bit_or(True, False) is True
+    assert B.bit_xor(True, True) is False
+    with pytest.warns(DeprecationWarning, match="bit_and"):
+        assert B.and_(True, True) is True
+    with pytest.warns(DeprecationWarning, match="bit_or"):
+        assert B.or_(False, False) is False
+    with pytest.warns(DeprecationWarning, match="bit_xor"):
+        assert B.xor(True, False) is True
+    either = East.function(
+        [BooleanType, BooleanType], BooleanType, lambda b, x, y: B.bit_xor(x, B.not_(y)))
+    assert either(True, True) is True
+    assert either(True, False) is False
 
 
 def test_blob_encode_beast_round_trips():
