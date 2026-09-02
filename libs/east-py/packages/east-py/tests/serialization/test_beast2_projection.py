@@ -19,6 +19,7 @@ The oracle everywhere is the whole decode: projected results must equal the
 wide results' kept fields, and a segment decoded under a mask must never be
 served to an operation needing more (the cache-correctness pin)."""
 
+import os
 import time
 
 import pytest
@@ -344,8 +345,14 @@ def test_projected_scan_beats_the_bare_whole_decode(tmp_path):
     field of a wide record — the whole operation, trace and fold included —
     must beat even a bare whole decode that does no work at all, because
     value materialisation (not byte-walking) dominates decode cost. Before
-    projection, reading nothing cost 88% of reading everything; the pin
-    keeps a wide margin for CI noise (measured ~2.5x)."""
+    projection, reading nothing cost 88% of reading everything.
+
+    The MECHANISM is pinned unconditionally: every segment of the scan
+    decodes projected, none whole. The wall-clock ratio (measured ~2.5x
+    locally) is pinned only under ``EAST_PERF=1``: a shared CI runner
+    produced 0.73 on main and 0.77 on a branch against the 0.7 bound, and a
+    clock is not a mechanism — a flaky red on a real regression's PR hides
+    the regression."""
     wide_row = StructType(
         [("id", IntegerType)]
         + [(f"s{i}", StringType) for i in range(16)]
@@ -383,9 +390,11 @@ def test_projected_scan_beats_the_bare_whole_decode(tmp_path):
         got, counted = _delta(lambda: f.sum(lambda _b, r: r["id"]))
         assert got == sum(range(20_000))
         assert counted["beast2_segments_projected"] == 5
-    assert projected_op < whole_decode * 0.7, \
-        f"projected op {projected_op * 1e3:.1f}ms vs bare whole decode " \
-        f"{whole_decode * 1e3:.1f}ms"
+        assert counted["beast2_segments_whole"] == 0
+    if os.environ.get("EAST_PERF") == "1":
+        assert projected_op < whole_decode * 0.7, \
+            f"projected op {projected_op * 1e3:.1f}ms vs bare whole decode " \
+            f"{whole_decode * 1e3:.1f}ms"
 
 
 def test_paged_loop_task_inputs_project(array_path):
