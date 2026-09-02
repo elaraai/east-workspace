@@ -13,7 +13,7 @@ East.py is a Python backend that enables East IR to be compiled and executed in 
 - **Full builtin library** - Array, Set, Dict, String, DateTime, Blob, Integer, Float operations, exposed eagerly
 - **Serialization** - East text format, JSON, and BEAST (Binary East) support
 - **DateTime formatting** - Custom datetime parsing and printing with format strings
-- **Platform integration** - Expose Python functions to East with the `@platform_function` decorator
+- **Platform integration** - Expose Python functions to East with the `@East.platform_function` decorator
 
 ## Using East values from Python
 
@@ -51,18 +51,21 @@ coerce_to([1, 2, 3], VectorType(FloatType))   # -> Vector<Float>
 
 ### Platform functions
 
-Expose a Python function to East with the `@platform_function` decorator. It
-infers sync/async, validates the result against the declared output (a named
-`EastTypeError` instead of silent corruption), and auto-collects the function:
+Expose a Python function to East with the `@East.platform_function` decorator
+(`from east import platform_function` is the same object). It infers sync/async,
+validates the result against the declared output (a named `EastTypeError`
+instead of silent corruption), and auto-collects the function. An implementation
+is paired with the `East.platform(name, …)` declaration an East body calls **by
+name** — the `def`'s, or `name=`:
 
 ```python
-from east import platform_function, platform_functions, struct, FloatType, ArrayType
+from east import East, struct, FloatType, ArrayType
 
-@platform_function(inputs=[FloatType, ArrayType(LineItem)], output=ArrayType(LineItem))
+@East.platform_function(inputs=[FloatType, ArrayType(LineItem)], output=ArrayType(LineItem))
 def convert_prices(fx_rate, items):
     return items.map(lambda b, r: struct({"name": r["name"], "price": r["price"] * fx_rate}, LineItem))
 
-platform = platform_functions(__name__)   # pass to compile() to register
+platform = East.platform_functions(__name__)   # pass to East.compile(fn, platform=…)
 ```
 
 For NumPy/torch interop, `EastVector.data` / `EastMatrix.data` are the contiguous
@@ -220,7 +223,7 @@ runtime; this package is the Python type system plus a Cython bridge to it.
 
 - `east/runtime/` - Execution engine
   - `compiler.py` / `_compiler_eastc.pyx` - Bridge to east-c: compile IR, `east_call`, the eager `call_builtin` shim, and the Python-callback invoke hook
-  - `platform.py` - `PlatformFunction` + the `@platform_function` on-ramp
+  - `platform.py` - `PlatformFunction` + the `@East.platform_function` on-ramp
   - `errors.py` - `EastError`
 
 - `east/serialization/` - East text, JSON, BEAST2, CSV (thin wrappers over the east-c encoders/decoders)

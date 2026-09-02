@@ -7,11 +7,19 @@
 Platform functions are the bridge between East IR and the host environment (Python).
 They allow East code to call native Python functions (sync or async).
 
-The ``@platform_function`` decorator is the ergonomic on-ramp: it turns a plain
-Python function into a registered platform function, inferring sync/async,
-validating its declared output (and optionally inputs) against the East type,
-and auto-collecting it so a module just exposes ``platform_functions(__name__)``
-instead of hand-building a ``PlatformFunction`` list.
+The ``@East.platform_function`` decorator (``platform_function`` bare, the
+same object) is the ergonomic on-ramp: it turns a plain Python function into
+a registered platform function, inferring sync/async, validating its declared
+output (and optionally inputs) against the East type, and auto-collecting it
+so a module just exposes ``East.platform_functions(__name__)`` instead of
+hand-building a ``PlatformFunction`` list.
+
+An implementation is paired with the ``East.platform(name, inputs, output)``
+declaration a body calls **by name** — the ``def``'s name unless ``name=``
+says otherwise — at ``East.compile(fn, platform=[…])``, where a declaration
+no implementation matches is the error ``Platform function '<name>' not
+found``. An ``East.function`` carries no name of its own: it is a value,
+called through the binding that holds it.
 """
 
 import asyncio
@@ -132,7 +140,9 @@ def platform_function(
     Args:
         inputs: East types of the parameters, in order.
         output: East type of the return value.
-        name: Platform-function name East calls it by (defaults to ``fn.__name__``).
+        name: Platform-function name East calls it by (defaults to
+            ``fn.__name__``) — it must equal the ``East.platform(name, …)``
+            declaration's, which is how ``East.compile`` pairs the two.
         validate_output: Validate the return value against ``output`` (on by
             default — cheap insurance against silent corruption).
         validate_input: Validate each argument against ``inputs`` (off by

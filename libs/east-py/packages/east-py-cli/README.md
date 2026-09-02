@@ -105,13 +105,13 @@ Platform packages must export a `platform` attribute containing a list of platfo
 
 ```python
 # my_platform/__init__.py
-from east.runtime.platform import platform_function
+from east import East, IntegerType, StringType
 
-@platform_function("my_func", inputs=[StringType], output=IntegerType)
-def my_func_impl(s):
+@East.platform_function(inputs=[StringType], output=IntegerType, name="my_func")   # paired by name with
+def my_func(s):                                                                   # East.platform("my_func", …)
     return len(s)
 
-platform = [my_func_impl]
+platform = East.platform_functions(__name__)
 ```
 
 ## Claude Code plugin

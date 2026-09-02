@@ -1,6 +1,6 @@
 ---
 name: east-py
-description: "East in Python: (A) East EXPRESSIONS — write East functions in Python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), one expression class per East type with the TypeScript methods in snake_case, the standard library (East.Integer.print_compact, East.Float.round_to_decimals, East.DateTime.round_down_week, East.str), East.platform + East.compile, and IR ↔ python codegen; (B) East VALUES — East runtime data as ordinary Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the SAME names, validation/coercion, beast2 files, numpy/torch, and @platform_function to expose Python to East. Use when writing Python (not the TypeScript DSL) against east-py. Triggers for: (1) Writing an East function in Python (East.function, b.let/b.if_/b.for_, expression methods, the stdlib), (2) Constructing/validating East values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) Transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) Scalar builtins and the stdlib via East.<Type>, (5) @platform_function, (6) beast2 files and numpy/torch through EastVector/EastMatrix, (7) Porting a plain-Python data-science POC into an East platform function, (8) Printing IR as python (east-py transpile), (9) Exporting East functions for TypeScript / e3 tasks and importing TypeScript-authored ones (East.export_functions / East.import_function, east-py export-functions), (10) Diagnosing East bodies at edit time — the build's refusals as lint (east-py lint, flake8 EAS codes, east-py lsp)."
+description: "East in Python: (A) East EXPRESSIONS — write East functions in Python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), one expression class per East type with the TypeScript methods in snake_case, the standard library (East.Integer.print_compact, East.Float.round_to_decimals, East.DateTime.round_down_week, East.str), East.platform + East.compile, and IR ↔ python codegen; (B) East VALUES — East runtime data as ordinary Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the SAME names, validation/coercion, beast2 files, numpy/torch, and @East.platform_function to expose Python to East. Use when writing Python (not the TypeScript DSL) against east-py. Triggers for: (1) Writing an East function in Python (East.function, b.let/b.if_/b.for_, expression methods, the stdlib), (2) Constructing/validating East values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) Transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) Scalar builtins and the stdlib via East.<Type>, (5) @East.platform_function, (6) beast2 files and numpy/torch through EastVector/EastMatrix, (7) Porting a plain-Python data-science POC into an East platform function, (8) Printing IR as python (east-py transpile), (9) Exporting East functions for TypeScript / e3 tasks and importing TypeScript-authored ones (East.export_functions / East.import_function, east-py export-functions), (10) Diagnosing East bodies at edit time — the build's refusals as lint (east-py lint, flake8 EAS codes, east-py lsp)."
 ---
 
 # East.py — East expressions and East values in Python
@@ -23,7 +23,7 @@ names, snake_cased:
   `EastMatrix`/`EastStruct`/`EastVariant`/`EastRef`/`EastBlob` are handles into the
   east-c value slab; scalars are plain `int`/`float`/`str`/`bool`/`datetime`. Their
   **eager methods** — the same names — execute immediately in east-c and chain;
-  `@platform_function` exposes a Python function to East.
+  `@East.platform_function` exposes a Python function to East.
 
 They meet in two places. A **callback** handed to an eager method
 (`items.map(lambda b, r: …)`) is an East function body: captured once, compiled, and
@@ -34,8 +34,7 @@ use the `east` skill; for ML/optimization platform functions, `east-py-datascien
 ## Quick Start
 
 ```python
-from east import (East, ArrayType, FloatType, StringType, StructType,
-                  array, struct, platform_function, platform_functions)
+from east import East, ArrayType, FloatType, StringType, StructType, array, struct
 
 LineItem = StructType([("name", StringType), ("price", FloatType)])   # types take PAIRS
 
@@ -57,11 +56,11 @@ receipt(items, 1.5)                                   # "total: $4.50" — an ar
 East.Float.sqrt(2.0); East.String.upper_case("hi")    # scalar builtins live on East.<Type>
 
 # ── Expose python to East — typed, validated, auto-collected ──
-@platform_function(inputs=[FloatType, ArrayType(LineItem)], output=ArrayType(LineItem))
+@East.platform_function(inputs=[FloatType, ArrayType(LineItem)], output=ArrayType(LineItem))
 def convert_prices(fx_rate, items):
     return items.map(lambda b, r: struct({"name": r.name, "price": r.price * fx_rate}, LineItem))
 
-platform = platform_functions(__name__)   # pass to East.compile(fn, platform=…) to register
+platform = East.platform_functions(__name__)   # pass to East.compile(fn, platform=…) to register
 ```
 
 ## The two surfaces
@@ -69,7 +68,7 @@ platform = platform_functions(__name__)   # pass to East.compile(fn, platform=�
 | | East expressions | East values |
 |---|---|---|
 | What you hold | typed expression proxies: `IntegerExpression`, `ArrayExpression`, … (the TS `IntegerExpr`, `ArrayExpr`, …) | runtime data: `int`/`float`/`str`/`bool`/`datetime`, `EastArray`, `EastDict`, `EastStruct`, `EastVariant`, … |
-| Where | inside an `East.function` / `East.asyncFunction` body, a statement body, and EVERY callback handed to an eager method | everywhere else — a `@platform_function` body, a script, a test |
+| Where | inside an `East.function` / `East.asyncFunction` body, a statement body, and EVERY callback handed to an eager method | everywhere else — a `@East.platform_function` body, a script, a test |
 | A method call | records an IR node (`xs.map(f)` is `ArrayMap`); the body runs ONCE, at build time | executes now in east-c (`xs.map(f)` runs the loop natively) and returns a live value |
 | Names | the TypeScript names, snake_cased (`push_last`, `flatten_to_set`, `print_formatted`); python-idiom spellings (`fold`, `sorted`, `keys_set`, `upper`, …) are DEPRECATED aliases that warn | the same names — the eager class and the expression class agree method for method |
 | Scalars | methods on the expression (`x.abs()`, `s.upper_case()`, `d.add_days(1)`) — or the `East.<Type>` namespace | the `East.<Type>` namespaces only (you cannot add methods to `float`/`str`) |
@@ -98,7 +97,9 @@ Task → What do you need?
     │   ├─ Author → East.function([T…], Out, lambda b, x: …) · @East.function([T…], Out) def f(b, x) · East.asyncFunction(…)  ❗out is required
     │   │   ├─ a pure body compiles immediately → f(values) runs natively · xs.map(f) · f.bind(table) pre-binds trailing params BY REFERENCE
     │   │   ├─ a platform call inside → East.platform(name, inputs, output) / East.asyncPlatform · optional=True · East.genericPlatform(name, ["T"], …)
-    │   │   ├─ pair with implementations → East.compile(fn, platform=[…]) / East.compileAsync (analyzed first; a missing impl is a named EastError)
+    │   │   ├─ implement it in python → @East.platform_function(inputs=[…], output=…[, name=]) — paired with the declaration BY NAME (the def's, or name=)
+    │   │   ├─ compile with the implementations → East.compile(fn, platform=East.platform_functions(__name__)) / East.compileAsync (analyzed first; a
+    │   │   │   declaration no implementation matches is a named EastError)
     │   │   └─ spelled INSIDE a body → an inline Function EXPRESSION (bind it with b.const, hand it to a slot, or call it — a Call node)
     │   ├─ Block statements — the block `b` a body receives FIRST (TS `$`); a bare `lambda x:` is refused
     │   │   ├─ Variables → b.let(value[, T]) (mutable) · b.const(value[, T]) · b.assign(var, value)
@@ -323,9 +324,9 @@ Task → What do you need?
     │   ├─ Logic genuinely needs python (numpy / a model / a solver) → to_columns()/EastArray.from_columns · map_batches ·
     │   │   EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
     │   └─ Let East call your python function
-    │       ├─ Concrete types → @platform_function(inputs=[…], output=…)  +  platform_functions(__name__)
-    │       ├─ Type-parameterized → @generic_platform_function(type_parameters=[…], is_async=…)
-    │       └─ Cache a pure, expensive one (dev/test) → @memoize above @platform_function; inert until configure_memo(dir) / EAST_MEMO_DIR
+    │       ├─ Concrete types → @East.platform_function(inputs=[…], output=…)  +  East.platform_functions(__name__)
+    │       ├─ Type-parameterized → @East.generic_platform_function(type_parameters=[…], is_async=…)
+    │       └─ Cache a pure, expensive one (dev/test) → @memoize above @East.platform_function; inert until configure_memo(dir) / EAST_MEMO_DIR
     │
     └─ C. CROSSING BETWEEN THEM
         ├─ A python value inside a body → parameters are expressions already · scalars/datetimes lift · East.value(v, T) / b.const(v) ·
@@ -381,36 +382,71 @@ executes. There is no interpreter path behind it — a body East cannot express
 raises at build time, so the same source always costs and means the same
 thing.
 
-### The authoring trio — `East.function` / `East.platform` / `East.compile`
+### Declare, implement, build, compile — the four authoring calls
 
-The python twin of the TS trio, name for name:
+Four calls, the TypeScript names, name for name. Two are about **platform
+functions** — python the East program calls out to — and are paired **by
+name**; two are about **East functions**, the program itself:
+
+| Step | Call | What it is |
+|---|---|---|
+| **Declare** a platform function's signature | `East.platform(name, inputs, output)` (`East.asyncPlatform`, `East.genericPlatform`) | a handle a body CALLS — it emits the `Platform` node; nothing runs here |
+| **Implement** it in python | `@East.platform_function(inputs=…, output=…)` (`@East.generic_platform_function`; `East.platform_functions(__name__)` collects a module's) | the host side: a plain python function over East VALUES, its result validated against `output`; its name — the `def`'s, or `name=` — MUST equal the declaration's |
+| **Build** an East function | `East.function(inputs, out, body)` / `@East.function(inputs, out)` (`East.asyncFunction`) | runs `body` once over expression proxies and records IR; a pure one is already callable |
+| **Compile** with the implementations | `East.compile(fn, platform=[…])` (`East.compileAsync`) | analyzes the IR against the implementations — a declaration no implementation matches by name is `Platform function '<name>' not found` — and returns the native callable |
+
+An `East.function` has no name of its own: it is a VALUE, called through the
+binding that holds it (`score(x)`, `rows.map(score)`), stored in a struct or
+an array, exported under its module-level name (`east_functions = {"score":
+score}`) — its IR carries its parameters' names (#639), never its own,
+exactly as in TypeScript. A platform function is the opposite: the name IS
+the pairing, on every runtime.
 
 ```python
-from east import (East, EastArray, FloatType, IntegerType, NullType,
-                  StringType, StructType)
+from east import East, ArrayType, FloatType, IntegerType, NullType, StringType, StructType
 
 Row = StructType([("sku", StringType), ("qty", IntegerType)])
-rows = EastArray(Row, [{"sku": "a", "qty": 2}, {"sku": "b", "qty": 4}])
 
-# East.function(param_types, out, body) — `out` is REQUIRED and enforced;
-# every body takes the block `b` first (TS `($, r) => …`), then the parameters
-amount = East.function([Row], FloatType, lambda b, r: r.qty.to_float() * 1.5)
-amount({"sku": "a", "qty": 2})            # 3.0 — pure bodies run immediately
-rows.map(amount)                          # [3.0, 6.0] — every eager method
-                                          #   accepts one
+# BUILD — `out` is REQUIRED and enforced; every body takes the block `b` first
+score = East.function([Row], FloatType, lambda b, r: r.qty.to_float() * 1.5)
+score({"sku": "a", "qty": 2})            # 3.0 — a pure artifact is a callable on values
 
-# East.platform(name, inputs, output) — the expression-level DECLARATION;
-# @platform_function is the implementation side
-log   = East.platform("t.log", [StringType], NullType)
+# DECLARE — the handle a body calls; its name pairs it with the implementation
+log = East.platform("t.log", [StringType], NullType)
 greet = East.function([StringType], NullType,
                       lambda b, name: log(East.String.concat("hello ", name)))
+greet("bob")                             # EastError: Platform function 't.log' is not
+                                         #   available — compile with East.compile(fn, platform=[...])
 
-greet("bob")                              # EastError: Platform function 't.log'
-                                          #   is not available — compile with
-                                          #   East.compile(fn, platform=[...])
-run = East.compile(greet, platform=[*my_impls])
-run("bob")
+# IMPLEMENT — python over East values; `name=` because "t.log" is not an identifier
+@East.platform_function(inputs=[StringType], output=NullType, name="t.log")
+def log_line(line):
+    print(line)
+
+# COMPILE — pair the declaration with its implementation, by name
+run = East.compile(greet, platform=East.platform_functions(__name__))
+run("bob")                               # prints "hello bob"
 ```
+
+**An East function inside a platform function.** The implementation is
+ordinary python over East values, and an `East.function` is a callable on
+values that every eager method accepts — so that is how the implementation
+does its East work, with the loop and the body running in east-c:
+
+```python
+Rows = ArrayType(Row)
+
+@East.platform_function(inputs=[Rows], output=FloatType)    # its name: "total", the def's
+def total(rows):
+    return rows.map(score).sum()          # `score` from above — an East function on values
+
+total_decl = East.platform("total", [Rows], FloatType)      # what an East body calls
+report = East.function([Rows], StringType,
+                       lambda b, rows: East.str("total: ", East.Float.print_currency(total_decl(rows))))
+East.compile(report, platform=East.platform_functions(__name__))(rows)   # "total: $9.00"
+```
+
+Each call in detail:
 
 | Call | Builds | Notes |
 |---|---|---|
@@ -819,7 +855,7 @@ Everything the strict surface refuses at build time — a body without the
 block, `//` on an expression, an f-string over one, `if` on one, a callback
 reaching for `np` — is also a **rule**: `east.diagnostics` reads a file's
 `ast`, finds the East bodies (an `East.function` body and everything nested
-in it; an eager callback on an East value; a `@platform_function`'s East
+in it; an eager callback on an East value; a `@East.platform_function`'s East
 inputs), and says at edit time what the build would say — **one message, two
 moments**: every rule's text IS the refusal the build raises for the same
 code, pinned by building the very source the rules read
@@ -842,7 +878,7 @@ east-py lsp                               # a Language Server over stdio — pip
 | `no-python-formatting` (EAS003) | `f"{x}"`, `str(x)`, `print(x)`, `format(x)`, `"{}".format(x)`, `"%d" % x` | `f-strings / str() cannot be traced … East.String.print(T, value)` |
 | `no-python-boolean` (EAS004) | `if`/`while`/`assert`/`and`/`or`/`not`/`x if c else y` on an expression, `in`, `for … in xs`, `len`/`int`/`float`/`bool`/`sum`/`sorted`/`max`… over one | `python \`if/and/or/not\` cannot be traced …` (`iteration`, `len()`, …) |
 | `no-python-round` (EAS005) | `round(x)` on a Float expression | `East.Float.round_half(x) rounds half away from zero …` |
-| `no-python-work` (EAS006) | an EAGER callback loading a module (`np`, `math`), a python builtin the capture does not admit (all but `abs`/`bool`/`isinstance`), a mutable East collection, or a `def` doing any of those (a clean macro `def` is fine) | `the callback cannot be captured automatically: it references np …` |
+| `no-python-work` (EAS006) | an EAGER callback loading a module (`np`, `math`), a python builtin the capture does not admit (all but `abs`/`bool`/`isinstance`), a name imported from the standard library or an installed package that has no East form (`from math import floor`; a constant like `pi` lifts), a mutable East collection, or a `def` doing any of those (a clean macro `def` is fine) | `the callback cannot be captured automatically: it references np …` |
 | `no-statement-on-outer-block` (EAS007) | `b.if_(p, lambda _b: b.assign(…))` — a statement on an enclosing body's block | `b.assign() was called on an OUTER block …` |
 | `no-deprecated-alias` (EAS008, warning) | `.fold`, `.lower`, `East.Boolean.and_`, … (read off the surface's own deprecation docstrings) | `.fold() is deprecated: the spelling is .reduce() (the TypeScript name)` |
 | `no-discarded-expression` (EAS009) | a bare `acc.push_last(x)` / `East.error(…)` / `xs.size()` line in a body | `.push_last() was evaluated and thrown away … b.do(…)` |
@@ -907,7 +943,7 @@ runner rules: `docs/conventions/EAST_CODEGEN.md` §6.
 
 ### Work in East values — don't round-trip through Python
 
-Inside a `@platform_function` (or any east-py code over runtime data), **do the
+Inside a `@East.platform_function` (or any east-py code over runtime data), **do the
 work with the East values you were handed and their chained eager methods. Do
 not down-convert to a Python `list`/`dict`/`set`, loop in the interpreter, and
 rebuild an East value** — that is the single most common way east-py gets used
@@ -1507,8 +1543,8 @@ list. Composition rule: **East functions for East-expressible transforms,
 columns/batches for the genuinely-python remainder.**
 
 **Put the logic in the platform function, not a pure-Python shim.** Don't
-write pure-Python helpers over `list`/`dict` and give a `@platform_function`
-that only converts-and-delegates to them. A `@platform_function` is *just* a
+write pure-Python helpers over `list`/`dict` and give a `@East.platform_function`
+that only converts-and-delegates to them. A `@East.platform_function` is *just* a
 typed, validated Python function — its one added cost is validating the declared
 output, which is a **feature** — so a separate untyped helper layer buys nothing
 and costs you: **testability** (the typed `inputs`/`output` is the contract you
@@ -1528,10 +1564,10 @@ a loop.
 
 | Signature | Description |
 |-----------|-------------|
-| `@platform_function(*, inputs, output, name=None, validate_output=True, validate_input=False)` | Register a Python fn; infers sync/async from the def; validates output against `output` |
-| `@generic_platform_function(*, type_parameters, name=None, is_async=False)` | Type-parameterized factory: the decorated fn is `fn(platform, *type_params) -> impl`; `is_async` is **explicit** (not inferred) |
-| `platform_functions(module) -> list` | Collects every decorated fn in `module` (pass `__name__`). Two consumers: `East.compile()` for in-process use, and a package's top-level `platform` list that `east-py run -p <module>` (and the e3 `{ custom }` runner) loads |
-| `@memoize` / `@memoize(salt="…")` / `memoized = memoize(fn, salt="…")` | Content-addressed memo over ONE platform function. Apply **above** `@platform_function` (or inline on an imported one). Key = sha256(name + salts + per-input digests of the with-header BEAST2 encodings via the declared input types); value = with-header BEAST2 of the output, decoded via the declared output type. Inert by default |
+| `@East.platform_function(*, inputs, output, name=None, validate_output=True, validate_input=False)` | Register a Python fn; infers sync/async from the def; validates output against `output`; paired with the `East.platform(name, …)` declaration by name (the def's, or `name=`). Also importable bare: `from east import platform_function` |
+| `@East.generic_platform_function(*, type_parameters, name=None, is_async=False)` | Type-parameterized factory: the decorated fn is `fn(platform, *type_params) -> impl`; `is_async` is **explicit** (not inferred) |
+| `East.platform_functions(module) -> list` | Collects every decorated fn in `module` (pass `__name__`). Two consumers: `East.compile()` for in-process use, and a package's top-level `platform` list that `east-py run -p <module>` (and the e3 `{ custom }` runner) loads |
+| `@memoize` / `@memoize(salt="…")` / `memoized = memoize(fn, salt="…")` | Content-addressed memo over ONE platform function. Apply **above** `@East.platform_function` (or inline on an imported one). Key = sha256(name + salts + per-input digests of the with-header BEAST2 encodings via the declared input types); value = with-header BEAST2 of the output, decoded via the declared output type. Inert by default |
 | `configure_memo(directory, salt="")` | Activate (`None` deactivates) memoization for `@memoize` functions; overrides `EAST_MEMO_DIR` / `EAST_MEMO_SALT` env vars. Bump `salt` to invalidate after code edits — input-derived keys can't see them |
 
 ### What is NOT east-c (the honest list)
@@ -1591,12 +1627,11 @@ rows.map(conv.bind(RATES))                                          # ✅ bind i
 ### The canonical platform function
 
 ```python
-from east import (FloatType, StringType, StructType, ArrayType,
-                  platform_function, struct)
+from east import East, FloatType, StringType, StructType, ArrayType, struct
 
 LineItem = StructType([("name", StringType), ("price", FloatType)])   # Struct<String, Float>
 
-@platform_function(inputs=[FloatType, ArrayType(LineItem)], output=ArrayType(LineItem))
+@East.platform_function(inputs=[FloatType, ArrayType(LineItem)], output=ArrayType(LineItem))
 def convert_prices(fx_rate, items):
     # items: an east-c-backed array with eager methods; row["price"] is a plain float
     return items.map(lambda b, row: struct(
@@ -1613,16 +1648,16 @@ the same spelling builds the row here and on plain values; the decorator validat
 
 To call a Python platform function from an **e3 task**, package it so `east-py
 run -p <module>` can load it: each module ends with `<name>_impl =
-platform_functions(__name__)`, and the package `__init__.py` aggregates them into
+East.platform_functions(__name__)`, and the package `__init__.py` aggregates them into
 a top-level `platform` list (the same shape as east-py-std / east-py-datascience).
 
 ```python
 # platform_module/forecast.py
-@platform_function(inputs=[ArrayType(FloatType)], output=FloatType,
+@East.platform_function(inputs=[ArrayType(FloatType)], output=FloatType,
                    name="my_project.forecast")   # dotted "<project>.<fn>"; MUST byte-match
 def forecast(history):                            # the TS East.platform(...) declaration
     return sum(history) / len(history) if history else 0.0
-forecast_impl = platform_functions(__name__)
+forecast_impl = East.platform_functions(__name__)
 
 # platform_module/__init__.py
 from .forecast import forecast_impl
@@ -1639,10 +1674,10 @@ packaging; **e3** for the runner.
 ### Memoize expensive pure stages (dev/test harnesses)
 
 ```python
-from east import configure_memo, memoize, platform_function
+from east import East, configure_memo, memoize
 
 @memoize                      # eligibility — the author asserts purity
-@platform_function(inputs=[ArrayType(RowType), ConfigType], output=ModelType)
+@East.platform_function(inputs=[ArrayType(RowType), ConfigType], output=ModelType)
 def train_model(rows, config): ...
 
 # A test harness flips the whole package on with one call (or EAST_MEMO_DIR):
@@ -1685,9 +1720,9 @@ write_beast2_file_parallel(
     processes=13,          # a worker failure kills the rest, cleans up, re-raises
 )
 
-# Consumers — e.g. the table's @platform_function loader — see ONE file, no
+# Consumers — e.g. the table's @East.platform_function loader — see ONE file, no
 # catalog, no shard names, and read it at one segment of memory:
-@platform_function(inputs=[StringType], output=ArrayType(ROW))
+@East.platform_function(inputs=[StringType], output=ArrayType(ROW))
 def load_orders(path):
     with open_beast2_file(path, ArrayType(ROW)) as f:
         return f.load()    # or stream f.segments() and never hold the table
@@ -1740,8 +1775,7 @@ a bare `acc.push_last(x)` line is evaluated at build time and thrown away
 (the build raises rather than compile a loop that silently does nothing).
 
 ```python
-from east import (ArrayType, DictType, East, IntegerType, StringType,
-                  platform_function)
+from east import ArrayType, DictType, East, IntegerType, StringType
 
 Node, Edges = StringType, DictType(StringType, ArrayType(StringType))
 Indeg = DictType(StringType, IntegerType)
@@ -1770,7 +1804,7 @@ def topo_order(b, roots, succ, indeg):
     b.while_(i < ready.size(), step)
     return order
 
-@platform_function(inputs=[ArrayType(Node), Edges, Indeg], output=ArrayType(Node))
+@East.platform_function(inputs=[ArrayType(Node), Edges, Indeg], output=ArrayType(Node))
 def replay_order(roots, succ, indeg):
     return topo_order(roots, succ, indeg)
 ```
@@ -1877,13 +1911,13 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
 - **Type constructors take PAIRS, not a dict** (unlike the TS DSL):
   `StructType([("name", StringType), ("price", FloatType)])` /
   `VariantType([("ok", T), ("err", E)])`.
-- **`@platform_function` output must be an East value.** Returning plain Python
+- **`@East.platform_function` output must be an East value.** Returning plain Python
   (a `dict`, a `list` of dicts) fails output validation — build with
   `array`/`struct`/`variant` or `coerce_to(raw, OutputType)` at the return
   boundary.
 - **One name, two surfaces.** Inside any body you hold EXPRESSIONS (an option
   has `.is_some()` / `.unwrap_or(default)`); decoded East values — what a
-  `@platform_function` is handed, or what iteration yields — are the eager
+  `@East.platform_function` is handed, or what iteration yields — are the eager
   surface, where an option is an `EastVariant` with `.type` / `.value` /
   `.unwrap(tag)` and **no** `.unwrap_or`: branch on `opt.type == "some"` and
   read `opt.value`. Both are real; what does not exist is a callback that
@@ -1901,7 +1935,7 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
   `to_columns()` / `EastArray.from_columns` / `map_batches`, never a platform
   call or a decode per element.
 - **Task inputs arrive frozen.** Runner-decoded values reaching a
-  `@platform_function` are zero-copy proxies over the frozen C value:
+  `@East.platform_function` are zero-copy proxies over the frozen C value:
   mutating one raises `cannot mutate a frozen value (task inputs are
   immutable) — copy first` — call `.copy()` to derive a mutable value.
   Keyed gets / iteration on a lazily-opened (paged) input stay O(segment)
@@ -1922,7 +1956,7 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
 ## Related skills
 
 `east-py` is the Python runtime: East expressions AND East values in Python, plus the
-`@platform_function` on-ramp. Load the skill that matches what you are adding:
+`@East.platform_function` on-ramp. Load the skill that matches what you are adding:
 
 - **east** — the TypeScript `East.function` DSL. The expression surface here is its
   twin name for name (`$` is `b`, `camelCase` is `snake_case`); the two share the same
@@ -1930,7 +1964,7 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
   `east-node transpile`), and a function exported from one is imported by the other
   (`east-py export-functions` ↔ `East.importFunction`).
 - **east-py-datascience** — Python platform functions for ML and optimization (XGBoost, LightGBM,
-  Optuna, MADS, PyMC, SHAP, Torch, GoogleOR, Simulation). The home once a `@platform_function`
+  Optuna, MADS, PyMC, SHAP, Torch, GoogleOR, Simulation). The home once a `@East.platform_function`
   POC needs a real model or solver.
 - **east-py-std** / **east-py-io** — the platform functions on the Python runtime:
   Console/FileSystem/Fetch/Crypto/Time/Random, and SQL/NoSQL/S3/FTP/SFTP/XLSX/XML/compression —

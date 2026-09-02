@@ -95,7 +95,7 @@ EastSet(t, sorted(set(a) | set(b)))     # reimplementing SetUnion in Python — 
 
 Values crossing into East (platform-function inputs/outputs, constructed data)
 must conform to the declared type, or they corrupt downstream with a cryptic
-error. Use the coercion layer; let `@platform_function` validate outputs.
+error. Use the coercion layer; let `@East.platform_function` validate outputs.
 
 ### Do
 ```python
@@ -103,7 +103,7 @@ from east import coerce_to, assert_value_of
 items = coerce_to(raw_rows, ArrayType(LineItem))   # int→Float, dict→Struct (reordered), …
 assert_value_of(result, output_type)               # path-pinpointed EastTypeError on mismatch
 
-@platform_function(inputs=[...], output=ArrayType(LineItem))   # validates the result for you
+@East.platform_function(inputs=[...], output=ArrayType(LineItem))   # validates the result for you
 def f(...): ...
 ```
 

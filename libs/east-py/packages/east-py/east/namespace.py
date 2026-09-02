@@ -84,6 +84,15 @@ from east.functions import (
 from east.functions import (
     platform_dependencies as _platform_dependencies,
 )
+from east.runtime.platform import (
+    generic_platform_function as _generic_platform_function,
+)
+from east.runtime.platform import (
+    platform_function as _platform_function,
+)
+from east.runtime.platform import (
+    platform_functions as _platform_functions,
+)
 from east.types.types import (
     ArrayType,
     BlobType,
@@ -1716,6 +1725,16 @@ class _East:
     asyncGenericPlatform = staticmethod(_async_generic_platform)  # noqa: N815 — TS parity name
     compile = staticmethod(_compile)
     compileAsync = staticmethod(_compile_async)  # noqa: N815 — TS parity name
+
+    # ── platform implementations (#649, east/runtime/platform.py) ──────────
+    # The host side of `East.platform`: `@East.platform_function` implements
+    # what `East.platform(name, …)` declares — paired by NAME (the def's, or
+    # `name=`) — and `East.platform_functions(__name__)` collects a module's
+    # implementations for `East.compile(fn, platform=…)`. The bare imports
+    # (`from east import platform_function`) are the same objects.
+    platform_function = staticmethod(_platform_function)
+    generic_platform_function = staticmethod(_generic_platform_function)
+    platform_functions = staticmethod(_platform_functions)
 
     # ── cross-language functions (#628, east/functions.py) ──────────────────
     # Name-for-name with TypeScript: a function exported by a package in
