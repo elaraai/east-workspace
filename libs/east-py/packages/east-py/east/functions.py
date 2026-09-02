@@ -245,7 +245,7 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
     """
     if not package:
         raise ValueError("export_functions: the package name is empty")
-    exports = []
+    exports: list[EastStruct] = []
     for name in sorted(functions):
         try:
             ir = function_ir(functions[name])
@@ -495,7 +495,7 @@ def link_imports(fn_or_ir: Any, manifests: list) -> tuple[Any, list[dict[str, An
     linked_body = ir_block(statements[-1].value["type"], statements, loc_id=body.value["loc_id"])
     fields = dict(root.value.items())
     fields["body"] = linked_body
-    linked_root = EastVariant(root.type, EastStruct(fields))
+    linked_root: EastVariant = EastVariant(root.type, EastStruct(fields))
     if ir.type == "Block":
         outer = list(ir.value["statements"])
         return ir_block(ir.value["type"], [*outer[:-1], linked_root], loc_id=ir.value["loc_id"]), imports
