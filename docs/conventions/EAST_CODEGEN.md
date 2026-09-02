@@ -252,8 +252,42 @@ pins that the same program authored in either language is the same IR.
 
 ## 7. Where the source names went
 
-The IR carries variable names, but the builders write `_N` (TypeScript) and
-`_fresh_name()` (python), so printed source reads `_3.add(_4)`. Carrying
-authoring names into the IR is a **builder** change, not a wire change —
-`VariableIR.name` is already a free string and the normalizer renames
-canonically — tracked in #639.
+The IR carries a name on every variable, and since #639 the builders write
+the **authoring names** there, in both languages and with no new API:
+
+| Variable | TypeScript reads it from | python reads it from |
+|---|---|---|
+| a body's parameters (`($, items, threshold) => …`, a callback's `($, x, i)`, a loop's `($, value, key, label)`, a match arm's `($, radius)`, a catch's `($, message, stack)`) | the function's own source text (`Function.prototype.toString`), parsed by the TypeScript compiler | its signature (`inspect.signature`) |
+| a `$.let` / `$.const` binding (`const total = $.let(0n)`) | the authoring file, parsed by the TypeScript compiler: the declaration whose initializer is the call at the location the source map already resolves (`bindingNameAt`) | the authoring file, parsed by `ast`: the assignment whose value is the call the frame is executing, matched by the call's exact span (`binding_name_here`) |
+
+Neither side matches patterns against text. The TypeScript side needs the
+`typescript` package at run time — an **optional peer dependency** of
+`@elaraai/east`, required lazily from node on the first build (about 100 ms
+and 45 MB once per process; nothing where it is absent, as in a browser,
+where every variable stays `_N`). A call inside another call's arguments,
+or one with a further call chained onto it (`$.let(0n).add(1n)`),
+initializes nothing and stays unnamed.
+
+Names are **unique per build** — captures match by name across function
+boundaries and the compilers key their environments by name — so a second
+`x` becomes `x_2`, `x_3`… (`ast_to_ir`'s per-build registry; python's
+`authored_name`). Where no name can be read — a slot the body did not
+declare (`($, x) => …` for a `(value, index)` callback), destructuring, a
+`*args` body, a browser bundle, a REPL line that is gone — the builder's
+fresh name stands: `_N` (TypeScript) or `__nN` (python). A `$`/`b` block
+parameter is never a variable.
+
+The printers keep every name that is an identifier, so printed source
+reads `total.add(item.multiply(index))`; TypeScript's `_N` survives a trip
+through python and back. The other builder's fresh spelling (python's
+`__nN` seen from TypeScript, and any name a scope already uses — the
+block parameter included) prints as `v_N` from one module-wide counter
+that starts above any `v_N` the IR holds, in both printers, so **print →
+build → print is the identity** in both languages: the corpus tests pin
+`build(print(IR)) ≡ IR`, and `codegen.spec.ts` / `naming.spec.ts` /
+`test_authoring_names.py` pin that the second print equals the first. The
+normalizer still renames canonically, so `≡` never depended on this.
+
+Helpers: `libs/east/src/naming.ts` (`parameterNames`, `bindingNameAt`) and
+`east/expression/naming.py` (`parameter_names`, `binding_name_here`,
+`authored_name`, `reset_names`).

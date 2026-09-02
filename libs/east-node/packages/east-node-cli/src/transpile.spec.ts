@@ -43,7 +43,7 @@ describe('east-node transpile', () => {
 
             const { source, rebuilt } = await transpile(path, { rebuild: true });
             assert.match(source, /^import \{ East, .* \} from "@elaraai\/east";$/m);
-            assert.match(source, /export const main = East\.function\(\[IntegerType\], IntegerType, \(\$, _0\) => \{/);
+            assert.match(source, /export const main = East\.function\(\[IntegerType\], IntegerType, \(\$, x\) => \{/);
             assert.ok(rebuilt !== undefined);
             // The rebuild is a fixpoint: printing it gives the same module back.
             assert.equal(toSource(rebuilt, {}), toSource(ir, {}));
@@ -62,7 +62,7 @@ describe('east-node transpile', () => {
             const { source, rebuilt } = await transpile(path, { name: 'greet', importFrom: '../east/index.js', rebuild: true });
             assert.match(source, /from "\.\.\/east\/index\.js";/);
             assert.match(source, /export const greet = East\.function\(/);
-            assert.match(source, /\$\.for\(_1, \(\$, _3, _4, label\) => \{/);
+            assert.match(source, /\$\.for\(xs, \(\$, x, _4, label\) => \{/);  // the slot the body did not name stays _N (#639)
             assert.equal(toSource(rebuilt!, { name: 'greet' }), toSource(greet, { name: 'greet' }));
         } finally {
             rmSync(dir, { recursive: true, force: true });

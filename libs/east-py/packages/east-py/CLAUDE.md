@@ -69,7 +69,10 @@ uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
    `b.return_`, …), `control.py` (the expression forms `East.while_`,
    `East.for_`, `block`/`let`/`ref`/`try_catch`), `nodes.py`/`lift.py`/
    `finalize.py` (IR construction, lifting python values, build-time CSE),
-   `location.py` (authoring-frame source maps, #626), `capture.py`,
+   `location.py` (authoring-frame source maps, #626), `naming.py`
+   (authoring names for IR variables, #639: parameters from a body's
+   signature, `b.let`/`b.const` bindings from the authoring file parsed
+   with `ast`), `capture.py`,
    `project.py` (field masks for beast2 projection), `errors.py`,
    `helpers.py`. `libs/<type>.py` is the TypeScript `expr/libs` stdlib,
    ported body for body and built on first use (`LazyFunction`).

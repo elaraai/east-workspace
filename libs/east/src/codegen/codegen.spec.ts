@@ -295,6 +295,24 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.equal(main.toIR().compile([])("aab foo", [{ a: 1n }]), fn.toIR().compile([])("aab foo", [{ a: 1n }]));
   });
 
+  test("another builder's fresh names print as one v_N sequence, and the printed module prints to itself", async () => {
+    const fn = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) =>
+      xs.map(($, x) => x.multiply(2n)).reduce(($, acc, x) => acc.add(x), 0n));
+    // python spells a slot the body did not name `__nN` (TypeScript: `_N`),
+    // and an author may have used the printer's own `v_N` spelling.
+    const foreign = (v: any): any => Array.isArray(v) ? v.map(foreign)
+      : isVariant(v) ? variant(v.type, foreign(v.value))
+        : v !== null && typeof v === "object" && !(v instanceof Date) && !(v instanceof Uint8Array)
+          ? Object.fromEntries(Object.entries(v).map(([k, x]) =>
+            [k, k === "name" && typeof x === "string" ? (/^_\d+$/.test(x) ? `__n${x.slice(1)}` : x === "acc" ? "v_0" : x) : foreign(x)]))
+          : v;
+    const ir = foreign(fn.toIR().ir);
+    const source = toSource(ir, { importFrom: INDEX_URL });
+    assert.match(source, /xs\.map\(\(\$, x, v_1\) => x\.multiply\(2n\)\)\.reduce\(\(\$, v_0, x_2, v_2\) => v_0\.add\(x_2\), 0n\)/);
+    const main = await roundTrip(ir, "foreign names");
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL }), source, "print → build → print is the identity");
+  });
+
   test("a raw builtin prints through East.builtin and rebuilds", async () => {
     const fn = East.function([ArrayType(IntegerType)], ArrayType(IntegerType), ($, xs) => {
       return xs.getKeys([0n, 1n]);

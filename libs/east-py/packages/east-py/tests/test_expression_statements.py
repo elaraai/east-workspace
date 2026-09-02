@@ -566,7 +566,7 @@ def test_a_nested_function_is_an_inline_function_node_with_captures():
     let_f, ret = stmts(body_of(built))
     fn_node = let_f.value["value"]
     assert fn_node.type == "Function"
-    assert [c.value["name"] for c in fn_node.value["captures"]] == ["__k0"]
+    assert [c.value["name"] for c in fn_node.value["captures"]] == ["x"]  # the authored name (#639)
     assert ret.value["arguments"][0].type == "Call"
     assert built(10) == 23
 

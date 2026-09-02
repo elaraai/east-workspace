@@ -31,9 +31,12 @@ body receives, python's ``$``) and the builtin table's
   unresolved cross-language import (the ``east.importFunction`` Platform
   node, #628) through ``East.import_function(pkg, name, T)``.
 
-Variables keep their IR names when they are python identifiers (the
-TypeScript ``_N``s are); anything else is renamed ``v_N``; ``b`` is
-reserved for the block. Types are hoisted to module constants ``_tN``
+Variables keep their IR names when they are python identifiers — the
+authoring names both builders carry (#639) and TypeScript's ``_N`` for a
+slot the body did not name; the python builder's own ``__nN`` and a name
+the module already uses are renamed ``v_N``, numbered once per module
+(above any ``v_N`` the IR holds) so a printed module rebuilds to itself;
+``b`` is reserved for the block. Types are hoisted to module constants ``_tN``
 (deduplicated structurally), platform declarations to ``_pN`` (one per
 distinct signature). Deep expression nesting is broken with ``_eN =
 <expr>`` temporaries, so any IR width or depth prints to parseable python.
@@ -43,6 +46,7 @@ from __future__ import annotations
 
 import keyword
 import math
+import re
 from datetime import datetime
 from typing import Any
 
@@ -66,6 +70,8 @@ _STATEMENT_KINDS = frozenset({
 _MAX_DEPTH = 24
 #: The block parameter every statement-bearing body declares first.
 _BLOCK = "b"
+#: The printer's own spelling for a variable it cannot name as the IR does.
+_V_NAME = re.compile(r"v_(\d+)")
 
 
 def _ident(name: str) -> bool:
@@ -137,6 +143,7 @@ class _Printer:
         self.platform_decls: list[str] = []
         self.helper_counter = 0
         self.temp_counter = 0
+        self.var_counter = 0
         self.raw_builtins: set[str] = set()
         self.uses_datetime = False
         self.uses_variant = False
@@ -193,11 +200,11 @@ class _Printer:
         ir_name = var.value["name"]
         py = ir_name if _ident(ir_name) and not ir_name.startswith("__") else None
         if py is None or py in scope.used:
-            base = "v"
-            n = 0
-            while f"{base}_{n}" in scope.used:
-                n += 1
-            py = f"{base}_{n}"
+            # The builder's own spelling, or a name this scope already
+            # uses: ``v_N`` from one module-wide counter, so the rebuilt
+            # module names the slot the same way and prints to itself.
+            py = f"v_{self.var_counter}"
+            self.var_counter += 1
         scope.names[ir_name] = py
         scope.used.add(py)
         return py
@@ -648,6 +655,7 @@ class _Printer:
             root = stmts[-1]
         if root.type not in ("Function", "AsyncFunction"):
             raise Unprintable(f"the root must be a Function or AsyncFunction, got {root.type}")
+        self.var_counter = _next_v_index(ir)
         # A python artifact's hoisted constants become the body's consts.
         fn_lines = self.function_def(root, _Scope(None), self.root_name, consts=consts, root=True)
         lines = [
@@ -672,6 +680,23 @@ class _Printer:
         lines.extend(fn_lines)
         lines.append("")
         return "\n".join(lines)
+
+
+def _next_v_index(ir: Any) -> int:
+    """One above the highest ``v_N`` variable name in ``ir`` — a minted
+    ``v_N`` never collides with one the program authored."""
+    from east.expression.finalize import _node_children
+
+    highest = -1
+    stack = [ir]
+    while stack:
+        n = stack.pop()
+        if n.type == "Variable":
+            m = _V_NAME.fullmatch(n.value["name"])
+            if m:
+                highest = max(highest, int(m.group(1)))
+        stack.extend(_node_children(n))
+    return highest + 1
 
 
 def _ir_of(fn_or_ir: Any) -> Any:

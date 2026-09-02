@@ -1059,7 +1059,16 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], out_hint: EastType | N
             f"a callback here takes the block and up to {len(slots)} "
             f"parameter(s) — this one declares {arity} after the block"
         )
+    # the body's own names for the slots it declares, in its python-facing
+    # order (#639); the slots it leaves out keep a fresh name
+    from east.expression.naming import authored_name, hint_at, parameter_names
+
+    hints = None if isinstance(fn, Expression) else parameter_names(fn)
     names = [_fresh_name() for _ in param_types]
+    for k, slot in enumerate(slots):
+        hint = hint_at(hints, k + 1)
+        if hint is not None:
+            names[slot] = authored_name(hint, _fresh_name)
     proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
     args = [proxies[i] for i in slots][:arity]
     frame = _open_frame(out_hint)

@@ -37,9 +37,12 @@
  *   import (the `east.importFunction` Platform node) through
  *   `East.importFunction(pkg, name, T)`.
  *
- * Variables keep their IR names when they are JavaScript identifiers (the
- * TypeScript `_N`s are); anything else is renamed `v_N`; `$` is reserved for
- * the block. Types are hoisted to module constants `_tN` (deduplicated
+ * Variables keep their IR names when they are JavaScript identifiers — the
+ * authoring names both builders carry (#639) and TypeScript's `_N` for a
+ * slot the body did not name; python's `__nN` and a name the scope already
+ * uses are renamed `v_N`, numbered once per module (above any `v_N` the IR
+ * holds) so a printed module rebuilds to itself; `$` is reserved for the
+ * block. Types are hoisted to module constants `_tN` (deduplicated
  * structurally), platform declarations to `_pN` (one per distinct
  * signature). Deep expression nesting is broken with `const _eN = <expr>`
  * temporaries, so any IR width or depth prints to parseable source.
@@ -164,6 +167,7 @@ class Printer {
   readonly rawBuiltins = new Set<string>();
   helperCounter = 0;
   tempCounter = 0;
+  varCounter = 0;
 
   constructor(readonly rootName: string) {}
 
@@ -224,9 +228,11 @@ class Printer {
     const irName = variable.value.name as string;
     let name: string | null = isIdent(irName) ? irName : null;
     if (name === null || scope.used.has(name)) {
-      let n = 0;
-      while (scope.used.has(`v_${n}`)) n += 1;
-      name = `v_${n}`;
+      // The other builder's own spelling, or a name this scope already
+      // uses: `v_N` from one module-wide counter, so the rebuilt module
+      // names the slot the same way and prints to itself.
+      name = `v_${this.varCounter}`;
+      this.varCounter += 1;
     }
     scope.names.set(irName, name);
     scope.used.add(name);
@@ -781,6 +787,7 @@ class Printer {
     if (root.type !== "Function" && root.type !== "AsyncFunction") {
       throw new Unprintable(`the root must be a Function or AsyncFunction, got ${root.type}`);
     }
+    this.varCounter = nextVIndex(ir);
     // A python artifact's hoisted constants become the body's own consts.
     const fn = this.functionExprSource(root, new Scope(null), "", consts);
     const lines = [
@@ -797,6 +804,28 @@ class Printer {
     lines.push("");
     return lines.join("\n");
   }
+}
+
+/** The printer's own spelling for a variable it cannot name as the IR does. */
+const V_NAME = /^v_(\d+)$/;
+
+/** One above the highest `v_N` variable name in `ir` — a minted `v_N` never collides with one the program authored. */
+function nextVIndex(ir: Node): number {
+  let highest = -1;
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) {
+      for (const x of v) walk(x);
+    } else if (v !== null && typeof v === "object" && !(v instanceof Date) && !(v instanceof Uint8Array)) {
+      const node = v as { type?: unknown, value?: any };
+      if (node.type === "Variable" && node.value !== null && typeof node.value === "object" && typeof node.value.name === "string") {
+        const m = V_NAME.exec(node.value.name);
+        if (m) highest = Math.max(highest, Number(m[1]));
+      }
+      for (const x of Object.values(v)) walk(x);
+    }
+  };
+  walk(ir);
+  return highest + 1;
 }
 
 /** The IR value behind a function expression, an `EastIR`, or an IR value. */
@@ -838,8 +867,8 @@ function irOf(fnOrIr: unknown): Node {
  * console.log(East.toSource(double));
  * // import { East, Expr, ... } from "@elaraai/east";
  * //
- * // export const main = East.function([IntegerType], IntegerType, ($, _0) => {
- * //   return _0.multiply(2n);
+ * // export const main = East.function([IntegerType], IntegerType, ($, x) => {
+ * //   return x.multiply(2n);
  * // });
  * ```
  */

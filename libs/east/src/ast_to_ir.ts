@@ -25,6 +25,8 @@ type Ctx = {
   loop_ctx: Map<Label, IRLabel>,
   recursiveASTs?: Set<any>,
   n_vars: number,
+  /** authoring names in use (#639): name → how many bindings took it */
+  names: Map<string, number>,
   n_loops: number,
   inputs: EastType[],
   output: EastType,
@@ -121,7 +123,23 @@ export function coerce_to(
 /** Perform scope resolution and type checking on `AST`, produce `IR` ready for serialization, compilation or evaluation.
 *
 * @internal */
-export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ctx: new Map(), captures: new Set(), loop_ctx: new Map(), n_vars: 0, n_loops: 0, inputs: [], output: NeverType, async: false }): IR {
+/**
+ * The IR name of a variable: its authoring name when the builder read one
+ * (#639), made unique per build with a `_2`, `_3`… suffix on a collision;
+ * else the synthetic `_N`. Names are matched across function boundaries
+ * (captures) and key the compilers' environments, so uniqueness is a
+ * program-wide invariant.
+ */
+function variableName(ctx: Ctx, hint: string | undefined): string {
+  if (hint === undefined || !/^[A-Za-z_$][\w$]*$/.test(hint) || /^_\d+$/.test(hint) || hint === "$") {
+    return `_${ctx.n_vars}`;
+  }
+  const n = (ctx.names.get(hint) ?? 0) + 1;
+  ctx.names.set(hint, n);
+  return n === 1 ? hint : `${hint}_${n}`;
+}
+
+export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ctx: new Map(), captures: new Set(), loop_ctx: new Map(), n_vars: 0, names: new Map(), n_loops: 0, inputs: [], output: NeverType, async: false }): IR {
   try {
     if (ast.ast_type === "Variable") {
       if (ctx.local_ctx.has(ast)) {
@@ -142,7 +160,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       // Create a new variable
       const variable: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.variable.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, ast.variable.name),
         loc_id: ast.variable.loc_id,
         mutable: ast.variable.mutable,
         captured: false,
@@ -282,7 +300,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const parameters: VariableIR[] = ast.parameters.map(parameter => {
         const param: VariableIR = variant("Variable", {
           type: toEastTypeValue(parameter.type),
-          name: `_${ctx.n_vars}`,
+          name: variableName(ctx, parameter.name),
           loc_id: parameter.loc_id,
           mutable: parameter.mutable, // false...
           captured: false,
@@ -294,7 +312,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const local_ctx = new Map(parameters.map((parameter, i) => ([ast.parameters[i]!, parameter] as const)));
       const parent_ctx = new Map([...ctx.local_ctx, ...ctx.parent_ctx]);
       const captures = new Set<VariableIR>();
-      const ctx2: Ctx = { local_ctx, parent_ctx, captures, loop_ctx: new Map(), n_vars: ctx.n_vars, n_loops: ctx.n_loops, inputs: (ast.type as FunctionType).inputs, output: (ast.type as FunctionType).output, async: false }
+      const ctx2: Ctx = { local_ctx, parent_ctx, captures, loop_ctx: new Map(), n_vars: ctx.n_vars, names: ctx.names, n_loops: ctx.n_loops, inputs: (ast.type as FunctionType).inputs, output: (ast.type as FunctionType).output, async: false }
 
       const body = ast_to_ir(ast.body, ctx2);
 
@@ -325,7 +343,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const parameters: VariableIR[] = ast.parameters.map(parameter => {
         const param: VariableIR = variant("Variable", {
           type: toEastTypeValue(parameter.type),
-          name: `_${ctx.n_vars}`,
+          name: variableName(ctx, parameter.name),
           loc_id: parameter.loc_id,
           mutable: parameter.mutable, // false...
           captured: false,
@@ -337,7 +355,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const local_ctx = new Map(parameters.map((parameter, i) => ([ast.parameters[i]!, parameter] as const)));
       const parent_ctx = new Map([...ctx.local_ctx, ...ctx.parent_ctx]);
       const captures = new Set<VariableIR>();
-      const ctx2: Ctx = { local_ctx, parent_ctx, captures, loop_ctx: new Map(), n_vars: ctx.n_vars, n_loops: ctx.n_loops, inputs: (ast.type as FunctionType).inputs, output: (ast.type as FunctionType).output, async: true }
+      const ctx2: Ctx = { local_ctx, parent_ctx, captures, loop_ctx: new Map(), n_vars: ctx.n_vars, names: ctx.names, n_loops: ctx.n_loops, inputs: (ast.type as FunctionType).inputs, output: (ast.type as FunctionType).output, async: true }
 
       const body = ast_to_ir(ast.body, ctx2);
 
@@ -474,6 +492,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           captures: ctx.captures,
           loop_ctx: ctx.loop_ctx,
           n_vars: ctx.n_vars,
+          names: ctx.names,
           n_loops: ctx.n_loops,
           inputs: ctx.inputs,
           output: ctx.output,
@@ -496,6 +515,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: ctx.loop_ctx,
         n_vars: ctx.n_vars,
+        names: ctx.names,
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -528,6 +548,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: ctx.loop_ctx,
         n_vars: ctx.n_vars,
+        names: ctx.names,
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -540,7 +561,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       // Create new variables for the catch message and stack
       const message: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.message.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, ast.message.name),
         loc_id: ast.message.loc_id,
         mutable: ast.message.mutable, // false...
         captured: false,
@@ -549,7 +570,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       const stack: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.stack.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, ast.stack.name),
         loc_id: ast.stack.loc_id,
         mutable: ast.stack.mutable, // false...
         captured: false,
@@ -561,6 +582,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: ctx.loop_ctx,
         n_vars: ctx.n_vars,
+        names: ctx.names,
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -579,6 +601,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           captures: ctx.captures,
           loop_ctx: ctx.loop_ctx,
           n_vars: ctx.n_vars,
+          names: ctx.names,
           n_loops: ctx.n_loops,
           inputs: ctx.inputs,
           output: ctx.output,
@@ -652,6 +675,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: new Map([...ctx.loop_ctx, [ast.label, label]]),
         n_vars: ctx.n_vars,
+        names: ctx.names,
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -678,7 +702,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       const value: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.value.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, ast.value.name),
         loc_id: ast.value.loc_id,
         mutable: ast.value.mutable, // false...
         captured: false,
@@ -687,7 +711,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       const key: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.key.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, ast.key.name),
         loc_id: ast.key.loc_id,
         mutable: ast.key.mutable, // false...
         captured: false,
@@ -700,6 +724,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: new Map([...ctx.loop_ctx, [ast.label, label]]),
         n_vars: ctx.n_vars,
+        names: ctx.names,
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -728,7 +753,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       const key: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.key.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, ast.key.name),
         loc_id: ast.key.loc_id,
         mutable: ast.key.mutable, // false...
         captured: false,
@@ -741,6 +766,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: new Map([...ctx.loop_ctx, [ast.label, label]]),
         n_vars: ctx.n_vars,
+        names: ctx.names,
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -768,7 +794,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       const value: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.value.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, ast.value.name),
         loc_id: ast.value.loc_id,
         mutable: ast.value.mutable, // false...
         captured: false,
@@ -777,7 +803,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       const key: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.key.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, ast.key.name),
         loc_id: ast.key.loc_id,
         mutable: ast.key.mutable, // false...
         captured: false,
@@ -790,6 +816,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: new Map([...ctx.loop_ctx, [ast.label, label]]),
         n_vars: ctx.n_vars,
+        names: ctx.names,
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -815,7 +842,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       for (const [k, v] of Object.entries(ast.cases)) {
         const variable: VariableIR = variant("Variable", {
           type: toEastTypeValue(v.variable.type),
-          name: `_${ctx.n_vars}`,
+          name: variableName(ctx, v.variable.name),
           loc_id: v.variable.loc_id,
           mutable: v.variable.mutable, // false...
           captured: false,
@@ -828,6 +855,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           captures: ctx.captures,
           loop_ctx: ctx.loop_ctx,
           n_vars: ctx.n_vars,
+          names: ctx.names,
           n_loops: ctx.n_loops,
           inputs: ctx.inputs,
           output: ctx.output,

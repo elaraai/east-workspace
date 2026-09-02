@@ -128,9 +128,15 @@ def trace(fn: Any, param_types: list[EastType],
         assemble,
     )
 
-    proxies = [Expression(_var(f"__k{i}", t), t) for i, t in enumerate(param_types)]
     outer = _push_registries()
     frame = _open_frame(out_hint)
+    # the parameters keep the author's names (#639): `lambda b, items, threshold`
+    from east.expression.naming import authored_name, hint_at, parameter_names
+    from east.expression.nodes import _fresh_name
+
+    hints = parameter_names(fn)
+    names = [authored_name(hint_at(hints, i + 1), _fresh_name) for i in range(len(param_types))]
+    proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
     _push_effects()
     popped = False
     try:
@@ -150,7 +156,7 @@ def trace(fn: Any, param_types: list[EastType],
         _close_frame(frame)
         if outer:
             _clear_registries()
-    params = [_var(f"__k{i}", t) for i, t in enumerate(param_types)]
+    params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
     all_types = list(param_types) + [t for _name, _hold, t in fn_consts]
     all_params = params + [_var(name, t) for name, _hold, t in fn_consts]
     ir = _function_ir(all_types, all_params, result, consts, is_async=is_async,
@@ -185,7 +191,10 @@ def _nested_function(param_types: list[EastType], out: EastType, body: Any, *,
 
     global _async_build
     entry = "East.asyncFunction" if is_async else "East.function"
-    names = [_fresh_name() for _ in param_types]
+    from east.expression.naming import authored_name, hint_at, parameter_names
+
+    hints = parameter_names(body)
+    names = [authored_name(hint_at(hints, i + 1), _fresh_name) for i in range(len(param_types))]
     proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
     previous = _async_build
     _async_build = is_async

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from east.expression.errors import ExpressionError
 from east.expression.expr.base import Expression
 from east.expression.lift import _lift
+from east.expression.naming import authored_name, hint_at, parameter_names
 from east.expression.nodes import (
     _fresh_name,
     _is_option,
@@ -155,8 +156,12 @@ class VariantExpression(Expression):
         ret_t = _frames[-1].return_type if _frames else None
         results = []
         for c in declared:
-            var = _var(_fresh_name(), c["type"])
             handler = cases.get(c["name"])
+            # The arm variable takes the handler's own parameter name
+            # (`lambda b, radius: …` names `radius`, #639); a value arm, a
+            # missing arm and the default body have no name to give.
+            hint = None if isinstance(handler, Expression) else hint_at(parameter_names(handler), 1)
+            var = _var(authored_name(hint, _fresh_name), c["type"])
             if handler is None and default is not None:
                 handler = lambda b, _payload, _d=default: _d(b)  # noqa: E731
             # An Expression arm is a VALUE arm, not a handler — expressions
