@@ -9,6 +9,7 @@ into self-contained IR, and run it — the python twin of
 from __future__ import annotations
 
 import pytest
+from east.runtime._compiler_eastc import diff_ir
 
 from east import East
 from east.functions import IMPORT_PLATFORM, FunctionManifestType, function_ir
@@ -157,6 +158,17 @@ class TestImportAndLink:
         ir, imports = East.link_imports(double, [self.manifest])
         assert imports == []
         assert ir is function_ir(double)
+
+    def test_an_import_prints_as_east_import_function_and_rebuilds(self):
+        from east.codegen import to_python_source
+
+        imported = East.import_function("pricing", "double", FunctionType([IntegerType], IntegerType))
+        user = East.function([IntegerType], IntegerType, lambda b, x: imported(x) + 1)
+        source = to_python_source(user)
+        assert "East.import_function('pricing', 'double', _t0)" in source
+        namespace: dict = {}
+        exec(compile(source, "<printed>", "exec"), namespace)
+        assert diff_ir(function_ir(user), namespace["main"]._east_ir) is None
 
     def test_the_ts_parity_names_are_the_same_functions(self):
         assert East.importFunction is East.import_function

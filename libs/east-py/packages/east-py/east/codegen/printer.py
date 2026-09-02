@@ -27,7 +27,9 @@ body receives, python's ``$``) and the builtin table's
   ``East.if_else`` / ``.match({...})`` / ``East.try_catch``, a Builtin
   through its spelling row (callbacks as ``lambda b, …: …``, or ``def
   _bN(b, …)`` helpers when they hold statements — every body takes the
-  block first) or the raw ``East.builtin(name, [T...], [args], out)``.
+  block first) or the raw ``East.builtin(name, [T...], [args], out)``; an
+  unresolved cross-language import (the ``east.importFunction`` Platform
+  node, #628) through ``East.import_function(pkg, name, T)``.
 
 Variables keep their IR names when they are python identifiers (the
 TypeScript ``_N``s are); anything else is renamed ``v_N``; ``b`` is
@@ -46,6 +48,7 @@ from typing import Any
 
 from east.codegen.spellings import spelling_for
 from east.codegen.types import TYPE_IMPORTS, type_key, type_source
+from east.functions import IMPORT_PLATFORM
 from east.types.types import EastType
 from east.types.values import EastVariant
 
@@ -410,7 +413,14 @@ class _Printer:
         if kind == "Builtin":
             return self.builtin_expr(node, scope, pre, d)
         if kind == "Platform":
-            args = ", ".join(self.expr(a, scope, pre, d) for a in p["arguments"])
+            arg_nodes = list(p["arguments"])
+            if p["name"] == IMPORT_PLATFORM and len(arg_nodes) == 2 \
+                    and all(a.type == "Value" for a in arg_nodes):
+                # an unresolved cross-language import: its own spelling, not
+                # a platform declaration
+                pkg, fn_name = (_pyliteral(a.value["value"].value) for a in arg_nodes)
+                return f"East.import_function({pkg}, {fn_name}, {self.type_ref(p['type'])})"
+            args = ", ".join(self.expr(a, scope, pre, d) for a in arg_nodes)
             ref = self.platform_ref(p)
             if p["type_parameters"]:
                 tps = ", ".join(self.type_ref(t) for t in p["type_parameters"])
