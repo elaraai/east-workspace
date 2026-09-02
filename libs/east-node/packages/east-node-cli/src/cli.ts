@@ -4,11 +4,13 @@
  */
 
 import { Command } from 'commander';
+import { writeFileSync } from 'node:fs';
 import { createRequire } from 'module';
 import { EastError } from '@elaraai/east/internal';
 import { loadPlatforms, loadPlatformWithMetadata } from './loader.js';
 import { runProgram } from './runner.js';
 import { writeSnapshot, readSnapshot } from './snapshot.js';
+import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string; name: string };
@@ -53,6 +55,13 @@ function streamingOptions(options: RunOptions): { emit?: 'array' | 'set' | 'dict
 
 interface VersionOptions {
     package?: string[];
+}
+
+interface TranspileOptions {
+    output?: string;
+    name?: string;
+    importFrom?: string;
+    rebuild?: string;
 }
 
 /**
@@ -152,6 +161,42 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
     }
 }
 
+/**
+ * `east-node transpile` (#628): print an IR file — or every IR file in a
+ * directory — as the TypeScript `East.function` builder surface. With
+ * `--rebuild`, the printed module is imported and the IR it builds is
+ * written too: the round-trip check, and the TypeScript leg of the
+ * cross-language conformance sweep.
+ */
+async function cmdTranspile(input: string, options: TranspileOptions): Promise<void> {
+    try {
+        const common: { name?: string; importFrom?: string } = {};
+        if (options.name !== undefined) common.name = options.name;
+        if (options.importFrom !== undefined) common.importFrom = options.importFrom;
+        if (isDirectory(input)) {
+            if (!options.output) {
+                return fail('Error: transpiling a directory needs -o <directory> for the modules');
+            }
+            const stems = await transpileDir(input, options.output,
+                options.rebuild !== undefined ? { ...common, rebuildDir: options.rebuild } : common);
+            console.error(`Transpiled ${stems.length} IR file(s) to ${options.output}` +
+                (options.rebuild ? `, rebuilt to ${options.rebuild}` : ''));
+            return;
+        }
+        const { source, rebuilt } = await transpile(input, { ...common, rebuild: options.rebuild !== undefined });
+        if (options.output) {
+            writeFileSync(options.output, source, 'utf-8');
+        } else {
+            process.stdout.write(source);
+        }
+        if (options.rebuild) {
+            writeFileSync(options.rebuild, encodeRebuilt(rebuilt!, options.rebuild));
+        }
+    } catch (err) {
+        return fail(`Error: ${(err as Error).message}`);
+    }
+}
+
 async function cmdVersion(options: VersionOptions): Promise<void> {
     console.log(`${pkg.name} ${pkg.version}`);
 
@@ -205,6 +250,17 @@ export function main(): void {
         .option('--lazy-inputs <bytes>',
             'Open indexed collection inputs at or above this size lazily (0 disables; default 64 MiB)')
         .action(cmdRun);
+
+    program
+        .command('transpile')
+        .description('Print an East IR program as TypeScript East.function builder source')
+        .argument('<input>', 'Path to an IR file (.beast2, .beast, .east, or .json), or a directory of them')
+        .option('-o, --output <path>', 'Write the module here (a directory when <input> is one; default: stdout)')
+        .option('--name <name>', 'The module-level export bound to the rebuilt function (default: main)')
+        .option('--import-from <specifier>', 'The module the printed source imports East from (default: @elaraai/east)')
+        .option('--rebuild <path>',
+            'Import the printed module and write the IR it builds here (.beast2 or .json; a directory in directory mode)')
+        .action(cmdTranspile);
 
     program
         .command('version')

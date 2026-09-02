@@ -6,6 +6,13 @@ platform functions dynamically from any npm package following the
 
 Supports `.beast2`, `.beast`, `.east`, and `.json` IR files.
 
+`east-node transpile` (`src/transpile.ts`) prints an IR file — or a
+directory of them — as `East.function` builder source through
+`East.toSource`; `--rebuild` imports the printed module against this
+package's own `@elaraai/east` and writes the IR it builds, which is the
+TypeScript leg of east-py's three-way conformance sweep. The contract and
+construct table live in `../../../../docs/conventions/EAST_CODEGEN.md`.
+
 ## Platform package convention
 
 Third-party platform packages must export:
