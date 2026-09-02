@@ -471,7 +471,7 @@ export interface MatrixConfig<R extends StructType> {
     height?: SubtypeExprOrValue<StringType>;
     /** Uniform sizing (#320): max-height cap — a pixel number or CSS length; content-sized up to it. */
     maxHeight?: SubtypeExprOrValue<StringType>;
-    /** Shared plot gutter (#147) — pins the value-grid columns to `[left, W−right]` (px) so the Matrix lines up under a stacked Chart; `left` is the row-header column. Usually supplied by an enclosing `<AlignedStack>`. */
+    /** Shared plot gutter (#147) — pins the value-grid columns to `[left, W−right]` (px) so the Matrix lines up under a stacked Chart; `left` is the row-header column. */
     plotGutter?: PlotGutter;
     /** Cell-click callback. */
     onCellClick?: SubtypeExprOrValue<FunctionType<[MatrixCellClickEventType], NullType>>;

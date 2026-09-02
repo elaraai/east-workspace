@@ -6,7 +6,7 @@
 /**
  * ReviewChrome slot recipe — the shared decision-column pieces of the review
  * contract (`contracts/review.ts`), lifted copy-exact from the Planner's
- * review chrome (PR #76) so every adopter (Planner, Gantt, Table, Roster)
+ * review chrome (PR #76) so every adopter (Table, Roster, Board, Plan)
  * wears identical chrome. The batch foot stays on the sibling `commitBar`
  * recipe; the Approve / Reject pair reuses the shared `button` recipe.
  *
@@ -57,6 +57,9 @@ export const reviewChromeSlotRecipe = defineSlotRecipe({
             borderLeftWidth: "1px",
             borderLeftColor: "border.subtle",
             boxSizing: "border-box",
+            // On a card (the Plan's narrow layout, §10) there is no column to
+            // fence: the pair sits in the card's own foot, rule-less.
+            "[data-plan-narrow] &": { borderLeftWidth: 0, padding: 0 },
         },
         // The quiet status dot beside the subject's identity (some ⇒ flagged).
         // Colour rides the `status` variant; this is just the 8px disc geometry.

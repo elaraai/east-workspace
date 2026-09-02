@@ -65,6 +65,14 @@ export abstract class TrackedChannelStore<E extends ChannelEntry> {
         return this.trackingContext !== null;
     }
 
+    /** Whether the CURRENT evaluation has already read this channel. A cache
+     *  that evicts by least-recently-read must never drop one of these: a read
+     *  pass longer than the cache would otherwise evict its own head, and the
+     *  next pass would find it gone (#581). */
+    protected isTracked(key: string): boolean {
+        return this.trackingContext?.has(key) ?? false;
+    }
+
     /** Record a channel-key dependency for the current render (no-op when not
      *  tracking). */
     protected track(key: string): void {

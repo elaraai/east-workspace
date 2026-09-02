@@ -20,6 +20,17 @@ export interface SliceEditPopoverProps {
     label: ReactNode;
     /** `sm` (320px) for chip / range editors, `lg` (380px) for predicate editors. */
     size?: "sm" | "lg";
+    /**
+     * Drop the body's own padding and gap, for a body that is a LIST.
+     *
+     * @remarks
+     * The default body is shaped for form content — clause rows and fields —
+     * so it insets 14px and gaps its children 12px. A list wants the opposite:
+     * rows that run edge to edge, with their own rhythm and hairlines spanning
+     * the full width. Without this the list is padded twice and its rules stop
+     * short of the border.
+     */
+    flush?: boolean;
     /** Left foot slot — the contextual link (`Save as cohort →`, `Remove cohort`, …). */
     footLeft?: ReactNode;
     /** Right foot cluster — the action grammar (`Cancel · Apply`, `Done`, …). */
@@ -36,9 +47,9 @@ export interface SliceEditPopoverProps {
  * action grammar varies per edit case. See `design/slice.html#slice-edit`.
  */
 export function SliceEditPopover({
-    open, onOpenChange, trigger, label, size = "sm", footLeft, footActions, children,
+    open, onOpenChange, trigger, label, size = "sm", flush, footLeft, footActions, children,
 }: SliceEditPopoverProps) {
-    const styles = useSlotRecipe({ key: "sliceEdit" })({ size });
+    const styles = useSlotRecipe({ key: "sliceEdit" })({ size, ...(flush === true && { flush: true }) });
     const density = useSliceDensity();
     if (density === "editor") {
         // Inside the sectioned editor the popover is forbidden — the editor

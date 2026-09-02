@@ -4,8 +4,8 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { type ExprType } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
+import { type ExprType, some, variant } from "@elaraai/east";
+import { Slice, UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./slice.examples.js";
 
 // Use-case documents for the slice composition model. Each returns
@@ -16,9 +16,19 @@ describeEast("Slice", (test) => {
         sliceChartChrome:          ex.sliceChartChrome,
         sliceRail:                 ex.sliceRail,
         sliceNarrow:               ex.sliceNarrow,
-        sliceGanttChrome:          ex.sliceGanttChrome,
+        slicePlanChrome:           ex.slicePlanChrome,
         sliceExpressiveFilters:    ex.sliceExpressiveFilters,
         sliceCrossFilterDashboard: ex.sliceCrossFilterDashboard,
+        sliceResolution:           ex.sliceResolution,
+    });
+
+    // The shared bucket unit (Plan spec §8) — a presentation field, defaulted
+    // off; a seeded unit reads back through the state constructor.
+    test("Slice.state defaults resolution to none; a seeded unit reads back", $ => {
+        const s = $.const(Slice.state());
+        $(Assert.equal(s.resolution.getTag(), "none"));
+        const seeded = $.const(Slice.state({ resolution: some(variant("week", null)) }));
+        $(Assert.equal(seeded.resolution.unwrap("some").getTag(), "week"));
     });
 
     // =========================================================================

@@ -5,9 +5,9 @@
 
 /**
  * Data manifest for UI tasks — declares which datasets a UI binds to via
- * `Data.bind()`, which named functions it calls via `Func.bind()`, and which
- * records it binds via `Record.bind()`. Stored as a beast2-encoded blob in the
- * task's `metadata`.
+ * `Data.bind()` / `Data.bindPaged()`, which named functions it calls via
+ * `Func.bind()`, and which records it binds via `Record.bind()`. Stored as a
+ * beast2-encoded blob in the task's `metadata`.
  *
  * @packageDocumentation
  */
@@ -23,11 +23,16 @@ import { TreePathType } from '@elaraai/e3-types';
  *   current value is preloaded and polled like any dataset).
  * @property functions - Named package functions this UI calls via Func.bind.
  * @property records - Record names this UI binds via Record.bind.
+ * @property pages - Dataset paths this UI reads BY WINDOW via Data.bindPaged.
+ *   Declared separately from `paths` precisely because they are NOT preloaded
+ *   or polled as whole values — a paged source is read one window at a time,
+ *   which is the entire point of binding it paged.
  */
 export const DataManifestType = StructType({
   paths: ArrayType(TreePathType),
   functions: ArrayType(StringType),
   records: ArrayType(StringType),
+  pages: ArrayType(TreePathType),
 });
 
 export type DataManifest = ValueTypeOf<typeof DataManifestType>;

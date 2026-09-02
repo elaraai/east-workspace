@@ -10,6 +10,7 @@
 // bulletproof under bundlers that ignore or partially honour that field.
 // =============================================================================
 import './platform/bind-runtime.js';      // → registerPlatformImplementation(BindPlatform)
+import './platform/paged-runtime.js';     // → registerPlatformImplementation(PagedPlatform)
 import './platform/func-runtime.js';      // → registerPlatformImplementation(FuncPlatform)
 import './diff/index.js';                 // → implementUIComponent(Diff.Component, EastChakraDiff)
 import './ontology/index.js';             // → implementUIComponent(Ontology.Component, EastChakraOntology)
@@ -46,7 +47,14 @@ export { TaskPreview, type TaskPreviewProps } from './components/TaskPreview.js'
 export { UITaskPreview, type UITaskPreviewProps } from './components/UITaskPreview.js';
 export { DataTaskPreview, type DataTaskPreviewProps } from './components/DataTaskPreview.js';
 export { DatasetPreview, type DatasetPreviewProps } from './components/DatasetPreview.js';
-export { DatasetKeySearch, type DatasetKeySearchProps, type DatasetKeyMatchRange } from './components/DatasetKeySearch.js';
+// Key search moved to east-ui-components in #574 (it has no e3 dependency);
+// re-exported here so existing consumers of this package are untouched.
+export {
+    DatasetKeySearch,
+    type DatasetKeySearchProps,
+    type DatasetKeyMatchRange,
+    type DatasetKeyQuery,
+} from '@elaraai/east-ui-components';
 export { StatusDisplay, type StatusDisplayProps } from './components/StatusDisplay.js';
 export { EastValueViewer, type EastValueViewerProps } from './components/EastValueViewer.js';
 export { VirtualizedLogViewer, type VirtualizedLogViewerProps } from './components/VirtualizedLogViewer.js';

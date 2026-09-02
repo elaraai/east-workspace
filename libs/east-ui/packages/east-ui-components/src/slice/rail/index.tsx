@@ -40,7 +40,7 @@ import { railAffordanceKinds } from "../rail-kinds.js";
 // (hoisted; charts/spec imports SliceRailCluster from here the same way).
 import { tickFormatter, type TickFormat } from "../../charts/spec/index.js";
 import { SliceDensityContext } from "../density";
-import { brushHitTest, brushDragWindow, brushRelease, brushCursor, type BrushDrag } from "../brush-math.js";
+import { BrushStrip } from "../brush-strip.js";
 import { useSliceReactivity } from "../use-slice-reactivity";
 import { SliceEditPopover } from "../edit";
 import { EastChakraSliceFilter } from "../filter";
@@ -206,15 +206,30 @@ export function SliceRailCluster({ slice, affordanceKinds }: SliceRailClusterPro
         const el = rowRef.current;
         if (!el || typeof ResizeObserver === "undefined") return;
         let width = el.clientWidth;
+        let settle: number | undefined;
         const ro = new ResizeObserver(() => {
-            if (el.clientWidth !== width) {
-                width = el.clientWidth;
+            if (el.clientWidth === width) return;
+            const grew = el.clientWidth > width;
+            width = el.clientWidth;
+            // Shrink: keep the rung and re-measure — the escalation effect
+            // folds further immediately, so nothing clips. Growth: attempting
+            // a lower rung flashes an affordance live↔folded, so only reset
+            // once the width has SETTLED — mid-gesture chrome (a range pill
+            // re-labelling every brush step) must not strobe the search input.
+            bumpMeasure(n => n + 1);
+            if (!grew) return;
+            if (settle !== undefined) window.clearTimeout(settle);
+            settle = window.setTimeout(() => {
+                settle = undefined;
                 setRung(0);
                 bumpMeasure(n => n + 1);
-            }
+            }, 200);
         });
         ro.observe(el);
-        return () => ro.disconnect();
+        return () => {
+            ro.disconnect();
+            if (settle !== undefined) window.clearTimeout(settle);
+        };
     }, []);
 
     // The sectioned editor — one Slice.Edit popover holding every affordance
@@ -369,7 +384,6 @@ const BRUSH_BUCKETS = 32;
 function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Types.Bind>; style: BrushStyle }) {
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
     const domain = boundRangeDomain(slice.key);
-    const [drag, setDrag] = useState<BrushDrag | null>(null);
     if (domain === undefined || domain.max <= domain.min) return null;
 
     const span = domain.max - domain.min;
@@ -379,14 +393,13 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
     const winFrom = applied !== undefined ? Math.max(0, (toMs(applied.value.from) - domain.min) / span) : 0;
     const winTo = applied !== undefined ? Math.min(1, (toMs(applied.value.to) - domain.min) / span) : 1;
     // A grabbable window needs literal bounds — a `datetimePreset` arm has
-    // none (its fractions come out NaN), so it renders the decorative tint.
+    // none (its fractions come out NaN), so it renders as no window.
     const winValid = applied !== undefined && Number.isFinite(winFrom) && Number.isFinite(winTo);
     const fromFraction = (f: number) => domain.min + Math.max(0, Math.min(1, f)) * span;
 
     // Density histogram (#190) — self-excluding row counts per bucket,
     // max-normalised for bar heights. Empty/flat data renders no bars.
     const counts = style.count ? boundRangeHistogram(slice.key, style.buckets) : undefined;
-    const maxCount = counts !== undefined ? Math.max(...counts) : 0;
 
     // Formatted axis labels (#190) — the range field's declared `format`
     // wins; else the kind default (datetime → locale date, numeric → number).
@@ -399,9 +412,9 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
         const v = fromFraction(f);
         return fmt(domain.kind === "datetime" ? new Date(v) : v);
     };
-    const commit = (loPx: number, hiPx: number, width: number) => {
-        const lo = fromFraction(loPx / width);
-        const hi = fromFraction(hiPx / width);
+    const commit = (fromFrac: number, toFrac: number) => {
+        const lo = fromFraction(fromFrac);
+        const hi = fromFraction(toFrac);
         // The arm must match the range field's TRUE kind — an Integer field
         // needs bigint bounds or the range is inert (isValueOf guard, #167).
         slice.setRange(some(domain.kind === "datetime"
@@ -410,103 +423,18 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
                 ? variant("integer", { from: BigInt(Math.floor(lo)), to: BigInt(Math.ceil(hi)) })
                 : variant("float", { from: lo, to: hi })));
     };
-    const draft = drag !== null ? brushDragWindow(drag) : undefined;
+    const trackHeight = style.count ? 28 : 18;
 
     return (
         <Box display="flex" flexDirection="column" gap="2px" minWidth="0">
-            <Box
-                position="relative"
-                height={style.count ? "28px" : "18px"}
-                borderRadius="4px"
-                background="bg.muted"
-                cursor={drag !== null ? brushCursor(drag.mode) : "crosshair"}
-                overflow="hidden"
-                data-brush-track
-                onPointerDown={(e) => {
-                    const el = e.currentTarget as HTMLElement;
-                    try { el.setPointerCapture(e.pointerId); } catch { /* jsdom has no active pointers */ }
-                    const rect = el.getBoundingClientRect();
-                    const x = e.clientX - rect.left;
-                    const win = winValid ? { lo: winFrom * rect.width, hi: winTo * rect.width } : undefined;
-                    setDrag({ mode: brushHitTest(x, win), start: x, current: x, width: rect.width, win });
-                }}
-                onPointerMove={(e) => {
-                    if (!drag) return;
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    setDrag({ ...drag, current: e.clientX - rect.left });
-                }}
-                onPointerUp={() => {
-                    if (!drag) return;
-                    setDrag(null);
-                    const release = brushRelease(drag);
-                    if (release.kind === "clear") slice.setRange(none);
-                    else if (release.kind === "commit") commit(release.lo, release.hi, drag.width);
-                }}
-            >
-                {/* density histogram — row counts per bucket (#190); geometry is data-driven */}
-                {counts !== undefined && maxCount > 0 && counts.map((c, i) => (
-                    c > 0 && (
-                        <Box
-                            key={i}
-                            data-brush-bar
-                            position="absolute"
-                            bottom={0}
-                            left={`${(i / counts.length) * 100}%`}
-                            width={`${(1 / counts.length) * 100}%`}
-                            height={`${Math.max(8, (c / maxCount) * 100)}%`}
-                            background="border.strong"
-                            opacity={0.55}
-                            borderRadius="1px"
-                            pointerEvents="none"
-                        />
-                    )
-                ))}
-                {/* applied window (#192) — grabbable body (slide) + edge-resize
-                    hot zones; events bubble to the track, which owns the mode
-                    machine. Hidden mid-drag so the draft is the only window. */}
-                {drag === null && winValid && (
-                    <>
-                        <Box
-                            data-brush-window
-                            css={frameStyles.brushWindow}
-                            left={`${winFrom * 100}%`}
-                            width={`${Math.max(0, winTo - winFrom) * 100}%`}
-                            opacity={0.3}
-                        />
-                        <Box data-brush-handle="lo" css={frameStyles.brushHandle} left={`${winFrom * 100}%`} />
-                        <Box data-brush-handle="hi" css={frameStyles.brushHandle} left={`${winTo * 100}%`} />
-                    </>
-                )}
-                {/* decorative full-domain tint when nothing is applied */}
-                {drag === null && !winValid && (
-                    <Box
-                        position="absolute"
-                        top={0}
-                        bottom={0}
-                        left="0%"
-                        width="100%"
-                        background="accent.brand"
-                        opacity={0.12}
-                        borderRadius="4px"
-                        pointerEvents="none"
-                    />
-                )}
-                {/* in-flight drag window (draw / slide / resize) */}
-                {draft !== undefined && (
-                    <Box
-                        position="absolute"
-                        top={0}
-                        bottom={0}
-                        left={`${draft.lo}px`}
-                        width={`${draft.hi - draft.lo}px`}
-                        background="accent.brand"
-                        opacity={0.35}
-                        borderXWidth="1px"
-                        borderColor="accent.brand"
-                        pointerEvents="none"
-                    />
-                )}
-            </Box>
+            <BrushStrip
+                counts={counts}
+                window={winValid ? { from: winFrom, to: winTo } : undefined}
+                height={trackHeight}
+                barHeight={trackHeight - 9}
+                onCommit={commit}
+                onClear={() => slice.setRange(none)}
+            />
             {/* formatted scale beneath the track (#190) — min · ⅓ · ⅔ · max */}
             {style.axis && (
                 <Box css={frameStyles.brushAxis} aria-hidden="true">

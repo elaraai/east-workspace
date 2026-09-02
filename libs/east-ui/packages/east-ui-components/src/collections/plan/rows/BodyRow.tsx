@@ -1,0 +1,248 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * One canvas body row, memoized (#616) — the row-kind switch extracted from
+ * the canvas's render callback so a store change re-renders O(changed rows)
+ * instead of O(mounted rows).
+ *
+ * The contract that makes the memo real: every prop is a PRIMITIVE or an
+ * identity-stable object. The canvas passes per-row facts as booleans/strings
+ * (`selected`, `chartExpanded`, `focusRole`, …) — never whole `ui` Sets — and
+ * `visible` keeps its identity across store changes that do not change WHICH
+ * rows show (its memo keys on `grain`/`collapsed`, not the whole `ui`). A
+ * selection click therefore re-renders exactly two rows; a chart toggle one.
+ *
+ * Scale changes still repaint every row — correctly: the row CONTENT consumes
+ * `PlanScaleContext`, and context pierces the memo by design. What the memo
+ * removes is the store-change tax, not the geometry-change work.
+ */
+
+import { memo, type ReactNode } from "react";
+import { Box } from "@chakra-ui/react";
+import { RowShell, type PlanRowDrop } from "./RowShell.js";
+import { GroupRow } from "./GroupRow.js";
+import { ChartLeftTicks } from "./ChartRow.js";
+import { KindPlot } from "./KindPlot.js";
+import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
+import type { PlanDerived, PlanRowIndex, VisibleRow } from "../model.js";
+import type { PlanEvent } from "../plan-state.js";
+
+type Styles = Record<string, Record<string, unknown>>;
+
+/**
+ * The row kinds that accept a drop.
+ *
+ * @remarks
+ * A Plan's rows are heterogeneous, so "can you drop here" is a per-KIND
+ * question before it is a per-row one — and the line is not arbitrary. These
+ * four render a **collection of discrete scheduled objects** (runs, bucket
+ * events, marks, chips): things a library card can BECOME, at an instant the
+ * pointer names.
+ *
+ * The rest are excluded on the same principle:
+ *
+ * - `chart` / `heat` / `table` render DERIVED values — a plotted series, an
+ *   intensity field, computed cells. There is nothing for a card to become,
+ *   and a number is not a destination.
+ * - `group` is wayfinding chrome; its MEMBERS are the droppable things, and
+ *   accepting on the strip would make a collapsed group swallow drops meant
+ *   for a row inside it.
+ *
+ * A canvas narrows further with `canDrop` — this set is what is structurally
+ * possible, the predicate is what this particular canvas permits.
+ */
+export const DROPPABLE_KINDS: ReadonlySet<string> = new Set(["span", "buckets", "events", "cards"]);
+
+export interface PlanBodyRowProps {
+    v: VisibleRow;
+    /** The row's height (parent-computed via `rowHeight`, focus context applied). */
+    h: number;
+    styles: Styles;
+    gridTemplate: string;
+    /** Span bar height (20 default / 16 dense). */
+    barHeight: number;
+    storageKey: string;
+    /** The row-tree index (children lookups). Stable per decoded data. */
+    index: PlanRowIndex;
+    /** The renderer-side derivations. Stable per decoded data. */
+    derived: PlanDerived;
+    dispatch: (e: PlanEvent) => void;
+    selected: boolean;
+    /** Whether THIS chart row is user-toggled to expanded. */
+    chartExpanded: boolean;
+    /**
+     * This row's presentation under the canvas's row focus:
+     * `none` (no focus, or full-height family), `rail` (R1 unrelated — 11px),
+     * `ctx` (R2 context strip — 16px), `focal` (the R2 focused row).
+     */
+    focusRole: "none" | "rail" | "ctx" | "focal";
+    /** The links-focus family tag (R1). */
+    focusTag: "UPSTREAM" | "DOWNSTREAM" | "LINKED" | undefined;
+    /** The expand render's axis treatment (R2, focal row only). */
+    axisMode: "dim" | "off" | undefined;
+    /** Whether the row grows the links / expand focus controls. */
+    showLinksControl: boolean;
+    showExpandControl: boolean;
+    /** Which of this row's controls is the active focus, if any. */
+    activeControl: "links" | "expand" | undefined;
+    /** Whether derived numbers cover an incomplete paged prefix (#567 D9). */
+    partial: boolean | undefined;
+    /** The review model, when the canvas carries review chrome. */
+    review: PlanReview | undefined;
+    /** The shared drop registration, when the canvas is a drag target. */
+    rowDrop: PlanRowDrop | undefined;
+    /** Focal-row extras (only ever passed to the focal row). */
+    expandBody?: ReactNode;
+    expandGutter?: ReactNode;
+    /** The focal row's natural kind height (its marks' band). */
+    bandHeight?: number | undefined;
+}
+
+/**
+ * Test-only render probe — lets the memo property be asserted as WHICH rows
+ * rendered, deterministically, rather than inferred from profiler timings.
+ * `undefined` outside tests; the call is a single optional invocation.
+ */
+let bodyRowRenderProbe: ((key: string) => void) | undefined;
+/** Install (or clear) the test render probe. Test use only. */
+export function setBodyRowRenderProbe(fn: ((key: string) => void) | undefined): void {
+    bodyRowRenderProbe = fn;
+}
+
+/** One body row — a group band, an R1 rail, or a kind row in its shell. */
+export const PlanBodyRow = memo(function PlanBodyRow({
+    v, h, styles, gridTemplate, barHeight, storageKey, index, derived,
+    dispatch, selected, chartExpanded, focusRole, focusTag, axisMode,
+    showLinksControl, showExpandControl, activeControl, partial, review, rowDrop,
+    expandBody, expandGutter, bandHeight,
+}: PlanBodyRowProps) {
+    bodyRowRenderProbe?.(v.row.key);
+    const kind = v.row.kind;
+
+    // R1 rails — unrelated rows collapse to 11px, never removed: order,
+    // scroll and the status dot survive, and the rail itself returns.
+    if (focusRole === "rail") {
+        const railTone = v.row.status.type === "some" ? v.row.status.value.type : undefined;
+        return (
+            <Box css={styles.rail} gridTemplateColumns={gridTemplate} data-plan-rail={v.row.key}
+                onClick={() => dispatch({ t: "focus.clear" })}>
+                <Box position="relative">
+                    {railTone !== undefined && (
+                        <Box as="span" css={styles.statusDot} data-tone={railTone}
+                            position="absolute" right="12px" top="2px" />
+                    )}
+                </Box>
+            </Box>
+        );
+    }
+
+    if (kind.type === "group") {
+        return (
+            <GroupRow row={v.row} kind={kind.value} styles={styles} gridTemplate={gridTemplate}
+                height={h} depth={v.depth} collapsed={v.collapsed}
+                summaryCells={derived.groupSummary.get(v.row.key)}
+                summaryScale={derived.groupSummaryScale.get(v.row.key)}
+                memberCount={derived.groupMembers.get(v.row.key)}
+                partial={partial} />
+        );
+    }
+
+    const isCtx = focusRole === "ctx";
+    const isFocal = focusRole === "focal" && expandBody !== undefined;
+    // The row-scoped focus controls + family tags.
+    const rowControls: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> = [
+        ...(showLinksControl ? [{
+            kind: "links" as const,
+            active: activeControl === "links",
+            onClick: () => dispatch({ t: "focus.links", key: v.row.key }),
+        }] : []),
+        ...(showExpandControl ? [{
+            kind: "expand" as const,
+            active: activeControl === "expand",
+            onClick: () => dispatch({ t: "focus.expand", key: v.row.key }),
+        }] : []),
+    ];
+    const hasChildren = (index.children.get(v.row.key)?.length ?? 0) > 0;
+    const shellBase = {
+        row: v.row, styles, gridTemplate, depth: v.depth,
+        selected,
+        controls: isCtx ? undefined : rowControls, focusTag, axisMode, ctx: isCtx,
+        ...(isFocal ? {
+            expandBody,
+            bandHeight,
+            ...(expandGutter !== undefined ? { expandGutter } : {}),
+        } : {}),
+        decision: review !== undefined && review.hasRowVerbs
+            ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} review={review} />
+            : undefined,
+        // Only the kinds that hold droppable objects register a cell —
+        // a chart / heat / table row is inert to a drag by construction,
+        // not by predicate (see `DROPPABLE_KINDS`).
+        drop: DROPPABLE_KINDS.has(kind.type) ? rowDrop : undefined,
+    } as const;
+    // The per-kind SHELL differences — caret, toggle, emphasis, the chart's
+    // gutter ticks. The plot content itself is one switch shared with the
+    // narrow layout's cards (`KindPlot`).
+    const subtreeCaret = hasChildren ? { collapsed: v.collapsed } : undefined;
+    const subtreeToggle = hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined;
+    let shellExtras: {
+        caret?: { collapsed: boolean } | undefined;
+        onCaretClick?: (() => void) | undefined;
+        emphasis?: "header" | "footer" | undefined;
+        noGrid?: boolean;
+        gutterOverlay?: ReactNode;
+    } = {};
+    // The plot height a chart row scales against (see the chart case).
+    let plotH = h;
+    let chartExpanded_ = false;
+    switch (kind.type) {
+        case "span":
+        case "heat":
+        case "buckets":
+            shellExtras = { caret: subtreeCaret, onCaretClick: subtreeToggle };
+            break;
+        case "chart": {
+            const declaredExpanded = kind.value.height.type === "expanded";
+            const expandable = kind.value.expandable.type === "some" && kind.value.expandable.value;
+            chartExpanded_ = declaredExpanded || chartExpanded;
+            // The FOCAL row is tall (natural + render), but its marks live in
+            // the band at the top — `RowShell` mounts `children` inside
+            // `expandRowBand` at `bandHeight` — so the plot's y-scale, its
+            // ref-label gate and the gutter ticks take the BAND height, never
+            // the grown row's. Passing the grown `h` built a ~272px y-scale
+            // that squashed into a ~32px band, opened the ≥48px ref-label
+            // gate on a spark row, and pushed labels + ticks past the band
+            // into the render (#591).
+            plotH = isFocal ? (bandHeight ?? h) : h;
+            shellExtras = {
+                noGrid: false,
+                caret: expandable ? { collapsed: !chartExpanded_ } : undefined,
+                onCaretClick: expandable ? () => dispatch({ t: "chart.toggle", key: v.row.key }) : undefined,
+                // A STRIP carries no value axis — its plot re-encodes as a
+                // tone strip (`ToneStrip`), so the gutter ticks would label a
+                // scale that is not there, stacked in 16px.
+                gutterOverlay: isCtx ? undefined : <ChartLeftTicks kind={kind.value} styles={styles} height={plotH} />,
+            };
+            break;
+        }
+        case "table":
+            shellExtras = {
+                caret: subtreeCaret, onCaretClick: subtreeToggle,
+                emphasis: kind.value.emphasis.type === "body" ? undefined : kind.value.emphasis.type,
+            };
+            break;
+        case "cards":
+        case "events":
+            break;
+    }
+    return (
+        <RowShell {...shellBase} height={h} {...shellExtras}>
+            <KindPlot v={v} styles={styles} derived={derived} storageKey={storageKey}
+                barHeight={barHeight} hasChildren={hasChildren} ctx={isCtx}
+                plotHeight={plotH} chartExpanded={chartExpanded_} partial={partial} />
+        </RowShell>
+    );
+});

@@ -980,8 +980,11 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
 
     const eyebrow = useSlotRecipe({ key: "eyebrowRow" });
     const es = eyebrow({});
+    // The commit bar owns its LAYOUT; the buttons come from the shared
+    // `button` recipe (#569 — commitBar no longer carries button slots).
     const commit = useSlotRecipe({ key: "commitBar" });
     const cs = commit({});
+    const btn = useRecipe({ key: "button" });
 
     // Subscribe — every binding's source path always; patch path when present.
     // Both StagedStore and ReactiveDatasetCache may carry the in-flight change,
@@ -1366,12 +1369,12 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
                             )}
                         </Box>
                         <Box css={cs.btnRow}>
-                            <Box as="button" css={cs.btnDanger} onClick={onDiscardAll}>
+                            <Box as="button" css={btn({ variant: "danger", size: "md" })} onClick={onDiscardAll}>
                                 Discard all
                             </Box>
                             <Box
                                 as="button"
-                                css={cs.btnPrimary}
+                                css={btn({ variant: "solid", size: "md" })}
                                 aria-disabled={applyDisabled}
                                 onClick={applyDisabled ? undefined : onApply}
                                 title={hasStaleLeaves ? "Discard or re-edit the stale changes before applying." : undefined}

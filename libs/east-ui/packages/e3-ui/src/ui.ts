@@ -106,7 +106,12 @@ function buildUiTask(
   return task(name, inputs as any, fn as any, {
     runner: options?.runner ?? { runtime: 'east-c' } as Runner,
     kind: 'ui',
-    metadata: encodeManifest({ paths, functions: derived.functions, records: derived.records }),
+    metadata: encodeManifest({
+      paths,
+      functions: derived.functions,
+      records: derived.records,
+      pages: derived.pages,
+    }),
   });
 }
 

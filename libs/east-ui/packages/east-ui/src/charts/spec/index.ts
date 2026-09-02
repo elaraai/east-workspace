@@ -357,8 +357,8 @@ export interface AxisNodeOptions {
     /** Suggested tick count (a hint; the scale chooses nice ticks). */
     numTicks?: SubtypeExprOrValue<FloatType>;
     /** Explicit tick positions overriding `numTicks` — float domain values on
-     *  a linear axis (e.g. integer day ticks `[0,1,2,…]` to line up with a
-     *  stacked Planner), or `Date` instants on a `time` axis (#318; rendered
+     *  a linear axis (e.g. integer day ticks `[0,1,2,…]`), or `Date` instants
+     *  on a `time` axis (#318; rendered
      *  through the date `tickFormat`). */
     tickValues?: SubtypeExprOrValue<ArrayType<FloatType>> | SubtypeExprOrValue<ArrayType<DateTimeType>>;
     /** Hide the small tick marks (labels stay). */
@@ -375,7 +375,7 @@ export interface AxisNodeOptions {
     titleStyle?: ChartAxisTextStyle;
     /** Extra px between the tick labels and the axis caption (#327). Widens the
      *  axis's own margin band (bottom for x, left for y, right for y2) — never the
-     *  shared plot gutter — so it cannot shift an `AlignedStack`-aligned lane. */
+     *  shared plot gutter — so it cannot shift a gutter-aligned lane. */
     titleGap?: SubtypeExprOrValue<FloatType>;
 }
 

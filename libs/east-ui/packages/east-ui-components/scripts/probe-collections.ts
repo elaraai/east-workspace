@@ -1,13 +1,12 @@
 /* eslint-disable */
 /**
- * Pixel audit of the Collections.Table / Gantt / Planner examples vs the bsys
- * spec (`index.html` "Rows & tables" + `configure__pattern__{gantt,planner}`).
+ * Pixel audit of the Collections.Table examples vs the bsys spec
+ * (`index.html` "Rows & tables").
  *
  * Renders single examples full-bleed in the snapshot harness, screenshots each
  * to `dist-examples/probe-coll-<example>.png` (legible — one example, not the
  * down-scaled combined sheet), and dumps the computed CSS of the table header /
- * cell / row + the first gantt/planner bar (fill · radius · height) to diff
- * against spec numbers.
+ * cell / row (fill · radius · height) to diff against spec numbers.
  *
  * Run: pnpm --filter @elaraai/east-ui-components exec tsx scripts/probe-collections.ts
  */
@@ -28,9 +27,6 @@ const TABLE_EXAMPLES = [
 
 const TARGETS: ReadonlyArray<{ file: string; example: string }> = [
     ...TABLE_EXAMPLES.map(example => ({ file: "collections/table", example })),
-    { file: "collections/gantt",   example: "ganttVariants" },
-    { file: "collections/planner", example: "plannerPoint" },
-    { file: "collections/planner", example: "plannerVariants" },
 ];
 
 async function main() {
@@ -57,7 +53,7 @@ async function main() {
             try {
                 await page.waitForFunction(() => {
                     const td = document.querySelector("table tbody td");
-                    if (!td) return true; // gantt/planner: no <table> body cells in the timeline
+                    if (!td) return true;
                     return (td.textContent ?? "").trim().length > 0;
                 }, { timeout: 6000 });
             } catch { loaded = false; }
@@ -78,9 +74,6 @@ async function main() {
                     th: pick("table thead th", ["font-family", "font-size", "letter-spacing", "padding", "background-color", "border-bottom"]),
                     td: pick("table tbody td", ["font-size", "padding", "border-bottom", "vertical-align"]),
                     tr: pick("table tbody tr", []),
-                    // Gantt/Planner bars: the renderers paint absolutely-positioned
-                    // blocks inside the timeline grid — grab the most-likely bar.
-                    bar: pick("[data-part='task'], [data-part='event'], [class*='bar'], [class*='task'], [class*='event']", ["background-color", "border-radius", "border", "color", "font-size"]),
                     // Header text vertical centering: label text box top/bottom gap
                     // inside the th. Equal gaps = centered; smaller top gap = sits high.
                     thLabel: (() => {
@@ -96,7 +89,6 @@ async function main() {
             console.log("  th  :", JSON.stringify(css.th));
             console.log("  td  :", JSON.stringify(css.td));
             console.log("  tr  :", JSON.stringify(css.tr));
-            console.log("  bar :", JSON.stringify(css.bar));
             if (css.thLabel) console.log("  thLb:", JSON.stringify(css.thLabel));
             console.log("  shot:", out);
         } catch (e: any) {

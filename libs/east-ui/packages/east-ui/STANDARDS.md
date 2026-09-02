@@ -25,7 +25,7 @@ what consumers see; the factory is the implementation and the desugar target
 
 Every tag also carries a type-safe **`Types`** namespace (`Slider.Types`,
 `Table.Types.CellRenderContext`), any **data-builders** the factory exposes
-(`Select.Item`, `Gantt.Task`), and any **nested tags** for component-producing
+(`Select.Item`, `Plan.run`), and any **nested tags** for component-producing
 presets (`<Text.Eyebrow>`).
 
 ---

@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 import yazl from 'yazl';
 import { variant, some, none, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, FunctionObject, MutationObject, RecordObject } from '@elaraai/e3-types';
-import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordObjectType } from '@elaraai/e3-types';
+import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
 import { captureEnvironment, captureAutoEnvironment, type CaptureEvent } from './environment-capture.js';
@@ -216,7 +216,10 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
           const owner = taskOfFunctionIR.get(item);
           valueData = encodeEastIR(link(item.default, owner ? `task "${owner.name}"` : `dataset "${refPath}"`, owner?.runner));
         } else {
-          valueData = encodeBeast2For(item.type)(item.default);
+          // The SAME encoder the store path uses — a collection root ships
+          // segmented + indexed, so a deployed input is pageable without
+          // anyone having to write it first (#584).
+          valueData = encodeDatasetBlob(item.type, item.default);
         }
         const valueHash = addObject(zipfile, Buffer.from(valueData));
         datasetRef = variant('value', { hash: valueHash, versions: new Map() });

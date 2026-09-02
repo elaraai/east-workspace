@@ -12,7 +12,7 @@ summary for anyone adding or changing examples here.
 | Slot | Name | Content |
 |---|---|---|
 | 1 | `<name>Basic` | Smallest meaningful usage — the search-index front door. |
-| 2 | `<name>Variants` | ONE variant-space example, as a live `<Configurator>` surface driving exactly ONE target instance — every axis feeds it as an expression (sizing via the empty-string height lever, selection modes as variants, data presets as explicitly-TYPED structs, children as values, callback pairs dual-attached); presence-typed / build-time contracts become their own examples (splits, `*CustomColours` statics, richest compositions) — never a second target behind an axis. Every fn is fully self-contained (all data/types inside the body — the extracted snippet is complete code). Widget policy: SegmentGroup for 2–3 short non-binary options, Select for 4+/wordy, Input.Integer/Float or Slider for numerics, Switch for booleans; switches via `Slot`; reactive readouts in the `aside`; controls carry NO hint prose (exemplar: `collections/table.examples.tsx` tableVariants). Static `<Separator label>` panels remain ONLY where seeing every row at once is the point (`alignedStackAll`, `schematicSlice`, the slice rails). |
+| 2 | `<name>Variants` | ONE variant-space example, as a live `<Configurator>` surface driving exactly ONE target instance — every axis feeds it as an expression (sizing via the empty-string height lever, selection modes as variants, data presets as explicitly-TYPED structs, children as values, callback pairs dual-attached); presence-typed / build-time contracts become their own examples (splits, `*CustomColours` statics, richest compositions) — never a second target behind an axis. Every fn is fully self-contained (all data/types inside the body — the extracted snippet is complete code). Widget policy: SegmentGroup for 2–3 short non-binary options, Select for 4+/wordy, Input.Integer/Float or Slider for numerics, Switch for booleans; switches via `Slot`; reactive readouts in the `aside`; controls carry NO hint prose (exemplar: `collections/table.examples.tsx` tableVariants). Static `<Separator label>` panels remain ONLY where seeing every row at once is the point (`schematicSlice`, the slice rails, the per-kind Plan panels). |
 | 3 | `<name>Configurator` | A separate behavioral combo-configurator only when needed beside the Variants slot. Exemplar: `schematicInteractions`. |
 | 4 | `<name><Behavior>` | One example per behavioral contract needing isolation: DnD, review chrome, slice binding, deep-linking, overlay stacking, reactive-drag grammars. |
 | 5 | `<name>Stress` | Perf/scale demonstrations (virtualized rows, 500-unit schematic). |
@@ -58,15 +58,12 @@ $(Assert.equal(rows.get(0n).unwrap().unwrap("Separator").label.unwrap("some").un
 Export names referenced from `east-ui-components/scripts/probe-*.ts`,
 `snapshot.ts`, or `east-ui-showcase/tests/responsive/*` are frozen —
 retarget the referencing script in the same PR or don't touch the name.
-As of epic #455 (post pass 3): `tooltipOverStickyTable`,
-`alignedStackAll`, `splitterCollapseBelow`, `rosterInteractive`,
+As of #571 (Gantt / Planner / AlignedStack retired into `Plan`):
+`tooltipOverStickyTable`, `splitterCollapseBelow`, `rosterInteractive`,
 `schematicNets`, `storyBasic`, `storyStacked`, `drawerStackedNested`,
 `sliceTableChrome`, `sliceChartChrome`, `sliceRail`, `sliceNarrow`,
-`sliceGanttChrome`, plus the probe-collections target list
-(`tableBasic`, `tableColumnsVariants`, `tableStyleVariants`,
-`plannerPoint`,
-`plannerVariants`, `ganttVariants`) and the DnD probes'
-`plannerLibraryDnd` / `ganttLibraryDnd`.
+`slicePlanChrome`, plus the probe-collections target list
+(`tableBasic`, `tableColumnsVariants`, `tableStyleVariants`).
 
 ## Cascade for any consolidation / example change
 

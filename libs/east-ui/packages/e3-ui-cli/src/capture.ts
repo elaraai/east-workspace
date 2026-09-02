@@ -63,7 +63,7 @@ export interface CaptureOptions {
     /** Framing. Default `{ kind: 'frame' }`. */
     mode?: CaptureMode;
     /** Component-frame mount width: `'full'` (fill the viewport width — right
-     *  for width-flexible components like Schematic/Gantt/Table, which collapse
+     *  for width-flexible components like Schematic/Plan/Table, which collapse
      *  in the default shrink-to-fit frame) or a CSS width (`'900px'`). Default:
      *  shrink-to-fit (the historical tight crop). */
     frameWidth?: string | undefined;

@@ -45,6 +45,7 @@ import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH, type ApprovalOptionValue } from "../shared/review";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
+import { useTablePagedRows, type TablePagedSourceValue } from "./use-paged-rows.js";
 
 /* Touch (#351): 36px tap halo on the 24px pin/sort/expander controls (36,
  * not 44 — the controls sit adjacent; full halos would swallow each other). */
@@ -141,6 +142,19 @@ export interface EastChakraTableProps {
     storageKey: string;
 }
 
+/** Paged transport state (#576) — what the chrome reports, and what disables
+ *  the affordances that would lie over a partial corpus. */
+export interface TableTransport {
+    /** Source elements whose window has landed. */
+    loaded: number;
+    /** The source's total element count, once known. */
+    total: number | undefined;
+    /** Whether a window is still in flight. */
+    loading: boolean;
+    /** Whether the loaded rows are an INCOMPLETE prefix of the source. */
+    partial: boolean;
+}
+
 /** The synthetic Decision column's TanStack id (#264). */
 const REVIEW_COLUMN_ID = "__review__";
 
@@ -216,7 +230,16 @@ const TableCore = function TableCore({
     enableColumnResizing: enableColumnResizingProp,
     storageKey,
     hidePaginationBand,
-}: EastChakraTableProps & { hidePaginationBand?: boolean }) {
+    rows: sourceRows,
+    transport,
+}: EastChakraTableProps & {
+    hidePaginationBand?: boolean;
+    /** The resolved row collection — the whole inline array, or the loaded
+     *  prefix of a paged source. Resolved by the exported wrapper so the core
+     *  sees ONE row space either way (#576). */
+    rows: TableRowValue[];
+    transport?: TableTransport | undefined;
+}) {
     const props = useMemo(() => toChakraTableRoot(value), [value]);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
@@ -274,7 +297,7 @@ const TableCore = function TableCore({
         : densityTag === "comfortable" ? "lg"
         : ((props.size as "sm" | "md" | "lg" | undefined) ?? "md");
     // Row + header height come from the shared `sizes.density` tokens (the
-    // single source, also consumed by Gantt and Planner) — md → 36px, the spec
+    // single source) — md → 36px, the spec
     // row height. Pad-Y stays here for the group/footer cells that set padding
     // via raw inline style outside the recipe's cell slot.
     const densityPadYPx = tableSize === "sm" ? 6 : tableSize === "lg" ? 12 : 10;
@@ -316,7 +339,7 @@ const TableCore = function TableCore({
     }, []);
 
     // Row-status callback — paints each row's background with a
-    // semantic token. Shared helper used by Planner / Gantt too.
+    // semantic token (the shared helper).
     const rowStatusBgFor = useRowStatusBg(getSomeorUndefined(value.rowStatus));
 
     // Row state management for loading indicators
@@ -350,8 +373,8 @@ const TableCore = function TableCore({
     const reviewApprovalFn = useMemo(() => getSomeorUndefined(value.reviewApproval) as
         ((rowIndex: bigint) => ApprovalOptionValue) | undefined, [value.reviewApproval]);
     const reviewApprovals = useMemo(
-        () => value.rows.map((_row, i) => reviewApprovalFn?.(BigInt(i))),
-        [value, reviewApprovalFn],
+        () => sourceRows.map((_row: TableRowValue, i: number) => reviewApprovalFn?.(BigInt(i))),
+        [sourceRows, reviewApprovalFn],
     );
     const reviewController = useReviewController(review, reviewApprovals);
     const reviewChromeRecipe = useSlotRecipe({ key: "reviewChrome" });
@@ -384,7 +407,11 @@ const TableCore = function TableCore({
                 {
                     id: col.key,
                     header: getSomeorUndefined(col.header) ?? col.key,
-                    enableSorting: true,
+                    // Client sort over a PARTIAL corpus sorts "within whatever
+                    // happened to load", which reads as a sort of the whole
+                    // table and is simply wrong (#576). The affordance is
+                    // withdrawn rather than allowed to lie; the footer says so.
+                    enableSorting: transport === undefined,
                     sortingFn: (rowA, rowB, columnId) => {
                         const cellA = rowA.original.get(columnId);
                         const cellB = rowB.original.get(columnId);
@@ -408,7 +435,7 @@ const TableCore = function TableCore({
                 }
             );
         });
-    }, [value.columns, columnHelper]);
+    }, [value.columns, columnHelper, transport]);
 
     // The synthetic Decision column — a display column pinned right, sized to
     // the shared DECISION_WIDTH; header + cells wear the reviewChrome slots.
@@ -653,13 +680,14 @@ const TableCore = function TableCore({
     // Page index is 0-based per the IR (`TablePaginationType.page` doc).
     const currentPage = paginationConfig ? Number(paginationConfig.page) : 0;
     const paginationOnChange = paginationConfig?.onPageChange;
-    const totalPages = pageSize ? Math.max(1, Math.ceil(value.rows.length / pageSize)) : 1;
-    // Slice rows to the current page when pagination is active.
+    const totalPages = pageSize ? Math.max(1, Math.ceil(sourceRows.length / pageSize)) : 1;
+    // Slice rows to the current page when pagination is active. (A paged source
+    // refuses `pagination` at build time — one paging mechanism, not two.)
     const pagedRows = useMemo(() => {
-        if (!pageSize) return value.rows;
+        if (!pageSize) return sourceRows;
         const startIdx = currentPage * pageSize;
-        return value.rows.slice(startIdx, startIdx + pageSize);
-    }, [value.rows, pageSize, currentPage]);
+        return sourceRows.slice(startIdx, startIdx + pageSize);
+    }, [sourceRows, pageSize, currentPage]);
 
     // Create table instance
     const table = useReactTable({
@@ -887,7 +915,7 @@ const TableCore = function TableCore({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasFrozen, table.getState().columnSizing, table.getState().columnSizingInfo]);
 
-    // Shared plot gutter (#147) — own field wins over an enclosing <AlignedStack>'s
+    // Shared plot gutter (#147) — own field wins over an inherited plot-gutter
     // context. When active the data columns are pinned to [left, W−right]: the
     // frozen pane is scaled to `left` (or a left spacer fills it when there are no
     // frozen columns), the centre columns flex-fill the lane, a `right` spacer
@@ -1727,7 +1755,7 @@ const TableCore = function TableCore({
             {paginationConfig && !hidePaginationBand && (
                 <HStack gap="2" justify="flex-end" px="3" py="2" borderTop="1px solid" borderColor="border.subtle">
                     <Text fontSize="sm" color="fg.muted">
-                        Page {currentPage + 1} of {totalPages} ({value.rows.length} total)
+                        Page {currentPage + 1} of {totalPages} ({sourceRows.length} total)
                     </Text>
                     <button
                         type="button"
@@ -1801,7 +1829,40 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     const slice = chrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
     useSliceReactivity(slice?.key);
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
-    if (chrome === undefined || slice === undefined) return <TableCore {...props} />;
+
+    // ── The row source (#576) ─────────────────────────────────────────────
+    // Resolved HERE, once, so `TableCore` sees one row space whichever arm the
+    // author used. Table is positional, so a window is an array of mapped rows
+    // and windows concatenate; the Plan's keyed windows merge by key. Neither
+    // component sniffs the other's shape — the contract carries it.
+    const rowsArm = props.value.rows;
+    const pagedSource: TablePagedSourceValue | undefined =
+        rowsArm.type === "paged" ? rowsArm.value : undefined;
+    const paged = useTablePagedRows(pagedSource);
+    const rows = useMemo(
+        () => (rowsArm.type === "inline" ? (rowsArm.value as TableRowValue[]) : paged.rows),
+        [rowsArm, paged.rows],
+    );
+    const transport = useMemo<TableTransport | undefined>(() => (pagedSource === undefined ? undefined : {
+        loaded: paged.loadedElements,
+        total: paged.total,
+        loading: paged.loading,
+        partial: paged.total === undefined || paged.loadedElements < paged.total,
+    }), [pagedSource, paged.loadedElements, paged.total, paged.loading]);
+
+    // A source that could not be READ is not an empty table — say why. There is
+    // no offline stand-in for a paged source (#573), so this is what a bound
+    // table shows outside a workspace.
+    if (paged.error !== undefined) {
+        return (
+            <Box padding="20px" fontFamily="mono" fontSize="10px" color="fg.error" data-table-error>
+                {`NO ROWS — the paged source could not be read. ${paged.error}`}
+            </Box>
+        );
+    }
+    if (chrome === undefined || slice === undefined) {
+        return <TableCore {...props} rows={rows} transport={transport} />;
+    }
 
     const state = slice.read();
     const configuredKinds = chrome.affordances.map(a => a.type);
@@ -1817,7 +1878,7 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     };
     const pageSize = paginationConfig ? Number(paginationConfig.pageSize) : 0;
     const currentPage = paginationConfig ? Number(paginationConfig.page) : 0;
-    const totalPages = paginationConfig ? Math.max(1, Math.ceil(props.value.rows.length / pageSize)) : 1;
+    const totalPages = paginationConfig ? Math.max(1, Math.ceil(rows.length / pageSize)) : 1;
     const pagerOnChange = paginationConfig?.onPageChange;
 
     return (
@@ -1826,12 +1887,33 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
                 <SliceRailCluster slice={slice} affordanceKinds={affordanceKinds} />
             </Box>
             <Box css={{ ...frameStyles.frameBody, flex: "1 1 0%", minHeight: 0, overflow: "hidden" }}>
-                <TableCore {...props} hidePaginationBand />
+                <TableCore {...props} rows={rows} transport={transport} hidePaginationBand />
             </Box>
             <Box css={{ ...frameStyles.frameFooter, flexShrink: 0 }}>
-                <Box as="span" css={frameStyles.frameFooterStat}>{result.toLocaleString()}</Box>
-                <Box as="span">{`rows · of ${total.toLocaleString()}`}</Box>
-                {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${pct}%`}</Box>}
+                {/* A paged table counts ELEMENTS loaded, not slice results: the
+                    slice narrows what the host fed, which here is the prefix
+                    that happened to land (#575's rule, one component over). */}
+                {transport !== undefined ? (
+                    <>
+                        <Box as="span" css={frameStyles.frameFooterStat} data-slot="tableTransport">
+                            {transport.loaded.toLocaleString()}
+                        </Box>
+                        <Box as="span">
+                            {transport.total !== undefined
+                                ? `loaded · of ${transport.total.toLocaleString()}`
+                                : "loaded"}
+                        </Box>
+                        {transport.loading && <Box as="span">· Loading…</Box>}
+                        {/* The withdrawn affordance, stated where the counts are. */}
+                        <Box as="span" data-slot="tableSortNote">· sort disabled on a partial corpus</Box>
+                    </>
+                ) : (
+                    <>
+                        <Box as="span" css={frameStyles.frameFooterStat}>{result.toLocaleString()}</Box>
+                        <Box as="span">{`rows · of ${total.toLocaleString()}`}</Box>
+                        {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${pct}%`}</Box>}
+                    </>
+                )}
                 {paginationConfig && (
                     <Box display="inline-flex" alignItems="center" gap="{spacing.1.5}" marginLeft="auto">
                         <Box as="span">{`page ${currentPage + 1} of ${totalPages}`}</Box>

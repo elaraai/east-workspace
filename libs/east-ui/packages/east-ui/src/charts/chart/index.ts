@@ -385,6 +385,12 @@ interface BandLayer {
 interface RefLayer {
     kind: "ref";
     node: ChartSpecValue;
+    /** Which annotation builder produced this layer — consumption metadata for
+     *  hosts that ingest layers as data (the Plan canvas); `Chart.Root` ignores it. */
+    refKind: "line" | "band" | "dot";
+    /** The builder's original options, kept lossless for data consumers
+     *  (`rule` nodes stringify coordinates and drop labels). */
+    refOptions: RefLineOptions | RefBandOptions | RefDotOptions;
 }
 /** A layer accepted by {@link createChartRoot}. */
 export type ChartLayer = SeriesLayer | BandLayer | RefLayer;
@@ -666,7 +672,7 @@ function createRefLine(options: RefLineOptions): RefLayer {
         stroke: REF_STROKE,
         dashArray: options.dash !== undefined ? some(options.dash) : none,
     }), ChartSpecType);
-    return { kind: "ref", node };
+    return { kind: "ref", node, refKind: "line", refOptions: options };
 }
 
 /** Options for {@link createRefBand}. */
@@ -688,7 +694,7 @@ function createRefBand(options: RefBandOptions): RefLayer {
         x2: options.x !== undefined ? coordValue(options.x[1]) : undefined,
         label: options.label,
     }));
-    return { kind: "ref", node };
+    return { kind: "ref", node, refKind: "band", refOptions: options };
 }
 
 /** Options for {@link createRefDot}. */
@@ -708,7 +714,7 @@ function createRefDot(options: RefDotOptions): RefLayer {
         y: options.y,
         ...(options.label !== undefined ? { label: options.label } : {}),
     });
-    return { kind: "ref", node };
+    return { kind: "ref", node, refKind: "dot", refOptions: options };
 }
 
 // ============================================================================
@@ -746,9 +752,9 @@ export interface AxisOptions {
     /**
      * Explicit tick positions, overriding `numTicks`'s auto-"nice" ticks —
      * floats on a linear axis (axis-domain values, not pixels; e.g. integer
-     * day ticks `[0, 1, 2, …]` to line up with a stacked `<Planner>`), or
-     * `Date` instants on a `time` axis (#318) — e.g. the Planner's day-column
-     * instants under a shared `AlignedStack` gutter. Date ticks render through
+     * day ticks `[0, 1, 2, …]`), or
+     * `Date` instants on a `time` axis (#318) — e.g. a `Plan` window's
+     * day-column instants. Date ticks render through
      * the date `tickFormat`; on `y`/`y2` (always numeric) they are a
      * build-time error.
      */
@@ -764,7 +770,7 @@ export interface AxisOptions {
     titleStyle?: ChartAxisTextStyle;
     /** Extra px between the tick labels and the axis caption (#327). Widens this
      *  axis's own margin band, never the shared plot gutter — so it cannot shift
-     *  an `AlignedStack`-aligned plot lane. */
+     *  a gutter-aligned plot lane. */
     titleGap?: SubtypeExprOrValue<FloatType>;
 }
 

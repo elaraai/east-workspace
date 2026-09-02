@@ -162,10 +162,18 @@ export async function loadSourceExports(filePath: string): Promise<Record<string
         logLevel: 'silent',
     });
 
-    const code = result.outputFiles?.[0]?.text;
-    if (!code) {
+    const bundled = result.outputFiles?.[0]?.text;
+    if (!bundled) {
         throw new Error(`esbuild produced no output for ${filePath}`);
     }
+    // Name the in-memory module after its SOURCE FILE. Without this V8 reports
+    // the whole `data:` URL — the entire base64 bundle, hundreds of KB — as the
+    // filename of every stack frame, and east's source map stores that string
+    // on EVERY location it records, so an encoded component payload was
+    // ~99% duplicated bundle text (#606: an 87 MB payload for a 64k-node IR,
+    // and a heap that scaled with locations × bundle size). A `sourceURL`
+    // magic comment makes the frames say `plan.examples.tsx` instead.
+    const code = `${bundled}\n//# sourceURL=${path.basename(absolutePath)}\n`;
 
     try {
         const dataUrl = `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;

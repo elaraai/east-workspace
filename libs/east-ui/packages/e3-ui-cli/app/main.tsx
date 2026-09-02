@@ -191,7 +191,7 @@ function App(): ReactNode {
 // definite height (full bleed). Components get a shrink-to-fit framed card by
 // default; `--frame-width` (injected as __E3_UI_SHOT_FRAME_WIDTH__) mounts the
 // frame at a DEFINITE width instead — 'full' fills the viewport — so
-// width-flexible components (Schematic / Gantt / Table, all `width: 100%` of
+// width-flexible components (Schematic / Plan / Table, all `width: 100%` of
 // their container) render faithfully instead of collapsing to intrinsic width.
 const frameWidth =
     (window as unknown as { __E3_UI_SHOT_FRAME_WIDTH__?: string | null }).__E3_UI_SHOT_FRAME_WIDTH__ ?? null;

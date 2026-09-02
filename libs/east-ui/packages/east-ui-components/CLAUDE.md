@@ -65,7 +65,7 @@ src/
   component.tsx              # Top-level variant dispatcher
   hooks/usePersistedState.ts # localStorage persistence hook
   platform/                  # East state management (UIStore, DatasetStore)
-  collections/               # Table, Gantt, Planner, TreeView, DataList
+  collections/               # Table, Plan, Matrix, TreeView, DataList
   disclosure/                # Tabs, Accordion, Carousel
   layout/                    # Box, Flex, Grid, Stack, Splitter, Separator
   forms/                     # Input, Select, Checkbox, Switch, Slider, etc.
@@ -337,15 +337,13 @@ When adding persistence to Chakra components that support both
 )}
 ```
 
-### Virtualization (Table, Gantt, Planner)
+### Virtualization (Table, Plan)
 
 Row virtualization via `@tanstack/react-virtual`:
 
 - `RowStateManager` tracks loading/loaded/unloaded per row.
 - Visible rows trigger loading with a configurable delay
   (`loadingDelay`).
-- Scroll sync between dual panes (table + timeline) uses direct DOM ref
-  manipulation, not state.
 
 **Persist scroll as a clamped ROW INDEX, never a pixel `scrollTop`.** The
 top visible row index survives data changes (restore clamps to the current
@@ -364,17 +362,6 @@ const fooEqual = equalFor(Foo.Types.Foo);
 Also define pure conversion functions (`toChakra*`) at module scope.
 They're called inside `useMemo` but defined outside the component to
 avoid re-creation.
-
-### Splitter persistence (Gantt / Planner)
-
-Both have an internal `Splitter.Root` between table and timeline.
-Position is persisted as `tablePanelSize` (percentage) via
-`onResizeEnd`. On mount, the persisted size takes priority over the
-prop and calculated default:
-
-```
-persisted > prop (tablePanelSize) > calculated from column widths
-```
 
 ### Exports
 

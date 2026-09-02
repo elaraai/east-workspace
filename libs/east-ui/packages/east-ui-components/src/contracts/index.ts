@@ -17,7 +17,7 @@
  * - `density` / `verbosity` (§1.1 / §0.4): React contexts + hooks for the
  *   `DensityType` / `VerbosityType` cascade.
  * - `plot-gutter` (#147): React context + hook for the shared `{ left, right }`
- *   plot gutter that `<AlignedStack>` imposes on its axis/lane children.
+ *   plot gutter a stacking layout can impose on its axis/lane children.
  * - `adaptive` (#346): container-width + pointer-capability hooks — the
  *   responsive spine (`useContainerBreakpoint` / `useContainerBelow` /
  *   `useCoarsePointer` / `useHoverCapable`).

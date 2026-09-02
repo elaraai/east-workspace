@@ -14,6 +14,8 @@ import {
     NullType,
     BooleanType,
     FunctionType,
+    IntegerType,
+    StringType,
     StructType,
     VariantType,
     OptionType,
@@ -24,6 +26,10 @@ import {
     type ExprType,
 } from '@elaraai/east';
 import { TreePathType, DatasetStatusType } from '@elaraai/e3-types';
+// The row-source contract is east-ui's (#567): a paged handle IS a
+// `PagedSourceType` — same fields, same order — so Plan / Table / ValueTree
+// take it without either package importing the other's data layer.
+import { SeekQueryType, SeekRangeType } from '@elaraai/east-ui';
 import type { DatasetDef, TaskDef } from '@elaraai/e3';
 
 // ============================================================================
@@ -326,6 +332,171 @@ function bindData<T extends EastType>(
     return bindPlatformFn([def.type as T], sourceValue, patchValue, modeValue) as BoundValue<T>;
 }
 
+// ============================================================================
+// Paged binding — read a collection dataset one window at a time.
+// ============================================================================
+
+/**
+ * The struct returned by every {@link Data.bindPaged} call — a WINDOWED view
+ * of a collection dataset, for sources too large to hold whole.
+ *
+ * @remarks
+ * Deliberately read-only: there is no `write` / `commit` / `binding`, because
+ * a window is not a value you can diff or stage. Bind the same dataset with
+ * {@link Data.bind} when you need to edit it.
+ *
+ * @property page - Read one window: `(offset, limit)` → the window's elements
+ *   as a value of the dataset's own type. `none` means the window is still in
+ *   flight — the call re-fires when it lands (use inside `Reactive.Root`). An
+ *   EMPTY window means the source is exhausted at that offset, so a reader
+ *   that walks offsets terminates on `some([])`, never on `none`.
+ * @property total - The source's total element count, once any window has
+ *   landed; `none` until then.
+ * @property seek - Key search over the dataset, backed by the server's fence
+ *   search (`datasetFindKey`). `none` for an Array-typed dataset: stream order
+ *   has nothing to binary-search. Decided at bind time from the dataset's own
+ *   type, so a component renders the affordance only where it works.
+ */
+export const DataPagedHandleType = <T extends EastType | string>(t: T) => StructType({
+    id:    StringType,
+    page:  FunctionType([IntegerType, IntegerType], OptionType(t)),
+    total: FunctionType([], OptionType(IntegerType)),
+    seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+});
+
+/**
+ * The TypeScript type of a {@link Data.bindPaged} handle bound to source type
+ * `T` — the paged sibling of {@link BoundValue}.
+ *
+ * @remarks
+ * As with `BoundValue`, `T` rides **structurally** in the handle's method
+ * signatures, so a component requiring `PagedValue<ArrayType<OpsRow>>` rejects
+ * a handle bound to any other type at compile time. Components that consume a
+ * paged source structurally (east-ui's `Plan`, which must never import e3-ui)
+ * match on the `page` / `total` fields alone.
+ *
+ * @typeParam T - The East type of the bound dataset value (a collection type).
+ */
+export type PagedValue<T extends EastType> = ExprType<ReturnType<typeof DataPagedHandleType<T>>>;
+
+/**
+ * The underlying `Data.bindPaged` platform-function definition. End-users
+ * should call {@link Data.bindPaged}; runtime implementations register
+ * against this raw definition via `bindPagedPlatformFn.implement(...)`.
+ */
+export const bindPagedPlatformFn = East.genericPlatform(
+    "data_bind_paged",
+    ["T"],
+    [TreePathType],
+    StructType({
+        id:    StringType,
+        page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
+        total: FunctionType([], OptionType(IntegerType)),
+        seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+    }),
+    { optional: true },
+);
+
+// Low-level primitives backing a `Data.bindPaged` handle's methods — the same
+// shape as the `Data.bind` primitives (issue #106): each handle method is a
+// thin `East.function` over one of these, capturing only the plain-data source
+// path (the value type rides as a type-arg), so a paged handle is ordinary
+// serializable East data. Implemented by `PagedRuntime` in
+// `@elaraai/e3-ui-components`.
+const PAGED_DESCRIPTOR = [TreePathType] as const;
+const data_page = East.genericPlatform(
+    "data_page", ["T"], [...PAGED_DESCRIPTOR, IntegerType, IntegerType], OptionType("T"), { optional: true });
+const data_page_total = East.genericPlatform(
+    "data_page_total", ["T"], [...PAGED_DESCRIPTOR], OptionType(IntegerType), { optional: true });
+// Key search rides the SAME in-flight convention as a window: `none` while the
+// server's fence search is running, `some(range)` when it lands. The row it
+// returns is a global element index in the row space `data_page` windows serve.
+const data_page_seek = East.genericPlatform(
+    "data_page_seek", ["T"], [...PAGED_DESCRIPTOR, SeekQueryType], OptionType(SeekRangeType), { optional: true });
+
+/**
+ * Low-level platform primitives that back {@link Data.bindPaged}'s handle
+ * methods.
+ *
+ * @internal Not for direct use — author against {@link Data.bindPaged}.
+ */
+export const DataPagedPrimitives = {
+    /** `data_page([T], source, offset, limit) -> Option<T>` — one window (`none` = in flight). */
+    page: data_page,
+    /** `data_page_total([T], source) -> Option<Integer>` — total elements, once known. */
+    total: data_page_total,
+    /** `data_page_seek([T], source, query) -> Option<SeekRange>` — where a key
+     *  query lands in the source's row order (`none` = search in flight). */
+    seek: data_page_seek,
+} as const;
+
+/**
+ * Bind a collection dataset (Array / Set / Dict) to a WINDOWED reactive view
+ * of its contents — the paged sibling of {@link Data.bind}, for sources too
+ * large to fetch whole.
+ *
+ * Takes the {@link DatasetDef} returned by `e3.input` (or a {@link TaskDef},
+ * which binds its output dataset), exactly like {@link Data.bind}: the path
+ * and the value type both come from the def.
+ *
+ * @typeParam T - The East type of the source dataset value (a collection type).
+ * @param dataset - The dataset (or task) definition to bind.
+ * @returns A handle struct described by {@link DataPagedHandleType} — `page`
+ *   and `total`.
+ *
+ * @remarks
+ * Each `page(offset, limit)` fetches exactly that window and decodes it
+ * against the dataset's own type — no blobs, no beast2, no manual fetch in
+ * user code. A window still in flight reads `none` and the call re-fires when
+ * it lands, so use it inside `Reactive.Root`; an empty window means the source
+ * is exhausted, which is how a walking reader terminates.
+ *
+ * Unlike {@link Data.bind}, a paged source is NOT preloaded or polled as a
+ * whole value — it is declared in the UI task's manifest under `pages`, which
+ * is the entire point of binding it paged.
+ *
+ * @example
+ * ```ts
+ * import { ArrayType, DictType, East, StringType } from "@elaraai/east";
+ * import { Plan, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Data } from "@elaraai/e3-ui";
+ * import * as e3 from "@elaraai/e3";
+ *
+ * // KEYED, because the Plan's canvas rows inherit the dataset's keys — the
+ * // same key space `page` windows and `seek` searches.
+ * const ops = e3.input("ops", DictType(StringType, OpsRow), new Map());
+ *
+ * // Mirrors `dataBindPagedPlan` in test/bind/data/data.examples.tsx.
+ * const dataBindPagedPlan = East.function([], UIComponentType, _$ => {
+ *     return Reactive.Root(East.function([], UIComponentType, $ => {
+ *         const paged = $.let(Data.bindPaged(ops));
+ *         const series = $.const([…], ArrayType(Plan.Types.Series(OpsRow)));
+ *         // A paged canvas DECLARES its window: fitting the axis to whatever
+ *         // prefix has landed re-fits it on every window (#567 D8).
+ *         const axis = $.const(Plan.axis({
+ *             window: { min: week(24n), max: week(42n) }, resolution: "week",
+ *         }));
+ *         return Plan.Root({ axis, data: paged, series });
+ *     }));
+ * });
+ * ```
+ */
+function bindDataPaged<T extends EastType>(
+    dataset: DatasetDef<T> | TaskDef<T>,
+): PagedValue<T> {
+    // A TaskDef binds its output dataset; a DatasetDef binds itself.
+    const def = dataset.kind === 'task' ? dataset.output : dataset;
+    // The source path comes from the def, so it is statically known by
+    // construction — `deriveManifest` reads it back as a single literal
+    // `Value` IR node, which `East.value(...)` forces.
+    const sourceValue = East.value(def.path, TreePathType);
+    // Two-step cast: the platform definition spells its window type with the
+    // `"T"` type-var, which TS reads as `some: string` inside the nested
+    // `Option`, so it does not overlap the instantiated handle directly. The
+    // East-side substitution is what actually types the value.
+    return bindPagedPlatformFn([def.type as T], sourceValue) as unknown as PagedValue<T>;
+}
+
 /**
  * The Data namespace — reactive dataset binding for e3 UI tasks.
  *
@@ -334,9 +505,13 @@ function bindData<T extends EastType>(
  * combinations of `mode` (staged | direct) and `patch` (absent | present).
  * The full per-mode semantics matrix is documented on {@link Data.bind}.
  *
+ * `Data.bindPaged` is its read-only, windowed sibling for collection datasets
+ * too large to hold whole — see {@link Data.bindPaged}.
+ *
  * Use inside `Reactive.Root` for reactive re-rendering when the underlying
  * datasets change.
  */
 export const Data = {
     bind: bindData,
+    bindPaged: bindDataPaged,
 } as const;

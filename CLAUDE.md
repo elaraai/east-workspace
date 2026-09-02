@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with
 code in this repository.
 
-## HARD RULE: read the whole file before editing it
+## HARD RULE: read the whole file before editing it — or designing against it
 
 Before editing ANY source file, you MUST have read that file **in its
 entirety, recently** — meaning after its most recent change, including your
@@ -13,6 +13,13 @@ file exceeds one Read call, read it in consecutive chunks until complete.
 There is no "small edit" exception. When a tool result notes the file was
 modified on disk since you last read it, that is a STOP: re-read the whole
 file before the next edit to it.
+
+The same requirement applies to **design-time reads**: before writing new
+code that imports from, mirrors, or consumes a module — an API you call, a
+precedent file you pattern on, a type you decode — read THAT file in full
+first. Grep/sed are for *locating* files, never a substitute for reading
+them; API shapes inferred from fragments have caused real regressions and
+rework here. This is a hard requirement with no alternative.
 
 ## What this repo is
 

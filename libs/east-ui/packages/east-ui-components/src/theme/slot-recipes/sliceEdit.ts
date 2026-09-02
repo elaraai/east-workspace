@@ -226,6 +226,18 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         },
     },
     variants: {
+        /**
+         * A body that is a LIST rather than a form.
+         *
+         * @remarks
+         * The default body insets 14px and gaps its children 12px, which is
+         * right for clause rows and fields. A list wants rows running edge to
+         * edge with their own rhythm, and hairlines spanning the full width —
+         * padded twice, its rules stop short of the border.
+         */
+        flush: {
+            true: { body: { padding: "0", gap: "0" } },
+        },
         size: {
             /** Default — chip / range editors. */
             sm: { content: { width: "320px" } },

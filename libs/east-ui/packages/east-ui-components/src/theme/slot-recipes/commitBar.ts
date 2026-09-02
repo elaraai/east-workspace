@@ -10,52 +10,23 @@
  * status on the left (`pending` highlights the live count), then a `btnRow`
  * cluster of ORDINARY buttons — the generic `.btn` family (the Commit.Bar
  * recipe mock's `.btn` / `.btn.primary` gap row), not full-height mono
- * segments. `btn` mirrors the button recipe's `outline`, `btnPrimary` its
- * `solid` (spec `--brand-d` fill), `btnDanger` its `danger`; each slot is
- * self-contained — apply one per button, no merging at the call site.
+ * segments.
+ *
+ * The buttons themselves are NOT slots here. This recipe used to carry `btn` /
+ * `btnPrimary` / `btnDanger`, each documented as "mirrors the button recipe's
+ * outline / solid / danger" — a hand-maintained copy of another recipe, which
+ * is exactly how it drifted: adopters styled their per-ROW Approve from the
+ * button recipe and their BATCH Approve all from here, and the same verb ended
+ * up painted two different greens. The buttons now come from the `button`
+ * recipe at both scales (rows `xs`, the foot `md`), so they cannot disagree.
+ * This recipe keeps what it is actually for: the bar's LAYOUT.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 
-// Mirrors the spec's generic `.btn` (body 12.5px / 500, 6px radius,
-// 1px rule-strong border) — the same family as the `button` recipe at `md`.
-const btnBase = {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "6px",
-    height: "32px",
-    paddingInline: "12px",
-    borderRadius: "{radii.md}",
-    borderWidth: "1px",
-    borderStyle: "solid",
-    borderColor: "border.strong",
-    background: "bg.surface",
-    color: "fg",
-    fontFamily: "body",
-    fontSize: "12.5px",
-    fontWeight: "medium",
-    lineHeight: "1.15",
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-    transitionProperty: "background, color, border-color",
-    transitionDuration: "{durations.fast}",
-} as const;
-
-const btnDisabled = {
-    "&[aria-disabled=true]": {
-        cursor: "not-allowed",
-        opacity: 0.5,
-        background: "bg.muted",
-        color: "fg.subtle",
-        borderColor: "border.subtle",
-        _hover: { background: "bg.muted", color: "fg.subtle" },
-    },
-} as const;
-
 export const commitBarSlotRecipe = defineSlotRecipe({
     className: "elara-commit-bar",
-    slots: ["root", "draft", "pending", "btnRow", "btn", "btnPrimary", "btnDanger"],
+    slots: ["root", "draft", "pending", "btnRow"],
     base: {
         root: {
             display: "grid",
@@ -64,6 +35,9 @@ export const commitBarSlotRecipe = defineSlotRecipe({
             borderTopWidth: "1px",
             borderTopStyle: "solid",
             borderTopColor: "border.subtle",
+            // The Plan's narrow layout (§10): the draft line has no room
+            // beside three buttons — it stacks above them.
+            "[data-plan-narrow] &": { gridTemplateColumns: "1fr" },
         },
         draft: {
             paddingInline: "18px",
@@ -75,6 +49,7 @@ export const commitBarSlotRecipe = defineSlotRecipe({
             textTransform: "uppercase",
             color: "fg.subtle",
             alignSelf: "center",
+            "[data-plan-narrow] &": { paddingInline: "12px", paddingBlock: "10px 4px", alignSelf: "start" },
         },
         pending: { color: "fg" },
         btnRow: {
@@ -82,31 +57,7 @@ export const commitBarSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "8px",
             padding: "10px 18px",
-        },
-        // Secondary commit action (Rerun / Reset / Modify) — the outline look.
-        btn: {
-            ...btnBase,
-            _hover: { background: "bg.subtle" },
-            ...btnDisabled,
-        },
-        // The one committing action (Approve all / Apply) — the solid look,
-        // spec `.btn.primary`: --brand-d fill, --brand-dd hover.
-        btnPrimary: {
-            ...btnBase,
-            background: "{colors.brand.600}",
-            color: "fg.inverse",
-            fontWeight: "semibold",
-            borderColor: "{colors.brand.600}",
-            _hover: { background: "{colors.brand.700}", borderColor: "{colors.brand.700}", color: "fg.inverse" },
-            ...btnDisabled,
-        },
-        // Destructive commit action (Reject all / Discard) — the danger look.
-        btnDanger: {
-            ...btnBase,
-            background: "transparent",
-            color: "fg.danger",
-            _hover: { borderColor: "fg.danger" },
-            ...btnDisabled,
+            "[data-plan-narrow] &": { padding: "4px 12px 10px", flexWrap: "wrap", justifyContent: "flex-end" },
         },
     },
 });

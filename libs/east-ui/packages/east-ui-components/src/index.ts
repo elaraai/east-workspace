@@ -139,10 +139,10 @@ export {
     type TreeViewRootValue,
     type TreeNodeValue,
     type EastChakraTreeViewProps,
-    EastChakraPlanner,
-    type PlannerRootValue,
-    type PlannerEventValue,
-    type EastChakraPlannerProps,
+    EastChakraPlan,
+    type PlanRootValue,
+    type PlanRowValue,
+    type EastChakraPlanProps,
     EastChakraLibrary,
     type LibraryValue,
     type LibraryItemValue,
@@ -179,6 +179,14 @@ export {
     type BlendTargetValue,
     type BlendAllocationValue,
     type EastChakraBlendProps,
+    // Key search over a collection's key order (#520; relocated here in #574)
+    DatasetKeySearch,
+    parseKeyInput,
+    keyRangePredicates,
+    type DatasetKeySearchProps,
+    type DatasetKeyMatchRange,
+    type DatasetKeyQuery,
+    type ParsedKeyInput,
 } from "./collections/index.js";
 
 // Navigation
@@ -498,3 +506,4 @@ export { useSliceReactivity } from "./slice/use-slice-reactivity";
 export { SlicePredicateBuilder, type SlicePredicateBuilderProps, type SliceFieldValue } from "./slice/predicate-builder";
 export { SliceEditPopover, type SliceEditPopoverProps } from "./slice/edit";
 export { formatPredicate, predicateParts, type PredicateValue } from "./slice/predicate-format";
+export { EastChakraPickPanel, type PickPanelValue } from "./pick/panel/index.js";

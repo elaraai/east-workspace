@@ -156,7 +156,7 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
     const headerBackground = style ? getSomeorUndefined(style.headerBackground) : undefined;
     const footerBackground = style ? getSomeorUndefined(style.footerBackground) : undefined;
     const accentColor = style ? getSomeorUndefined(style.accentColor) : undefined;
-    // Body padding: `flush` ⇒ full-bleed (0) for Planner/Table/Chart/Map;
+    // Body padding: `flush` ⇒ full-bleed (0) for Plan/Table/Chart/Map;
     // else explicit `bodyPadding`; else the default 18×20 (#132).
     const bodyPadding = style ? getSomeorUndefined(style.bodyPadding) : undefined;
     const flush = (style ? getSomeorUndefined(style.flush) : undefined) === true;

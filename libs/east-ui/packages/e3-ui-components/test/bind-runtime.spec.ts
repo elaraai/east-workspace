@@ -920,8 +920,8 @@ describe("module-load registrations", () => {
 
     test("createScopedBindPlatform returns a fresh impl per manifest (bind + primitives)", async () => {
         const { createScopedBindPlatform } = await import("../src/platform/bind-runtime.js");
-        const p1 = createScopedBindPlatform({ paths: [], functions: [], records: [] });
-        const p2 = createScopedBindPlatform({ paths: [], functions: [], records: [] });
+        const p1 = createScopedBindPlatform({ paths: [], functions: [], records: [], pages: [] });
+        const p2 = createScopedBindPlatform({ paths: [], functions: [], records: [], pages: [] });
         assert.notEqual(p1, p2);
         assert.equal(p1.length, 11);
         assert.ok(new Set(p1.map(p => p.name)).has("data_read"), "scoped Data platform must ship the primitives");

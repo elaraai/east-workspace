@@ -53,7 +53,7 @@ export interface DragKinds {
     add?: boolean;
     move?: boolean;
     remove?: boolean;
-    /** Span-edge resize (#268) — Gantt bars, `Planner.Span` events. */
+    /** Span-edge resize (#268) — temporal span surfaces. */
     resize?: boolean;
 }
 
@@ -86,7 +86,7 @@ interface CellRegistration {
     canDrop?: ((payload: DragPayload, clientX?: number, clientY?: number) => boolean) | undefined;
     /** Continuous surfaces (#268): resolve the drop coordinate from the
      * pointer position at drop time — the component maps pointer x → its
-     * snapped slot key (e.g. a Gantt row strip mapping x → a snapped ISO
+     * snapped slot key (e.g. a Plan row strip mapping x → a snapped ISO
      * instant), as the grammar intends. Absent ⇒ the registered `coord`. */
     resolveCoord?: ((clientX: number, clientY: number) => CellCoord) | undefined;
 }
@@ -193,18 +193,6 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         return () => { targets.current.delete(config.id); };
     }, []);
 
-    const registerCell = useCallback((el: HTMLElement, reg: CellRegistration) => {
-        cells.current.set(el, reg);
-        el.setAttribute("data-drag-cell", "");
-        return () => { cells.current.delete(el); };
-    }, []);
-
-    const registerSink = useCallback((el: HTMLElement, reg: SinkRegistration) => {
-        sinks.current.set(el, reg);
-        el.setAttribute("data-drag-sink", "");
-        return () => { sinks.current.delete(el); };
-    }, []);
-
     /** Whether `reg`'s surface structurally connects to the payload (declared
      * source / intra-surface move), before per-cell vetoes. */
     const cellConnected = useCallback((reg: CellRegistration, payload: DragPayload): boolean => {
@@ -245,6 +233,52 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         }
         return true;
     }, []);
+
+    /** Drop every stage attribute a registration may have left on an element. */
+    const clearStages = (el: HTMLElement) => {
+        el.removeAttribute("data-drop-valid");
+        el.removeAttribute("data-drop-active");
+        el.removeAttribute("data-drop-invalid");
+    };
+
+    const registerCell = useCallback((el: HTMLElement, reg: CellRegistration) => {
+        cells.current.set(el, reg);
+        el.setAttribute("data-drag-cell", "");
+        // A cell can register DURING a drag — a virtualizer scrolls its row into
+        // view, or a re-render re-attaches the ref. The drag-start sweep has
+        // already run, so without this the cell shows no affordance for the rest
+        // of the gesture. (The trash sink has always done exactly this; cells
+        // simply never did.)
+        const active = dragRef.current;
+        if (active !== null && cellValid(reg, active.payload)) {
+            el.setAttribute("data-drop-valid", "");
+        }
+        return () => {
+            cells.current.delete(el);
+            // Leave the attributes behind and a de-registered element keeps
+            // hit-testing as a live destination: `onMove` finds it with
+            // `closest("[data-drag-cell]")` and can hover — or commit — a drop
+            // onto a cell the layer no longer knows anything about.
+            el.removeAttribute("data-drag-cell");
+            clearStages(el);
+            if (hovered.current === el) hovered.current = null;
+        };
+    }, [cellValid]);
+
+    const registerSink = useCallback((el: HTMLElement, reg: SinkRegistration) => {
+        sinks.current.set(el, reg);
+        el.setAttribute("data-drag-sink", "");
+        const active = dragRef.current;
+        if (active !== null && sinkValid(reg, active.payload)) {
+            el.setAttribute("data-drop-valid", "");
+        }
+        return () => {
+            sinks.current.delete(el);
+            el.removeAttribute("data-drag-sink");
+            clearStages(el);
+            if (hovered.current === el) hovered.current = null;
+        };
+    }, [sinkValid]);
 
     const clearIndicators = useCallback(() => {
         for (const el of cells.current.keys()) {
@@ -344,32 +378,38 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
             // The ghost is pointer-events: none, so elementFromPoint sees through it.
             const under = document.elementFromPoint(ev.clientX, ev.clientY);
             const dest = under?.closest<HTMLElement>("[data-drag-cell], [data-drag-sink]") ?? null;
-            const valid = dest !== null && dest.hasAttribute("data-drop-valid");
             if (hovered.current && hovered.current !== dest) {
                 hovered.current.removeAttribute("data-drop-active");
                 hovered.current.removeAttribute("data-drop-invalid");
                 hovered.current = null;
             }
-            if (dest && valid) {
-                // A structurally-valid CONTINUOUS cell may still veto at this
-                // exact pointer position (its candidate resolves per-pointer).
-                const reg = cells.current.get(dest);
-                if (reg && cellVetoed(reg, current.payload, ev.clientX, ev.clientY)) {
-                    dest.removeAttribute("data-drop-active");
-                    dest.setAttribute("data-drop-invalid", "");
-                    hovered.current = dest;
-                } else {
-                    dest.removeAttribute("data-drop-invalid");
-                    dest.setAttribute("data-drop-active", "");
+            // The verdict is computed HERE, at this pointer position — never
+            // read back from `data-drop-valid`. That attribute is the drag-start
+            // sweep's snapshot, and a snapshot is wrong twice over: a predicate
+            // that discriminates on the SLOT would be frozen at whatever the
+            // sweep happened to ask about, and a cell registered after the sweep
+            // (a virtualized row scrolled into view) would carry no mark at all
+            // and silently refuse every drop for the rest of the gesture.
+            const cellReg = dest !== null ? cells.current.get(dest) : undefined;
+            const sinkReg = dest !== null ? sinks.current.get(dest) : undefined;
+            if (dest !== null && cellReg !== undefined) {
+                if (cellConnected(cellReg, current.payload)) {
+                    if (cellVetoed(cellReg, current.payload, ev.clientX, ev.clientY)) {
+                        dest.removeAttribute("data-drop-active");
+                        dest.setAttribute("data-drop-invalid", "");
+                    } else {
+                        dest.removeAttribute("data-drop-invalid");
+                        // Also repairs a late-registered cell's candidate mark.
+                        dest.setAttribute("data-drop-valid", "");
+                        dest.setAttribute("data-drop-active", "");
+                    }
+                    // Hovered only when CONNECTED: an unconnected element is not
+                    // a destination, and `endDrag` must not consider it one.
                     hovered.current = dest;
                 }
-            } else if (dest) {
-                // A connected-but-vetoed cell shows the invalid treatment.
-                const reg = cells.current.get(dest);
-                if (reg && cellVetoed(reg, current.payload, ev.clientX, ev.clientY)) {
-                    dest.setAttribute("data-drop-invalid", "");
-                    hovered.current = dest;
-                }
+            } else if (dest !== null && sinkReg !== undefined && sinkValid(sinkReg, current.payload)) {
+                dest.setAttribute("data-drop-active", "");
+                hovered.current = dest;
             }
             // Touch (#353): no wheel while dragging — nudge the scrollable
             // ancestor under the finger when it nears an edge so cross-column
@@ -406,14 +446,14 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         document.addEventListener("pointercancel", onCancel);
         document.addEventListener("keydown", onKey, true);
         if (isTouch) document.addEventListener("touchmove", blockTouchScroll, { passive: false });
-    }, [cellValid, cellVetoed, sinkValid, endDrag]);
+    }, [cellValid, cellConnected, cellVetoed, sinkValid, endDrag]);
 
     const beginDrag = useCallback((e: ReactPointerEvent, payload: DragPayload) => {
         if (dragRef.current) return;
         const origin = e.currentTarget as HTMLElement;
 
         // Grip fast-path: a touch ON A DRAG GRIP (`[data-drag-grip]` — the
-        // ⋮⋮ handles on Library cards, Planner chips, Blend allocations,
+        // ⋮⋮ handles on Library cards, Roster chips, Blend allocations,
         // Board cards) is unambiguous drag intent, so it engages
         // immediately — grips carry `touch-action: none`, so no scroll
         // gesture competes. Body touches keep the long-press below.
@@ -449,13 +489,31 @@ export function DragLayerProvider({ children }: DragLayerProviderProps) {
         engageDrag(origin, payload, e.clientX, e.clientY, e.altKey, e.pointerType === "touch");
     }, [engageDrag]);
 
+    // The context value must NOT change as the pointer moves. `onMove` calls
+    // `setDrag` on every pointermove to drive the ghost, and the only thing
+    // consumers read from that is whether a drag is in flight — so the memo
+    // keys on the BOOLEAN, not on the drag object.
+    //
+    // Keying on `drag` made every pointermove publish a new context value,
+    // which re-rendered every consumer (each `useDropCell` / `useDragTarget`
+    // reads this context), which changed each `useDropCell` ref callback's
+    // identity, which made React detach and re-attach every registered cell —
+    // unregister + re-register, per cell, per mouse move. Measured on a 9-row
+    // Plan: ~17ms and 6 re-registrations per move, so a real mouse (60-120
+    // events/sec) outruns the main thread and the queue never drains. The tab
+    // stops responding, and because `pointerup` queues behind the backlog it
+    // presents as "it freezes when I release".
+    //
+    // The provider itself still re-renders per move for the ghost; `children`
+    // is a stable element from props, so that costs nothing.
+    const active = drag !== null;
     const context = useMemo<DragLayerContextValue>(() => ({
         registerTarget,
         registerCell,
         registerSink,
         beginDrag,
-        active: drag !== null,
-    }), [registerTarget, registerCell, registerSink, beginDrag, drag]);
+        active,
+    }), [registerTarget, registerCell, registerSink, beginDrag, active]);
 
     // ── Shared trash sink (#267) ──────────────────────────────────────────
     // While a drag whose owning target declares `kinds.remove` is in flight,

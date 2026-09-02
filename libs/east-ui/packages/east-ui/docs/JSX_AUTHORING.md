@@ -109,7 +109,7 @@ compiles unchanged.
 per component dir, grouped by category, with per-category barrels — exactly how
 `src/<category>/<component>/` + `src/<category>/index.ts` + `src/index.ts` are
 organized. Collapsing a category into one file (`collections.tsx`) was rejected:
-the heavy Table/Matrix/Gantt/Planner/Chart wrappers make those files unreviewable
+the heavy Table/Matrix/Plan/Chart wrappers make those files unreviewable
 and the barrel a flat dump.
 
 ```
@@ -124,7 +124,7 @@ src/jsx/
   forms/    checkbox.ts switch.ts slider.ts input.ts select.ts … + index.ts
   buttons/  button.ts icon-button.ts … + index.ts
   display/  badge.ts tag.ts avatar.ts stat.ts … + index.ts
-  collections/ table.ts matrix.ts gantt.ts planner.ts data-list.ts … + index.ts
+  collections/ table.ts matrix.ts plan.ts data-list.ts … + index.ts
   charts/   chart.ts sparkline.ts + index.ts
   reactive/ reactive.ts + index.ts
   … feedback/ navigation/ disclosure/ overlays/ container/
@@ -418,15 +418,15 @@ x={…} y={…} y2={…} />`. Encoding accessors are typed callbacks returning
 `key`→`name` (§3.4); `Sparkline` is a flat-prop leaf. (Final prop name —
 `layers=` vs `series=` — settled when built.)
 
-### 5.3 Matrix / Gantt / Planner — callbacks return factory values
+### 5.3 Matrix / Plan — callbacks return factory values
 
 Config stays props (`data`, `columns`, `rowKey`, `legend`, axis builders). The
 per-row builder callbacks receive the East `row` expression and return the
 factory's expected struct/array — **East code, no JSX, no bucketing**:
 
 - **Matrix:** `cell={(r, col) => Matrix.cell({ segments: […], markers: […] })}`.
-- **Gantt:** `row={row => ({ tasks: [Gantt.Task(…)], milestones: [Gantt.Milestone(…)] })}`.
-- **Planner:** `events={r => [Planner.event(…)]}` and `markers={r => [Planner.marker(…)]}`.
+- **Plan:** series accessors return element values — `runs: (r, k) => [Plan.run(…)]`,
+  `events: r => […Plan.event(…)]`, `marks: r => r.marks`.
 
 ### 5.4 Others
 
@@ -484,8 +484,8 @@ done as a phased migration (§9.1).
    `Numeric.format` → `TickFormatLiteral` (a named-preset proxy; it is a shaped,
    not nullary, enum); Grid root style enums + `Splitter.orientation` (add the
    `| XLiteral` member); `Banner` status literal export; rename code-block's
-   `CodeLanguage` → `CodeLanguageLiteral`; Gantt `TimeStepType` gets an
-   object/`Gantt.Step('days', n)` proxy (payload-carrying — a bare string can't
+   `CodeLanguage` → `CodeLanguageLiteral`; a payload-carrying variant like
+   `TimeStepType` gets an object proxy (a bare string can't
    express it). Chart spec enums stay internal until surfaced.
 3. **Widen `Card.Body` / `Card.Footer` / `Card.Section`** children from plain
    `ExprType<UIComponentType>[]` → `SubtypeExprOrValue<ArrayType<

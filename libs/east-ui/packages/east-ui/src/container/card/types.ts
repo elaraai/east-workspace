@@ -117,6 +117,6 @@ export interface CardStyle {
     accentColor?: SubtypeExprOrValue<StringType>;
     /** CSS padding shorthand for the body (default `"18px 20px"`). */
     bodyPadding?: SubtypeExprOrValue<StringType>;
-    /** When `true`, removes body padding (full-bleed) so a Planner / Table / Chart fills the card body. Overrides `bodyPadding`. */
+    /** When `true`, removes body padding (full-bleed) so a Plan / Table / Chart fills the card body. Overrides `bodyPadding`. */
     flush?: SubtypeExprOrValue<BooleanType>;
 }

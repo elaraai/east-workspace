@@ -7,6 +7,7 @@ import { memo, useId, useMemo, useCallback, createContext, useContext, type CSSP
 import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
+import { tokenizeDateTimeFormat, formatDateTime } from "@elaraai/east/internal";
 import { Chart, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
@@ -95,7 +96,7 @@ interface ChartStyle {
     accent: string;
     /** Stacking tier for the hover tooltip's portal — the design system's `zIndex.tooltip`
      *  token (top of the overlay stack), so the tooltip sits above sticky chart-chrome
-     *  (Planner / Gantt x-axes), drawers, dialogs and popovers rather than under them. */
+     *  (Plan / Table sticky headers), drawers, dialogs and popovers rather than under them. */
     tooltipZIndex: number;
     /** Resolve a data-driven token (e.g. a series colour) to a CSS value. */
     color: (token: string) => string;
@@ -167,27 +168,26 @@ function anchorFor(a: Anchor | undefined): "start" | "middle" | "end" {
     });
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const WEEKDAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/** Tokenized-pattern cache — axis patterns are static and ticks are many. */
+const DATE_PATTERN_TOKENS = new Map<string, ReturnType<typeof tokenizeDateTimeFormat>>();
 
-/** Format a Date against a token pattern (`YYYY`/`MMM`/`DD`/`ddd`/`HH`/`mm`/…),
- *  single-pass. Weekday tokens follow East's `DateTime.parseFormatted` set:
- *  `dd` (Su), `ddd` (Sun), `dddd` (Sunday). */
+/** Format a Date against an East datetime format pattern (`YYYY`/`MMM`/`DD`/
+ *  `ddd`/`HH`/`mm`/`h`/`A`/… — the FULL `datetime_format` vocabulary), via
+ *  East's OWN tokenizer + printer, so the UI and the language agree on every
+ *  pattern (`DateTime.printFormatted` and a chart axis format never drift).
+ *
+ *  #326 — East's `formatDateTime` formats in UTC by definition: East
+ *  DateTime values are UTC instants, so a pinned `[min, max)` window (and
+ *  the ticks / day-columns derived from it) renders identically regardless
+ *  of the viewer's timezone. */
 export function formatDatePattern(pattern: string, d: Date): string {
     if (isNaN(d.getTime())) return "";
-    const pad = (n: number) => String(n).padStart(2, "0");
-    // #326 — format in UTC: East DateTime values are UTC instants, so a pinned
-    // `[min, max)` window (and the ticks / day-columns derived from it) must
-    // render identically regardless of the viewer's timezone — deterministic,
-    // and consistent with the time-axis flooring in Planner / Gantt.
-    const map: Record<string, string> = {
-        YYYY: String(d.getUTCFullYear()), YY: pad(d.getUTCFullYear() % 100),
-        MMMM: MONTHS_LONG[d.getUTCMonth()]!, MMM: MONTHS[d.getUTCMonth()]!, MM: pad(d.getUTCMonth() + 1),
-        DD: pad(d.getUTCDate()), HH: pad(d.getUTCHours()), mm: pad(d.getUTCMinutes()), ss: pad(d.getUTCSeconds()),
-        dddd: WEEKDAYS_LONG[d.getUTCDay()]!, ddd: WEEKDAYS_LONG[d.getUTCDay()]!.slice(0, 3), dd: WEEKDAYS_LONG[d.getUTCDay()]!.slice(0, 2),
-    };
-    return pattern.replace(/YYYY|YY|MMMM|MMM|MM|DD|dddd|ddd|dd|HH|mm|ss/g, t => map[t] ?? t);
+    let tokens = DATE_PATTERN_TOKENS.get(pattern);
+    if (tokens === undefined) {
+        tokens = tokenizeDateTimeFormat(pattern);
+        DATE_PATTERN_TOKENS.set(pattern, tokens);
+    }
+    return formatDateTime(d, tokens);
 }
 
 /** Build a tick formatter for an axis from its optional {@link TickFormat} + scale kind. Shared with the `Slice.Rail` brush axis (#190). */
@@ -807,15 +807,15 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
 function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style: ChartStyle; brush?: boolean | undefined; onBrushEnd?: BrushEnd | undefined; brushKey?: string | undefined }): ReactNode {
     const { tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<TooltipDatum>();
     // Render the tooltip in a Portal (escaping the chart's local stacking context
-    // and any sticky sibling chrome — Planner / Gantt x-axes) at the `zIndex.tooltip`
+    // and any sticky sibling chrome — Plan / Table headers) at the `zIndex.tooltip`
     // tier. `containerRef` on the plot box converts the container-relative left/top
     // we already compute into page coordinates; `detectBounds` keeps it on-screen.
     const { containerRef, TooltipInPortal } = useTooltipInPortal({ detectBounds: true, scroll: true, zIndex: style.tooltipZIndex });
     // #152 — a per-chart clipPath id; series marks are clipped to the plot rect so
     // a point past a pinned `domain` is cut at the edge, not smeared over the y2 labels.
     const clipId = useId();
-    // #147 — inherit a shared plot gutter from an enclosing <AlignedStack>, so this
-    // chart's plot lane lines up with stacked siblings on a common x. Pin
+    // #147 — inherit a shared plot gutter from an enclosing plot-gutter context,
+    // so this chart's plot lane lines up with stacked siblings on a common x. Pin
     // margin.left/right to the gutter px (parsed from the CSS length).
     const ctxGutter = usePlotGutter();
     const gutterLeft = gutterPx(ctxGutter?.left);
@@ -847,7 +847,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             let xLabel = false, yLabel = false, y2Label = false;
             // #327 — extra px between the tick labels and each axis caption. Added
             // to that axis's OWN margin band below (never the shared gutter), so a
-            // title nudge can't shift an AlignedStack lane.
+            // title nudge can't shift a gutter-aligned lane.
             let xTitleGap = 0, yTitleGap = 0, y2TitleGap = 0;
             for (const c of f.children) match(c, {
                 axisLeft: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) leftDomain = domainBounds(d); if (getSomeorUndefined(v.label)) yLabel = true; yTitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
@@ -856,8 +856,8 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             }, undefined);
 
             // Margins: base, widened for axis titles + the right axis. A shared
-            // plot gutter (#147, from an <AlignedStack>) pins left/right exactly so
-            // the lane aligns with stacked siblings — overriding the derived widths.
+            // plot gutter (#147, from the plot-gutter context) pins left/right exactly
+            // so the lane aligns with stacked siblings — overriding the derived widths.
             // (The gutter wins unconditionally: the Chart factory always fills
             // `margin` with a default, so there's no renderer-visible signal for an
             // author-set margin to defer to — `gutterLeft ?? base.left` is correct.)
@@ -986,7 +986,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                                     the rect is in this Group's [0,0,innerW,innerH] coords). The
                                     clip is EXACTLY the plot rect — a marker on the domain edge is
                                     cleanly halved at the gutter boundary rather than bleeding past
-                                    it, so a chart stacked in an <AlignedStack> stays aligned to
+                                    it, so a gutter-aligned chart stays aligned to
                                     [left, W−right] (padding the rect outward broke that). */}
                                 <defs>
                                     <clipPath id={clipId}>

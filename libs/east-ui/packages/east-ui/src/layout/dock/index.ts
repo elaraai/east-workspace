@@ -97,7 +97,7 @@ function persistValue(v: NonNullable<DockStyle["persist"]>): SubtypeExprOrValue<
  * opposite — a CSS takeover that fills the app container). A Dock stays an
  * ordinary flex child: collapsed, it shrinks to `railSize` and the freed
  * space is reclaimed by its siblings — so it can sit beside a drop target (a
- * `Planner`, a board) and tuck away without covering it. Arbitrarily nestable;
+ * `Plan`, a board) and tuck away without covering it. Arbitrarily nestable;
  * each dock keyed by its own structural storage key. Drive it from state with
  * `collapsed` + `onCollapsedChange`, or omit both for uncontrolled toggling
  * (optionally `persist`ed). Distinct from the disclosure `Collapsible`

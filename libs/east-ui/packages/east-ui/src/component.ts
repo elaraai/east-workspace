@@ -14,7 +14,6 @@ import {
     FloatType,
     BooleanType,
     NullType,
-    DateTimeType,
     BlobType,
     DictType,
     FunctionType,
@@ -37,11 +36,11 @@ import { CodeBlockType } from "./typography/code-block/types.js";
 
 // Layout
 import { DensityType, AlignType, LabelInputType } from "./style.js";
+import { RowSourceType } from "./contracts/source.js";
 import { BoxStyleType } from "./layout/box/types.js";
 import { FlexStyleType } from "./layout/flex/types.js";
 import { StackStyleType } from "./layout/stack/types.js";
-import { AlignedStackStyleType } from "./layout/aligned-stack/types.js";
-import { AlignedGutterType, PlotGutterType } from "./shared/plot-gutter.js";
+import { PlotGutterType } from "./shared/plot-gutter.js";
 import { SeparatorStyleType } from "./layout/separator/types.js";
 import { GridStyleType } from "./layout/grid/types.js";
 import { SplitterStyleType } from "./layout/splitter/types.js";
@@ -96,7 +95,6 @@ import { BannerStyleType } from "./feedback/banner/types.js";
 import { EmptyStateStyleType } from "./feedback/empty-state/types.js";
 import { SkeletonType } from "./feedback/skeleton/types.js";
 import { StatusValueType, StatusStyleType } from "./feedback/status/types.js";
-import { ColorSchemeType } from "./style/scheme.js";
 
 // Navigation
 import { BreadcrumbRootType } from "./navigation/breadcrumb/types.js";
@@ -177,6 +175,7 @@ import {
 import { StatusTokenType } from "./style/interaction.js";
 import { CardStyleType } from "./container/card/types.js";
 import { StateValueType } from "./contracts/states.js";
+import { ApprovalStateType, RowRefType } from "./contracts/approval.js";
 import { StatIndicatorType, StatStyleType } from "./display/stat/types.js";
 import { TickFormatType } from "./format/types.js";
 import { SliceSummaryType } from "./slice/summary/types.js";
@@ -188,6 +187,7 @@ import { SliceSearchType } from "./slice/search/types.js";
 import { SliceCohortPickerType } from "./slice/cohort/types.js";
 import { SliceBindType, SliceBrushStyleType, SliceChromeType, SlicePersistType } from "./platform/slice/index.js";
 import { SliceAffordanceType } from "./contracts/slice-affordances.js";
+import { PickBindType, PickPanelType } from "./contracts/pick.js";
 import { IconType } from "./display/icon/types.js";
 
 // Collections
@@ -212,29 +212,21 @@ import {
     TableGroupLevelType,
 } from "./collections/table/types.js";
 import {
-    GanttStyleType,
-    GanttAxisType,
-    GanttMilestoneKindType,
-    GanttTaskClickEventType,
-    GanttTaskProgressChangeEventType,
-    GanttMilestoneClickEventType,
-    TimeStepType,
-} from "./collections/gantt/types.js";
-import {
-    PlannerSlotType,
-    PlannerAxisType,
-    PlannerStateType,
-    PlannerMarkerType,
-    PlannerStretchType,
-    PlannerContentType,
-    PlannerAnimationType,
-    PlannerColumnType,
-    PlannerCellType,
-    PlannerVariantType,
-    PlannerSelectEventType,
-    PlannerApprovalType,
-    PlannerApproveEventType,
-} from "./collections/planner/types.js";
+    PlanAxisType,
+    PlanGrainType,
+    PlanLinkType,
+    PlanRowsType,
+    PlanElementRefType,
+    PlanRowRefType,
+    PlanRunClickEventType,
+    PlanEventClickEventType,
+    PlanMarkClickEventType,
+    PlanChipClickEventType,
+    PlanCellClickEventType,
+    PlanGroupToggleEventType,
+    PlanFooterItemType,
+    PlanStyleType,
+} from "./collections/plan/types.js";
 import {
     TableRowClickEventType,
     TableCellClickEventType,
@@ -403,11 +395,6 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         children: ArrayType(node),
         density: OptionType(DensityType),
         style: OptionType(StackStyleType),
-    }),
-    AlignedStack: StructType({
-        children: ArrayType(node),
-        gutter: OptionType(AlignedGutterType),
-        style: OptionType(AlignedStackStyleType),
     }),
 
     Separator: StructType({
@@ -795,6 +782,22 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         brush: OptionType(SliceBrushStyleType),
     }),
 
+    /**
+     * PickPanel — the library of a component's declared things (#590): one row
+     * each, an eye to switch it off, and nothing about what the things ARE.
+     *
+     * The payload is the non-generic `PickBindType`, which is the whole point:
+     * a `UIComponentType` arm must be a closed East type, so a panel generic in
+     * the item type is unconstructable. One arm therefore serves a Plan picking
+     * row series, a Table picking columns, a Chart picking layers — and the
+     * renderer draws `items` without ever learning which it is.
+     *
+     * `title` is the author's noun ("Series" / "Columns" / "Layers"), for the
+     * same reason: the contract holds identified things and cannot name them.
+     * `persist` reuses the slice's storage vocabulary (#168).
+     */
+    PickPanel: PickPanelType,
+
     // Container
     Card: StructType({
         header: OptionType(node),
@@ -878,7 +881,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     }),
 
     Table: StructType({
-        rows: ArrayType(DictType(StringType, LiteralValueType)),
+        // The row SOURCE (#576): the whole mapped collection, or a window at a
+        // time. Mirrors `TableRootType.rows` — this inline copy exists because
+        // container arms need `node` for their recursive children.
+        rows: RowSourceType(ArrayType(DictType(StringType, LiteralValueType))),
         columns: ArrayType(StructType({
             key: StringType,
             dataType: EastTypeType,
@@ -923,162 +929,86 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
         // Optional review chrome (#264) — mirror the shared row-granularity
         // `RowReviewType` (`contracts/review.ts`), spelled with the recursion
-        // `node` for `summary` (the Planner precedent); the accessors ride
+        // `node` for `summary`; the accessors ride
         // `(rowIndex) => Option<…>` over the unsliced row index.
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
-            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApprove: OptionType(FunctionType([RowRefType], NullType)),
+            onReject: OptionType(FunctionType([RowRefType], NullType)),
             onApproveAll: OptionType(FunctionType([], NullType)),
             onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),
             rerunLabel: StringType,
         })),
         reviewStatus: OptionType(FunctionType([IntegerType], OptionType(StatusValueType))),
-        reviewApproval: OptionType(FunctionType([IntegerType], OptionType(PlannerApprovalType))),
+        reviewApproval: OptionType(FunctionType([IntegerType], OptionType(ApprovalStateType))),
         slice: OptionType(SliceChromeType),
         style: OptionType(TableStyleType),
     }),
 
-    Gantt: StructType({
-        rows: ArrayType(StructType({
-            cells: DictType(StringType, LiteralValueType),
-            tasks: ArrayType(StructType({
-                start: DateTimeType,
-                end: DateTimeType,
-                label: OptionType(LabelInputType),
-                progress: OptionType(FloatType),
-                // The shared event lifecycle + the risk/status tint (#262) —
-                // mirror `GanttTaskType` in `collections/gantt/index.ts`.
-                state: PlannerStateType,
-                status: OptionType(StatusValueType),
-                popover: OptionType(node),
-            })),
-            milestones: ArrayType(StructType({
-                date: DateTimeType,
-                label: OptionType(LabelInputType),
-                kind: OptionType(GanttMilestoneKindType),
-                popover: OptionType(node),
-            })),
-            // Review chrome (#263) — mirror `GanttRowType` in
-            // `collections/gantt/index.ts` (approval = the shared
-            // `ApprovalStateType`, structurally `PlannerApprovalType`).
-            status: OptionType(StatusValueType),
-            approval: OptionType(PlannerApprovalType),
-        })),
-        columns: ArrayType(StructType({
-            key: StringType,
-            dataType: EastTypeType,
-            valueType: EastTypeType,
-            header: OptionType(StringType),
-            width: OptionType(StringType),
-            minWidth: OptionType(StringType),
-            maxWidth: OptionType(StringType),
-            render: FunctionType([TableCellRenderContextType], node),
-            // Mirrors TableColumnType (#317) — unused by the Gantt pane.
-            aggregate: OptionType(TableAggregateType),
-            aggregateRender: OptionType(FunctionType([LiteralValueType], node)),
-        })),
-        frozen: ArrayType(StringType),
-        axis: OptionType(GanttAxisType),
-        dragStep: OptionType(TimeStepType),
-        durationStep: OptionType(TimeStepType),
-        rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
-        onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
-        onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
-        onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
-        onRowDoubleClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
-        onSortChange: OptionType(FunctionType([TableSortEventType], NullType)),
-        onTaskClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
-        onTaskDoubleClick: OptionType(FunctionType([GanttTaskClickEventType], NullType)),
-        // DnD target role (#268) — mirror `GanttRootType`; the drag funnel is
-        // the shared grammar (`contracts/drag.ts`).
-        id: StringType,
-        sources: ArrayType(StringType),
-        onDrag: OptionType(FunctionType([DragEventType], NullType)),
-        canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
-        onTaskProgressChange: OptionType(FunctionType([GanttTaskProgressChangeEventType], NullType)),
-        onMilestoneClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
-        onMilestoneDoubleClick: OptionType(FunctionType([GanttMilestoneClickEventType], NullType)),
-        // Optional review chrome (#263) — mirror the shared row-granularity
-        // `RowReviewType` (`contracts/review.ts`), spelled with the recursion
-        // `node` for `summary` (the Planner precedent).
+    // Plan — the axis-aligned composite canvas: one shared axis
+    // ({ time | number | ordinal }, #631) over heterogeneous rows — span runs, bucket
+    // lanes, chart layers, heat / table cells, chips and event marks — flat
+    // rows with `parent` keys. Rows are PURE DATA (`PlanRowType` — no UI, no
+    // functions; pageable), so the arm references the named types directly;
+    // only the root's resolver slots (`popover` / `hover` / `expandRender`)
+    // and the review summary ride the recursion `node` — mirror
+    // `PlanRootType` in `collections/plan/ir.ts`.
+    Plan: StructType({
+        // Inline rows OR the derived paged source (§3.8) — pure data both ways.
+        rows: PlanRowsType,
+        // Mirror `PlanRootType.links` — the R1 link graph.
+        links: ArrayType(PlanLinkType),
+        axis: PlanAxisType,
+        grain: OptionType(PlanGrainType),
+        // The generalized element resolvers (Plan Data Interface.md §3.3),
+        // over one element-ref variant — every ref carries the row key.
+        // Resolved lazily at interaction time; a `none` result opens no
+        // surface. Naming per the Schematic / Flowchart `*Hover` resolver
+        // convention (`on*` stays the action callbacks below).
+        popover: OptionType(FunctionType([PlanElementRefType], OptionType(node))),
+        hover: OptionType(FunctionType([PlanElementRefType], OptionType(node))),
+        // The R2 developer render for rows declaring `expand` (the row keeps
+        // the `{ height, axis }` declaration; the render is ONE function).
+        expandRender: OptionType(FunctionType([PlanRowRefType], node)),
+        // The R2 gutter render — the expanded row's gutter grows with it, and
+        // what fills the new space is the author's.
+        expandGutter: OptionType(FunctionType([PlanRowRefType], node)),
+        // Optional review chrome — mirror `reviewType(PlanRowRefType, ·)`
+        // (`contracts/approval.ts`), `summary` on the recursion `node`;
+        // subjects are keyed rows, never indices.
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
-            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApprove: OptionType(FunctionType([PlanRowRefType], NullType)),
+            onReject: OptionType(FunctionType([PlanRowRefType], NullType)),
             onApproveAll: OptionType(FunctionType([], NullType)),
             onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),
             rerunLabel: StringType,
         })),
+        // The series library (#590) — chrome, like the slice rail. The
+        // NON-generic contract only: an arm must be a closed East type, so the
+        // author's typed handle stays outside and only its `pick` half rides.
+        pick: OptionType(PickBindType),
         slice: OptionType(SliceChromeType),
-        style: OptionType(GanttStyleType),
-    }),
-
-    Planner: StructType({
-        variant: PlannerVariantType,
-        axis: PlannerAxisType,
-        columns: ArrayType(PlannerColumnType),
-        rows: ArrayType(StructType({
-            group: OptionType(StringType),
-            cells: DictType(StringType, PlannerCellType),
-            // Mirror `PlannerEventType` in `collections/planner/index.ts` — `popover`
-            // / `hovercard` are spelled with the recursion `node` here (the resolved
-            // `UIComponentType` there).
-            events: ArrayType(StructType({
-                key: OptionType(StringType),
-                slot: PlannerSlotType,
-                endSlot: OptionType(PlannerSlotType),
-                bucket: OptionType(StringType),
-                label: StringType,
-                state: PlannerStateType,
-                popover: OptionType(node),
-                stretch: OptionType(PlannerStretchType),
-                content: OptionType(PlannerContentType),
-                tone: OptionType(StatusValueType),
-                color: OptionType(StringType),
-                colorPalette: OptionType(ColorSchemeType),
-                animation: OptionType(PlannerAnimationType),
-                hovercard: OptionType(node),
-            })),
-            markers: ArrayType(PlannerMarkerType),
-            status: OptionType(StatusValueType),
-            approval: OptionType(PlannerApprovalType),
-        })),
-        now: OptionType(PlannerSlotType),
-        density: OptionType(DensityType),
-        slotMinWidth: OptionType(StringType),
-        // Optional max-height (CSS) for the plan area — body scrolls vertically
-        // within it with the header pinned (sticky-top). Absent ⇒ content-sized.
-        maxHeight: OptionType(StringType),
-        // Definite height (#320) — pins the plan to exactly this box (`"fill"`
-        // fills the parent), header pinned, body scrolls within.
-        height: OptionType(StringType),
-        plotGutter: OptionType(PlotGutterType),
-        onSelectRow: OptionType(FunctionType([PlannerSelectEventType], NullType)),
-        // Optional review chrome — the per-row decision column + batch foot.
-        // Mirror this shape with `PlannerReviewType` in
-        // `collections/planner/index.ts` (which spells `summary` with the
-        // resolved `UIComponentType` rather than the recursion `node`).
-        review: OptionType(StructType({
-            columnLabel: StringType,
-            summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
-            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
-            onApproveAll: OptionType(FunctionType([], NullType)),
-            onRejectAll: OptionType(FunctionType([], NullType)),
-            onRerun: OptionType(FunctionType([], NullType)),
-            rerunLabel: StringType,
-        })),
-        rowHover: OptionType(BooleanType),
-        // Opt-in DnD target role (#269) — mirror `PlannerRootType`.
+        footer: ArrayType(PlanFooterItemType),
+        // DnD target role — the shared grammar (`contracts/drag.ts`).
         id: StringType,
         sources: ArrayType(StringType),
         onDrag: OptionType(FunctionType([DragEventType], NullType)),
         canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
+        // Selection + per-element clicks.
+        onSelect: OptionType(FunctionType([PlanRowRefType], NullType)),
+        onRunClick: OptionType(FunctionType([PlanRunClickEventType], NullType)),
+        onEventClick: OptionType(FunctionType([PlanEventClickEventType], NullType)),
+        onMarkClick: OptionType(FunctionType([PlanMarkClickEventType], NullType)),
+        onChipClick: OptionType(FunctionType([PlanChipClickEventType], NullType)),
+        onCellClick: OptionType(FunctionType([PlanCellClickEventType], NullType)),
+        onGroupToggle: OptionType(FunctionType([PlanGroupToggleEventType], NullType)),
+        onGrainChange: OptionType(FunctionType([PlanGrainType], NullType)),
+        style: OptionType(PlanStyleType),
     }),
 
     // Roster — people × days-of-week shift grid (drag & drop target role).
@@ -1106,8 +1036,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
-            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApprove: OptionType(FunctionType([RowRefType], NullType)),
+            onReject: OptionType(FunctionType([RowRefType], NullType)),
             onApproveAll: OptionType(FunctionType([], NullType)),
             onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),
@@ -1144,8 +1074,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlannerApproveEventType], NullType)),
-            onReject: OptionType(FunctionType([PlannerApproveEventType], NullType)),
+            onApprove: OptionType(FunctionType([RowRefType], NullType)),
+            onReject: OptionType(FunctionType([RowRefType], NullType)),
             onApproveAll: OptionType(FunctionType([], NullType)),
             onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),
@@ -1611,8 +1541,7 @@ export type AppValueType = typeof AppValueType;
  * segment labels.
  *
  * @remarks
- * Used by Matrix cell overlays, Planner event overlays, and Gantt
- * task / milestone overlays. The renderer paints each overlay as an
+ * Used by Matrix cell overlays. The renderer paints each overlay as an
  * absolutely-positioned flex container filling the parent box, with
  * `align` / `verticalAlign` mapped to `justify-content` /
  * `align-items` (start → flex-start, end → flex-end). Multiple

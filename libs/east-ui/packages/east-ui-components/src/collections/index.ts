@@ -40,11 +40,11 @@ export {
 } from "./tree-view";
 
 export {
-    EastChakraPlanner,
-    type PlannerRootValue,
-    type PlannerEventValue,
-    type EastChakraPlannerProps,
-} from "./planner";
+    EastChakraPlan,
+    type PlanRootValue,
+    type PlanRowValue,
+    type EastChakraPlanProps,
+} from "./plan";
 
 export {
     EastChakraLibrary,
@@ -103,3 +103,15 @@ export {
     type BlendAllocationValue,
     type EastChakraBlendProps,
 } from "./blend";
+
+// Key search over a collection's canonical key order (#520, relocated in #574
+// — it has no e3 dependency: every prop is a host callback).
+export {
+    DatasetKeySearch,
+    parseKeyInput,
+    keyRangePredicates,
+    type DatasetKeySearchProps,
+    type DatasetKeyMatchRange,
+    type DatasetKeyQuery,
+    type ParsedKeyInput,
+} from "./key-search/index.js";

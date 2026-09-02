@@ -181,7 +181,7 @@ export const semanticTokens = defineSemanticTokens({
             surface:     { value: { _light: "{colors.white}",    _dark: "{colors.gray.800}" } },
             inverse:     { value: { base: "{colors.brand.900}", _dark: "{colors.white}"     } },
 
-            /* Surface roles referenced by Table / Gantt / Planner / Matrix /
+            /* Surface roles referenced by Table / Plan / Matrix /
              * NavList / CommandPalette. These names collide with Chakra's
              * built-in `bg.*` semantic tokens, which define a `_light` value —
              * and `_light` beats a plain `base` at resolution in light mode, so

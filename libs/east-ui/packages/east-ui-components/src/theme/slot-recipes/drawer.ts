@@ -14,7 +14,7 @@ export const drawerSlotRecipe = defineSlotRecipe({
     slots: ["trigger", "backdrop", "positioner", "content", "eyebrow", "title", "description", "header", "body", "footer", "closeTrigger"],
     base: {
         // The drawer opens WITHOUT a slide/fade transition (the Chakra default
-        // slide is `slowest` and janks while heavy content — Table / Planner /
+        // slide is `slowest` and janks while heavy content — Table / Plan /
         // Chart — lays out during the animation). Zero the animation duration so
         // the panel + backdrop appear instantly (the animationend still fires, so
         // Ark's mount/exit lifecycle is preserved).

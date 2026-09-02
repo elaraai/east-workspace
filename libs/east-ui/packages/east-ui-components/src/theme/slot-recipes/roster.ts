@@ -22,7 +22,7 @@ export const rosterSlotRecipe = defineSlotRecipe({
         "strip", "stripSummary", "stripHint",
     ],
     base: {
-        /* Bare like Table / Planner — identity chrome (title, outer frame)
+        /* Bare like the Table — identity chrome (title, outer frame)
          * is host composition via Card / Slice.Frame. */
         root: {
             background: "bg.surface",
@@ -147,7 +147,7 @@ export const rosterSlotRecipe = defineSlotRecipe({
             "&[data-dragging]": { opacity: "0.4" },
         },
         /* The chip's text — truncates with an ellipsis when it can't fit its
-         * (equal, floored) column, mirroring the Planner event label. */
+         * (equal, floored) column, mirroring the shared event-label rule. */
         chipLabel: {
             flex: "1",
             minWidth: "0",

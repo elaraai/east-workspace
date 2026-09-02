@@ -6,8 +6,8 @@
 /**
  * Splitter slot recipe — overrides Chakra's default `resizeTrigger` handle
  * (a prominent white pill) with a restrained grip: a small rounded bar, subtle
- * at rest and brighter on hover/focus. Auto-applies to every `Splitter.Root`
- * (general layout, Gantt, Planner). Dual-pane collections nudge the grip into
+ * at rest and brighter on hover/focus. Auto-applies to every `Splitter.Root`.
+ * Dual-pane layouts nudge the grip into
  * the rows area with a per-instance `_after.top` override (the header height is
  * runtime data, not a recipe value).
  *
