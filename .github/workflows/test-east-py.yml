@@ -170,7 +170,9 @@ jobs:
   # east-node CLI's `transpile --rebuild` is the TypeScript leg) AND python
   # (the printer, the builder, the normalizer), so it is one Linux job rather
   # than a leg of the per-OS matrix. EAST_SWEEP_REQUIRED=1 makes a missing CLI
-  # a failure rather than the local skip.
+  # a failure rather than the local skip. The cross-import test rides here
+  # too: TypeScript-authored functions exported by `east-node
+  # export-functions` and imported, linked and run from python.
   three-way-sweep:
     name: Three-way sweep (TS ↔ python)
     needs: export-ir
@@ -230,7 +232,7 @@ jobs:
           EAST_CONFORMANCE_REQUIRED: "1"
           EAST_SWEEP_REQUIRED: "1"
           EAST_NODE_CLI: ${{ github.workspace }}/libs/east-node/packages/east-node-cli/bin/east-node.mjs
-        run: uv run pytest tests/conformance/test_three_way_sweep.py -q --no-cov
+        run: uv run pytest tests/conformance/test_three_way_sweep.py tests/conformance/test_cross_import.py -q --no-cov
 
   test-east-py-std:
     name: Test east-py-std (${{ matrix.os }})

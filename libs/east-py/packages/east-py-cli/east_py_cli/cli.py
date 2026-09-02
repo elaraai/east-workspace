@@ -56,7 +56,7 @@ def create_parser() -> argparse.ArgumentParser:
         "--name", metavar="NAME",
         help="The package name importers use (default: the module's top-level name)")
     export_parser.add_argument(
-        "--version", metavar="VERSION",
+        "--package-version", metavar="VERSION",
         help="The package version recorded in the manifest (default: the installed "
         "distribution's version, else 0.0.0)")
 
@@ -410,7 +410,7 @@ def cmd_export_functions(args: argparse.Namespace) -> int:
                 "platform function(s) no -p package provides: " + ", ".join(missing)
                 + " — pass the implementing package with -p")
 
-        version = args.version
+        version = args.package_version
         if version is None:
             try:
                 version = importlib.metadata.version(top.replace("_", "-"))

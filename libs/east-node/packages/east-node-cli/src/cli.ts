@@ -70,7 +70,7 @@ interface ExportFunctionsOptions {
     output: string;
     package?: string[];
     name?: string;
-    version?: string;
+    packageVersion?: string;
 }
 
 /**
@@ -214,7 +214,7 @@ async function cmdExportFunctions(modulePath: string, options: ExportFunctionsOp
     try {
         const opts: { name?: string; version?: string; packages?: string[] } = { packages: options.package ?? [] };
         if (options.name !== undefined) opts.name = options.name;
-        if (options.version !== undefined) opts.version = options.version;
+        if (options.packageVersion !== undefined) opts.version = options.packageVersion;
         const manifest = await exportFunctionsFromModule(modulePath, opts);
         writeFileSync(options.output, East.encodeFunctionManifest(manifest));
         console.error(`Exported ${manifest.functions.length} function(s) of ${manifest.package}@${manifest.version} to ${options.output}`);
@@ -295,7 +295,7 @@ export function main(): void {
         .requiredOption('-o, --output <file>', 'The manifest to write (.beast2)')
         .option('-p, --package <package...>', "Platform packages implementing the functions' platform calls (each dependency must be provided by one)")
         .option('--name <name>', "The package name importers use (default: the module file's stem)")
-        .option('--version <version>', 'The version recorded in the manifest (default: 0.0.0)')
+        .option('--package-version <version>', 'The version recorded in the manifest (default: 0.0.0)')
         .action(cmdExportFunctions);
 
     program

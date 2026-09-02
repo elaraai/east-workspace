@@ -58,7 +58,7 @@ def test_export_functions_writes_a_manifest_that_links(tmp_path: Path):
     (tmp_path / "acme_platform.py").write_text(PLATFORM, encoding="utf-8")
     out = tmp_path / "pricing.functions.beast2"
     result = _run("export-functions", str(module), "-o", str(out), "-p", "acme-platform",
-                  "--name", "pricing", "--version", "2.0.0", pythonpath=tmp_path)
+                  "--name", "pricing", "--package-version", "2.0.0", pythonpath=tmp_path)
     assert result.returncode == 0, result.stderr
     assert "Exported 2 function(s) of pricing@2.0.0" in result.stderr
 
