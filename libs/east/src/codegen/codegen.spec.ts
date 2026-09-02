@@ -27,7 +27,7 @@ import { pathToFileURL } from "node:url";
 
 import {
   East, Expr, variant, ref, some, none,
-  ArrayType, DictType, FloatType, IntegerType, NullType, OptionType, RecursiveType,
+  ArrayType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType,
   SetType, StringType, StructType, VariantType, VectorType,
   IRType, EastTypeType, fromJSONFor, equalFor, isVariant, toSource, RAW_ONLY,
 } from "../index.js";
@@ -340,6 +340,30 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.match(source, /xs\.map\(\(\$, x, v_1\) => x\.multiply\(2n\)\)\.reduce\(\(\$, v_0, x, v_2\) => v_0\.add\(x\), 0n\)/);
     const main = await roundTrip(ir, "foreign names");
     assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL }), source, "print → build → print is the identity");
+  });
+
+  test("a wide literal, its type and an argument list break one entry per line", async () => {
+    const Ops = StructType({ add: FunctionType([IntegerType, IntegerType], IntegerType), multiply: FunctionType([IntegerType, IntegerType], IntegerType) });
+    const fn = East.function([], IntegerType, ($) => {
+      const mathOps = $.const({ add: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)), multiply: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.multiply(b)) }, Ops);
+      return mathOps.add(mathOps.multiply(2n, 3n), 4n);
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL });
+    assert.ok(source.includes([
+      "export const main = East.function([], IntegerType, ($) => {",
+      "  const mathOps = $.const({",
+      "    add: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)),",
+      "    multiply: East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.multiply(b)),",
+      "  }, StructType({",
+      "    add: FunctionType([IntegerType, IntegerType], IntegerType),",
+      "    multiply: FunctionType([IntegerType, IntegerType], IntegerType),",
+      "  }));",
+      "  return mathOps.add(mathOps.multiply(2n, 3n), 4n);",
+      "});",
+    ].join("\n")), source);
+    assert.doesNotMatch(source, /^const _t/m, "no type is hoisted for its width");
+    const main = await roundTrip(fn, "layout");
+    assert.equal(main.toIR().compile([])(), 10n);
   });
 
   test("a raw builtin prints through East.builtin and rebuilds", async () => {

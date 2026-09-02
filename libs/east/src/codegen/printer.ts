@@ -46,14 +46,14 @@
  * slot the body did not name; python's `__nN` and a name the scope already
  * uses are renamed `v_N`, numbered once per module (above any `v_N` the IR
  * holds) so a printed module rebuilds to itself; `$` is reserved for the
- * block. A type whose source fits on a line prints inline wherever it is
- * used (`$.let(new Map([...]), DictType(IntegerType, StringType))`, as an
- * author writes it); a longer one, and every recursive type, is hoisted to
- * a module constant `_tN` (deduplicated structurally), as an author names
- * the types worth naming. Platform declarations are hoisted to `_pN` (one
- * per distinct signature). Deep expression nesting is broken with `const
- * _eN = <expr>` temporaries, so any IR width or depth prints to parseable
- * source.
+ * block. Every type prints inline where it is used (`$.let(new Map([...]),
+ * DictType(IntegerType, StringType))`, as an author writes it); a recursive
+ * type is hoisted to a module constant `_tN` (deduplicated structurally).
+ * A literal, an argument list or a struct / variant type wider than
+ * `LINE_WIDTH` breaks one entry per line, as a formatter lays it out.
+ * Platform declarations are hoisted to `_pN` (one per distinct signature).
+ * Deep expression nesting is broken with `const _eN = <expr>` temporaries,
+ * so any IR width or depth prints to parseable source.
  *
  * The contract, shared with the python printer (`east/codegen/printer.py`):
  * `build(print(IR)) ≡ IR` after normalization (`east-c ir normalize`) —
@@ -65,7 +65,7 @@ import { Expr } from "../expr/expr.js";
 import type { EastTypeValue } from "../type_of_type.js";
 import { IMPORT_PLATFORM } from "../functions.js";
 import { spellingFor, type Spelling } from "./spellings.js";
-import { TYPE_IMPORTS, isOptionValue, objectKey, typeConstructors, typeKey, typeSource } from "./types.js";
+import { TYPE_IMPORTS, isOptionValue, layout, objectKey, typeConstructors, typeKey, typeSource } from "./types.js";
 
 /** An IR node: a variant whose payload is the node's struct. */
 type Node = { type: string, value: any };
@@ -95,8 +95,6 @@ const STATEMENT_KINDS = new Set([
 /** How a body's last node prints — see {@link Printer.bodyLines}. */
 type BodyMode = "function" | "callback" | "null";
 const MAX_DEPTH = 24;
-/** A type whose source is at most this wide prints inline; a wider one is hoisted to a `_tN` constant. */
-const INLINE_TYPE_WIDTH = 80;
 /** The block parameter every statement-bearing body declares first. */
 const BLOCK = "$";
 const RESERVED = new Set([
@@ -192,10 +190,11 @@ class Printer {
   // ── module-level pieces ──────────────────────────────────────────────
 
   /**
-   * A type as source: a primitive name, or a constructor source that fits
-   * on a line, inline; a wider or recursive type hoisted to a `_tN` constant.
+   * A type as source, inline (`indent` is the line it starts on, for a
+   * struct or variant that breaks across lines); a recursive type hoisted
+   * to a `_tN` constant.
    */
-  typeRef(t: EastTypeValue): string {
+  typeRef(t: EastTypeValue, indent: string = ""): string {
     typeConstructors(t, this.used);
     const kind = t.type;
     if (kind === "Null" || kind === "Never" || kind === "Boolean" || kind === "Integer"
@@ -203,7 +202,7 @@ class Printer {
       return typeSource(t);
     }
     const key = typeKey(t);
-    if (key.length <= INLINE_TYPE_WIDTH && !key.includes("RecursiveType(")) return key;
+    if (!key.includes("RecursiveType(")) return typeSource(t, [], indent);
     const hit = this.types.get(key);
     if (hit === undefined) {
       const name = `_t${this.types.size}`;
@@ -274,14 +273,14 @@ class Printer {
     const params = (p.parameters as Node[]).map(v => this.bind(inner, v));
     const ctor = node.type === "AsyncFunction" ? "East.asyncFunction" : "East.function";
     const f = fnType.value as { inputs: EastTypeValue[], output: EastTypeValue };
-    const inputs = f.inputs.map(t => this.typeRef(t)).join(", ");
-    const out = this.typeRef(f.output);
+    const inputs = layout("[", f.inputs.map(t => this.typeRef(t, indent)), "]", indent);
+    const out = this.typeRef(f.output, indent);
     // A body that is one expression is a concise arrow, as a callback is
     // and as the source writes it: `($, x) => x.multiply(2n)`.
     if (consts.length === 0 && (p.body as Node).type !== "Block" && !isStatement(p.body)) {
       const sub: string[] = [];
       const text = this.expr(p.body, inner, sub, indent + "  ");
-      if (sub.length === 0) return `${ctor}([${inputs}], ${out}, (${[BLOCK, ...params].join(", ")}) => ${text})`;
+      if (sub.length === 0) return `${ctor}(${inputs}, ${out}, (${[BLOCK, ...params].join(", ")}) => ${text})`;
     }
     const bodyIndent = indent + "  ";
     const body: string[] = [];
@@ -290,7 +289,7 @@ class Printer {
       body.push(...this.statementLines(let_, inner, bodyIndent));
     }
     body.push(...this.bodyLines(p.body, inner, bodyIndent, "function"));
-    const head = `${ctor}([${inputs}], ${out}, (${[BLOCK, ...params].join(", ")}) => {`;
+    const head = `${ctor}(${inputs}, ${out}, (${[BLOCK, ...params].join(", ")}) => {`;
     return [head, ...body, `${indent}})`].join("\n");
   }
 
@@ -398,17 +397,17 @@ class Printer {
       const varT = p.variable.value.type as EastTypeValue;
       let valueNode: Node = p.value;
       // A widening at the binding is the binding's declared type: `$.const(v, T)`.
-      let typed = typeKey(varT) === typeKey(valueNode.value.type) ? "" : `, ${this.typeRef(varT)}`;
+      let typed = typeKey(varT) === typeKey(valueNode.value.type) ? "" : `, ${this.typeRef(varT, indent)}`;
       if (valueNode.type === "As" && typeKey(valueNode.value.type) === typeKey(varT)) {
         valueNode = valueNode.value.value;
-        typed = `, ${this.typeRef(varT)}`;
+        typed = `, ${this.typeRef(varT, indent)}`;
       }
       // A bound construction is the host literal with the type on the binding
       // (`$.let(new Map([...]), T)`): an `East.value(..., T)` wrapper there is
       // the redundancy the surface's own diagnostics flag. A scalar literal
       // needs no type (`$.let(0n)`), so it stays on the expression path.
       const literal = typed === "" && valueNode.type !== "Value" ? this.literalFor(varT)(valueNode, scope, pre, indent, 0) : null;
-      if (literal !== null) typed = `, ${this.typeRef(varT)}`;
+      if (literal !== null) typed = `, ${this.typeRef(varT, indent)}`;
       const value = literal ?? this.expr(valueNode, scope, pre, indent);
       const name = this.bind(scope, p.variable);
       const ctor = p.variable.value.mutable ? `${BLOCK}.let` : `${BLOCK}.const`;
@@ -532,15 +531,15 @@ class Printer {
         if (p.name === IMPORT_PLATFORM && argNodes.length === 2 && argNodes.every(a => a.type === "Value")) {
           // an unresolved cross-language import: its own spelling, not a platform declaration
           const [pkg, name] = argNodes.map(a => literal(a.value.value));
-          return `East.importFunction(${pkg}, ${name}, ${this.typeRef(p.type)})`;
+          return `East.importFunction(${pkg}, ${name}, ${this.typeRef(p.type, indent)})`;
         }
-        const args = argNodes.map(a => this.expr(a, scope, pre, indent, d)).join(", ");
+        const args = argNodes.map(a => this.expr(a, scope, pre, indent, d));
         const ref = this.platformRef(p);
         if ((p.type_parameters as EastTypeValue[]).length > 0) {
-          const tps = (p.type_parameters as EastTypeValue[]).map(t => this.typeRef(t)).join(", ");
-          return `${ref}([${tps}]${args ? ", " : ""}${args})`;
+          const tps = (p.type_parameters as EastTypeValue[]).map(t => this.typeRef(t, indent)).join(", ");
+          return layout(`${ref}(`, [`[${tps}]`, ...args], ")", indent);
         }
-        return `${ref}(${args})`;
+        return layout(`${ref}(`, args, ")", indent);
       }
       case "Function":
       case "AsyncFunction":
@@ -548,11 +547,11 @@ class Printer {
       case "Call":
       case "CallAsync": {
         let fn = this.expr(p.function, scope, pre, indent, d);
-        const args = (p.arguments as Node[]).map(a => this.expr(a, scope, pre, indent, d)).join(", ");
+        const args = (p.arguments as Node[]).map(a => this.expr(a, scope, pre, indent, d));
         // a callee that already prints as a call, a member or a name needs no parentheses
         const fk = (p.function as Node).type;
         if (!["Variable", "GetField", "Call", "CallAsync", "Builtin", "Platform"].includes(fk)) fn = `(${fn})`;
-        return `${fn}(${args})`;
+        return layout(`${fn}(`, args, ")", indent);
       }
       case "GetField": {
         const base = this.expr(p.struct, scope, pre, indent, d);
@@ -567,15 +566,15 @@ class Printer {
       case "NewRef":
       case "NewVector":
       case "NewMatrix":
-        return `East.value(${this.literalFor(p.type as EastTypeValue)(node, scope, pre, indent, depth)!}, ${this.typeRef(p.type)})`;
+        return `East.value(${this.literalFor(p.type as EastTypeValue)(node, scope, pre, indent, depth)!}, ${this.typeRef(p.type, indent)})`;
       case "As":
-        return `East.as(${this.expr(p.value, scope, pre, indent, d)}, ${this.typeRef(p.type)})`;
+        return `East.as(${this.expr(p.value, scope, pre, indent, d)}, ${this.typeRef(p.type, indent)})`;
       case "WrapRecursive": {
         // the wrapper's inner type governs the wrapped value: a construction prints bare
         const payload = (p.type as EastTypeValue).value as { type: string, value: any };
         const inner: EastTypeValue | null = payload.type === "wrapper" ? payload.value.inner : null;
         const text = inner === null ? null : this.literalFor(inner)(p.value, scope, pre, indent, d);
-        return `East.wrapRecursive(${text ?? this.expr(p.value, scope, pre, indent, d)}, ${this.typeRef(p.type)})`;
+        return `East.wrapRecursive(${text ?? this.expr(p.value, scope, pre, indent, d)}, ${this.typeRef(p.type, indent)})`;
       }
       case "UnwrapRecursive":
         return `${this.expr(p.value, scope, pre, indent, d)}.unwrap()`;
@@ -639,13 +638,13 @@ class Printer {
       case "Array": {
         const elem = child(t.value as EastTypeValue);
         return (node, scope, pre, indent, depth) => node.type === "NewArray"
-          ? `[${(node.value.values as Node[]).map(v => elem(v, scope, pre, indent, depth + 1)).join(", ")}]`
+          ? layout("[", (node.value.values as Node[]).map(v => elem(v, scope, pre, `${indent}  `, depth + 1)), "]", indent)
           : null;
       }
       case "Set": {
         const elem = child(t.value as EastTypeValue);
         return (node, scope, pre, indent, depth) => node.type === "NewSet"
-          ? `new Set([${(node.value.values as Node[]).map(v => elem(v, scope, pre, indent, depth + 1)).join(", ")}])`
+          ? layout("new Set([", (node.value.values as Node[]).map(v => elem(v, scope, pre, `${indent}  `, depth + 1)), "])", indent)
           : null;
       }
       case "Dict": {
@@ -653,15 +652,15 @@ class Printer {
         const key = child(kv.key);
         const value = child(kv.value);
         return (node, scope, pre, indent, depth) => node.type === "NewDict"
-          ? `new Map([${(node.value.values as { key: Node, value: Node }[])
-            .map(e => `[${key(e.key, scope, pre, indent, depth + 1)}, ${value(e.value, scope, pre, indent, depth + 1)}]`).join(", ")}])`
+          ? layout("new Map([", (node.value.values as { key: Node, value: Node }[])
+            .map(e => `[${key(e.key, scope, pre, `${indent}  `, depth + 1)}, ${value(e.value, scope, pre, `${indent}  `, depth + 1)}]`), "])", indent)
           : null;
       }
       case "Struct": {
         const fields = new Map((t.value as { name: string, type: EastTypeValue }[]).map(f => [f.name, child(f.type)] as const));
         return (node, scope, pre, indent, depth) => node.type === "Struct"
-          ? `{ ${(node.value.fields as { name: string, value: Node }[])
-            .map(f => `${objectKey(f.name)}: ${(fields.get(f.name) ?? asExpr)(f.value, scope, pre, indent, depth + 1)}`).join(", ")} }`
+          ? layout("{", (node.value.fields as { name: string, value: Node }[])
+            .map(f => `${objectKey(f.name)}: ${(fields.get(f.name) ?? asExpr)(f.value, scope, pre, `${indent}  `, depth + 1)}`), "}", indent, " ")
           : null;
       }
       case "Variant": {
@@ -835,7 +834,7 @@ class Printer {
       if (slot.startsWith("T")) {
         const t = tps[Number(slot.slice(1))];
         if (t === undefined) throw new Unprintable(`${p.builtin}: type parameter ${slot.slice(1)} missing`);
-        return this.typeRef(t);
+        return this.typeRef(t, indent);
       }
       const a = texts[Number(slot)];
       if (a === undefined) throw new Unprintable(`${p.builtin}: argument ${slot} missing`);
@@ -886,8 +885,8 @@ class Printer {
     this.rawBuiltins.add(p.builtin);
     const args = (p.arguments as Node[]).map((a, i) =>
       i === 0 ? this.tracedExpr(a, scope, pre, indent, depth) : this.expr(a, scope, pre, indent, depth)).join(", ");
-    const tps = (p.type_parameters as EastTypeValue[]).map(t => this.typeRef(t)).join(", ");
-    return `East.builtin(${JSON.stringify(p.builtin)}, [${tps}], [${args}], ${this.typeRef(p.type)})`;
+    const tps = (p.type_parameters as EastTypeValue[]).map(t => this.typeRef(t, indent)).join(", ");
+    return `East.builtin(${JSON.stringify(p.builtin)}, [${tps}], [${args}], ${this.typeRef(p.type, indent)})`;
   }
 
   // ── the module ───────────────────────────────────────────────────────

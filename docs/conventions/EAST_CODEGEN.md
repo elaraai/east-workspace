@@ -44,13 +44,16 @@ build(print(IR)) ≡ IR        under east-c's normalizer
   (`East.builtin(name, [T...], [args], out)`) and is listed in the
   printer's `RAW_ONLY` set — a **ratchet** the tests pin, which may only
   shrink as spellings are added.
-- **Deterministic.** The same IR prints the same text. A type whose source
-  fits on a line (80 characters) prints inline wherever it is used
-  (`$.let(new Map([…]), DictType(IntegerType, StringType))`, as an author
-  writes it); a wider one, and every recursive type, hoists to a `_tN`
-  constant (deduplicated structurally), as an author names the types worth
-  naming; platform declarations hoist to `_pN` (one per distinct
-  signature), in first-use order.
+- **Deterministic, and laid out.** The same IR prints the same text. Every
+  type prints inline where it is used (`$.let(new Map([…]),
+  DictType(IntegerType, StringType))`, as an author writes it); a recursive
+  type hoists to a `_tN` constant (deduplicated structurally); platform
+  declarations hoist to `_pN` (one per distinct signature), in first-use
+  order. A literal, an argument list, or a struct / variant / parameter-list
+  type wider than 80 characters breaks one entry per line with a trailing
+  comma (`layout` in `codegen/types`), as a formatter lays it out — a
+  struct of functions reads one field per line, its type one field per
+  line beneath it.
 - **Self-contained and minimal.** A printed module imports exactly the
   names it uses, from the package root (`@elaraai/east` / `east`): a walk
   over every type it spells collects the constructors (`typeConstructors` /

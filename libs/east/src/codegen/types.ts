@@ -39,7 +39,23 @@ export function isOptionValue(t: EastTypeValue): boolean {
     && cases[1]!.name === "some";
 }
 
-const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const IDENT = /^[A-Za-z_$][\w$]*$/;
+
+/** The width past which a bracketed list breaks, one item per line. */
+export const LINE_WIDTH = 80;
+
+/**
+ * `open` + `items` + `close` on one line when that fits {@link LINE_WIDTH}
+ * and no item breaks lines itself; otherwise one item per line, indented
+ * two past `indent`, the close back at `indent`. `pad` is the space inside
+ * the one-line brackets (`{ a: T }`).
+ */
+export function layout(open: string, items: string[], close: string, indent: string, pad: string = ""): string {
+  const inline = `${open}${pad}${items.join(", ")}${pad}${close}`;
+  if (items.length === 0 || (inline.length <= LINE_WIDTH && !inline.includes("\n"))) return inline;
+  const inner = `${indent}  `;
+  return `${open}\n${items.map(i => `${inner}${i},`).join("\n")}\n${indent}${close}`;
+}
 
 /** A struct field / variant case name as a JavaScript object key. */
 export function objectKey(name: string): string {
@@ -47,10 +63,13 @@ export function objectKey(name: string): string {
 }
 
 /**
- * Prints an East type value as the TypeScript source that rebuilds it.
+ * Prints an East type value as the TypeScript source that rebuilds it. A
+ * struct, variant or parameter list wider than {@link LINE_WIDTH} breaks
+ * one entry per line, indented past `indent`.
  *
  * @param t - The type value (the `type` field of an IR node, a type parameter)
  * @param scope - The stack of enclosing recursive wrappers as `[id, parameter name]`
+ * @param indent - The indentation of the line the type starts on
  * @returns TypeScript source such as `DictType(StringType, ArrayType(IntegerType))`
  * @throws {Error} When a recursive `ref` has no enclosing wrapper in `scope`
  *
@@ -60,32 +79,33 @@ export function objectKey(name: string): string {
  * // "ArrayType(OptionType(IntegerType))"
  * ```
  */
-export function typeSource(t: EastTypeValue, scope: [bigint, string][] = []): string {
+export function typeSource(t: EastTypeValue, scope: [bigint, string][] = [], indent: string = ""): string {
   const kind = t.type;
   const primitive = PRIMITIVES[kind];
   if (primitive !== undefined) return primitive;
+  const inner = `${indent}  `;
   if (kind === "Array" || kind === "Set" || kind === "Ref" || kind === "Vector" || kind === "Matrix") {
-    return `${kind}Type(${typeSource(t.value as EastTypeValue, scope)})`;
+    return `${kind}Type(${typeSource(t.value as EastTypeValue, scope, indent)})`;
   }
   if (kind === "Dict") {
     const d = t.value as { key: EastTypeValue, value: EastTypeValue };
-    return `DictType(${typeSource(d.key, scope)}, ${typeSource(d.value, scope)})`;
+    return `DictType(${typeSource(d.key, scope, indent)}, ${typeSource(d.value, scope, indent)})`;
   }
   if (kind === "Struct") {
     const fields = (t.value as { name: string, type: EastTypeValue }[])
-      .map(f => `${objectKey(f.name)}: ${typeSource(f.type, scope)}`);
-    return `StructType({ ${fields.join(", ")} })`;
+      .map(f => `${objectKey(f.name)}: ${typeSource(f.type, scope, inner)}`);
+    return layout("StructType({", fields, "})", indent, " ");
   }
   if (kind === "Variant") {
     const cases = t.value as { name: string, type: EastTypeValue }[];
-    if (isOptionValue(t)) return `OptionType(${typeSource(cases[1]!.type, scope)})`;
-    const parts = cases.map(c => `${objectKey(c.name)}: ${typeSource(c.type, scope)}`);
-    return `VariantType({ ${parts.join(", ")} })`;
+    if (isOptionValue(t)) return `OptionType(${typeSource(cases[1]!.type, scope, indent)})`;
+    const parts = cases.map(c => `${objectKey(c.name)}: ${typeSource(c.type, scope, inner)}`);
+    return layout("VariantType({", parts, "})", indent, " ");
   }
   if (kind === "Function" || kind === "AsyncFunction") {
     const f = t.value as { inputs: EastTypeValue[], output: EastTypeValue };
-    const inputs = f.inputs.map(i => typeSource(i, scope)).join(", ");
-    return `${kind}Type([${inputs}], ${typeSource(f.output, scope)})`;
+    const inputs = layout("[", f.inputs.map(i => typeSource(i, scope, inner)), "]", indent);
+    return `${kind}Type(${inputs}, ${typeSource(f.output, scope, indent)})`;
   }
   if (kind === "Recursive") {
     const payload = t.value as { type: "ref", value: bigint } | { type: "wrapper", value: { id: bigint, inner: EastTypeValue } };
@@ -96,8 +116,8 @@ export function typeSource(t: EastTypeValue, scope: [bigint, string][] = []): st
       throw new Error(`recursive ref ${payload.value} outside its wrapper`);
     }
     const name = scope.length === 0 ? "self" : `self${scope.length + 1}`;
-    const inner = typeSource(payload.value.inner, [...scope, [payload.value.id, name]]);
-    return `RecursiveType(${name} => ${inner})`;
+    const body = typeSource(payload.value.inner, [...scope, [payload.value.id, name]], indent);
+    return `RecursiveType(${name} => ${body})`;
   }
   throw new Error(`unknown type kind ${kind}`);
 }

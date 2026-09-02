@@ -19,7 +19,23 @@ from typing import Any
 
 from east.types.types import EastType
 
-__all__ = ["type_source", "type_constructors", "TYPE_IMPORTS"]
+__all__ = ["type_source", "type_constructors", "layout", "LINE_WIDTH", "TYPE_IMPORTS"]
+
+#: The width past which a bracketed list breaks, one item per line.
+LINE_WIDTH = 80
+
+
+def layout(open_: str, items: list[str], close: str) -> str:
+    """``open_`` + ``items`` + ``close`` on one line when that fits
+    :data:`LINE_WIDTH` and no item breaks lines itself; otherwise one item per
+    line, indented four spaces relative to the line the bracket opens on, the
+    close back at the start — python's relative indentation, which every
+    line emitter re-indents along with the line it sits in."""
+    inline = f"{open_}{', '.join(items)}{close}"
+    if not items or (len(inline) <= LINE_WIDTH and "\n" not in inline):
+        return inline
+    body = ",\n".join("    " + item.replace("\n", "\n    ") for item in items)
+    return f"{open_}\n{body},\n{close}"
 
 #: The names a printed module imports from ``east`` for type source.
 TYPE_IMPORTS = (
@@ -56,16 +72,16 @@ def type_source(t: EastType, scope: list[tuple[int, str]] | None = None) -> str:
         return (f"DictType({type_source(t.value['key'], scope)}, "
                 f"{type_source(t.value['value'], scope)})")
     if kind == "Struct":
-        fields = ", ".join(f"({f['name']!r}, {type_source(f['type'], scope)})" for f in t.value)
-        return f"StructType([{fields}])"
+        fields = [f"({f['name']!r}, {type_source(f['type'], scope)})" for f in t.value]
+        return layout("StructType([", fields, "])")
     if kind == "Variant":
         if _is_option(t):
             return f"OptionType({type_source(t.value[1]['type'], scope)})"
-        cases = ", ".join(f"({c['name']!r}, {type_source(c['type'], scope)})" for c in t.value)
-        return f"VariantType([{cases}])"
+        cases = [f"({c['name']!r}, {type_source(c['type'], scope)})" for c in t.value]
+        return layout("VariantType([", cases, "])")
     if kind in ("Function", "AsyncFunction"):
-        inputs = ", ".join(type_source(i, scope) for i in t.value["inputs"])
-        return f"{kind}Type([{inputs}], {type_source(t.value['output'], scope)})"
+        inputs = layout("[", [type_source(i, scope) for i in t.value["inputs"]], "]")
+        return f"{kind}Type({inputs}, {type_source(t.value['output'], scope)})"
     if kind == "Recursive":
         payload = t.value
         if payload.type == "ref":

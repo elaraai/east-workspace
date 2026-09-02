@@ -22,6 +22,7 @@ from east.types.construct import none, some
 from east.types.types import (
     ArrayType,
     DictType,
+    FunctionType,
     IntegerType,
     OptionType,
     SetType,
@@ -75,6 +76,38 @@ def test_bound_constructions_print_as_literals_with_the_type():
     assert re.search(r"^from east import East, some, none, IntegerType, StringType, ArrayType, SetType, DictType, StructType, OptionType$", src, re.M), src
     # a type whose source fits on a line is never hoisted
     assert not re.search(r"^_t\d+ = ", src, re.M), src
+
+
+Ops = StructType([
+    ("add", FunctionType([IntegerType, IntegerType], IntegerType)),
+    ("multiply", FunctionType([IntegerType, IntegerType], IntegerType)),
+])
+
+
+@East.function([], IntegerType)
+def wide(b):
+    mathOps = b.const({"add": East.function([IntegerType, IntegerType], IntegerType, lambda b, a, b_: a + b_),
+                       "multiply": East.function([IntegerType, IntegerType], IntegerType, lambda b, a, b_: a * b_)}, Ops)
+    return mathOps.add(mathOps.multiply(2, 3), 4)
+
+
+def test_a_wide_literal_its_type_and_an_argument_list_break_one_entry_per_line():
+    src = to_python_source(wide)
+    expected = "\n".join([
+        "@East.function([], IntegerType, cse=False)",
+        "def main(b):",
+        "    mathOps = b.const({",
+        "        'add': East.function([IntegerType, IntegerType], IntegerType, lambda b, a, b_: (a + b_)),",
+        "        'multiply': East.function([IntegerType, IntegerType], IntegerType, lambda b, a, b_: (a * b_)),",
+        "    }, StructType([",
+        "        ('add', FunctionType([IntegerType, IntegerType], IntegerType)),",
+        "        ('multiply', FunctionType([IntegerType, IntegerType], IntegerType)),",
+        "    ]))",
+        "    return mathOps.add(mathOps.multiply(2, 3), 4)",
+    ])
+    assert expected in src, src
+    assert not re.search(r"^_t\d+ = ", src, re.M), src  # no type is hoisted for its width
+    assert wide() == 10
 
 
 def test_the_printed_module_rebuilds_the_same_ir_and_prints_to_itself(tmp_path):

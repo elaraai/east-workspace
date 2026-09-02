@@ -45,14 +45,15 @@ authoring names both builders carry (#639) and TypeScript's ``_N`` for a
 slot the body did not name; the python builder's own ``__nN`` and a name
 the module already uses are renamed ``v_N``, numbered once per module
 (above any ``v_N`` the IR holds) so a printed module rebuilds to itself;
-``b`` is reserved for the block. A type whose source fits on a line prints
-inline wherever it is used (``b.let({1: 'a'}, DictType(IntegerType,
-StringType))``, as an author writes it); a longer one, and every recursive
-type, is hoisted to a module constant ``_tN`` (deduplicated structurally),
-as an author names the types worth naming. Platform declarations are
-hoisted to ``_pN`` (one per distinct signature). Deep expression nesting is
-broken with ``_eN = <expr>`` temporaries, so any IR width or depth prints
-to parseable python.
+``b`` is reserved for the block (a parameter the author named ``b`` prints
+as ``b_``). Every type prints inline where it is used (``b.let({1: 'a'},
+DictType(IntegerType, StringType))``, as an author writes it); a recursive
+type is hoisted to a module constant ``_tN`` (deduplicated structurally).
+A literal, an argument list or a struct / variant type wider than
+``LINE_WIDTH`` breaks one entry per line, as a formatter lays it out.
+Platform declarations are hoisted to ``_pN`` (one per distinct signature).
+Deep expression nesting is broken with ``_eN = <expr>`` temporaries, so
+any IR width or depth prints to parseable python.
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ from datetime import datetime
 from typing import Any
 
 from east.codegen.spellings import spelling_for
-from east.codegen.types import TYPE_IMPORTS, type_constructors, type_key, type_source
+from east.codegen.types import TYPE_IMPORTS, layout, type_constructors, type_key, type_source
 from east.functions import IMPORT_PLATFORM
 from east.types.types import EastType
 from east.types.values import EastVariant
@@ -81,8 +82,6 @@ _STATEMENT_KINDS = frozenset({
     "Let", "Assign", "Return", "Break", "Continue", "While", "ForArray", "ForSet", "ForDict",
 })
 _MAX_DEPTH = 24
-#: A type whose source is at most this wide prints inline; a wider one is hoisted to a ``_tN`` constant.
-_INLINE_TYPE_WIDTH = 80
 #: The block parameter every statement-bearing body declares first.
 _BLOCK = "b"
 #: The printer's own spelling for a variable it cannot name as the IR does.
@@ -91,6 +90,12 @@ _V_NAME = re.compile(r"v_(\d+)")
 
 def _ident(name: str) -> bool:
     return name.isidentifier() and not keyword.iskeyword(name)
+
+
+def _indented(lines: list[str]) -> list[str]:
+    """``lines`` one level in — a line that breaks (a laid-out literal) is
+    re-indented on every one of its lines."""
+    return ["    " + ln.replace("\n", "\n    ") for ln in lines]
 
 
 def _is_null_value(node: Any) -> bool:
@@ -178,14 +183,13 @@ class _Printer:
     # ── module-level pieces ──────────────────────────────────────────────
 
     def type_ref(self, t: EastType) -> str:
-        """A type as source: a primitive name, or a constructor source that
-        fits on a line, inline; a wider or recursive type hoisted to a
-        ``_tN`` constant."""
+        """A type as source, inline; a recursive type hoisted to a ``_tN``
+        constant."""
         type_constructors(t, self.used)
         if t.type in ("Null", "Never", "Boolean", "Integer", "Float", "String", "DateTime", "Blob"):
             return type_source(t)
         source = type_source(t)
-        if len(source) <= _INLINE_TYPE_WIDTH and "recursive_type(" not in source:
+        if "recursive_type(" not in source:
             return source
         key = type_key(t)
         hit = self.types.get(key)
@@ -232,6 +236,8 @@ class _Printer:
         """Bind an IR Variable node in ``scope`` and return its python name."""
         ir_name = var.value["name"]
         py = ir_name if _ident(ir_name) and not ir_name.startswith("__") else None
+        if py == _BLOCK and f"{py}_" not in scope.used:
+            py = f"{py}_"  # the author's `b` is the block's name here
         if py is None or py in scope.used:
             # The builder's own spelling, or a name this scope already
             # uses: ``v_N`` from one module-wide counter, so the rebuilt
@@ -258,12 +264,12 @@ class _Printer:
             body.extend(self.statement_lines(let, inner, last=False))
         body.extend(self.body_lines(p["body"], inner, mode="function"))
         ctor = "East.asyncFunction" if node.type == "AsyncFunction" else "East.function"
-        inputs = ", ".join(self.type_ref(t) for t in fn_t.value["inputs"])
+        inputs = layout("[", [self.type_ref(t) for t in fn_t.value["inputs"]], "]")
         out = self.type_ref(fn_t.value["output"])
         return [
-            f"@{ctor}([{inputs}], {out}{', cse=False' if root else ''})",
+            f"@{ctor}({inputs}, {out}{', cse=False' if root else ''})",
             f"def {name}({', '.join([_BLOCK, *params])}):",
-            *["    " + ln for ln in body],
+            *_indented(body),
         ]
 
     def function_expr(self, node: Any, scope: _Scope, pre: list[str]) -> str:
@@ -280,9 +286,9 @@ class _Printer:
             if not sub:
                 fn_t = p["type"]
                 ctor = "East.asyncFunction" if node.type == "AsyncFunction" else "East.function"
-                inputs = ", ".join(self.type_ref(t) for t in fn_t.value["inputs"])
+                inputs = layout("[", [self.type_ref(t) for t in fn_t.value["inputs"]], "]")
                 out = self.type_ref(fn_t.value["output"])
-                return f"{ctor}([{inputs}], {out}, lambda {', '.join([_BLOCK, *params])}: {text})"
+                return f"{ctor}({inputs}, {out}, lambda {', '.join([_BLOCK, *params])}: {text})"
         name = self.fresh_helper("f")
         pre.extend(self.function_def(node, scope, name))
         return name
@@ -328,7 +334,7 @@ class _Printer:
             return f"lambda {', '.join(names)}: {text}"
         name = self.fresh_helper("b")
         pre.append(f"def {name}({', '.join(names)}):")
-        pre.extend("    " + ln for ln in lines)
+        pre.extend(_indented(lines))
         return name
 
     def fresh_label(self, scope: _Scope, ir_label: str) -> str:
@@ -493,12 +499,12 @@ class _Printer:
             return self.function_expr(node, scope, pre)
         if kind in ("Call", "CallAsync"):
             fn = self.expr(p["function"], scope, pre, d)
-            args = ", ".join(self.expr(a, scope, pre, d) for a in p["arguments"])
+            args = [self.expr(a, scope, pre, d) for a in p["arguments"]]
             # a callee that already prints as a call, a member or a name needs no parentheses
             if p["function"].type not in ("Variable", "GetField", "Call", "CallAsync", "Function",
                                           "AsyncFunction", "Builtin", "Platform"):
                 fn = f"({fn})"
-            return f"{fn}({args})"
+            return layout(f"{fn}(", args, ")")
         if kind == "GetField":
             base = self.expr(p["struct"], scope, pre, d)
             name = p["field"]
@@ -508,20 +514,20 @@ class _Printer:
         if kind in ("Struct", "Variant"):
             return f"East.value({self.literal_for(p['type'])(node, scope, pre, depth)}, {self.type_ref(p['type'])})"
         if kind in ("NewArray", "NewSet", "NewVector"):
-            values = ", ".join(self.expr(v, scope, pre, d) for v in p["values"])
+            values = layout("[", [self.expr(v, scope, pre, d) for v in p["values"]], "]")
             ctor = {"NewArray": "new_array", "NewSet": "new_set", "NewVector": "new_vector"}[kind]
-            return f"East.{ctor}({self.type_ref(p['type'].value)}, [{values}])"
+            return f"East.{ctor}({self.type_ref(p['type'].value)}, {values})"
         if kind == "NewMatrix":
-            values = ", ".join(self.expr(v, scope, pre, d) for v in p["values"])
+            values = layout("[", [self.expr(v, scope, pre, d) for v in p["values"]], "]")
             return (f"East.new_matrix({self.type_ref(p['type'].value)}, {p['rows']}, "
-                    f"{p['cols']}, [{values}])")
+                    f"{p['cols']}, {values})")
         if kind == "NewDict":
-            entries = ", ".join(
+            entries = layout("[", [
                 f"({self.expr(e['key'], scope, pre, d)}, {self.expr(e['value'], scope, pre, d)})"
-                for e in p["values"])
+                for e in p["values"]], "]")
             t = p["type"]
             return (f"East.new_dict({self.type_ref(t.value['key'])}, "
-                    f"{self.type_ref(t.value['value'])}, [{entries}])")
+                    f"{self.type_ref(t.value['value'])}, {entries})")
         if kind == "NewRef":
             return f"East.ref({self.expr(p['value'], scope, pre, d)})"
         if kind == "As":
@@ -607,7 +613,7 @@ class _Printer:
             def array(node: Any, scope: _Scope, pre: list[str], depth: int) -> str | None:
                 if node.type != "NewArray":
                     return None
-                return f"[{', '.join(elem(v, scope, pre, depth + 1) for v in node.value['values'])}]"
+                return layout("[", [elem(v, scope, pre, depth + 1) for v in node.value["values"]], "]")
             return array
         if kind == "Dict":
             key_print, value = child(t.value["key"]), child(t.value["value"])
@@ -618,10 +624,10 @@ class _Printer:
                 entries = list(node.value["values"])
                 if not all(e["key"].type == "Value" for e in entries):
                     return None
-                items = ", ".join(
+                items = [
                     f"{key_print(e['key'], scope, pre, depth + 1)}: {value(e['value'], scope, pre, depth + 1)}"
-                    for e in entries)
-                return f"{{{items}}}"
+                    for e in entries]
+                return layout("{", items, "}")
             return dict_
         if kind == "Struct":
             fields = {f["name"]: child(f["type"]) for f in t.value}
@@ -629,10 +635,10 @@ class _Printer:
             def struct(node: Any, scope: _Scope, pre: list[str], depth: int) -> str | None:
                 if node.type != "Struct":
                     return None
-                items = ", ".join(
+                items = [
                     f"{f['name']!r}: {fields.get(f['name'], as_expr)(f['value'], scope, pre, depth + 1)}"
-                    for f in node.value["fields"])
-                return f"{{{items}}}"
+                    for f in node.value["fields"]]
+                return layout("{", items, "}")
             return struct
         if kind == "Variant":
             cases = {c["name"]: child(c["type"]) for c in t.value}
@@ -683,7 +689,7 @@ class _Printer:
             return f"East.block(lambda {_BLOCK}: {lines[0][len('return '):]})"
         name = self.fresh_helper("b")
         pre.append(f"def {name}({_BLOCK}):")
-        pre.extend("    " + ln for ln in lines)
+        pre.extend(_indented(lines))
         return f"East.block({name})"
 
     def expr_callback(self, body: Any, params: list[Any], scope: _Scope, pre: list[str]) -> str:
@@ -706,13 +712,13 @@ class _Printer:
             # the expression needed helpers: a def carries them
             name = self.fresh_helper("b")
             pre.append(f"def {name}({', '.join(names)}):")
-            pre.extend("    " + ln for ln in sub)
-            pre.append(f"    return {text}")
+            pre.extend(_indented(sub))
+            pre.extend(_indented([f"return {text}"]))
             return name
         name = self.fresh_helper("b")
         lines = self.body_lines(body, inner, mode="function")
         pre.append(f"def {name}({', '.join(names)}):")
-        pre.extend("    " + ln for ln in lines)
+        pre.extend(_indented(lines))
         return name
 
     # ── builtins ─────────────────────────────────────────────────────────
