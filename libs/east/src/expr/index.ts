@@ -31,7 +31,8 @@ export { type CallableFunctionExpr, FunctionExpr } from './function.js';
 export { type CallableAsyncFunctionExpr, AsyncFunctionExpr } from './asyncfunction.js';
 
 // Import factory implementation
-import { from, equal, notEqual, less, lessEqual, print, is, greaterEqual, greater, func, str, platform, asyncFunction, asyncPlatform, genericPlatform, asyncGenericPlatform, compile, compileAsync, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch } from './block.js';
+import { from, equal, notEqual, less, lessEqual, print, is, greaterEqual, greater, func, str, platform, asyncFunction, asyncPlatform, genericPlatform, asyncGenericPlatform, compile, compileAsync, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch, builtin, as, wrapRecursive, error } from './block.js';
+import { toSource } from '../codegen/index.js';
 export { BlockBuilder, type AsyncPlatformDefinition, type PlatformDefinition, type GenericPlatformDefinition, type AsyncGenericPlatformDefinition, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch } from './block.js';
 
 // Import standard libraries
@@ -353,6 +354,91 @@ export const East = {
    * ```
    */
   asyncGenericPlatform,
+
+  /**
+   * Prints an East function (or its IR) as the TypeScript module that
+   * rebuilds it — the `East.function` builder surface, the type constructors
+   * hoisted to constants. The python twin is `east.codegen.to_python_source`;
+   * `east-node transpile` is the CLI. Rebuilding the printed module yields
+   * the same IR under `east-c ir normalize`.
+   *
+   * @param fnOrIr - An `East.function` result, its `toIR()`, or an IR value
+   * @param options - `name` (the export, default `main`) and `importFrom`
+   *   (the module specifier, default `@elaraai/east`)
+   * @returns The module source
+   *
+   * @example
+   * ```ts
+   * const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
+   * East.toSource(double);
+   * // export const main = East.function([IntegerType], IntegerType, ($, _0) => {
+   * //   return _0.multiply(2n);
+   * // });
+   * ```
+   */
+  toSource,
+
+  /**
+   * Calls an East builtin by name — the raw spelling for a builtin the
+   * surface has no method for (see `RAW_ONLY`).
+   *
+   * @param name - The builtin's IR name
+   * @param typeParameters - Its type parameters, in declaration order
+   * @param args - Its arguments in IR order
+   * @param outputType - The type of the result
+   * @returns The builtin call expression
+   *
+   * @example
+   * ```ts
+   * East.builtin("ArraySize", [IntegerType], [xs], IntegerType)
+   * ```
+   */
+  builtin,
+
+  /**
+   * Widens a value to a declared supertype explicitly (an `As` node) —
+   * python's `East.as_`.
+   *
+   * @param value - The value or expression to widen
+   * @param type - The wider type
+   * @returns The value as an expression of `type`
+   *
+   * @example
+   * ```ts
+   * East.as(East.value(variant("circle", 2.0)), VariantType({ circle: FloatType, square: FloatType }))
+   * ```
+   */
+  as,
+
+  /**
+   * Wraps a value of a recursive type's node type in the recursive type
+   * (a `WrapRecursive` node); `.unwrap()` is its inverse.
+   *
+   * @param value - The value or expression of the node type
+   * @param type - The recursive type
+   * @returns A `RecursiveExpr` of `type`
+   *
+   * @example
+   * ```ts
+   * East.wrapRecursive(variant("nil", null), ListType)
+   * ```
+   */
+  wrapRecursive,
+
+  /**
+   * Raises an East runtime error with the given message — the Never-typed
+   * error EXPRESSION (the statement form is `$.error`).
+   *
+   * @param message - The error message
+   * @returns A `NeverExpr`
+   *
+   * @example
+   * ```ts
+   * const checked = East.function([IntegerType], IntegerType, ($, x) =>
+   *   East.less(x, 0n).ifElse(() => East.error("negative"), () => x));
+   * ```
+   */
+  error,
 
   /**
    * Converts any East expression to its string representation.

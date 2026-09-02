@@ -1,6 +1,6 @@
 ---
 name: east
-description: "East programming language - a statically typed, expression-based language embedded in TypeScript. Use when writing East programs with @elaraai/east. Triggers for: (1) Writing East functions with East.function() or East.asyncFunction(), (2) Defining types (IntegerType, StringType, ArrayType, StructType, VariantType, etc.), (3) Using platform functions with East.platform() or East.asyncPlatform(), (4) Compiling East programs with East.compile(), (5) Working with East expressions (arithmetic, collections, control flow), (6) Serializing East IR with .toIR() and EastIR.fromJSON(), (7) Standard library operations (formatting, rounding, generation)."
+description: "East programming language - a statically typed, expression-based language embedded in TypeScript. Use when writing East programs with @elaraai/east. Triggers for: (1) Writing East functions with East.function() or East.asyncFunction(), (2) Defining types (IntegerType, StringType, ArrayType, StructType, VariantType, etc.), (3) Using platform functions with East.platform() or East.asyncPlatform(), (4) Compiling East programs with East.compile(), (5) Working with East expressions (arithmetic, collections, control flow), (6) Serializing East IR with .toIR() and EastIR.fromJSON(), (7) Standard library operations (formatting, rounding, generation), (8) Printing IR back as East.function source with East.toSource() / east-node transpile (and the python twin)."
 ---
 
 # East Language
@@ -195,6 +195,7 @@ Task → What do you need?
     │
     └─ Serialization
         ├─ IR → fn.toIR(), ir.toJSON(), EastIR.fromJSON(data).compile(platform)
+        ├─ IR → source → East.toSource(fn_or_ir) (a module that rebuilds the same IR) · `east-node transpile prog.beast2 -o prog.ts [--rebuild check.beast2]` · python twin: east-py transpile
         ├─ Data, INSIDE an East function → East.Blob.encodeBeast(value, 'v2'), blob.decodeBeast(type, 'v2')
         └─ Data, from TypeScript (host side, `@elaraai/east`) — see "Binary serialization (beast2)"
             ├─ Whole value → encodeBeast2For(T)(value) / decodeBeast2For(T)(blob)
@@ -374,6 +375,42 @@ and the e3 runner loads it. Two rules then apply:
 See **east-project** for the full wiring (the `./platform` export, the
 `--platform` scaffold) and **e3** for the task runner; **east-py** for the Python
 sibling (`@platform_function`).
+
+### IR → source: `East.toSource` and `east-node transpile`
+
+The IR of any East function — yours, or one exported from python — prints
+back as the builder surface: a TypeScript module whose `East.function(...)`
+rebuilds the same IR (equal under `east-c ir normalize`).
+
+```typescript
+import { East, IntegerType, encodeEastIR } from "@elaraai/east";
+
+const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
+console.log(East.toSource(double));
+// import { East, Expr, variant, ref, matrix, IntegerType, ... } from "@elaraai/east";
+//
+// export const main = East.function([IntegerType], IntegerType, ($, _0) => {
+//   return _0.multiply(2n);
+// });
+
+writeFileSync("double.beast2", encodeEastIR(double.toIR()));   // hand the IR to python …
+```
+
+```bash
+east-node transpile double.beast2 -o double.ts            # … or print a file (any runtime's IR)
+east-node transpile ./ir/ -o ./ts/ --rebuild ./rebuilt/    # a directory, plus the IR each module builds back
+east-py transpile double.beast2 -o double.py               # the python twin (to_python_source)
+```
+
+- Statements print as the `$`-forms, values as `East.value(v, T)`, builtins
+  as their methods; a builtin the surface has no spelling for prints as
+  `East.builtin(name, [T...], [args], out)` (it rebuilds; it is just not
+  idiomatic). `East.as(v, T)` and `East.wrapRecursive(v, T)` are the
+  spellings of the `As` / `WrapRecursive` nodes.
+- Variables print as `_N`: the builders do not carry authoring names yet
+  (#639).
+- The contract, the construct table and the three round-trip suites:
+  `docs/conventions/EAST_CODEGEN.md`.
 
 ### Binary serialization (beast2)
 

@@ -32,6 +32,7 @@ import { isVariant } from "../containers/variant.js";
 import { RefExpr } from "./ref.js";
 import { AsyncFunctionExpr, createAsyncFunctionExpr, type CallableAsyncFunctionExpr } from "./asyncfunction.js";
 import { PatchType, type PatchTypeOf } from "../patch/index.js";
+import { applyTypeParameters, Builtins, type BuiltinName } from "../builtins.js";
 import { VectorExpr } from "./vector.js";
 import { MatrixExpr } from "./matrix.js";
 
@@ -983,6 +984,110 @@ export function is<T>(left: Expr<T>, right: SubtypeExprOrValue<NoInfer<T>>): Boo
     type_parameters: [Expr.type(left) as EastType],
     arguments: [Expr.ast(left), rightAst],
   }) as BooleanExpr;
+}
+
+/**
+ * Calls an East builtin by name — the raw spelling for a builtin the surface
+ * has no method for, and the form the codegen printers fall back to for one
+ * (`RAW_ONLY`). The python twin is `East.builtin`.
+ *
+ * @param name - The builtin's IR name, e.g. `"ArrayGetKeys"`
+ * @param typeParameters - Its type parameters, in declaration order
+ * @param args - Its arguments in IR order — expressions, values, or callbacks
+ * @param outputType - The type of the result
+ * @returns The `Builtin` expression, typed `outputType`
+ * @throws {Error} When `name` is not a builtin, or the type-parameter or
+ *   argument counts do not match its declaration
+ *
+ * @example
+ * ```ts
+ * const size = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {
+ *   $.return(East.builtin("ArraySize", [IntegerType], [xs], IntegerType));
+ * });
+ * const compiled = East.compile(size, []);
+ * compiled([1n, 2n, 3n]);  // 3n
+ * ```
+ */
+export function builtin(name: string, typeParameters: EastType[], args: unknown[], outputType: EastType): Expr {
+  const def = Builtins[name as BuiltinName];
+  if (def === undefined) {
+    throw new Error(`Unknown builtin function '${name}'`);
+  }
+  if (def.type_parameters.length !== typeParameters.length) {
+    throw new Error(`Builtin function '${name}' expected ${def.type_parameters.length} type parameters, got ${typeParameters.length}`);
+  }
+  if (def.inputs.length !== args.length) {
+    throw new Error(`Builtin function '${name}' expected ${def.inputs.length} arguments, got ${args.length}`);
+  }
+  const typeMap = new Map(def.type_parameters.map((param, i) => [param, typeParameters[i]!] as const));
+  const argAsts = args.map((arg, i) => {
+    const expected = applyTypeParameters(def.inputs[i]!, typeMap, [], []);
+    return valueOrExprToAstTyped(arg, expected);
+  });
+  return fromAst({
+    ast_type: "Builtin",
+    type: outputType,
+    loc_id: get_location_id(),
+    builtin: name as BuiltinName,
+    type_parameters: typeParameters,
+    arguments: argAsts,
+  });
+}
+
+/**
+ * Widens a value to a declared supertype explicitly — an `As` node. The
+ * builder inserts the same node itself wherever a narrower value meets a
+ * wider declared type (a `$.const(x, T)`, a function argument), so this is
+ * the spelling for the other positions; the codegen printers spell every
+ * IR `As` with it. The python twin is `East.as_`.
+ *
+ * @param value - The value or expression to widen
+ * @param type - The wider type; the value's type must be a subtype of it
+ * @returns The value as an expression of `type`
+ * @throws {Error} When the value's type is not a subtype of `type`
+ *
+ * @example
+ * ```ts
+ * const Shape = VariantType({ circle: FloatType, square: FloatType });
+ * const widen = East.function([FloatType], Shape, ($, r) => {
+ *   $.return(East.as(East.value(variant("circle", r)), Shape));
+ * });
+ * const compiled = East.compile(widen, []);
+ * compiled(2.0);  // variant("circle", 2.0)
+ * ```
+ */
+export function as<T extends EastType>(value: SubtypeExprOrValue<NoInfer<T>>, type: T): ExprType<T> {
+  const ast = valueOrExprToAstTyped(value, type);
+  return fromAst({
+    ast_type: "As",
+    type,
+    loc_id: get_location_id(),
+    value: ast,
+  }) as ExprType<T>;
+}
+
+/**
+ * Wraps a value or expression of a recursive type's node type in the
+ * recursive type — a `WrapRecursive` node; {@link RecursiveExpr.unwrap} is
+ * its inverse. The python twin is `East.wrap_recursive`.
+ *
+ * @param value - The value or expression of the wrapper's node type
+ * @param type - The recursive type to wrap it in
+ * @returns A `RecursiveExpr` of `type`
+ *
+ * @example
+ * ```ts
+ * const ListType = RecursiveType(self => VariantType({ nil: NullType, cons: StructType({ head: IntegerType, tail: self }) }));
+ * const singleton = East.function([IntegerType], ListType, ($, x) => {
+ *   const nil = $.const(East.wrapRecursive(variant("nil", null), ListType));
+ *   $.return(East.wrapRecursive(variant("cons", { head: x, tail: nil }), ListType));
+ * });
+ * const compiled = East.compile(singleton, []);
+ * compiled(1n);  // variant("cons", { head: 1n, tail: variant("nil", null) })
+ * ```
+ */
+export function wrapRecursive<T>(value: SubtypeExprOrValue<T>, type: RecursiveType<T>): RecursiveExpr<T> {
+  return RecursiveExpr.wrap(value, type, fromAst);
 }
 
 /** Print a value as a string. */
