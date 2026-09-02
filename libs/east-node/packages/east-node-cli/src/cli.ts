@@ -11,6 +11,8 @@ import { loadPlatforms, loadPlatformWithMetadata } from './loader.js';
 import { runProgram } from './runner.js';
 import { writeSnapshot, readSnapshot } from './snapshot.js';
 import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile.js';
+import { exportFunctionsFromModule } from './export-functions.js';
+import { East } from '@elaraai/east';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string; name: string };
@@ -62,6 +64,13 @@ interface TranspileOptions {
     name?: string;
     importFrom?: string;
     rebuild?: string;
+}
+
+interface ExportFunctionsOptions {
+    output: string;
+    package?: string[];
+    name?: string;
+    version?: string;
 }
 
 /**
@@ -197,6 +206,23 @@ async function cmdTranspile(input: string, options: TranspileOptions): Promise<v
     }
 }
 
+/**
+ * `east-node export-functions` (#628): write a module's `eastFunctions` as a
+ * function manifest other packages — in TypeScript or python — import.
+ */
+async function cmdExportFunctions(modulePath: string, options: ExportFunctionsOptions): Promise<void> {
+    try {
+        const opts: { name?: string; version?: string; packages?: string[] } = { packages: options.package ?? [] };
+        if (options.name !== undefined) opts.name = options.name;
+        if (options.version !== undefined) opts.version = options.version;
+        const manifest = await exportFunctionsFromModule(modulePath, opts);
+        writeFileSync(options.output, East.encodeFunctionManifest(manifest));
+        console.error(`Exported ${manifest.functions.length} function(s) of ${manifest.package}@${manifest.version} to ${options.output}`);
+    } catch (err) {
+        return fail(`Error: ${(err as Error).message}`);
+    }
+}
+
 async function cmdVersion(options: VersionOptions): Promise<void> {
     console.log(`${pkg.name} ${pkg.version}`);
 
@@ -261,6 +287,16 @@ export function main(): void {
         .option('--rebuild <path>',
             'Import the printed module and write the IR it builds here (.beast2 or .json; a directory in directory mode)')
         .action(cmdTranspile);
+
+    program
+        .command('export-functions')
+        .description("Write a module's `eastFunctions` export as a function manifest other packages (TypeScript or python) import")
+        .argument('<module>', 'Path to the built module exporting `eastFunctions` (name -> East.function)')
+        .requiredOption('-o, --output <file>', 'The manifest to write (.beast2)')
+        .option('-p, --package <package...>', "Platform packages implementing the functions' platform calls (each dependency must be provided by one)")
+        .option('--name <name>', "The package name importers use (default: the module file's stem)")
+        .option('--version <version>', 'The version recorded in the manifest (default: 0.0.0)')
+        .action(cmdExportFunctions);
 
     program
         .command('version')
