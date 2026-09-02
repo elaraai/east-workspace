@@ -35,7 +35,6 @@ one is raised.
 from __future__ import annotations
 
 import contextlib
-import itertools
 import os
 import sys
 import sysconfig
@@ -250,36 +249,48 @@ def _author_path(filename: str) -> str | None:
 #
 # A frame's executing instruction has a (line, column) in its code object's
 # position table (PEP 657, python 3.11+): the start of the expression being
-# evaluated, which is the call the author wrote. Indexing the table is a walk,
-# so positions memoize per (code object, instruction offset) — a call site
-# builds many nodes, and an eager method captures the same lambda repeatedly.
+# evaluated, which is the call the author wrote. The table is materialized
+# ONCE per code object — one list, indexed by instruction — and code objects
+# are keyed by identity, pinned by the entry so the id cannot be recycled
+# (#636). Keying a memo by the code object itself hashed its whole bytecode
+# on every lookup, which on a 4,479-line generated body cost more than the
+# build; and a per-(code, offset) memo capped at a few thousand entries
+# thrashed on exactly the programs with more instructions than that, paying
+# an O(offset) walk of the table per node.
 
-_positions: dict[tuple[Any, int], tuple[int, int]] = {}
+#: id(code) → (the code object, its (line, column) per instruction, or None
+#: when the interpreter reports no positions)
+_position_tables: dict[int, tuple[Any, list[tuple[int | None, int | None]] | None]] = {}
+_TABLE_LIMIT = 256
+
+
+def _position_table(code: Any) -> list[tuple[int | None, int | None]] | None:
+    entry = _position_tables.get(id(code))
+    if entry is not None and entry[0] is code:
+        return entry[1]
+    table: list[tuple[int | None, int | None]] | None
+    try:
+        table = [(start_line, start_col) for start_line, _end, start_col, _ecol in code.co_positions()]
+    except Exception:  # pragma: no cover - a code object without positions
+        table = None
+    if len(_position_tables) >= _TABLE_LIMIT:
+        _position_tables.clear()
+    _position_tables[id(code)] = (code, table)
+    return table
 
 
 def _position(frame: Any) -> tuple[int, int]:
-    code = frame.f_code
-    lasti = frame.f_lasti
-    key = (code, lasti)
-    hit = _positions.get(key)
-    if hit is not None:
-        return hit
     line = frame.f_lineno
     column = 0
-    try:
-        index = lasti // 2
-        pos = next(itertools.islice(code.co_positions(), index, index + 1), None)
-    except Exception:  # pragma: no cover - a code object without positions
-        pos = None
-    if pos is not None:
-        start_line, _end_line, start_col, _end_col = pos
-        if start_line is not None:
-            line = start_line
-        if start_col is not None:
-            column = start_col + 1
-    if len(_positions) > _CACHE_LIMIT:
-        _positions.clear()
-    _positions[key] = (line, column)
+    table = _position_table(frame.f_code)
+    if table is not None:
+        index = frame.f_lasti // 2
+        if 0 <= index < len(table):
+            start_line, start_col = table[index]
+            if start_line is not None:
+                line = start_line
+            if start_col is not None:
+                column = start_col + 1
     return line, column
 
 

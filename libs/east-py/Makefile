@@ -85,9 +85,9 @@ test-export:
 QUIET_FLAG = $(if $(EAST_QUIET),-q)
 
 # The compliance script runs the corpus with per-file subprocess isolation;
-# the pytest sweep is the WHOLE tests/ tree — kernel/tracer suites, the
-# eager-replay differential and its ratchets included (#531: these were
-# dormant while only tests/serialization ran).
+# the pytest sweep is the WHOLE tests/ tree — the expression-builder suites,
+# the eager-replay differential and its ratchets, the conformance round trip
+# (#531: these were dormant while only tests/serialization ran).
 test-east-py:
 	uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py $(QUIET_FLAG)
 	cd packages/east-py && uv run pytest tests -q --no-cov
@@ -101,7 +101,7 @@ test-east-py-cli:
 ## test-export` in libs/east; exports the examples IR itself).
 test-conformance:
 	@cd ../east && npm run export:examples
-	cd packages/east-py && EAST_CONFORMANCE_EXECUTE=1 uv run pytest tests/conformance -q --no-cov
+	cd packages/east-py && uv run pytest tests/conformance -q --no-cov
 
 test-east-py-std:
 	uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-std -p east_py_std $(QUIET_FLAG)

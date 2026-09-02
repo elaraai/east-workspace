@@ -1228,8 +1228,16 @@ class RecursiveTypeMarker:
 # id), which is what makes the id fast-paths in the equality family sound
 # within a process. Foreign ids (decoded wire types, another runtime's mint)
 # are handled by alpha-equivalence in is_type_equal.
+#
+# The registry is keyed by the wrapper's alpha-normal structure (`_alpha_key`),
+# not scanned: TypeScript's linear scan never hurt there, but every wrapper
+# that reaches this registry from the C bridge carries a FRESH id, so a scan
+# compared it structurally against every entry with the id fast path never
+# hitting (#636). A bucket holds the wrappers of one key; is_type_equal still
+# decides membership, so the key can only shorten the scan, never change the
+# answer.
 _next_recursive_id: int = 1
-_recursive_intern: list[EastVariant] = []
+_recursive_intern: dict[tuple, list[EastVariant]] = {}
 
 
 def _mint_recursive_id() -> int:
@@ -1244,18 +1252,52 @@ def _mint_recursive_id() -> int:
     return rec_id
 
 
+def _alpha_key(t: EastType, scope: tuple[int, ...] = ()) -> tuple:
+    """A hashable key of ``t``'s structure with every recursive scope id
+    alpha-renamed to its binder's depth, so two wrappers of one structure
+    minted with different ids — a foreign wire id, a fresh mint from the C
+    bridge — key equal. ``scope`` is the stack of enclosing wrapper ids; a
+    ref bound outside it keys by its raw id (a fragment lifted out of its
+    wrapper, which no registry entry ever is)."""
+    kind = t.type
+    value = t.value
+    if kind == "Recursive":
+        if value.type == "ref":
+            rid = value.value
+            for depth, bound in enumerate(reversed(scope)):
+                if bound == rid:
+                    return ("ref", depth)
+            return ("free", rid)
+        return ("wrapper", _alpha_key(value.value["inner"], (*scope, value.value["id"])))
+    if kind in ("Array", "Set", "Ref", "Vector", "Matrix"):
+        return (kind, _alpha_key(value, scope))
+    if kind == "Dict":
+        return (kind, _alpha_key(value["key"], scope), _alpha_key(value["value"], scope))
+    if kind in ("Struct", "Variant"):
+        return (kind, tuple((m["name"], _alpha_key(m["type"], scope)) for m in value))
+    if kind in ("Function", "AsyncFunction"):
+        return (
+            kind,
+            tuple(_alpha_key(i, scope) for i in value["inputs"]),
+            _alpha_key(value["output"], scope),
+        )
+    return (kind,)
+
+
 def _intern_recursive_wrapper(built: EastVariant) -> EastVariant:
     """Return the canonical wrapper structurally equal to ``built``.
 
     Registers ``built`` as the new canonical if no match exists. Also the
     chokepoint for wrappers reconstructed from east-c pointers or decoded from
     the wire, so every in-process route to a given recursive structure
-    converges on one id.
+    converges on one id. The lookup is a dict hit on the alpha-normal key;
+    ``is_type_equal`` has the last word on the bucket.
     """
-    for existing in _recursive_intern:
+    bucket = _recursive_intern.setdefault(_alpha_key(built), [])
+    for existing in bucket:
         if is_type_equal(existing, built):
             return existing
-    _recursive_intern.append(built)
+    bucket.append(built)
     return built
 
 

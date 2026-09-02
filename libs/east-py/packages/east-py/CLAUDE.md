@@ -28,7 +28,7 @@ read the summary line.
 ```bash
 uv run pytest tests -q --no-cov --ignore=tests/conformance   # units + compliance
 uv run pytest tests/test_stdlib.py -q --no-cov -k round        # one file / keyword
-EAST_CONFORMANCE_EXECUTE=1 uv run pytest tests/conformance -q --no-cov
+uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
 ```
 
 ## Architecture
@@ -130,9 +130,10 @@ dynamically typed at the boundary. See `pyproject.toml`.
 - **Conformance** (`tests/conformance/`) — `build(print(IR)) ≡ IR` under
   east-c's normalizer for the corpus and for the exported examples
   (`/tmp/east-examples-ir`, from `pnpm --filter @elaraai/east run
-  export:examples`); `EAST_CONFORMANCE_EXECUTE=1` also runs the reprinted
-  programs, `EAST_CONFORMANCE_REQUIRED=1` fails instead of skipping when a
-  corpus is missing (CI sets both).
+  export:examples`); every corpus program also runs its compliance suite
+  on the rebuilt IR and must agree with the original test by test.
+  `EAST_CONFORMANCE_REQUIRED=1` fails instead of skipping when a corpus is
+  missing (the per-OS CI sweep sets it). About a minute in all.
 - `SKILL.md` is the `east:east-py` plugin skill — edit it as one document,
   never by grep-patching, and keep its decision tree exhaustive.
 

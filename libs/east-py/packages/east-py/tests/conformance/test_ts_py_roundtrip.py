@@ -21,10 +21,12 @@ compliance run as the original.
 Set ``EAST_CONFORMANCE_SAVE=<dir>`` to keep every printed module.
 
 Structural equality under the normalizer already IS identical execution
-(the same nodes, types and builtins, resolved by the same names), so the
-corpus programs' compliance-run comparison — two full test-suite runs per
-program, ~12 minutes over the corpus — is opt-in: ``EAST_CONFORMANCE_EXECUTE=1``
-(``make test-conformance`` sets it). The examples always execute (fast).
+(the same nodes, types and builtins, resolved by the same names); the corpus
+programs' compliance-run comparison — two compliance runs per program, under
+a second each — is the belt to that brace, and always on. The suite takes
+about a minute over the corpus and the examples. (It took twelve until
+#636: not the compliance runs but the type converter, re-minting and
+re-interning every recursive type at every crossing.)
 
 Without an exported IR directory a leg SKIPS — the local default. CI sets
 ``EAST_CONFORMANCE_REQUIRED=1``, under which a missing directory is a
@@ -51,7 +53,6 @@ from east.types.type_of_type import IRType
 CORPUS_DIR = os.environ.get("EAST_TEST_IR_DIR", "/tmp/east-test-ir")
 EXAMPLES_DIR = os.environ.get("EAST_EXAMPLES_IR_DIR", "/tmp/east-examples-ir")
 SAVE_DIR = os.environ.get("EAST_CONFORMANCE_SAVE")
-EXECUTE_CORPUS = os.environ.get("EAST_CONFORMANCE_EXECUTE") == "1"
 REQUIRED = os.environ.get("EAST_CONFORMANCE_REQUIRED") == "1"
 
 CORPUS = sorted(glob.glob(os.path.join(CORPUS_DIR, "*.json")))
@@ -97,8 +98,6 @@ def test_corpus_program_round_trips(path, tmp_path):
     diff = diff_ir(ir, rebuilt)
     assert diff is None, f"{os.path.basename(path)}: rebuilt IR differs at {diff}"
 
-    if not EXECUTE_CORPUS:
-        return
     # Identical execution: the two programs' compliance runs agree test by
     # test. Both run in their NORMALIZED form (loc_ids 0, no source map): a
     # handful of corpus tests compare a function's beast2 bytes against a

@@ -12,8 +12,11 @@ Covers the east-c bridge's reverse converter (``c_type_ptr_to_py_type``):
   returns the SAME canonical wrapper object (not merely an equal one).
 - Back-edges are position-independent: a back-edge through a Dict, an Array,
   or at two different nesting depths is the same ``ref(id)`` everywhere.
-- The reverse caches are scoped to a single top-level conversion, so repeated
-  and interleaved conversions never bleed state across calls.
+- One python type per C type for the life of the process (#636): the first
+  conversion builds and interns, every later conversion of the same pointer
+  is a dict hit — no fresh recursive id, no structural comparison — and the
+  entry retains its C type, so the pointer outlives the value that first
+  carried it. The within-conversion scope caches never bleed across calls.
 
 Forward conversion (``py_type_to_c``) is cdef-only; tests reach it through
 the ``EastArray`` proxy, whose constructor forward-converts its element type
@@ -133,28 +136,80 @@ def test_roundtrip_recursive_through_struct_field():
     assert back_edge.value.value == rec_id
 
 
-def test_reverse_caches_are_scoped_per_conversion():
-    # The reverse caches (_py_type_cache, _rev_rec_ids) are cdef module-level
-    # globals — Cython does not expose them in the module dict, so they cannot
-    # be inspected directly from Python. Assert that (so this test is revisited
-    # if they ever become introspectable) and verify the observable contract
-    # instead: nothing is memoized across top-level conversions, so repeated
-    # and interleaved conversions are independently correct.
-    bridge = east._eastc_bridge
-    assert not hasattr(bridge, "_py_type_cache")
-    assert not hasattr(bridge, "_rev_rec_ids")
+def test_reverse_conversion_is_memoized_per_c_type():
+    """One python type per C type pointer, for the life of the process (#636).
+
+    Before the cross-call cache every conversion of a recursive C type minted
+    a fresh scope id and interned it by a deep structural comparison — the id
+    fast path could never hit — 143,410 times for the two distinct types of
+    one 300-line corpus program. Now the repeat is a dict hit: the same
+    object, no id minted, and the entry retains its C type so releasing the
+    proxy that first carried the pointer does not invalidate it."""
+    from east.types import types as T
 
     doc_arr = EastArray(DocType, [])
     tree_arr = EastArray(TreeType, [])
-    for _ in range(3):
+    assert c_type_ptr_to_py_type(doc_arr._c_elem_type_ptr) is DocType
+    assert c_type_ptr_to_py_type(tree_arr._c_elem_type_ptr) is TreeType
+    minted = T._next_recursive_id
+    for _ in range(50):
         assert c_type_ptr_to_py_type(doc_arr._c_elem_type_ptr) is DocType
         assert c_type_ptr_to_py_type(tree_arr._c_elem_type_ptr) is TreeType
+    assert T._next_recursive_id == minted
 
-    # A conversion that frees its C type must not poison a later conversion:
-    # release DocType's proxy (dropping its retained pointer), then convert a
-    # different type and re-check it.
+    ptr = doc_arr._c_elem_type_ptr
     del doc_arr
+    assert c_type_ptr_to_py_type(ptr) is DocType
     assert c_type_ptr_to_py_type(tree_arr._c_elem_type_ptr) is TreeType
+
+
+def test_the_well_known_types_convert_by_identity():
+    """`east_ir_type` and `east_type_type` come back as the `IRType` /
+    `EastTypeType` singletons by pointer identity — the forward fast path,
+    mirrored — with no conversion, no mint, no registry lookup."""
+    from east._eastc_bridge import canonicalize_type
+
+    from east.types import types as T
+    from east.types.type_of_type import EastTypeType, IRType
+
+    minted = T._next_recursive_id
+    for _ in range(3):
+        assert canonicalize_type(IRType) is IRType
+        assert canonicalize_type(EastTypeType) is EastTypeType
+    assert T._next_recursive_id == minted
+
+
+def test_walking_c_backed_ir_mints_no_recursive_ids():
+    """The trigger of #636: iterating a decoded program's IR arrays converts
+    their element types back from east-c at every node. Walking the whole
+    tree again and again must cost no recursive id at all."""
+    from east import East
+    from east.serialization.json import decode_json_for, encode_json_for
+    from east.types import types as T
+    from east.types.type_of_type import IRType
+    from east.types.values import is_east_struct, is_east_variant
+
+    program = East.function(
+        [IntegerType], IntegerType,
+        lambda b, x: East.if_else(x > 0, x * 2, East.Array.range(0, x, 1).size()))
+    text = encode_json_for(IRType)(program._east_ir)
+    c_backed = decode_json_for(IRType)(text if isinstance(text, str) else text.decode("utf-8"))
+
+    def walk(node):
+        if is_east_variant(node):
+            walk(node.value)
+        elif is_east_struct(node):
+            for _name, v in node.items():
+                walk(v)
+        elif isinstance(node, (list, tuple)) or hasattr(node, "element_type"):
+            for x in list(node):
+                walk(x)
+
+    walk(c_backed)  # the first walk may convert (and intern) once
+    minted = T._next_recursive_id
+    for _ in range(20):
+        walk(c_backed)
+    assert T._next_recursive_id == minted
 
 
 def test_shared_interned_subtree_at_two_depths():

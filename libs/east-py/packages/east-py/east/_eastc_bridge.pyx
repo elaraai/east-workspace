@@ -866,11 +866,33 @@ cdef object _c_function_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, di
 
 # ─── Helper: C type → Python EastType (EastVariant) ───────────────────────
 
-# Completed cache: C type pointer → fully built Python type. Scoped to a
-# single top-level conversion (cleared by _c_type_tag_to_py_type): entries
-# are keyed by the raw pointer with no identity revalidation (unlike the
-# forward _type_cache), so they must never outlive one reconstruction —
-# pointer addresses are reused after east_type_release.
+# Completed conversions, for the life of the process: C type pointer → the
+# python type a top-level conversion of it built (#636). A finished top-level
+# conversion is self-contained — every `ref(id)` in it is bound by a wrapper
+# in it — so replaying it for the same pointer is exactly what a fresh
+# conversion would build: a fresh conversion of a recursive wrapper mints a
+# scope id and interns to the SAME canonical wrapper, at the price of a deep
+# structural comparison per crossing (143,410 of them, for the 2 distinct
+# types of one 300-line corpus program, before this cache). Each entry
+# retains its C type, so the pointer cannot be released and recycled under
+# the key; east-c interns types, so a repeated crossing IS the same pointer.
+# The reverse twin of the forward _type_cache: bounded, cleared wholesale.
+cdef dict _rev_type_cache = {}
+cdef Py_ssize_t _REV_TYPE_CACHE_MAX = 4096
+
+
+cdef void _rev_type_cache_clear():
+    """Release every retained C type and drop the entries."""
+    cdef object key
+    for key in list(_rev_type_cache):
+        _eastc.east_type_release(<_eastc.EastType*><uintptr_t>key)
+    _rev_type_cache.clear()
+
+
+# Within ONE conversion: C type pointer → python type for the subtrees that
+# completed with no recursive scope open (see _c_type_tag_to_py_type_inner).
+# Scoped to the conversion, never across: a subtree finished INSIDE a
+# wrapper's scope may carry that wrapper's refs.
 cdef dict _py_type_cache = {}
 
 # In-progress recursive scopes: C recursive-wrapper pointer → the python
@@ -878,23 +900,43 @@ cdef dict _py_type_cache = {}
 # being converted becomes `ref(id)`. Scoped alongside _py_type_cache.
 cdef dict _rev_rec_ids = {}
 
+
 cdef object _c_type_tag_to_py_type(_eastc.EastType *c_type):
     """Convert a C EastType* to a Python EastVariant type descriptor.
 
-    Top-level entry point: scopes the reverse caches (_py_type_cache,
-    _rev_rec_ids) to this single conversion, clearing them on entry
-    and exit so pointer-keyed entries never outlive one reconstruction.
-    Recursive sub-conversions go through _c_type_tag_to_py_type_inner
-    instead — the within-call cache must be preserved across them, as it
-    handles shared subtrees and cycle detection.
+    Top-level entry point. The two well-known recursive types answer by
+    pointer identity with their python singletons (the forward fast path,
+    mirrored); every other pointer answers from _rev_type_cache after its
+    first conversion. A miss runs one scoped conversion — _py_type_cache and
+    _rev_rec_ids are cleared on entry and exit, so the within-call entries
+    never outlive the reconstruction they belong to — and caches the
+    completed result under a retained pointer. Sub-conversions go through
+    _c_type_tag_to_py_type_inner and never consult the cross-call cache: a
+    pointer met inside an open recursive scope must convert as `ref(id)`,
+    not as the self-contained wrapper a top-level conversion of it builds.
     """
+    cdef uintptr_t key = <uintptr_t>c_type
+    _load_well_known_types()
+    if _py_ir_type is not None and _eastc.east_ir_type != NULL and c_type == _eastc.east_ir_type:
+        return _py_ir_type
+    if (_py_east_type_type is not None and _eastc.east_type_type != NULL
+            and c_type == _eastc.east_type_type):
+        return _py_east_type_type
+    hit = _rev_type_cache.get(key)
+    if hit is not None:
+        return hit
     _py_type_cache.clear()
     _rev_rec_ids.clear()
     try:
-        return _c_type_tag_to_py_type_inner(c_type)
+        result = _c_type_tag_to_py_type_inner(c_type)
     finally:
         _py_type_cache.clear()
         _rev_rec_ids.clear()
+    if len(_rev_type_cache) >= _REV_TYPE_CACHE_MAX:
+        _rev_type_cache_clear()
+    _eastc.east_type_retain(c_type)
+    _rev_type_cache[key] = result
+    return result
 
 
 cdef object _c_type_tag_to_py_type_inner(_eastc.EastType *c_type):
@@ -1933,8 +1975,9 @@ cpdef void _proxy_type_release(uintptr_t ptr):
 cpdef object c_type_ptr_to_py_type(uintptr_t ptr):
     """Convert a C type pointer to a Python EastType object.
 
-    The reverse type caches are scoped to this single conversion (see
-    _c_type_tag_to_py_type) — nothing is memoized across calls.
+    One python type per C type for the life of the process (see
+    _c_type_tag_to_py_type): the first conversion builds and interns it, and
+    every later conversion of the same pointer returns that object.
     """
     return _c_type_tag_to_py_type(<_eastc.EastType*>ptr)
 
