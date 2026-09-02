@@ -9,7 +9,7 @@ A Claude Code plugin for the East programming language ecosystem.
 | `east` | `@elaraai/east` | Core East language - types, expressions, compilation |
 | `east-node-std` | `@elaraai/east-node-std` | Node.js platform functions (Console, FileSystem, Fetch, Crypto, Random, Time) |
 | `east-node-io` | `@elaraai/east-node-io` | I/O platform functions (SQL, NoSQL, S3, FTP, XLSX, compression) |
-| `east-py` | `elaraai-east-py` | Python runtime - East values as plain data, eager methods, @platform_function |
+| `east-py` | `elaraai-east-py` | Python runtime - East expressions and East values as plain data, eager methods, @East.platform_function |
 | `east-py-std` | `elaraai-east-py-std` | Standard platform functions on the Python runtime (direct `*_impl` calls) |
 | `east-py-io` | `elaraai-east-py-io` | I/O platform functions on the Python runtime (direct `*_impl` calls) |
 | `east-py-datascience` | `@elaraai/east-py-datascience` | Data science & ML (MADS, Optuna, XGBoost, Torch, GP, SHAP, Causal) |
@@ -48,7 +48,7 @@ The plugin runs preemptive East diagnostics whenever the agent reads or edits an
 - **TypeScript errors** for the file (the checker's own semantic + syntactic diagnostics), and
 - **East idiom issues** that plain `tsc` can't see — e.g. a redundant cast on a `$.let` value, a hand-rolled variant, `East.<X>Type` instead of a bare import, or `$.const`/`$.let` used inline in an expression.
 
-The rules come from [`@elaraai/east-diagnostics`](../east-diagnostics) and run against a real `ts.Program` (type-aware, not regex). A resident daemon (`daemon/server.js`) holds a warm `LanguageService` per project — started at `SessionStart`, keyed per plugin install so it is shared across sessions and tracks multiple projects at once — so reviews return in well under a second. Reads are reviewed once per distinct file-content (deduped), and vendored/built trees (`node_modules`, `dist`, …) are skipped. The same rule set is available to editors and CI via [`@elaraai/eslint-plugin-east`](../eslint-plugin-east).
+The rules come from [`@elaraai/east-diagnostics`](../east-diagnostics) and run against a real `ts.Program` (type-aware, not regex). A python file that imports `east` gets the same block from the east-py rules — `east-py lint --format json` run through the project's own `.venv` (or `east-py` on PATH; `EAST_PY_LINT` names the command), silently skipped where there is none. A resident daemon (`daemon/server.js`) holds a warm `LanguageService` per project — started at `SessionStart`, keyed per plugin install so it is shared across sessions and tracks multiple projects at once — so reviews return in well under a second. Reads are reviewed once per distinct file-content (deduped), and vendored/built trees (`node_modules`, `dist`, …) are skipped. The same rule set is available to editors and CI via [`@elaraai/eslint-plugin-east`](../eslint-plugin-east).
 
 ## Installation
 

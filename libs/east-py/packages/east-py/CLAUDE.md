@@ -112,7 +112,10 @@ uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
     callback on an East-evidenced receiver) and which names hold
     expressions; the callback-method and statement-method names come from
     the spelling table and the `Block` class, the eager capture's builtin
-    allowlist from `capture._allowed_global` — no hand lists. Surfaces:
+    allowlist from `capture._allowed_global` — no hand lists — and a name
+    imported from the standard library or an installed package is resolved
+    (imported, fetched) and put to that same check; a user module's is the
+    build's to tell. Surfaces:
     `east-py lint`, the flake8 plugin and `east-py lsp` (east-py-cli).
 
 ### Invariants

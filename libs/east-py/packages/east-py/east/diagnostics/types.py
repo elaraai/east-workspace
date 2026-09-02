@@ -126,6 +126,8 @@ class Context:
         self.diagnostics: list[Diagnostic] = []
         #: module-level names bound by ``import`` / ``from … import``, to their module path
         self.imports: dict[str, str] = {}
+        #: the ``from M import n`` bindings among them: name -> (module, attribute)
+        self.from_imports: dict[str, tuple[str, str]] = {}
         #: module-level names bound to a plain python ``def`` (not an East artifact)
         self.python_defs: set[str] = set()
         #: module-level names bound to an ``East.function`` artifact (callable in a body)

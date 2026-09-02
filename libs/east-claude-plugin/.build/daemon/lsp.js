@@ -219,6 +219,18 @@ function importsEastPackage(sf, t) {
   importsCache.set(sf, found);
   return found;
 }
+function unresolvedEastImport(sf, checker, t) {
+  for (const stmt of sf.statements) {
+    if (!t.isImportDeclaration(stmt) && !t.isExportDeclaration(stmt))
+      continue;
+    const spec = stmt.moduleSpecifier;
+    if (spec === void 0 || !t.isStringLiteral(spec) || spec.text !== "@elaraai/east")
+      continue;
+    if (checker.getSymbolAtLocation(spec) === void 0)
+      return true;
+  }
+  return false;
+}
 var declaresCache = /* @__PURE__ */ new WeakMap();
 var E3_DECLARATION_MEMBERS = /* @__PURE__ */ new Set([
   "input",
@@ -454,6 +466,26 @@ function insideReactive(node, t) {
 // ../east-diagnostics/dist/src/rules/prefer-let-const-over-east-value.js
 var NAME6 = "prefer-let-const-over-east-value";
 var CODE6 = 990006;
+function typeIsLoadBearing(value, t) {
+  let found = false;
+  const emptyArray = (n) => n !== void 0 && t.isArrayLiteralExpression(n) && n.elements.length === 0;
+  const visit = (n) => {
+    if (found)
+      return;
+    if (t.isIdentifier(n) && n.text === "none")
+      found = true;
+    else if (emptyArray(n))
+      found = true;
+    else if (t.isNewExpression(n) && t.isIdentifier(n.expression) && (n.expression.text === "Map" || n.expression.text === "Set") && (n.arguments === void 0 || n.arguments.length === 0 || emptyArray(n.arguments[0])))
+      found = true;
+    else if (t.isCallExpression(n) && t.isIdentifier(n.expression) && (n.expression.text === "variant" || n.expression.text === "some"))
+      found = true;
+    else
+      t.forEachChild(n, visit);
+  };
+  visit(value);
+  return found;
+}
 var preferLetConstOverEastValue = {
   name: NAME6,
   code: CODE6,
@@ -477,9 +509,11 @@ var preferLetConstOverEastValue = {
       return;
     if (!insideBlockScope(node, ctx))
       return;
+    const inner = node.arguments[0];
+    if ((asReturn || asCallbackBody) && node.arguments.length >= 2 && inner !== void 0 && typeIsLoadBearing(inner, t))
+      return;
     const sf = ctx.sourceFile;
     const start = node.getStart(sf);
-    const inner = node.arguments[0];
     ctx.report({
       ruleName: NAME6,
       code: CODE6,
@@ -2196,6 +2230,8 @@ var allRules = [
 
 // ../east-diagnostics/dist/src/run.js
 function runEastRules(tsModule, program, sourceFile, checker, options = {}, rules = allRules) {
+  if (unresolvedEastImport(sourceFile, checker, tsModule))
+    return [];
   const diagnostics = [];
   const ctx = {
     ts: tsModule,

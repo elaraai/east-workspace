@@ -92,6 +92,7 @@ def collect_module_scope(ctx: Context) -> None:
             module = node.module or ""
             for a in node.names:
                 ctx.imports[a.asname or a.name] = f"{module}.{a.name}" if module else a.name
+                ctx.from_imports[a.asname or a.name] = (module, a.name)
                 if module == "east" and a.name == "East":
                     ctx.east_names.add(a.asname or "East")
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

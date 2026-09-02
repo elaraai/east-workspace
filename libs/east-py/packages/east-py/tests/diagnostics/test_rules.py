@@ -182,6 +182,33 @@ class TestOneMessageTwoMoments:
         assert _build(source) == _messages(source, "no-python-work")[0]
         assert not [d for d in diagnose(source) if d.rule != "no-python-work"], "one message per line"
 
+    @pytest.mark.parametrize("binding", ["from math import floor", "from numpy import floor"])
+    def test_a_name_imported_from_the_stdlib_or_an_installed_package_is_refused_by_name(self, binding):
+        source = (f"{binding}\n"
+                  "from east import EastArray, IntegerType\n"
+                  "items = EastArray(IntegerType, [1, 2])\n"
+                  "items.map(lambda b, v: floor(v))\n")
+        assert _build(source) == _messages(source, "no-python-work")[0]
+
+    def test_an_imported_constant_lifts_and_is_not_flagged(self):
+        source = ("from math import pi\n"
+                  "from east import East, EastArray, IntegerType\n"
+                  "items = EastArray(IntegerType, [1, 2])\n"
+                  "scaled = items.map(lambda b, v: East.Integer.to_float(v) * pi)\n"
+                  "assert list(scaled) == [pi, 2 * pi]\n")
+        exec(compile(source, "moment.py", "exec"), {})
+        assert diagnose(source) == []
+
+    def test_a_name_from_a_module_of_the_users_own_is_the_builds_to_tell(self, tmp_path, monkeypatch):
+        (tmp_path / "helpers_of_mine.py").write_text("import math\n\ndef floor(v):\n    return math.floor(v)\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        source = ("from helpers_of_mine import floor\n"
+                  "from east import EastArray, IntegerType\n"
+                  "items = EastArray(IntegerType, [1, 2])\n"
+                  "items.map(lambda b, v: floor(v))\n")
+        assert "floor" in _build(source)  # the build refuses it …
+        assert diagnose(source) == []     # … the rule cannot know what a user module exports
+
     def test_a_python_def_doing_python_work_in_an_eager_callback(self):
         source = ("import math\n"
                   "from east import EastArray, IntegerType\n"

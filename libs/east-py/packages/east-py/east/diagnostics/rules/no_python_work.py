@@ -10,12 +10,17 @@ the body loads must be liftable — a scalar, an East type or value, the
 ``none`` / ``variant``, a handful of builtins (``bool``, ``isinstance``,
 ``abs``), or a python function that passes the same check (a build-time
 macro). A module object (``np``, ``math``), any other python builtin
-(``sum``, ``len``, ``int``, ``sorted``…), a mutable East collection, or a
-``def`` whose own body reaches for any of those has no East form, and the
-capture raises ``_capture_error(name)`` naming the first such binding
-(#625). This rule says the same at edit time, for the same names: the
-allowed builtins are read off the capture's own check
-(``_allowed_global``), not listed here.
+(``sum``, ``len``, ``int``, ``sorted``…), a name imported from the
+standard library or an installed package that has no East form (``from
+math import floor``; ``from math import pi`` is a float and lifts), a
+mutable East collection, or a ``def`` whose own body reaches for any of
+those, and the capture raises ``_capture_error(name)`` naming the first
+such binding (#625). This rule says the same at edit time, for the same
+names, with the capture's own check: the allowed builtins are read off
+``_allowed_global``, and an imported name is resolved — the module
+imported, the attribute fetched — and put to the same check (#648). A
+module of the user's own, or one this environment cannot import, is
+unknown and left to the build.
 
 Only the eager capture refuses by name; an ``East.function`` body that
 calls a helper ``def`` runs it as a macro, and a python builtin over an
@@ -27,7 +32,12 @@ from __future__ import annotations
 
 import ast
 import builtins
+import importlib
+import importlib.util
+import os
+import site
 import sys
+import sysconfig
 from functools import cache
 
 from east.diagnostics.scope import mutable_collections
@@ -49,6 +59,46 @@ def refused_builtins() -> frozenset[str]:
     )
 
 
+@cache
+def _site_dirs() -> tuple[str, ...]:
+    """Where installed distributions live: the site-packages directories."""
+    dirs = {*site.getsitepackages(), site.getusersitepackages()}
+    dirs.update(p for k, p in sysconfig.get_paths().items() if k in ("purelib", "platlib"))
+    return tuple(os.path.realpath(d) for d in dirs if d)
+
+
+def _installed(top: str) -> bool:
+    """Whether the top-level package ``top`` is an installed distribution —
+    found under a site-packages directory — as opposed to the user's own
+    code (a module on the path, an editable install)."""
+    try:
+        spec = importlib.util.find_spec(top)
+    except (ImportError, ValueError):
+        return False
+    if spec is None:
+        return False
+    locations = [spec.origin] if spec.origin else list(spec.submodule_search_locations or [])
+    return any(os.path.realpath(loc).startswith(d + os.sep) for loc in locations if loc for d in _site_dirs())
+
+
+@cache
+def refused_import(module: str, attr: str) -> bool:
+    """Whether ``from module import attr`` binds a name the capture
+    refuses: the object itself, put to the capture's own check
+    (``_allowed_global``), when ``module`` is python's standard library or
+    an installed distribution — the modules a lint may import. A module of
+    the user's own, or one that fails to import here, is unknown, and the
+    build alone can tell: not refused."""
+    top = module.split(".")[0]
+    if not (top in sys.stdlib_module_names or _installed(top)):
+        return False
+    try:
+        value = getattr(importlib.import_module(module), attr)
+    except Exception:
+        return False
+    return not _allowed_global(value, MACRO_DEPTH)
+
+
 def _message(name: str) -> str:
     return _capture_error(name).args[0]
 
@@ -57,8 +107,9 @@ class NoPythonWork:
     name = "no-python-work"
     code = 6
     category = "error"
-    description = ("No python work inside an eager callback — no module objects, python builtins "
-                   "or helpers doing python work; capture side-tables with East.function / .bind.")
+    description = ("No python work inside an eager callback — no module objects, python builtins, "
+                   "imported python functions or helpers doing python work; capture side-tables with "
+                   "East.function / .bind.")
 
     def check(self, body: Body, ctx: Context) -> None:
         if _root(body).kind != "eager":
@@ -91,11 +142,13 @@ class _Refused:
         if module is not None:
             if module == "east" or module.startswith("east."):
                 return False
-            # a module object is never liftable; a name imported from the
-            # standard library is python's; what a user package exports may
-            # be an East artifact, which the build alone can tell
-            top = module.split(".")[0]
-            return name == module or "." not in module or top in sys.stdlib_module_names
+            imported = ctx.from_imports.get(name)
+            if imported is None:
+                return True  # a module object is never liftable
+            # a name from the standard library or an installed package: the
+            # object itself, put to the capture's check; a user module's is
+            # the build's to tell
+            return refused_import(*imported)
         if name in self.mutable:
             return True
         if name in self.defs:
