@@ -66,6 +66,24 @@ from east.expression.platform import (
     platform as _platform,
 )
 from east.expression.statements import error
+from east.functions import (
+    decode_function_manifest as _decode_function_manifest,
+)
+from east.functions import (
+    encode_function_manifest as _encode_function_manifest,
+)
+from east.functions import (
+    export_functions as _export_functions,
+)
+from east.functions import (
+    import_function as _import_function,
+)
+from east.functions import (
+    link_imports as _link_imports,
+)
+from east.functions import (
+    platform_dependencies as _platform_dependencies,
+)
 from east.types.types import (
     ArrayType,
     BlobType,
@@ -1698,6 +1716,26 @@ class _East:
     asyncGenericPlatform = staticmethod(_async_generic_platform)  # noqa: N815 — TS parity name
     compile = staticmethod(_compile)
     compileAsync = staticmethod(_compile_async)  # noqa: N815 — TS parity name
+
+    # ── cross-language functions (#628, east/functions.py) ──────────────────
+    # Name-for-name with TypeScript: a function exported by a package in
+    # either language is imported as a typed function expression
+    # (`East.import_function`), resolved and embedded as pure IR by
+    # `East.link_imports` (what `e3 export` runs on every task); a package
+    # exports its own with `East.export_functions` (`east-py export-functions`
+    # is the CLI).
+    import_function = staticmethod(_import_function)
+    importFunction = staticmethod(_import_function)  # noqa: N815 — TS parity name
+    export_functions = staticmethod(_export_functions)
+    exportFunctions = staticmethod(_export_functions)  # noqa: N815 — TS parity name
+    encode_function_manifest = staticmethod(_encode_function_manifest)
+    encodeFunctionManifest = staticmethod(_encode_function_manifest)  # noqa: N815 — TS parity name
+    decode_function_manifest = staticmethod(_decode_function_manifest)
+    decodeFunctionManifest = staticmethod(_decode_function_manifest)  # noqa: N815 — TS parity name
+    link_imports = staticmethod(_link_imports)
+    linkImports = staticmethod(_link_imports)  # noqa: N815 — TS parity name
+    platform_dependencies = staticmethod(_platform_dependencies)
+    platformDependencies = staticmethod(_platform_dependencies)  # noqa: N815 — TS parity name
 
     # The STATEMENT surface — python's twin of the TypeScript `$` builder —
     # is the Block a body receives as its first parameter (`b.let`, `b.if_`,

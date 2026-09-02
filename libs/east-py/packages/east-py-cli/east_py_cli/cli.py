@@ -37,6 +37,29 @@ def create_parser() -> argparse.ArgumentParser:
         "--name", default="main", metavar="NAME",
         help="The module-level name bound to the rebuilt function (default: main)")
 
+    # export-functions command (#628): a module's `east_functions` -> manifest
+    export_parser = subparsers.add_parser(
+        "export-functions",
+        help="Write a package's East functions (its `east_functions` dict) as a "
+        "function manifest other packages — in python or TypeScript — import",
+    )
+    export_parser.add_argument(
+        "module", help="The module declaring `east_functions` (a dotted name, or a .py path)")
+    export_parser.add_argument(
+        "-o", "--output", type=Path, required=True, metavar="FILE",
+        help="The manifest to write (.beast2)")
+    export_parser.add_argument(
+        "-p", "--package", action="append", default=[], metavar="PACKAGE",
+        help="Platform package implementing the functions' platform calls (can be repeated); "
+        "each platform dependency must be provided by one of them")
+    export_parser.add_argument(
+        "--name", metavar="NAME",
+        help="The package name importers use (default: the module's top-level name)")
+    export_parser.add_argument(
+        "--version", metavar="VERSION",
+        help="The package version recorded in the manifest (default: the installed "
+        "distribution's version, else 0.0.0)")
+
     # run command
     run_parser = subparsers.add_parser("run", help="Run an East IR program")
     run_parser.add_argument(
@@ -336,6 +359,73 @@ def cmd_transpile(args: argparse.Namespace) -> None:
         sys.stdout.write(source)
 
 
+def cmd_export_functions(args: argparse.Namespace) -> int:
+    """``east-py export-functions``: write a module's ``east_functions`` as a
+    function manifest (#628).
+
+    The module is imported (a dotted name, or a ``.py`` path) and its
+    ``east_functions`` dict — name → ``East.function`` artifact — becomes
+    the manifest ``East.export_functions`` builds: each function's IR,
+    declared type and platform dependencies. Every platform dependency must
+    be implemented by one of the ``-p`` packages, which is recorded as its
+    provider; a dependency no package provides is an error naming it, so an
+    importer's runner can be checked at its own build.
+    """
+    import importlib
+    import importlib.metadata
+    import importlib.util
+
+    from east import East
+
+    try:
+        spec_name = args.module
+        if spec_name.endswith(".py"):
+            path = Path(spec_name)
+            spec = importlib.util.spec_from_file_location(path.stem, path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"cannot load {path}")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            top = path.stem
+        else:
+            module = importlib.import_module(spec_name)
+            top = spec_name.split(".")[0]
+        functions = getattr(module, "east_functions", None)
+        if not isinstance(functions, dict):
+            raise ValueError(
+                f"{args.module} declares no `east_functions` dict (name -> East.function artifact)")
+
+        providers: dict[str, str] = {}
+        for package in args.package:
+            for fn in load_platform(package):
+                providers.setdefault(fn["name"], package)
+        missing = sorted({
+            dep["name"]
+            for artifact in functions.values()
+            for dep in East.platform_dependencies(artifact)
+            if dep["name"] not in providers
+        })
+        if missing:
+            raise ValueError(
+                "platform function(s) no -p package provides: " + ", ".join(missing)
+                + " — pass the implementing package with -p")
+
+        version = args.version
+        if version is None:
+            try:
+                version = importlib.metadata.version(top.replace("_", "-"))
+            except importlib.metadata.PackageNotFoundError:
+                version = "0.0.0"
+        manifest = East.export_functions(args.name or top, version, functions, providers=providers)
+        args.output.write_bytes(East.encode_function_manifest(manifest))
+        print(f"Exported {len(functions)} function(s) of {args.name or top}@{version} to {args.output}",
+              file=sys.stderr)
+        return 0
+    except (ImportError, ValueError, TypeError, OSError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
 def main() -> None:
     """Main entry point."""
     parser = create_parser()
@@ -343,6 +433,8 @@ def main() -> None:
 
     if args.command == "transpile":
         cmd_transpile(args)
+    elif args.command == "export-functions":
+        sys.exit(cmd_export_functions(args))
     elif args.command == "run":
         sys.exit(cmd_run(args))
     elif args.command == "convert":
