@@ -5,10 +5,13 @@
 import type * as ts from "typescript";
 import type { EastDiagnostic, EastRule, EastRulesOptions, RuleContext, TsModule } from "./types.js";
 import { allRules } from "./rules/index.js";
+import { unresolvedEastImport } from "./east-source.js";
 
 /** Run a set of East rules over one source file, returning diagnostics. The
  * `typescript` module is injected so rules use the host's compiler version.
- * `rules` defaults to `allRules` (the run-anywhere set). */
+ * `rules` defaults to `allRules` (the run-anywhere set). A file whose
+ * `@elaraai/east` import does not resolve (a loose file outside a project)
+ * gets none: its East types are unknown, and every rule would misfire. */
 export function runEastRules(
   tsModule: TsModule,
   program: ts.Program,
@@ -17,6 +20,7 @@ export function runEastRules(
   options: EastRulesOptions = {},
   rules: readonly EastRule[] = allRules,
 ): EastDiagnostic[] {
+  if (unresolvedEastImport(sourceFile, checker, tsModule)) return [];
   const diagnostics: EastDiagnostic[] = [];
   const ctx: RuleContext = {
     ts: tsModule,
