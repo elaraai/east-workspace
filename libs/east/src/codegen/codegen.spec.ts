@@ -55,11 +55,20 @@ async function rebuild(source: string): Promise<any> {
  * The normalized shape of an IR value: loc_ids zeroed, variables and labels
  * renamed in first-occurrence order, recursive type ids renumbered, bigints
  * as strings — what `east-c ir normalize` erases, erased here in TypeScript.
+ *
+ * Variables are renamed per BINDING, resolved lexically — a parameter, a
+ * Let, a loop or match or catch variable each mint a canonical name for the
+ * body they scope — not per name: since #639 sibling bodies reuse a name
+ * (three callbacks each naming their element `x`), and two programs that
+ * bind the same variable under different names (a printed module drops an
+ * empty `.catch`, whose default variables the rebuild names afresh) are the
+ * same program.
  */
 function canonical(node: any): unknown {
-  const variables = new Map<string, string>();
   const labels = new Map<string, string>();
   const recursive = new Map<string, string>();
+  let variables = 0;
+  type Scope = Map<string, string>;
   const rename = (table: Map<string, string>, name: string, prefix: string): string => {
     let hit = table.get(name);
     if (hit === undefined) {
@@ -68,7 +77,33 @@ function canonical(node: any): unknown {
     }
     return hit;
   };
-  const walk = (v: any, context: string | null): unknown => {
+  /** Binds `variable` (a Variable node) in `scope`: its canonical name, minted in binding order. */
+  const bind = (variable: any, scope: Scope): unknown => {
+    const name = `v${variables}`;
+    variables += 1;
+    scope.set(variable.value.name, name);
+    return variableNode(variable, name);
+  };
+  const variableNode = (v: any, name: string): unknown =>
+    ["Variable", { type: walk(v.value.type, "type", new Map()), name, mutable: v.value.mutable, captured: v.value.captured }];
+  const lookup = (scopes: Scope[], name: string): string => {
+    for (let i = scopes.length - 1; i >= 0; i--) {
+      const hit = scopes[i]!.get(name);
+      if (hit !== undefined) return hit;
+    }
+    return `free:${name}`;
+  };
+  // the scope chain is threaded through the walk: a body opens a scope, a Let extends the current one
+  let chain: Scope[] = [new Map()];
+  const inScope = <T>(f: () => T): T => {
+    chain = [...chain, new Map()];
+    try {
+      return f();
+    } finally {
+      chain = chain.slice(0, -1);
+    }
+  };
+  const walk = (v: any, context: string | null, _scope?: Scope): unknown => {
     if (v === null || v === undefined) return null;
     if (typeof v === "bigint") return v.toString();
     if (v instanceof Date) return v.toISOString();
@@ -76,16 +111,75 @@ function canonical(node: any): unknown {
     if (Array.isArray(v)) return v.map(x => walk(x, context));
     if (isVariant(v)) {
       const tag = v.type as string;
-      if (tag === "Variable") {
-        const p = v.value;
-        return ["Variable", { type: walk(p.type, "type"), name: rename(variables, p.name, "v"), mutable: p.mutable, captured: p.captured }];
+      const p = v.value;
+      if (context === "type") {
+        if (tag === "Recursive") {
+          const payload = v.value;
+          if (payload.type === "ref") return ["Recursive", ["ref", rename(recursive, String(payload.value), "r")]];
+          return ["Recursive", ["wrapper", { id: rename(recursive, String(payload.value.id), "r"), inner: walk(payload.value.inner, "type") }]];
+        }
+        return [tag, walk(v.value, context)];
       }
-      if (tag === "Recursive" && context === "type") {
-        const payload = v.value;
-        if (payload.type === "ref") return ["Recursive", ["ref", rename(recursive, String(payload.value), "r")]];
-        return ["Recursive", ["wrapper", { id: rename(recursive, String(payload.value.id), "r"), inner: walk(payload.value.inner, "type") }]];
+      switch (tag) {
+        case "Variable":
+          return variableNode(v, lookup(chain, p.name));
+        case "Function":
+        case "AsyncFunction":
+          return inScope(() => [tag, {
+            type: walk(p.type, "type"),
+            parameters: (p.parameters as any[]).map(q => bind(q, chain[chain.length - 1]!)),
+            body: walk(p.body, context),
+            captures: walk(p.captures, context),
+          }]);
+        case "Let": {
+          const value = walk(p.value, context);
+          return [tag, { type: walk(p.type, "type"), value, variable: bind(p.variable, chain[chain.length - 1]!) }];
+        }
+        case "ForArray":
+        case "ForDict":
+        case "ForSet": {
+          const source = tag === "ForArray" ? "array" : tag === "ForDict" ? "dict" : "set";
+          const coll = walk(p[source], context);
+          return inScope(() => {
+            const scope = chain[chain.length - 1]!;
+            const out: Record<string, unknown> = { type: walk(p.type, "type"), [source]: coll, label: { name: rename(labels, p.label.name, "L") } };
+            if (tag !== "ForSet") out["value"] = bind(p.value, scope);
+            out["key"] = bind(p.key, scope);
+            out["body"] = walk(p.body, context);
+            return [tag, out];
+          });
+        }
+        case "Match": {
+          const variant = walk(p.variant, context);
+          const cases = (p.cases as any[]).map(c => inScope(() => ({
+            case: c.case, variable: bind(c.variable, chain[chain.length - 1]!), body: walk(c.body, context),
+          })));
+          return [tag, { type: walk(p.type, "type"), variant, cases }];
+        }
+        case "TryCatch": {
+          const tryBody = inScope(() => walk(p.try_body, context));
+          const caught = inScope(() => {
+            const scope = chain[chain.length - 1]!;
+            const message = bind(p.message, scope);
+            const stack = bind(p.stack, scope);
+            return { message, stack, catch_body: walk(p.catch_body, context) };
+          });
+          const finallyBody = inScope(() => walk(p.finally_body, context));
+          return [tag, { type: walk(p.type, "type"), try_body: tryBody, ...caught, finally_body: finallyBody }];
+        }
+        case "Block":
+          return inScope(() => [tag, { type: walk(p.type, "type"), statements: walk(p.statements, context) }]);
+        case "While":
+          return [tag, { type: walk(p.type, "type"), predicate: walk(p.predicate, context), label: { name: rename(labels, p.label.name, "L") }, body: inScope(() => walk(p.body, context)) }];
+        case "IfElse":
+          return [tag, {
+            type: walk(p.type, "type"),
+            ifs: (p.ifs as any[]).map(branch => ({ predicate: walk(branch.predicate, context), body: inScope(() => walk(branch.body, context)) })),
+            else_body: inScope(() => walk(p.else_body, context)),
+          }];
+        default:
+          return [tag, walk(v.value, context)];
       }
-      return [tag, walk(v.value, context)];
     }
     if (typeof v === "object") {
       const out: Record<string, unknown> = {};
@@ -172,6 +266,34 @@ async function sweep(files: string[], labelOf: (file: string) => string, check: 
   }
   assert.equal(failures.length, 0, `${failures.length} of ${files.length} failed:\n  ${failures.join("\n  ")}`);
 }
+
+// ── the harness's own contract ──────────────────────────────────────────────
+
+describe("codegen: the canonical form is alpha-equivalence", () => {
+  test("programs that bind the same variables under different names are the same program", () => {
+    const a = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {
+      const total = $.let(0n);
+      $.for(xs, ($, x) => { $.assign(total, total.add(x)); });
+      const doubled = $.const(xs.map(($, x) => x.multiply(2n)));   // a sibling reuses `x`
+      return total.add(doubled.size());
+    });
+    const b = East.function([ArrayType(IntegerType)], IntegerType, ($, items) => {
+      const acc = $.let(0n);
+      $.for(items, ($, item) => { $.assign(acc, acc.add(item)); });
+      const twice = $.const(items.map(($, other) => other.multiply(2n)));   // distinct names
+      return acc.add(twice.size());
+    });
+    assert.equal(firstDifference(canonical(a.toIR().ir), canonical(b.toIR().ir)), null);
+  });
+
+  test("a reference that resolves to another binding is a different program", () => {
+    const outer = East.function([IntegerType, IntegerType], IntegerType, ($, x, y) =>
+      East.value([x]).map(($, z) => z.add(y)).get(0n));       // adds the parameter y
+    const inner = East.function([IntegerType, IntegerType], IntegerType, ($, x, y) =>
+      East.value([x]).map(($, z) => z.add(z)).get(0n));       // adds the element itself
+    assert.notEqual(firstDifference(canonical(outer.toIR().ir), canonical(inner.toIR().ir)), null);
+  });
+});
 
 // ── hand-written coverage of every node kind ────────────────────────────────
 
