@@ -11,9 +11,15 @@
  * IR order and `{T0}`, `{T1}`, ... for its type parameters; `callbacks`
  * lists the argument slots that are callbacks (printed as `($, ...) => ...`
  * bodies when the IR holds a Function node, as the value they are
- * otherwise); `exprs` lists the slots the surface types `Expr`-only — the
- * argument a free type parameter is inferred from (`merge<T2>(key, value:
- * Expr<T2>, ...)`), where a literal prints through `East.value`; `floatOnly`
+ * otherwise); `exprs` lists the slots the surface types `Expr`-only
+ * (`merge<T2>(key, value: Expr<T2>, ...)`), where a literal prints through
+ * `East.value`; `inferred` lists the slots whose East type the surface
+ * infers from the argument itself — an unconstrained type parameter,
+ * `reduce<T2>(fn, init: T2)` — where a construction prints bare only when
+ * it types itself (`0n`, `{ a: x }`; not `[]` or `none`); every other slot
+ * is typed by the surface (`SubtypeExprOrValue<T>`) and a construction
+ * prints bare. `spellings.spec.ts` checks all three against the surface's
+ * signatures with the TypeScript compiler. `floatOnly`
  * marks the stdlib constructors TypeScript declares for Float only
  * (`East.Vector.zeros(n)`), which print raw for any other element type;
  * `adapter` names the two argument shapes the surface takes
@@ -40,6 +46,8 @@ export interface Spelling {
   callbacks?: number[];
   /** The argument slots the surface types `Expr`-only (a literal prints through `East.value`). */
   exprs?: number[];
+  /** The argument slots whose East type the surface infers from the argument (a construction prints bare only when it types itself). */
+  inferred?: number[];
   /** The row applies only when the type parameter is Float. */
   floatOnly?: boolean;
   /** A host-value argument shape: a RegExp or a CSV options object. */
@@ -57,14 +65,14 @@ export const SPELLINGS: Record<string, Spelling> = {
   ArrayFilter: { template: "{0}.filter({1})", callbacks: [1] },
   ArrayFilterMap: { template: "{0}.filterMap({1})", callbacks: [1] },
   ArrayFindFirst: { template: "{0}.findFirst({1}, {2})", callbacks: [2] },
-  ArrayFindSortedFirst: { template: "{0}.findSortedFirst({1}, {2})", callbacks: [2] },
-  ArrayFindSortedLast: { template: "{0}.findSortedLast({1}, {2})", callbacks: [2] },
-  ArrayFindSortedRange: { template: "{0}.findSortedRange({1}, {2})", callbacks: [2] },
+  ArrayFindSortedFirst: { template: "{0}.findSortedFirst({1}, {2})", callbacks: [2], inferred: [1] },
+  ArrayFindSortedLast: { template: "{0}.findSortedLast({1}, {2})", callbacks: [2], inferred: [1] },
+  ArrayFindSortedRange: { template: "{0}.findSortedRange({1}, {2})", callbacks: [2], inferred: [1] },
   ArrayFirstMap: { template: "{0}.firstMap({1})", callbacks: [1] },
   ArrayFlattenToArray: { template: "{0}.flatMap({1})", callbacks: [1] },
   ArrayFlattenToDict: { template: "{0}.flattenToDict({1}, {2})", callbacks: [1, 2] },
   ArrayFlattenToSet: { template: "{0}.flattenToSet({1})", callbacks: [1] },
-  ArrayFold: { template: "{0}.reduce({2}, {1})", callbacks: [2] },
+  ArrayFold: { template: "{0}.reduce({2}, {1})", callbacks: [2], inferred: [1] },
   ArrayForEach: { template: "{0}.forEach({1})", callbacks: [1] },
   ArrayGenerate: { template: "East.Array.generate({0}, {T0}, {1})", callbacks: [1] },
   ArrayGet: { template: "{0}.get({1})" },
@@ -85,7 +93,7 @@ export const SPELLINGS: Record<string, Spelling> = {
   ArrayRange: { template: "East.Array.range({0}, {1}, {2})" },
   ArrayReverse: { template: "{0}.reverse()" },
   ArrayReverseInPlace: { template: "{0}.reverseInPlace()" },
-  ArrayScan: { template: "{0}.scan({2}, {1})", callbacks: [2] },
+  ArrayScan: { template: "{0}.scan({2}, {1})", callbacks: [2], inferred: [1] },
   ArraySize: { template: "{0}.size()" },
   ArraySlice: { template: "{0}.slice({1}, {2})" },
   ArraySort: { template: "{0}.sort({1})", callbacks: [1] },
@@ -144,11 +152,11 @@ export const SPELLINGS: Record<string, Spelling> = {
   DictKeys: { template: "{0}.keys()" },
   DictMap: { template: "{0}.map({1})", callbacks: [1] },
   DictMapReduce: { template: "{0}.mapReduce({1}, {2})", callbacks: [1, 2] },
-  DictMerge: { template: "{0}.merge({1}, {2}, {3}, {4})", callbacks: [3, 4] },
+  DictMerge: { template: "{0}.merge({1}, {2}, {3}, {4})", callbacks: [3, 4], inferred: [2] },
   DictMergeAll: { template: "{0}.mergeAll({1}, {2}, {3})", callbacks: [2, 3], exprs: [1] },
   DictPop: { template: "{0}.pop({1})" },
-  DictReduce: { template: "{0}.reduce({1}, {2})", callbacks: [1] },
-  DictScan: { template: "{0}.scan({1}, {2})", callbacks: [1] },
+  DictReduce: { template: "{0}.reduce({1}, {2})", callbacks: [1], inferred: [2] },
+  DictScan: { template: "{0}.scan({1}, {2})", callbacks: [1], inferred: [2] },
   DictSize: { template: "{0}.size()" },
   DictSwap: { template: "{0}.swap({1}, {2})" },
   DictToArray: { template: "{0}.toArray({1})", callbacks: [1] },
@@ -244,8 +252,8 @@ export const SPELLINGS: Record<string, Spelling> = {
   SetIsSubset: { template: "{0}.isSubsetOf({1})" },
   SetMap: { template: "{0}.map({1})", callbacks: [1] },
   SetMapReduce: { template: "{0}.mapReduce({1}, {2})", callbacks: [1, 2] },
-  SetReduce: { template: "{0}.reduce({1}, {2})", callbacks: [1] },
-  SetScan: { template: "{0}.scan({1}, {2})", callbacks: [1] },
+  SetReduce: { template: "{0}.reduce({1}, {2})", callbacks: [1], inferred: [2] },
+  SetScan: { template: "{0}.scan({1}, {2})", callbacks: [1], inferred: [2] },
   SetSize: { template: "{0}.size()" },
   SetSymDiff: { template: "{0}.symmetricDifference({1})" },
   SetToArray: { template: "{0}.toArray({1})", callbacks: [1] },
@@ -290,7 +298,7 @@ export const SPELLINGS: Record<string, Spelling> = {
   VectorDot: { template: "{0}.dot({1})" },
   VectorEq: { template: "{0}.eq({1})" },
   VectorFill: { template: "East.Vector.fill({0}, {1})" },
-  VectorFold: { template: "{0}.reduce({2}, {1})", callbacks: [2] },
+  VectorFold: { template: "{0}.reduce({2}, {1})", callbacks: [2], inferred: [1] },
   VectorFromArray: { template: "East.Vector.fromArray({0})" },
   VectorGather: { template: "{0}.gather({1})" },
   VectorGet: { template: "{0}.get({1})" },

@@ -12,7 +12,9 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
 - `src/expr/` — fluent expression builder.
 - `src/serialization/` — JSON, Beast2, CSV, East text format.
 - `src/codegen/` — the IR → TypeScript printer (`East.toSource`; `printer.ts`,
-  the builtin spelling table `spellings.ts`, `types.ts`, and `doc.ts`, the
+  the builtin spelling table `spellings.ts` — whose per-slot `exprs` /
+  `inferred` flags `spellings.spec.ts` checks against the surface's
+  signatures with the compiler — `types.ts`, and `doc.ts`, the
   layout document algebra the source is written in — prettier's model,
   pinned in `doc.spec.ts`) and its round-trip spec over the hand-written
   cases, every exported example and the compliance corpus. Contract +

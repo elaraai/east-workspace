@@ -28,13 +28,18 @@
  * - every other node prints as an expression: literals as TypeScript
  *   literals (`1n`, `1.5`, `"s"`, `new Date(...)`, `new Uint8Array([...])`),
  *   Struct / Variant / NewArray / NewSet / NewDict / NewRef / NewVector /
- *   NewMatrix through `East.value(..., T)` — a construction bound by a Let
- *   as the host literal with the type on the binding, `$.let(new Map([...]),
- *   T)`, printed by `literalFor(T)`, a factory over the type (as `compareFor`
- *   is) under which a construction nested anywhere prints bare, and an
- *   Option case as `some(v)` / `none` — an expression IfElse / Match /
+ *   NewMatrix as the host literal — printed by `literalFor(T)`, a factory
+ *   over the type (as `compareFor` is) under which a construction nested
+ *   anywhere prints bare, an Option case as `some(v)` / `none` — bare
+ *   wherever the surface types the position (a binding, `$.let(new
+ *   Map([...]), T)`; a method's value slot, `xs.concat([1n, 2n])`; a call
+ *   argument; a declared return) or the literal types itself (a callback
+ *   returning `{ a: x }`), and through `East.value(..., T)` only where the
+ *   type would otherwise be lost (a callback returning `none`, an empty
+ *   collection or a general `variant`) — an expression IfElse / Match /
  *   TryCatch / Block through `.ifElse(...)` / `.match({...})` /
- *   `Expr.tryCatch(...)` / `Expr.block(...)`, a Builtin through its spelling
+ *   `Expr.tryCatch(...)` / `Expr.block(...)`, the match `unwrap` lowers to
+ *   as `.unwrap()` / `.unwrap("case")`, a Builtin through its spelling
  *   row (callbacks as `($, ...) => ...` arrows) or the raw
  *   `East.builtin(name, [T...], [args], out)`, an As through `East.as`, a
  *   WrapRecursive through `East.wrapRecursive`, an unresolved cross-language
@@ -76,8 +81,8 @@ import { IMPORT_PLATFORM } from "../functions.js";
 import { spellingFor, type Spelling } from "./spellings.js";
 import { TYPE_IMPORTS, isOptionValue, objectKey, typeConstructors, typeDoc, typeKey } from "./types.js";
 import {
-  type Doc, LINE_WIDTH, bracket, callArgs, choice, fn, group, hardline, hug, ifBreak, indent, join, line, render, softline,
-  willBreak,
+  type Doc, LINE_WIDTH, bracket, callArgs, choice, fn, group, hardline, hug, ifBreak, indent, isHuggable, join, line, render,
+  softline, willBreak,
 } from "./doc.js";
 
 /** An IR node: a variant whose payload is the node's struct. */
@@ -107,6 +112,8 @@ export class Unprintable extends Error {
 const STATEMENT_KINDS = new Set([
   "Let", "Assign", "Return", "Break", "Continue", "While", "ForArray", "ForSet", "ForDict",
 ]);
+/** The node kinds a host literal spells. */
+const CONSTRUCTIONS = new Set(["Struct", "Variant", "NewArray", "NewSet", "NewDict", "NewRef", "NewVector", "NewMatrix"]);
 /** How a body's last node prints — see {@link Printer.bodyDocs}. */
 type BodyMode = "function" | "callback" | "null";
 const MAX_DEPTH = 24;
@@ -193,10 +200,12 @@ function arrowHead(names: string[]): string {
  * hugged onto a line the body does not fit, it breaks after the `=>` with
  * the body indented on the next line — and, as the expanded last argument
  * of a call, ends with a trailing comma and the call's close on its own
- * line — as prettier lays it out.
+ * line — as prettier lays it out. A body that is a host literal hugs the
+ * `=>` instead (`($, x) => ({` / `($, x) => [`) and breaks inside.
  */
 function arrow(names: string[], body: Doc): Doc {
   const head = arrowHead(names);
+  if (isHuggable(body)) return fn(group([head, " ", body]), group([head, " ", body]));
   return fn(group([head, indent([line, body])]), group([head, indent([line, body]), ifBreak(","), softline]));
 }
 
@@ -300,6 +309,53 @@ function freeVariables(fn: Node): Set<string> {
   };
   walk(fn);
   return new Set([...referenced].filter(n => !bound.has(n)));
+}
+
+/**
+ * The case an `unwrap` lowers to — a Match whose one arm returns its own
+ * variable and whose every other arm errors `Variant does not have case
+ * <that case>`; both surfaces lower `v.unwrap(name)` to exactly this — or
+ * `null` for any other match.
+ */
+function unwrapCase(p: any): string | null {
+  const cases = p.cases as { case: string, variable: Node, body: Node }[];
+  const returned = cases.filter(c => c.body.type === "Variable" && c.body.value.name === c.variable.value.name);
+  if (returned.length !== 1) return null;
+  const name = returned[0]!.case;
+  for (const c of cases) {
+    if (c === returned[0]) continue;
+    if (c.body.type !== "Error") return null;
+    const message = c.body.value.message as Node;
+    if (message.type !== "Value" || message.value.value.type !== "String") return null;
+    if (message.value.value.value !== `Variant does not have case ${name}`) return null;
+  }
+  return name;
+}
+
+/**
+ * Whether a construction determines its own East type when it stands bare
+ * in a position whose type the builder infers (a callback's return): a
+ * scalar or an expression, a struct of such, a non-empty array / set / map
+ * of such. An empty collection, a variant (`some(x)` alone builds a
+ * one-case variant, not an Option; `none` has no payload type), a ref, a
+ * vector or a matrix need the type — those print through `East.value(v,
+ * T)` there.
+ */
+function selfTyping(node: Node): boolean {
+  const p = node.value;
+  switch (node.type) {
+    case "Struct": return (p.fields as { value: Node }[]).every(f => selfTyping(f.value));
+    case "NewArray": case "NewSet": {
+      const values = p.values as Node[];
+      return values.length > 0 && values.every(selfTyping);
+    }
+    case "NewDict": {
+      const entries = p.values as { key: Node, value: Node }[];
+      return entries.length > 0 && entries.every(e => selfTyping(e.key) && selfTyping(e.value));
+    }
+    case "Variant": case "NewRef": case "NewVector": case "NewMatrix": case "Function": case "AsyncFunction": case "Error": return false;
+    default: return true;   // a literal or an expression carries its type
+  }
 }
 
 /** A structural key for a Function node: two inlined copies of one artifact print once. */
@@ -465,10 +521,11 @@ class Printer {
     const out = this.typeRef(f.output);
     const names = [BLOCK, ...params];
     // A body that is one expression is a concise arrow, as a callback is
-    // and as the source writes it: `($, x) => x.multiply(2n)`.
+    // and as the source writes it: `($, x) => x.multiply(2n)`; the declared
+    // output types what it returns, so a construction prints bare.
     if (consts.length === 0 && (p.body as Node).type !== "Block" && !isStatement(p.body)) {
       const sub: Doc[] = [];
-      const text = this.expr(p.body, inner, sub);
+      const text = this.conciseBody(p.body, inner, sub, true);
       if (sub.length === 0) return [ctor, callArgs([inputs, out, arrow(names, text)])];
     }
     const stmts: Doc[] = [];
@@ -513,7 +570,7 @@ class Printer {
       } else if (mode === "null" && isNullValue(node)) {
         docs.push("return null;");
       } else if (mode === "callback" || (mode === "function" && !isStatement(node))) {
-        docs.push(...this.returnDocs(node, scope));
+        docs.push(...this.returnDocs(node, scope, mode === "function"));
       } else {
         docs.push(...this.statementDocs(node, scope));
       }
@@ -525,9 +582,11 @@ class Printer {
    * `return <expr>;` for an expression, `return $.xxx(...);` for a
    * statement. A `$.try(...).catch(...).finally(...)` chain returns nothing,
    * so a TryCatch with a finally body is bound first and the binding
-   * returned; a Let has no value to return.
+   * returned; a Let has no value to return. `typed` says the body's output
+   * is declared (an `East.function`), so a returned construction prints
+   * bare; a callback's is inferred from what it returns.
    */
-  returnDocs(node: Node, scope: Scope): Doc[] {
+  returnDocs(node: Node, scope: Scope, typed: boolean): Doc[] {
     const pre: Doc[] = [];
     if (node.type === "Let") throw new Unprintable("a Let as the last statement of a body whose value is returned");
     if (node.type === "TryCatch" && isNullType(node.value.type) && !isNullValue(node.value.finally_body)) {
@@ -537,7 +596,7 @@ class Printer {
       pre.push([name, ".finally", callArgs([this.bodyArg(node.value.finally_body, scope, [])]), ";"]);
       return [...pre, `return ${name};`];
     }
-    const text = this.statementExpr(node, scope, pre) ?? this.expr(node, scope, pre);
+    const text = this.statementExpr(node, scope, pre) ?? this.valueDoc(node, scope, pre, 0, typed);
     return [...pre, ["return ", text, ";"]];
   }
 
@@ -610,11 +669,12 @@ class Printer {
     const kind = node.type;
     const p = node.value;
     if (kind === "Assign") {
-      const value = this.expr(p.value, scope, pre);
+      // the variable types the value, as the block's declared output types a `$.return`
+      const value = this.valueDoc(p.value, scope, pre, 0, true);
       return this.methodCall(BLOCK, "assign", [this.varRef(p.variable, scope), value]);
     }
     if (kind === "Return") {
-      return this.methodCall(BLOCK, "return", [this.expr(p.value, scope, pre)]);
+      return this.methodCall(BLOCK, "return", [this.valueDoc(p.value, scope, pre, 0, true)]);
     }
     if (kind === "Break" || kind === "Continue") {
       return this.methodCall(BLOCK, kind === "Break" ? "break" : "continue", [this.labelRef(scope, p.label.name)]);
@@ -716,7 +776,7 @@ class Printer {
           const [pkg, name] = argNodes.map(a => literal(a.value.value));
           return ["East.importFunction", callArgs([pkg!, name!, this.typeRef(p.type)])];
         }
-        const args = argNodes.map(a => this.expr(a, scope, pre, d));
+        const args = argNodes.map(a => this.valueDoc(a, scope, pre, d, true));
         const ref = this.platformRef(p);
         if ((p.type_parameters as EastTypeValue[]).length > 0) {
           const tps = bracket("[", (p.type_parameters as EastTypeValue[]).map(t => this.typeRef(t)), "]");
@@ -730,7 +790,8 @@ class Printer {
       case "Call":
       case "CallAsync": {
         const head = p.function as Node;
-        const args = (p.arguments as Node[]).map(a => this.expr(a, scope, pre, d));
+        // the callee's declared inputs type its arguments
+        const args = (p.arguments as Node[]).map(a => this.valueDoc(a, scope, pre, d, true));
         if ((head.type === "Function" || head.type === "AsyncFunction") && freeVariables(head).size === 0) {
           // an artifact inlined at its call: hoisted, and called by name as the source called it
           return [this.hoistFunction(head), callArgs(args)];
@@ -773,6 +834,10 @@ class Printer {
         return this.ifExpr(p.ifs as { predicate: Node, body: Node }[], p.else_body, scope, pre, d);
       case "Match": {
         const subject = this.expr(p.variant, scope, pre, d);
+        // `v.unwrap()` lowers to a match; printed back as the call, so the
+        // rebuilt module type-checks (the error arms are Never-typed)
+        const unwrapped = unwrapCase(p);
+        if (unwrapped !== null) return this.methodCall(subject, "unwrap", unwrapped === "some" ? [] : [JSON.stringify(unwrapped)]);
         const arms = (p.cases as { case: string, variable: Node, body: Node }[])
           .map((c): Doc => [objectKey(c.case), ": ", this.callbackExpr(c.body, [c.variable], scope, pre)]);
         return this.methodCall(subject, "match", [hug(bracket("{", arms, "}", " "))]);
@@ -792,6 +857,35 @@ class Printer {
         if (STATEMENT_KINDS.has(kind)) throw new Unprintable(`${kind} node in expression position`);
         throw new Unprintable(`unknown node kind ${kind}`);
     }
+  }
+
+  /**
+   * A node in a value position — a builtin's value slot, a call argument,
+   * a returned value: a construction prints as the host literal, bare when
+   * the position is typed by the surface (`typed`: a `SubtypeExprOrValue`
+   * slot, a declared output, an assigned variable) or when the literal
+   * types itself ({@link selfTyping} — a callback's return, whose type the
+   * builder infers), and through `East.value(v, T)` otherwise; any other
+   * node prints as the expression it is.
+   */
+  valueDoc(node: Node, scope: Scope, pre: Doc[], depth: number, typed: boolean): Doc {
+    if (!this.printsBare(node, typed)) return this.expr(node, scope, pre, depth);
+    return this.literalFor(node.value.type as EastTypeValue)(node, scope, pre, depth) ?? this.expr(node, scope, pre, depth);
+  }
+
+  /** Whether {@link valueDoc} prints `node` as a bare host literal. */
+  printsBare(node: Node, typed: boolean): boolean {
+    return CONSTRUCTIONS.has(node.type) && (typed || selfTyping(node));
+  }
+
+  /**
+   * The body of a concise arrow, `($, x) => body`: {@link valueDoc}, with a
+   * bare struct literal in parentheses — `($, x) => ({ a: x })` — since an
+   * object at the head of an arrow body parses as a block.
+   */
+  conciseBody(node: Node, scope: Scope, pre: Doc[], typed: boolean): Doc {
+    const text = this.valueDoc(node, scope, pre, 0, typed);
+    return node.type === "Struct" && this.printsBare(node, typed) ? hug(["(", text, ")"]) : text;
   }
 
   /**
@@ -831,6 +925,7 @@ class Printer {
       }
       case "Set": {
         const elem = child(t.value as EastTypeValue);
+        // an empty set stays `new Set([])`: the compiler types it `Set<never>`, which every East slot admits (`new Set()` is a `Set<unknown>`, which none does)
         return (node, scope, pre, depth) => node.type === "NewSet"
           ? hug(["new Set(", bracket("[", (node.value.values as Node[]).map(v => elem(v, scope, pre, depth + 1)), "]"), ")"])
           : null;
@@ -839,10 +934,14 @@ class Printer {
         const kv = t.value as { key: EastTypeValue, value: EastTypeValue };
         const key = child(kv.key);
         const value = child(kv.value);
-        return (node, scope, pre, depth) => node.type === "NewDict"
-          ? hug(["new Map(", bracket("[", (node.value.values as { key: Node, value: Node }[])
-            .map(e => bracket("[", [key(e.key, scope, pre, depth + 1), value(e.value, scope, pre, depth + 1)], "]")), "]"), ")"])
-          : null;
+        return (node, scope, pre, depth) => {
+          if (node.type !== "NewDict") return null;
+          const entries = node.value.values as { key: Node, value: Node }[];
+          // an empty map is `new Map()`: the compiler types `new Map([])` `Map<unknown, unknown>`, which no East slot admits
+          if (entries.length === 0) return "new Map()";
+          return hug(["new Map(", bracket("[", entries
+            .map(e => bracket("[", [key(e.key, scope, pre, depth + 1), value(e.value, scope, pre, depth + 1)], "]")), "]"), ")"]);
+        };
       }
       case "Struct": {
         const fields = new Map((t.value as { name: string, type: EastTypeValue }[]).map(f => [f.name, child(f.type)] as const));
@@ -946,7 +1045,8 @@ class Printer {
    * A callback body, the block first: `($, params) => expr` when the body
    * is one expression (or one statement, as its `$.` form), else `($,
    * params) => { ...; return expr; }`. The parameters keep the builtin's
-   * own order.
+   * own order. The builder infers the callback's type from what it
+   * returns, so a construction prints bare only when it types itself.
    */
   callbackExpr(body: Node, params: Node[], scope: Scope, pre: Doc[]): Doc {
     const inner = new Scope(scope);
@@ -955,9 +1055,11 @@ class Printer {
     const tryWithFinally = body.type === "TryCatch" && !isNullValue(body.value.finally_body);
     if (body.type !== "Block" && body.type !== "Let" && !tryWithFinally) {
       const sub: Doc[] = [];
-      const text = this.statementExpr(body, inner, sub) ?? this.expr(body, inner, sub);
-      if (sub.length === 0) return arrow(names, text);
-      return arrowBlock(names, [...sub, ["return ", text, ";"]]);
+      const text = this.statementExpr(body, inner, sub);
+      if (text !== null) return sub.length === 0 ? arrow(names, text) : arrowBlock(names, [...sub, ["return ", text, ";"]]);
+      const value = this.conciseBody(body, inner, sub, false);
+      if (sub.length === 0) return arrow(names, value);
+      return arrowBlock(names, [...sub, ["return ", this.valueDoc(body, inner, sub, 0, false), ";"]]);
     }
     return arrowBlock(names, this.bodyDocs(body, inner, "callback"));
   }
@@ -981,6 +1083,7 @@ class Printer {
     if (row.floatOnly && !(tps.length > 0 && tps[0]!.type === "Float")) return null;
     const callbacks = new Set(row.callbacks ?? []);
     const exprs = new Set(row.exprs ?? []);
+    const inferred = new Set(row.inferred ?? []);
     const texts: Doc[] = [];
     let regex: string | null = null;
     let csv: string | null = null;
@@ -1006,10 +1109,14 @@ class Printer {
       }
       // The first operand is always an Expr (a literal receiver has no
       // methods, and the namespace helpers read their first argument's
-      // type), as is every slot the row marks `exprs`.
+      // type), as is every slot the row marks `exprs`; a slot the row marks
+      // `inferred` takes its East type from the argument, so a construction
+      // prints bare only when it types itself; every other slot is typed by
+      // the surface (`SubtypeExprOrValue`, checked against the signatures by
+      // spellings.spec.ts), so a construction prints bare.
       texts.push(i === 0 || exprs.has(i)
         ? this.tracedExpr(arg, scope, pre, depth)
-        : this.expr(arg, scope, pre, depth));
+        : this.valueDoc(arg, scope, pre, depth, !inferred.has(i)));
     });
     let template = row.template;
     if (csv === "") template = template.replace(", {C}", "").replace("{C}", "");

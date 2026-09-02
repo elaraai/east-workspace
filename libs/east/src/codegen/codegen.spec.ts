@@ -289,7 +289,7 @@ describe("codegen: the canonical form is alpha-equivalence", () => {
   test("a reference that resolves to another binding is a different program", () => {
     const outer = East.function([IntegerType, IntegerType], IntegerType, ($, x, y) =>
       East.value([x]).map(($, z) => z.add(y)).get(0n));       // adds the parameter y
-    const inner = East.function([IntegerType, IntegerType], IntegerType, ($, x, y) =>
+    const inner = East.function([IntegerType, IntegerType], IntegerType, ($, x, _y) =>
       East.value([x]).map(($, z) => z.add(z)).get(0n));       // adds the element itself
     assert.notEqual(firstDifference(canonical(outer.toIR().ir), canonical(inner.toIR().ir)), null);
   });
@@ -417,6 +417,66 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.match(source, /const list = \$\.const\(East\.wrapRecursive\(variant\("cons", \{ head: n, tail: nil \}\), _t\d+\)\);/);
     const main = await roundTrip(fn, "values");
     assert.equal(main.toIR().compile([])(5n), fn.toIR().compile([])(5n));
+  });
+
+  test("value slots and returns: a construction prints bare where the surface types it, through East.value only where the type would be lost (#645, #646)", async () => {
+    const Point = StructType({ x: IntegerType, y: IntegerType });
+    const Wide = VariantType({ a: IntegerType, b: StringType });
+    const fn = East.function([ArrayType(IntegerType), DictType(StringType, IntegerType)], IntegerType, ($, xs, d) => {
+      const more = $.const(xs.concat([7n, 8n]));                                               // a typed slot: bare
+      $(d.insert("k", 1n));
+      const points = $.const(xs.map(($, x) => East.value({ x, y: x }, Point)));               // a callback typing itself: bare, parenthesised
+      const opts = $.const(xs.map(($, x) => East.value(some(x), OptionType(IntegerType))));    // `some(x)` alone is a one-case variant: East.value stays
+      const nothing = $.const(xs.map(($, _x) => East.value(none, OptionType(IntegerType))));   // `none` needs its type: East.value stays
+      const empty = $.const(xs.reduce(($, acc, _x) => acc, East.value([], ArrayType(IntegerType))));  // an inferred slot: an empty array keeps its type
+      const total = $.const(xs.reduce(($, acc, x) => acc.add(x), 0n));
+      const first = $.const(opts.get(0n).unwrap());                                            // the match `unwrap` lowers to
+      const w = $.const(variant("a", 1n), Wide);
+      const ua = $.const(w.unwrap("a"));
+      const em = $.const(new Map(), DictType(StringType, IntegerType));
+      const es = $.const(new Set([]), SetType(IntegerType));
+      $.return(points.size().add(more.size()).add(nothing.size()).add(empty.size()).add(total).add(first).add(ua).add(em.size()).add(es.size()).add(d.get("k")));
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /xs\.concat\(\[7n, 8n\]\)/, source);
+    assert.match(source, /d\.insert\("k", 1n\)/, source);
+    assert.match(source, /xs\.map\(\(\$, x, _\d+\) => \(\{ x: x, y: x \}\)\)/, source);
+    assert.match(source, /xs\.map\(\(\$, x, _\d+\) => East\.value\(some\(x\), OptionType\(IntegerType\)\)\)/, source);
+    assert.match(source, /=> East\.value\(none, OptionType\(IntegerType\)\)\)/, source);
+    assert.match(source, /East\.value\(\[\], ArrayType\(IntegerType\)\)\)/, source);
+    assert.match(source, /xs\.reduce\(\(\$, acc, x, _\d+\) => acc\.add\(x\), 0n\)/, source);
+    assert.match(source, /opts\.get\(0n\)\.unwrap\(\)/, source);
+    assert.match(source, /w\.unwrap\("a"\)/, source);
+    assert.doesNotMatch(source, /Variant does not have case/, source);
+    // an empty map is `new Map()` (`new Map([])` is a `Map<unknown, unknown>` to the compiler); an empty set stays `new Set([])` (a `Set<never>`; `new Set()` is a `Set<unknown>`)
+    assert.match(source, /const em = \$\.const\(new Map\(\), DictType\(StringType, IntegerType\)\);/, source);
+    assert.match(source, /const es = \$\.const\(new Set\(\[\]\), SetType\(IntegerType\)\);/, source);
+    assert.doesNotMatch(source, /new Map\(\[\]\)/, source);
+    const main = await roundTrip(fn, "value slots");
+    const args = (): [bigint[], Map<string, bigint>] => [[1n, 2n], new Map([["z", 9n]])];   // the body inserts into the map: fresh per run
+    assert.equal(main.toIR().compile([])(...args()), fn.toIR().compile([])(...args()));
+  });
+
+  test("layout: a callback returning a struct hugs the `=>` and breaks inside, as prettier prints `=> ({`", async () => {
+    const Row = StructType({ alphabetical: IntegerType, betamax: IntegerType, gamma_ray: IntegerType, delta_wing: IntegerType, epsilon_naught: IntegerType, zeta_function: IntegerType });
+    const fn = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {
+      const rows = $.const(xs.map(($, x) => East.value({ alphabetical: x, betamax: x, gamma_ray: x, delta_wing: x, epsilon_naught: x, zeta_function: x }, Row)));
+      return rows.size();
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL });
+    assert.ok(source.includes([
+      "  const rows = $.const(",
+      "    xs.map(($, x, _2) => ({",
+      "      alphabetical: x,",
+      "      betamax: x,",
+      "      gamma_ray: x,",
+      "      delta_wing: x,",
+      "      epsilon_naught: x,",
+      "      zeta_function: x,",
+      "    })),",
+      "  );",
+    ].join("\n")), source);
+    await roundTrip(fn, "layout struct return");
   });
 
   test("platform calls, generic platform calls and async functions", async () => {

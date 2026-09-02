@@ -82,9 +82,14 @@ build(print(IR)) ≡ IR        under east-c's normalizer
   concise form — `($, x) => x.multiply(2n)`, `lambda b: x` for a nested
   python function — and as a block / decorated `def` otherwise.
 - **Idiomatic.** The printed source is what an author would write: the
-  `$` / `b` statement forms, expression methods, `East.value(v, T)` for
-  constructions, host values (a `RegExp`, a CSV options object) where the
-  surface takes them. The printer never invents surface: a spelling row
+  `$` / `b` statement forms, expression methods, constructions as host
+  literals wherever the surface types the position or the literal types
+  itself (a binding, a method's value slot, a call argument, a declared
+  return; a callback returning a struct), `East.value(v, T)` only where the
+  type would otherwise be lost (a callback returning `none`, an empty
+  collection, a `variant` or a `some` — alone, `some(x)` builds a one-case
+  variant), `.unwrap()` for the match `unwrap` lowers to, host values (a
+  `RegExp`, a CSV options object) where the surface takes them. The printer never invents surface: a spelling row
   exists only for a method the surface actually has, in the argument
   order the surface actually emits.
 
@@ -110,11 +115,11 @@ python), so the mapping is one table.
 | Null-typed `TryCatch` | `$.try(…).catch(($, message, stack) => {…}).finally(…)` | `b.try_(…).catch(…).finally_(…)` |
 | an expression in statement position | `$(expr)` | `b.do(expr)` |
 | `Value` literal | `1n`, `1.5`, `"s"`, `true`, `null`, `new Date(…)`, `new Uint8Array([…])` | `1`, `1.5`, `'s'`, `True`, `None`, `datetime(…)`, `b'…'` |
-| `Struct` / `Variant` / `NewArray` / `NewSet` / `NewDict` / `NewRef` / `NewVector` / `NewMatrix` | `East.value({…} / variant(c, v) / […] / new Set([…]) / new Map([…]) / ref(v) / new Float64Array([…]) / matrix(…), T)`; an Option case is `some(v)` / `none` | `East.value({…} / some(v) / none / variant(c, v), T)` and the `East.new_*` constructors |
+| `Struct` / `Variant` / `NewArray` / `NewSet` / `NewDict` / `NewRef` / `NewVector` / `NewMatrix` | the host literal `{…}` / `variant(c, v)` / `[…]` / `new Set([…])` / `new Map([…])` (`new Map()` when empty — `new Map([])` is a `Map<unknown, unknown>` to the compiler; an empty set stays `new Set([])`, a `Set<never>`) / `ref(v)` / `new Float64Array([…])` / `matrix(…)`, an Option case `some(v)` / `none` — bare in a position the surface types (`xs.concat([1n, 2n])`, `f({ a: 1n })`, a `$.return`, a declared output) and, in a callback's return (its type is inferred from the value), bare when the literal types itself — a struct, a non-empty collection of such — and `East.value(…, T)` otherwise (`none`, `[]`, a `variant`, a `some`) | the python literal `{…}` / `[…]` / `some(v)` / `none` / `variant(c, v)`, bare in a typed position (an assignment, a `b.return_`, a declared return, a call argument) and, in a method's argument or a callback's return, bare when the value lifts on its own — a struct of scalars and expressions; a python list or dict has no element type without a hint — else `East.value(…, T)` / the `East.new_*` constructor (a set always) |
 | `GetField` | `s.field` (or `s["odd-name"]`) | `s.field` |
 | `Call` / `CallAsync` | `f(args)`; a closure-free Function literal called where it stands hoists to `const _fN = East.function(…)` and is called `_fN(args)` | `f(args)`; a Function literal called where it stands stays inline, `East.function(…)(args)` (an artifact call splices, #470) |
 | expression `IfElse` (one predicate per node) | `p.ifElse($ => a, $ => b)` — more branches nest in the else arm | `East.if_else(…)` |
-| expression `Match` | `v.match({ case: ($, x) => e })` | `v.match({…})` |
+| expression `Match` | `v.match({ case: ($, x) => e })`; the match `unwrap` lowers to — one arm returns its variable, every other errors `Variant does not have case <it>` — prints `v.unwrap()` / `v.unwrap("case")` | `v.match({…})`; the `unwrap` match `v.unwrap()` / `v.unwrap('case')` |
 | expression `TryCatch` (no finally) | `Expr.tryCatch(body, ($, message, stack) => e)` | `East.try_catch(…)` |
 | expression `Block` | `Expr.block($ => { …; return e; })` | `East.block(…)` |
 | `As` / `WrapRecursive` / `UnwrapRecursive` | `East.as(v, T)` / `East.wrapRecursive(v, T)` / `v.unwrap()` | `East.as_(v, T)` / `East.wrap_recursive(v, T)` / `v.unwrap()` |
@@ -152,14 +157,20 @@ plus flags:
 | Flag | Meaning |
 |---|---|
 | `callbacks` | slots printed as `($, …) => …` / `lambda b, …: …` bodies when the IR holds a `Function` node |
-| `exprs` (TS) | slots the surface types `Expr`-only — the argument a free type parameter is inferred from (`merge<T2>(key, value: Expr<T2>, …)`); a literal there prints through `East.value` |
+| `exprs` (TS) | slots the surface types `Expr`-only (`merge<T2>(key, value: Expr<T2>, …)`); a literal there prints through `East.value` |
+| `inferred` (TS) | slots whose East type the surface infers from the argument — an unconstrained type parameter (`reduce<T2>(fn, init: T2)`); a construction prints bare there only when it types itself (`0n`, `{ a: x }`; not `[]`, `none`) |
 | `floatOnly` | stdlib constructors the surface declares for Float only (`East.Vector.zeros`); other element types print raw |
 | `adapter` | a host-value argument shape: `regex` (`{R}` = pattern + flags, printed `new RegExp(p, f)` / `re.compile`), `csv` (`{C}` = the options struct, printed as an options object; dropped when every option is `none`) |
 
 The two tables list the same builtins under each language's names; the
 python name-parity test (`tests/test_ts_name_parity.py`) keeps the
-surfaces aligned, and every builtin missing from a table is in that
-printer's `RAW_ONLY`.
+surfaces aligned, every builtin missing from a table is in that
+printer's `RAW_ONLY`, and `libs/east/src/codegen/spellings.spec.ts` reads
+the TypeScript signatures with the compiler and checks every slot of every
+row: `exprs` are the `Expr`-only parameters, `inferred` the unconstrained
+type parameters, and everything else accepts a value under a type the
+surface supplies (`SubtypeExprOrValue`) — a slot the signatures do not
+settle fails the spec.
 
 ## 4. The round trips
 

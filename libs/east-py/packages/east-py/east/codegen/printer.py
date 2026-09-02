@@ -24,16 +24,21 @@ body receives, python's ``$``) and the builtin table's
   they hold one statement and ``def _bN(b, …)`` helpers defined just before
   the statement that uses them otherwise;
 - every other node prints as an expression: literals as python literals,
-  Struct/Variant/NewArray/… through ``East.value(..., T)`` and the
-  ``East.new_*`` constructors — a construction bound by a Let as the python
-  literal with the type on the binding, ``x = b.let({1: 'a'}, T)``, printed
-  by ``literal_for(T)``, a factory over the type (as ``compare_for`` is)
-  under which a construction nested anywhere prints bare (a dict literal
-  only when python can hash its keys, i.e. they are literals; a set keeps
-  ``East.new_set`` — a python set literal loses the element order), and an
-  Option case as ``some(v)`` / ``none`` — an expression
+  Struct/Variant/NewArray/NewDict as the python literal — printed by
+  ``literal_for(T)``, a factory over the type (as ``compare_for`` is) under
+  which a construction nested anywhere prints bare (a dict literal only
+  when python can hash its keys, i.e. they are literals; a set keeps
+  ``East.new_set`` — a python set literal loses the element order), an
+  Option case as ``some(v)`` / ``none`` — bare wherever the surface types
+  the position (a binding, ``x = b.let({1: 'a'}, T)``; an assignment or a
+  ``b.return_``; a declared return) or the literal types itself (a method's
+  argument or a callback returning ``{"a": x}`` — the builder lifts it to
+  that struct), and through ``East.value(..., T)`` only where the type
+  would otherwise be lost (``none``, an empty collection, a general
+  ``variant`` in a callback's return or a method's slot) — an expression
   IfElse/Match/TryCatch through
-  ``East.if_else`` / ``.match({...})`` / ``East.try_catch``, a Builtin
+  ``East.if_else`` / ``.match({...})`` / ``East.try_catch``, the match
+  ``unwrap`` lowers to as ``.unwrap()`` / ``.unwrap("case")``, a Builtin
   through its spelling row (callbacks as ``lambda b, …: …``, or ``def
   _bN(b, …)`` helpers when they hold statements — every body takes the
   block first) or the raw ``East.builtin(name, [T...], [args], out)``; an
@@ -109,6 +114,8 @@ class Unprintable(ValueError):
 _STATEMENT_KINDS = frozenset({
     "Let", "Assign", "Return", "Break", "Continue", "While", "ForArray", "ForSet", "ForDict",
 })
+#: The node kinds a python literal spells (a Set keeps ``East.new_set``).
+_CONSTRUCTIONS = frozenset({"Struct", "Variant", "NewArray", "NewDict"})
 _MAX_DEPTH = 24
 #: The block parameter every statement-bearing body declares first.
 _BLOCK = "b"
@@ -149,6 +156,48 @@ def _is_option_type(t: EastType) -> bool:
     cases = list(t.value)
     return (cases[0]["name"] == "none" and cases[0]["type"].type == "Null"
             and cases[1]["name"] == "some")
+
+
+def _unwrap_case(p: Any) -> str | None:
+    """The case an ``unwrap`` lowers to — a Match whose one arm returns its
+    own variable and whose every other arm errors ``Variant does not have
+    case <that case>``; both surfaces lower ``v.unwrap(tag)`` to exactly
+    this — or ``None`` for any other match."""
+    cases = list(p["cases"])
+    returned = [c for c in cases
+                if c["body"].type == "Variable" and c["body"].value["name"] == c["variable"].value["name"]]
+    if len(returned) != 1:
+        return None
+    tag = returned[0]["case"]
+    for c in cases:
+        if c is returned[0]:
+            continue
+        body = c["body"]
+        if body.type != "Error":
+            return None
+        message = body.value["message"]
+        if message.type != "Value" or message.value["value"].type != "String":
+            return None
+        if message.value["value"].value != f"Variant does not have case {tag}":
+            return None
+    return tag
+
+
+def _self_typing(node: Any) -> bool:
+    """Whether a construction lifts on its own when it stands bare in a
+    position the builder types from the value (a callback's return, a
+    method's argument): a scalar or an expression, and a struct of such (a
+    dict literal lifts to that struct). A python list or dict has no
+    element type of its own (``_lift`` refuses one without a hint), and a
+    variant (``some(x)`` alone is a one-case variant; ``none`` has no
+    payload type) needs its cases — those print through ``East.value(v,
+    T)``."""
+    kind = node.type
+    if kind == "Struct":
+        return all(_self_typing(f["value"]) for f in node.value["fields"])
+    # a literal or an expression carries its type; a variant, a collection, a ref, a function do not
+    return kind not in ("Variant", "NewArray", "NewDict", "NewSet", "NewRef", "NewVector", "NewMatrix",
+                        "Function", "AsyncFunction", "Error")
 
 
 def _pyliteral(value: Any) -> str:
@@ -393,7 +442,8 @@ class _Printer:
             if let.type != "Let":
                 raise Unprintable(f"{let.type} before the root function")
             body.extend(self.statement_lines(let, inner, last=False))
-        body.extend(self.body_lines(p["body"], inner, mode="function"))
+        # the declared output types what the body returns: a construction prints bare
+        body.extend(self.body_lines(p["body"], inner, mode="function", typed=True))
         ctor = "East.asyncFunction" if node.type == "AsyncFunction" else "East.function"
         inputs = bracket("[", [self.type_ref(t) for t in fn_t.value["inputs"]], "]")
         out = self.type_ref(fn_t.value["output"])
@@ -410,7 +460,7 @@ class _Printer:
             inner = _Scope(scope)
             params = [self.bind(inner, v) for v in p["parameters"]]
             sub: list[Doc] = []
-            text = self.expr(p["body"], inner, sub)
+            text = self.value_doc(p["body"], inner, sub, 0, typed=True)
             if not sub:
                 fn_t = p["type"]
                 ctor = "East.asyncFunction" if node.type == "AsyncFunction" else "East.function"
@@ -435,13 +485,16 @@ class _Printer:
             nodes.pop()
         return nodes
 
-    def body_lines(self, body: Any, scope: _Scope, *, mode: str) -> list[Doc]:
+    def body_lines(self, body: Any, scope: _Scope, *, mode: str, typed: bool = False) -> list[Doc]:
         """The statements of a body (a Block, or one node), one document
-        each — ``pass`` when there are none."""
+        each — ``pass`` when there are none. ``typed`` says the body's
+        output is declared (an ``East.function``), so a returned
+        construction prints bare; a callback's is inferred from what it
+        returns."""
         nodes = self.body_nodes(body, mode=mode)
         lines: list[Doc] = []
         for i, node in enumerate(nodes):
-            lines.extend(self.statement_lines(node, scope, last=i == len(nodes) - 1))
+            lines.extend(self.statement_lines(node, scope, last=i == len(nodes) - 1, typed=typed))
         if not lines:
             lines.append("pass")
         return lines
@@ -491,16 +544,18 @@ class _Printer:
 
     # ── statements ───────────────────────────────────────────────────────
 
-    def statement_lines(self, node: Any, scope: _Scope, *, last: bool) -> list[Doc]:
+    def statement_lines(self, node: Any, scope: _Scope, *, last: bool, typed: bool = False) -> list[Doc]:
         """A node in statement position, its helpers first."""
         pre: list[Doc] = []
-        doc, _ = self.statement(node, scope, pre, last=last)
+        doc, _ = self.statement(node, scope, pre, last=last, typed=typed)
         return [*pre, doc]
 
-    def statement(self, node: Any, scope: _Scope, pre: list[Doc], *, last: bool) -> tuple[Doc, Doc | None]:
+    def statement(self, node: Any, scope: _Scope, pre: list[Doc], *, last: bool,
+                  typed: bool = False) -> tuple[Doc, Doc | None]:
         """A node in statement position: its document, and — when the
         statement is one expression a lambda can return (a ``b.`` form, a
-        returned expression; never a binding) — that expression."""
+        returned expression; never a binding) — that expression. ``typed``
+        says a last expression is returned under a declared type."""
         kind = node.type
         p = node.value
         if kind == "Let":
@@ -519,11 +574,12 @@ class _Printer:
             ctor = f"{_BLOCK}.let" if p["variable"].value["mutable"] else f"{_BLOCK}.const"
             return [py, " = ", ctor, call_args([value] if typed is None else [value, typed])], None
         if kind == "Assign":
-            value = self.expr(p["value"], scope, pre)
+            # the variable types the value, as the declared output types a `b.return_`
+            value = self.value_doc(p["value"], scope, pre, 0, typed=True)
             doc = self.method_call(_BLOCK, "assign", [self.var_ref(p["variable"], scope), value])
             return doc, doc
         if kind == "Return":
-            doc = self.method_call(_BLOCK, "return_", [self.expr(p["value"], scope, pre)])
+            doc = self.method_call(_BLOCK, "return_", [self.value_doc(p["value"], scope, pre, 0, typed=True)])
             return doc, doc
         if kind in ("Break", "Continue"):
             doc = self.method_call(_BLOCK, "break_" if kind == "Break" else "continue_",
@@ -558,7 +614,7 @@ class _Printer:
             if _is_null_value(node):
                 self.used.add("east_null")
                 return "return east_null", "east_null"
-            value = self.expr(node, scope, pre)
+            value = self.value_doc(node, scope, pre, 0, typed=typed)
             return ["return ", self.returned(value)], value
         value = self.expr(node, scope, pre)
         doc = self.method_call(_BLOCK, "do", [value])
@@ -638,7 +694,7 @@ class _Printer:
                 # a platform declaration
                 pkg, fn_name = (_pyliteral(a.value["value"].value) for a in arg_nodes)
                 return ["East.import_function", call_args([pkg, fn_name, self.type_ref(p["type"])])]
-            args = [self.expr(a, scope, pre, d) for a in arg_nodes]
+            args = [self.value_doc(a, scope, pre, d, typed=True) for a in arg_nodes]
             ref = self.platform_ref(p)
             if p["type_parameters"]:
                 tps = bracket("[", [self.type_ref(t) for t in p["type_parameters"]], "]")
@@ -648,7 +704,8 @@ class _Printer:
             return self.function_expr(node, scope, pre)
         if kind in ("Call", "CallAsync"):
             fn = self.expr(p["function"], scope, pre, d)
-            args = [self.expr(a, scope, pre, d) for a in p["arguments"]]
+            # the callee's declared inputs type its arguments
+            args = [self.value_doc(a, scope, pre, d, typed=True) for a in p["arguments"]]
             # a callee that already prints as a call, a member or a name needs no parentheses
             if p["function"].type not in ("Variable", "GetField", "Call", "CallAsync", "Function",
                                           "AsyncFunction", "Builtin", "Platform"):
@@ -703,6 +760,10 @@ class _Printer:
             return ["East.if_else", call_args(parts)]
         if kind == "Match":
             subject = self.expr(p["variant"], scope, pre, d)
+            # `v.unwrap()` lowers to a match; printed back as the call
+            unwrapped = _unwrap_case(p)
+            if unwrapped is not None:
+                return self.method_call(subject, "unwrap", [] if unwrapped == "some" else [repr(unwrapped)])
             arms: list[Doc] = []
             for case in p["cases"]:
                 arms.append([repr(case["case"]), ": ", self.expr_callback(case["body"], [case["variable"]], scope, pre)])
@@ -720,6 +781,20 @@ class _Printer:
         if kind in _STATEMENT_KINDS:
             raise Unprintable(f"{kind} node in expression position")
         raise Unprintable(f"unknown node kind {kind}")
+
+    def value_doc(self, node: Any, scope: _Scope, pre: list[Doc], depth: int, *, typed: bool) -> Doc:
+        """A node in a value position — a method's argument, a call
+        argument, a returned value: a construction prints as the python
+        literal, bare when the position is typed by the surface (``typed``:
+        a declared output, an assigned variable, a callee's input) or when
+        the literal types itself (``_self_typing`` — a method's argument
+        or a callback's return, which the builder lifts as it stands), and
+        through ``East.value(v, T)`` / its constructor otherwise; any other
+        node prints as the expression it is."""
+        if node.type not in _CONSTRUCTIONS or (not typed and not _self_typing(node)):
+            return self.expr(node, scope, pre, depth)
+        text = self.literal_for(node.value["type"])(node, scope, pre, depth)
+        return text if text is not None else self.expr(node, scope, pre, depth)
 
     def printed(self, t: EastType) -> Any:
         """A node at a position of type ``t``: its literal when it is the
@@ -872,7 +947,8 @@ class _Printer:
         names = [_BLOCK, *(self.bind(inner, v) for v in params)]
         if not _has_statements(body):
             sub: list[Doc] = []
-            text = self.expr(body, inner, sub)
+            # the builder infers the callback's type from what it returns: bare only when it types itself
+            text = self.value_doc(body, inner, sub, 0, typed=False)
             if not sub:
                 return [f"lambda {', '.join(names)}: ", text]
             # the expression needed helpers: a def carries them
@@ -905,8 +981,10 @@ class _Printer:
                 # The first operand is always a traced Expression: python
                 # would otherwise fold two literals itself ('a' + 'b') or
                 # run a namespace call eagerly (East.Integer.divide(1, 0)).
+                # Any other slot lifts a python literal as it stands, so a
+                # construction prints bare when it types itself.
                 texts.append(self.traced_expr(arg, scope, pre, depth) if i == 0
-                             else self.expr(arg, scope, pre, depth))
+                             else self.value_doc(arg, scope, pre, depth, typed=False))
                 continue
             if arg.type != "Function":
                 # a function VALUE in a callback slot (a variable, a call)

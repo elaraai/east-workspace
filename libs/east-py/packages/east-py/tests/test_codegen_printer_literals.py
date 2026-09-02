@@ -19,7 +19,7 @@ from east.runtime._compiler_eastc import diff_ir
 
 from east import East
 from east.codegen import to_python_source
-from east.types.construct import none, some
+from east.types.construct import none, some, variant
 from east.types.types import (
     ArrayType,
     DictType,
@@ -29,6 +29,7 @@ from east.types.types import (
     SetType,
     StringType,
     StructType,
+    VariantType,
 )
 
 Row = StructType([("x", IntegerType), ("y", StringType)])
@@ -160,6 +161,41 @@ def test_a_long_chain_breaks_one_call_per_line_and_an_operator_run_before_each_o
     assert "b.for_(xs, lambda b, x, i, label: b.assign(total, (total + x * i)))" in src, src
     assert all(len(ln) <= 100 for ln in src.splitlines() if not ln.startswith("from ")), src
     assert chained([1, 2, 3], 1) == (2 + 3) * 2 + (0 + 2 + 6) + 2 + 0 + 6 + 1 - 1
+
+
+Wide = VariantType([("a", IntegerType), ("b", StringType)])
+
+
+@East.function([ArrayType(IntegerType), OptionType(IntegerType), Wide], ArrayType(IntegerType), cse=False)
+def slots(b, xs, o, w):   # cse=False: the shapes as written (the pass would hoist the `none` constant out of its callback)
+    rows = b.const(xs.map(lambda b, x: {"x": x, "y": x}))                             # a struct lifts on its own: bare
+    opts = b.const(xs.map(lambda b, x: East.value(none, OptionType(IntegerType))))     # `none` needs its type
+    lists = b.const(xs.map(lambda b, x: East.value([x], ArrayType(IntegerType))))      # a python list has no element type: the constructor
+    acc = b.let([], ArrayType(IntegerType))
+    b.assign(acc, [o.unwrap(), w.unwrap("a")])                                         # an assignment is typed by the variable; `.unwrap` prints as itself
+    b.if_(rows.size() > 100, lambda b: b.return_([rows.size()]))                       # a `b.return_` by the declared output
+    return [acc.size() + opts.size() + lists.size()]                                   # a declared output types the return
+
+
+def test_value_slots_and_returns_print_bare_where_the_value_lifts_on_its_own(tmp_path):
+    src = to_python_source(slots, width=math.inf)
+    for expected in [
+        r"rows = b\.const\(xs\.map\(lambda b, x, v_\d+: \{'x': x, 'y': x\}\)\)",
+        r"opts = b\.const\(xs\.map\(lambda b, x, v_\d+: East\.value\(none, OptionType\(IntegerType\)\)\)\)",
+        r"lists = b\.const\(xs\.map\(lambda b, x, v_\d+: East\.new_array\(IntegerType, \[x\]\)\)\)",
+        r"b\.assign\(acc, \[o\.unwrap\(\), w\.unwrap\('a'\)\]\)",
+        r"lambda b: b\.return_\(\[rows\.size\(\)\]\)",
+        r"return \[\(acc\.size\(\) \+ opts\.size\(\) \+ lists\.size\(\)\)\]",
+    ]:
+        assert re.search(expected, src), f"{expected}\n{src}"
+    assert "Variant does not have case" not in src, src
+    path = tmp_path / "slots.py"   # rebuilt from a file, so the binding names are read back (#639)
+    path.write_text(src, encoding="utf-8")
+    namespace: dict = {}
+    exec(compile(src, str(path), "exec"), namespace)
+    assert diff_ir(slots._east_ir, namespace["main"]._east_ir) is None
+    assert to_python_source(namespace["main"], width=math.inf) == src
+    assert list(namespace["main"]([1, 2], some(7), variant("a", 3, Wide))) == [2 + 2 + 2]
 
 
 def test_the_printed_module_rebuilds_the_same_ir_and_prints_to_itself(tmp_path):
