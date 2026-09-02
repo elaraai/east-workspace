@@ -44,9 +44,13 @@ build(print(IR)) ≡ IR        under east-c's normalizer
   (`East.builtin(name, [T...], [args], out)`) and is listed in the
   printer's `RAW_ONLY` set — a **ratchet** the tests pin, which may only
   shrink as spellings are added.
-- **Deterministic.** The same IR prints the same text; types hoist to
-  `_tN` constants (deduplicated structurally), platform declarations to
-  `_pN` (one per distinct signature), in first-use order.
+- **Deterministic.** The same IR prints the same text. A type whose source
+  fits on a line (80 characters) prints inline wherever it is used
+  (`$.let(new Map([…]), DictType(IntegerType, StringType))`, as an author
+  writes it); a wider one, and every recursive type, hoists to a `_tN`
+  constant (deduplicated structurally), as an author names the types worth
+  naming; platform declarations hoist to `_pN` (one per distinct
+  signature), in first-use order.
 - **Idiomatic.** The printed source is what an author would write: the
   `$` / `b` statement forms, expression methods, `East.value(v, T)` for
   constructions, host values (a `RegExp`, a CSV options object) where the

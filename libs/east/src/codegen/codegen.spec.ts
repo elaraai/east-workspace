@@ -270,13 +270,17 @@ describe("codegen: toSource round trips the builder surface", () => {
     const source = toSource(fn, { importFrom: INDEX_URL });
     // A bound construction is the host literal with the type on the binding; an Option is `some` / `none`.
     assert.doesNotMatch(source, /\$\.(?:let|const)\(East\.value\(/, source);
-    assert.match(source, /const p = \$\.const\(\{ x: 1\.5, y: 2\.5, "odd-name": n \}, _t\d+\);/);
-    assert.match(source, /const dict = \$\.const\(new Map\(\[\["k", n\]\]\), _t\d+\);/);
-    assert.match(source, /const cell = \$\.const\(ref\(n\), _t\d+\);/);
-    assert.match(source, /const wide = \$\.const\(variant\("a", n\), _t\d+\);/);  // a literal under East.as is retyped, no As node
-    assert.match(source, /const opt = \$\.const\(some\(n\), _t\d+\);/);
-    assert.match(source, /const nothing = \$\.const\(none, _t\d+\);/);
-    assert.match(source, /const picked = \$\.const\(\[East\.value\(some\(n\), _t\d+\), East\.value\(none, _t\d+\)\], _t\d+\);/);
+    // A type whose source fits on a line prints inline wherever it is used; a recursive one is hoisted.
+    assert.match(source, /const p = \$\.const\(\{ x: 1\.5, y: 2\.5, "odd-name": n \}, StructType\(\{ x: FloatType, y: FloatType, "odd-name": IntegerType \}\)\);/);
+    assert.match(source, /const dict = \$\.const\(new Map\(\[\["k", n\]\]\), DictType\(StringType, IntegerType\)\);/);
+    assert.match(source, /const cell = \$\.const\(ref\(n\), RefType\(IntegerType\)\);/);
+    assert.match(source, /const wide = \$\.const\(variant\("a", n\), VariantType\(\{ a: IntegerType, b: StringType \}\)\);/);  // a literal under East.as is retyped, no As node
+    assert.match(source, /const opt = \$\.const\(some\(n\), OptionType\(IntegerType\)\);/);
+    assert.match(source, /const nothing = \$\.const\(none, OptionType\(IntegerType\)\);/);
+    assert.match(source, /const picked = \$\.const\(\[East\.value\(some\(n\), OptionType\(IntegerType\)\), East\.value\(none, OptionType\(IntegerType\)\)\], ArrayType\(OptionType\(IntegerType\)\)\);/);
+    assert.doesNotMatch(source, /^const _t\d+ = (?:OptionType|ArrayType|DictType)\(/m);
+    assert.match(source, /^const _t\d+ = RecursiveType\(self => /m);  // a recursive type is always hoisted
+    assert.match(source, /const nil = \$\.const\(East\.wrapRecursive\(East\.value\(variant\("nil", null\), _t\d+\), _t\d+\)\);/);
     const main = await roundTrip(fn, "values");
     assert.equal(main.toIR().compile([])(5n), fn.toIR().compile([])(5n));
   });

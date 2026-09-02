@@ -44,10 +44,14 @@
  * slot the body did not name; python's `__nN` and a name the scope already
  * uses are renamed `v_N`, numbered once per module (above any `v_N` the IR
  * holds) so a printed module rebuilds to itself; `$` is reserved for the
- * block. Types are hoisted to module constants `_tN` (deduplicated
- * structurally), platform declarations to `_pN` (one per distinct
- * signature). Deep expression nesting is broken with `const _eN = <expr>`
- * temporaries, so any IR width or depth prints to parseable source.
+ * block. A type whose source fits on a line prints inline wherever it is
+ * used (`$.let(new Map([...]), DictType(IntegerType, StringType))`, as an
+ * author writes it); a longer one, and every recursive type, is hoisted to
+ * a module constant `_tN` (deduplicated structurally), as an author names
+ * the types worth naming. Platform declarations are hoisted to `_pN` (one
+ * per distinct signature). Deep expression nesting is broken with `const
+ * _eN = <expr>` temporaries, so any IR width or depth prints to parseable
+ * source.
  *
  * The contract, shared with the python printer (`east/codegen/printer.py`):
  * `build(print(IR)) ≡ IR` after normalization (`east-c ir normalize`) —
@@ -85,6 +89,8 @@ const STATEMENT_KINDS = new Set([
 /** How a body's last node prints — see {@link Printer.bodyLines}. */
 type BodyMode = "function" | "callback" | "null";
 const MAX_DEPTH = 24;
+/** A type whose source is at most this wide prints inline; a wider one is hoisted to a `_tN` constant. */
+const INLINE_TYPE_WIDTH = 80;
 /** The block parameter every statement-bearing body declares first. */
 const BLOCK = "$";
 const RESERVED = new Set([
@@ -175,7 +181,10 @@ class Printer {
 
   // ── module-level pieces ──────────────────────────────────────────────
 
-  /** A type as source: a primitive name inline, anything else hoisted. */
+  /**
+   * A type as source: a primitive name, or a constructor source that fits
+   * on a line, inline; a wider or recursive type hoisted to a `_tN` constant.
+   */
   typeRef(t: EastTypeValue): string {
     const kind = t.type;
     if (kind === "Null" || kind === "Never" || kind === "Boolean" || kind === "Integer"
@@ -183,6 +192,7 @@ class Printer {
       return typeSource(t);
     }
     const key = typeKey(t);
+    if (key.length <= INLINE_TYPE_WIDTH && !key.includes("RecursiveType(")) return key;
     const hit = this.types.get(key);
     if (hit === undefined) {
       const name = `_t${this.types.size}`;

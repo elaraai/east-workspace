@@ -165,7 +165,7 @@ class TestImportAndLink:
         imported = East.import_function("pricing", "double", FunctionType([IntegerType], IntegerType))
         user = East.function([IntegerType], IntegerType, lambda b, x: imported(x) + 1)
         source = to_python_source(user)
-        assert "East.import_function('pricing', 'double', _t0)" in source
+        assert "East.import_function('pricing', 'double', FunctionType([IntegerType], IntegerType))" in source
         namespace: dict = {}
         exec(compile(source, "<printed>", "exec"), namespace)
         assert diff_ir(function_ir(user), namespace["main"]._east_ir) is None

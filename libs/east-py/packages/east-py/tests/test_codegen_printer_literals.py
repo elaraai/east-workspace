@@ -49,18 +49,20 @@ def bound(b, n):
 def test_bound_constructions_print_as_literals_with_the_type():
     src = to_python_source(bound)
     for expected in [
-        r"d = b\.let\(\{1: 'a', 2: 'b'\}, _t\d+\)",
-        r"a = b\.let\(\[n, \(n \+ 1\)\], _t\d+\)",
+        r"d = b\.let\(\{1: 'a', 2: 'b'\}, DictType\(IntegerType, StringType\)\)",
+        r"a = b\.let\(\[n, \(n \+ 1\)\], ArrayType\(IntegerType\)\)",
         r"s = b\.const\(East\.new_set\(IntegerType, \[4, 3\]\)\)",
-        r"row = b\.const\(\{'x': n, 'y': 's'\}, _t\d+\)",
-        r"o = b\.const\(some\(n\), _t\d+\)",
-        r"nothing = b\.const\(none, _t\d+\)",
+        r"row = b\.const\(\{'x': n, 'y': 's'\}, StructType\(\[\(.x., IntegerType\), \(.y., StringType\)\]\)\)",
+        r"o = b\.const\(some\(n\), OptionType\(IntegerType\)\)",
+        r"nothing = b\.const\(none, OptionType\(IntegerType\)\)",
         r"keyed = b\.let\(East\.new_dict\(IntegerType, StringType, \[\(n, 'k'\)\]\)\)",
-        r"empty = b\.let\(\{\}, _t\d+\)",
-        r"picked = b\.const\(\[East\.value\(some\(n\), _t\d+\), East\.value\(none, _t\d+\)\], _t\d+\)",
+        r"empty = b\.let\(\{\}, DictType\(IntegerType, StringType\)\)",
+        r"picked = b\.const\(\[East\.value\(some\(n\), OptionType\(IntegerType\)\), East\.value\(none, OptionType\(IntegerType\)\)\], ArrayType\(OptionType\(IntegerType\)\)\)",
     ]:
         assert re.search(expected, src), f"{expected}\n{src}"
     assert "b.let(East.value(" not in src and "b.const(East.value(" not in src
+    # a type whose source fits on a line is never hoisted
+    assert not re.search(r"^_t\d+ = ", src, re.M), src
 
 
 def test_the_printed_module_rebuilds_the_same_ir_and_prints_to_itself(tmp_path):

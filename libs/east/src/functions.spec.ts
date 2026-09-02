@@ -135,7 +135,7 @@ describe("functions: import and link", () => {
     const imported = East.importFunction("pricing", "double", FunctionType([IntegerType], IntegerType));
     const user = East.function([IntegerType], IntegerType, ($, x) => imported(x));
     const source = toSource(user);
-    assert.match(source, /East\.importFunction\("pricing", "double", _t0\)/);
+    assert.match(source, /East\.importFunction\("pricing", "double", FunctionType\(\[IntegerType\], IntegerType\)\)/);
     assert.throws(() => East.importFunction("pricing", "double", IntegerType as any), /needs a FunctionType/);
   });
 });

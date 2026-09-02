@@ -41,10 +41,14 @@ authoring names both builders carry (#639) and TypeScript's ``_N`` for a
 slot the body did not name; the python builder's own ``__nN`` and a name
 the module already uses are renamed ``v_N``, numbered once per module
 (above any ``v_N`` the IR holds) so a printed module rebuilds to itself;
-``b`` is reserved for the block. Types are hoisted to module constants ``_tN``
-(deduplicated structurally), platform declarations to ``_pN`` (one per
-distinct signature). Deep expression nesting is broken with ``_eN =
-<expr>`` temporaries, so any IR width or depth prints to parseable python.
+``b`` is reserved for the block. A type whose source fits on a line prints
+inline wherever it is used (``b.let({1: 'a'}, DictType(IntegerType,
+StringType))``, as an author writes it); a longer one, and every recursive
+type, is hoisted to a module constant ``_tN`` (deduplicated structurally),
+as an author names the types worth naming. Platform declarations are
+hoisted to ``_pN`` (one per distinct signature). Deep expression nesting is
+broken with ``_eN = <expr>`` temporaries, so any IR width or depth prints
+to parseable python.
 """
 
 from __future__ import annotations
@@ -73,6 +77,8 @@ _STATEMENT_KINDS = frozenset({
     "Let", "Assign", "Return", "Break", "Continue", "While", "ForArray", "ForSet", "ForDict",
 })
 _MAX_DEPTH = 24
+#: A type whose source is at most this wide prints inline; a wider one is hoisted to a ``_tN`` constant.
+_INLINE_TYPE_WIDTH = 80
 #: The block parameter every statement-bearing body declares first.
 _BLOCK = "b"
 #: The printer's own spelling for a variable it cannot name as the IR does.
@@ -166,9 +172,14 @@ class _Printer:
     # ── module-level pieces ──────────────────────────────────────────────
 
     def type_ref(self, t: EastType) -> str:
-        """A type as source: a primitive name inline, anything else hoisted."""
+        """A type as source: a primitive name, or a constructor source that
+        fits on a line, inline; a wider or recursive type hoisted to a
+        ``_tN`` constant."""
         if t.type in ("Null", "Never", "Boolean", "Integer", "Float", "String", "DateTime", "Blob"):
             return type_source(t)
+        source = type_source(t)
+        if len(source) <= _INLINE_TYPE_WIDTH and "recursive_type(" not in source:
+            return source
         key = type_key(t)
         hit = self.types.get(key)
         if hit is None:
