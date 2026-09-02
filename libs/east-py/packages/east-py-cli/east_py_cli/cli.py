@@ -142,6 +142,34 @@ def create_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="store_true", help="Enable verbose output"
     )
 
+    # lint command (#638): the East rules over python files
+    lint_parser = subparsers.add_parser(
+        "lint",
+        help="Diagnose the East bodies in python files — the build's refusals at edit time",
+    )
+    lint_parser.add_argument(
+        "paths", nargs="*", type=Path, help="Files or directories to diagnose (default: .)")
+    lint_parser.add_argument(
+        "--format", choices=("text", "json"), default="text",
+        help="text: one `file:line:col: category [rule] message` line per finding (default); "
+        "json: the findings as records")
+    lint_parser.add_argument(
+        "--disable", action="append", default=[], metavar="RULE",
+        help="Skip a rule by name (can be repeated)")
+    lint_parser.add_argument(
+        "--exclude", action="append", default=[], metavar="DIR",
+        help="A directory name to skip when walking (can be repeated; .venv, node_modules, "
+        "build, tests, … are always skipped)")
+    lint_parser.add_argument(
+        "--list-rules", action="store_true", help="List the rules and exit")
+
+    # lsp command (#638): the same diagnostics for an editor
+    subparsers.add_parser(
+        "lsp",
+        help="Serve the East diagnostics as a Language Server over stdio (needs pygls: "
+        "pip install 'elaraai-east-py-cli[lsp]')",
+    )
+
     # version command
     version_parser = subparsers.add_parser("version", help="Show version information")
     version_parser.add_argument(
@@ -426,6 +454,64 @@ def cmd_export_functions(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_lint(args: argparse.Namespace) -> int:
+    """``east-py lint``: the East diagnostics (#638) over files and directories.
+
+    Every ``.py`` file that imports ``east`` is read by the rules
+    (``east.diagnostics``); each finding prints as one ruff-like line, or as
+    a JSON record with ``--format json``. The exit code is 1 when there is
+    any finding (a warning included — the gate is the same as ruff's), 0
+    when the tree is clean, 2 for a usage error.
+    """
+    import json
+
+    from east.diagnostics import ALL_RULES, DEFAULT_EXCLUDES, RULES_BY_NAME, lint_paths
+
+    if args.list_rules:
+        for rule in ALL_RULES:
+            print(f"EAS{rule.code:03d}  {rule.name:<30} {rule.category:<8} {rule.description}")
+        return 0
+    unknown = [name for name in args.disable if name not in RULES_BY_NAME]
+    if unknown:
+        print(f"Error: unknown rule(s): {', '.join(unknown)} — see `east-py lint --list-rules`",
+              file=sys.stderr)
+        return 2
+    paths = list(args.paths) or [Path(".")]
+    missing = [str(p) for p in paths if not p.exists()]
+    if missing:
+        print(f"Error: no such file or directory: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    found = lint_paths(paths, disabled=args.disable, excludes=(*DEFAULT_EXCLUDES, *args.exclude))
+    count = sum(len(ds) for ds in found.values())
+    if args.format == "json":
+        records = [
+            {"path": path, "line": d.line, "column": d.column, "end_line": d.end_line,
+             "end_column": d.end_column, "rule": d.rule, "code": d.flake8_code,
+             "category": d.category, "message": d.message}
+            for path, ds in found.items() for d in ds
+        ]
+        print(json.dumps(records, indent=2))
+        return 1 if count else 0
+    for path, ds in found.items():
+        for d in ds:
+            print(d.format(path))
+    if count:
+        plural = "" if count == 1 else "s"
+        files = "" if len(found) == 1 else "s"
+        print(f"Found {count} diagnostic{plural} in {len(found)} file{files}.")
+        return 1
+    print("All clear.")
+    return 0
+
+
+def cmd_lsp(args: argparse.Namespace) -> int:
+    """``east-py lsp``: serve the diagnostics over the Language Server Protocol."""
+    del args
+    from east_py_cli.lsp import serve
+
+    return serve()
+
+
 def main() -> None:
     """Main entry point."""
     parser = create_parser()
@@ -433,6 +519,10 @@ def main() -> None:
 
     if args.command == "transpile":
         cmd_transpile(args)
+    elif args.command == "lint":
+        sys.exit(cmd_lint(args))
+    elif args.command == "lsp":
+        sys.exit(cmd_lsp(args))
     elif args.command == "export-functions":
         sys.exit(cmd_export_functions(args))
     elif args.command == "run":

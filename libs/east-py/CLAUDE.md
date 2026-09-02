@@ -18,7 +18,7 @@ functions. uv workspace; self-contained under `libs/east-py/`.
 ```bash
 make install       # uv sync (run once after pulling)
 make test          # All Python tests
-make lint          # ruff lint
+make lint          # license headers, ruff, and the East rules over every East body (east-py lint)
 make typecheck     # mypy
 make check         # lint + typecheck + test
 ```

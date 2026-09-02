@@ -99,11 +99,11 @@ def collect_module_scope(ctx: Context) -> None:
                 ctx.east_artifacts.add(node.name)
             elif not any(_is_platform_decorator(d, ctx) for d in node.decorator_list):
                 ctx.python_defs.add(node.name)
-        elif isinstance(node, ast.Assign):
-            if _is_east_ctor_call(node.value, ctx) or _is_east_import_call(node.value, ctx):
-                for t in node.targets:
-                    if isinstance(t, ast.Name):
-                        ctx.east_artifacts.add(t.id)
+        elif isinstance(node, ast.Assign) and (
+                _is_east_ctor_call(node.value, ctx) or _is_east_import_call(node.value, ctx)):
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    ctx.east_artifacts.add(t.id)
 
 
 def is_east_ref(node: ast.AST, ctx: Context) -> bool:
@@ -125,6 +125,7 @@ def _is_east_import_call(node: ast.AST, ctx: Context) -> bool:
 
 
 def _is_platform_decorator(node: ast.AST, ctx: Context) -> bool:
+    del ctx  # the decorator is known by its name alone
     target = node.func if isinstance(node, ast.Call) else node
     name = target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", "")
     return name in ("platform_function", "generic_platform_function")
@@ -187,6 +188,26 @@ def east_evidence(ctx: Context) -> set[str]:
             if _rooted_at_east(node.value, ctx) or (isinstance(root, ast.Name) and root.id in names):
                 names.add(target)
                 changed = True
+    return names
+
+
+#: the constructors of MUTABLE East collections — a capture refuses a callback that reads one
+#: (a snapshot or a live reference is the author's explicit choice: East.function / .bind)
+MUTABLE_CTORS = frozenset({"EastArray", "EastSet", "EastDict", "new_array", "new_set", "new_dict"})
+
+
+def mutable_collections(ctx: Context) -> set[str]:
+    """The module-level names bound to a mutable East collection —
+    ``xs = EastArray(…)``, ``d = East.new_dict(…)`` — which an eager
+    callback may not read (the capture refuses them by name)."""
+    names: set[str] = set()
+    for node in ctx.tree.body:
+        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)):
+            continue
+        func = node.value.func
+        ctor = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if ctor in MUTABLE_CTORS and _rooted_at_east(node.value, ctx):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
     return names
 
 
@@ -266,9 +287,9 @@ def _nested_kind(node: ast.AST, parent: Body) -> str:
     """A nested callable is a statement body when it is the argument of a
     ``b.<statement>(…)`` call on the parent's block, a callback otherwise."""
     for n in ast.walk(parent.node):
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in BODY_STATEMENTS:
-            if any(a is node for a in n.args) or any(k.value is node for k in n.keywords):
-                return "statement"
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in BODY_STATEMENTS \
+                and (any(a is node for a in n.args) or any(k.value is node for k in n.keywords)):
+            return "statement"
     return "callback"
 
 

@@ -100,6 +100,20 @@ uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
    `east_parser.py`/`east_printer.py` (East text), each over its `_*_eastc.pyx`.
 9. **`east/datetime_format.py`**, **`east/utils/ordering.py`** (East's total
    order; `_ordering_cy.pyx`).
+10. **`east/diagnostics/`** — the East rules at edit time (#638), the twin
+    of `@elaraai/east-diagnostics`: `run_east_rules(source)` / `lint_paths`
+    over the `ast`, one rule per file under `rules/`, numbered once
+    (`EASnnn`). "One message, two moments": every rule's text is the
+    build's refusal — read from the builder where it keeps the constant
+    (`_BLOCK_FIRST`, the `#624` forks, `_trace_bail`, `_capture_error`),
+    pinned against the raised exception otherwise. `scope.py` decides
+    East-ness (a file that imports `east`), which callables are bodies
+    (an `East.function` body and everything nested in it; an eager
+    callback on an East-evidenced receiver) and which names hold
+    expressions; the callback-method and statement-method names come from
+    the spelling table and the `Block` class, the eager capture's builtin
+    allowlist from `capture._allowed_global` — no hand lists. Surfaces:
+    `east-py lint`, the flake8 plugin and `east-py lsp` (east-py-cli).
 
 ### Invariants
 
@@ -149,6 +163,12 @@ dynamically typed at the boundary. See `pyproject.toml`.
   (`EAST_NODE_CLI=…/east-node-cli/bin/east-node.mjs`, or `east-node` on
   PATH; skips otherwise, `EAST_SWEEP_REQUIRED=1` in its own CI job). The
   contract and construct table: `docs/conventions/EAST_CODEGEN.md`.
+- **Diagnostics** (`tests/diagnostics/`) — the rule corpus: for every rule
+  an `ok.py` every rule leaves alone and a `bad.py` whose `# expect: <rule>`
+  lines are exactly the diagnostics; "one message, two moments" builds the
+  very source the rules read and pins the refusal's text against the
+  diagnostic's. `make lint` runs `east-py lint` over every package's East
+  bodies (CI too), so the rules never flag the library's own code.
 - **No clocks in CI.** A test that asserts on elapsed time is
   `@pytest.mark.perf` and runs only under `EAST_PERF=1` (`make bench`);
   `tests/conftest.py` skips it otherwise. CI pins the mechanism a timing

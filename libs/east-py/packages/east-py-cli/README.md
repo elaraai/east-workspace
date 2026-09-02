@@ -70,6 +70,25 @@ east-py transpile program.beast2 -o program.py --name main
 east-py export-functions pricing.functions -o pricing.functions.beast2 -p east-py-std
 ```
 
+### Linting East bodies
+
+The build refuses python that has no East form — `x // 2` on an expression,
+an f-string over one, `if` on one, a callback reaching for `np` — and says
+what to write instead. `east-py lint` says the same thing at edit time, in
+the same words, over every `.py` file that imports `east`:
+
+```bash
+east-py lint src/                       # one `file:line:col: category [rule] message` per finding; exit 1 on any
+east-py lint src/ --format json         # the findings as records
+east-py lint src/ --disable no-deprecated-alias
+east-py lint --list-rules               # EAS001 body-takes-block-first … EAS009 no-discarded-expression
+```
+
+A line ending in `# noqa` (or `# noqa: EAS002`) is skipped, as under ruff.
+The same rules run inside flake8 once east-py-cli is installed (`flake8
+--select EAS`), and `east-py lsp` serves them to any editor over the
+Language Server Protocol (`pip install 'east-py-cli[lsp]'` for pygls).
+
 ## File Formats
 
 IR and data files are auto-detected by extension:

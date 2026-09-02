@@ -34,9 +34,17 @@ dev = [
     "mypy>=1.11.0",
     "ruff>=0.6.0",
 ]
+# `east-py lsp` — the East diagnostics as a Language Server (#638)
+lsp = [
+    "pygls>=1.3.0",
+]
 
 [project.scripts]
 east-py = "east_py_cli:main"
+
+# The East rules under flake8 (#638): `flake8 --select EAS`
+[project.entry-points."flake8.extension"]
+EAS = "east_py_cli.flake8:EastChecker"
 
 [project.urls]
 Homepage = "https://github.com/elaraai/east-py"

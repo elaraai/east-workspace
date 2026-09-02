@@ -37,7 +37,7 @@ class BodyTakesBlockFirst:
                    "`lambda b, x: …` / `def f(b, x)`, never `lambda x: …` or `b.price`.")
 
     def check(self, body: Body, ctx: Context) -> None:
-        if body.block is None:
+        if body.block is None and not (body.kind == "function" and body.declared_arity is not None):
             ctx.report(body.node, self, f"a body with no parameters cannot receive the block — {_BLOCK_FIRST}")
             return
         if body.kind == "function" and body.declared_arity is not None \
@@ -45,6 +45,8 @@ class BodyTakesBlockFirst:
             ctx.report(body.node, self,
                        f"East.function body declares {len(body.all_params)} parameter(s) for a "
                        f"{body.declared_arity}-parameter function — {_BLOCK_FIRST}")
+            if body.block is None:
+                return
         parents = _parents(body)
         for node in body_nodes(body):
             if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \

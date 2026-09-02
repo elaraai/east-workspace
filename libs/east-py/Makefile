@@ -126,9 +126,13 @@ test:
 
 # ── Code Quality ─────────────────────────────────────────────────────
 
-## Run linter
+## Run linter: ruff, then the East rules (#638) over every package's own
+## East bodies — the build's refusals at edit time, as an editor sees them.
+EAST_LINT_PATHS = packages/east-py/east packages/east-py-std packages/east-py-io \
+	packages/east-py-cli/east_py_cli packages/east-py-datascience/src
 lint: lint-headers
 	uv run ruff check packages/
+	uv run east-py lint $(EAST_LINT_PATHS)
 	cd packages/east-py-datascience && pnpm run lint
 
 ## Check license headers (fails if any files need updating)
@@ -229,7 +233,7 @@ help:
 	@echo "  test-east-py-datascience - Run east-py-datascience tests"
 	@echo "  test-export       - Export test IR from TypeScript packages"
 	@echo ""
-	@echo "  lint              - Run linter (includes license header check)"
+	@echo "  lint              - Run linter (license headers, ruff, east-py lint over the East bodies)"
 	@echo "  lint-headers      - Check license headers only"
 	@echo "  lint-headers-fix  - Add missing license headers"
 	@echo "  format            - Format code"

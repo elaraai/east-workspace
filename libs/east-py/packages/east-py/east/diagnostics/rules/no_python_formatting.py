@@ -2,9 +2,13 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""``no-python-formatting``: an f-string, ``str()``, ``format()`` or
-``%``-formatting over an expression would constant-fold the proxy's
-repr into the result; the build refuses it (``__str__`` / ``__format__``).
+"""``no-python-formatting``: an f-string, ``str()``, ``print()``,
+``format()`` or ``%``-formatting over an expression would constant-fold the
+proxy's repr into the result; the build refuses it (``__str__`` /
+``__format__``) — except ``%``-formatting, which python's own ``str.__mod__``
+refuses first with its own text, so that message is this rule's. In an
+EAGER callback ``str`` / ``print`` / ``format`` are refused by name before
+the body runs (``no-python-work``); the call forms are the function body's.
 """
 
 from __future__ import annotations
@@ -31,16 +35,16 @@ class NoPythonFormatting:
                    "build strings with `+` or East.String.print(T, value).")
 
     def check(self, body: Body, ctx: Context) -> None:
+        eager = _root(body).kind == "eager"
         for node in body_nodes(body):
             if isinstance(node, ast.JoinedStr):
                 if any(isinstance(v, ast.FormattedValue) and body.is_expression(v.value) for v in node.values):
                     ctx.report(node, self, FORMAT_MESSAGE)
             elif isinstance(node, ast.Call):
-                if is_name(node.func, "str") and node.args and body.is_expression(node.args[0]):
+                if not eager and (is_name(node.func, "str") or is_name(node.func, "print")) \
+                        and any(body.is_expression(a) for a in node.args):
                     ctx.report(node, self, STR_MESSAGE)
-                elif is_name(node.func, "format") and node.args and body.is_expression(node.args[0]):
-                    ctx.report(node, self, FORMAT_MESSAGE)
-                elif isinstance(node.func, ast.Attribute) and node.func.attr == "format" \
+                elif not eager and is_name(node.func, "format") and node.args and body.is_expression(node.args[0]) or isinstance(node.func, ast.Attribute) and node.func.attr == "format" \
                         and isinstance(node.func.value, ast.Constant) and isinstance(node.func.value.value, str) \
                         and any(body.is_expression(a) for a in node.args):
                     ctx.report(node, self, FORMAT_MESSAGE)
@@ -49,3 +53,9 @@ class NoPythonFormatting:
                 right = node.right.elts if isinstance(node.right, ast.Tuple) else [node.right]
                 if any(body.is_expression(r) for r in right):
                     ctx.report(node, self, STR_MESSAGE)
+
+
+def _root(body: Body) -> Body:
+    while body.parent is not None:
+        body = body.parent
+    return body
