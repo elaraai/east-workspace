@@ -337,7 +337,7 @@ describe("codegen: toSource round trips the builder surface", () => {
           : v;
     const ir = foreign(fn.toIR().ir);
     const source = toSource(ir, { importFrom: INDEX_URL });
-    assert.match(source, /xs\.map\(\(\$, x, v_1\) => x\.multiply\(2n\)\)\.reduce\(\(\$, v_0, x_2, v_2\) => v_0\.add\(x_2\), 0n\)/);
+    assert.match(source, /xs\.map\(\(\$, x, v_1\) => x\.multiply\(2n\)\)\.reduce\(\(\$, v_0, x, v_2\) => v_0\.add\(x\), 0n\)/);
     const main = await roundTrip(ir, "foreign names");
     assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL }), source, "print → build → print is the identity");
   });

@@ -108,8 +108,8 @@ class TestIRCarriesTheAuthoringNames:
                          "doubled", "x", "acc", "message", "stack"]:
             assert expected in self.names, f"{expected} in {self.names}"
 
-    def test_collision_suffix_and_unnamed_slots(self):
-        assert "x_2" in self.names
+    def test_sibling_bodies_reuse_a_name_and_unnamed_slots_stay_fresh(self):
+        assert "x_2" not in self.names, self.names  # the map's and the reduce's x are siblings
         assert any(re.fullmatch(r"__n\d+", n) for n in self.names), self.names  # the map's unnamed index slot
         assert "b" not in self.names
 
@@ -118,7 +118,7 @@ class TestIRCarriesTheAuthoringNames:
         assert "total = b.let(0)" in source
         assert "lambda b, item, index, " in source
         assert "'circle': lambda b, radius: (radius * radius)" in source
-        assert "reduce(lambda b, acc, x_2, " in source
+        assert "reduce(lambda b, acc, x, " in source
         assert ".catch(lambda b, message, stack: " in source
 
     def test_names_start_afresh_for_every_build(self):
@@ -145,6 +145,19 @@ def test_only_the_call_that_initializes_a_variable_names_it():
         assert expected in names, f"{expected} in {names}"
     assert sum(1 for n in names if re.fullmatch(r"__n\d+", n)) == 2, names  # the two unnamed inner bindings
     assert shapes(3) == 3 + 1 + 3 + 1 + 3 + 4 + 2
+
+
+@East.function([ArrayType(IntegerType), IntegerType], IntegerType)
+def shadowing(b, xs, x):
+    outer = x                                            # an alias to the parameter
+    inner = b.const(xs.map(lambda b, x: x + outer).sum())  # the callback shadows `x`
+    return inner + xs.map(lambda b, x: x).size()          # a sibling reuses `x`
+
+
+def test_a_name_still_in_scope_takes_a_suffix_so_an_alias_keeps_its_meaning():
+    names = variable_names(shadowing)
+    assert [n for n in names if re.fullmatch(r"x(_\d+)?", n)] == ["x", "x_2"], names
+    assert shadowing([1, 2], 10) == 25
 
 
 def test_printed_python_is_a_fixed_point(tmp_path):

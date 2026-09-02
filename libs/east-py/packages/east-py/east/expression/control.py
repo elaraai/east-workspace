@@ -596,7 +596,7 @@ def for_(collection: Any, state: Any, body: Any = None, *, label: Any = None) ->
         hints = parameter_names(body)  # (block, state, value, key) — a body may declare fewer
 
         def named(index: int) -> str:
-            return authored_name(hint_at(hints, index), _fresh_name)
+            return authored_name(hint_at(hints, index), _fresh_name, parameter=True)
 
         if tag == "Array":
             elem_t = source.east_type.value
@@ -726,7 +726,7 @@ def let(value: Any, fn: Any = None) -> Any:
     from east.expression.statements import _frames, _run_block
 
     bound = _lift(value)
-    name = authored_name(hint_at(parameter_names(fn), 1), _fresh_name)
+    name = authored_name(hint_at(parameter_names(fn), 1), _fresh_name, parameter=True)
     ret_t = _frames[-1].return_type if _frames else None
     body = _run_block(fn, (Expression(_var(name, bound.east_type), bound.east_type),),
                       return_type=ret_t, mode="block_expr")
@@ -924,9 +924,9 @@ def try_catch(body: Any, handler: Any, finally_: Any = None) -> Any:
 
     guarded = _run_block(body, (), return_type=ret_t, mode="block_expr")
     hints = parameter_names(handler)
-    message = _var(authored_name(hint_at(hints, 1), _fresh_name), StringType)
+    message = _var(authored_name(hint_at(hints, 1), _fresh_name, parameter=True), StringType)
     stack_t = ArrayType(LocationType)
-    stack = _var(authored_name(hint_at(hints, 2), _fresh_name), stack_t)
+    stack = _var(authored_name(hint_at(hints, 2), _fresh_name, parameter=True), stack_t)
     caught = _run_block(
         handler, (Expression(message, StringType), Expression(stack, stack_t)),
         return_type=ret_t, mode="block_expr",

@@ -194,7 +194,8 @@ def _nested_function(param_types: list[EastType], out: EastType, body: Any, *,
     from east.expression.naming import authored_name, hint_at, parameter_names
 
     hints = parameter_names(body)
-    names = [authored_name(hint_at(hints, i + 1), _fresh_name) for i in range(len(param_types))]
+    names = [authored_name(hint_at(hints, i + 1), _fresh_name, parameter=True)
+             for i in range(len(param_types))]
     proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
     previous = _async_build
     _async_build = is_async

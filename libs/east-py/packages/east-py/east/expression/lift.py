@@ -1068,7 +1068,7 @@ def _trace_inner_fn(fn: Any, param_types: list[EastType], out_hint: EastType | N
     for k, slot in enumerate(slots):
         hint = hint_at(hints, k + 1)
         if hint is not None:
-            names[slot] = authored_name(hint, _fresh_name)
+            names[slot] = authored_name(hint, _fresh_name, parameter=True)
     proxies = [Expression(_var(n, t), t) for n, t in zip(names, param_types, strict=True)]
     args = [proxies[i] for i in slots][:arity]
     frame = _open_frame(out_hint)

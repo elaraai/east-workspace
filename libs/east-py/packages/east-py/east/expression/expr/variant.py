@@ -161,7 +161,7 @@ class VariantExpression(Expression):
             # (`lambda b, radius: …` names `radius`, #639); a value arm, a
             # missing arm and the default body have no name to give.
             hint = None if isinstance(handler, Expression) else hint_at(parameter_names(handler), 1)
-            var = _var(authored_name(hint, _fresh_name), c["type"])
+            var = _var(authored_name(hint, _fresh_name, parameter=True), c["type"])
             if handler is None and default is not None:
                 handler = lambda b, _payload, _d=default: _d(b)  # noqa: E731
             # An Expression arm is a VALUE arm, not a handler — expressions

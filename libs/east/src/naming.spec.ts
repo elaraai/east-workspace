@@ -137,10 +137,20 @@ describe("IR variables carry the authoring names", () => {
     }
   });
 
-  test("a collision takes a suffix; a slot the body did not name stays _N", () => {
-    assert.ok(names.includes("x_2"), `x_2 in ${names.join(", ")}`);
+  test("sibling bodies reuse a name; a slot the body did not name stays _N", () => {
+    assert.ok(!names.includes("x_2"), `the map's and the reduce's x are siblings: ${names.join(", ")}`);
     assert.ok(names.some(n => /^_\d+$/.test(n)), `an unnamed slot in ${names.join(", ")}`);
     assert.ok(!names.includes("$"));
+  });
+
+  test("a name still in scope takes a suffix, so an alias to the outer variable keeps its meaning", () => {
+    const shadowing = East.function([ArrayType(IntegerType), IntegerType], IntegerType, ($, xs, x) => {
+      const outer = x;                                              // an alias to the parameter
+      const inner = $.const(xs.map(($, x) => x.add(outer)).sum());  // the callback shadows `x`
+      return inner.add(xs.map(($, x) => x).size());                 // a sibling reuses `x`
+    });
+    assert.deepEqual(variableNames(shadowing.toIR().ir).filter(n => /^x(_\d+)?$/.test(n)), ["x", "x_2"]);
+    assert.equal(shadowing.toIR().compile([])([1n, 2n], 10n), 25n);
   });
 
   test("the names come back out of East.toSource", () => {
@@ -148,7 +158,7 @@ describe("IR variables carry the authoring names", () => {
     assert.match(source, /const total = \$\.let\(0n\)/);
     assert.match(source, /\$\.for\(items, \(\$, item, index/);
     assert.match(source, /circle: \(\$, radius\) => radius\.multiply\(radius\)/);
-    assert.match(source, /reduce\(\(\$, acc, x_2/);
+    assert.match(source, /reduce\(\(\$, acc, x, _\d+\) => acc\.add\(x\)/);
   });
 
   test("names start afresh for every build", () => {

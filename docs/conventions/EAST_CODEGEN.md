@@ -281,14 +281,18 @@ where every variable stays `_N`). A call inside another call's arguments,
 or one with a further call chained onto it (`$.let(0n).add(1n)`),
 initializes nothing and stays unnamed.
 
-Names are **unique per build** — captures match by name across function
-boundaries and the compilers key their environments by name — so a second
-`x` becomes `x_2`, `x_3`… (`ast_to_ir`'s per-build registry; python's
-`authored_name`). Where no name can be read — a slot the body did not
-declare (`($, x) => …` for a `(value, index)` callback), destructuring, a
-`*args` body, a browser bundle, a REPL line that is gone — the builder's
-fresh name stands: `_N` (TypeScript) or `__nN` (python). A `$`/`b` block
-parameter is never a variable.
+Names are **unique within their scope chain**. The compilers resolve
+variables lexically, so sibling bodies reuse a name freely — three
+callbacks each naming their element `x` are three `x`s — but a name still
+in scope from an enclosing body takes a `_2`, `_3`… suffix: an alias to the
+outer variable used inside the inner body (`const outer = x; xs.map(($, x)
+=> x.add(outer))`) would otherwise resolve to the inner one. Every body is
+a scope (`ast_to_ir`'s scope chain; python's frame stack, a body's
+parameters registered for the frame about to open). Where no name can be
+read — a slot the body did not declare (`($, x) => …` for a `(value, index)`
+callback), destructuring, a `*args` body, a browser bundle, a REPL line
+that is gone — the builder's fresh name stands: `_N` (TypeScript) or
+`__nN` (python). A `$`/`b` block parameter is never a variable.
 
 The printers keep every name that is an identifier, so printed source
 reads `total.add(item.multiply(index))`; TypeScript's `_N` survives a trip

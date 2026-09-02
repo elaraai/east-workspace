@@ -146,18 +146,22 @@ _frames: list[_Frame] = []
 
 
 def _open_frame(return_type: EastType | None) -> _Frame:
-    if not _frames:
-        from east.expression.naming import reset_names
+    from east.expression.naming import open_scope, reset_names
 
+    if not _frames:
         reset_names()  # a new build: authoring names start afresh (#639)
     frame = _Frame(return_type)
     _frames.append(frame)
+    open_scope()  # the body's names live while its frame is open
     return frame
 
 
 def _close_frame(frame: _Frame) -> None:
+    from east.expression.naming import close_scope
+
     assert _frames and _frames[-1] is frame, "statement frames closed out of order"
     _frames.pop()
+    close_scope()
 
 
 def _check_open(frame: _Frame, op: str) -> None:
@@ -638,7 +642,8 @@ class Block:
         case_nodes = []
         for c in v.east_type.value:
             handler = cases.get(c["name"])
-            var = _var(authored_name(hint_at(parameter_names(handler), 1), _fresh_name), c["type"])
+            var = _var(authored_name(hint_at(parameter_names(handler), 1), _fresh_name,
+                                     parameter=True), c["type"])
             if handler is None:
                 body = _null_value()
             else:
@@ -667,7 +672,8 @@ class Block:
 
         frame = self._use("while_")
         p = _predicate(predicate, "while")
-        lbl = LoopLabel(authored_name(hint_at(parameter_names(body), 1), _fresh_name), _loc_id())
+        lbl = LoopLabel(authored_name(hint_at(parameter_names(body), 1), _fresh_name, parameter=True),
+                        _loc_id())
         _push_loop_frame(_StatementLoop(lbl.name))
         try:
             arm = _run_block(body, (lbl,), return_type=frame.return_type, mode="null_block")
@@ -699,7 +705,7 @@ class Block:
         hints = parameter_names(body)  # (block, value, key, label) — a body may declare fewer
 
         def named(index: int) -> str:
-            return authored_name(hint_at(hints, index), _fresh_name)
+            return authored_name(hint_at(hints, index), _fresh_name, parameter=True)
 
         if tag == "Array":
             elem_t = src.east_type.value
@@ -1016,8 +1022,9 @@ class TryBuilder:
         self._caught = True
         # the handler names the catch variables (#639): `lambda b, message, stack: …`
         hints = parameter_names(handler)
-        self._message = _var(authored_name(hint_at(hints, 1), _fresh_name), StringType)
-        self._stack = _var(authored_name(hint_at(hints, 2), _fresh_name), self._stack.value["type"])
+        self._message = _var(authored_name(hint_at(hints, 1), _fresh_name, parameter=True), StringType)
+        self._stack = _var(authored_name(hint_at(hints, 2), _fresh_name, parameter=True),
+                           self._stack.value["type"])
         args = (Expression(self._message, StringType),
                 Expression(self._stack, self._stack.value["type"]))
         arm = _run_block(handler, args, return_type=self._frame.return_type, mode="null_block")

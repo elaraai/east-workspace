@@ -19,9 +19,13 @@ The IR carries a name on every variable; the builder used to mint
 
 Where a name cannot be read (a ``*args`` body, a REPL line that is gone, a
 call that initializes nothing) the builder's fresh name stands, exactly as
-before. Names are unique per build — captures are matched by name across
-function boundaries and the compilers key their environments by name — so
-a collision takes a ``_2``, ``_3``… suffix, as in TypeScript.
+before. A name is unique within its SCOPE CHAIN: the compilers resolve
+variables lexically, so sibling bodies reuse names freely (three callbacks
+each naming their element ``x`` are three ``x``s), but a name still in
+scope from an enclosing body takes a ``_2``, ``_3``… suffix — an alias to
+the outer variable used inside the inner body would otherwise resolve to
+the inner one. Every open statement frame is a scope; a body's parameters
+are registered for the frame about to open. As in TypeScript.
 """
 
 from __future__ import annotations
@@ -33,7 +37,10 @@ import linecache
 import sys
 from typing import Any
 
-_names_in_use: dict[str, int] = {}
+#: the names bound by each OPEN body, innermost last — the scope chain
+_scopes: list[set[str]] = []
+#: the names bound for the body ABOUT TO OPEN (its parameters, a loop's variables)
+_pending: set[str] = set()
 #: (start line, start column, end line, end column) of a call, 1-based columns
 Span = tuple[int, int, int, int]
 #: file → {span of a call: the name it is assigned to}
@@ -45,19 +52,44 @@ _SPANS_LIMIT = 256
 
 
 def reset_names() -> None:
-    """Forget the names in use — called when a build opens its outermost frame."""
-    _names_in_use.clear()
+    """Forget every scope — called when a build opens its outermost frame."""
+    _scopes.clear()
+    _pending.clear()
 
 
-def authored_name(hint: str | None, fallback: Any) -> str:
-    """``hint`` made unique within the build, or ``fallback()`` when the hint
-    is unusable (absent, not an identifier, a keyword, the builder's own
-    ``__``-prefixed spelling)."""
+def open_scope() -> None:
+    """A body opens: its scope starts with the names registered for it."""
+    _scopes.append(set(_pending))
+    _pending.clear()
+
+
+def close_scope() -> None:
+    """A body closes: its names go out of scope."""
+    if _scopes:
+        _scopes.pop()
+
+
+def _in_scope(name: str) -> bool:
+    return name in _pending or any(name in scope for scope in _scopes)
+
+
+def authored_name(hint: str | None, fallback: Any, *, parameter: bool = False) -> str:
+    """``hint`` made unique within the scope chain — a name still in scope
+    takes a ``_2``, ``_3``… suffix — or ``fallback()`` when the hint is
+    unusable (absent, not an identifier, a keyword, the builder's own
+    ``__``-prefixed spelling). ``parameter`` registers the name for the body
+    about to open rather than the open one."""
     if hint is None or not hint.isidentifier() or keyword.iskeyword(hint) or hint.startswith("__"):
         return fallback()
-    n = _names_in_use.get(hint, 0) + 1
-    _names_in_use[hint] = n
-    return hint if n == 1 else f"{hint}_{n}"
+    name, n = hint, 2
+    while _in_scope(name):
+        name = f"{hint}_{n}"
+        n += 1
+    if parameter or not _scopes:
+        _pending.add(name)
+    else:
+        _scopes[-1].add(name)
+    return name
 
 
 def parameter_names(fn: Any) -> list[str] | None:
