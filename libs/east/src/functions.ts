@@ -238,8 +238,15 @@ function stripLocations(ir: IR): IR {
   return variant(stripped.type, { ...stripped.value, loc_id: 0n }) as IR;
 }
 
-const manifestEncoder = encodeBeast2For(FunctionManifestType);
-const manifestDecoder = decodeBeast2For(FunctionManifestType);
+// The codec is built on first use, not at import: building a beast2 codec
+// for a type that holds `IRType` assigns recursive type ids, and doing that
+// while the package loads would renumber the ids every later type gets.
+let manifestCodec: { encode: (m: FunctionManifest) => Uint8Array; decode: (d: Uint8Array) => FunctionManifest } | null = null;
+
+function codec(): NonNullable<typeof manifestCodec> {
+  manifestCodec ??= { encode: encodeBeast2For(FunctionManifestType), decode: decodeBeast2For(FunctionManifestType) };
+  return manifestCodec;
+}
 
 /**
  * Encodes a function manifest as beast2 — the file `east-node
@@ -247,12 +254,12 @@ const manifestDecoder = decodeBeast2For(FunctionManifestType);
  * `linkImports` read, in either language.
  */
 export function encodeFunctionManifest(manifest: FunctionManifest): Uint8Array {
-  return manifestEncoder(manifest);
+  return codec().encode(manifest);
 }
 
 /** Decodes a function manifest written by either language. */
 export function decodeFunctionManifest(data: Uint8Array): FunctionManifest {
-  return manifestDecoder(data);
+  return codec().decode(data);
 }
 
 // ── import ──────────────────────────────────────────────────────────────────
