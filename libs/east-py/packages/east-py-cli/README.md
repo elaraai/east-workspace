@@ -57,6 +57,19 @@ Platforms:
   east-py-io 0.1.0 (59 platform functions)
 ```
 
+### Transpiling and Exporting Functions
+
+```bash
+# Print an IR program (from any runtime) as python East.function source
+east-py transpile program.beast2 -o program.py --name main
+
+# Write a module's `east_functions` dict as a function manifest that a
+# TypeScript e3 task imports with East.importFunction (or python with
+# East.import_function); -p names the platform packages implementing any
+# platform calls the functions make
+east-py export-functions pricing.functions -o pricing.functions.beast2 -p east-py-std
+```
+
 ## File Formats
 
 IR and data files are auto-detected by extension:

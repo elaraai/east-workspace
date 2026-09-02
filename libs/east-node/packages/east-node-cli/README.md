@@ -76,6 +76,16 @@ Builtins the TypeScript surface has no spelling for print through
 printers and the cross-language sweep are described in
 `docs/conventions/EAST_CODEGEN.md`.
 
+### Exporting functions for another language
+
+```bash
+# Write a module's `eastFunctions` export as a function manifest that a python
+# package (or another TypeScript package) imports with East.import_function /
+# East.importFunction; -p names the platform packages implementing any
+# platform calls the functions make
+east-node export-functions dist/pricing.js -o pricing.functions.beast2 -p @elaraai/east-node-std
+```
+
 ## CLI Reference
 
 ### `east-node run`
@@ -112,6 +122,24 @@ Options:
   --import-from <specifier>  The module the printed source imports East from (default: @elaraai/east)
   --rebuild <path>           Import the printed module and write the IR it builds here
                              (.beast2 or .json; a directory in directory mode)
+```
+
+### `east-node export-functions`
+
+Write a module's `eastFunctions` export (name → `East.function` result) as a function manifest.
+
+```
+east-node export-functions <module> -o <file> [options]
+
+Arguments:
+  module                       Path to the built module exporting `eastFunctions`
+
+Options:
+  -o, --output <file>          The manifest to write (.beast2)
+  -p, --package <package...>   Platform packages implementing the functions' platform calls
+                               (every dependency must be provided by one; recorded as its provider)
+  --name <name>                The package name importers use (default: the module file's stem)
+  --package-version <version>  The version recorded in the manifest (default: 0.0.0)
 ```
 
 ### `east-node version`

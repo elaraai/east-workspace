@@ -87,9 +87,13 @@ uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
 6. **`east/codegen/`** — the IR → python printer (`printer.py`) and the
    builtin spelling table (`spellings.py`) it shares with the compliance
    replay, so what the printer writes is what the replay executes (#627).
-7. **`east/serialization/`** — `beast2.py`, `json.py`, `csv.py`,
+7. **`east/functions.py`** — cross-language functions (#628): the function
+   manifest type, `East.export_functions` / `import_function` /
+   `link_imports` (name for name with `libs/east/src/functions.ts`); the CLI
+   is `east-py export-functions`. Contract: `docs/conventions/EAST_CODEGEN.md` §6.
+8. **`east/serialization/`** — `beast2.py`, `json.py`, `csv.py`,
    `east_parser.py`/`east_printer.py` (East text), each over its `_*_eastc.pyx`.
-8. **`east/datetime_format.py`**, **`east/utils/ordering.py`** (East's total
+9. **`east/datetime_format.py`**, **`east/utils/ordering.py`** (East's total
    order; `_ordering_cy.pyx`).
 
 ### Invariants

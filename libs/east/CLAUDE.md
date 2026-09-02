@@ -16,6 +16,10 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
   spec over the hand-written cases, every exported example and the
   compliance corpus. Contract + construct table:
   `../../docs/conventions/EAST_CODEGEN.md`.
+- `src/functions.ts` — cross-language functions (`East.exportFunctions` /
+  `importFunction` / `linkImports`, the manifest type); python twin
+  `east/functions.py`; `e3.export` links; contract in
+  `../../docs/conventions/EAST_CODEGEN.md` §6.
 - `src/datetime_format/` — format specifiers, printers, parsers.
 - `test/` — compliance suite (serializes to IR; runs on any backend).
 - `devdocs/` — living design docs (start with `SERIALIZATION.md`).

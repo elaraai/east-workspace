@@ -2,8 +2,11 @@
 
 **Applies to:** `libs/east/src/codegen/` (TypeScript: `East.toSource`,
 `east-node transpile`), `libs/east-py/packages/east-py/east/codegen/`
-(python: `to_python_source`, `east-py transpile`), and the conformance
-suites that pin them (`libs/east/src/codegen/codegen.spec.ts`,
+(python: `to_python_source`, `east-py transpile`), the cross-language
+function surface (`libs/east/src/functions.ts`, `east/functions.py`:
+`East.exportFunctions` / `importFunction` / `linkImports` and their python
+twins, the `export-functions` CLIs, `e3.export`'s `functions` option), and
+the conformance suites that pin them (`libs/east/src/codegen/codegen.spec.ts`,
 `libs/east-py/packages/east-py/tests/conformance/`).
 
 East has one IR and two authoring surfaces. A printer turns the IR back
@@ -179,7 +182,75 @@ parity), then the row in each table (argument order = the surface's), and
 delete the builtin from `RAW_ONLY` — the ratchet fails until you do. Run
 all three suites.
 
-## 6. Where the source names went
+## 6. Cross-language functions: export, import, link
+
+A function authored in one language is *called* from expression code in
+the other, and the deployed program is pure IR — no python (or node) at
+run time. Three pieces, name for name in both languages:
+
+| Step | TypeScript | python |
+|---|---|---|
+| Export a package's functions as a **manifest** | `East.exportFunctions(pkg, version, { name: fn }, { providers })` → `East.encodeFunctionManifest` · CLI `east-node export-functions <module.js> -o <file> [-p <platform-package>…]` (reads the module's `eastFunctions`) | `East.export_functions(pkg, version, {"name": fn}, providers)` → `East.encode_function_manifest` · CLI `east-py export-functions <module> -o <file> [-p <platform-package>…]` (reads the module's `east_functions`) |
+| Refer to an exported function | `East.importFunction(pkg, name, FunctionType([...], Out))` — a callable function expression | `East.import_function(pkg, name, FunctionType([...], Out))` |
+| Resolve the references | `East.linkImports(fn, manifests)` → `{ ir, imports }` — what `e3.export(pkg, out, { functions })` runs on every task, function and mutation | `East.link_imports(fn, manifests)` → `(ir, imports)` |
+
+The **manifest** (`FunctionManifestType`, fields declared alphabetically in
+both languages so the wire layout cannot depend on declaration order) holds,
+per function: its IR (loc_ids zeroed — a manifest has no source map), its
+declared `FunctionType`, and its **platform dependencies** — every platform
+function the IR calls, with the signature the IR emits and the package that
+*provides* it (the exporter records the provider from its `-p` packages, and
+refuses to export a dependency no package provides). Only closed values
+export: a closure over an enclosing body, a python `.bind` result (no IR of
+its own), or a function that itself holds an unresolved import is refused —
+exports do not chain (v1).
+
+An **unresolved import** is a `Platform` node named `east.importFunction`
+whose two arguments are the package and function names — no new IR node
+kind, and loud: compiling it unlinked fails naming that platform. Both
+printers spell it back as `East.importFunction(...)` / `East.import_function(...)`.
+
+**Linking** finds every such node, resolves it against the manifest whose
+`package` matches, checks the declared type equals the exported type
+*exactly* (a mismatch names both types), and embeds the exported IR as a
+`Let`-bound constant at the top of the importing function's body; a use
+inside a nested function captures the binding, so the nested functions'
+`captures` lists grow. The result is self-contained IR — the same on every
+runner — and the resolved imports' platform dependencies are returned for
+the caller to validate. `e3.export` validates them against the owning
+task's runner: the provider must be listed by name or through its stock
+family (`east-py-std` ≡ `@elaraai/east-node-std` ≡ `east-c-std`;
+`east-py-io` ≡ `@elaraai/east-node-io` — the compliance suites pin that a
+family implements one contract per runtime); a custom-command runner is
+trusted; a mismatch is a build error naming the task, the import, the
+platform function and the runner's packages.
+
+**Recipe — a python function in a TypeScript e3 task:**
+
+```bash
+east-py export-functions pricing.functions -o pricing.functions.beast2 -p east-py-std
+```
+
+```typescript
+const score = East.importFunction("pricing", "score", FunctionType([RowType], FloatType));
+const total = e3.task("total", [rows], East.function([ArrayType(RowType)], FloatType, ($, rs) => rs.map(($, r) => score(r)).sum()));
+await e3.export(pkg, "out.zip", { functions: ["./pricing.functions.beast2"] });
+// or: e3 workspace deploy . dev --from-source src/index.ts --functions ./pricing.functions.beast2
+```
+
+The pinned evidence: `libs/east/src/functions.spec.ts` and
+`tests/test_functions_export_import.py` (each language against itself),
+`libs/e3/packages/e3/src/functions-link.spec.ts` (the export-time link and
+runner check), and the cross-import pair — python importing a manifest
+`east-node export-functions` wrote (`tests/conformance/test_cross_import.py`,
+in the CI sweep job) and TypeScript importing the checked-in python
+manifest `libs/east/test/fixtures/py-functions.beast2`
+(`src/functions.crossimport.spec.ts`; the python test keeps the fixture
+current, `EAST_UPDATE_FIXTURES=1` rewrites it). The cross-language stem
+(`libs/east/test/crosslang.examples.ts` ↔ `tests/conformance/test_cross_language_stem.py`)
+pins that the same program authored in either language is the same IR.
+
+## 7. Where the source names went
 
 The IR carries variable names, but the builders write `_N` (TypeScript) and
 `_fresh_name()` (python), so printed source reads `_3.add(_4)`. Carrying

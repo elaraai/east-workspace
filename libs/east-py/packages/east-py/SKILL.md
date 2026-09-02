@@ -1,6 +1,6 @@
 ---
 name: east-py
-description: "East in Python: (A) East EXPRESSIONS — write East functions in Python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), one expression class per East type with the TypeScript methods in snake_case, the standard library (East.Integer.print_compact, East.Float.round_to_decimals, East.DateTime.round_down_week, East.str), East.platform + East.compile, and IR ↔ python codegen; (B) East VALUES — East runtime data as ordinary Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the SAME names, validation/coercion, beast2 files, numpy/torch, and @platform_function to expose Python to East. Use when writing Python (not the TypeScript DSL) against east-py. Triggers for: (1) Writing an East function in Python (East.function, b.let/b.if_/b.for_, expression methods, the stdlib), (2) Constructing/validating East values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) Transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) Scalar builtins and the stdlib via East.<Type>, (5) @platform_function, (6) beast2 files and numpy/torch through EastVector/EastMatrix, (7) Porting a plain-Python data-science POC into an East platform function, (8) Printing IR as python (east-py transpile)."
+description: "East in Python: (A) East EXPRESSIONS — write East functions in Python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), one expression class per East type with the TypeScript methods in snake_case, the standard library (East.Integer.print_compact, East.Float.round_to_decimals, East.DateTime.round_down_week, East.str), East.platform + East.compile, and IR ↔ python codegen; (B) East VALUES — East runtime data as ordinary Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the SAME names, validation/coercion, beast2 files, numpy/torch, and @platform_function to expose Python to East. Use when writing Python (not the TypeScript DSL) against east-py. Triggers for: (1) Writing an East function in Python (East.function, b.let/b.if_/b.for_, expression methods, the stdlib), (2) Constructing/validating East values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) Transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) Scalar builtins and the stdlib via East.<Type>, (5) @platform_function, (6) beast2 files and numpy/torch through EastVector/EastMatrix, (7) Porting a plain-Python data-science POC into an East platform function, (8) Printing IR as python (east-py transpile), (9) Exporting East functions for TypeScript / e3 tasks and importing TypeScript-authored ones (East.export_functions / East.import_function, east-py export-functions)."
 ---
 
 # East.py — East expressions and East values in Python
@@ -189,8 +189,11 @@ Task → What do you need?
     │   │   │   ❗ mutating a CAPTURED collection raises (a loop SEED is exempt — rebuilt per call)
     │   │   └─ Sequence / bind / cell / catch → East.block(a, b, …) · East.let(value, fn(b, bound)) · East.ref(v) .get()/.update(v)/.merge ·
     │   │       East.try_catch(body(b), handler(b, message[, stack]), finally_=) (both arms one East type)
-    │   └─ IR ↔ python → to_python_source(fn) · `east-py transpile prog.json -o prog.py` · compile_from_beast2/json/east (a function compiled
-    │       elsewhere — pass it to any eager method) · compile_from_value (IR built with east.ir.builders) · `east-c ir normalize|diff|convert`
+    │   ├─ IR ↔ python → to_python_source(fn) · `east-py transpile prog.json -o prog.py` · compile_from_beast2/json/east (a function compiled
+    │   │   elsewhere — pass it to any eager method) · compile_from_value (IR built with east.ir.builders) · `east-c ir normalize|diff|convert`
+    │   └─ Across languages → a module's `east_functions = {"name": fn}` + `east-py export-functions mod -o mod.functions.beast2 -p east-py-std`
+    │       (a manifest an e3 task imports with East.importFunction) · East.import_function(pkg, name, FunctionType) to call a TypeScript-authored
+    │       one (`east-node export-functions`) · East.link_imports(fn, [manifests]) before compiling in-process
     │
     ├─ B. WORK WITH EAST VALUES — the eager runtime (the same names; executes NOW in east-c; results stay C-side and chain)
     │   ├─ Build an East value from python data
@@ -796,7 +799,10 @@ and every exported `*.examples.ts` example: `build(print(IR))` equals `IR`
 under `east-c ir normalize` (loc_ids stripped, variables and labels renamed
 in the TypeScript lowering's order, captures recomputed, recursive type ids
 renumbered — the one normalizer, in libeast-c, reached from python as
-`east.runtime._compiler_eastc.normalize_ir` / `diff_ir`). Builtins print
+`east.runtime._compiler_eastc.normalize_ir` / `diff_ir`). The TypeScript
+printer is its twin (`East.toSource`, `east-node transpile`), and the
+three-way sweep pins the pair: IR → python → IR → TypeScript → IR, every
+leg equal, over the same corpus (`docs/conventions/EAST_CODEGEN.md`). Builtins print
 through the spelling table `east.codegen.spellings` (operators only where the
 exactness table permits — `+ - *` on numbers, `/` on Floats, comparisons,
 `& | ^ ~` on Booleans, `+` on Strings; named `East.<Type>.*` / method
@@ -804,6 +810,54 @@ spellings elsewhere; `East.builtin(...)` for `RAW_ONLY`), and the eager
 compliance replay derives its rows from the same table. A function referenced
 as a VALUE in the IR (`$.let(East.DateTime.roundDownWeek)`) prints as the
 inline `@East.function` it is — the IR carries the body, not the name.
+
+### Cross-language functions: `east-py export-functions` and `East.import_function` (#628)
+
+A python `East.function` is *called* from a TypeScript e3 task — and a
+TypeScript one from python — as pure IR: no python at run time, no platform
+bridge. The exporting side writes a **function manifest** (each function's
+IR, declared type and platform dependencies with the package providing
+each); the importer names the function and declares its type; linking
+checks the type exactly and embeds the IR.
+
+```python
+# pricing/functions.py — what the package exports
+from east import East
+from east.types.types import FloatType, StructType, IntegerType
+
+Row = StructType([("qty", IntegerType), ("price", FloatType)])
+score = East.function([Row], FloatType, lambda b, r: r.qty.to_float() * r.price)
+east_functions = {"score": score}          # name -> East.function artifact (closed values only:
+                                           # no captures, no .bind results, no unresolved imports)
+```
+
+```bash
+east-py export-functions pricing.functions -o pricing.functions.beast2 -p east-py-std
+#   -p names the platform package implementing each platform call the functions make;
+#   a call no package provides fails the export (the manifest records the provider)
+```
+
+```typescript
+// the e3 task, in TypeScript (see the e3 skill)
+const score = East.importFunction("pricing", "score", FunctionType([RowType], FloatType));
+await e3.export(pkg, "out.zip", { functions: ["./pricing.functions.beast2"] });
+```
+
+The other direction, in python:
+
+```python
+manifest = East.decode_function_manifest(Path("maths.functions.beast2").read_bytes())  # east-node export-functions wrote it
+double = East.import_function("maths", "double", FunctionType([IntegerType], IntegerType))
+user = East.function([IntegerType], IntegerType, lambda b, x: double(x) + 1)   # callable in a body
+ir, imports = East.link_imports(user, [manifest])       # exact type check; the IR embedded as a Let
+compile_from_value(ir, [])(20)                          # 41 — pure IR, runs on any runner
+```
+
+Unlinked, the reference is a `Platform` node named `east.importFunction` —
+compiling it raises naming that platform. `East.export_functions(pkg,
+version, {…}, providers)` / `encode_function_manifest` are the API behind
+the CLI; the TypeScript names are the same in camelCase. Contract and
+runner rules: `docs/conventions/EAST_CODEGEN.md` §6.
 
 ## East values — the eager runtime
 
@@ -1828,7 +1882,9 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
 
 - **east** — the TypeScript `East.function` DSL. The expression surface here is its
   twin name for name (`$` is `b`, `camelCase` is `snake_case`); the two share the same
-  type system and IR, and a program prints from one into the other (`east-py transpile`).
+  type system and IR, a program prints from one into the other (`east-py transpile` /
+  `east-node transpile`), and a function exported from one is imported by the other
+  (`east-py export-functions` ↔ `East.importFunction`).
 - **east-py-datascience** — Python platform functions for ML and optimization (XGBoost, LightGBM,
   Optuna, MADS, PyMC, SHAP, Torch, GoogleOR, Simulation). The home once a `@platform_function`
   POC needs a real model or solver.
