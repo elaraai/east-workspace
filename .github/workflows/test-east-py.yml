@@ -163,6 +163,75 @@ jobs:
         working-directory: libs/east-py/packages/east-py-cli
         run: uv run pytest tests -q --no-cov
 
+  # The three-way sweep (#628): IR (TS) → python → IR → TypeScript → IR over
+  # the corpus and every example — the python and TypeScript printers against
+  # the python and TypeScript builders, every leg equal under east-c's
+  # normalizer, and the final IR executed on east-c. It needs node (the
+  # east-node CLI's `transpile --rebuild` is the TypeScript leg) AND python
+  # (the printer, the builder, the normalizer), so it is one Linux job rather
+  # than a leg of the per-OS matrix. EAST_SWEEP_REQUIRED=1 makes a missing CLI
+  # a failure rather than the local skip.
+  three-way-sweep:
+    name: Three-way sweep (TS ↔ python)
+    needs: export-ir
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UV_PYTHON: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install Node.js dependencies
+        run: pnpm install
+
+      - name: Build east + east-node-cli (the transpile CLI and its dependencies)
+        run: pnpm --filter "@elaraai/east-node-cli..." run build
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install C build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Download east IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-east
+          path: ir-east
+
+      - name: Download examples IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-examples
+          path: ir-examples
+
+      - name: Build east-py
+        working-directory: libs/east-py
+        run: |
+          uv venv
+          uv pip install scikit-build-core cython numpy setuptools ninja
+          uv sync --all-packages --no-build-isolation \
+            --reinstall-package elaraai-east-py --refresh-package elaraai-east-py
+
+      - name: Run the three-way sweep
+        working-directory: libs/east-py/packages/east-py
+        env:
+          EAST_TEST_IR_DIR: ${{ github.workspace }}/ir-east
+          EAST_EXAMPLES_IR_DIR: ${{ github.workspace }}/ir-examples
+          EAST_CONFORMANCE_REQUIRED: "1"
+          EAST_SWEEP_REQUIRED: "1"
+          EAST_NODE_CLI: ${{ github.workspace }}/libs/east-node/packages/east-node-cli/bin/east-node.mjs
+        run: uv run pytest tests/conformance/test_three_way_sweep.py -q --no-cov
+
   test-east-py-std:
     name: Test east-py-std (${{ matrix.os }})
     needs: export-ir

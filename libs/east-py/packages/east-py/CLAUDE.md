@@ -134,6 +134,12 @@ dynamically typed at the boundary. See `pyproject.toml`.
   on the rebuilt IR and must agree with the original test by test.
   `EAST_CONFORMANCE_REQUIRED=1` fails instead of skipping when a corpus is
   missing (the per-OS CI sweep sets it). About a minute in all.
+  `test_three_way_sweep.py` continues the round trip through TypeScript —
+  IR₁ → python → IR₂ → `east-node transpile --rebuild` → IR₃, all equal
+  under the normalizer — and needs the built east-node CLI
+  (`EAST_NODE_CLI=…/east-node-cli/bin/east-node.mjs`, or `east-node` on
+  PATH; skips otherwise, `EAST_SWEEP_REQUIRED=1` in its own CI job). The
+  contract and construct table: `docs/conventions/EAST_CODEGEN.md`.
 - **No clocks in CI.** A test that asserts on elapsed time is
   `@pytest.mark.perf` and runs only under `EAST_PERF=1` (`make bench`);
   `tests/conftest.py` skips it otherwise. CI pins the mechanism a timing
