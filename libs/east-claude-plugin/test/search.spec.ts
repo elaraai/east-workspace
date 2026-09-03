@@ -35,6 +35,25 @@ test("a program example is stored as IR with both printings, its signature, inpu
   assert.equal(getEntry(index, first.id)?.id, first.id);
 });
 
+test("every program example in the corpus has both printings; every JSX example neither", () => {
+  const programs = ["east", "east-node-std", "east-node-io", "east-py-datascience"];
+  let counted = 0;
+  for (const e of RAW.values()) {
+    if (programs.includes(e.package)) {
+      counted += 1;
+      assert.deepEqual(e.languages, ["typescript", "python"], e.id);
+      assert.equal(typeof e.ir, "string", `${e.id} has IR`);
+      assert.equal(typeof e.ts, "string", `${e.id} has TypeScript`);
+      assert.equal(typeof e.python, "string", `${e.id} has python — the index was built without east-py?`);
+      assert.equal(e.source, undefined, `${e.id} keeps no authored text`);
+    } else if (e.languages.includes("tsx")) {
+      assert.equal(e.ir, undefined, `${e.id} is authored JSX, never IR`);
+      assert.equal(e.python, undefined, `${e.id} has no python`);
+    }
+  }
+  assert.ok(counted > 700, `program examples in the corpus: ${counted}`);
+});
+
 test("a JSX-authored UI example keeps its source, is tsx, and has no python", async () => {
   const index = await buildSearchIndex(INDEX);
   const [ui] = hits(index, "Plan drag drop series", "east-ui");

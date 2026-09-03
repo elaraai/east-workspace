@@ -18,6 +18,9 @@
  *   packages) with their `fn` source plus extracted `keywords` /
  *   `description` / `returns`. These packages can't run in the browser, so
  *   they're read statically and shown as code blocks in "Code Reference".
+ *   Each one also carries the `python` printed from its IR, joined by id from
+ *   the Claude plugin's example index (`example-renderings.ts`, #655) — a
+ *   Code Reference example missing from that index fails the build, naming it.
  *
  * @remarks
  * - Parses each file with the TypeScript compiler API.
@@ -36,6 +39,9 @@ import hljs from "highlight.js/lib/core";
 import typescriptLang from "highlight.js/lib/languages/typescript";
 import { discoverExampleFiles } from "./discover-example-files";
 import { CODE_EXAMPLE_ROOTS } from "./example-roots";
+import {
+    defaultIndexPath, indexIdFor, loadIndexRenderings, missingRenderingsError, type IndexRendering,
+} from "./example-renderings";
 
 hljs.registerLanguage("typescript", typescriptLang);
 
@@ -50,6 +56,9 @@ export interface ExampleSourcesOptions {
     /** Absolute path to the showcase package root. `CODE_EXAMPLE_ROOTS`
      *  `dir` values are resolved against this, exactly like `testDir`. */
     rootDir: string;
+    /** The Claude plugin's example index, the source of each Code Reference
+     *  example's python rendering. Default: `libs/east-claude-plugin/index.json`. */
+    indexPath?: string;
 }
 
 const VIRTUAL_ID = "virtual:example-sources";
@@ -79,6 +88,10 @@ export interface CodeExample {
     returns: string;
     /** The example's `fn` body, formatted + highlighted. */
     source: CapturedSource;
+    /** What the index can show the example as (`typescript` + `python` for a program). */
+    languages: string[];
+    /** The python printed from the example's IR by the python printer, from the index. */
+    python: string | null;
 }
 
 /** Raw (unformatted) capture of one `example({...})` declaration. */
@@ -351,8 +364,13 @@ async function buildSources(
  *  Only `.examples.ts` files are taken here: by convention a `.tsx` example
  *  returns renderable UI and goes on the live `import.meta.glob` path, while
  *  a plain `.ts` example is shown as a code block. */
-async function buildCodeExamples(rootDir: string): Promise<CodeExample[]> {
+async function buildCodeExamples(
+    rootDir: string,
+    renderings: Map<string, IndexRendering>,
+    indexPath: string,
+): Promise<CodeExample[]> {
     const out: CodeExample[] = [];
+    const missing: string[] = [];
     for (const root of CODE_EXAMPLE_ROOTS) {
         const testDir = path.resolve(rootDir, root.dir);
         const discovered = await discoverExampleFiles({ testDir, includeTopLevel: true });
@@ -361,6 +379,9 @@ async function buildCodeExamples(rootDir: string): Promise<CodeExample[]> {
             const code = await fs.readFile(filePath, "utf8");
             const raw = extractRaw(filePath, code);
             for (const [name, ex] of Object.entries(raw)) {
+                const id = indexIdFor(root.package, pathKey, name);
+                const rendering = renderings.get(id);
+                if (rendering === undefined) missing.push(id);
                 out.push({
                     package: root.package,
                     pathKey: `${root.package}/${pathKey}`,
@@ -370,16 +391,20 @@ async function buildCodeExamples(rootDir: string): Promise<CodeExample[]> {
                     description: ex.description,
                     returns: ex.returns ? await formatExpr(ex.returns) : "",
                     source: await capture(ex.fn),
+                    languages: rendering?.languages ?? ["typescript"],
+                    python: rendering?.python ?? null,
                 });
             }
         }
     }
+    if (missing.length > 0) throw missingRenderingsError(missing, indexPath);
     out.sort((a, b) => a.pathKey.localeCompare(b.pathKey) || a.name.localeCompare(b.name));
     return out;
 }
 
 export function exampleSourcesPlugin(opts: ExampleSourcesOptions): Plugin {
     let server: ViteDevServer | undefined;
+    const indexPath = opts.indexPath ?? defaultIndexPath(opts.rootDir);
 
     /* Absolute roots whose `.examples.*` changes should invalidate the
      * virtual module — the live `east-ui` + `e3-ui` trees plus every
@@ -404,7 +429,7 @@ export function exampleSourcesPlugin(opts: ExampleSourcesOptions): Plugin {
             const [east, e3, codeExamples] = await Promise.all([
                 buildSources(opts.testDir),
                 opts.e3TestDir ? buildSources(opts.e3TestDir, true, "e3/") : Promise.resolve(empty),
-                buildCodeExamples(opts.rootDir),
+                loadIndexRenderings(indexPath).then((renderings) => buildCodeExamples(opts.rootDir, renderings, indexPath)),
             ]);
             const exampleSources = { ...east.sources, ...e3.sources };
             const exampleDependencies = { ...east.dependencies, ...e3.dependencies };
@@ -420,15 +445,15 @@ export function exampleSourcesPlugin(opts: ExampleSourcesOptions): Plugin {
             /* Code-reference roots live outside this package and are never
              * imported into the module graph, so chokidar won't watch them
              * on its own — add them explicitly for HMR. */
-            server.watcher.add(watchedDirs);
+            server.watcher.add([...watchedDirs, indexPath]);
             const onChange = (file: string) => {
                 if (!server) return;
                 /* `file` is absolute, normalised by chokidar. Reload only when a
                  * matched example file changed (vs. unrelated files in the same
-                 * watch tree). */
+                 * watch tree), or the plugin index was regenerated. */
                 const abs = path.resolve(file);
                 const isExample = abs.endsWith(".examples.ts") || abs.endsWith(".examples.tsx");
-                if (isExample && watchedDirs.some((d) => abs.startsWith(d))) {
+                if (abs === indexPath || (isExample && watchedDirs.some((d) => abs.startsWith(d)))) {
                     const mod = server.moduleGraph.getModuleById(RESOLVED_ID);
                     if (mod) server.reloadModule(mod);
                 }
