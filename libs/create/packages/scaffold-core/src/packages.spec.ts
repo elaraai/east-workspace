@@ -34,7 +34,9 @@ function scaffoldPackages(name: string, packages: PackageSpec): string {
   return join(cwd, deriveNames(name, cwd).projectName);
 }
 
-const read = (dir: string, rel: string): string => readFileSync(join(dir, rel), "utf8");
+// A Windows checkout carries the templates with CRLF and the scaffold copies
+// their bodies verbatim, so the multi-line assertions below read LF-normalized.
+const read = (dir: string, rel: string): string => readFileSync(join(dir, rel), "utf8").replaceAll("\r\n", "\n");
 
 test("python packages: generates each member with an __init__ and example platform fn", () => {
   const dir = scaffoldPackages("shop", { python: ["pricing", "common"] });
