@@ -194,7 +194,9 @@ export function exportPythonManifest(pkg: string, dir: string, version: string |
     execFileSync(eastPy, args, {
       cwd: dir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, PYTHONPATH: pythonPath },
+      // UTF-8 stdio: python encodes a piped stderr in the locale's code page
+      // on Windows (cp1252), and the exporter's messages carry an em dash
+      env: { ...process.env, PYTHONPATH: pythonPath, PYTHONIOENCODING: 'utf-8' },
       shell: process.platform === 'win32',
     });
     return decodeFunctionManifest(new Uint8Array(fs.readFileSync(out)));

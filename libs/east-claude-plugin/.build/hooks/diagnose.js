@@ -181,22 +181,28 @@ function runEastPyLint(file, content, budgetMs = 4e3) {
     writeFileSync(target, content, "utf-8");
   }
   return new Promise((resolveFindings) => {
-    execFile(command, ["lint", "--format", "json", target], { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
-      if (scratch !== null)
-        rmSync(scratch, { recursive: true, force: true });
-      if (error !== null && error.code !== 1) {
-        resolveFindings(null);
-        return;
+    execFile(
+      command,
+      ["lint", "--format", "json", target],
+      // UTF-8 stdio: python encodes a piped stdout in the locale's code page on Windows (cp1252), and the findings carry em dashes
+      { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
+      (error, stdout) => {
+        if (scratch !== null)
+          rmSync(scratch, { recursive: true, force: true });
+        if (error !== null && error.code !== 1) {
+          resolveFindings(null);
+          return;
+        }
+        let records;
+        try {
+          records = JSON.parse(stdout);
+        } catch {
+          resolveFindings(null);
+          return;
+        }
+        resolveFindings(Array.isArray(records) ? records : null);
       }
-      let records;
-      try {
-        records = JSON.parse(stdout);
-      } catch {
-        resolveFindings(null);
-        return;
-      }
-      resolveFindings(Array.isArray(records) ? records : null);
-    });
+    );
   });
 }
 function renderPythonReview(records) {

@@ -64,7 +64,8 @@ export function runEastPyLint(file: string, content?: string, budgetMs = 4000): 
     execFile(
       command,
       ["lint", "--format", "json", target],
-      { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024 },
+      // UTF-8 stdio: python encodes a piped stdout in the locale's code page on Windows (cp1252), and the findings carry em dashes
+      { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
       (error, stdout) => {
         if (scratch !== null) rmSync(scratch, { recursive: true, force: true });
         // exit 1 means findings (they are on stdout); anything else means no answer
