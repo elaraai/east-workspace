@@ -6,14 +6,15 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "bundle": "esbuild hooks/prompt-submit.ts hooks/session-start.ts hooks/subagent-start.ts hooks/pre-agent.ts hooks/pre-write.ts hooks/diagnose.ts daemon/server.ts daemon/lsp.ts status/report.ts mcp/server.ts --bundle --format=esm --platform=node --outdir=.build --external:typescript",
-    "generate-index": "npm run build && node dist/scripts/generate-index.js --base-dir ..",
+    "bundle": "esbuild hooks/session-start.ts hooks/subagent-start.ts hooks/pre-write.ts hooks/pre-read.ts hooks/diagnose.ts daemon/server.ts daemon/lsp.ts status/report.ts mcp/server.ts --bundle --format=esm --platform=node --outdir=.build --external:typescript",
+    "generate-index": "npm run build && node dist/scripts/generate-index.js --base-dir .. && uv run --project ../east-py python scripts/render-python.py index.json",
     "test": "npm run build && npm run bundle && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'"
   },
   "engines": {
     "node": ">=22.0.0"
   },
   "dependencies": {
+    "@elaraai/east": "workspace:*",
     "@elaraai/east-diagnostics": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "minisearch": "^7.1.2"

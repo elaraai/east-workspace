@@ -24,26 +24,28 @@ A Claude Code plugin for the East programming language ecosystem.
 
 ## Example Search
 
-The plugin includes a searchable index of East code examples extracted from the source repositories. Searching it is the most reliable way to learn idiomatic East usage — the API is large and pattern-heavy, so grounding in real examples beats reading `.d.ts` type signatures or guessing API shapes. It powers two features:
+The plugin's MCP server serves a searchable index of the East example corpus — every `example()` in the packages' `*.examples.ts` files (#654). It is the API reference an agent is required to consult before writing East code, and it is pull, not push: nothing is injected into the agent's context.
 
-- **Hook** (`hooks/prompt-submit.js`) — automatically injects relevant examples into every prompt based on what you're asking
-- **MCP tool** (`mcp/server.js`) — exposes a `search_east_examples` tool that Claude can call on-demand with targeted queries
+- **`search_east_examples(query, language, format, limit, package)`** — summaries by default (id, description, signature, keywords, the example inputs and result; a few hundred bytes each), `format: "full"` for the code. `language: "typescript" | "python"`.
+- **`get_east_example(id, language)`** — one example in full.
 
-The index (`index.json`) is generated from `*.examples.ts` files across all East packages (plus hand-written `index.static.json` stubs) and is kept in sync by the `plugin-artifacts` workflow.
+Every program example (east, east-node-std, east-node-io, east-py-datascience) is stored as its **IR**, with the TypeScript and the python printed from it by the two printers (`East.toSource`, `to_python_source`) — exact by the codegen round-trip contract — plus its declared types, inputs, expected result and the builtins it calls, which is what the search ranks on. JSX-authored UI examples (east-ui, e3-ui) are stored as their source and are `tsx` only; the hand-written stubs in `index.static.json` are `typescript` only. Each entry's `languages` field says which.
+
+The `PreToolUse(Edit|Write)` hook is the gate: an East write in a session with no search on record gets the instruction to search first (`EAST_REQUIRE_SEARCH=deny` makes it a refusal); a `Read`/`Grep`/`Glob` over `node_modules/@elaraai/**` or the `*.examples.ts` files gets a reminder that the index is the same corpus, cheaper. Every skill carries the same mandate as its "Before writing code" section.
 
 ### Generating the index locally
 
 ```bash
-npm run generate-index -- --base-dir /path/to/source/repos
+make index      # generate-index (the packages' BUILT example modules → IR + TypeScript) + render-python.py (east-py)
 ```
 
-The `--base-dir` should point to a directory containing the cloned East source repos (`east/`, `east-node/`, `east-py/`, `east-ui/`). See `index.config.json` for the package-to-path mappings.
+Build `east`, `east-node`, `east-py-datascience` first (their `dist/test/*.examples.js` are imported), and have `libs/east-py` synced (`uv sync --all-packages`): the python printing runs through `uv run --project ../east-py`. See `index.config.json` for the package-to-path mappings and which packages are programs (`ir: true`).
 
-> **Use the search, not `.d.ts` files.** The East API is large and idiom-heavy; its `.d.ts` type signatures show shapes but not the runtime constraints and patterns that make East code correct. Learning the API by reading or grepping type definitions reliably produces broken code. The plugin steers both the main agent and subagents (via the SessionStart/SubagentStart hooks) to search the example index first.
+> **Use the search, not `.d.ts` files.** The East API is large and idiom-heavy; its `.d.ts` type signatures show shapes but not the runtime constraints and patterns that make East code correct. Learning the API by reading or grepping type definitions reliably produces broken code. The plugin steers both the main agent and subagents (via the SessionStart/SubagentStart hooks) to search the example index first, and gates the first East write on it.
 
 ## Diagnostics
 
-The plugin runs preemptive East diagnostics whenever the agent reads or edits an East file (`PostToolUse(Read|Edit|Write)` → `hooks/diagnose.js`), injecting an `<east-code-review>` block into the agent's context that lists:
+The plugin runs preemptive East diagnostics whenever the agent reads an East file (`PostToolUse(Read)` → `hooks/diagnose.js`) — and, for the agent's own edits, through the language server Claude Code launches for `.ts`, `.tsx` and `.py` files — injecting an `<east-code-review>` block into the agent's context that lists:
 
 - **TypeScript errors** for the file (the checker's own semantic + syntactic diagnostics), and
 - **East idiom issues** that plain `tsc` can't see — e.g. a redundant cast on a `$.let` value, a hand-rolled variant, `East.<X>Type` instead of a bare import, or `$.const`/`$.let` used inline in an expression.

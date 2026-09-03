@@ -1,5 +1,5 @@
 {
-  "description": "East plugin hooks for project detection and documentation search",
+  "description": "East plugin hooks: project detection, the search-before-coding gate, and preemptive diagnostics",
   "hooks": {
     "SessionStart": [
       {
@@ -7,17 +7,6 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/.build/hooks/session-start.js\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/.build/hooks/prompt-submit.js\"",
             "timeout": 5
           }
         ]
@@ -46,12 +35,12 @@
         ]
       },
       {
-        "matcher": "Agent",
+        "matcher": "Read|Grep|Glob",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/.build/hooks/pre-agent.js\"",
-            "timeout": 5
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/.build/hooks/pre-read.js\"",
+            "timeout": 3
           }
         ]
       }

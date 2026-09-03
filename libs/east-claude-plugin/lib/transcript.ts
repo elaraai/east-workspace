@@ -2,6 +2,20 @@ import { readFile } from "node:fs/promises";
 
 const MAX_READ_BYTES = 200_000;
 
+/** The example-search tools, as the transcript records their use. */
+export const SEARCH_TOOLS = ["mcp__plugin_east_east__search_east_examples", "mcp__plugin_east_east__get_east_example"];
+
+/** Whether the session's transcript records a call of an example-search tool (the whole file, once). */
+export async function searchedInTranscript(transcriptPath: string): Promise<boolean> {
+  let raw: string;
+  try {
+    raw = await readFile(transcriptPath, "utf-8");
+  } catch {
+    return false;
+  }
+  return SEARCH_TOOLS.some((tool) => raw.includes(`"name":"${tool}"`) || raw.includes(`"name": "${tool}"`));
+}
+
 interface ContentBlock {
   type: string;
   text?: string;

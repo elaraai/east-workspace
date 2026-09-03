@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { buildSearchIndex, formatResults, MIN_SCORE } from "../lib/search.js";
+import { buildSearchIndex, formatFull, formatResults, getEntry, MIN_SCORE, type IndexEntry } from "../lib/search.js";
 import { checkPluginStatus, formatStatus } from "../lib/plugin-status.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -18,11 +18,21 @@ const server = new McpServer({
   version: "1.0.0",
 });
 
+const languageArg = z
+  .enum(["typescript", "python"])
+  .default("typescript")
+  .describe('The language to render examples in: "typescript" (the East DSL) or "python" (east-py). Every core example is stored as IR and printed in either; UI examples are TypeScript only.');
+
 server.tool(
   "search_east_examples",
-  "Search the East example index for relevant code examples. Use this to find East language patterns, API usage, and idiomatic examples for specific tasks.",
+  "The mandatory first step before writing or changing East code: search the tested example index for the capability you are about to use. Every East API has an example here, stored as IR and rendered in TypeScript or python. Returns summaries by default (id, description, signature, keywords, the example inputs and result — a few hundred bytes each); pass format: \"full\" for the code, or fetch one with get_east_example. Do not read node_modules/@elaraai or *.examples.ts files instead — this is the same corpus, exact and far cheaper.",
   {
-    query: z.string().describe("Search terms to find relevant East examples"),
+    query: z.string().describe("What you need, in words: the operation, the types involved, the method name if you know it (e.g. \"group by key and sum\", \"dict merge\", \"parse csv blob\")"),
+    language: languageArg,
+    format: z
+      .enum(["summary", "full"])
+      .default("summary")
+      .describe('"summary" (default) lists the hits in one line each; "full" includes each hit\'s code in the requested language'),
     limit: z
       .number()
       .int()
@@ -33,31 +43,29 @@ server.tool(
     package: z
       .string()
       .optional()
-      .describe(
-        "Filter results to a specific East package (e.g. @elaraai/east, @elaraai/east-node-std)"
-      ),
+      .describe("Filter results to one package by its skill name (east, east-node-std, east-node-io, east-py-datascience, east-ui, e3-ui, e3)"),
   },
-  async ({ query, limit, package: packageFilter }) => {
-    const miniSearch = await indexPromise;
+  async ({ query, language, format, limit, package: packageFilter }) => {
+    const index = await indexPromise;
 
-    let results = miniSearch.search(query, { limit: limit * 2 } as Parameters<typeof miniSearch.search>[1]);
+    let results = index.search(query, { limit: limit * 2 } as Parameters<typeof index.search>[1]);
 
     // Filter out low-relevance noise
     results = results.filter((r) => r.score >= MIN_SCORE);
 
     // Filter by package if specified
     if (packageFilter) {
-      results = results.filter((r) => r.package === packageFilter);
+      results = results.filter((r) => r.package === packageFilter || r.skill === packageFilter);
     }
 
-    results = results.slice(0, limit);
+    const entries = results.slice(0, limit) as unknown as IndexEntry[];
 
-    if (results.length === 0) {
+    if (entries.length === 0) {
       return {
         content: [
           {
             type: "text",
-            text: `No East examples found for query: "${query}"`,
+            text: `No East examples found for query: "${query}" — try the operation's plain-English name, the East method name, or the types involved.`,
           },
         ],
       };
@@ -67,11 +75,28 @@ server.tool(
       content: [
         {
           type: "text",
-          text: formatResults(results),
+          text: formatResults(entries, language, format),
         },
       ],
     };
   }
+);
+
+server.tool(
+  "get_east_example",
+  "One East example in full, by the id a search returned: its code printed in the requested language from the example's IR (TypeScript or python), its signature, and the example inputs and expected result. The second step after search_east_examples.",
+  {
+    id: z.string().describe("The example id from a search result, e.g. \"east:array.examples.ts:arrayMap\""),
+    language: languageArg,
+  },
+  async ({ id, language }) => {
+    const index = await indexPromise;
+    const entry = getEntry(index, id);
+    if (entry === null) {
+      return { content: [{ type: "text", text: `No East example with id "${id}" — ids come from search_east_examples results.` }] };
+    }
+    return { content: [{ type: "text", text: formatFull([entry], language) }] };
+  },
 );
 
 server.tool(

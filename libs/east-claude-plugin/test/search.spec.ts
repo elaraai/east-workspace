@@ -1,0 +1,61 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { buildSearchIndex, codeOf, formatResults, getEntry, speaks, MIN_SCORE, type IndexEntry } from "../lib/search.js";
+
+// The committed index (#654): every program example stored as its IR with the
+// TypeScript and python printed from it, UI examples as authored tsx, and the
+// search rendering both as summaries and in full.
+const INDEX = join(process.cwd(), "index.json");
+/** The raw index: the IR itself is not a stored search field, so it is read from the file. */
+const RAW = new Map((JSON.parse(readFileSync(INDEX, "utf-8")) as { entries: IndexEntry[] }).entries.map((e) => [e.id, e]));
+
+function hits(index: Awaited<ReturnType<typeof buildSearchIndex>>, query: string, pkg: string): IndexEntry[] {
+  return (index.search(query, { limit: 20 } as never) as unknown as IndexEntry[]).filter((e) => e.package === pkg);
+}
+
+test("a program example is stored as IR with both printings, its signature, inputs, result and builtins", async () => {
+  const index = await buildSearchIndex(INDEX);
+  const found = hits(index, "group reduce dict sum", "east");
+  assert.ok(found.length > 0, "the core examples are searchable");
+  for (const e of found) {
+    assert.deepEqual(e.languages, ["typescript", "python"]);
+    const raw = RAW.get(e.id)!;
+    assert.equal(typeof raw.ir, "string", `${e.id} is stored as IR`);
+    assert.equal(raw.source, undefined, "no authored text for a program");
+    assert.match(e.ts!, /East\.function\(/);
+    assert.match(e.python!, /East\.function\(/);
+    assert.equal(typeof e.signature?.output, "string");
+    assert.ok(Array.isArray(e.builtins), `builtins of ${e.id} (a pure construction may call none)`);
+  }
+  const first = found[0]!;
+  assert.equal(codeOf(first, "typescript")?.fence, "typescript");
+  assert.equal(codeOf(first, "python")?.fence, "python");
+  assert.equal(getEntry(index, first.id)?.id, first.id);
+});
+
+test("a JSX-authored UI example keeps its source, is tsx, and has no python", async () => {
+  const index = await buildSearchIndex(INDEX);
+  const [ui] = hits(index, "Plan drag drop series", "east-ui");
+  assert.ok(ui, "a UI example is searchable");
+  assert.deepEqual(ui.languages, ["tsx"]);
+  assert.equal(typeof ui.source, "string");
+  assert.equal(RAW.get(ui.id)!.ir, undefined);
+  assert.equal(speaks(ui, "python"), false);
+  assert.equal(speaks(ui, "typescript"), true);
+  assert.equal(codeOf(ui, "python"), null);
+  assert.equal(codeOf(ui, "typescript")?.fence, "tsx");
+});
+
+test("summaries are cheap, full renderings carry the requested language", async () => {
+  const index = await buildSearchIndex(INDEX);
+  const found = (index.search("array map filter", { limit: 5 } as never) as unknown as IndexEntry[]).filter((e) => (e as unknown as { score: number }).score >= MIN_SCORE).slice(0, 5);
+  assert.ok(found.length > 0);
+  const summary = formatResults(found, "typescript", "summary");
+  assert.ok(summary.length < 3000, `a five-hit summary stays small: ${summary.length} bytes`);
+  assert.match(summary, /get_east_example/);
+  const python = formatResults(found.filter((e) => e.languages.includes("python")).slice(0, 1), "python", "full");
+  assert.match(python, /```python/);
+  assert.match(python, /Signature: \(/);
+});

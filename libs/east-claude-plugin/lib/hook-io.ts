@@ -41,3 +41,15 @@ export function writeHookOutput(hookEventName: string, additionalContext: string
   };
   process.stdout.write(JSON.stringify(output));
 }
+
+/** A PreToolUse permission decision (`deny` refuses the call; `reason` is shown to the agent). */
+export function writeHookDecision(hookEventName: string, decision: "allow" | "deny" | "ask", reason: string): void {
+  const output = {
+    hookSpecificOutput: {
+      hookEventName,
+      permissionDecision: decision,
+      permissionDecisionReason: reason,
+    },
+  };
+  process.stdout.write(JSON.stringify(output));
+}

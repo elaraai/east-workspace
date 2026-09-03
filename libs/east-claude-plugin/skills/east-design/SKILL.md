@@ -9,6 +9,25 @@ Turn a developer's goal into a concrete architecture **before** scaffolding or w
 
 You are designing, not coding. The output is a short design document the developer signs off on, not source files.
 
+## Before writing code — search the example index
+
+Every East API has a tested example in the plugin's index — the index IS the
+API reference, printed from each example's IR in TypeScript or python. Before
+writing or changing East code:
+
+1. Call `mcp__plugin_east_east__search_east_examples` for each capability you
+   are about to use — `language: "python"` for east-py, `"typescript"`
+   otherwise. Summaries come back first: id, signature, the inputs and the
+   expected result, a few hundred bytes each.
+2. Fetch the one or two that match with `mcp__plugin_east_east__get_east_example`
+   and pattern your code on them.
+3. Do not read `node_modules/@elaraai/**` or `*.examples.ts` files wholesale,
+   and do not reason from `.d.ts` signatures: the index holds the same
+   programs, exact and far cheaper, and the signatures omit the runtime rules
+   that make East code correct.
+
+Nothing is injected for you; the search is the step.
+
 ## Start from the decision
 
 East + e3 solutions are **decision-oriented**. A solution exists to improve a business **decision** and put defensible evidence behind it — not to move data or render a dashboard for its own sake ("decisions, not dashboards"). Design **backwards from the decision**: name the decision first, then work out what evidence it needs, what reasoning produces that evidence, and what data feeds the reasoning. The pipeline is the means; the committed decision is the end.
@@ -131,7 +150,7 @@ For each capability the answers surface, record (a) the skill to load and (b) th
 | Charts / tables / layout | east-ui | `Chart Line Table Stack layout` |
 | Screenshot / visually verify a surface (CLI) | e3-ui-cli | `shot from-source png doctor` |
 
-Always run the searches — the East API is large and idiom-heavy, and grounding the design in real examples beats guessing from type signatures. Prefer **embedding the actual extract** of the 1–2 closest matches into the design doc; if a search is broad, record the **query** so the implementer reruns it. The prompt-submit hook also auto-injects examples, so glance at what it surfaced before searching again.
+Always run the searches — the East API is large and idiom-heavy, and grounding the design in real examples beats guessing from type signatures. Nothing is injected for you: search (summaries first), then `get_east_example` for the closest match. Prefer **embedding the actual extract** of the 1–2 closest matches into the design doc; if a search is broad, record the **query** so the implementer reruns it.
 
 ## 3. Design — the document
 
