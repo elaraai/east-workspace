@@ -61,6 +61,23 @@ export function importsEastPackage(sf: ts.SourceFile, t: TsModule): boolean {
   return found;
 }
 
+/** Does this file import `@elaraai/east` and the program cannot RESOLVE it
+ * (#647)? A loose file outside any project — no `node_modules` above it — has
+ * every East binding typed as an error type, and the rules keyed on East types
+ * would flag every East call in it; they stay silent there instead. Only the
+ * core package's own import counts: a deep `@elaraai/east/src/…` import is what
+ * `no-relative-src-import` flags, and a sibling package a project does not
+ * install leaves the East types intact. */
+export function unresolvedEastImport(sf: ts.SourceFile, checker: ts.TypeChecker, t: TsModule): boolean {
+  for (const stmt of sf.statements) {
+    if (!t.isImportDeclaration(stmt) && !t.isExportDeclaration(stmt)) continue;
+    const spec = stmt.moduleSpecifier;
+    if (spec === undefined || !t.isStringLiteral(spec) || spec.text !== "@elaraai/east") continue;
+    if (checker.getSymbolAtLocation(spec) === undefined) return true;
+  }
+  return false;
+}
+
 const declaresCache = new WeakMap<ts.SourceFile, boolean>();
 
 /** e3 members whose call DECLARES part of a deployable program. */

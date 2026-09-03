@@ -1,28 +1,41 @@
 {
+  "libraries": {
+    "@elaraai/east-node-std": "east-node/packages/east-node-std/dist/src/index.js",
+    "@elaraai/east-node-io": "east-node/packages/east-node-io/dist/src/index.js",
+    "@elaraai/east-py-datascience": "east-py/packages/east-py-datascience/dist/src/index.js"
+  },
   "sources": [
     {
       "package": "east",
       "skill": "east",
       "testDir": "east",
-      "pattern": "**/*.examples.ts"
+      "pattern": "**/*.examples.ts",
+      "ir": true,
+      "dist": "east/dist"
     },
     {
       "package": "east-node-std",
       "skill": "east-node-std",
       "testDir": "east-node/packages/east-node-std",
-      "pattern": "**/*.examples.ts"
+      "pattern": "**/*.examples.ts",
+      "ir": true,
+      "dist": "east-node/packages/east-node-std/dist"
     },
     {
       "package": "east-node-io",
       "skill": "east-node-io",
       "testDir": "east-node/packages/east-node-io",
-      "pattern": "**/*.examples.ts"
+      "pattern": "**/*.examples.ts",
+      "ir": true,
+      "dist": "east-node/packages/east-node-io/dist"
     },
     {
       "package": "east-py-datascience",
       "skill": "east-py-datascience",
       "testDir": "east-py/packages/east-py-datascience",
-      "pattern": "**/*.examples.ts"
+      "pattern": "**/*.examples.ts",
+      "ir": true,
+      "dist": "east-py/packages/east-py-datascience/dist"
     },
     {
       "package": "east-ui",

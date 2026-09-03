@@ -13,9 +13,22 @@ import numpy.typing as npt
 
 from east.types.values._helpers import (
     EAST_ELEMENT_TO_DTYPE,
+    _call_builtin,
+    _deprecated_alias,
+    _fn_init,
     dtype_matches_element,
 )
-from east.types.values.collections import EastArray, _is_traced, _lift_traced
+from east.types.values.collections import (
+    EastArray,
+    EastFunction,
+    _acc_idx_cb,
+    _check_function_out,
+    _elem_in,
+    _function_out_type,
+    _idx_cb,
+    _is_traced,
+    _lift_traced,
+)
 
 if TYPE_CHECKING:
     import torch
@@ -195,12 +208,21 @@ class EastVector:
         """
         return len(self._data)
 
+    def _check_index(self, index: int) -> None:
+        """The runtime's bounds rule: a negative or past-the-end index is an
+        East error (numpy would wrap the negative one)."""
+        n = len(self._data)
+        if index < 0 or index >= n:
+            from east.runtime.errors import EastError
+
+            raise EastError(f"Vector index {index} out of bounds (length {n})", [])
+
     def get(self, index: int) -> Any:
         """Logical scalar at ``index`` (numpy).
 
         The stored value is promoted from its storage dtype to the canonical
         Python representation of the logical element type (Float/Integer/Boolean).
-        A traced ``index`` (inside a ``kernel()`` lambda) lifts this vector as
+        A traced ``index`` (inside a captured body) lifts this vector as
         a constant and the access emits IR, like the eager collections.
 
         Args:
@@ -211,6 +233,7 @@ class EastVector:
         """
         if _is_traced(index):
             return _lift_traced(self).get(index)
+        self._check_index(index)
         return self._data[index].item()
 
     def set(self, index: int, value: Any) -> EastVector:
@@ -229,6 +252,7 @@ class EastVector:
         """
         if _is_traced(index) or _is_traced(value):
             return _lift_traced(self).set(index, value)
+        self._check_index(index)
         new_data = self._data.copy()
         new_data[index] = value
         return EastVector(self.element_type, new_data)
@@ -293,41 +317,59 @@ class EastVector:
         return EastMatrix(self.element_type, self._data.reshape(rows, cols))
 
     def map(self, fn: Any, out: EastType | None = None) -> EastVector:
-        """Apply ``fn`` to each logical scalar (numpy).
-
-        The callback runs in Python (not delegated to east-c).
+        """``fn(element)`` per element into a new Vector (east-c VectorMap; TS
+        ``map``). ``fn(element, index)`` is also accepted; the result must be
+        Float, Integer or Boolean.
 
         Args:
-            fn: Callback ``fn(element) -> new value`` invoked once per element
-                with the promoted Python scalar; no index is provided.
-            out: Optional element type for the result vector, pinning its
-                storage dtype. Defaults to this vector's element type.
+            fn: The element body, taking the block first.
+            out: Pins the result element type; the callback's captured output
+                type when omitted.
 
         Returns:
-            A new vector of the ``out`` (or original) element type holding the
-            mapped values.
+            A new vector of the mapped values.
         """
-        results = [fn(x.item()) for x in self._data]
-        elem = out if out is not None else self.element_type
-        return EastVector(elem, np.asarray(results, dtype=EAST_ELEMENT_TO_DTYPE[elem.type]))
+        from east.types.types import IntegerType, VectorType
+
+        _check_function_out(fn, out)
+        t2 = out if out is not None else _function_out_type(fn, _elem_in(fn, self.element_type))
+        if t2.type not in EAST_ELEMENT_TO_DTYPE:
+            raise TypeError(
+                f".map() on a Vector must produce Float, Integer or Boolean elements, got {t2.type}")
+        callback = EastFunction(_idx_cb(fn), [self.element_type, IntegerType], t2)
+        return _call_builtin("VectorMap", [self.element_type, t2], [self, callback], VectorType(t2))
+
+    def reduce(self, fn: Any, init: Any) -> Any:
+        """Left-fold the elements from ``init`` in index order (east-c
+        VectorFold; TS ``reduce(fn, init)``).
+
+        Args:
+            fn: ``fn(accumulator, element) -> new accumulator``
+                (``fn(accumulator, element, index)`` also accepted).
+            init: The starting accumulator; its type fixes the result type.
+
+        Returns:
+            The final accumulator (``init`` if the vector is empty).
+        """
+        import east.types.values as _ev
+        from east.types.types import IntegerType
+
+        fn, init = _fn_init("reduce", fn, init)
+        t2 = _ev.type_of(init)
+        callback = EastFunction(_acc_idx_cb(fn), [t2, self.element_type, IntegerType], t2)
+        return _call_builtin("VectorFold", [self.element_type, t2], [self, init, callback], t2)
 
     def fold(self, initial: Any, fn: Any) -> Any:
-        """Left-fold over logical scalars (numpy).
+        """Deprecated alias of :meth:`reduce` (the TypeScript name and
+        argument order, ``reduce(fn, init)``)."""
+        import warnings
 
-        The callback runs in Python (not delegated to east-c).
-
-        Args:
-            initial: Seed accumulator value.
-            fn: Callback ``fn(accumulator, element) -> new accumulator``, applied
-                left to right over the promoted Python scalars.
-
-        Returns:
-            The final accumulator (``initial`` if the vector is empty).
-        """
-        acc = initial
-        for x in self._data:
-            acc = fn(acc, x.item())
-        return acc
+        warnings.warn(
+            ".fold(init, fn) is deprecated: the spelling is .reduce(fn, init) "
+            "(the TypeScript name and order)",
+            DeprecationWarning, stacklevel=2,
+        )
+        return self.reduce(fn, initial)
 
     # ----- Elementwise arithmetic + reductions (east-c) --------------------
 
@@ -345,8 +387,6 @@ class EastVector:
         Returns:
             A new vector with every element scaled by ``alpha``.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorScale", [self.element_type], [self, alpha], self._vt())
 
     def sum(self) -> Any:
@@ -359,8 +399,6 @@ class EastVector:
         Returns:
             The sum, as a scalar of the element type.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorSum", [self.element_type], [self], self.element_type)
 
     def add_scaled(self, other: EastVector, alpha: Any) -> EastVector:
@@ -376,8 +414,6 @@ class EastVector:
         Raises:
             EastError: If the vector lengths differ.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin(
             "VectorAddScaled", [self.element_type], [self, other, alpha], self._vt()
         )
@@ -394,8 +430,6 @@ class EastVector:
         Raises:
             EastError: If the vector lengths differ.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorMul", [self.element_type], [self, other], self._vt())
 
     def add_scalar(self, value: Any) -> EastVector:
@@ -407,8 +441,6 @@ class EastVector:
         Returns:
             A new vector with ``value`` added to every element.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorAddScalar", [self.element_type], [self, value], self._vt())
 
     def dot(self, other: EastVector) -> Any:
@@ -423,12 +455,11 @@ class EastVector:
         Raises:
             EastError: If the vector lengths differ.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorDot", [self.element_type], [self, other], self.element_type)
 
-    def maximum(self) -> Any:
-        """The largest element under East's total order (east-c VectorMax).
+    def max(self) -> Any:
+        """The largest element under East's total order (east-c VectorMax; TS
+        ``max``).
 
         NaN is greatest; ties keep the earliest occurrence.
 
@@ -438,12 +469,11 @@ class EastVector:
         Raises:
             EastError: If the vector is empty.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorMax", [self.element_type], [self], self.element_type)
 
-    def minimum(self) -> Any:
-        """The smallest element under East's total order (east-c VectorMin).
+    def min(self) -> Any:
+        """The smallest element under East's total order (east-c VectorMin; TS
+        ``min``).
 
         Ties keep the earliest occurrence.
 
@@ -453,9 +483,10 @@ class EastVector:
         Raises:
             EastError: If the vector is empty.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorMin", [self.element_type], [self], self.element_type)
+
+    maximum = _deprecated_alias("maximum", "max")
+    minimum = _deprecated_alias("minimum", "min")
 
     def arg_max(self) -> int:
         """The index of the largest element under East's total order (east-c VectorArgMax).
@@ -467,8 +498,6 @@ class EastVector:
             EastError: If the vector is empty.
         """
         from east.types.types import IntegerType
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorArgMax", [self.element_type], [self], IntegerType)
 
     def arg_min(self) -> int:
@@ -481,8 +510,6 @@ class EastVector:
             EastError: If the vector is empty.
         """
         from east.types.types import IntegerType
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorArgMin", [self.element_type], [self], IntegerType)
 
     def mean(self) -> float:
@@ -494,8 +521,6 @@ class EastVector:
             The mean, as a Float.
         """
         from east.types.types import FloatType
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorMean", [self.element_type], [self], FloatType)
 
     def cum_sum(self) -> EastVector:
@@ -504,8 +529,6 @@ class EastVector:
         Returns:
             A new vector where element ``i`` sums elements 0 through ``i``.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorCumSum", [self.element_type], [self], self._vt())
 
     def abs(self) -> EastVector:
@@ -514,8 +537,6 @@ class EastVector:
         Returns:
             A new vector with every element replaced by its magnitude.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorAbs", [self.element_type], [self], self._vt())
 
     def clamp(self, lo: Any, hi: Any) -> EastVector:
@@ -529,8 +550,6 @@ class EastVector:
             A new vector with each element below ``lo`` replaced by ``lo`` and
             each above ``hi`` by ``hi``.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorClamp", [self.element_type], [self, lo, hi], self._vt())
 
     def gather(self, indices: EastVector) -> EastVector:
@@ -546,8 +565,6 @@ class EastVector:
         Raises:
             EastError: If any index is out of bounds.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorGather", [self.element_type], [self, indices], self._vt())
 
     def scatter_add(self, indices: EastVector, src: EastVector) -> EastVector:
@@ -566,8 +583,6 @@ class EastVector:
             EastError: If the index and source lengths differ, or any index is
                 out of bounds.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin(
             "VectorScatterAdd", [self.element_type], [self, indices, src], self._vt()
         )
@@ -585,16 +600,12 @@ class EastVector:
             An Integer vector of one insertion index per needle.
         """
         from east.types.types import IntegerType, VectorType
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin(
             "VectorSearchSorted", [self.element_type], [self, needles], VectorType(IntegerType)
         )
 
     def _mask_builtin(self, name: str, other: EastVector) -> EastVector:
         from east.types.types import BooleanType, VectorType
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin(name, [self.element_type], [self, other], VectorType(BooleanType))
 
     def eq(self, other: EastVector) -> EastVector:
@@ -655,8 +666,6 @@ class EastVector:
             EastError: If the vector lengths differ.
         """
         from east.types.types import VectorType
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin(
             "VectorSelect", [a.element_type], [self, a, b], VectorType(a.element_type)
         )
@@ -673,8 +682,6 @@ class EastVector:
         Raises:
             EastError: If the mask and vector lengths differ.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorCompress", [self.element_type], [mask, self], self._vt())
 
     def count_true(self) -> int:
@@ -684,8 +691,6 @@ class EastVector:
             The number of true elements.
         """
         from east.types.types import IntegerType
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("VectorCountTrue", [], [self], IntegerType)
 
     @classmethod
@@ -755,7 +760,7 @@ class EastMatrix:
     contiguous row-major NumPy array for zero-copy interop with ML libraries.
     """
 
-    __slots__ = ("_data", "element_type", "rows", "cols")
+    __slots__ = ("_data", "element_type", "_rows", "_cols")
 
     def __init__(
         self,
@@ -794,12 +799,12 @@ class EastMatrix:
             elif arr.ndim != 2:
                 raise ValueError(f"EastMatrix data must be 1-D or 2-D, got a {arr.ndim}-D array")
             self._data = np.ascontiguousarray(arr)
-            self.rows = self._data.shape[0]
-            self.cols = self._data.shape[1]
+            self._rows = self._data.shape[0]
+            self._cols = self._data.shape[1]
         else:
             self._data = np.zeros((rows, cols), dtype=EAST_ELEMENT_TO_DTYPE[element_type.type], order="C")
-            self.rows = rows
-            self.cols = cols
+            self._rows = rows
+            self._cols = cols
 
     @property
     def dtype(self) -> np.dtype:
@@ -873,7 +878,7 @@ class EastMatrix:
 
     def __repr__(self) -> str:
         """Return representation."""
-        return f"EastMatrix({self.element_type.type}, {self.rows}x{self.cols})"
+        return f"EastMatrix({self.element_type.type}, {self._rows}x{self._cols})"
 
     def __eq__(self, other: object) -> bool:
         """Structural equality."""
@@ -881,8 +886,8 @@ class EastMatrix:
             return NotImplemented
         return (
             self.element_type.type == other.element_type.type
-            and self.rows == other.rows
-            and self.cols == other.cols
+            and self._rows == other.rows
+            and self._cols == other.cols
             and np.array_equal(self._data, other._data)
         )
 
@@ -899,26 +904,38 @@ class EastMatrix:
     # methods delegate to the east-c builtins, whose cross-runtime contract
     # pins reduction order and East's total order.
 
-    def num_rows(self) -> int:
-        """Number of rows (numpy).
+    def rows(self) -> int:
+        """Number of rows (east-c MatrixRows; TS ``rows``).
 
         Returns:
             The row count of the backing buffer.
         """
-        return self.rows
+        return self._rows
 
-    def num_cols(self) -> int:
-        """Number of columns (numpy).
+    def cols(self) -> int:
+        """Number of columns (east-c MatrixCols; TS ``cols``).
 
         Returns:
             The column count of the backing buffer.
         """
-        return self.cols
+        return self._cols
+
+    num_rows = _deprecated_alias("num_rows", "rows")
+    num_cols = _deprecated_alias("num_cols", "cols")
+
+    def _check_index(self, row: int, col: int) -> None:
+        """The runtime's bounds rule for ``(row, col)``: negative or
+        past-the-end indices are an East error (numpy would wrap them)."""
+        if row < 0 or row >= self._rows or col < 0 or col >= self._cols:
+            from east.runtime.errors import EastError
+
+            raise EastError(
+                f"Matrix index ({row}, {col}) out of bounds ({self._rows}×{self._cols})", [])
 
     def get(self, row: int, col: int) -> Any:
         """Logical scalar at ``(row, col)`` (numpy).
 
-        Traced indices (inside a ``kernel()`` lambda) lift this matrix as a
+        Traced indices (inside a captured body) lift this matrix as a
         constant and the access emits IR, like the eager collections.
 
         Args:
@@ -931,6 +948,7 @@ class EastMatrix:
         """
         if _is_traced(row) or _is_traced(col):
             return _lift_traced(self).get(row, col)
+        self._check_index(row, col)
         return self._data[row, col].item()
 
     def set(self, row: int, col: int, value: Any) -> EastMatrix:
@@ -951,6 +969,7 @@ class EastMatrix:
         """
         if _is_traced(row) or _is_traced(col) or _is_traced(value):
             return _lift_traced(self).set(row, col, value)
+        self._check_index(row, col)
         new_data = self._data.copy()
         new_data[row, col] = value
         return EastMatrix(self.element_type, new_data)
@@ -969,6 +988,10 @@ class EastMatrix:
         """
         if _is_traced(row):
             return _lift_traced(self).get_row(row)
+        if row < 0 or row >= self._rows:
+            from east.runtime.errors import EastError
+
+            raise EastError(f"Matrix row {row} out of bounds ({self._rows} rows)", [])
         return EastVector(self.element_type, np.ascontiguousarray(self._data[row, :]))
 
     def get_col(self, col: int) -> EastVector:
@@ -985,6 +1008,10 @@ class EastMatrix:
         """
         if _is_traced(col):
             return _lift_traced(self).get_col(col)
+        if col < 0 or col >= self._cols:
+            from east.runtime.errors import EastError
+
+            raise EastError(f"Matrix column {col} out of bounds ({self._cols} cols)", [])
         return EastVector(self.element_type, np.ascontiguousarray(self._data[:, col]))
 
     def transpose(self) -> EastMatrix:
@@ -1017,7 +1044,7 @@ class EastMatrix:
 
         return EastArray(
             ArrayType(self.element_type),
-            [EastArray(self.element_type, [x.item() for x in self._data[r, :]]) for r in range(self.rows)],
+            [EastArray(self.element_type, [x.item() for x in self._data[r, :]]) for r in range(self._rows)],
         )
 
     def to_rows(self) -> EastArray:
@@ -1031,11 +1058,14 @@ class EastMatrix:
 
         return EastArray(
             VectorType(self.element_type),
-            [EastVector(self.element_type, np.ascontiguousarray(self._data[r, :])) for r in range(self.rows)],
+            [EastVector(self.element_type, np.ascontiguousarray(self._data[r, :])) for r in range(self._rows)],
         )
 
     def map_elements(self, fn: Any, out: EastType | None = None) -> EastMatrix:
-        """Apply ``fn`` to each logical scalar (numpy).
+        """Deprecated (#625): a per-element python loop with no native path.
+
+        Use the east-c arithmetic surface (``scale`` / ``add_scaled`` /
+        ``mul_elementwise``), or an explicit python loop over ``to_numpy()``.
 
         Runs ``fn`` in Python (not delegated) over every element in row-major
         order, building a new matrix of the same shape.
@@ -1051,40 +1081,43 @@ class EastMatrix:
             and the same dimensions. An empty matrix (zero rows or columns) is
             returned unchanged in shape without invoking ``fn``.
         """
+        import warnings
+
+        warnings.warn(
+            "EastMatrix.map_elements is deprecated — a per-element python loop "
+            "with no native path: use the tensor arithmetic builtins (scale/"
+            "add_scaled/mul_elementwise) or an explicit loop over to_numpy() "
+            "(#625)",
+            DeprecationWarning, stacklevel=2,
+        )
         elem = out if out is not None else self.element_type
-        if self.rows == 0 or self.cols == 0:
-            return EastMatrix(elem, rows=self.rows, cols=self.cols)
-        results = [[fn(self._data[r, c].item()) for c in range(self.cols)] for r in range(self.rows)]
+        if self._rows == 0 or self._cols == 0:
+            return EastMatrix(elem, rows=self._rows, cols=self._cols)
+        results = [[fn(self._data[r, c].item()) for c in range(self._cols)] for r in range(self._rows)]
         return EastMatrix(elem, np.asarray(results, dtype=EAST_ELEMENT_TO_DTYPE[elem.type]))
 
     def map_rows(self, fn: Any, out: EastType | None = None) -> EastMatrix:
-        """Apply ``fn`` to each row vector, returning a row vector (numpy).
-
-        Runs ``fn`` in Python (not delegated) once per row, building a new
-        matrix from the returned rows.
+        """``fn(row_vector)`` per row into a new Matrix (east-c MatrixMapRows;
+        TS ``mapRows``). ``fn(row_vector, row_index)`` is also accepted; every
+        returned row Vector must share one width.
 
         Args:
-            fn: Callback ``fn(row_vector) -> new row``. Receives the row as an
-                ``EastVector`` (no row index is passed) and must return that
-                row's replacement as an ``EastVector`` or a sequence of values;
-                all returned rows must share one width.
-            out: Optional East element type pinning the result element type and
-                its storage dtype; defaults to this matrix's ``element_type``.
+            fn: The row body, taking the block first and returning a Vector.
+            out: Pins the result element type; the element type of the row
+                Vector the callback captures when omitted.
 
         Returns:
-            A new ``EastMatrix`` of element type ``out`` (or ``element_type``)
-            whose rows are the callback results. A zero-row matrix is returned
-            with the same column count and without invoking ``fn``.
+            A new ``EastMatrix`` whose rows are the callback results.
         """
-        elem = out if out is not None else self.element_type
-        if self.rows == 0:
-            return EastMatrix(elem, rows=0, cols=self.cols)
-        new_rows = [fn(EastVector(self.element_type, np.ascontiguousarray(self._data[r, :]))) for r in range(self.rows)]
-        data = np.asarray(
-            [row._data if isinstance(row, EastVector) else row for row in new_rows],
-            dtype=EAST_ELEMENT_TO_DTYPE[elem.type],
-        )
-        return EastMatrix(elem, data)
+        from east.types.types import IntegerType, MatrixType, VectorType
+
+        row_t = VectorType(self.element_type)
+        if out is not None:
+            _check_function_out(fn, VectorType(out))
+        out_elem = out if out is not None else _function_out_type(fn, _elem_in(fn, row_t)).value
+        callback = EastFunction(_idx_cb(fn), [row_t, IntegerType], VectorType(out_elem))
+        return _call_builtin(
+            "MatrixMapRows", [self.element_type, out_elem], [self, callback], MatrixType(out_elem))
 
     # ----- Elementwise arithmetic + reductions (east-c) --------------------
 
@@ -1102,8 +1135,6 @@ class EastMatrix:
         Returns:
             A new matrix with every element scaled by ``alpha``.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin("MatrixScale", [self.element_type], [self, alpha], self._mt())
 
     def add_scaled(self, other: EastMatrix, alpha: Any) -> EastMatrix:
@@ -1119,8 +1150,6 @@ class EastMatrix:
         Raises:
             EastError: If the matrix dimensions differ.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin(
             "MatrixAddScaled", [self.element_type], [self, other, alpha], self._mt()
         )
@@ -1137,8 +1166,6 @@ class EastMatrix:
         Raises:
             EastError: If the matrix dimensions differ.
         """
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin(
             "MatrixMulElementwise", [self.element_type], [self, other], self._mt()
         )
@@ -1153,8 +1180,6 @@ class EastMatrix:
             A vector holding one sum per row.
         """
         from east.types.types import VectorType
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin(
             "MatrixRowSums", [self.element_type], [self], VectorType(self.element_type)
         )
@@ -1168,8 +1193,6 @@ class EastMatrix:
             A vector holding one sum per column.
         """
         from east.types.types import VectorType
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin(
             "MatrixColSums", [self.element_type], [self], VectorType(self.element_type)
         )
@@ -1190,8 +1213,6 @@ class EastMatrix:
             EastError: If the vector length does not equal the column count.
         """
         from east.types.types import VectorType
-        from east.types.values._helpers import _call_builtin
-
         return _call_builtin(
             "MatrixVecMul", [self.element_type], [self, vector], VectorType(self.element_type)
         )

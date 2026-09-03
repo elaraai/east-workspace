@@ -18,6 +18,9 @@ export class OutOfScopeException extends Error {
   }
 }
 
+/** The names one body binds, and the body it sits in — the scope chain the authoring names are unique within (#639). */
+type Scope = { names: Set<string>, parent: Scope | null };
+
 type Ctx = {
   local_ctx: Map<VariableAST, VariableIR>,
   parent_ctx: Map<VariableAST, VariableIR>,
@@ -25,6 +28,8 @@ type Ctx = {
   loop_ctx: Map<Label, IRLabel>,
   recursiveASTs?: Set<any>,
   n_vars: number,
+  /** the body's scope: the authoring names it binds, and the enclosing bodies' */
+  scope: Scope,
   n_loops: number,
   inputs: EastType[],
   output: EastType,
@@ -121,7 +126,38 @@ export function coerce_to(
 /** Perform scope resolution and type checking on `AST`, produce `IR` ready for serialization, compilation or evaluation.
 *
 * @internal */
-export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ctx: new Map(), captures: new Set(), loop_ctx: new Map(), n_vars: 0, n_loops: 0, inputs: [], output: NeverType, async: false }): IR {
+/** A body's own scope, inside `parent`. */
+function childScope(parent: Scope): Scope {
+  return { names: new Set(), parent };
+}
+
+function inScope(scope: Scope, name: string): boolean {
+  for (let s: Scope | null = scope; s !== null; s = s.parent) {
+    if (s.names.has(name)) return true;
+  }
+  return false;
+}
+
+/**
+ * The IR name of a variable bound in `scope`: its authoring name when the
+ * builder read one (#639), else the synthetic `_N`. The compilers resolve
+ * variables lexically, so a name is unique within its scope chain: sibling
+ * bodies reuse names freely (three callbacks each naming their element `x`
+ * are three `x`s), but a name still in scope from an enclosing body takes a
+ * `_2`, `_3`… suffix — an alias to the outer variable used inside the inner
+ * body would otherwise resolve to the inner one.
+ */
+function variableName(ctx: Ctx, scope: Scope, hint: string | undefined): string {
+  if (hint === undefined || !/^[A-Za-z_$][\w$]*$/.test(hint) || /^_\d+$/.test(hint) || hint === "$") {
+    return `_${ctx.n_vars}`;
+  }
+  let name = hint;
+  for (let n = 2; inScope(scope, name); n++) name = `${hint}_${n}`;
+  scope.names.add(name);
+  return name;
+}
+
+export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ctx: new Map(), captures: new Set(), loop_ctx: new Map(), n_vars: 0, scope: { names: new Set(), parent: null }, n_loops: 0, inputs: [], output: NeverType, async: false }): IR {
   try {
     if (ast.ast_type === "Variable") {
       if (ctx.local_ctx.has(ast)) {
@@ -142,7 +178,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       // Create a new variable
       const variable: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.variable.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, ctx.scope, ast.variable.name),
         loc_id: ast.variable.loc_id,
         mutable: ast.variable.mutable,
         captured: false,
@@ -279,10 +315,11 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         value,
       });
     } else if (ast.ast_type === "Function") {
+      const scope = childScope(ctx.scope);
       const parameters: VariableIR[] = ast.parameters.map(parameter => {
         const param: VariableIR = variant("Variable", {
           type: toEastTypeValue(parameter.type),
-          name: `_${ctx.n_vars}`,
+          name: variableName(ctx, scope, parameter.name),
           loc_id: parameter.loc_id,
           mutable: parameter.mutable, // false...
           captured: false,
@@ -294,7 +331,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const local_ctx = new Map(parameters.map((parameter, i) => ([ast.parameters[i]!, parameter] as const)));
       const parent_ctx = new Map([...ctx.local_ctx, ...ctx.parent_ctx]);
       const captures = new Set<VariableIR>();
-      const ctx2: Ctx = { local_ctx, parent_ctx, captures, loop_ctx: new Map(), n_vars: ctx.n_vars, n_loops: ctx.n_loops, inputs: (ast.type as FunctionType).inputs, output: (ast.type as FunctionType).output, async: false }
+      const ctx2: Ctx = { local_ctx, parent_ctx, captures, loop_ctx: new Map(), n_vars: ctx.n_vars, scope, n_loops: ctx.n_loops, inputs: (ast.type as FunctionType).inputs, output: (ast.type as FunctionType).output, async: false }
 
       const body = ast_to_ir(ast.body, ctx2);
 
@@ -322,10 +359,11 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         body,
       });
     } else if (ast.ast_type === "AsyncFunction") {
+      const scope = childScope(ctx.scope);
       const parameters: VariableIR[] = ast.parameters.map(parameter => {
         const param: VariableIR = variant("Variable", {
           type: toEastTypeValue(parameter.type),
-          name: `_${ctx.n_vars}`,
+          name: variableName(ctx, scope, parameter.name),
           loc_id: parameter.loc_id,
           mutable: parameter.mutable, // false...
           captured: false,
@@ -337,7 +375,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       const local_ctx = new Map(parameters.map((parameter, i) => ([ast.parameters[i]!, parameter] as const)));
       const parent_ctx = new Map([...ctx.local_ctx, ...ctx.parent_ctx]);
       const captures = new Set<VariableIR>();
-      const ctx2: Ctx = { local_ctx, parent_ctx, captures, loop_ctx: new Map(), n_vars: ctx.n_vars, n_loops: ctx.n_loops, inputs: (ast.type as FunctionType).inputs, output: (ast.type as FunctionType).output, async: true }
+      const ctx2: Ctx = { local_ctx, parent_ctx, captures, loop_ctx: new Map(), n_vars: ctx.n_vars, scope, n_loops: ctx.n_loops, inputs: (ast.type as FunctionType).inputs, output: (ast.type as FunctionType).output, async: true }
 
       const body = ast_to_ir(ast.body, ctx2);
 
@@ -474,6 +512,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           captures: ctx.captures,
           loop_ctx: ctx.loop_ctx,
           n_vars: ctx.n_vars,
+          scope: childScope(ctx.scope),
           n_loops: ctx.n_loops,
           inputs: ctx.inputs,
           output: ctx.output,
@@ -496,6 +535,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: ctx.loop_ctx,
         n_vars: ctx.n_vars,
+        scope: childScope(ctx.scope),
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -528,6 +568,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: ctx.loop_ctx,
         n_vars: ctx.n_vars,
+        scope: childScope(ctx.scope),
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -537,10 +578,11 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       ctx.n_vars = ctx_try.n_vars;
       ctx.n_loops = ctx_try.n_loops;
 
-      // Create new variables for the catch message and stack
+      // Create new variables for the catch message and stack, in the handler's scope
+      const catchScope = childScope(ctx.scope);
       const message: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.message.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, catchScope, ast.message.name),
         loc_id: ast.message.loc_id,
         mutable: ast.message.mutable, // false...
         captured: false,
@@ -549,7 +591,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       const stack: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.stack.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, catchScope, ast.stack.name),
         loc_id: ast.stack.loc_id,
         mutable: ast.stack.mutable, // false...
         captured: false,
@@ -561,6 +603,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: ctx.loop_ctx,
         n_vars: ctx.n_vars,
+        scope: catchScope,
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -579,6 +622,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           captures: ctx.captures,
           loop_ctx: ctx.loop_ctx,
           n_vars: ctx.n_vars,
+          scope: childScope(ctx.scope),
           n_loops: ctx.n_loops,
           inputs: ctx.inputs,
           output: ctx.output,
@@ -652,6 +696,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: new Map([...ctx.loop_ctx, [ast.label, label]]),
         n_vars: ctx.n_vars,
+        scope: childScope(ctx.scope),
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -676,9 +721,10 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       }
       ctx.n_loops += 1;
 
+      const loopScope = childScope(ctx.scope);
       const value: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.value.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, loopScope, ast.value.name),
         loc_id: ast.value.loc_id,
         mutable: ast.value.mutable, // false...
         captured: false,
@@ -687,7 +733,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       const key: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.key.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, loopScope, ast.key.name),
         loc_id: ast.key.loc_id,
         mutable: ast.key.mutable, // false...
         captured: false,
@@ -700,6 +746,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: new Map([...ctx.loop_ctx, [ast.label, label]]),
         n_vars: ctx.n_vars,
+        scope: loopScope,
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -726,9 +773,10 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       }
       ctx.n_loops += 1;
 
+      const loopScope = childScope(ctx.scope);
       const key: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.key.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, loopScope, ast.key.name),
         loc_id: ast.key.loc_id,
         mutable: ast.key.mutable, // false...
         captured: false,
@@ -741,6 +789,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: new Map([...ctx.loop_ctx, [ast.label, label]]),
         n_vars: ctx.n_vars,
+        scope: loopScope,
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -766,9 +815,10 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
       }
       ctx.n_loops += 1;
 
+      const loopScope = childScope(ctx.scope);
       const value: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.value.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, loopScope, ast.value.name),
         loc_id: ast.value.loc_id,
         mutable: ast.value.mutable, // false...
         captured: false,
@@ -777,7 +827,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       const key: VariableIR = variant("Variable", {
         type: toEastTypeValue(ast.key.type),
-        name: `_${ctx.n_vars}`,
+        name: variableName(ctx, loopScope, ast.key.name),
         loc_id: ast.key.loc_id,
         mutable: ast.key.mutable, // false...
         captured: false,
@@ -790,6 +840,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
         captures: ctx.captures,
         loop_ctx: new Map([...ctx.loop_ctx, [ast.label, label]]),
         n_vars: ctx.n_vars,
+        scope: loopScope,
         n_loops: ctx.n_loops,
         inputs: ctx.inputs,
         output: ctx.output,
@@ -813,9 +864,10 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
 
       const cases: { case: string, variable: VariableIR, body: IR }[] = [];
       for (const [k, v] of Object.entries(ast.cases)) {
+        const armScope = childScope(ctx.scope);
         const variable: VariableIR = variant("Variable", {
           type: toEastTypeValue(v.variable.type),
-          name: `_${ctx.n_vars}`,
+          name: variableName(ctx, armScope, v.variable.name),
           loc_id: v.variable.loc_id,
           mutable: v.variable.mutable, // false...
           captured: false,
@@ -828,6 +880,7 @@ export function ast_to_ir(ast: AST, ctx: Ctx = { local_ctx: new Map(), parent_ct
           captures: ctx.captures,
           loop_ctx: ctx.loop_ctx,
           n_vars: ctx.n_vars,
+          scope: armScope,
           n_loops: ctx.n_loops,
           inputs: ctx.inputs,
           output: ctx.output,

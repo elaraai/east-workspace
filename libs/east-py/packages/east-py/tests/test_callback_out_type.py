@@ -22,24 +22,26 @@ Sampling also *calls* the callback on a DECODED value, so any callback written
 against the traced surface (`unwrap_or`, `substring`, `try_parse`, `is_some`)
 died with an `AttributeError` from inside the library before it ever ran.
 
-The types were always available: a precompiled kernel carries its signature,
-and a traceable lambda gets one from the tracer. Sampling remains only as the
-fallback for genuinely untraceable (impure) callbacks, which these tests also
-pin so that path does not rot.
+The types were always available: a compiled East function carries its signature,
+and a traceable lambda gets one from the tracer. Since #625 there is no
+sampling fallback at all: a callback with no East capture is refused up
+front, and a mutable-East-collection capture must be explicit —
+``East.function`` (a build-time snapshot) or ``.bind`` (live).
 """
 
 import pytest
 
 from east import (
+    East,
     EastDict,
     OptionType,
     StringType,
     StructType,
     array,
-    kernel,
     none,
     some,
 )
+from east.expression import ExpressionError
 
 ROW = StructType([("a", OptionType(StringType)), ("n", StringType)])
 KEY = StructType([("a", OptionType(StringType)), ("n", StringType)])
@@ -64,21 +66,21 @@ def all_some():
 # ── the reported failure: a `none` in the key ────────────────────────────────
 
 def test_group_by_bare_option_key_including_none(rows):
-    grouped = rows.group_by(kernel(ROW, lambda r: r["a"]))
+    grouped = rows.group_by(East.function([ROW], OptionType(StringType), lambda _b, r: r["a"]))
     assert grouped.key_type == OptionType(StringType)
     assert {(k.type, k.value if k.type == "some" else None): len(v)
             for k, v in grouped.items()} == {("some", "x"): 2, ("none", None): 1}
 
 
 def test_group_by_struct_key_containing_a_none(rows):
-    grouped = rows.group_by(kernel(ROW, lambda r: {"a": r["a"], "n": r["n"]}))
+    grouped = rows.group_by(East.function([ROW], ROW, lambda _b, r: {"a": r["a"], "n": r["n"]}))
     assert grouped.key_type == KEY
     assert len(grouped) == 3
 
 
 def test_to_dict_struct_key_containing_a_none(rows):
-    d = rows.to_dict(key=kernel(ROW, lambda r: {"a": r["a"], "n": r["n"]}),
-                     value=kernel(ROW, lambda r: r["n"]))
+    d = rows.to_dict(key=East.function([ROW], ROW, lambda _b, r: {"a": r["a"], "n": r["n"]}),
+                     value=East.function([ROW], StringType, lambda _b, r: r["n"]))
     assert d.key_type == KEY
     assert len(d) == 3
 
@@ -86,7 +88,7 @@ def test_to_dict_struct_key_containing_a_none(rows):
 # ── the SILENT half: the key type was wrong even when nothing raised ─────────
 
 def test_all_some_key_type_is_the_full_option_not_a_single_case(all_some):
-    grouped = all_some.group_by(kernel(ROW, lambda r: r["a"]))
+    grouped = all_some.group_by(East.function([ROW], OptionType(StringType), lambda _b, r: r["a"]))
     assert grouped.key_type == OptionType(StringType), (
         "an all-`some` sample must not narrow the key to a single-case variant")
 
@@ -96,10 +98,10 @@ def test_all_some_key_type_is_the_full_option_not_a_single_case(all_some):
 def test_the_same_key_has_always_been_fine_elsewhere(rows):
     """`update_many`/`to_set`/`sorted` take the identical values without
     complaint; that is what localised #450 to the callback path."""
-    k = kernel(ROW, lambda r: {"a": r["a"], "n": r["n"]})
+    k = East.function([ROW], ROW, lambda _b, r: {"a": r["a"], "n": r["n"]})
     keys = rows.map(k, out=KEY)
     d = EastDict(KEY, StringType)
-    d.update_many(keys, rows.map(kernel(ROW, lambda r: r["n"]), out=StringType))
+    d.update_many(keys, rows.map(East.function([ROW], StringType, lambda _b, r: r["n"]), out=StringType))
     assert len(d) == 3
     assert len(keys.to_set()) == 3
     assert len(keys.sorted()) == 3
@@ -111,16 +113,16 @@ def test_group_to_dicts_key_or_value_containing_a_none(rows):
     still sampled, so a `none` anywhere in the key, second key or value failed
     with "Unknown variant case: none"."""
     out = rows.group_to_dicts(
-        kernel(ROW, lambda r: r["n"]),          # key
-        kernel(ROW, lambda r: r["a"]),          # key2 — Option, one row is none
-        kernel(ROW, lambda r: r["a"]),          # value — Option too
+        East.function([ROW], StringType, lambda _b, r: r["n"]),          # key
+        East.function([ROW], OptionType(StringType), lambda _b, r: r["a"]),          # key2 — Option, one row is none
+        East.function([ROW], OptionType(StringType), lambda _b, r: r["a"]),          # value — Option too
     )
     assert len(out) == 3
 
 
 def test_group_to_arrays_value_containing_a_none(rows):
-    out = rows.group_to_arrays(kernel(ROW, lambda r: r["n"]),
-                               kernel(ROW, lambda r: r["a"]))
+    out = rows.group_to_arrays(East.function([ROW], StringType, lambda _b, r: r["n"]),
+                               East.function([ROW], OptionType(StringType), lambda _b, r: r["a"]))
     assert len(out) == 3
 
 
@@ -130,38 +132,42 @@ def test_plain_lambda_may_use_traced_only_methods(rows):
     """`unwrap_or` exists only on the traced proxy. Sampling called the lambda
     on a decoded value, so this raised AttributeError from inside the library;
     tracing it for its type never touches a value."""
-    grouped = rows.group_by(lambda r: r["a"].unwrap_or("-"))
+    grouped = rows.group_by(lambda _b, r: r["a"].unwrap_or("-"))
     assert grouped.key_type == StringType
     assert sorted(str(k) for k in grouped) == ["-", "x"]
 
 
 def test_dict_map_value_fn_may_use_traced_only_methods(rows):
-    grouped = rows.group_by(kernel(ROW, lambda r: r["n"]))
-    sizes = grouped.map(lambda v: v.first_map(lambda r: r["a"]))
+    grouped = rows.group_by(East.function([ROW], StringType, lambda _b, r: r["n"]))
+    sizes = grouped.map(lambda _b, v: v.first_map(lambda _b, r: r["a"]))
     assert sizes.value_type == OptionType(StringType)
 
 
-def test_captured_side_table_lambda_still_types_from_the_tracer(rows):
-    """A lambda closing over an East dict cannot push DOWN (snapshot-vs-live
-    semantics), but its output TYPE must still come from the tracer — sampling
-    would narrow the Option to whichever case the first element produced."""
+def test_captured_side_table_needs_an_explicit_capture(rows):
+    """A lambda closing over a MUTABLE East dict has no automatic capture —
+    snapshot-vs-live must be an explicit choice (#625) — so the auto-wrap
+    refuses it with the fix-it, and the explicit ``East.function`` snapshot types
+    from the tracer exactly as before."""
     table = EastDict(StringType, OptionType(StringType), {"1": some("hit")})
-    grouped = rows.group_by(lambda r: table.get_or_default(r["n"], none))
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        rows.group_by(lambda _b, r: table.get_or_default(r["n"], none))
+    grouped = rows.group_by(
+        East.function([ROW], OptionType(StringType), lambda _b, r: table.get_or_default(r["n"], none)))
     assert grouped.key_type == OptionType(StringType)
     assert len(grouped) == 2  # some("hit") for row "1", none for "2"/"3"
 
 
-# ── the fallback must survive ────────────────────────────────────────────────
+# ── there is no sampling fallback (#625) ─────────────────────────────────────
 
-def test_impure_callback_still_falls_back_to_sampling(rows):
-    """An untraceable callback has no declared type, so sampling remains the
-    only answer for it. Pinned so the fallback is not dropped as dead code."""
+def test_impure_callback_is_refused_not_sampled(rows):
+    """An untraceable callback has no declared type and no sampling path any
+    more: the strict capture refuses it before it runs on any element."""
     calls = []
 
     def impure(r):
-        calls.append(1)          # closure mutation — refuses to trace
+        calls.append(1)          # closure mutation — no East capture
         return r["n"]
 
-    grouped = rows.group_by(impure)
-    assert len(grouped) == 3
-    assert calls, "the impure callback should have been sampled/run in python"
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        rows.group_by(impure)
+    assert calls == []

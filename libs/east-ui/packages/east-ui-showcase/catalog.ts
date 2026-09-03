@@ -14,7 +14,10 @@
  *   (`scripts/example-roots.ts`: east, east-node-*, east-py-datascience).
  *   These pull in Node / Python runtimes and can't run in the browser, so
  *   they are read *statically* from `virtual:example-sources` and shown as
- *   highlighted code blocks plus their declared `returns` value.
+ *   highlighted code blocks plus their declared `returns` value — in
+ *   TypeScript (the authored source) or python (printed from the example's
+ *   IR, via the Claude plugin's index; #655). Components have no python
+ *   surface, so the selector never appears on them.
  *
  * For Components the category is the first path segment (title-cased); for
  * Code Reference it's the source package. Both come straight from the
@@ -53,6 +56,10 @@ export interface CodeEntry extends CatalogBase {
     /** Source text of the `returns` value. */
     returns: string;
     source: CapturedSource;
+    /** The languages the example can be shown in; a selector appears iff `python` is one (each example's choice is its own). */
+    languages: readonly string[];
+    /** The python rendering, from the plugin index; null when the index has none. */
+    python: string | null;
 }
 
 export type CatalogEntry = LiveEntry | CodeEntry;
@@ -149,6 +156,8 @@ function buildCodeReference(): CodeEntry[] {
         keywords: ex.keywords,
         returns: ex.returns,
         source: ex.source,
+        languages: ex.languages,
+        python: ex.python,
     }));
 }
 

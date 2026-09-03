@@ -219,6 +219,18 @@ function importsEastPackage(sf, t) {
   importsCache.set(sf, found);
   return found;
 }
+function unresolvedEastImport(sf, checker, t) {
+  for (const stmt of sf.statements) {
+    if (!t.isImportDeclaration(stmt) && !t.isExportDeclaration(stmt))
+      continue;
+    const spec = stmt.moduleSpecifier;
+    if (spec === void 0 || !t.isStringLiteral(spec) || spec.text !== "@elaraai/east")
+      continue;
+    if (checker.getSymbolAtLocation(spec) === void 0)
+      return true;
+  }
+  return false;
+}
 var declaresCache = /* @__PURE__ */ new WeakMap();
 var E3_DECLARATION_MEMBERS = /* @__PURE__ */ new Set([
   "input",
@@ -454,6 +466,26 @@ function insideReactive(node, t) {
 // ../east-diagnostics/dist/src/rules/prefer-let-const-over-east-value.js
 var NAME6 = "prefer-let-const-over-east-value";
 var CODE6 = 990006;
+function typeIsLoadBearing(value, t) {
+  let found = false;
+  const emptyArray = (n) => n !== void 0 && t.isArrayLiteralExpression(n) && n.elements.length === 0;
+  const visit = (n) => {
+    if (found)
+      return;
+    if (t.isIdentifier(n) && n.text === "none")
+      found = true;
+    else if (emptyArray(n))
+      found = true;
+    else if (t.isNewExpression(n) && t.isIdentifier(n.expression) && (n.expression.text === "Map" || n.expression.text === "Set") && (n.arguments === void 0 || n.arguments.length === 0 || emptyArray(n.arguments[0])))
+      found = true;
+    else if (t.isCallExpression(n) && t.isIdentifier(n.expression) && (n.expression.text === "variant" || n.expression.text === "some"))
+      found = true;
+    else
+      t.forEachChild(n, visit);
+  };
+  visit(value);
+  return found;
+}
 var preferLetConstOverEastValue = {
   name: NAME6,
   code: CODE6,
@@ -477,9 +509,11 @@ var preferLetConstOverEastValue = {
       return;
     if (!insideBlockScope(node, ctx))
       return;
+    const inner = node.arguments[0];
+    if ((asReturn || asCallbackBody) && node.arguments.length >= 2 && inner !== void 0 && typeIsLoadBearing(inner, t))
+      return;
     const sf = ctx.sourceFile;
     const start = node.getStart(sf);
-    const inner = node.arguments[0];
     ctx.report({
       ruleName: NAME6,
       code: CODE6,
@@ -2196,6 +2230,8 @@ var allRules = [
 
 // ../east-diagnostics/dist/src/run.js
 function runEastRules(tsModule, program, sourceFile, checker, options = {}, rules = allRules) {
+  if (unresolvedEastImport(sourceFile, checker, tsModule))
+    return [];
   const diagnostics = [];
   const ctx = {
     ts: tsModule,
@@ -2770,6 +2806,65 @@ function createDiagnosticsService(options = {}) {
 // ../east-diagnostics/dist/src/lsp.js
 import { readFileSync as readFileSync2 } from "node:fs";
 import { fileURLToPath } from "node:url";
+
+// ../east-diagnostics/dist/src/python-lint.js
+import { execFile } from "node:child_process";
+import { existsSync as existsSync3, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname as dirname3, join as join4 } from "node:path";
+var PYTHON_EAST_IMPORT = /^\s*(?:from\s+east(?:\.[\w.]+)?\s+import\b|import\s+east\b)/m;
+function findEastPy(fromDir) {
+  const override = process.env["EAST_PY_LINT"];
+  if (override !== void 0 && override !== "")
+    return override;
+  let dir = fromDir;
+  for (; ; ) {
+    for (const candidate of [join4(dir, ".venv", "bin", "east-py"), join4(dir, ".venv", "Scripts", "east-py.exe")]) {
+      if (existsSync3(candidate))
+        return candidate;
+    }
+    const parent = dirname3(dir);
+    if (parent === dir)
+      return "east-py";
+    dir = parent;
+  }
+}
+function runEastPyLint(file, content, budgetMs = 4e3) {
+  const command = findEastPy(dirname3(file));
+  let target = file;
+  let scratch = null;
+  if (content !== void 0) {
+    scratch = mkdtempSync(join4(tmpdir(), "east-py-lint-"));
+    target = join4(scratch, basename(file));
+    writeFileSync(target, content, "utf-8");
+  }
+  return new Promise((resolveFindings) => {
+    execFile(
+      command,
+      ["lint", "--format", "json", target],
+      // UTF-8 stdio: python encodes a piped stdout in the locale's code page on Windows (cp1252), and the findings carry em dashes
+      { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
+      (error, stdout) => {
+        if (scratch !== null)
+          rmSync(scratch, { recursive: true, force: true });
+        if (error !== null && error.code !== 1) {
+          resolveFindings(null);
+          return;
+        }
+        let records;
+        try {
+          records = JSON.parse(stdout);
+        } catch {
+          resolveFindings(null);
+          return;
+        }
+        resolveFindings(Array.isArray(records) ? records : null);
+      }
+    );
+  });
+}
+
+// ../east-diagnostics/dist/src/lsp.js
 var EAST_IMPORT_PATTERN = /@elaraai\//;
 var SKIP_PATH = /[/\\](node_modules|dist|build|\.venv|\.git)[/\\]/;
 var DEBOUNCE_MS = 100;
@@ -2821,6 +2916,27 @@ function runEastLsp(options = {}) {
 \r
 ${body}`);
   }
+  function publishPython(path, content) {
+    if (content === void 0 || SKIP_PATH.test(path) || !PYTHON_EAST_IMPORT.test(content)) {
+      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics: [] } });
+      return;
+    }
+    void runEastPyLint(path, open.has(path) ? content : void 0).then((records) => {
+      if (records === null)
+        return;
+      const diagnostics = records.map((r) => ({
+        range: {
+          start: { line: r.line - 1, character: r.column - 1 },
+          end: { line: (r.end_line ?? r.line) - 1, character: (r.end_column ?? r.column + 1) - 1 }
+        },
+        severity: SEVERITY[r.category] ?? 2,
+        code: r.rule,
+        source: "east-py",
+        message: r.message
+      }));
+      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics } });
+    });
+  }
   function publish(path) {
     const content = open.get(path) ?? (() => {
       try {
@@ -2829,6 +2945,10 @@ ${body}`);
         return void 0;
       }
     })();
+    if (path.endsWith(".py")) {
+      publishPython(path, content);
+      return;
+    }
     let diagnostics = [];
     if (content !== void 0 && !SKIP_PATH.test(path) && EAST_IMPORT_PATTERN.test(content)) {
       const starts = lineStarts(content);
@@ -2909,7 +3029,8 @@ ${body}`);
         if (path === void 0 || typeof text !== "string")
           return;
         open.set(path, text);
-        service.setOverlay(path, text);
+        if (!path.endsWith(".py"))
+          service.setOverlay(path, text);
         schedule(path);
         return;
       }
@@ -2919,7 +3040,8 @@ ${body}`);
         if (path === void 0 || typeof text !== "string")
           return;
         open.set(path, text);
-        service.setOverlay(path, text);
+        if (!path.endsWith(".py"))
+          service.setOverlay(path, text);
         schedule(path);
         return;
       }
@@ -2930,10 +3052,12 @@ ${body}`);
         const text = params?.text;
         if (typeof text === "string") {
           open.set(path, text);
-          service.setOverlay(path, text);
+          if (!path.endsWith(".py"))
+            service.setOverlay(path, text);
         } else {
           open.delete(path);
-          service.clearOverlay(path);
+          if (!path.endsWith(".py"))
+            service.clearOverlay(path);
         }
         schedule(path);
         return;
@@ -2943,7 +3067,8 @@ ${body}`);
         if (path === void 0)
           return;
         open.delete(path);
-        service.clearOverlay(path);
+        if (!path.endsWith(".py"))
+          service.clearOverlay(path);
         const timer = pending.get(path);
         if (timer !== void 0)
           clearTimeout(timer);

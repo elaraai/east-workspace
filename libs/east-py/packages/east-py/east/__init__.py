@@ -45,7 +45,34 @@ with contextlib.suppress(ImportError):
 
 # --- public value/type surface (curated in east.types) ---
 import east.types as _types  # noqa: E402
-from east.kernel import KernelTraceError, greatest, if_else, kernel, least  # noqa: E402
+from east.expression import (  # noqa: E402
+    ArrayExpression,
+    AsyncFunctionExpression,
+    BlobExpression,
+    BooleanExpression,
+    DateTimeExpression,
+    DictExpression,
+    Expression,
+    ExpressionError,
+    FloatExpression,
+    FunctionExpression,
+    IntegerExpression,
+    MatrixExpression,
+    NeverExpression,
+    NullExpression,
+    RecursiveExpression,
+    RefExpression,
+    SetExpression,
+    SourceMap,
+    StringExpression,
+    StructExpression,
+    VariantExpression,
+    VectorExpression,
+    greatest,
+    if_else,
+    least,
+    set_location_base_path,
+)
 from east.namespace import East  # noqa: E402
 from east.runtime.compiler import (  # noqa: E402
     compile_from_beast2,
@@ -106,10 +133,34 @@ __all__ = [
     "platform_functions",
     "memoize",
     "configure_memo",
-    # kernels (IR push-down for eager methods)
-    "kernel",
+    # the expression builders (East.function / East.platform / East.compile)
+    # and the typed expression classes, one per East type kind
+    "Expression",
+    "NullExpression",
+    "NeverExpression",
+    "BooleanExpression",
+    "IntegerExpression",
+    "FloatExpression",
+    "StringExpression",
+    "DateTimeExpression",
+    "BlobExpression",
+    "RefExpression",
+    "ArrayExpression",
+    "SetExpression",
+    "DictExpression",
+    "StructExpression",
+    "VariantExpression",
+    "RecursiveExpression",
+    "FunctionExpression",
+    "AsyncFunctionExpression",
+    "VectorExpression",
+    "MatrixExpression",
+    "ExpressionError",
     "if_else",
     "greatest",
     "least",
-    "KernelTraceError",
+    # authoring-frame source maps (#626): the map an East.function carries,
+    # and the base directory recorded paths are relativized against
+    "SourceMap",
+    "set_location_base_path",
 ]

@@ -6,6 +6,9 @@
 
 Usage:
     east-py run [--runtime PKG]... [--input FILE]... [--output FILE] <ir_file>
+    east-py transpile <ir_file> [-o out.py] [--name NAME]
+    east-py lint [PATH]... [--format text|json] [--disable RULE]...
+    east-py lsp
     east-py version
 """
 

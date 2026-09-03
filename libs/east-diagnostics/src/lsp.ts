@@ -5,11 +5,13 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDiagnosticsService, type DiagnosticsService } from "./service.js";
+import { PYTHON_EAST_IMPORT, runEastPyLint } from "./python-lint.js";
 import type { EastDiagnosticCategory } from "./types.js";
 
 // Minimal LSP server over stdio: full-document sync in, publishDiagnostics
-// out, everything backed by the shared DiagnosticsService. Hand-rolled
-// JSON-RPC framing keeps the package dependency-free.
+// out, everything backed by the shared DiagnosticsService — and, for a `.py`
+// document that imports east, by the project's own `east-py lint` (#648).
+// Hand-rolled JSON-RPC framing keeps the package dependency-free.
 
 interface JsonRpcMessage {
   jsonrpc: "2.0";
@@ -84,6 +86,28 @@ export function runEastLsp(options: EastLspOptions = {}): void {
     output.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
   }
 
+  /** A python document: the east-py rules, run out of process; published when they answer. */
+  function publishPython(path: string, content: string | undefined): void {
+    if (content === undefined || SKIP_PATH.test(path) || !PYTHON_EAST_IMPORT.test(content)) {
+      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics: [] } });
+      return;
+    }
+    void runEastPyLint(path, open.has(path) ? content : undefined).then((records) => {
+      if (records === null) return; // no east-py answered: say nothing rather than "clean"
+      const diagnostics = records.map((r) => ({
+        range: {
+          start: { line: r.line - 1, character: r.column - 1 },
+          end: { line: (r.end_line ?? r.line) - 1, character: (r.end_column ?? r.column + 1) - 1 },
+        },
+        severity: SEVERITY[r.category] ?? 2,
+        code: r.rule,
+        source: "east-py",
+        message: r.message,
+      }));
+      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics } });
+    });
+  }
+
   function publish(path: string): void {
     const content = open.get(path) ?? (() => {
       try {
@@ -92,6 +116,10 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         return undefined;
       }
     })();
+    if (path.endsWith(".py")) {
+      publishPython(path, content);
+      return;
+    }
     let diagnostics: object[] = [];
     if (content !== undefined && !SKIP_PATH.test(path) && EAST_IMPORT_PATTERN.test(content)) {
       const starts = lineStarts(content);
@@ -173,7 +201,7 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         const text = params?.textDocument?.text;
         if (path === undefined || typeof text !== "string") return;
         open.set(path, text);
-        service.setOverlay(path, text);
+        if (!path.endsWith(".py")) service.setOverlay(path, text);
         schedule(path);
         return;
       }
@@ -182,7 +210,7 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         const text = params?.contentChanges?.at?.(-1)?.text;
         if (path === undefined || typeof text !== "string") return;
         open.set(path, text);
-        service.setOverlay(path, text);
+        if (!path.endsWith(".py")) service.setOverlay(path, text);
         schedule(path);
         return;
       }
@@ -192,10 +220,10 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         const text = params?.text;
         if (typeof text === "string") {
           open.set(path, text);
-          service.setOverlay(path, text);
+          if (!path.endsWith(".py")) service.setOverlay(path, text);
         } else {
           open.delete(path);
-          service.clearOverlay(path);
+          if (!path.endsWith(".py")) service.clearOverlay(path);
         }
         schedule(path);
         return;
@@ -204,7 +232,7 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         const path = uriToPath(params?.textDocument?.uri ?? "");
         if (path === undefined) return;
         open.delete(path);
-        service.clearOverlay(path);
+        if (!path.endsWith(".py")) service.clearOverlay(path);
         const timer = pending.get(path);
         if (timer !== undefined) clearTimeout(timer);
         pending.delete(path);

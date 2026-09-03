@@ -22829,44 +22829,107 @@ var SPACE_OR_PUNCTUATION = /[\n\r\p{Z}\p{P}]+/u;
 // lib/search.ts
 var MIN_SCORE = 5;
 async function buildSearchIndex(indexPath) {
+  return (await loadIndex(indexPath)).search;
+}
+async function loadIndex(indexPath) {
   const raw = await readFile(indexPath, "utf-8");
   const data = JSON.parse(raw);
   const miniSearch = new MiniSearch({
-    fields: ["keywordsText", "test", "suite", "source"],
-    storeFields: ["skill", "package", "suite", "test", "keywords", "imports", "source"],
+    idField: "id",
+    fields: ["keywordsText", "test", "builtinsText", "suite", "typesText", "code"],
+    storeFields: ["id", "skill", "package", "suite", "test", "keywords", "imports", "languages", "source", "ts", "python", "signature", "inputs", "returns", "builtins"],
     searchOptions: {
-      boost: { keywordsText: 3, test: 2, suite: 1.5, source: 1 },
+      boost: { keywordsText: 3, test: 2, builtinsText: 2, suite: 1.5, typesText: 1, code: 1 },
       fuzzy: 0.2,
       prefix: true
     }
   });
   const documents = data.entries.map((entry) => ({
     ...entry,
-    keywordsText: entry.keywords.join(" ")
+    keywordsText: entry.keywords.join(" "),
+    builtinsText: (entry.builtins ?? []).join(" "),
+    typesText: entry.signature ? [...entry.signature.inputs, entry.signature.output].join(" ") : "",
+    code: entry.source ?? entry.ts ?? ""
   }));
   miniSearch.addAll(documents);
-  return miniSearch;
+  return { search: miniSearch, packages: [...new Set(data.entries.map((e) => e.package))].sort() };
 }
-function formatResults(results) {
-  const sections = results.map((r) => {
-    const keywords = r.keywords;
-    const imports = r.imports;
-    const keywordsStr = keywords.join(", ");
-    const importsStr = imports.join("\n");
-    return [
-      `### ${r.test}`,
-      `Suite: ${r.suite} | Package: ${r.package} | Keywords: ${keywordsStr}`,
-      "",
-      "```typescript",
-      importsStr,
-      "",
-      r.source,
-      "```"
-    ].join("\n");
+function normalizePackage(filter) {
+  return filter.trim().toLowerCase().replace(/^@elaraai\//, "");
+}
+function searchExamples(index, request) {
+  const known = index.packages;
+  const filter = request.package;
+  const pkg = typeof filter === "string" && filter.trim() !== "" ? normalizePackage(filter) : void 0;
+  if (pkg !== void 0 && typeof filter === "string" && !known.includes(pkg)) {
+    return { entries: [], unknownPackage: filter, known };
+  }
+  const options = {
+    limit: request.limit,
+    ...pkg === void 0 ? {} : { filter: (r) => r.package === pkg || r.skill === pkg }
+  };
+  const hits = index.search.search(request.query, options);
+  return { entries: hits.filter((r) => r.score >= MIN_SCORE).slice(0, request.limit), known };
+}
+function signatureOf(entry) {
+  if (entry.signature === void 0) return entry.languages.includes("tsx") ? "tsx (a UI component, authored as JSX)" : "typescript (authored)";
+  const arrow = entry.signature.async ? "~>" : "->";
+  return `(${entry.signature.inputs.join(", ")}) ${arrow} ${entry.signature.output}`;
+}
+function clip(text, max) {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}\u2026`;
+}
+function speaks(entry, language) {
+  return language === "python" ? entry.languages.includes("python") : entry.languages.some((l) => l === "typescript" || l === "tsx");
+}
+function codeOf(entry, language) {
+  if (language === "python") return entry.python ? { code: entry.python, fence: "python" } : null;
+  if (entry.ts !== void 0) return { code: entry.ts, fence: "typescript" };
+  if (entry.source !== void 0) {
+    return { code: [...entry.imports, "", entry.source].join("\n"), fence: entry.languages.includes("tsx") ? "tsx" : "typescript" };
+  }
+  return null;
+}
+function formatSummary(entries, language) {
+  const lines = entries.map((e) => {
+    const parts = [`- \`${e.id}\` \u2014 ${e.test}`, `  ${signatureOf(e)}`];
+    if (e.keywords.length > 0) parts.push(`  keywords: ${clip(e.keywords.join(", "), 160)}`);
+    if (e.inputs !== void 0 && e.inputs !== null) parts.push(`  e.g. ${clip(e.inputs, 100)} \u2192 ${e.returns === null || e.returns === void 0 ? "(see the example)" : clip(e.returns, 100)}`);
+    if (language === "python" && !speaks(e, "python")) parts.push(`  (${e.languages.join("/")} only)`);
+    else if (language === "python" && !e.python) parts.push("  (no python rendering in this index build)");
+    return parts.join("\n");
   });
-  return ["<east-examples>", "## Relevant East Examples", "", ...sections, "</east-examples>"].join(
-    "\n"
-  );
+  return [
+    "<east-examples>",
+    `## ${entries.length} East example(s) \u2014 fetch one in full with get_east_example(id, language: "${language}")`,
+    "",
+    ...lines,
+    "</east-examples>"
+  ].join("\n");
+}
+function formatFull(entries, language) {
+  const sections = entries.map((e) => {
+    const code = codeOf(e, language);
+    const body = code === null ? !speaks(e, language) ? `_${e.languages.join("/")} only: request language: "typescript"._` : "_No python rendering in this index build._" : ["```" + code.fence, code.code, "```"].join("\n");
+    const io = e.inputs !== void 0 && e.inputs !== null ? `Inputs: \`${clip(e.inputs, 300)}\`${e.returns === null || e.returns === void 0 ? "" : ` \u2192 returns \`${clip(e.returns, 300)}\``}` : "";
+    return [
+      `### \`${e.id}\``,
+      `${e.test} \xB7 Suite: ${e.suite} \xB7 Package: ${e.package}`,
+      `Signature: ${signatureOf(e)}`,
+      e.keywords.length > 0 ? `Keywords: ${e.keywords.join(", ")}` : "",
+      "",
+      body,
+      io
+    ].filter((l) => l !== "").join("\n");
+  });
+  return ["<east-examples>", ...sections, "</east-examples>"].join("\n\n");
+}
+function formatResults(entries, language, format) {
+  return format === "full" ? formatFull(entries, language) : formatSummary(entries, language);
+}
+function getEntry(index, id) {
+  const stored = index.getStoredFields(id);
+  return stored === void 0 ? null : stored;
 }
 
 // lib/plugin-status.ts
@@ -22943,12 +23006,12 @@ function nearestTsconfig(fromDir) {
 }
 var BUNDLED = [
   ".build/hooks/session-start.js",
-  ".build/hooks/prompt-submit.js",
   ".build/hooks/subagent-start.js",
-  ".build/hooks/pre-agent.js",
   ".build/hooks/pre-write.js",
+  ".build/hooks/pre-read.js",
   ".build/hooks/diagnose.js",
   ".build/daemon/server.js",
+  ".build/daemon/lsp.js",
   ".build/mcp/server.js"
 ];
 async function checkPluginStatus(pluginRoot, cwd) {
@@ -22974,13 +23037,16 @@ async function checkPluginStatus(pluginRoot, cwd) {
   checks.push(await check2("Example search", async () => {
     const indexPath = join2(pluginRoot, "index.json");
     const data = JSON.parse(readFileSync(indexPath, "utf8"));
-    const count = data.entries?.length ?? 0;
+    const entries = data.entries ?? [];
+    const programs = entries.filter((e) => e.ir !== void 0);
+    const python = programs.filter((e) => typeof e.python === "string").length;
     const index = await buildSearchIndex(indexPath);
     const hits = index.search("array map", { limit: 3 });
+    const ok = entries.length > 0 && hits.length > 0 && programs.length > 0 && python === programs.length;
     return {
       name: "Example search (index + MCP)",
-      status: count > 0 && hits.length > 0 ? "ok" : "warn",
-      detail: `${count} examples indexed; sample query \u2192 ${hits.length} hits`
+      status: ok ? "ok" : "warn",
+      detail: `${entries.length} examples indexed, ${programs.length} as IR (${python} with a python rendering); sample query \u2192 ${hits.length} hits`
     };
   }));
   checks.push(await check2("Skills", () => {
@@ -23030,35 +23096,42 @@ function formatStatus(checks) {
 // mcp/server.ts
 var __dirname = dirname3(fileURLToPath(import.meta.url));
 var INDEX_PATH = join3(__dirname, "..", "..", "index.json");
-var indexPromise = buildSearchIndex(INDEX_PATH);
+var indexPromise = loadIndex(INDEX_PATH);
 var server = new McpServer({
   name: "east",
   version: "1.0.0"
 });
+var languageArg = external_exports.enum(["typescript", "python"]).default("typescript").describe('The language to render examples in: "typescript" (the East DSL) or "python" (east-py). Every core example is stored as IR and printed in either; UI examples are TypeScript only.');
 server.tool(
   "search_east_examples",
-  "Search the East example index for relevant code examples. Use this to find East language patterns, API usage, and idiomatic examples for specific tasks.",
+  'The mandatory first step before writing or changing East code: search the tested example index for the capability you are about to use. Every East API has an example here, stored as IR and rendered in TypeScript or python. Returns summaries by default (id, description, signature, keywords, the example inputs and result \u2014 a few hundred bytes each); pass format: "full" for the code, or fetch one with get_east_example. Do not read node_modules/@elaraai or *.examples.ts files instead \u2014 this is the same corpus, exact and far cheaper.',
   {
-    query: external_exports.string().describe("Search terms to find relevant East examples"),
+    query: external_exports.string().describe('What you need, in words: the operation, the types involved, the method name if you know it (e.g. "group by key and sum", "dict merge", "parse csv blob")'),
+    language: languageArg,
+    format: external_exports.enum(["summary", "full"]).default("summary").describe(`"summary" (default) lists the hits in one line each; "full" includes each hit's code in the requested language`),
     limit: external_exports.number().int().min(1).max(20).default(5).describe("Maximum number of results to return (default 5, max 20)"),
-    package: external_exports.string().optional().describe(
-      "Filter results to a specific East package (e.g. @elaraai/east, @elaraai/east-node-std)"
-    )
+    package: external_exports.string().optional().describe("Filter results to one package by its bare name \u2014 east, east-node-std, east-node-io, east-py-datascience, east-ui, e3-ui, e3, e3-ui-cli, e3-create \u2014 the `@elaraai/` scope is accepted and ignored; an unknown name is reported with the indexed names")
   },
-  async ({ query, limit, package: packageFilter }) => {
-    const miniSearch = await indexPromise;
-    let results = miniSearch.search(query, { limit: limit * 2 });
-    results = results.filter((r) => r.score >= MIN_SCORE);
-    if (packageFilter) {
-      results = results.filter((r) => r.package === packageFilter);
-    }
-    results = results.slice(0, limit);
-    if (results.length === 0) {
+  async ({ query, language, format, limit, package: packageFilter }) => {
+    const index = await indexPromise;
+    const { entries, unknownPackage, known } = searchExamples(index, { query, limit, package: packageFilter });
+    if (unknownPackage !== void 0) {
       return {
         content: [
           {
             type: "text",
-            text: `No East examples found for query: "${query}"`
+            text: `Package "${unknownPackage}" is not an indexed package name. Indexed packages: ${known.join(", ")} (bare names; \`@elaraai/east-node-io\` and \`east-node-io\` are the same). Retry with one of them, or without a package filter.`
+          }
+        ]
+      };
+    }
+    if (entries.length === 0) {
+      const scope = packageFilter ? ` in package "${packageFilter}"` : "";
+      return {
+        content: [
+          {
+            type: "text",
+            text: `No East examples found for query: "${query}"${scope} \u2014 try the operation's plain-English name, the East method name, or the types involved${packageFilter ? ", or drop the package filter" : ""}.`
           }
         ]
       };
@@ -23067,10 +23140,26 @@ server.tool(
       content: [
         {
           type: "text",
-          text: formatResults(results)
+          text: formatResults(entries, language, format)
         }
       ]
     };
+  }
+);
+server.tool(
+  "get_east_example",
+  "One East example in full, by the id a search returned: its code printed in the requested language from the example's IR (TypeScript or python), its signature, and the example inputs and expected result. The second step after search_east_examples.",
+  {
+    id: external_exports.string().describe('The example id from a search result, e.g. "east:array.examples.ts:arrayMap"'),
+    language: languageArg
+  },
+  async ({ id, language }) => {
+    const index = await indexPromise;
+    const entry = getEntry(index.search, id);
+    if (entry === null) {
+      return { content: [{ type: "text", text: `No East example with id "${id}" \u2014 ids come from search_east_examples results.` }] };
+    }
+    return { content: [{ type: "text", text: formatFull([entry], language) }] };
   }
 );
 server.tool(

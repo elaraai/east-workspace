@@ -1,11 +1,30 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable dataflow execution for East programs. Use when: (1) Authoring e3 packages with @elaraai/e3 (e3.input, e3.task, e3.customTask, e3.function, e3.ui, e3.package, e3.export), (2) Bounded-memory dataflow over huge collection datasets (e3.partitionTask, e3.streamTask), (3) Running e3 CLI commands (e3 repo, e3 workspace, e3 package, e3 dataset, e3 task, e3 dataflow run, e3 call, e3 watch, e3 auth), (4) Working with workspaces and packages, (5) Content-addressable caching and reactive dataflow execution."
+description: "East Execution Engine (e3) - durable dataflow execution for East programs. Use when: (1) Authoring e3 packages with @elaraai/e3 (e3.input, e3.task, e3.customTask, e3.function, e3.ui, e3.package, e3.export), (2) Bounded-memory dataflow over huge collection datasets (e3.partitionTask, e3.streamTask), (3) Running e3 CLI commands (e3 repo, e3 workspace, e3 package, e3 dataset, e3 task, e3 dataflow run, e3 call, e3 watch, e3 auth), (4) Working with workspaces and packages, (5) Content-addressable caching and reactive dataflow execution, (6) Calling functions authored in python, or in another node package, from a task (East.importFunction — a workspace member is exported and linked by e3.export itself; { functions } / --functions for one built elsewhere)."
 ---
 
 # East Execution Engine (e3)
 
 e3 is a durable dataflow execution engine for East programs with content-addressable caching. It is the platform's **Compute** layer — and East + e3 solutions are decision-oriented: a dataflow exists to put auditable evidence behind a business decision, not to move data for its own sake.
+
+## Before writing code — search the example index
+
+Every East API has a tested example in the plugin's index — the index IS the
+API reference, printed from each example's IR in TypeScript or python. Before
+writing or changing East code:
+
+1. Call `mcp__plugin_east_east__search_east_examples` for each capability you
+   are about to use — `language: "python"` for east-py, `"typescript"`
+   otherwise. Summaries come back first: id, signature, the inputs and the
+   expected result, a few hundred bytes each.
+2. Fetch the one or two that match with `mcp__plugin_east_east__get_east_example`
+   and pattern your code on them.
+3. Do not read `node_modules/@elaraai/**` or `*.examples.ts` files wholesale,
+   and do not reason from `.d.ts` signatures: the index holds the same
+   programs, exact and far cheaper, and the signatures omit the runtime rules
+   that make East code correct.
+
+Nothing is injected for you; the search is the step.
 
 ## Quick Start
 
@@ -64,7 +83,9 @@ Task → What do you need?
 │   ├─ Named function (RPC) → e3.function(name, fn, config?)
 │   ├─ Chain task outputs   → secondTask([firstTask.output], ...)
 │   ├─ Bundle               → e3.package(name, version, ...items)
-│   └─ Export to zip        → e3.export(pkg, zipPath)
+│   ├─ Export to zip        → e3.export(pkg, zipPath, { functions? })
+│   └─ Call a fn authored in python, or in another node package → East.importFunction(pkg, name, FunctionType) in the task body — a package of the
+│       uv or npm workspace is exported and linked by e3.export itself (no manual step); { functions } / --functions only for a manifest built elsewhere
 │
 ├─ Repository
 │   ├─ Create               → e3 repo create <repo>
@@ -80,7 +101,7 @@ Task → What do you need?
 │
 ├─ Workspace
 │   ├─ Deploy (import+create+deploy) → e3 workspace deploy <repo> <ws> --from-zip <zip>
-│   ├─ Deploy from TS source         → e3 workspace deploy <repo> <ws> --from-source <src.ts>
+│   ├─ Deploy from TS source         → e3 workspace deploy <repo> <ws> --from-source <src.ts> [--functions <manifest…>]
 │   ├─ Deploy already-imported pkg   → e3 workspace deploy <repo> <ws> <pkg>[@<ver>]
 │   ├─ List workspaces               → e3 workspace list <repo>
 │   ├─ Inspect                       → e3 workspace status <repo> <ws>
@@ -218,6 +239,78 @@ byte-match between the East declaration and the implementation. To AUTHOR the
 implementation and wire it (the `./platform` export, the Python package, the
 `--platform` scaffold), see the **east-project** skill (and **east** for
 `East.platform(...).implement(...)`, **east-py** for `@platform_function`).
+
+#### Calling a function authored in python (or another package) — `East.importFunction`
+
+When the logic is East-expressible but written in python (with east-py's
+`East.function`) — or in another node package of the project — do not wrap it
+as a platform function: import it. The task refers to the function by package
+and name with its declared type; at `e3.export` the reference is resolved and
+the function's IR is embedded, so the deployed task is pure IR that runs on
+any runner — no python at run time, no runner, platform or environment to
+declare. The reference is all you write: a package of the project's uv
+workspace is found the way a `{ custom }` platform is (by name, in the
+governing `uv.lock`), its root module's `east_functions` exported in its own
+environment (`east-py export-functions`, run from the project's `.venv` or
+`east-py` on PATH — `EAST_PY` names it outright) and linked, per export; a
+package of the npm workspace is found in the governing lockfile by its
+`package.json` name, and the `eastFunctions` of its BUILT `./functions` export
+exported with `east-node export-functions` (the project's own
+`@elaraai/east-node-cli`, else PATH — `EAST_NODE` names it outright). Only
+the functions a task imports are exported, with the providers of that task's
+runner: a sibling function's platform call never fails a task that does not
+use it, and two tasks on different runners each link their own export.
+
+```python
+# packages/pricing/src/pricing/__init__.py — the package's root module
+from east import East, FloatType, IntegerType, StringType, StructType
+Row = StructType([("sku", StringType), ("qty", IntegerType), ("price", FloatType)])
+score = East.function([Row], FloatType, lambda b, r: r.qty.to_float() * r.price)
+east_functions = {"score": score}
+```
+
+```typescript
+import { East, FunctionType, FloatType, ArrayType } from '@elaraai/east';
+
+const score = East.importFunction('pricing', 'score', FunctionType([RowType], FloatType));
+const total = e3.task('total', [rows],
+  East.function([ArrayType(RowType)], FloatType, ($, rs) => rs.map(($, r) => score(r)).sum()));
+
+await e3.export(pkg, '/tmp/app.zip');          // finds `pricing`, exports it, links
+// e3 workspace deploy . dev --from-source src/index.ts
+```
+
+```typescript
+// packages/node/api/src/functions.ts — the member's "./functions" export (built: dist/functions.js)
+export const scale = East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType),
+  ($, values, factor) => values.map(($, v) => v.multiply(factor)));
+export const eastFunctions = { scale };
+
+// the app: the member's npm name, the function, its exact type — no runner, no environment
+const scale = East.importFunction('@shop/api', 'scale', FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)));
+const scaled = e3.task('scaled', [series, factor],
+  East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType), ($, s, f) => scale(s, f)));
+```
+
+A package built elsewhere — published, or another repo — is passed as its
+manifest instead: `east-py export-functions pricing -o pricing.functions.beast2
+-p east-py-std` (`east-node export-functions dist/functions.js -o
+api.functions.beast2 -p @elaraai/east-node-std`) where it lives, then
+`{ functions: ['./pricing.functions.beast2'] }` / `--functions`; an explicit
+manifest wins for its package. A referenced package that is neither is an
+export error naming the import. A `create-e3` package scaffold ships both
+crossings per python and node member — the platform function and an East
+function the app imports this way (the **e3-create** skill).
+
+The declared type must equal the exported type exactly (a mismatch fails the
+export naming both). The imported function's platform calls are checked
+against the task's runner: the manifest names the package providing each
+(derived from the task's runner when e3 exports the package itself, `-p`
+when you do), and the runner must list it — by name, or a stock package of
+the same family (`east-py-std` ≡ `@elaraai/east-node-std` ≡ `east-c-std`,
+`east-py-io` ≡ `@elaraai/east-node-io`). The other direction — a TypeScript
+function for python — is `east-node export-functions` / `East.exportFunctions`
+(see **east**); the contract is `docs/conventions/EAST_CODEGEN.md` §6.
 
 #### Execution environments — auto-derived from the platform reference
 
@@ -481,12 +574,18 @@ Bundle into a package. Dependencies are collected automatically.
 const pkg = e3.package('myapp', '1.0.0', finalTask);
 ```
 
-### e3.export(pkg, zipPath)
+### e3.export(pkg, zipPath, options?)
 
-Export package to a .zip file.
+Export package to a .zip file. Every `East.importFunction` in the package's
+tasks, functions and mutations is resolved and embedded as pure IR after an
+exact type check and a runner check of its platform dependencies: a package
+of the uv or npm workspace is exported by the export itself (#652);
+`options.functions` lists manifests (paths, or decoded values) for packages
+built elsewhere, and wins for its package.
 
 ```typescript
 await e3.export(pkg, '/tmp/myapp.zip');
+await e3.export(pkg, '/tmp/myapp.zip', { functions: ['./pricing.functions.beast2'] });
 ```
 
 ## CLI Reference
@@ -520,6 +619,7 @@ e3 workspace create <repo> <name>                     # Create workspace
 e3 workspace deploy <repo> <ws> <pkg>[@<ver>]         # Deploy an imported package
 e3 workspace deploy <repo> <ws> --from-zip <zip>      # Import + create + deploy in one shot
 e3 workspace deploy <repo> <ws> --from-source <src.ts> # Bundle TS source + import + create + deploy
+e3 workspace deploy <repo> <ws> --from-source <src.ts> --functions <manifest…>  # … plus manifests of imported packages built elsewhere (workspace ones resolve themselves)
 e3 workspace export <repo> <ws> <zipPath>             # Export workspace as a package
 e3 workspace list <repo>                              # List workspaces
 e3 workspace status <repo> <ws>                       # Detailed status (tasks, datasets, locks)
@@ -610,7 +710,7 @@ Calls are graph-free: no datasets read or written, repository unchanged.
 ### Watch
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [--abort-on-change]   # source file first
+e3 watch <source.ts> <repo> <ws> [--start] [--abort-on-change] [--functions <manifest…>]   # source file first
 ```
 
 ### Utilities

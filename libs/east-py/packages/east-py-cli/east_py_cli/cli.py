@@ -23,6 +23,46 @@ def create_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    # transpile command (#627): IR file -> python builder source
+    transpile_parser = subparsers.add_parser(
+        "transpile",
+        help="Print an East IR program as python East.function builder source",
+    )
+    transpile_parser.add_argument(
+        "ir_file", type=Path, help="Path to IR file (.beast2, .beast, .east, or .json)")
+    transpile_parser.add_argument(
+        "-o", "--output", type=Path, metavar="FILE",
+        help="Write the python module here (default: stdout)")
+    transpile_parser.add_argument(
+        "--name", default="main", metavar="NAME",
+        help="The module-level name bound to the rebuilt function (default: main)")
+
+    # export-functions command (#628): a module's `east_functions` -> manifest
+    export_parser = subparsers.add_parser(
+        "export-functions",
+        help="Write a package's East functions (its `east_functions` dict) as a "
+        "function manifest other packages — in python or TypeScript — import",
+    )
+    export_parser.add_argument(
+        "module", help="The module declaring `east_functions` (a dotted name, or a .py path)")
+    export_parser.add_argument(
+        "-o", "--output", type=Path, required=True, metavar="FILE",
+        help="The manifest to write (.beast2)")
+    export_parser.add_argument(
+        "-p", "--package", action="append", default=[], metavar="PACKAGE",
+        help="Platform package implementing the functions' platform calls (can be repeated); "
+        "each platform dependency must be provided by one of them")
+    export_parser.add_argument(
+        "--name", metavar="NAME",
+        help="The package name importers use (default: the module's top-level name)")
+    export_parser.add_argument(
+        "--package-version", metavar="VERSION",
+        help="The package version recorded in the manifest (default: the installed "
+        "distribution's version, else 0.0.0)")
+    export_parser.add_argument(
+        "--only", action="append", default=[], metavar="NAME",
+        help="Export only this function of `east_functions` (can be repeated; default: all)")
+
     # run command
     run_parser = subparsers.add_parser("run", help="Run an East IR program")
     run_parser.add_argument(
@@ -103,6 +143,34 @@ def create_parser() -> argparse.ArgumentParser:
     )
     convert_parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose output"
+    )
+
+    # lint command (#638): the East rules over python files
+    lint_parser = subparsers.add_parser(
+        "lint",
+        help="Diagnose the East bodies in python files — the build's refusals at edit time",
+    )
+    lint_parser.add_argument(
+        "paths", nargs="*", type=Path, help="Files or directories to diagnose (default: .)")
+    lint_parser.add_argument(
+        "--format", choices=("text", "json"), default="text",
+        help="text: one `file:line:col: category [rule] message` line per finding (default); "
+        "json: the findings as records")
+    lint_parser.add_argument(
+        "--disable", action="append", default=[], metavar="RULE",
+        help="Skip a rule by name (can be repeated)")
+    lint_parser.add_argument(
+        "--exclude", action="append", default=[], metavar="DIR",
+        help="A directory name to skip when walking (can be repeated; .venv, node_modules, "
+        "build, tests, … are always skipped)")
+    lint_parser.add_argument(
+        "--list-rules", action="store_true", help="List the rules and exit")
+
+    # lsp command (#638): the same diagnostics for an editor
+    subparsers.add_parser(
+        "lsp",
+        help="Serve the East diagnostics as a Language Server over stdio (needs pygls: "
+        "pip install 'elaraai-east-py-cli[lsp]')",
     )
 
     # version command
@@ -298,12 +366,180 @@ def cmd_version(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_transpile(args: argparse.Namespace) -> None:
+    """``east-py transpile``: print an IR file as python builder source.
+
+    The output module rebuilds the same IR through the ``East.function``
+    statement surface (``east.codegen.to_python_source``); every node kind
+    has a spelling, builtins without a named python spelling print through
+    the raw ``East.builtin(...)`` form.
+    """
+    from east.codegen import Unprintable, to_python_source
+
+    from east_py_cli.loader import load_ir
+
+    try:
+        ir = load_ir(args.ir_file)
+        source = to_python_source(ir, name=args.name)
+    except (ValueError, TypeError, Unprintable, FileNotFoundError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    if args.output is not None:
+        args.output.write_text(source, encoding="utf-8")
+    else:
+        sys.stdout.write(source)
+
+
+def cmd_export_functions(args: argparse.Namespace) -> int:
+    """``east-py export-functions``: write a module's ``east_functions`` as a
+    function manifest (#628).
+
+    The module is imported (a dotted name, or a ``.py`` path) and its
+    ``east_functions`` dict — name → ``East.function`` artifact — becomes
+    the manifest ``East.export_functions`` builds: each function's IR,
+    declared type and platform dependencies. Every platform dependency must
+    be implemented by one of the ``-p`` packages, which is recorded as its
+    provider; a dependency no package provides is an error naming it, so an
+    importer's runner can be checked at its own build. ``--only`` narrows
+    the export to the named functions — what an importer actually uses — so
+    a sibling function's platform call never fails an export that does not
+    need it.
+    """
+    import importlib
+    import importlib.metadata
+    import importlib.util
+
+    from east import East
+
+    try:
+        spec_name = args.module
+        if spec_name.endswith(".py"):
+            path = Path(spec_name)
+            spec = importlib.util.spec_from_file_location(path.stem, path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"cannot load {path}")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            top = path.stem
+        else:
+            module = importlib.import_module(spec_name)
+            top = spec_name.split(".")[0]
+        functions = getattr(module, "east_functions", None)
+        if not isinstance(functions, dict):
+            raise ValueError(
+                f"{args.module} declares no `east_functions` dict (name -> East.function artifact)")
+        if args.only:
+            missing = [name for name in args.only if name not in functions]
+            if missing:
+                plural = "" if len(missing) == 1 else "s"
+                raise ValueError(
+                    f"{args.module} exports no function{plural} {', '.join(missing)} — its "
+                    f"east_functions are {', '.join(functions) or '(none)'}")
+            functions = {name: functions[name] for name in args.only}
+
+        providers: dict[str, str] = {}
+        for package in args.package:
+            for fn in load_platform(package):
+                providers.setdefault(fn["name"], package)
+        missing = sorted({
+            dep["name"]
+            for artifact in functions.values()
+            for dep in East.platform_dependencies(artifact)
+            if dep["name"] not in providers
+        })
+        if missing:
+            raise ValueError(
+                "platform function(s) no -p package provides: " + ", ".join(missing)
+                + " — pass the implementing package with -p")
+
+        version = args.package_version
+        if version is None:
+            try:
+                version = importlib.metadata.version(top.replace("_", "-"))
+            except importlib.metadata.PackageNotFoundError:
+                version = "0.0.0"
+        manifest = East.export_functions(args.name or top, version, functions, providers=providers)
+        args.output.write_bytes(East.encode_function_manifest(manifest))
+        print(f"Exported {len(functions)} function(s) of {args.name or top}@{version} to {args.output}",
+              file=sys.stderr)
+        return 0
+    except (ImportError, ValueError, TypeError, OSError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_lint(args: argparse.Namespace) -> int:
+    """``east-py lint``: the East diagnostics (#638) over files and directories.
+
+    Every ``.py`` file that imports ``east`` is read by the rules
+    (``east.diagnostics``); each finding prints as one ruff-like line, or as
+    a JSON record with ``--format json``. The exit code is 1 when there is
+    any finding (a warning included — the gate is the same as ruff's), 0
+    when the tree is clean, 2 for a usage error.
+    """
+    import json
+
+    from east.diagnostics import ALL_RULES, DEFAULT_EXCLUDES, RULES_BY_NAME, lint_paths
+
+    if args.list_rules:
+        for rule in ALL_RULES:
+            print(f"EAS{rule.code:03d}  {rule.name:<30} {rule.category:<8} {rule.description}")
+        return 0
+    unknown = [name for name in args.disable if name not in RULES_BY_NAME]
+    if unknown:
+        print(f"Error: unknown rule(s): {', '.join(unknown)} — see `east-py lint --list-rules`",
+              file=sys.stderr)
+        return 2
+    paths = list(args.paths) or [Path(".")]
+    missing = [str(p) for p in paths if not p.exists()]
+    if missing:
+        print(f"Error: no such file or directory: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    found = lint_paths(paths, disabled=args.disable, excludes=(*DEFAULT_EXCLUDES, *args.exclude))
+    count = sum(len(ds) for ds in found.values())
+    if args.format == "json":
+        records = [
+            {"path": path, "line": d.line, "column": d.column, "end_line": d.end_line,
+             "end_column": d.end_column, "rule": d.rule, "code": d.flake8_code,
+             "category": d.category, "message": d.message}
+            for path, ds in found.items() for d in ds
+        ]
+        print(json.dumps(records, indent=2))
+        return 1 if count else 0
+    for path, ds in found.items():
+        for d in ds:
+            print(d.format(path))
+    if count:
+        plural = "" if count == 1 else "s"
+        files = "" if len(found) == 1 else "s"
+        print(f"Found {count} diagnostic{plural} in {len(found)} file{files}.")
+        return 1
+    print("All clear.")
+    return 0
+
+
+def cmd_lsp(args: argparse.Namespace) -> int:
+    """``east-py lsp``: serve the diagnostics over the Language Server Protocol."""
+    del args
+    from east_py_cli.lsp import serve
+
+    return serve()
+
+
 def main() -> None:
     """Main entry point."""
     parser = create_parser()
     args = parser.parse_args()
 
-    if args.command == "run":
+    if args.command == "transpile":
+        cmd_transpile(args)
+    elif args.command == "lint":
+        sys.exit(cmd_lint(args))
+    elif args.command == "lsp":
+        sys.exit(cmd_lsp(args))
+    elif args.command == "export-functions":
+        sys.exit(cmd_export_functions(args))
+    elif args.command == "run":
         sys.exit(cmd_run(args))
     elif args.command == "convert":
         sys.exit(cmd_convert(args))

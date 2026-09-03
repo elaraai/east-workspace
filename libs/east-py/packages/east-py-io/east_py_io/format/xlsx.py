@@ -153,7 +153,7 @@ def xlsx_read_impl(blob: EastBlob, options: EastStruct) -> EastArray:
             row_data: EastArray = EastArray(
                 LiteralValueType, [convert_cell_to_east(cell.value, cell.data_type) for cell in row]
             )
-            result.append(row_data)
+            result.push_last(row_data)
 
         wb.close()
         return result
@@ -244,7 +244,7 @@ def xlsx_info_impl(blob: EastBlob) -> EastStruct:
         sheets: EastArray = EastArray(XlsxSheetInfoType, [])
         for sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
-            sheets.append(
+            sheets.push_last(
                 EastStruct(
                     {
                         "name": sheet_name,

@@ -1822,23 +1822,30 @@ var SPACE_OR_PUNCTUATION = /[\n\r\p{Z}\p{P}]+/u;
 
 // lib/search.ts
 async function buildSearchIndex(indexPath) {
+  return (await loadIndex(indexPath)).search;
+}
+async function loadIndex(indexPath) {
   const raw = await readFile(indexPath, "utf-8");
   const data = JSON.parse(raw);
   const miniSearch = new MiniSearch({
-    fields: ["keywordsText", "test", "suite", "source"],
-    storeFields: ["skill", "package", "suite", "test", "keywords", "imports", "source"],
+    idField: "id",
+    fields: ["keywordsText", "test", "builtinsText", "suite", "typesText", "code"],
+    storeFields: ["id", "skill", "package", "suite", "test", "keywords", "imports", "languages", "source", "ts", "python", "signature", "inputs", "returns", "builtins"],
     searchOptions: {
-      boost: { keywordsText: 3, test: 2, suite: 1.5, source: 1 },
+      boost: { keywordsText: 3, test: 2, builtinsText: 2, suite: 1.5, typesText: 1, code: 1 },
       fuzzy: 0.2,
       prefix: true
     }
   });
   const documents = data.entries.map((entry) => ({
     ...entry,
-    keywordsText: entry.keywords.join(" ")
+    keywordsText: entry.keywords.join(" "),
+    builtinsText: (entry.builtins ?? []).join(" "),
+    typesText: entry.signature ? [...entry.signature.inputs, entry.signature.output].join(" ") : "",
+    code: entry.source ?? entry.ts ?? ""
   }));
   miniSearch.addAll(documents);
-  return miniSearch;
+  return { search: miniSearch, packages: [...new Set(data.entries.map((e) => e.package))].sort() };
 }
 
 // lib/east-project.ts
@@ -1910,12 +1917,12 @@ function nearestTsconfig(fromDir) {
 }
 var BUNDLED = [
   ".build/hooks/session-start.js",
-  ".build/hooks/prompt-submit.js",
   ".build/hooks/subagent-start.js",
-  ".build/hooks/pre-agent.js",
   ".build/hooks/pre-write.js",
+  ".build/hooks/pre-read.js",
   ".build/hooks/diagnose.js",
   ".build/daemon/server.js",
+  ".build/daemon/lsp.js",
   ".build/mcp/server.js"
 ];
 async function checkPluginStatus(pluginRoot2, cwd2) {
@@ -1941,13 +1948,16 @@ async function checkPluginStatus(pluginRoot2, cwd2) {
   checks2.push(await check("Example search", async () => {
     const indexPath = join2(pluginRoot2, "index.json");
     const data = JSON.parse(readFileSync(indexPath, "utf8"));
-    const count = data.entries?.length ?? 0;
+    const entries = data.entries ?? [];
+    const programs = entries.filter((e) => e.ir !== void 0);
+    const python = programs.filter((e) => typeof e.python === "string").length;
     const index = await buildSearchIndex(indexPath);
     const hits = index.search("array map", { limit: 3 });
+    const ok = entries.length > 0 && hits.length > 0 && programs.length > 0 && python === programs.length;
     return {
       name: "Example search (index + MCP)",
-      status: count > 0 && hits.length > 0 ? "ok" : "warn",
-      detail: `${count} examples indexed; sample query \u2192 ${hits.length} hits`
+      status: ok ? "ok" : "warn",
+      detail: `${entries.length} examples indexed, ${programs.length} as IR (${python} with a python rendering); sample query \u2192 ${hits.length} hits`
     };
   }));
   checks2.push(await check("Skills", () => {

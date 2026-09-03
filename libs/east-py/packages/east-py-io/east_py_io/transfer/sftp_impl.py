@@ -203,7 +203,7 @@ async def sftp_list_impl(handle: str, remote_path: str) -> EastArray:
 
         entries: EastArray = EastArray(FileEntryType, [])
         async for entry in sftp.scandir(remote_path):
-            entries.append(
+            entries.push_last(
                 EastStruct(
                     {
                         "name": entry.filename,

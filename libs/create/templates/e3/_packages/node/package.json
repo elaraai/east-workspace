@@ -6,6 +6,7 @@
   "private": true,
   "exports": {
     "./platform": "./dist/platform.js",
+    "./functions": "./dist/functions.js",
     "./package.json": "./package.json"
   },
   "files": [

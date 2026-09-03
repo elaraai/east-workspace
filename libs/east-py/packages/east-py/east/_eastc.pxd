@@ -180,8 +180,14 @@ cdef extern from "east/values.h":
     ctypedef struct Beast2Pages:
         pass
 
+    # Reference-counted (east_source_map_new/retain/release, type_of_type.h):
+    # a compiled function holds one reference to the map it resolves loc_ids
+    # against, released by east_compiled_fn_free.
     ctypedef struct EastSourceMap:
-        pass
+        EastLocation **stacks
+        size_t *stack_counts
+        size_t num_stacks
+        int ref_count
 
     ctypedef struct EastCompiledFn:
         IRNode *ir
@@ -597,10 +603,15 @@ cdef extern from "east/compiler.h":
     void east_set_thread_context(PlatformRegistry *p, BuiltinRegistry *b)
     void east_get_thread_context(PlatformRegistry **out_p, BuiltinRegistry **out_b)
     void east_set_source_map(const EastSourceMap *sm)
-    void east_source_map_free(EastSourceMap *sm)
+    const EastSourceMap *east_get_source_map()
 
 
 # ─── type_of_type.h ─────────────────────────────────────────────────────
+
+cdef extern from "east/ir_normalize.h":
+    EastValue *east_ir_normalize(EastValue *ir)
+    char *east_value_diff_path(EastValue *a, EastValue *b)
+
 
 cdef extern from "east/type_of_type.h":
     # Type descriptors (initialized by east_type_of_type_init)
@@ -613,3 +624,9 @@ cdef extern from "east/type_of_type.h":
     IRNode *east_ir_from_value(EastValue *value)
     EastValue *east_type_to_value(EastType *type)
     EastType *east_type_from_value(EastValue *value)
+
+    # Source maps: a fresh heap map holds one reference (the caller's); every
+    # holder retains, the last release frees contents + struct. NULL-safe.
+    EastSourceMap *east_source_map_new()
+    void east_source_map_retain(EastSourceMap *sm)
+    void east_source_map_release(EastSourceMap *sm)

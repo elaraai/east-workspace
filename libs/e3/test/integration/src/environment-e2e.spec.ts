@@ -42,11 +42,11 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
-import { East, IntegerType, FloatType, ArrayType } from '@elaraai/east';
+import { East, IntegerType, FloatType, ArrayType, FunctionType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
 import { ensureLocalStack, injectLocalNpmRegistry, injectLocalPythonIndex, localStackUnavailable, stopLocalStack } from './localStack.js';
@@ -57,6 +57,7 @@ const TEMPLATE_DIR = join(WORKSPACE_LIBS, 'create', 'templates', 'e3');
 // without libs/create — CI builds scaffold-core before running these suites,
 // and a local run without it skips with a pointer.
 const SCAFFOLD_CORE_DIST = join(WORKSPACE_LIBS, 'create', 'packages', 'scaffold-core', 'dist', 'index.js');
+const EAST_NODE_STD = join(WORKSPACE_LIBS, 'east-node', 'packages', 'east-node-std');
 const hasScaffoldCore = existsSync(SCAFFOLD_CORE_DIST);
 const SKIP_NO_SCAFFOLD = 'scaffold-core not built — run `pnpm -r build` in libs/create first';
 
@@ -164,9 +165,25 @@ async function scaffoldMultiPackageProject(
   return result.projectDir;
 }
 
-/** Import zip into a fresh repo, deploy, run the dataflow, return a dataset value. */
+/**
+ * A directory whose `node_modules` holds this tree's stdlib, to run the e3 CLI
+ * from: a task on the DEFAULT runner (east-node + `@elaraai/east-node-std`)
+ * resolves the stdlib through the runner search dirs e3 derives from its own
+ * cwd — the project root, in a user's project. Here the project is deleted
+ * before the run, so the CLI runs from this stand-in (as `verbose.spec.ts`
+ * builds one for the runner directly).
+ */
+function stdlibSearchDir(testDir: string): string {
+  const searchDir = join(testDir, 'search');
+  const nm = join(searchDir, 'node_modules', '@elaraai');
+  mkdirSync(nm, { recursive: true });
+  symlinkSync(EAST_NODE_STD, join(nm, 'east-node-std'), 'junction');   // a junction needs no privilege on Windows; a directory link elsewhere
+  return searchDir;
+}
+
+/** Import zip into a fresh repo, deploy, run the dataflow (the e3 CLI in `cwd`), return a dataset value. */
 async function importDeployRun(
-  testDir: string, zipPath: string, pkgRef: string, outputPath: string,
+  testDir: string, zipPath: string, pkgRef: string, outputPath: string, cwd: string = testDir,
 ): Promise<string> {
   const repoDir = join(testDir, 'repo');
   const steps: string[][] = [
@@ -177,7 +194,7 @@ async function importDeployRun(
     ['dataflow', 'run', repoDir, 'ws'],
   ];
   for (const args of steps) {
-    const result = await runE3Command(args, testDir);
+    const result = await runE3Command(args, cwd);
     assert.strictEqual(result.exitCode, 0,
       `e3 ${args.join(' ')} failed:\n${result.stderr}\n${result.stdout}`);
   }
@@ -283,6 +300,10 @@ describe('execution environments e2e — scaffolded node platform travels with t
 
 describe('execution environments e2e — python multi-package scaffold, AUTO-derived environments', () => {
   const hasUv = toolAvailable('uv', ['--version']);
+  // The scaffolded member's East functions are exported by e3 with the
+  // project's east-py — the nearest `.venv`, else PATH (`EAST_PY` names it).
+  // The project here is locked, not synced, so PATH is what serves.
+  const hasEastPy = toolAvailable(process.env['EAST_PY'] || 'east-py', ['--help']);
   let testDir: string;
   let projectDir: string;
 
@@ -301,8 +322,8 @@ describe('execution environments e2e — python multi-package scaffold, AUTO-der
     if (testDir) removeTestDir(testDir);
   });
 
-  it('derives a task env from its { custom } platform reference (NO environment field) and runs after the project is deleted',
-    { skip: (!hasUv && 'uv not on PATH') || (!stack && localStackUnavailable()) || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
+  it('derives a task env from its { custom } platform reference (NO environment field), embeds the member\'s East function, and runs after the project is deleted',
+    { skip: (!hasUv && 'uv not on PATH') || (!hasEastPy && 'east-py not on PATH (EAST_PY names it)') || (!stack && localStackUnavailable()) || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       // Mirror of the scaffolded packages/python/pricing/src/pricing/example.py:
       //   @platform_function(name="pricing.example", inputs=[ArrayType(FloatType)], output=FloatType)
       const pricing = East.platform('pricing.example', [ArrayType(FloatType)], FloatType);
@@ -312,7 +333,17 @@ describe('execution environments e2e — python multi-package scaffold, AUTO-der
       const priced = e3.task('priced', [priceValues],
         East.function([ArrayType(FloatType)], FloatType, (_$, v) => pricing(v)),
         { runner: { runtime: 'east-py', platforms: [{ custom: 'pricing' }, 'east-py-std'] } });
-      const pkg = e3.package('shop', '1.0.0', priced);
+      // The other way across the boundary — the scaffolded
+      // packages/python/pricing/src/pricing/functions.py, an East function
+      // authored in python and listed in the root module's `east_functions`:
+      // imported by package + name + type, NO runner, platform or environment.
+      // e3 finds `pricing` in the uv workspace at export, exports it (east-py
+      // export-functions) and embeds the IR; the DEFAULT runner executes it.
+      const scale = East.importFunction('pricing', 'scale', FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)));
+      const factor = e3.input('price_factor', FloatType, 2.0);
+      const scaled = e3.task('scaled', [priceValues, factor],
+        East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType), (_$, v, f) => scale(v, f)));
+      const pkg = e3.package('shop', '1.0.0', priced, scaled);
 
       const zipPath = join(testDir, 'shop.zip');
       // Auto-derivation resolves the workspace from the process cwd (the e3 CLI
@@ -329,8 +360,11 @@ describe('execution environments e2e — python multi-package scaffold, AUTO-der
       rmSync(projectDir, { recursive: true, force: true });
       assert.ok(!existsSync(projectDir));
 
-      const output = await importDeployRun(testDir, zipPath, 'shop@1.0.0', 'priced');
+      const output = await importDeployRun(testDir, zipPath, 'shop@1.0.0', 'priced', stdlibSearchDir(testDir));
       assert.match(output, /4(\.0*)?/, `expected mean of [2,4,6] = 4, got: ${output}`);
+      const scaledOut = await runE3Command(['dataset', 'get', join(testDir, 'repo'), 'ws.scaled'], testDir);
+      assert.strictEqual(scaledOut.exitCode, 0, `dataset get failed:\n${scaledOut.stderr}`);
+      assert.match(scaledOut.stdout, /4[\s\S]*8[\s\S]*12/, `expected [2,4,6] scaled by 2 = [4,8,12], got: ${scaledOut.stdout}`);
     });
 });
 
@@ -355,7 +389,7 @@ describe('execution environments e2e — node multi-package scaffold, AUTO-deriv
     if (testDir) removeTestDir(testDir);
   });
 
-  it('derives a node task env from its { custom } platform reference (NO environment field) and runs after the project is deleted',
+  it('derives a node task env from its { custom } platform reference (NO environment field), embeds the member\'s East function, and runs after the project is deleted',
     { skip: (!hasNpm && 'npm not on PATH') || (!stack && localStackUnavailable()) || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       // Mirror of packages/node/api/src/platform.ts: api.example = ceil(value * factor)
       const api = East.platform('api.example', [IntegerType, FloatType], IntegerType);
@@ -366,7 +400,18 @@ describe('execution environments e2e — node multi-package scaffold, AUTO-deriv
       const apiScaled = e3.task('api_scaled', [value, factor],
         East.function([IntegerType, FloatType], IntegerType, (_$, v, f) => api(v, f)),
         { runner: { runtime: 'east-node', platforms: [{ custom: '@shop/api' }] } });
-      const pkg = e3.package('shop', '1.0.0', apiScaled);
+      // The other way across the boundary — the scaffolded
+      // packages/node/api/src/functions.ts, listed in its `eastFunctions` and
+      // exported as the member's `./functions` entry (built above): imported
+      // by the member's npm name + function + type, NO runner, platform or
+      // environment. e3 finds `@shop/api` in the npm workspace at export,
+      // exports it with the project's east-node (east-node export-functions)
+      // and embeds the IR; the DEFAULT runner executes it.
+      const scale = East.importFunction('@shop/api', 'scale', FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)));
+      const series = e3.input('api_series', ArrayType(FloatType), [1.0, 2.0, 3.0]);
+      const apiScaledSeries = e3.task('api_scaled_series', [series, factor],
+        East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType), (_$, s, f) => scale(s, f)));
+      const pkg = e3.package('shop', '1.0.0', apiScaled, apiScaledSeries);
 
       const zipPath = join(testDir, 'shop-node.zip');
       const prevCwd = process.cwd();
@@ -380,8 +425,11 @@ describe('execution environments e2e — node multi-package scaffold, AUTO-deriv
       rmSync(projectDir, { recursive: true, force: true });
       assert.ok(!existsSync(projectDir));
 
-      const output = await importDeployRun(testDir, zipPath, 'shop@1.0.0', 'api_scaled');
+      const output = await importDeployRun(testDir, zipPath, 'shop@1.0.0', 'api_scaled', stdlibSearchDir(testDir));
       assert.match(output, /42/, `expected ceil(21 * 2.0) = 42, got: ${output}`);
+      const seriesOut = await runE3Command(['dataset', 'get', join(testDir, 'repo'), 'ws.api_scaled_series'], testDir);
+      assert.strictEqual(seriesOut.exitCode, 0, `dataset get failed:\n${seriesOut.stderr}`);
+      assert.match(seriesOut.stdout, /2[\s\S]*4[\s\S]*6/, `expected [1,2,3] scaled by 2 = [2,4,6], got: ${seriesOut.stdout}`);
     });
 });
 

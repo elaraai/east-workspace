@@ -12,7 +12,7 @@
 export CMAKE_GENERATOR := Ninja
 
 .PHONY: install install-cli test test-east-py test-east-py-std test-east-py-io test-east-py-datascience \
-        test-east-py-cli \
+        test-east-py-cli test-conformance \
         reinstall-east-py reinstall-east-py-std reinstall-east-py-io reinstall-east-py-datascience build-deps \
         test-export lint lint-headers lint-headers-fix format typecheck check \
         vendor build-wheels clean build help
@@ -85,15 +85,23 @@ test-export:
 QUIET_FLAG = $(if $(EAST_QUIET),-q)
 
 # The compliance script runs the corpus with per-file subprocess isolation;
-# the pytest sweep is the WHOLE tests/ tree — kernel/tracer suites, the
-# eager-replay differential and its ratchets included (#531: these were
-# dormant while only tests/serialization ran).
+# the pytest sweep is the WHOLE tests/ tree — the expression-builder suites,
+# the eager-replay differential and its ratchets, the conformance round trip
+# (#531: these were dormant while only tests/serialization ran).
 test-east-py:
 	uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py $(QUIET_FLAG)
 	cd packages/east-py && uv run pytest tests -q --no-cov
 
 test-east-py-cli:
 	cd packages/east-py-cli && uv run pytest tests -q --no-cov
+
+## The IR -> python codegen conformance round trip (#627): every exported
+## compliance-corpus program and every *.examples.ts example prints as python,
+## rebuilds, and normalizes equal (needs /tmp/east-test-ir from `make
+## test-export` in libs/east; exports the examples IR itself).
+test-conformance:
+	@cd ../east && npm run export:examples
+	cd packages/east-py && uv run pytest tests/conformance -q --no-cov
 
 test-east-py-std:
 	uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-std -p east_py_std $(QUIET_FLAG)
@@ -118,9 +126,13 @@ test:
 
 # ── Code Quality ─────────────────────────────────────────────────────
 
-## Run linter
+## Run linter: ruff, then the East rules (#638) over every package's own
+## East bodies — the build's refusals at edit time, as an editor sees them.
+EAST_LINT_PATHS = packages/east-py/east packages/east-py-std packages/east-py-io \
+	packages/east-py-cli/east_py_cli packages/east-py-datascience/src
 lint: lint-headers
 	uv run ruff check packages/
+	uv run east-py lint $(EAST_LINT_PATHS)
 	cd packages/east-py-datascience && pnpm run lint
 
 ## Check license headers (fails if any files need updating)
@@ -214,13 +226,14 @@ help:
 	@echo ""
 	@echo "  test              - Run all tests"
 	@echo "  test-east-py      - Run east-py compliance tests"
-	@echo "  test-east-py-cli  - Run east-py-cli tests (runner --emit/--stream)"
+	@echo "  test-east-py-cli  - Run east-py-cli tests (runner --emit/--stream, transpile)"
+	@echo "  test-conformance  - IR -> python -> IR round trip over the corpus + examples (#627)"
 	@echo "  test-east-py-std  - Run east-py-std tests"
 	@echo "  test-east-py-io   - Run east-py-io tests"
 	@echo "  test-east-py-datascience - Run east-py-datascience tests"
 	@echo "  test-export       - Export test IR from TypeScript packages"
 	@echo ""
-	@echo "  lint              - Run linter (includes license header check)"
+	@echo "  lint              - Run linter (license headers, ruff, east-py lint over the East bodies)"
 	@echo "  lint-headers      - Check license headers only"
 	@echo "  lint-headers-fix  - Add missing license headers"
 	@echo "  format            - Format code"

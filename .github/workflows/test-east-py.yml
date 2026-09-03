@@ -42,12 +42,20 @@ jobs:
       - name: Export IR (east + east-node-std + east-py-datascience)
         run: |
           pnpm --filter @elaraai/east run test:export
+          pnpm --filter @elaraai/east run export:examples
           pnpm --filter @elaraai/east-node-std run test:export
           pnpm --filter @elaraai/east-py-datascience run test:export
       - uses: actions/upload-artifact@v4
         with:
           name: ir-east
           path: /tmp/east-test-ir/
+          if-no-files-found: error
+      # Every *.examples.ts example as IR + inputs + returns — the examples leg
+      # of the IR → python → IR conformance round trip (#627).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-examples
+          path: /tmp/east-examples-ir/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
@@ -103,6 +111,14 @@ jobs:
           name: ir-east
           path: ir-east
 
+      # Every *.examples.ts example as IR + inputs + returns — the examples leg
+      # of the IR → python → IR conformance round trip (#627).
+      - name: Download examples IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-examples
+          path: ir-examples
+
       # Build east-py's native Cython extension (links east-c in-process via
       # scikit-build-core). Replicates `make install`'s no-build-isolation flow
       # directly so it runs without make on Windows runners.
@@ -118,15 +134,25 @@ jobs:
         working-directory: libs/east-py
         run: uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py --ir-dir "$GITHUB_WORKSPACE/ir-east"
 
-      # The WHOLE tests/ tree — kernel/tracer suites, the eager-replay
-      # differential and its ratchets included (#531: these were dormant
-      # while only tests/serialization ran). The exported IR is staged into
-      # the temp dir the corpus-driven suites read (python's gettempdir, so
-      # the path agrees with the MSYS-rewritten one on Windows).
+      # The WHOLE tests/ tree — the expression-builder suites, the eager-replay
+      # differential and its ratchets (#531: these were dormant while only
+      # tests/serialization ran), and tests/conformance: the IR → python → IR
+      # round trip over every corpus program (rebuilt, normalized equal, and
+      # its compliance run compared with the original's) and every exported
+      # example (#627). EAST_CONFORMANCE_REQUIRED=1 makes a missing IR
+      # directory a failure rather than a skip — the conformance legs used to
+      # skip silently wherever the temp dir did not match their default path,
+      # which is every OS but Linux. The exported corpus is staged into the
+      # temp dir the compliance-driven suites read (python's gettempdir, so the
+      # path agrees with the MSYS-rewritten one on Windows); the conformance
+      # legs read the downloaded artifacts directly.
       - name: Run east-py tests (full pytest sweep)
         working-directory: libs/east-py/packages/east-py
         env:
           IR_SRC: ${{ github.workspace }}/ir-east
+          EAST_TEST_IR_DIR: ${{ github.workspace }}/ir-east
+          EAST_EXAMPLES_IR_DIR: ${{ github.workspace }}/ir-examples
+          EAST_CONFORMANCE_REQUIRED: "1"
         run: |
           uv run python -c "import os, shutil, tempfile, pathlib; d = pathlib.Path(tempfile.gettempdir()) / 'east-test-ir'; d.mkdir(parents=True, exist_ok=True); [shutil.copy(p, d) for p in pathlib.Path(os.environ['IR_SRC']).glob('*.json')]"
           uv run pytest tests -q --no-cov
@@ -136,6 +162,83 @@ jobs:
       - name: Run east-py-cli tests
         working-directory: libs/east-py/packages/east-py-cli
         run: uv run pytest tests -q --no-cov
+
+      # The East rules (#638) over every package's own East bodies — the
+      # build's refusals at edit time — as `make lint` runs them.
+      - name: Lint the East bodies (east-py lint)
+        working-directory: libs/east-py
+        run: uv run east-py lint packages/east-py/east packages/east-py-std packages/east-py-io packages/east-py-cli/east_py_cli packages/east-py-datascience/src
+
+  # The three-way sweep (#628): IR (TS) → python → IR → TypeScript → IR over
+  # the corpus and every example — the python and TypeScript printers against
+  # the python and TypeScript builders, every leg equal under east-c's
+  # normalizer, and the final IR executed on east-c. It needs node (the
+  # east-node CLI's `transpile --rebuild` is the TypeScript leg) AND python
+  # (the printer, the builder, the normalizer), so it is one Linux job rather
+  # than a leg of the per-OS matrix. EAST_SWEEP_REQUIRED=1 makes a missing CLI
+  # a failure rather than the local skip. The cross-import test rides here
+  # too: TypeScript-authored functions exported by `east-node
+  # export-functions` and imported, linked and run from python.
+  three-way-sweep:
+    name: Three-way sweep (TS ↔ python)
+    needs: export-ir
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UV_PYTHON: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install Node.js dependencies
+        run: pnpm install
+
+      - name: Build east + east-node-cli (the transpile CLI and its dependencies)
+        run: pnpm --filter "@elaraai/east-node-cli..." run build
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install C build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Download east IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-east
+          path: ir-east
+
+      - name: Download examples IR
+        uses: actions/download-artifact@v4
+        with:
+          name: ir-examples
+          path: ir-examples
+
+      - name: Build east-py
+        working-directory: libs/east-py
+        run: |
+          uv venv
+          uv pip install scikit-build-core cython numpy setuptools ninja
+          uv sync --all-packages --no-build-isolation \
+            --reinstall-package elaraai-east-py --refresh-package elaraai-east-py
+
+      - name: Run the three-way sweep
+        working-directory: libs/east-py/packages/east-py
+        env:
+          EAST_TEST_IR_DIR: ${{ github.workspace }}/ir-east
+          EAST_EXAMPLES_IR_DIR: ${{ github.workspace }}/ir-examples
+          EAST_CONFORMANCE_REQUIRED: "1"
+          EAST_SWEEP_REQUIRED: "1"
+          EAST_NODE_CLI: ${{ github.workspace }}/libs/east-node/packages/east-node-cli/bin/east-node.mjs
+        run: uv run pytest tests/conformance/test_three_way_sweep.py tests/conformance/test_cross_import.py -q --no-cov
 
   test-east-py-std:
     name: Test east-py-std (${{ matrix.os }})

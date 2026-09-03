@@ -138,6 +138,39 @@ def test_foreign_ids_compare_by_alpha_equivalence():
     assert not is_type_equal(foreign, TreeType)
 
 
+def test_the_registry_looks_up_by_alpha_normal_structure():
+    """The canonical registry is a dict on the wrapper's alpha-normal key,
+    not a scan with a structural comparison per entry (#636): a foreign
+    wrapper of a known structure keys equal whatever id it carries, resolves
+    to the canonical, and adds nothing."""
+    from east.types import types as T
+
+    def entries():
+        return sum(len(bucket) for bucket in T._recursive_intern.values())
+
+    before = entries()
+    rec_id = LinkedType.value.value["id"]
+    for k in range(3):
+        foreign_id = rec_id + 500_000 + k
+        foreign = EastVariant("Recursive", EastVariant("wrapper", {
+            "id": foreign_id,
+            "inner": VariantType([
+                ("cons", StructType([
+                    ("head", IntegerType),
+                    ("tail", EastVariant("Recursive", EastVariant("ref", foreign_id))),
+                ])),
+                ("nil", NullType),
+            ]),
+        }))
+        assert T._alpha_key(foreign) == T._alpha_key(LinkedType)
+        assert T._intern_recursive_wrapper(foreign) is LinkedType
+    assert entries() == before
+    assert T._alpha_key(TreeType) != T._alpha_key(LinkedType)
+    # a ref names its binder by depth, so nesting depth is part of the key
+    assert T._alpha_key(LinkedType)[0] == "wrapper"
+    assert T._alpha_key(RecursiveTypeRef(9)) == ("free", 9)
+
+
 def test_subtype_unwraps_wrappers_and_compares_refs_by_id():
     assert is_subtype(LinkedType, LinkedType)
     assert is_subtype(LinkedType.value.value["inner"], LinkedType)

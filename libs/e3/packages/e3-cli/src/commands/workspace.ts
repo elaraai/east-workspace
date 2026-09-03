@@ -72,7 +72,7 @@ export const workspaceCommand = {
     repoArg: string,
     ws: string,
     pkgSpec: string | undefined,
-    options: { fromZip?: string; fromSource?: string; quiet?: boolean } = {},
+    options: { fromZip?: string; fromSource?: string; functions?: string[]; quiet?: boolean } = {},
   ): Promise<void> {
     try {
       const modes = [pkgSpec, options.fromZip, options.fromSource].filter(Boolean);
@@ -89,7 +89,7 @@ export const workspaceCommand = {
 
       // --from-source mode: bundle the TS source into a package, then import + deploy
       if (options.fromSource) {
-        await deployFromSource(location, ws, options.fromSource, progress);
+        await deployFromSource(location, ws, options.fromSource, progress, options.functions ?? []);
         return;
       }
 
@@ -472,6 +472,7 @@ async function deployFromSource(
   ws: string,
   sourceFile: string,
   progress: Progress,
+  functions: string[],
 ): Promise<void> {
   // Step-level progress (#311): compile and per-member capture are the
   // dominant, previously-silent costs of a multi-package deploy.
@@ -490,9 +491,12 @@ async function deployFromSource(
     const captureStep = progress.step('capturing package');
     try {
       await e3.export(pkg, tempZip, {
+        functions,
         onEvent: (e) => {
           if (e.kind === 'capture') {
             progress.phase(`captured ${e.member} (${e.tool}, ${formatBytes(e.bytes)})`);
+          } else if (e.kind === 'functions') {
+            progress.phase(`exported ${e.count} function(s) of ${e.package} (${e.tool})`);
           }
         },
       });

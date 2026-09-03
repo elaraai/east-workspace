@@ -13,7 +13,7 @@ East.py is a Python backend that enables East IR to be compiled and executed in 
 - **Full builtin library** - Array, Set, Dict, String, DateTime, Blob, Integer, Float operations, exposed eagerly
 - **Serialization** - East text format, JSON, and BEAST (Binary East) support
 - **DateTime formatting** - Custom datetime parsing and printing with format strings
-- **Platform integration** - Expose Python functions to East with the `@platform_function` decorator
+- **Platform integration** - Expose Python functions to East with the `@East.platform_function` decorator
 
 ## Using East values from Python
 
@@ -31,7 +31,7 @@ LineItem = StructType([("name", StringType), ("price", FloatType)])
 items = array(LineItem, [{"name": "a", "price": 1}, {"name": "b", "price": 2.0}])
 
 # Eager methods execute now and chain
-cheap = items.filter(lambda r: r["price"] < 2.0).sorted(key=lambda r: r["price"])
+cheap = items.filter(lambda b, r: r["price"] < 2.0).sort(lambda b, r: r["price"])
 
 # Primitive builtins live on the East.<Type> namespaces (you can't add methods
 # to Python's float/str/int) — they delegate to east-c too
@@ -39,24 +39,33 @@ East.Float.sqrt(2.0)
 East.String.upper_case("hi")
 East.less(StringType, "a", "b")
 
+# ... alongside the East standard library, name for name with TypeScript
+East.Integer.print_compact(1234567)        # "1.23M"
+East.Float.print_currency(1234.567)        # "$1,234.57"
+East.DateTime.round_down_week(dt, 1)       # the Monday on or before dt
+East.str("total: ", 3, " items")           # "total: 3 items"
+
 # Validate / coerce at a boundary; a mismatch raises a path-pinpointed EastTypeError
 coerce_to([1, 2, 3], VectorType(FloatType))   # -> Vector<Float>
 ```
 
 ### Platform functions
 
-Expose a Python function to East with the `@platform_function` decorator. It
-infers sync/async, validates the result against the declared output (a named
-`EastTypeError` instead of silent corruption), and auto-collects the function:
+Expose a Python function to East with the `@East.platform_function` decorator
+(`from east import platform_function` is the same object). It infers sync/async,
+validates the result against the declared output (a named `EastTypeError`
+instead of silent corruption), and auto-collects the function. An implementation
+is paired with the `East.platform(name, …)` declaration an East body calls **by
+name** — the `def`'s, or `name=`:
 
 ```python
-from east import platform_function, platform_functions, struct, FloatType, ArrayType
+from east import East, struct, FloatType, ArrayType
 
-@platform_function(inputs=[FloatType, ArrayType(LineItem)], output=ArrayType(LineItem))
+@East.platform_function(inputs=[FloatType, ArrayType(LineItem)], output=ArrayType(LineItem))
 def convert_prices(fx_rate, items):
-    return items.map(lambda r: struct({"name": r["name"], "price": r["price"] * fx_rate}, LineItem))
+    return items.map(lambda b, r: struct({"name": r["name"], "price": r["price"] * fx_rate}, LineItem))
 
-platform = platform_functions(__name__)   # pass to compile() to register
+platform = East.platform_functions(__name__)   # pass to East.compile(fn, platform=…)
 ```
 
 For NumPy/torch interop, `EastVector.data` / `EastMatrix.data` are the contiguous
@@ -207,12 +216,14 @@ runtime; this package is the Python type system plus a Cython bridge to it.
   - `construct.py` - Ergonomic constructors (`variant`/`some`/`none`/`match`/`struct`/`array`)
   - `type_of_type.py` - Homoiconic type encoding (types are East values)
 
-- `east/namespace.py` - The `East.<Type>` scalar builtin namespaces (Float/Integer/String/DateTime/Boolean + compare/equal/less)
+- `east/namespace.py` - The `East` object: the `East.<Type>` builtin namespaces (Float/Integer/String/DateTime/Boolean/Blob + Array/Set/Dict/Vector/Matrix constructors, compare/equal/less), the standard library attached to them, and the authoring entry points (`East.function`/`platform`/`compile`, `East.str`/`min`/`max`/`clamp`)
+- `east/expression/` - The strict expression builder: `expr/` — one `Expression` class per East type mirroring `libs/east/src/expr/*.ts` (the TypeScript method names, snake_cased), `libs/` — the standard library ported from `expr/libs/*.ts`, `statements.py` — the block (`b`, the `$` twin), `function.py` — `East.function`, `finalize.py` — trace-time CSE and the homoiconic IR
+- `east/codegen/` - IR → python: the printer and the builtin spelling table the eager compliance replay shares
 - `east/datetime_format.py` - Format-string tokenizer for the DateTime print/parse builtins
 
 - `east/runtime/` - Execution engine
   - `compiler.py` / `_compiler_eastc.pyx` - Bridge to east-c: compile IR, `east_call`, the eager `call_builtin` shim, and the Python-callback invoke hook
-  - `platform.py` - `PlatformFunction` + the `@platform_function` on-ramp
+  - `platform.py` - `PlatformFunction` + the `@East.platform_function` on-ramp
   - `errors.py` - `EastError`
 
 - `east/serialization/` - East text, JSON, BEAST2, CSV (thin wrappers over the east-c encoders/decoders)

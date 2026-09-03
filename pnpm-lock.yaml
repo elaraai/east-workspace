@@ -409,6 +409,9 @@ importers:
 
   libs/east-claude-plugin:
     dependencies:
+      '@elaraai/east':
+        specifier: workspace:*
+        version: link:../east
       '@elaraai/east-diagnostics':
         specifier: workspace:*
         version: link:../east-diagnostics

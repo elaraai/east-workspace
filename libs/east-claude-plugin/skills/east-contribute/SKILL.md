@@ -9,6 +9,25 @@ Drive a GitHub issue from `elaraai/east-workspace` to a **verified, convention-c
 
 You are a maintainer of a large, diverse, multi-language platform (TypeScript + Python + C). The dominant failure modes are: re-deriving a fix the issue already specifies, **duplicating a capability that already exists**, shipping East code that type-checks but breaks East idioms, and missing a CI gate (examples↔tests parity, regenerated plugin index, version drift). This skill exists to prevent those.
 
+## Before writing code — search the example index
+
+Every East API has a tested example in the plugin's index — the index IS the
+API reference, printed from each example's IR in TypeScript or python. Before
+writing or changing East code:
+
+1. Call `mcp__plugin_east_east__search_east_examples` for each capability you
+   are about to use — `language: "python"` for east-py, `"typescript"`
+   otherwise. Summaries come back first: id, signature, the inputs and the
+   expected result, a few hundred bytes each.
+2. Fetch the one or two that match with `mcp__plugin_east_east__get_east_example`
+   and pattern your code on them.
+3. Do not read `node_modules/@elaraai/**` or `*.examples.ts` files wholesale,
+   and do not reason from `.d.ts` signatures: the index holds the same
+   programs, exact and far cheaper, and the signatures omit the runtime rules
+   that make East code correct.
+
+Nothing is injected for you; the search is the step.
+
 ## When this skill vs others
 
 | Situation | Skill |
@@ -81,7 +100,7 @@ Heuristic: always `make build` the union; run a downstream lib's **tests** when 
 
 **Search order** (each step widens coverage past the previous step's blind spots):
 
-1. **Example index** (auto-generated, CI-enforced) — MCP tool `mcp__plugin_east_east__search_east_examples` (a.k.a. `search_east_examples`); try 2–3 keyword phrasings, optional `package` filter. Covers `east`, `east-node-std`, `east-node-io`, `east-py-datascience`, `east-ui`, `e3-ui` (+ a few hand-written `e3` stubs).
+1. **Example index** (auto-generated, CI-enforced) — MCP tool `mcp__plugin_east_east__search_east_examples` (a.k.a. `search_east_examples`); try 2–3 keyword phrasings, optional `package` filter, `language: "python"` for the east-py spelling (every core example is stored as IR and printed in either language), `get_east_example` for one in full. Covers `east`, `east-node-std`, `east-node-io`, `east-py-datascience`, `east-ui`, `e3-ui` (+ a few hand-written `e3` stubs).
 2. **Per-lib `SKILL.md` API tables** — the designated per-package API registry; catches APIs with no `example()` yet. `rg -i "<symbol>" libs/**/SKILL.md`. (For `e3`, the SKILL.md is more complete than the index.)
 3. **Export barrels + built `.d.ts`** (compiler truth — the ONLY step that reaches the index/SKILL blind-spot libs: `east-c`, `east-node-cli`, `e3-*` internals, `east-py-std/io`, dev-tooling):
    ```bash

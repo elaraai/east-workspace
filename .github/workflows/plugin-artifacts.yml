@@ -15,9 +15,11 @@ on:
       - 'libs/east-claude-plugin/hooks/**'
       - 'libs/east-claude-plugin/lib/**'
       - 'libs/east-claude-plugin/mcp/**'
-      - 'libs/east-claude-plugin/scripts/generate-index.ts'
+      - 'libs/east-claude-plugin/scripts/**'
       - 'libs/east-claude-plugin/index.config.json'
       - 'libs/east-claude-plugin/index.static.json'
+      - 'libs/east/src/codegen/**'
+      - 'libs/east-py/packages/east-py/east/codegen/**'
       - '.github/workflows/plugin-artifacts.yml'
   pull_request:
     branches: [main]
@@ -28,9 +30,11 @@ on:
       - 'libs/east-claude-plugin/hooks/**'
       - 'libs/east-claude-plugin/lib/**'
       - 'libs/east-claude-plugin/mcp/**'
-      - 'libs/east-claude-plugin/scripts/generate-index.ts'
+      - 'libs/east-claude-plugin/scripts/**'
       - 'libs/east-claude-plugin/index.config.json'
       - 'libs/east-claude-plugin/index.static.json'
+      - 'libs/east/src/codegen/**'
+      - 'libs/east-py/packages/east-py/east/codegen/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -60,6 +64,26 @@ jobs:
       - name: Build east-diagnostics (dependency)
         working-directory: libs/east-diagnostics
         run: make build
+
+      # The index stores every program example as its IR and both printings
+      # (#654): the generator imports the packages' BUILT example modules, and
+      # the python printing needs east-py.
+      - name: Build east-node (example modules)
+        working-directory: libs/east-node
+        run: make build
+
+      - name: Build east-py-datascience (example modules)
+        run: pnpm --filter @elaraai/east-py-datascience run build
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install east-py (the python printer)
+        working-directory: libs/east-py
+        run: uv sync --all-packages
 
       - name: Regenerate search index
         working-directory: libs/east-claude-plugin

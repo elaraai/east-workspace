@@ -1,9 +1,9 @@
 // hooks/diagnose.ts
 import { readFile as readFile2 } from "node:fs/promises";
-import { existsSync as existsSync2, writeFileSync } from "node:fs";
+import { existsSync as existsSync3, writeFileSync as writeFileSync2 } from "node:fs";
 import { createHash as createHash2 } from "node:crypto";
-import { tmpdir as tmpdir2 } from "node:os";
-import { join as join3, dirname as dirname3, resolve as resolve2 } from "node:path";
+import { tmpdir as tmpdir3 } from "node:os";
+import { join as join4, dirname as dirname4, resolve as resolve2 } from "node:path";
 
 // lib/hook-io.ts
 async function readHookInput() {
@@ -149,6 +149,75 @@ async function getDiagnosticsText(workspace, file, budgetMs = 4e3) {
   return null;
 }
 
+// ../east-diagnostics/dist/src/python-lint.js
+import { execFile } from "node:child_process";
+import { existsSync as existsSync2, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir as tmpdir2 } from "node:os";
+import { basename, dirname as dirname3, join as join3 } from "node:path";
+var PYTHON_EAST_IMPORT = /^\s*(?:from\s+east(?:\.[\w.]+)?\s+import\b|import\s+east\b)/m;
+function findEastPy(fromDir) {
+  const override = process.env["EAST_PY_LINT"];
+  if (override !== void 0 && override !== "")
+    return override;
+  let dir = fromDir;
+  for (; ; ) {
+    for (const candidate of [join3(dir, ".venv", "bin", "east-py"), join3(dir, ".venv", "Scripts", "east-py.exe")]) {
+      if (existsSync2(candidate))
+        return candidate;
+    }
+    const parent = dirname3(dir);
+    if (parent === dir)
+      return "east-py";
+    dir = parent;
+  }
+}
+function runEastPyLint(file, content, budgetMs = 4e3) {
+  const command = findEastPy(dirname3(file));
+  let target = file;
+  let scratch = null;
+  if (content !== void 0) {
+    scratch = mkdtempSync(join3(tmpdir2(), "east-py-lint-"));
+    target = join3(scratch, basename(file));
+    writeFileSync(target, content, "utf-8");
+  }
+  return new Promise((resolveFindings) => {
+    execFile(
+      command,
+      ["lint", "--format", "json", target],
+      // UTF-8 stdio: python encodes a piped stdout in the locale's code page on Windows (cp1252), and the findings carry em dashes
+      { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
+      (error, stdout) => {
+        if (scratch !== null)
+          rmSync(scratch, { recursive: true, force: true });
+        if (error !== null && error.code !== 1) {
+          resolveFindings(null);
+          return;
+        }
+        let records;
+        try {
+          records = JSON.parse(stdout);
+        } catch {
+          resolveFindings(null);
+          return;
+        }
+        resolveFindings(Array.isArray(records) ? records : null);
+      }
+    );
+  });
+}
+function renderPythonReview(records) {
+  if (records.length === 0)
+    return "";
+  const lines = records.map((r) => `- [${r.category}] ${r.line}:${r.column} (${r.rule}) ${r.message}`);
+  return ["<east-code-review>", "## East issues in this file", "", ...lines, "</east-code-review>"].join("\n");
+}
+
+// lib/east-py-lint.ts
+async function getPythonDiagnosticsText(file, budgetMs = 4e3) {
+  const records = await runEastPyLint(file, void 0, budgetMs);
+  return records === null ? null : renderPythonReview(records);
+}
+
 // hooks/diagnose.ts
 var EAST_IMPORT_PATTERN = /@elaraai\/east/;
 var SKIP_PATH = /[/\\](node_modules|dist|build|\.venv|\.git)[/\\]/;
@@ -157,7 +226,8 @@ async function main() {
   const filePath = event.tool_input?.file_path;
   if (filePath === void 0) process.exit(0);
   if (SKIP_PATH.test(filePath)) process.exit(0);
-  if (!filePath.endsWith(".ts") && !filePath.endsWith(".tsx") && !filePath.endsWith(".js")) {
+  const python = filePath.endsWith(".py");
+  if (!python && !filePath.endsWith(".ts") && !filePath.endsWith(".tsx") && !filePath.endsWith(".js")) {
     process.exit(0);
   }
   let content;
@@ -167,17 +237,19 @@ async function main() {
     process.exit(0);
     return;
   }
-  if (!EAST_IMPORT_PATTERN.test(content)) process.exit(0);
-  const projectDir = dirname3(resolve2(filePath));
-  const { isEast } = await getEastProjectInfo(projectDir);
-  if (!isEast) process.exit(0);
+  if (!(python ? PYTHON_EAST_IMPORT : EAST_IMPORT_PATTERN).test(content)) process.exit(0);
+  const projectDir = dirname4(resolve2(filePath));
+  if (!python) {
+    const { isEast } = await getEastProjectInfo(projectDir);
+    if (!isEast) process.exit(0);
+  }
   const key = createHash2("sha1").update(`${event.session_id}\0${filePath}\0`).update(content).digest("hex").slice(0, 20);
-  const marker = join3(tmpdir2(), `east-diag-seen-${key}`);
-  if (existsSync2(marker)) process.exit(0);
-  const text = await getDiagnosticsText(projectDir, filePath);
+  const marker = join4(tmpdir3(), `east-diag-seen-${key}`);
+  if (existsSync3(marker)) process.exit(0);
+  const text = python ? await getPythonDiagnosticsText(filePath) : await getDiagnosticsText(projectDir, filePath);
   if (text === null) process.exit(0);
   try {
-    writeFileSync(marker, "");
+    writeFileSync2(marker, "");
   } catch {
   }
   if (text === "") process.exit(0);

@@ -31,8 +31,10 @@ export { type CallableFunctionExpr, FunctionExpr } from './function.js';
 export { type CallableAsyncFunctionExpr, AsyncFunctionExpr } from './asyncfunction.js';
 
 // Import factory implementation
-import { from, equal, notEqual, less, lessEqual, print, is, greaterEqual, greater, func, str, platform, asyncFunction, asyncPlatform, genericPlatform, asyncGenericPlatform, compile, compileAsync, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch } from './block.js';
-export { BlockBuilder, type AsyncPlatformDefinition, type PlatformDefinition, type GenericPlatformDefinition, type AsyncGenericPlatformDefinition, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch } from './block.js';
+import { from, equal, notEqual, less, lessEqual, print, is, greaterEqual, greater, func, str, platform, asyncFunction, asyncPlatform, genericPlatform, asyncGenericPlatform, compile, compileAsync, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch, builtin, as, wrapRecursive, error } from './block.js';
+import { toSource } from '../codegen/index.js';
+import { importFunction, exportFunctions, encodeFunctionManifest, decodeFunctionManifest, linkImports, platformDependencies } from '../functions.js';
+export { BlockBuilder, type AsyncPlatformDefinition, type PlatformDefinition, type GenericPlatformDefinition, type AsyncGenericPlatformDefinition, type PlatformDeclaration, PLATFORM_DECLARATION, isPlatformDeclaration, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch } from './block.js';
 
 // Import standard libraries
 import IntegerLib from './libs/integer.js';
@@ -353,6 +355,168 @@ export const East = {
    * ```
    */
   asyncGenericPlatform,
+
+  /**
+   * Prints an East function (or its IR) as the TypeScript module that
+   * rebuilds it — the `East.function` builder surface, the type constructors
+   * hoisted to constants. The python twin is `east.codegen.to_python_source`;
+   * `east-node transpile` is the CLI. Rebuilding the printed module yields
+   * the same IR under `east-c ir normalize`.
+   *
+   * @param fnOrIr - An `East.function` result, its `toIR()`, or an IR value
+   * @param options - `name` (the export, default `main`) and `importFrom`
+   *   (the module specifier, default `@elaraai/east`)
+   * @returns The module source
+   *
+   * @example
+   * ```ts
+   * const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
+   * East.toSource(double);
+   * // export const main = East.function([IntegerType], IntegerType, ($, _0) => {
+   * //   return _0.multiply(2n);
+   * // });
+   * ```
+   */
+  toSource,
+
+  /**
+   * Refers to a function exported by another package — authored in either
+   * language — as a typed, callable function expression. Unresolved it is a
+   * `Platform` node named `east.importFunction`; `East.linkImports` (which
+   * `e3 export` runs on every task) embeds the exported IR after checking
+   * the declared type equals the exported type exactly. Python's
+   * `East.import_function`.
+   *
+   * @param pkg - The exporting package's name (its manifest's `package`)
+   * @param name - The function's name in that package
+   * @param type - The declared `FunctionType` / `AsyncFunctionType`
+   * @returns A callable function expression of `type`
+   *
+   * @example
+   * ```ts
+   * const score = East.importFunction("pricing", "score", FunctionType([RowType], FloatType));
+   * const total = East.function([ArrayType(RowType)], FloatType, ($, rows) => rows.map(($, r) => score(r)).sum());
+   * ```
+   */
+  importFunction,
+
+  /**
+   * Builds a package's function manifest — each function's IR, declared
+   * type and platform dependencies — for other packages (in either language)
+   * to import. Functions must be closed values: no captures, no unresolved
+   * imports. Python's `East.export_functions`; the CLIs are `east-node
+   * export-functions` / `east-py export-functions`.
+   *
+   * @param pkg - The package name importers will use
+   * @param version - Its version
+   * @param functions - Name → `East.function` result
+   * @param options - `providers`: platform name → the package implementing it
+   * @returns The manifest value (`East.encodeFunctionManifest` writes it)
+   *
+   * @example
+   * ```ts
+   * const manifest = East.exportFunctions("maths", "1.0.0", { double, halve });
+   * writeFileSync("maths.functions.beast2", East.encodeFunctionManifest(manifest));
+   * ```
+   */
+  exportFunctions,
+
+  /** Encodes a function manifest as beast2 (readable by either language). */
+  encodeFunctionManifest,
+
+  /** Decodes a function manifest written by either language. */
+  decodeFunctionManifest,
+
+  /**
+   * Resolves every `East.importFunction` in a function against the given
+   * manifests: exact type check, then the exported IR embedded as a
+   * `Let`-bound constant. Returns the linked IR and the imports resolved
+   * (with their platform dependencies, which `e3 export` validates against
+   * the task's runner). Python's `East.link_imports`.
+   *
+   * @param fnOrIr - The importing function (or its IR)
+   * @param manifests - The exporting packages' manifests
+   * @returns `{ ir, imports }`
+   *
+   * @example
+   * ```ts
+   * const { ir } = East.linkImports(total, [East.decodeFunctionManifest(readFileSync("pricing.functions.beast2"))]);
+   * East.compile(new EastIR(ir), [])(rows);
+   * ```
+   */
+  linkImports,
+
+  /**
+   * The platform functions a function calls — name, signature, asyncness —
+   * in first-use order. What an export manifest records per function.
+   *
+   * @param fnOrIr - The function (or its IR)
+   * @param providers - Platform name → the package implementing it, recorded when given
+   * @returns The dependencies
+   */
+  platformDependencies,
+
+  /**
+   * Calls an East builtin by name — the raw spelling for a builtin the
+   * surface has no method for (see `RAW_ONLY`).
+   *
+   * @param name - The builtin's IR name
+   * @param typeParameters - Its type parameters, in declaration order
+   * @param args - Its arguments in IR order
+   * @param outputType - The type of the result
+   * @returns The builtin call expression
+   *
+   * @example
+   * ```ts
+   * East.builtin("ArraySize", [IntegerType], [xs], IntegerType)
+   * ```
+   */
+  builtin,
+
+  /**
+   * Widens a value to a declared supertype explicitly (an `As` node) —
+   * python's `East.as_`.
+   *
+   * @param value - The value or expression to widen
+   * @param type - The wider type
+   * @returns The value as an expression of `type`
+   *
+   * @example
+   * ```ts
+   * East.as(East.value(variant("circle", 2.0)), VariantType({ circle: FloatType, square: FloatType }))
+   * ```
+   */
+  as,
+
+  /**
+   * Wraps a value of a recursive type's node type in the recursive type
+   * (a `WrapRecursive` node); `.unwrap()` is its inverse.
+   *
+   * @param value - The value or expression of the node type
+   * @param type - The recursive type
+   * @returns A `RecursiveExpr` of `type`
+   *
+   * @example
+   * ```ts
+   * East.wrapRecursive(variant("nil", null), ListType)
+   * ```
+   */
+  wrapRecursive,
+
+  /**
+   * Raises an East runtime error with the given message — the Never-typed
+   * error EXPRESSION (the statement form is `$.error`).
+   *
+   * @param message - The error message
+   * @returns A `NeverExpr`
+   *
+   * @example
+   * ```ts
+   * const checked = East.function([IntegerType], IntegerType, ($, x) =>
+   *   East.less(x, 0n).ifElse(() => East.error("negative"), () => x));
+   * ```
+   */
+  error,
 
   /**
    * Converts any East expression to its string representation.

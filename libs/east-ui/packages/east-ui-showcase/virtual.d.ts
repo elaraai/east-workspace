@@ -56,6 +56,12 @@ declare module "virtual:example-sources" {
         returns: string;
         /** The example's `fn` body, formatted + highlighted. */
         source: CapturedSource;
+        /** What the Claude plugin's example index can show the example as —
+         *  `["typescript", "python"]` for a program (both printed from its IR). */
+        languages: string[];
+        /** The python printed from the example's IR, from the index (#655);
+         *  null when the index was built without a python rendering. */
+        python: string | null;
     }
 
     /**

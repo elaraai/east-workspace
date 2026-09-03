@@ -57,6 +57,42 @@ Platforms:
   east-py-io 0.1.0 (59 platform functions)
 ```
 
+### Transpiling and Exporting Functions
+
+```bash
+# Print an IR program (from any runtime) as python East.function source
+east-py transpile program.beast2 -o program.py --name main
+
+# Write a module's `east_functions` dict as a function manifest that a
+# TypeScript e3 task imports with East.importFunction (or python with
+# East.import_function); -p names the platform packages implementing any
+# platform calls the functions make
+east-py export-functions pricing.functions -o pricing.functions.beast2 -p east-py-std
+
+# Only the functions an importer uses (--only, repeatable): a sibling function's
+# platform call then needs no -p package
+east-py export-functions pricing.functions -o pricing.functions.beast2 --only score
+```
+
+### Linting East bodies
+
+The build refuses python that has no East form — `x // 2` on an expression,
+an f-string over one, `if` on one, a callback reaching for `np` — and says
+what to write instead. `east-py lint` says the same thing at edit time, in
+the same words, over every `.py` file that imports `east`:
+
+```bash
+east-py lint src/                       # one `file:line:col: category [rule] message` per finding; exit 1 on any
+east-py lint src/ --format json         # the findings as records
+east-py lint src/ --disable no-deprecated-alias
+east-py lint --list-rules               # EAS001 body-takes-block-first … EAS009 no-discarded-expression
+```
+
+A line ending in `# noqa` (or `# noqa: EAS002`) is skipped, as under ruff.
+The same rules run inside flake8 once east-py-cli is installed (`flake8
+--select EAS`), and `east-py lsp` serves them to any editor over the
+Language Server Protocol (`pip install 'east-py-cli[lsp]'` for pygls).
+
 ## File Formats
 
 IR and data files are auto-detected by extension:
@@ -73,13 +109,13 @@ Platform packages must export a `platform` attribute containing a list of platfo
 
 ```python
 # my_platform/__init__.py
-from east.runtime.platform import platform_function
+from east import East, IntegerType, StringType
 
-@platform_function("my_func", inputs=[StringType], output=IntegerType)
-def my_func_impl(s):
+@East.platform_function(inputs=[StringType], output=IntegerType, name="my_func")   # paired by name with
+def my_func(s):                                                                   # East.platform("my_func", …)
     return len(s)
 
-platform = [my_func_impl]
+platform = East.platform_functions(__name__)
 ```
 
 ## Claude Code plugin

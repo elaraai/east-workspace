@@ -11,40 +11,75 @@ import {
     CodeBlock,
     Flex,
     HStack,
+    SegmentGroup,
     Tag,
     Text,
-    createHighlightJsAdapter,
+    type CodeBlockAdapter,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { EastFunction, type EastFunctionProps } from "@elaraai/east-ui-components";
 import type { CatalogEntry, CodeEntry, LiveEntry } from "../catalog";
+import { useCodeLanguage, type CodeLanguage } from "../code-language";
 
 import hljs from "highlight.js/lib/core";
 import typescriptLang from "highlight.js/lib/languages/typescript";
+import pythonLang from "highlight.js/lib/languages/python";
 import "highlight.js/styles/atom-one-dark.css";
 
 /**
- * Ensure the `typescript` language is registered on the shared hljs instance.
- * Chakra's adapter `unloadContext` unregisters all languages on teardown, so
- * we must re-register every time `load` / `loadSync` is invoked.
+ * Ensure the `typescript` and `python` languages are registered on the shared
+ * hljs instance. Chakra's adapter `unloadContext` unregisters all languages
+ * on teardown, so we must re-register every time `load` / `loadSync` is
+ * invoked.
  */
 function ensureHljs(): typeof hljs {
     if (!hljs.listLanguages().includes("typescript")) {
         hljs.registerLanguage("typescript", typescriptLang);
+    }
+    if (!hljs.listLanguages().includes("python")) {
+        hljs.registerLanguage("python", pythonLang);
     }
     return hljs;
 }
 
 /**
  * Chakra v3 CodeBlock adapter backed by highlight.js — synchronous, no WASM,
- * no async load.
+ * no async load. Hand-written rather than `createHighlightJsAdapter`: that
+ * helper spreads a required `highlightOptions.language` OVER each block's own
+ * `language` prop, so every block would highlight as one language; here the
+ * block's `language` (typescript or python, #655) is what hljs gets. The line
+ * markup mirrors Chakra's (one `<span data-line>` per line).
  */
-export const codeBlockAdapter = createHighlightJsAdapter({
-    load: async () => ensureHljs(),
-    loadSync: () => ensureHljs(),
-    highlightOptions: { language: "typescript", ignoreIllegals: true },
-});
+export const codeBlockAdapter: CodeBlockAdapter = {
+    loadContext: async () => ensureHljs(),
+    loadContextSync: () => ensureHljs(),
+    unloadContext: (ctx: typeof hljs | null) => {
+        for (const lang of ctx?.listLanguages() ?? []) ctx?.unregisterLanguage(lang);
+    },
+    getHighlighter: (ctx: typeof hljs | null) => ({ code, language = "plaintext", meta }) => {
+        if (!ctx) return { code, highlighted: false };
+        const { value } = ctx.highlight(code.trim(), { language, ignoreIllegals: true });
+        return {
+            highlighted: true,
+            code: value.split("\n").map((line, i) => {
+                const n = i + 1;
+                const attrs = [
+                    `data-line="${n}"`,
+                    meta?.highlightLines?.includes(n) ? "data-highlight" : "",
+                    meta?.wordWrap ? "data-word-wrap" : "",
+                ].filter((a) => a !== "");
+                return `<span ${attrs.join(" ")}>${line || " "}</span>`;
+            }).join("\n"),
+        };
+    },
+};
+
+/** The selector's options — the two printings a program example has. */
+const LANGUAGE_ITEMS: Array<{ value: CodeLanguage; label: string }> = [
+    { value: "typescript", label: "TypeScript" },
+    { value: "python", label: "Python" },
+];
 
 /** Code-reference sources longer than this collapse behind a
  *  "show all" expander so the page stays scannable. */
@@ -167,7 +202,7 @@ function Disclosure({ label, raw }: { label: string; raw: string }) {
             </chakra.button>
             {open && (
                 <Box mt="8px">
-                    <SourceBlock raw={raw} maxH="480px" scroll />
+                    <SourceBlock raw={raw} language="typescript" maxH="480px" scroll />
                 </Box>
             )}
         </Box>
@@ -176,16 +211,38 @@ function Disclosure({ label, raw }: { label: string; raw: string }) {
 
 /** Code-reference example: natural-height code block (collapsed behind an
  *  expander when long) with the declared `returns` value as a dashed-rule
- *  footer row, per the spec's `.pattern-slots`. */
+ *  footer row, per the spec's `.pattern-slots`. An example the index also
+ *  prints as python gets the TypeScript / Python selector (#655): the
+ *  TypeScript view is the authored source, the python view the printing of
+ *  the same IR, and the choice is this example's own (`code-language.ts`). */
 function CodeBody({ entry }: { entry: CodeEntry }) {
-    const lines = useMemo(() => entry.source.raw.split("\n").length, [entry]);
+    const [language, setLanguage] = useCodeLanguage(`${entry.pathKey}/${entry.name}`);
+    const selectable = entry.python !== null && entry.languages.includes("python");
+    const shownLanguage: CodeLanguage = selectable && language === "python" ? "python" : "typescript";
+    const shown = shownLanguage === "python" ? entry.python! : entry.source.raw;
+    const lines = useMemo(() => shown.split("\n").length, [shown]);
     const collapsible = lines > COLLAPSE_LINES;
     const [expanded, setExpanded] = useState(false);
     const collapsed = collapsible && !expanded;
     return (
         <>
-            <Box mt="16px" position="relative">
-                <SourceBlock raw={entry.source.raw} maxH={collapsed ? COLLAPSE_HEIGHT : undefined} />
+            {selectable && (
+                <Flex justify="flex-end" mt="14px">
+                    <SegmentGroup.Root
+                        size="xs"
+                        value={shownLanguage}
+                        onValueChange={(e) => {
+                            if (e.value === "typescript" || e.value === "python") setLanguage(e.value);
+                        }}
+                        data-testid="code-language"
+                    >
+                        <SegmentGroup.Indicator />
+                        <SegmentGroup.Items items={LANGUAGE_ITEMS} />
+                    </SegmentGroup.Root>
+                </Flex>
+            )}
+            <Box mt={selectable ? "8px" : "16px"} position="relative">
+                <SourceBlock raw={shown} language={shownLanguage} maxH={collapsed ? COLLAPSE_HEIGHT : undefined} />
                 {collapsed && (
                     <Flex
                         position="absolute"
@@ -253,12 +310,15 @@ function CodeBody({ entry }: { entry: CodeEntry }) {
 
 /** The dark, copyable source view. Natural height by default; `maxH` bounds
  *  it — clipped for the collapsed code-reference fade, or scrolling within
- *  when `scroll` is set (the source/dependencies disclosures). */
-function SourceBlock({ raw, maxH, scroll }: { raw: string; maxH?: string; scroll?: boolean }) {
+ *  when `scroll` is set (the source/dependencies disclosures). `language`
+ *  drives the highlighting (the adapter registers both). */
+function SourceBlock({ raw, language, maxH, scroll }: { raw: string; language: CodeLanguage; maxH?: string; scroll?: boolean }) {
     return (
         <CodeBlock.Root
             code={raw}
-            language="typescript"
+            language={language}
+            data-testid="code-source"
+            data-language={language}
             meta={{ colorScheme: "dark", showLineNumbers: true }}
             size="sm"
             borderRadius="{radii.md}"

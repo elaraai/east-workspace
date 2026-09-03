@@ -194,10 +194,7 @@ static int run_case(const char *dir, const CheckCase *c)
     builtin_registry_free(builtins);
     ir_node_release(body);
     east_set_source_map(NULL);
-    if (source_map) {
-        east_source_map_free(source_map);
-        free(source_map);
-    }
+    east_source_map_release(source_map); /* drops the decode's reference (NULL-safe) */
     return failed;
 }
 

@@ -1,11 +1,30 @@
 ---
 name: east
-description: "East programming language - a statically typed, expression-based language embedded in TypeScript. Use when writing East programs with @elaraai/east. Triggers for: (1) Writing East functions with East.function() or East.asyncFunction(), (2) Defining types (IntegerType, StringType, ArrayType, StructType, VariantType, etc.), (3) Using platform functions with East.platform() or East.asyncPlatform(), (4) Compiling East programs with East.compile(), (5) Working with East expressions (arithmetic, collections, control flow), (6) Serializing East IR with .toIR() and EastIR.fromJSON(), (7) Standard library operations (formatting, rounding, generation)."
+description: "East programming language - a statically typed, expression-based language embedded in TypeScript. Use when writing East programs with @elaraai/east. Triggers for: (1) Writing East functions with East.function() or East.asyncFunction(), (2) Defining types (IntegerType, StringType, ArrayType, StructType, VariantType, etc.), (3) Using platform functions with East.platform() or East.asyncPlatform(), (4) Compiling East programs with East.compile(), (5) Working with East expressions (arithmetic, collections, control flow), (6) Serializing East IR with .toIR() and EastIR.fromJSON(), (7) Standard library operations (formatting, rounding, generation), (8) Printing IR back as East.function source with East.toSource() / east-node transpile (and the python twin), (9) Calling a function authored in python (or exporting one for python) with East.importFunction / East.exportFunctions and east-node export-functions."
 ---
 
 # East Language
 
 A statically typed, expression-based programming language embedded in TypeScript. Write programs using a fluent API, compile to portable IR.
+
+## Before writing code — search the example index
+
+Every East API has a tested example in the plugin's index — the index IS the
+API reference, printed from each example's IR in TypeScript or python. Before
+writing or changing East code:
+
+1. Call `mcp__plugin_east_east__search_east_examples` for each capability you
+   are about to use — `language: "python"` for east-py, `"typescript"`
+   otherwise. Summaries come back first: id, signature, the inputs and the
+   expected result, a few hundred bytes each.
+2. Fetch the one or two that match with `mcp__plugin_east_east__get_east_example`
+   and pattern your code on them.
+3. Do not read `node_modules/@elaraai/**` or `*.examples.ts` files wholesale,
+   and do not reason from `.d.ts` signatures: the index holds the same
+   programs, exact and far cheaper, and the signatures omit the runtime rules
+   that make East code correct.
+
+Nothing is injected for you; the search is the step.
 
 ## Quick Start
 
@@ -195,6 +214,10 @@ Task → What do you need?
     │
     └─ Serialization
         ├─ IR → fn.toIR(), ir.toJSON(), EastIR.fromJSON(data).compile(platform)
+        ├─ IR → source → East.toSource(fn_or_ir) (a module that rebuilds the same IR) · `east-node transpile prog.beast2 -o prog.ts [--rebuild check.beast2]` · python twin: east-py transpile
+        ├─ A function authored in python (or another TS package) → East.importFunction(pkg, name, FunctionType([...], Out)) — callable; e3.export resolves a uv- or npm-workspace package by itself,
+        │   { functions: [manifest…] } for one built elsewhere
+        │   └─ Export yours for python → East.exportFunctions(pkg, version, { name: fn }) + East.encodeFunctionManifest · `east-node export-functions built.js -o pkg.functions.beast2 -p <platform-pkg>` · East.linkImports(fn, manifests) to link in-process
         ├─ Data, INSIDE an East function → East.Blob.encodeBeast(value, 'v2'), blob.decodeBeast(type, 'v2')
         └─ Data, from TypeScript (host side, `@elaraai/east`) — see "Binary serialization (beast2)"
             ├─ Whole value → encodeBeast2For(T)(value) / decodeBeast2For(T)(blob)
@@ -374,6 +397,95 @@ and the e3 runner loads it. Two rules then apply:
 See **east-project** for the full wiring (the `./platform` export, the
 `--platform` scaffold) and **e3** for the task runner; **east-py** for the Python
 sibling (`@platform_function`).
+
+### IR → source: `East.toSource` and `east-node transpile`
+
+The IR of any East function — yours, or one exported from python — prints
+back as the builder surface: a TypeScript module whose `East.function(...)`
+rebuilds the same IR (equal under `east-c ir normalize`).
+
+```typescript
+import { East, IntegerType, encodeEastIR } from "@elaraai/east";
+
+const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
+console.log(East.toSource(double));
+// import { East, Expr, variant, ref, matrix, IntegerType, ... } from "@elaraai/east";
+//
+// export const main = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
+
+writeFileSync("double.beast2", encodeEastIR(double.toIR()));   // hand the IR to python …
+```
+
+```bash
+east-node transpile double.beast2 -o double.ts            # … or print a file (any runtime's IR)
+east-node transpile ./ir/ -o ./ts/ --rebuild ./rebuilt/    # a directory, plus the IR each module builds back
+east-py transpile double.beast2 -o double.py               # the python twin (to_python_source)
+```
+
+- Statements print as the `$`-forms, a bound value as `$.let(new Map([…]), T)`
+  (the type on the binding, an Option as `some(v)` / `none`), other values as
+  `East.value(v, T)`, builtins as their methods; a builtin the surface has no spelling for prints as
+  `East.builtin(name, [T...], [args], out)` (it rebuilds; it is just not
+  idiomatic). `East.as(v, T)` and `East.wrapRecursive(v, T)` are the
+  spellings of the `As` / `WrapRecursive` nodes.
+- A platform call prints as the library spells it when you pass the library's
+  module — `East.toSource(fn, { libraries: { "@elaraai/east-node-io": await import("@elaraai/east-node-io") } })`
+  prints `Compression.Tar.create(entries)` and imports `Compression` (the
+  printer finds the declaration handle in the module's exports: every handle
+  `East.platform` returns carries its `name`, `inputs`, `output` and `async`;
+  `isPlatformDeclaration(x)` tells one from a function). Without the module
+  the call hoists to a declaration named after the platform function:
+  `const tar_create = East.asyncPlatform("tar_create", …)`.
+- Variables keep the names you wrote — parameters, `$.let` / `$.const`
+  bindings, callback, loop, match-arm and catch parameters — read by the
+  TypeScript compiler (`typescript`, an optional peer of `@elaraai/east`;
+  without it, or in a browser, they print as `_N`). A slot the body did not
+  name (`($, x) =>` for a `(value, index)` callback) prints as `_N`.
+- The contract, the construct table and the three round-trip suites:
+  `docs/conventions/EAST_CODEGEN.md`.
+
+### Cross-language functions: `East.importFunction` / `East.exportFunctions`
+
+A function authored in python (with `East.function` there) is called from a
+TypeScript body by name — and vice versa — and the deployed program is pure
+IR with no python at run time. The exporting package's functions travel as a
+**manifest** (their IR, declared types and platform dependencies); the
+importer declares the type it expects; linking checks and embeds. Inside an
+e3 project no one writes the manifest: `e3.export` finds a package of the uv
+or npm workspace by name, exports it in its own environment (`east-py
+export-functions` / `east-node export-functions`) and links (see **e3**).
+The command below is for linking in-process, or a package built elsewhere:
+
+```bash
+east-py export-functions pricing -o pricing.functions.beast2 -p east-py-std   # python side, where the package lives
+```
+
+```typescript
+import { East, FunctionType, FloatType, ArrayType } from "@elaraai/east";
+
+const score = East.importFunction("pricing", "score", FunctionType([RowType], FloatType));   // typed, callable
+const total = East.function([ArrayType(RowType)], FloatType, ($, rows) => rows.map(($, r) => score(r)).sum());
+
+// in an e3 task: e3.export(pkg, "out.zip", { functions: ["./pricing.functions.beast2"] })
+//   (e3 workspace deploy … --from-source src/index.ts --functions ./pricing.functions.beast2)
+// in-process: link first, then compile
+const { ir } = East.linkImports(total, [East.decodeFunctionManifest(readFileSync("pricing.functions.beast2"))]);
+new EastIR(ir).compile([])(rows);
+
+// the other direction — export TypeScript functions for python to import
+const manifest = East.exportFunctions("maths", "1.0.0", { double, halve });
+writeFileSync("maths.functions.beast2", East.encodeFunctionManifest(manifest));
+// or: east-node export-functions dist/maths.js -o maths.functions.beast2   (reads its `eastFunctions` export)
+```
+
+- The declared type must equal the exported type **exactly** — a mismatch is
+  a build error naming both. Unlinked, the reference is a `Platform` node
+  named `east.importFunction`, so compiling it without linking fails loudly.
+- Only closed values export: no captures, no unresolved imports of their own.
+- An imported function's platform calls must be provided by the consuming
+  task's runner; `e3.export` checks the manifest's providers against the
+  runner's packages (stock families count across runtimes: `east-py-std` ≡
+  `@elaraai/east-node-std` ≡ `east-c-std`). See `docs/conventions/EAST_CODEGEN.md` §6.
 
 ### Binary serialization (beast2)
 

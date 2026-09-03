@@ -6,7 +6,7 @@
 
 ``open_beast2_file`` returns a read-only SUBCLASS of the eager collection
 class, so the file is an ordinary East value: it answers ``isinstance`` and
-``type_of``, binds into kernels by reference (keyed reads inside the compiled
+``type_of``, binds into East functions by reference (keyed reads inside the compiled
 body answer from the pager, one frame per hit/miss), passes straight into
 compiled function calls, and refuses mutation. The managed writer batches
 byte-adaptively, so pathologically wide rows produce right-sized segments,
@@ -20,7 +20,9 @@ import pytest
 from east import (
     ArrayType,
     BlobType,
+    BooleanType,
     DictType,
+    East,
     EastArray,
     EastBlob,
     EastDict,
@@ -30,10 +32,8 @@ from east import (
     SetType,
     StringType,
     StructType,
-    kernel,
     type_of,
 )
-from east.runtime.compiler import eager_stats
 from east.runtime.errors import EastError
 from east.serialization.beast2 import open_beast2_file, write_beast2_file
 
@@ -84,7 +84,7 @@ class TestValueSemantics:
             with pytest.raises(EastError, match="read-only view"):
                 f += EastArray(ROW, [])
             with pytest.raises(EastError, match="read-only view"):
-                f.sort()
+                f.sort_in_place()
         st_path = tmp_path / "set.beast2"
         write_beast2_file(st_path, SetType(IntegerType), EastSet(IntegerType, [1]))
         with open_beast2_file(st_path) as s:
@@ -100,12 +100,12 @@ class TestValueSemantics:
         rows = [{"k": f"s{9 - i}", "v": float(i)} for i in range(10)]
         write_beast2_file(at_path, A_ROW, EastArray(ROW, rows), segment_rows=3)
         with open_beast2_file(at_path) as f:
-            got = f.sorted(key=lambda r: r["k"])
-            want = f.load().sorted(key=lambda r: r["k"])
+            got = f.sort(lambda _b, r: r["k"])
+            want = f.load().sort(lambda _b, r: r["k"])
             assert [r["k"] for r in got] == [r["k"] for r in want]
             # copy() is the mutable escape hatch
             copied = f.copy()
-            copied.append({"k": "zz", "v": 0.0})
+            copied.push_last({"k": "zz", "v": 0.0})
             assert len(copied) == len(f) + 1
 
     def test_segments_is_a_deprecated_alias(self, tmp_path):
@@ -119,61 +119,57 @@ class TestValueSemantics:
             assert "Beast2DictFile" in repr(d) and "200 elements" in repr(d)
 
 
-class TestKernelBind:
+class TestFunctionBind:
     def test_a_bound_lazy_dict_answers_get_or_default_natively(self, tmp_path):
         with open_beast2_file(_dict_path(tmp_path, n=500, seg=16)) as d:
-            lookup = kernel([ROW, D_SF],
-                            lambda r, t: t.get_or_default(r["k"], -1.0)).bind(d)
+            lookup = East.function([ROW, D_SF], FloatType,
+                            lambda _b, r, t: t.get_or_default(r["k"], -1.0)).bind(d)
             rows = EastArray(ROW, [{"k": "k0000", "v": 0.0},
                                    {"k": "k0250", "v": 0.0},
                                    {"k": "k0499", "v": 0.0},
                                    {"k": "MISS", "v": 0.0}])
-            before = eager_stats()["trampoline_calls"]
             out = list(rows.map(lookup))
             assert out == [0.0, 375.0, 748.5, -1.0]
-            assert eager_stats()["trampoline_calls"] == before
 
     def test_bind_under_a_one_byte_cache_budget_still_answers(self, tmp_path, monkeypatch):
         # A degenerate budget forces eviction on every miss — the answers
         # must not change, only the cache hit rate.
         monkeypatch.setenv("EAST_PAGED_CACHE_BYTES", "1")
         with open_beast2_file(_dict_path(tmp_path, n=200, seg=8)) as d:
-            lookup = kernel([StringType, D_SF],
-                            lambda k, t: t.get_or_default(k, -1.0)).bind(d)
+            lookup = East.function([StringType, D_SF], FloatType,
+                            lambda _b, k, t: t.get_or_default(k, -1.0)).bind(d)
             for i in range(0, 200, 7):
                 assert lookup(f"k{i:04d}") == i * 1.5
             assert lookup("nope") == -1.0
 
     def test_the_file_passes_straight_into_a_compiled_call(self, tmp_path):
         with open_beast2_file(_dict_path(tmp_path, n=50, seg=8)) as d:
-            size = kernel([D_SF], lambda t: t.size())
+            size = East.function([D_SF], IntegerType, lambda _b, t: t.size())
             assert size(d) == 50
-            probe = kernel([StringType, D_SF], lambda k, t: t.has(k))
+            probe = East.function([StringType, D_SF], BooleanType, lambda _b, k, t: t.has(k))
             assert probe("k0001", d) is True
             assert probe("zz", d) is False
 
     def test_fused_pipeline_lazy_dict_through_a_nested_call(self, tmp_path):
         # The #560/#561 composition: a bound lazy-dict lookup CALLED from
-        # another kernel lowers to an IR Call, so the whole projection —
-        # loop, kernel, callee and pager — runs inside east-c.
+        # another function lowers to an IR Call, so the whole projection —
+        # loop, function, callee and pager — runs inside east-c.
         with open_beast2_file(_dict_path(tmp_path, n=300, seg=16)) as d:
-            lookup = kernel([StringType, D_SF],
-                            lambda k, t: t.get_or_default(k, 0.0)).bind(d)
-            project = kernel([ROW], lambda r: r["v"] + lookup(r["k"]))
+            lookup = East.function([StringType, D_SF], FloatType,
+                            lambda _b, k, t: t.get_or_default(k, 0.0)).bind(d)
+            project = East.function([ROW], FloatType, lambda _b, r: r["v"] + lookup(r["k"]))
             rows = EastArray(ROW, [{"k": "k0000", "v": 1.0},
                                    {"k": "k0123", "v": 2.0},
                                    {"k": "MISS", "v": 3.0}])
-            before = eager_stats()["trampoline_calls"]
             assert list(rows.map(project)) == [1.0, 2.0 + 123 * 1.5, 3.0]
-            assert eager_stats()["trampoline_calls"] == before
 
     def test_close_defers_while_a_bind_still_holds_the_value(self, tmp_path):
         # Closing under a live bind would leave the native callee reading
-        # unmapped memory — close defers, the bound kernel keeps answering,
+        # unmapped memory — close defers, the bound function keeps answering,
         # and dropping the bind lets a later close complete.
         d = open_beast2_file(_dict_path(tmp_path))
-        lookup = kernel([StringType, D_SF],
-                        lambda k, t: t.get_or_default(k, -1.0)).bind(d)
+        lookup = East.function([StringType, D_SF], FloatType,
+                        lambda _b, k, t: t.get_or_default(k, -1.0)).bind(d)
         assert lookup("k0000") == 0.0
         d.close()
         assert not d.closed
@@ -213,8 +209,8 @@ class TestWideRows:
         write_beast2_file(path, ArrayType(wide_row), rows)
         monkeypatch.setenv("EAST_PAGED_CACHE_BYTES", str(512 * 1024))
         with open_beast2_file(path) as f:
-            get = kernel([IntegerType, ArrayType(wide_row)],
-                         lambda i, a: a.get(i)["id"]).bind(f)
+            get = East.function([IntegerType, ArrayType(wide_row)], IntegerType,
+                         lambda _b, i, a: a.get(i)["id"]).bind(f)
             for i in (0, 15, 7, 0, 11, 3):
                 assert get(i) == i
 

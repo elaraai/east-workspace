@@ -59,7 +59,7 @@ def _declared_function_type(value: EastValue) -> EastType | None:
 
     Every east-py function-ish object carries its signature (#476): an
     ``EastFunction`` declares input/output types directly; a compiled
-    kernel's ``_eastc_handle`` exposes them; a C function value — a decoded
+    function's ``_eastc_handle`` exposes them; a C function value — a decoded
     wrapper, a bindable hold — records its declared type on the compiled fn
     (``_east_c_handle``). Foreign wrappers built without a type (a bind or
     arity adapter) answer None: the value IS a function, but its signature
@@ -322,7 +322,7 @@ def type_of(value: EastValue, nodes_visited: set[int] | None = None) -> EastType
     # --- function-ish values: declared-type-first (#476) ---
     # Every east-py function-ish object carries its signature; read it before
     # refusing. An EastFunction declares input/output types directly; a
-    # compiled kernel's handle exposes them; a C function value (a decoded
+    # compiled function's handle exposes them; a C function value (a decoded
     # wrapper, a bindable hold) records its declared type on the compiled fn.
     declared = _declared_function_type(value)
     if declared is not None:

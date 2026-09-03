@@ -10,7 +10,7 @@ I/O platform library.
 |---|---|
 | `packages/east-node-std` | Standard platform — `Console`, `FileSystem`, `Fetch`, `Crypto`, `Time`, `Path`, `Random`; test framework (`describeEast`, `Assert`). Backs the `east:east-node-std` plugin skill. |
 | `packages/east-node-io` | I/O platform — SQL/NoSQL databases, S3 storage, FTP/SFTP, file formats (XLSX, XML, CSV), compression. Backs the `east:east-node-io` plugin skill. |
-| `packages/east-node-cli` | Command-line runner for `.beast2` / `.beast` / `.east` / `.json` IR files with dynamic platform loading. |
+| `packages/east-node-cli` | Command-line runner for `.beast2` / `.beast` / `.east` / `.json` IR files with dynamic platform loading; `east-node transpile` prints IR as `East.function` source (`East.toSource`), `--rebuild` proving the round trip — see `../../docs/conventions/EAST_CODEGEN.md`. |
 
 ## Commands
 

@@ -11,6 +11,7 @@ import pytest
 from east import (
     ArrayType,
     BooleanType,
+    East,
     EastArray,
     EastBlob,
     EastDict,
@@ -21,7 +22,6 @@ from east import (
     StructType,
     array,
     if_else,
-    kernel,
     none,
     some,
 )
@@ -207,26 +207,28 @@ def test_update_many_no_combine_overwrites():
     assert d["b"] == 20.0
 
 
-def test_update_many_python_combine():
+def test_update_many_impure_combine_is_refused():
+    from east.expression import ExpressionError
+
     d = EastDict(StringType, FloatType, {"a": 1.0})
     seen = []
-    d.update_many(["a", "a", "b"], [2.0, 3.0, 5.0],
-                  combine=lambda cur, new: (seen.append(1), cur + new)[1])
-    assert d["a"] == 6.0
-    assert d["b"] == 5.0
-    assert len(seen) == 2  # called per collision on the python path
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        d.update_many(["a", "a", "b"], [2.0, 3.0, 5.0],
+                      combine=lambda _b, cur, new: (seen.append(1), cur + new)[1])
+    assert seen == []  # refused before any collision ran
+    assert d["a"] == 1.0 and "b" not in d
 
 
 def test_update_many_traced_combine():
     d = EastDict(StringType, FloatType, {"a": 1.0})
-    d.update_many(["a", "a", "b"], [2.0, 3.0, 5.0], combine=lambda cur, new: cur + new)
+    d.update_many(["a", "a", "b"], [2.0, 3.0, 5.0], combine=lambda _b, cur, new: cur + new)
     assert d["a"] == 6.0
     assert d["b"] == 5.0
 
 
-def test_update_many_precompiled_kernel_combine():
+def test_update_many_precompiled_function_combine():
     d = EastDict(StringType, FloatType, {"a": 1.0})
-    k = kernel([FloatType, FloatType], lambda cur, new: cur + new)
+    k = East.function([FloatType, FloatType], FloatType, lambda _b, cur, new: cur + new)
     d.update_many(["a", "b", "a"], [2.0, 7.0, 4.0], combine=k)
     assert d["a"] == 7.0
     assert d["b"] == 7.0
@@ -243,7 +245,7 @@ def test_update_many_accumulator_pattern():
     rows = _rows()
     cols = rows.to_columns(["sku", "price"])
     d = EastDict(StringType, FloatType)
-    d.update_many(cols["sku"], cols["price"], combine=lambda cur, new: cur + new)
+    d.update_many(cols["sku"], cols["price"], combine=lambda _b, cur, new: cur + new)
     assert d["A-1"] == 12.5
     assert d["B-2"] == 150.0
 
@@ -285,13 +287,15 @@ def test_update_many_east_arrays_with_native_combine():
     d = EastDict(StringType, FloatType, {"a": 1.0})
     d.update_many(array(StringType, ["a", "a", "b"]),
                   array(FloatType, [2.0, 3.0, 5.0]),
-                  combine=lambda cur, new: cur + new)
+                  combine=lambda _b, cur, new: cur + new)
     assert d["a"] == 6.0 and d["b"] == 5.0
 
 
-def test_update_many_east_arrays_with_python_combine():
-    # an impure combine cannot trace, so it runs per collision in python and
-    # the incoming value must still be unboxed correctly on the C-backed path
+def test_update_many_east_arrays_with_impure_combine_is_refused():
+    # an impure combine has no East capture (#625): refused up front, on the
+    # C-backed path exactly as on the boxed one
+    from east.expression import ExpressionError
+
     calls = []
 
     def combine(cur, new):
@@ -299,10 +303,10 @@ def test_update_many_east_arrays_with_python_combine():
         return cur + new
 
     d = EastDict(StringType, FloatType, {"a": 1.0})
-    d.update_many(array(StringType, ["a", "a"]), array(FloatType, [2.0, 3.0]),
-                  combine=combine)
-    assert d["a"] == 6.0
-    assert calls == [(1.0, 2.0), (3.0, 3.0)]
+    with pytest.raises(ExpressionError, match="captured automatically"):
+        d.update_many(array(StringType, ["a", "a"]), array(FloatType, [2.0, 3.0]),
+                      combine=combine)
+    assert calls == [] and d["a"] == 1.0
 
 
 def test_update_many_rejects_mismatched_element_type():
@@ -322,13 +326,13 @@ def test_update_many_rejects_length_mismatch_for_east_arrays():
 
 
 def test_update_many_deeply_nested_option_values_at_scale():
-    """The regression: 61k kernel-produced nested Option values used to SIGSEGV."""
+    """The regression: 61k function-produced nested Option values used to SIGSEGV."""
     val_t = _nested_value_type()
     key_t = StructType([("job", StringType), ("station", StringType)])
     n = 61_238
 
     # `allocations` comes from a source field: a bare `[]` cannot be lifted
-    # into a kernel, and the point here is the value SHAPE, not how it is built.
+    # into a function, and the point here is the value SHAPE, not how it is built.
     inner = val_t.value[0]["type"].value
     src = StructType([("id", StringType), ("station", OptionType(StringType)),
                       ("allocs", ArrayType(inner))])
@@ -337,9 +341,9 @@ def test_update_many_deeply_nested_option_values_at_scale():
                                     "level_before": some(1.0),
                                     "level_after": none}]} for i in range(n)])
 
-    k_key = kernel(src, lambda r: {"job": r["id"],
+    k_key = East.function([src], StructType([("job", StringType), ("station", StringType)]), lambda _b, r: {"job": r["id"],
                                    "station": r["station"].unwrap_or("")})
-    k_val = kernel(src, lambda r: {
+    k_val = East.function([src], StructType([("allocations", ArrayType(StructType([("grade", OptionType(StringType)), ("batch", OptionType(StringType)), ("level_before", OptionType(FloatType)), ("level_after", OptionType(FloatType))]))), ("unallocated", StructType([("before", OptionType(FloatType)), ("after", OptionType(FloatType))])), ("quality", OptionType(StringType))]), lambda _b, r: {
         "allocations": r["allocs"],
         "unallocated": {"before": if_else(r["station"].is_some(), some(1.0), none),
                         "after": if_else(r["station"].is_some(), some(2.0), none)},

@@ -14,16 +14,16 @@ from east.types.values import EastArray
 class NonRetraceableCallError(TypeError):
     """A compiled/bound East function was invoked with trace-time proxies.
 
-    Raised when a traced lambda calls an already-compiled East function value
-    (a ``kernel(...)`` ``.bind`` result, a runner-supplied ``FunctionType``
-    input such as a streamTask ``emit``) — its body cannot be re-traced, so
-    the call cannot splice into the surrounding kernel.
+    Raised when a captured body calls an already-compiled East function value
+    (an ``East.function(...)`` ``.bind`` result, a runner-supplied
+    ``FunctionType`` input such as a streamTask ``emit``) — its body cannot be
+    re-traced, so the call cannot splice into the surrounding function.
 
-    ``try_push_down`` treats this cause as "decline and fall back": the eager
-    method runs its per-element python path, which is the documented contract
-    for a callback that cannot trace. An explicit ``kernel(...)`` still raises
-    loudly, carrying this message instead of the former opaque
-    ``bad argument type for built-in operation``.
+    Since #561 a well-typed call LOWERS to the IR ``Call`` node instead, so
+    this survives only for the shapes lowering declines (an arity mismatch, an
+    argument that does not lift to the parameter's type). It is then the CAUSE
+    the capture's ``ExpressionError`` carries, naming the real problem instead
+    of the opaque ``bad argument type for built-in operation``.
     """
 
 

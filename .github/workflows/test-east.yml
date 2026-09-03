@@ -55,5 +55,17 @@ jobs:
         if: runner.os == 'Linux'
         run: pnpm --filter @elaraai/east run lint
 
+      # The codegen round-trip legs (#628) read the exported compliance corpus
+      # and examples (/tmp/east-test-ir, /tmp/east-examples-ir). The export
+      # tooling is Unix-only, so the corpora are exported on Linux — where the
+      # legs are REQUIRED — and the legs skip on the other OSes.
+      - name: Export IR corpora (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          pnpm --filter @elaraai/east run test:export
+          pnpm --filter @elaraai/east run export:examples
+
       - name: Run tests
+        env:
+          EAST_CONFORMANCE_REQUIRED: ${{ runner.os == 'Linux' && '1' || '0' }}
         run: pnpm --filter @elaraai/east run test

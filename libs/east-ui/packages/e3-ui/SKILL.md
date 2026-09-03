@@ -19,6 +19,25 @@ binding helpers, and the `ui()` task factory. Base UI tags (`<VStack>`, `<Text>`
 implementation detail under `@elaraai/e3-ui/internal` (also the e3-free,
 browser-safe entry for render-only bundles).
 
+## Before writing code — search the example index
+
+Every East API has a tested example in the plugin's index — the index IS the
+API reference, printed from each example's IR in TypeScript or python. Before
+writing or changing East code:
+
+1. Call `mcp__plugin_east_east__search_east_examples` for each capability you
+   are about to use — `language: "python"` for east-py, `"typescript"`
+   otherwise. Summaries come back first: id, signature, the inputs and the
+   expected result, a few hundred bytes each.
+2. Fetch the one or two that match with `mcp__plugin_east_east__get_east_example`
+   and pattern your code on them.
+3. Do not read `node_modules/@elaraai/**` or `*.examples.ts` files wholesale,
+   and do not reason from `.d.ts` signatures: the index holds the same
+   programs, exact and far cheaper, and the signatures omit the runtime rules
+   that make East code correct.
+
+Nothing is injected for you; the search is the step.
+
 ## Quick Start
 
 ```tsx

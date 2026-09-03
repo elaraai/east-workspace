@@ -866,11 +866,33 @@ cdef object _c_function_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, di
 
 # ─── Helper: C type → Python EastType (EastVariant) ───────────────────────
 
-# Completed cache: C type pointer → fully built Python type. Scoped to a
-# single top-level conversion (cleared by _c_type_tag_to_py_type): entries
-# are keyed by the raw pointer with no identity revalidation (unlike the
-# forward _type_cache), so they must never outlive one reconstruction —
-# pointer addresses are reused after east_type_release.
+# Completed conversions, for the life of the process: C type pointer → the
+# python type a top-level conversion of it built (#636). A finished top-level
+# conversion is self-contained — every `ref(id)` in it is bound by a wrapper
+# in it — so replaying it for the same pointer is exactly what a fresh
+# conversion would build: a fresh conversion of a recursive wrapper mints a
+# scope id and interns to the SAME canonical wrapper, at the price of a deep
+# structural comparison per crossing (143,410 of them, for the 2 distinct
+# types of one 300-line corpus program, before this cache). Each entry
+# retains its C type, so the pointer cannot be released and recycled under
+# the key; east-c interns types, so a repeated crossing IS the same pointer.
+# The reverse twin of the forward _type_cache: bounded, cleared wholesale.
+cdef dict _rev_type_cache = {}
+cdef Py_ssize_t _REV_TYPE_CACHE_MAX = 4096
+
+
+cdef void _rev_type_cache_clear():
+    """Release every retained C type and drop the entries."""
+    cdef object key
+    for key in list(_rev_type_cache):
+        _eastc.east_type_release(<_eastc.EastType*><uintptr_t>key)
+    _rev_type_cache.clear()
+
+
+# Within ONE conversion: C type pointer → python type for the subtrees that
+# completed with no recursive scope open (see _c_type_tag_to_py_type_inner).
+# Scoped to the conversion, never across: a subtree finished INSIDE a
+# wrapper's scope may carry that wrapper's refs.
 cdef dict _py_type_cache = {}
 
 # In-progress recursive scopes: C recursive-wrapper pointer → the python
@@ -878,23 +900,43 @@ cdef dict _py_type_cache = {}
 # being converted becomes `ref(id)`. Scoped alongside _py_type_cache.
 cdef dict _rev_rec_ids = {}
 
+
 cdef object _c_type_tag_to_py_type(_eastc.EastType *c_type):
     """Convert a C EastType* to a Python EastVariant type descriptor.
 
-    Top-level entry point: scopes the reverse caches (_py_type_cache,
-    _rev_rec_ids) to this single conversion, clearing them on entry
-    and exit so pointer-keyed entries never outlive one reconstruction.
-    Recursive sub-conversions go through _c_type_tag_to_py_type_inner
-    instead — the within-call cache must be preserved across them, as it
-    handles shared subtrees and cycle detection.
+    Top-level entry point. The two well-known recursive types answer by
+    pointer identity with their python singletons (the forward fast path,
+    mirrored); every other pointer answers from _rev_type_cache after its
+    first conversion. A miss runs one scoped conversion — _py_type_cache and
+    _rev_rec_ids are cleared on entry and exit, so the within-call entries
+    never outlive the reconstruction they belong to — and caches the
+    completed result under a retained pointer. Sub-conversions go through
+    _c_type_tag_to_py_type_inner and never consult the cross-call cache: a
+    pointer met inside an open recursive scope must convert as `ref(id)`,
+    not as the self-contained wrapper a top-level conversion of it builds.
     """
+    cdef uintptr_t key = <uintptr_t>c_type
+    _load_well_known_types()
+    if _py_ir_type is not None and _eastc.east_ir_type != NULL and c_type == _eastc.east_ir_type:
+        return _py_ir_type
+    if (_py_east_type_type is not None and _eastc.east_type_type != NULL
+            and c_type == _eastc.east_type_type):
+        return _py_east_type_type
+    hit = _rev_type_cache.get(key)
+    if hit is not None:
+        return hit
     _py_type_cache.clear()
     _rev_rec_ids.clear()
     try:
-        return _c_type_tag_to_py_type_inner(c_type)
+        result = _c_type_tag_to_py_type_inner(c_type)
     finally:
         _py_type_cache.clear()
         _rev_rec_ids.clear()
+    if len(_rev_type_cache) >= _REV_TYPE_CACHE_MAX:
+        _rev_type_cache_clear()
+    _eastc.east_type_retain(c_type)
+    _rev_type_cache[key] = result
+    return result
 
 
 cdef object _c_type_tag_to_py_type_inner(_eastc.EastType *c_type):
@@ -1363,8 +1405,8 @@ cdef _eastc.EastValue* _py_vector_to_c(object val, _eastc.EastType *c_type) exce
 
 cdef _eastc.EastValue* _py_matrix_to_c(object val, _eastc.EastType *c_type) except NULL:
     cdef _eastc.EastType *elem_c = c_type.data.element
-    cdef size_t rows = val.rows
-    cdef size_t cols = val.cols
+    cdef size_t rows = val._rows
+    cdef size_t cols = val._cols
     cdef _eastc.EastValue* mat = _eastc.east_matrix_new(elem_c, rows, cols)
     cdef size_t byte_count
 
@@ -1402,16 +1444,16 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
             _eastc.east_value_retain(existing)
             return existing
 
-    # A compiled kernel carries its native function value on its handle —
+    # A compiled function carries its native function value on its handle —
     # pass it through, exactly like the decoded-wrapper fast path above. A
-    # kernel converted into a Function-typed slot (an array of functions, a
+    # function converted into a Function-typed slot (an array of functions, a
     # struct field) must cross as its real closure: the IR-fallback carrier
     # below is encode-only, and CALLING it evaluates its Function node into
     # a fresh closure value that the caller then union-reads as the declared
     # output type — a pointer-sized integer where a result should be (#476 D).
-    kernel_handle = getattr(val, "_eastc_handle", None)
-    if kernel_handle is not None:
-        handle_int = <uintptr_t>getattr(kernel_handle, "_fn_val", 0)
+    function_handle = getattr(val, "_eastc_handle", None)
+    if function_handle is not None:
+        handle_int = <uintptr_t>getattr(function_handle, "_fn_val", 0)
         existing = <_eastc.EastValue*>handle_int
         if existing != NULL and existing.kind == _eastc.EAST_VAL_FUNCTION:
             _eastc.east_value_retain(existing)
@@ -1435,7 +1477,10 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
     cdef uintptr_t baked_ptr
     if not getattr(val, EAST_CAPTURES_ATTR, None):
         from east.runtime.compiler import compile_from_value
-        native = compile_from_value(py_ir)
+        # A builder artifact carries the source map its loc_ids index (#626);
+        # compiling under it keeps the closure's — and so the blob's — map.
+        native = compile_from_value(
+            py_ir, source_map=getattr(val, "_east_source_map", None))
         baked_ptr = <uintptr_t>getattr(
             getattr(native, "_eastc_handle", None), "_fn_val", 0)
         if baked_ptr != 0:
@@ -1477,7 +1522,7 @@ cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, di
     capture_values = getattr(val, EAST_CAPTURES_ATTR, {})
     try:
         # The attached IR may be a bare Function node or a capture-baked
-        # Block[Let…, Function] (the kernel tracer's and the replay's
+        # Block[Let…, Function] (the expression builder's and the replay's
         # hoisted-constant shape) — a Block declares no captures.
         fn_payload = py_ir["value"]
         captures_list = fn_payload["captures"] if "captures" in fn_payload else []
@@ -1930,8 +1975,9 @@ cpdef void _proxy_type_release(uintptr_t ptr):
 cpdef object c_type_ptr_to_py_type(uintptr_t ptr):
     """Convert a C type pointer to a Python EastType object.
 
-    The reverse type caches are scoped to this single conversion (see
-    _c_type_tag_to_py_type) — nothing is memoized across calls.
+    One python type per C type for the life of the process (see
+    _c_type_tag_to_py_type): the first conversion builds and interns it, and
+    every later conversion of the same pointer returns that object.
     """
     return _c_type_tag_to_py_type(<_eastc.EastType*>ptr)
 
@@ -2118,16 +2164,14 @@ class EastArrayProxy(EastArray):
                 return True
         return False
 
-    def append(self, item):
+    def push_last(self, item):
+        # TS `pushLast`: the one-element push. `append(array)` (ArrayAppend)
+        # and the python-iterable `extend` live on the base class.
         _proxy_array_push(self._c_ptr, self._c_elem_type_ptr, item)
-
-    def extend(self, items):
-        for item in items:
-            self.append(item)
 
     def insert(self, index, item):
         # Push then rotate into position
-        self.append(item)
+        self.push_last(item)
         n = len(self)
         if index < 0:
             index = max(0, n + index)
@@ -2154,19 +2198,10 @@ class EastArrayProxy(EastArray):
     def clear(self):
         _proxy_array_clear(self._c_ptr)
 
-    def reverse(self):
-        _proxy_array_reverse(self._c_ptr)
-
-    def sort(self, *, key=None, reverse=False):
-        # Sort by East's total order (not Python's default), in place:
-        # delegate to the NATIVE sorted() (ArraySort/ArraySortDefault — keyed
-        # callbacks ride as kernels/traced lambdas like everywhere else), then
-        # replace the contents C-to-C. The previous keyed path decoded the
-        # whole array, sorted in python, and sampled the key type (#450).
-        _guard_mutation(self._c_ptr, "Array")
-        result = self.sorted(key=key, reverse=reverse)
-        _proxy_array_clear(self._c_ptr)
-        _array_extend_bulk(self._c_ptr, self._c_elem_type_ptr, result, True)
+    # `reverse()` / `sort()` are the PURE TypeScript spellings (new arrays),
+    # inherited from EastArray; the in-place twins are `reverse_in_place()` /
+    # `sort_in_place(by)` — the ArrayReverseInPlace / ArraySortInPlace
+    # builtins, also on the base class.
 
     def __repr__(self):
         if len(self) == 0:
@@ -2353,7 +2388,10 @@ class EastDictProxy(EastDict):
         return _proxy_dict_contains(self._c_ptr, self._c_key_type_ptr, key)
 
     def __iter__(self):
-        return iter(self.keys())
+        # The keys, MATERIALIZED first: a `for k in d: d[k] = ...` loop
+        # mutates during the walk, which a live items() generator (holding
+        # east-c's iter_lock) would refuse.
+        return iter([k for k, _v in self.items()])
 
     def items(self):
         # Hold east-c's iter_lock for the life of the iterator: mutation
@@ -2380,8 +2418,9 @@ class EastDictProxy(EastDict):
         finally:
             (<_eastc.EastValue*><uintptr_t>self._c_ptr).iter_lock -= 1
 
-    def keys(self):
-        return [k for k, v in self.items()]
+    # `keys()` is the TypeScript spelling — the east-c DictKeys SET, on the
+    # base class; the python-boundary views are `items()` / `values()` and
+    # iteration (which yields keys).
 
     def values(self):
         return [v for k, v in self.items()]

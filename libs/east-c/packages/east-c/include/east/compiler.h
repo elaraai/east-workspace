@@ -28,7 +28,9 @@ struct EastCompiledFn {
     BuiltinRegistry *builtins;
     EastValue *source_ir;      // original IR variant value for serialization
     EastType *fn_type;         // Function/AsyncFunction type (inputs + output), not owned
-    EastSourceMap *source_map; // owned, for loc_id resolution at error time (may be NULL)
+    EastSourceMap *source_map; // one reference (east_source_map_retain), released by
+                               // east_compiled_fn_free; resolves loc_ids at error time
+                               // and rides the beast2 source-map section (may be NULL)
 
     /* Foreign-runtime dispatch (e.g. a callback into an embedding host).
      * When `invoke` is non-NULL, east_call short-circuits IR evaluation and
@@ -77,7 +79,14 @@ void east_set_thread_context(PlatformRegistry *p, BuiltinRegistry *b);
 // Read thread-local platform/builtins (for save/restore around context switches)
 void east_get_thread_context(PlatformRegistry **out_p, BuiltinRegistry **out_b);
 
-// Set thread-local source map for loc_id resolution (call before eval_ir / east_call)
+// Set thread-local source map for loc_id resolution (call before eval_ir / east_call).
+// Borrowed: the caller keeps the map alive while it is current. Closures created
+// while a map is current take their own reference to it (see EastCompiledFn).
 void east_set_source_map(const EastSourceMap *sm);
+
+// Read the thread-local source map, so a caller that installs one around a
+// compile can restore what was current (a compile may run inside east_call —
+// a platform function building a program — and must not clobber its map).
+const EastSourceMap *east_get_source_map(void);
 
 #endif

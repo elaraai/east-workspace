@@ -1,198 +1,186 @@
 # east-py
 
-Python runtime for the East programming language. Implements the East type
-system in Python and bridges to the native **east-c** runtime via Cython for
-IR compilation, the builtin library, execution, and serialization (the
-`_eastc` bridge — `runtime/compiler.py:5-9`). East values are usable as plain
-Python data with eager methods that delegate to the east-c builtins. Enables
-East IR to be compiled and executed in Python environments.
+Python runtime for the East programming language. The East type system lives
+in python; everything that *executes* — IR compilation, the builtin library,
+serialization — is the native **east-c** runtime, reached through Cython
+bridges (`_eastc_bridge.pyx`, `runtime/_compiler_eastc.pyx`,
+`serialization/_*_eastc.pyx`). No builtin is implemented in python.
 
-> The older "pure-Python compiler + 212 builtins" framing is stale — do not
-> reintroduce it; builtins are not ported to Python.
+East values are plain python data (`EastArray`, `EastDict`, `EastStruct`,
+… plus `int`/`float`/`str`/`bool`/`datetime`) whose eager methods invoke the
+east-c builtins; `East.function` builds East programs from python bodies.
+Both are one vocabulary — **East function / expression / body / build /
+capture**. There are no "kernels", "traces" or "push-downs" here: a test
+(`tests/test_expression_builder.py`) pins that those spellings stay retired.
 
 ## Commands
 
 `make build`, `make test`, `make lint`, `make typecheck`, `make check`,
-`make repl`, `make coverage` from this directory. See
+`make repl`, `make coverage`, `make bench`, `make build-cython` from this
+directory. See
 [`../../../../docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFILE_TARGETS.md).
 
-Pytest-specific invocations when you need them:
+Pytest is run through uv against an editable install — a `.py` edit is live,
+a `.pyx` edit needs `cd ../.. && make reinstall-east-py` (rebuilds the
+extensions). A `pytest … | grep | tail` pipeline's exit code is `tail`'s:
+read the summary line.
 
 ```bash
-uv run pytest tests/builtins/test_builtins.py -v
-uv run pytest tests/builtins/test_builtins.py::test_array_map -v
-uv run pytest -k "array"
+uv run pytest tests -q --no-cov --ignore=tests/conformance   # units + compliance
+uv run pytest tests/test_stdlib.py -q --no-cov -k round        # one file / keyword
+uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
 ```
 
 ## Architecture
 
-### Homoiconic type system
+### Two surfaces, one builtin
 
-**Everything is an East value, including types themselves.**
-
-- Types are East variants with cases like "Integer", "Array", "Function".
-- IR nodes are East values (variants conforming to IRType).
-- This enables cross-language serialization of both data AND code.
-
-All structured data uses two base classes:
-
-- **`EastStruct`** — Product types (records with named fields),
-  immutable.
-- **`EastVariant`** — Sum types (tagged unions), immutable.
+- **Values** (`east/types/values/`) — `primitives.py`, `collections.py`
+  (`EastArray`/`EastSet`/`EastDict`), `structural.py` (`EastStruct`/
+  `EastVariant`/`EastRef`), `tensor.py` (`EastVector`/`EastMatrix`),
+  `guards.py`, `validation.py`, `_helpers.py`. An eager method calls its
+  builtin through `_call_builtin`. Python scalars take no methods, so their
+  builtins are the `East.<Type>` namespace functions, value first
+  (`East.DateTime.add_days(d, n)`).
+- **Expressions** (`east/expression/expr/<type>.py`, one file per type —
+  `ArrayExpression`, `FloatExpression`, …) — the same method names, recording
+  IR inside an `East.function` body. `_call_builtin` is dual-mode: on values
+  it runs now, in a build it emits the `Builtin` node. The scalar namespaces
+  and the stdlib are dual-mode the same way.
+- **Callbacks** — a python lambda passed to an eager collection method
+  (`xs.map(lambda b, x: …)`) is a body: `expression/capture.py`
+  (`capture_callback`) builds it into an East function once (cached, #422)
+  and east-c runs it. It builds or it raises; there is no interpreter
+  fallback (#625).
+- **Name parity** — `tests/test_ts_name_parity.py` reads the TypeScript
+  sources (`libs/east/src/expr/*.ts`): every TS method exists on the
+  expression class and on the eager class / scalar namespace; every
+  python-only name is declared with its reason.
 
 ### Module layers
 
-1. **`east/types/`** — foundation type system
-   - `type_system.py` — core type definitions (`EastType`, `ArrayType`,
-     `DictType`, …)
-   - `primitives.py` — `Null`, `Boolean`, `Integer`, `Float`, `String`,
-     `Blob`, `DateTime`
-   - `containers.py` — `Array`, `Set`, `Dict` (mutable collections with
-     deterministic ordering)
-   - `structural.py` — `Struct`, `Variant`, `Function` types
-   - `ref.py` — `Ref` type (mutable reference cells)
+1. **`east/types/`** — `types.py` (`EastType` and the constructors),
+   `type_of_type.py`, `ir.py` (IRType), `coercion.py`, `construct.py`, and
+   `values/` above. `_values_cy.pyx` accelerates the struct/variant classes.
+2. **`east/expression/`** — the builders. `function.py` (`East.function` /
+   `asyncFunction`, strict: declared `out` required and enforced;
+   `East.compile`), `platform.py` (`East.platform` declarations),
+   `statements.py` (the block a body receives: `b.let`, `b.if_`, `b.for_`,
+   `b.return_`, …), `control.py` (the expression forms `East.while_`,
+   `East.for_`, `block`/`let`/`ref`/`try_catch`), `nodes.py`/`lift.py`/
+   `finalize.py` (IR construction, lifting python values, build-time CSE),
+   `location.py` (authoring-frame source maps, #626), `naming.py`
+   (authoring names for IR variables, #639: parameters from a body's
+   signature, `b.let`/`b.const` bindings from the authoring file parsed
+   with `ast`), `capture.py`,
+   `project.py` (field masks for beast2 projection), `errors.py`,
+   `helpers.py`. `libs/<type>.py` is the TypeScript `expr/libs` stdlib,
+   ported body for body and built on first use (`LazyFunction`).
+3. **`east/namespace.py`** — the `East` object: the scalar namespaces
+   (`East.Float`, `East.Integer`, `East.String`, `East.DateTime`,
+   `East.Boolean`), the tensor and collection constructors, the root
+   helpers (`str`, `print`, `min`/`max`/`clamp`, the comparisons, diff/patch)
+   and the builders above.
+4. **`east/ir/`** — `builders.py` (IR node constructors), `analyze.py`
+   (type checking, validation, async propagation).
+5. **`east/runtime/`** — `compiler.py` over `_compiler_eastc.pyx` (compile
+   IR in east-c, bind platform functions, `native_function_for` — the eager
+   callbacks' native handles), `platform.py`, `builtin_signatures.py` (the
+   builtin → type signature table), `memo.py`, `errors.py`.
+6. **`east/codegen/`** — the IR → python printer (`printer.py`), the
+   builtin spelling table (`spellings.py`) it shares with the compliance
+   replay, so what the printer writes is what the replay executes (#627),
+   and `doc.py`, the layout document algebra the source is written in
+   (black's shape over prettier's model; pinned in `tests/test_codegen_doc.py`).
+7. **`east/functions.py`** — cross-language functions (#628): the function
+   manifest type, `East.export_functions` / `import_function` /
+   `link_imports` (name for name with `libs/east/src/functions.ts`); the CLI
+   is `east-py export-functions`. Contract: `docs/conventions/EAST_CODEGEN.md` §6.
+8. **`east/serialization/`** — `beast2.py`, `json.py`, `csv.py`,
+   `east_parser.py`/`east_printer.py` (East text), each over its `_*_eastc.pyx`.
+9. **`east/datetime_format.py`**, **`east/utils/ordering.py`** (East's total
+   order; `_ordering_cy.pyx`).
+10. **`east/diagnostics/`** — the East rules at edit time (#638), the twin
+    of `@elaraai/east-diagnostics`: `run_east_rules(source)` / `lint_paths`
+    over the `ast`, one rule per file under `rules/`, numbered once
+    (`EASnnn`). "One message, two moments": every rule's text is the
+    build's refusal — read from the builder where it keeps the constant
+    (`_BLOCK_FIRST`, the `#624` forks, `_trace_bail`, `_capture_error`),
+    pinned against the raised exception otherwise. `scope.py` decides
+    East-ness (a file that imports `east`), which callables are bodies
+    (an `East.function` body and everything nested in it; an eager
+    callback on an East-evidenced receiver) and which names hold
+    expressions; the callback-method and statement-method names come from
+    the spelling table and the `Block` class, the eager capture's builtin
+    allowlist from `capture._allowed_global` — no hand lists — and a name
+    imported from the standard library or an installed package is resolved
+    (imported, fetched) and put to that same check; a user module's is the
+    build's to tell. Surfaces:
+    `east-py lint`, the flake8 plugin and `east-py lsp` (east-py-cli).
 
-2. **`east/ir/`** — intermediate representation
-   - `builders.py` — helpers for building IR nodes (`ir_value`,
-     `ir_function`, …)
-   - `analyze.py` — type checking, validation, async propagation analysis
+### Invariants
 
-3. **`east/runtime/`** — execution engine
-   - `compiler.py` — compiles IR to native Python functions using
-     environment-passing style
-   - `platform.py` — platform function integration API
-
-4. **`east/kernel/`** — the tracer that turns python lambdas into East IR
-   (the push-down behind every eager collection method). One module per
-   concern; `__init__.py` re-exports the whole surface, so importers only
-   ever say `from east.kernel import …`.
-   - `nodes.py` / `lift.py` / `finalize.py` — IR construction, lifting python
-     values into traced expressions, and the trace-time CSE
-   - `expr.py` + `ops/` — `KernelExpr` and its method surface, one op mixin
-     per domain (a mixin builds results with `self._expr(…)`: it cannot name
-     `KernelExpr`, because `expr.py` imports it to build that class)
-   - `control.py` — the block-level constructs (`East.while_`, `East.for_`,
-     `block`/`let`/`ref`/`label`/`break_`/`continue_`/`try_catch`)
-   - `trace.py` / `pushdown.py` — `kernel()`, and the purity gate + trace
-     cache that decide whether an eager callback goes native
-
-5. **`east/builtins/`** — 212+ builtin functions
-   - Auto-register on import via registry pattern
-   - Generic builtins receive type parameters as trailing arguments
-
-6. **`east/serialization/`** — parsing and printing
-   - `east_parser.py` / `east_printer.py` — East text format
-   - `json.py` — JSON encoding/decoding
-   - `beast2.py` — Binary East format
-   - `csv.py` — CSV encoding/decoding
-
-7. **`east/datetime_format/`** — datetime formatting
-   - `parse.py` / `print.py` — parse/print datetime with format strings
-   - `tokenize.py` — format string tokenization
-
-### Compilation pipeline
-
-```
-East IR (as East values)
-    ↓
-_compile_ir() — dispatches to node-specific compilers
-    ↓
-Python functions — use environment-passing style (env dict → result)
-```
-
-Key patterns:
-- Compiled functions take `env: dict[str, Any]` and return values.
-- Async propagation is computed bottom-up during compilation (from
-  `FunctionType.platforms`).
-- Platform functions (host environment interface) vs Builtins (pure
-  functions).
-
-### Important invariants
-
-1. **Immutability.** `EastStruct` and `EastVariant` are frozen. Only
-   `Array`, `Set`, `Dict`, and `Ref` are mutable.
-2. **Container ordering.** Sets and Dicts maintain sorted order using
-   East's total ordering for deterministic behavior.
+1. **Immutability.** `EastStruct` and `EastVariant` are frozen; `EastArray`,
+   `EastSet`, `EastDict` and `EastRef` are mutable.
+2. **Container ordering.** Sets and Dicts keep East's total order.
 3. **Type-value correspondence.** Every East value carries its type
-   (`value._east_type`, `arr.element_type`, …).
-4. **Type-driven operations.** Parsing, serialization, and many
-   operations require the target type.
+   (`arr.element_type`, `expr.east_type`, `type_of(value)`).
+4. **Type-driven operations.** Parsing, serialization and the generic
+   builtins take the target type explicitly.
+5. **Operators only where python agrees with East** (#624): `//`, `%` and
+   Integer `**`/`/` raise at build time naming the East spelling.
 
-### Builtin registry pattern
+## Cython
 
-Builtins auto-register when their module is imported:
-
-```python
-# In builtins/array.py
-def array_length(arr: EastArray, T: Any) -> int:
-    return len(arr)
-
-register_builtin("Array.Length", array_length)
-```
-
-Generic builtins receive type parameters as trailing arguments (e.g.
-`array_get(arr, index, T)`).
-
-### Error handling
-
-Try-catch-finally at the IR level with explicit message and stack
-variables. All IR nodes carry location information (filename, line,
-column) for error reporting.
-
-## Cython acceleration
-
-Hot paths have optional Cython (`*.pyx`) acceleration modules that
-compile automatically at install time via setuptools. If gcc is
-unavailable, the package falls back to pure Python.
-
-### Pattern
-
-For any `foo.py` that needs acceleration:
-
-1. Create `_foo_cy.pyx` sibling with `cpdef`/`cdef` typed equivalents.
-2. Add import shim at the bottom of `foo.py`:
-   `with contextlib.suppress(ImportError): from ._foo_cy import ...`
-3. `setup.py` auto-discovers all `.pyx` files — no script changes
-   needed.
-
-### Accelerated modules
-
-| Module | Cython file | What's accelerated |
-|---|---|---|
-| `types/values.py` | `_values_cy.pyx` | `CyEastStruct`, `CyEastVariant` cdef classes with direct C member access |
-| `serialization/binary_utils.py` | `_binary_utils_cy.pyx` | `read_varint`, `read_zigzag`, `read_float64_le`, `read_string_utf8_varint` |
-| `serialization/beast2.py` | `_beast2_cy.pyx` | `decode_beast2_value_for` — full BEAST2 decoder |
-| `serialization/csv.py` | `_csv_cy.pyx` | `decode_csv_for`, `encode_csv_for` — CSV row parsing |
-
-### Key conventions
-
-- cdef classes (`CyEastStruct`, `CyEastVariant`) must have
-  `__class_getitem__` for generic subscripting.
-- Use `cpdef` for functions callable from both Python and Cython
-  closures.
-- Class swaps (e.g. `EastStruct = CyEastStruct`) happen in `values.py`
-  — use `is_east_struct()` / `is_east_variant()` instead of
-  `isinstance()` checks.
-- `make build-cython` rebuilds extensions during development without
-  reinstalling.
+Every `.pyx` is a bridge to east-c (or an accelerator: `_values_cy`,
+`_ordering_cy`). `setup.py` discovers all `.pyx` files; `make build-cython`
+rebuilds them in place. A `cpdef` is callable from python and Cython; class
+swaps (`EastStruct = CyEastStruct`) happen in `types/values`, so test with
+`is_east_struct()` / `is_east_variant()`, not `isinstance`.
 
 ## Type checking
 
-mypy is configured for gradual typing (`disallow_untyped_defs = false`)
-because East is dynamically typed. Several error codes are disabled to
-accommodate runtime type flexibility. See `pyproject.toml` for details.
+mypy runs gradually typed (`disallow_untyped_defs = false`) — East is
+dynamically typed at the boundary. See `pyproject.toml`.
 
-## Testing patterns
+## Tests
 
-- `pytest` with verbose output.
-- Tests organized by module: `tests/builtins/`, `tests/types/`,
-  `tests/serialization/`, etc.
-- Coverage target: 84% (current).
-- Run specific tests with `-k` keyword matching or by specifying test
-  file/function paths.
+- `tests/test_*.py` — units, one file per concern (`test_stdlib.py`,
+  `test_expression_*.py`, `test_ts_name_parity.py`, `test_codegen_spellings.py`,
+  `test_eager_capture_matrix.py`, …); `tests/serialization/` for the codecs.
+- **Compliance** — `test_compliance.py` runs the TypeScript-exported spec
+  corpus (`/tmp/east-test-ir`, from `cd libs/east && make test-export`)
+  through east-c; `test_compliance_eager.py` + `eager_replay.py` replay the
+  same corpus through the python surface, builtin by builtin, gated by an
+  exact `KNOWN_DIFFS` pin that only ratchets down.
+- **Conformance** (`tests/conformance/`) — `build(print(IR)) ≡ IR` under
+  east-c's normalizer for the corpus and for the exported examples
+  (`/tmp/east-examples-ir`, from `pnpm --filter @elaraai/east run
+  export:examples`); every corpus program also runs its compliance suite
+  on the rebuilt IR and must agree with the original test by test.
+  `EAST_CONFORMANCE_REQUIRED=1` fails instead of skipping when a corpus is
+  missing (the per-OS CI sweep sets it). About a minute in all.
+  `test_three_way_sweep.py` continues the round trip through TypeScript —
+  IR₁ → python → IR₂ → `east-node transpile --rebuild` → IR₃, all equal
+  under the normalizer — and needs the built east-node CLI
+  (`EAST_NODE_CLI=…/east-node-cli/bin/east-node.mjs`, or `east-node` on
+  PATH; skips otherwise, `EAST_SWEEP_REQUIRED=1` in its own CI job). The
+  contract and construct table: `docs/conventions/EAST_CODEGEN.md`.
+- **Diagnostics** (`tests/diagnostics/`) — the rule corpus: for every rule
+  an `ok.py` every rule leaves alone and a `bad.py` whose `# expect: <rule>`
+  lines are exactly the diagnostics; "one message, two moments" builds the
+  very source the rules read and pins the refusal's text against the
+  diagnostic's. `make lint` runs `east-py lint` over every package's East
+  bodies (CI too), so the rules never flag the library's own code.
+- **No clocks in CI.** A test that asserts on elapsed time is
+  `@pytest.mark.perf` and runs only under `EAST_PERF=1` (`make bench`);
+  `tests/conftest.py` skips it otherwise. CI pins the mechanism a timing
+  claim rests on (a counter, a decode plan, a call count), never the clock.
+- `SKILL.md` is the `east:east-py` plugin skill — edit it as one document,
+  never by grep-patching, and keep its decision tree exhaustive.
 
 ## See also
 
 - [`../../CLAUDE.md`](../../CLAUDE.md) — lib-level overview.
-- [`../../../east/CLAUDE.md`](../../../east/CLAUDE.md) — TS reference
-  implementation. This package must pass the same compliance suite.
+- [`../../../east/CLAUDE.md`](../../../east/CLAUDE.md) — the TypeScript
+  reference implementation; this package passes the same compliance suite.

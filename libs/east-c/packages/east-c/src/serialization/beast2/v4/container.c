@@ -89,6 +89,26 @@ ByteBuffer *east_beast2_v4_encode_full(EastValue *value, EastType *type)
     return buf;
 }
 
+/* Read the source-map section into a fresh heap map holding one reference.
+ * Decoded function values take their own reference to it, so the map they
+ * resolve against outlives this decode call — the embedded-struct form left
+ * every decoded closure pointing into a dead stack frame. NULL on OOM (the
+ * decode then proceeds without a map). */
+static EastSourceMap *read_heap_source_map(const uint8_t *data, size_t len, size_t *offset,
+                                           Beast2StringTableDec *st)
+{
+    EastSourceMap parsed = read_source_map_section(data, len, offset, st);
+    EastSourceMap *sm = east_source_map_new();
+    if (!sm) {
+        beast2_source_map_free(&parsed);
+        return NULL;
+    }
+    sm->stacks = parsed.stacks;
+    sm->stack_counts = parsed.stack_counts;
+    sm->num_stacks = parsed.num_stacks;
+    return sm;
+}
+
 EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType *type, bool frozen)
 {
     if (!data || !type) return NULL;
@@ -109,7 +129,7 @@ EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType 
     Beast2StringTableDec st = read_string_table_section(data, len, &offset);
 
     /* 4. Read source map section */
-    EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
+    EastSourceMap *sm = read_heap_source_map(data, len, &offset, &st);
 
     /* 5. Read value table section (two-pass) */
     Beast2MutableValues mv =
@@ -123,7 +143,7 @@ EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType 
     dctx.string_table = &st;
     dctx.mutable_values = mv.values;
     dctx.mutable_values_count = mv.count;
-    dctx.source_map = &sm;
+    dctx.source_map = sm;
     dctx.frozen = frozen;
     EastValue *result = beast2_decode_value(data, len, &offset, type, &dctx);
     beast2_dec_ctx_free(&dctx);
@@ -131,7 +151,7 @@ EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType 
     if (!result) {
         type_table_result_free(&tt);
         string_table_dec_free(&st);
-        beast2_source_map_free(&sm);
+        east_source_map_release(sm);
         free(mv.values);
         return NULL;
     }
@@ -141,14 +161,14 @@ EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType 
         east_value_release(result);
         type_table_result_free(&tt);
         string_table_dec_free(&st);
-        beast2_source_map_free(&sm);
+        east_source_map_release(sm);
         free(mv.values);
         return NULL;
     }
 
     type_table_result_free(&tt);
     string_table_dec_free(&st);
-    beast2_source_map_free(&sm);
+    east_source_map_release(sm);
     free(mv.values);
     return result;
 }
@@ -170,7 +190,7 @@ EastValue *east_beast2_v4_decode_auto(const uint8_t *data, size_t len)
     Beast2StringTableDec st = read_string_table_section(data, len, &offset);
 
     /* 3. Read source map section */
-    EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
+    EastSourceMap *sm = read_heap_source_map(data, len, &offset, &st);
 
     /* 4. Read value table section */
     Beast2MutableValues mv =
@@ -184,13 +204,13 @@ EastValue *east_beast2_v4_decode_auto(const uint8_t *data, size_t len)
     dctx.string_table = &st;
     dctx.mutable_values = mv.values;
     dctx.mutable_values_count = mv.count;
-    dctx.source_map = &sm;
+    dctx.source_map = sm;
     EastValue *result = beast2_decode_value(data, len, &offset, tt.root_type, &dctx);
     beast2_dec_ctx_free(&dctx);
 
     type_table_result_free(&tt);
     string_table_dec_free(&st);
-    beast2_source_map_free(&sm);
+    east_source_map_release(sm);
     free(mv.values);
 
     if (!result) return NULL;
@@ -213,7 +233,7 @@ IRNode *east_beast2_v4_decode_ir(const uint8_t *data, size_t len, EastValue **ir
     size_t offset = 8;
     TypeTableResult tt = read_type_table_section(data, len, &offset);
     Beast2StringTableDec st = read_string_table_section(data, len, &offset);
-    EastSourceMap sm = read_source_map_section(data, len, &offset, &st);
+    EastSourceMap *sm = read_heap_source_map(data, len, &offset, &st);
 
     /* Read value table section (IR arrays are mutable containers) */
     Beast2MutableValues mv =
@@ -227,14 +247,14 @@ IRNode *east_beast2_v4_decode_ir(const uint8_t *data, size_t len, EastValue **ir
     dctx.string_table = &st;
     dctx.mutable_values = mv.values;
     dctx.mutable_values_count = mv.count;
-    dctx.source_map = &sm;
+    dctx.source_map = sm;
     EastValue *ir_value = beast2_decode_value(data, len, &offset, east_ir_type, &dctx);
     beast2_dec_ctx_free(&dctx);
 
     if (!ir_value) {
         type_table_result_free(&tt);
         string_table_dec_free(&st);
-        beast2_source_map_free(&sm);
+        east_source_map_release(sm);
         free(mv.values);
         return NULL;
     }
@@ -247,19 +267,12 @@ IRNode *east_beast2_v4_decode_ir(const uint8_t *data, size_t len, EastValue **ir
         east_value_release(ir_value);
     }
 
-    /* Hand ownership of source map to caller if requested; otherwise free it.
-     * Move the internal pointers to a heap-allocated struct so the caller can
-     * hold it across the stack unwind. */
-    if (source_map_out && sm.num_stacks > 0) {
-        EastSourceMap *heap_sm = calloc(1, sizeof(EastSourceMap));
-        if (heap_sm) {
-            *heap_sm = sm;
-            *source_map_out = heap_sm;
-        } else {
-            beast2_source_map_free(&sm);
-        }
+    /* Hand the caller the map's reference when asked for and the blob carried
+     * any stacks; otherwise drop it. */
+    if (source_map_out && sm && sm->num_stacks > 0) {
+        *source_map_out = sm;
     } else {
-        beast2_source_map_free(&sm);
+        east_source_map_release(sm);
     }
 
     type_table_result_free(&tt);

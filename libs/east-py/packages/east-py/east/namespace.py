@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from east.kernel.control import (
+from east.expression.control import (
     block,
     break_,
     continue_,
@@ -33,27 +33,85 @@ from east.kernel.control import (
     let,
     new_array,
     new_dict,
+    new_matrix,
     new_set,
+    new_vector,
     ref,
     try_catch,
     while_,
 )
-from east.kernel.lift import if_else
+from east.expression.function import (
+    async_function as _async_function,
+)
+from east.expression.function import (
+    compile_ as _compile,
+)
+from east.expression.function import (
+    compile_async as _compile_async,
+)
+from east.expression.function import (
+    function as _function,
+)
+from east.expression.lift import as_, builtin, greatest, if_else, least, value, wrap_recursive
+from east.expression.platform import (
+    async_generic_platform as _async_generic_platform,
+)
+from east.expression.platform import (
+    async_platform as _async_platform,
+)
+from east.expression.platform import (
+    generic_platform as _generic_platform,
+)
+from east.expression.platform import (
+    platform as _platform,
+)
+from east.expression.statements import error
+from east.functions import (
+    decode_function_manifest as _decode_function_manifest,
+)
+from east.functions import (
+    encode_function_manifest as _encode_function_manifest,
+)
+from east.functions import (
+    export_functions as _export_functions,
+)
+from east.functions import (
+    import_function as _import_function,
+)
+from east.functions import (
+    link_imports as _link_imports,
+)
+from east.functions import (
+    platform_dependencies as _platform_dependencies,
+)
+from east.runtime.platform import (
+    generic_platform_function as _generic_platform_function,
+)
+from east.runtime.platform import (
+    platform_function as _platform_function,
+)
+from east.runtime.platform import (
+    platform_functions as _platform_functions,
+)
 from east.types.types import (
     ArrayType,
     BlobType,
     BooleanType,
     DateTimeType,
+    DictType,
     EastType,
     FloatType,
     IntegerType,
     MatrixType,
+    NullType,
     PatchType,
+    SetType,
     StringType,
     StructType,
     VectorType,
 )
 from east.types.values import EastValue, _call_builtin
+from east.types.values import type_of as _type_of
 
 
 class _FloatNamespace:
@@ -653,17 +711,27 @@ class _StringNamespace:
         return _call_builtin("Parse", [typ], [s], typ)
 
     @staticmethod
-    def print_json(typ: EastType, value: EastValue) -> str:
+    def print_json(typ: Any, value: Any = None) -> str:
         """Render ``value`` as JSON (east-c StringPrintJSON).
 
+        ``print_json(typ, value)`` encodes under the declared ``typ``;
+        ``print_json(value)`` — TypeScript's ``printJson(value)`` — takes the
+        value's own type (a traced expression's declared type, or
+        ``type_of`` on a plain value).
+
         Args:
-            typ: The East type of ``value``, which drives the JSON encoding.
+            typ: The East type of ``value``, which drives the JSON encoding —
+                or the value itself in the one-argument form.
             value: The value to encode.
 
         Returns:
             The JSON text representation of ``value``, parseable back via
             :meth:`parse_json` with the same ``typ``.
         """
+        if value is None and not isinstance(typ, EastType):
+            value = typ
+            east_type = getattr(value, "east_type", None)
+            typ = east_type if east_type is not None else _type_of(value)
         return _call_builtin("StringPrintJSON", [typ], [value], StringType)
 
     @staticmethod
@@ -810,14 +878,16 @@ class _DateTimeNamespace:
     @staticmethod
     def from_components(
         year: int,
-        month: int,
-        day: int,
-        hour: int,
-        minute: int,
-        second: int,
-        millisecond: int,
+        month: int = 1,
+        day: int = 1,
+        hour: int = 0,
+        minute: int = 0,
+        second: int = 0,
+        millisecond: int = 0,
     ) -> datetime:
-        """Construct a UTC datetime from its calendar components (east-c DateTimeFromComponents).
+        """Construct a UTC datetime from its calendar components (east-c
+        DateTimeFromComponents; TS ``fromComponents`` — the trailing
+        components default to the first instant, as in TypeScript).
 
         Args:
             year: The full year, e.g. ``2026``.
@@ -851,10 +921,35 @@ class _DateTimeNamespace:
         """
         return _call_builtin("DateTimeAddMilliseconds", [], [dt, millis], DateTimeType)
 
+    @staticmethod
+    def subtract_milliseconds(dt: datetime, millis: int) -> datetime:
+        """Offset a datetime backwards by ``millis`` milliseconds (TS
+        ``subtractMilliseconds``: DateTimeAddMilliseconds of the negated amount).
+
+        Args:
+            dt: The base datetime, interpreted as UTC.
+            millis: Milliseconds to subtract; negative values move forwards.
+
+        Returns:
+            A new datetime shifted back by ``millis``; the input is unchanged.
+        """
+        return East.DateTime.add_milliseconds(dt, -millis)
+
     # ── unit sugar over add/duration_milliseconds (TS-expr parity) ──
 
     @staticmethod
-    def _shift(dt: datetime, n: int | float, scale: int) -> datetime:
+    def _shift(dt: Any, n: Any, scale: int) -> Any:
+        # Dual-mode like every namespace function: a plain amount scales to
+        # whole milliseconds here; an EXPRESSION amount scales inside the
+        # body exactly as the expression method does (a Float converts
+        # after scaling), so `East.DateTime.add_days(d, n)` builds for a
+        # parameter `n` too.
+        from east.expression.expr import Expression
+
+        if isinstance(n, Expression):
+            from east.expression import _lift
+
+            return _lift(dt, hint=DateTimeType)._shift(n, scale, False)
         millis = int(n * scale)
         return _call_builtin("DateTimeAddMilliseconds", [], [dt, millis], DateTimeType)
 
@@ -948,8 +1043,9 @@ class _DateTimeNamespace:
         return _call_builtin("DateTimeDurationMilliseconds", [], [a, b], IntegerType)
 
     @staticmethod
-    def print_format(dt: datetime, fmt: str) -> str:
-        """Format a UTC datetime with a Day.js-style format string (east-c DateTimePrintFormat).
+    def print_formatted(dt: datetime, fmt: str) -> str:
+        """Format a UTC datetime with a Day.js-style format string (east-c
+        DateTimePrintFormat; TS ``printFormatted``).
 
         ``fmt`` is tokenized into the ``Array<DateTimeFormatToken>`` east-c expects
         — see :func:`east.datetime_format.tokenize_datetime_format` for the full
@@ -968,35 +1064,89 @@ class _DateTimeNamespace:
         return _call_builtin("DateTimePrintFormat", [], [dt, format_token_array(fmt)], StringType)
 
     @staticmethod
-    def parse_format(s: str, fmt: str) -> datetime:
-        """Parse ``s`` with a Day.js-style format string (east-c DateTimeParseFormat)."""
+    def parse_formatted(s: str, fmt: str) -> datetime:
+        """Parse ``s`` with a Day.js-style format string (east-c
+        DateTimeParseFormat; TS ``parseFormatted``)."""
         from east.datetime_format import format_token_array
 
         return _call_builtin("DateTimeParseFormat", [], [s, format_token_array(fmt)], DateTimeType)
 
+    @staticmethod
+    def print_format(dt: datetime, fmt: str) -> str:
+        """Deprecated alias of :meth:`print_formatted` (the TypeScript name)."""
+        import warnings
+
+        warnings.warn(
+            "East.DateTime.print_format is deprecated: the spelling is print_formatted "
+            "(the TypeScript name)", DeprecationWarning, stacklevel=2)
+        return East.DateTime.print_formatted(dt, fmt)
+
+    @staticmethod
+    def parse_format(s: str, fmt: str) -> datetime:
+        """Deprecated alias of :meth:`parse_formatted` (the TypeScript name)."""
+        import warnings
+
+        warnings.warn(
+            "East.DateTime.parse_format is deprecated: the spelling is parse_formatted "
+            "(the TypeScript name)", DeprecationWarning, stacklevel=2)
+        return East.DateTime.parse_formatted(s, fmt)
+
 
 class _BooleanNamespace:
-    """East ``Boolean`` builtins."""
+    """East ``Boolean`` builtins — the TypeScript method names: ``not`` and
+    the non-short-circuit ``bitAnd``/``bitOr``/``bitXor`` (both operands are
+    values here, so there is nothing to short-circuit; TypeScript's
+    ``and``/``or`` take bodies and are the expression's ``.and_``/``.or_``)."""
 
     @staticmethod
     def not_(x: bool) -> bool:
-        """Logical not (east-c BooleanNot)."""
+        """Logical not (east-c BooleanNot; TS ``not``)."""
         return _call_builtin("BooleanNot", [], [x], BooleanType)
 
     @staticmethod
-    def and_(a: bool, b: bool) -> bool:
-        """Logical and (east-c BooleanAnd)."""
+    def bit_and(a: bool, b: bool) -> bool:
+        """Logical and of two values (east-c BooleanAnd; TS ``bitAnd``)."""
         return _call_builtin("BooleanAnd", [], [a, b], BooleanType)
 
     @staticmethod
-    def or_(a: bool, b: bool) -> bool:
-        """Logical or (east-c BooleanOr)."""
+    def bit_or(a: bool, b: bool) -> bool:
+        """Logical or of two values (east-c BooleanOr; TS ``bitOr``)."""
         return _call_builtin("BooleanOr", [], [a, b], BooleanType)
 
     @staticmethod
-    def xor(a: bool, b: bool) -> bool:
-        """Logical xor (east-c BooleanXor)."""
+    def bit_xor(a: bool, b: bool) -> bool:
+        """Logical xor (east-c BooleanXor; TS ``bitXor``)."""
         return _call_builtin("BooleanXor", [], [a, b], BooleanType)
+
+    @staticmethod
+    def and_(a: bool, b: bool) -> bool:
+        """Deprecated alias of :meth:`bit_and` (the TypeScript name)."""
+        import warnings
+
+        warnings.warn(
+            "East.Boolean.and_ is deprecated: the spelling is bit_and "
+            "(the TypeScript name)", DeprecationWarning, stacklevel=2)
+        return East.Boolean.bit_and(a, b)
+
+    @staticmethod
+    def or_(a: bool, b: bool) -> bool:
+        """Deprecated alias of :meth:`bit_or` (the TypeScript name)."""
+        import warnings
+
+        warnings.warn(
+            "East.Boolean.or_ is deprecated: the spelling is bit_or "
+            "(the TypeScript name)", DeprecationWarning, stacklevel=2)
+        return East.Boolean.bit_or(a, b)
+
+    @staticmethod
+    def xor(a: bool, b: bool) -> bool:
+        """Deprecated alias of :meth:`bit_xor` (the TypeScript name)."""
+        import warnings
+
+        warnings.warn(
+            "East.Boolean.xor is deprecated: the spelling is bit_xor "
+            "(the TypeScript name)", DeprecationWarning, stacklevel=2)
+        return East.Boolean.bit_xor(a, b)
 
 
 def _tensor_elem_of(value: Any, kind: str) -> EastType:
@@ -1035,7 +1185,7 @@ def _as_vector(x: Any, what: str) -> Any:
 
     Serves both paths like every namespace function: a traced Array emits the
     conversion as IR, an eager ``EastArray`` converts natively — so the sparse
-    entry points accept the ``rows.map(...)`` results a kernel actually has,
+    entry points accept the ``rows.map(...)`` results a function body actually has,
     at exactly the point the values are materialised.
     """
     east_type = getattr(x, "east_type", None)
@@ -1190,7 +1340,7 @@ class _VectorNamespace:
 
         Each index/value input may also be an ``Array`` (converted in order
         via VectorFromArray, #601), so per-row values computed inside a
-        kernel feed the merge directly.
+        function feed the merge directly.
 
         Args:
             ix_a: The left accumulator's strictly ascending Integer indices.
@@ -1224,7 +1374,7 @@ class _VectorNamespace:
         order — so the float result is deterministic for a given input order.
         Either input may be an ``Array`` (converted in order via
         VectorFromArray, #601) — the natural way to seed an accumulator from
-        ``rows.map(...)`` results inside a kernel — and the conversion
+        ``rows.map(...)`` results inside an East function body — and the conversion
         preserves input order, so the duplicate-summing stability is
         identical whichever input type is given.
 
@@ -1383,6 +1533,171 @@ class _MatrixNamespace:
         return _call_builtin("MatrixFill", [elem], [rows, cols, value], MatrixType(elem))
 
 
+class _BlobNamespace:
+    """``East.Blob`` — the BEAST encoders (TS ``East.Blob.encodeBeast``)."""
+
+    @staticmethod
+    def encode_beast(value: Any, version: str = "v1", *, typ: EastType | None = None) -> Any:
+        """Encode ``value`` to East's binary format (east-c BlobEncodeBeast /
+        BlobEncodeBeast2; TS ``encodeBeast``).
+
+        ``'v1'`` is the original BEAST format; ``'v2'`` names the beast2
+        FAMILY (the encoder writes the current container version, which every
+        runtime reads). The value's type drives the encoding: a traced
+        expression's declared type, ``type_of`` on a plain value, or the
+        explicit ``typ`` (a plain value whose inferred type would be narrower
+        than the declared one — a single-case variant).
+
+        Args:
+            value: The value to encode.
+            version: ``'v1'`` (default) or ``'v2'``.
+            typ: The East type to encode under; inferred when omitted.
+
+        Returns:
+            A Blob of the encoded bytes.
+        """
+        if version == "v1":
+            builtin = "BlobEncodeBeast"
+        elif version == "v2":
+            builtin = "BlobEncodeBeast2"
+        else:
+            raise ValueError(f"Unsupported Beast version: {version!r} (expected 'v1' or 'v2')")
+        if typ is None:
+            east_type = getattr(value, "east_type", None)
+            typ = east_type if east_type is not None else _type_of(value)
+        return _call_builtin(builtin, [typ], [value], BlobType)
+
+
+class _ArrayNamespace:
+    """``East.Array`` — the Array constructors that are builtins (dual-mode)."""
+
+    @staticmethod
+    def generate(size: Any, value_type: Any, value_fn: Any) -> Any:
+        """``ArrayGenerate``: ``[value_fn(0), …, value_fn(size-1)]`` of
+        ``value_type`` (TS ``generate(size, valueType, valueFn)``)."""
+        from east.expression import _lift, _trace_inner_fn, _tracing
+        from east.expression.expr import Expression
+        from east.expression.nodes import _builtin as _b
+        from east.types.values import EastArray
+
+        value_type, value_fn = _type_then_fn("East.Array.generate", value_type, value_fn)
+        if not _tracing():
+            return EastArray.generate(size, value_fn, element_type=value_type)
+        n = _lift(size, hint=IntegerType)
+        node, _t = _trace_inner_fn(value_fn, [IntegerType], out_hint=value_type)
+        out = ArrayType(value_type)
+        return Expression(_b("ArrayGenerate", out, [value_type], [n.ir, node]), out)
+
+    @staticmethod
+    def range(start: Any, end: Any, step: Any = 1) -> Any:
+        """``ArrayRange``: the Integers from ``start`` to ``end`` by ``step``."""
+        from east.expression import _lift, _tracing
+        from east.expression.expr import Expression
+        from east.expression.nodes import _builtin as _b
+        from east.types.values import EastArray
+
+        if not _tracing():
+            return EastArray.range(start, end, step)
+        args = [_lift(x, hint=IntegerType).ir for x in (start, end, step)]
+        out = ArrayType(IntegerType)
+        return Expression(_b("ArrayRange", out, [], args), out)
+
+    @staticmethod
+    def linspace(start: Any, end: Any, count: Any) -> Any:
+        """``ArrayLinspace``: ``count`` Floats evenly spaced from ``start`` to ``end``."""
+        from east.expression import _lift, _tracing
+        from east.expression.expr import Expression
+        from east.expression.nodes import _builtin as _b
+        from east.types.values import EastArray
+
+        if not _tracing():
+            return EastArray.linspace(start, end, count)
+        args = [_lift(start, hint=FloatType).ir, _lift(end, hint=FloatType).ir,
+                _lift(count, hint=IntegerType).ir]
+        out = ArrayType(FloatType)
+        return Expression(_b("ArrayLinspace", out, [], args), out)
+
+
+def _type_then_fn(what: str, typ: Any, fn: Any) -> tuple:
+    """``(type, fn)`` in the TypeScript order ``generate(size, type, fn)``;
+    the pre-TS python order ``generate(size, fn, type)`` is accepted with a
+    DeprecationWarning."""
+    if not isinstance(typ, EastType) and isinstance(fn, EastType):
+        import warnings
+
+        warnings.warn(
+            f"{what}(size, fn, type) is deprecated: the order is {what}(size, type, fn) "
+            "(the TypeScript order)", DeprecationWarning, stacklevel=3)
+        return fn, typ
+    return typ, fn
+
+
+class _SetNamespace:
+    """``East.Set`` — the Set constructors that are builtins (dual-mode)."""
+
+    @staticmethod
+    def generate(size: Any, key_type: Any, key_fn: Any, on_conflict: Any = None) -> Any:
+        """``SetGenerate``: the set of ``key_fn(0..size-1)`` (TS
+        ``generate(size, keyType, keyFn, onConflict?)``); ``on_conflict(key)``
+        runs for a key generated twice — without it a duplicate is an East
+        runtime error ``Duplicate key <key> in set``."""
+        from east.expression import _error_init_function, _lift, _trace_inner_fn, _tracing
+        from east.expression.expr import Expression
+        from east.expression.nodes import _builtin as _b
+        from east.types.values import EastSet
+
+        key_type, key_fn = _type_then_fn("East.Set.generate", key_type, key_fn)
+        if not _tracing():
+            return EastSet.generate(size, key_fn, element_type=key_type, on_conflict=on_conflict)
+        n = _lift(size, hint=IntegerType)
+        node, _t = _trace_inner_fn(key_fn, [IntegerType], out_hint=key_type)
+        if on_conflict is None:
+            dup = _error_init_function(NullType, key_type, "Duplicate key ", " in set")._east_ir
+        else:
+            dup, _t2 = _trace_inner_fn(on_conflict, [key_type], out_hint=NullType)
+        out = SetType(key_type)
+        return Expression(_b("SetGenerate", out, [key_type], [n.ir, node, dup]), out)
+
+
+class _DictNamespace:
+    """``East.Dict`` — the Dict constructors that are builtins (dual-mode)."""
+
+    @staticmethod
+    def generate(size: Any, key_type: Any, value_type: Any, key_fn: Any, value_fn: Any,
+                 on_conflict: Any = None) -> Any:
+        """``DictGenerate``: ``size`` entries ``key_fn(i) → value_fn(i)`` (TS
+        ``generate(size, keyType, valueType, keyFn, valueFn, onConflict?)``);
+        ``on_conflict(existing, incoming, key)`` resolves a repeated key —
+        without it a duplicate is an East runtime error ``Duplicate key
+        <key> in dict``."""
+        from east.expression import _error_combine_function, _lift, _trace_inner_fn, _tracing
+        from east.expression.expr import Expression
+        from east.expression.nodes import _builtin as _b
+        from east.types.values import EastDict
+
+        if not isinstance(key_type, EastType) and isinstance(value_fn, EastType):
+            # the pre-TS python order (size, key_fn, value_fn, combine, key_type, value_type)
+            import warnings
+
+            warnings.warn(
+                "East.Dict.generate(size, key_fn, value_fn, combine, key_type, value_type) "
+                "is deprecated: the order is generate(size, key_type, value_type, key_fn, "
+                "value_fn, on_conflict=None) (the TypeScript order)",
+                DeprecationWarning, stacklevel=2)
+            key_type, value_type, key_fn, value_fn, on_conflict = value_fn, on_conflict, key_type, value_type, key_fn
+        if not _tracing():
+            return EastDict.generate(size, key_fn, value_fn, on_conflict, key_type, value_type)
+        n = _lift(size, hint=IntegerType)
+        kf, _a = _trace_inner_fn(key_fn, [IntegerType], out_hint=key_type)
+        vf, _b2 = _trace_inner_fn(value_fn, [IntegerType], out_hint=value_type)
+        if on_conflict is None:
+            cf = _error_combine_function(value_type, key_type, "Duplicate key ", " in dict")._east_ir
+        else:
+            cf, _c = _trace_inner_fn(on_conflict, [value_type, value_type, key_type], out_hint=value_type)
+        out = DictType(key_type, value_type)
+        return Expression(_b("DictGenerate", out, [key_type, value_type], [n.ir, kf, vf, cf]), out)
+
+
 class _East:
     """The ``East`` namespace object — primitive builtins, comparisons and
     the block-level control flow."""
@@ -1394,8 +1709,90 @@ class _East:
     DateTime = _DateTimeNamespace()
     Vector = _VectorNamespace()
     Matrix = _MatrixNamespace()
+    Array = _ArrayNamespace()
+    Set = _SetNamespace()
+    Dict = _DictNamespace()
+    Blob = _BlobNamespace()
 
-    # ── block-level control flow (#578, east/kernel/control.py) ──────────
+    # ── the strict expression builders (#625, east/expression/function.py) ──
+    # Name-for-name with the TypeScript trio: East.function / East.platform /
+    # East.compile author, declare and compile East programs from python.
+    function = staticmethod(_function)
+    asyncFunction = staticmethod(_async_function)  # noqa: N815 — TS parity name
+    platform = staticmethod(_platform)
+    asyncPlatform = staticmethod(_async_platform)  # noqa: N815 — TS parity name
+    genericPlatform = staticmethod(_generic_platform)  # noqa: N815 — TS parity name
+    asyncGenericPlatform = staticmethod(_async_generic_platform)  # noqa: N815 — TS parity name
+    compile = staticmethod(_compile)
+    compileAsync = staticmethod(_compile_async)  # noqa: N815 — TS parity name
+
+    # ── platform implementations (#649, east/runtime/platform.py) ──────────
+    # The host side of `East.platform`: `@East.platform_function` implements
+    # what `East.platform(name, …)` declares — paired by NAME (the def's, or
+    # `name=`) — and `East.platform_functions(__name__)` collects a module's
+    # implementations for `East.compile(fn, platform=…)`. The bare imports
+    # (`from east import platform_function`) are the same objects.
+    platform_function = staticmethod(_platform_function)
+    generic_platform_function = staticmethod(_generic_platform_function)
+    platform_functions = staticmethod(_platform_functions)
+
+    # ── cross-language functions (#628, east/functions.py) ──────────────────
+    # Name-for-name with TypeScript: a function exported by a package in
+    # either language is imported as a typed function expression
+    # (`East.import_function`), resolved and embedded as pure IR by
+    # `East.link_imports` (what `e3 export` runs on every task); a package
+    # exports its own with `East.export_functions` (`east-py export-functions`
+    # is the CLI).
+    import_function = staticmethod(_import_function)
+    importFunction = staticmethod(_import_function)  # noqa: N815 — TS parity name
+    export_functions = staticmethod(_export_functions)
+    exportFunctions = staticmethod(_export_functions)  # noqa: N815 — TS parity name
+    encode_function_manifest = staticmethod(_encode_function_manifest)
+    encodeFunctionManifest = staticmethod(_encode_function_manifest)  # noqa: N815 — TS parity name
+    decode_function_manifest = staticmethod(_decode_function_manifest)
+    decodeFunctionManifest = staticmethod(_decode_function_manifest)  # noqa: N815 — TS parity name
+    link_imports = staticmethod(_link_imports)
+    linkImports = staticmethod(_link_imports)  # noqa: N815 — TS parity name
+    platform_dependencies = staticmethod(_platform_dependencies)
+    platformDependencies = staticmethod(_platform_dependencies)  # noqa: N815 — TS parity name
+
+    # The STATEMENT surface — python's twin of the TypeScript `$` builder —
+    # is the Block a body receives as its first parameter (`b.let`, `b.if_`,
+    # `b.for_`, … — east/expression/statements.py); nothing here is a
+    # statement. `East.error` is the Never-typed error EXPRESSION.
+    error = staticmethod(error)
+    # expression-level spellings every IR node kind needs (TS parity names)
+    value = staticmethod(value)
+    as_ = staticmethod(as_)
+    wrap_recursive = staticmethod(wrap_recursive)
+    greatest = staticmethod(greatest)
+    least = staticmethod(least)
+    # the TypeScript root names: max/min are greatest/least under East's
+    # total order; clamp pins a value into [lo, hi]; str is the template
+    max = staticmethod(greatest)
+    min = staticmethod(least)
+
+    @staticmethod
+    def clamp(value: Any, lo: Any, hi: Any) -> Any:
+        """``value`` pinned into ``[lo, hi]`` under East's total order (TS
+        ``East.clamp``): dual-mode like ``greatest``/``least``."""
+        return least(greatest(value, lo), hi)
+
+    @staticmethod
+    def print(value: Any, typ: EastType | None = None) -> Any:
+        """``value`` rendered in East text format (east-c Print; TS
+        ``East.print(value)``), dual-mode. The type is the value's own — an
+        expression's declared type, or ``type_of`` on a plain value — unless
+        ``typ`` says otherwise (a plain value whose inferred type is narrower
+        than the declared one, a single-case variant).
+        ``East.String.print(typ, value)`` is the same builtin, type first.
+        """
+        if typ is None:
+            east_type = getattr(value, "east_type", None)
+            typ = east_type if east_type is not None else _type_of(value)
+        return _StringNamespace.print(typ, value)
+
+    # ── block-level control flow (#578, east/expression/control.py) ──────────
     # Attached rather than defined here: they are dual-mode expression
     # builders, and this is the spelling — the python name is the IR node
     # name, so an error, an IR dump and the docs all say the same word.
@@ -1412,6 +1809,9 @@ class _East:
     new_array = staticmethod(new_array)
     new_set = staticmethod(new_set)
     new_dict = staticmethod(new_dict)
+    new_vector = staticmethod(new_vector)
+    new_matrix = staticmethod(new_matrix)
+    builtin = staticmethod(builtin)
 
     @staticmethod
     def equal(typ: EastType, a: EastValue, b: EastValue) -> bool:
@@ -1507,5 +1907,29 @@ class _East:
 
 
 East = _East()
+
+
+def _attach_stdlib() -> None:
+    """Hang the stdlib (``east.expression.libs`` — the TS ``expr/libs``
+    port) on the namespaces: ``East.Integer.print_compact``,
+    ``East.Float.round_to_decimals``, ``East.DateTime.round_down_week``,
+    ``East.String.print_error``, ``East.str``…"""
+    from east.expression.libs import datetime as _dt_lib
+    from east.expression.libs import float as _float_lib
+    from east.expression.libs import integer as _integer_lib
+    from east.expression.libs import string as _string_lib
+
+    for space, lib in ((_IntegerNamespace, _integer_lib), (_FloatNamespace, _float_lib),
+                       (_DateTimeNamespace, _dt_lib)):
+        for name in lib.__all__:
+            setattr(space, name, staticmethod(getattr(lib, name)))
+    _StringNamespace.print_error = staticmethod(_string_lib.print_error)  # type: ignore[attr-defined]
+    _East.str = staticmethod(_string_lib.str_)  # type: ignore[attr-defined]
+    # the correctly spelled twins of the TS names (python extras)
+    _IntegerNamespace.print_comma_separated = staticmethod(_integer_lib.print_comma_seperated)  # type: ignore[attr-defined]
+    _FloatNamespace.print_comma_separated = staticmethod(_float_lib.print_comma_seperated)  # type: ignore[attr-defined]
+
+
+_attach_stdlib()
 
 __all__ = ["East"]

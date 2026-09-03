@@ -63,8 +63,10 @@ EastType *east_beast2_extract_type(const uint8_t *data, size_t len);
 // Keeps the type table alive across decode + IR conversion for O(1) type resolution.
 // Returns NULL on failure. Caller must call ir_node_release on the result.
 // ir_value_out (optional): if non-NULL, receives the retained IR EastValue* (for re-serialization).
-// source_map_out (optional): if non-NULL, receives heap-allocated EastSourceMap* (caller owns;
-//   free with east_source_map_free + free). When NULL, the decoded source map is discarded.
+// source_map_out (optional): if non-NULL, receives a heap EastSourceMap* holding one reference
+//   for the caller (drop it with east_source_map_release; a compiled function given the map
+//   takes its own reference — see EastCompiledFn). NULL when the blob carries no stacks, or
+//   when the parameter is NULL (the decoded map is then discarded).
 IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_value_out,
                               EastSourceMap **source_map_out);
 
@@ -308,9 +310,21 @@ ByteBuffer *east_beast2_splice_tail(const size_t *offsets, const size_t *counts,
 // Decode JSON IR in wrapper format {ir, source_map} and convert to IRNode.
 // Tries wrapper format first (TS test suite export), falls back to raw IR.
 // ir_value_out (optional): if non-NULL, receives the retained IR EastValue*.
-// source_map_out (optional): if non-NULL, receives heap-allocated EastSourceMap* (caller owns).
+// source_map_out (optional): if non-NULL, receives a heap EastSourceMap* holding one reference
+//   for the caller (drop it with east_source_map_release), or NULL when the wrapper carried
+//   no stacks. Same ownership contract as east_beast2_decode_ir.
 IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out,
                             EastSourceMap **source_map_out);
+
+// The heap source map (one reference, the caller's) a decoded wrapper's
+// `source_map` value describes — `{stacks: [[{filename, line, column}]]}` —
+// or NULL when it carries no stacks.
+EastSourceMap *east_source_map_from_value(EastValue *sm_val);
+
+// Encode an IR value (IRType) as a beast2 (v5) blob whose header carries
+// `source_map` (NULL: an empty map) — the twin of east_beast2_decode_ir, for
+// re-encoding an IR file with its locations intact.
+ByteBuffer *east_beast2_encode_ir(EastValue *ir_value, EastSourceMap *source_map);
 
 // Beast v1 binary serialization (magic + type schema + twiddled values)
 ByteBuffer *east_beast_encode(EastValue *value, EastType *type);

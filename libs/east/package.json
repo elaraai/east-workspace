@@ -30,7 +30,8 @@
     "test:coverage": "npm run build && node --enable-source-maps --test-reporter=spec --test --experimental-test-coverage 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
     "test:export": "npm run build && rm -rf /tmp/east-test-ir && EXPORT_TEST_IR=/tmp/east-test-ir node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "export:examples": "npm run build && node scripts/export-examples-ir.mjs /tmp/east-examples-ir"
   },
   "repository": {
     "type": "git",
@@ -62,5 +63,13 @@
   },
   "dependencies": {
     "sorted-btree": "^1.8.1"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
   }
 }

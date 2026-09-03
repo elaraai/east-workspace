@@ -1,3 +1,5 @@
+> **Superseded (#654).** The prompt-time and write-time example injection this document designed is gone: the plugin pulls examples through the MCP search tool (summaries first, printed from IR in either language) and the pre-write hook is a search-before-coding gate. See the README's "Example Search". Kept for the history of the design.
+
 # East Plugin: Context Injection via Hooks
 
 ## Problem

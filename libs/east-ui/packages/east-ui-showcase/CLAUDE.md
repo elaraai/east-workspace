@@ -31,6 +31,16 @@ where the snapshots land — they exist specifically so an agent can
 - `scripts/probe-overlays.ts`, `probe-page.ts` — debugging helpers.
 - `scripts/vite-plugin-example-sources.ts` — exposes example source
   files to the dev server via a virtual module.
+- `scripts/example-renderings.ts` — joins every Code Reference example
+  with the Claude plugin's example index (`libs/east-claude-plugin/index.json`)
+  by id, for its python rendering (#655): the index stores each program
+  example as IR with the TypeScript and python printed from it. A Code
+  Reference example missing from the index fails the build naming it —
+  regenerate with `cd libs/east-claude-plugin && make index`. The
+  TypeScript / Python selector on each Code Reference entry is that
+  example's own choice (`code-language.ts`, session-persisted so a row
+  keeps it across virtualizer remounts; `?lang=python` opens every example
+  in python); Components are JSX and never get the selector.
 
 ## Make targets
 

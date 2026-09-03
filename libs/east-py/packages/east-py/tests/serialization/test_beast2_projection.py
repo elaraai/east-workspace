@@ -8,9 +8,10 @@ Two forms over one decode plan:
 
 - INFERRED: the compute family traces its callbacks FIRST, derives the set
   of struct fields the traced IR reads, and decodes each segment to exactly
-  that subset — no API, no declaration. Non-inferable callbacks (impure,
-  element-escaping, un-retraceable kernels) fall back to today's whole
-  decode, counted in ``eager_stats()`` with the reason.
+  that subset — no API, no declaration. Non-inferable callbacks decline
+  projection with the reason counted in ``eager_stats()``: element-escaping
+  shapes and bound functions decode whole, and an impure callback then raises
+  the strict-capture error before any row runs (#625).
 - EXPLICIT: ``open_beast2_file(path, project=NARROW)`` — ``NARROW`` is a
   subset of the wire type; every read serves the projected shape.
 
@@ -25,6 +26,7 @@ import pytest
 from east import (
     ArrayType,
     DictType,
+    East,
     EastArray,
     EastDict,
     EastSet,
@@ -34,7 +36,6 @@ from east import (
     StringType,
     StructType,
     if_else,
-    kernel,
 )
 from east.runtime.compiler import eager_stats
 from east.serialization.beast2 import open_beast2_file, write_beast2_file
@@ -96,16 +97,16 @@ def test_traced_callbacks_infer_projection_and_agree(array_path):
     with open_beast2_file(array_path, AT) as f:
         table = f.load()
         cases = [
-            ("map", lambda c: list(c.map(lambda r: r["qty"] * 2))),
-            ("map_nested", lambda c: list(c.map(lambda r: r["meta"]["code"]))),
-            ("sum", lambda c: c.sum(lambda r: r["amt"])),
-            ("fold", lambda c: c.fold(0, lambda a, r: a + r["id"])),
-            ("every", lambda c: c.every(lambda r: r["qty"] >= 0)),
+            ("map", lambda c: list(c.map(lambda _b, r: r["qty"] * 2))),
+            ("map_nested", lambda c: list(c.map(lambda _b, r: r["meta"]["code"]))),
+            ("sum", lambda c: c.sum(lambda _b, r: r["amt"])),
+            ("reduce", lambda c: c.reduce(lambda _b, a, r: a + r["id"], 0)),
+            ("every", lambda c: c.every(lambda _b, r: r["qty"] >= 0)),
             ("group_reduce", lambda c: dict(c.group_reduce(
-                lambda r: r["meta"]["code"], lambda _k: 0,
-                lambda a, r: a + r["qty"]).items())),
+                lambda _b, r: r["meta"]["code"], lambda _b, _k: 0,
+                lambda _b, a, r: a + r["qty"]).items())),
             ("to_dict", lambda c: dict(c.to_dict(
-                lambda r: r["id"], value=lambda r: r["qty"]).items())),
+                lambda _b, r: r["id"], value=lambda _b, r: r["qty"]).items())),
         ]
         for name, run in cases:
             got, counted = _delta(lambda run=run: run(f))
@@ -120,22 +121,22 @@ def test_dict_callbacks_infer_value_projection(dict_path):
     with open_beast2_file(dict_path, DT) as d:
         table = d.load()
         got, counted = _delta(
-            lambda: list(d.to_array(lambda k, v: v["qty"], out=IntegerType)))
-        assert got == list(table.to_array(lambda k, v: v["qty"], out=IntegerType))
+            lambda: list(d.to_array(lambda _b, v: v["qty"], out=IntegerType)))
+        assert got == list(table.to_array(lambda _b, v: v["qty"], out=IntegerType))
         assert counted["beast2_segments_projected"] > 0
 
-        # keys_set reads NOTHING of the value — the empty projection
+        # keys() reads NOTHING of the value — the empty projection
         # (variant K in the issue's measurements).
-        got, counted = _delta(lambda: d.keys_set())
+        got, counted = _delta(lambda: d.keys())
         assert len(got) == 400
         assert counted["beast2_segments_projected"] > 0
 
 
-def test_precompiled_kernels_infer_from_their_ir(array_path):
-    """A kernel's retained IR supplies the mask with nothing to trace; its
+def test_precompiled_functions_infer_from_their_ir(array_path):
+    """A compiled function's retained IR supplies the mask with nothing to trace; its
     wide native form cannot run against narrow rows, so execution re-traces
     the retained source — still zero python per element."""
-    qty2 = kernel(ROW, lambda r: r.qty * 2)
+    qty2 = East.function([ROW], IntegerType, lambda _b, r: r.qty * 2)
     with open_beast2_file(array_path, AT) as f:
         table = f.load()
         before = eager_stats()
@@ -143,49 +144,50 @@ def test_precompiled_kernels_infer_from_their_ir(array_path):
         after = eager_stats()
         assert got == list(table.map(qty2))
         assert after["beast2_segments_projected"] > before["beast2_segments_projected"]
-        assert after["trampoline_calls"] == before["trampoline_calls"], \
-            "kernel projection dropped to per-element python"
 
 
-def test_bound_kernels_decline_with_the_kernel_reason(array_path):
+def test_bound_functions_decline_with_the_function_reason(array_path):
     side = EastDict(IntegerType, IntegerType, {i: i for i in range(500)})
-    look = kernel([ROW, DictType(IntegerType, IntegerType)],
-                  lambda r, t: t.get_or_default(r.id, 0)).bind(side)
+    look = East.function([ROW, DictType(IntegerType, IntegerType)], IntegerType,
+                  lambda _b, r, t: t.get_or_default(r.id, 0)).bind(side)
     with open_beast2_file(array_path, AT) as f:
         got, counted = _delta(lambda: list(f.map(look)))
         assert got == list(range(500))
-        assert counted["beast2_projection_declined_kernel"] == 1
+        assert counted["beast2_projection_declined_function"] == 1
         assert counted["beast2_segments_projected"] == 0
 
 
 def test_non_inferable_callbacks_fall_back_and_count(array_path):
+    from east.expression import ExpressionError
+
     with open_beast2_file(array_path, AT) as f:
         table = f.load()
 
-        # Impure callback: per-element python semantics preserved, decline
-        # counted with the untraceable reason.
+        # Impure callback: the projection layer counts its decline, then the
+        # strict wrap refuses it before any row runs (#625).
         seen = []
 
         def impure(r):
             seen.append(r["id"])
             return r["qty"]
 
-        got, counted = _delta(lambda: list(f.map(impure, out=IntegerType)))
-        assert got == list(table.map(lambda r: r["qty"], out=IntegerType))
-        assert len(seen) == 500
+        before = eager_stats()
+        with pytest.raises(ExpressionError, match="captured automatically"):
+            f.map(impure, out=IntegerType)
+        counted = {k: eager_stats()[k] - before.get(k, 0) for k in eager_stats()}
+        assert seen == []
         assert counted["beast2_projection_declined_untraceable"] == 1
         assert counted["beast2_segments_projected"] == 0
-        assert counted["beast2_segments_whole"] > 0
 
         # The element escaping whole (identity) declines with the escape
         # reason — nothing can be skipped.
-        got, counted = _delta(lambda: list(f.map(lambda r: r)))
+        got, counted = _delta(lambda: list(f.map(lambda _b, r: r)))
         assert [r["id"] for r in got] == [r["id"] for r in table]
         assert counted["beast2_projection_declined_escape"] == 1
 
         # Operations that embed whole elements decline statically.
-        got, counted = _delta(lambda: f.filter(lambda r: r["qty"] > 100))
-        assert len(got) == len(table.filter(lambda r: r["qty"] > 100))
+        got, counted = _delta(lambda: f.filter(lambda _b, r: r["qty"] > 100))
+        assert len(got) == len(table.filter(lambda _b, r: r["qty"] > 100))
         assert counted["beast2_projection_declined_escape"] == 1
         assert counted["beast2_segments_projected"] == 0
 
@@ -197,7 +199,7 @@ def test_projection_never_poisons_wider_reads(dict_path):
     sequence each see their own fields."""
     with open_beast2_file(dict_path, DT) as d:
         _, counted = _delta(
-            lambda: list(d.to_array(lambda k, v: v["qty"], out=IntegerType)))
+            lambda: list(d.to_array(lambda _b, v: v["qty"], out=IntegerType)))
         assert counted["beast2_segments_projected"] > 0
 
         full = d["k00042"]
@@ -205,9 +207,9 @@ def test_projection_never_poisons_wider_reads(dict_path):
         assert full["name"] == "name-00042"
         assert list(full["tags"]) == [f"t42-{j}" for j in range(42 % 4)]
 
-        amts = list(d.to_array(lambda k, v: v["amt"], out=FloatType))
+        amts = list(d.to_array(lambda _b, v: v["amt"], out=FloatType))
         assert amts[42] == 42 * 0.37
-        names = list(d.to_array(lambda k, v: v["name"], out=StringType))
+        names = list(d.to_array(lambda _b, v: v["name"], out=StringType))
         assert names[7] == "name-00007"
 
 
@@ -223,10 +225,10 @@ def test_aliased_containers_fall_back_per_segment(tmp_path):
     path = tmp_path / "aliased.beast2"
     write_beast2_file(path, ArrayType(row_t), rows, segment_rows=5)
     with open_beast2_file(path, ArrayType(row_t)) as f:
-        got, counted = _delta(lambda: list(f.map(lambda r: r["b"].sum())))
+        got, counted = _delta(lambda: list(f.map(lambda _b, r: r["b"].sum())))
         assert got == [6] * 10
         assert counted["beast2_projection_alias_fallback"] > 0
-        assert got == [s.sum() for s in f.load().map(lambda r: r["b"])]
+        assert got == [s.sum() for s in f.load().map(lambda _b, r: r["b"])]
 
 
 def test_set_files_never_project(tmp_path):
@@ -240,7 +242,7 @@ def test_set_files_never_project(tmp_path):
                 [{"x": i, "y": -i} for i in range(30)]),
         segment_rows=8)
     with open_beast2_file(path, st) as s:
-        got, counted = _delta(lambda: s.sum(lambda el: el["x"]))
+        got, counted = _delta(lambda: s.sum(lambda _b, el: el["x"]))
         assert got == sum(range(30))
         assert counted["beast2_segments_projected"] == 0
         for key in counted:
@@ -266,7 +268,7 @@ def test_explicit_projection_no_declared_type(array_path):
         assert len(table) == 500
         assert table[13]["meta"]["code"] == f"c{13 % 9}"
         # The compute family runs against the projected shape.
-        assert list(f.map(lambda r: r["id"])) == list(range(500))
+        assert list(f.map(lambda _b, r: r["id"])) == list(range(500))
         # Point-read gathers project too.
         assert [r["id"] for r in f.get_keys([7, 3])] == [7, 3]
 
@@ -274,7 +276,7 @@ def test_explicit_projection_no_declared_type(array_path):
 def test_explicit_projection_with_declared_type(array_path, dict_path):
     narrow = ArrayType(StructType([("qty", IntegerType)]))
     with open_beast2_file(array_path, AT, project=narrow) as f:
-        assert list(f.map(lambda r: r["qty"])) == [i * 7 for i in range(500)]
+        assert list(f.map(lambda _b, r: r["qty"])) == [i * 7 for i in range(500)]
 
     dnarrow = DictType(StringType, StructType([("amt", FloatType)]))
     with open_beast2_file(dict_path, DT, project=dnarrow) as d:
@@ -282,7 +284,7 @@ def test_explicit_projection_with_declared_type(array_path, dict_path):
         assert d.get_or_default("k00009", None)["amt"] == 9 * 0.37
         # fill returns a value of the PROJECTED value type — the eager
         # get_keys contract against the file's (narrow) collection type.
-        got = d.get_keys(["k00003", "absent"], lambda k: {"amt": -1.0})
+        got = d.get_keys(["k00003", "absent"], lambda _b, k: {"amt": -1.0})
         assert got["k00003"]["amt"] == 3 * 0.37 and got["absent"]["amt"] == -1.0
         assert dict(d.load()["k00011"].items()) == {"amt": 11 * 0.37}
 
@@ -337,20 +339,16 @@ def test_projected_and_whole_reads_share_one_wire(array_path):
 # ── The performance claim (AC 1) ──────────────────────────────────────────
 
 
-def test_projected_scan_beats_the_bare_whole_decode(tmp_path):
-    """The issue's K-vs-F cliff, inverted: a traced scan reading ONE shallow
-    field of a wide record — the whole operation, trace and fold included —
-    must beat even a bare whole decode that does no work at all, because
-    value materialisation (not byte-walking) dominates decode cost. Before
-    projection, reading nothing cost 88% of reading everything; the pin
-    keeps a wide margin for CI noise (measured ~2.5x)."""
-    wide_row = StructType(
-        [("id", IntegerType)]
-        + [(f"s{i}", StringType) for i in range(16)]
-        + [("tags", ArrayType(StringType))]
-    )
-    at = ArrayType(wide_row)
-    rows = EastArray(wide_row, [
+WIDE_ROW = StructType(
+    [("id", IntegerType)]
+    + [(f"s{i}", StringType) for i in range(16)]
+    + [("tags", ArrayType(StringType))]
+)
+
+
+def _wide_file(tmp_path):
+    """20,000 wide rows in 5 segments — the issue's K-vs-F repro shape."""
+    rows = EastArray(WIDE_ROW, [
         {
             "id": i,
             **{f"s{j}": f"string-payload-{i}-{j}" for j in range(16)},
@@ -359,7 +357,29 @@ def test_projected_scan_beats_the_bare_whole_decode(tmp_path):
         for i in range(20_000)
     ])
     path = tmp_path / "perf.beast2"
-    write_beast2_file(path, at, rows, segment_rows=4000)
+    write_beast2_file(path, ArrayType(WIDE_ROW), rows, segment_rows=4000)
+    return path
+
+
+def test_projected_scan_decodes_every_segment_projected(tmp_path):
+    """The mechanism behind the performance claim (AC 1): a traced scan
+    reading ONE shallow field of a wide record decodes every segment under
+    its field mask and none whole — value materialisation, not byte-walking,
+    is the decode cost, so this is what makes reading one field cheap."""
+    with open_beast2_file(_wide_file(tmp_path), ArrayType(WIDE_ROW)) as f:
+        got, counted = _delta(lambda: f.sum(lambda _b, r: r["id"]))
+    assert got == sum(range(20_000))
+    assert counted["beast2_segments_projected"] == 5
+    assert counted["beast2_segments_whole"] == 0
+
+
+@pytest.mark.perf
+def test_projected_scan_beats_the_bare_whole_decode(tmp_path):
+    """The issue's K-vs-F cliff, inverted: the projected scan — trace and
+    fold included — beats even a bare whole decode that does no work at all
+    (measured ~2.5x; before projection, reading nothing cost 88% of reading
+    everything). A wall-clock ratio, so a ``perf`` benchmark: a shared CI
+    runner read 0.73 on main and 0.77 on a branch against the 0.7 bound."""
 
     def best_of(runs, fn):
         best = float("inf")
@@ -375,12 +395,9 @@ def test_projected_scan_beats_the_bare_whole_decode(tmp_path):
             n += len(segment)
         return n
 
-    with open_beast2_file(path, at) as f:
-        projected_op = best_of(3, lambda: f.sum(lambda r: r["id"]))
+    with open_beast2_file(_wide_file(tmp_path), ArrayType(WIDE_ROW)) as f:
+        projected_op = best_of(3, lambda: f.sum(lambda _b, r: r["id"]))
         whole_decode = best_of(3, lambda: bare_whole_decode(f))
-        got, counted = _delta(lambda: f.sum(lambda r: r["id"]))
-        assert got == sum(range(20_000))
-        assert counted["beast2_segments_projected"] == 5
     assert projected_op < whole_decode * 0.7, \
         f"projected op {projected_op * 1e3:.1f}ms vs bare whole decode " \
         f"{whole_decode * 1e3:.1f}ms"
@@ -400,8 +417,8 @@ def test_paged_loop_task_inputs_project(array_path):
 
     data = Path(array_path).read_bytes()
 
-    narrow_k = kernel(AT, lambda rows: East.for_(
-        rows, 0, lambda acc, el: acc + el.qty))
+    narrow_k = East.function([AT], IntegerType, lambda _b, rows: East.for_(
+        rows, 0, lambda _b, acc, el: acc + el.qty))
     type_ptr = narrow_k._eastc_handle._input_types[0]
     lazy = open_paged_value(type_ptr, data, frozen=True)
     assert lazy is not None
@@ -416,8 +433,8 @@ def test_paged_loop_task_inputs_project(array_path):
 
     # The element compared WHOLE: nothing to skip, so the loop decodes whole
     # and says so.
-    whole_k = kernel(AT, lambda rows: East.for_(
-        rows, 0, lambda acc, el: acc + if_else(el == el, 1, 0)))
+    whole_k = East.function([AT], IntegerType, lambda _b, rows: East.for_(
+        rows, 0, lambda _b, acc, el: acc + if_else(el == el, 1, 0)))
     lazy2 = open_paged_value(whole_k._eastc_handle._input_types[0], data, frozen=True)
     before = eager_stats()
     got = whole_k(lazy2)
@@ -436,7 +453,7 @@ def test_eager_stats_carries_the_projection_counters():
         "beast2_segments_whole",
         "beast2_projection_declined_untraceable",
         "beast2_projection_declined_escape",
-        "beast2_projection_declined_kernel",
+        "beast2_projection_declined_function",
         "beast2_projection_declined_unpageable",
         "beast2_projection_declined_shape",
         "beast2_projection_alias_fallback",

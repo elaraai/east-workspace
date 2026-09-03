@@ -33,7 +33,6 @@ from east import (
     StringType,
     platform_function,
 )
-from east.runtime.compiler import eager_stats
 from east.runtime.errors import EastError
 from east.serialization.beast2 import (
     decode_beast2_with_header_for,
@@ -226,14 +225,15 @@ def test_sink_drives_a_python_invoked_platform_function_natively(tmp_path):
     # as-is. That used to be a non-callable value holder, so a PURE emit
     # callback raised "'_EmitFnHold' object is not callable" with no
     # fallback. It is now the same call wrapper east-c hands a platform
-    # function, so the callback pushes down: the emit lowers to a native IR
-    # Call, no python runs per row, and the sink writes the real beast2 file.
+    # function, so the callback captures: the emit lowers to a native IR
+    # Call (a callback that cannot capture raises, so there is no python per
+    # row to measure) and the sink writes the real beast2 file.
     emit_t = FunctionType([StringType, FloatType], NullType)
 
     @platform_function(inputs=[STR_FLOAT_DICT, emit_t], output=NullType,
                        name="issue592.double_all")
     def double_all(rows, emit):
-        rows.for_each(lambda k, v: emit(k, v * 2.0))
+        rows.for_each(lambda _b, v, k: emit(k, v * 2.0))
 
     out = tmp_path / "doubled.beast2"
     sink = _EmitSink("dict", emit_t, out)
@@ -241,12 +241,9 @@ def test_sink_drives_a_python_invoked_platform_function_natively(tmp_path):
     assert callable(emit)
 
     rows = EastDict(StringType, FloatType, {f"k{i}": float(i) for i in range(50)})
-    before = eager_stats()["trampoline_calls"]
     double_all(rows, emit)
-    moved = eager_stats()["trampoline_calls"] - before
     sink.finish()
 
-    assert moved == 0, f"{moved} per-element python trampoline call(s)"
     table = decode_beast2_with_header_for(STR_FLOAT_DICT)(out.read_bytes())
     assert dict(table.items()) == {f"k{i}": 2.0 * i for i in range(50)}
 

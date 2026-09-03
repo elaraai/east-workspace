@@ -5,6 +5,7 @@
 
 import { type AST, type IfElseAST, type Label, type TryCatchAST, type VariableAST } from "../ast.js";
 import { ensure_source_map, get_current_source_map, get_location, get_location_id, printLocations } from "../location.js";
+import { bindingNameAt, parameterNames } from "../naming.js";
 import { type EastType, FunctionType, isSubtype, NullType, printType, isTypeEqual, StringType, NeverType, VariantType, BooleanType, TypeUnion, IntegerType, StructType, ArrayType, type ValueTypeOf, AsyncFunctionType, type RefType, type SetType, type DictType, type RecursiveType, type RecursiveTypeMarker, assignTypeId } from "../types.js";
 import { typeMismatchError } from "../type_diff.js";
 
@@ -32,6 +33,7 @@ import { isVariant } from "../containers/variant.js";
 import { RefExpr } from "./ref.js";
 import { AsyncFunctionExpr, createAsyncFunctionExpr, type CallableAsyncFunctionExpr } from "./asyncfunction.js";
 import { PatchType, type PatchTypeOf } from "../patch/index.js";
+import { applyTypeParameters, Builtins, type BuiltinName } from "../builtins.js";
 import { VectorExpr } from "./vector.js";
 import { MatrixExpr } from "./matrix.js";
 
@@ -138,11 +140,12 @@ export function from(value: any, type?: EastType): Expr<any> {
     // pointer to user code (issue #204).
     return ensure_source_map(() => {
     const { inputs, output } = type;
-    const input_variables: VariableAST[] = inputs.map(i => ({
+    const input_variables: VariableAST[] = inputs.map((i, k) => ({
       ast_type: "Variable",
       type: i,
       loc_id: get_location_id(),
       mutable: false,
+      name: parameterNames(value)?.[k + 1],
     }));
 
     const $ = BlockBuilder(output);
@@ -226,11 +229,12 @@ export function from(value: any, type?: EastType): Expr<any> {
 
     return ensure_source_map(() => {
     const { inputs, output } = type;
-    const input_variables: VariableAST[] = inputs.map(i => ({
+    const input_variables: VariableAST[] = inputs.map((i, k) => ({
       ast_type: "Variable",
       type: i,
       loc_id: get_location_id(),
       mutable: false,
+      name: parameterNames(value)?.[k + 1],
     }));
 
     const $ = BlockBuilder(output);
@@ -336,11 +340,12 @@ export function func<const I extends EastType[], O extends EastType>(input_types
 export function func<const I extends EastType[], F extends ($: BlockBuilder<NeverType>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => any>(input_types: I, output_type: undefined, body: F): CallableFunctionExpr<I, TypeOf<ReturnType<F> extends void ? NeverType : ReturnType<F>>>
 export function func(input_types: EastType[], output_type: EastType | undefined, body: ($: BlockBuilder<any>, ...inputs: Expr[]) => any): Expr<FunctionType<any[], any>> {
   return ensure_source_map(() => {
-  const parameters: VariableAST[] = input_types.map(i => ({
+  const parameters: VariableAST[] = input_types.map((i, k) => ({
     ast_type: "Variable",
     type: i,
     loc_id: get_location_id(),
     mutable: false,
+    name: parameterNames(body)?.[k + 1],
   }));
   const $ = BlockBuilder<any>(output_type ?? NeverType);
   let ret = body($, ...parameters.map(fromAst));
@@ -434,11 +439,12 @@ export function asyncFunction<const I extends EastType[], O extends EastType>(in
 export function asyncFunction<const I extends EastType[], F extends ($: BlockBuilder<NeverType>, ...inputs: { [K in keyof I]: ExprType<I[K]> }) => any>(input_types: I, output_type: undefined, body: F): CallableAsyncFunctionExpr<I, TypeOf<ReturnType<F> extends void ? NeverType : ReturnType<F>>>
 export function asyncFunction(input_types: EastType[], output_type: EastType | undefined, body: ($: BlockBuilder<any>, ...inputs: Expr[]) => any): Expr<AsyncFunctionType<any[], any>> {
   return ensure_source_map(() => {
-  const parameters: VariableAST[] = input_types.map(i => ({
+  const parameters: VariableAST[] = input_types.map((i, k) => ({
     ast_type: "Variable",
     type: i,
     loc_id: get_location_id(),
     mutable: false,
+    name: parameterNames(body)?.[k + 1],
   }));
   const $ = BlockBuilder<any>(output_type ?? NeverType);
   let ret = body($, ...parameters.map(fromAst));
@@ -792,6 +798,7 @@ export function matchExpr<Cases extends Record<string, any>, Handlers extends { 
       type: t,
       loc_id: get_location_id(),
       mutable: false,
+      name: parameterNames(handler)?.[1],
     };
 
     const ast = handler === undefined ? valueOrExprToAstTyped(null, NullType) : block($ => handler($, fromAst(data_variable) as any))[AstSymbol];
@@ -824,6 +831,7 @@ export function tryCatch<T1, F extends ($: BlockBuilder<NeverType>, message: Exp
     type: StringType,
     loc_id: get_location_id(),
     mutable: false,
+    name: parameterNames(catch_body)?.[1],
   };
 
   const stack_variable = {
@@ -831,6 +839,7 @@ export function tryCatch<T1, F extends ($: BlockBuilder<NeverType>, message: Exp
     type: ArrayType(StructType({ filename: StringType, line: IntegerType, column: IntegerType })),
     loc_id: get_location_id(),
     mutable: false,
+    name: parameterNames(catch_body)?.[2],
   };
 
   if (typeof catch_body !== "function") {
@@ -985,6 +994,110 @@ export function is<T>(left: Expr<T>, right: SubtypeExprOrValue<NoInfer<T>>): Boo
   }) as BooleanExpr;
 }
 
+/**
+ * Calls an East builtin by name — the raw spelling for a builtin the surface
+ * has no method for, and the form the codegen printers fall back to for one
+ * (`RAW_ONLY`). The python twin is `East.builtin`.
+ *
+ * @param name - The builtin's IR name, e.g. `"ArrayGetKeys"`
+ * @param typeParameters - Its type parameters, in declaration order
+ * @param args - Its arguments in IR order — expressions, values, or callbacks
+ * @param outputType - The type of the result
+ * @returns The `Builtin` expression, typed `outputType`
+ * @throws {Error} When `name` is not a builtin, or the type-parameter or
+ *   argument counts do not match its declaration
+ *
+ * @example
+ * ```ts
+ * const size = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {
+ *   $.return(East.builtin("ArraySize", [IntegerType], [xs], IntegerType));
+ * });
+ * const compiled = East.compile(size, []);
+ * compiled([1n, 2n, 3n]);  // 3n
+ * ```
+ */
+export function builtin(name: string, typeParameters: EastType[], args: unknown[], outputType: EastType): Expr {
+  const def = Builtins[name as BuiltinName];
+  if (def === undefined) {
+    throw new Error(`Unknown builtin function '${name}'`);
+  }
+  if (def.type_parameters.length !== typeParameters.length) {
+    throw new Error(`Builtin function '${name}' expected ${def.type_parameters.length} type parameters, got ${typeParameters.length}`);
+  }
+  if (def.inputs.length !== args.length) {
+    throw new Error(`Builtin function '${name}' expected ${def.inputs.length} arguments, got ${args.length}`);
+  }
+  const typeMap = new Map(def.type_parameters.map((param, i) => [param, typeParameters[i]!] as const));
+  const argAsts = args.map((arg, i) => {
+    const expected = applyTypeParameters(def.inputs[i]!, typeMap, [], []);
+    return valueOrExprToAstTyped(arg, expected);
+  });
+  return fromAst({
+    ast_type: "Builtin",
+    type: outputType,
+    loc_id: get_location_id(),
+    builtin: name as BuiltinName,
+    type_parameters: typeParameters,
+    arguments: argAsts,
+  });
+}
+
+/**
+ * Widens a value to a declared supertype explicitly — an `As` node. The
+ * builder inserts the same node itself wherever a narrower value meets a
+ * wider declared type (a `$.const(x, T)`, a function argument), so this is
+ * the spelling for the other positions; the codegen printers spell every
+ * IR `As` with it. The python twin is `East.as_`.
+ *
+ * @param value - The value or expression to widen
+ * @param type - The wider type; the value's type must be a subtype of it
+ * @returns The value as an expression of `type`
+ * @throws {Error} When the value's type is not a subtype of `type`
+ *
+ * @example
+ * ```ts
+ * const Shape = VariantType({ circle: FloatType, square: FloatType });
+ * const widen = East.function([FloatType], Shape, ($, r) => {
+ *   $.return(East.as(East.value(variant("circle", r)), Shape));
+ * });
+ * const compiled = East.compile(widen, []);
+ * compiled(2.0);  // variant("circle", 2.0)
+ * ```
+ */
+export function as<T extends EastType>(value: SubtypeExprOrValue<NoInfer<T>>, type: T): ExprType<T> {
+  const ast = valueOrExprToAstTyped(value, type);
+  return fromAst({
+    ast_type: "As",
+    type,
+    loc_id: get_location_id(),
+    value: ast,
+  }) as ExprType<T>;
+}
+
+/**
+ * Wraps a value or expression of a recursive type's node type in the
+ * recursive type — a `WrapRecursive` node; {@link RecursiveExpr.unwrap} is
+ * its inverse. The python twin is `East.wrap_recursive`.
+ *
+ * @param value - The value or expression of the wrapper's node type
+ * @param type - The recursive type to wrap it in
+ * @returns A `RecursiveExpr` of `type`
+ *
+ * @example
+ * ```ts
+ * const ListType = RecursiveType(self => VariantType({ nil: NullType, cons: StructType({ head: IntegerType, tail: self }) }));
+ * const singleton = East.function([IntegerType], ListType, ($, x) => {
+ *   const nil = $.const(East.wrapRecursive(variant("nil", null), ListType));
+ *   $.return(East.wrapRecursive(variant("cons", { head: x, tail: nil }), ListType));
+ * });
+ * const compiled = East.compile(singleton, []);
+ * compiled(1n);  // variant("cons", { head: 1n, tail: variant("nil", null) })
+ * ```
+ */
+export function wrapRecursive<T>(value: SubtypeExprOrValue<T>, type: RecursiveType<T>): RecursiveExpr<T> {
+  return RecursiveExpr.wrap(value, type, fromAst);
+}
+
 /** Print a value as a string. */
 export function print(value: Expr): StringExpr {
   const valueAst = Expr.ast(value);
@@ -1074,9 +1187,80 @@ export function invertPatch<T extends EastType>(patch: Expr<PatchTypeOf<T>>, typ
   }) as ExprType<PatchTypeOf<T>>;
 }
 
+/**
+ * The brand every declaration handle carries — a registered symbol, so a
+ * handle built by any copy of `@elaraai/east` in the process is recognised.
+ */
+export const PLATFORM_DECLARATION: unique symbol = Symbol.for("elaraai.east.platformDeclaration") as any;
+
+/**
+ * What a platform declaration handle says about itself: the identity of the
+ * `Platform` node a call emits — its registered name, declared input and
+ * output types, asyncness, optionality and (generic) type parameter names —
+ * readable from the handle. A library exports its declarations under its
+ * own names (`Compression.Tar.create` is the handle for `tar_create`), so
+ * anything given the library's exports can spell a call as the library
+ * spells it: the codegen printer does (`toSource`'s `libraries`).
+ */
+export interface PlatformDeclaration {
+  /** The platform function's registered name — the `Platform` node's `name`. */
+  readonly name: string;
+  /** The declared input types (placeholder names for a generic declaration's parameters). */
+  readonly inputs: readonly (EastType | string)[];
+  /** The declared output type (or a placeholder name). */
+  readonly output: EastType | string;
+  /** Whether calls emit an async `Platform` node. */
+  readonly async: boolean;
+  /** Whether compiling succeeds with no implementation provided. */
+  readonly optional: boolean;
+  /** The type parameter names of a generic declaration; absent on a concrete one. */
+  readonly typeParameters?: readonly string[];
+}
+
+/**
+ * Whether `value` is a platform declaration handle — what `East.platform`,
+ * `East.asyncPlatform`, `East.genericPlatform` and `East.asyncGenericPlatform`
+ * return.
+ *
+ * @param value - Anything
+ * @returns True for a declaration handle, whose identity fields are then typed
+ *
+ * @example
+ * ```ts
+ * const log = East.platform("log", [StringType], NullType);
+ * isPlatformDeclaration(log);   // true
+ * log.name;                     // "log"
+ * ```
+ */
+export function isPlatformDeclaration(value: unknown): value is PlatformDeclaration {
+  return typeof value === "function" && (value as any)[PLATFORM_DECLARATION] === true;
+}
+
+/** Stamps a handle with its identity: the brand, and the declaration fields as own properties. */
+function brandDeclaration(fn: any, declaration: PlatformDeclaration): void {
+  Object.defineProperty(fn, PLATFORM_DECLARATION, { value: true });
+  // a function's `name` is configurable: the handle's is the platform function's, not `fn`
+  Object.defineProperty(fn, "name", { value: declaration.name, configurable: true });
+  Object.defineProperty(fn, "inputs", { value: declaration.inputs, enumerable: true });
+  Object.defineProperty(fn, "output", { value: declaration.output, enumerable: true });
+  Object.defineProperty(fn, "async", { value: declaration.async, enumerable: true });
+  Object.defineProperty(fn, "optional", { value: declaration.optional, enumerable: true });
+  if (declaration.typeParameters !== undefined) {
+    Object.defineProperty(fn, "typeParameters", { value: declaration.typeParameters, enumerable: true });
+  }
+}
+
 /** Callable helper type for synchronous platform functions. */
 export type PlatformDefinition<Inputs extends EastType[], Output extends EastType> = ((...args: { [K in keyof Inputs]: SubtypeExprOrValue<Inputs[K]> }) => ExprType<Output>) & {
   implement: (fn: (...args: { [K in keyof Inputs]: ValueTypeOf<Inputs[K]> }) => Output extends NullType ? null | undefined | void : ValueTypeOf<Output>) => PlatformFunction,
+  /** The registered platform function name. */
+  readonly name: string,
+  /** The declared input types. */
+  readonly inputs: Inputs,
+  /** The declared output type. */
+  readonly output: Output,
+  readonly async: false,
+  readonly optional: boolean,
 }
 
 /** Options for defining platform functions. */
@@ -1204,12 +1388,21 @@ export function platform<const Inputs extends EastType[], Output extends EastTyp
     }
   }
 
-  return fn;
+  brandDeclaration(fn, { name, inputs: input_types, output: output_type, async: false, optional: isOptional });
+  return fn as PlatformDefinition<Inputs, Output>;
 }
 
 /** Callable helper type for asynchronous platform functions. */
 export type AsyncPlatformDefinition<Inputs extends EastType[], Output extends EastType> = ((...args: { [K in keyof Inputs]: SubtypeExprOrValue<Inputs[K]> }) => ExprType<Output>) & {
   implement: (fn: (...args: { [K in keyof Inputs]: ValueTypeOf<Inputs[K]> }) => Output extends NullType ? Promise<null | undefined | void> : Promise<ValueTypeOf<Output>>) => PlatformFunction,
+  /** The registered platform function name. */
+  readonly name: string,
+  /** The declared input types. */
+  readonly inputs: Inputs,
+  /** The declared output type. */
+  readonly output: Output,
+  readonly async: true,
+  readonly optional: boolean,
 }
 
 
@@ -1316,7 +1509,8 @@ export function asyncPlatform<const Inputs extends EastType[], Output extends Ea
     }
   }
 
-  return fn;
+  brandDeclaration(fn, { name, inputs: input_types, output: output_type, async: true, optional: isOptional });
+  return fn as AsyncPlatformDefinition<Inputs, Output>;
 }
 
 
@@ -1429,6 +1623,16 @@ export type GenericPlatformDefinition<
   Output extends EastType | string
 > = GenericPlatformCallable<TParams, Inputs, Output> & {
   implement: (factory: (...typeParams: { [K in keyof TParams]: EastTypeValue }) => (...args: unknown[]) => unknown) => PlatformFunction;
+  /** The registered platform function name. */
+  readonly name: string;
+  /** The type parameter names. */
+  readonly typeParameters: TParams;
+  /** The declared input types, placeholders included. */
+  readonly inputs: Inputs;
+  /** The declared output type, or a placeholder. */
+  readonly output: Output;
+  readonly async: false;
+  readonly optional: boolean;
 };
 
 /** Create a callable helper to invoke a generic (polymorphic) platform function.
@@ -1613,6 +1817,7 @@ export function genericPlatform<
     };
   };
 
+  brandDeclaration(fn, { name, inputs, output, async: false, optional: isOptional, typeParameters: typeParams });
   return fn as GenericPlatformDefinition<TParams, Inputs, Output>;
 }
 
@@ -1643,6 +1848,16 @@ export type AsyncGenericPlatformDefinition<
   Output extends EastType | string
 > = AsyncGenericPlatformCallable<TParams, Inputs, Output> & {
   implement: (factory: (...typeParams: { [K in keyof TParams]: EastTypeValue }) => (...args: unknown[]) => Promise<unknown>) => PlatformFunction;
+  /** The registered platform function name. */
+  readonly name: string;
+  /** The type parameter names. */
+  readonly typeParameters: TParams;
+  /** The declared input types, placeholders included. */
+  readonly inputs: Inputs;
+  /** The declared output type, or a placeholder. */
+  readonly output: Output;
+  readonly async: true;
+  readonly optional: boolean;
 };
 
 /** Create a callable helper to invoke an asynchronous generic (polymorphic) platform function.
@@ -1809,6 +2024,7 @@ export function asyncGenericPlatform<
     };
   };
 
+  brandDeclaration(fn, { name, inputs, output, async: true, optional: isOptional, typeParameters: typeParams });
   return fn as AsyncGenericPlatformDefinition<TParams, Inputs, Output>;
 }
 
@@ -1898,6 +2114,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       type: type ?? ast.type,
       loc_id: get_location_id(),
       mutable: false,
+      name: bindingNameAt(get_location()) ?? undefined,
     };
 
     statements.push({
@@ -1931,6 +2148,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
       type: type ?? ast.type,
       loc_id: get_location_id(),
       mutable: true,
+      name: bindingNameAt(get_location()) ?? undefined,
     };
 
     statements.push({
@@ -2115,6 +2333,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: t,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(f)?.[1],
       };
 
 
@@ -2239,6 +2458,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: Expr.type(collection).value as EastType,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(body)?.[1],
       };
       const value = fromAst(value_variable);
 
@@ -2247,6 +2467,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: IntegerType,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(body)?.[2],
       };
       const key = fromAst(key_variable) as IntegerExpr;
 
@@ -2299,6 +2520,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: Expr.type(collection).key as EastType,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(body)?.[1],
       };
       const key = fromAst(key_variable) as IntegerExpr;
 
@@ -2350,6 +2572,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: Expr.type(collection).value as EastType,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(body)?.[1],
       };
       const value = fromAst(value_variable);
 
@@ -2358,6 +2581,7 @@ export const BlockBuilder = <Ret>(return_type: Ret): BlockBuilder<Ret> => {
         type: Expr.type(collection).key as EastType,
         loc_id: get_location_id(),
         mutable: false,
+        name: parameterNames(body)?.[2],
       };
       const key = fromAst(key_variable) as IntegerExpr;
 
@@ -2603,6 +2827,10 @@ class TryCatchExpr<Ret> extends NullExpr {
     }
     this.catchCalled = true;
     const $ = BlockBuilder<Ret>(this.return_type);
+    // the handler names the catch variables (#639): `($, message, stack) => …`
+    const names = parameterNames(body);
+    if (names?.[1] !== undefined) this.message_variable.name = names[1];
+    if (names?.[2] !== undefined) this.stack_variable.name = names[2];
     const ret = body($, fromAst(this.message_variable) as StringExpr, fromAst(this.stack_variable) as ArrayExpr<StructType<{ filename: StringType, line: IntegerType, column: IntegerType }>>);
     const stmts = $.statements;
     if (ret !== undefined) {

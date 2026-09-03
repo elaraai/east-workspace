@@ -175,7 +175,7 @@ ignore = [
 "east/**/*_eastc.pyx" = ["ALL"]  # east-c Cython files
 "east/_eastc_bridge.pyx" = ["ALL"]  # east-c bridge
 "east/types/*.py" = ["ARG005"]  # Lambda arguments in type constructors
-"east/kernel/__init__.py" = ["F401"]  # Re-export barrel for the split kernel package
+"east/expression/__init__.py" = ["F401"]  # Re-export barrel for the split expression package
 
 [tool.coverage.run]
 source = ["east"]

@@ -90,7 +90,9 @@ void b2v5_write_type_section(ByteBuffer *buf, EastType *type);
 /* Read the v5 type section; returns a retained root type or NULL (error posted). */
 EastType *b2v5_read_type_section(const uint8_t *data, size_t len, size_t *offset);
 
-/* Write / read the v5 source map section (inline filenames, no string table). */
+/* Write / read the v5 source map section (inline filenames, no string table).
+ * The reader appends into a FRESH (empty) map — east_source_map_new() — so the
+ * map's own bookkeeping (its reference count) is never touched. */
 void b2v5_write_source_map_section(EastSourceMap *sm, ByteBuffer *buf);
 bool b2v5_read_source_map_section(const uint8_t *data, size_t len, size_t *offset,
                                   EastSourceMap *sm_out);
@@ -104,7 +106,7 @@ bool b2v5_append_stacks(EastSourceMap *sm, const uint8_t *data, size_t len, size
 /* Parsed v5 header. */
 typedef struct {
     EastType *root_type; /* retained */
-    EastSourceMap sm;    /* owned */
+    EastSourceMap *sm;   /* heap map: one reference (NULL once stolen by a reader) */
     size_t frame_offset; /* first value-stream frame */
 } B2V5Header;
 
@@ -171,7 +173,8 @@ typedef struct {
     EastValue **defs; /* decoded containers in definition order (borrowed) */
     size_t def_count;
     size_t def_cap;
-    EastSourceMap *sm; /* borrowed; owned by the entry point / reader */
+    EastSourceMap *sm; /* borrowed from the entry point / reader; every decoded
+                          closure takes its own reference to it */
     int depth;
     /* Brand every constructed container/Ref/Vector/Matrix at construction
      * (task-input decodes). Cleared around Function subtrees — a decoded

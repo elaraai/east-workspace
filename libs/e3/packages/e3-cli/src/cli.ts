@@ -161,6 +161,7 @@ program
       .argument('[pkg]', 'Package name[@version] (omit when using --from-zip / --from-source)')
       .option('--from-zip <path>', 'Import the zip and deploy (creates the workspace if needed)')
       .option('--from-source <path>', 'Bundle a TypeScript source file into a package, then import and deploy (creates the workspace if needed)')
+      .option('--functions <path...>', 'Function manifests (east-py / east-node export-functions) for East.importFunction packages built elsewhere; a package of this uv or npm workspace is exported and linked by itself')
       .option('--quiet', 'Suppress progress and success output (errors only)')
       .action(withDefaultRepo(workspaceCommand.deploy))
   )
@@ -369,6 +370,7 @@ program
   .option('--start', 'Execute dataflow after each deploy')
   .option('--concurrency <n>', 'Max concurrent tasks when using --start', '4')
   .option('--abort-on-change', 'Abort running execution when file changes')
+  .option('--functions <path...>', 'Function manifests (east-py / east-node export-functions) for East.importFunction packages built elsewhere; a package of this uv or npm workspace is exported and linked by itself')
   .action(watchCommand);
 
 // ---------------------------------------------------------------------------

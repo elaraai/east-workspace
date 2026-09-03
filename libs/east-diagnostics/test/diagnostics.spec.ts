@@ -43,6 +43,26 @@ test("no-redundant-east-cast: ignores a non-BlockBuilder `.let`", () => {
   assert.equal(analyze(src).filter((d) => d.ruleName === "no-redundant-east-cast").length, 0);
 });
 
+test("prefer-let-const-over-east-value: flags a callback returning East.value of a value that types itself", () => {
+  const src = `${PRELUDE}import { StructType } from "@elaraai/east";\nexport const f = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {\n  const rows = $.const(xs.map(($, x) => East.value({ a: x }, StructType({ a: IntegerType }))));\n  return rows.size();\n});\n`;
+  const hits = rule(src, "prefer-let-const-over-east-value");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0]?.fix?.changes[0]?.newText, "{ a: x }");
+});
+
+test("prefer-let-const-over-east-value: silent where the type on a returned East.value is load-bearing (none, some, an empty collection, a variant)", () => {
+  const src = `${PRELUDE}import { OptionType, DictType, StringType, VariantType, Expr, none, some, variant } from "@elaraai/east";\n`
+    + `export const f = East.function([ArrayType(IntegerType)], IntegerType, ($, xs) => {\n`
+    + `  const a = $.const(xs.map(($, _x) => East.value(none, OptionType(IntegerType))));\n`
+    + `  const s = $.const(xs.map(($, x) => East.value(some(x), OptionType(IntegerType))));\n`
+    + `  const b = $.const(xs.map(($, _x) => East.value([], ArrayType(IntegerType))));\n`
+    + `  const c = $.const(xs.map(($, _x) => East.value(new Map(), DictType(StringType, IntegerType))));\n`
+    + `  const d = $.const(xs.map(($, x) => East.value(variant("a", x), VariantType({ a: IntegerType, b: StringType }))));\n`
+    + `  const e = $.const(xs.map(($, x) => Expr.block(($) => {\n    return East.value([], ArrayType(IntegerType));\n  })));\n`
+    + `  return a.size().add(s.size()).add(b.size()).add(c.size()).add(d.size()).add(e.size());\n});\n`;
+  assert.equal(rule(src, "prefer-let-const-over-east-value").length, 0);
+});
+
 test("prefer-explicit-east-type: flags one-arg $.let on an empty array", () => {
   const hits = rule(wrap(`  const c = $.let([]);`), "prefer-explicit-east-type");
   assert.equal(hits.length, 1);

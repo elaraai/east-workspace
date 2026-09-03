@@ -40,12 +40,12 @@ function nearestTsconfig(fromDir: string): string | undefined {
 
 const BUNDLED = [
   ".build/hooks/session-start.js",
-  ".build/hooks/prompt-submit.js",
   ".build/hooks/subagent-start.js",
-  ".build/hooks/pre-agent.js",
   ".build/hooks/pre-write.js",
+  ".build/hooks/pre-read.js",
   ".build/hooks/diagnose.js",
   ".build/daemon/server.js",
+  ".build/daemon/lsp.js",
   ".build/mcp/server.js",
 ];
 
@@ -80,14 +80,17 @@ export async function checkPluginStatus(pluginRoot: string, cwd: string): Promis
 
   checks.push(await check("Example search", async () => {
     const indexPath = join(pluginRoot, "index.json");
-    const data = JSON.parse(readFileSync(indexPath, "utf8")) as { entries?: unknown[] };
-    const count = data.entries?.length ?? 0;
+    const data = JSON.parse(readFileSync(indexPath, "utf8")) as { entries?: Array<{ ir?: string; python?: string | null }> };
+    const entries = data.entries ?? [];
+    const programs = entries.filter((e) => e.ir !== undefined);
+    const python = programs.filter((e) => typeof e.python === "string").length;
     const index = await buildSearchIndex(indexPath);
     const hits = index.search("array map", { limit: 3 } as Parameters<typeof index.search>[1]);
+    const ok = entries.length > 0 && hits.length > 0 && programs.length > 0 && python === programs.length;
     return {
       name: "Example search (index + MCP)",
-      status: count > 0 && hits.length > 0 ? "ok" : "warn",
-      detail: `${count} examples indexed; sample query → ${hits.length} hits`,
+      status: ok ? "ok" : "warn",
+      detail: `${entries.length} examples indexed, ${programs.length} as IR (${python} with a python rendering); sample query → ${hits.length} hits`,
     };
   }));
 

@@ -7,6 +7,25 @@ description: "Create, initialise, and manage East / e3 projects end-to-end. Use 
 
 Scaffold and run East projects. This skill creates the skeleton, then you implement the logic using the **e3**, **east**, **east-ui**, and **east-py-datascience** skills.
 
+## Before writing code — search the example index
+
+Every East API has a tested example in the plugin's index — the index IS the
+API reference, printed from each example's IR in TypeScript or python. Before
+writing or changing East code:
+
+1. Call `mcp__plugin_east_east__search_east_examples` for each capability you
+   are about to use — `language: "python"` for east-py, `"typescript"`
+   otherwise. Summaries come back first: id, signature, the inputs and the
+   expected result, a few hundred bytes each.
+2. Fetch the one or two that match with `mcp__plugin_east_east__get_east_example`
+   and pattern your code on them.
+3. Do not read `node_modules/@elaraai/**` or `*.examples.ts` files wholesale,
+   and do not reason from `.d.ts` signatures: the index holds the same
+   programs, exact and far cheaper, and the signatures omit the runtime rules
+   that make East code correct.
+
+Nothing is injected for you; the search is the step.
+
 ## Decision tree
 
 ```
@@ -119,7 +138,13 @@ cached, even across a redeploy). Scaffold with `--python-packages` /
 `--node-packages` / `--c-packages`; the **e3-create** skill is the full
 reference — every flag, the generated layout, and the per-runtime task wiring
 (python & node auto-derive the environment from `{ custom }`; C attaches a
-prebuilt binary via `environment: { tools }`).
+prebuilt binary via `environment: { tools }`). Every python and node member
+also ships an East function (`functions.py` / `functions.ts`, listed in its
+`east_functions` / `eastFunctions`) that the app calls through
+`East.importFunction` — the other way across the language boundary: East IR
+authored in the package's language, exported and embedded by `e3.export`
+itself, run by the default runner with nothing installed where it runs (the
+**e3** skill).
 
 
 ## Lifecycle (generated npm scripts)

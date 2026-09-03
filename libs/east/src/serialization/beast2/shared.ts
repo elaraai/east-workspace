@@ -15,7 +15,7 @@ import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, ReturnExc
 import { IRType, type FunctionIR, type AsyncFunctionIR } from "../../ir.js";
 import type { AnalyzedIR } from "../../analyze.js";
 import type { PlatformFunction } from "../../platform.js";
-import type { SourceMap } from "../../location.js";
+import { SourceMap, with_source_map } from "../../location.js";
 
 /** Options accepted by every beast2 decode entry point. */
 export type Beast2DecodeOptions = {
@@ -144,7 +144,15 @@ export function finishDecodedFunction(
 ): (...inputs: any[]) => any {
   // Compile IR to callable function — mutate in place to avoid object spread allocations
   (ir.value as any).isAsync = isAsync;
-  const compiled = compile_internal(ir as any as AnalyzedIR, typeContext, platformCtx.platformFns, platformCtx.asyncPlatformFns, platformCtx.platform, true, EMPTY_SET);
+  // The compile snapshots the AMBIENT source map (compile_internal's
+  // fresh_ctx), so it must run under the map the blob carried: that is the
+  // map the IR's loc_ids index, and the only one that makes a runtime error
+  // inside the decoded function name its authoring site. Outside a scope the
+  // ambient map is null — or, decoding inside a build, that build's map,
+  // against which the blob's ids mean nothing. A blob without a map compiles
+  // under an empty one for the same reason (#626).
+  const compiled = with_source_map(sourceMap ?? new SourceMap(), () =>
+    compile_internal(ir as any as AnalyzedIR, typeContext, platformCtx.platformFns, platformCtx.asyncPlatformFns, platformCtx.platform, true, EMPTY_SET));
   const rawFn = compiled(captureContext);
 
   const fn = isAsync

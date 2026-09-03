@@ -119,6 +119,38 @@ export function runnerToCommand(r: Runner): string[] {
 }
 
 /**
+ * The stock platform packages that implement ONE platform contract per
+ * runtime. An imported function (#628) whose platform dependency is
+ * provided by `east-py-std` runs unchanged on an east-node runner listing
+ * `@elaraai/east-node-std`: the compliance suites pin that each family
+ * implements the same functions on every runtime. A custom package name
+ * must match exactly.
+ */
+export const STOCK_PLATFORM_FAMILIES: ReadonlyArray<ReadonlyArray<string>> = [
+  ['east-py-std', '@elaraai/east-node-std', 'east-c-std'],
+  ['east-py-io', '@elaraai/east-node-io'],
+  ['east-py-datascience'],
+];
+
+/**
+ * Whether a runner's platform packages include `provider`, or a stock
+ * package of `provider`'s family. A `custom` runner is an arbitrary command
+ * that cannot be inspected and is trusted.
+ *
+ * @param runner - The consuming task's runner
+ * @param provider - The package an imported function's manifest names as
+ *   implementing a platform dependency
+ * @returns Whether the runner provides it
+ */
+export function runnerProvides(runner: Runner, provider: string): boolean {
+  if (runner.runtime === 'custom') return true;
+  const names = (runner.platforms ?? []).map((p) => (typeof p === 'string' ? p : p.custom));
+  if (names.includes(provider)) return true;
+  const family = STOCK_PLATFORM_FAMILIES.find((f) => f.includes(provider));
+  return family !== undefined && names.some((n) => family.includes(n));
+}
+
+/**
  * Default runner when `e3.task(..., { runner })` is omitted.
  *
  * east-node is the safer baseline: every e3 project already needs Node to

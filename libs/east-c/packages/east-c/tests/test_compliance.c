@@ -321,22 +321,29 @@ static int run_suite(void *arg)
     EastValue *ir_val = east_struct_get_field_idx(wrapper_val, 0); /* ir */
     EastValue *sm_val = east_struct_get_field_idx(wrapper_val, 1); /* source_map */
 
-    /* Build EastSourceMap from the decoded source_map value */
-    EastSourceMap source_map = {0};
+    /* Build the EastSourceMap from the decoded source_map value — a heap map
+     * the compiled function takes over below (one reference, released with
+     * it; closures created during the run take their own). */
+    EastSourceMap *source_map = east_source_map_new();
+    if (!source_map) {
+        fprintf(stderr, "Failed to allocate the source map\n");
+        east_value_release(wrapper_val);
+        return 1;
+    }
     if (sm_val && sm_val->kind == EAST_VAL_STRUCT) {
         EastValue *stacks_val = east_struct_get_field_idx(sm_val, 0); /* stacks */
         if (stacks_val && stacks_val->kind == EAST_VAL_ARRAY) {
             size_t ns = stacks_val->data.array.len;
-            source_map.num_stacks = ns;
-            source_map.stacks = calloc(ns, sizeof(EastLocation *));
-            source_map.stack_counts = calloc(ns, sizeof(size_t));
+            source_map->num_stacks = ns;
+            source_map->stacks = calloc(ns, sizeof(EastLocation *));
+            source_map->stack_counts = calloc(ns, sizeof(size_t));
             for (size_t i = 0; i < ns; i++) {
                 EastValue *stack = stacks_val->data.array.items[i];
                 if (!stack || stack->kind != EAST_VAL_ARRAY) continue;
                 size_t nf = stack->data.array.len;
-                source_map.stack_counts[i] = nf;
+                source_map->stack_counts[i] = nf;
                 if (nf == 0) continue;
-                source_map.stacks[i] = calloc(nf, sizeof(EastLocation));
+                source_map->stacks[i] = calloc(nf, sizeof(EastLocation));
                 for (size_t j = 0; j < nf; j++) {
                     EastValue *frame = stack->data.array.items[j];
                     if (!frame || frame->kind != EAST_VAL_STRUCT) continue;
@@ -345,11 +352,11 @@ static int run_suite(void *arg)
                     EastValue *ln_v = east_struct_get_field_idx(frame, 1);
                     EastValue *col_v = east_struct_get_field_idx(frame, 2);
                     if (fn_v && fn_v->kind == EAST_VAL_STRING)
-                        source_map.stacks[i][j].filename = strdup(fn_v->data.string.data);
+                        source_map->stacks[i][j].filename = strdup(fn_v->data.string.data);
                     if (ln_v && ln_v->kind == EAST_VAL_INTEGER)
-                        source_map.stacks[i][j].line = ln_v->data.integer;
+                        source_map->stacks[i][j].line = ln_v->data.integer;
                     if (col_v && col_v->kind == EAST_VAL_INTEGER)
-                        source_map.stacks[i][j].column = col_v->data.integer;
+                        source_map->stacks[i][j].column = col_v->data.integer;
                 }
             }
         }
@@ -367,7 +374,7 @@ static int run_suite(void *arg)
 
     if (!ir) {
         fprintf(stderr, "Failed to convert IR value to IR node\n");
-        east_source_map_free(&source_map);
+        east_source_map_release(source_map);
         return 1;
     }
 
@@ -390,13 +397,13 @@ static int run_suite(void *arg)
                 compile_err ? compile_err : "");
         free(compile_err);
         ir_node_release(ir);
-        east_source_map_free(&source_map);
+        east_source_map_release(source_map);
         return 1;
     }
 
-    /* Set source map on compiled function and thread-local for loc_id resolution */
-    fn->source_map = calloc(1, sizeof(EastSourceMap));
-    *fn->source_map = source_map; /* transfer ownership */
+    /* Hand the map's reference to the compiled function (released with it)
+     * and install it as the current map for loc_id resolution. */
+    fn->source_map = source_map;
     east_set_source_map(fn->source_map);
 
     /* Extract the filename from path for display */
@@ -436,9 +443,11 @@ static int run_suite(void *arg)
     }
     printf("\nExecute: %.1f ms\n", exec_ms);
 
-    /* Cleanup */
+    /* Cleanup — the map goes with the compiled function; clear the current
+     * map first so nothing resolves against a freed one. */
     if (result.value) east_value_release(result.value);
     eval_result_free(&result);
+    east_set_source_map(NULL);
     east_compiled_fn_free(fn);
     ir_node_release(ir);
     east_type_registry_clear();

@@ -43,19 +43,24 @@ def compile_from_beast2(
 def eager_stats() -> dict[str, int]:
     """Counters for how eager-method callbacks actually executed (#409).
 
-    Returns a snapshot dict:
+    Under the strict surface (#625) an eager callback is built into a
+    native East function or refused — there is no per-element python path,
+    so nothing measures one. The counters cover what can still vary:
 
-    - ``kernel_direct`` — calls where a precompiled kernel's native function
-      value was passed straight to the builtin (the fast path).
-    - ``pushdown_traced`` — pure python lambdas traced into native kernels.
-    - ``trampoline_calls`` — per-element python invocations (the slow path;
-      one count per element, not per call).
+    - ``function_direct`` — calls where a precompiled function's native
+      value was passed straight to the builtin (nothing to build).
+    - ``c_to_py_decodes`` — values boxed C→python (the bridge's decode
+      counter): an eager method that quietly decodes a whole collection to
+      python shows up here, correct results notwithstanding.
+    - ``beast2_segments_projected`` / ``beast2_segments_whole`` and the
+      ``beast2_projection_declined_*`` reasons — beast2 column projection
+      (#599) per segment decode, plus the compiled-body paged-loop pair.
 
-    Use the delta around a hot call to verify it runs natively::
+    Use the delta around a hot call to see how it ran::
 
         before = eager_stats()
         rows.map(k)
-        assert eager_stats()["trampoline_calls"] == before["trampoline_calls"]
+        assert eager_stats()["function_direct"] == before["function_direct"] + 1
     """
     from east.runtime._compiler_eastc import _eager_counters_snapshot
 
@@ -66,16 +71,25 @@ def compile_from_value(
     ir_value: Any,
     platform: list[PlatformFunction] | None = None,
     is_async: bool = False,
+    source_map: Any = None,
 ) -> Callable:
     """Compile East IR from a homoiconic IR value — an ``EastVariant``
     conforming to ``IRType``, e.g. one built with :mod:`east.ir.builders`.
 
     The value converts directly to a C value and compiles with no
-    serialization round-trip; this is the kernel tracer's path (#398).
+    serialization round-trip; this is the expression builder's path (#398).
+
+    ``source_map`` is the :class:`east.expression.location.SourceMap` the
+    IR's ``loc_id`` fields index (#626). It is installed for the compile and
+    handed to the compiled function, so a runtime error inside it reports the
+    python ``file:line:column`` that built the failing node — and the
+    function's beast2 encoding carries the map, so the same locations
+    resolve wherever the value is decoded. ``None`` compiles without one
+    (every ``loc_id`` is then read as 0, "no location").
     """
     from east.runtime._compiler_eastc import compile_eastc_from_value
 
-    return compile_eastc_from_value(ir_value, platform or [], is_async)
+    return compile_eastc_from_value(ir_value, platform or [], is_async, source_map)
 
 
 def compile_from_east(

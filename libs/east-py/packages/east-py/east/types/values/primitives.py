@@ -182,8 +182,9 @@ class EastBlob(bytes):
 
         return _call_builtin("BlobDecodeUtf16", [], [self], StringType)
 
-    def decode_csv(self, element_type: EastType, config: Any = None) -> Any:
-        """Decode CSV bytes into an Array of ``element_type`` (east-c BlobDecodeCsv).
+    def decode_csv(self, element_type: EastType, config: Any = None, **options: Any) -> Any:
+        """Decode CSV bytes into an Array of ``element_type`` (east-c
+        BlobDecodeCsv; TS ``decodeCsv``).
 
         Args:
             element_type: East type of each decoded row (a ``StructType``);
@@ -193,6 +194,9 @@ class EastBlob(bytes):
             config: Optional CSV decode configuration (delimiter, header
                 handling, etc.) shaped as ``CsvParseConfigType``; ``None``
                 uses the defaults.
+            options: The keyword form of the same configuration —
+                ``east.serialization.csv.csv_parse_config``'s arguments
+                (``delimiter=…``, ``has_header=…``, ``null_strings=…``, …).
 
         Returns:
             An EastArray whose element type is ``element_type``, one entry per
@@ -203,10 +207,38 @@ class EastBlob(bytes):
                 that fails to parse as its column type, or a missing required
                 column).
         """
-        from east.serialization.csv import decode_csv_for
+        from east.serialization.csv import csv_parse_config, decode_csv_for
         from east.types.types import ArrayType
 
+        if config is not None and options:
+            raise TypeError("decode_csv() takes a config value OR keyword options, not both")
+        if config is None and options:
+            config = csv_parse_config(**options)
         return decode_csv_for(ArrayType(element_type), config)(bytes(self))
+
+    def decode_beast(self, typ: EastType, version: str = "v1") -> Any:
+        """Decode East's binary format as a value of ``typ`` (east-c
+        BlobDecodeBeast / BlobDecodeBeast2; TS ``decodeBeast``).
+
+        ``'v1'`` is the original BEAST format; ``'v2'`` names the beast2
+        FAMILY — the decoder dispatches on the blob's magic byte, so every
+        released container version reads.
+
+        Args:
+            typ: East type the bytes were encoded as; decoding is
+                type-directed.
+            version: ``'v1'`` (default) or ``'v2'``.
+
+        Returns:
+            The decoded East value of type ``typ``.
+        """
+        if version == "v1":
+            builtin = "BlobDecodeBeast"
+        elif version == "v2":
+            builtin = "BlobDecodeBeast2"
+        else:
+            raise ValueError(f"Unsupported Beast version: {version!r} (expected 'v1' or 'v2')")
+        return _call_builtin(builtin, [typ], [self], typ)
 
     def decode_beast2(self, typ: EastType) -> Any:
         """Decode beast2-encoded bytes as a value of ``typ`` (east-c BlobDecodeBeast2).

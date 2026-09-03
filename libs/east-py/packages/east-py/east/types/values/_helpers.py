@@ -78,7 +78,7 @@ def _make_east_key(element_type: EastType) -> Any:
 # Same cycle-break pattern as make_east_key: values.py loads before the
 # compiler/bridge Cython extensions.
 _cached_call_builtin: Any = None
-_kernel_trace_call: Any = None
+_cached_trace_builtin_call: Any = None
 
 
 def _call_builtin(name: str, type_params: list, args: list, output_type: EastType) -> Any:
@@ -86,16 +86,16 @@ def _call_builtin(name: str, type_params: list, args: list, output_type: EastTyp
 
     Every namespace builtin (``East.String.*``, ``East.Float.*``, …) and eager
     collection method funnels through here — so when any argument is a traced
-    ``KernelExpr`` (the call is happening inside a ``kernel()`` lambda), the
+    ``Expression`` (the call is happening inside a captured body), the
     call emits East IR instead of executing (#393). That one seam makes the
     entire builtin surface traceable.
     """
-    global _cached_call_builtin, _kernel_trace_call
-    if _kernel_trace_call is None:
-        from east.kernel import trace_builtin_call
+    global _cached_call_builtin, _cached_trace_builtin_call
+    if _cached_trace_builtin_call is None:
+        from east.expression import trace_builtin_call
 
-        _kernel_trace_call = trace_builtin_call
-    traced = _kernel_trace_call(name, type_params, args, output_type)
+        _cached_trace_builtin_call = trace_builtin_call
+    traced = _cached_trace_builtin_call(name, type_params, args, output_type)
     if traced is not None:
         return traced
     if _cached_call_builtin is None:
@@ -141,6 +141,46 @@ def ensure_utc_datetime(dt: datetime) -> datetime:
     if dt.tzinfo != UTC:
         return dt.astimezone(UTC)
     return dt
+
+
+def _deprecated_alias(old: str, new: str) -> Any:
+    """A method that warns ``old`` is deprecated and delegates to ``new`` —
+    the eager twin of ``east.expression.expr.base._deprecated_alias``, so a
+    python-idiom spelling keeps working while the TypeScript name is the
+    one documented."""
+
+    def alias(self: Any, *args: Any, **kwargs: Any) -> Any:
+        import warnings
+
+        warnings.warn(
+            f".{old}() is deprecated: the spelling is .{new}() (the TypeScript name)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return getattr(self, new)(*args, **kwargs)
+
+    alias.__name__ = old
+    alias.__qualname__ = old
+    alias.__doc__ = f"Deprecated alias of :meth:`{new}` (the TypeScript name)."
+    return alias
+
+
+def _fn_init(op: str, fn: Any, init: Any) -> tuple:
+    """``(fn, init)`` in the TypeScript order ``reduce(fn, init)``. The python
+    order ``(init, fn)`` — a non-callable first, the body second — is
+    accepted with a DeprecationWarning, so a program written against the old
+    spelling keeps its meaning while it migrates."""
+    if not callable(fn) and callable(init):
+        import warnings
+
+        warnings.warn(
+            f".{op}(init, fn) is deprecated: the argument order is .{op}(fn, init) "
+            "(the TypeScript order)",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return init, fn
+    return fn, init
 
 
 # =============================================================================

@@ -57,6 +57,35 @@ east-node version
 east-node version -p @elaraai/east-node-std -p @elaraai/east-node-io
 ```
 
+### Transpiling IR to TypeScript
+
+```bash
+# Print an IR program as East.function builder source
+east-node transpile ./program.beast2 -o program.ts
+
+# Every IR file in a directory, plus the IR each printed module builds
+# back — the round-trip check
+east-node transpile ./ir/ -o ./ts/ --rebuild ./rebuilt/
+```
+
+The printed module imports `@elaraai/east` and rebuilds the same IR
+(equal under `east-c ir normalize`): the `$`-forms for statements,
+expression methods and `East.value(..., T)` constructions for values.
+Builtins the TypeScript surface has no spelling for print through
+`East.builtin(...)`. `east-py transpile` is the python twin; the two
+printers and the cross-language sweep are described in
+`docs/conventions/EAST_CODEGEN.md`.
+
+### Exporting functions for another language
+
+```bash
+# Write a module's `eastFunctions` export as a function manifest that a python
+# package (or another TypeScript package) imports with East.import_function /
+# East.importFunction; -p names the platform packages implementing any
+# platform calls the functions make
+east-node export-functions dist/pricing.js -o pricing.functions.beast2 -p @elaraai/east-node-std
+```
+
 ## CLI Reference
 
 ### `east-node run`
@@ -75,6 +104,43 @@ Options:
   -o, --output <file>        Output file path for result
   -v, --verbose              Enable verbose output
   -h, --help                 Display help
+```
+
+### `east-node transpile`
+
+Print an East IR program as TypeScript `East.function` builder source.
+
+```
+east-node transpile <input> [options]
+
+Arguments:
+  input                      Path to an IR file (.beast2, .beast, .east, or .json), or a directory of them
+
+Options:
+  -o, --output <path>        Write the module here (a directory when <input> is one; default: stdout)
+  --name <name>              The module-level export bound to the rebuilt function (default: main)
+  --import-from <specifier>  The module the printed source imports East from (default: @elaraai/east)
+  --rebuild <path>           Import the printed module and write the IR it builds here
+                             (.beast2 or .json; a directory in directory mode)
+```
+
+### `east-node export-functions`
+
+Write a module's `eastFunctions` export (name → `East.function` result) as a function manifest.
+
+```
+east-node export-functions <module> -o <file> [options]
+
+Arguments:
+  module                       Path to the built module exporting `eastFunctions`
+
+Options:
+  -o, --output <file>          The manifest to write (.beast2)
+  -p, --package <package...>   Platform packages implementing the functions' platform calls
+                               (every dependency must be provided by one; recorded as its provider)
+  --name <name>                The package name importers use (default: the module file's stem)
+  --package-version <version>  The version recorded in the manifest (default: 0.0.0)
+  --only <name...>             Export only these functions of `eastFunctions` (default: all)
 ```
 
 ### `east-node version`

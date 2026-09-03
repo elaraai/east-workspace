@@ -2,7 +2,7 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""Replay TS-exported compliance IR through the eager/kernel surface (#474).
+"""Replay TS-exported compliance IR through the eager/expression surface (#474).
 
 The exported corpus is East IR — an East VALUE conforming to ``IRType`` — so
 loading is one call through the standard serialization layer, and every node
@@ -18,22 +18,14 @@ the layer users actually call. Statement nodes (``Let``/``Block``/``IfElse``/
 builtins are the surface under test. The corpus is self-asserting (its
 ``testFail`` platform calls), so pass/fail needs no authored expectations.
 
-Callback (``Function``-typed) builtin arguments are materialised per MODE:
-
-- ``kernel``      — the callback IR compiles via ``compile_from_value`` into a
-                    precompiled kernel (captures baked as ``Let``s of quoted
-                    values), so the eager method takes its native path;
-- ``trampoline``  — the same compiled callable hidden behind a plain python
-                    closure, so pushdown refuses and the per-element python
-                    path runs;
-- ``traced``      — the callback IR is replayed against ``KernelExpr`` proxies
-                    through the traced surface and re-compiled; nodes the
-                    traced surface cannot express are COUNTED (the #452
-                    ratchet) and fall back to the kernel-mode callable.
-
-Per-builtin path accounting (``eager_stats`` deltas) verifies the mode really
-took its path — values agreeing while the path silently degrades is exactly
-the #470 failure shape.
+Callback (``Function``-typed) builtin arguments are materialised as native
+function values — the ONE mode the strict surface leaves (#625): immutable
+captures bake as ``Let``s of quoted values and the callback IR compiles via
+``compile_from_value``; by-reference (mutable/container) captures ride the
+bridge's live-captures carrier instead (``_east_ir`` + ``_east_captures``,
+#476 E), so mutation semantics survive without a python path — and under the
+strict surface there is none: a callback captures or raises, so the replay
+cannot silently degrade to per-element python (#625).
 """
 
 from __future__ import annotations
@@ -45,6 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from east.expression import Expression
 from east.ir.builders import (
     ir_block,
     ir_let,
@@ -55,9 +48,8 @@ from east.ir.builders import (
     ir_value,
     ir_variant,
 )
-from east.kernel import KernelExpr, KernelTraceError, trace
 from east.namespace import East
-from east.runtime.compiler import compile_from_value, eager_stats
+from east.runtime.compiler import compile_from_value
 from east.runtime.errors import EastError
 from east.serialization.json import decode_json_for
 from east.types.type_of_type import IRType
@@ -84,19 +76,20 @@ _decode_ir = decode_json_for(IRType)
 
 # The current file's compiled program — loaded exactly as the compiled
 # runners load it (compile_from_json: wrapper decode, source-map install,
-# platform-signature validation) and held so the file's source map stays
-# installed while the replay interprets the same IR. One entry: each load
-# replaces the previous file's program.
+# platform-signature validation) and held so the replay can install the
+# file's source map while it interprets the same IR (see
+# _program_source_map). One entry: each load replaces the previous file's
+# program.
 _PROGRAM_KEEPALIVE: dict[str, Any] = {}
 
 
 def _load_program(data: bytes) -> Any:
     """``compile_from_json`` with inert test-harness platform impls — the
-    program is loaded, never called (the replay interprets its IR). Closures
-    the replay creates while it is held reference the program's source map
-    (compiler.c stamps the current map), so their errors resolve original
-    source locations and their beast2 encodings embed the same stack deltas
-    as any compiled runner's closures."""
+    program is loaded, never called (the replay interprets its IR). The
+    replay runs under the program's source map (``_program_source_map``), so
+    closures it creates reference that map (compiler.c stamps the current
+    map): their errors resolve original source locations and their beast2
+    encodings embed the same stack deltas as any compiled runner's closures."""
     from east.runtime.compiler import compile_from_json
     from east.runtime.platform import PlatformFunction
     from east.types.types import AsyncFunctionType, NullType, StringType
@@ -132,6 +125,20 @@ def load_ir(path: str | Path) -> EastVariant:
     # byte-comparison diverges.
     raw = _pyjson.loads(data.decode("utf-8"))
     return _decode_ir(_pyjson.dumps(raw["ir"]))
+
+
+def _program_source_map() -> Any:
+    """The loaded program's source map, installed as the thread-current map
+    for the replay — the TS ``with_source_map(program.source_map, …)``. A
+    compile installs and RESTORES the map it compiles under (#626), so the
+    file's map must be installed explicitly for the closures the replay
+    builds against the file's loc_ids."""
+    program = next(iter(_PROGRAM_KEEPALIVE.values()), None)
+    if program is None:
+        return contextlib.nullcontext()
+    from east.runtime._compiler_eastc import source_map_of
+
+    return source_map_of(program)
 
 
 # ─── value → IR quotation (for baking callback captures) ─────────────────────
@@ -255,10 +262,6 @@ class Env:
 class Closure:
     """An evaluated Function node: params + body + the creation environment.
 
-    ``native`` records whether mode-materialisation could compile it (False
-    once it fell back to an interpreter closure for by-reference captures) —
-    path accounting skips calls whose callbacks could never ride natively.
-
     A Closure can land in a Function-typed VALUE slot (struct fields, arrays
     of functions); ``py_value_to_c`` serializes functions from their attached
     homoiconic IR, so ``_east_ir`` exposes the capture-baked Function node and
@@ -266,7 +269,6 @@ class Closure:
     """
     node: EastVariant
     env: Env
-    native: bool = True
 
     @property
     def payload(self) -> EastStruct:
@@ -336,16 +338,12 @@ def _baked_node(clo: Closure) -> Any:
 @dataclass
 class Report:
     routes: Counter = field(default_factory=Counter)          # (builtin, route)
-    path_violations: list = field(default_factory=list)       # (builtin, detail)
-    untraceable: Counter = field(default_factory=Counter)     # node kind / reason
     unsupported: Counter = field(default_factory=Counter)     # skip reasons
     tests_passed: int = 0
     tests_failed: list = field(default_factory=list)          # (name, error)
 
     def merge(self, other: Report) -> None:
         self.routes.update(other.routes)
-        self.path_violations.extend(other.path_violations)
-        self.untraceable.update(other.untraceable)
         self.unsupported.update(other.unsupported)
         self.tests_passed += other.tests_passed
         self.tests_failed.extend(other.tests_failed)
@@ -356,12 +354,15 @@ class Report:
 class EagerEvaluator:
     """Executes decoded IR with Builtin nodes routed through the user surface."""
 
-    def __init__(self, mode: str = "kernel", report: Report | None = None):
-        assert mode in ("kernel", "trampoline", "traced")
-        self.mode = mode
+    def __init__(self, report: Report | None = None):
         self.report = report if report is not None else Report()
         self.test_depth = 0
         self._canon_memo: dict[int, Any] = {}
+        # Pending capture write-backs: (native callable, defining Env,
+        # [(name, type), …]) per carrier whose captures include MUTABLE
+        # variables — flushed after the builtin call that used it (see
+        # make_callback / _flush_writebacks).
+        self._writebacks: list = []
 
     def canon(self, t: Any) -> Any:
         """Node types may carry the TS id-dialect Recursive form; the pure-
@@ -378,22 +379,22 @@ class EagerEvaluator:
 
     @staticmethod
     def _klift(value: Any, hint: Any) -> Any:
-        """A KernelExpr for a constructor child: proxies pass through, plain
+        """A Expression for a constructor child: proxies pass through, plain
         values lift as typed constants."""
-        if isinstance(value, KernelExpr):
+        if isinstance(value, Expression):
             return value
-        from east.kernel import _lift
+        from east.expression import _lift
 
         return _lift(value, hint=hint)
 
     @staticmethod
     def _in_trace() -> bool:
-        """Whether a kernel trace is active. A MUTABLE-container construction
+        """Whether an expression build is active. A MUTABLE-container construction
         inside a trace must emit constructor IR even with no traced children:
         an eager value would lift as a hoisted CONSTANT shared across calls —
         an init callback returning `[]` would hand every group one aliased
         accumulator."""
-        from east.kernel import _tracing
+        from east.expression import _tracing
 
         return _tracing()
 
@@ -402,7 +403,8 @@ class EagerEvaluator:
     def run_program(self, ir: EastVariant) -> Report:
         """Run an exported spec program (an argless (Async)Function head)."""
         assert ir.type in ("Function", "AsyncFunction"), ir.type
-        self.call(Closure(ir, Env()), [])
+        with _program_source_map():
+            self.call(Closure(ir, Env()), [])
         return self.report
 
     # ── closures ──
@@ -459,7 +461,7 @@ class EagerEvaluator:
             return self.eval(p["else_body"], Env(env))
         if kind == "Match":
             subject = self.eval(p["variant"], env)
-            if isinstance(subject, KernelExpr):
+            if isinstance(subject, Expression):
                 raise _Unsupported("Match over a traced subject outside a callback")
             for case in p["cases"]:
                 if case["case"] == subject.type:
@@ -471,36 +473,36 @@ class EagerEvaluator:
             return self.eval(p["struct"], env)[p["field"]]
         if kind == "Struct":
             fields = [(f["name"], self.eval(f["value"], env)) for f in p["fields"]]
-            if any(isinstance(v, KernelExpr) for _n, v in fields) or self._in_trace():
+            if any(isinstance(v, Expression) for _n, v in fields) or self._in_trace():
                 # construction from traced parts IS a traced expression —
                 # an eager value holding proxies would hoist as a "constant"
-                # referencing kernel parameters (unbound outside the fn).
-                # Use the kernel's LAZY constructors: the eager builders'
+                # referencing function parameters (unbound outside the fn).
+                # Use the expression builder's LAZY constructors: the eager builders'
                 # EastArray children convert nodes mid-trace (#411)
-                from east.kernel import _k_struct
+                from east.expression import _k_struct
 
                 t = self.canon(p["type"])
                 ftypes = {f["name"]: f["type"] for f in t.value}
                 node2 = _k_struct(t, [(n, self._klift(v, ftypes[n]).ir) for n, v in fields])
-                return KernelExpr(node2, t)
+                return Expression(node2, t)
             return EastStruct(dict(fields))
         if kind == "Variant":
             val = self.eval(p["value"], env)
-            if isinstance(val, KernelExpr) or self._in_trace():
+            if isinstance(val, Expression) or self._in_trace():
                 # in-trace: the node's DECLARED type keeps every case — an
                 # eager variant would be sampled to a single-case type (#450)
                 t = self.canon(p["type"])
                 ctypes = {c["name"]: c["type"] for c in t.value}
-                return KernelExpr(ir_variant(t, p["case"], self._klift(val, ctypes[p["case"]]).ir), t)
+                return Expression(ir_variant(t, p["case"], self._klift(val, ctypes[p["case"]]).ir), t)
             return EastVariant(p["case"], val)
         if kind == "NewArray":
             t = self.canon(p["type"])
             vals = [self.eval(v, env) for v in p["values"]]
-            if any(isinstance(v, KernelExpr) for v in vals) or self._in_trace():
-                from east.kernel import _k_new_array
+            if any(isinstance(v, Expression) for v in vals) or self._in_trace():
+                from east.expression import _k_new_array
 
                 et = child_type(t)
-                return KernelExpr(_k_new_array(t, [self._klift(v, et).ir for v in vals]), t)
+                return Expression(_k_new_array(t, [self._klift(v, et).ir for v in vals]), t)
             # Direct construction: the evaluated values are already East-typed
             # (the IR is), and the constructor's batch conversion preserves
             # element aliasing — a coerce_to detour re-canonicalizes each
@@ -510,11 +512,11 @@ class EagerEvaluator:
         if kind == "NewSet":
             t = self.canon(p["type"])
             vals = [self.eval(v, env) for v in p["values"]]
-            if any(isinstance(v, KernelExpr) for v in vals) or self._in_trace():
-                from east.kernel import _k_new_set
+            if any(isinstance(v, Expression) for v in vals) or self._in_trace():
+                from east.expression import _k_new_set
 
                 et = child_type(t)
-                return KernelExpr(_k_new_set(t, [self._klift(v, et).ir for v in vals]), t)
+                return Expression(_k_new_set(t, [self._klift(v, et).ir for v in vals]), t)
             if _mentions_function(t):
                 return EastSet(child_type(t), vals)
             from east.types.coercion import coerce_to
@@ -524,10 +526,10 @@ class EagerEvaluator:
             t = self.canon(p["type"])
             kt, vt = dict_child(t, "key"), dict_child(t, "value")
             entries = [(self.eval(e["key"], env), self.eval(e["value"], env)) for e in p["values"]]
-            if any(isinstance(x, KernelExpr) for kv in entries for x in kv) or self._in_trace():
-                from east.kernel import _k_new_dict
+            if any(isinstance(x, Expression) for kv in entries for x in kv) or self._in_trace():
+                from east.expression import _k_new_dict
 
-                return KernelExpr(_k_new_dict(
+                return Expression(_k_new_dict(
                     t, [(self._klift(k, kt).ir, self._klift(v, vt).ir) for k, v in entries]), t)
             d = EastDict(kt, vt)
             for k, v in entries:
@@ -593,7 +595,7 @@ class EagerEvaluator:
             raise _Continue(p["label"]["name"])
         if kind == "Error":
             msg = self.eval(p["message"], env)
-            if isinstance(msg, KernelExpr):
+            if isinstance(msg, Expression):
                 # data-dependent raise inside a trace replay — untraceable
                 raise _Unsupported("Error node over a traced message")
             raise EastError(msg, [])
@@ -628,7 +630,7 @@ class EagerEvaluator:
 
     @staticmethod
     def _truth(value: Any) -> bool:
-        if isinstance(value, KernelExpr):
+        if isinstance(value, Expression):
             raise _Unsupported("python branch on a traced predicate")
         return bool(value)
 
@@ -657,7 +659,20 @@ class EagerEvaluator:
             container._unlock_for_iteration()
         return east_null
 
-    # ── platform: the four self-assertion harness functions ──
+    # ── platform: the self-assertion harness + the corpus capabilities ──
+
+    _HARNESS_IMPLS: dict[str, Any] | None = None
+
+    @classmethod
+    def _platform_impls(cls) -> dict[str, Any]:
+        """The corpus's non-assertion platform capabilities (the ``freeze*``
+        family, #539), shared with ``test_compliance`` so the replay runs the
+        SAME implementations the compiled runners do."""
+        if cls._HARNESS_IMPLS is None:
+            from tests.test_compliance import _freeze_platform
+
+            cls._HARNESS_IMPLS = {pf["name"]: pf for pf in _freeze_platform()}
+        return cls._HARNESS_IMPLS
 
     def _platform(self, p: EastStruct, env: Env) -> Any:
         name = p["name"]
@@ -680,18 +695,40 @@ class EagerEvaluator:
             return east_null
         if name == "testFail":
             raise AssertionError(args[0])
-        raise _Unsupported(f"platform function {name!r}")
+        impl = self._platform_impls().get(name)
+        if impl is None:
+            raise _Unsupported(f"platform function {name!r}")
+        result = impl["fn"](*args)
+        if getattr(result, "_east_c_value", None) is not None:
+            t = self.canon(p["type"])
+            if t.type in ("Vector", "Matrix"):
+                # Tensors decode by COPY (numpy-backed), which would drop the
+                # value identity the frozen brand carries under Is — keep the
+                # HOLD; the funnel passes its branded C value by pointer.
+                return result
+            # A frozen hold (freeze_value) decodes into branded zero-copy
+            # proxies, so the replay's eager surface sees exactly what a
+            # frozen task input looks like — mutation refuses, Is compares
+            # by value (#539).
+            from east.runtime._compiler_eastc import frozen_hold_to_py
+
+            return frozen_hold_to_py(result, t)
+        return result
 
     # ── callbacks per mode ──
 
     def make_callback(self, clo: Closure) -> Any:
-        """A python callable for a Function-typed builtin argument, shaped by
-        the mode. Callbacks whose captures are mutable or container-typed are
-        NOT baked — East captures by reference, and a baked copy would hide
-        mutations (an accumulating forEach would silently count on the copy) —
-        they run as interpreter closures instead, counted as such."""
+        """A python callable for a Function-typed builtin argument.
+
+        Immutable captures bake as ``Let``s of quoted values and the callback
+        IR compiles into a native function. By-reference (mutable/container)
+        captures must NOT bake — East captures by reference, and a baked copy
+        would hide mutations (an accumulating forEach would silently count on
+        the copy) — so the callable carries the UNBAKED node and its live
+        capture values instead, and the funnel's carrier route builds the
+        closure with an identity-mapped captures env (#476 E)."""
         p = clo.payload
-        if any(isinstance(clo.env.get(v.value["name"]), KernelExpr)
+        if any(isinstance(clo.env.get(v.value["name"]), Expression)
                for v in p["captures"]):
             # materialized INSIDE a trace replay: a capture is the outer
             # trace's proxy, so a standalone compile would leave it free —
@@ -700,37 +737,36 @@ class EagerEvaluator:
             self.report.routes[("<nested-trace>", "traced")] += 1
             return self._replay_fn(clo)
         if not self._bake_safe(p["captures"]):
-            self.report.routes[("<captures-by-ref>", "interpreted")] += 1
-            clo.native = False
+            self.report.routes[("<captures-by-ref>", "carrier")] += 1
+            from east._eastc_bridge import resolve_child_type
+            from east.runtime._compiler_eastc import compile_function_carrier
 
-            def interpreted(*args):
+            def carrier(*args):
                 return self.call(clo, list(args))
 
-            # A deliberate python path (mutable captures interpret by
-            # reference) — the push-down's loud contract skips it.
-            interpreted._east_trace_fallback = True
-            return interpreted
-        if self.mode == "traced":
-            traced = self._traced_callback(clo)
-            if traced is not None:
-                return traced
-        compiled = self._compile_closure(clo)
-        # The compiled callable's native handle is the real path; its
-        # RE-TRACE runs the replay interpreter (python branches), so when
-        # the native handle is refused (signature adaptation) the loud
-        # contract must not fire on the interpreter — declare it.
-        compiled._east_trace_fallback = True
-        if self.mode == "trampoline":
-            n = len(p["parameters"])
-
-            def hidden(*args: Any) -> Any:
-                return compiled(*args[:n])
-
-            # NOT declared python-only: its re-trace succeeds through the
-            # compiled dual-path, and serialize-shaped tests need the traced
-            # native function value.
-            return hidden
-        return compiled
+            # The bridge's live-captures compile (#476 E): the UNBAKED node
+            # plus these values, identity-mapped into the closure's captures
+            # env — mutations stay visible and the body executes natively.
+            carrier._east_ir = clo.node
+            carrier._east_captures = clo._east_captures
+            native = compile_function_carrier(
+                carrier,
+                [self.canon(v.value["type"]) for v in p["parameters"]],
+                resolve_child_type(p["type"], ("output",)),
+            )
+            # A MUTABLE capture the body REBINDS (`$.assign(total, …)`)
+            # accumulates in the closure's captures env — east-c's Assign
+            # writes the defining env, which for the carrier is the closure's
+            # own, not this interpreter's. Register a write-back: after the
+            # builtin call that drove the callback, the rebound slots fold
+            # back into the replay environment (in-place container mutation
+            # needs none — the identity map shares the C value).
+            mutable_caps = [(v.value["name"], self.canon(v.value["type"]))
+                            for v in p["captures"] if v.value["mutable"]]
+            if mutable_caps:
+                self._writebacks.append((native, clo.env, mutable_caps))
+            return native
+        return self._compile_closure(clo)
 
     @staticmethod
     def _bake_safe(captures: Any) -> bool:
@@ -752,61 +788,24 @@ class EagerEvaluator:
 
     def _compile_closure(self, clo: Closure) -> Any:
         """``compile_from_value`` on the callback IR, captures baked as Lets of
-        quoted values — the same ``Block[Let…, Function]`` shape the kernel
-        tracer emits for hoisted constants.
+        quoted values — the same ``Block[Let…, Function]`` shape the expression
+        builder emits for hoisted constants.
 
-        The compiled callable also gets ``_east_retrace`` (#470's dual-mode
-        hook), pointing at a proxy-replay of the same body — so wrappers that
-        REORDER arguments (the dict ``(k,v)`` methods) still trace natively
-        exactly as user `kernel()` results do."""
-        compiled = compile_from_value(_baked_node(clo))
-        replay = self._replay_fn(clo)
-
-        def dual(*args: Any) -> Any:
-            # mirror kernel()'s dual-mode wrapper (#470): proxies re-run the
-            # body through the replay; plain values execute natively
-            if any(isinstance(x, KernelExpr) for x in args):
-                return replay(*args)
-            return compiled(*args)
-
-        dual._eastc_handle = compiled._eastc_handle
-        dual.bind = compiled.bind
-        dual._east_compiled = compiled
-        dual._east_retrace = replay
-        # The native handle is the real path; the retrace is the interpreter,
-        # so when native resolution is refused the loud push-down contract
-        # must fall back silently rather than raise on harness machinery.
-        dual._east_trace_fallback = True
-        return dual
+        The compiled callable is used AS-IS: called with expression proxies
+        (an argument-reordering wrapper under the strict wrap) it lowers to a
+        native IR ``Call`` (#561), so the body is never re-derived."""
+        return compile_from_value(_baked_node(clo))
 
     def _replay_fn(self, clo: Closure) -> Any:
         p = clo.payload
 
-        def replay(*proxies: Any) -> Any:
+        def replay(_b: Any, *proxies: Any) -> Any:
             env = Env(clo.env)
             for var, proxy in zip(p["parameters"], proxies, strict=False):
                 env.define(var.value["name"], proxy)
             return self.eval(p["body"], env)
 
-        # Interpreter-backed: whether this replay traces depends on the IR
-        # body, so its failures must keep the silent fallback — it is the
-        # harness's own machinery, not a user callback.
-        replay._east_trace_fallback = True
         return replay
-
-    def _traced_callback(self, clo: Closure) -> Any | None:
-        """Replay the callback body over KernelExpr proxies through the traced
-        surface; None (counted) when a node has no traced expression form."""
-        p = clo.payload
-        param_types = [self.canon(v.value["type"]) for v in p["parameters"]]
-        try:
-            ir_value_, _out, binds = trace(self._replay_fn(clo), param_types)
-        except (KernelTraceError, _Unsupported) as e:
-            self.report.untraceable[str(e)[:80]] += 1
-            return None
-        compiled_cb = compile_from_value(ir_value_)
-        # Called compiled functions ride as hidden trailing parameters (#561).
-        return compiled_cb.bind(*binds) if binds else compiled_cb
 
     # ── builtin dispatch ──
 
@@ -819,25 +818,23 @@ class EagerEvaluator:
         args = [self.eval(a, env) for a in raw_args]
 
         row = _ROWS.get(name)
-        traced_ctx = any(isinstance(a, KernelExpr) for a in args)
-        cbs = [i for i, a in enumerate(args) if isinstance(a, Closure)]
+        traced_ctx = any(isinstance(a, Expression) for a in args)
+        wb_mark = len(self._writebacks)
 
         if row is not None and not traced_ctx:
-            before = eager_stats()
             try:
                 result = row(self, node, args)
             except _Unsupported as e:
                 self.report.unsupported[str(e)[:80]] += 1
+                self._flush_writebacks(wb_mark)
                 row = None  # fall through to the funnel, counted
             else:
-                capable = sum(1 for i in cbs if args[i].native)
-                self._account(name, before, capable=capable,
-                              excused=len(cbs) - capable)
+                self._flush_writebacks(wb_mark)
                 self.report.routes[(name, "surface")] += 1
                 return result
         if row is not None and traced_ctx:
             # inside a traced callback replay: the row itself runs against
-            # proxies (KernelExpr methods / namespace funnel) and emits IR
+            # proxies (Expression methods / namespace funnel) and emits IR
             result = row(self, node, args)
             self.report.routes[(name, "traced")] += 1
             return result
@@ -870,33 +867,24 @@ class EagerEvaluator:
             else:
                 conv.append(a)
         self.report.routes[(name, "funnel")] += 1
-        return _call_builtin(name, tps, conv, out_t)
+        try:
+            return _call_builtin(name, tps, conv, out_t)
+        finally:
+            self._flush_writebacks(wb_mark)
 
-    def _account(self, name: str, before: dict, *, capable: int, excused: int) -> None:
-        """The native-path guarantee, from the compiler's REAL counters.
+    def _flush_writebacks(self, mark: int) -> None:
+        """Fold rebound closure captures back into the replay environment.
 
-        ``capable`` counts callbacks that must ride natively in kernel mode;
-        ``excused`` counts adapter-wrapped ones (the dict (k,v) reorders)
-        whose per-element python is legitimate when their retrace cannot
-        fire. Kernel mode flags (1) any trampoline activity on a call with
-        no excused callbacks, and (2) a mixed call where NO callback rode
-        natively — a capable one regressing to python cannot hide behind an
-        excused sibling, because the native counter would read zero."""
-        if capable == 0 or self.mode == "traced":
-            return
-        after = eager_stats()
-        tramp = after["trampoline_calls"] - before["trampoline_calls"]
-        native = (after["kernel_direct"] - before["kernel_direct"]) + (
-            after["pushdown_traced"] - before["pushdown_traced"])
-        if self.mode == "kernel" and tramp and not excused:
-            self.report.path_violations.append(
-                (name, f"kernel mode trampolined {tramp}×"))
-        if self.mode == "kernel" and tramp and excused and not native:
-            self.report.path_violations.append(
-                (name, f"kernel mode: no capable callback rode native ({tramp}× python)"))
-        if self.mode == "trampoline" and native:
-            self.report.path_violations.append(
-                (name, f"trampoline mode went native {native}×"))
+        Runs after the builtin call that drove the carrier (errors included —
+        mutations up to a mid-loop error are real, exactly as they are for a
+        native caller). Reading an unrebound capture is an identity refresh.
+        """
+        from east.runtime._compiler_eastc import read_closure_capture
+
+        while len(self._writebacks) > mark:
+            native, env, caps = self._writebacks.pop()
+            for cap_name, cap_t in caps:
+                env.assign(cap_name, read_closure_capture(native, cap_name, cap_t))
 
 
 # ─── the mapping table: BuiltinName → user-surface call ──────────────────────
@@ -933,70 +921,79 @@ _ROWS: dict[str, Any] = {
     "RegexReplace": lambda ev, n, a: East.String.regex_replace(a[0], a[1], a[3], a[2]),
     # comparisons — user spelling is the ordering-function surface
     "Equal": lambda ev, n, a: equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] == a[1],
     "NotEqual": lambda ev, n, a: not_equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] != a[1],
     "Less": lambda ev, n, a: less_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] < a[1],
     "LessEqual": lambda ev, n, a: less_equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] <= a[1],
     "Greater": lambda ev, n, a: greater_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] > a[1],
     "GreaterEqual": lambda ev, n, a: greater_equal_for(ev.canon(n.value["type_parameters"][0]))(a[0], a[1])
-    if not isinstance(a[0], KernelExpr) and not isinstance(a[1], KernelExpr)
+    if not isinstance(a[0], Expression) and not isinstance(a[1], Expression)
     else a[0] >= a[1],
     # Array
     "ArrayMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].map(_cb(ev, a[1])),
     "ArrayFilter": lambda ev, n, a: a[0].filter(_cb(ev, a[1])),
     "ArrayFilterMap": lambda ev, n, a: a[0].filter_map(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].filter_map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].filter_map(_cb(ev, a[1])),
     "ArrayFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_opt_inner(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].first_map(_cb(ev, a[1])),
-    "ArrayFold": lambda ev, n, a: a[0].fold(a[1], _cb(ev, a[2])),
-    # scan IS the running fold, so it takes fold's argument order (#524).
-    "ArrayScan": lambda ev, n, a: a[0].scan(a[1], _cb(ev, a[2])),
+    if not isinstance(a[0], Expression) else a[0].first_map(_cb(ev, a[1])),
+    "ArrayFold": lambda ev, n, a: a[0].reduce(_cb(ev, a[2]), a[1]),
+    # scan IS the running fold, so it takes reduce's argument order (#524).
+    "ArrayScan": lambda ev, n, a: a[0].scan(_cb(ev, a[2]), a[1]),
     "ArrayMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2]))
-    if isinstance(a[0], KernelExpr) else a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2]), out=_out(n)),
-    "ArraySize": lambda ev, n, a: a[0].size() if isinstance(a[0], KernelExpr) else len(a[0]),
+    if isinstance(a[0], Expression) else a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2]), out=_out(n)),
+    "ArraySize": lambda ev, n, a: a[0].size() if isinstance(a[0], Expression) else len(a[0]),
     "ArrayHas": lambda ev, n, a: a[0].has(a[1]),
     "ArrayGet": lambda ev, n, a: a[0].get(a[1]),
-    "ArrayGetOrDefault": lambda ev, n, a: a[0].get_or_default(a[1], ev.call(a[2], [a[1]]) if isinstance(a[2], Closure) else a[2])
-    if not isinstance(a[0], KernelExpr) else a[0].get_or_default(a[1], _default_of(ev, a[2])),
+    # TS `get(index, onMissing)`: the eager default body takes the block
+    # first, the compiled callback none — `_kv_user` bridges the two.
+    "ArrayGetOrDefault": lambda ev, n, a: a[0].get(a[1], _kv_user(ev, a[2], 1))
+    if not isinstance(a[0], Expression) else a[0].get(a[1], _cb(ev, a[2])),
     "ArrayTryGet": lambda ev, n, a: a[0].try_get(a[1]),
     "ArrayConcat": lambda ev, n, a: a[0].concat(a[1]),
     "ArraySlice": lambda ev, n, a: a[0].slice(a[1], a[2]),
-    "ArrayReverse": lambda ev, n, a: a[0].reversed(),
+    "ArrayReverse": lambda ev, n, a: a[0].reverse(),
     "ArrayCopy": lambda ev, n, a: a[0].copy(),
-    "ArraySortDefault": lambda ev, n, a: a[0].sorted(),
-    "ArraySort": lambda ev, n, a: a[0].sorted(key=_cb(ev, a[1])),
-    "ArrayIsSorted": lambda ev, n, a: a[0].is_sorted(key=_cb(ev, a[1])),
+    # the keyless east-c sort computes exactly what the identity-keyed
+    # TS `sort()` computes
+    "ArraySortDefault": lambda ev, n, a: a[0].sort(),
+    "ArraySort": lambda ev, n, a: a[0].sort(_cb(ev, a[1])),
+    "ArrayIsSorted": lambda ev, n, a: a[0].is_sorted(_cb(ev, a[1])),
     "ArrayToSet": lambda ev, n, a: a[0].to_set(_cb(ev, a[1])),
     "ArrayToDict": lambda ev, n, a: a[0].to_dict(
         _cb(ev, a[1]), value=_cb(ev, a[2]), combine=_cb(ev, a[3])),
     "ArrayGroupFold": lambda ev, n, a: a[0].group_reduce(
         _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3]))
-    if not isinstance(a[0], KernelExpr) else _unsup("traced group_reduce"),
-    "ArrayFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].flatten_to_array(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else _unsup("traced group_reduce"),
+    "ArrayFlattenToArray": lambda ev, n, a: a[0].flat_map(_cb(ev, a[1]), out=child_type(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].flat_map(_cb(ev, a[1])),
     "ArrayFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].flatten_to_set(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].flatten_to_set(_cb(ev, a[1])),
     "ArrayFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_cb(ev, a[1]), _cb(ev, a[2])),
     "ArrayStringJoin": lambda ev, n, a: a[0].string_join(a[1]),
-    "ArrayPushLast": lambda ev, n, a: (a[0].append(a[1]), east_null)[1],
-    "ArrayPushFirst": lambda ev, n, a: (a[0].insert(0, a[1]), east_null)[1],
-    "ArrayPopLast": lambda ev, n, a: a[0].pop(),
-    "ArrayPopFirst": lambda ev, n, a: a[0].pop(0),
-    "ArrayAppend": lambda ev, n, a: (a[0].extend(a[1]), east_null)[1],
-    "ArrayReverseInPlace": lambda ev, n, a: (a[0].reverse(), east_null)[1],
-    "ArraySortInPlace": lambda ev, n, a: (a[0].sort(), east_null)[1]
-    if len(a) == 1 else (a[0].sort(key=_cb(ev, a[1])), east_null)[1],
-    "ArrayGenerate": lambda ev, n, a: EastArray.generate(a[0], _cb(ev, a[1]), element_type=ev.canon(n.value["type_parameters"][0])),
+    "ArrayEncodeCsv": lambda ev, n, a: a[0].encode_csv(a[1]),
+    "ArrayUpdate": lambda ev, n, a: (a[0].update(a[1], a[2]), east_null)[1],
+    "ArrayMerge": lambda ev, n, a: (a[0].merge(a[1], a[2], _cb(ev, a[3])), east_null)[1],
+    "ArrayMergeAll": lambda ev, n, a: (a[0].merge_all(a[1], _cb(ev, a[2])), east_null)[1],
+    "ArrayClear": lambda ev, n, a: (a[0].clear(), east_null)[1],
+    "ArrayPushLast": lambda ev, n, a: (a[0].push_last(a[1]), east_null)[1],
+    "ArrayPushFirst": lambda ev, n, a: (a[0].push_first(a[1]), east_null)[1],
+    "ArrayPopLast": lambda ev, n, a: a[0].pop_last(),
+    "ArrayPopFirst": lambda ev, n, a: a[0].pop_first(),
+    "ArrayAppend": lambda ev, n, a: (a[0].append(a[1]), east_null)[1],
+    "ArrayPrepend": lambda ev, n, a: (a[0].prepend(a[1]), east_null)[1],
+    "ArrayReverseInPlace": lambda ev, n, a: (a[0].reverse_in_place(), east_null)[1],
+    "ArraySortInPlace": lambda ev, n, a: (a[0].sort_in_place(_cb(ev, a[1])), east_null)[1],
+    "ArrayGenerate": lambda ev, n, a: East.Array.generate(a[0], ev.canon(n.value["type_parameters"][0]), _cb(ev, a[1])),
     "ArrayRange": lambda ev, n, a: EastArray.range(a[0], a[1], a[2]),
     "ArrayLinspace": lambda ev, n, a: EastArray.linspace(a[0], a[1], a[2]),
     "ArrayForEach": lambda ev, n, a: a[0].for_each(_cb(ev, a[1])),
@@ -1005,50 +1002,52 @@ _ROWS: dict[str, Any] = {
     "ArrayFindSortedLast": lambda ev, n, a: a[0].find_sorted_last(a[1], key=_cb(ev, a[2])),
     "ArrayFindSortedRange": lambda ev, n, a: a[0].find_sorted_range(a[1], key=_cb(ev, a[2])),
     # Set
-    "SetSize": lambda ev, n, a: a[0].size() if isinstance(a[0], KernelExpr) else len(a[0]),
+    "SetSize": lambda ev, n, a: a[0].size() if isinstance(a[0], Expression) else len(a[0]),
     "SetHas": lambda ev, n, a: a[0].has(a[1]),
     "SetInsert": lambda ev, n, a: a[0].insert(a[1]),
     "SetDelete": lambda ev, n, a: a[0].delete(a[1]),
+    "SetClear": lambda ev, n, a: (a[0].clear(), east_null)[1],
     "SetTryInsert": lambda ev, n, a: a[0].try_insert(a[1]),
     "SetTryDelete": lambda ev, n, a: a[0].try_delete(a[1]),
     "SetUnion": lambda ev, n, a: a[0].union(a[1]),
-    "SetIntersect": lambda ev, n, a: a[0].intersect(a[1]),
-    "SetDiff": lambda ev, n, a: a[0].diff(a[1]),
-    "SetSymDiff": lambda ev, n, a: a[0].sym_diff(a[1]),
-    "SetIsSubset": lambda ev, n, a: a[0].is_subset(a[1]),
-    "SetIsDisjoint": lambda ev, n, a: a[0].is_disjoint(a[1]),
+    "SetIntersect": lambda ev, n, a: a[0].intersection(a[1]),
+    "SetDiff": lambda ev, n, a: a[0].difference(a[1]),
+    "SetSymDiff": lambda ev, n, a: a[0].symmetric_difference(a[1]),
+    "SetIsSubset": lambda ev, n, a: a[0].is_subset_of(a[1]),
+    "SetIsDisjoint": lambda ev, n, a: a[0].is_disjoint_from(a[1]),
     "SetCopy": lambda ev, n, a: a[0].copy(),
     "SetUnionInPlace": lambda ev, n, a: a[0].union_in_place(a[1]),
     "SetToArray": lambda ev, n, a: a[0].to_array(_cb(ev, a[1])),
     "SetToSet": lambda ev, n, a: a[0].to_set(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else _unsup("traced SetToSet spelling"),
+    if not isinstance(a[0], Expression) else _unsup("traced SetToSet spelling"),
     "SetToDict": lambda ev, n, a: a[0].to_dict(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "SetMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
-    if not isinstance(a[0], KernelExpr) else a[0].map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].map(_cb(ev, a[1])),
     "SetFilter": lambda ev, n, a: a[0].filter(_cb(ev, a[1])),
     "SetFilterMap": lambda ev, n, a: a[0].filter_map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
-    if not isinstance(a[0], KernelExpr) else a[0].filter_map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].filter_map(_cb(ev, a[1])),
     "SetFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_opt_inner(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].first_map(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].first_map(_cb(ev, a[1])),
     "SetMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2])),
-    "SetReduce": lambda ev, n, a: a[0].reduce(a[2], _cb(ev, a[1])),
+    "SetReduce": lambda ev, n, a: a[0].reduce(_cb(ev, a[1]), a[2]),
     # SetScan mirrors SetReduce's (set, fn, init) argument order (#524).
-    "SetScan": lambda ev, n, a: a[0].scan(a[2], _cb(ev, a[1])),
+    "SetScan": lambda ev, n, a: a[0].scan(_cb(ev, a[1]), a[2]),
     "SetGroupFold": lambda ev, n, a: a[0].group_reduce(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "SetFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].flatten_to_array(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].flatten_to_array(_cb(ev, a[1])),
     "SetFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].flatten_to_set(_cb(ev, a[1])),
+    if not isinstance(a[0], Expression) else a[0].flatten_to_set(_cb(ev, a[1])),
     "SetFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_cb(ev, a[1]), _cb(ev, a[2])),
-    "SetGenerate": lambda ev, n, a: EastSet.generate(a[0], _cb(ev, a[1]), element_type=ev.canon(n.value["type_parameters"][0])),
+    "SetGenerate": lambda ev, n, a: East.Set.generate(
+        a[0], ev.canon(n.value["type_parameters"][0]), _cb(ev, a[1]), _cb(ev, a[2])),
     "SetForEach": lambda ev, n, a: a[0].for_each(_cb(ev, a[1])),
-    # Dict — note the builtin invokes callbacks (value, key); the python
-    # methods take user (key, value) argument order
-    "DictSize": lambda ev, n, a: a[0].size() if isinstance(a[0], KernelExpr) else len(a[0]),
+    # Dict — the python methods take the builtin's own (value, key) callback
+    # order (the TypeScript order, canonical on both surfaces)
+    "DictSize": lambda ev, n, a: a[0].size() if isinstance(a[0], Expression) else len(a[0]),
     "DictHas": lambda ev, n, a: a[0].has(a[1]),
-    "DictGet": lambda ev, n, a: a[0].get(a[1]) if isinstance(a[0], KernelExpr) else a[0][a[1]],
-    "DictGetOrDefault": lambda ev, n, a: a[0].get_or_default(a[1], ev.call(a[2], [a[1]]) if isinstance(a[2], Closure) else a[2])
-    if not isinstance(a[0], KernelExpr) else a[0].get_or_default(a[1], _default_of(ev, a[2])),
+    "DictGet": lambda ev, n, a: a[0].get(a[1]),
+    "DictGetOrDefault": lambda ev, n, a: a[0].get(a[1], _kv_user(ev, a[2], 1))
+    if not isinstance(a[0], Expression) else a[0].get(a[1], _cb(ev, a[2])),
     "DictTryGet": lambda ev, n, a: a[0].try_get(a[1]),
     "DictInsert": lambda ev, n, a: a[0].insert(a[1], a[2]),
     # DictGetOrInsert's third arg is a nullary default producer in TS
@@ -1056,36 +1055,36 @@ _ROWS: dict[str, Any] = {
         a[1], _arity_trim(ev, a[2])),
     "DictInsertOrUpdate": lambda ev, n, a: a[0].insert_or_update(
         a[1], a[2], _cb(ev, a[3])),
-    # east-c DictUpdate SETS the value at an existing key (TS `.update(k, v)`);
-    # the user spelling with must-exist semantics is `swap` (old value dropped)
-    "DictUpdate": lambda ev, n, a: (a[0].swap(a[1], a[2]), east_null)[1],
+    "DictUpdate": lambda ev, n, a: (a[0].update(a[1], a[2]), east_null)[1],
     "DictSwap": lambda ev, n, a: a[0].swap(a[1], a[2]),
     "DictPop": lambda ev, n, a: a[0].pop(a[1]),
+    "DictClear": lambda ev, n, a: (a[0].clear(), east_null)[1],
     "DictDelete": lambda ev, n, a: a[0].delete(a[1]),
     "DictTryDelete": lambda ev, n, a: a[0].try_delete(a[1]),
     "DictCopy": lambda ev, n, a: a[0].copy(),
-    "DictKeys": lambda ev, n, a: a[0].keys_set(),
+    "DictKeys": lambda ev, n, a: a[0].keys(),
     "DictGetKeys": lambda ev, n, a: a[0].get_keys(a[1], _kv_user(ev, a[2], 1)),
     "DictMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
-    if not isinstance(a[0], KernelExpr) else a[0].map(_cb(ev, a[1])),
-    "DictFilter": lambda ev, n, a: a[0].filter(_dict_kv(ev, a[1])),
-    "DictFilterMap": lambda ev, n, a: a[0].filter_map(_dict_kv(ev, a[1]), out=dict_child(_out(n), "value"))
-    if not isinstance(a[0], KernelExpr) else a[0].filter_map(_dict_kv(ev, a[1])),
-    "DictFirstMap": lambda ev, n, a: a[0].first_map(_dict_kv(ev, a[1]), out=_opt_inner(_out(n)))
-    if not isinstance(a[0], KernelExpr) else a[0].first_map(_dict_kv(ev, a[1])),
-    "DictMapReduce": lambda ev, n, a: a[0].map_reduce(_dict_kv(ev, a[1]), _cb(ev, a[2])),
-    "DictReduce": lambda ev, n, a: a[0].reduce(a[2], _acc_kv(ev, a[1])),
-    # DictScan mirrors DictReduce: builtin (acc, value, key) -> user
-    # fn(acc, key, value), and the seed is the trailing argument (#524).
-    "DictScan": lambda ev, n, a: a[0].scan(a[2], _acc_kv(ev, a[1])),
-    "DictToArray": lambda ev, n, a: a[0].to_array(_dict_kv(ev, a[1])),
-    "DictToSet": lambda ev, n, a: a[0].to_set(_dict_kv(ev, a[1])),
-    "DictToDict": lambda ev, n, a: a[0].to_dict(_dict_kv(ev, a[1]), _dict_kv(ev, a[2]), _cb(ev, a[3])),
+    if not isinstance(a[0], Expression) else a[0].map(_cb(ev, a[1])),
+    "DictFilter": lambda ev, n, a: a[0].filter(_cb(ev, a[1])),
+    "DictFilterMap": lambda ev, n, a: a[0].filter_map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
+    if not isinstance(a[0], Expression) else a[0].filter_map(_cb(ev, a[1])),
+    "DictFirstMap": lambda ev, n, a: a[0].first_map(_cb(ev, a[1]), out=_opt_inner(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].first_map(_cb(ev, a[1])),
+    "DictMapReduce": lambda ev, n, a: a[0].map_reduce(_cb(ev, a[1]), _cb(ev, a[2])),
+    "DictReduce": lambda ev, n, a: a[0].reduce(_cb(ev, a[1]), a[2]),
+    # DictScan mirrors DictReduce's (dict, fn, init) argument order (#524).
+    "DictScan": lambda ev, n, a: a[0].scan(_cb(ev, a[1]), a[2]),
+    "DictToArray": lambda ev, n, a: a[0].to_array(_cb(ev, a[1])),
+    "DictToSet": lambda ev, n, a: a[0].to_set(_cb(ev, a[1])),
+    "DictToDict": lambda ev, n, a: a[0].to_dict(_cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "DictGroupFold": lambda ev, n, a: a[0].group_reduce(
-        _dict_kv(ev, a[1]), _cb(ev, a[2]), _acc_kv3(ev, a[3])),
-    "DictFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_dict_kv(ev, a[1])),
-    "DictFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_dict_kv(ev, a[1])),
-    "DictFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_dict_kv(ev, a[1]), _cb(ev, a[2])),
+        _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
+    "DictFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].flatten_to_array(_cb(ev, a[1])),
+    "DictFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].flatten_to_set(_cb(ev, a[1])),
+    "DictFlattenToDict": lambda ev, n, a: a[0].flatten_to_dict(_cb(ev, a[1]), _cb(ev, a[2])),
     # in-place union with a combine: the user spelling is update_many (#255).
     # update_many's combine contract is (existing, incoming) — a corpus
     # merger that reads the KEY has no user spelling here → funnel (counted).
@@ -1094,32 +1093,53 @@ _ROWS: dict[str, Any] = {
     # `update_many` spelling is now expressible and no longer funnels.
     "DictUnionInPlace": lambda ev, n, a: (
         a[0].union_in_place(a[1], _cb(ev, a[2])), east_null)[1],
-    # #527 also added `merge_key`, the single-key upsert that IS DictMerge
-    # (dict, key, value, updateFn, initialFn) — argument-for-argument.
+    # `merge` is the single-key upsert that IS DictMerge (dict, key, value,
+    # updateFn, initialFn) — argument-for-argument (TS `merge`).
     "DictMerge": lambda ev, n, a: (
-        a[0].merge_key(a[1], a[2], _cb(ev, a[3]), _cb(ev, a[4])), east_null)[1],
+        a[0].merge(a[1], a[2], _cb(ev, a[3]), _cb(ev, a[4])), east_null)[1],
     "DictMergeAll": lambda ev, n, a: a[0].merge_all(a[1], _cb(ev, a[2]), _cb(ev, a[3])),
-    "DictForEach": lambda ev, n, a: a[0].for_each(_dict_kv(ev, a[1])),
-    "DictGenerate": lambda ev, n, a: EastDict.generate(
-        a[0], _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3]),
-        ev.canon(n.value["type_parameters"][0]), ev.canon(n.value["type_parameters"][1])),
-    # Ref — the user surface is the `.value` property; RefUpdate SETS (TS
-    # `.update(value)`), RefMerge folds the incoming value into the current
-    "RefGet": lambda ev, n, a: a[0].value,
-    "RefUpdate": lambda ev, n, a: (setattr(a[0], "value", a[1]), east_null)[1],
-    "RefMerge": lambda ev, n, a: (setattr(
-        a[0], "value", _arity_trim(ev, a[2])(a[0].value, a[1])), east_null)[1],
-    # Vector/Matrix arithmetic + sparse accumulators (#598) — the eager
-    # EastVector/EastMatrix methods and the East.Vector namespace, whose
-    # traced twins share the same spellings.
+    "DictForEach": lambda ev, n, a: a[0].for_each(_cb(ev, a[1])),
+    "DictGenerate": lambda ev, n, a: East.Dict.generate(
+        a[0], ev.canon(n.value["type_parameters"][0]), ev.canon(n.value["type_parameters"][1]),
+        _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
+    # Ref — the TS names: get / update(value) / merge(value, fn)
+    "RefGet": lambda ev, n, a: a[0].get(),
+    "RefUpdate": lambda ev, n, a: (a[0].update(a[1]), east_null)[1],
+    "RefMerge": lambda ev, n, a: (a[0].merge(a[1], _arity_trim(ev, a[2])), east_null)[1],
+    # Vector/Matrix — the structural surface, the arithmetic and the sparse
+    # accumulators (#598): the eager EastVector/EastMatrix methods and the
+    # East.Vector namespace, whose traced twins share the same spellings.
+    "VectorLength": lambda ev, n, a: a[0].length(),
+    "VectorGet": lambda ev, n, a: a[0].get(a[1]),
+    "VectorSet": lambda ev, n, a: a[0].set(a[1], a[2]),
+    "VectorSlice": lambda ev, n, a: a[0].slice(a[1], a[2]),
+    "VectorConcat": lambda ev, n, a: a[0].concat(a[1]),
+    "VectorToArray": lambda ev, n, a: a[0].to_array(),
+    "VectorToMatrix": lambda ev, n, a: a[0].to_matrix(a[1], a[2]),
+    "VectorFromArray": lambda ev, n, a: a[0].to_vector(),
+    "VectorMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=child_type(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].map(_cb(ev, a[1])),
+    "VectorFold": lambda ev, n, a: a[0].reduce(_cb(ev, a[2]), a[1]),
+    "MatrixRows": lambda ev, n, a: a[0].rows(),
+    "MatrixCols": lambda ev, n, a: a[0].cols(),
+    "MatrixGet": lambda ev, n, a: a[0].get(a[1], a[2]),
+    "MatrixSet": lambda ev, n, a: a[0].set(a[1], a[2], a[3]),
+    "MatrixGetRow": lambda ev, n, a: a[0].get_row(a[1]),
+    "MatrixGetCol": lambda ev, n, a: a[0].get_col(a[1]),
+    "MatrixTranspose": lambda ev, n, a: a[0].transpose(),
+    "MatrixToVector": lambda ev, n, a: a[0].to_vector(),
+    "MatrixToArray": lambda ev, n, a: a[0].to_array(),
+    "MatrixToRows": lambda ev, n, a: a[0].to_rows(),
+    "MatrixMapRows": lambda ev, n, a: a[0].map_rows(_cb(ev, a[1]), out=child_type(_out(n)))
+    if not isinstance(a[0], Expression) else a[0].map_rows(_cb(ev, a[1])),
     "VectorScale": lambda ev, n, a: a[0].scale(a[1]),
     "VectorSum": lambda ev, n, a: a[0].sum(),
     "VectorAddScaled": lambda ev, n, a: a[0].add_scaled(a[1], a[2]),
     "VectorMul": lambda ev, n, a: a[0].mul(a[1]),
     "VectorAddScalar": lambda ev, n, a: a[0].add_scalar(a[1]),
     "VectorDot": lambda ev, n, a: a[0].dot(a[1]),
-    "VectorMax": lambda ev, n, a: a[0].maximum(),
-    "VectorMin": lambda ev, n, a: a[0].minimum(),
+    "VectorMax": lambda ev, n, a: a[0].max(),
+    "VectorMin": lambda ev, n, a: a[0].min(),
     "VectorArgMax": lambda ev, n, a: a[0].arg_max(),
     "VectorArgMin": lambda ev, n, a: a[0].arg_min(),
     "VectorMean": lambda ev, n, a: a[0].mean(),
@@ -1145,30 +1165,21 @@ _ROWS: dict[str, Any] = {
     "MatrixRowSums": lambda ev, n, a: a[0].row_sums(),
     "MatrixColSums": lambda ev, n, a: a[0].col_sums(),
     "MatrixVecMul": lambda ev, n, a: a[0].vec_mul(a[1]),
+    # Blob — the TS names
+    "BlobSize": lambda ev, n, a: a[0].size(),
+    "BlobGetUint8": lambda ev, n, a: a[0].get_uint8(a[1]),
+    "BlobDecodeUtf8": lambda ev, n, a: a[0].decode_utf8(),
+    "BlobDecodeUtf16": lambda ev, n, a: a[0].decode_utf16(),
+    "BlobDecodeBeast": lambda ev, n, a: a[0].decode_beast(ev.canon(n.value["type_parameters"][0])),
+    "BlobDecodeBeast2": lambda ev, n, a: a[0].decode_beast(ev.canon(n.value["type_parameters"][0]), "v2"),
+    "BlobDecodeCsv": lambda ev, n, a: a[0].decode_csv(ev.canon(n.value["type_parameters"][0]), a[1]),
+    "BlobEncodeBeast": lambda ev, n, a: East.Blob.encode_beast(a[0], typ=ev.canon(n.value["type_parameters"][0])),
+    "BlobEncodeBeast2": lambda ev, n, a: East.Blob.encode_beast(a[0], "v2", typ=ev.canon(n.value["type_parameters"][0])),
 }
 
 
 def _unsup(reason: str) -> Any:
     raise _Unsupported(reason)
-
-
-def _default_of(ev: EagerEvaluator, a: Any) -> Any:
-    """A get_or_default default: the builtin takes a (key)->default function;
-    the user surface takes the VALUE. Constant-fn bodies evaluate directly."""
-    if not isinstance(a, Closure):
-        return a
-    p = a.payload
-    env = Env(a.env)
-    for var in p["parameters"]:
-        env.define(var.value["name"], _Poison())
-    return ev.eval(p["body"], env)
-
-
-class _Poison:
-    """Trips if a supposedly-constant default function reads its parameter."""
-
-    def __getattr__(self, name: str) -> Any:
-        raise _Unsupported("non-constant default function")
 
 
 class _MissingArg:
@@ -1183,89 +1194,49 @@ class _MissingArg:
 
 
 def _kv_user(ev: EagerEvaluator, a: Any, keep: int) -> Any:
-    """Adapt a single-value user callback: keep only the first ``keep`` args."""
+    """Adapt a single-value user callback: keep only the first ``keep`` args.
+    The python surface hands every body the block first; the compiled
+    callback takes none."""
     if not isinstance(a, Closure):
         return a
     cb = ev.make_callback(a)
-    return lambda *args: cb(*args[:keep])
+    return lambda _b, *args: cb(*args[:keep])
 
 
 def _arity_trim(ev: EagerEvaluator, a: Any) -> Any:
-    """Call the closure with only as many arguments as it declares."""
+    """A body calling the closure with only as many arguments as it declares
+    (the block the surface passes first is dropped — a compiled callback
+    takes none)."""
     if not isinstance(a, Closure):
-        return lambda *_args: a
+        return lambda _b, *_args: a
     n = len(a.payload["parameters"])
     cb = ev.make_callback(a)
-    return lambda *args: cb(*args[:n])
-
-
-def _dict_kv(ev: EagerEvaluator, a: Any) -> Any:
-    """Builtin callbacks over dict entries are (value, key); the python
-    methods call user functions as (key, value). The reordering wrapper
-    cannot ride natively itself — the compiled callable's ``_east_retrace``
-    lets the method's own tracing push it down; when that cannot fire the
-    call is per-element by construction, so it is not a path violation."""
-    if not isinstance(a, Closure):
-        return a
-    cb = ev.make_callback(a)
-    a.native = False
-
-    def swapped(k, v):
-        return cb(v, k)
-
-    # A deliberate python adapter over a native callable (declared non-native
-    # above) — the push-down's loud contract skips it.
-    swapped._east_trace_fallback = True
-    return swapped
-
-
-def _acc_kv(ev: EagerEvaluator, a: Any) -> Any:
-    """DictReduce: builtin (acc, value, key) → user fn(acc, key, value)."""
-    if not isinstance(a, Closure):
-        return a
-    cb = ev.make_callback(a)
-    a.native = False
-
-    def swapped(acc, k, v):
-        return cb(acc, v, k)
-
-    # A deliberate python adapter over a native callable (declared non-native
-    # above) — the push-down's loud contract skips it.
-    swapped._east_trace_fallback = True
-    return swapped
-
-
-def _acc_kv3(ev: EagerEvaluator, a: Any) -> Any:
-    """DictGroupFold fold: builtin (acc, value, key) → user fn(acc, key, value)."""
-    return _acc_kv(ev, a)
+    return lambda _b, *args: cb(*args[:n])
 
 
 def _two_arg_combine(ev: EagerEvaluator, a: Any) -> Any:
-    """(v1, v2, key) builtin combine → the user surface's (v1, v2) combine."""
+    """(v1, v2, key) builtin combine → the user surface's (b, v1, v2) combine."""
     if not isinstance(a, Closure):
         return a
     cb = ev.make_callback(a)
-    return lambda v1, v2: cb(v1, v2, None) if _combine_arity(a) == 3 else cb(v1, v2)
+    return lambda _b, v1, v2: cb(v1, v2, None) if _combine_arity(a) == 3 else cb(v1, v2)
 
 
 def _combine_arity(a: Closure) -> int:
     return len(a.payload["parameters"])
 
 
-# ─── scalar rows derived from the East namespaces ────────────────────────────
-# Each namespace method is a thin 1:1 mirror of one builtin; the builtin name
-# is a string constant in its code object, so the user surface itself supplies
-# the mapping — no hand-written scalar table to drift.
+# ─── scalar rows derived from the shared spelling table ─────────────────────
+# The builtin → python spelling table lives in east.codegen.spellings (the
+# IR→python printer's table, #627); the replay's scalar rows are derived from
+# it, so the spelling the printer writes and the spelling the replay executes
+# are one table. tests/test_codegen_spellings.py pins the hand rows above
+# against the same table.
 
-_NAMESPACES = (East, East.Boolean, East.Integer, East.Float, East.String, East.DateTime)
 
-
-def _scalar_row(fn: Any) -> Any:
+def _scalar_row(fn: Any, n_params: int) -> Any:
     """A row calling a namespace method: generic methods take the builtin's
     type parameter(s) as their leading python argument(s); the arity decides."""
-    import inspect
-
-    n_params = len(inspect.signature(fn).parameters)
 
     def row(ev: EagerEvaluator, n: EastVariant, a: list) -> Any:
         tps = [ev.canon(t) for t in n.value["type_parameters"]]
@@ -1280,37 +1251,11 @@ def _scalar_row(fn: Any) -> Any:
     return row
 
 
-def _known_builtin_hints() -> set[str]:
-    """Builtin-name string constants appearing in the namespace methods —
-    the user surface itself supplies the mapping candidates; the exactly-one
-    filter below removes docstring-style collisions."""
-    import inspect
-    import re
-
-    pat = re.compile(r"^[A-Z][A-Za-z0-9]+$")
-    hints: set[str] = set()
-    for space in _NAMESPACES:
-        for _m, fn in inspect.getmembers(space, callable):
-            for c in getattr(getattr(fn, "__code__", None), "co_consts", ()):
-                if isinstance(c, str) and pat.match(c):
-                    hints.add(c)
-    return hints
-
-
 def _namespace_rows() -> dict[str, Any]:
-    import inspect
+    from east.codegen.spellings import namespace_spellings
 
-    hints = _known_builtin_hints()
-    rows: dict[str, Any] = {}
-    for space in _NAMESPACES:
-        for mname, fn in inspect.getmembers(space, callable):
-            if mname.startswith("_"):  # private helpers are not the surface
-                continue
-            consts = getattr(getattr(fn, "__code__", None), "co_consts", ())
-            names = [c for c in consts if isinstance(c, str) and c in hints]
-            if len(names) == 1 and names[0] not in rows:
-                rows[names[0]] = _scalar_row(fn)
-    return rows
+    return {name: _scalar_row(fn, arity)
+            for name, (_prefix, fn, arity) in namespace_spellings().items()}
 
 
 for _name, _row in _namespace_rows().items():

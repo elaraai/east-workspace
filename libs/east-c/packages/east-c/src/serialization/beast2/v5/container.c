@@ -364,7 +364,8 @@ void b2v5_write_source_map_section(EastSourceMap *sm, ByteBuffer *buf)
 bool b2v5_read_source_map_section(const uint8_t *data, size_t len, size_t *offset,
                                   EastSourceMap *sm_out)
 {
-    memset(sm_out, 0, sizeof(*sm_out));
+    /* sm_out is a fresh map (no stacks yet); only its contents are touched,
+     * never its reference count. */
     uint64_t payload_len;
     if (!read_varint_checked(data, len, offset, &payload_len)) return false;
     if (payload_len > len - *offset) return false;
@@ -399,9 +400,21 @@ bool b2v5_read_header(const uint8_t *data, size_t len, B2V5Header *h)
     size_t offset = 8;
     h->root_type = b2v5_read_type_section(data, len, &offset);
     if (!h->root_type) return false;
-    if (!b2v5_read_source_map_section(data, len, &offset, &h->sm)) {
+    /* The header map lives on the heap with one reference (the header's):
+     * every closure decoded against it takes its own, so the map survives the
+     * decode call that read it — a decoded function value must still resolve
+     * its loc_ids (and re-encode its map) after the header is disposed. */
+    h->sm = east_source_map_new();
+    if (!h->sm) {
         east_type_release(h->root_type);
         h->root_type = NULL;
+        return false;
+    }
+    if (!b2v5_read_source_map_section(data, len, &offset, h->sm)) {
+        east_type_release(h->root_type);
+        h->root_type = NULL;
+        east_source_map_release(h->sm);
+        h->sm = NULL;
         east_builtin_error("beast2 v5: malformed source map section");
         return false;
     }
@@ -413,7 +426,8 @@ void b2v5_header_dispose(B2V5Header *h)
 {
     if (h->root_type) east_type_release(h->root_type);
     h->root_type = NULL;
-    beast2_source_map_free(&h->sm);
+    east_source_map_release(h->sm);
+    h->sm = NULL;
 }
 
 /* ================================================================== */
@@ -507,8 +521,23 @@ void b2v5_index_free(B2V5Index *ix)
 /*  Whole-value encode                                                 */
 /* ================================================================== */
 
+static ByteBuffer *encode_v5(EastValue *value, EastType *type, int32_t codec_id, bool with_index,
+                             EastSourceMap *header_override, bool use_override);
+
 ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t codec_id,
                                   bool with_index)
+{
+    return encode_v5(value, type, codec_id, with_index, NULL, false);
+}
+
+ByteBuffer *east_beast2_encode_ir(EastValue *ir_value, EastSourceMap *source_map)
+{
+    if (!east_ir_type) east_type_of_type_init();
+    return encode_v5(ir_value, east_ir_type, EAST_BEAST2_CODEC_DEFLATE, false, source_map, true);
+}
+
+static ByteBuffer *encode_v5(EastValue *value, EastType *type, int32_t codec_id, bool with_index,
+                             EastSourceMap *header_override, bool use_override)
 {
     if (!value || !type) return NULL;
     if (codec_id != EAST_BEAST2_CODEC_NONE && codec_id != EAST_BEAST2_CODEC_DEFLATE) {
@@ -523,8 +552,10 @@ ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t code
     /* Header source map: only a root function value carries one up front;
      * maps on nested functions travel as inline deltas. */
     EastSourceMap *header_sm = NULL;
-    if ((type->kind == EAST_TYPE_FUNCTION || type->kind == EAST_TYPE_ASYNC_FUNCTION) &&
-        value->kind == EAST_VAL_FUNCTION && value->data.function.compiled) {
+    if (use_override) {
+        header_sm = header_override;
+    } else if ((type->kind == EAST_TYPE_FUNCTION || type->kind == EAST_TYPE_ASYNC_FUNCTION) &&
+               value->kind == EAST_VAL_FUNCTION && value->data.function.compiled) {
         header_sm = value->data.function.compiled->source_map;
     }
 
@@ -639,7 +670,7 @@ static EastValue *b2v5_decode_stream(const uint8_t *data, size_t len, B2V5Header
                                      EastType *decode_type, bool frozen)
 {
     B2V5DecodeCtx ctx;
-    b2v5_dec_ctx_init(&ctx, &h->sm);
+    b2v5_dec_ctx_init(&ctx, h->sm);
     ctx.frozen = frozen;
     B2V5Frames frames;
     b2v5_frames_init(&frames, data, len, h->frame_offset);
@@ -823,15 +854,11 @@ IRNode *east_beast2_v5_decode_ir(const uint8_t *data, size_t len, EastValue **ir
         east_value_release(ir_value);
     }
 
-    /* Hand ownership of the (header + inline deltas) source map to the caller
-     * if requested — same contract as the v4 path. */
-    if (source_map_out && h.sm.num_stacks > 0) {
-        EastSourceMap *heap_sm = calloc(1, sizeof(EastSourceMap));
-        if (heap_sm) {
-            *heap_sm = h.sm;
-            memset(&h.sm, 0, sizeof(h.sm));
-            *source_map_out = heap_sm;
-        }
+    /* Hand the caller a reference to the (header + inline deltas) source map
+     * if requested and the blob carried any stacks — same contract as v4. */
+    if (source_map_out && h.sm && h.sm->num_stacks > 0) {
+        east_source_map_retain(h.sm);
+        *source_map_out = h.sm;
     }
     b2v5_header_dispose(&h);
     return ir;
