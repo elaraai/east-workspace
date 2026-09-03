@@ -14,10 +14,10 @@ LP/MIP is designed for continuous and mixed optimization problems where:
 - Problems include resource allocation, blending, transportation, planning
 """
 
-import importlib.util
 import time
 from typing import Any
 
+from east import none, some, variant
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
@@ -32,7 +32,7 @@ from east.types.types import (
 )
 from east.types.values import EastDict, EastStruct, EastVariant
 
-from east_py_datascience.google_or.types import GoogleOrStatusType, _get_option
+from east_py_datascience.google_or.types import GoogleOrStatusType, _check_google_or_support
 
 # ============================================================================
 # Type Definitions
@@ -174,20 +174,6 @@ Fields: ``status`` (``GoogleOrStatusType``), ``objective_value``
 """
 
 
-
-# Lazy import guard for optional dependency
-_HAS_GOOGLE_OR_SUPPORT = importlib.util.find_spec("ortools") is not None
-
-
-def _check_google_or_support() -> None:
-    """Check if google_or support is available."""
-    if not _HAS_GOOGLE_OR_SUPPORT:
-        raise NotImplementedError(
-            "Google_Or support requires the 'google-or' extra. "
-            "Add east-py-datascience[google-or] to your pyproject.toml dependencies."
-        )
-
-
 # ============================================================================
 # Platform Function Implementations
 # ============================================================================
@@ -287,7 +273,7 @@ def linear_solve_impl(
     has_integers = any(bool(v.get("is_integer")) for v in variables_data)
 
     # Select solver
-    solver_opt = _get_option(config.get("solver"), None)
+    solver_opt = config["solver"].unwrap_or(None)
     solver_id = _detect_solver_id(solver_opt, has_integers)
     solver = pywraplp.Solver.CreateSolver(solver_id)
 
@@ -295,8 +281,8 @@ def linear_solve_impl(
         wall_time = time.perf_counter() - start_time
         return EastStruct(
             {
-                "status": EastVariant("model_invalid", None),
-                "objective_value": EastVariant("none", None),
+                "status": variant("model_invalid", None, GoogleOrStatusType),
+                "objective_value": none,
                 "assignments": EastDict(StringType, FloatType),
                 "wall_time": wall_time,
             }
@@ -339,7 +325,7 @@ def linear_solve_impl(
         objective.SetMinimization()
 
     # Time limit
-    max_time = _get_option(config.get("max_time_seconds"), None)
+    max_time = config["max_time_seconds"].unwrap_or(None)
     if max_time is not None:
         solver.SetTimeLimit(int(float(max_time) * 1000))
 
@@ -347,7 +333,7 @@ def linear_solve_impl(
     # equivalent to Solve() with none set; the pure-LP Glop backend ignores the
     # gap (no branch-and-bound), so this is a no-op for LP.
     params = pywraplp.MPSolverParameters()
-    rel_gap = _get_option(config.get("relative_gap_limit"), None)
+    rel_gap = config["relative_gap_limit"].unwrap_or(None)
     if rel_gap is not None:
         params.SetDoubleParam(params.RELATIVE_MIP_GAP, float(rel_gap))
 
@@ -355,7 +341,7 @@ def linear_solve_impl(
     # Unknown names are skipped - in a receding-horizon loop the previous
     # solution may name variables that dropped out of this epoch's model.
     # Duplicate names collapse to the last entry.
-    hints = _get_option(config.get("hints"), None)
+    hints = config["hints"].unwrap_or(None)
     if hints is not None:
         hint_by_name: dict[str, float] = {}
         for h in hints:
@@ -385,18 +371,14 @@ def linear_solve_impl(
         pywraplp.Solver.NOT_SOLVED: "not_solved",
     }
     status_tag = status_map.get(result_status, "not_solved")
-    status = EastVariant(status_tag, None)
+    status = variant(status_tag, None, GoogleOrStatusType)
 
+    assignments: EastDict = EastDict(StringType, FloatType)
+    obj_value: EastVariant = none
     if result_status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
-        assignments = EastDict(StringType, FloatType)
         for name, var in vars_by_name.items():
             assignments[name] = float(var.solution_value())
-        obj_value: EastVariant = EastVariant(
-            "some", float(objective.Value())
-        )
-    else:
-        assignments = EastDict(StringType, FloatType)
-        obj_value = EastVariant("none", None)
+        obj_value = some(float(objective.Value()))
 
     return EastStruct(
         {

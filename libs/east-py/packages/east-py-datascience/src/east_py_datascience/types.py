@@ -8,7 +8,6 @@ Provides common East type definitions used across data science modules
 including vectors, matrices, and scalar function types.
 """
 
-from typing import Any
 
 from east.types.types import (
     ArrayType,
@@ -25,7 +24,6 @@ from east.types.types import (
     VariantType,
     VectorType,
 )
-from east.types.values import EastVariant, is_east_variant
 
 # ============================================================================
 # Core Data Types
@@ -2472,27 +2470,6 @@ Shapley values - no background data required), ``interventional``
 feature absence - recommended when features are correlated).
 """
 
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
-
-def _get_option(opt: EastVariant | None, default: Any) -> Any:
-    """Extract value from Option variant, returning default if None."""
-    if opt is None:
-        return default
-    if is_east_variant(opt) and opt.type == "some":
-        return opt.value
-    return default
-
-
-def _get_enum_tag(variant: EastVariant) -> str:
-    """Get tag name from enum-like variant."""
-    if is_east_variant(variant):
-        return variant.type
-    raise ValueError(f"Expected EastVariant, got {type(variant)}")
-
-
 __all__ = [
     # Core Types
     "StringVectorType",
@@ -2612,7 +2589,4 @@ __all__ = [
     "TreeModelBlobType",
     "AnyModelBlobType",
     "ModelBlobType",
-    # Helpers
-    "_get_option",
-    "_get_enum_tag",
 ]

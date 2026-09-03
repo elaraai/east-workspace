@@ -14,9 +14,9 @@ Supports:
 - VRP with Pickup and Delivery (VRPPD) — paired pickup/delivery stops
 """
 
-import importlib.util
 import time
 
+from east import variant
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
@@ -29,7 +29,7 @@ from east.types.types import (
 )
 from east.types.values import EastArray, EastStruct, EastVariant
 
-from east_py_datascience.google_or.types import GoogleOrStatusType, _get_option
+from east_py_datascience.google_or.types import GoogleOrStatusType, _check_google_or_support
 
 # ============================================================================
 # Type Definitions
@@ -164,19 +164,6 @@ Fields: ``status`` (``GoogleOrStatusType``), ``total_distance``
 (``Float`` seconds).
 """
 
-
-
-# Lazy import guard for optional dependency
-_HAS_GOOGLE_OR_SUPPORT = importlib.util.find_spec("ortools") is not None
-
-
-def _check_google_or_support() -> None:
-    """Check if google_or support is available."""
-    if not _HAS_GOOGLE_OR_SUPPORT:
-        raise NotImplementedError(
-            "Google_Or support requires the 'google-or' extra. "
-            "Add east-py-datascience[google-or] to your pyproject.toml dependencies."
-        )
 
 
 # ============================================================================
@@ -315,8 +302,8 @@ def routing_solve_impl(
     routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
 
     # Capacity constraints
-    demands = _get_option(model_data.get("demands"), None)
-    capacities = _get_option(model_data.get("vehicle_capacities"), None)
+    demands = model_data["demands"].unwrap_or(None)
+    capacities = model_data["vehicle_capacities"].unwrap_or(None)
     if demands is not None and capacities is not None:
         demands_list = [int(d) for d in demands]
         capacities_list = [int(c) for c in capacities]
@@ -337,8 +324,8 @@ def routing_solve_impl(
         )
 
     # Time windows
-    time_matrix_data = _get_option(model_data.get("time_matrix"), None)
-    time_windows = _get_option(model_data.get("time_windows"), None)
+    time_matrix_data = model_data["time_matrix"].unwrap_or(None)
+    time_windows = model_data["time_windows"].unwrap_or(None)
     if time_matrix_data is not None and time_windows is not None:
         time_matrix: list[list[int]] = []
         for row in time_matrix_data:
@@ -374,7 +361,7 @@ def routing_solve_impl(
             )
 
     # Pickup and delivery
-    pickup_deliveries = _get_option(model_data.get("pickup_deliveries"), None)
+    pickup_deliveries = model_data["pickup_deliveries"].unwrap_or(None)
     if pickup_deliveries is not None:
         for pd in pickup_deliveries:
             pickup_index = manager.NodeToIndex(int(pd.get("pickup")))
@@ -388,17 +375,17 @@ def routing_solve_impl(
     # Search parameters
     search_params = pywrapcp.DefaultRoutingSearchParameters()
 
-    first_solution = _get_option(config.get("first_solution"), None)
+    first_solution = config["first_solution"].unwrap_or(None)
     search_params.first_solution_strategy = _get_first_solution_strategy(
         first_solution
     )
 
-    metaheuristic = _get_option(config.get("metaheuristic"), None)
+    metaheuristic = config["metaheuristic"].unwrap_or(None)
     meta_value = _get_metaheuristic(metaheuristic)
     if meta_value is not None:
         search_params.local_search_metaheuristic = meta_value
 
-    max_time = _get_option(config.get("max_time_seconds"), None)
+    max_time = config["max_time_seconds"].unwrap_or(None)
     if max_time is not None:
         search_params.time_limit.FromSeconds(int(max_time))
 
@@ -409,7 +396,7 @@ def routing_solve_impl(
     if solution is None:
         return EastStruct(
             {
-                "status": EastVariant("not_solved", None),
+                "status": variant("not_solved", None, GoogleOrStatusType),
                 "total_distance": 0,
                 "routes": EastArray(RoutingRouteType, []),
                 "wall_time": wall_time,
@@ -451,19 +438,19 @@ def routing_solve_impl(
     # Determine status
     status_code = routing.status()
     if status_code == routing_enums_pb2.RoutingSearchStatus.ROUTING_SUCCESS:
-        status = EastVariant("feasible", None)
+        status = variant("feasible", None, GoogleOrStatusType)
     elif (
         status_code
         == routing_enums_pb2.RoutingSearchStatus.ROUTING_OPTIMAL
     ):
-        status = EastVariant("optimal", None)
+        status = variant("optimal", None, GoogleOrStatusType)
     elif (
         status_code
         == routing_enums_pb2.RoutingSearchStatus.ROUTING_INFEASIBLE
     ):
-        status = EastVariant("infeasible", None)
+        status = variant("infeasible", None, GoogleOrStatusType)
     else:
-        status = EastVariant("not_solved", None)
+        status = variant("not_solved", None, GoogleOrStatusType)
 
     return EastStruct(
         {

@@ -14,11 +14,10 @@ CP-SAT is designed for discrete optimization problems where:
 - Optimality proofs are desired (exact solver)
 """
 
-import contextlib
-import importlib.util
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from east import none, some, variant
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
@@ -34,7 +33,10 @@ from east.types.types import (
 )
 from east.types.values import EastArray, EastDict, EastStruct, EastVariant
 
-from east_py_datascience.google_or.types import GoogleOrStatusType, _get_option
+from east_py_datascience.google_or.types import GoogleOrStatusType, _check_google_or_support
+
+if TYPE_CHECKING:
+    from ortools.sat.python.cp_model import CpSolverStatus
 
 # ============================================================================
 # Type Definitions
@@ -387,20 +389,6 @@ Fields: ``status`` (``GoogleOrStatusType``), ``objective_value``
 """
 
 
-
-# Lazy import guard for optional dependency
-_HAS_GOOGLE_OR_SUPPORT = importlib.util.find_spec("ortools") is not None
-
-
-def _check_google_or_support() -> None:
-    """Check if google_or support is available."""
-    if not _HAS_GOOGLE_OR_SUPPORT:
-        raise NotImplementedError(
-            "Google_Or support requires the 'google-or' extra. "
-            "Add east-py-datascience[google-or] to your pyproject.toml dependencies."
-        )
-
-
 # ============================================================================
 # Platform Function Implementations
 # ============================================================================
@@ -520,29 +508,28 @@ def _add_constraint(
         model.AddCircuit(arcs)
 
 
-def _map_status(status_code: int) -> EastVariant:
-    """Map OR-Tools status code to GoogleOrStatus variant."""
+def _status_tag(status_code: "CpSolverStatus") -> str:
+    """The ``GoogleOrStatusType`` case for an OR-Tools solver status code."""
     from ortools.sat.python import cp_model
 
-    status_map = {
+    status_map: dict[CpSolverStatus, str] = {
         cp_model.OPTIMAL: "optimal",
         cp_model.FEASIBLE: "feasible",
         cp_model.INFEASIBLE: "infeasible",
         cp_model.MODEL_INVALID: "model_invalid",
         cp_model.UNKNOWN: "not_solved",
     }
-    tag = status_map.get(status_code, "not_solved")
-    return EastVariant(tag, None)
+    return status_map.get(status_code, "not_solved")
 
 
 def _build_model_and_solve(
     model_data: EastStruct,
     config: EastStruct,
     solution_callback: Any = None,
-) -> tuple[Any, Any, float]:
+) -> tuple[Any, dict[str, Any], "CpSolverStatus", float]:
     """Build a CP-SAT model from declarative data and solve it.
 
-    Returns (solver, status_code, wall_time).
+    Returns (solver, vars_by_name, status_code, wall_time).
     """
     from ortools.sat.python import cp_model
 
@@ -567,7 +554,7 @@ def _build_model_and_solve(
         start = vars_by_name[v.get("start")]
         size = vars_by_name[v.get("size")]
         end = vars_by_name[v.get("end")]
-        is_present = _get_option(v.get("is_present"), None)
+        is_present = v["is_present"].unwrap_or(None)
         if is_present is not None:
             present_var = vars_by_name[is_present]
             vars_by_name[name] = model.new_optional_interval_var(
@@ -581,21 +568,21 @@ def _build_model_and_solve(
         _add_constraint(model, vars_by_name, c)
 
     # Set objective
-    objective_opt = _get_option(model_data.get("objective"), None)
+    objective_opt = model_data["objective"].unwrap_or(None)
     if objective_opt is not None:
         obj_tag = objective_opt.type
         obj_expr = _build_linear_expr(vars_by_name, objective_opt.value)
         if obj_tag == "minimize":
-            model.Minimize(obj_expr)
+            model.minimize(obj_expr)
         else:
-            model.Maximize(obj_expr)
+            model.maximize(obj_expr)
 
     # Partial solution hint (advisory: seeds the search, never the optimum).
     # Unknown names are skipped - a previous solve's assignments may name
     # variables that dropped out of this model - as are interval variables
     # (not hintable; only their underlying int/bool vars are). Duplicate
     # names collapse to the last entry so the hint proto stays valid.
-    hints = _get_option(config.get("hints"), None)
+    hints = config["hints"].unwrap_or(None)
     if hints is not None:
         hint_by_name: dict[str, int] = {}
         for h in hints:
@@ -608,27 +595,27 @@ def _build_model_and_solve(
 
     # Configure solver
     solver = cp_model.CpSolver()
-    max_time = _get_option(config.get("max_time_seconds"), None)
+    max_time = config["max_time_seconds"].unwrap_or(None)
     if max_time is not None:
         solver.parameters.max_time_in_seconds = float(max_time)
 
-    num_workers = _get_option(config.get("num_workers"), None)
+    num_workers = config["num_workers"].unwrap_or(None)
     if num_workers is not None:
         solver.parameters.num_workers = int(num_workers)
 
-    log_progress = _get_option(config.get("log_search_progress"), None)
+    log_progress = config["log_search_progress"].unwrap_or(None)
     if log_progress is not None:
         solver.parameters.log_search_progress = bool(log_progress)
 
-    seed = _get_option(config.get("seed"), None)
+    seed = config["seed"].unwrap_or(None)
     if seed is not None:
         solver.parameters.random_seed = int(seed)
 
-    rel_gap = _get_option(config.get("relative_gap_limit"), None)
+    rel_gap = config["relative_gap_limit"].unwrap_or(None)
     if rel_gap is not None:
         solver.parameters.relative_gap_limit = float(rel_gap)
 
-    abs_gap = _get_option(config.get("absolute_gap_limit"), None)
+    abs_gap = config["absolute_gap_limit"].unwrap_or(None)
     if abs_gap is not None:
         solver.parameters.absolute_gap_limit = float(abs_gap)
 
@@ -645,14 +632,13 @@ def _build_model_and_solve(
     return solver, vars_by_name, status_code, wall_time
 
 
-def _extract_assignments(
-    solver: Any, vars_by_name: dict[str, Any]
-) -> EastDict:
-    """Extract variable assignments from a solved model."""
-    assignments = EastDict(StringType, IntegerType)
+def _extract_assignments(solver: Any, vars_by_name: dict[str, Any]) -> EastDict:
+    """Extract variable assignments from a solved model (interval vars have no value)."""
+    from ortools.sat.python import cp_model
+
+    assignments: EastDict = EastDict(StringType, IntegerType)
     for name, var in vars_by_name.items():
-        # Skip interval variables (they don't have direct values)
-        with contextlib.suppress(AttributeError, TypeError):
+        if not isinstance(var, cp_model.IntervalVar):
             assignments[name] = int(solver.value(var))
     return assignments
 
@@ -732,21 +718,15 @@ def cpsat_solve_impl(
         model_data, config
     )
 
-    # Extract results
-    status = _map_status(status_code)
-
+    assignments: EastDict = EastDict(StringType, IntegerType)
+    obj_value: EastVariant = none
     if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         assignments = _extract_assignments(solver, vars_by_name)
-        obj_value: EastVariant = EastVariant(
-            "some", float(solver.objective_value)
-        )
-    else:
-        assignments = EastDict(StringType, IntegerType)
-        obj_value = EastVariant("none", None)
+        obj_value = some(float(solver.objective_value))
 
     return EastStruct(
         {
-            "status": status,
+            "status": variant(_status_tag(status_code), None, GoogleOrStatusType),
             "objective_value": obj_value,
             "assignments": assignments,
             "wall_time": wall_time,
@@ -789,7 +769,7 @@ def cpsat_solve_all_impl(
     _check_google_or_support()
     from ortools.sat.python import cp_model
 
-    max_solutions = int(_get_option(config.get("max_solutions"), 100))
+    max_solutions = int(config["max_solutions"].unwrap_or(100))
 
     # Collect solutions via callback
     solutions: list[EastStruct] = []
@@ -808,20 +788,16 @@ def cpsat_solve_all_impl(
                 self.StopSearch()
                 return
 
-            assignments = EastDict(StringType, IntegerType)
+            assignments: EastDict = EastDict(StringType, IntegerType)
             for name, var in self._vars_by_name.items():
-                with contextlib.suppress(AttributeError, TypeError):
-                    assignments[name] = int(self.Value(var))
-
-            obj_value: EastVariant = EastVariant(
-                "some", float(self.ObjectiveValue())
-            )
+                if not isinstance(var, cp_model.IntervalVar):
+                    assignments[name] = int(self.value(var))
 
             solutions.append(
                 EastStruct(
                     {
-                        "status": EastVariant("feasible", None),
-                        "objective_value": obj_value,
+                        "status": variant("feasible", None, GoogleOrStatusType),
+                        "objective_value": some(float(self.objective_value)),
                         "assignments": assignments,
                         "wall_time": 0.0,
                     }
@@ -837,16 +813,12 @@ def cpsat_solve_all_impl(
     # Re-solve with callback if we haven't collected solutions yet
     if not solutions and status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         # Fallback: return the single solution from the solver
-        assignments = _extract_assignments(solver, vars_by_name)
-        obj_value_single: EastVariant = EastVariant(
-            "some", float(solver.objective_value)
-        )
         solutions.append(
             EastStruct(
                 {
-                    "status": _map_status(status_code),
-                    "objective_value": obj_value_single,
-                    "assignments": assignments,
+                    "status": variant(_status_tag(status_code), None, GoogleOrStatusType),
+                    "objective_value": some(float(solver.objective_value)),
+                    "assignments": _extract_assignments(solver, vars_by_name),
                     "wall_time": wall_time,
                 }
             )

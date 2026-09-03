@@ -8,61 +8,37 @@ Provides Gaussian Process regression using scikit-learn.
 Uses cloudpickle for model serialization.
 """
 
-import warnings
-
-# Suppress sklearn convergence warnings - these are expected for small test datasets
-warnings.filterwarnings("ignore", module="sklearn")
-
-import importlib.util  # noqa: E402
-
-import numpy as np  # noqa: E402
-from east.runtime.platform import platform_function, platform_functions  # noqa: E402
-from east.types.types import FloatType, MatrixType, VectorType  # noqa: E402
-from east.types.values import (  # noqa: E402
-    EastBlob,
+import numpy as np
+from east.runtime.platform import platform_function, platform_functions
+from east.types.types import FloatType, MatrixType, VectorType
+from east.types.values import (
     EastMatrix,
     EastStruct,
     EastVariant,
     EastVector,
 )
 
-from east_py_datascience.types import (  # noqa: E402
+from east_py_datascience._common import (
+    deserialize,
+    expect_case,
+    extra_guard,
+    option_tag,
+    quiet_warnings,
+    serialize,
+)
+from east_py_datascience.types import (
     GPConfigType,
     GPModelBlobType,
     GPPredictResultType,
-    _get_enum_tag,
-    _get_option,
 )
 
 # ============================================================================
-# Serialization Helpers
+# Helpers
 # ============================================================================
 
 
-def _serialize_model(model) -> EastBlob:
-    """Serialize GP model using cloudpickle."""
-    import cloudpickle
-
-    try:
-        return EastBlob(cloudpickle.dumps(model))
-    except Exception as e:
-        raise RuntimeError(f"_serialize_model: Failed to serialize model - {e}") from e
-
-
-def _deserialize_model(blob: EastBlob):
-    """Deserialize GP model using cloudpickle."""
-    import cloudpickle
-
-    try:
-        return cloudpickle.loads(bytes(blob))
-    except Exception as e:
-        raise RuntimeError(
-            f"_deserialize_model: Failed to deserialize model - {e}"
-        ) from e
-
-
 def _get_kernel(kernel_type: str):
-    """Get sklearn kernel object from kernel type name."""
+    """The sklearn kernel (a constant times the base kernel) for a ``GPKernelType`` case."""
     from sklearn.gaussian_process.kernels import (
         RBF,
         ConstantKernel,
@@ -71,33 +47,18 @@ def _get_kernel(kernel_type: str):
         RationalQuadratic,
     )
 
-    try:
-        kernel_map = {
-            "rbf": ConstantKernel() * RBF(),
-            "matern_1_2": ConstantKernel() * Matern(nu=0.5),
-            "matern_3_2": ConstantKernel() * Matern(nu=1.5),
-            "matern_5_2": ConstantKernel() * Matern(nu=2.5),
-            "rational_quadratic": ConstantKernel() * RationalQuadratic(),
-            "dot_product": ConstantKernel() * DotProduct(),
-        }
-
-        return kernel_map.get(kernel_type, ConstantKernel() * RBF())
-    except Exception as e:
-        raise RuntimeError(f"_get_kernel: Failed to create kernel - {e}") from e
+    kernel_map = {
+        "rbf": ConstantKernel() * RBF(),
+        "matern_1_2": ConstantKernel() * Matern(nu=0.5),
+        "matern_3_2": ConstantKernel() * Matern(nu=1.5),
+        "matern_5_2": ConstantKernel() * Matern(nu=2.5),
+        "rational_quadratic": ConstantKernel() * RationalQuadratic(),
+        "dot_product": ConstantKernel() * DotProduct(),
+    }
+    return kernel_map.get(kernel_type, ConstantKernel() * RBF())
 
 
-
-# Lazy import guard for optional dependency
-_HAS_GP_SUPPORT = importlib.util.find_spec("sklearn") is not None
-
-
-def _check_gp_support() -> None:
-    """Check if gp support is available."""
-    if not _HAS_GP_SUPPORT:
-        raise NotImplementedError(
-            "Gp support requires the 'gp' extra. "
-            "Add east-py-datascience[gp] to your pyproject.toml dependencies."
-        )
+_check_gp_support = extra_guard("sklearn", "gp", "Gaussian process")
 
 
 # ============================================================================
@@ -157,11 +118,8 @@ def gp_train_impl(
     from sklearn.gaussian_process import GaussianProcessRegressor
 
     # Data conversion
-    try:
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"gp_train: Invalid input data - {e}") from e
+    X_np = X.to_numpy()
+    y_np = y.to_numpy()
 
     # Shape validation
     if X_np.shape[0] != y_np.shape[0]:
@@ -173,28 +131,19 @@ def gp_train_impl(
     n_features = X_np.shape[1]
 
     # Extract config
-    kernel_variant = _get_option(config.get("kernel"), None)
-    kernel_type = _get_enum_tag(kernel_variant) if kernel_variant else "rbf"
+    kernel_type = option_tag(config["kernel"], "rbf")
     kernel = _get_kernel(kernel_type)
-
-    alpha = _get_option(config.get("alpha"), 1e-10)
-    alpha = float(alpha) if alpha is not None else 1e-10
-
-    n_restarts = _get_option(config.get("n_restarts_optimizer"), 0)
-    n_restarts = int(n_restarts) if n_restarts is not None else 0
-
-    normalize_y = _get_option(config.get("normalize_y"), False)
-    normalize_y = bool(normalize_y) if normalize_y is not None else False
-
-    random_state = _get_option(config.get("random_state"), None)
+    alpha = float(config["alpha"].unwrap_or(1e-10))
+    n_restarts = int(config["n_restarts_optimizer"].unwrap_or(0))
+    normalize_y = bool(config["normalize_y"].unwrap_or(False))
+    random_state = config["random_state"].unwrap_or(None)
     if random_state is not None:
         random_state = int(random_state)
 
     # Create and train GP
     try:
         # Suppress sklearn GP warnings during training
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             gp = GaussianProcessRegressor(
                 kernel=kernel,
                 alpha=alpha,
@@ -213,7 +162,7 @@ def gp_train_impl(
         "gp_regressor",
         EastStruct(
             {
-                "data": _serialize_model(gp),
+                "data": serialize(gp),
                 "n_features": n_features,
                 "kernel_type": kernel_type,
             }
@@ -248,23 +197,18 @@ def gp_predict_impl(
     """
     _check_gp_support()
     # Model type check
-    if model_blob.type != "gp_regressor":
-        raise RuntimeError(f"gp_predict: Expected gp_regressor, got {model_blob.type}")
+    payload = expect_case(model_blob, "gp_regressor", "gp_predict")
 
     # Deserialize model
-    gp = _deserialize_model(model_blob.value["data"])
+    gp = deserialize(payload["data"])
 
     # Data conversion
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"gp_predict: Invalid input data - {e}") from e
+    X_np = X.to_numpy()
 
     # Make predictions
     try:
         # Suppress warnings during prediction
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             predictions = gp.predict(X_np, return_std=False)
     except Exception as e:
         raise RuntimeError(
@@ -305,25 +249,18 @@ def gp_predict_std_impl(
     """
     _check_gp_support()
     # Model type check
-    if model_blob.type != "gp_regressor":
-        raise RuntimeError(
-            f"gp_predict_std: Expected gp_regressor, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "gp_regressor", "gp_predict_std")
 
     # Deserialize model
-    gp = _deserialize_model(model_blob.value["data"])
+    gp = deserialize(payload["data"])
 
     # Data conversion
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"gp_predict_std: Invalid input data - {e}") from e
+    X_np = X.to_numpy()
 
     # Make predictions
     try:
         # Suppress warnings during prediction
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             mean, std = gp.predict(X_np, return_std=True)
     except Exception as e:
         raise RuntimeError(

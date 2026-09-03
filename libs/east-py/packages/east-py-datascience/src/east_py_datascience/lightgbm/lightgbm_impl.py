@@ -8,59 +8,25 @@ Provides fast gradient boosting for regression and classification.
 Uses cloudpickle for model serialization.
 """
 
-import importlib.util
-import warnings
 
 import numpy as np
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, IntegerType, MatrixType, VectorType
-from east.types.values import EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
+from east.types.values import EastMatrix, EastStruct, EastVariant, EastVector
 
+from east_py_datascience._common import (
+    deserialize,
+    expect_case,
+    extra_guard,
+    quiet_warnings,
+    serialize,
+)
 from east_py_datascience.types import (
     LightGBMConfigType,
     LightGBMModelBlobType,
-    _get_option,
 )
 
-# ============================================================================
-# Serialization Helpers
-# ============================================================================
-
-
-def _serialize_model(model) -> EastBlob:
-    """Serialize model using cloudpickle."""
-    import cloudpickle
-
-    try:
-        return EastBlob(cloudpickle.dumps(model))
-    except Exception as e:
-        raise RuntimeError(f"_serialize_model: Failed to serialize model - {e}") from e
-
-
-def _deserialize_model(blob: EastBlob):
-    """Deserialize model using cloudpickle."""
-    import cloudpickle
-
-    try:
-        return cloudpickle.loads(bytes(blob))
-    except Exception as e:
-        raise RuntimeError(
-            f"_deserialize_model: Failed to deserialize model - {e}"
-        ) from e
-
-
-
-# Lazy import guard for optional dependency
-_HAS_LIGHTGBM_SUPPORT = importlib.util.find_spec("lightgbm") is not None
-
-
-def _check_lightgbm_support() -> None:
-    """Check if lightgbm support is available."""
-    if not _HAS_LIGHTGBM_SUPPORT:
-        raise NotImplementedError(
-            "Lightgbm support requires the 'lightgbm' extra. "
-            "Add east-py-datascience[lightgbm] to your pyproject.toml dependencies."
-        )
+_check_lightgbm_support = extra_guard("lightgbm", "lightgbm", "LightGBM")
 
 
 # ============================================================================
@@ -123,11 +89,8 @@ def lightgbm_train_regressor_impl(
     _check_lightgbm_support()
     import lightgbm as lgb
 
-    try:
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"lightgbm_train_regressor: Invalid input data - {e}") from e
+    X_np = X.to_numpy()
+    y_np = y.to_numpy()
 
     if X_np.shape[0] != y_np.shape[0]:
         raise RuntimeError(
@@ -137,30 +100,27 @@ def lightgbm_train_regressor_impl(
 
     n_features = X_np.shape[1]
 
-    random_state = _get_option(config.get("random_state"), None)
+    random_state = config["random_state"].unwrap_or(None)
     if random_state is not None:
         random_state = int(random_state)
 
-    n_jobs = _get_option(config.get("n_jobs"), -1)
-    if n_jobs is not None:
-        n_jobs = int(n_jobs)
+    n_jobs = int(config["n_jobs"].unwrap_or(-1))
 
     try:
         # Suppress LightGBM warnings during training
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             model = lgb.LGBMRegressor(
-                n_estimators=int(_get_option(config.get("n_estimators"), 100)),
-                max_depth=int(_get_option(config.get("max_depth"), -1)),
-                learning_rate=float(_get_option(config.get("learning_rate"), 0.1)),
-                num_leaves=int(_get_option(config.get("num_leaves"), 31)),
-                min_child_samples=int(_get_option(config.get("min_child_samples"), 20)),
-                subsample=float(_get_option(config.get("subsample"), 1.0)),
+                n_estimators=int(config["n_estimators"].unwrap_or(100)),
+                max_depth=int(config["max_depth"].unwrap_or(-1)),
+                learning_rate=float(config["learning_rate"].unwrap_or(0.1)),
+                num_leaves=int(config["num_leaves"].unwrap_or(31)),
+                min_child_samples=int(config["min_child_samples"].unwrap_or(20)),
+                subsample=float(config["subsample"].unwrap_or(1.0)),
                 colsample_bytree=float(
-                    _get_option(config.get("colsample_bytree"), 1.0)
+                    config["colsample_bytree"].unwrap_or(1.0)
                 ),
-                reg_alpha=float(_get_option(config.get("reg_alpha"), 0.0)),
-                reg_lambda=float(_get_option(config.get("reg_lambda"), 0.0)),
+                reg_alpha=float(config["reg_alpha"].unwrap_or(0.0)),
+                reg_lambda=float(config["reg_lambda"].unwrap_or(0.0)),
                 random_state=random_state,
                 n_jobs=n_jobs,
                 verbose=-1,
@@ -171,7 +131,7 @@ def lightgbm_train_regressor_impl(
             f"lightgbm_train_regressor: Training failed with X shape {X_np.shape} - {e}"
         ) from e
 
-    model_data = _serialize_model(model)
+    model_data = serialize(model)
 
     return EastVariant(
         "lightgbm_regressor",
@@ -216,13 +176,8 @@ def lightgbm_train_classifier_impl(
     _check_lightgbm_support()
     import lightgbm as lgb
 
-    try:
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"lightgbm_train_classifier: Invalid input data - {e}"
-        ) from e
+    X_np = X.to_numpy()
+    y_np = y.to_numpy()
 
     if X_np.shape[0] != y_np.shape[0]:
         raise RuntimeError(
@@ -233,30 +188,27 @@ def lightgbm_train_classifier_impl(
     n_features = X_np.shape[1]
     n_classes = len(np.unique(y_np))
 
-    random_state = _get_option(config.get("random_state"), None)
+    random_state = config["random_state"].unwrap_or(None)
     if random_state is not None:
         random_state = int(random_state)
 
-    n_jobs = _get_option(config.get("n_jobs"), -1)
-    if n_jobs is not None:
-        n_jobs = int(n_jobs)
+    n_jobs = int(config["n_jobs"].unwrap_or(-1))
 
     try:
         # Suppress LightGBM warnings during training
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             model = lgb.LGBMClassifier(
-                n_estimators=int(_get_option(config.get("n_estimators"), 100)),
-                max_depth=int(_get_option(config.get("max_depth"), -1)),
-                learning_rate=float(_get_option(config.get("learning_rate"), 0.1)),
-                num_leaves=int(_get_option(config.get("num_leaves"), 31)),
-                min_child_samples=int(_get_option(config.get("min_child_samples"), 20)),
-                subsample=float(_get_option(config.get("subsample"), 1.0)),
+                n_estimators=int(config["n_estimators"].unwrap_or(100)),
+                max_depth=int(config["max_depth"].unwrap_or(-1)),
+                learning_rate=float(config["learning_rate"].unwrap_or(0.1)),
+                num_leaves=int(config["num_leaves"].unwrap_or(31)),
+                min_child_samples=int(config["min_child_samples"].unwrap_or(20)),
+                subsample=float(config["subsample"].unwrap_or(1.0)),
                 colsample_bytree=float(
-                    _get_option(config.get("colsample_bytree"), 1.0)
+                    config["colsample_bytree"].unwrap_or(1.0)
                 ),
-                reg_alpha=float(_get_option(config.get("reg_alpha"), 0.0)),
-                reg_lambda=float(_get_option(config.get("reg_lambda"), 0.0)),
+                reg_alpha=float(config["reg_alpha"].unwrap_or(0.0)),
+                reg_lambda=float(config["reg_lambda"].unwrap_or(0.0)),
                 random_state=random_state,
                 n_jobs=n_jobs,
                 verbose=-1,
@@ -267,7 +219,7 @@ def lightgbm_train_classifier_impl(
             f"lightgbm_train_classifier: Training failed with X shape {X_np.shape} - {e}"
         ) from e
 
-    model_data = _serialize_model(model)
+    model_data = serialize(model)
 
     return EastVariant(
         "lightgbm_classifier",
@@ -308,22 +260,15 @@ def lightgbm_predict_impl(
             failure.
     """
     _check_lightgbm_support()
-    if model_blob.type != "lightgbm_regressor":
-        raise RuntimeError(
-            f"lightgbm_predict: Expected lightgbm_regressor, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "lightgbm_regressor", "lightgbm_predict")
 
-    model = _deserialize_model(model_blob.value["data"])
+    model = deserialize(payload["data"])
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"lightgbm_predict: Invalid input data - {e}") from e
+    X_np = X.to_numpy()
 
     try:
         # Suppress sklearn warnings during prediction
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             y_pred = model.predict(X_np)
     except Exception as e:
         raise RuntimeError(
@@ -361,22 +306,15 @@ def lightgbm_predict_class_impl(
             failure.
     """
     _check_lightgbm_support()
-    if model_blob.type != "lightgbm_classifier":
-        raise RuntimeError(
-            f"lightgbm_predict_class: Expected lightgbm_classifier, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "lightgbm_classifier", "lightgbm_predict_class")
 
-    model = _deserialize_model(model_blob.value["data"])
+    model = deserialize(payload["data"])
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"lightgbm_predict_class: Invalid input data - {e}") from e
+    X_np = X.to_numpy()
 
     try:
         # Suppress sklearn warnings during prediction
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             y_pred = model.predict(X_np)
     except Exception as e:
         raise RuntimeError(
@@ -414,22 +352,15 @@ def lightgbm_predict_proba_impl(
             failure.
     """
     _check_lightgbm_support()
-    if model_blob.type != "lightgbm_classifier":
-        raise RuntimeError(
-            f"lightgbm_predict_proba: Expected lightgbm_classifier, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "lightgbm_classifier", "lightgbm_predict_proba")
 
-    model = _deserialize_model(model_blob.value["data"])
+    model = deserialize(payload["data"])
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"lightgbm_predict_proba: Invalid input data - {e}") from e
+    X_np = X.to_numpy()
 
     try:
         # Suppress sklearn warnings during prediction
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             proba = model.predict_proba(X_np)
     except Exception as e:
         raise RuntimeError(

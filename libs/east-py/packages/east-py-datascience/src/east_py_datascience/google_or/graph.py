@@ -15,9 +15,9 @@ Includes:
   task capacity and an optional per-worker unassigned penalty
 """
 
-import importlib.util
 import time
 
+from east import variant
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
@@ -26,9 +26,9 @@ from east.types.types import (
     OptionType,
     StructType,
 )
-from east.types.values import EastArray, EastStruct, EastVariant
+from east.types.values import EastArray, EastStruct
 
-from east_py_datascience.google_or.types import GoogleOrStatusType, _get_option
+from east_py_datascience.google_or.types import GoogleOrStatusType, _check_google_or_support
 
 # ============================================================================
 # Type Definitions
@@ -191,19 +191,6 @@ omitted; empty when not solved), ``wall_time`` (``Float`` seconds).
 """
 
 
-# Lazy import guard for optional dependency
-_HAS_GOOGLE_OR_SUPPORT = importlib.util.find_spec("ortools") is not None
-
-
-def _check_google_or_support() -> None:
-    """Check if google_or support is available."""
-    if not _HAS_GOOGLE_OR_SUPPORT:
-        raise NotImplementedError(
-            "Google_Or support requires the 'google-or' extra. "
-            "Add east-py-datascience[google-or] to your pyproject.toml dependencies."
-        )
-
-
 # ============================================================================
 # Platform Function Implementations
 # ============================================================================
@@ -270,27 +257,16 @@ def min_cost_flow_impl(
     status_code = smcf.solve()
     wall_time = time.perf_counter() - start_time
 
-    if status_code == smcf.OPTIMAL:
-        flows = EastArray(
+    if status_code in (smcf.OPTIMAL, smcf.FEASIBLE):
+        flows: EastArray = EastArray(
             IntegerType,
             [int(smcf.flow(i)) for i in range(smcf.num_arcs())],
         )
         return EastStruct(
             {
-                "status": EastVariant("optimal", None),
-                "total_cost": int(smcf.optimal_cost()),
-                "flows": flows,
-                "wall_time": wall_time,
-            }
-        )
-    elif status_code == smcf.FEASIBLE:
-        flows = EastArray(
-            IntegerType,
-            [int(smcf.flow(i)) for i in range(smcf.num_arcs())],
-        )
-        return EastStruct(
-            {
-                "status": EastVariant("feasible", None),
+                "status": variant(
+                    "optimal" if status_code == smcf.OPTIMAL else "feasible", None, GoogleOrStatusType
+                ),
                 "total_cost": int(smcf.optimal_cost()),
                 "flows": flows,
                 "wall_time": wall_time,
@@ -299,7 +275,7 @@ def min_cost_flow_impl(
     elif status_code == smcf.INFEASIBLE:
         return EastStruct(
             {
-                "status": EastVariant("infeasible", None),
+                "status": variant("infeasible", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "flows": EastArray(IntegerType, []),
                 "wall_time": wall_time,
@@ -308,7 +284,7 @@ def min_cost_flow_impl(
     else:
         return EastStruct(
             {
-                "status": EastVariant("not_solved", None),
+                "status": variant("not_solved", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "flows": EastArray(IntegerType, []),
                 "wall_time": wall_time,
@@ -369,13 +345,13 @@ def max_flow_impl(
     wall_time = time.perf_counter() - start_time
 
     if status_code == smf.OPTIMAL:
-        flows = EastArray(
+        flows: EastArray = EastArray(
             IntegerType,
             [int(smf.flow(i)) for i in range(smf.num_arcs())],
         )
         return EastStruct(
             {
-                "status": EastVariant("optimal", None),
+                "status": variant("optimal", None, GoogleOrStatusType),
                 "total_flow": int(smf.optimal_flow()),
                 "flows": flows,
                 "wall_time": wall_time,
@@ -384,7 +360,7 @@ def max_flow_impl(
     else:
         return EastStruct(
             {
-                "status": EastVariant("not_solved", None),
+                "status": variant("not_solved", None, GoogleOrStatusType),
                 "total_flow": 0,
                 "flows": EastArray(IntegerType, []),
                 "wall_time": wall_time,
@@ -437,7 +413,7 @@ def assignment_impl(
         wall_time = time.perf_counter() - start_time
         return EastStruct(
             {
-                "status": EastVariant("optimal", None),
+                "status": variant("optimal", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
                 "wall_time": wall_time,
@@ -473,7 +449,7 @@ def assignment_impl(
 
         return EastStruct(
             {
-                "status": EastVariant("optimal", None),
+                "status": variant("optimal", None, GoogleOrStatusType),
                 "total_cost": int(total_cost),
                 "assignments": EastArray(AssignmentMatchType, matches),
                 "wall_time": wall_time,
@@ -482,7 +458,7 @@ def assignment_impl(
     elif status_code == assignment.INFEASIBLE:
         return EastStruct(
             {
-                "status": EastVariant("infeasible", None),
+                "status": variant("infeasible", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
                 "wall_time": wall_time,
@@ -491,7 +467,7 @@ def assignment_impl(
     else:
         return EastStruct(
             {
-                "status": EastVariant("not_solved", None),
+                "status": variant("not_solved", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
                 "wall_time": wall_time,
@@ -572,9 +548,9 @@ def min_cost_assignment_impl(
             "non-negative 0-based indices."
         )
 
-    penalty_option = _get_option(input_data.get("unassigned_penalty"), None)
+    penalty_option = input_data["unassigned_penalty"].unwrap_or(None)
     penalties = None if penalty_option is None else [int(p) for p in penalty_option]
-    capacity_option = _get_option(input_data.get("task_capacity"), None)
+    capacity_option = input_data["task_capacity"].unwrap_or(None)
     capacities = None if capacity_option is None else [int(c) for c in capacity_option]
 
     # A worker with no legal arc still occupies a slot in the network, so the
@@ -609,7 +585,7 @@ def min_cost_assignment_impl(
         wall_time = time.perf_counter() - start_time
         return EastStruct(
             {
-                "status": EastVariant("optimal", None),
+                "status": variant("optimal", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
                 "wall_time": wall_time,
@@ -651,7 +627,7 @@ def min_cost_assignment_impl(
     wall_time = time.perf_counter() - start_time
 
     if status_code in (smcf.OPTIMAL, smcf.FEASIBLE):
-        matches = [
+        matches: list[EastStruct] = [
             EastStruct(
                 {
                     "worker": arc_workers[i],
@@ -664,8 +640,8 @@ def min_cost_assignment_impl(
         ]
         return EastStruct(
             {
-                "status": EastVariant(
-                    "optimal" if status_code == smcf.OPTIMAL else "feasible", None
+                "status": variant(
+                    "optimal" if status_code == smcf.OPTIMAL else "feasible", None, GoogleOrStatusType
                 ),
                 "total_cost": int(smcf.optimal_cost()),
                 "assignments": EastArray(AssignmentMatchType, matches),
@@ -675,7 +651,7 @@ def min_cost_assignment_impl(
     elif status_code == smcf.INFEASIBLE:
         return EastStruct(
             {
-                "status": EastVariant("infeasible", None),
+                "status": variant("infeasible", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
                 "wall_time": wall_time,
@@ -684,7 +660,7 @@ def min_cost_assignment_impl(
     else:
         return EastStruct(
             {
-                "status": EastVariant("not_solved", None),
+                "status": variant("not_solved", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
                 "wall_time": wall_time,

@@ -8,74 +8,35 @@ Provides probabilistic predictions with natural gradient boosting.
 Uses cloudpickle for model serialization.
 """
 
-import importlib.util
-import warnings
 
 import numpy as np
+from east import some, variant
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, MatrixType, VectorType
 from east.types.values import (
-    EastBlob,
     EastMatrix,
     EastStruct,
     EastVariant,
     EastVector,
-    east_null,
 )
 
+from east_py_datascience._common import (
+    deserialize,
+    expect_case,
+    extra_guard,
+    option_tag,
+    quiet_warnings,
+    serialize,
+)
 from east_py_datascience.types import (
     NGBoostConfigType,
+    NGBoostDistributionType,
     NGBoostModelBlobType,
     NGBoostPredictConfigType,
     NGBoostPredictResultType,
-    _get_enum_tag,
-    _get_option,
 )
 
-# ============================================================================
-# Serialization Helpers
-# ============================================================================
-
-
-def _serialize_model(model) -> EastBlob:
-    """Serialize model using cloudpickle."""
-    import cloudpickle
-
-    try:
-        return EastBlob(cloudpickle.dumps(model))
-    except Exception as e:
-        raise RuntimeError(f"_serialize_model: Failed to serialize model - {e}") from e
-
-
-def _deserialize_model(blob: EastBlob):
-    """Deserialize model using cloudpickle."""
-    import cloudpickle
-
-    try:
-        return cloudpickle.loads(bytes(blob))
-    except Exception as e:
-        raise RuntimeError(
-            f"_deserialize_model: Failed to deserialize model - {e}"
-        ) from e
-
-
-def _make_distribution_variant(dist_name: str) -> EastVariant:
-    """Create distribution enum variant."""
-    return EastVariant(dist_name, east_null)
-
-
-
-# Lazy import guard for optional dependency
-_HAS_NGBOOST_SUPPORT = importlib.util.find_spec("ngboost") is not None
-
-
-def _check_ngboost_support() -> None:
-    """Check if ngboost support is available."""
-    if not _HAS_NGBOOST_SUPPORT:
-        raise NotImplementedError(
-            "Ngboost support requires the 'ngboost' extra. "
-            "Add east-py-datascience[ngboost] to your pyproject.toml dependencies."
-        )
+_check_ngboost_support = extra_guard("ngboost", "ngboost", "NGBoost")
 
 
 # ============================================================================
@@ -133,11 +94,8 @@ def ngboost_train_regressor_impl(
     from ngboost import NGBRegressor
     from ngboost.distns import LogNormal, Normal
 
-    try:
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"ngboost_train_regressor: Invalid input data - {e}") from e
+    X_np = X.to_numpy()
+    y_np = y.to_numpy()
 
     if X_np.shape[0] != y_np.shape[0]:
         raise RuntimeError(
@@ -148,25 +106,21 @@ def ngboost_train_regressor_impl(
     n_features = X_np.shape[1]
 
     try:
-        # Get distribution type
-        dist_opt = _get_option(config.get("distribution"), None)
-        dist_name = _get_enum_tag(dist_opt) if dist_opt is not None else "normal"
-
+        dist_name = option_tag(config["distribution"], "normal")
         dist_class = Normal if dist_name == "normal" else LogNormal
 
-        random_state = _get_option(config.get("random_state"), None)
+        random_state = config["random_state"].unwrap_or(None)
         if random_state is not None:
             random_state = int(random_state)
 
         # Suppress NGBoost warnings during training
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             model = NGBRegressor(
                 Dist=dist_class,
-                n_estimators=int(_get_option(config.get("n_estimators"), 500)),
-                learning_rate=float(_get_option(config.get("learning_rate"), 0.01)),
-                minibatch_frac=float(_get_option(config.get("minibatch_frac"), 1.0)),
-                col_sample=float(_get_option(config.get("col_sample"), 1.0)),
+                n_estimators=int(config["n_estimators"].unwrap_or(500)),
+                learning_rate=float(config["learning_rate"].unwrap_or(0.01)),
+                minibatch_frac=float(config["minibatch_frac"].unwrap_or(1.0)),
+                col_sample=float(config["col_sample"].unwrap_or(1.0)),
                 random_state=random_state,
                 verbose=False,
             )
@@ -176,14 +130,14 @@ def ngboost_train_regressor_impl(
             f"ngboost_train_regressor: Training failed with X shape {X_np.shape} - {e}"
         ) from e
 
-    model_data = _serialize_model(model)
+    model_data = serialize(model)
 
     return EastVariant(
         "ngboost_regressor",
         EastStruct(
             {
                 "data": model_data,
-                "distribution": _make_distribution_variant(dist_name),
+                "distribution": variant(dist_name, None, NGBoostDistributionType),
                 "n_features": n_features,
             }
         ),
@@ -217,21 +171,14 @@ def ngboost_predict_impl(
             failure.
     """
     _check_ngboost_support()
-    if model_blob.type != "ngboost_regressor":
-        raise RuntimeError(
-            f"ngboost_predict: Expected ngboost_regressor, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "ngboost_regressor", "ngboost_predict")
+
+    X_np = X.to_numpy()
 
     try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"ngboost_predict: Invalid input data - {e}") from e
-
-    try:
-        model = _deserialize_model(model_blob.value["data"])
+        model = deserialize(payload["data"])
         # Suppress warnings during prediction
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             y_pred = model.predict(X_np)
         return EastVector(FloatType, y_pred.ravel().astype(np.float64))
     except Exception as e:
@@ -283,23 +230,16 @@ def ngboost_predict_dist_impl(
             failure.
     """
     _check_ngboost_support()
-    if model_blob.type != "ngboost_regressor":
-        raise RuntimeError(
-            f"ngboost_predict_dist: Expected ngboost_regressor, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "ngboost_regressor", "ngboost_predict_dist")
+
+    X_np = X.to_numpy()
 
     try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"ngboost_predict_dist: Invalid input data - {e}") from e
-
-    try:
-        model = _deserialize_model(model_blob.value["data"])
+        model = deserialize(payload["data"])
 
         # Get distribution predictions
         # Suppress warnings during prediction
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             dist_pred = model.pred_dist(X_np)
 
         # Extract mean and std
@@ -310,7 +250,7 @@ def ngboost_predict_dist_impl(
         # Compute confidence intervals
         from scipy import stats
 
-        confidence = float(_get_option(config.get("confidence_level"), 0.95))
+        confidence = float(config["confidence_level"].unwrap_or(0.95))
         alpha = 1 - confidence
         z = stats.norm.ppf(1 - alpha / 2)
 
@@ -320,9 +260,9 @@ def ngboost_predict_dist_impl(
         return EastStruct(
             {
                 "predictions": EastVector(FloatType, loc.ravel().astype(np.float64)),
-                "std": EastVariant("some", EastVector(FloatType, scale.ravel().astype(np.float64))),
-                "lower": EastVariant("some", EastVector(FloatType, lower.ravel().astype(np.float64))),
-                "upper": EastVariant("some", EastVector(FloatType, upper.ravel().astype(np.float64))),
+                "std": some(EastVector(FloatType, scale.ravel().astype(np.float64))),
+                "lower": some(EastVector(FloatType, lower.ravel().astype(np.float64))),
+                "upper": some(EastVector(FloatType, upper.ravel().astype(np.float64))),
             }
         )
     except Exception as e:

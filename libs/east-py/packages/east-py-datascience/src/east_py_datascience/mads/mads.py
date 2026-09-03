@@ -14,7 +14,6 @@ MADS is designed for difficult optimization problems where:
 - Functions may fail for some feasible points
 """
 
-import importlib.util
 from collections.abc import Callable
 from typing import Any
 
@@ -30,8 +29,9 @@ from east.types.types import (
     VariantType,
     VectorType,
 )
-from east.types.values import EastStruct, EastVariant, EastVector, is_east_variant
+from east.types.values import EastStruct, EastVariant, EastVector
 
+from east_py_datascience._common import extra_guard
 from east_py_datascience.types import ScalarObjectiveType
 
 # ============================================================================
@@ -126,20 +126,6 @@ Fields: ``x_best`` (``Vector<Float>`` best feasible point found),
 # ============================================================================
 
 
-def _get_option(opt: EastVariant | None, default: Any) -> Any:
-    """Extract value from Option variant, returning default if None.
-
-    Note: The runtime creates EastVariant instances, not EastOption instances,
-    even for Option types. So we check the tag directly rather than using
-    is_east_option().
-    """
-    if opt is None:
-        return default
-    if is_east_variant(opt) and opt.type == "some":
-        return opt.value
-    return default
-
-
 def _get_direction_name(direction: EastVariant) -> str:
     """Get NOMAD direction type string from variant."""
     direction_map = {
@@ -151,18 +137,7 @@ def _get_direction_name(direction: EastVariant) -> str:
     return direction_map.get(direction.type, "ORTHO 2N")
 
 
-
-# Lazy import guard for optional dependency
-_HAS_MADS_SUPPORT = importlib.util.find_spec("PyNomad") is not None
-
-
-def _check_mads_support() -> None:
-    """Check if mads support is available."""
-    if not _HAS_MADS_SUPPORT:
-        raise NotImplementedError(
-            "Mads support requires the 'mads' extra. "
-            "Add east-py-datascience[mads] to your pyproject.toml dependencies."
-        )
+_check_mads_support = extra_guard("PyNomad", "mads", "MADS")
 
 
 # ============================================================================
@@ -185,7 +160,7 @@ def mads_optimize_impl(
     objective_fn: Callable[[EastVector], float],
     x0: EastVector,
     bounds: EastStruct,
-    constraints: EastVariant | None,
+    constraints: EastVariant,
     config: EastStruct,
 ) -> EastStruct:
     """Run MADS single-objective derivative-free optimization via PyNomadBBO.
@@ -240,6 +215,8 @@ def mads_optimize_impl(
 
     Raises:
         NotImplementedError: the ``mads`` extra (PyNomadBBO) is not installed.
+        Exception: whatever the objective or a constraint raised during an
+            evaluation, re-raised once NOMAD returns.
     """
     _check_mads_support()
     import numpy as np
@@ -251,34 +228,30 @@ def mads_optimize_impl(
     ub_list = bounds["upper"].to_numpy().tolist()
     dim = len(x0_list)
 
-    # Extract constraints if provided
-    constraint_list: list[EastVariant] = []
-    if is_east_variant(constraints) and constraints.type == "some":
-        constraint_list = list(constraints.value)
+    constraint_list: list[EastVariant] = list(constraints.unwrap_or([]))
 
-    # Build blackbox function for PyNomad
+    # NOMAD's blackbox protocol cannot carry an exception out of an
+    # evaluation: a failure inside the East objective is recorded here (and
+    # reported to NOMAD as an evaluation failure) and re-raised once
+    # ``optimize`` returns, rather than being mistaken for an infeasible point.
+    failure: list[BaseException] = []
+
     def bb(x: Any) -> int:
+        if failure:
+            return 0
         try:
-            # Extract coordinates into East vector
             x_vec = EastVector(
                 FloatType,
                 np.array([x.get_coord(i) for i in range(x.size())], dtype=np.float64),
             )
-
-            # Evaluate objective
-            f = objective_fn(x_vec)
-            outputs = [str(f)]
-
-            # Evaluate each constraint (variant value is the function)
+            outputs = [str(objective_fn(x_vec))]
+            # Each constraint variant's payload is the constraint function
             for constraint in constraint_list:
-                c_fn = constraint.value  # The function is the variant value
-                c_val = c_fn(x_vec)
-                outputs.append(str(c_val))
-
-            raw_bbo = " ".join(outputs)
-            x.setBBO(raw_bbo.encode("UTF-8"))
+                outputs.append(str(constraint.value(x_vec)))
+            x.setBBO(" ".join(outputs).encode("UTF-8"))
             return 1
-        except Exception:
+        except Exception as e:
+            failure.append(e)
             return 0
 
     # Build output type string: OBJ followed by constraint types
@@ -291,32 +264,34 @@ def mads_optimize_impl(
     params = [
         f"DIMENSION {dim}",
         f"BB_OUTPUT_TYPE {' '.join(output_types)}",
-        f"MAX_BB_EVAL {_get_option(config.get('max_bb_eval'), 100)}",
-        f"DISPLAY_DEGREE {_get_option(config.get('display_degree'), 0)}",
+        f"MAX_BB_EVAL {config['max_bb_eval'].unwrap_or(100)}",
+        f"DISPLAY_DEGREE {config['display_degree'].unwrap_or(0)}",
     ]
 
     # Optional direction type
-    direction = _get_option(config.get("direction_type"), None)
+    direction = config["direction_type"].unwrap_or(None)
     if direction is not None:
         params.append(f"DIRECTION_TYPE {_get_direction_name(direction)}")
 
     # Optional mesh sizes
-    mesh_size = _get_option(config.get("initial_mesh_size"), None)
+    mesh_size = config["initial_mesh_size"].unwrap_or(None)
     if mesh_size is not None:
         params.append(f"INITIAL_MESH_SIZE {mesh_size}")
 
-    min_mesh = _get_option(config.get("min_mesh_size"), None)
+    min_mesh = config["min_mesh_size"].unwrap_or(None)
     if min_mesh is not None:
         params.append(f"MIN_MESH_SIZE {min_mesh}")
 
     # Optional seed
-    seed = _get_option(config.get("seed"), None)
+    seed = config["seed"].unwrap_or(None)
     if seed is not None:
         params.append(f"SEED {seed}")
 
     # Run optimization
     # Returns dict with: x_best, f_best, h_best, nb_evals, nb_iters, run_flag, stop_reason
     result = PyNomad.optimize(bb, x0_list, lb_list, ub_list, params)
+    if failure:
+        raise failure[0]
 
     x_best = result.get("x_best", x0_list)
     f_best = result.get("f_best", float("inf"))
@@ -328,9 +303,7 @@ def mads_optimize_impl(
 
     return EastStruct(
         {
-            "x_best": EastVector(
-                FloatType, np.array([float(v) for v in x_best], dtype=np.float64)
-            ),
+            "x_best": EastVector(FloatType, np.asarray(x_best, dtype=np.float64)),
             "f_best": float(f_best),
             "bb_eval": int(nb_evals),
             "success": success,
