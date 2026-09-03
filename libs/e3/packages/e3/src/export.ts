@@ -22,6 +22,7 @@ import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, 
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
 import { captureEnvironment, captureAutoEnvironment, type CaptureEvent } from './environment-capture.js';
+import { importedPackages, resolveFunctionManifests, type ImportReference, type ResolveEvent } from './functions-resolve.js';
 import type { EnvironmentDecl } from './environment.js';
 
 /**
@@ -42,23 +43,27 @@ import type { EnvironmentDecl } from './environment.js';
  * ```
  */
 /**
- * One export progress event (#311). `capture` events surface the per-member
- * environment-artifact builds (`uv build --sdist` / `npm pack`) that dominate
- * multi-package export time.
+ * One export progress event (#311, #652). `capture` events surface the
+ * per-member environment-artifact builds (`uv build --sdist` / `npm pack`)
+ * that dominate multi-package export time; `functions` events, each
+ * imported workspace package whose manifest the export produced itself.
  */
-export type ExportEvent = { kind: 'capture' } & CaptureEvent;
+export type ExportEvent = ({ kind: 'capture' } & CaptureEvent) | ({ kind: 'functions' } & ResolveEvent);
 
-/** Export options (#311, #628). */
+/** Export options (#311, #628, #652). */
 export interface ExportOptions {
-  /** Progress callback — receives one event per captured environment member. */
+  /** Progress callback — receives one event per captured environment member and per resolved import package. */
   onEvent?: (event: ExportEvent) => void;
   /**
-   * Function manifests (#628) — paths to files written by `east-py
-   * export-functions` / `east-node export-functions`, or decoded values —
-   * resolving every `East.importFunction` in the package's tasks, functions
-   * and mutations. Each import is checked for exact type equality and
-   * embedded as pure IR; its platform dependencies must be provided by the
-   * consuming task's runner (see `runnerProvides`).
+   * Function manifests (#628) built elsewhere — paths to files written by
+   * `east-py export-functions` / `east-node export-functions`, or decoded
+   * values — for packages that are not members of this workspace (a
+   * published package, another repo). A package this workspace holds needs
+   * none: every `East.importFunction` naming a member of the governing uv
+   * workspace is exported from that member itself at export time (#652). An
+   * explicit manifest wins for its package. Each import is checked for
+   * exact type equality and embedded as pure IR; its platform dependencies
+   * must be provided by the consuming task's runner (see `runnerProvides`).
    */
   functions?: Array<string | FunctionManifest>;
 }
@@ -70,21 +75,6 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     : (e: CaptureEvent) => options.onEvent!({ kind: 'capture', ...e });
   const partialPath = `${outputPath}.partial`;
 
-  // Cross-language imports (#628): every East.importFunction in a task's,
-  // function's or mutation's IR resolves against the given manifests and
-  // embeds as pure IR — the deployed program needs no exporting language
-  // at run time. The owner's runner must provide what the embedded
-  // function's platform calls need.
-  const manifests: FunctionManifest[] = (options?.functions ?? []).map((m) =>
-    typeof m === 'string' ? decodeFunctionManifest(new Uint8Array(fs.readFileSync(m))) : m);
-  const link = <B extends EastIR<any, any> | AsyncEastIR<any, any>>(bundle: B, owner: string, runner: Runner | undefined): B => {
-    const { ir, imports } = linkImports(bundle, manifests);
-    if (imports.length === 0) return bundle;
-    checkImportPlatforms(imports, runner, owner);
-    const linked = (bundle instanceof EastIR ? new EastIR<any, any>(ir as any) : new AsyncEastIR<any, any>(ir as any)) as B;
-    linked.source_map = bundle.source_map;
-    return linked;
-  };
   // The task a function_ir dataset belongs to (e3.task lists it first among
   // the task's inputs), so the dataset's IR links against that task's runner.
   const taskOfFunctionIR = new Map<PackageItem, { name: string; runner: Runner | undefined }>();
@@ -95,6 +85,45 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       }
     }
   }
+
+  // Cross-language imports (#628): every East.importFunction in a task's,
+  // function's or mutation's IR resolves against a manifest and embeds as
+  // pure IR — the deployed program needs no exporting language at run
+  // time. The manifests are the ones given, plus one produced here for
+  // every imported package that is a member of this uv workspace (#652):
+  // the reference names the package, and that is all the author writes.
+  // The owner's runner must provide what the embedded function's platform
+  // calls need.
+  const explicit: FunctionManifest[] = (options?.functions ?? []).map((m) =>
+    typeof m === 'string' ? decodeFunctionManifest(new Uint8Array(fs.readFileSync(m))) : m);
+  const references: ImportReference[] = [];
+  const refer = (bundle: EastIR<any, any> | AsyncEastIR<any, any>, owner: string, runner: Runner | undefined): void => {
+    for (const name of importedPackages(bundle.ir)) references.push({ package: name, owner, runner });
+  };
+  for (const item of pkg.contents) {
+    if (item.kind === 'dataset' && (item.default instanceof EastIR || item.default instanceof AsyncEastIR)) {
+      const owner = taskOfFunctionIR.get(item);
+      refer(item.default, owner ? `task "${owner.name}"` : `dataset "${item.name}"`, owner?.runner);
+    }
+  }
+  for (const [fname, fdef] of Object.entries(pkg.functions)) refer(fdef.body, `function "${fname}"`, fdef.runner);
+  for (const [rname, rdef] of Object.entries(pkg.records)) {
+    for (const [mname, mdef] of Object.entries(rdef.mutations)) refer(mdef.body, `mutation "${rname}.${mname}"`, mdef.runner);
+  }
+  const manifests: FunctionManifest[] = [
+    ...explicit,
+    ...resolveFunctionManifests(references, explicit, process.cwd(), options?.onEvent === undefined
+      ? undefined
+      : (e: ResolveEvent) => options.onEvent!({ kind: 'functions', ...e })),
+  ];
+  const link = <B extends EastIR<any, any> | AsyncEastIR<any, any>>(bundle: B, owner: string, runner: Runner | undefined): B => {
+    const { ir, imports } = linkImports(bundle, manifests);
+    if (imports.length === 0) return bundle;
+    checkImportPlatforms(imports, runner, owner);
+    const linked = (bundle instanceof EastIR ? new EastIR<any, any>(ir as any) : new AsyncEastIR<any, any>(ir as any)) as B;
+    linked.source_map = bundle.source_map;
+    return linked;
+  };
 
   // Create zip file
   const zipfile = new yazl.ZipFile();

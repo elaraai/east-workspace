@@ -271,17 +271,38 @@ family implements one contract per runtime); a custom-command runner is
 trusted; a mismatch is a build error naming the task, the import, the
 platform function and the runner's packages.
 
+**Self-resolving imports (#652).** `e3.export` produces the manifests
+itself for every imported package that is a member of the uv workspace the
+export runs in: the package is found the way a `{ custom }` platform is
+(the governing `uv.lock` above the working directory, by PEP 503 canonical
+name, local sources only), and `east-py export-functions <package> --name
+<package> [-p provider…]` runs in the member's directory — the `east-py` of
+the nearest `.venv` above it, else `east-py` on PATH, `EAST_PY` naming it
+outright — with the member's `src/` and directory on `PYTHONPATH`, so the
+package's root module (declaring `east_functions`) imports whether or not it
+is installed. The providers are the importing owner's runner: a stock
+platform maps to its python family member, a `{ custom }` name passes
+through on an east-py runner. A manifest given in `functions:` wins for its
+package; a referenced package that is neither given nor a local member is
+an export error naming the import and both ways out. `e3-cli`'s `e3 export`
+/ `workspace deploy --from-source` inherit this; `--functions` is for
+manifests built elsewhere.
+
 **Recipe — a python function in a TypeScript e3 task:**
 
-```bash
-east-py export-functions pricing.functions -o pricing.functions.beast2 -p east-py-std
+```python
+# packages/pricing/src/pricing/__init__.py
+score = East.function([Row], FloatType, lambda b, r: r.qty.to_float() * r.price)
+east_functions = {"score": score}
 ```
 
 ```typescript
 const score = East.importFunction("pricing", "score", FunctionType([RowType], FloatType));
 const total = e3.task("total", [rows], East.function([ArrayType(RowType)], FloatType, ($, rs) => rs.map(($, r) => score(r)).sum()));
-await e3.export(pkg, "out.zip", { functions: ["./pricing.functions.beast2"] });
-// or: e3 workspace deploy . dev --from-source src/index.ts --functions ./pricing.functions.beast2
+await e3.export(pkg, "out.zip");                 // `pricing` is a workspace member: exported and linked here
+// or: e3 workspace deploy . dev --from-source src/index.ts
+// a package built elsewhere: east-py export-functions pricing -o pricing.functions.beast2 -p east-py-std
+//   → e3.export(pkg, "out.zip", { functions: ["./pricing.functions.beast2"] })
 ```
 
 The pinned evidence: `libs/east/src/functions.spec.ts` and

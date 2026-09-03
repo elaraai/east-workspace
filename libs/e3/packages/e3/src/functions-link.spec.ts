@@ -16,6 +16,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import yauzl from 'yauzl';
 import {
   East, FunctionType, IntegerType, NullType, StringType,
@@ -28,6 +29,7 @@ import { task } from './task.js';
 import { input } from './input.js';
 import { function_ } from './function.js';
 import { runnerProvides } from './runner.js';
+import { importedPackages, pythonProviders } from './functions-resolve.js';
 
 const log = East.platform('log', [StringType], NullType);
 const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
@@ -133,9 +135,10 @@ describe('export_ links East.importFunction references (#628)', () => {
       export_(pkg, path.join(tempDir, 'no-provider.zip'), { functions: [unprovided] }),
       /names no package providing it/,
     );
+    // no manifest given and no uv workspace holds the package: the export names the import and both ways out
     await assert.rejects(
       export_(pkg, path.join(tempDir, 'no-manifest.zip')),
-      /no function manifest for package "pricing"/,
+      /task "use_shout" imports from "pricing", but no function manifest was given for it and it is not a member of the uv workspace/,
     );
   });
 
@@ -166,5 +169,99 @@ describe('export_ links East.importFunction references (#628)', () => {
     assert.ok(runnerProvides({ runtime: 'east-py', platforms: [{ custom: 'acme' }] }, 'acme'));
     assert.ok(!runnerProvides({ runtime: 'east-py', platforms: [{ custom: 'acme' }] }, 'acme2'));
     assert.ok(runnerProvides({ runtime: 'custom', command: ['uv', 'run', 'east-py', 'run'] }, 'anything'));
+  });
+});
+
+// ── self-resolving imports (#652) ─────────────────────────────────────────────
+
+function toolAvailable(cmd: string, probe: string[]): boolean {
+  try { execFileSync(cmd, probe, { stdio: 'ignore', shell: process.platform === 'win32' }); return true; } catch { return false; }
+}
+
+describe('export_ resolves an imported workspace package itself (#652)', () => {
+  // the resolver honours EAST_PY (a named east-py), as does this gate
+  const hasTools = toolAvailable('uv', ['--version']) && toolAvailable(process.env['EAST_PY'] || 'east-py', ['--help']);
+  let ws: string;
+  let events: string[];
+
+  before(() => {
+    if (!hasTools) return;
+    // A uv workspace with one member, `pricing`, whose root module declares
+    // `east_functions` — the python package a TypeScript task imports from.
+    ws = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-resolve-ws-'));
+    fs.writeFileSync(path.join(ws, 'pyproject.toml'),
+      '[project]\nname = "root"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n\n' +
+      '[tool.uv.workspace]\nmembers = ["packages/*"]\n');
+    const dir = path.join(ws, 'packages', 'pricing');
+    fs.mkdirSync(path.join(dir, 'src', 'pricing'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'pyproject.toml'),
+      '[project]\nname = "pricing"\nversion = "2.5.0"\nrequires-python = ">=3.11"\n\n' +
+      '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n');
+    fs.writeFileSync(path.join(dir, 'src', 'pricing', '__init__.py'),
+      'from east import East, IntegerType\n\n' +
+      'triple = East.function([IntegerType], IntegerType, lambda b, x: x * 3)\n' +
+      'east_functions = {"triple": triple}\n');
+    execFileSync('uv', ['lock'], { cwd: ws, stdio: 'ignore', shell: process.platform === 'win32' });
+  });
+  after(() => { if (hasTools) fs.rmSync(ws, { recursive: true, force: true }); });
+
+  /** Runs `f` with the workspace as the export's working directory. */
+  async function inWorkspace<T>(f: () => Promise<T>): Promise<T> {
+    const prev = process.cwd();
+    process.chdir(ws);
+    try { return await f(); } finally { process.chdir(prev); }
+  }
+
+  it('finds the package in the uv workspace, exports it with east-py, and links — no manifest given',
+    { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
+      const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
+      const n = input('n', IntegerType, 4n);
+      const use = task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n)));
+      const pkg = package_('importer', '1.0.0', use);
+      const zipPath = path.join(ws, 'importer.zip');
+      events = [];
+      await inWorkspace(() => export_(pkg, zipPath, { onEvent: (e) => { if (e.kind === 'functions') events.push(`${e.package}:${e.count}:${e.tool}`); } }));
+      assert.deepStrictEqual(events, ['pricing:1:east-py export-functions']);
+      const bundle = irAt(await readZip(zipPath), 'tasks/use_triple/function_ir');
+      assert.strictEqual(countImports(bundle.ir), 0);
+      assert.strictEqual(bundle.compile([])(4n), 13n);
+    });
+
+  it('an explicit manifest wins for its package, and no export runs for it',
+    { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
+      const given = East.exportFunctions('pricing', '0.0.1', { triple: East.function([IntegerType], IntegerType, ($, x) => x.multiply(30n)) });
+      const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
+      const n = input('n', IntegerType, 4n);
+      const use = task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x)));
+      const pkg = package_('importer', '1.0.0', use);
+      const zipPath = path.join(ws, 'importer-explicit.zip');
+      events = [];
+      await inWorkspace(() => export_(pkg, zipPath, { functions: [given], onEvent: (e) => { if (e.kind === 'functions') events.push(e.package); } }));
+      assert.deepStrictEqual(events, []);
+      assert.strictEqual(irAt(await readZip(zipPath), 'tasks/use_triple/function_ir').compile([])(4n), 120n);
+    });
+
+  it("a function the package does not export is the exporter's own error, naming the import",
+    { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
+      const missing = East.importFunction('pricing', 'quadruple', FunctionType([IntegerType], IntegerType));
+      const n = input('n', IntegerType, 4n);
+      const use = task('use_missing', [n], East.function([IntegerType], IntegerType, ($, x) => missing(x)));
+      const pkg = package_('importer', '1.0.0', use);
+      await assert.rejects(
+        inWorkspace(() => export_(pkg, path.join(ws, 'missing.zip'))),
+        /package "pricing" exports no function "quadruple" — it exports triple/,
+      );
+    });
+
+  it('the packages an IR imports from, and the python providers a runner implies', () => {
+    const both = East.function([IntegerType], IntegerType, ($, x) => { $(sh(East.print(x))); return dbl(x); });
+    assert.deepStrictEqual(importedPackages(both.toIR().ir), ['pricing']);
+    assert.deepStrictEqual(importedPackages(East.function([IntegerType], IntegerType, ($, x) => x).toIR().ir), []);
+    assert.deepStrictEqual(pythonProviders({ runtime: 'east-node', platforms: ['@elaraai/east-node-std', '@elaraai/east-node-io'] }), ['east-py-io', 'east-py-std']);
+    assert.deepStrictEqual(pythonProviders({ runtime: 'east-c', platforms: ['east-c-std'] }), ['east-py-std']);
+    assert.deepStrictEqual(pythonProviders({ runtime: 'east-py', platforms: ['east-py-std', { custom: 'acme' }] }), ['acme', 'east-py-std']);
+    assert.deepStrictEqual(pythonProviders({ runtime: 'east-node', platforms: [{ custom: '@acme/node-platform' }] }), []);
+    assert.deepStrictEqual(pythonProviders({ runtime: 'custom', command: ['uv', 'run', 'east-py', 'run'] }), []);
+    assert.deepStrictEqual(pythonProviders(undefined), []);
   });
 });

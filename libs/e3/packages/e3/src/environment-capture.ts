@@ -312,6 +312,37 @@ function capturePythonPlatforms(
   return encodeEnvironmentSpec(variant('python', { pyproject, lock: lockBlob, sdists }));
 }
 
+/**
+ * The local uv-workspace member a name refers to — the package a `{ custom }`
+ * platform or an `East.importFunction(pkg, …)` names (#652) — resolved the
+ * way {@link captureAutoEnvironment} resolves it: the governing `uv.lock`
+ * above `anchorDir`, matched by PEP 503 canonical name, local sources only.
+ *
+ * @param name - The package name as referenced (import-style or canonical)
+ * @param anchorDir - Directory the workspace is resolved from (the export cwd)
+ * @param owner - The referencing task/function name, for error messages
+ * @returns The member's directory and its `pyproject.toml` version, or null
+ *   when there is no uv workspace above `anchorDir` or the name is not a
+ *   local member (a registry package, a typo)
+ */
+export function pythonWorkspaceMember(name: string, anchorDir: string, owner: string): { dir: string; version: string | null } | null {
+  const found = findUvLock(anchorDir, owner);
+  if (!found) return null;
+  const { root, lock } = found;
+  const canon = canonicalPythonName(name);
+  const pkg = (lock.package ?? []).find((p) => canonicalPythonName(p.name) === canon);
+  const local = pkg === undefined ? null : localSource(root, pkg.source);
+  if (local === null) return null;
+  let version: string | null = null;
+  try {
+    const project = parseToml(fs.readFileSync(path.join(local.dir, 'pyproject.toml'), 'utf-8')) as { project?: { version?: unknown } };
+    if (typeof project.project?.version === 'string') version = project.project.version;
+  } catch {
+    /* no readable pyproject: the exporter records its own default */
+  }
+  return { dir: local.dir, version };
+}
+
 /** Walk up from `start` to the nearest npm lockfile (not pnpm/yarn); null if none. */
 function findNpmRoot(start: string): { root: string; lock: NpmLock } | null {
   const names = ['package-lock.json', 'npm-shrinkwrap.json'];

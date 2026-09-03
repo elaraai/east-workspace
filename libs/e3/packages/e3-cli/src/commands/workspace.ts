@@ -495,6 +495,8 @@ async function deployFromSource(
         onEvent: (e) => {
           if (e.kind === 'capture') {
             progress.phase(`captured ${e.member} (${e.tool}, ${formatBytes(e.bytes)})`);
+          } else if (e.kind === 'functions') {
+            progress.phase(`exported ${e.count} function(s) of ${e.package} (${e.tool})`);
           }
         },
       });

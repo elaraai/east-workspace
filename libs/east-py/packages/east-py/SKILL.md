@@ -194,9 +194,10 @@ Task → What do you need?
     │   │   elsewhere — pass it to any eager method) · compile_from_value (IR built with east.ir.builders) · `east-c ir normalize|diff|convert`
     │   ├─ The build's refusals at EDIT time → `east-py lint src/` (exit 1 on any finding; `--format json`, `--disable RULE`, `# noqa`) ·
     │   │   `flake8 --select EAS` (the plugin) · `east-py lsp` (an editor) — nine rules, each the build's own message (see Diagnostics)
-    │   └─ Across languages → a module's `east_functions = {"name": fn}` + `east-py export-functions mod -o mod.functions.beast2 -p east-py-std`
-    │       (a manifest an e3 task imports with East.importFunction) · East.import_function(pkg, name, FunctionType) to call a TypeScript-authored
-    │       one (`east-node export-functions`) · East.link_imports(fn, [manifests]) before compiling in-process
+    │   └─ Across languages → the package's root module declares `east_functions = {"name": fn}`; an e3 task names it with East.importFunction and
+    │       e3.export exports + links a uv-workspace package by itself (`east-py export-functions pkg -o pkg.functions.beast2 -p east-py-std` only for a
+    │       package built elsewhere) · East.import_function(pkg, name, FunctionType) to call a TypeScript-authored one (`east-node export-functions`) ·
+    │       East.link_imports(fn, [manifests]) before compiling in-process
     │
     ├─ B. WORK WITH EAST VALUES — the eager runtime (the same names; executes NOW in east-c; results stay C-side and chain)
     │   ├─ Build an East value from python data
@@ -895,13 +896,13 @@ bodies.
 
 A python `East.function` is *called* from a TypeScript e3 task — and a
 TypeScript one from python — as pure IR: no python at run time, no platform
-bridge. The exporting side writes a **function manifest** (each function's
-IR, declared type and platform dependencies with the package providing
-each); the importer names the function and declares its type; linking
-checks the type exactly and embeds the IR.
+bridge. The functions travel as a **function manifest** (each function's IR,
+declared type and platform dependencies with the package providing each);
+the importer names the function and declares its type; linking checks the
+type exactly and embeds the IR. Declare them on the package's root module:
 
 ```python
-# pricing/functions.py — what the package exports
+# packages/pricing/src/pricing/__init__.py — the package's root module
 from east import East
 from east.types.types import FloatType, StructType, IntegerType
 
@@ -911,16 +912,22 @@ east_functions = {"score": score}          # name -> East.function artifact (clo
                                            # no captures, no .bind results, no unresolved imports)
 ```
 
-```bash
-east-py export-functions pricing.functions -o pricing.functions.beast2 -p east-py-std
-#   -p names the platform package implementing each platform call the functions make;
-#   a call no package provides fails the export (the manifest records the provider)
+```typescript
+// the e3 task, in TypeScript (see the e3 skill) — the reference is all there is to write:
+// e3.export finds `pricing` in the uv workspace, exports it (east-py export-functions, in the
+// project's .venv) and links; the providers come from the task's runner
+const score = East.importFunction("pricing", "score", FunctionType([RowType], FloatType));
+await e3.export(pkg, "out.zip");
 ```
 
-```typescript
-// the e3 task, in TypeScript (see the e3 skill)
-const score = East.importFunction("pricing", "score", FunctionType([RowType], FloatType));
-await e3.export(pkg, "out.zip", { functions: ["./pricing.functions.beast2"] });
+For a package built elsewhere (published, another repo), or to link
+in-process, write the manifest where the package lives and pass it:
+
+```bash
+east-py export-functions pricing -o pricing.functions.beast2 -p east-py-std
+#   -p names the platform package implementing each platform call the functions make;
+#   a call no package provides fails the export (the manifest records the provider)
+#   → e3.export(pkg, "out.zip", { functions: ["./pricing.functions.beast2"] })
 ```
 
 The other direction, in python:
