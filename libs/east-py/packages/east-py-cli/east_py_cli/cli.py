@@ -59,6 +59,9 @@ def create_parser() -> argparse.ArgumentParser:
         "--package-version", metavar="VERSION",
         help="The package version recorded in the manifest (default: the installed "
         "distribution's version, else 0.0.0)")
+    export_parser.add_argument(
+        "--only", action="append", default=[], metavar="NAME",
+        help="Export only this function of `east_functions` (can be repeated; default: all)")
 
     # run command
     run_parser = subparsers.add_parser("run", help="Run an East IR program")
@@ -397,7 +400,10 @@ def cmd_export_functions(args: argparse.Namespace) -> int:
     declared type and platform dependencies. Every platform dependency must
     be implemented by one of the ``-p`` packages, which is recorded as its
     provider; a dependency no package provides is an error naming it, so an
-    importer's runner can be checked at its own build.
+    importer's runner can be checked at its own build. ``--only`` narrows
+    the export to the named functions — what an importer actually uses — so
+    a sibling function's platform call never fails an export that does not
+    need it.
     """
     import importlib
     import importlib.metadata
@@ -422,6 +428,14 @@ def cmd_export_functions(args: argparse.Namespace) -> int:
         if not isinstance(functions, dict):
             raise ValueError(
                 f"{args.module} declares no `east_functions` dict (name -> East.function artifact)")
+        if args.only:
+            missing = [name for name in args.only if name not in functions]
+            if missing:
+                plural = "" if len(missing) == 1 else "s"
+                raise ValueError(
+                    f"{args.module} exports no function{plural} {', '.join(missing)} — its "
+                    f"east_functions are {', '.join(functions) or '(none)'}")
+            functions = {name: functions[name] for name in args.only}
 
         providers: dict[str, str] = {}
         for package in args.package:

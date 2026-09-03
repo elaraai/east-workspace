@@ -565,11 +565,13 @@ describe("codegen: toSource round trips the builder surface", () => {
     const specifier = pathToFileURL(libPath).href;
     const lib = await import(specifier);
     const other = East.asyncPlatform("tar_create", [StringType], BlobType);   // the same name, a signature the library does not declare
+    const optionalTwin = East.platform("flat_only", [StringType], StringType, { optional: true });   // the library's signature, but optional: not the library's handle
     const fn = East.asyncFunction([ArrayType(StringType), StringType], StringType, ($, entries, s) => {
       const blob = $.const(lib.Compression.Tar.create(entries));
       const again = $.const(other(s));
       const text = $.const(lib.tar_extract(blob));
-      return lib.flat_only(text).concat(East.print(again.size()));
+      const twice = $.const(optionalTwin(text as any));   // `text` is untyped here: the library came through a dynamic import
+      return lib.flat_only(text).concat(East.print(again.size())).concat(twice);
     });
     const libraries = { [specifier]: lib };
     const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity, libraries });
@@ -582,12 +584,25 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.match(source, /^const tar_create = East\.asyncPlatform\("tar_create", \[StringType\], BlobType\);$/m, source);
     assert.match(source, /const again = \$\.const\(tar_create\(s\)\);/, source);
     assert.doesNotMatch(source, /East\.asyncPlatform\("tar_extract"/, source);
+    // an optional declaration of the library's signature is not the library's handle: its own declaration, named past the import root
+    assert.match(source, /^const flat_only_2 = East\.platform\("flat_only", \[StringType\], StringType, \{ optional: true \}\);$/m, source);
+    assert.match(source, /const twice = \$\.const\(flat_only_2\(text\)\);/, source);
     // without the library, every call is a hoisted declaration
     const bare = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
     assert.doesNotMatch(bare, /Compression/, bare);
     assert.match(bare, /^const tar_extract = East\.asyncPlatform\("tar_extract"/m, bare);
     const main = await roundTrip(fn, "library spellings", { libraries });
     assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL, width: Infinity, libraries }), source, "print → build → print is the identity");
+  });
+
+  test("a platform function named after the module's export takes a suffix, so the module still exports its function", async () => {
+    const mainFn = East.platform("main", [IntegerType], IntegerType);
+    const fn = East.function([IntegerType], IntegerType, ($, n) => mainFn(n).add(1n));
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /^const main_2 = East\.platform\("main", \[IntegerType\], IntegerType\);$/m, source);
+    assert.match(source, /^export const main = East\.function\(\[IntegerType\], IntegerType, \(\$, n\) => main_2\(n\)\.add\(1n\)\);$/m, source);
+    const main = await roundTrip(fn, "export-named platform");
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL, width: Infinity }), source, "print → build → print is the identity");
   });
 
   test("regex and csv arguments print as the host values the surface takes", async () => {

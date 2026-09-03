@@ -82,6 +82,20 @@ def test_export_functions_names_an_unprovided_platform(tmp_path: Path):
     assert "no -p package provides: log" in result.stderr
 
 
+def test_export_functions_only_the_named_functions(tmp_path: Path):
+    module = tmp_path / "pricing_fns.py"
+    module.write_text(MODULE, encoding="utf-8")
+    out = tmp_path / "double.beast2"
+    # `shout` calls `log`, which no -p package provides here; exporting `double` alone is fine
+    result = _run("export-functions", str(module), "-o", str(out), "--only", "double")
+    assert result.returncode == 0, result.stderr
+    manifest = East.decode_function_manifest(out.read_bytes())
+    assert [f["name"] for f in manifest["functions"]] == ["double"]
+    result = _run("export-functions", str(module), "-o", str(out), "--only", "double", "--only", "nope")
+    assert result.returncode == 1
+    assert "exports no function nope — its east_functions are double, shout" in result.stderr
+
+
 def test_export_functions_needs_the_east_functions_dict(tmp_path: Path):
     module = tmp_path / "empty_mod.py"
     module.write_text("x = 1\n", encoding="utf-8")

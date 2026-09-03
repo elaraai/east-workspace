@@ -502,7 +502,12 @@ class Printer {
   tempCounter = 0;
   varCounter = 0;
 
-  constructor(readonly rootName: string, readonly width: number, readonly spellings: Map<string, LibrarySpelling>) {}
+  /** The import roots the given libraries would bring in — names no hoisted declaration may take. */
+  readonly libraryRoots: Set<string>;
+
+  constructor(readonly rootName: string, readonly width: number, readonly spellings: Map<string, LibrarySpelling>) {
+    this.libraryRoots = new Set([...spellings.values()].map(s => s.path[0]!));
+  }
 
   // ── module-level pieces ──────────────────────────────────────────────
 
@@ -523,13 +528,15 @@ class Printer {
   /**
    * The library's spelling of a platform call, or `null` when no given
    * library exports a declaration of that name with the call's signature
-   * (asyncness, arity and types, or type parameter count when generic).
+   * (asyncness, optionality, arity and types, or type parameter count when
+   * generic) — a call the library's handle would not build stays a hoisted
+   * declaration of its own.
    */
   platformSpelling(p: any): LibrarySpelling | null {
     const hit = this.spellings.get(p.name as string);
     if (hit === undefined) return null;
     const decl = hit.declaration;
-    if (decl.async !== !!p.async) return null;
+    if (decl.async !== !!p.async || decl.optional !== !!p.optional) return null;
     const tps = p.type_parameters as EastTypeValue[];
     if (decl.typeParameters !== undefined) return decl.typeParameters.length === tps.length ? hit : null;
     if (tps.length > 0) return null;
@@ -561,15 +568,17 @@ class Printer {
   /**
    * The module-level name of a hoisted declaration: the platform function's
    * own name as an identifier (`tar_create`; `my.log` is `my_log`), a `_2`,
-   * `_3`… suffix when another signature already took it, `_pN` when the name
-   * cannot be an identifier.
+   * `_3`… suffix when another signature, the module's own export or a
+   * library's import root already took it, `_pN` when the name cannot be an
+   * identifier.
    */
   platformName(irName: string): string {
     let base = irName.replace(/[^A-Za-z0-9_$]/g, "_");
     if (!/^[A-Za-z_$]/.test(base)) base = `_${base}`;
     if (!isIdent(base) || NEVER_A_DECLARATION_NAME.has(base)) base = `_p${this.platformNames.size}`;
+    const taken = (name: string): boolean => this.platformNames.has(name) || name === this.rootName || this.libraryRoots.has(name);
     let name = base;
-    for (let n = 2; this.platformNames.has(name); n++) name = `${base}_${n}`;
+    for (let n = 2; taken(name); n++) name = `${base}_${n}`;
     this.platformNames.add(name);
     return name;
   }

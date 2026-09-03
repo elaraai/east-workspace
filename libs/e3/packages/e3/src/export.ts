@@ -22,7 +22,7 @@ import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, 
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
 import { captureEnvironment, captureAutoEnvironment, type CaptureEvent } from './environment-capture.js';
-import { importedPackages, resolveFunctionManifests, type ImportReference, type ResolveEvent } from './functions-resolve.js';
+import { importedFunctions, resolveFunctionManifests, type ImportReference, type ResolveEvent } from './functions-resolve.js';
 import type { EnvironmentDecl } from './environment.js';
 
 /**
@@ -94,14 +94,14 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   // time. The manifests are the ones given, plus one produced here for
   // every imported package that is a member of this uv or npm workspace
   // (#652): the reference names the package, and that is all the author
-  // writes.
-  // The owner's runner must provide what the embedded function's platform
-  // calls need.
+  // writes. Each owner links against the manifests exported for ITS
+  // runner, whose packages must provide what the embedded functions'
+  // platform calls need.
   const explicit: FunctionManifest[] = (options?.functions ?? []).map((m) =>
     typeof m === 'string' ? decodeFunctionManifest(new Uint8Array(fs.readFileSync(m))) : m);
   const references: ImportReference[] = [];
   const refer = (bundle: EastIR<any, any> | AsyncEastIR<any, any>, owner: string, runner: Runner | undefined): void => {
-    for (const name of importedPackages(bundle.ir)) references.push({ package: name, owner, runner });
+    for (const [name, functions] of importedFunctions(bundle.ir)) references.push({ package: name, functions: [...functions], owner, runner });
   };
   for (const item of pkg.contents) {
     if (item.kind === 'dataset' && (item.default instanceof EastIR || item.default instanceof AsyncEastIR)) {
@@ -113,14 +113,11 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   for (const [rname, rdef] of Object.entries(pkg.records)) {
     for (const [mname, mdef] of Object.entries(rdef.mutations)) refer(mdef.body, `mutation "${rname}.${mname}"`, mdef.runner);
   }
-  const manifests: FunctionManifest[] = [
-    ...explicit,
-    ...resolveFunctionManifests(references, explicit, process.cwd(), options?.onEvent === undefined
-      ? undefined
-      : (e: ResolveEvent) => options.onEvent!({ kind: 'functions', ...e })),
-  ];
+  const manifests = resolveFunctionManifests(references, explicit, process.cwd(), options?.onEvent === undefined
+    ? undefined
+    : (e: ResolveEvent) => options.onEvent!({ kind: 'functions', ...e }));
   const link = <B extends EastIR<any, any> | AsyncEastIR<any, any>>(bundle: B, owner: string, runner: Runner | undefined): B => {
-    const { ir, imports } = linkImports(bundle, manifests);
+    const { ir, imports } = linkImports(bundle, manifests.forOwner(runner));
     if (imports.length === 0) return bundle;
     checkImportPlatforms(imports, runner, owner);
     const linked = (bundle instanceof EastIR ? new EastIR<any, any>(ir as any) : new AsyncEastIR<any, any>(ir as any)) as B;

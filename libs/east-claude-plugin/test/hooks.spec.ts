@@ -101,6 +101,10 @@ test("pre-read: reading the East packages' declarations or sweeping the examples
   assert.match(sweep, /search_east_examples/);
   const glob = run(preRead, { tool_name: "Glob", tool_input: { pattern: "**/*.examples.ts" } });
   assert.match(glob, /search_east_examples/);
+  const declarations = run(preRead, { tool_name: "Glob", tool_input: { pattern: "node_modules/@elaraai/east/**/*.d.ts" } });
+  assert.match(declarations, /search_east_examples/);
   assert.equal(run(preRead, { tool_name: "Read", tool_input: { file_path: "/w/src/app.ts" } }), "");
   assert.equal(run(preRead, { tool_name: "Grep", tool_input: { pattern: "TODO", path: "/w/src" } }), "");
+  // a project's own grep for its East imports is not a sweep of the packages
+  assert.equal(run(preRead, { tool_name: "Grep", tool_input: { pattern: "@elaraai/east", path: "/w/src" } }), "");
 });

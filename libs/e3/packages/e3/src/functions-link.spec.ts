@@ -29,8 +29,8 @@ import { package_ } from './package.js';
 import { task } from './task.js';
 import { input } from './input.js';
 import { function_ } from './function.js';
-import { runnerProvides } from './runner.js';
-import { importedPackages, pythonProviders, nodeProviders, findEastNode } from './functions-resolve.js';
+import { runnerProvides, type Runner } from './runner.js';
+import { importedFunctions, importedPackages, pythonProviders, nodeProviders, findEastNode, resolveFunctionManifests } from './functions-resolve.js';
 
 const log = East.platform('log', [StringType], NullType);
 const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
@@ -198,10 +198,24 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
     fs.writeFileSync(path.join(dir, 'pyproject.toml'),
       '[project]\nname = "pricing"\nversion = "2.5.0"\nrequires-python = ">=3.11"\n\n' +
       '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n');
+    // `shout` calls `my.log`, which only the workspace's own `acme_platform`
+    // (beside the package on its source root) provides — so an owner that
+    // imports `triple` alone must not be failed by it.
     fs.writeFileSync(path.join(dir, 'src', 'pricing', '__init__.py'),
-      'from east import East, IntegerType\n\n' +
-      'triple = East.function([IntegerType], IntegerType, lambda b, x: x * 3)\n' +
-      'east_functions = {"triple": triple}\n');
+      'from east import East, IntegerType, NullType, StringType\n\n' +
+      'my_log = East.platform("my.log", [StringType], NullType)\n' +
+      'triple = East.function([IntegerType], IntegerType, lambda b, x: x * 3)\n\n' +
+      '@East.function([StringType], NullType)\n' +
+      'def shout(b, s):\n' +
+      '    b.do(my_log(s))\n\n' +
+      'east_functions = {"triple": triple, "shout": shout}\n');
+    fs.writeFileSync(path.join(dir, 'src', 'acme_platform.py'),
+      'from east.runtime.platform import platform_function, platform_functions\n' +
+      'from east.types.types import NullType, StringType\n\n' +
+      '@platform_function(inputs=[StringType], output=NullType, name="my.log")\n' +
+      'def my_log(s):\n' +
+      '    print(s)\n\n' +
+      'platform = platform_functions(__name__)\n');
     execFileSync('uv', ['lock'], { cwd: ws, stdio: 'ignore', shell: process.platform === 'win32' });
   });
   after(() => { if (hasTools) fs.rmSync(ws, { recursive: true, force: true }); });
@@ -250,13 +264,44 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
       const pkg = package_('importer', '1.0.0', use);
       await assert.rejects(
         inWorkspace(() => export_(pkg, path.join(ws, 'missing.zip'))),
-        /package "pricing" exports no function "quadruple" — it exports triple/,
+        /exports no function quadruple — its east_functions are triple, shout/,
       );
     });
 
-  it('the packages an IR imports from, and the python providers a runner implies', () => {
+  it('each owner links against the manifest exported for its own runner, of the functions it imports',
+    { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
+      // A on the default runner imports the pure `triple`; B on an east-py
+      // runner listing the workspace's `acme_platform` imports `shout`, whose
+      // `my.log` that package provides. Two exports — one per provider set, of
+      // the functions its owner imports — and each owner links its own.
+      const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
+      const shout = East.importFunction('pricing', 'shout', FunctionType([StringType], NullType));
+      const n = input('n', IntegerType, 4n);
+      const s = input('s', StringType, 'hi');
+      const a = task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n)));
+      const b = task('use_shout', [s], East.function([StringType], NullType, ($, x) => { $(shout(x)); }), {
+        runner: { runtime: 'east-py', platforms: [{ custom: 'acme_platform' }, 'east-py-std'] },
+      });
+      const pkg = package_('importer', '1.0.0', a, b);
+      const zipPath = path.join(ws, 'importer-two-owners.zip');
+      events = [];
+      await inWorkspace(() => export_(pkg, zipPath, { onEvent: (e) => { if (e.kind === 'functions') events.push(`${e.package}:${e.count}:${e.tool}`); } }));
+      assert.deepStrictEqual(events, ['pricing:1:east-py export-functions', 'pricing:1:east-py export-functions']);
+      const entries = await readZip(zipPath);
+      assert.strictEqual(irAt(entries, 'tasks/use_triple/function_ir').compile([])(4n), 13n);
+      assert.strictEqual(countImports(irAt(entries, 'tasks/use_shout/function_ir').ir), 0);
+      // B's providers are the runner's; an owner on the default runner importing `shout` has none for `my.log`
+      const c = task('use_shout_default', [s], East.function([StringType], NullType, ($, x) => { $(shout(x)); }));
+      await assert.rejects(
+        inWorkspace(() => export_(package_('importer', '1.0.0', c), path.join(ws, 'unprovided.zip'))),
+        /platform function\(s\) no -p package provides: my\.log/,
+      );
+    });
+
+  it('the functions and packages an IR imports, and the python providers a runner implies', () => {
     const both = East.function([IntegerType], IntegerType, ($, x) => { $(sh(East.print(x))); return dbl(x); });
     assert.deepStrictEqual(importedPackages(both.toIR().ir), ['pricing']);
+    assert.deepStrictEqual([...importedFunctions(both.toIR().ir)].map(([p, names]) => [p, [...names].sort()]), [['pricing', ['double', 'shout']]]);
     assert.deepStrictEqual(importedPackages(East.function([IntegerType], IntegerType, ($, x) => x).toIR().ir), []);
     assert.deepStrictEqual(pythonProviders({ runtime: 'east-node', platforms: ['@elaraai/east-node-std', '@elaraai/east-node-io'] }), ['east-py-io', 'east-py-std']);
     assert.deepStrictEqual(pythonProviders({ runtime: 'east-c', platforms: ['east-c-std'] }), ['east-py-std']);
@@ -307,9 +352,14 @@ describe('export_ resolves an imported npm workspace package itself (#652)', () 
     }
     fs.writeFileSync(path.join(ws, 'package-lock.json'), JSON.stringify({ name: 'root', lockfileVersion: 3, packages }));
     fs.mkdirSync(path.join(ws, 'packages', 'pricing', 'dist'));
+    // `shout` calls a platform no package provides: an owner importing `triple` alone is not failed by it
     fs.writeFileSync(path.join(ws, 'packages', 'pricing', 'dist', 'functions.js'),
-      "import { East, IntegerType } from '@elaraai/east';\n" +
-      'export const eastFunctions = { triple: East.function([IntegerType], IntegerType, ($, x) => x.multiply(3n)) };\n');
+      "import { East, IntegerType, NullType, StringType } from '@elaraai/east';\n" +
+      "const log = East.platform('my.log', [StringType], NullType);\n" +
+      'export const eastFunctions = {\n' +
+      '  triple: East.function([IntegerType], IntegerType, ($, x) => x.multiply(3n)),\n' +
+      '  shout: East.function([StringType], NullType, ($, s) => { $(log(s)); }),\n' +
+      '};\n');
     for (const [name, target] of links) {
       const link = path.join(ws, 'node_modules', ...name.split('/'));
       fs.mkdirSync(path.dirname(link), { recursive: true });
@@ -339,6 +389,35 @@ describe('export_ resolves an imported npm workspace package itself (#652)', () 
       assert.strictEqual(countImports(bundle.ir), 0);
       assert.strictEqual(bundle.compile([])(4n), 13n);
     });
+
+  it("an owner importing a function whose platform call its runner cannot provide is the exporter's error, naming the call",
+    { skip }, async () => {
+      const shout = East.importFunction('pricing', 'shout', FunctionType([StringType], NullType));
+      const s = input('s', StringType, 'hi');
+      const use = task('use_shout', [s], East.function([StringType], NullType, ($, x) => { $(shout(x)); }));
+      await assert.rejects(
+        inWorkspace(() => export_(package_('importer', '1.0.0', use), path.join(ws, 'unprovided.zip'))),
+        /platform function\(s\) no -p package provides: my\.log/,
+      );
+    });
+
+  it('the manifests are served per owner: the export for each provider set, of the functions its owners import', { skip }, () => {
+    const runnerA: Runner = { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] };
+    const runnerB: Runner = { runtime: 'east-node', platforms: [] };   // another provider set: its own export
+    const given = East.exportFunctions('other', '1.0.0', { double });
+    const resolved = resolveFunctionManifests([
+      { package: 'pricing', functions: ['triple'], owner: 'task "a"', runner: runnerA },
+      { package: 'pricing', functions: ['triple'], owner: 'task "b"', runner: runnerB },
+      { package: 'other', functions: ['double'], owner: 'task "a"', runner: runnerA },
+    ], [given], ws);
+    const forA = resolved.forOwner(runnerA);
+    const forB = resolved.forOwner(runnerB);
+    assert.deepStrictEqual(forA.map((m) => m.package), ['other', 'pricing']);
+    assert.deepStrictEqual(forB.map((m) => m.package), ['other', 'pricing']);
+    assert.notStrictEqual(forA[1], forB[1], 'one export per provider set');
+    assert.deepStrictEqual(forA[1]!.functions.map((f) => f.name), ['triple']);
+    assert.deepStrictEqual(resolved.forOwner({ runtime: 'east-py', platforms: ['east-py-io'] }).map((m) => m.package), ['other'], 'a runner no owner had gets no workspace manifest');
+  });
 
   it('a member whose ./functions entry is not built, and one exporting no ./functions, are errors naming the way out',
     { skip }, async () => {

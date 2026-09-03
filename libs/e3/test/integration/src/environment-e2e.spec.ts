@@ -177,7 +177,7 @@ function stdlibSearchDir(testDir: string): string {
   const searchDir = join(testDir, 'search');
   const nm = join(searchDir, 'node_modules', '@elaraai');
   mkdirSync(nm, { recursive: true });
-  symlinkSync(EAST_NODE_STD, join(nm, 'east-node-std'), 'dir');
+  symlinkSync(EAST_NODE_STD, join(nm, 'east-node-std'), 'junction');   // a junction needs no privilege on Windows; a directory link elsewhere
   return searchDir;
 }
 

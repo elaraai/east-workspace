@@ -8,6 +8,8 @@ import { readHookInput, writeHookOutput } from "../lib/hook-io.js";
 // one specific project file is never touched.
 
 const EAST_PACKAGE_PATH = /[/\\]node_modules[/\\]@elaraai[/\\]/;
+// a pattern that sweeps the East packages themselves (`node_modules/@elaraai/**`), as opposed to a project's own grep for its `@elaraai/east` imports
+const EAST_PACKAGE_PATTERN = /(^|[/\\])node_modules[/\\]@elaraai([/\\]|$)/;
 const EXAMPLES_FILE = /\.examples\.tsx?$/;
 
 export const READ_TEXT = [
@@ -26,8 +28,10 @@ async function main() {
   if (event.tool_name === "Read") {
     remind = EAST_PACKAGE_PATH.test(filePath) || EXAMPLES_FILE.test(filePath);
   } else {
-    // Grep / Glob: a sweep of the East packages, or of the example files
-    remind = EAST_PACKAGE_PATH.test(dir) || EAST_PACKAGE_PATH.test(pattern) || /examples\.tsx?/.test(pattern) || /@elaraai/.test(pattern);
+    // Grep / Glob: a sweep of the East packages (a path or pattern under
+    // node_modules/@elaraai), or of the example files. A project's own grep
+    // for its `@elaraai/east` imports is neither.
+    remind = EAST_PACKAGE_PATH.test(dir) || EAST_PACKAGE_PATTERN.test(pattern) || /\.examples\.tsx?/.test(pattern);
   }
   if (!remind) process.exit(0);
   writeHookOutput("PreToolUse", READ_TEXT);

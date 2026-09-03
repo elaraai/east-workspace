@@ -71,6 +71,7 @@ interface ExportFunctionsOptions {
     package?: string[];
     name?: string;
     packageVersion?: string;
+    only?: string[];
 }
 
 /**
@@ -212,9 +213,10 @@ async function cmdTranspile(input: string, options: TranspileOptions): Promise<v
  */
 async function cmdExportFunctions(modulePath: string, options: ExportFunctionsOptions): Promise<void> {
     try {
-        const opts: { name?: string; version?: string; packages?: string[] } = { packages: options.package ?? [] };
+        const opts: { name?: string; version?: string; packages?: string[]; only?: string[] } = { packages: options.package ?? [] };
         if (options.name !== undefined) opts.name = options.name;
         if (options.packageVersion !== undefined) opts.version = options.packageVersion;
+        if (options.only !== undefined) opts.only = options.only;
         const manifest = await exportFunctionsFromModule(modulePath, opts);
         writeFileSync(options.output, East.encodeFunctionManifest(manifest));
         console.error(`Exported ${manifest.functions.length} function(s) of ${manifest.package}@${manifest.version} to ${options.output}`);
@@ -296,6 +298,7 @@ export function main(): void {
         .option('-p, --package <package...>', "Platform packages implementing the functions' platform calls (each dependency must be provided by one)")
         .option('--name <name>', "The package name importers use (default: the module file's stem)")
         .option('--package-version <version>', 'The version recorded in the manifest (default: 0.0.0)')
+        .option('--only <name...>', 'Export only these functions of `eastFunctions` (default: all)')
         .action(cmdExportFunctions);
 
     program

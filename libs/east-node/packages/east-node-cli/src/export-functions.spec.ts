@@ -89,6 +89,18 @@ describe('east-node export-functions', () => {
         }
     });
 
+    it('exports only the named functions — a sibling\'s unprovided platform call no longer matters — and names an unknown one', async () => {
+        const { dir, path } = plant(MODULE);
+        try {
+            // `shout` calls `log`, which no -p package provides here; exporting `double` alone is fine
+            const manifest = await exportFunctionsFromModule(path, { only: ['double'] });
+            assert.deepEqual(manifest.functions.map(f => f.name), ['double']);
+            await assert.rejects(exportFunctionsFromModule(path, { only: ['double', 'nope'] }), /exports no function "nope" — its eastFunctions are double, shout/);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
     it('needs the eastFunctions export', async () => {
         const { dir, path } = plant('export const x = 1;\n');
         try {

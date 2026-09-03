@@ -24,7 +24,11 @@
  * (`@elaraai/east-node-std` → `east-py-std`, `east-py-std` →
  * `@elaraai/east-node-std`), a `{ custom }` name passes through on a runner
  * of the exporting runtime. The exporter records them per dependency, so
- * the runner check at link is unchanged.
+ * the runner check at link is unchanged. An export is per package and
+ * provider set, of exactly the functions the owners with those providers
+ * import (`--only`): a sibling function's platform call never fails an
+ * owner that does not use it, and each owner links against the manifests
+ * produced for its own runner.
  */
 
 import * as fs from 'node:fs';
@@ -35,10 +39,12 @@ import { walkIR, decodeFunctionManifest, IMPORT_PLATFORM, type FunctionManifest 
 import { STOCK_PLATFORM_FAMILIES, type Runner } from './runner.js';
 import { pythonWorkspaceMember, nodeWorkspaceMember } from './environment-capture.js';
 
-/** One package an owner's IR imports from, with the providers its runner implies. */
+/** One package an owner's IR imports from: the functions it names, and the runner whose providers the export takes. */
 export interface ImportReference {
   /** The package named by `East.importFunction`. */
   package: string;
+  /** The functions the owner imports from it. */
+  functions: string[];
   /** The owning task / function / mutation, for messages. */
   owner: string;
   /** The owner's runner, for the exporter's providers. */
@@ -56,17 +62,30 @@ export interface ResolveEvent {
 }
 
 /**
- * The packages an IR imports from — every distinct `East.importFunction`
- * package name in it.
+ * The functions an IR imports, by package — every distinct
+ * `East.importFunction(pkg, name, …)` in it.
  */
-export function importedPackages(ir: unknown): string[] {
-  const names = new Set<string>();
+export function importedFunctions(ir: unknown): Map<string, Set<string>> {
+  const found = new Map<string, Set<string>>();
   walkIR(ir as any, (node) => {
     if (node.type !== 'Platform' || node.value.name !== IMPORT_PLATFORM) return;
-    const first = (node.value.arguments as any[])[0];
-    if (first?.type === 'Value' && typeof first.value?.value?.value === 'string') names.add(first.value.value.value as string);
+    const [first, second] = node.value.arguments as any[];
+    if (first?.type !== 'Value' || typeof first.value?.value?.value !== 'string') return;
+    if (second?.type !== 'Value' || typeof second.value?.value?.value !== 'string') return;
+    const pkg = first.value.value.value as string;
+    let names = found.get(pkg);
+    if (names === undefined) {
+      names = new Set();
+      found.set(pkg, names);
+    }
+    names.add(second.value.value.value as string);
   });
-  return [...names];
+  return found;
+}
+
+/** The packages an IR imports from — every distinct `East.importFunction` package name in it. */
+export function importedPackages(ir: unknown): string[] {
+  return [...importedFunctions(ir).keys()];
 }
 
 /** The stock platform packages of one runtime a runner's platforms map to, plus its `{ custom }` names on that runtime. */
@@ -152,20 +171,23 @@ export function findEastNode(fromDir: string): { command: string; args: string[]
 /**
  * Exports a python workspace member's `east_functions` as a manifest, in its
  * own environment: `east-py export-functions <package> --name <package>
- * [-p provider…]` with the member's source roots on `PYTHONPATH`, so the
- * package imports whether or not it is installed.
+ * [-p provider…] [--only name…]` with the member's source roots on
+ * `PYTHONPATH`, so the package imports whether or not it is installed.
  *
+ * @param only - The functions to export (what the importing owners use)
  * @throws {Error} Naming the owner and the package: no `east-py` to run, or
  *   an export the tool refused (its own message — no `east_functions`, a
- *   platform call no provider implements, a function that is not closed)
+ *   function it does not export, a platform call no provider implements, a
+ *   function that is not closed)
  */
-export function exportPythonManifest(pkg: string, dir: string, version: string | null, providers: string[], owner: string): FunctionManifest {
+export function exportPythonManifest(pkg: string, dir: string, version: string | null, providers: string[], only: string[], owner: string): FunctionManifest {
   const eastPy = findEastPy(dir);
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-functions-'));
   const out = path.join(outDir, `${pkg}.functions.beast2`);
   const module = pkg.replace(/-/g, '_');
   const args = ['export-functions', module, '-o', out, '--name', pkg, ...(version === null ? [] : ['--package-version', version])];
   for (const p of providers) args.push('-p', p);
+  for (const name of only) args.push('--only', name);
   const roots = [path.join(dir, 'src'), dir].filter((d) => fs.existsSync(d));
   const pythonPath = [...roots, process.env['PYTHONPATH'] ?? ''].filter((p) => p !== '').join(path.delimiter);
   try {
@@ -229,21 +251,23 @@ function nodeFunctionsEntry(pkg: string, dir: string, owner: string): string {
 /**
  * Exports a node workspace member's `eastFunctions` as a manifest, in its
  * own environment: `east-node export-functions <entry> --name <package>
- * [-p provider…]` in the member's directory, `<entry>` its built
- * `./functions` export.
+ * [-p provider…] [--only name…]` in the member's directory, `<entry>` its
+ * built `./functions` export.
  *
+ * @param only - The functions to export (what the importing owners use)
  * @throws {Error} Naming the owner and the package: no `./functions` export
  *   or an unbuilt one, no `east-node` to run, or an export the tool refused
- *   (its own message — no `eastFunctions`, a platform call no provider
- *   implements, a function that is not closed)
+ *   (its own message — no `eastFunctions`, a function it does not export, a
+ *   platform call no provider implements, a function that is not closed)
  */
-export function exportNodeManifest(pkg: string, dir: string, version: string | null, providers: string[], owner: string): FunctionManifest {
+export function exportNodeManifest(pkg: string, dir: string, version: string | null, providers: string[], only: string[], owner: string): FunctionManifest {
   const entry = nodeFunctionsEntry(pkg, dir, owner);
   const eastNode = findEastNode(dir);
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-functions-'));
   const out = path.join(outDir, `${pkg.replace(/[^\w.-]+/g, '_')}.functions.beast2`);
   const args = ['export-functions', entry, '-o', out, '--name', pkg, ...(version === null ? [] : ['--package-version', version])];
   for (const p of providers) args.push('-p', p);
+  for (const name of only) args.push('--only', name);
   try {
     execFileSync(eastNode.command, [...eastNode.args, ...args], {
       cwd: dir,
@@ -269,24 +293,34 @@ export function exportNodeManifest(pkg: string, dir: string, version: string | n
 /** A workspace member an import resolves to: which workspace holds it, where, and its version. */
 type Member = { kind: 'python' | 'node'; dir: string; version: string | null };
 
+/** The manifests the export produced, served per owner. */
+export interface ResolvedManifests {
+  /**
+   * The manifests an owner links against: the explicit ones, and every
+   * workspace package's manifest exported for this runner's providers.
+   */
+  forOwner(runner: Runner | undefined): FunctionManifest[];
+}
+
 /**
  * The manifests for every imported package the explicit ones do not cover,
  * produced from the workspace (#652). One export per distinct package and
- * provider set; a package that is not a local workspace member is an error
- * naming the import.
+ * provider set, of the union of the functions the owners with those
+ * providers import; a package that is not a local workspace member is an
+ * error naming the import.
  *
  * @param references - Every import an owner's IR makes, with its runner
  * @param explicit - The manifests the export was given (they win)
  * @param anchorDir - Directory the workspace is resolved from (the export cwd)
- * @param onEvent - Progress per resolved package
- * @returns The resolved manifests, in first-reference order
+ * @param onEvent - Progress per export
+ * @returns The manifests, served per owner
  */
 export function resolveFunctionManifests(
   references: ImportReference[],
   explicit: FunctionManifest[],
   anchorDir: string,
   onEvent?: (event: ResolveEvent) => void,
-): FunctionManifest[] {
+): ResolvedManifests {
   const covered = new Set(explicit.map((m) => m.package));
   const members = new Map<string, Member | null>();
   const memberOf = (ref: ImportReference): Member | null => {
@@ -299,7 +333,12 @@ export function resolveFunctionManifests(
     }
     return member;
   };
-  const resolved = new Map<string, FunctionManifest>();
+  const providersOf = (member: Member, runner: Runner | undefined): string[] =>
+    member.kind === 'python' ? pythonProviders(runner) : nodeProviders(runner);
+  const keyOf = (pkg: string, providers: string[]): string => `${pkg}\0${providers.join(',')}`;
+
+  // One export per package and provider set, of every function its owners import.
+  const groups = new Map<string, { package: string; member: Member; providers: string[]; functions: Set<string>; owner: string }>();
   for (const ref of references) {
     if (covered.has(ref.package)) continue;
     const member = memberOf(ref);
@@ -311,14 +350,33 @@ export function resolveFunctionManifests(
         `or export it where it lives (east-py export-functions / east-node export-functions) and pass the manifest in \`functions:\``,
       );
     }
-    const providers = member.kind === 'python' ? pythonProviders(ref.runner) : nodeProviders(ref.runner);
-    const key = `${ref.package}\0${providers.join(',')}`;
-    if (resolved.has(key)) continue;
-    const manifest = member.kind === 'python'
-      ? exportPythonManifest(ref.package, member.dir, member.version, providers, ref.owner)
-      : exportNodeManifest(ref.package, member.dir, member.version, providers, ref.owner);
-    resolved.set(key, manifest);
-    onEvent?.({ package: ref.package, tool: `${member.kind === 'python' ? 'east-py' : 'east-node'} export-functions`, count: manifest.functions.length });
+    const providers = providersOf(member, ref.runner);
+    const key = keyOf(ref.package, providers);
+    let group = groups.get(key);
+    if (group === undefined) {
+      group = { package: ref.package, member, providers, functions: new Set(), owner: ref.owner };
+      groups.set(key, group);
+    }
+    for (const name of ref.functions) group.functions.add(name);
   }
-  return [...resolved.values()];
+  const resolved = new Map<string, FunctionManifest>();
+  for (const [key, group] of groups) {
+    const only = [...group.functions].sort();
+    const manifest = group.member.kind === 'python'
+      ? exportPythonManifest(group.package, group.member.dir, group.member.version, group.providers, only, group.owner)
+      : exportNodeManifest(group.package, group.member.dir, group.member.version, group.providers, only, group.owner);
+    resolved.set(key, manifest);
+    onEvent?.({ package: group.package, tool: `${group.member.kind === 'python' ? 'east-py' : 'east-node'} export-functions`, count: manifest.functions.length });
+  }
+  return {
+    forOwner(runner) {
+      const own = [...explicit];
+      for (const [pkg, member] of members) {
+        if (member === null) continue;
+        const hit = resolved.get(keyOf(pkg, providersOf(member, runner)));
+        if (hit !== undefined) own.push(hit);
+      }
+      return own;
+    },
+  };
 }

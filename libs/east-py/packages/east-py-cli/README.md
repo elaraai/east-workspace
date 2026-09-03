@@ -68,6 +68,10 @@ east-py transpile program.beast2 -o program.py --name main
 # East.import_function); -p names the platform packages implementing any
 # platform calls the functions make
 east-py export-functions pricing.functions -o pricing.functions.beast2 -p east-py-std
+
+# Only the functions an importer uses (--only, repeatable): a sibling function's
+# platform call then needs no -p package
+east-py export-functions pricing.functions -o pricing.functions.beast2 --only score
 ```
 
 ### Linting East bodies

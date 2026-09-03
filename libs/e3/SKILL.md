@@ -256,7 +256,10 @@ environment (`east-py export-functions`, run from the project's `.venv` or
 package of the npm workspace is found in the governing lockfile by its
 `package.json` name, and the `eastFunctions` of its BUILT `./functions` export
 exported with `east-node export-functions` (the project's own
-`@elaraai/east-node-cli`, else PATH — `EAST_NODE` names it outright).
+`@elaraai/east-node-cli`, else PATH — `EAST_NODE` names it outright). Only
+the functions a task imports are exported, with the providers of that task's
+runner: a sibling function's platform call never fails a task that does not
+use it, and two tasks on different runners each link their own export.
 
 ```python
 # packages/pricing/src/pricing/__init__.py — the package's root module

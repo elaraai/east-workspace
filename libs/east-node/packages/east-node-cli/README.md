@@ -140,6 +140,7 @@ Options:
                                (every dependency must be provided by one; recorded as its provider)
   --name <name>                The package name importers use (default: the module file's stem)
   --package-version <version>  The version recorded in the manifest (default: 0.0.0)
+  --only <name...>             Export only these functions of `eastFunctions` (default: all)
 ```
 
 ### `east-node version`

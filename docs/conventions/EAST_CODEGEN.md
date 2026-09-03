@@ -248,7 +248,7 @@ run time. Three pieces, name for name in both languages:
 
 | Step | TypeScript | python |
 |---|---|---|
-| Export a package's functions as a **manifest** | `East.exportFunctions(pkg, version, { name: fn }, { providers })` → `East.encodeFunctionManifest` · CLI `east-node export-functions <module.js> -o <file> [-p <platform-package>…]` (reads the module's `eastFunctions`) | `East.export_functions(pkg, version, {"name": fn}, providers)` → `East.encode_function_manifest` · CLI `east-py export-functions <module> -o <file> [-p <platform-package>…]` (reads the module's `east_functions`) |
+| Export a package's functions as a **manifest** | `East.exportFunctions(pkg, version, { name: fn }, { providers })` → `East.encodeFunctionManifest` · CLI `east-node export-functions <module.js> -o <file> [-p <platform-package>…] [--only <name>…]` (reads the module's `eastFunctions`; `--only` narrows it to the named functions) | `East.export_functions(pkg, version, {"name": fn}, providers)` → `East.encode_function_manifest` · CLI `east-py export-functions <module> -o <file> [-p <platform-package>…] [--only <name>]…` (reads the module's `east_functions`; `--only` narrows it) |
 | Refer to an exported function | `East.importFunction(pkg, name, FunctionType([...], Out))` — a callable function expression | `East.import_function(pkg, name, FunctionType([...], Out))` |
 | Resolve the references | `East.linkImports(fn, manifests)` → `{ ir, imports }` — what `e3.export(pkg, out, { functions })` runs on every task, function and mutation | `East.link_imports(fn, manifests)` → `(ir, imports)` |
 
@@ -302,7 +302,11 @@ by the `@elaraai/east-node-cli` the member resolves, else `east-node` on
 PATH, `EAST_NODE` naming it outright. The providers are the importing
 owner's runner in the exporting language: a stock platform maps to its
 python / node family member, a `{ custom }` name passes through on a runner
-of that runtime. A manifest given in `functions:` wins for its package; a
+of that runtime. One export runs per package and provider set, of exactly
+the functions the owners with those providers import (`--only`), so a
+sibling function's platform call never fails an owner that does not use it,
+and each owner links against the manifests exported for its own runner. A
+manifest given in `functions:` wins for its package; a
 referenced package that is neither given nor a local member is an export
 error naming the import and both ways out. `e3-cli`'s `e3 export` /
 `workspace deploy --from-source` inherit this; `--functions` is for
