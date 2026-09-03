@@ -34,7 +34,7 @@ export { type CallableAsyncFunctionExpr, AsyncFunctionExpr } from './asyncfuncti
 import { from, equal, notEqual, less, lessEqual, print, is, greaterEqual, greater, func, str, platform, asyncFunction, asyncPlatform, genericPlatform, asyncGenericPlatform, compile, compileAsync, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch, builtin, as, wrapRecursive, error } from './block.js';
 import { toSource } from '../codegen/index.js';
 import { importFunction, exportFunctions, encodeFunctionManifest, decodeFunctionManifest, linkImports, platformDependencies } from '../functions.js';
-export { BlockBuilder, type AsyncPlatformDefinition, type PlatformDefinition, type GenericPlatformDefinition, type AsyncGenericPlatformDefinition, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch } from './block.js';
+export { BlockBuilder, type AsyncPlatformDefinition, type PlatformDefinition, type GenericPlatformDefinition, type AsyncGenericPlatformDefinition, type PlatformDeclaration, PLATFORM_DECLARATION, isPlatformDeclaration, equals, eq, notEquals, ne, lessThan, lt, lessThanOrEqual, lte, le, greaterThan, gt, greaterThanOrEqual, gte, ge, diff, applyPatch, composePatch, invertPatch } from './block.js';
 
 // Import standard libraries
 import IntegerLib from './libs/integer.js';

@@ -428,6 +428,14 @@ east-py transpile double.beast2 -o double.py               # the python twin (to
   `East.builtin(name, [T...], [args], out)` (it rebuilds; it is just not
   idiomatic). `East.as(v, T)` and `East.wrapRecursive(v, T)` are the
   spellings of the `As` / `WrapRecursive` nodes.
+- A platform call prints as the library spells it when you pass the library's
+  module — `East.toSource(fn, { libraries: { "@elaraai/east-node-io": await import("@elaraai/east-node-io") } })`
+  prints `Compression.Tar.create(entries)` and imports `Compression` (the
+  printer finds the declaration handle in the module's exports: every handle
+  `East.platform` returns carries its `name`, `inputs`, `output` and `async`;
+  `isPlatformDeclaration(x)` tells one from a function). Without the module
+  the call hoists to a declaration named after the platform function:
+  `const tar_create = East.asyncPlatform("tar_create", …)`.
 - Variables keep the names you wrote — parameters, `$.let` / `$.const`
   bindings, callback, loop, match-arm and catch parameters — read by the
   TypeScript compiler (`typescript`, an optional peer of `@elaraai/east`;

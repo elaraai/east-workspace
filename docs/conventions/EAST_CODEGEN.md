@@ -47,9 +47,21 @@ build(print(IR)) ≡ IR        under east-c's normalizer
 - **Deterministic, and laid out.** The same IR prints the same text. Every
   type prints inline where it is used (`$.let(new Map([…]),
   DictType(IntegerType, StringType))`, as an author writes it); a recursive
-  type hoists to a `_tN` constant (deduplicated structurally); platform
-  declarations hoist to `_pN` (one per distinct signature), in first-use
-  order; a closure-free function called where it stands (the `Call` of a
+  type hoists to a `_tN` constant (deduplicated structurally); a platform
+  call prints as the library that declares it spells it when the library's
+  module is given (TypeScript, `toSource`'s `libraries`:
+  `Compression.Tar.create(entries)` with `import { Compression } from
+  "@elaraai/east-node-io"` — the printer walks the module's exports for the
+  declaration handle of that name and signature, so the library's own
+  structure is the spelling; python has no grouped surface) and otherwise
+  hoists to a declaration **named after the platform function**
+  (`const tar_create = East.asyncPlatform("tar_create", …)` /
+  `tar_create = East.asyncPlatform('tar_create', …)`; `my.log` is
+  `my_log`; a second signature under one name takes a `_2` suffix; `_pN`
+  only when the name cannot be an identifier), one per distinct signature,
+  in first-use order — and a body variable of a declaration's or import's
+  name is renamed `v_N`, so it never shadows the module-level name; a
+  closure-free function called where it stands (the `Call` of a
   Function literal a TypeScript artifact leaves at its call) hoists to a
   `_fN` constant in TypeScript and is called by name, as the source called
   it — python prints it inline, `East.function(…)(x)`, because a python
@@ -123,7 +135,7 @@ python), so the mapping is one table.
 | expression `TryCatch` (no finally) | `Expr.tryCatch(body, ($, message, stack) => e)` | `East.try_catch(…)` |
 | expression `Block` | `Expr.block($ => { …; return e; })` | `East.block(…)` |
 | `As` / `WrapRecursive` / `UnwrapRecursive` | `East.as(v, T)` / `East.wrapRecursive(v, T)` / `v.unwrap()` | `East.as_(v, T)` / `East.wrap_recursive(v, T)` / `v.unwrap()` |
-| `Platform` | `_pN = East.platform(name, [T…], O)`; `_pN(args)`; generic: `East.genericPlatform(…)` called `_pN([T…], args)` | `_pN = East.platform(…)`; `_pN(args)` |
+| `Platform` | the library's export when its module is given — `Compression.Tar.create(args)`, imported (`libraries`); else `const <name> = East.platform(name, [T…], O)`; `<name>(args)`; generic: `East.genericPlatform(…)` called `<name>([T…], args)` | `<name> = East.platform(…)`; `<name>(args)` — the declaration's name is the platform function's (`tar_create`) |
 | `Builtin` with a spelling row | the row (`{0}.add({1})`, `East.print({0})`, …) | the row (`{0}.add({1})`, `East.print({0})`, …) |
 | `Builtin` without a row | `East.builtin(name, [T…], [args], out)` | `East.builtin(name, [T…], [args], out)` |
 | `StringConcat` chains | `.concat(…)` — `East.str\`…\`` builds the same chain | `.concat(…)` — `East.str` builds the same chain |

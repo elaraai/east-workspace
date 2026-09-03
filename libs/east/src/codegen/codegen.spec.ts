@@ -27,9 +27,10 @@ import { pathToFileURL } from "node:url";
 
 import {
   East, Expr, variant, ref, some, none,
-  ArrayType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType,
+  ArrayType, BlobType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType,
   SetType, StringType, StructType, VariantType, VectorType,
-  IRType, EastTypeType, fromJSONFor, equalFor, isVariant, toSource, RAW_ONLY,
+  IRType, EastTypeType, fromJSONFor, equalFor, isVariant, isPlatformDeclaration, toSource, RAW_ONLY,
+  type ToSourceOptions,
 } from "../index.js";
 
 // ── the harness ─────────────────────────────────────────────────────────────
@@ -226,15 +227,15 @@ function show(v: unknown): string {
 }
 
 /** Prints, rebuilds, and checks the rebuilt IR against the original. */
-async function roundTrip(fn: any, label: string): Promise<any> {
+async function roundTrip(fn: any, label: string, options: ToSourceOptions = {}): Promise<any> {
   const ir = fn.toIR ? fn.toIR().ir : fn;
-  const source = toSource(ir, { importFrom: INDEX_URL });
+  const source = toSource(ir, { importFrom: INDEX_URL, ...options });
   if (SAVE_DIR) {
     const out = join(SAVE_DIR, `${label}.mjs`);
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, source, "utf-8");
   }
-  assert.equal(toSource(ir, { importFrom: INDEX_URL }), source, `${label}: printing is deterministic`);
+  assert.equal(toSource(ir, { importFrom: INDEX_URL, ...options }), source, `${label}: printing is deterministic`);
   let main: any;
   let rebuilt: unknown;
   try {
@@ -492,6 +493,86 @@ describe("codegen: toSource round trips the builder surface", () => {
       return n.add(1n);
     });
     await roundTrip(fn, "async platform");
+  });
+
+  test("a declaration handle carries its identity: name, inputs, output, asyncness, type parameters", () => {
+    const log = East.platform("my.log", [StringType], NullType);
+    const fetchAs = East.asyncGenericPlatform("fetchAs", ["T"], [StringType], "T", { optional: true });
+    assert.ok(isPlatformDeclaration(log));
+    assert.ok(isPlatformDeclaration(fetchAs));
+    assert.ok(!isPlatformDeclaration(() => 1));
+    assert.ok(!isPlatformDeclaration({ name: "x", inputs: [], output: NullType }));
+    assert.equal(log.name, "my.log");
+    assert.deepEqual(log.inputs, [StringType]);
+    assert.equal(log.output, NullType);
+    assert.equal(log.async, false);
+    assert.equal(log.optional, false);
+    assert.equal(fetchAs.name, "fetchAs");
+    assert.deepEqual(fetchAs.typeParameters, ["T"]);
+    assert.equal(fetchAs.async, true);
+    assert.equal(fetchAs.optional, true);
+    // the identity is the handle's, not the closure's: a declaration still emits its node
+    const fn = East.function([StringType], NullType, ($, s) => { $(log(s)); });
+    assert.ok(JSON.stringify(fn.toIR().ir, (_k, v) => typeof v === "bigint" ? String(v) : v).includes("my.log"));
+  });
+
+  test("a hoisted declaration is named after the platform function; a second signature takes a suffix; a body variable of that name is renamed", async () => {
+    const log = East.platform("my.log", [StringType], NullType);
+    const logCount = East.platform("my.log", [IntegerType], NullType);     // the same name, another signature
+    const fn = East.function([StringType], IntegerType, ($, s) => {
+      const my_log = $.const(1n);                                          // the platform's identifier: the variable moves, the declaration keeps its name
+      $(log(s));
+      $(logCount(my_log));
+      return my_log;
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /^const my_log = East\.platform\("my\.log", \[StringType\], NullType\);$/m, source);
+    assert.match(source, /^const my_log_2 = East\.platform\("my\.log", \[IntegerType\], NullType\);$/m, source);
+    assert.doesNotMatch(source, /_p0/, source);
+    assert.match(source, /const v_0 = \$\.const\(1n\);/, source);
+    assert.match(source, /\$\(my_log\(s\)\);/, source);
+    assert.match(source, /\$\(my_log_2\(v_0\)\);/, source);
+    const main = await roundTrip(fn, "named declarations");
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL, width: Infinity }), source, "print → build → print is the identity");
+  });
+
+  test("a platform call spells as the library's own export when the library's module is given, and the import is added", async () => {
+    // a library: the declarations exported flat under their registered names and grouped, as east-node-io exports them
+    const libPath = join(TMP, "lib.mjs");
+    writeFileSync(libPath, [
+      `import { East, StringType, BlobType, ArrayType } from ${JSON.stringify(INDEX_URL)};`,
+      `export const tar_create = East.asyncPlatform("tar_create", [ArrayType(StringType)], BlobType);`,
+      `export const tar_extract = East.asyncPlatform("tar_extract", [BlobType], StringType);`,
+      `export const flat_only = East.platform("flat_only", [StringType], StringType);`,
+      `export const Compression = { Tar: { create: tar_create, extract: tar_extract, Implementation: [] } };`,
+      "",
+    ].join("\n"), "utf-8");
+    const specifier = pathToFileURL(libPath).href;
+    const lib = await import(specifier);
+    const other = East.asyncPlatform("tar_create", [StringType], BlobType);   // the same name, a signature the library does not declare
+    const fn = East.asyncFunction([ArrayType(StringType), StringType], StringType, ($, entries, s) => {
+      const blob = $.const(lib.Compression.Tar.create(entries));
+      const again = $.const(other(s));
+      const text = $.const(lib.tar_extract(blob));
+      return lib.flat_only(text).concat(East.print(again.size()));
+    });
+    const libraries = { [specifier]: lib };
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity, libraries });
+    // the grouped path is the spelling; the flat-only export is spelled flat; both come from one import line
+    assert.match(source, new RegExp(`^import \\{ Compression, flat_only \\} from ${JSON.stringify(specifier).replace(/[.*+?^$()|[\]\\]/g, "\\$&")};$`, "m"), source);
+    assert.match(source, /const blob = \$\.const\(Compression\.Tar\.create\(entries\)\);/, source);
+    assert.match(source, /const text = \$\.const\(Compression\.Tar\.extract\(blob\)\);/, source);
+    assert.match(source, /return flat_only\(text\)\.concat/, source);
+    // a call whose signature no library declares keeps its hoisted declaration — named, and not shadowing the library's name
+    assert.match(source, /^const tar_create = East\.asyncPlatform\("tar_create", \[StringType\], BlobType\);$/m, source);
+    assert.match(source, /const again = \$\.const\(tar_create\(s\)\);/, source);
+    assert.doesNotMatch(source, /East\.asyncPlatform\("tar_extract"/, source);
+    // without the library, every call is a hoisted declaration
+    const bare = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.doesNotMatch(bare, /Compression/, bare);
+    assert.match(bare, /^const tar_extract = East\.asyncPlatform\("tar_extract"/m, bare);
+    const main = await roundTrip(fn, "library spellings", { libraries });
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL, width: Infinity, libraries }), source, "print → build → print is the identity");
   });
 
   test("regex and csv arguments print as the host values the surface takes", async () => {

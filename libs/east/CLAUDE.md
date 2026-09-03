@@ -11,7 +11,11 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
 - `src/containers/` — JS runtime containers (sorted set / dict, variants).
 - `src/expr/` — fluent expression builder.
 - `src/serialization/` — JSON, Beast2, CSV, East text format.
-- `src/codegen/` — the IR → TypeScript printer (`East.toSource`; `printer.ts`,
+- `src/codegen/` — the IR → TypeScript printer (`East.toSource`; `printer.ts` —
+  given `libraries`, a platform call prints as the library exports its
+  declaration handle (`Compression.Tar.create`), else as a declaration named
+  after the platform function; the handles `East.platform` returns carry
+  their identity, `isPlatformDeclaration` —
   the builtin spelling table `spellings.ts` — whose per-slot `exprs` /
   `inferred` flags `spellings.spec.ts` checks against the surface's
   signatures with the compiler — `types.ts`, and `doc.ts`, the

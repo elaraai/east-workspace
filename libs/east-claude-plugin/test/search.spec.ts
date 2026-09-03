@@ -54,6 +54,20 @@ test("every program example in the corpus has both printings; every JSX example 
   assert.ok(counted > 700, `program examples in the corpus: ${counted}`);
 });
 
+test("a library example prints its platform calls as the library exports them, and python names its declarations", () => {
+  const tar = RAW.get("east-node-io:tar.examples.ts:tarCreate")!;
+  assert.ok(tar, "the tar example is indexed");
+  assert.match(tar.ts!, /^import \{ Compression \} from "@elaraai\/east-node-io";$/m, tar.ts);
+  assert.match(tar.ts!, /Compression\.Tar\.create\(entries\)/, tar.ts);
+  assert.doesNotMatch(tar.ts!, /East\.asyncPlatform\(/, tar.ts);
+  assert.match(tar.python!, /^tar_create = East\.asyncPlatform\(/m, tar.python!);   // the declaration breaks over lines at the width
+  assert.match(tar.python!, /tar_create\(entries\)/, tar.python!);
+  assert.doesNotMatch(tar.python!, /_p0/, tar.python!);
+  const log = RAW.get("east-node-std:console.examples.ts:consoleLog")!;
+  assert.match(log.ts!, /Console\.log\(/, log.ts);
+  assert.match(log.ts!, /^import \{ Console \} from "@elaraai\/east-node-std";$/m, log.ts);
+});
+
 test("a JSX-authored UI example keeps its source, is tsx, and has no python", async () => {
   const index = await buildSearchIndex(INDEX);
   const [ui] = hits(index, "Plan drag drop series", "east-ui");

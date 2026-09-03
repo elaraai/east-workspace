@@ -54,8 +54,12 @@ the module already uses are renamed ``v_N``, numbered once per module
 as ``b_``). Every type prints inline where it is used (``b.let({1: 'a'},
 DictType(IntegerType, StringType))``, as an author writes it); a recursive
 type is hoisted to a module constant ``_tN`` (deduplicated structurally).
-Platform declarations are hoisted to ``_pN`` (one per distinct signature).
-A function called where it stands — the ``Call`` of a Function literal a
+A platform call hoists to a module-level declaration named after the
+platform function (``tar_create = East.asyncPlatform('tar_create', …)``;
+``my.log`` is ``my_log``; a second signature under one name takes a ``_2``
+suffix; ``_pN`` when the name cannot be an identifier), one per distinct
+signature — a body variable of that name is renamed ``v_N`` so it never
+shadows the declaration. A function called where it stands — the ``Call`` of a Function literal a
 TypeScript artifact leaves at its call site — prints inline,
 ``East.function(...)(x)``: a python artifact called inside another body
 SPLICES its body into the caller (#470) rather than emitting a ``Call``, so
@@ -119,6 +123,9 @@ _CONSTRUCTIONS = frozenset({"Struct", "Variant", "NewArray", "NewDict"})
 _MAX_DEPTH = 24
 #: The block parameter every statement-bearing body declares first.
 _BLOCK = "b"
+#: The names a printed module imports or binds at module level besides the declarations — never a declaration's name.
+_MODULE_NAMES = frozenset({"East", "variant", "some", "none", "east_null", "recursive_type", "datetime", "timezone",
+                           *TYPE_IMPORTS})
 #: The printer's own spelling for a variable it cannot name as the IR does.
 _V_NAME = re.compile(r"v_(\d+)")
 #: A template slot: an argument or a type parameter.
@@ -319,8 +326,11 @@ class _Printer:
         self.width = width
         self.types: dict[str, tuple[str, Doc]] = {}     # type key -> (const name, source)
         self.literals: dict[str, Any] = {}               # type key -> its host-literal printer
-        self.platforms: dict[tuple, str] = {}             # signature -> const name
+        self.platforms: dict[tuple, str] = {}             # signature -> declaration name
         self.platform_decls: list[Doc] = []
+        #: the declaration names taken, and the module-level names a body variable must not shadow
+        self.platform_names: set[str] = set()
+        self.reserved: set[str] = set()
         #: method-call documents (by id) -> (receiver, segments, the document itself, kept alive)
         self.chains: dict[int, tuple[Doc, list[Doc], Doc]] = {}
         #: the chain documents that may expand one call per line (need parentheses after ``return``)
@@ -354,15 +364,60 @@ class _Printer:
             return name
         return hit[0]
 
-    def platform_ref(self, p: Any) -> str:
+    @staticmethod
+    def platform_signature(p: Any) -> tuple:
+        """The signature a hoisted declaration is deduplicated by."""
         inputs = tuple(type_key(a.value["type"]) for a in p["arguments"])
         tps = tuple(type_key(t) for t in p["type_parameters"])
-        sig = (p["name"], inputs, type_key(p["type"]), bool(p["async"]), bool(p["optional"]), tps)
-        hit = self.platforms.get(sig)
-        if hit is not None:
-            return hit
-        name = f"_p{len(self.platforms)}"
-        self.platforms[sig] = name
+        return (p["name"], inputs, type_key(p["type"]), bool(p["async"]), bool(p["optional"]), tps)
+
+    def platform_name(self, ir_name: str) -> str:
+        """The module-level name of a hoisted declaration: the platform
+        function's own name as an identifier (``tar_create``; ``my.log`` is
+        ``my_log``), a ``_2``, ``_3``… suffix when another signature already
+        took it, ``_pN`` when the name cannot be one."""
+        base = re.sub(r"\W", "_", ir_name)
+        if not re.match(r"[A-Za-z_]", base):
+            base = f"_{base}"
+        if not _ident(base) or base in _MODULE_NAMES or base == self.root_name:
+            base = f"_p{len(self.platform_names)}"
+        name = base
+        n = 1
+        while name in self.platform_names:
+            n += 1
+            name = f"{base}_{n}"
+        self.platform_names.add(name)
+        return name
+
+    def prepare(self, ir: Any) -> None:
+        """Fix the declarations' names before any body prints (by signature,
+        in IR order), so a variable a body binds never shadows one."""
+        from east.expression.finalize import _node_children
+
+        stack = [ir]
+        while stack:
+            n = stack.pop()
+            if n.type == "Platform":
+                p = n.value
+                args = list(p["arguments"])
+                is_import = p["name"] == IMPORT_PLATFORM and len(args) == 2 and all(a.type == "Value" for a in args)
+                if not is_import:
+                    sig = self.platform_signature(p)
+                    if sig not in self.platforms:
+                        name = self.platform_name(p["name"])
+                        self.platforms[sig] = name
+                        self.reserved.add(name)
+            stack.extend(reversed(list(_node_children(n))))
+
+    def platform_ref(self, p: Any) -> str:
+        sig = self.platform_signature(p)
+        name = self.platforms.get(sig)
+        if name is None:
+            name = self.platform_name(p["name"])
+            self.platforms[sig] = name
+        if any(isinstance(d, list) and d and d[0] == name for d in self.platform_decls):
+            return name
+        tps = list(p["type_parameters"])
         args = bracket("[", [self.type_ref(a.value["type"]) for a in p["arguments"]], "]")
         opt: list[Doc] = ["optional=True"] if p["optional"] else []
         if tps:
@@ -418,7 +473,7 @@ class _Printer:
         py = ir_name if _ident(ir_name) and not ir_name.startswith("__") else None
         if py == _BLOCK and f"{py}_" not in scope.used:
             py = f"{py}_"  # the author's `b` is the block's name here
-        if py is None or py in scope.used:
+        if py is None or py in scope.used or py in self.reserved:
             # The builder's own spelling, or a name this scope already
             # uses: ``v_N`` from one module-wide counter, so the rebuilt
             # module names the slot the same way and prints to itself.
@@ -1115,6 +1170,7 @@ class _Printer:
         if root.type not in ("Function", "AsyncFunction"):
             raise Unprintable(f"the root must be a Function or AsyncFunction, got {root.type}")
         self.var_counter = _next_v_index(ir)
+        self.prepare(ir)
         # A python artifact's hoisted constants become the body's consts.
         fn_doc = self.function_def(root, _Scope(None), self.root_name, consts=consts, root=True)
         # exactly the names the module uses, in one fixed order

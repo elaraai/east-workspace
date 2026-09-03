@@ -54,8 +54,14 @@
  * block. Every type prints inline where it is used (`$.let(new Map([...]),
  * DictType(IntegerType, StringType))`, as an author writes it); a recursive
  * type is hoisted to a module constant `_tN` (deduplicated structurally).
- * Platform declarations are hoisted to `_pN` (one per distinct signature).
- * A closure-free function called where it stands — an `East.function`
+ * A platform call spells as the library that declares it spells it when the
+ * library's module is given (`libraries`: `Compression.Tar.create(entries)`,
+ * imported from the library) — found by walking the module's exports for
+ * the declaration handle of that name — and otherwise hoists to a
+ * module-level declaration named after the platform function
+ * (`const tar_create = East.asyncPlatform("tar_create", …)`; a second
+ * signature under one name takes a `_2` suffix), one per distinct
+ * signature. A closure-free function called where it stands — an `East.function`
  * artifact the compiler inlined at its call, `(East.function(...))(x)` — is
  * hoisted to a module constant `_fN` (one per distinct function) and called
  * by name, as the source called it. Deep expression nesting is broken with
@@ -76,7 +82,9 @@
  */
 
 import { Expr } from "../expr/expr.js";
-import type { EastTypeValue } from "../type_of_type.js";
+import { isPlatformDeclaration, type PlatformDeclaration } from "../expr/block.js";
+import { toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
+import type { EastType } from "../types.js";
 import { IMPORT_PLATFORM } from "../functions.js";
 import { spellingFor, type Spelling } from "./spellings.js";
 import { TYPE_IMPORTS, isOptionValue, objectKey, typeConstructors, typeDoc, typeKey } from "./types.js";
@@ -385,7 +393,74 @@ export interface ToSourceOptions {
   importFrom?: string;
   /** The line width the layout keeps to (default {@link LINE_WIDTH}); `Infinity` prints every construct on one line. */
   width?: number;
+  /**
+   * The library modules the program uses, by the specifier the printed
+   * module should import them from: `{ "@elaraai/east-node-io": await
+   * import("@elaraai/east-node-io") }`. A platform call whose declaration
+   * handle a module exports prints as that export — `Compression.Tar.create(
+   * entries)` with `import { Compression } from "@elaraai/east-node-io"` —
+   * rather than as a hoisted declaration; the library's own structure is the
+   * spelling, read from its exports.
+   */
+  libraries?: Record<string, object>;
 }
+
+/** A platform call's spelling from a library: the import root and the member path to the handle. */
+interface LibrarySpelling {
+  specifier: string;
+  path: string[];
+  declaration: PlatformDeclaration;
+}
+
+/** How deep into a module's exported objects a declaration is looked for. */
+const LIBRARY_DEPTH = 4;
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  if (v === null || typeof v !== "object") return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * Every platform declaration the library modules export, by platform name,
+ * each with the path the module exports it under. A declaration exported
+ * under several names keeps the grouped one (`Compression.Tar.create` over
+ * the flat `tar_create` — the documented surface), the shortest of those,
+ * the first found among equals.
+ */
+function librarySpellings(libraries: Record<string, object>): Map<string, LibrarySpelling> {
+  const found = new Map<string, LibrarySpelling>();
+  const better = (a: LibrarySpelling, b: LibrarySpelling): boolean => {
+    const groupedA = a.path[a.path.length - 1] !== a.declaration.name;
+    const groupedB = b.path[b.path.length - 1] !== b.declaration.name;
+    if (groupedA !== groupedB) return groupedA;
+    return a.path.length < b.path.length;
+  };
+  for (const [specifier, mod] of Object.entries(libraries)) {
+    const seen = new Set<object>();
+    const stack: Array<[object, string[]]> = [[mod, []]];
+    while (stack.length > 0) {
+      const [obj, path] = stack.pop()!;
+      if (seen.has(obj)) continue;
+      seen.add(obj);
+      for (const key of Object.keys(obj).sort()) {
+        if (!isIdent(key)) continue;
+        const value = (obj as Record<string, unknown>)[key];
+        const at = [...path, key];
+        if (isPlatformDeclaration(value)) {
+          const candidate: LibrarySpelling = { specifier, path: at, declaration: value };
+          const prior = found.get(value.name);
+          if (prior === undefined || better(candidate, prior)) found.set(value.name, candidate);
+        } else if (at.length < LIBRARY_DEPTH && isPlainObject(value)) {
+          stack.push([value, at]);
+        }
+      }
+    }
+  }
+  return found;
+}
+
+const NEVER_A_DECLARATION_NAME = new Set(["some", "none", ...TYPE_IMPORTS]);
 
 class Printer {
   readonly types = new Map<string, [string, Doc]>();        // type key -> [const name, source]
@@ -395,6 +470,11 @@ class Printer {
   readonly used = new Set<string>(["East"]);
   readonly platforms = new Map<string, string>();            // signature -> const name
   readonly platformDecls: Doc[] = [];
+  /** The declaration names taken, and the module-level names a body variable must not shadow (declarations, library import roots). */
+  readonly platformNames = new Set<string>();
+  readonly reserved = new Set<string>();
+  /** Library specifier -> the import roots the module uses from it. */
+  readonly libraryImports = new Map<string, Set<string>>();
   /** Closure-free functions called where they stand: structural key -> `_fN`, and their declarations. */
   readonly hoisted = new Map<string, string>();
   readonly hoistedDecls: Doc[] = [];
@@ -405,7 +485,7 @@ class Printer {
   tempCounter = 0;
   varCounter = 0;
 
-  constructor(readonly rootName: string, readonly width: number) {}
+  constructor(readonly rootName: string, readonly width: number, readonly spellings: Map<string, LibrarySpelling>) {}
 
   // ── module-level pieces ──────────────────────────────────────────────
 
@@ -423,14 +503,99 @@ class Printer {
     return hit[0];
   }
 
-  platformRef(p: any): string {
+  /**
+   * The library's spelling of a platform call, or `null` when no given
+   * library exports a declaration of that name with the call's signature
+   * (asyncness, arity and types, or type parameter count when generic).
+   */
+  platformSpelling(p: any): LibrarySpelling | null {
+    const hit = this.spellings.get(p.name as string);
+    if (hit === undefined) return null;
+    const decl = hit.declaration;
+    if (decl.async !== !!p.async) return null;
+    const tps = p.type_parameters as EastTypeValue[];
+    if (decl.typeParameters !== undefined) return decl.typeParameters.length === tps.length ? hit : null;
+    if (tps.length > 0) return null;
+    const args = p.arguments as Node[];
+    if (decl.inputs.length !== args.length) return null;
+    const same = (t: EastType | string, key: string): boolean => typeof t !== "string" && typeKey(toEastTypeValue(t)) === key;
+    if (!decl.inputs.every((t, i) => same(t, typeKey(args[i]!.value.type)))) return null;
+    return same(decl.output, typeKey(p.type)) ? hit : null;
+  }
+
+  /** A library spelling in use: its import root is recorded, and the member path returned. */
+  useSpelling(spelling: LibrarySpelling): string {
+    let roots = this.libraryImports.get(spelling.specifier);
+    if (roots === undefined) {
+      roots = new Set();
+      this.libraryImports.set(spelling.specifier, roots);
+    }
+    roots.add(spelling.path[0]!);
+    return spelling.path.join(".");
+  }
+
+  /** The signature a hoisted declaration is deduplicated by. */
+  platformSignature(p: any): string {
     const inputs = (p.arguments as Node[]).map(a => typeKey(a.value.type));
     const tps = (p.type_parameters as EastTypeValue[]).map(t => typeKey(t));
-    const sig = JSON.stringify([p.name, inputs, typeKey(p.type), !!p.async, !!p.optional, tps]);
-    const hit = this.platforms.get(sig);
-    if (hit !== undefined) return hit;
-    const name = `_p${this.platforms.size}`;
+    return JSON.stringify([p.name, inputs, typeKey(p.type), !!p.async, !!p.optional, tps]);
+  }
+
+  /**
+   * The module-level name of a hoisted declaration: the platform function's
+   * own name as an identifier (`tar_create`; `my.log` is `my_log`), a `_2`,
+   * `_3`… suffix when another signature already took it, `_pN` when the name
+   * cannot be an identifier.
+   */
+  platformName(irName: string): string {
+    let base = irName.replace(/[^A-Za-z0-9_$]/g, "_");
+    if (!/^[A-Za-z_$]/.test(base)) base = `_${base}`;
+    if (!isIdent(base) || NEVER_A_DECLARATION_NAME.has(base)) base = `_p${this.platformNames.size}`;
+    let name = base;
+    for (let n = 2; this.platformNames.has(name); n++) name = `${base}_${n}`;
+    this.platformNames.add(name);
+    return name;
+  }
+
+  /**
+   * Fixes the module-level names before any body prints, so a variable a
+   * body binds never shadows them: every hoisted declaration's name (by
+   * signature, in IR order) and the import root of every library spelling.
+   */
+  prepare(ir: Node): void {
+    const walk = (v: unknown): void => {
+      if (Array.isArray(v)) { for (const x of v) walk(x); return; }
+      if (v === null || typeof v !== "object" || v instanceof Date || v instanceof Uint8Array) return;
+      const node = v as { type?: unknown, value?: any };
+      if (node.type === "Platform" && node.value !== null && typeof node.value === "object") {
+        const p = node.value;
+        const args = p.arguments as Node[];
+        const isImport = p.name === IMPORT_PLATFORM && args.length === 2 && args.every(a => a.type === "Value");
+        if (!isImport) {
+          const spelled = this.platformSpelling(p);
+          if (spelled !== null) {
+            this.reserved.add(spelled.path[0]!);
+          } else {
+            const sig = this.platformSignature(p);
+            if (!this.platforms.has(sig)) {
+              const name = this.platformName(p.name as string);
+              this.platforms.set(sig, name);
+              this.reserved.add(name);
+            }
+          }
+        }
+      }
+      for (const [k, x] of Object.entries(v)) if (k !== "type" && k !== "type_parameters") walk(x);
+    };
+    walk(ir);
+  }
+
+  platformRef(p: any): string {
+    const sig = this.platformSignature(p);
+    const name = this.platforms.get(sig) ?? this.platformName(p.name as string);
     this.platforms.set(sig, name);
+    if (this.platformDecls.some(d => Array.isArray(d) && d[1] === name)) return name;
+    const tps = p.type_parameters as EastTypeValue[];
     const args = bracket("[", (p.arguments as Node[]).map(a => this.typeRef(a.value.type)), "]");
     const opt: Doc[] = p.optional ? ["{ optional: true }"] : [];
     if (tps.length > 0) {
@@ -493,7 +658,7 @@ class Printer {
   bind(scope: Scope, variable: Node): string {
     const irName = variable.value.name as string;
     let name: string | null = isIdent(irName) ? irName : null;
-    if (name === null || scope.used.has(name)) {
+    if (name === null || scope.used.has(name) || this.reserved.has(name)) {
       // The other builder's own spelling, or a name this scope already
       // uses: `v_N` from one module-wide counter, so the rebuilt module
       // names the slot the same way and prints to itself.
@@ -777,7 +942,8 @@ class Printer {
           return ["East.importFunction", callArgs([pkg!, name!, this.typeRef(p.type)])];
         }
         const args = argNodes.map(a => this.valueDoc(a, scope, pre, d, true));
-        const ref = this.platformRef(p);
+        const spelled = this.platformSpelling(p);
+        const ref = spelled !== null ? this.useSpelling(spelled) : this.platformRef(p);
         if ((p.type_parameters as EastTypeValue[]).length > 0) {
           const tps = bracket("[", (p.type_parameters as EastTypeValue[]).map(t => this.typeRef(t)), "]");
           return [ref, callArgs([tps, ...args])];
@@ -1211,6 +1377,7 @@ class Printer {
       throw new Unprintable(`the root must be a Function or AsyncFunction, got ${root.type}`);
     }
     this.varCounter = nextVIndex(ir);
+    this.prepare(ir);
     // A python artifact's hoisted constants become the body's own consts.
     const fnDoc = this.functionExpr(root, new Scope(null), consts);
     // exactly the names the module uses, in one fixed order
@@ -1219,8 +1386,12 @@ class Printer {
       "// Generated by east-node transpile — East IR printed as the East.function",
       "// builder surface. Rebuilding this module yields the same IR (normalized).",
       `import { ${names.join(", ")} } from ${JSON.stringify(importFrom)};`,
-      "",
     ];
+    for (const specifier of [...this.libraryImports.keys()].sort()) {
+      const roots = [...this.libraryImports.get(specifier)!].sort();
+      parts.push(`import { ${roots.join(", ")} } from ${JSON.stringify(specifier)};`);
+    }
+    parts.push("");
     for (const [name, src] of this.types.values()) parts.push(["const ", name, " = ", src, ";"]);
     if (this.types.size > 0) parts.push("");
     parts.push(...this.platformDecls);
@@ -1279,7 +1450,9 @@ function irOf(fnOrIr: unknown): Node {
  *   node, or the `Block[Let…, Function]` a python build with hoisted
  *   constants emits — its constants become the body's first `$.const`s)
  * @param options - The export name (default `main`), the module the
- *   printed source imports from (default `@elaraai/east`) and the line width
+ *   printed source imports from (default `@elaraai/east`), the line width,
+ *   and the library modules whose exported declarations spell the platform
+ *   calls (`libraries`)
  * @returns The module source: importing it binds `name` to an
  *   `East.function(...)` whose IR normalizes equal to the input's
  * @throws {Unprintable} For a shape the TypeScript surface cannot spell — a
@@ -1297,6 +1470,6 @@ function irOf(fnOrIr: unknown): Node {
  * ```
  */
 export function toSource(fnOrIr: unknown, options: ToSourceOptions = {}): string {
-  const printer = new Printer(options.name ?? "main", options.width ?? LINE_WIDTH);
+  const printer = new Printer(options.name ?? "main", options.width ?? LINE_WIDTH, librarySpellings(options.libraries ?? {}));
   return printer.module(irOf(fnOrIr), options.importFrom ?? "@elaraai/east");
 }

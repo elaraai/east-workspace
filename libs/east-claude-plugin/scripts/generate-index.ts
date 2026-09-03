@@ -13,10 +13,13 @@
  *   is imported from the package's BUILT test modules (`distTest`) and stored
  *   as its IR — the example itself, loc_ids zeroed — with its declared types,
  *   inputs, expected return, the builtins and platform functions it calls,
- *   and the TypeScript printed from that IR by `East.toSource`. The python
- *   rendering is added by `scripts/render-python.py` (the python printer),
- *   which fills the `python` field this script leaves null. No authored
- *   source text is stored: both languages are printings of the IR.
+ *   and the TypeScript printed from that IR by `East.toSource` — with the
+ *   `libraries` of the config imported and given to the printer, so a
+ *   platform call prints as the library exports it (`Compression.Tar.create`)
+ *   rather than as a hoisted declaration. The python rendering is added by
+ *   `scripts/render-python.py` (the python printer), which fills the
+ *   `python` field this script leaves null. No authored source text is
+ *   stored: both languages are printings of the IR.
  * - otherwise — a package whose examples are not printable programs (UI
  *   components authored as JSX, hand-written CLI stubs): the authored
  *   TypeScript source is extracted from the file text, as before.
@@ -49,6 +52,8 @@ interface SourceConfig {
 
 interface IndexConfig {
     sources: SourceConfig[];
+    /** Library modules whose exported declarations spell platform calls in the printed TypeScript: specifier → built entry, relative to the base dir. */
+    libraries?: Record<string, string>;
 }
 
 /** One example. A program entry carries `ir` / `ts` / `python` / `signature` / `inputs` / `returns` / `builtins`; a source entry carries `source`. */
@@ -485,7 +490,7 @@ const exportIR = toJSONFor(IRType);
  * The program fields of one built `example()` export: IR, printed
  * TypeScript, signature, inputs, expected return, builtins.
  */
-function programFields(exportName: string, ex: { fn: any; inputs: unknown[]; returns?: unknown }): Pick<IndexEntry, "ir" | "ts" | "python" | "signature" | "inputs" | "returns" | "builtins"> {
+function programFields(exportName: string, ex: { fn: any; inputs: unknown[]; returns?: unknown }, libraries: Record<string, object>): Pick<IndexEntry, "ir" | "ts" | "python" | "signature" | "inputs" | "returns" | "builtins"> {
     const fnType = Expr.type(ex.fn) as { type: string; inputs: any[]; output: any };
     const bundle = ex.fn.toIR();
     const irJson = zeroLocations(exportIR(bundle.ir));
@@ -494,7 +499,7 @@ function programFields(exportName: string, ex: { fn: any; inputs: unknown[]; ret
     const returns = ex.returns === undefined || isExpr(ex.returns) ? null : JSON.stringify(toJSONFor(fnType.output)(ex.returns as any));
     return {
         ir: JSON.stringify(irJson),
-        ts: toSource(bundle.ir, { name: exportName }),
+        ts: toSource(bundle.ir, { name: exportName, libraries }),
         python: null,
         signature: {
             inputs: fnType.inputs.map((t) => typeSource(toEastTypeValue(t))),
@@ -543,6 +548,18 @@ async function main(): Promise<void> {
     const entries: IndexEntry[] = [];
     const fileCount = new Set<string>();
     const packageCounts: Record<string, number> = {};
+
+    // The libraries whose exports spell platform calls in the printed
+    // TypeScript — imported once, by the specifier the printed code imports.
+    const libraries: Record<string, object> = {};
+    for (const [specifier, entry] of Object.entries(config.libraries ?? {})) {
+        const built = path.resolve(resolvedBaseDir, entry);
+        if (!fs.existsSync(built)) {
+            throw new Error(`library ${specifier} is not built: ${built} — build the package first`);
+        }
+        libraries[specifier] = (await import(pathToFileURL(built).href)) as object;
+    }
+    if (Object.keys(libraries).length > 0) console.log(`[libraries] ${Object.keys(libraries).join(", ")}`);
 
     for (const source of config.sources) {
         const testDir = path.resolve(resolvedBaseDir, source.testDir);
@@ -598,7 +615,7 @@ async function main(): Promise<void> {
                     if (value === undefined || typeof value !== "object" || !("fn" in value) || !Array.isArray(value.inputs)) {
                         throw new Error(`${relFile}: export "${ex.exportName}" is not an example() in the built module`);
                     }
-                    Object.assign(entry, programFields(ex.exportName, value as { fn: any; inputs: unknown[]; returns?: unknown }));
+                    Object.assign(entry, programFields(ex.exportName, value as { fn: any; inputs: unknown[]; returns?: unknown }, libraries));
                 } else {
                     entry.source = ex.source;
                 }

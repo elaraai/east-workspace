@@ -1187,9 +1187,80 @@ export function invertPatch<T extends EastType>(patch: Expr<PatchTypeOf<T>>, typ
   }) as ExprType<PatchTypeOf<T>>;
 }
 
+/**
+ * The brand every declaration handle carries — a registered symbol, so a
+ * handle built by any copy of `@elaraai/east` in the process is recognised.
+ */
+export const PLATFORM_DECLARATION: unique symbol = Symbol.for("elaraai.east.platformDeclaration") as any;
+
+/**
+ * What a platform declaration handle says about itself: the identity of the
+ * `Platform` node a call emits — its registered name, declared input and
+ * output types, asyncness, optionality and (generic) type parameter names —
+ * readable from the handle. A library exports its declarations under its
+ * own names (`Compression.Tar.create` is the handle for `tar_create`), so
+ * anything given the library's exports can spell a call as the library
+ * spells it: the codegen printer does (`toSource`'s `libraries`).
+ */
+export interface PlatformDeclaration {
+  /** The platform function's registered name — the `Platform` node's `name`. */
+  readonly name: string;
+  /** The declared input types (placeholder names for a generic declaration's parameters). */
+  readonly inputs: readonly (EastType | string)[];
+  /** The declared output type (or a placeholder name). */
+  readonly output: EastType | string;
+  /** Whether calls emit an async `Platform` node. */
+  readonly async: boolean;
+  /** Whether compiling succeeds with no implementation provided. */
+  readonly optional: boolean;
+  /** The type parameter names of a generic declaration; absent on a concrete one. */
+  readonly typeParameters?: readonly string[];
+}
+
+/**
+ * Whether `value` is a platform declaration handle — what `East.platform`,
+ * `East.asyncPlatform`, `East.genericPlatform` and `East.asyncGenericPlatform`
+ * return.
+ *
+ * @param value - Anything
+ * @returns True for a declaration handle, whose identity fields are then typed
+ *
+ * @example
+ * ```ts
+ * const log = East.platform("log", [StringType], NullType);
+ * isPlatformDeclaration(log);   // true
+ * log.name;                     // "log"
+ * ```
+ */
+export function isPlatformDeclaration(value: unknown): value is PlatformDeclaration {
+  return typeof value === "function" && (value as any)[PLATFORM_DECLARATION] === true;
+}
+
+/** Stamps a handle with its identity: the brand, and the declaration fields as own properties. */
+function brandDeclaration(fn: any, declaration: PlatformDeclaration): void {
+  Object.defineProperty(fn, PLATFORM_DECLARATION, { value: true });
+  // a function's `name` is configurable: the handle's is the platform function's, not `fn`
+  Object.defineProperty(fn, "name", { value: declaration.name, configurable: true });
+  Object.defineProperty(fn, "inputs", { value: declaration.inputs, enumerable: true });
+  Object.defineProperty(fn, "output", { value: declaration.output, enumerable: true });
+  Object.defineProperty(fn, "async", { value: declaration.async, enumerable: true });
+  Object.defineProperty(fn, "optional", { value: declaration.optional, enumerable: true });
+  if (declaration.typeParameters !== undefined) {
+    Object.defineProperty(fn, "typeParameters", { value: declaration.typeParameters, enumerable: true });
+  }
+}
+
 /** Callable helper type for synchronous platform functions. */
 export type PlatformDefinition<Inputs extends EastType[], Output extends EastType> = ((...args: { [K in keyof Inputs]: SubtypeExprOrValue<Inputs[K]> }) => ExprType<Output>) & {
   implement: (fn: (...args: { [K in keyof Inputs]: ValueTypeOf<Inputs[K]> }) => Output extends NullType ? null | undefined | void : ValueTypeOf<Output>) => PlatformFunction,
+  /** The registered platform function name. */
+  readonly name: string,
+  /** The declared input types. */
+  readonly inputs: Inputs,
+  /** The declared output type. */
+  readonly output: Output,
+  readonly async: false,
+  readonly optional: boolean,
 }
 
 /** Options for defining platform functions. */
@@ -1317,12 +1388,21 @@ export function platform<const Inputs extends EastType[], Output extends EastTyp
     }
   }
 
-  return fn;
+  brandDeclaration(fn, { name, inputs: input_types, output: output_type, async: false, optional: isOptional });
+  return fn as PlatformDefinition<Inputs, Output>;
 }
 
 /** Callable helper type for asynchronous platform functions. */
 export type AsyncPlatformDefinition<Inputs extends EastType[], Output extends EastType> = ((...args: { [K in keyof Inputs]: SubtypeExprOrValue<Inputs[K]> }) => ExprType<Output>) & {
   implement: (fn: (...args: { [K in keyof Inputs]: ValueTypeOf<Inputs[K]> }) => Output extends NullType ? Promise<null | undefined | void> : Promise<ValueTypeOf<Output>>) => PlatformFunction,
+  /** The registered platform function name. */
+  readonly name: string,
+  /** The declared input types. */
+  readonly inputs: Inputs,
+  /** The declared output type. */
+  readonly output: Output,
+  readonly async: true,
+  readonly optional: boolean,
 }
 
 
@@ -1429,7 +1509,8 @@ export function asyncPlatform<const Inputs extends EastType[], Output extends Ea
     }
   }
 
-  return fn;
+  brandDeclaration(fn, { name, inputs: input_types, output: output_type, async: true, optional: isOptional });
+  return fn as AsyncPlatformDefinition<Inputs, Output>;
 }
 
 
@@ -1542,6 +1623,16 @@ export type GenericPlatformDefinition<
   Output extends EastType | string
 > = GenericPlatformCallable<TParams, Inputs, Output> & {
   implement: (factory: (...typeParams: { [K in keyof TParams]: EastTypeValue }) => (...args: unknown[]) => unknown) => PlatformFunction;
+  /** The registered platform function name. */
+  readonly name: string;
+  /** The type parameter names. */
+  readonly typeParameters: TParams;
+  /** The declared input types, placeholders included. */
+  readonly inputs: Inputs;
+  /** The declared output type, or a placeholder. */
+  readonly output: Output;
+  readonly async: false;
+  readonly optional: boolean;
 };
 
 /** Create a callable helper to invoke a generic (polymorphic) platform function.
@@ -1726,6 +1817,7 @@ export function genericPlatform<
     };
   };
 
+  brandDeclaration(fn, { name, inputs, output, async: false, optional: isOptional, typeParameters: typeParams });
   return fn as GenericPlatformDefinition<TParams, Inputs, Output>;
 }
 
@@ -1756,6 +1848,16 @@ export type AsyncGenericPlatformDefinition<
   Output extends EastType | string
 > = AsyncGenericPlatformCallable<TParams, Inputs, Output> & {
   implement: (factory: (...typeParams: { [K in keyof TParams]: EastTypeValue }) => (...args: unknown[]) => Promise<unknown>) => PlatformFunction;
+  /** The registered platform function name. */
+  readonly name: string;
+  /** The type parameter names. */
+  readonly typeParameters: TParams;
+  /** The declared input types, placeholders included. */
+  readonly inputs: Inputs;
+  /** The declared output type, or a placeholder. */
+  readonly output: Output;
+  readonly async: true;
+  readonly optional: boolean;
 };
 
 /** Create a callable helper to invoke an asynchronous generic (polymorphic) platform function.
@@ -1922,6 +2024,7 @@ export function asyncGenericPlatform<
     };
   };
 
+  brandDeclaration(fn, { name, inputs, output, async: true, optional: isOptional, typeParameters: typeParams });
   return fn as AsyncGenericPlatformDefinition<TParams, Inputs, Output>;
 }
 

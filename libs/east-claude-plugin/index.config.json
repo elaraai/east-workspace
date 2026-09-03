@@ -1,4 +1,9 @@
 {
+  "libraries": {
+    "@elaraai/east-node-std": "east-node/packages/east-node-std/dist/src/index.js",
+    "@elaraai/east-node-io": "east-node/packages/east-node-io/dist/src/index.js",
+    "@elaraai/east-py-datascience": "east-py/packages/east-py-datascience/dist/src/index.js"
+  },
   "sources": [
     {
       "package": "east",
