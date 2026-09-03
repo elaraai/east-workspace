@@ -7,10 +7,9 @@ import { readHookInput, writeHookOutput } from "../lib/hook-io.js";
 import { getEastProjectInfo } from "../lib/east-project.js";
 import { getDiagnosticsText } from "../lib/diagnostics-client.js";
 import { getPythonDiagnosticsText } from "../lib/east-py-lint.js";
+import { PYTHON_EAST_IMPORT } from "@elaraai/east-diagnostics";
 
 const EAST_IMPORT_PATTERN = /@elaraai\/east/;
-// a python file that imports east: `import east`, `from east import …`, `from east.x import …`
-const PY_EAST_IMPORT = /^\s*(?:from\s+east(?:\.[\w.]+)?\s+import\b|import\s+east\b)/m;
 // Vendored / built / generated trees: never review code the agent doesn't own.
 const SKIP_PATH = /[/\\](node_modules|dist|build|\.venv|\.git)[/\\]/;
 
@@ -42,7 +41,7 @@ async function main() {
     process.exit(0);
     return;
   }
-  if (!(python ? PY_EAST_IMPORT : EAST_IMPORT_PATTERN).test(content)) process.exit(0);
+  if (!(python ? PYTHON_EAST_IMPORT : EAST_IMPORT_PATTERN).test(content)) process.exit(0);
 
   // Resolve the East project from the FILE's location, NOT the session cwd:
   // Claude is frequently launched from elsewhere (e.g. ~) while editing a
@@ -68,7 +67,7 @@ async function main() {
   if (existsSync(marker)) process.exit(0);
 
   const text = python
-    ? await getPythonDiagnosticsText(projectDir, filePath)
+    ? await getPythonDiagnosticsText(filePath)
     : await getDiagnosticsText(projectDir, filePath);
   if (text === null) process.exit(0); // transient (daemon warming, no east-py) — don't mark, allow a retry
   try {

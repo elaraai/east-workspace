@@ -18,7 +18,8 @@
       ],
       "extensionToLanguage": {
         ".ts": "typescript",
-        ".tsx": "typescriptreact"
+        ".tsx": "typescriptreact",
+        ".py": "python"
       }
     }
   },
