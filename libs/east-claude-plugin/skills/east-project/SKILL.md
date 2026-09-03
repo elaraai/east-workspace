@@ -138,7 +138,13 @@ cached, even across a redeploy). Scaffold with `--python-packages` /
 `--node-packages` / `--c-packages`; the **e3-create** skill is the full
 reference — every flag, the generated layout, and the per-runtime task wiring
 (python & node auto-derive the environment from `{ custom }`; C attaches a
-prebuilt binary via `environment: { tools }`).
+prebuilt binary via `environment: { tools }`). Every python and node member
+also ships an East function (`functions.py` / `functions.ts`, listed in its
+`east_functions` / `eastFunctions`) that the app calls through
+`East.importFunction` — the other way across the language boundary: East IR
+authored in the package's language, exported and embedded by `e3.export`
+itself, run by the default runner with nothing installed where it runs (the
+**e3** skill).
 
 
 ## Lifecycle (generated npm scripts)

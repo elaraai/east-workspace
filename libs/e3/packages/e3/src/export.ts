@@ -59,9 +59,11 @@ export interface ExportOptions {
    * `east-py export-functions` / `east-node export-functions`, or decoded
    * values — for packages that are not members of this workspace (a
    * published package, another repo). A package this workspace holds needs
-   * none: every `East.importFunction` naming a member of the governing uv
-   * workspace is exported from that member itself at export time (#652). An
-   * explicit manifest wins for its package. Each import is checked for
+   * none: every `East.importFunction` naming a member of the governing uv or
+   * npm workspace is exported from that member itself at export time (#652 —
+   * `east-py export-functions` on a python member's `east_functions`,
+   * `east-node export-functions` on a node member's built `./functions`
+   * entry). An explicit manifest wins for its package. Each import is checked for
    * exact type equality and embedded as pure IR; its platform dependencies
    * must be provided by the consuming task's runner (see `runnerProvides`).
    */
@@ -90,8 +92,9 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   // function's or mutation's IR resolves against a manifest and embeds as
   // pure IR — the deployed program needs no exporting language at run
   // time. The manifests are the ones given, plus one produced here for
-  // every imported package that is a member of this uv workspace (#652):
-  // the reference names the package, and that is all the author writes.
+  // every imported package that is a member of this uv or npm workspace
+  // (#652): the reference names the package, and that is all the author
+  // writes.
   // The owner's runner must provide what the embedded function's platform
   // calls need.
   const explicit: FunctionManifest[] = (options?.functions ?? []).map((m) =>

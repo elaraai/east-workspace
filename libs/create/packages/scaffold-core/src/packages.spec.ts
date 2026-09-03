@@ -44,6 +44,9 @@ test("python packages: generates each member with an __init__ and example platfo
     assert.ok(existsSync(join(dir, base, "src", name, "__init__.py")), `${name} __init__.py must survive (dunder is a member file, not a companion)`);
     const example = read(dir, join(base, "src", name, "example.py"));
     assert.ok(example.includes(`name="${name}.example"`), `${name}.example dotted name`);
+    // The other way across the boundary: an East function the package exports.
+    assert.ok(read(dir, join(base, "src", name, "functions.py")).includes("East.function("), `${name} functions.py builds an East function`);
+    assert.ok(read(dir, join(base, "src", name, "__init__.py")).includes('east_functions = {"scale": scale}'), `${name} root module declares east_functions`);
     // Hatchling keeps the sdist byte-reproducible → stable env hash.
     assert.ok(read(dir, join(base, "pyproject.toml")).includes("hatchling"), `${name} must use hatchling`);
   }
@@ -65,8 +68,13 @@ test("python packages: app wiring references the platform but declares NO enviro
   const wiring = read(dir, join("src", "packages", "pricing.ts"));
   assert.ok(wiring.includes('platforms: [{ custom: "pricing" }'), "must reference the package as a custom platform");
   assert.ok(!/\n\s*environment:\s*\{/.test(wiring), "no explicit environment field — e3 derives it from the platform reference");
+  // The East function the package exports is imported by package + name + type
+  // and called from a task on the DEFAULT runner (no runner, platform or environment).
+  assert.ok(wiring.includes('East.importFunction(\n  "pricing",\n  "scale",\n  FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)),\n)'), "imports the package's East function by package, name and type");
+  assert.ok(/e3\.task\(\n  "pricing_scaled",[\s\S]*?\$\.return\(scale\(v, f\)\);\n  \}\),\n\);/.test(wiring), "the importing task takes no runner config");
+  assert.ok(wiring.includes("export const pricing_tasks = [pricing_task, pricing_scaled_task];"), "exports every task the package contributes");
   // The barrel + app index collect the member tasks.
-  assert.ok(read(dir, join("src", "packages", "index.ts")).includes("pricing_task"), "barrel collects the task");
+  assert.ok(read(dir, join("src", "packages", "index.ts")).includes("...pricing_tasks"), "barrel spreads the package's tasks");
   assert.ok(read(dir, join("src", "index.ts")).includes("...packageTasks"), "app spreads the package tasks");
   rmSync(dirname(dir), { recursive: true, force: true });
 });
@@ -84,6 +92,8 @@ test("node packages: npm workspace members with a ./platform export; root worksp
   const pkg = JSON.parse(read(dir, join(base, "package.json")));
   assert.equal(pkg.name, "@shop/api", "member is named @<project>/<name>");
   assert.equal(pkg.exports["./platform"], "./dist/platform.js", "exposes the ./platform subpath the runner loads");
+  assert.equal(pkg.exports["./functions"], "./dist/functions.js", "exposes the ./functions subpath e3 exports East functions from");
+  assert.ok(read(dir, join(base, "src", "functions.ts")).includes("export const eastFunctions = { scale };"), "member functions.ts exports its East functions");
   assert.equal(pkg.dependencies["@elaraai/east"], "^9.9.9", "deps pinned to the scaffold version (__VERSION__)");
   const root = JSON.parse(read(dir, "package.json"));
   assert.ok((root.workspaces as string[]).includes("packages/node/*"), "root is an npm workspace over node members");
@@ -91,6 +101,8 @@ test("node packages: npm workspace members with a ./platform export; root worksp
   const wiring = read(dir, join("src", "packages", "api.ts"));
   assert.ok(wiring.includes('custom: "@shop/api"'), "app references the member by its npm name");
   assert.ok(!/\n\s*environment:\s*\{/.test(wiring), "no explicit environment — e3 derives it from the platform reference");
+  assert.ok(wiring.includes('East.importFunction(\n  "@shop/api",\n  "scale",'), "imports the member's East function by its npm name");
+  assert.ok(wiring.includes("export const api_tasks = [api_task, api_scaled_task];"), "exports every task the package contributes");
   rmSync(dirname(dir), { recursive: true, force: true });
 });
 
@@ -101,7 +113,7 @@ test("mixed python + node packages coexist (uv + npm workspaces, one barrel)", (
   assert.ok(read(dir, "pyproject.toml").includes('members = ["packages/python/*"]'), "uv workspace over python members");
   assert.ok((JSON.parse(read(dir, "package.json")).workspaces as string[]).includes("packages/node/*"), "npm workspace over node members");
   const barrel = read(dir, join("src", "packages", "index.ts"));
-  assert.ok(barrel.includes("pricing_task") && barrel.includes("api_task"), "barrel collects tasks from both runtimes");
+  assert.ok(barrel.includes("...pricing_tasks") && barrel.includes("...api_tasks"), "barrel collects tasks from both runtimes");
   rmSync(dirname(dir), { recursive: true, force: true });
 });
 
@@ -113,6 +125,17 @@ test("C packages: native dir with a Makefile + a tools-wired customTask (explici
   const wiring = read(dir, join("src", "packages", "solver.ts"));
   assert.ok(wiring.includes("e3.customTask"), "C is wired as a customTask, not an auto-derived platform");
   assert.ok(wiring.includes('files: ["packages/native/solver/build/solver"]'), "explicit tools env points at the built binary");
+  assert.ok(wiring.includes("export const solver_tasks = [solver_task];"), "a C package contributes its one tool task");
+  rmSync(dirname(dir), { recursive: true, force: true });
+});
+
+test("the generated smoke spec pins the task count the wiring files actually define", () => {
+  const dir = scaffoldPackagesDefaultFeatures("shop", { python: ["pricing"], node: ["api"], c: ["solver"] });
+  const defined = ["pricing", "api", "solver"]
+    .map((name) => (read(dir, join("src", "packages", `${name}.ts`)).match(/e3\.(task|customTask)\(/g) ?? []).length)
+    .reduce((a, b) => a + b, 0);
+  assert.equal(defined, 5, "python 2 (platform + imported East fn), node 2, C 1");
+  assert.ok(read(dir, join("src", "index.spec.ts")).includes("East.value(5n)"), "the smoke spec expects exactly the tasks the wiring defines");
   rmSync(dirname(dir), { recursive: true, force: true });
 });
 

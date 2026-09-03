@@ -215,7 +215,7 @@ Task → What do you need?
     └─ Serialization
         ├─ IR → fn.toIR(), ir.toJSON(), EastIR.fromJSON(data).compile(platform)
         ├─ IR → source → East.toSource(fn_or_ir) (a module that rebuilds the same IR) · `east-node transpile prog.beast2 -o prog.ts [--rebuild check.beast2]` · python twin: east-py transpile
-        ├─ A function authored in python (or another TS package) → East.importFunction(pkg, name, FunctionType([...], Out)) — callable; e3.export resolves a uv-workspace package by itself,
+        ├─ A function authored in python (or another TS package) → East.importFunction(pkg, name, FunctionType([...], Out)) — callable; e3.export resolves a uv- or npm-workspace package by itself,
         │   { functions: [manifest…] } for one built elsewhere
         │   └─ Export yours for python → East.exportFunctions(pkg, version, { name: fn }) + East.encodeFunctionManifest · `east-node export-functions built.js -o pkg.functions.beast2 -p <platform-pkg>` · East.linkImports(fn, manifests) to link in-process
         ├─ Data, INSIDE an East function → East.Blob.encodeBeast(value, 'v2'), blob.decodeBeast(type, 'v2')
@@ -452,7 +452,8 @@ IR with no python at run time. The exporting package's functions travel as a
 **manifest** (their IR, declared types and platform dependencies); the
 importer declares the type it expects; linking checks and embeds. Inside an
 e3 project no one writes the manifest: `e3.export` finds a package of the uv
-workspace by name, exports it in its own environment and links (see **e3**).
+or npm workspace by name, exports it in its own environment (`east-py
+export-functions` / `east-node export-functions`) and links (see **e3**).
 The command below is for linking in-process, or a package built elsewhere:
 
 ```bash

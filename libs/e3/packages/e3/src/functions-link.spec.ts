@@ -16,6 +16,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import yauzl from 'yauzl';
 import {
@@ -29,7 +30,7 @@ import { task } from './task.js';
 import { input } from './input.js';
 import { function_ } from './function.js';
 import { runnerProvides } from './runner.js';
-import { importedPackages, pythonProviders } from './functions-resolve.js';
+import { importedPackages, pythonProviders, nodeProviders, findEastNode } from './functions-resolve.js';
 
 const log = East.platform('log', [StringType], NullType);
 const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
@@ -135,10 +136,10 @@ describe('export_ links East.importFunction references (#628)', () => {
       export_(pkg, path.join(tempDir, 'no-provider.zip'), { functions: [unprovided] }),
       /names no package providing it/,
     );
-    // no manifest given and no uv workspace holds the package: the export names the import and both ways out
+    // no manifest given and no workspace holds the package: the export names the import and both ways out
     await assert.rejects(
       export_(pkg, path.join(tempDir, 'no-manifest.zip')),
-      /task "use_shout" imports from "pricing", but no function manifest was given for it and it is not a member of the uv workspace/,
+      /task "use_shout" imports from "pricing", but no function manifest was given for it and it is not a member of the uv or npm workspace/,
     );
   });
 
@@ -263,5 +264,115 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
     assert.deepStrictEqual(pythonProviders({ runtime: 'east-node', platforms: [{ custom: '@acme/node-platform' }] }), []);
     assert.deepStrictEqual(pythonProviders({ runtime: 'custom', command: ['uv', 'run', 'east-py', 'run'] }), []);
     assert.deepStrictEqual(pythonProviders(undefined), []);
+  });
+});
+
+// ── self-resolving imports from an npm workspace (#652) ──────────────────────
+
+describe('export_ resolves an imported npm workspace package itself (#652)', () => {
+  // The @elaraai packages a scaffolded project installs, linked from this
+  // tree: the member's `@elaraai/east`, the exporter's `-p @elaraai/east-node-std`
+  // and the `@elaraai/east-node-cli` the resolver runs from the workspace (no
+  // PATH, no bin shim).
+  const LIBS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
+  const links: Array<[string, string]> = [
+    ['@elaraai/east', path.join(LIBS, 'east')],
+    ['@elaraai/east-node-std', path.join(LIBS, 'east-node', 'packages', 'east-node-std')],
+    ['@elaraai/east-node-cli', path.join(LIBS, 'east-node', 'packages', 'east-node-cli')],
+  ];
+  const unbuilt = links.filter(([, dir]) => !fs.existsSync(path.join(dir, 'dist')));
+  const skip = unbuilt.length === 0 ? false : `not built here: ${unbuilt.map(([n]) => n).join(', ')}`;
+  let ws: string;
+
+  before(() => {
+    if (skip) return;
+    // An npm workspace — root manifest + lockfile — with a BUILT member,
+    // `pricing`, whose `./functions` export declares `eastFunctions` (the node
+    // package a TypeScript task imports from), and two members that show the
+    // two ways a member cannot be exported.
+    ws = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-resolve-npm-'));
+    const members: Record<string, { name: string; version: string; type: string; exports?: Record<string, string> }> = {
+      pricing: { name: 'pricing', version: '2.5.0', type: 'module', exports: { './functions': './dist/functions.js' } },
+      unbuilt: { name: 'unbuilt', version: '1.0.0', type: 'module', exports: { './functions': './dist/functions.js' } },
+      plain: { name: 'plain', version: '1.0.0', type: 'module' },
+    };
+    fs.writeFileSync(path.join(ws, 'package.json'), JSON.stringify({ name: 'root', private: true, workspaces: ['packages/*'] }));
+    const packages: Record<string, object> = { '': { name: 'root', workspaces: ['packages/*'] } };
+    for (const [name, manifest] of Object.entries(members)) {
+      const dir = path.join(ws, 'packages', name);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest));
+      packages[`packages/${name}`] = { name, version: manifest.version };
+      packages[`node_modules/${name}`] = { resolved: `packages/${name}`, link: true };
+    }
+    fs.writeFileSync(path.join(ws, 'package-lock.json'), JSON.stringify({ name: 'root', lockfileVersion: 3, packages }));
+    fs.mkdirSync(path.join(ws, 'packages', 'pricing', 'dist'));
+    fs.writeFileSync(path.join(ws, 'packages', 'pricing', 'dist', 'functions.js'),
+      "import { East, IntegerType } from '@elaraai/east';\n" +
+      'export const eastFunctions = { triple: East.function([IntegerType], IntegerType, ($, x) => x.multiply(3n)) };\n');
+    for (const [name, target] of links) {
+      const link = path.join(ws, 'node_modules', ...name.split('/'));
+      fs.mkdirSync(path.dirname(link), { recursive: true });
+      fs.symlinkSync(target, link, 'junction');
+    }
+  });
+  after(() => { if (!skip) fs.rmSync(ws, { recursive: true, force: true }); });
+
+  /** Runs `f` with the workspace as the export's working directory. */
+  async function inWorkspace<T>(f: () => Promise<T>): Promise<T> {
+    const prev = process.cwd();
+    process.chdir(ws);
+    try { return await f(); } finally { process.chdir(prev); }
+  }
+
+  it('finds the package in the npm workspace, exports it with east-node from its built ./functions entry, and links — no manifest given',
+    { skip }, async () => {
+      const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
+      const n = input('n', IntegerType, 4n);
+      const use = task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n)));
+      const pkg = package_('importer', '1.0.0', use);
+      const zipPath = path.join(ws, 'importer.zip');
+      const events: string[] = [];
+      await inWorkspace(() => export_(pkg, zipPath, { onEvent: (e) => { if (e.kind === 'functions') events.push(`${e.package}:${e.count}:${e.tool}`); } }));
+      assert.deepStrictEqual(events, ['pricing:1:east-node export-functions']);
+      const bundle = irAt(await readZip(zipPath), 'tasks/use_triple/function_ir');
+      assert.strictEqual(countImports(bundle.ir), 0);
+      assert.strictEqual(bundle.compile([])(4n), 13n);
+    });
+
+  it('a member whose ./functions entry is not built, and one exporting no ./functions, are errors naming the way out',
+    { skip }, async () => {
+      for (const [name, message] of [
+        ['unbuilt', /task "use_it" imports from "unbuilt": its "\.\/functions" entry '.*functions\.js' does not exist — build the package first/],
+        ['plain', /task "use_it" imports from "plain", a package of this workspace at '.*plain', but its package\.json exports no "\.\/functions" entry/],
+      ] as const) {
+        const fn = East.importFunction(name, 'triple', FunctionType([IntegerType], IntegerType));
+        const n = input('n', IntegerType, 4n);
+        const use = task('use_it', [n], East.function([IntegerType], IntegerType, ($, x) => fn(x)));
+        await assert.rejects(inWorkspace(() => export_(package_('importer', '1.0.0', use), path.join(ws, `${name}.zip`))), message);
+      }
+    });
+
+  it("the east-node it runs is the workspace's own install, and PATH only where there is none", { skip }, () => {
+    // The member's built module and the exporter must share ONE @elaraai/east:
+    // an east-node from elsewhere carries its own copy, which does not
+    // recognise the member's functions.
+    const own = findEastNode(path.join(ws, 'packages', 'pricing'));
+    assert.strictEqual(own.command, process.execPath);
+    assert.deepStrictEqual(own.args, [path.join(ws, 'node_modules', '@elaraai', 'east-node-cli', 'bin', 'east-node.mjs')]);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-no-cli-'));
+    try {
+      assert.deepStrictEqual(findEastNode(outside), { command: 'east-node', args: [] });
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('the node providers a runner implies', () => {
+    assert.deepStrictEqual(nodeProviders(undefined), []);
+    assert.deepStrictEqual(nodeProviders({ runtime: 'east-node', platforms: ['@elaraai/east-node-std', { custom: '@acme/api' }] }), ['@acme/api', '@elaraai/east-node-std']);
+    assert.deepStrictEqual(nodeProviders({ runtime: 'east-py', platforms: ['east-py-std', 'east-py-io', { custom: 'acme' }] }), ['@elaraai/east-node-io', '@elaraai/east-node-std']);
+    assert.deepStrictEqual(nodeProviders({ runtime: 'east-c', platforms: ['east-c-std'] }), ['@elaraai/east-node-std']);
+    assert.deepStrictEqual(nodeProviders({ runtime: 'custom', command: ['node', 'run.js'] }), []);
   });
 });

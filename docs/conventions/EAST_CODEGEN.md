@@ -284,21 +284,31 @@ trusted; a mismatch is a build error naming the task, the import, the
 platform function and the runner's packages.
 
 **Self-resolving imports (#652).** `e3.export` produces the manifests
-itself for every imported package that is a member of the uv workspace the
-export runs in: the package is found the way a `{ custom }` platform is
-(the governing `uv.lock` above the working directory, by PEP 503 canonical
-name, local sources only), and `east-py export-functions <package> --name
-<package> [-p provider…]` runs in the member's directory — the `east-py` of
-the nearest `.venv` above it, else `east-py` on PATH, `EAST_PY` naming it
-outright — with the member's `src/` and directory on `PYTHONPATH`, so the
-package's root module (declaring `east_functions`) imports whether or not it
-is installed. The providers are the importing owner's runner: a stock
-platform maps to its python family member, a `{ custom }` name passes
-through on an east-py runner. A manifest given in `functions:` wins for its
-package; a referenced package that is neither given nor a local member is
-an export error naming the import and both ways out. `e3-cli`'s `e3 export`
-/ `workspace deploy --from-source` inherit this; `--functions` is for
-manifests built elsewhere.
+itself for every imported package that is a member of the uv or npm
+workspace the export runs in, found the way a `{ custom }` platform is: the
+governing `uv.lock` above the working directory, by PEP 503 canonical name,
+local sources only; the governing npm lockfile, by `package.json` name,
+workspace members only. A python member is exported with `east-py
+export-functions <package> --name <package> [-p provider…]`, run in the
+member's directory — the `east-py` of the nearest `.venv` above it, else
+`east-py` on PATH, `EAST_PY` naming it outright — with the member's `src/`
+and directory on `PYTHONPATH`, so the package's root module (declaring
+`east_functions`) imports whether or not it is installed. A node member is
+exported with `east-node export-functions <entry> --name <package> [-p
+provider…]`, `<entry>` the target of its `package.json`
+`exports["./functions"]` (a built module declaring `eastFunctions` — a
+member is built before it is exported, as it is before it is packed), run
+by the `@elaraai/east-node-cli` the member resolves, else `east-node` on
+PATH, `EAST_NODE` naming it outright. The providers are the importing
+owner's runner in the exporting language: a stock platform maps to its
+python / node family member, a `{ custom }` name passes through on a runner
+of that runtime. A manifest given in `functions:` wins for its package; a
+referenced package that is neither given nor a local member is an export
+error naming the import and both ways out. `e3-cli`'s `e3 export` /
+`workspace deploy --from-source` inherit this; `--functions` is for
+manifests built elsewhere. A `create-e3` package scaffold ships both
+crossings per python and node member — a platform function and an East
+function (`functions.py` / `functions.ts`) the app imports this way.
 
 **Recipe — a python function in a TypeScript e3 task:**
 

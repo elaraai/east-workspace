@@ -357,6 +357,38 @@ function findNpmRoot(start: string): { root: string; lock: NpmLock } | null {
 }
 
 /**
+ * The local npm-workspace member a name refers to — the package a `{ custom }`
+ * platform or an `East.importFunction(pkg, …)` names (#652) — resolved the
+ * way {@link captureAutoEnvironment} resolves it: the governing npm lockfile
+ * above `anchorDir`, matched by `package.json` name, workspace members only
+ * (never an installed dependency). The python twin is
+ * {@link pythonWorkspaceMember}.
+ *
+ * @param name - The package name as referenced (`@scope/name` or bare)
+ * @param anchorDir - Directory the workspace is resolved from (the export cwd)
+ * @returns The member's directory and its `package.json` version, or null
+ *   when there is no npm workspace above `anchorDir` or the name is not a
+ *   local member (a registry package, a typo)
+ */
+export function nodeWorkspaceMember(name: string, anchorDir: string): { dir: string; version: string | null } | null {
+  const found = findNpmRoot(anchorDir);
+  if (!found) return null;
+  const entry = Object.entries(found.lock.packages ?? {}).find(
+    ([p, v]) => p !== '' && !p.includes('node_modules/') && v.name === name && v.link !== true,
+  );
+  if (!entry) return null;
+  const dir = path.join(found.root, ...entry[0].split('/'));
+  let version: string | null = null;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8')) as { version?: unknown };
+    if (typeof pkg.version === 'string') version = pkg.version;
+  } catch {
+    /* no readable package.json: the exporter records its own default */
+  }
+  return { dir, version };
+}
+
+/**
  * Derive a node environment from the platform packages a task's runner
  * references. Each `custom` name that resolves to a LOCAL npm workspace member
  * (matched by package.json name in the governing lockfile) is captured through

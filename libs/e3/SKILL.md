@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable dataflow execution for East programs. Use when: (1) Authoring e3 packages with @elaraai/e3 (e3.input, e3.task, e3.customTask, e3.function, e3.ui, e3.package, e3.export), (2) Bounded-memory dataflow over huge collection datasets (e3.partitionTask, e3.streamTask), (3) Running e3 CLI commands (e3 repo, e3 workspace, e3 package, e3 dataset, e3 task, e3 dataflow run, e3 call, e3 watch, e3 auth), (4) Working with workspaces and packages, (5) Content-addressable caching and reactive dataflow execution, (6) Calling functions authored in python from a task (East.importFunction + e3.export { functions } / --functions)."
+description: "East Execution Engine (e3) - durable dataflow execution for East programs. Use when: (1) Authoring e3 packages with @elaraai/e3 (e3.input, e3.task, e3.customTask, e3.function, e3.ui, e3.package, e3.export), (2) Bounded-memory dataflow over huge collection datasets (e3.partitionTask, e3.streamTask), (3) Running e3 CLI commands (e3 repo, e3 workspace, e3 package, e3 dataset, e3 task, e3 dataflow run, e3 call, e3 watch, e3 auth), (4) Working with workspaces and packages, (5) Content-addressable caching and reactive dataflow execution, (6) Calling functions authored in python, or in another node package, from a task (East.importFunction — a workspace member is exported and linked by e3.export itself; { functions } / --functions for one built elsewhere)."
 ---
 
 # East Execution Engine (e3)
@@ -84,8 +84,8 @@ Task → What do you need?
 │   ├─ Chain task outputs   → secondTask([firstTask.output], ...)
 │   ├─ Bundle               → e3.package(name, version, ...items)
 │   ├─ Export to zip        → e3.export(pkg, zipPath, { functions? })
-│   └─ Call a python-authored fn → East.importFunction(pkg, name, FunctionType) in the task body — a package of the uv workspace is exported and linked
-│       by e3.export itself (no manual step); { functions } / --functions only for a manifest built elsewhere
+│   └─ Call a fn authored in python, or in another node package → East.importFunction(pkg, name, FunctionType) in the task body — a package of the
+│       uv or npm workspace is exported and linked by e3.export itself (no manual step); { functions } / --functions only for a manifest built elsewhere
 │
 ├─ Repository
 │   ├─ Create               → e3 repo create <repo>
@@ -243,15 +243,20 @@ implementation and wire it (the `./platform` export, the Python package, the
 #### Calling a function authored in python (or another package) — `East.importFunction`
 
 When the logic is East-expressible but written in python (with east-py's
-`East.function`), do not wrap it as a platform function: import it. The task
-refers to the function by package and name with its declared type; at
-`e3.export` the reference is resolved and the function's IR is embedded, so
-the deployed task is pure IR that runs on any runner — no python at run time.
-The reference is all you write: a package of the project's uv workspace is
-found the way a `{ custom }` platform is (by name, in the governing
-`uv.lock`), its root module's `east_functions` exported in its own
+`East.function`) — or in another node package of the project — do not wrap it
+as a platform function: import it. The task refers to the function by package
+and name with its declared type; at `e3.export` the reference is resolved and
+the function's IR is embedded, so the deployed task is pure IR that runs on
+any runner — no python at run time, no runner, platform or environment to
+declare. The reference is all you write: a package of the project's uv
+workspace is found the way a `{ custom }` platform is (by name, in the
+governing `uv.lock`), its root module's `east_functions` exported in its own
 environment (`east-py export-functions`, run from the project's `.venv` or
-`east-py` on PATH — `EAST_PY` names it outright) and linked, per export.
+`east-py` on PATH — `EAST_PY` names it outright) and linked, per export; a
+package of the npm workspace is found in the governing lockfile by its
+`package.json` name, and the `eastFunctions` of its BUILT `./functions` export
+exported with `east-node export-functions` (the project's own
+`@elaraai/east-node-cli`, else PATH — `EAST_NODE` names it outright).
 
 ```python
 # packages/pricing/src/pricing/__init__.py — the package's root module
@@ -272,11 +277,27 @@ await e3.export(pkg, '/tmp/app.zip');          // finds `pricing`, exports it, l
 // e3 workspace deploy . dev --from-source src/index.ts
 ```
 
+```typescript
+// packages/node/api/src/functions.ts — the member's "./functions" export (built: dist/functions.js)
+export const scale = East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType),
+  ($, values, factor) => values.map(($, v) => v.multiply(factor)));
+export const eastFunctions = { scale };
+
+// the app: the member's npm name, the function, its exact type — no runner, no environment
+const scale = East.importFunction('@shop/api', 'scale', FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)));
+const scaled = e3.task('scaled', [series, factor],
+  East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType), ($, s, f) => scale(s, f)));
+```
+
 A package built elsewhere — published, or another repo — is passed as its
 manifest instead: `east-py export-functions pricing -o pricing.functions.beast2
--p east-py-std` where it lives, then `{ functions: ['./pricing.functions.beast2'] }`
-/ `--functions`; an explicit manifest wins for its package. A referenced package
-that is neither is an export error naming the import.
+-p east-py-std` (`east-node export-functions dist/functions.js -o
+api.functions.beast2 -p @elaraai/east-node-std`) where it lives, then
+`{ functions: ['./pricing.functions.beast2'] }` / `--functions`; an explicit
+manifest wins for its package. A referenced package that is neither is an
+export error naming the import. A `create-e3` package scaffold ships both
+crossings per python and node member — the platform function and an East
+function the app imports this way (the **e3-create** skill).
 
 The declared type must equal the exported type exactly (a mismatch fails the
 export naming both). The imported function's platform calls are checked
@@ -555,7 +576,7 @@ const pkg = e3.package('myapp', '1.0.0', finalTask);
 Export package to a .zip file. Every `East.importFunction` in the package's
 tasks, functions and mutations is resolved and embedded as pure IR after an
 exact type check and a runner check of its platform dependencies: a package
-of the uv workspace is exported by the export itself (#652);
+of the uv or npm workspace is exported by the export itself (#652);
 `options.functions` lists manifests (paths, or decoded values) for packages
 built elsewhere, and wins for its package.
 

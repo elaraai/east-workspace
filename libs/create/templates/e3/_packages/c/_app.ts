@@ -20,3 +20,8 @@ export const __PACKAGE_IDENT___task = e3.customTask(
     environment: { tools: { files: ["packages/native/__PACKAGE_NAME__/build/__PACKAGE_NAME__"] } },
   },
 );
+
+// Every task this package contributes to the app's dataflow (collected by
+// src/packages/index.ts). A C package crosses the boundary one way — the built
+// tool; C has no East authoring surface to export a function from.
+export const __PACKAGE_IDENT___tasks = [__PACKAGE_IDENT___task];

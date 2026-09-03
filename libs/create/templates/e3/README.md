@@ -51,3 +51,10 @@ anything was skipped; `npm run shots:html` adds a standalone HTML beside each PN
 If you scaffolded with `--platform`, `src/platform/` holds project-owned TS-East platform functions
 (exported via `./platform`) and `platform_module/` holds the Python ones — replace the generated
 `example` functions with your own native code, called from tasks like any East function.
+
+If you scaffolded with `--python-packages` / `--node-packages` / `--c-packages`, each package under
+`packages/` is its own execution environment, and every python and node package crosses the language
+boundary both ways: a platform function (`example.py` / `src/platform.ts` — native code the task's
+runner needs installed) and an East function (`functions.py` / `src/functions.ts` — East IR the app
+imports with `East.importFunction`; e3 embeds it at export, so it runs anywhere). The app-side wiring
+of each package is `src/packages/<name>.ts`.

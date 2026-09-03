@@ -143,39 +143,58 @@ my-app/
 ├── src/
 │   ├── index.ts                       # e3.package("my-app", "1.0.0", ...packageTasks)
 │   └── packages/
-│       ├── index.ts                   # barrel: export const packageTasks = [pricing_task, api_task, solver_task]
-│       └── pricing.ts · api.ts · solver.ts   # one example task per package (below)
+│       ├── index.ts                   # barrel: export const packageTasks = [...pricing_tasks, ...api_tasks, ...solver_tasks]
+│       └── pricing.ts · api.ts · solver.ts   # the example tasks of each package (below)
 └── packages/
-    ├── python/pricing/                # uv member — pyproject.toml (hatchling) + src/pricing/{__init__,example}.py
-    ├── node/api/                      # npm member — package.json (@my-app/api, ./platform export) + src/platform.ts
+    ├── python/pricing/                # uv member — pyproject.toml (hatchling) + src/pricing/{__init__,example,functions}.py
+    ├── node/api/                      # npm member — package.json (@my-app/api, ./platform + ./functions exports) + src/{platform,functions}.ts
     └── native/solver/                 # native — Makefile + src/solver.c → build/solver
 ```
 
-**The task wiring differs by runtime — python & node AUTO-DERIVE the environment
-from the `{ custom }` platform reference; C attaches a prebuilt binary
-explicitly:**
+**Every python and node member crosses the language boundary BOTH ways, and the
+task wiring differs by runtime — a PLATFORM function (native code; python & node
+AUTO-DERIVE the environment from the `{ custom }` platform reference) and an EAST
+function the package exports (imported with `East.importFunction`, embedded at
+export, run by the DEFAULT runner: no runner, platform or environment); C
+attaches a prebuilt binary explicitly:**
 
 ```typescript
 // Three separate files under src/packages/. Each begins with:
 //   import e3 from "@elaraai/e3";
-//   import { East, ArrayType, FloatType, IntegerType } from "@elaraai/east";
+//   import { East, ArrayType, FloatType, IntegerType, FunctionType } from "@elaraai/east";
 
-// ── src/packages/pricing.ts — PYTHON (env AUTO-DERIVED from { custom: "pricing" }) ──
+// ── src/packages/pricing.ts — PYTHON ──
+// 1. the platform function (native python; env AUTO-DERIVED from { custom: "pricing" })
 const example = East.platform("pricing.example", [ArrayType(FloatType)], FloatType);
+// 2. the East function authored in python (src/pricing/functions.py, listed in `east_functions`)
+const scale = East.importFunction("pricing", "scale",
+  FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)));
 const values = e3.input("pricing_values", ArrayType(FloatType), [1.0, 2.0, 3.0]);
+const factor = e3.input("pricing_factor", FloatType, 2.0);
 export const pricing_task = e3.task("pricing_example", [values],
   East.function([ArrayType(FloatType)], FloatType, ($, v) => { $.return(example(v)); }),
   { runner: { runtime: "east-py", platforms: [{ custom: "pricing" }, "east-py-std"] } });
   // no `environment:` — export captures packages/python/pricing's uv closure
+export const pricing_scaled_task = e3.task("pricing_scaled", [values, factor],
+  East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType), ($, v, f) => { $.return(scale(v, f)); }));
+  // no runner at all — e3.export exports `pricing`'s east_functions (east-py export-functions) and embeds the IR
+export const pricing_tasks = [pricing_task, pricing_scaled_task];
 
-// ── src/packages/api.ts — NODE (env AUTO-DERIVED from { custom: "@my-app/api" }, SCOPED name) ──
+// ── src/packages/api.ts — NODE (the member's SCOPED npm name) ──
 const example = East.platform("api.example", [IntegerType, FloatType], IntegerType);
+const scale = East.importFunction("@my-app/api", "scale",
+  FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)));   // src/functions.ts, in `eastFunctions`
 const value = e3.input("api_value", IntegerType, 21n);
 const factor = e3.input("api_factor", FloatType, 2.0);
+const series = e3.input("api_series", ArrayType(FloatType), [1.0, 2.0, 3.0]);
 export const api_task = e3.task("api_example", [value, factor],
   East.function([IntegerType, FloatType], IntegerType, ($, v, f) => { $.return(example(v, f)); }),
   { runner: { runtime: "east-node", platforms: [{ custom: "@my-app/api" }] } });
   // no `environment:` — export captures packages/node/api's npm closure
+export const api_scaled_task = e3.task("api_scaled", [series, factor],
+  East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType), ($, s, f) => { $.return(scale(s, f)); }));
+  // e3.export exports the BUILT ./functions entry (east-node export-functions) and embeds the IR
+export const api_tasks = [api_task, api_scaled_task];
 
 // ── src/packages/solver.ts — C (NOT auto-derived; attach the built binary via tools) ──
 const solverValues = e3.input("solver_values", ArrayType(FloatType), [1.0, 2.0, 3.0]);
@@ -183,19 +202,30 @@ export const solver_task = e3.customTask("solver_tool", [solverValues], ArrayTyp
   (_$, inputs, output) => East.str`solver ${inputs.get(0n)} ${output}`,
   { environment: { tools: { files: ["packages/native/solver/build/solver"] } } });
   // build the C binary first: `make -C packages/native/solver` — a rebuild re-runs only this task
+export const solver_tasks = [solver_task];
 ```
 
-The member side holds the impl, keyed to the same dotted `"<pkg>.example"` name:
-`packages/python/pricing/src/pricing/example.py` is an `@platform_function`;
-`packages/node/api/src/platform.ts` is `East.platform(...).implement(...)`
-default-exported as a `PlatformFunction[]`. Keep the member impl and the app-side
-`East.platform(...)` declaration in lockstep (same name + signature).
+The member side holds both crossings. The platform impl is keyed to the same
+dotted `"<pkg>.example"` name: `packages/python/pricing/src/pricing/example.py`
+is an `@platform_function`; `packages/node/api/src/platform.ts` is
+`East.platform(...).implement(...)` default-exported as a `PlatformFunction[]`.
+Keep the member impl and the app-side `East.platform(...)` declaration in
+lockstep (same name + signature). The East function is
+`packages/python/pricing/src/pricing/functions.py` (an east-py `East.function`,
+listed in the root module's `east_functions = {"scale": scale}`) and
+`packages/node/api/src/functions.ts` (`export const eastFunctions = { scale }`,
+the package's `./functions` export) — East all the way down, so the app's
+`FunctionType` must equal the exported type exactly (e3 checks it at export)
+and the task runs anywhere, with no python or Node package where it runs. To
+add one, build it and list it under the name the app imports; e3 finds the
+member in the uv / npm workspace and exports it itself (the **e3** skill).
 
 **Build order / semantics.** Python members install the workspace's full locked
 third-party set (union-scoped); node members must be `tsc`-built before export
-(the root `build` runs `--workspaces` first); C tools must be `make`-built before
-`npm run start`. Add more packages later with the same flags — each new one is
-captured independently.
+(the root `build` runs `--workspaces` first — both the `./platform` and the
+`./functions` entries are read from `dist/`); C tools must be `make`-built
+before `npm run start`. Add more packages later with the same flags — each new
+one is captured independently.
 
 ## Worked examples
 
@@ -222,8 +252,8 @@ The generated `npm` scripts (`setup`, `build`, `test`, `deploy`, `start`,
 ## Related skills
 
 - **east-project** — the lifecycle after scaffolding: implement, build, deploy, run, watch, test.
-- **e3** — the SDK (`e3.input` / `e3.task` / `e3.package` / `e3.export`) + CLI the generated code uses; per-package environment auto-derivation.
+- **e3** — the SDK (`e3.input` / `e3.task` / `e3.package` / `e3.export`) + CLI the generated code uses; per-package environment auto-derivation and self-resolving `East.importFunction` imports.
 - **east** — the language for task bodies and `East.platform(...)` declarations.
-- **east-py** — author the `@platform_function` a `--python-packages` member exports; **east-node-std** — the east-node platform fn a `--node-packages` member exports.
+- **east-py** — author the `@platform_function` and the `East.function` a `--python-packages` member exports; **east-node-std** — the east-node platform fn a `--node-packages` member exports; **east** — its `East.function` and the app's `East.importFunction`.
 - **east-ui** / **e3-ui** / **e3-ui-cli** — the `--ui` surface and screenshotting it (`npm run shot`).
 - **east-design** — start here when you have a goal but no architecture yet.
