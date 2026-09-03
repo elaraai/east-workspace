@@ -56,7 +56,7 @@ export interface CodeEntry extends CatalogBase {
     /** Source text of the `returns` value. */
     returns: string;
     source: CapturedSource;
-    /** The languages the example can be shown in; a selector appears iff `python` is one. */
+    /** The languages the example can be shown in; a selector appears iff `python` is one (each example's choice is its own). */
     languages: readonly string[];
     /** The python rendering, from the plugin index; null when the index has none. */
     python: string | null;

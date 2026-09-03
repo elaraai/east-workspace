@@ -37,9 +37,10 @@ where the snapshots land — they exist specifically so an agent can
   example as IR with the TypeScript and python printed from it. A Code
   Reference example missing from the index fails the build naming it —
   regenerate with `cd libs/east-claude-plugin && make index`. The
-  TypeScript / Python selector on each Code Reference entry writes ONE
-  tier-wide choice (`code-language.ts`, session-persisted, `?lang=python`
-  seeds it); Components are JSX and never get the selector.
+  TypeScript / Python selector on each Code Reference entry is that
+  example's own choice (`code-language.ts`, session-persisted so a row
+  keeps it across virtualizer remounts; `?lang=python` opens every example
+  in python); Components are JSX and never get the selector.
 
 ## Make targets
 

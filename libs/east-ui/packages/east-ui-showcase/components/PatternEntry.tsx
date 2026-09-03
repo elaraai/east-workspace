@@ -214,9 +214,9 @@ function Disclosure({ label, raw }: { label: string; raw: string }) {
  *  footer row, per the spec's `.pattern-slots`. An example the index also
  *  prints as python gets the TypeScript / Python selector (#655): the
  *  TypeScript view is the authored source, the python view the printing of
- *  the same IR, and the choice is the tier's (`code-language.ts`). */
+ *  the same IR, and the choice is this example's own (`code-language.ts`). */
 function CodeBody({ entry }: { entry: CodeEntry }) {
-    const [language, setLanguage] = useCodeLanguage();
+    const [language, setLanguage] = useCodeLanguage(`${entry.pathKey}/${entry.name}`);
     const selectable = entry.python !== null && entry.languages.includes("python");
     const shownLanguage: CodeLanguage = selectable && language === "python" ? "python" : "typescript";
     const shown = shownLanguage === "python" ? entry.python! : entry.source.raw;
