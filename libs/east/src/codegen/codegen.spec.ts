@@ -536,6 +536,21 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL, width: Infinity }), source, "print → build → print is the identity");
   });
 
+  test("the widening the builder inserts at a platform argument prints as the expression, and rebuilds", async () => {
+    const gz = East.asyncPlatform("gz", [StructType({ level: OptionType(IntegerType) })], IntegerType);
+    const fn = East.asyncFunction([], IntegerType, ($) => {
+      const options = $.let({ level: variant("some", 6n) });      // a one-case variant: the call widens it to the Option
+      const inline = $.const(gz(East.as({ level: some(7n) }, StructType({ level: OptionType(IntegerType) }))));   // a widened construction keeps its As
+      return gz(options).add(inline);
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /return gz\(options\)\.add\(inline\);/, source);
+    assert.doesNotMatch(source, /East\.as\(options/, source);
+    assert.match(source, /gz\(\{ level: some\(7n\) \}\)/, source);
+    const main = await roundTrip(fn, "platform widening");
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL, width: Infinity }), source, "print → build → print is the identity");
+  });
+
   test("a platform call spells as the library's own export when the library's module is given, and the import is added", async () => {
     // a library: the declarations exported flat under their registered names and grouped, as east-node-io exports them
     const libPath = join(TMP, "lib.mjs");

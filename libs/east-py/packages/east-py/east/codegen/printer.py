@@ -120,6 +120,8 @@ _STATEMENT_KINDS = frozenset({
 })
 #: The node kinds a python literal spells (a Set keeps ``East.new_set``).
 _CONSTRUCTIONS = frozenset({"Struct", "Variant", "NewArray", "NewDict"})
+#: The node kinds whose East type the builder reads from the expression itself (not from the slot).
+_EXPRESSIONS = frozenset({"Variable", "GetField", "Call", "CallAsync", "Builtin", "Platform", "UnwrapRecursive"})
 _MAX_DEPTH = 24
 #: The block parameter every statement-bearing body declares first.
 _BLOCK = "b"
@@ -205,6 +207,20 @@ def _self_typing(node: Any) -> bool:
     # a literal or an expression carries its type; a variant, a collection, a ref, a function do not
     return kind not in ("Variant", "NewArray", "NewDict", "NewSet", "NewRef", "NewVector", "NewMatrix",
                         "Function", "AsyncFunction", "Error")
+
+
+def _platform_argument(node: Any) -> Any:
+    """A platform call's argument as the surface writes it: the declaration
+    widens an expression whose type is a strict subtype of the declared
+    input by itself (an ``As`` to the input), so an ``As`` around an
+    expression prints as the expression alone — ``gz(options)``, not
+    ``gz(East.as_(options, T))`` — and rebuilds the same node. A widened
+    construction keeps its ``As``: bare, the build would lift it as the
+    input type directly and the node would be gone."""
+    if node.type != "As":
+        return node
+    inner = node.value["value"]
+    return inner if inner.type in _EXPRESSIONS else node
 
 
 def _pyliteral(value: Any) -> str:
@@ -749,7 +765,7 @@ class _Printer:
                 # a platform declaration
                 pkg, fn_name = (_pyliteral(a.value["value"].value) for a in arg_nodes)
                 return ["East.import_function", call_args([pkg, fn_name, self.type_ref(p["type"])])]
-            args = [self.value_doc(a, scope, pre, d, typed=True) for a in arg_nodes]
+            args = [self.value_doc(_platform_argument(a), scope, pre, d, typed=True) for a in arg_nodes]
             ref = self.platform_ref(p)
             if p["type_parameters"]:
                 tps = bracket("[", [self.type_ref(t) for t in p["type_parameters"]], "]")

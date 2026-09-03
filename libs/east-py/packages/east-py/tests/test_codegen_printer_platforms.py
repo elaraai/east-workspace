@@ -19,7 +19,16 @@ from east.runtime._compiler_eastc import diff_ir
 
 from east import East
 from east.codegen import to_python_source
-from east.types.types import BlobType, IntegerType, NullType, StringType
+from east.types.construct import variant
+from east.types.types import (
+    BlobType,
+    IntegerType,
+    NullType,
+    OptionType,
+    StringType,
+    StructType,
+    VariantType,
+)
 
 log = East.platform("my.log", [StringType], NullType)
 log_count = East.platform("my.log", [IntegerType], NullType)     # the same name, another signature
@@ -65,3 +74,25 @@ def test_an_async_declaration_keeps_its_name_and_the_module_rebuilds(tmp_path):
     namespace: dict = {}
     exec(compile(src, str(path), "exec"), namespace)
     assert diff_ir(archived._east_ir, namespace["main"]._east_ir) is None
+
+
+Narrow = StructType([("level", VariantType([("some", IntegerType)]))])
+gz = East.asyncPlatform("gz", [StructType([("level", OptionType(IntegerType))])], IntegerType)
+
+
+@East.asyncFunction([], IntegerType)
+def widened(b):
+    options = b.let({"level": variant("some", 6, VariantType([("some", IntegerType)]))}, Narrow)
+    return gz(options)        # the declaration widens the narrow struct to the Option itself
+
+
+def test_the_widening_a_declaration_inserts_at_its_argument_prints_as_the_expression(tmp_path):
+    src = to_python_source(widened, width=math.inf)
+    assert "return gz(options)" in src, src
+    assert "East.as_(options" not in src, src
+    path = tmp_path / "widened.py"
+    path.write_text(src, encoding="utf-8")
+    namespace: dict = {}
+    exec(compile(src, str(path), "exec"), namespace)
+    assert diff_ir(widened._east_ir, namespace["main"]._east_ir) is None
+    assert to_python_source(namespace["main"], width=math.inf) == src

@@ -122,6 +122,8 @@ const STATEMENT_KINDS = new Set([
 ]);
 /** The node kinds a host literal spells. */
 const CONSTRUCTIONS = new Set(["Struct", "Variant", "NewArray", "NewSet", "NewDict", "NewRef", "NewVector", "NewMatrix"]);
+/** The node kinds whose static type the builder reads back from the expression itself (not from the slot). */
+const EXPRESSIONS = new Set(["Variable", "GetField", "Call", "CallAsync", "Builtin", "Platform", "UnwrapRecursive"]);
 /** How a body's last node prints — see {@link Printer.bodyDocs}. */
 type BodyMode = "function" | "callback" | "null";
 const MAX_DEPTH = 24;
@@ -364,6 +366,21 @@ function selfTyping(node: Node): boolean {
     case "Variant": case "NewRef": case "NewVector": case "NewMatrix": case "Function": case "AsyncFunction": case "Error": return false;
     default: return true;   // a literal or an expression carries its type
   }
+}
+
+/**
+ * A platform call's argument as the surface writes it: the builder widens
+ * an expression whose type is a strict subtype of the declared input by
+ * itself (an `As` to the input), so an `As` around an expression prints as
+ * the expression alone — `gz(options)`, not `gz(East.as(options, T))` —
+ * and rebuilds the same node. A widened construction keeps its `As`: bare,
+ * the builder would lift it as the input type directly and the node would
+ * be gone.
+ */
+function platformArgument(node: Node): Node {
+  if (node.type !== "As") return node;
+  const inner = node.value.value as Node;
+  return EXPRESSIONS.has(inner.type) ? inner : node;
 }
 
 /** A structural key for a Function node: two inlined copies of one artifact print once. */
@@ -941,7 +958,7 @@ class Printer {
           const [pkg, name] = argNodes.map(a => literal(a.value.value));
           return ["East.importFunction", callArgs([pkg!, name!, this.typeRef(p.type)])];
         }
-        const args = argNodes.map(a => this.valueDoc(a, scope, pre, d, true));
+        const args = argNodes.map(a => this.valueDoc(platformArgument(a), scope, pre, d, true));
         const spelled = this.platformSpelling(p);
         const ref = spelled !== null ? this.useSpelling(spelled) : this.platformRef(p);
         if ((p.type_parameters as EastTypeValue[]).length > 0) {

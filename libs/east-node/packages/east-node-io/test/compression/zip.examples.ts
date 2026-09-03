@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, StringType, variant, example } from "@elaraai/east";
+import { East, StringType, some, none, example } from "@elaraai/east";
 import { Compression } from "@elaraai/east-node-io";
 
 export const zipCompress = example({
@@ -15,7 +15,7 @@ export const zipCompress = example({
                 data: East.value("Hello from file1").encodeUtf8(),
             },
         ]);
-        const options = $.let({ level: variant('some', 6n) });
+        const options = $.let({ level: some(6n) }, Compression.Zip.Types.Options);
         const zipBlob = $.let(Compression.Zip.compress(entries, options));
         const files = $.let(Compression.Zip.decompress(zipBlob));
         return files.get("file1.txt").decodeUtf8();
@@ -32,7 +32,7 @@ export const zipDecompress = example({
             { name: "a.txt", data: East.value("Content A").encodeUtf8() },
             { name: "b.txt", data: East.value("Content B").encodeUtf8() },
         ]);
-        const options = $.let({ level: variant('none', null) });
+        const options = $.let({ level: none }, Compression.Zip.Types.Options);
         const zipBlob = $.let(Compression.Zip.compress(entries, options));
         const files = $.let(Compression.Zip.decompress(zipBlob));
         return files.get("b.txt").decodeUtf8();
