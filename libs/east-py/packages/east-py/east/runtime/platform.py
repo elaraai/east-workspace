@@ -25,7 +25,7 @@ called through the binding that holds it.
 import asyncio
 import functools
 from collections.abc import Callable
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from east.types.types import EastType
 
@@ -58,8 +58,13 @@ class PlatformFunction(TypedDict):
     type: Literal["sync", "async"]
     """Whether the function is synchronous or asynchronous (returns a coroutine)"""
 
-    fn: Callable[..., Any]
-    """The actual Python function implementation"""
+    fn: Callable[..., Any] | None
+    """The Python implementation; ``None`` when ``c_callback`` supplies it"""
+
+    c_callback: NotRequired[object]
+    """A ``PyCapsule`` (``"east_platform_fn"``) wrapping a C ``PlatformFn``:
+    east-c calls it directly, with no Python frame (the Cython modules in
+    east-py-datascience register this way)"""
 
 
 class GenericPlatformFunction(TypedDict):
@@ -86,8 +91,13 @@ class GenericPlatformFunction(TypedDict):
     type: Literal["sync", "async"]
     """Whether the function is synchronous or asynchronous"""
 
-    fn: Callable[..., Callable[..., Any]]
-    """Factory: fn(*type_params) -> impl where impl(*args) -> result"""
+    fn: Callable[..., Callable[..., Any]] | None
+    """Factory: fn(*type_params) -> impl where impl(*args) -> result; ``None``
+    when ``c_factory`` supplies it"""
+
+    c_factory: NotRequired[object]
+    """A ``PyCapsule`` (``"east_generic_factory"``) wrapping a C
+    ``GenericPlatformFactory`` that builds the implementation per type argument"""
 
 
 # =============================================================================
