@@ -52,8 +52,20 @@ interface SearchDocument extends IndexEntry {
 
 export type ExampleIndex = MiniSearch<SearchDocument>;
 
+/** The loaded index: the search over it and the package names it holds. */
+export interface LoadedIndex {
+  search: ExampleIndex;
+  /** Every indexed package name, sorted — the values the `package` filter accepts. */
+  packages: string[];
+}
+
 /** The searchable index over `indexPath` (loaded once per process). */
 export async function buildSearchIndex(indexPath: string): Promise<ExampleIndex> {
+  return (await loadIndex(indexPath)).search;
+}
+
+/** The index over `indexPath`, with its package names. */
+export async function loadIndex(indexPath: string): Promise<LoadedIndex> {
   const raw = await readFile(indexPath, "utf-8");
   const data = JSON.parse(raw) as IndexData;
 
@@ -77,7 +89,47 @@ export async function buildSearchIndex(indexPath: string): Promise<ExampleIndex>
   }));
 
   miniSearch.addAll(documents);
-  return miniSearch;
+  return { search: miniSearch, packages: [...new Set(data.entries.map((e) => e.package))].sort() };
+}
+
+/** A package filter as the index names packages: `@elaraai/east-node-io` and `east-node-io` are the same package. */
+export function normalizePackage(filter: string): string {
+  return filter.trim().toLowerCase().replace(/^@elaraai\//, "");
+}
+
+export interface SearchRequest {
+  query: string;
+  limit: number;
+  /** A package or skill name; the `@elaraai/` scope is accepted and ignored. */
+  package?: string | undefined;
+}
+
+export interface SearchResult {
+  entries: IndexEntry[];
+  /** Set when the package filter names no indexed package — the caller should say so, with `known`. */
+  unknownPackage?: string;
+  known: string[];
+}
+
+/**
+ * The search the tool runs: scored hits above `MIN_SCORE`, the package
+ * filter applied INSIDE the search so `limit` counts filtered hits (a filter
+ * applied after a capped result list starves), and an unknown package
+ * reported rather than returned as an empty list.
+ */
+export function searchExamples(index: LoadedIndex, request: SearchRequest): SearchResult {
+  const known = index.packages;
+  const filter = request.package;
+  const pkg = typeof filter === "string" && filter.trim() !== "" ? normalizePackage(filter) : undefined;
+  if (pkg !== undefined && typeof filter === "string" && !known.includes(pkg)) {
+    return { entries: [], unknownPackage: filter, known };
+  }
+  const options = {
+    limit: request.limit,
+    ...(pkg === undefined ? {} : { filter: (r: { package: string; skill: string }) => r.package === pkg || r.skill === pkg }),
+  } as unknown as Parameters<ExampleIndex["search"]>[1];
+  const hits = index.search.search(request.query, options) as unknown as Array<IndexEntry & { score: number }>;
+  return { entries: hits.filter((r) => r.score >= MIN_SCORE).slice(0, request.limit), known };
 }
 
 /** `(inputs) -> output`, or the kind of a non-program entry. */

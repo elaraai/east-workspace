@@ -22829,6 +22829,9 @@ var SPACE_OR_PUNCTUATION = /[\n\r\p{Z}\p{P}]+/u;
 // lib/search.ts
 var MIN_SCORE = 5;
 async function buildSearchIndex(indexPath) {
+  return (await loadIndex(indexPath)).search;
+}
+async function loadIndex(indexPath) {
   const raw = await readFile(indexPath, "utf-8");
   const data = JSON.parse(raw);
   const miniSearch = new MiniSearch({
@@ -22849,7 +22852,24 @@ async function buildSearchIndex(indexPath) {
     code: entry.source ?? entry.ts ?? ""
   }));
   miniSearch.addAll(documents);
-  return miniSearch;
+  return { search: miniSearch, packages: [...new Set(data.entries.map((e) => e.package))].sort() };
+}
+function normalizePackage(filter) {
+  return filter.trim().toLowerCase().replace(/^@elaraai\//, "");
+}
+function searchExamples(index, request) {
+  const known = index.packages;
+  const filter = request.package;
+  const pkg = typeof filter === "string" && filter.trim() !== "" ? normalizePackage(filter) : void 0;
+  if (pkg !== void 0 && typeof filter === "string" && !known.includes(pkg)) {
+    return { entries: [], unknownPackage: filter, known };
+  }
+  const options = {
+    limit: request.limit,
+    ...pkg === void 0 ? {} : { filter: (r) => r.package === pkg || r.skill === pkg }
+  };
+  const hits = index.search.search(request.query, options);
+  return { entries: hits.filter((r) => r.score >= MIN_SCORE).slice(0, request.limit), known };
 }
 function signatureOf(entry) {
   if (entry.signature === void 0) return entry.languages.includes("tsx") ? "tsx (a UI component, authored as JSX)" : "typescript (authored)";
@@ -23076,7 +23096,7 @@ function formatStatus(checks) {
 // mcp/server.ts
 var __dirname = dirname3(fileURLToPath(import.meta.url));
 var INDEX_PATH = join3(__dirname, "..", "..", "index.json");
-var indexPromise = buildSearchIndex(INDEX_PATH);
+var indexPromise = loadIndex(INDEX_PATH);
 var server = new McpServer({
   name: "east",
   version: "1.0.0"
@@ -23090,22 +23110,28 @@ server.tool(
     language: languageArg,
     format: external_exports.enum(["summary", "full"]).default("summary").describe(`"summary" (default) lists the hits in one line each; "full" includes each hit's code in the requested language`),
     limit: external_exports.number().int().min(1).max(20).default(5).describe("Maximum number of results to return (default 5, max 20)"),
-    package: external_exports.string().optional().describe("Filter results to one package by its skill name (east, east-node-std, east-node-io, east-py-datascience, east-ui, e3-ui, e3)")
+    package: external_exports.string().optional().describe("Filter results to one package by its bare name \u2014 east, east-node-std, east-node-io, east-py-datascience, east-ui, e3-ui, e3, e3-ui-cli, e3-create \u2014 the `@elaraai/` scope is accepted and ignored; an unknown name is reported with the indexed names")
   },
   async ({ query, language, format, limit, package: packageFilter }) => {
     const index = await indexPromise;
-    let results = index.search(query, { limit: limit * 2 });
-    results = results.filter((r) => r.score >= MIN_SCORE);
-    if (packageFilter) {
-      results = results.filter((r) => r.package === packageFilter || r.skill === packageFilter);
-    }
-    const entries = results.slice(0, limit);
-    if (entries.length === 0) {
+    const { entries, unknownPackage, known } = searchExamples(index, { query, limit, package: packageFilter });
+    if (unknownPackage !== void 0) {
       return {
         content: [
           {
             type: "text",
-            text: `No East examples found for query: "${query}" \u2014 try the operation's plain-English name, the East method name, or the types involved.`
+            text: `Package "${unknownPackage}" is not an indexed package name. Indexed packages: ${known.join(", ")} (bare names; \`@elaraai/east-node-io\` and \`east-node-io\` are the same). Retry with one of them, or without a package filter.`
+          }
+        ]
+      };
+    }
+    if (entries.length === 0) {
+      const scope = packageFilter ? ` in package "${packageFilter}"` : "";
+      return {
+        content: [
+          {
+            type: "text",
+            text: `No East examples found for query: "${query}"${scope} \u2014 try the operation's plain-English name, the East method name, or the types involved${packageFilter ? ", or drop the package filter" : ""}.`
           }
         ]
       };
@@ -23129,7 +23155,7 @@ server.tool(
   },
   async ({ id, language }) => {
     const index = await indexPromise;
-    const entry = getEntry(index, id);
+    const entry = getEntry(index.search, id);
     if (entry === null) {
       return { content: [{ type: "text", text: `No East example with id "${id}" \u2014 ids come from search_east_examples results.` }] };
     }

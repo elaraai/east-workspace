@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { buildSearchIndex, formatFull, formatResults, getEntry, MIN_SCORE, type IndexEntry } from "../lib/search.js";
+import { formatFull, formatResults, getEntry, loadIndex, searchExamples } from "../lib/search.js";
 import { checkPluginStatus, formatStatus } from "../lib/plugin-status.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -11,7 +11,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const INDEX_PATH = join(__dirname, "..", "..", "index.json");
 
 // Load index once at startup
-const indexPromise = buildSearchIndex(INDEX_PATH);
+const indexPromise = loadIndex(INDEX_PATH);
 
 const server = new McpServer({
   name: "east",
@@ -43,29 +43,30 @@ server.tool(
     package: z
       .string()
       .optional()
-      .describe("Filter results to one package by its skill name (east, east-node-std, east-node-io, east-py-datascience, east-ui, e3-ui, e3)"),
+      .describe("Filter results to one package by its bare name — east, east-node-std, east-node-io, east-py-datascience, east-ui, e3-ui, e3, e3-ui-cli, e3-create — the `@elaraai/` scope is accepted and ignored; an unknown name is reported with the indexed names"),
   },
   async ({ query, language, format, limit, package: packageFilter }) => {
     const index = await indexPromise;
+    const { entries, unknownPackage, known } = searchExamples(index, { query, limit, package: packageFilter });
 
-    let results = index.search(query, { limit: limit * 2 } as Parameters<typeof index.search>[1]);
-
-    // Filter out low-relevance noise
-    results = results.filter((r) => r.score >= MIN_SCORE);
-
-    // Filter by package if specified
-    if (packageFilter) {
-      results = results.filter((r) => r.package === packageFilter || r.skill === packageFilter);
-    }
-
-    const entries = results.slice(0, limit) as unknown as IndexEntry[];
-
-    if (entries.length === 0) {
+    if (unknownPackage !== undefined) {
       return {
         content: [
           {
             type: "text",
-            text: `No East examples found for query: "${query}" — try the operation's plain-English name, the East method name, or the types involved.`,
+            text: `Package "${unknownPackage}" is not an indexed package name. Indexed packages: ${known.join(", ")} (bare names; \`@elaraai/east-node-io\` and \`east-node-io\` are the same). Retry with one of them, or without a package filter.`,
+          },
+        ],
+      };
+    }
+
+    if (entries.length === 0) {
+      const scope = packageFilter ? ` in package "${packageFilter}"` : "";
+      return {
+        content: [
+          {
+            type: "text",
+            text: `No East examples found for query: "${query}"${scope} — try the operation's plain-English name, the East method name, or the types involved${packageFilter ? ", or drop the package filter" : ""}.`,
           },
         ],
       };
@@ -91,7 +92,7 @@ server.tool(
   },
   async ({ id, language }) => {
     const index = await indexPromise;
-    const entry = getEntry(index, id);
+    const entry = getEntry(index.search, id);
     if (entry === null) {
       return { content: [{ type: "text", text: `No East example with id "${id}" — ids come from search_east_examples results.` }] };
     }

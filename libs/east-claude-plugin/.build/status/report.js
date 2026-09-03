@@ -1822,6 +1822,9 @@ var SPACE_OR_PUNCTUATION = /[\n\r\p{Z}\p{P}]+/u;
 
 // lib/search.ts
 async function buildSearchIndex(indexPath) {
+  return (await loadIndex(indexPath)).search;
+}
+async function loadIndex(indexPath) {
   const raw = await readFile(indexPath, "utf-8");
   const data = JSON.parse(raw);
   const miniSearch = new MiniSearch({
@@ -1842,7 +1845,7 @@ async function buildSearchIndex(indexPath) {
     code: entry.source ?? entry.ts ?? ""
   }));
   miniSearch.addAll(documents);
-  return miniSearch;
+  return { search: miniSearch, packages: [...new Set(data.entries.map((e) => e.package))].sort() };
 }
 
 // lib/east-project.ts
