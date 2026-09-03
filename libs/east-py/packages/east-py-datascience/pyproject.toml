@@ -155,28 +155,8 @@ disallow_untyped_defs = false
 module = ["numpy", "numpy.*", "scipy", "scipy.*", "sklearn", "sklearn.*", "PyNomad", "optuna", "optuna.*", "simanneal", "skl2onnx", "skl2onnx.*", "onnxruntime", "cloudpickle", "xgboost", "xgboost.*", "lightgbm", "lightgbm.*", "ngboost", "ngboost.*", "shap", "shap.*", "torch", "torch.*", "pytorch_lightning", "pytorch_lightning.*", "lightning", "lightning.*", "onnx", "onnx.*", "mapie", "mapie.*", "alns", "alns.*", "ortools", "ortools.*", "pymc", "pymc.*", "arviz", "arviz.*", "pytensor", "pytensor.*", "dowhy", "dowhy.*", "econml", "econml.*", "PyALE", "PyALE.*", "statsmodels", "statsmodels.*", "pandas", "pandas.*", "matplotlib", "matplotlib.*"]
 ignore_missing_imports = true
 
-# Our modules using optional dependencies - verify via tests not static analysis
+# Libraries whose public names are assembled at import time (lazy or star
+# re-exports); mypy sees an empty module, so treat them as untyped.
 [[tool.mypy.overrides]]
-module = [
-    "east_py_datascience.mads.*",
-    "east_py_datascience.optuna.*",
-    "east_py_datascience.simanneal.*",
-    "east_py_datascience.sklearn.*",
-    "east_py_datascience.scipy.*",
-    "east_py_datascience.xgboost.*",
-    "east_py_datascience.lightgbm.*",
-    "east_py_datascience.ngboost.*",
-    "east_py_datascience.shap.*",
-    "east_py_datascience.torch.*",
-    "east_py_datascience.gp.*",
-    "east_py_datascience.lightning.*",
-    "east_py_datascience.mapie.*",
-    "east_py_datascience.alns.*",
-    "east_py_datascience.optimization.*",
-    "east_py_datascience.google_or.*",
-    "east_py_datascience.pymc.*",
-    "east_py_datascience.simulation.*",
-    "east_py_datascience.causal.*",
-    "east_py_datascience.types",
-]
-ignore_errors = true
+module = ["simanneal", "ngboost", "ngboost.*", "shap", "shap.*", "pymc", "pymc.*", "alns", "alns.*"]
+follow_imports = "skip"

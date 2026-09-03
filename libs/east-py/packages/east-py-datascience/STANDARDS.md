@@ -17,14 +17,18 @@ src/
 ├── types.ts                    # Shared types (VectorType, MatrixType, etc.)
 ├── index.ts                    # Package exports
 ├── mads/
-│   ├── mads.ts                 # Types + platform function declarations
-│   └── mads.spec.ts            # Tests (export-only)
+│   └── mads.ts                 # Types + platform function declarations
 └── east_py_datascience/        # Python package
-    ├── __init__.py             # Package exports + datascience_platform
+    ├── __init__.py             # Package exports + `platform`
+    ├── _common.py              # Shared helpers (serialize, extra_guard, option_tag, ...)
     ├── types.py                # Shared types (must match TypeScript)
     └── mads/
         ├── __init__.py         # Module exports
         └── mads.py             # Types + implementations
+test/
+└── mads.spec.ts                # Export-only East tests; Python replays their IR
+tests/
+└── test_compliance.py          # pytest wrapper over the exported IR
 ```
 
 ---
@@ -135,7 +139,7 @@ export {
 ```typescript
 import { ArrayType, East, FloatType, variant } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
-import { MADS, MADSConstraintType } from "./mads.js";
+import { MADS, MADSConstraintType } from "@elaraai/east-py-datascience";
 
 describeEast("MADS platform functions", (test) => {
     test("optimize minimizes sum of squares", $ => {
@@ -164,6 +168,7 @@ describeEast("MADS platform functions", (test) => {
 ```
 
 **Key points:**
+- Specs live in `test/` and import the package by name (`@elaraai/east-py-datascience`)
 - Import from `@elaraai/east-node-std` for `describeEast` and `Assert`
 - NO `platformFns` option (no TypeScript implementation)
 - MUST set `exportOnly: true` (tests export IR for Python to run)
@@ -184,42 +189,62 @@ from east.types.types import (
 )
 ```
 
-Use values from `east.types.values`:
+Use values from `east.types.values`, and the constructors from `east`:
 
 ```python
-from east.types.values import (
-    EastArray, EastStruct, EastVariant,
-    is_east_variant,  # Use for checking option variants from deserialized IR
-)
+from east import none, some, variant
+from east.types.values import EastArray, EastMatrix, EastStruct, EastVariant, EastVector
 ```
 
-**IMPORTANT:** When working with `OptionType` values from deserialized IR, use `is_east_variant` NOT `is_east_option`. The IR deserializes options as `EastVariant` with `'some'` or `'none'` tags, not as `EastOption` instances.
+### Reading and building East values (MANDATORY)
+
+Options and variants arrive as `EastVariant`. Read them through the value
+API — never by inspecting `.type == "some"` by hand, and never with
+`is_east_option`:
 
 ```python
-def _get_option(opt: EastVariant | None, default: Any) -> Any:
-    """Extract value from Option variant, returning default if None."""
-    if opt is None:
-        return default
-    if is_east_variant(opt) and opt.type == "some":
-        return opt.value
-    return default
+max_iter = int(config["max_iter"].unwrap_or(100))        # Option<Integer>
+weights = config["weights"].unwrap_or(None)               # Option<Matrix<Float>> -> EastMatrix | None
+kernel = option_tag(config["kernel"], "rbf")              # Option<Variant> -> its case name
+payload = expect_case(model_blob, "xgboost_regressor", "xgboost_predict")  # model-blob guard
 ```
+
+Build results with the constructors: `some(x)` / `none` for options,
+`variant(case, value, Type)` for variants (the type validates the case and
+coerces the payload; the runtime class `EastVariant(case, value)` is fine when
+the payload is already an East value), `EastStruct({...})`,
+`EastVector(FloatType, np_array)`, `EastMatrix(FloatType, np_2d)`. Never
+hand-roll a `{"type", "value"}` dict. Let `@platform_function(output=...)`
+validate the result; do not re-check it.
+
+`east_py_datascience._common` holds the helpers every module shares:
+`serialize` / `deserialize` (cloudpickle blobs), `extra_guard` (the
+optional-extra check each module builds its `_check_<lib>_support()` from),
+`option_tag`, `expect_case`, and `quiet_warnings` (a scoped `UserWarning` /
+`FutureWarning` filter for chatty fits). `_categorical` holds the categorical
+column handling the tree models share. Reuse them; do not re-implement them
+per module.
+
+Errors: raise with the platform function's name in the message
+(`"xgboost_predict: Expected xgboost_regressor, got xgboost_classifier"`) and
+let programming errors propagate. Wrap a third-party call in
+`except Exception` only to add that context — never to swallow it, and never
+around your own conversions.
 
 ### Module File (`mads.py`)
 
 ```python
 """MADS platform functions for East."""
 
-from typing import Any, Callable
+from collections.abc import Callable
 
-from east.runtime.platform import PlatformFunction
-from east.types.types import (
-    ArrayType, BooleanType, FloatType, IntegerType,
-    OptionType, StructType, VariantType,
-)
-from east.types.values import EastArray, EastStruct, EastVariant, is_east_variant
+import numpy as np
+from east.runtime.platform import platform_function, platform_functions
+from east.types.types import ArrayType, BooleanType, FloatType, IntegerType, OptionType, StructType
+from east.types.values import EastStruct, EastVariant, EastVector
 
-from east_py_datascience.types import VectorType, ScalarObjectiveType
+from east_py_datascience._common import extra_guard
+from east_py_datascience.types import ScalarObjectiveType, VectorType
 
 # ===========================================
 # Type Definitions (must match TypeScript)
@@ -237,61 +262,77 @@ MADSResultType = StructType([
     ("success", BooleanType),
 ])
 
+# Layer 1 of PYTHON_OPTIONAL_DEPS.md: probe once at import, raise at call time.
+_check_mads_support = extra_guard("PyNomad", "mads", "MADS")
+
 # ===========================================
 # Implementation
 # ===========================================
 
+
+@platform_function(
+    name="mads_optimize",
+    inputs=[
+        ScalarObjectiveType,
+        VectorType,
+        MADSBoundsType,
+        OptionType(ArrayType(MADSConstraintType)),
+        MADSConfigType,
+    ],
+    output=MADSResultType,
+)
 def mads_optimize_impl(
-    objective_fn: Callable[[EastArray], float],
-    x0: EastArray,
+    objective_fn: Callable[[EastVector], float],
+    x0: EastVector,
     bounds: EastStruct,
-    constraints: EastVariant | None,
+    constraints: EastVariant,
     config: EastStruct,
 ) -> EastStruct:
-    """Run MADS optimization using PyNomadBBO."""
-    import PyNomad
+    """Run MADS optimization using PyNomadBBO.
 
-    # Convert East values to Python
-    x0_list = list(x0)
-    lb_list = list(bounds["lower"])
-    ub_list = list(bounds["upper"])
+    The docstring documents every East field of every argument, the result
+    shape, and the errors raised (see the existing modules for the style).
+    """
+    _check_mads_support()
+    import PyNomad  # layer 2: the native import lives inside the function
+
+    x0_np = x0.to_numpy()
+    lower = bounds["lower"].to_numpy()
+    upper = bounds["upper"].to_numpy()
+    constraint_fns = constraints.unwrap_or([])
+    max_bb_eval = int(config["max_bb_eval"].unwrap_or(100))
 
     # ... implementation ...
 
-    # Return East values
     return EastStruct({
-        "x_best": EastArray(FloatType, [float(v) for v in x_best]),
+        "x_best": EastVector(FloatType, np.asarray(x_best, dtype=np.float64)),
         "f_best": float(f_best),
         "bb_eval": int(nb_evals),
         "success": success,
     })
 
+
 # ===========================================
 # Platform Function Registration
 # ===========================================
 
-mads_impl = [
-    PlatformFunction(
-        name="mads_optimize",
-        inputs=[
-            ScalarObjectiveType,
-            VectorType,
-            MADSBoundsType,
-            OptionType(ArrayType(MADSConstraintType)),
-            MADSConfigType,
-        ],
-        output=MADSResultType,
-        type="sync",  # or "async"
-        fn=mads_optimize_impl,
-    ),
-]
+# Collected from the @platform_function decorations above.
+mads_impl = platform_functions(__name__)
 
 __all__ = [
     "mads_impl",
+    "mads_optimize_impl",
     "MADSBoundsType",
     "MADSResultType",
 ]
 ```
+
+The decorator registers the function under its East name with the declared
+input and output types; the platform coerces the arguments to East values on
+the way in and validates the result on the way out. Functions generic over a
+type parameter use `@generic_platform_function` (see `causal_impl.py`);
+C-level implementations register a `PlatformFunction(..., c_callback=capsule)`
+entry directly (see `optimization.py`).
 
 ### Module `__init__.py`
 
@@ -299,13 +340,18 @@ __all__ = [
 """MADS platform functions for East Data Science."""
 
 from east_py_datascience.mads.mads import (
-    mads_impl,
     MADSBoundsType,
     MADSResultType,
+    mads_impl,
+    mads_optimize_impl,
 )
 
 __all__ = [
+    # Platform registration
     "mads_impl",
+    # Directly-callable implementation (reusable from a project's own platform function)
+    "mads_optimize_impl",
+    # East type definitions
     "MADSBoundsType",
     "MADSResultType",
 ]
@@ -316,65 +362,50 @@ __all__ = [
 ```python
 """East Data Science Platform Functions."""
 
-from east_py_datascience.mads import mads_impl
-from east_py_datascience.types import VectorType, MatrixType
+from importlib.metadata import PackageNotFoundError, version
 
-__version__ = "0.1.0"
+from east_py_datascience.mads import mads_impl
+from east_py_datascience.types import MatrixType, VectorType
+
+try:
+    __version__ = version("elaraai-east-py-datascience")
+except PackageNotFoundError:  # a source checkout that is not installed
+    __version__ = "0.0.0"
 
 # Complete platform - pass to compile_async()
-datascience_platform = [
+platform = [
     *mads_impl,
 ]
 
 __all__ = [
     "__version__",
-    "datascience_platform",
+    "platform",
     "mads_impl",
     "VectorType",
     "MatrixType",
 ]
 ```
 
+The version comes from the installed distribution metadata, so `pyproject.toml`
+is the single place it is declared.
+
 ### Compliance Tests (`tests/test_compliance.py`)
 
-Tests run exported IR from TypeScript:
+The TypeScript specs are export-only: `pnpm run test:export` writes one IR
+file per spec to `/tmp/east-py-datascience`. Python replays them through
+east-py's core runner (`packages/east-py/tests/test_compliance.py -p
+east_py_datascience`), which registers this package's `platform` and asserts
+every exported test; a message pinned by a spec (`Assert.throws(..., /regex/)`)
+must keep its wording on the Python side.
 
-```python
-"""Compliance tests for East Data Science platform functions."""
+`tests/test_compliance.py` is a thin pytest wrapper: one parametrized case per
+IR file, each run in a subprocess so a native crash in one library cannot
+take the rest down. It reads `EAST_DATASCIENCE_IR_DIR` (default
+`/tmp/east-py-datascience`) and skips when nothing has been exported.
 
-import asyncio
-import json
-import os
-from pathlib import Path
-
-import pytest
-from east.runtime.compiler import compile_async
-
-from east_py_datascience import datascience_platform
-
-EXPORT_DIR = Path(os.environ.get("EXPORT_TEST_IR", "/tmp/east-py-datascience"))
-
-
-def get_test_files():
-    """Get all exported test IR files."""
-    if not EXPORT_DIR.exists():
-        return []
-    return list(EXPORT_DIR.glob("*.json"))
-
-
-@pytest.mark.parametrize("ir_file", get_test_files(), ids=lambda f: f.stem)
-def test_typescript_exported_ir(ir_file: Path, subtests):
-    """Run tests exported from TypeScript."""
-    with open(ir_file) as f:
-        test_data = json.load(f)
-
-    async def run_tests():
-        for test in test_data["tests"]:
-            with subtests.test(msg=test["name"]):
-                compiled = await compile_async(test["ir"], datascience_platform)
-                await compiled()
-
-    asyncio.run(run_tests())
+```bash
+cd libs/east-py && make test-east-py-datascience EAST_QUIET=1   # export + replay (the canonical run)
+cd libs/east-py/packages/east-py-datascience && make test        # the same, through pytest
 ```
 
 ---
@@ -401,15 +432,18 @@ Types MUST match exactly between TypeScript and Python:
 - [ ] Module object has `Types` property
 - [ ] Tests use `{ exportOnly: true }`
 - [ ] Tests import from `@elaraai/east-node-std`
-- [ ] `npm run build` passes
-- [ ] `npm run lint` passes
-- [ ] `npm run test:export` generates IR
+- [ ] `make build` passes
+- [ ] `make lint` passes
+- [ ] `make test-export` generates IR
 
 ### Python
-- [ ] Types from `east.types.types`
-- [ ] Values from `east.types.values`
+- [ ] Types from `east.types.types`; values from `east.types.values`
 - [ ] Types match TypeScript exactly
-- [ ] `PlatformFunction` registration
-- [ ] Module exports `{module}_impl` list
-- [ ] Package exports `datascience_platform`
-- [ ] `uv run pytest` passes
+- [ ] Every impl carries `@platform_function`; the module exports
+      `platform_functions(__name__)` as `{module}_impl`
+- [ ] Options read with `unwrap_or` / `option_tag`; model blobs with `expect_case`
+- [ ] Optional native imports inside the function, behind an `extra_guard`
+- [ ] Every public function has a docstring covering its East fields, result and errors
+- [ ] Package `__init__.py` exports `platform` and re-exports the module
+- [ ] `make lint` and `make typecheck` pass (from `libs/east-py`)
+- [ ] `make test-east-py-datascience` passes (from `libs/east-py`)
