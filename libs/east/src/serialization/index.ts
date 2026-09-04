@@ -17,6 +17,7 @@ export {
   type Beast2RangeReader, type Beast2SyncRangeReader, type Beast2RangedExtents, type ReadBeast2ExtentsRangedOptions,
 } from "./beast2/index.js";
 export * from "./json.js";
+export * from "./json_schema.js";
 export * from "./csv.js";
 
 // export * from "./beast-stream.js";
