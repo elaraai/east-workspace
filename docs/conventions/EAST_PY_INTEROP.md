@@ -57,7 +57,8 @@ marshal). This mirrors the workspace-wide "never hand-roll variants" rule.
 from east import variant, some, none, match
 v = variant("rgb", {"r": 1, "g": 2, "b": 3}, Color)   # validates the case + value
 opt = some(5)                                          # / none
-match(opt, {"some": lambda x: x + 1}, default=0)
+match(opt, {"some": lambda b, x: x + 1}, default=0)    # a handler is a BODY: the block first
+opt.unwrap_or(0)                                       # the option accessors are on the value too
 ```
 
 ### Don't
@@ -72,15 +73,18 @@ match(opt, {"some": lambda x: x + 1}, default=0)
 The value methods (`sort`, `map`, `concat`, set-algebra, dict-merge, …) and the
 `East.<Type>` namespaces delegate to the native east-c builtins. Do **not**
 reimplement a builtin's algorithm in Python — east-c is the single, tested
-source of those semantics. (The callback ops `map`/`filter`/`fold` run the
-*user's lambda* in Python, but still drive the loop through east-c; that's not a
-reimplementation — there's no east-c algorithm to reuse.)
+source of those semantics. The callback ops (`map`/`filter`/`reduce`/`group_*`)
+are no exception: the lambda is an East function BODY — captured once, compiled,
+and run inside east-c per element, with no Python in the loop. A body East
+cannot express raises at build time naming the binding; there is no
+per-element-Python fallback behind it.
 
 ### Do
 ```python
-arr.sorted()                            # ArraySortDefault, in east-c
+arr.sort()                              # ArraySortDefault, in east-c
 s1.union(s2)                            # SetUnion, in east-c
 East.String.upper_case(s)               # StringUpperCase, in east-c
+arr.map(lambda b, r: r.price * r.qty)   # a body — the block first; the loop runs in east-c
 ```
 
 ### Don't
@@ -129,7 +133,7 @@ division/remainder sign, transcendentals, string/datetime/regex/json).
 ```python
 East.Float.sqrt(x)
 East.Integer.divide(a, b)               # i64 truncating division (not Python //)
-East.DateTime.print_format(dt, "YYYY-MM-DD")
+East.DateTime.print_formatted(dt, "YYYY-MM-DD")   # not print_format — a deprecated spelling
 ```
 
 ### Don't
@@ -142,15 +146,18 @@ a // b                                  # Python floor division ≠ East Integer
 
 ## 6. Vector/Matrix: logical element vs runtime dtype
 
-`EastVector`/`EastMatrix` carry a **logical** element type (`Float`/`Integer`/
-`Boolean`); the backing numpy buffer (`.data`) may use any compatible storage
-dtype (e.g. f32 for zero-copy torch interop). Reads promote to the logical
-scalar; the bridge canonicalizes to the East storage width crossing into east-c.
+`EastVector`/`EastMatrix` carry a **logical** element type (`.element_type` —
+`Float`/`Integer`/`Boolean`); the backing buffer (`.dtype`) may use any
+compatible storage width (e.g. f32 for zero-copy torch interop). Reads promote
+to the logical scalar; the bridge canonicalizes to the East storage width
+crossing into east-c. The buffer is reached through the accessors — `to_numpy()`
+(a read-only view by default) and `to_torch()` (a writeable copy) — never a raw
+attribute.
 
 ### Do
 ```python
 EastVector(FloatType, np.asarray(x, dtype=np.float32))   # f32 storage, logical Float — OK
-torch.from_numpy(mat.data)                                # .data is the contiguous numpy buffer
+mat.to_torch()                                            # the accessor, not a buffer attribute
 EastMatrix(FloatType, model_output.numpy())               # no manual astype — bridge canonicalizes
 ```
 

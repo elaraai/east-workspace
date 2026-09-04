@@ -8,7 +8,7 @@ description: "I/O platform functions for the East language on the Python runtime
 `east_py_io` is the Python implementation of the East I/O platform: SQL and
 NoSQL databases, S3 object storage, FTP/SFTP transfers, XLSX/XML formats, and
 compression. Every function is exported under its platform name
-(`sqlite_query`, `gzip_compress`, …) and is **dual-mode** (#667): a plain
+(`sqlite_query`, `gzip_compress`, …) and is **dual-mode**: a plain
 Python callable taking and returning East values (database/network functions
 are `async def` - await them) — call it from a project
 `@East.platform_function` — and, the same object, callable inside an

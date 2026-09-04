@@ -160,7 +160,7 @@ Task → What do you need?
     │   ├─ Dict
     │   │   ├─ Read → .size(), .has(), .get(), .tryGet(), .keys(), .getKeys()
     │   │   ├─ Mutate → .insert(), .insertOrUpdate(), .update(), .merge() (ONE key, like Array/Ref .merge), .getOrInsert(), .delete(), .tryDelete(), .pop(), .swap(), .clear(), .unionInPlace(), .mergeAll()
-    │   │   ├─ Transform → .copy(), .union() (pure whole-dict; east-py spells it union too — .merge() there is the deprecated alias, #527), .map(), .filter(), .filterMap(), .forEach(), .firstMap()
+    │   │   ├─ Transform → .copy(), .union() (pure whole-dict; east-py spells it union too — .merge() there is the deprecated alias), .map(), .filter(), .filterMap(), .forEach(), .firstMap()
     │   │   ├─ Reduce → .reduce(), .scan(), .every(), .some(), .sum(), .mean()
     │   │   ├─ Convert → .toArray(), .toSet(), .toDict(), .flattenToArray(), .flattenToSet(), .flattenToDict()
     │   │   ├─ Group → .groupReduce(), .groupSize(), .groupSum(), .groupMean(), .groupToArrays(), .groupToSets(), .groupToDicts(), .groupEvery(), .groupSome()

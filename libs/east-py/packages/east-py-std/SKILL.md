@@ -9,7 +9,7 @@ description: "Standard platform functions for the East language on the Python ru
 console, environment variables, filesystem, HTTP fetch, crypto, time, path,
 random, and testing.
 Every function is exported under its platform name (`fs_read_file`,
-`fetch_get`, …) and is **dual-mode** (#667): a plain Python callable taking
+`fetch_get`, …) and is **dual-mode**: a plain Python callable taking
 and returning East values — call it from a project `@East.platform_function`
 — and, the same object, callable inside an `East.function` body, where the
 call IS the `Platform` node with the function's own declared signature. No

@@ -92,7 +92,7 @@ platform = East.platform_functions(__name__)   # pass to East.compile(fn, platfo
 | Names | the TypeScript names, snake_cased (`push_last`, `flatten_to_set`, `print_formatted`); python-idiom spellings (`fold`, `sorted`, `keys_set`, `upper`, …) are DEPRECATED aliases that warn | the same names — the eager class and the expression class agree method for method |
 | Scalars | methods on the expression (`x.abs()`, `s.upper_case()`, `d.add_days(1)`) — or the `East.<Type>` namespace | the `East.<Type>` namespaces only (you cannot add methods to `float`/`str`) |
 | Conditionals / loops | `East.if_else`, `b.if_`, `b.while_`, `b.for_`, `East.while_`/`for_` — python `if`/`while` collapse to a `bool` before the build sees them | plain python |
-| An option | `.is_some()` / `.unwrap_or(d)` / `.match({…})` | an `EastVariant`: `.type == "some"`, `.value`, `.unwrap()`, `.match({…})` |
+| An option | `.is_some()` / `.is_none()` / `.unwrap_or(d)` / `.match({…})` | an `EastVariant` — the SAME accessors, plus `.type` / `.value` / `.unwrap(tag)` |
 | Errors | an operation East cannot express raises `ExpressionError` at BUILD time, naming the binding or method | a runtime `EastError` / `EastTypeError` |
 
 A body's parameters are expressions already; a python scalar or `datetime` inside a body
@@ -115,7 +115,7 @@ Task → What do you need?
     │   │   FunctionType(I, O) · AsyncFunctionType(I, O) · PatchType(T)
     │   ├─ Author → East.function([T…], Out, lambda b, x: …) · @East.function([T…], Out) def f(b, x) · East.asyncFunction(…)  ❗out is required
     │   │   ├─ a pure body compiles immediately → f(values) runs natively · xs.map(f) · f.bind(table) pre-binds trailing params BY REFERENCE
-    │   │   ├─ a platform call inside → CALL THE IMPLEMENTATION: a @East.platform_function is dual-mode (#667) — fs_read_file(path) from east_py_std,
+    │   │   ├─ a platform call inside → CALL THE IMPLEMENTATION: a @East.platform_function is dual-mode — fs_read_file(path) from east_py_std,
     │   │   │   your own decorated def — the call is the Platform node with its declared signature · a stock generic: fs_open_beast(T, path), T first ·
     │   │   │   East.platform(name, inputs, output) / East.asyncPlatform · optional=True · East.genericPlatform(name, ["T"], …) only for a function
     │   │   │   implemented elsewhere (another package, another runtime)
@@ -136,7 +136,7 @@ Task → What do you need?
     │   │   │            .if_else(fn(b), fn(b)) · East.if_else(cond, value, …, otherwise) (one IfElse node) · .equals/.equal/.eq .not_equals/.ne
     │   │   ├─ Integer → + - * (unary -) · .add .subtract .multiply .divide .remainder .pow (+ .plus .minus .times .div .mod .rem .modulo) ·
     │   │   │            .abs .sign .negate .log(base) · .to_float() · == != < <= > >= (.less_than/.lt … .greater_equal/.ge) ·
-    │   │   │            ❗ // % ** / RAISE at build time with fix-its (#624): .divide · .remainder · .pow · .to_float() / y
+    │   │   │            ❗ // % ** / RAISE at build time with fix-its: .divide · .remainder · .pow · .to_float() / y
     │   │   ├─ Float → + - * / ** (unary -) · the same named math · .sqrt .exp .log .sin .cos .tan · .to_integer() ❗non-integral ·
     │   │   │          Float → Integer is the stdlib: East.Float.round_floor/round_ceil/round_trunc/round_half(x) (math.floor/ceil/trunc(x) build them;
     │   │   │          .floor()/.ceil()/.trunc()/.round() are deprecated aliases; round_half = ties AWAY from zero — python round() raises)
@@ -293,19 +293,19 @@ Task → What do you need?
     │   │   ├─ Vector / Matrix → get/set(→new)/slice/concat · rows()/cols() · transpose/get_row/get_col · to_array/to_vector/to_matrix/to_rows ·
     │   │   │   │                 to_numpy(copy=False)/to_torch() · from_numpy/from_torch/zeros/ones/fill ·
     │   │   │   │                 Vector map(fn(b, el[, i])) · reduce(fn(b, acc, el[, i]), init) · Matrix map_rows(fn(b, row[, i]))
-    │   │   │   ├─ Elementwise arithmetic (east-c; #598) → scale(α) · add_scaled(other, α) · mul(other) · add_scalar(c) · abs() · clamp(lo, hi) ·
+    │   │   │   ├─ Elementwise arithmetic (east-c) → scale(α) · add_scaled(other, α) · mul(other) · add_scalar(c) · abs() · clamp(lo, hi) ·
     │   │   │   │            cum_sum() — Matrix: scale · add_scaled · mul_elementwise
     │   │   │   ├─ Reductions (strict left-to-right order, cross-runtime) → sum() · dot(other) · max/min() ❗empty · arg_max/arg_min() ❗empty ·
     │   │   │   │            mean()→Float · Matrix: row_sums() · col_sums() · vec_mul(v)
     │   │   │   ├─ Masks & selection → eq/lt/gt(other)→Vector<Boolean> · mask.select(a, b) · v.compress(mask) · mask.count_true() ·
     │   │   │   │            gather(idxs) · scatter_add(idxs, src) · search_sorted(needles)
-    │   │   │   └─ Sparse accumulators (Struct{ix, v}; strictly ascending ix; every ix/v input takes a Vector OR an Array, #601) →
+    │   │   │   └─ Sparse accumulators (Struct{ix, v}; strictly ascending ix; every ix/v input takes a Vector OR an Array) →
     │   │   │                East.Vector.sparse_axpy(ixA, vA, ixB, vB, α) (union merge, vA + α·vB) · East.Vector.sparse_from_pairs(ix, v)
     │   │   │                (sorts + sums duplicates, stable) · East.Vector.sparse_filter_gt(ix, v, threshold) · seed → arr.to_vector() ·
     │   │   │                East.Vector.zeros/ones(T, n) · East.Vector.fill(T, n, value)
     │   │   ├─ Struct        → s["field"] or s.field (methods shadow same-named fields) · items()/keys()/values()
-    │   │   ├─ Variant       → .type/.get_tag() · .has_tag(tag) · .unwrap(tag="some", on_other=fn(b)) ❗ · .match({case: fn(b, x)}, default=fn(b)) ·
-    │   │   │                  .match_tag(tag, fn, default)
+    │   │   ├─ Variant       → .type/.get_tag() · .value · .has_tag(tag) · .unwrap(tag="some", on_other=fn(b)) ❗ · .match({case: fn(b, x)}, default=fn(b)) ·
+    │   │   │                  .match_tag(tag, fn, default) · Option: .is_some() .is_none() .unwrap_or(d) — the expression spellings, on the value
     │   │   ├─ Ref           → get() · update(value) (TS; `set` deprecated) · merge(patch, combine(b, current, patch))
     │   │   └─ Blob          → size/get_uint8/.data · decode_utf8/utf16 · decode_beast(T, version="v1"|"v2") · encode_beast2/decode_beast2 ·
     │   │                      open_beast(T) (a frozen paged proxy — the value a task input opens as) ·
@@ -328,7 +328,7 @@ Task → What do you need?
     │   │   │   │   (build the expensive context BEFORE the call; forked children inherit it COW on Linux/macOS)
     │   │   │   └─ merge shard files yourself → splice_beast2_files(path, T, sources) — byte copy, no re-encode
     │   │   ├─ Read → open_beast2_file(path) as f — a first-class READ-ONLY East collection VALUE (a Beast2*File subclasses
-    │   │   │   EastArray/EastDict/EastSet, #560): isinstance/type_of answer, mutation raises, and it feeds East functions directly
+    │   │   │   EastArray/EastDict/EastSet): isinstance/type_of answer, mutation raises, and it feeds East functions directly
     │   │   │   (T optional: the header supplies it; declare T to VALIDATE it at open; don't know the type? → read_beast2_type(path)):
     │   │   │   ├─ whole table → f.load()      (decodes inside east-c; input memory = one segment)
     │   │   │   ├─ join against it from a body → East.function([RowT, TableT], T, …).bind(f) — keyed reads answer from the pager,
@@ -340,8 +340,8 @@ Task → What do you need?
     │   │   │   ├─ whole-file compute → the FULL eager read surface runs on f directly: map · filter · filter_map · first_map · reduce ·
     │   │   │   │   map_reduce · sum · mean · maximum · minimum · every · some · find_* · is_sorted · to_set/unique · to_dict · to_array ·
     │   │   │   │   to_columns · map_batches · string_join · flatten_* · the group_* family · Set algebra — segment folds, east-c per
-    │   │   │   │   segment, results == f.load() exactly (f.segments() is a DEPRECATED alias, #560)
-    │   │   │   └─ wide rows, few columns read → column projection (#599) is INFERRED from the callback's IR (each segment decodes to
+    │   │   │   │   segment, results == f.load() exactly (f.segments() is a DEPRECATED alias)
+    │   │   │   └─ wide rows, few columns read → column projection is INFERRED from the callback's IR (each segment decodes to
     │   │   │       exactly the struct fields it reads); declare it instead → open_beast2_file(path, project=NARROW)
     │   │   └─ Buffer-level (you hold the bytes, not a path):
     │   │       ├─ Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
@@ -352,8 +352,9 @@ Task → What do you need?
     │   ├─ Logic genuinely needs python (numpy / a model / a solver) → to_columns()/EastArray.from_columns · map_batches ·
     │   │   EastDict.update_many(keys, values, combine) · extend — O(columns)/O(batches) crossings, not O(rows × fields)
     │   └─ Let East call your python function
-    │       ├─ Concrete types → @East.platform_function(inputs=[…], output=…)  +  East.platform_functions(__name__)
-    │       ├─ Type-parameterized → @East.generic_platform_function(type_parameters=[…], is_async=…)
+    │       ├─ Concrete types → @East.platform_function(inputs=[…], output=…)  +  East.platform_functions(__name__) — the decorated def is
+    │       │   DUAL-MODE: call it on values, or inside a body where it IS the Platform node (no declaration to restate)
+    │       ├─ Type-parameterized → @East.generic_platform_function(type_parameters=[…], inputs=…, output=…, is_async=…, type_erased=…)
     │       └─ Cache a pure, expensive one (dev/test) → @memoize above @East.platform_function; inert until configure_memo(dir) / EAST_MEMO_DIR
     │
     └─ C. CROSSING BETWEEN THEM
@@ -418,7 +419,7 @@ name**; two are about **East functions**, the program itself:
 
 | Step | Call | What it is |
 |---|---|---|
-| **Implement** a platform function in python | `@East.platform_function(inputs=…, output=…)` (`@East.generic_platform_function(type_parameters=, inputs=, output=)`; `East.platform_functions(__name__)` collects a module's) | the host side AND the body's spelling (#667): a plain python function over East VALUES, its result validated against `output` — and, called inside a body, the `Platform` node with this very signature. Its name — the `def`'s, or `name=` — is what every runtime pairs the call with |
+| **Implement** a platform function in python | `@East.platform_function(inputs=…, output=…)` (`@East.generic_platform_function(type_parameters=, inputs=, output=)`; `East.platform_functions(__name__)` collects a module's) | the host side AND the body's spelling: a plain python function over East VALUES, its result validated against `output` — and, called inside a body, the `Platform` node with this very signature. Its name — the `def`'s, or `name=` — is what every runtime pairs the call with |
 | **Declare** one implemented elsewhere | `East.platform(name, inputs, output)` (`East.asyncPlatform`, `East.genericPlatform`) | a handle a body CALLS — it emits the `Platform` node; nothing runs here. For a function implemented in another package or runtime; a python implementation you hold needs no declaration |
 | **Build** an East function | `East.function(inputs, out, body)` / `@East.function(inputs, out)` (`East.asyncFunction`) | runs `body` once over expression proxies and records IR; a pure one is already callable |
 | **Compile** with the implementations | `East.compile(fn, platform=[…])` (`East.compileAsync`) | analyzes the IR against the implementations — a declaration no implementation matches by name is `Platform function '<name>' not found` — and returns the native callable |
@@ -426,7 +427,7 @@ name**; two are about **East functions**, the program itself:
 An `East.function` has no name of its own: it is a VALUE, called through the
 binding that holds it (`score(x)`, `rows.map(score)`), stored in a struct or
 an array, exported under its module-level name (`east_functions = {"score":
-score}`) — its IR carries its parameters' names (#639), never its own,
+score}`) — its IR carries its parameters' names, never its own,
 exactly as in TypeScript. A platform function is the opposite: the name IS
 the pairing, on every runtime.
 
@@ -441,7 +442,7 @@ score = East.function([Row], FloatType, lambda b, r: r.qty.to_float() * 1.5)
 score({"sku": "a", "qty": 2})            # 3.0 — a pure artifact is a callable on values
 
 # IMPLEMENT — python over East values; `name=` because "t.log" is not an identifier.
-# The decorated function is DUAL-MODE (#667): log_line("x") runs the python;
+# The decorated function is DUAL-MODE: log_line("x") runs the python;
 # inside a body, log_line(name) IS the Platform node 't.log' with this signature.
 @East.platform_function(inputs=[StringType], output=NullType, name="t.log")
 def log_line(line):
@@ -476,9 +477,9 @@ Rows = ArrayType(Row)
 def total(rows):
     return rows.map(score).sum()          # `score` from above — an East function on values
 
-total_decl = East.platform("total", [Rows], FloatType)      # what an East body calls
-report = East.function([Rows], StringType,
-                       lambda b, rows: East.str("total: ", East.Float.print_currency(total_decl(rows))))
+report = East.function([Rows], StringType,                  # `total(rows)` in the body IS the
+                       lambda b, rows: East.str("total: ",  #   Platform node — no declaration
+                                                East.Float.print_currency(total(rows))))
 East.compile(report, platform=East.platform_functions(__name__))(rows)   # "total: $9.00"
 ```
 
@@ -488,21 +489,30 @@ Each call in detail:
 |---|---|---|
 | `East.function(param_types, out, body)` | a `Function` artifact | `param_types` is a LIST (`[]` for none); the body takes the block first — `lambda b, x: …` / `def f(b, x)`, as EVERY body does (`lambda x: …` is refused with the fix-it); `out` is required, and a body whose expression has another type raises naming both; with `body` omitted it is a DECORATOR |
 | `East.asyncFunction(param_types, out, body)` | an `AsyncFunction` artifact | for bodies calling async platform declarations; compile with `East.compileAsync` |
-| `East.platform(name, inputs, output, optional=False)` | a declaration handle | callable INSIDE a body (emits the `Platform` node); calling one outside raises `expression-level`; `East.genericPlatform(name, ["T"], inputs, output)` is the type-parameterised form. Needed only for a function implemented elsewhere: a `@East.platform_function` you hold emits the same node itself (#667) |
+| `East.platform(name, inputs, output, optional=False)` | a declaration handle | callable INSIDE a body (emits the `Platform` node); calling one outside raises `expression-level`; `East.genericPlatform(name, ["T"], inputs, output)` is the type-parameterised form. Needed only for a function implemented elsewhere: a `@East.platform_function` you hold emits the same node itself |
 | `East.asyncPlatform(name, inputs, output)` | an async declaration | calling it from a SYNC body is a build error naming `East.asyncFunction` |
 | `East.compile(fn, platform=[])` / `East.compileAsync(...)` | a native callable | takes an artifact or a raw IR value; the IR is analyzed against `platform` first (`east.ir.analyze`, the TS `analyzeIR`): a signature mismatch or a missing implementation is an `EastError` naming the call — unless the declaration is `optional=True`, which compiles to a stub that raises at the call (TS parity) |
 
 A **pure** artifact needs no compile step: it is already a native callable,
-`.bind(*values)` pre-binds trailing parameters by reference (#399), and
+`.bind(*values)` pre-binds trailing parameters by reference, and
 referencing it inside another body splices its expression into that build
-(#470/#561). A platform-declaring artifact stays first-class (composable,
-serializable) but raises until `East.compile` pairs it with implementations.
+. The splice runs the body in ITS OWN frame: a body that
+appends statements (`b.let`, `b.if_`) becomes a `Block` where it is spliced,
+not statements of the caller's block above the expression that consumes it —
+so an artifact used as an `East.if_else` arm evaluates only when that arm is
+taken, like every other arm. One consequence to know at the call site: an
+effect-only artifact whose value the caller DISCARDS is now the build-time
+"was evaluated and thrown away" error rather than a silent write into the
+caller's block — spell it `b.do(push(xs))` / `East.block(push(xs), result)`,
+as with any other mutation. A platform-declaring artifact stays first-class
+(composable, serializable) but raises until `East.compile` pairs it with
+implementations.
 `East.function(...)` spelled INSIDE a body is not an artifact but the inline
 `Function` node as a Function-typed expression — bind it with `b.const`, hand
 it to a callback slot, or call it (a `Call`; inside `East.asyncFunction`,
 calling an async one is a `CallAsync`).
 
-**Error locations (#626).** A build records the python frames that built
+**Error locations.** A build records the python frames that built
 each node, so a runtime error inside the function names the authoring site:
 `EastError.location` is the stack — the lambda's `file:line:column` first,
 then the `East.function(...)` call and its callers — and a platform-signature
@@ -514,7 +524,7 @@ fixtures. An error raised inside a callback that a *builtin* invokes
 (`arr.map(...)` and friends) resolves to the builtin's call site, on every
 runner.
 
-### Every body takes the block first — the TypeScript `$` twin (#627)
+### Every body takes the block first — the TypeScript `$` twin
 
 A TypeScript body receives `$` and appends STATEMENTS to it. A python body
 receives **`b`** — the block — as its FIRST parameter and does the same.
@@ -611,7 +621,7 @@ overloads.
 | Type | Operators | Methods (the TypeScript names) |
 |---|---|---|
 | **Boolean** | `&` `\|` `^` `~` — never `and`/`or`/`not`/`if` (python collapses them to `bool`) · `==` `!=` | `.bit_and(y) .bit_or(y) .bit_xor(y) .not_()` (the builtins — both operands evaluate) · `.and_(fn(b))` `.or_(fn(b))` (TS `and`/`or`: SHORT-CIRCUIT, the other operand is a body) · `.if_else(fn(b), fn(b))` (TS `ifElse`; `East.if_else(cond, value, …, otherwise)` is the value form — pairs then the else, one `IfElse` node) · `.equals/.equal/.eq` `.not_equals/.not_equal/.ne` |
-| **Integer** | `+` `-` `*` and unary `-`; `==` `!=` `<` `<=` `>` `>=` (East total order) · ❗ `//` `%` `**` `/` RAISE at build time with the fix-it (#624): python floors/takes the divisor's sign/promotes a negative exponent where East truncates/takes the dividend's sign/yields 0 — spell `.divide(y)` / `East.Integer.divide`, `.remainder(y)` / `East.Integer.remainder`, `.pow(y)` / `East.Integer.pow`, `.to_float() / y` | `.add .subtract .multiply .divide .remainder .pow` (a Float argument widens `self`, like TS; aliases `.plus .sub .minus .mul .times .div .mod .rem .modulo`) · `.negate() .abs() .sign() .log(base)` · `.to_float()` · `.less_than/.less/.lt .greater_than/.greater/.gt .less_than_or_equal/.less_equal/.lte/.le .greater_than_or_equal/.greater_equal/.gte/.ge .equals/.equal/.eq .not_equals/.not_equal/.ne` |
+| **Integer** | `+` `-` `*` and unary `-`; `==` `!=` `<` `<=` `>` `>=` (East total order) · ❗ `//` `%` `**` `/` RAISE at build time with the fix-it: python floors/takes the divisor's sign/promotes a negative exponent where East truncates/takes the dividend's sign/yields 0 — spell `.divide(y)` / `East.Integer.divide`, `.remainder(y)` / `East.Integer.remainder`, `.pow(y)` / `East.Integer.pow`, `.to_float() / y` | `.add .subtract .multiply .divide .remainder .pow` (a Float argument widens `self`, like TS; aliases `.plus .sub .minus .mul .times .div .mod .rem .modulo`) · `.negate() .abs() .sign() .log(base)` · `.to_float()` · `.less_than/.less/.lt .greater_than/.greater/.gt .less_than_or_equal/.less_equal/.lte/.le .greater_than_or_equal/.greater_equal/.gte/.ge .equals/.equal/.eq .not_equals/.not_equal/.ne` |
 | **Float** | `+` `-` `*` `/` `**` and unary `-`; comparisons · ❗ `//` `%` RAISE (`.remainder(y)` / `East.Float.remainder`) · `math.floor/ceil/trunc(x)` build the stdlib `East.Float.round_floor/round_ceil/round_trunc`; python `round(x)` raises (its tie rule differs — `East.Float.round_half(x)`) | the same named arithmetic and aliases (an Integer argument widens) · `.negate .abs .sign .sqrt .exp .log .sin .cos .tan` · `.to_integer()` ❗ errors at run time on a non-integral/NaN/infinite value · Float → Integer rounding is the stdlib `East.Float.round_floor/round_ceil/round_trunc/round_half(x)` (`round_half` = ties AWAY from zero; `.floor() .ceil() .trunc() .round()` are deprecated aliases) · comparisons as Integer |
 | **String** | `+` (concat); comparisons | `.concat(s) .repeat(n) .substring(a, b) .upper_case() .lower_case() .trim() .trim_start() .trim_end()` · `.replace(old, new) .split(sep)` · `.length() .starts_with(p) .ends_with(s) .contains(s) .index_of(s)` · `.parse(T)` ❗ (strict whole-string) `.parse_json(T)` · `.try_parse(T) -> Option<T>` (none on any failure) · `.encode_utf8() .encode_utf16()` · `.regex_contains(pat, flags="") .regex_index_of(pat, flags="") .regex_replace(pat, repl, flags="")` (the builtins TypeScript has no method for) · never an f-string (it would constant-fold the proxy) — `East.str(…)` or `+` |
 | **DateTime** | comparisons; a python `datetime` literal lifts as a DateTime | `.get_year() .get_month() .get_day_of_month() .get_day_of_week()` (Monday = 1) `.get_hour() .get_minute() .get_second() .get_millisecond()` · `.add_milliseconds(n) .add_seconds .add_minutes .add_hours .add_days .add_weeks` and `.subtract_milliseconds … .subtract_weeks` (an Integer or Float `n`) · `.duration_milliseconds(other) -> Integer`, `.duration_seconds/minutes/hours/days/weeks(other) -> Float` ❗ `a.duration_days(b)` is `b − a` (positive when `b` is later — the TS method; the namespace `East.DateTime.duration_milliseconds(a, b)` is the raw builtin, `a − b`) · `.to_epoch_milliseconds()` · `.print_formatted(fmt)` (Day.js tokens) |
@@ -749,9 +759,8 @@ between calls.
   namespace, `East.if_else`, the `struct`/`variant`/`some`/`none`
   constructors (dual-mode: they build IR when handed expression fields),
   **East.function artifacts** (dual-mode: they re-run their source at any
-  nesting depth, #470), **compiled East function values** (`.bind` results,
-  `compile_from_*` functions — a CALL on one lowers to a native IR Call,
-  #561), and — two wrapper levels deep, enough for helper lambdas that
+  nesting depth), **compiled East function values** (`.bind` results,
+  `compile_from_*` functions — a CALL on one lowers to a native IR Call), and — two wrapper levels deep, enough for helper lambdas that
   compose a callback — other python functions that pass the same rules.
 - Anything else RAISES an `ExpressionError` **naming the binding**: a module
   reference (`random.…`, `np.…`), a python builtin (`len`, `str`), a mutable
@@ -764,7 +773,7 @@ between calls.
   doubled: the body runs once, at build time, or not at all.
 - Arithmetic follows East types exactly: no implicit Integer↔Float mixing
   (`.to_float()` / `.to_integer()` convert) and `/` is Float division.
-- Captures are CACHED (#422): an eager callback whose code object, captured
+- Captures are CACHED: an eager callback whose code object, captured
   bindings and declared signature match a previous call reuses the compiled
   function — so the per-group aggregate shape,
   `group_to_arrays(key).to_array(lambda b, es, k: {…aggregates over es…})`,
@@ -798,8 +807,12 @@ never runs per element**. In order of impact:
    re-calling `.split()` per column re-emits the split. Loop-invariant
    subexpressions hoist out of nested lambdas to the function body the same
    way — including a derived value read only ONCE inside a callback
-   (#602), so `table = derive(rec)` before a `.map` runs once, not per
-   element. `East.function(..., cse=False)` switches the pass off and builds
+  , so `table = derive(rec)` before a `.map` runs once, not per
+   element. A hoist never leaves a GUARD: a subexpression shared
+   inside a `b.try_` / `East.try_catch` body binds inside that body, never
+   above it, so a throwing expression stays under the handler written for it
+   — which is what makes `s.try_parse(T)` answer `none` even when the parse
+   is CSE'd. `East.function(..., cse=False)` switches the pass off and builds
    exactly the IR the body spells — what the transpiler emits.
 3. **Side tables: capture small ones, `bind` big ones.** Two spellings with
    opposite contracts — never conflate them:
@@ -850,7 +863,7 @@ never runs per element**. In order of impact:
    projection. There is no per-element python counter because there is no
    per-element python path: an eager callback builds or it raises.
 
-### IR ↔ python: `east-py transpile` and the `east-c ir` toolbox (#627)
+### IR ↔ python: `east-py transpile` and the `east-c ir` toolbox
 
 Any East IR — an `East.function` artifact, or a `.json` / `.beast2` export
 from TypeScript, east-c or east-node — prints as an idiomatic python module
@@ -864,7 +877,7 @@ print(to_python_source(classify))        # `@East.function(..., cse=False)` / `d
 ```bash
 east-py transpile program.json -o program.py --name main   # the same, from a file
 east-py transpile program.json -p east-py-std -p east-py-io   # platform calls print as the packages' own
-                                                              # functions and named types (#667), not restated declarations
+                                                              # functions and named types, not restated declarations
 east-c ir normalize program.json -o canonical.json         # the canonical form
 east-c ir diff a.json b.beast2                             # first difference, or "identical"
 east-c ir convert program.json -o program.beast2           # json <-> beast2, source map intact
@@ -900,7 +913,7 @@ function is implemented in C — exports the DECLARATION under the same name
 (`simulation_run`, `optimization_iterative`), which a body calls
 identically.
 
-### Diagnostics at edit time — `east-py lint`, flake8, `east-py lsp` (#638)
+### Diagnostics at edit time — `east-py lint`, flake8, `east-py lsp`
 
 Everything the strict surface refuses at build time — a body without the
 block, `//` on an expression, an f-string over one, `if` on one, a callback
@@ -925,7 +938,7 @@ east-py lsp                               # a Language Server over stdio — pip
 | Rule | Flags | What the build says |
 |---|---|---|
 | `body-takes-block-first` (EAS001) | `lambda x: …`, a body whose parameter count is not the declared count plus the block, `b.price`, `x + b` | `a body takes the block first` |
-| `no-operator-fork` (EAS002) | `//` `%` `**` on an expression, `xs[-1]` | the #624 texts — `East.Integer.divide` / `remainder` / `pow`, `xs.get(xs.size() - 1)` |
+| `no-operator-fork` (EAS002) | `//` `%` `**` on an expression, `xs[-1]` | the operator-fork texts — `East.Integer.divide` / `remainder` / `pow`, `xs.get(xs.size() - 1)` |
 | `no-python-formatting` (EAS003) | `f"{x}"`, `str(x)`, `print(x)`, `format(x)`, `"{}".format(x)`, `"%d" % x` | `f-strings / str() cannot be traced … East.String.print(T, value)` |
 | `no-python-boolean` (EAS004) | `if`/`while`/`assert`/`and`/`or`/`not`/`x if c else y` on an expression, `in`, `for … in xs`, `len`/`int`/`float`/`bool`/`sum`/`sorted`/`max`… over one | `python \`if/and/or/not\` cannot be traced …` (`iteration`, `len()`, …) |
 | `no-python-round` (EAS005) | `round(x)` on a Float expression | `East.Float.round_half(x) rounds half away from zero …` |
@@ -942,7 +955,7 @@ build's type checking is not repeated, so a clean lint is necessary, not
 sufficient, and `make lint` runs it over every east-py package's own East
 bodies.
 
-### Cross-language functions: `east-py export-functions` and `East.import_function` (#628)
+### Cross-language functions: `east-py export-functions` and `East.import_function`
 
 A python `East.function` is *called* from a TypeScript e3 task — and a
 TypeScript one from python — as pure IR: no python at run time, no platform
@@ -958,8 +971,13 @@ from east.types.types import FloatType, StructType, IntegerType
 
 Row = StructType([("qty", IntegerType), ("price", FloatType)])
 score = East.function([Row], FloatType, lambda b, r: r.qty.to_float() * r.price)
-east_functions = {"score": score}          # name -> East.function artifact (closed values only:
-                                           # no captures, no .bind results, no unresolved imports)
+east_functions = {"score": score}          # name -> East.function artifact. CLOSED values: the
+                                           # exported IR must BIND every name it reads. A build's
+                                           # own hoisted constants — a captured lookup table, a
+                                           # stdlib format string — ride along and close over
+                                           # nothing; a .bind result (no IR of its own) and
+                                           # an unresolved import are refused, and a genuinely free
+                                           # variable is refused BY NAME
 ```
 
 ```typescript
@@ -1110,18 +1128,19 @@ function:
    builds now and returns a reusable compiled callable (hoist compilation
    out of a loop, or share one body across call sites). A precompiled
    function — including a `.bind(...)` result — passes its native function
-   value **straight through every eager method** (#409): the loop runs
+   value **straight through every eager method**: the loop runs
    entirely in east-c with zero per-element python, and the output type
    comes from its own signature, so no `out=` and no sampling. If you DO
    pass `out=` (or the method has a declared type) and the signature
-   contradicts it, the call raises `EastTypeError` immediately (#467).
-   Artifacts are also **dual-mode** (#470): called with plain values they
+   contradicts it, the call raises `EastTypeError` immediately.
+   Artifacts are also **dual-mode**: called with plain values they
    execute natively; referenced inside another body they re-run their
-   source and splice into that build — so they compose
+   source, in their own frame, and splice into that build — so they
+   compose
    (`East.function([Row], FloatType, lambda b, r: amount(r) * 1.1)`). A
    `.bind(...)` result (or any compiled function value) cannot re-run its
    body — instead a body that CALLS one lowers the call to the IR
-   `Call` node (#561): the callee rides as a hidden bound parameter and the
+   `Call` node: the callee rides as a hidden bound parameter and the
    loop, the body and the callee all execute inside east-c. `FunctionType`
    PARAMETERS are first-class — callable in the body and bindable with
    function values (calling an `AsyncFunctionType` value in a sync body
@@ -1141,7 +1160,7 @@ function:
 
    conv = East.function([Row, TableT], FloatType,
                         lambda b, r, t: t.get_or_default(r.sku, 0.0))
-   rows.map(conv.bind(table))   # bind a live side-table BY REFERENCE (#399)
+   rows.map(conv.bind(table))   # bind a live side-table BY REFERENCE
    ```
 
 Anything else in a callback slot RAISES — there is no third kind. The
@@ -1195,7 +1214,7 @@ at the call. `.element_type` is the logical element type.
 | Search | `find_first(target, key=None) -> some/none` · `find_all(value, by=None) -> Array<Integer>` · `find_maximum/find_minimum(by=None) -> some(index)/none` · `find_sorted_first/last(target, key=None) -> int` · `find_sorted_range(target, key=None) -> {start,end}` · `first_map(fn(el)->some/none, out=None)` · `is_sorted(key=None) -> bool` |
 | Flatten | `flat_map(fn(el)->arr, out=None)` (`flatten_to_array` deprecated) · `flatten_to_set(fn(el)->set, out=None)` · `flatten_to_dict(fn(el)->dict, combine=None)` (a duplicate key errors without `combine`) |
 | Columnar | `to_columns(fields=None) -> dict` (numpy per numeric/bool column, `Option<Float>`→NaN, interned strings) · `EastArray.from_columns(element_type, columns)` *(static)* (C-side fill needs numpy columns — float64/int64/bool, `Option<Float>` as float64+NaN; python lists convert per cell) · `map_batches(fn(cols)->cols, out=None, batch_size=100_000)` |
-| Convert | `string_join(sep) -> str` (String arrays) · `to_vector() -> EastVector` (Float/Integer/Boolean elements, in order — east-c VectorFromArray; the expression method emits the same builtin, #601) · `encode_csv(config=None, **options) -> EastBlob` (Array of structs; east-c ArrayEncodeCsv) |
+| Convert | `string_join(sep) -> str` (String arrays) · `to_vector() -> EastVector` (Float/Integer/Boolean elements, in order — east-c VectorFromArray; the expression method emits the same builtin) · `encode_csv(config=None, **options) -> EastBlob` (Array of structs; east-c ArrayEncodeCsv) |
 | Mutate (in place, the TS names) | `push_last(item)` · `push_first(item)` · `append(array)` (ArrayAppend — a whole array, NOT one element) · `prepend(array)` · `pop_last()` · `pop_first()` · `update(i, item)` ❗bounds · `merge(i, value, update_fn(existing, incoming[, i]))` · `merge_all(array, merge_fn(existing, incoming[, i]))` · `clear()` · `sort_in_place(by=None)` · `reverse_in_place()` — plus the python protocol: `extend(iterable)` (bulk: one crossing; C-to-C for same-type East arrays, raw buffers for numpy) · `insert(i, item)` · `pop(i=-1)` · `remove(item)` · `count(value) -> int` · `index(value) -> int` |
 
 ### EastSet — complete method surface
@@ -1211,7 +1230,7 @@ signatures below list the arguments after it. **`map` and `filter_map` return an
 | Algebra (vs another set) | `union(other)` · `intersection(other)` · `difference(other)` · `symmetric_difference(other)` · `is_subset_of(other) -> bool` · `is_superset_of(other) -> bool` · `is_disjoint_from(other) -> bool` (the TS names; `intersect`/`diff`/`sym_diff`/`is_subset`/`is_disjoint` are deprecated spellings) |
 | Per-element | `map(fn(el)) -> Dict` · `filter(pred(el))` · `filter_map(fn(el)->some/none, out=None) -> Dict` · `first_map(fn(el)->some/none, out=None)` · `to_set(fn(el), out=None)` · `to_array(key=None)` · `to_dict(key(el), value(el), combine=None)` (duplicate key errors without `combine`) · `for_each(fn(el)) -> None` |
 | Reduce | `reduce(fn(acc, el), init)` (TS order) · `scan(fn(acc, el), init) -> Array` (running fold in East order) · `map_reduce(fn(el), reduce(a,b))` (raises on empty) · `sum(fn=None)` · `mean(fn=None) -> float` · `every(pred=None)` · `some(pred=None)` (native short-circuit) |
-| Group | `group_reduce(key(el), initial(gk), fold(acc, el)) -> Dict` · `group_size(key)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_every/group_some(key, pred)` · `group_to_arrays/group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` · ⚠️ `group_fold(...)` is the DEPRECATED alias of `group_reduce` (#535) |
+| Group | `group_reduce(key(el), initial(gk), fold(acc, el)) -> Dict` · `group_size(key)` · `group_sum(key, fn=None)` · `group_mean(key, fn=None)` · `group_every/group_some(key, pred)` · `group_to_arrays/group_to_sets(key, value=None)` · `group_to_dicts(key, key2, value=None, combine=None)` · ⚠️ `group_fold(...)` is the DEPRECATED alias of `group_reduce` |
 | Flatten | `flatten_to_array(fn(el)->arr, out=…)` (the TS Set name; `flat_map` is Array's and a deprecated spelling here) · `flatten_to_set(fn(el)->set, out=…)` · `flatten_to_dict(fn(el)->dict, combine=None)` (duplicate key errors without `combine`) |
 | Mutate (in place) | `add(item)` · `insert(value)` (errors if present) · `try_insert(value) -> bool` (True if newly added) · `remove(item)` · `delete(value)` (errors if absent) · `try_delete(value) -> bool` · `discard(item)` · `union_in_place(other)` (adds all of `other`) · `clear()` · `copy()` |
 
@@ -1226,7 +1245,7 @@ the builtin's own `(value, key)` order — the TypeScript order** (the block fir
 `combine(existing, incoming, key)` — for `union`/`union_in_place`/`to_dict` a 2-arg
 `combine(existing, incoming)` is also accepted (a 3-arg one still receives the key).
 `union`/`union_in_place` require `other` to have the same key AND value type (a
-mismatch is refused, #529); `merge_all` needs only the same KEYS and is generic
+mismatch is refused); `merge_all` needs only the same KEYS and is generic
 in `other`'s values; `merge` takes a single differently-typed value.
 
 | Group | Methods |
@@ -1235,7 +1254,7 @@ in `other`'s values; `merge` takes a single differently-typed value.
 | Combine | `union(other, combine=None) -> Dict` (NEW dict, both inputs untouched; a shared key errors without `combine`) · `union_in_place(other, combine=None) -> None` · `merge_all(other, merge(existing, incoming[, key]), default(key)) -> None` (fold `other` into self in place; `default` seeds absent keys; **generic in `other`'s value type** — only the KEYS must match) · `merge(key, value, update_fn(existing, incoming[, key]), initial_fn=None) -> None` (ONE key, in place; `value` may be a different type — TS `merge`; `merge_key` deprecated) · `get_keys(keys: Set, fill(k)) -> Dict` |
 | Per-entry | `map(fn(value[, key]), out=None)` · `filter(pred(value[, key]))` · `filter_map(fn(value[, key])->some/none, out=None)` · `first_map(fn(value[, key])->some/none, out=None)` · `for_each(fn(value[, key])) -> None` |
 | Reduce | `reduce(fn(acc, value[, key]), init)` (TS order) · `scan(fn(acc, value[, key]), init) -> Array` (running fold in key order) · `map_reduce(map_fn(value[, key]), reduce_fn(a, b), out=None)` (raises on empty) · `sum(fn(value[, key])=None)` · `mean(fn(value[, key])=None) -> float` · `every(pred(value[, key])=None) -> bool` · `some(pred(value[, key])=None) -> bool` (native short-circuit) |
-| Group | `group_reduce(key_fn(value[, key]), init_fn(gk), fold_fn(acc, value[, key]), key_out=None, acc_out=None) -> Dict` · `group_size(key_fn)` · `group_sum(key_fn, fn=None)` · `group_mean(key_fn, fn=None)` · `group_every/group_some(key_fn, pred(value[, key]))` · `group_to_arrays/group_to_sets(key_fn, value_fn=None)` · `group_to_dicts(key_fn, key2_fn, value_fn=None, combine=None)` · ⚠️ `group_fold(...)` is the DEPRECATED alias of `group_reduce` (#535) |
+| Group | `group_reduce(key_fn(value[, key]), init_fn(gk), fold_fn(acc, value[, key]), key_out=None, acc_out=None) -> Dict` · `group_size(key_fn)` · `group_sum(key_fn, fn=None)` · `group_mean(key_fn, fn=None)` · `group_every/group_some(key_fn, pred(value[, key]))` · `group_to_arrays/group_to_sets(key_fn, value_fn=None)` · `group_to_dicts(key_fn, key2_fn, value_fn=None, combine=None)` · ⚠️ `group_fold(...)` is the DEPRECATED alias of `group_reduce` |
 | Flatten | `flatten_to_array(fn(value[, key])->arr, out=None)` (the TS Dict name; `flat_map` is Array's and a deprecated spelling here) · `flatten_to_set(fn(value[, key])->set, out=None)` · `flatten_to_dict(fn(value[, key])->dict, combine=None)` (a duplicate key errors without `combine`) |
 | Convert | `keys() -> Set` · `to_array(fn(value[, key]), out=None)` · `to_set(fn(value[, key]), out=None)` · `to_dict(key_fn, value_fn=None, combine=None, key_out=None, value_out=None)` (the value itself when `value_fn` is omitted; a duplicate key errors without `combine`) · `copy()` |
 | Mutate (in place) | `d[k]=v` · `del d[k]` · `insert(k, v)` (errors if present) · `get_or_insert(k, fn(k))` · `insert_or_update(k, v, combine(existing, incoming, k))` · `update(k, v)` (TS; the read-modify-write `update(k, fn(current))` is deprecated) · `swap(k, v) -> prev` · `delete(k)` · `try_delete(k) -> bool` (`update`/`swap`/`delete` error on a missing key) · `pop(k, *default)` · `clear()` |
@@ -1246,7 +1265,7 @@ in `other`'s values; `merge` takes a single differently-typed value.
 Immutable 1-D numeric value — logical element type `Float`/`Integer`/`Boolean`, backed by a
 contiguous NumPy buffer for zero-copy ML interop. The logical `.element_type` is fixed; the storage
 `.dtype` may be any compatible width (e.g. f32). The **arithmetic surface delegates to the east-c
-builtins** (#598): reductions fold in strict left-to-right index order and comparisons use East's
+builtins**: reductions fold in strict left-to-right index order and comparisons use East's
 total order (NaN greatest, `-0.0 < 0.0`) — bit-identical across the TS, C and Python runtimes,
 which numpy's reassociating reductions are not. Free-form math beyond it goes via
 `to_numpy()`/`to_torch()`. **Immutable:** `set`/transform return a NEW vector; the original is
@@ -1264,7 +1283,7 @@ constant and emit IR, like the eager collections.
 | Reduce (east-c; strict left-to-right order) | `sum()` (0 when empty) · `dot(other)` ❗len · `max()`/`min()` ❗empty (TS names; `maximum`/`minimum` deprecated) · `arg_max()`/`arg_min()` ❗empty (ties keep the first index; NaN is greatest) · `mean() -> float` (Integer widens per element; NaN when empty) |
 | Masks & selection (east-c) | `eq(other)`/`lt(other)`/`gt(other)` ❗len `-> Vector<Boolean>` (East equality/order) · `mask.select(a, b)` ❗len (mask receiver) · `v.compress(mask)` ❗len · `mask.count_true() -> int` |
 | Gather / scatter / search (east-c) | `gather(indices)` ❗bounds · `scatter_add(indices, src)` ❗len/bounds (duplicates accumulate in order) · `search_sorted(needles) -> Vector<Integer>` (leftmost insertion index; assumes sorted) |
-| Sparse accumulators (east-c; `East.Vector.*`) | `sparse_axpy(ixA, vA, ixB, vB, alpha)` (union merge `vA + alpha*vB`; absent entries stay absent) ❗ascending/len · `sparse_from_pairs(ix, v)` (sorts + sums duplicates stably, in input order) ❗len · `sparse_filter_gt(ix, v, threshold)` ❗ascending/len — all return `Struct{ix: Vector<Integer>, v: Vector<T>}` with strictly ascending `ix`; every `ix`/`v` input takes a Vector OR an Array (#601) |
+| Sparse accumulators (east-c; `East.Vector.*`) | `sparse_axpy(ixA, vA, ixB, vB, alpha)` (union merge `vA + alpha*vB`; absent entries stay absent) ❗ascending/len · `sparse_from_pairs(ix, v)` (sorts + sums duplicates stably, in input order) ❗len · `sparse_filter_gt(ix, v, threshold)` ❗ascending/len — all return `Struct{ix: Vector<Integer>, v: Vector<T>}` with strictly ascending `ix`; every `ix`/`v` input takes a Vector OR an Array |
 | Per-element (east-c; the native callback builtins) | `map(fn(el[, i]), out=None) -> EastVector` (VectorMap; Float/Integer/Boolean results) · `reduce(fn(acc, el[, i]), init)` (VectorFold, index order; `fold(init, fn)` is the deprecated spelling) — a body like every other callback, zero python per element |
 | Convert | `to_array() -> EastArray` (promotes scalars; severs the zero-copy link) · `to_matrix(rows, cols) -> EastMatrix` (row-major reshape; `rows*cols == length`) |
 | NumPy / torch | `to_numpy(dtype=None, copy=False) -> ndarray` (read-only view by default; a cast or `copy=True` is writeable) · `to_torch(dtype=None) -> torch.Tensor` (always a writeable copy) · `np.asarray(v)` via `__array__` · props `.dtype` (storage) / `.element_type` (logical) |
@@ -1274,7 +1293,7 @@ constant and emit IR, like the eager collections.
 Immutable 2-D row-major numeric value — logical element type `Float`/`Integer`/`Boolean`, backed by
 a contiguous NumPy buffer. Logical `.element_type` is separate from storage `.dtype` (a Float matrix
 may be stored f32). Same contract as `EastVector`: the arithmetic surface delegates to east-c
-(#598) with the strict left-to-right reduction order; free-form math goes via
+ with the strict left-to-right reduction order; free-form math goes via
 `to_numpy()`/`to_torch()`. **Immutable** (`set`/transform return a NEW matrix), **not hashable**
 but valid as an East Set/Dict key. Construct via the `EastMatrix.*` classmethods (see
 [Container generators](#container-generators-classmethods)); `from_numpy`/`from_torch` infer
@@ -1288,7 +1307,7 @@ expression argument lift the matrix as a constant and emit IR.
 | Arithmetic (east-c; Float/Integer elements) | `scale(alpha)` · `add_scaled(other, alpha)` ❗dims · `mul_elementwise(other)` ❗dims (Hadamard) |
 | Reduce (east-c; ascending index order) | `row_sums() -> EastVector` (ascending column order per row) · `col_sums() -> EastVector` (ascending row order per column) · `vec_mul(v) -> EastVector` ❗cols≠len (row-by-vector dot products) |
 | Rows & cols | `get_row(r) -> EastVector` ❗bounds (contiguous copy) · `get_col(c) -> EastVector` ❗bounds (contiguous copy) |
-| Per-row (east-c) / per-element (DEPRECATED, #625) | `map_rows(fn(row: EastVector[, i]) -> EastVector, out=None)` (the native MatrixMapRows — a body like every callback) · `map_elements(fn(el), out=None)` runs a python callback per element; it warns and will go — use the arithmetic surface or `to_numpy()` |
+| Per-row (east-c) / per-element (DEPRECATED) | `map_rows(fn(row: EastVector[, i]) -> EastVector, out=None)` (the native MatrixMapRows — a body like every callback) · `map_elements(fn(el), out=None)` runs a python callback per element; it warns and will go — use the arithmetic surface or `to_numpy()` |
 | Convert | `to_vector() -> EastVector` (row-major flatten) · `to_array() -> EastArray` (`Array<Array<el>>`, one inner array per row) · `to_rows() -> EastArray` (`Array<Vector<el>>`, one `EastVector` per row) |
 | NumPy / torch | `to_numpy(dtype=None, copy=False) -> ndarray` (2-D; read-only view by default) · `to_torch(dtype=None) -> torch.Tensor` (writeable copy) · `np.asarray(m)` via `__array__` · props `.dtype` / `.element_type` |
 
@@ -1321,7 +1340,9 @@ expression argument lift the matrix as a constant and emit IR.
   `.match_tag(tag, handler, default)`. Also `get_tag()`, `has_tag(tag)`, and
   `unwrap(tag="some", on_other=None)` ❗ValueError on a different case unless the
   `on_other(b)` body answers — mirroring the TS variant expression surface, and the same
-  shapes build inside a body.
+  shapes build inside a body. An option reads with the **same accessors as the
+  expression surface** — `is_some()`, `is_none()`, `unwrap_or(default)` — so a
+  decoded option needs no `opt.type == "some"` branch.
 - **`EastRef`** — mutable cell: `get()` · `update(value)` (TS `RefUpdate`; `set` is the
   deprecated spelling, and the read-modify-write `update(fn(b, current))` is deprecated too —
   write `ref.update(f(ref.get()))`) · `merge(patch, combine(b, current, patch))`. Inside a
@@ -1471,7 +1492,7 @@ and v5 through the same entry points, and each batch becomes one
 independently decodable segment. Use for exports too big to hold, or to
 re-read a huge file one batch at a time.
 
-**Managed files — start here (`open_beast2_file` / `write_beast2_file`, #481).**
+**Managed files — start here (`open_beast2_file` / `write_beast2_file`).**
 Path in, East values out — the file is self-describing, so reads need no
 declared type (writes do; declaring one on a read validates it at open). The
 file object owns the fd + mmap (closes on `with`-exit), east-c does all byte
@@ -1481,20 +1502,20 @@ name-for-name.
 
 | Signature | Description |
 |-----------|-------------|
-| `write_beast2_file(path, T, value, *, codec="deflate", segment_rows=None)` | One call writes a collection of any size as one indexed v5 file, re-batched into managed-size segments (Array slices; Dict/Set split along sorted order, so segments stay key-disjoint). Managed batching is BYTE-adaptive (#560): a probe seeds rows-per-segment toward ~2 MiB of wire output (capped at 8192 rows), refined from real output, so wide rows still yield right-sized segments; an explicit `segment_rows` pins the row grain instead |
+| `write_beast2_file(path, T, value, *, codec="deflate", segment_rows=None)` | One call writes a collection of any size as one indexed v5 file, re-batched into managed-size segments (Array slices; Dict/Set split along sorted order, so segments stay key-disjoint). Managed batching is BYTE-adaptive: a probe seeds rows-per-segment toward ~2 MiB of wire output (capped at 8192 rows), refined from real output, so wide rows still yield right-sized segments; an explicit `segment_rows` pins the row grain instead |
 | `open_beast2_file(path, T, mode="w", *, codec=, segment_rows=)` | Streaming managed writer: `.write()` takes East collections **or** python builtins (list/dict/set), any size, re-batched internally (byte-adaptively, as above); `.segments` counts them |
-| `open_beast2_file(path, T=None)` | Read: returns the root-kind flavor — `Beast2ArrayFile` / `Beast2DictFile` / `Beast2SetFile` — a first-class READ-ONLY East collection VALUE (#560): each subclasses `EastArray`/`EastDict`/`EastSet`, so `isinstance`/`type_of` answer, every eager method works (streamed overrides below; the rest via iteration), mutation raises, and the file binds into functions / passes into compiled calls by reference — keyed reads inside the compiled body answer from the pager, one frame per hit/miss, through a BYTE-budgeted segment cache (`EAST_PAGED_CACHE_BYTES`). `close()` DEFERS while a bind still holds the value. `T` is optional (the self-describing header supplies it — also exposed as `f.wire_type`); a declared `T` is validated against the header, so a mismatch fails at open instead of decoding garbage |
+| `open_beast2_file(path, T=None)` | Read: returns the root-kind flavor — `Beast2ArrayFile` / `Beast2DictFile` / `Beast2SetFile` — a first-class READ-ONLY East collection VALUE: each subclasses `EastArray`/`EastDict`/`EastSet`, so `isinstance`/`type_of` answer, every eager method works (streamed overrides below; the rest via iteration), mutation raises, and the file binds into functions / passes into compiled calls by reference — keyed reads inside the compiled body answer from the pager, one frame per hit/miss, through a BYTE-budgeted segment cache (`EAST_PAGED_CACHE_BYTES`). `close()` DEFERS while a bind still holds the value. `T` is optional (the self-describing header supplies it — also exposed as `f.wire_type`); a declared `T` is validated against the header, so a mismatch fails at open instead of decoding garbage |
 | `read_beast2_type(source) -> EastType` | The root type embedded in any beast2-full blob (v4 **and** v5), from a path or buffer, no value decoded — regenerate loaders from artifacts alone, or inspect a file you know nothing about |
 | `write_beast2_file_parallel(path, T, partitions, produce, *, processes=, strategy="auto", codec=, segment_rows=, keep_shards=False, verify=False)` | Partitioned parallel write to ONE file: `produce(partition)` runs per worker and returns that partition's batches (or one collection = one batch); each worker writes a private shard and the shards splice **in partition order**, incrementally, as they finish. `strategy="auto"` forks on Linux/macOS — whatever `produce` closes over is inherited copy-on-write, so build the expensive context before the call (and call before starting threads) — and runs inline on Windows: byte-identical output either way. Any worker failure (exception or signal) fails the whole call with the worker's traceback and leaves nothing behind |
 | `splice_beast2_files(path, T, sources, *, verify=False) -> (segments, elements)` | Merge indexed v5 files into one by **byte copy** — east-c parses the container geometry, `os.sendfile` moves the segment frames, nothing decodes or re-encodes. `sources` may be a lazy generator (shards splice as they complete, in order = row order). Every source must be v5 + indexed + self-contained with an identical type section; refusals name the offending path and leave no destination. Output is indistinguishable from one writer given the same batches; `verify=True` re-walks it with east-c's strict sequential reader |
 | `f.load()` | The whole collection, decoded entirely inside east-c off the mmap — input-side memory stays one segment at any file size (also the mutable escape hatch, like `f.copy()`) |
-| `f.segments()` | DEPRECATED alias (#560) — the file IS its collection value, so the eager methods, keyed reads and `load()` subsume the raw segment scan; still works (warning) for per-batch migration code |
+| `f.segments()` | DEPRECATED alias — the file IS its collection value, so the eager methods, keyed reads and `load()` subsume the raw segment scan; still works (warning) for per-batch migration code |
 | `len(f)` · `f.segment_count` · `f.self_contained` · `f.indexed` | O(1) from the trailing index — counts are exact for every root kind (Set/Dict segments are disjoint ranges of the canonical value) |
 | Array: `f[i]` / `f[a:b]` · `f.get(i)` ❗bounds · `f.get_or_default(i, d)` · `f.try_get(i)` → `some`/`none` · `f.has(i)` · `f.slice(a, b)` · `f.get_keys(rows)` | Same names, signatures and error semantics as `EastArray`; every point read decodes only the owning segment, `get_keys` decodes each owning segment once |
-| Dict: `f[k]` ❗KeyError · `f.get(k[, default | fn(k)])` · `f.get_or_default(k, d)` · `f.try_get(k)` → `some`/`none` · `f.has(k)` / `k in f` · `f.get_keys(keys, fill)` · `f.items()/values()` and iteration (streaming) · `f.keys()` (the Set — native per-segment union) · `f.size()` — Set: `x in f` / `f.has(x)` | Keyed reads (#481 W2): east-c binary-searches the segment *fences* — each segment's first key, decoded from a bounded probe of the frame's prefix and cached — then decodes ONLY the owning segment (a small LRU keeps hot segments). `get_keys` merges the sorted keys against the fences so each owning segment decodes once, and calls `fill` per missing key. Disjoint ascending segments are the v5 wire contract; the first keyed read still verifies the fences, and a corrupt (or pre-contract) blob raises `segments are not disjoint ascending key ranges` instead of reporting false misses |
+| Dict: `f[k]` ❗KeyError · `f.get(k[, default | fn(k)])` · `f.get_or_default(k, d)` · `f.try_get(k)` → `some`/`none` · `f.has(k)` / `k in f` · `f.get_keys(keys, fill)` · `f.items()/values()` and iteration (streaming) · `f.keys()` (the Set — native per-segment union) · `f.size()` — Set: `x in f` / `f.has(x)` | Keyed reads: east-c binary-searches the segment *fences* — each segment's first key, decoded from a bounded probe of the frame's prefix and cached — then decodes ONLY the owning segment (a small LRU keeps hot segments). `get_keys` merges the sorted keys against the fences so each owning segment decodes once, and calls `fill` per missing key. Disjoint ascending segments are the v5 wire contract; the first keyed read still verifies the fences, and a corrupt (or pre-contract) blob raises `segments are not disjoint ascending key ranges` instead of reporting false misses |
 | Array sorted search: `f.find_sorted_first/last(target)` → global index · `f.find_sorted_range(target)` → `{start, end}` | Same contract as the eager `EastArray` builtins over the whole file — the fences pick the boundary segment, its in-segment search adds the segment's base, and only that segment decodes. No `key=` projection (the file pages by element order); pair with `f.slice(start, end)` to fetch the matching rows |
-| Compute (#481 W4): `f.map/filter/filter_map/first_map/reduce/scan/map_reduce/sum/mean/maximum/minimum/every/some/find_first/find_all/find_maximum/find_minimum/is_sorted/to_set/unique/to_dict/to_array/to_columns/map_batches/string_join/flat_map (Array) / flatten_to_array (Set, Dict)/flatten_to_set/dict/for_each` · the full `group_*` family (including `group_find_all/first/maximum/minimum`, whose indices are rebased to GLOBAL rows) · Set algebra (`union/intersection/difference/symmetric_difference/is_subset_of/is_superset_of/is_disjoint_from`) | The whole eager read surface, one segment decoded at a time: each segment runs the ordinary eager method — bodies build, precompiled functions pass through — and partials combine through east-c containers in stream order. Order-dependent folds thread ONE accumulator and grouped folds SEED each segment's init from the running per-group accumulators, so results equal `load()` exactly, float ordering included. Array `(el, idx)` callbacks see GLOBAL row indices, and so do the indices `find_*`/`group_find_*` report; `first_map`/`some`/`every`/`is_superset_of` stop decoding at the answer. Dict/Set compute streams disjointness-verified segments (a corrupt blob fails loudly, like keyed reads). Re-keyed collisions in `to_dict`/`flatten_to_dict`/`group_to_dicts` combine left-associatively in stream order — use an associative `combine`. `sort`/`reverse`/`copy`/`concat`/`union` stay off the file (they materialize the whole collection — `load()` first) |
-| Column projection (#599, finishing #481 W3) — INFERRED: automatic on the compute family above; EXPLICIT: `open_beast2_file(path, project=NARROW)` | The compute family builds its callbacks FIRST and decodes each segment to exactly the struct fields the IR reads (skipped fields are parsed-and-hopped through the inflated bytes, never built into values — value materialisation, not byte-walking, dominates decode cost). Struct fields subset by name at ANY depth; a subtree used any way other than a further field read stays whole, so every comparison and builtin sees full values and results are unchanged. Dict KEYS and Set elements never narrow (they order the container). Runner-opened task inputs get the same inference from the compiled body's loop IR — no API change at either site. Non-inferable cases decode whole and are COUNTED in `eager_stats()` (`beast2_segments_projected/whole`, `beast2_projection_declined_*` by reason: a callback that cannot build, the element escaping whole, a `.bind` function with no source to rebuild, an unpageable blob) — an inferred optimisation that silently stops applying is an invisible cliff. The explicit form serves the subset from EVERY read (point reads, keyed gets, `load()`); `project` must be a subset of the wire type — a missing field raises `ValueError` naming it and the wire's fields — while a declared `T` keeps its exact meaning; `find_sorted_*` refuse under it (the file sorts by whole elements). Cache rule: a segment decoded under one mask is never served to an operation needing more. Zero wire change — every blob stays readable by every runtime |
+| Compute: `f.map/filter/filter_map/first_map/reduce/scan/map_reduce/sum/mean/maximum/minimum/every/some/find_first/find_all/find_maximum/find_minimum/is_sorted/to_set/unique/to_dict/to_array/to_columns/map_batches/string_join/flat_map (Array) / flatten_to_array (Set, Dict)/flatten_to_set/dict/for_each` · the full `group_*` family (including `group_find_all/first/maximum/minimum`, whose indices are rebased to GLOBAL rows) · Set algebra (`union/intersection/difference/symmetric_difference/is_subset_of/is_superset_of/is_disjoint_from`) | The whole eager read surface, one segment decoded at a time: each segment runs the ordinary eager method — bodies build, precompiled functions pass through — and partials combine through east-c containers in stream order. Order-dependent folds thread ONE accumulator and grouped folds SEED each segment's init from the running per-group accumulators, so results equal `load()` exactly, float ordering included. Array `(el, idx)` callbacks see GLOBAL row indices, and so do the indices `find_*`/`group_find_*` report; `first_map`/`some`/`every`/`is_superset_of` stop decoding at the answer. Dict/Set compute streams disjointness-verified segments (a corrupt blob fails loudly, like keyed reads). Re-keyed collisions in `to_dict`/`flatten_to_dict`/`group_to_dicts` combine left-associatively in stream order — use an associative `combine`. `sort`/`reverse`/`copy`/`concat`/`union` stay off the file (they materialize the whole collection — `load()` first) |
+| Column projection — INFERRED: automatic on the compute family above; EXPLICIT: `open_beast2_file(path, project=NARROW)` | The compute family builds its callbacks FIRST and decodes each segment to exactly the struct fields the IR reads (skipped fields are parsed-and-hopped through the inflated bytes, never built into values — value materialisation, not byte-walking, dominates decode cost). Struct fields subset by name at ANY depth; a subtree used any way other than a further field read stays whole, so every comparison and builtin sees full values and results are unchanged. Dict KEYS and Set elements never narrow (they order the container). Runner-opened task inputs get the same inference from the compiled body's loop IR — no API change at either site. Non-inferable cases decode whole and are COUNTED in `eager_stats()` (`beast2_segments_projected/whole`, `beast2_projection_declined_*` by reason: a callback that cannot build, the element escaping whole, a `.bind` function with no source to rebuild, an unpageable blob) — an inferred optimisation that silently stops applying is an invisible cliff. The explicit form serves the subset from EVERY read (point reads, keyed gets, `load()`); `project` must be a subset of the wire type — a missing field raises `ValueError` naming it and the wire's fields — while a declared `T` keeps its exact meaning; `find_sorted_*` refuse under it (the file sorts by whole elements). Cache rule: a segment decoded under one mask is never served to an operation needing more. Zero wire change — every blob stays readable by every runtime |
 | Degraded blobs | v4 file → clear refusal (`decode_beast2_with_header_for` still decodes v4 whole); index-less v5 → `segments()`/`load()` work, random access refuses; non-self-contained → point reads refuse |
 
 ```python
@@ -1509,7 +1530,7 @@ with open_beast2_file(path) as f:                 # self-describing: type from t
     top = f.maximum(by=lambda b, r: r["qty"])     #   never materialized, == load() exactly
     table = f.load()                              # whole table when you truly need it
 
-# The file IS a collection value (#560): bind it into a function and the
+# The file IS a collection value: bind it into a function and the
 # compiled body's keyed reads answer from the pager — one frame per lookup.
 with open_beast2_file("table.beast2") as t:       # Dict<String, Float>
     lookup = East.function([StringType, DictType(StringType, FloatType)], FloatType,
@@ -1622,9 +1643,9 @@ a loop.
 
 | Signature | Description |
 |-----------|-------------|
-| `@East.platform_function(*, inputs, output, name=None, validate_output=True, validate_input=False)` | Register a Python fn; infers sync/async from the def; validates output against `output`. DUAL-MODE (#667): called with values it runs the python (an async def's coroutine, to await); called inside an `East.function` / `East.asyncFunction` body it emits the `Platform` node with this signature — an async one inside a sync body is the build-time error. Paired at compile by name (the def's, or `name=`). Also importable bare: `from east import platform_function` |
-| `@East.generic_platform_function(*, type_parameters, name=None, is_async=False, inputs=None, output=None, type_erased=False)` | Type-parameterized factory: the decorated fn is `fn(platform, *type_params) -> impl`; `is_async` is **explicit** (not inferred). With `inputs=`/`output=` (placeholders allowed anywhere: `output="T"`, `output=ArrayType("T")`) it is dual-mode too: `open_beast(DictType(K, V), path)` in a body — the type arguments first, as TypeScript reads — emits the generic node; without them a body call is a build error naming what to declare. `type_erased=True` when the implementation ignores the type arguments (it reads the values): the decorated fn IS the implementation, python calls it directly (`causal_experiment(rows, config)`) and the factory the runtime binds is derived |
-| a platform function RETURNING a lazy value | A `@platform_function` may return a paged hold — an `open_beast2_file(...)` value, `open_paged_file(T, path)` (a C-owned mapping), `fs_open_beast(...)`'s result — and the compiled body keeps its O(segment) cost model: the C value crosses the return seam by pointer (checked against the declared output type, never re-marshalled through python), and nothing python-side has to outlive it — the mapping is the value's own. Boundary symmetry with #621's paged arguments |
+| `@East.platform_function(*, inputs, output, name=None, is_async=None, validate_output=True, validate_input=False)` | Register a Python fn; infers sync/async from the def (`is_async=` declares it when they differ — a function East calls asynchronously on every runtime whose python is a plain `def`); validates output against `output`. DUAL-MODE: called with values it runs the python (an async def's coroutine, to await); called inside an `East.function` / `East.asyncFunction` body it emits the `Platform` node with this signature — an async one inside a sync body is the build-time error. Paired at compile by name (the def's, or `name=`). Also importable bare: `from east import platform_function` |
+| `@East.generic_platform_function(*, type_parameters, name=None, is_async=False, inputs=None, output=None, type_erased=False)` | Type-parameterized factory: the decorated fn is `fn(platform, *type_params) -> impl`; `is_async` is **explicit** (not inferred). With `inputs=`/`output=` (placeholders allowed anywhere: `output="T"`, `output=ArrayType("T")`) it is dual-mode too: `fs_open_beast(DictType(K, V), path)` in a body — the type arguments first, as TypeScript reads — emits the generic node; without them a body call is a build error naming what to declare. `type_erased=True` when the implementation ignores the type arguments (it reads the values): the decorated fn IS the implementation, python calls it directly (`causal_experiment(rows, config)`) and the factory the runtime binds is derived |
+| a platform function RETURNING a lazy value | A `@platform_function` may return a paged hold — an `open_beast2_file(...)` value, `open_paged_file(T, path)` (a C-owned mapping), `fs_open_beast(...)`'s result — and the compiled body keeps its O(segment) cost model: the C value crosses the return seam by pointer (checked against the declared output type, never re-marshalled through python), and nothing python-side has to outlive it: the mapping is the value's own. The mirror of a paged ARGUMENT crossing in |
 | `East.platform_functions(module) -> list` | Collects every decorated fn in `module` (pass `__name__`). Two consumers: `East.compile()` for in-process use, and a package's top-level `platform` list that `east-py run -p <module>` (and the e3 `{ custom }` runner) loads |
 | `@memoize` / `@memoize(salt="…")` / `memoized = memoize(fn, salt="…")` | Content-addressed memo over ONE platform function. Apply **above** `@East.platform_function` (or inline on an imported one). Key = sha256(name + salts + per-input digests of the with-header BEAST2 encodings via the declared input types); value = with-header BEAST2 of the output, decoded via the declared output type. Inert by default |
 | `configure_memo(directory, salt="")` | Activate (`None` deactivates) memoization for `@memoize` functions; overrides `EAST_MEMO_DIR` / `EAST_MEMO_SALT` env vars. Bump `salt` to invalidate after code edits — input-derived keys can't see them |
@@ -1634,12 +1655,12 @@ a loop.
 Almost everything above delegates to native builtins — these are the paths
 that still run python, so you can reason about cost and semantics:
 
-- **`EastMatrix.map_elements`** is DEPRECATED (#625): it ran a python
+- **`EastMatrix.map_elements`** is DEPRECATED: it ran a python
   callback per element, the one shape the strict surface removes, so it
   warns and will go. (`Vector.map`/`reduce` and `Matrix.map_rows` are the
   native VectorMap/VectorFold/MatrixMapRows builtins.) Use the
   arithmetic/reduction/mask/sparse methods, which delegate to the east-c
-  builtins (#598), or `to_numpy`/`to_torch` for free-form math.
+  builtins, or `to_numpy`/`to_torch` for free-form math.
 - **`Dict.get_or_insert`** composes membership + get python-side so `fn` is
   only called on a miss (deliberately lazier than East's strict default
   expression). The other singles (`insert`/`update`/`swap`/`delete`/
@@ -1677,7 +1698,7 @@ def usd(b, r):
                         0.0)
 
 rows.map(lambda b, r: r.amount * RATES.get_or_default(r.ccy, 1.0))   # ❌ an eager callback REFUSES
-                                                                    #    the collection capture (#625):
+                                                                    #    the collection capture:
 conv = East.function([Row, DictType(StringType, FloatType)], FloatType,
                      lambda b, r, t: r.amount * t.get_or_default(r.ccy, 1.0))
 rows.map(conv.bind(RATES))                                          # ✅ bind it: live, zero-copy
@@ -1974,13 +1995,15 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
   (a `dict`, a `list` of dicts) fails output validation — build with
   `array`/`struct`/`variant` or `coerce_to(raw, OutputType)` at the return
   boundary.
-- **One name, two surfaces.** Inside any body you hold EXPRESSIONS (an option
-  has `.is_some()` / `.unwrap_or(default)`); decoded East values — what a
-  `@East.platform_function` is handed, or what iteration yields — are the eager
-  surface, where an option is an `EastVariant` with `.type` / `.value` /
-  `.unwrap(tag)` and **no** `.unwrap_or`: branch on `opt.type == "some"` and
-  read `opt.value`. Both are real; what does not exist is a callback that
-  silently runs on the second.
+- **One name, two surfaces.** Inside any body you hold EXPRESSIONS; decoded
+  East values — what a `@East.platform_function` is handed, or what iteration
+  yields — are the eager surface. The vocabulary is the same on both, options
+  included: an `EastVariant` carries `.is_some()` / `.is_none()` /
+  `.unwrap_or(default)` / `.match({…})` exactly as the expression does, plus
+  the value-side `.type` / `.value` / `.unwrap(tag)`. Read a decoded option
+  with `opt.unwrap_or(d)` or `.match(...)`, not a hand-rolled
+  `opt.type == "some"` branch. Both surfaces are real; what does not exist is
+  a callback that silently runs on the second.
 - **The two `duration` spellings differ in sign**: the expression METHOD
   `a.duration_days(b)` is `b − a` (the TypeScript method); the namespace
   function `East.DateTime.duration_days(a, b)` is the raw builtin, `a − b`.
@@ -2031,7 +2054,7 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
 - **east-py-std** / **east-py-io** — the platform functions on the Python runtime:
   Console/FileSystem/Fetch/Crypto/Time/Random, and SQL/NoSQL/S3/FTP/SFTP/XLSX/XML/compression —
   each exported under its own name, callable with East values and, the same object, inside an
-  East body (#667). (Their TypeScript authoring siblings are **east-node-std** / **east-node-io**.)
+  East body. (Their TypeScript authoring siblings are **east-node-std** / **east-node-io**.)
 - **e3** — run compiled East functions as durable, content-addressed dataflow tasks; wire a
   project-owned Python platform module via a `{ custom: 'platform_module' }` task runner.
 - **east-project** — scaffold (`--platform`) and package a project-owned platform module (the

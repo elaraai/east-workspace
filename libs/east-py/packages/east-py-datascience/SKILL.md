@@ -277,7 +277,7 @@ Every platform function is exported from `east_py_datascience` under its
 own name (`xgboost_train_regressor`, `mads_optimize`, …) as a **plain
 callable taking and returning East values** — no IR, no compile — and, the
 same object, callable inside an `East.function` body, where the call is the
-`Platform` node with the function's declared signature (#667). A project's
+`Platform` node with the function's declared signature. A project's
 own `@East.platform_function` can import and call them directly (the
 preferred way to use lightning/torch/xgboost/sklearn/etc. from project
 Python code); an East body written in python calls them the same way and
