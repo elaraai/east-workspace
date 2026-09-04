@@ -64,6 +64,8 @@ export {
   type Beast2RangedExtents,
   type ReadBeast2ExtentsRangedOptions,
   readBeast2ExtentsRanged,
+  readBeast2ExtentsSync,
+  isBeast2SyncRangeReader,
   carveBeast2Ranged,
   spliceBeast2Tail,
 } from "./v5/geometry.js";

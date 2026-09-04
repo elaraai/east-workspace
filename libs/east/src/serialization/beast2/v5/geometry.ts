@@ -23,13 +23,10 @@
  * slices, runs each slice independently, and splices the output shards.
  */
 
-import { type EastTypeValue } from "../../../type_of_type.js";
 import { BufferReader, BufferWriter } from "../../binary-utils.js";
 import { readTypeSection } from "./type-section.js";
 import {
   MAGIC_BYTES_V5,
-  FOOTER_MAGIC_V5,
-  INDEX_FLAG_SELF_CONTAINED,
   readIndex,
   writeIndexAndFooter,
   readSourceMapSectionV5,
@@ -37,61 +34,28 @@ import {
 } from "./codec.js";
 import { Beast2Writer } from "./stream.js";
 import type { Beast2Codec } from "./frames.js";
+import {
+  type Beast2Extents,
+  type Beast2RangedExtents,
+  type Beast2SyncRangeReader,
+  type ReadBeast2ExtentsRangedOptions,
+  TAG_OR_TERMINATOR_FRAME,
+  isBeast2SyncRangeReader,
+  isTagOrTerminatorFrame,
+  readU64LE,
+  readBeast2ExtentsSync,
+} from "./range.js";
 
-/** The exact bytes of the root NEW tag frame and of the terminator frame:
- *  codec `none`, one logical byte, payload `0x00`. */
-const TAG_OR_TERMINATOR_FRAME = new Uint8Array([0x00, 0x01, 0x01, 0x00]);
-
-/**
- * The byte geometry of a segmented, indexed v5 blob.
- *
- * All offsets are absolute wire offsets into the blob the extents were read
- * from. The value stream occupies `[0, indexOffset)`: header sections and the
- * root tag frame in `[0, prefixEnd)`, segment frames in
- * `[prefixEnd, segmentsEnd)`, and the terminator frame in
- * `[segmentsEnd, indexOffset)`.
- */
-export interface Beast2Extents {
-  /** End of the header sections + root tag frame — the first segment frame
-   *  starts here. */
-  readonly prefixEnd: number;
-  /** End of the last segment frame — the terminator frame starts here. */
-  readonly segmentsEnd: number;
-  /** Wire offset of the index section. */
-  readonly indexOffset: number;
-  /** Absolute wire offset of each segment's frame. */
-  readonly offsets: readonly number[];
-  /** Element count of each segment (pairs for Dict roots). */
-  readonly counts: readonly number[];
-  /** Sum of all segment counts. */
-  readonly elementCount: number;
-  /** Whether segments are independently decodable (no cross-segment
-   *  aliasing) — required by both carve and splice. */
-  readonly selfContained: boolean;
-  /** Whether the header source-map section carries no stacks. */
-  readonly sourceMapEmpty: boolean;
-  /** The blob's wire root type. */
-  readonly typeValue: EastTypeValue;
-}
-
-/** Reads the little-endian u64 index offset from the footer. */
-function readFooterIndexOffset(data: Uint8Array): number {
-  const footerStart = data.length - 16;
-  let indexOffset = 0n;
-  for (let i = 7; i >= 0; i--) {
-    indexOffset = (indexOffset << 8n) | BigInt(data[footerStart + i]!);
-  }
-  return Number(indexOffset);
-}
-
-/** Whether the 4 bytes at `offset` are a tag/terminator frame. */
-function isTagOrTerminatorFrame(data: Uint8Array, offset: number): boolean {
-  if (offset + 4 > data.length) return false;
-  for (let i = 0; i < 4; i++) {
-    if (data[offset + i] !== TAG_OR_TERMINATOR_FRAME[i]) return false;
-  }
-  return true;
-}
+export {
+  type Beast2Extents,
+  type Beast2RangeReader,
+  type Beast2SyncRangeReader,
+  type Beast2RangedExtents,
+  type ReadBeast2ExtentsRangedOptions,
+  readBeast2ExtentsRanged,
+  readBeast2ExtentsSync,
+  isBeast2SyncRangeReader,
+} from "./range.js";
 
 /**
  * Reads the byte geometry of a segmented, indexed v5 collection blob.
@@ -101,12 +65,21 @@ function isTagOrTerminatorFrame(data: Uint8Array, offset: number): boolean {
  * directly after the header sections, segment frames contiguous from there,
  * and the terminator frame directly before the index.
  *
- * @param data - the whole blob
+ * Given a {@link Beast2SyncRangeReader} instead of the whole blob, the
+ * geometry is read through two positioned reads (the tail, then the head) —
+ * see {@link readBeast2ExtentsSync} — and the result also carries the
+ * blob's size and header bytes.
+ *
+ * @param data - the whole blob, or synchronous ranged access to it
+ * @param options - tail-probe tuning, for a ranged read
  * @returns the blob's {@link Beast2Extents}
  * @throws {Error} When the blob is not a v5 container, its root is not a
  *   collection, it carries no index, or the frame geometry is malformed.
  */
-export function readBeast2Extents(data: Uint8Array): Beast2Extents {
+export function readBeast2Extents(data: Uint8Array): Beast2Extents;
+export function readBeast2Extents(reader: Beast2SyncRangeReader, options?: ReadBeast2ExtentsRangedOptions): Beast2RangedExtents;
+export function readBeast2Extents(data: Uint8Array | Beast2SyncRangeReader, options?: ReadBeast2ExtentsRangedOptions): Beast2Extents {
+  if (isBeast2SyncRangeReader(data)) return readBeast2ExtentsSync(data, options);
   if (data.length < 8) {
     throw new Error(`Data too short for Beast2 format: ${data.length} bytes`);
   }
@@ -140,7 +113,7 @@ export function readBeast2Extents(data: Uint8Array): Beast2Extents {
     throw new Error(`beast2 v5: segments not contiguous with the header (first segment at ${index.offsets[0]}, header ends at ${prefixEnd})`);
   }
 
-  const indexOffset = readFooterIndexOffset(data);
+  const indexOffset = readU64LE(data, data.length - 16);
   const segmentsEnd = indexOffset - TAG_OR_TERMINATOR_FRAME.length;
   if (segmentsEnd < prefixEnd || !isTagOrTerminatorFrame(data, segmentsEnd)) {
     throw new Error(`beast2 v5: terminator frame not found where expected (offset ${segmentsEnd})`);
@@ -258,171 +231,6 @@ export function spliceBeast2(parts: readonly Uint8Array[]): Uint8Array {
   writer.writeBytes(TAG_OR_TERMINATOR_FRAME);
   writeIndexAndFooter(writer, segments, true);
   return writer.toUint8Array();
-}
-
-/**
- * Ranged access to an immutable blob: its total byte size plus positional
- * reads.
- *
- * The blob is content-addressed and its size known up front, so callers only
- * ever request ranges inside `[0, size)` and `read` must return exactly the
- * requested bytes. Backed by anything that can serve byte ranges — a file
- * descriptor, an HTTP range request, an S3 ranged GET.
- */
-export interface Beast2RangeReader {
-  /** Total blob size in bytes. */
-  readonly size: number;
-  /**
-   * Reads `length` bytes at absolute wire offset `offset`.
-   *
-   * @param offset - absolute byte offset into the blob
-   * @param length - number of bytes to read
-   * @returns exactly the requested bytes
-   */
-  read(offset: number, length: number): Promise<Uint8Array>;
-}
-
-/** Options accepted by {@link readBeast2ExtentsRanged}. */
-export type ReadBeast2ExtentsRangedOptions = {
-  /** Initial tail-probe size in bytes (default 64 KiB). When the index
-   *  section is larger than the probe, one further tail read fetches the
-   *  rest — the probe only tunes how often that second read happens. */
-  tailProbeBytes?: number;
-};
-
-/**
- * A blob's {@link Beast2Extents} read via ranged access, plus the header
- * bytes {@link carveBeast2Ranged} reuses.
- *
- * Everything a paged reader needs to serve any window of the blob without
- * ever buffering it whole: the segment geometry addresses the frame byte
- * ranges, and `head` carries the header sections a window blob is assembled
- * under.
- */
-export interface Beast2RangedExtents extends Beast2Extents {
-  /** Total blob size in bytes. */
-  readonly size: number;
-  /** Bytes `[0, prefixEnd)` — the header sections and the root tag frame. */
-  readonly head: Uint8Array;
-}
-
-/** Parses the u64 little-endian index offset from 8 bytes at `at`. */
-function readU64LE(data: Uint8Array, at: number): number {
-  let value = 0n;
-  for (let i = 7; i >= 0; i--) {
-    value = (value << 8n) | BigInt(data[at + i]!);
-  }
-  return Number(value);
-}
-
-/**
- * Reads the byte geometry of a segmented, indexed v5 collection blob through
- * ranged access — the footer and index from a tail read, the header sections
- * from a head read — without ever buffering the blob whole.
- *
- * The result carries everything {@link carveBeast2Ranged} needs to assemble
- * a standalone blob for any segment span whose frame bytes are then the only
- * further reads: total I/O for a window is O(header + index + window), not
- * O(blob).
- *
- * @param reader - ranged access to the blob
- * @param options - tail-probe tuning
- * @returns the blob's {@link Beast2RangedExtents}
- * @throws {Error} When the blob is not a v5 container, its root is not a
- *   collection, it carries no index, or the frame geometry is malformed —
- *   the same conditions {@link readBeast2Extents} rejects.
- */
-export async function readBeast2ExtentsRanged(reader: Beast2RangeReader, options?: ReadBeast2ExtentsRangedOptions): Promise<Beast2RangedExtents> {
-  const size = reader.size;
-  if (size < MAGIC_BYTES_V5.length + 16) {
-    throw new Error(`Data too short for Beast2 format: ${size} bytes`);
-  }
-
-  // Tail: footer first, then the index section (one further read when the
-  // probe missed its start).
-  const probe = Math.min(size, Math.max(options?.tailProbeBytes ?? 64 * 1024, 16));
-  let tailStart = size - probe;
-  let tail = await reader.read(tailStart, size - tailStart);
-  const footerStart = size - 16;
-  for (let i = 0; i < 8; i++) {
-    if (tail[footerStart + 8 + i - tailStart] !== FOOTER_MAGIC_V5[i]) {
-      throw new Error(`beast2 v5: blob carries no index — ranged reads need one (write with the index enabled, the default)`);
-    }
-  }
-  const indexOffset = readU64LE(tail, footerStart - tailStart);
-  if (indexOffset < MAGIC_BYTES_V5.length || indexOffset >= footerStart) {
-    throw new Error(`beast2 v5: footer index offset ${indexOffset} out of range`);
-  }
-  const segmentsEnd = indexOffset - TAG_OR_TERMINATOR_FRAME.length;
-  if (segmentsEnd < tailStart) {
-    tailStart = segmentsEnd;
-    tail = await reader.read(tailStart, size - tailStart);
-  }
-
-  // Index section — the same wire shape readIndex parses from a whole blob.
-  const indexReader = new BufferReader(tail, indexOffset - tailStart);
-  const flags = indexReader.readVarint();
-  if ((flags & ~INDEX_FLAG_SELF_CONTAINED) !== 0) {
-    throw new Error(`beast2 v5: unknown index flags 0x${flags.toString(16)}`);
-  }
-  const segmentCount = indexReader.readVarint();
-  const offsets: number[] = new Array(segmentCount);
-  const counts: number[] = new Array(segmentCount);
-  let prev = 0;
-  let elementCount = 0;
-  for (let i = 0; i < segmentCount; i++) {
-    prev += indexReader.readVarint();
-    offsets[i] = prev;
-    counts[i] = indexReader.readVarint();
-    elementCount += counts[i]!;
-    if (prev >= indexOffset) {
-      throw new Error(`beast2 v5: index segment offset ${prev} overlaps the index section`);
-    }
-  }
-  if (indexReader.offset !== footerStart - tailStart) {
-    throw new Error(`beast2 v5: index section size mismatch (ends at ${indexReader.offset + tailStart}, footer at ${footerStart})`);
-  }
-
-  if (!isTagOrTerminatorFrame(tail, segmentsEnd - tailStart)) {
-    throw new Error(`beast2 v5: terminator frame not found where expected (offset ${segmentsEnd})`);
-  }
-
-  // Head: header sections + root tag frame, ending exactly where the first
-  // segment starts (or at the terminator, for an empty blob).
-  const prefixEnd = segmentCount > 0 ? offsets[0]! : segmentsEnd;
-  const head = await reader.read(0, prefixEnd);
-  for (let i = 0; i < 8; i++) {
-    if (head[i] !== MAGIC_BYTES_V5[i]) {
-      if (i === 7 && head[i] === 0x04) {
-        throw new Error(`beast2 v5: ranged reads need v5 blobs; this is a v4 container (re-encode with version 5)`);
-      }
-      throw new Error(`beast2 v5: not a beast2 v5 container`);
-    }
-  }
-  const headReader = new BufferReader(head, MAGIC_BYTES_V5.length);
-  const { rootType } = readTypeSection(headReader);
-  if (!isSegmentedRoot(rootType)) {
-    throw new Error(`beast2 v5: ranged reads address Array, Set or Dict roots, not ${rootType.type}`);
-  }
-  const sourceMap = readSourceMapSectionV5(headReader);
-  const frameOffset = headReader.offset;
-  if (frameOffset + 4 !== prefixEnd || !isTagOrTerminatorFrame(head, frameOffset)) {
-    throw new Error(`beast2 v5: root tag frame not found where expected (offset ${frameOffset})`);
-  }
-
-  return {
-    prefixEnd,
-    segmentsEnd,
-    indexOffset,
-    offsets,
-    counts,
-    elementCount,
-    selfContained: (flags & INDEX_FLAG_SELF_CONTAINED) !== 0,
-    sourceMapEmpty: sourceMap.size <= 1n,
-    typeValue: rootType,
-    size,
-    head,
-  };
 }
 
 /**

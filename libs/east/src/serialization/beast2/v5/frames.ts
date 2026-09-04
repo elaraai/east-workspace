@@ -55,8 +55,9 @@ export function codecId(codec: Beast2Codec): number {
 // =============================================================================
 
 type ZlibModule = {
+  constants: { Z_SYNC_FLUSH: number };
   deflateRawSync(data: Uint8Array): Uint8Array;
-  inflateRawSync(data: Uint8Array, options?: { maxOutputLength?: number }): Uint8Array;
+  inflateRawSync(data: Uint8Array, options?: { maxOutputLength?: number; finishFlush?: number }): Uint8Array;
 };
 
 /** Node's zlib when running under Node, `null` in browsers. Resolved once via
@@ -279,6 +280,43 @@ export class FrameReader {
     }
     return new BufferReader(this.inflate(payload, h.uncompressedLen, start), 0);
   }
+}
+
+/**
+ * Opens the logical chunk of a frame from a PREFIX of its wire bytes — what
+ * a fence probe reads: the frame header and however much of the payload the
+ * prefix holds, inflated as far as it goes, so the first element decodes
+ * without the frame being read whole.
+ *
+ * `null` when the prefix does not hold the frame header, the codec is not
+ * one this runtime reads, or a deflate payload cannot be partially inflated
+ * here (no zlib — the portable decoder needs the whole stream); the caller
+ * then reads the frame whole, which also reports any corruption.
+ *
+ * @param prefix - the frame's first bytes, from its wire offset
+ * @returns a reader over the logical bytes the prefix yields, or `null`
+ * @throws {Error} When the prefix is corrupt rather than short — the caller
+ *   retries with more of the frame, and the whole-frame read reports it.
+ */
+export function openFramePrefix(prefix: Uint8Array): BufferReader | null {
+  const reader = new BufferReader(prefix, 0);
+  let codec: number;
+  let uncompressedLen: number;
+  let payloadLen: number;
+  try {
+    codec = reader.readVarint();
+    uncompressedLen = reader.readVarint();
+    payloadLen = reader.readVarint();
+  } catch {
+    return null;
+  }
+  if (codec !== CODEC_NONE && codec !== CODEC_DEFLATE) return null;
+  const payload = prefix.subarray(reader.offset, Math.min(prefix.length, reader.offset + payloadLen));
+  if (codec === CODEC_NONE) return new BufferReader(payload, 0);
+  if (!zlib) return null;
+  // A truncated raw DEFLATE stream flushes what it reached instead of
+  // failing — exactly the prefix the probe wants.
+  return new BufferReader(zlib.inflateRawSync(payload, { finishFlush: zlib.constants.Z_SYNC_FLUSH, maxOutputLength: uncompressedLen }), 0);
 }
 
 /** Decompressor signature used by {@link FrameReader}: receives the payload,
