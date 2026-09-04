@@ -5,13 +5,21 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDiagnosticsService, type DiagnosticsService } from "./service.js";
-import { PYTHON_EAST_IMPORT, runEastPyLint } from "./python-lint.js";
+import { PYTHON_EAST_IMPORT } from "./python-lint.js";
+import { PythonLspProxy } from "./python-lsp-proxy.js";
 import type { EastDiagnosticCategory } from "./types.js";
 
 // Minimal LSP server over stdio: full-document sync in, publishDiagnostics
 // out, everything backed by the shared DiagnosticsService — and, for a `.py`
-// document that imports east, by the project's own `east-py lint` (#648).
-// Hand-rolled JSON-RPC framing keeps the package dependency-free.
+// document that imports east, by a persistent `east-py lsp` child this server
+// proxies (#648, #681). Hand-rolled JSON-RPC framing keeps the package
+// dependency-free.
+//
+// The python side is a proxy rather than a computation here because its second
+// tier — the build check (#653) — imports the module, and only a process that
+// stays warm can afford that below save granularity. Everything else about the
+// python path is unchanged: the same venv resolution, and the same silence
+// (never a claim of "clean") when no east-py answers.
 
 interface JsonRpcMessage {
   jsonrpc: "2.0";
@@ -86,26 +94,38 @@ export function runEastLsp(options: EastLspOptions = {}): void {
     output.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
   }
 
-  /** A python document: the east-py rules, run out of process; published when they answer. */
-  function publishPython(path: string, content: string | undefined): void {
-    if (content === undefined || SKIP_PATH.test(path) || !PYTHON_EAST_IMPORT.test(content)) {
-      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics: [] } });
+  // The python child publishes straight through: it owns its own debounce and
+  // its two tiers, so its diagnostics arrive when each tier answers.
+  const python = new PythonLspProxy({
+    onDiagnostics: (uri, diagnostics) => {
+      send({ method: "textDocument/publishDiagnostics", params: { uri, diagnostics } });
+    },
+  });
+
+  /** Whether a python document is ours to diagnose at all. */
+  function pythonReviewable(path: string, content: string | undefined): boolean {
+    return content !== undefined && !SKIP_PATH.test(path) && PYTHON_EAST_IMPORT.test(content);
+  }
+
+  /** Forward a python document to the child, or clear it when it is not East. */
+  function forwardPython(path: string, content: string | undefined, kind: "open" | "change" | "save"): void {
+    const uri = `file://${path}`;
+    if (!pythonReviewable(path, content)) {
+      send({ method: "textDocument/publishDiagnostics", params: { uri, diagnostics: [] } });
       return;
     }
-    void runEastPyLint(path, open.has(path) ? content : undefined).then((records) => {
-      if (records === null) return; // no east-py answered: say nothing rather than "clean"
-      const diagnostics = records.map((r) => ({
-        range: {
-          start: { line: r.line - 1, character: r.column - 1 },
-          end: { line: (r.end_line ?? r.line) - 1, character: (r.end_column ?? r.column + 1) - 1 },
-        },
-        severity: SEVERITY[r.category] ?? 2,
-        code: r.rule,
-        source: "east-py",
-        message: r.message,
-      }));
-      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics } });
-    });
+    const text = content as string;
+    void (kind === "open" ? python.didOpen(path, uri, text)
+      : kind === "save" ? python.didSave(path, uri, text)
+        : python.didChange(path, uri, text));
+  }
+
+  function readSource(path: string): string | undefined {
+    try {
+      return readFileSync(path, "utf-8");
+    } catch {
+      return undefined;
+    }
   }
 
   function publish(path: string): void {
@@ -117,7 +137,7 @@ export function runEastLsp(options: EastLspOptions = {}): void {
       }
     })();
     if (path.endsWith(".py")) {
-      publishPython(path, content);
+      forwardPython(path, content, "change");
       return;
     }
     let diagnostics: object[] = [];
@@ -194,6 +214,7 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         send({ id, result: null });
         return;
       case "exit":
+        python.dispose();
         exit(shuttingDown ? 0 : 1);
         return;
       case "textDocument/didOpen": {
@@ -201,7 +222,11 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         const text = params?.textDocument?.text;
         if (path === undefined || typeof text !== "string") return;
         open.set(path, text);
-        if (!path.endsWith(".py")) service.setOverlay(path, text);
+        if (path.endsWith(".py")) {
+          forwardPython(path, text, "open");
+          return;
+        }
+        service.setOverlay(path, text);
         schedule(path);
         return;
       }
@@ -210,7 +235,11 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         const text = params?.contentChanges?.at?.(-1)?.text;
         if (path === undefined || typeof text !== "string") return;
         open.set(path, text);
-        if (!path.endsWith(".py")) service.setOverlay(path, text);
+        if (path.endsWith(".py")) {
+          forwardPython(path, text, "change");
+          return;
+        }
+        service.setOverlay(path, text);
         schedule(path);
         return;
       }
@@ -225,6 +254,11 @@ export function runEastLsp(options: EastLspOptions = {}): void {
           open.delete(path);
           if (!path.endsWith(".py")) service.clearOverlay(path);
         }
+        if (path.endsWith(".py")) {
+          // A save is where the build tier runs without waiting out the debounce.
+          forwardPython(path, open.get(path) ?? readSource(path), "save");
+          return;
+        }
         schedule(path);
         return;
       }
@@ -232,6 +266,7 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         const path = uriToPath(params?.textDocument?.uri ?? "");
         if (path === undefined) return;
         open.delete(path);
+        if (path.endsWith(".py")) python.didClose(path, `file://${path}`);
         if (!path.endsWith(".py")) service.clearOverlay(path);
         const timer = pending.get(path);
         if (timer !== undefined) clearTimeout(timer);

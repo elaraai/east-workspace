@@ -2808,9 +2808,7 @@ import { readFileSync as readFileSync2 } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 // ../east-diagnostics/dist/src/python-lint.js
-import { execFile } from "node:child_process";
 import { existsSync as existsSync3, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { basename, dirname as dirname3, join as join4 } from "node:path";
 var PYTHON_EAST_IMPORT = /^\s*(?:from\s+east(?:\.[\w.]+)?\s+import\b|import\s+east\b)/m;
 function findEastPy(fromDir) {
@@ -2829,40 +2827,209 @@ function findEastPy(fromDir) {
     dir = parent;
   }
 }
-function runEastPyLint(file, content, budgetMs = 4e3) {
-  const command = findEastPy(dirname3(file));
-  let target = file;
-  let scratch = null;
-  if (content !== void 0) {
-    scratch = mkdtempSync(join4(tmpdir(), "east-py-lint-"));
-    target = join4(scratch, basename(file));
-    writeFileSync(target, content, "utf-8");
+
+// ../east-diagnostics/dist/src/python-lsp-proxy.js
+import { spawn } from "node:child_process";
+import { dirname as dirname4 } from "node:path";
+var INITIALIZE_TIMEOUT_MS = 15e3;
+var RESTART_BACKOFF_MS = 5e3;
+var PythonLspProxy = class {
+  options;
+  child;
+  buffer = Buffer.alloc(0);
+  nextId = 1;
+  ready = false;
+  starting;
+  lastExitAt = 0;
+  disposed = false;
+  /** Whether a child has been up before — a FIRST start has nothing to replay. */
+  startedBefore = false;
+  /** Documents currently open on the child, so a restart can reopen them. */
+  open = /* @__PURE__ */ new Map();
+  constructor(options) {
+    this.options = options;
   }
-  return new Promise((resolveFindings) => {
-    execFile(
-      command,
-      ["lint", "--format", "json", target],
-      // UTF-8 stdio: python encodes a piped stdout in the locale's code page on Windows (cp1252), and the findings carry em dashes
-      { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
-      (error, stdout) => {
-        if (scratch !== null)
-          rmSync(scratch, { recursive: true, force: true });
-        if (error !== null && error.code !== 1) {
-          resolveFindings(null);
-          return;
-        }
-        let records;
-        try {
-          records = JSON.parse(stdout);
-        } catch {
-          resolveFindings(null);
-          return;
-        }
-        resolveFindings(Array.isArray(records) ? records : null);
+  resolveCommand(fromDir) {
+    return (this.options.resolveCommand ?? findEastPy)(fromDir);
+  }
+  /** Start the child if it is not running. Resolves false when it cannot start. */
+  async ensure(fromDir) {
+    if (this.disposed)
+      return false;
+    if (this.ready && this.child !== void 0)
+      return true;
+    if (this.starting !== void 0)
+      return this.starting;
+    if (Date.now() - this.lastExitAt < RESTART_BACKOFF_MS)
+      return false;
+    this.starting = this.start(fromDir).finally(() => {
+      this.starting = void 0;
+    });
+    return this.starting;
+  }
+  async start(fromDir) {
+    const command = this.resolveCommand(fromDir);
+    let child;
+    try {
+      const spawnChild = this.options.spawnChild ?? ((c, a) => spawn(c, a, { stdio: "pipe" }));
+      child = spawnChild(command, ["lsp"]);
+    } catch {
+      this.lastExitAt = Date.now();
+      return false;
+    }
+    this.child = child;
+    this.buffer = Buffer.alloc(0);
+    child.on("error", () => this.handleExit());
+    child.on("exit", () => this.handleExit());
+    child.stdout.on("data", (chunk) => this.receive(chunk));
+    child.stderr.resume();
+    for (const handle of [child, child.stdout, child.stderr, child.stdin]) {
+      const unref = handle.unref;
+      if (typeof unref === "function")
+        unref.call(handle);
+    }
+    const id = this.nextId++;
+    const initialized = new Promise((resolve3) => {
+      const timer = setTimeout(() => resolve3(false), INITIALIZE_TIMEOUT_MS);
+      this.pending.set(id, () => {
+        clearTimeout(timer);
+        resolve3(true);
+      });
+    });
+    this.write({ jsonrpc: "2.0", id, method: "initialize", params: { processId: process.pid, rootUri: null, capabilities: {} } });
+    const ok = await initialized;
+    if (!ok) {
+      this.handleExit();
+      return false;
+    }
+    this.write({ jsonrpc: "2.0", method: "initialized", params: {} });
+    this.ready = true;
+    if (this.startedBefore) {
+      for (const doc of this.open.values()) {
+        this.write({ jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: { ...doc, version: 1 } } });
       }
-    );
-  });
-}
+    }
+    this.startedBefore = true;
+    return true;
+  }
+  pending = /* @__PURE__ */ new Map();
+  handleExit() {
+    if (this.child !== void 0) {
+      this.child.removeAllListeners();
+      this.child = void 0;
+    }
+    this.ready = false;
+    this.lastExitAt = Date.now();
+    for (const resolve3 of this.pending.values())
+      resolve3();
+    this.pending.clear();
+  }
+  write(message) {
+    const child = this.child;
+    if (child === void 0 || child.stdin.destroyed)
+      return;
+    const body = JSON.stringify(message);
+    try {
+      child.stdin.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r
+\r
+${body}`);
+    } catch {
+      this.handleExit();
+    }
+  }
+  receive(chunk) {
+    this.buffer = Buffer.concat([this.buffer, chunk]);
+    for (; ; ) {
+      const headerEnd = this.buffer.indexOf("\r\n\r\n");
+      if (headerEnd < 0)
+        return;
+      const header = this.buffer.subarray(0, headerEnd).toString("utf8");
+      const match = /Content-Length:\s*(\d+)/i.exec(header);
+      if (match === null) {
+        this.buffer = this.buffer.subarray(headerEnd + 4);
+        continue;
+      }
+      const length = Number(match[1]);
+      const bodyStart = headerEnd + 4;
+      if (this.buffer.length < bodyStart + length)
+        return;
+      const body = this.buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
+      this.buffer = this.buffer.subarray(bodyStart + length);
+      try {
+        this.handle(JSON.parse(body));
+      } catch {
+      }
+    }
+  }
+  handle(message) {
+    if (message.id !== void 0 && message.id !== null && message.method === void 0) {
+      const resolve3 = this.pending.get(message.id);
+      if (resolve3 !== void 0) {
+        this.pending.delete(message.id);
+        resolve3();
+      }
+      return;
+    }
+    if (message.method === "textDocument/publishDiagnostics") {
+      const uri = message.params?.uri;
+      if (typeof uri === "string") {
+        this.options.onDiagnostics(uri, message.params?.diagnostics ?? []);
+      }
+    }
+  }
+  /** Forward an opened document, starting the child if needed. */
+  async didOpen(path, uri, text) {
+    this.open.set(path, { uri, text, languageId: "python" });
+    if (!await this.ensure(dirname4(path)))
+      return;
+    this.write({ jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "python", version: 1, text } } });
+  }
+  /** Forward a change. */
+  async didChange(path, uri, text) {
+    const known = this.open.get(path);
+    this.open.set(path, { uri, text, languageId: "python" });
+    if (!await this.ensure(dirname4(path)))
+      return;
+    if (known === void 0) {
+      this.write({ jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "python", version: 1, text } } });
+      return;
+    }
+    this.write({ jsonrpc: "2.0", method: "textDocument/didChange", params: { textDocument: { uri, version: 2 }, contentChanges: [{ text }] } });
+  }
+  /** Forward a save — the moment the build tier runs without waiting. */
+  async didSave(path, uri, text) {
+    this.open.set(path, { uri, text, languageId: "python" });
+    if (!await this.ensure(dirname4(path)))
+      return;
+    this.write({ jsonrpc: "2.0", method: "textDocument/didSave", params: { textDocument: { uri }, text } });
+  }
+  /** Forward a close. */
+  didClose(path, uri) {
+    this.open.delete(path);
+    if (!this.ready)
+      return;
+    this.write({ jsonrpc: "2.0", method: "textDocument/didClose", params: { textDocument: { uri } } });
+  }
+  /** Stop the child. */
+  dispose() {
+    this.disposed = true;
+    const child = this.child;
+    this.handleExit();
+    this.open.clear();
+    if (child !== void 0) {
+      try {
+        child.kill();
+      } catch {
+      }
+      for (const stream of [child.stdout, child.stderr, child.stdin]) {
+        try {
+          stream.destroy();
+        } catch {
+        }
+      }
+    }
+  }
+};
 
 // ../east-diagnostics/dist/src/lsp.js
 var EAST_IMPORT_PATTERN = /@elaraai\//;
@@ -2916,26 +3083,29 @@ function runEastLsp(options = {}) {
 \r
 ${body}`);
   }
-  function publishPython(path, content) {
-    if (content === void 0 || SKIP_PATH.test(path) || !PYTHON_EAST_IMPORT.test(content)) {
-      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics: [] } });
+  const python = new PythonLspProxy({
+    onDiagnostics: (uri, diagnostics) => {
+      send({ method: "textDocument/publishDiagnostics", params: { uri, diagnostics } });
+    }
+  });
+  function pythonReviewable(path, content) {
+    return content !== void 0 && !SKIP_PATH.test(path) && PYTHON_EAST_IMPORT.test(content);
+  }
+  function forwardPython(path, content, kind) {
+    const uri = `file://${path}`;
+    if (!pythonReviewable(path, content)) {
+      send({ method: "textDocument/publishDiagnostics", params: { uri, diagnostics: [] } });
       return;
     }
-    void runEastPyLint(path, open.has(path) ? content : void 0).then((records) => {
-      if (records === null)
-        return;
-      const diagnostics = records.map((r) => ({
-        range: {
-          start: { line: r.line - 1, character: r.column - 1 },
-          end: { line: (r.end_line ?? r.line) - 1, character: (r.end_column ?? r.column + 1) - 1 }
-        },
-        severity: SEVERITY[r.category] ?? 2,
-        code: r.rule,
-        source: "east-py",
-        message: r.message
-      }));
-      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics } });
-    });
+    const text = content;
+    void (kind === "open" ? python.didOpen(path, uri, text) : kind === "save" ? python.didSave(path, uri, text) : python.didChange(path, uri, text));
+  }
+  function readSource(path) {
+    try {
+      return readFileSync2(path, "utf-8");
+    } catch {
+      return void 0;
+    }
   }
   function publish(path) {
     const content = open.get(path) ?? (() => {
@@ -2946,7 +3116,7 @@ ${body}`);
       }
     })();
     if (path.endsWith(".py")) {
-      publishPython(path, content);
+      forwardPython(path, content, "change");
       return;
     }
     let diagnostics = [];
@@ -3021,6 +3191,7 @@ ${body}`);
         send({ id, result: null });
         return;
       case "exit":
+        python.dispose();
         exit(shuttingDown ? 0 : 1);
         return;
       case "textDocument/didOpen": {
@@ -3029,8 +3200,11 @@ ${body}`);
         if (path === void 0 || typeof text !== "string")
           return;
         open.set(path, text);
-        if (!path.endsWith(".py"))
-          service.setOverlay(path, text);
+        if (path.endsWith(".py")) {
+          forwardPython(path, text, "open");
+          return;
+        }
+        service.setOverlay(path, text);
         schedule(path);
         return;
       }
@@ -3040,8 +3214,11 @@ ${body}`);
         if (path === void 0 || typeof text !== "string")
           return;
         open.set(path, text);
-        if (!path.endsWith(".py"))
-          service.setOverlay(path, text);
+        if (path.endsWith(".py")) {
+          forwardPython(path, text, "change");
+          return;
+        }
+        service.setOverlay(path, text);
         schedule(path);
         return;
       }
@@ -3059,6 +3236,10 @@ ${body}`);
           if (!path.endsWith(".py"))
             service.clearOverlay(path);
         }
+        if (path.endsWith(".py")) {
+          forwardPython(path, open.get(path) ?? readSource(path), "save");
+          return;
+        }
         schedule(path);
         return;
       }
@@ -3067,6 +3248,8 @@ ${body}`);
         if (path === void 0)
           return;
         open.delete(path);
+        if (path.endsWith(".py"))
+          python.didClose(path, `file://${path}`);
         if (!path.endsWith(".py"))
           service.clearOverlay(path);
         const timer = pending.get(path);
