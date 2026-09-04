@@ -14,9 +14,12 @@
  *      code: a build names its constants from a per-process counter, so two
  *      packages exported from two processes both start at `__n0`.
  *
- *   2. `millis_to_tm` split epoch milliseconds with C division, which
- *      truncates toward ZERO. Every pre-1970 datetime decomposed one second
- *      late through the component getters.
+ *   2. The epoch<->components conversion split milliseconds with C division,
+ *      which truncates toward ZERO, so every pre-1970 datetime decomposed one
+ *      second late; and it reached the calendar through the CRT, whose
+ *      Windows gmtime/_mkgmtime refuse pre-1970 outright — gmtime leaving the
+ *      caller's struct tm untouched. Both directions are computed here now,
+ *      so the cases below hold on every platform.
  */
 #include <east/east.h>
 #include <east/compiler.h>
@@ -154,26 +157,34 @@ static void test_epoch_millis_split(void)
 {
     static const struct {
         int64_t ms;
-        int64_t year, month, day, hour, min, sec, milli;
+        int64_t year, month, day, hour, min, sec, milli, wday;
     } cases[] = {
-        {-1, 1969, 12, 31, 23, 59, 59, 999},        {-500, 1969, 12, 31, 23, 59, 59, 500},
-        {-1500, 1969, 12, 31, 23, 59, 58, 500},     {-1000, 1969, 12, 31, 23, 59, 59, 0},
-        {-86400001, 1969, 12, 30, 23, 59, 59, 999}, {0, 1970, 1, 1, 0, 0, 0, 0},
-        {1500, 1970, 1, 1, 0, 0, 1, 500},
+        {-1, 1969, 12, 31, 23, 59, 59, 999, 3},
+        {-500, 1969, 12, 31, 23, 59, 59, 500, 3},
+        {-1500, 1969, 12, 31, 23, 59, 58, 500, 3},
+        {-1000, 1969, 12, 31, 23, 59, 59, 0, 3},
+        {-86400001, 1969, 12, 30, 23, 59, 59, 999, 2},
+        {0, 1970, 1, 1, 0, 0, 0, 0, 4},
+        {1500, 1970, 1, 1, 0, 0, 1, 500, 4},
+        {-2208988800000LL, 1900, 1, 1, 0, 0, 0, 0, 1},
+        {-12622780800000LL, 1570, 1, 1, 0, 0, 0, 0, 4},
+        {1709208000000LL, 2024, 2, 29, 12, 0, 0, 0, 4},
     };
     static const char *const getters[] = {
         "DateTimeGetYear",   "DateTimeGetMonth",  "DateTimeGetDayOfMonth",  "DateTimeGetHour",
-        "DateTimeGetMinute", "DateTimeGetSecond", "DateTimeGetMillisecond",
+        "DateTimeGetMinute", "DateTimeGetSecond", "DateTimeGetMillisecond", "DateTimeGetDayOfWeek",
     };
+#define NGETTERS (sizeof(getters) / sizeof(getters[0]))
 
     BuiltinRegistry *builtins = builtin_registry_new();
     east_register_all_builtins(builtins);
 
     for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
-        const int64_t want[7] = {cases[c].year, cases[c].month, cases[c].day,  cases[c].hour,
-                                 cases[c].min,  cases[c].sec,   cases[c].milli};
+        const int64_t want[NGETTERS] = {cases[c].year,  cases[c].month, cases[c].day,
+                                        cases[c].hour,  cases[c].min,   cases[c].sec,
+                                        cases[c].milli, cases[c].wday};
         EastValue *dt = east_datetime(cases[c].ms);
-        for (size_t g = 0; g < 7; g++) {
+        for (size_t g = 0; g < NGETTERS; g++) {
             BuiltinImpl impl = builtin_registry_get(builtins, getters[g], NULL, 0);
             if (!impl) {
                 CHECK(false, "builtin %s not registered", getters[g]);
@@ -189,6 +200,56 @@ static void test_epoch_millis_split(void)
         }
         east_value_release(dt);
     }
+#undef NGETTERS
+    builtin_registry_free(builtins);
+}
+
+/* Composition is the same defect in the other direction: MSVCRT's _mkgmtime
+ * refuses pre-1970 just as gmtime does, so a date before the epoch could not
+ * be built either. The normalising contract is unchanged — an out-of-range
+ * component rolls into the next one rather than raising. */
+static void test_from_components(void)
+{
+    static const struct {
+        int64_t y, mo, d, h, mi, s, ms;
+        int64_t want;
+        const char *what;
+    } cases[] = {
+        {1970, 1, 1, 0, 0, 0, 0, 0, "the epoch"},
+        {1969, 12, 31, 23, 59, 59, 999, -1, "one millisecond before the epoch"},
+        {1969, 12, 30, 23, 59, 59, 999, -86400001, "a day and a millisecond before"},
+        {1900, 1, 1, 0, 0, 0, 0, -2208988800000LL, "1900"},
+        {1600, 2, 29, 0, 0, 0, 0, -11670998400000LL, "a pre-epoch leap day"},
+        {2024, 2, 29, 12, 0, 0, 0, 1709208000000LL, "a leap day"},
+        {2024, 2, 31, 0, 0, 0, 0, 1709337600000LL, "31 February normalises to 2 March"},
+        {2024, 13, 1, 0, 0, 0, 0, 1735689600000LL, "month 13 normalises into the next year"},
+        {2023, 2, 29, 0, 0, 0, 0, 1677628800000LL, "29 February of a common year"},
+    };
+
+    BuiltinRegistry *builtins = builtin_registry_new();
+    east_register_all_builtins(builtins);
+    BuiltinImpl impl = builtin_registry_get(builtins, "DateTimeFromComponents", NULL, 0);
+    if (!impl) {
+        CHECK(false, "builtin DateTimeFromComponents not registered");
+        builtin_registry_free(builtins);
+        return;
+    }
+
+    for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+        EastValue *args[7] = {
+            east_integer(cases[c].y),  east_integer(cases[c].mo), east_integer(cases[c].d),
+            east_integer(cases[c].h),  east_integer(cases[c].mi), east_integer(cases[c].s),
+            east_integer(cases[c].ms),
+        };
+        EastValue *got = impl(args, 7);
+        CHECK(got && got->kind == EAST_VAL_DATETIME && got->data.datetime == cases[c].want,
+              "%s gave %lld, expected %lld", cases[c].what,
+              got && got->kind == EAST_VAL_DATETIME ? (long long)got->data.datetime : -1,
+              (long long)cases[c].want);
+        if (got) east_value_release(got);
+        for (size_t a = 0; a < 7; a++)
+            east_value_release(args[a]);
+    }
     builtin_registry_free(builtins);
 }
 
@@ -198,6 +259,7 @@ int main(void)
 
     test_block_scoping();
     test_epoch_millis_split();
+    test_from_components();
 
     if (failures > 0) {
         fprintf(stderr, "%d failure(s)\n", failures);

@@ -1,8 +1,9 @@
 /*
  * DateTime builtin functions.
  *
- * DateTime is stored as epoch milliseconds (int64_t).
- * Date component extraction uses gmtime() for UTC.
+ * DateTime is stored as epoch milliseconds (int64_t). The UTC calendar
+ * conversion in both directions is computed here rather than by the C library,
+ * which cannot represent pre-1970 instants on every platform.
  */
 #include "east/builtins.h"
 #include "east/values.h"
@@ -11,6 +12,40 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+/* Proleptic Gregorian calendar arithmetic, done here rather than by the CRT.
+ *
+ * The C library is not usable for this: MSVCRT's gmtime returns NULL for any
+ * time_t before the 1970 epoch and leaves the caller's struct tm UNTOUCHED,
+ * and _mkgmtime likewise refuses to compose one — so on Windows every pre-1970
+ * instant decomposed to uninitialized stack while POSIX answered correctly.
+ * JavaScript's Date and python's datetime are both unbounded proleptic
+ * Gregorian, so computing the calendar here is what makes the runtimes agree
+ * at EVERY instant rather than only after 1970. The two functions are exact
+ * over the whole int64 range (Howard Hinnant's chrono algorithms), and days
+ * are counted from 1970-01-01. */
+static void civil_from_days(int64_t z, int64_t *y, unsigned *m, unsigned *d)
+{
+    z += 719468; /* shift the epoch to 0000-03-01, so leap day ends the year */
+    int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+    unsigned doe = (unsigned)(z - era * 146097);                          /* [0, 146096] */
+    unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; /* [0, 399] */
+    unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);               /* [0, 365] */
+    unsigned mp = (5 * doy + 2) / 153;                                    /* [0, 11] */
+    *d = doy - (153 * mp + 2) / 5 + 1;                                    /* [1, 31] */
+    *m = mp < 10 ? mp + 3 : mp - 9;                                       /* [1, 12] */
+    *y = (int64_t)yoe + era * 400 + (*m <= 2);
+}
+
+static int64_t days_from_civil(int64_t y, unsigned m, unsigned d)
+{
+    y -= m <= 2;
+    int64_t era = (y >= 0 ? y : y - 399) / 400;
+    unsigned yoe = (unsigned)(y - era * 400);                       /* [0, 399] */
+    unsigned doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1; /* [0, 365] */
+    unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;           /* [0, 146096] */
+    return era * 146097 + (int64_t)doe - 719468;
+}
 
 /* Helper: get struct tm from epoch millis (UTC).
  *
@@ -24,10 +59,45 @@ static struct tm millis_to_tm(int64_t millis)
 {
     int64_t secs = millis / 1000;
     if (millis % 1000 < 0) secs -= 1;
-    time_t t = (time_t)secs;
+
+    int64_t days = secs / 86400;
+    int64_t sod = secs % 86400; /* second of day, floored the same way */
+    if (sod < 0) {
+        sod += 86400;
+        days -= 1;
+    }
+
+    int64_t year;
+    unsigned month, day;
+    civil_from_days(days, &year, &month, &day);
+
     struct tm result;
-    gmtime_r(&t, &result);
+    memset(&result, 0, sizeof result);
+    result.tm_year = (int)(year - 1900);
+    result.tm_mon = (int)month - 1;
+    result.tm_mday = (int)day;
+    result.tm_hour = (int)(sod / 3600);
+    result.tm_min = (int)(sod / 60 % 60);
+    result.tm_sec = (int)(sod % 60);
+    /* 1970-01-01 was a Thursday (tm_wday 4); days % 7 is in [-6, 6], so the
+     * +11 keeps the second modulus off C's negative remainder. */
+    result.tm_wday = (int)((days % 7 + 11) % 7);
+    result.tm_yday = (int)(days - days_from_civil(year, 1, 1));
     return result;
+}
+
+/* Epoch milliseconds from UTC components, normalising out of range exactly as
+ * timegm does — an out-of-range component rolls into the next one rather than
+ * raising, which is the documented FromComponents behaviour (31 February is
+ * 2 or 3 March). The month is carried into the year explicitly; every other
+ * component carries through the arithmetic on its own. */
+static int64_t millis_from_components(int64_t year, int64_t month, int64_t day, int64_t hour,
+                                      int64_t minute, int64_t second, int64_t millis)
+{
+    int64_t mz = month - 1;
+    int64_t carry = mz >= 0 ? mz / 12 : -((-mz + 11) / 12);
+    int64_t days = days_from_civil(year + carry, (unsigned)(mz - carry * 12) + 1, 1) + (day - 1);
+    return (days * 86400 + hour * 3600 + minute * 60 + second) * 1000 + millis;
 }
 
 /* --- static implementations --- */
@@ -123,16 +193,9 @@ static EastValue *datetime_from_epoch_milliseconds(EastValue **args, size_t n)
 static EastValue *datetime_from_components(EastValue **args, size_t n)
 {
     (void)n;
-    struct tm t = {0};
-    t.tm_year = (int)(args[0]->data.integer - 1900);
-    t.tm_mon = (int)(args[1]->data.integer - 1);
-    t.tm_mday = (int)args[2]->data.integer;
-    t.tm_hour = (int)args[3]->data.integer;
-    t.tm_min = (int)args[4]->data.integer;
-    t.tm_sec = (int)args[5]->data.integer;
-    int64_t ms = args[6]->data.integer;
-    time_t secs = timegm(&t);
-    return east_datetime((int64_t)secs * 1000 + ms);
+    return east_datetime(millis_from_components(
+        args[0]->data.integer, args[1]->data.integer, args[2]->data.integer, args[3]->data.integer,
+        args[4]->data.integer, args[5]->data.integer, args[6]->data.integer));
 }
 
 /* ---- Month/weekday name tables ---- */
@@ -555,19 +618,10 @@ static EastValue *datetime_parse_format_impl(EastValue **args, size_t n)
     if (second == -1) second = 0;
     if (millisecond == -1) millisecond = 0;
 
-    /* Build datetime via timegm */
-    struct tm t = {0};
-    t.tm_year = year - 1900;
-    t.tm_mon = month - 1;
-    t.tm_mday = day;
-    t.tm_hour = hour;
-    t.tm_min = minute;
-    t.tm_sec = second;
-    time_t secs = timegm(&t);
+    int64_t stamp = millis_from_components(year, month, day, hour, minute, second, 0);
 
     /* Validate date (e.g., Feb 31 would roll over) */
-    struct tm check;
-    gmtime_r(&secs, &check);
+    struct tm check = millis_to_tm(stamp);
     if (check.tm_year + 1900 != year || check.tm_mon + 1 != month || check.tm_mday != day)
         PARSE_ERR(0, "Invalid date: %04d-%02d-%02d", year, month, day);
 
@@ -576,7 +630,7 @@ static EastValue *datetime_parse_format_impl(EastValue **args, size_t n)
         PARSE_ERR(0, "Weekday mismatch: parsed \"%s\" but date is actually \"%s\"",
                   WDAY_FULL[parsed_weekday], WDAY_FULL[check.tm_wday]);
 
-    return east_datetime((int64_t)secs * 1000 + millisecond);
+    return east_datetime(stamp + millisecond);
 }
 
 #undef PARSE_ERR
