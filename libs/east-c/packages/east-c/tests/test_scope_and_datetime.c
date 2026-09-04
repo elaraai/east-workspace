@@ -156,16 +156,13 @@ static void test_epoch_millis_split(void)
         int64_t ms;
         int64_t year, month, day, hour, min, sec, milli;
     } cases[] = {
-        {-1, 1969, 12, 31, 23, 59, 59, 999},
-        {-500, 1969, 12, 31, 23, 59, 59, 500},
-        {-1500, 1969, 12, 31, 23, 59, 58, 500},
-        {-1000, 1969, 12, 31, 23, 59, 59, 0},
-        {-86400001, 1969, 12, 30, 23, 59, 59, 999},
-        {0, 1970, 1, 1, 0, 0, 0, 0},
+        {-1, 1969, 12, 31, 23, 59, 59, 999},        {-500, 1969, 12, 31, 23, 59, 59, 500},
+        {-1500, 1969, 12, 31, 23, 59, 58, 500},     {-1000, 1969, 12, 31, 23, 59, 59, 0},
+        {-86400001, 1969, 12, 30, 23, 59, 59, 999}, {0, 1970, 1, 1, 0, 0, 0, 0},
         {1500, 1970, 1, 1, 0, 0, 1, 500},
     };
     static const char *const getters[] = {
-        "DateTimeGetYear",   "DateTimeGetMonth",  "DateTimeGetDayOfMonth", "DateTimeGetHour",
+        "DateTimeGetYear",   "DateTimeGetMonth",  "DateTimeGetDayOfMonth",  "DateTimeGetHour",
         "DateTimeGetMinute", "DateTimeGetSecond", "DateTimeGetMillisecond",
     };
 
