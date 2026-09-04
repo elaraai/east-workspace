@@ -198,16 +198,42 @@ cdef _eastc.EvalResult _python_platform_fn(_eastc.EastValue **args,
         if result is None:
             c_result = _eastc.east_null()
         else:
-            # A frozen hold (freeze_value / load_frozen_value, #539) passes
-            # its branded C value straight through — re-converting via python
-            # would construct a fresh mutable value and drop the frozen
-            # contract.
-            raw = getattr(result, "_east_c_value", None)
-            if raw is not None:
-                c_result = <_eastc.EastValue*><uintptr_t>raw
+            # A paged hold (open_paged_value / open_paged_file / a beast2
+            # file opened as a value, #661) passes its C value straight
+            # through — the compiled body then keeps the pager's O(segment)
+            # cost model, where converting via python would hydrate the
+            # whole collection at the boundary. The declared output type is
+            # checked by pointer first, structurally otherwise (#467): a
+            # mislabelled pager must not reach east-c. The bytes behind the
+            # value are C-owned (or C-retained, see open_paged_value_view),
+            # so the python object may die once the value is handed over.
+            try:
+                paged = getattr(result, "_east_c_paged", None)
+            except BaseException:
+                paged = None
+            if paged is not None:
+                ptype_obj = getattr(result, "_east_c_paged_type", 0)
+                ptype = <uintptr_t>ptype_obj if isinstance(ptype_obj, int) else 0
+                if ptype == 0 or (ptype != <uintptr_t>output_type
+                                  and not _eastc.east_type_equal(
+                                      <_eastc.EastType*>ptype, output_type)):
+                    raise TypeError(
+                        "platform function " + name_bytes.decode("utf-8")
+                        + " returned a paged value whose type does not match its "
+                        "declared output type")
+                c_result = <_eastc.EastValue*><uintptr_t>paged
                 _eastc.east_value_retain(c_result)
             else:
-                c_result = py_value_to_c(result, output_type)
+                # A frozen hold (freeze_value / load_frozen_value, #539)
+                # passes its branded C value straight through — re-converting
+                # via python would construct a fresh mutable value and drop
+                # the frozen contract.
+                raw = getattr(result, "_east_c_value", None)
+                if raw is not None:
+                    c_result = <_eastc.EastValue*><uintptr_t>raw
+                    _eastc.east_value_retain(c_result)
+                else:
+                    c_result = py_value_to_c(result, output_type)
 
         return _eastc.eval_ok(c_result)
 
