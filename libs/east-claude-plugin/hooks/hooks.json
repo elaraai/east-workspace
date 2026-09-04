@@ -1,5 +1,5 @@
 {
-  "description": "East plugin hooks: project detection, the search-before-coding gate, and preemptive diagnostics",
+  "description": "East plugin hooks: project detection, the search-before-coding gate, and preemptive diagnostics (files edited, read, or written through the shell)",
   "hooks": {
     "SessionStart": [
       {
@@ -47,12 +47,22 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Read",
+        "matcher": "Read|Edit|Write",
         "hooks": [
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/.build/hooks/diagnose.js\"",
             "timeout": 6
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/.build/hooks/diagnose-bash.js\"",
+            "timeout": 10
           }
         ]
       }

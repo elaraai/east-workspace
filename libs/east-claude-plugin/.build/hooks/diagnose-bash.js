@@ -1,3 +1,6 @@
+// hooks/diagnose-bash.ts
+import { resolve as resolve3 } from "node:path";
+
 // lib/hook-io.ts
 async function readHookInput() {
   let input = "";
@@ -287,14 +290,58 @@ async function reviewFile(sessionId, filePath) {
   return text;
 }
 
-// hooks/diagnose.ts
+// lib/bash-writes.ts
+function isRealPath(token) {
+  if (token === "" || token.startsWith("&")) return false;
+  if (/^\d+$/.test(token)) return false;
+  return !token.startsWith("/dev/");
+}
+function unquote(token) {
+  const m = /^(['"])(.*)\1$/.exec(token);
+  return m?.[2] ?? token;
+}
+function segments(command) {
+  return command.split(/\|\||&&|[;|\n]/);
+}
+function lastToken(segment) {
+  const tokens = segment.trim().split(/\s+/).map(unquote).filter((t) => t !== "" && !t.startsWith("-"));
+  const last = tokens.at(-1);
+  return last !== void 0 && isRealPath(last) ? last : void 0;
+}
+function writtenPaths(command) {
+  const found = /* @__PURE__ */ new Set();
+  for (const match of command.matchAll(/>>?\s*(['"]?)([^\s'";|&<>]+)\1/g)) {
+    const path = unquote(match[2] ?? "");
+    if (isRealPath(path)) found.add(path);
+  }
+  for (const segment of segments(command)) {
+    const trimmed = segment.trim();
+    for (const match of trimmed.matchAll(/\btee\s+(?:-a\s+)?(['"]?)([^\s'";|&<>]+)\1/g)) {
+      const path = unquote(match[2] ?? "");
+      if (isRealPath(path)) found.add(path);
+    }
+    if (/^\s*(sed\s+(-[^\s]*\s+)*-i|cp|mv|install)\b/.test(trimmed)) {
+      const path = lastToken(trimmed);
+      if (path !== void 0) found.add(path);
+    }
+  }
+  return [...found];
+}
+
+// hooks/diagnose-bash.ts
 async function main() {
   const event = await readHookInput();
-  const filePath = event.tool_input?.file_path;
-  if (filePath === void 0) process.exit(0);
-  if (event.tool_name !== "Read" && !filePath.endsWith(".py")) process.exit(0);
-  const text = await reviewFile(event.session_id, filePath);
-  if (text === null || text === "") process.exit(0);
-  writeHookOutput("PostToolUse", text);
+  const command = event.tool_input?.command;
+  if (typeof command !== "string" || command === "") process.exit(0);
+  const candidates = writtenPaths(command).map((p) => resolve3(event.cwd || process.cwd(), p)).filter(reviewable);
+  if (candidates.length === 0) process.exit(0);
+  const blocks = [];
+  for (const path of candidates.slice(0, 10)) {
+    const text = await reviewFile(event.session_id, path);
+    if (text !== null && text !== "") blocks.push(`### ${path}
+${text}`);
+  }
+  if (blocks.length === 0) process.exit(0);
+  writeHookOutput("PostToolUse", blocks.join("\n\n"));
 }
 main().catch(() => process.exit(0));

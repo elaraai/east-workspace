@@ -46,6 +46,7 @@ const BUNDLED = [
   ".build/hooks/pre-write.js",
   ".build/hooks/pre-read.js",
   ".build/hooks/diagnose.js",
+  ".build/hooks/diagnose-bash.js",
   ".build/daemon/server.js",
   ".build/daemon/lsp.js",
   ".build/mcp/server.js",

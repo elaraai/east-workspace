@@ -37,11 +37,11 @@ function project(): string {
   return dir;
 }
 
-function runHook(file: string): string {
+function runHook(file: string, toolName = "Read"): string {
   const input = JSON.stringify({
     cwd: "/",
     session_id: `test-${Date.now()}-${Math.random()}`, // unique so the per-session content dedupe doesn't self-skip across runs
-    tool_name: "Read",
+    tool_name: toolName,
     tool_input: { file_path: file },
   });
   return execFileSync(process.execPath, [hook], {
@@ -67,6 +67,23 @@ test("diagnose hook leaves a python file that does not import east alone", () =>
   const dir = project();
   try {
     assert.equal(runHook(join(dir, "plain.py")), "");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a python EDIT is reviewed here, not left to the language server (#684)", () => {
+  // The python path through the LSP needs east-py to resolve from the file's
+  // directory and says nothing at all when it does not — reported as "the
+  // python hooks don't fire". The hook covers Edit/Write for python so a
+  // missing server is not silent.
+  const dir = project();
+  try {
+    for (const tool of ["Edit", "Write"]) {
+      const out = runHook(join(dir, "mod.py"), tool);
+      assert.match(out, /<east-code-review>/, `${tool} on a python file must be reviewed`);
+      assert.match(out, /no-operator-fork/);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
