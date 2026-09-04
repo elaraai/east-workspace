@@ -98,6 +98,27 @@ IRNode *east_beast2_decode_ir(const uint8_t *data, size_t len, EastValue **ir_va
     }
 }
 
+const char *east_beast2_magic_problem(const uint8_t *data, size_t len, char *buf, size_t cap)
+{
+    static const uint8_t prefix[7] = {0x89, 0x45, 0x61, 0x73, 0x74, 0x0D, 0x0A};
+    if (!data || len < 8) {
+        snprintf(buf, cap, "Data too short for Beast2 format: %zu bytes", len);
+        return buf;
+    }
+    for (int i = 0; i < 7; i++) {
+        if (data[i] != prefix[i]) {
+            snprintf(buf, cap, "Invalid Beast2 magic at offset %d: expected 0x%02x, got 0x%02x", i,
+                     prefix[i], data[i]);
+            return buf;
+        }
+    }
+    if (data[7] != 0x04 && data[7] != 0x05) {
+        snprintf(buf, cap, "Unknown Beast2 version: 0x%02x", data[7]);
+        return buf;
+    }
+    return NULL;
+}
+
 EastType *east_beast2_extract_type(const uint8_t *data, size_t len)
 {
     switch (beast2_detect_version(data, len)) {

@@ -160,6 +160,7 @@ _SIGNATURES: dict[str, Any] = {
     "BlobEncodeBeast": lambda T: [T],
     "BlobDecodeBeast2": lambda T: [BlobType],
     "BlobEncodeBeast2": lambda T: [T],
+    "BlobOpenBeast2": lambda T: [BlobType],
     "BlobDecodeCsv": lambda T, Config: [BlobType, Config],
     "ArrayEncodeCsv": lambda T, Config: [ArrayType(T), Config],
     # ── ref ──

@@ -2,9 +2,27 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, StringType, BlobType } from "../src/index.js";
+import { East, StringType, BlobType, IntegerType, ArrayType, DictType, StructType, SortedMap, compareFor, encodeBeast2For, encodeBeast2PagedFor, none } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./blob.examples.js";
+
+// An indexed, self-contained blob for the openBeast error paths: 30 rows in
+// segments of 10 (the paged writers' shape).
+const OpenRowType = StructType({ id: IntegerType, name: StringType });
+const OpenTableType = DictType(IntegerType, OpenRowType);
+const OPEN_TABLE_BLOB = encodeBeast2PagedFor(OpenTableType, { batchSize: 10 })(
+  new SortedMap(
+    Array.from({ length: 30 }, (_, i): [bigint, { id: bigint; name: string }] => [BigInt(i), { id: BigInt(i), name: `row-${i}` }]),
+    compareFor(IntegerType),
+  ),
+);
+// The same table as a legacy v4 container: its header names the type too.
+const OPEN_TABLE_V4_BLOB = encodeBeast2For(OpenTableType, { version: 4 })(
+  new SortedMap(
+    Array.from({ length: 30 }, (_, i): [bigint, { id: bigint; name: string }] => [BigInt(i), { id: BigInt(i), name: `row-${i}` }]),
+    compareFor(IntegerType),
+  ),
+);
 
 await describe("Blob", (test) => {
   assert.examples(test, { blobSize: ex.blobSize, blobGetUint8: ex.blobGetUint8 });
@@ -93,6 +111,44 @@ await describe("Blob", (test) => {
     ));
 
     $(assert.equal(hello_no_bom_blob.decodeUtf16(), hello_str));
+  });
+
+  assert.examples(test, {
+    blobOpenBeastDict: ex.blobOpenBeastDict,
+    blobOpenBeastDictForLoop: ex.blobOpenBeastDictForLoop,
+    blobOpenBeastArray: ex.blobOpenBeastArray,
+    blobOpenBeastSet: ex.blobOpenBeastSet,
+    blobOpenBeastIndexless: ex.blobOpenBeastIndexless,
+    blobOpenBeastRefShape: ex.blobOpenBeastRefShape, blobOpenBeastV4: ex.blobOpenBeastV4,
+    blobOpenBeastIs: ex.blobOpenBeastIs,
+  });
+
+  test("openBeast served reads, missing keys, the wire type check and the frozen contract", $ => {
+    const blob = $.const(OPEN_TABLE_BLOB, BlobType);
+    const table = $.let(blob.openBeast(OpenTableType));
+    $(assert.equal(table.size(), 30n));
+    $(assert.equal(table.has(29n), true));
+    $(assert.equal(table.has(30n), false));
+    $(assert.equal(table.get(12n).name, "row-12"));
+    $(assert.equal(table.tryGet(9999n), none));
+    $(assert.equal(table.get(9999n, (_$, key) => ({ id: key, name: "missing" })).name, "missing"));
+    $(assert.throws(table.get(9999n), /Dict does not contain key/));
+
+    // The header names the wire type; another type is refused up front,
+    // never decoded by the declared type — for a v4 container as well.
+    $(assert.throws(blob.openBeast(ArrayType(IntegerType)), /cannot open a blob of type/));
+    const v4 = $.const(OPEN_TABLE_V4_BLOB, BlobType);
+    $(assert.throws(v4.openBeast(ArrayType(IntegerType)), /cannot open a blob of type/));
+    $(assert.equal(v4.openBeast(OpenTableType).get(12n).name, "row-12"));
+
+    // Frozen: the mutating builtins refuse with the uniform copy-first
+    // message, and a copy is an ordinary mutable value.
+    $(assert.throws(table.insert(99n, { id: 99n, name: "new" }), /cannot mutate a frozen value/));
+    $(assert.throws(table.delete(0n), /cannot mutate a frozen value/));
+    const copy = $.let(table.copy());
+    $(copy.insert(99n, { id: 99n, name: "new" }));
+    $(assert.equal(copy.size(), 31n));
+    $(assert.equal(table.size(), 30n));
   });
 
   test("Equality method aliases", $ => {

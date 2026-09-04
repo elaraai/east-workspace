@@ -240,6 +240,36 @@ class EastBlob(bytes):
             raise ValueError(f"Unsupported Beast version: {version!r} (expected 'v1' or 'v2')")
         return _call_builtin(builtin, [typ], [self], typ)
 
+    def open_beast(self, typ: EastType) -> Any:
+        """Open an indexed beast2 v5 collection blob as a FROZEN lazy paged
+        value (east-c BlobOpenBeast2; TS ``openBeast``).
+
+        The result is the pager-backed proxy a task input opens as: ``len``,
+        keyed reads, membership and iteration answer from the segment index,
+        and any other operation hydrates the whole value once (#657). Frozen:
+        mutation raises the uniform copy-first error and the collection
+        compares by value.
+
+        Args:
+            typ: The Array, Set or Dict type the blob encodes; a v5 header
+                declaring another type is an error.
+
+        Returns:
+            The lazily served East collection of type ``typ``. A blob that
+            cannot page (index-less, a v4 container, an element shape carrying
+            a Ref or a function) decodes whole, frozen, with the same
+            semantics.
+
+        Raises:
+            TypeError: If ``typ`` is not an Array, Set or Dict type.
+            EastError: If the bytes are not a beast2 encoding of ``typ``.
+        """
+        from east.types.types import EastType as _EastType
+
+        if not isinstance(typ, _EastType) or typ.type not in ("Array", "Set", "Dict"):
+            raise TypeError("open_beast() takes an Array, Set or Dict type")
+        return _call_builtin("BlobOpenBeast2", [typ], [self], typ)
+
     def decode_beast2(self, typ: EastType) -> Any:
         """Decode beast2-encoded bytes as a value of ``typ`` (east-c BlobDecodeBeast2).
 

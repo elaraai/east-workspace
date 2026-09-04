@@ -262,6 +262,7 @@ _HAND: dict[str, Spelling] = {
     "BlobDecodeUtf16": _s("{0}.decode_utf16()"),
     "BlobDecodeBeast": _s("{0}.decode_beast({T0})"),
     "BlobDecodeBeast2": _s("{0}.decode_beast({T0}, 'v2')"),
+    "BlobOpenBeast2": _s("{0}.open_beast({T0})"),
     "BlobDecodeCsv": _s("{0}.decode_csv({T0}, {1})"),
     "BlobEncodeBeast": _s("East.Blob.encode_beast({0})"),
     "BlobEncodeBeast2": _s("East.Blob.encode_beast({0}, 'v2')"),

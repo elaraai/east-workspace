@@ -19,7 +19,7 @@ import { get_current_source_map, type SourceMap } from "./location.js";
 import { SortedSet } from "./containers/sortedset.js";
 import { SortedMap } from "./containers/sortedmap.js";
 import { BufferWriter } from "./serialization/binary-utils.js";
-import { decodeBeast2For, decodeBeastFor, encodeBeast2For, encodeBeastFor, fromJSONFor, toJSONFor, decodeCsvFor, encodeCsvFor } from "./serialization/index.js";
+import { decodeBeast2For, decodeBeastFor, encodeBeast2For, encodeBeastFor, fromJSONFor, toJSONFor, decodeCsvFor, encodeCsvFor, openBeast2LazyFor, isBeast2LazySafe, readBeast2Extents, readBeast2Type, type Beast2Extents } from "./serialization/index.js";
 import { formatDateTime } from "./datetime_format/print.js";
 import { parseDateTimeFormatted } from "./datetime_format/parse.js";
 import type { DateTimeFormatToken } from "./datetime_format/types.js";
@@ -1770,6 +1770,40 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
         throw new EastError(`Failed to decode Beast2 data: ${(e as Error).message}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
       }
     }
+  },
+  BlobOpenBeast2: (loc_id: bigint, source_map: SourceMap | null, platformDef: PlatformFunction[], type: EastTypeValue) => {
+    // The frozen lazy open a runner gives a task input, at the expression
+    // level. The header names the wire type (both container versions), and
+    // paging or decoding by any other type would read garbage, so a mismatch
+    // is an error rather than a decode by the declared type. Whatever cannot
+    // page — a v4 container, an index-less blob, cross-segment aliasing, a
+    // gated element shape — decodes whole, frozen, with the same semantics.
+    // The whole decoder is built on first use: a paged blob never needs it.
+    let whole: ((data: Uint8Array) => unknown) | null = null;
+    const open = openBeast2LazyFor(type, { platform: platformDef, frozen: true });
+    const lazySafe = isBeast2LazySafe(type, { frozen: true });
+    return (data: Uint8Array) => {
+      try {
+        // One geometry read answers everything the open needs: the wire
+        // type, whether an index exists (it throws otherwise) and whether
+        // the segments are self-contained.
+        let extents: Beast2Extents | null = null;
+        try {
+          extents = readBeast2Extents(data);
+        } catch {
+          extents = null;
+        }
+        const wire = extents !== null ? extents.typeValue : readBeast2Type(data);
+        if (!isTypeValueEqual(wire, type)) {
+          throw new Error(`beast2: cannot open a blob of type ${printTypeValue(wire)} as ${printTypeValue(type)}`);
+        }
+        if (lazySafe && extents !== null && extents.selfContained) return open(data);
+        whole ??= decodeBeast2For(type, { platform: platformDef, frozen: true });
+        return whole(data);
+      } catch (e: unknown) {
+        throw new EastError(`Failed to open Beast2 data: ${(e as Error).message}`, { location: (source_map?.resolve(loc_id) ?? []) as Location[] });
+      }
+    };
   },
   BlobDecodeCsv: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], structType: EastTypeValue, _configType: EastTypeValue) => {
     return (data: Uint8Array, config: any) => {

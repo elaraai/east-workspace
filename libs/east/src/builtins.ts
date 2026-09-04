@@ -20,7 +20,7 @@ export type BuiltinName = "Is" | "Equal" | "NotEqual" | "Less" | "LessEqual" | "
   | "FloatToInteger" | "FloatNegate" | "FloatAdd" | "FloatSubtract" | "FloatMultiply" | "FloatDivide" | "FloatRemainder" | "FloatPow" | "FloatAbs" | "FloatSign" | "FloatSqrt" | "FloatExp" | "FloatLog" | "FloatSin" | "FloatCos" | "FloatTan"
   | "Print" | "Parse" | "StringConcat" | "StringRepeat" | "StringLength" | "StringSubstring" | "StringUpperCase" | "StringLowerCase" | "StringSplit" | "StringTrim" | "StringTrimStart" | "StringTrimEnd" | "StringStartsWith" | "StringEndsWith" | "StringContains" | "StringIndexOf" | "StringReplace" | "RegexContains" | "RegexIndexOf" | "RegexReplace" | "StringEncodeUtf8" | "StringEncodeUtf16" | "StringParseJSON" | "StringPrintJSON"
   | "DateTimeGetYear" | "DateTimeGetMonth" | "DateTimeGetDayOfMonth" | "DateTimeGetHour" | "DateTimeGetMinute" | "DateTimeGetSecond" | "DateTimeGetDayOfWeek" | "DateTimeGetMillisecond" | "DateTimeAddMilliseconds" | "DateTimeDurationMilliseconds" | "DateTimeToEpochMilliseconds" | "DateTimeFromEpochMilliseconds" | "DateTimeFromComponents" | "DateTimePrintFormat" | "DateTimeParseFormat"
-  | "BlobSize" | "BlobGetUint8" | "BlobDecodeUtf8" | "BlobDecodeUtf16" | "BlobDecodeBeast" | "BlobEncodeBeast" | "BlobDecodeBeast2" | "BlobEncodeBeast2" | "BlobDecodeCsv" | "ArrayEncodeCsv"
+  | "BlobSize" | "BlobGetUint8" | "BlobDecodeUtf8" | "BlobDecodeUtf16" | "BlobDecodeBeast" | "BlobEncodeBeast" | "BlobDecodeBeast2" | "BlobEncodeBeast2" | "BlobOpenBeast2" | "BlobDecodeCsv" | "ArrayEncodeCsv"
   | "RefGet" | "RefUpdate" | "RefMerge"
   | "ArrayGenerate" | "ArrayRange" | "ArrayLinspace" | "ArraySize" | "ArrayHas" | "ArrayGet" | "ArrayGetOrDefault" | "ArrayTryGet" | "ArrayUpdate" | "ArrayMerge" | "ArrayPushLast" | "ArrayPopLast" | "ArrayPushFirst" | "ArrayPopFirst" | "ArrayAppend" | "ArrayPrepend" | "ArrayMergeAll" | "ArrayClear" | "ArraySortInPlace" | "ArrayReverseInPlace" | "ArraySort" | "ArrayReverse" | "ArrayIsSorted" | "ArrayFindSortedFirst" | "ArrayFindSortedLast" | "ArrayFindSortedRange" | "ArrayFindFirst" | "ArrayConcat" | "ArraySlice" | "ArrayGetKeys" | "ArrayForEach" | "ArrayCopy" | "ArrayMap" | "ArrayFilter" | "ArrayFilterMap" | "ArrayFirstMap" | "ArrayMapReduce" | "ArrayFold" | "ArrayScan" | "ArrayStringJoin" | "ArrayToSet" | "ArrayToDict" | "ArrayFlattenToArray" | "ArrayFlattenToSet" | "ArrayFlattenToDict" | "ArrayGroupFold"
   | "SetGenerate" | "SetSize" | "SetHas" | "SetInsert" | "SetTryInsert" | "SetDelete" | "SetTryDelete" | "SetClear" | "SetUnionInPlace" | "SetUnion" | "SetIntersect" | "SetDiff" | "SetSymDiff" | "SetIsSubset" | "SetIsDisjoint" | "SetCopy" | "SetForEach" | "SetMap" | "SetFilter" | "SetFilterMap" | "SetFirstMap" | "SetMapReduce" | "SetReduce" | "SetScan" | "SetToArray" | "SetToSet" |"SetToDict" | "SetFlattenToArray" | "SetFlattenToSet" | "SetFlattenToDict" | "SetGroupFold"
@@ -487,6 +487,13 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
     type_parameters: ["T"],
     inputs: ["T"] as const,
     output: BlobType,
+  },
+  // T is an Array/Set/Dict type — the expression builders enforce it, since
+  // the table has no way to constrain a type parameter.
+  BlobOpenBeast2: {
+    type_parameters: ["T"],
+    inputs: [BlobType] as const,
+    output: "T",
   },
   BlobDecodeCsv: {
     type_parameters: ["T", "Config"],

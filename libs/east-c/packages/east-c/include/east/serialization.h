@@ -59,6 +59,13 @@ EastValue *east_beast2_decode_auto(const uint8_t *data, size_t len);
 // Extract the type schema from beast2-full encoded data (returns retained EastType*)
 EastType *east_beast2_extract_type(const uint8_t *data, size_t len);
 
+// Why `data` is not a beast2 container, or NULL when its magic names a
+// readable version — the diagnostics the TypeScript runtime gives
+// ("Data too short for Beast2 format: N bytes", "Invalid Beast2 magic at
+// offset i: expected 0x.., got 0x..", "Unknown Beast2 version: 0x.."),
+// formatted into `buf`. The open paths post it under their own prefix.
+const char *east_beast2_magic_problem(const uint8_t *data, size_t len, char *buf, size_t cap);
+
 // Decode beast2-full IR and convert to IRNode in one shot.
 // Keeps the type table alive across decode + IR conversion for O(1) type resolution.
 // Returns NULL on failure. Caller must call ir_node_release on the result.

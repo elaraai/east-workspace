@@ -60,6 +60,19 @@ class BlobExpression(Expression):
             raise ExpressionError(f"Unsupported Beast version: {version!r} (expected 'v1' or 'v2')")
         return self._expr(_builtin(builtin, typ, [typ], [self.ir]), typ)
 
+    def open_beast(self, typ: EastType) -> Expression:
+        """Traced BlobOpenBeast2 (TS ``openBeast``): open an indexed beast2 v5
+        collection blob as a FROZEN lazy paged value of ``typ`` — ``size``,
+        keyed reads and ``b.for_`` loops answer from the segment index, and
+        anything else hydrates the whole value once (#657). ``typ`` must be an
+        Array, Set or Dict type. A blob that cannot page (an index-less blob
+        such as ``East.Blob.encode_beast(v, 'v2')`` writes, a v4 container, an
+        element shape carrying a Ref or a function) decodes whole, frozen; a
+        v5 header of another type is an East runtime error."""
+        if not isinstance(typ, EastType) or typ.type not in ("Array", "Set", "Dict"):
+            raise ExpressionError(".open_beast() takes an Array, Set or Dict type")
+        return self._expr(_builtin("BlobOpenBeast2", typ, [typ], [self.ir]), typ)
+
     def decode_csv(self, struct_type: EastType, config: Any = None, **options: Any) -> ArrayExpression:
         """Traced BlobDecodeCsv: the CSV bytes as an Array of ``struct_type``
         rows. ``config`` is a ``CsvParseConfigType`` value; the keyword

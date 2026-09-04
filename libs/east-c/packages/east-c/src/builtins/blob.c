@@ -17,6 +17,7 @@
  */
 static _Thread_local EastType *beast_type_ctx = NULL;
 static _Thread_local EastType *beast2_type_ctx = NULL;
+static _Thread_local EastType *beast2_open_type_ctx = NULL;
 static _Thread_local EastType *csv_struct_type_ctx = NULL;
 
 /* --- static implementations --- */
@@ -317,6 +318,100 @@ static EastValue *blob_decode_beast2(EastValue **args, size_t n)
     return result;
 }
 
+/* --- Beast2 lazy open (issue #659) --- */
+
+/* Re-post a decode failure under the open's own prefix, keeping the
+ * decoder's specific message when it left one. */
+static void open_beast2_fail(void)
+{
+    char *posted = east_builtin_get_error();
+    if (posted) {
+        size_t cap = strlen(posted) + 32;
+        char *msg = malloc(cap);
+        if (msg) {
+            snprintf(msg, cap, "Failed to open Beast2 data: %s", posted);
+            east_builtin_error(msg);
+            free(msg);
+        } else {
+            east_builtin_error("Failed to open Beast2 data");
+        }
+        free(posted);
+    } else {
+        east_builtin_error("Failed to open Beast2 data");
+    }
+}
+
+/* The frozen lazy open a runner gives a task input, at the expression level:
+ * an indexed, self-contained v5 collection blob becomes an EAST_VAL_PAGED
+ * value that retains the source Blob (its bytes are the Blob's own); the
+ * evaluator's paged gates then serve size / keyed reads / for-loops from the
+ * pager and hydrate once for anything else. Whatever cannot page — a v4
+ * container, an index-less blob, cross-segment aliasing, a Ref- or
+ * function-bearing element shape — decodes whole, frozen, with the same
+ * semantics. */
+static EastValue *blob_open_beast2(EastValue **args, size_t n)
+{
+    (void)n;
+    EastType *type = beast2_open_type_ctx;
+    if (!type) {
+        east_builtin_error("Beast2 open: no type context");
+        return NULL;
+    }
+    const uint8_t *data = args[0]->data.blob.data;
+    size_t len = args[0]->data.blob.len;
+
+    /* The header names the wire type (both container versions); paging or
+     * decoding by any other type would read garbage, so refuse up front with
+     * the diagnostics the other runtimes give. */
+    char magic_msg[128];
+    const char *magic_problem = east_beast2_magic_problem(data, len, magic_msg, sizeof magic_msg);
+    if (magic_problem) {
+        char msg[192];
+        snprintf(msg, sizeof msg, "Failed to open Beast2 data: %s", magic_problem);
+        east_builtin_error(msg);
+        return NULL;
+    }
+    EastType *wire = east_beast2_extract_type(data, len);
+    if (wire) {
+        bool same = east_type_equal(wire, type);
+        if (!same) {
+            char *want = east_print_type(type);
+            char *got = east_print_type(wire);
+            size_t cap = (want ? strlen(want) : 0) + (got ? strlen(got) : 0) + 96;
+            char *msg = malloc(cap);
+            if (msg) {
+                snprintf(msg, cap,
+                         "Failed to open Beast2 data: beast2: cannot open a blob of type %s as %s",
+                         got ? got : "?", want ? want : "?");
+                east_builtin_error(msg);
+                free(msg);
+            } else {
+                east_builtin_error("Failed to open Beast2 data: beast2: cannot open a blob of "
+                                   "another type");
+            }
+            free(want);
+            free(got);
+            east_type_release(wire);
+            return NULL;
+        }
+        east_type_release(wire);
+    } else {
+        /* A malformed header: the decode below reports it. */
+        free(east_builtin_get_error());
+    }
+
+    EastValue *paged = east_beast2_open_paged_owned(args[0], data, len, type, true);
+    if (paged) return paged;
+    free(east_builtin_get_error()); /* not pageable — the whole decode is always correct */
+
+    EastValue *whole = east_beast2_decode_full_frozen(data, len, type);
+    if (!whole) {
+        open_beast2_fail();
+        return NULL;
+    }
+    return whole;
+}
+
 /* --- CSV decode --- */
 
 static EastValue *blob_decode_csv(EastValue **args, size_t n)
@@ -405,6 +500,11 @@ static BuiltinImpl blob_decode_beast2_factory(EastType **tp, size_t ntp)
     beast2_type_ctx = (ntp > 0) ? tp[0] : NULL;
     return blob_decode_beast2;
 }
+static BuiltinImpl blob_open_beast2_factory(EastType **tp, size_t ntp)
+{
+    beast2_open_type_ctx = (ntp > 0) ? tp[0] : NULL;
+    return blob_open_beast2;
+}
 static BuiltinImpl blob_decode_csv_factory(EastType **tp, size_t ntp)
 {
     csv_struct_type_ctx = (ntp > 0) ? tp[0] : NULL;
@@ -436,6 +536,7 @@ void east_register_blob_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "BlobEncodeBeast", blob_encode_beast_factory);
     builtin_registry_register(reg, "BlobDecodeBeast2", blob_decode_beast2_factory);
     builtin_registry_register(reg, "BlobEncodeBeast2", blob_encode_beast2_factory);
+    builtin_registry_register(reg, "BlobOpenBeast2", blob_open_beast2_factory);
     builtin_registry_register(reg, "BlobDecodeCsv", blob_decode_csv_factory);
     builtin_registry_register(reg, "StringEncodeUtf8", string_encode_utf8_factory);
     builtin_registry_register(reg, "StringEncodeUtf16", string_encode_utf16_factory);
