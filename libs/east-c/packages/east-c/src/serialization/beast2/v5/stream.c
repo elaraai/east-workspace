@@ -725,6 +725,11 @@ struct Beast2Pages {
     size_t cache_bytes;  /* sum of live entry weights */
     size_t cache_budget; /* bytes; EAST_PAGED_CACHE_BYTES overrides the default */
     uint64_t lru_tick;
+    /* What paging has cost so far: segments and fences actually decoded —
+     * a cache hit is not counted again. The runners' account of a lazy
+     * input, which no residency figure can give on a mapping. */
+    size_t segments_decoded;
+    size_t fences_probed;
 };
 
 Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t len, EastType *type)
@@ -926,6 +931,7 @@ static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Pro
     }
     result = segment;
     segment = NULL;
+    p->segments_decoded++;
 
 done:
     if (segment) east_value_release(segment);
@@ -1188,7 +1194,14 @@ EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
     }
     p->fences[i] = first;     /* the cache owns one reference */
     east_value_retain(first); /* and the caller gets their own */
+    p->fences_probed++;
     return first;
+}
+
+void east_beast2_pages_stats(Beast2Pages *p, size_t *segments_decoded, size_t *fences_probed)
+{
+    if (segments_decoded) *segments_decoded = p ? p->segments_decoded : 0;
+    if (fences_probed) *fences_probed = p ? p->fences_probed : 0;
 }
 
 /* ================================================================== */

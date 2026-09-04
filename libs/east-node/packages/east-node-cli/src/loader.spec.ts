@@ -20,8 +20,12 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
+import {
+  DictType, IntegerType, StringType, SortedMap, compareFor,
+  encodeBeast2For, encodeBeast2PagedFor, isFrozenValue, Beast2Pages,
+} from '@elaraai/east';
 
-import { loadPlatform, loadPlatformWithMetadata } from './loader.js';
+import { loadPlatform, loadPlatformWithMetadata, loadInputLazy } from './loader.js';
 
 /**
  * Plant a self-contained fake platform package on disk and return its dir.
@@ -163,6 +167,55 @@ describe('loadPlatformWithMetadata — project-root resolution fallback', () => 
       assert.deepEqual(meta.fns, []);
     } finally {
       rmSync(dirname(proj), { recursive: true, force: true });
+    }
+  });
+});
+
+describe('loadInputLazy — the input pages from its file descriptor', () => {
+  const DT = DictType(IntegerType, StringType);
+  const table = new SortedMap<bigint, string>(
+    Array.from({ length: 2000 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]),
+    compareFor(IntegerType),
+  );
+
+  it('serves keyed reads frozen and un-hydrated, fetching one segment per read', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'enc-lazy-'));
+    try {
+      const path = join(dir, 'table.beast2');
+      writeFileSync(path, encodeBeast2PagedFor(DT, { batchSize: 250 })(table));
+      const value = loadInputLazy(path) as SortedMap<bigint, string>;
+      assert.ok(value instanceof SortedMap);
+      assert.ok(isFrozenValue(value));
+      assert.equal(value.size, 2000);
+
+      const proto = Beast2Pages.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
+      const originalGet = proto.get!;
+      let keyed = 0;
+      proto.get = function (this: unknown, ...args: unknown[]) { keyed++; return originalGet.apply(this, args); };
+      try {
+        assert.equal(value.get(1234n), 'row-1234');
+      } finally {
+        proto.get = originalGet;
+      }
+      assert.equal(keyed, 1, 'the keyed read reaches the pager');
+      assert.equal((value as unknown as { hydrated: boolean }).hydrated, false, 'served reads never hydrate');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back (undefined) for index-less blobs, non-beast2 files and missing files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'enc-lazy-'));
+    try {
+      const indexless = join(dir, 'whole.beast2');
+      writeFileSync(indexless, encodeBeast2For(DT)(table));
+      assert.equal(loadInputLazy(indexless), undefined);
+      const text = join(dir, 'value.json');
+      writeFileSync(text, '{}');
+      assert.equal(loadInputLazy(text), undefined);
+      assert.equal(loadInputLazy(join(dir, 'missing.beast2')), undefined);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

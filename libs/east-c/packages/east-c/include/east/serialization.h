@@ -155,6 +155,11 @@ size_t east_beast2_pages_segment_count(Beast2Pages *p);
 size_t east_beast2_pages_element_count(Beast2Pages *p);
 bool east_beast2_pages_self_contained(Beast2Pages *p);
 const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out);
+// What paging has cost so far: the segments and fences actually decoded —
+// a cache hit (segment or fence) is not counted again.
+// A runner reports these per lazy input — the account residency cannot give
+// on a mapping, where the kernel decides how much of a touched file is resident.
+void east_beast2_pages_stats(Beast2Pages *p, size_t *segments_decoded, size_t *fences_probed);
 EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i);
 EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row);
 // Segment i's FENCE: its first element (Array/Set) or first key (Dict),

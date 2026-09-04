@@ -11,9 +11,11 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import {
   ArrayType,
@@ -242,6 +244,82 @@ describe('runner streaming execution', () => {
 
     const result = decodeBeast2For(StringType)(new Uint8Array(readFileSync(outputPath)));
     assert.equal(result, 'row-1234');
+  });
+
+  it('reports a lazily opened input in verbose output', async () => {
+    const DT = DictType(IntegerType, StringType);
+    const table = new SortedMap<bigint, string>(
+      Array.from({ length: 500 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]),
+      compareFor(IntegerType),
+    );
+    const inputPath = join(tempDir, 'table.beast2');
+    writeFileSync(inputPath, encodeBeast2PagedFor(DT, { batchSize: 100 })(table));
+    const fn = East.function([DT], StringType, ($, table) => table.get(42n));
+    const outputPath = join(tempDir, 'output.beast2');
+
+    const lines: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    try {
+      await runProgram(writeIr(fn), [], [], [inputPath], outputPath, { lazyInputBytes: 1, verbose: true });
+    } finally {
+      console.error = original;
+    }
+    assert.ok(lines.some((l) => l.includes('input 0: opened lazily')), `verbose output names the lazy input:\n${lines.join('\n')}`);
+    assert.equal(decodeBeast2For(StringType)(new Uint8Array(readFileSync(outputPath))), 'row-42');
+  });
+
+  it('a lazily opened wide input reads a fraction of the file and stays below the eager run\'s residency', { skip: process.platform === 'win32' ? 'no RSS comparison on Windows' : false }, () => {
+    // A keyed read twice through the CLI binary, each run its own process:
+    // the lazy run pages the wide file from its descriptor, the eager
+    // control reads and decodes it whole. The runner's verbose summary
+    // accounts for every byte the lazy input read (geometry, fence probes,
+    // the one decoded segment), and that count must be a fraction of the
+    // file — the exact gate a positioned-read runtime allows, where RSS
+    // alone would not be (Node's own baseline wanders by more than a
+    // segment between identical runs). The eager control's RSS must still
+    // sit above the lazy run's: it pays the file's bytes plus every row.
+    const DT = DictType(IntegerType, StringType);
+    const rows = 160_000;
+    const table = new SortedMap<bigint, string>(
+      Array.from({ length: rows }, (_, i) => [BigInt(i), `row-${i}-` + String.fromCharCode(97 + (i % 26)).repeat(190)] as [bigint, string]),
+      compareFor(IntegerType),
+    );
+    const inputPath = join(tempDir, 'wide.beast2');
+    writeFileSync(inputPath, encodeBeast2PagedFor(DT, { codec: 'none' })(table));
+    const wireMb = statSync(inputPath).size / (1024 * 1024);
+    assert.ok(wireMb > 16, `wide fixture too small: ${wireMb.toFixed(1)} MB`);
+    const irPath = writeIr(East.function([DT], StringType, ($, table) => table.get(42n)));
+    const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
+    // The CLI resolves stock platforms from its bin directory, then from the
+    // search dirs e3 passes it; in a pnpm layout east-node-std is not a
+    // dependency of this package, so point the loader at the package itself.
+    const stdDir = fileURLToPath(new URL('../../east-node-std', import.meta.url));
+
+    const run = (threshold: string): string => {
+      const outputPath = join(tempDir, `wide-${threshold}.beast2`);
+      const result = spawnSync(process.execPath, [bin, 'run', irPath, '-p', '@elaraai/east-node-std', '-i', inputPath, '-o', outputPath, '-v'], {
+        env: { ...process.env, EAST_LAZY_INPUT_BYTES: threshold, E3_RUNNER_SEARCH_DIRS: stdDir },
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(decodeBeast2For(StringType)(new Uint8Array(readFileSync(outputPath))), table.get(42n));
+      return result.stderr;
+    };
+    const lazyErr = run('1');
+    const eagerErr = run('0');
+    assert.ok(lazyErr.includes('input 0: opened lazily'), lazyErr);
+    assert.ok(!eagerErr.includes('opened lazily'), eagerErr);
+    const sizeMb = (m: RegExpExecArray | null): number | null =>
+      m ? Number(m[1]) / (m[2] === 'B' ? 1024 * 1024 : m[2] === 'KB' ? 1024 : 1) : null;
+    const read = sizeMb(/input 0: ([\d.]+) (B|KB|MB) read of/.exec(lazyErr));
+    assert.ok(read !== null, `the summary accounts for the lazy input's reads:\n${lazyErr}`);
+    assert.ok(read! < wireMb / 2, `the lazy input read ${read!.toFixed(1)} MB of a ${wireMb.toFixed(1)} MB file — was it read whole?`);
+    const peak = (err: string): number | null => sizeMb(/Peak RSS:\s+([\d.]+) (MB)/.exec(err));
+    const lazy = peak(lazyErr);
+    const eager = peak(eagerErr);
+    assert.ok(lazy !== null && eager !== null, 'the runner reports its RSS');
+    assert.ok(lazy! < eager!, `lazy peak ${lazy} MB not below eager peak ${eager} MB for a ${wireMb.toFixed(1)} MB input`);
   });
 
   it('refuses --emit with a non-.beast2 output, like east-c and east-py', async () => {

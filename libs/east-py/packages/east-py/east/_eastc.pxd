@@ -503,6 +503,8 @@ cdef extern from "east/serialization.h":
     # EAST_PAGED_CACHE_BYTES environment variable overrides the default.
     void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes)
     EastValue *east_paged_hydrated(EastValue *v)
+    bint east_paged_stats(EastValue *v, size_t *segments, size_t *segments_decoded,
+                          size_t *fences_probed, bint *hydrated)
     EastType *east_beast2_pages_type(Beast2Pages *p)
 
     # v5 splice extents — byte geometry for merging blobs (issue #484)

@@ -459,6 +459,11 @@ EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len, bool ow
  * nulling the fields. Shared by the refcount release path and the GC
  * cycle-collector, so every death path honours the same contract. */
 void east_paged_release_contents(EastValue *v);
+/* What a paged value's reads have cost: its segment count, the segments
+ * decoded and fences probed so far, and whether an unsupported operation
+ * hydrated it whole. False for any other kind (nothing written). */
+bool east_paged_stats(EastValue *v, size_t *segments, size_t *segments_decoded,
+                      size_t *fences_probed, bool *hydrated);
 
 // Ref counting
 void east_value_retain(EastValue *v);

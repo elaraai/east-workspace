@@ -85,6 +85,26 @@ def _lazy_input_threshold() -> int:
     return _LAZY_INPUT_BYTES_DEFAULT
 
 
+def _peak_rss_kb() -> float | None:
+    """This process's peak resident set size in KB, or ``None`` where the
+    platform cannot report it. On Linux ``ru_maxrss`` inherits the parent's
+    peak across fork + exec — a runner spawned from a large host process
+    reports the host's peak, not its own — so ``VmHWM`` from
+    ``/proc/self/status``, which exec resets, is the source there;
+    ``ru_maxrss`` elsewhere (KB on Linux, bytes on macOS)."""
+    try:
+        with open("/proc/self/status", encoding="ascii") as status:
+            for line in status:
+                if line.startswith("VmHWM:"):
+                    return float(line.split()[1])
+    except (OSError, ValueError, IndexError, UnicodeDecodeError):
+        pass
+    if resource is None:
+        return None
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / 1024 if sys.platform == "darwin" else float(peak)
+
+
 def _load_frozen_input(type_ptr: object, file_path: Path, param_type: Any) -> object:
     """An eagerly-decoded FROZEN input value — task inputs are immutable
     (mutating builtins raise the uniform copy-first error, and frozen
@@ -465,13 +485,16 @@ def run_program(
     # iteration + keyed reads at O(segment) decoded memory — #505); other
     # indexed beast2 collection inputs open lazily at or above the size
     # threshold — and because frozen collapses the shape gate,
-    # nested-container element shapes open lazily too. Anything not pageable
-    # falls back to the whole (frozen) decode, exactly like east-node's
-    # runner.
-    from east.runtime._compiler_eastc import open_paged_value
+    # nested-container element shapes open lazily too. A lazily opened file
+    # is MAPPED, never read whole: the paged value serves its reads from the
+    # mapping, so the input's residency is the page cache and the heap holds
+    # one decoded segment at a time. Anything not pageable falls back to the
+    # whole (frozen) decode, exactly like east-node's runner.
+    from east.runtime._compiler_eastc import open_paged_file
 
     threshold = _lazy_input_threshold()
     inputs = []
+    lazy_inputs: list[int] = []
     for i, (file_path, param_type) in enumerate(zip(input_files, input_types, strict=False)):
         lazy = None
         want_lazy = i == stream_input or (
@@ -482,9 +505,17 @@ def run_program(
             and Path(file_path).suffix.lower() in (".beast2", ".beast")
             and getattr(param_type, "type", None) in ("Array", "Set", "Dict")
         ):
-            lazy = open_paged_value(handle._input_types[i], Path(file_path).read_bytes(),
-                                    frozen=True)
+            try:
+                lazy = open_paged_file(handle._input_types[i], file_path, frozen=True)
+            except (OSError, ValueError):
+                # Not a container of the parameter's type, or a file that
+                # cannot be mapped: the whole decode below reads it and
+                # reports the real error.
+                lazy = None
         if lazy is not None:
+            lazy_inputs.append(i)
+            if verbose:
+                print(f"  input {i}: opened lazily — mapped from the file", file=sys.stderr)
             inputs.append(lazy)
         else:
             inputs.append(_load_frozen_input(handle._input_types[i], file_path, param_type))
@@ -534,16 +565,31 @@ def run_program(
         print(f"  Output:   {(t4 - t3) * 1000:8.1f} ms", file=sys.stderr)
         print(f"  Total:    {(t4 - t0) * 1000:8.1f} ms", file=sys.stderr)
 
-        # ru_maxrss is in KB on Linux, bytes on macOS. resource is Unix-only
-        # (absent on Windows), so peak-RSS reporting is skipped there.
-        if resource is not None:
-            peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            if sys.platform == "darwin":
-                peak_kb = peak_kb / 1024
+        # Skipped where the platform cannot report a peak (Windows has no
+        # `resource` module and no /proc).
+        peak_kb = _peak_rss_kb()
+        if peak_kb is not None:
             print("\nMemory:", file=sys.stderr)
             if peak_kb >= 1024:
                 print(f"  Peak RSS: {peak_kb / 1024:8.1f} MB", file=sys.stderr)
             else:
                 print(f"  Peak RSS: {peak_kb:8.0f} KB", file=sys.stderr)
+
+        # What each lazy input's reads came to — the account residency
+        # cannot give on a mapping, where the kernel decides how much of a
+        # touched file is resident.
+        from east.runtime._compiler_eastc import paged_value_stats
+
+        for i in lazy_inputs:
+            stats = paged_value_stats(getattr(inputs[i], "_east_c_paged", 0))
+            if stats is None:
+                continue
+            segments, decoded, fences, hydrated = stats
+            if hydrated:
+                print(f"  input {i}: decoded whole (an operation the pager cannot serve)",
+                      file=sys.stderr)
+            else:
+                print(f"  input {i}: {decoded} of {segments} segments decoded, {fences} fences probed",
+                      file=sys.stderr)
 
     return result

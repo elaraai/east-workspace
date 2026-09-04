@@ -1140,6 +1140,16 @@ EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len, bool ow
     return v;
 }
 
+bool east_paged_stats(EastValue *v, size_t *segments, size_t *segments_decoded,
+                      size_t *fences_probed, bool *hydrated)
+{
+    if (!v || v->kind != EAST_VAL_PAGED) return false;
+    if (segments) *segments = east_beast2_pages_segment_count(v->data.paged.pages);
+    east_beast2_pages_stats(v->data.paged.pages, segments_decoded, fences_probed);
+    if (hydrated) *hydrated = v->data.paged.hydrated != NULL;
+    return true;
+}
+
 void east_paged_release_contents(EastValue *v)
 {
     if (!v) return;

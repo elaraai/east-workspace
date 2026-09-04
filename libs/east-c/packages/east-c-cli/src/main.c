@@ -20,6 +20,11 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 #include <east/hashmap.h>
 #include <east/compat.h>
 
@@ -314,17 +319,61 @@ static size_t lazy_input_threshold(void)
     return (size_t)64 * 1024 * 1024;
 }
 
+/* A lazily opened input MAPS its file: the paged value reads its segments
+ * from the mapping, so the input's residency is the page cache and the heap
+ * holds one decoded segment at a time — the mapping is released with the
+ * value through this hook. Windows has no mmap here: the bytes are read
+ * into a heap buffer the same hook frees. */
+static void input_release_mapping(void *ctx, uint8_t *data, size_t len)
+{
+    (void)ctx;
+#ifndef _WIN32
+    munmap(data, len);
+#else
+    (void)len;
+    free(data);
+#endif
+}
+
+/* Maps (POSIX) or reads (Windows) the whole input file. NULL, quietly, when
+ * the file cannot be mapped (missing, empty, a directory, a file system
+ * without mmap) — the caller then takes the eager path, which reads the
+ * file and reports failures exactly as it always did. */
+static uint8_t *map_input_file(const char *path, size_t *len_out)
+{
+#ifndef _WIN32
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return NULL;
+    struct stat st;
+    if (fstat(fd, &st) != 0 || S_ISDIR(st.st_mode) || st.st_size <= 0) {
+        close(fd);
+        return NULL;
+    }
+    size_t len = (size_t)st.st_size;
+    void *map = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0);
+    close(fd);
+    if (map == MAP_FAILED) return NULL;
+    *len_out = len;
+    return (uint8_t *)map;
+#else
+    return read_file_binary(path, len_out);
+#endif
+}
+
 /* Loads input value `path`, always FROZEN — task inputs are immutable
  * (mutating builtins raise the uniform copy-first error, and frozen
  * collections compare by value). When `want_lazy`, an indexed beast2
- * collection blob opens as a lazy paged value (O(segment) decoded memory —
- * issue #505); anything not pageable (other formats, index-less or aliased
- * blobs, Ref- or function-bearing element shapes) silently decodes whole,
- * exactly like east-node's runner. Non-beast2 formats have no frozen
- * decoder, so the decoded value round-trips through a canonical beast2
- * encode + frozen decode, like east-py's runner. */
-static EastValue *load_input_value(const char *path, EastType *type, bool want_lazy)
+ * collection blob opens as a lazy paged value over a mapping of the file
+ * (O(segment) decoded memory — issue #505; *mapped_out reports it); anything
+ * not pageable (other formats, index-less or aliased blobs, Ref- or
+ * function-bearing element shapes) silently decodes whole, exactly like
+ * east-node's runner. Non-beast2 formats have no frozen decoder, so the
+ * decoded value round-trips through a canonical beast2 encode + frozen
+ * decode, like east-py's runner. */
+static EastValue *load_input_value(const char *path, EastType *type, bool want_lazy,
+                                   bool *mapped_out)
 {
+    if (mapped_out) *mapped_out = false;
     if (!want_lazy || detect_format(path) != FMT_BEAST2 ||
         (type->kind != EAST_TYPE_ARRAY && type->kind != EAST_TYPE_SET &&
          type->kind != EAST_TYPE_DICT)) {
@@ -351,13 +400,18 @@ static EastValue *load_input_value(const char *path, EastType *type, bool want_l
         return val;
     }
     size_t len = 0;
-    uint8_t *data = read_file_binary(path, &len);
-    if (!data) return NULL;
-    EastValue *paged = east_beast2_open_paged_frozen(data, len, type);
-    if (paged) return paged; /* took ownership of data */
+    uint8_t *data = map_input_file(path, &len);
+    if (!data) return load_input_value(path, type, false, mapped_out);
+    EastValue *paged =
+        east_beast2_open_paged_external(data, len, type, true, input_release_mapping, NULL);
+    if (paged) {
+        if (mapped_out) *mapped_out = true;
+        return paged; /* the value releases the mapping */
+    }
     free(east_builtin_get_error());
+    /* Not pageable: decode whole from the mapping, then drop it at once. */
     EastValue *val = east_beast2_decode_full_frozen(data, len, type);
-    free(data);
+    input_release_mapping(NULL, data, len);
     if (!val) fprintf(stderr, "Error: Failed to decode Beast2 from %s\n", path);
     return val;
 }
@@ -1276,6 +1330,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     size_t num_args = (size_t)num_inputs + (emit_sink ? 1u : 0u);
     size_t threshold = lazy_input_threshold();
     EastValue **args = NULL;
+    bool *lazy_inputs = num_inputs > 0 ? calloc((size_t)num_inputs, sizeof(bool)) : NULL;
     if (num_args > 0) {
         args = calloc(num_args, sizeof(EastValue *));
         for (int i = 0; i < num_inputs; i++) {
@@ -1286,7 +1341,17 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                 struct stat st;
                 want_lazy = stat(input_files[i], &st) == 0 && (size_t)st.st_size >= threshold;
             }
-            args[i] = load_input_value(input_files[i], param_types[i], want_lazy);
+            bool mapped = false;
+            args[i] = load_input_value(input_files[i], param_types[i], want_lazy, &mapped);
+            if (lazy_inputs) lazy_inputs[i] = mapped;
+            if (verbose && mapped) {
+#ifdef _WIN32
+                fprintf(stderr, "  input %d: opened lazily — read into memory, paged from there\n",
+                        i);
+#else
+                fprintf(stderr, "  input %d: opened lazily — mapped from the file\n", i);
+#endif
+            }
             if (!args[i]) {
                 char *ts = format_type(param_types[i]);
                 fprintf(stderr, "Error: Failed to parse input %d (%s) as %s\n", i, input_files[i],
@@ -1295,6 +1360,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                 for (int j = 0; j < i; j++)
                     east_value_release(args[j]);
                 free(args);
+                free(lazy_inputs);
                 emit_sink_free(emit_sink);
                 ir_node_release(ir);
                 platform_registry_free(platform);
@@ -1310,6 +1376,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                 for (int j = 0; j < num_inputs; j++)
                     east_value_release(args[j]);
                 free(args);
+                free(lazy_inputs);
                 emit_sink_free(emit_sink);
                 ir_node_release(ir);
                 platform_registry_free(platform);
@@ -1336,6 +1403,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         for (size_t i = 0; i < num_args; i++)
             east_value_release(args[i]);
         free(args);
+        free(lazy_inputs);
         emit_sink_free(emit_sink);
         ir_node_release(ir);
         platform_registry_free(platform);
@@ -1419,6 +1487,26 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
 
     clock_gettime(CLOCK_MONOTONIC, &t4);
 
+    /* What each lazy input's reads came to — the account residency cannot
+     * give on a mapping, where the kernel decides how much of a touched
+     * file is resident. */
+    if (verbose && lazy_inputs) {
+        for (int i = 0; i < num_inputs; i++) {
+            size_t segments = 0, decoded = 0, fences = 0;
+            bool hydrated = false;
+            if (!lazy_inputs[i] ||
+                !east_paged_stats(args[i], &segments, &decoded, &fences, &hydrated))
+                continue;
+            if (hydrated) {
+                fprintf(stderr, "  input %d: decoded whole (an operation the pager cannot serve)\n",
+                        i);
+            } else {
+                fprintf(stderr, "  input %d: %zu of %zu segments decoded, %zu fences probed\n", i,
+                        decoded, segments, fences);
+            }
+        }
+    }
+
     /* Cleanup */
     if (result.value) east_value_release(result.value);
     eval_result_free(&result);
@@ -1426,6 +1514,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     for (size_t i = 0; i < num_args; i++)
         east_value_release(args[i]);
     free(args);
+    free(lazy_inputs);
     emit_sink_free(emit_sink);
     ir_node_release(ir);
     platform_registry_free(platform);

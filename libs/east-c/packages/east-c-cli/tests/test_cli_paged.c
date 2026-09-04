@@ -15,12 +15,26 @@
  *   3. collapsed shape gate — a nested-container element shape opens lazily
  *      AND frozen, so a write through a read-out element raises the uniform
  *      error instead of landing (the lazy service itself is pinned by
- *      test_paged_value).
+ *      test_paged_value);
+ *   4. residency — a lazily opened input is mapped, not read: the verbose
+ *      header says so, and the runner's account of the input pins what a
+ *      keyed read into a wide input cost — every fence probed once, ONE
+ *      segment decoded of many — on every operating system alike. Peak RSS
+ *      is only the coarse cross-check that the lazy run stays below the
+ *      eager control, which reads and decodes the whole file: a mapping's
+ *      residency is the kernel's decision (a large-folio page cache makes a
+ *      whole file resident around a handful of touched pages), so it cannot
+ *      pin the segment cost, and it is skipped where it measures nothing —
+ *      on Windows both runs read the file whole, and a sanitizer build's
+ *      shadow memory dominates RSS.
  *
  * Runs in the ASan tree too (leak-check's ctest pass), where the spawned
  * CLI is itself instrumented; each case scans the child's stderr for
  * sanitizer reports.
  */
+#include <east/east.h>
+#include <east/type_of_type.h>
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,6 +42,23 @@
 
 #ifndef _WIN32
 #include <sys/wait.h>
+#endif
+
+/* The test binary is built in the same tree as the CLI it spawns, so its own
+ * instrumentation says whether the child's RSS means anything. */
+#if defined(__SANITIZE_ADDRESS__)
+#define RSS_COMPARABLE 0
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define RSS_COMPARABLE 0
+#endif
+#endif
+#ifndef RSS_COMPARABLE
+#ifdef _WIN32
+#define RSS_COMPARABLE 0
+#else
+#define RSS_COMPARABLE 1
+#endif
 #endif
 
 static int failures = 0;
@@ -98,8 +129,10 @@ static void check_file_contains(const char *path, const char *needle)
  * through the shell on POSIX; on Windows `set VAR=…&&` is the equivalent. */
 #ifdef _WIN32
 #define LAZY_ENV "set EAST_LAZY_INPUT_BYTES=1&& "
+#define EAGER_ENV "set EAST_LAZY_INPUT_BYTES=0&& "
 #else
 #define LAZY_ENV "EAST_LAZY_INPUT_BYTES=1 "
+#define EAGER_ENV "EAST_LAZY_INPUT_BYTES=0 "
 #endif
 
 static void test_paged_for_mutate(const char *bin, const char *fixtures)
@@ -146,16 +179,146 @@ static void test_paged_shape_gate(const char *bin, const char *fixtures)
                         "cannot mutate a frozen value (task inputs are immutable)");
 }
 
+/* Writes a Dict<Integer, String> of `rows` wide rows as an uncompressed
+ * paged blob (codec none, so wire size is logical size) to `path`; returns
+ * the file size or 0 on failure. */
+static size_t write_wide_table(const char *path, size_t rows)
+{
+    EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
+    EastValue *dict = east_dict_new(dt->data.dict.key, dt->data.dict.value);
+    char text[260];
+    for (size_t i = 0; i < rows; i++) {
+        /* 200-byte rows with a per-row prefix — plain data, no hydration
+         * shortcut, and a wire size the process cannot hide in its baseline. */
+        int n = snprintf(text, sizeof(text), "row-%zu-", i);
+        if (n < 0 || n >= 200) n = 199;
+        memset(text + n, 'a' + (int)(i % 26), 200 - (size_t)n);
+        text[200] = '\0';
+        EastValue *k = east_integer((int64_t)i);
+        EastValue *v = east_string(text);
+        east_dict_set(dict, k, v);
+        east_value_release(k);
+        east_value_release(v);
+    }
+    ByteBuffer *buf = east_beast2_encode_paged(dict, dt, EAST_BEAST2_CODEC_NONE, 0);
+    east_value_release(dict);
+    if (!buf) return 0;
+    FILE *f = fopen(path, "wb");
+    size_t written = f ? fwrite(buf->data, 1, buf->len, f) : 0;
+    if (f) fclose(f);
+    size_t len = buf->len;
+    byte_buffer_free(buf);
+    return written == len ? len : 0;
+}
+
+/* Parses "  Peak RSS: <n> MB|KB" from the verbose stderr into bytes; -1 when
+ * absent (the runner could not report it). */
+static double parse_peak_rss_bytes(const char *err)
+{
+    const char *p = strstr(err, "Peak RSS:");
+    if (!p) return -1;
+    double n = 0;
+    char unit[8] = {0};
+    if (sscanf(p + 9, " %lf %7s", &n, unit) != 2) return -1;
+    if (strcmp(unit, "MB") == 0) return n * 1024.0 * 1024.0;
+    if (strcmp(unit, "KB") == 0) return n * 1024.0;
+    return -1;
+}
+
+/* Parses "  input 0: <decoded> of <segments> segments decoded, <fences> fences
+ * probed" from the verbose stderr; false when the line is absent. */
+static bool parse_paging_account(const char *err, size_t *decoded, size_t *segments, size_t *fences)
+{
+    const char *p = strstr(err, "input 0: ");
+    while (p) {
+        unsigned long d = 0, s = 0, f = 0;
+        if (sscanf(p, "input 0: %lu of %lu segments decoded, %lu fences probed", &d, &s, &f) == 3) {
+            *decoded = (size_t)d;
+            *segments = (size_t)s;
+            *fences = (size_t)f;
+            return true;
+        }
+        p = strstr(p + 1, "input 0: ");
+    }
+    return false;
+}
+
+static void test_paged_residency(const char *bin, const char *fixtures)
+{
+    /* 160k rows of ~200 bytes: ~33 MB on the wire, an order of magnitude
+     * above the CLI's baseline RSS. */
+    const char *table = "paged_wide_table.beast2";
+    size_t wire = write_wide_table(table, 160000);
+    CHECK(wire > 16u * 1024u * 1024u, "wide fixture too small: %zu bytes", wire);
+    if (wire == 0) {
+        remove(table);
+        return;
+    }
+
+    /* The same keyed read twice, each its own process: lazy (the file
+     * mapped, one segment decoded) and eager (the whole file read and
+     * decoded). */
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd), LAZY_ENV "\"%s\" run \"%s/paged_has.beast2\" -i \"%s\" -v", bin,
+             fixtures, table);
+    int rc = run_cli(cmd, "paged_out_wide.txt", "paged_err_wide.txt");
+    CHECK(rc == 0, "paged residency run (lazy): expected exit 0, got %d", rc);
+    check_file_contains("paged_out_wide.txt", "true");
+    check_file_contains("paged_err_wide.txt", "input 0: opened lazily");
+
+    snprintf(cmd, sizeof(cmd), EAGER_ENV "\"%s\" run \"%s/paged_has.beast2\" -i \"%s\" -v", bin,
+             fixtures, table);
+    rc = run_cli(cmd, "paged_out_eager.txt", "paged_err_eager.txt");
+    CHECK(rc == 0, "paged residency run (eager): expected exit 0, got %d", rc);
+    check_file_contains("paged_out_eager.txt", "true");
+
+    char *lazy_err = read_text("paged_err_wide.txt");
+    char *eager_err = read_text("paged_err_eager.txt");
+    if (lazy_err && eager_err) {
+        CHECK(strstr(eager_err, "opened lazily") == NULL, "the eager control opened lazily");
+        /* The exact account: the first keyed read probes every fence once
+         * and decodes the one segment the key lands in — never the file. */
+        size_t decoded = 0, segments = 0, fences = 0;
+        bool accounted = parse_paging_account(lazy_err, &decoded, &segments, &fences);
+        CHECK(accounted, "the lazy run reports its paging account:\n%s", lazy_err);
+        if (accounted) {
+            CHECK(segments >= 8, "wide fixture has too few segments: %zu", segments);
+            CHECK(decoded == 1, "keyed read decoded %zu of %zu segments (expected 1)", decoded,
+                  segments);
+            CHECK(fences == segments, "keyed read probed %zu fences of %zu segments", fences,
+                  segments);
+        }
+        CHECK(strstr(eager_err, "segments decoded") == NULL, "the eager control reports paging");
+        /* The coarse cross-check: the eager control pays the file's bytes
+         * plus every decoded row, so the lazy run must sit below it. */
+        double lazy_peak = parse_peak_rss_bytes(lazy_err);
+        double eager_peak = parse_peak_rss_bytes(eager_err);
+        if (RSS_COMPARABLE && lazy_peak >= 0 && eager_peak >= 0) {
+            CHECK(lazy_peak < eager_peak, "lazy peak %.1f MB not below eager peak %.1f MB",
+                  lazy_peak / (1024.0 * 1024.0), eager_peak / (1024.0 * 1024.0));
+        }
+    }
+    free(lazy_err);
+    free(eager_err);
+    remove(table);
+    remove("paged_out_wide.txt");
+    remove("paged_err_wide.txt");
+    remove("paged_out_eager.txt");
+    remove("paged_err_eager.txt");
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 3) {
         fprintf(stderr, "usage: %s <east-c-binary> <fixtures-dir>\n", argv[0]);
         return 2;
     }
+    east_type_of_type_init();
 
     test_paged_for_mutate(argv[1], argv[2]);
     test_paged_has_corrupt(argv[1], argv[2]);
     test_paged_shape_gate(argv[1], argv[2]);
+    test_paged_residency(argv[1], argv[2]);
 
     if (failures > 0) {
         fprintf(stderr, "%d failure(s)\n", failures);

@@ -541,6 +541,20 @@ def paged_value_is_hydrated(uintptr_t ptr):
     return v.data.paged.hydrated != NULL
 
 
+def paged_value_stats(uintptr_t ptr):
+    """What a paged value's reads have cost so far, as ``(segments,
+    segments_decoded, fences_probed, hydrated)`` — the runner's account of a
+    lazy input (#663), which no residency figure can give on a mapping —
+    or ``None`` for any other value."""
+    cdef size_t segments = 0
+    cdef size_t decoded = 0
+    cdef size_t fences = 0
+    cdef bint hydrated = False
+    if not _eastc.east_paged_stats(<_eastc.EastValue*>ptr, &segments, &decoded, &fences, &hydrated):
+        return None
+    return (segments, decoded, fences, bool(hydrated))
+
+
 def open_paged_value(uintptr_t type_ptr, bytes data, bint frozen=False):
     """Open an indexed beast2 collection blob as a lazy paged C value (#505).
 
