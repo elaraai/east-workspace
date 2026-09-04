@@ -272,6 +272,11 @@ def _type_hash(t: Any) -> int:
     Recursive markers are hashed by tag + marker only (never recursed into) to
     keep this finite on cyclic structures.
     """
+    if isinstance(t, str):
+        # A type-parameter placeholder in a generic platform declaration
+        # (``ArrayType("T")``, as the TypeScript ``East.genericPlatform``
+        # signatures are written); substituted before the type is ever used.
+        return hash(t) & _FNV_MASK
     kind = t.type
     h = _hash_combine(0, _KIND_TAGS.get(kind, hash(kind) & _FNV_MASK))
     value = t.value
@@ -352,7 +357,7 @@ def VectorType(element_type: EastType) -> EastVariant[EastType]:
     Raises:
         TypeError: If element_type is not Float, Integer, or Boolean
     """
-    if element_type.type not in _VECTOR_ELEMENT_TYPES:
+    if not isinstance(element_type, str) and element_type.type not in _VECTOR_ELEMENT_TYPES:
         from east.serialization.east_printer import print_type
 
         raise TypeError(
@@ -373,7 +378,7 @@ def MatrixType(element_type: EastType) -> EastVariant[EastType]:
     Raises:
         TypeError: If element_type is not Float, Integer, or Boolean
     """
-    if element_type.type not in _VECTOR_ELEMENT_TYPES:
+    if not isinstance(element_type, str) and element_type.type not in _VECTOR_ELEMENT_TYPES:
         from east.serialization.east_printer import print_type
 
         raise TypeError(
@@ -891,6 +896,8 @@ def _find_mutable(
     # Avoid infinite loops in recursive types
     if recursive_type is not None and typ == recursive_type:
         return None
+    if isinstance(typ, str):
+        return None  # a type-parameter placeholder: judged once substituted
     if typ.type in _MUTABLE_KINDS:
         return [], typ
     # Vectors and Matrices are immutable value types (fall through to None).
@@ -1258,7 +1265,11 @@ def _alpha_key(t: EastType, scope: tuple[int, ...] = ()) -> tuple:
     minted with different ids — a foreign wire id, a fresh mint from the C
     bridge — key equal. ``scope`` is the stack of enclosing wrapper ids; a
     ref bound outside it keys by its raw id (a fragment lifted out of its
-    wrapper, which no registry entry ever is)."""
+    wrapper, which no registry entry ever is). A type-parameter placeholder
+    keys by its name — a declared generic signature is a type until it is
+    substituted."""
+    if isinstance(t, str):
+        return ("param", t)
     kind = t.type
     value = t.value
     if kind == "Recursive":

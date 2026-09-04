@@ -395,6 +395,33 @@ def test_lazy_function_builds_once_and_exposes_the_artifact():
     assert "print_ordinal" in repr(fn)
 
 
+def test_a_stdlib_function_first_used_in_a_trace_still_runs_eagerly():
+    """#674: `East.function` returns an inline Function EXPRESSION when a
+    build is already open, and a stdlib function memoises whatever its build
+    returned — so a first use inside a body poisoned every later EAGER call
+    for the life of the process. The build is detached from any open body, so
+    the memoised value is the artifact whichever use came first."""
+    from datetime import datetime, timezone
+
+    from east.expression.libs import datetime as dt_lib
+
+    fn = dt_lib.round_up_hour
+    memo = fn._fn
+    fn._fn = None                      # as if this were its first use in the process
+    try:
+        traced = East.function([DateTimeType, IntegerType], DateTimeType,
+                               lambda b, d, s: East.DateTime.round_up_hour(d, s))
+
+        when = datetime(2025, 1, 1, 8, 30, tzinfo=timezone.utc)
+        eager = East.DateTime.round_up_hour(when, 6)
+        assert isinstance(eager, datetime), f"eager call returned {type(eager).__name__}"
+        assert eager == datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc)
+        assert traced(when, 6) == eager      # and the traced build still runs
+        assert hasattr(fn.resolve(), "_eastc_handle")   # an artifact, not an expression
+    finally:
+        fn._fn = memo
+
+
 def test_generate_takes_the_typescript_order():
     assert East.Array.generate(3, IntegerType, lambda b, i: i * 2) == [0, 2, 4]
     with pytest.raises(Exception, match="Duplicate key 0 in set"):

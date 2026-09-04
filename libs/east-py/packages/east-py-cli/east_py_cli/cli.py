@@ -36,6 +36,10 @@ def create_parser() -> argparse.ArgumentParser:
     transpile_parser.add_argument(
         "--name", default="main", metavar="NAME",
         help="The module-level name bound to the rebuilt function (default: main)")
+    transpile_parser.add_argument(
+        "-p", "--package", action="append", default=[], metavar="PACKAGE",
+        help="Platform package whose implementations and named types the module imports "
+        "instead of restating as East.platform declarations (can be repeated)")
 
     # export-functions command (#628): a module's `east_functions` -> manifest
     export_parser = subparsers.add_parser(
@@ -374,14 +378,15 @@ def cmd_transpile(args: argparse.Namespace) -> None:
     has a spelling, builtins without a named python spelling print through
     the raw ``East.builtin(...)`` form.
     """
-    from east.codegen import Unprintable, to_python_source
+    from east.codegen import Unprintable, providers_for, to_python_source
 
     from east_py_cli.loader import load_ir
 
     try:
         ir = load_ir(args.ir_file)
-        source = to_python_source(ir, name=args.name)
-    except (ValueError, TypeError, Unprintable, FileNotFoundError) as e:
+        providers = providers_for(args.package) if args.package else None
+        source = to_python_source(ir, name=args.name, providers=providers)
+    except (ValueError, TypeError, Unprintable, FileNotFoundError, ImportError) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     if args.output is not None:

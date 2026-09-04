@@ -30,6 +30,7 @@ def _check_mysql_support() -> None:
             "Add east-py-io[mysql] to your pyproject.toml dependencies."
         )
 from east.types.types import (
+    ArrayType,
     NullType,
     StringType,
     get_option_inner_type,
@@ -198,7 +199,7 @@ def _convert_placeholders(sql: str) -> str:
     inputs=[MySqlConfigType],
     output=ConnectionHandleType,
 )
-async def mysql_connect_impl(config: EastStruct) -> str:
+async def mysql_connect(config: EastStruct) -> str:
     """Create an aiomysql connection pool and return a handle.
 
     Args:
@@ -216,7 +217,7 @@ async def mysql_connect_impl(config: EastStruct) -> str:
 
     Returns:
         ``String`` - opaque connection handle, passed to
-        ``mysql_query_impl`` / ``mysql_close_impl``.
+        ``mysql_query`` / ``mysql_close``.
 
     Raises:
         NotImplementedError: the ``mysql`` extra (aiomysql) is not installed.
@@ -262,7 +263,7 @@ async def mysql_connect_impl(config: EastStruct) -> str:
     inputs=[ConnectionHandleType, StringType, SqlParametersType],
     output=SqlResultType,
 )
-async def mysql_query_impl(handle: str, sql: str, params: EastArray) -> EastVariant:
+async def mysql_query(handle: str, sql: str, params: EastArray) -> EastVariant:
     """Execute a parameterized SQL statement and return a typed result.
 
     Converts ``?`` placeholders to ``%s`` before passing to aiomysql.
@@ -272,7 +273,7 @@ async def mysql_query_impl(handle: str, sql: str, params: EastArray) -> EastVari
     East type coercion for ``SELECT`` rows.
 
     Args:
-        handle: ``String`` - connection handle from ``mysql_connect_impl``.
+        handle: ``String`` - connection handle from ``mysql_connect``.
         sql: ``String`` - SQL statement with ``?`` positional placeholders.
         params: ``Array<SqlParameterType>`` (``EastArray``) - bind values in
             placeholder order.
@@ -370,11 +371,11 @@ async def mysql_query_impl(handle: str, sql: str, params: EastArray) -> EastVari
     inputs=[ConnectionHandleType],
     output=NullType,
 )
-async def mysql_close_impl(handle: str) -> None:
+async def mysql_close(handle: str) -> None:
     """Close a MySQL connection pool and release its handle.
 
     Args:
-        handle: ``String`` - connection handle from ``mysql_connect_impl``.
+        handle: ``String`` - connection handle from ``mysql_connect``.
 
     Raises:
         NotImplementedError: the ``mysql`` extra (aiomysql) is not installed.
@@ -399,7 +400,7 @@ async def mysql_close_impl(handle: str) -> None:
     inputs=[],
     output=NullType,
 )
-async def mysql_close_all_impl() -> None:
+async def mysql_close_all() -> None:
     """Close every open MySQL connection pool managed by this process.
 
     Clears the internal pool map; useful for test teardown.
@@ -518,9 +519,12 @@ def _convert_mysql_select_value(value: Any, field_type: int | None) -> Any:
     name="mysql_select",
     type_parameters=["T"],
     is_async=True,
+    inputs=[ConnectionHandleType, StringType, SqlParametersType],
+    output=ArrayType("T"),
 )
-def mysql_select_factory(platform: Any, row_type: Any) -> Any:
-    """Return a typed ``mysql_select`` implementation for a given row struct type.
+def mysql_select(platform: Any, row_type: Any) -> Any:
+    """``mysql_select<T>``: from python the factory, inside an East body the
+    call itself — ``mysql_select(Row, handle, sql, params)``, the row type first.
 
     Called by the ``@generic_platform_function`` decorator with the resolved
     ``T`` type argument.  The returned coroutine validates MySQL field type
@@ -550,7 +554,7 @@ def mysql_select_factory(platform: Any, row_type: Any) -> Any:
 
         Args:
             handle: ``String`` - connection handle from
-                ``mysql_connect_impl``.
+                ``mysql_connect``.
             sql: ``String`` - ``SELECT`` statement with ``?`` positional
                 placeholders.
             params: ``Array<SqlParameterType>`` (``EastArray``) - bind
@@ -680,8 +684,9 @@ mysql_impl = platform_functions(__name__)
 
 __all__ = [
     "mysql_impl",
-    "mysql_connect_impl",
-    "mysql_query_impl",
-    "mysql_close_impl",
-    "mysql_close_all_impl",
+    "mysql_connect",
+    "mysql_query",
+    "mysql_select",
+    "mysql_close",
+    "mysql_close_all",
 ]

@@ -40,7 +40,7 @@ _connections: dict[str, tuple[Any, Any]] = {}
     inputs=[SftpConfigType],
     output=ConnectionHandleType,
 )
-async def sftp_connect_impl(config: EastStruct) -> str:
+async def sftp_connect(config: EastStruct) -> str:
     """Open a connection to an SFTP server and return a session handle.
 
     Connects with a private key when ``privateKey`` is present; falls back
@@ -112,12 +112,12 @@ async def sftp_connect_impl(config: EastStruct) -> str:
     inputs=[ConnectionHandleType, StringType, BlobType],
     output=NullType,
 )
-async def sftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
+async def sftp_put(handle: str, remote_path: str, data: EastBlob) -> None:
     """Upload a file to an SFTP server.
 
     Args:
         handle: ``ConnectionHandleType`` (``String``) - session handle from
-            :func:`sftp_connect_impl`.
+            :func:`sftp_connect`.
         remote_path: ``String`` - destination path on the server.
         data: ``Blob`` (``EastBlob``) - binary content to upload.
 
@@ -144,12 +144,12 @@ async def sftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
     inputs=[ConnectionHandleType, StringType],
     output=BlobType,
 )
-async def sftp_get_impl(handle: str, remote_path: str) -> EastBlob:
+async def sftp_get(handle: str, remote_path: str) -> EastBlob:
     """Download a file from an SFTP server.
 
     Args:
         handle: ``ConnectionHandleType`` (``String``) - session handle from
-            :func:`sftp_connect_impl`.
+            :func:`sftp_connect`.
         remote_path: ``String`` - source path on the server.
 
     Returns:
@@ -176,12 +176,12 @@ async def sftp_get_impl(handle: str, remote_path: str) -> EastBlob:
     inputs=[ConnectionHandleType, StringType],
     output=FileListType,
 )
-async def sftp_list_impl(handle: str, remote_path: str) -> EastArray:
+async def sftp_list(handle: str, remote_path: str) -> EastArray:
     """List entries in a directory on an SFTP server.
 
     Args:
         handle: ``ConnectionHandleType`` (``String``) - session handle from
-            :func:`sftp_connect_impl`.
+            :func:`sftp_connect`.
         remote_path: ``String`` - directory path to list.
 
     Returns:
@@ -225,12 +225,12 @@ async def sftp_list_impl(handle: str, remote_path: str) -> EastArray:
     inputs=[ConnectionHandleType, StringType],
     output=NullType,
 )
-async def sftp_delete_impl(handle: str, remote_path: str) -> None:
+async def sftp_delete(handle: str, remote_path: str) -> None:
     """Delete a file on an SFTP server.
 
     Args:
         handle: ``ConnectionHandleType`` (``String``) - session handle from
-            :func:`sftp_connect_impl`.
+            :func:`sftp_connect`.
         remote_path: ``String`` - path of the file to delete.
 
     Returns:
@@ -254,14 +254,14 @@ async def sftp_delete_impl(handle: str, remote_path: str) -> None:
     inputs=[ConnectionHandleType],
     output=NullType,
 )
-async def sftp_close_impl(handle: str) -> None:
+async def sftp_close(handle: str) -> None:
     """Close a single SFTP session gracefully.
 
     Exits the SFTP subsystem then closes the underlying SSH connection.
 
     Args:
         handle: ``ConnectionHandleType`` (``String``) - session handle from
-            :func:`sftp_connect_impl`.
+            :func:`sftp_connect`.
 
     Returns:
         ``Null`` on success.
@@ -286,7 +286,7 @@ async def sftp_close_impl(handle: str) -> None:
     inputs=[],
     output=NullType,
 )
-async def sftp_close_all_impl() -> None:
+async def sftp_close_all() -> None:
     """Close all open SFTP sessions.
 
     Exits each SFTP subsystem and closes its SSH connection.  Errors on
@@ -309,11 +309,11 @@ sftp_impl = platform_functions(__name__)
 
 __all__ = [
     "sftp_impl",
-    "sftp_connect_impl",
-    "sftp_put_impl",
-    "sftp_get_impl",
-    "sftp_list_impl",
-    "sftp_delete_impl",
-    "sftp_close_impl",
-    "sftp_close_all_impl",
+    "sftp_connect",
+    "sftp_put",
+    "sftp_get",
+    "sftp_list",
+    "sftp_delete",
+    "sftp_close",
+    "sftp_close_all",
 ]

@@ -8,17 +8,12 @@ Provides core machine learning utilities: preprocessing, model selection, and me
 Uses ONNX for model serialization to enable portable inference.
 """
 
-import warnings
+from typing import Any
 
-# Suppress sklearn warnings
-warnings.filterwarnings("ignore", module="sklearn")
-
-import importlib.util  # noqa: E402
-
-import numpy as np  # noqa: E402
-from east.runtime.platform import platform_function, platform_functions  # noqa: E402
-from east.types.types import ArrayType, FloatType, IntegerType, MatrixType, VectorType  # noqa: E402
-from east.types.values import (  # noqa: E402
+import numpy as np
+from east.runtime.platform import platform_function, platform_functions
+from east.types.types import ArrayType, FloatType, IntegerType, MatrixType, VectorType
+from east.types.values import (
     EastArray,
     EastBlob,
     EastMatrix,
@@ -27,7 +22,14 @@ from east.types.values import (  # noqa: E402
     EastVector,
 )
 
-from east_py_datascience.types import (  # noqa: E402
+from east_py_datascience._common import (
+    deserialize,
+    expect_case,
+    extra_guard,
+    option_tag,
+    serialize,
+)
+from east_py_datascience.types import (
     ClassificationMetricResultsType,
     ClassificationMetricResultType,
     ClassificationMetricsConfigType,
@@ -52,9 +54,10 @@ from east_py_datascience.types import (  # noqa: E402
     SklearnModelBlobType,
     SplitConfigType,
     SplitResultType,
-    _get_enum_tag,
-    _get_option,
 )
+
+_check_sklearn_support = extra_guard("sklearn", "sklearn", "scikit-learn")
+
 
 # ============================================================================
 # ONNX Helpers
@@ -71,7 +74,7 @@ def _sklearn_to_onnx(model, n_features: int) -> EastBlob:
     return EastBlob(onnx_model.SerializeToString())
 
 
-def _onnx_transform(onnx_blob: EastBlob, X: EastArray) -> EastArray:
+def _onnx_transform(onnx_blob: EastBlob, X: EastMatrix) -> EastMatrix:
     """Run transform (e.g., scaler) using ONNX Runtime."""
     import onnxruntime as ort
 
@@ -85,20 +88,6 @@ def _onnx_transform(onnx_blob: EastBlob, X: EastArray) -> EastArray:
     X_transformed = outputs[0]
 
     return EastMatrix(FloatType, np.atleast_2d(X_transformed).astype(np.float64))
-
-
-
-# Lazy import guard for optional dependency
-_HAS_SKLEARN_SUPPORT = importlib.util.find_spec("sklearn") is not None
-
-
-def _check_sklearn_support() -> None:
-    """Check if sklearn support is available."""
-    if not _HAS_SKLEARN_SUPPORT:
-        raise NotImplementedError(
-            "Sklearn support requires the 'sklearn' extra. "
-            "Add east-py-datascience[sklearn] to your pyproject.toml dependencies."
-        )
 
 
 # ============================================================================
@@ -132,7 +121,7 @@ def _combine_stratify_columns(columns: list[np.ndarray]) -> np.ndarray:
 
     # Combine: sum(normalized[i] * multipliers[i])
     combined = np.zeros(len(columns[0]), dtype=np.int64)
-    for _, (col, mult) in enumerate(zip(normalized, multipliers, strict=False)):
+    for col, mult in zip(normalized, multipliers, strict=True):
         combined += col.astype(np.int64) * mult
 
     return combined
@@ -154,7 +143,7 @@ def _stratified_n_way_split(
     n_splits = len(split_sizes)
 
     # Initialize empty lists for each split
-    split_indices = [[] for _ in range(n_splits)]
+    split_indices: list[list[Any]] = [[] for _ in range(n_splits)]
 
     # Group indices by stratum
     unique_strata = np.unique(strata)
@@ -193,7 +182,7 @@ def _stratified_n_way_split(
     inputs=[MatrixType(FloatType), MatrixType(FloatType), SplitConfigType],
     output=SplitResultType,
 )
-def sklearn_split_impl(
+def sklearn_split(
     X: EastMatrix,
     Y: EastMatrix,
     config: EastStruct,
@@ -238,14 +227,11 @@ def sklearn_split_impl(
     Raises:
         NotImplementedError: the ``sklearn`` extra is not installed.
         RuntimeError: split_sizes length < 2, split_sizes do not sum to
-            1.0, row-count mismatch between X and Y, or split failure.
+            1.0, or row-count mismatch between X and Y.
     """
     _check_sklearn_support()
-    try:
-        X_np = X.to_numpy()
-        Y_np = Y.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"sklearn_split: Invalid input data - {e}") from e
+    X_np = X.to_numpy()
+    Y_np = Y.to_numpy()
 
     if X_np.shape[0] != Y_np.shape[0]:
         raise RuntimeError(
@@ -263,20 +249,19 @@ def sklearn_split_impl(
     if abs(sum(split_sizes) - 1.0) > 0.01:
         raise RuntimeError(f"sklearn_split: split_sizes must sum to 1.0, got {sum(split_sizes)}")
 
-    random_state = _get_option(config.get("random_state"), None)
-    shuffle = _get_option(config.get("shuffle"), True)
-    stratify_columns = _get_option(config.get("stratify"), None)
-    overlap_columns = _get_option(config.get("overlap"), None)
+    random_state = config["random_state"].unwrap_or(None)
+    shuffle = bool(config["shuffle"].unwrap_or(True))
+    stratify_columns = config["stratify"].unwrap_or(None)
+    overlap_columns = config["overlap"].unwrap_or(None)
 
     if random_state is not None:
         random_state = int(random_state)
 
     # min_overlap: minimum samples per overlap value (default = n_splits, need at least 1 per split)
-    min_overlap = _get_option(config.get("min_overlap"), n_splits)
-    min_overlap = int(min_overlap) if min_overlap is not None else n_splits
+    min_overlap = int(config["min_overlap"].unwrap_or(n_splits))
 
     # Multi-value overlap: each sample can have MULTIPLE values (a set)
-    multi_overlap_columns = _get_option(config.get("multi_overlap"), None)
+    multi_overlap_columns = config["multi_overlap"].unwrap_or(None)
 
     n_samples = X_np.shape[0]
     rejected_indices = []
@@ -314,10 +299,7 @@ def sklearn_split_impl(
         keep_mask = np.ones(n_samples, dtype=bool)
         for col in overlap_cols:
             unique_vals, counts = np.unique(col, return_counts=True)
-            rare_vals = set(unique_vals[counts < min_overlap])
-            if rare_vals:
-                col_mask = np.array([v not in rare_vals for v in col])
-                keep_mask = keep_mask & col_mask
+            keep_mask &= ~np.isin(col, unique_vals[counts < min_overlap])
 
         if not keep_mask.all():
             rejected_indices = original_indices[~keep_mask].tolist()
@@ -398,177 +380,159 @@ def sklearn_split_impl(
         else:
             multi_overlap_cols_filtered = multi_overlap_cols
 
-    try:
-        current_indices = np.arange(len(X_np))
+    current_indices = np.arange(len(X_np))
 
-        if stratify_arr is not None:
-            # Use single-pass stratified split
-            split_idx_lists = _stratified_n_way_split(
-                current_indices, stratify_arr, split_sizes, random_state, shuffle
-            )
-        else:
-            # Non-stratified: just shuffle and split proportionally
-            rng = np.random.default_rng(random_state)
-            if shuffle:
-                rng.shuffle(current_indices)
+    if stratify_arr is not None:
+        # Use single-pass stratified split
+        split_idx_lists = _stratified_n_way_split(
+            current_indices, stratify_arr, split_sizes, random_state, shuffle
+        )
+    else:
+        # Non-stratified: just shuffle and split proportionally
+        rng = np.random.default_rng(random_state)
+        if shuffle:
+            rng.shuffle(current_indices)
 
-            split_idx_lists = []
-            allocated = 0
-            for i, size in enumerate(split_sizes):
-                if i == n_splits - 1:
-                    count = len(current_indices) - allocated
-                else:
-                    count = int(round(len(current_indices) * size))
-                split_idx_lists.append(current_indices[allocated:allocated + count])
-                allocated += count
+        split_idx_lists = []
+        allocated = 0
+        for i, size in enumerate(split_sizes):
+            if i == n_splits - 1:
+                count = len(current_indices) - allocated
+            else:
+                count = int(round(len(current_indices) * size))
+            split_idx_lists.append(current_indices[allocated:allocated + count])
+            allocated += count
 
-        # Build X_splits and Y_splits from indices
-        X_splits = [X_np[idx] if len(idx) > 0 else np.empty((0, X_np.shape[1]), dtype=X_np.dtype) for idx in split_idx_lists]
-        Y_splits = [Y_np[idx] if len(idx) > 0 else np.empty((0, Y_np.shape[1]), dtype=Y_np.dtype) for idx in split_idx_lists]
+    # Build X_splits and Y_splits from indices
+    X_splits = [X_np[idx] if len(idx) > 0 else np.empty((0, X_np.shape[1]), dtype=X_np.dtype) for idx in split_idx_lists]
+    Y_splits = [Y_np[idx] if len(idx) > 0 else np.empty((0, Y_np.shape[1]), dtype=Y_np.dtype) for idx in split_idx_lists]
 
-        # Build overlap_splits for post-validation (per-column arrays for each split)
-        if overlap_cols_filtered is not None:
-            overlap_splits_per_col = [
-                [col[idx] for col in overlap_cols_filtered] if len(idx) > 0 else None
-                for idx in split_idx_lists
-            ]
-        else:
-            overlap_splits_per_col = [None] * n_splits
-        idx_splits = split_idx_lists
+    idx_splits = split_idx_lists
 
-        # Post-split validation for overlap and multi_overlap
-        # Uses iterative filtering: reject samples with non-common values, recompute common, repeat
-        # This ensures convergence to a stable set where all values appear in all splits
+    # Post-split validation for overlap and multi_overlap
+    # Uses iterative filtering: reject samples with non-common values, recompute common, repeat
+    # This ensures convergence to a stable set where all values appear in all splits
 
-        has_overlap = overlap_cols_filtered is not None
-        has_multi_overlap = multi_overlap_cols_filtered is not None
+    if overlap_cols_filtered is not None or multi_overlap_cols_filtered is not None:
+        max_iterations = 100  # Safety limit
+        iteration = 0
 
-        if has_overlap or has_multi_overlap:
-            max_iterations = 100  # Safety limit
-            iteration = 0
+        while iteration < max_iterations:
+            iteration += 1
+            total_rejected_this_iter = 0
 
-            while iteration < max_iterations:
-                iteration += 1
-                total_rejected_this_iter = 0
+            # --- OVERLAP: single-valued columns ---
+            if overlap_cols_filtered is not None:
+                n_overlap_cols = len(overlap_cols_filtered)
 
-                # --- OVERLAP: single-valued columns ---
-                if has_overlap:
-                    n_overlap_cols = len(overlap_cols_filtered)
+                # Per-column, per-split label arrays for the current idx_splits
+                overlap_splits_per_col: list[list[np.ndarray]] = []
+                for col in overlap_cols_filtered:
+                    splits_for_col = []
+                    for split_idx_arr in idx_splits:
+                        if len(split_idx_arr) > 0:
+                            splits_for_col.append(col[split_idx_arr])
+                        else:
+                            splits_for_col.append(np.array([]))
+                    overlap_splits_per_col.append(splits_for_col)
 
-                    # Rebuild overlap data from current idx_splits
-                    overlap_splits_per_col = []
-                    for col in overlap_cols_filtered:
-                        splits_for_col = []
-                        for split_idx_arr in idx_splits:
-                            if len(split_idx_arr) > 0:
-                                splits_for_col.append(col[split_idx_arr])
-                            else:
-                                splits_for_col.append(np.array([]))
-                        overlap_splits_per_col.append(splits_for_col)
+                # Find common values per column
+                common_values_per_col = []
+                for col_idx in range(n_overlap_cols):
+                    col_values_per_split = [
+                        set(overlap_splits_per_col[col_idx][i])
+                        for i in range(n_splits)
+                        if len(idx_splits[i]) > 0
+                    ]
+                    if col_values_per_split:
+                        common = col_values_per_split[0]
+                        for vals in col_values_per_split[1:]:
+                            common = common & vals
+                        common_values_per_col.append(common)
+                    else:
+                        common_values_per_col.append(set())
 
-                    # Find common values per column
-                    common_values_per_col = []
+                # Filter samples with non-common values
+                for i in range(n_splits):
+                    if len(idx_splits[i]) == 0:
+                        continue
+
+                    keep_mask = np.ones(len(X_splits[i]), dtype=bool)
                     for col_idx in range(n_overlap_cols):
-                        col_values_per_split = [
-                            set(overlap_splits_per_col[col_idx][i])
-                            for i in range(n_splits)
-                            if len(idx_splits[i]) > 0
-                        ]
-                        if col_values_per_split:
-                            common = col_values_per_split[0]
-                            for vals in col_values_per_split[1:]:
-                                common = common & vals
-                            common_values_per_col.append(common)
+                        col_values = overlap_splits_per_col[col_idx][i]
+                        common = common_values_per_col[col_idx]
+                        keep_mask &= np.isin(col_values, list(common))
+
+                    n_rejected = np.sum(~keep_mask)
+                    if n_rejected > 0:
+                        total_rejected_this_iter += n_rejected
+                        split_rejected = original_indices[idx_splits[i][~keep_mask]].tolist()
+                        rejected_indices.extend(split_rejected)
+                        X_splits[i] = X_splits[i][keep_mask]
+                        Y_splits[i] = Y_splits[i][keep_mask]
+                        idx_splits[i] = idx_splits[i][keep_mask]
+
+            # --- MULTI_OVERLAP: multi-valued columns ---
+            if multi_overlap_cols_filtered is not None:
+                n_multi_cols = len(multi_overlap_cols_filtered)
+
+                # Rebuild multi_overlap data from current idx_splits
+                multi_overlap_splits_per_col = []
+                for col in multi_overlap_cols_filtered:
+                    splits_for_col = []
+                    for split_idx_arr in idx_splits:
+                        if len(split_idx_arr) > 0:
+                            splits_for_col.append([col[i] for i in split_idx_arr])
                         else:
-                            common_values_per_col.append(set())
+                            splits_for_col.append([])
+                    multi_overlap_splits_per_col.append(splits_for_col)
 
-                    # Filter samples with non-common values
-                    for i in range(n_splits):
-                        if len(idx_splits[i]) == 0:
-                            continue
+                # Find common values per column
+                common_values_per_col = []
+                for col_idx in range(n_multi_cols):
+                    col_splits = multi_overlap_splits_per_col[col_idx]
+                    values_per_split = []
+                    for split_samples in col_splits:
+                        split_vals = set()
+                        for sample_vals in split_samples:
+                            split_vals.update(sample_vals)
+                        values_per_split.append(split_vals)
 
-                        keep_mask = np.ones(len(X_splits[i]), dtype=bool)
-                        for col_idx in range(n_overlap_cols):
-                            col_values = overlap_splits_per_col[col_idx][i]
-                            common = common_values_per_col[col_idx]
-                            col_mask = np.array([v in common for v in col_values])
-                            keep_mask = keep_mask & col_mask
+                    if values_per_split and all(len(v) > 0 for v in values_per_split):
+                        common = values_per_split[0]
+                        for vals in values_per_split[1:]:
+                            common = common & vals
+                        common_values_per_col.append(common)
+                    else:
+                        common_values_per_col.append(set())
 
-                        n_rejected = np.sum(~keep_mask)
-                        if n_rejected > 0:
-                            total_rejected_this_iter += n_rejected
-                            split_rejected = original_indices[idx_splits[i][~keep_mask]].tolist()
-                            rejected_indices.extend(split_rejected)
-                            X_splits[i] = X_splits[i][keep_mask]
-                            Y_splits[i] = Y_splits[i][keep_mask]
-                            idx_splits[i] = idx_splits[i][keep_mask]
+                # Filter samples with non-common values
+                for i in range(n_splits):
+                    if len(idx_splits[i]) == 0:
+                        continue
 
-                # --- MULTI_OVERLAP: multi-valued columns ---
-                if has_multi_overlap:
-                    n_multi_cols = len(multi_overlap_cols_filtered)
-
-                    # Rebuild multi_overlap data from current idx_splits
-                    multi_overlap_splits_per_col = []
-                    for col in multi_overlap_cols_filtered:
-                        splits_for_col = []
-                        for split_idx_arr in idx_splits:
-                            if len(split_idx_arr) > 0:
-                                splits_for_col.append([col[i] for i in split_idx_arr])
-                            else:
-                                splits_for_col.append([])
-                        multi_overlap_splits_per_col.append(splits_for_col)
-
-                    # Find common values per column
-                    common_values_per_col = []
+                    keep_mask = np.ones(len(X_splits[i]), dtype=bool)
                     for col_idx in range(n_multi_cols):
-                        col_splits = multi_overlap_splits_per_col[col_idx]
-                        values_per_split = []
-                        for split_samples in col_splits:
-                            split_vals = set()
-                            for sample_vals in split_samples:
-                                split_vals.update(sample_vals)
-                            values_per_split.append(split_vals)
+                        col_samples = multi_overlap_splits_per_col[col_idx][i]
+                        common = common_values_per_col[col_idx]
 
-                        if values_per_split and all(len(v) > 0 for v in values_per_split):
-                            common = values_per_split[0]
-                            for vals in values_per_split[1:]:
-                                common = common & vals
-                            common_values_per_col.append(common)
-                        else:
-                            common_values_per_col.append(set())
+                        for j, sample_vals in enumerate(col_samples):
+                            sample_vals_set = set(sample_vals)
+                            if sample_vals_set and not sample_vals_set.issubset(common):
+                                keep_mask[j] = False
 
-                    # Filter samples with non-common values
-                    for i in range(n_splits):
-                        if len(idx_splits[i]) == 0:
-                            continue
+                    n_rejected = np.sum(~keep_mask)
+                    if n_rejected > 0:
+                        total_rejected_this_iter += n_rejected
+                        split_rejected = original_indices[idx_splits[i][~keep_mask]].tolist()
+                        rejected_indices.extend(split_rejected)
+                        X_splits[i] = X_splits[i][keep_mask]
+                        Y_splits[i] = Y_splits[i][keep_mask]
+                        idx_splits[i] = idx_splits[i][keep_mask]
 
-                        keep_mask = np.ones(len(X_splits[i]), dtype=bool)
-                        for col_idx in range(n_multi_cols):
-                            col_samples = multi_overlap_splits_per_col[col_idx][i]
-                            common = common_values_per_col[col_idx]
-
-                            for j, sample_vals in enumerate(col_samples):
-                                sample_vals_set = set(sample_vals)
-                                if sample_vals_set and not sample_vals_set.issubset(common):
-                                    keep_mask[j] = False
-
-                        n_rejected = np.sum(~keep_mask)
-                        if n_rejected > 0:
-                            total_rejected_this_iter += n_rejected
-                            split_rejected = original_indices[idx_splits[i][~keep_mask]].tolist()
-                            rejected_indices.extend(split_rejected)
-                            X_splits[i] = X_splits[i][keep_mask]
-                            Y_splits[i] = Y_splits[i][keep_mask]
-                            idx_splits[i] = idx_splits[i][keep_mask]
-
-                # Check convergence
-                if total_rejected_this_iter == 0:
-                    break
-
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_split: Split failed with X shape {X_np.shape} - {e}"
-        ) from e
+            # Check convergence
+            if total_rejected_this_iter == 0:
+                break
 
     return EastStruct(
         {
@@ -603,9 +567,7 @@ def _filter_by_known_categories(
     """
     keep_mask = np.ones(len(X), dtype=bool)
     for ci, known_vals in known_per_col.items():
-        col_vals = X[:, ci].astype(int)
-        col_mask = np.array([v in known_vals for v in col_vals])
-        keep_mask &= col_mask
+        keep_mask &= np.isin(X[:, ci].astype(int), list(known_vals))
     return keep_mask
 
 
@@ -614,7 +576,7 @@ def _filter_by_known_categories(
     inputs=[MatrixType(FloatType), ArrayType(MatrixType(FloatType)), ArrayType(MatrixType(FloatType)), OverlapConfigType],
     output=OverlapResultType,
 )
-def sklearn_overlap_impl(
+def sklearn_overlap(
     X_reference: EastMatrix,
     X_targets: EastArray,
     Y_targets: EastArray,
@@ -708,11 +670,11 @@ def sklearn_overlap_impl(
     inputs=[MatrixType(FloatType)],
     output=SklearnModelBlobType,
 )
-def sklearn_standard_scaler_fit_impl(X: EastMatrix) -> EastVariant:
+def sklearn_standard_scaler_fit(X: EastMatrix) -> EastVariant:
     """Fit a StandardScaler on X and return an ONNX-serialised model blob.
 
     Computes per-feature mean and standard deviation; use the returned blob
-    with :func:`sklearn_standard_scaler_transform_impl` to zero-centre and
+    with :func:`sklearn_standard_scaler_transform` to zero-centre and
     unit-variance scale new data.
 
     Args:
@@ -730,12 +692,7 @@ def sklearn_standard_scaler_fit_impl(X: EastMatrix) -> EastVariant:
     _check_sklearn_support()
     from sklearn.preprocessing import StandardScaler
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_standard_scaler_fit: Invalid input data - {e}"
-        ) from e
+    X_np = X.to_numpy()
 
     n_features = X_np.shape[1]
 
@@ -764,7 +721,7 @@ def sklearn_standard_scaler_fit_impl(X: EastMatrix) -> EastVariant:
     inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def sklearn_standard_scaler_transform_impl(
+def sklearn_standard_scaler_transform(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastMatrix:
@@ -773,7 +730,7 @@ def sklearn_standard_scaler_transform_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``standard_scaler``, as returned by
-            :func:`sklearn_standard_scaler_fit_impl`.
+            :func:`sklearn_standard_scaler_fit`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to transform, shape
             (n_samples, n_features); must have the same feature count as
             the fitting data.
@@ -784,21 +741,13 @@ def sklearn_standard_scaler_transform_impl(
 
     Raises:
         NotImplementedError: the ``sklearn`` extra is not installed.
-        RuntimeError: wrong blob tag, or ONNX transform failure.
+        RuntimeError: wrong blob tag. ONNX Runtime raises its own error when
+            the feature count differs from the fitting data.
     """
     _check_sklearn_support()
-    if model_blob.type != "standard_scaler":
-        raise RuntimeError(
-            f"sklearn_standard_scaler_transform: Expected standard_scaler, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "standard_scaler", "sklearn_standard_scaler_transform")
 
-    try:
-        onnx_blob = model_blob.value["onnx"]
-        return _onnx_transform(onnx_blob, X)
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_standard_scaler_transform: Transform failed - {e}"
-        ) from e
+    return _onnx_transform(payload["onnx"], X)
 
 
 @platform_function(
@@ -806,11 +755,11 @@ def sklearn_standard_scaler_transform_impl(
     inputs=[MatrixType(FloatType)],
     output=SklearnModelBlobType,
 )
-def sklearn_min_max_scaler_fit_impl(X: EastMatrix) -> EastVariant:
+def sklearn_min_max_scaler_fit(X: EastMatrix) -> EastVariant:
     """Fit a MinMaxScaler on X and return an ONNX-serialised model blob.
 
     Computes per-feature min and max; use the returned blob with
-    :func:`sklearn_min_max_scaler_transform_impl` to scale features to
+    :func:`sklearn_min_max_scaler_transform` to scale features to
     [0, 1].
 
     Args:
@@ -828,12 +777,7 @@ def sklearn_min_max_scaler_fit_impl(X: EastMatrix) -> EastVariant:
     _check_sklearn_support()
     from sklearn.preprocessing import MinMaxScaler
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_min_max_scaler_fit: Invalid input data - {e}"
-        ) from e
+    X_np = X.to_numpy()
 
     n_features = X_np.shape[1]
 
@@ -862,7 +806,7 @@ def sklearn_min_max_scaler_fit_impl(X: EastMatrix) -> EastVariant:
     inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def sklearn_min_max_scaler_transform_impl(
+def sklearn_min_max_scaler_transform(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastMatrix:
@@ -871,7 +815,7 @@ def sklearn_min_max_scaler_transform_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``min_max_scaler``, as returned by
-            :func:`sklearn_min_max_scaler_fit_impl`.
+            :func:`sklearn_min_max_scaler_fit`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to transform, shape
             (n_samples, n_features); must have the same feature count as
             the fitting data.
@@ -882,21 +826,13 @@ def sklearn_min_max_scaler_transform_impl(
 
     Raises:
         NotImplementedError: the ``sklearn`` extra is not installed.
-        RuntimeError: wrong blob tag, or ONNX transform failure.
+        RuntimeError: wrong blob tag. ONNX Runtime raises its own error when
+            the feature count differs from the fitting data.
     """
     _check_sklearn_support()
-    if model_blob.type != "min_max_scaler":
-        raise RuntimeError(
-            f"sklearn_min_max_scaler_transform: Expected min_max_scaler, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "min_max_scaler", "sklearn_min_max_scaler_transform")
 
-    try:
-        onnx_blob = model_blob.value["onnx"]
-        return _onnx_transform(onnx_blob, X)
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_min_max_scaler_transform: Transform failed - {e}"
-        ) from e
+    return _onnx_transform(payload["onnx"], X)
 
 
 @platform_function(
@@ -904,12 +840,12 @@ def sklearn_min_max_scaler_transform_impl(
     inputs=[MatrixType(FloatType)],
     output=SklearnModelBlobType,
 )
-def sklearn_robust_scaler_fit_impl(X: EastMatrix) -> EastVariant:
+def sklearn_robust_scaler_fit(X: EastMatrix) -> EastVariant:
     """Fit a RobustScaler on X and return an ONNX-serialised model blob.
 
     Centres using the median and scales using the interquartile range,
     making it robust to outliers.  Use the returned blob with
-    :func:`sklearn_robust_scaler_transform_impl`.
+    :func:`sklearn_robust_scaler_transform`.
 
     Args:
         X: ``Matrix<Float>`` (``EastMatrix``) - training data, shape
@@ -926,12 +862,7 @@ def sklearn_robust_scaler_fit_impl(X: EastMatrix) -> EastVariant:
     _check_sklearn_support()
     from sklearn.preprocessing import RobustScaler
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_robust_scaler_fit: Invalid input data - {e}"
-        ) from e
+    X_np = X.to_numpy()
 
     n_features = X_np.shape[1]
 
@@ -960,7 +891,7 @@ def sklearn_robust_scaler_fit_impl(X: EastMatrix) -> EastVariant:
     inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def sklearn_robust_scaler_transform_impl(
+def sklearn_robust_scaler_transform(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastMatrix:
@@ -969,7 +900,7 @@ def sklearn_robust_scaler_transform_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``robust_scaler``, as returned by
-            :func:`sklearn_robust_scaler_fit_impl`.
+            :func:`sklearn_robust_scaler_fit`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to transform, shape
             (n_samples, n_features); must have the same feature count as
             the fitting data.
@@ -980,21 +911,13 @@ def sklearn_robust_scaler_transform_impl(
 
     Raises:
         NotImplementedError: the ``sklearn`` extra is not installed.
-        RuntimeError: wrong blob tag, or ONNX transform failure.
+        RuntimeError: wrong blob tag. ONNX Runtime raises its own error when
+            the feature count differs from the fitting data.
     """
     _check_sklearn_support()
-    if model_blob.type != "robust_scaler":
-        raise RuntimeError(
-            f"sklearn_robust_scaler_transform: Expected robust_scaler, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "robust_scaler", "sklearn_robust_scaler_transform")
 
-    try:
-        onnx_blob = model_blob.value["onnx"]
-        return _onnx_transform(onnx_blob, X)
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_robust_scaler_transform: Transform failed - {e}"
-        ) from e
+    return _onnx_transform(payload["onnx"], X)
 
 
 @platform_function(
@@ -1002,12 +925,12 @@ def sklearn_robust_scaler_transform_impl(
     inputs=[VectorType(IntegerType)],
     output=SklearnModelBlobType,
 )
-def sklearn_label_encoder_fit_impl(y: EastVector) -> EastVariant:
+def sklearn_label_encoder_fit(y: EastVector) -> EastVariant:
     """Fit a LabelEncoder on integer labels and return a cloudpickle-serialised model blob.
 
     Maps arbitrary integer class codes to a contiguous 0..N-1 range; use
-    the returned blob with :func:`sklearn_label_encoder_transform_impl` or
-    :func:`sklearn_label_encoder_inverse_transform_impl`.
+    the returned blob with :func:`sklearn_label_encoder_transform` or
+    :func:`sklearn_label_encoder_inverse_transform`.
 
     Args:
         y: ``Vector<Integer>`` (``EastVector``) - integer class labels to
@@ -1022,15 +945,9 @@ def sklearn_label_encoder_fit_impl(y: EastVector) -> EastVariant:
         RuntimeError: invalid input data or fitting failure.
     """
     _check_sklearn_support()
-    import cloudpickle
     from sklearn.preprocessing import LabelEncoder
 
-    try:
-        y_np = y.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_label_encoder_fit: Invalid input data - {e}"
-        ) from e
+    y_np = y.to_numpy()
 
     try:
         encoder = LabelEncoder()
@@ -1045,7 +962,7 @@ def sklearn_label_encoder_fit_impl(y: EastVector) -> EastVariant:
         "label_encoder",
         EastStruct(
             {
-                "data": EastBlob(cloudpickle.dumps(encoder)),
+                "data": serialize(encoder),
                 "n_classes": n_classes,
             }
         ),
@@ -1057,7 +974,7 @@ def sklearn_label_encoder_fit_impl(y: EastVector) -> EastVariant:
     inputs=[SklearnModelBlobType, VectorType(IntegerType)],
     output=VectorType(IntegerType),
 )
-def sklearn_label_encoder_transform_impl(
+def sklearn_label_encoder_transform(
     model_blob: EastVariant,
     y: EastVector,
 ) -> EastVector:
@@ -1069,7 +986,7 @@ def sklearn_label_encoder_transform_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``label_encoder``, as returned by
-            :func:`sklearn_label_encoder_fit_impl`.
+            :func:`sklearn_label_encoder_fit`.
         y: ``Vector<Integer>`` (``EastVector``) - labels to encode; all
             values must have been seen during fitting.
 
@@ -1081,16 +998,13 @@ def sklearn_label_encoder_transform_impl(
         RuntimeError: wrong blob tag, or transform failure (unseen label).
     """
     _check_sklearn_support()
-    import cloudpickle
 
-    if model_blob.type != "label_encoder":
-        raise RuntimeError(
-            f"sklearn_label_encoder_transform: Expected label_encoder, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "label_encoder", "sklearn_label_encoder_transform")
+
+    y_np = y.to_numpy()
+    encoder = deserialize(payload["data"])
 
     try:
-        y_np = y.to_numpy()
-        encoder = cloudpickle.loads(bytes(model_blob.value["data"]))
         y_encoded = encoder.transform(y_np)
     except Exception as e:
         raise RuntimeError(
@@ -1105,7 +1019,7 @@ def sklearn_label_encoder_transform_impl(
     inputs=[SklearnModelBlobType, VectorType(IntegerType)],
     output=VectorType(IntegerType),
 )
-def sklearn_label_encoder_inverse_transform_impl(
+def sklearn_label_encoder_inverse_transform(
     model_blob: EastVariant,
     y: EastVector,
 ) -> EastVector:
@@ -1114,7 +1028,7 @@ def sklearn_label_encoder_inverse_transform_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``label_encoder``, as returned by
-            :func:`sklearn_label_encoder_fit_impl`.
+            :func:`sklearn_label_encoder_fit`.
         y: ``Vector<Integer>`` (``EastVector``) - encoded labels in
             0..N-1 to decode.
 
@@ -1128,16 +1042,13 @@ def sklearn_label_encoder_inverse_transform_impl(
             out of range).
     """
     _check_sklearn_support()
-    import cloudpickle
 
-    if model_blob.type != "label_encoder":
-        raise RuntimeError(
-            f"sklearn_label_encoder_inverse_transform: Expected label_encoder, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "label_encoder", "sklearn_label_encoder_inverse_transform")
+
+    y_np = y.to_numpy()
+    encoder = deserialize(payload["data"])
 
     try:
-        y_np = y.to_numpy()
-        encoder = cloudpickle.loads(bytes(model_blob.value["data"]))
         y_original = encoder.inverse_transform(y_np)
     except Exception as e:
         raise RuntimeError(
@@ -1152,11 +1063,11 @@ def sklearn_label_encoder_inverse_transform_impl(
     inputs=[MatrixType(FloatType)],
     output=SklearnModelBlobType,
 )
-def sklearn_ordinal_encoder_fit_impl(X: EastMatrix) -> EastVariant:
+def sklearn_ordinal_encoder_fit(X: EastMatrix) -> EastVariant:
     """Fit an OrdinalEncoder on feature matrix X and return a cloudpickle-serialised model blob.
 
     Assigns each category in each column an integer ordinal; use the
-    returned blob with :func:`sklearn_ordinal_encoder_transform_impl`.
+    returned blob with :func:`sklearn_ordinal_encoder_transform`.
 
     Args:
         X: ``Matrix<Float>`` (``EastMatrix``) - training data containing
@@ -1171,15 +1082,9 @@ def sklearn_ordinal_encoder_fit_impl(X: EastMatrix) -> EastVariant:
         RuntimeError: invalid input data or fitting failure.
     """
     _check_sklearn_support()
-    import cloudpickle
     from sklearn.preprocessing import OrdinalEncoder
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_ordinal_encoder_fit: Invalid input data - {e}"
-        ) from e
+    X_np = X.to_numpy()
 
     n_features = X_np.shape[1]
 
@@ -1195,7 +1100,7 @@ def sklearn_ordinal_encoder_fit_impl(X: EastMatrix) -> EastVariant:
         "ordinal_encoder",
         EastStruct(
             {
-                "data": EastBlob(cloudpickle.dumps(encoder)),
+                "data": serialize(encoder),
                 "n_features": n_features,
             }
         ),
@@ -1207,7 +1112,7 @@ def sklearn_ordinal_encoder_fit_impl(X: EastMatrix) -> EastVariant:
     inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def sklearn_ordinal_encoder_transform_impl(
+def sklearn_ordinal_encoder_transform(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastMatrix:
@@ -1216,7 +1121,7 @@ def sklearn_ordinal_encoder_transform_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``ordinal_encoder``, as returned by
-            :func:`sklearn_ordinal_encoder_fit_impl`.
+            :func:`sklearn_ordinal_encoder_fit`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to encode, shape
             (n_samples, n_features); must have the same feature count as
             the fitting data.
@@ -1231,16 +1136,13 @@ def sklearn_ordinal_encoder_transform_impl(
             category).
     """
     _check_sklearn_support()
-    import cloudpickle
 
-    if model_blob.type != "ordinal_encoder":
-        raise RuntimeError(
-            f"sklearn_ordinal_encoder_transform: Expected ordinal_encoder, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "ordinal_encoder", "sklearn_ordinal_encoder_transform")
+
+    X_np = X.to_numpy()
+    encoder = deserialize(payload["data"])
 
     try:
-        X_np = X.to_numpy()
-        encoder = cloudpickle.loads(bytes(model_blob.value["data"]))
         X_encoded = encoder.transform(X_np)
     except Exception as e:
         raise RuntimeError(
@@ -1255,7 +1157,7 @@ def sklearn_ordinal_encoder_transform_impl(
     inputs=[ClassWeightModeType, VectorType(IntegerType)],
     output=VectorType(FloatType),
 )
-def sklearn_compute_class_weight_impl(
+def sklearn_compute_class_weight(
     mode: EastVariant,
     y: EastVector,
 ) -> EastVector:
@@ -1283,12 +1185,7 @@ def sklearn_compute_class_weight_impl(
     _check_sklearn_support()
     from sklearn.utils.class_weight import compute_class_weight
 
-    try:
-        y_np = y.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_compute_class_weight: Invalid input data - {e}"
-        ) from e
+    y_np = y.to_numpy()
 
     mode_type = mode.type
     if mode_type != "balanced":
@@ -1312,7 +1209,7 @@ def sklearn_compute_class_weight_impl(
     inputs=[VectorType(IntegerType), VectorType(IntegerType)],
     output=ConfusionMatrixResultType,
 )
-def sklearn_confusion_matrix_impl(
+def sklearn_confusion_matrix(
     y_true: EastVector,
     y_pred: EastVector,
 ) -> EastStruct:
@@ -1341,13 +1238,8 @@ def sklearn_confusion_matrix_impl(
     _check_sklearn_support()
     from sklearn.metrics import confusion_matrix
 
-    try:
-        y_true_np = y_true.to_numpy()
-        y_pred_np = y_pred.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_confusion_matrix: Invalid input data - {e}"
-        ) from e
+    y_true_np = y_true.to_numpy()
+    y_pred_np = y_pred.to_numpy()
 
     if y_true_np.shape[0] != y_pred_np.shape[0]:
         raise RuntimeError(
@@ -1365,7 +1257,7 @@ def sklearn_confusion_matrix_impl(
 
     return EastStruct(
         {
-            "matrix": EastMatrix(FloatType, np.atleast_2d(cm.astype(np.float32)).astype(np.float64)),
+            "matrix": EastMatrix(FloatType, cm.astype(np.float64)),
             "classes": EastVector(IntegerType, classes.ravel().astype(np.int64)),
         }
     )
@@ -1376,7 +1268,7 @@ def sklearn_confusion_matrix_impl(
     inputs=[VectorType(IntegerType), MatrixType(FloatType), RocAucConfigType],
     output=FloatType,
 )
-def sklearn_roc_auc_score_impl(
+def sklearn_roc_auc_score(
     y_true: EastVector,
     y_proba: EastMatrix,
     config: EastStruct,
@@ -1409,13 +1301,8 @@ def sklearn_roc_auc_score_impl(
     _check_sklearn_support()
     from sklearn.metrics import roc_auc_score
 
-    try:
-        y_true_np = y_true.to_numpy()
-        y_proba_np = y_proba.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_roc_auc_score: Invalid input data - {e}"
-        ) from e
+    y_true_np = y_true.to_numpy()
+    y_proba_np = y_proba.to_numpy()
 
     if y_true_np.shape[0] != y_proba_np.shape[0]:
         raise RuntimeError(
@@ -1423,20 +1310,8 @@ def sklearn_roc_auc_score_impl(
             f"but y_proba has {y_proba_np.shape[0]} samples"
         )
 
-    # Get config options
-    multi_class_opt = config.get("multi_class")
-    multi_class = "ovr"  # default
-    if (
-        multi_class_opt is not None
-        and hasattr(multi_class_opt, "type")
-        and multi_class_opt.type == "some"
-    ):
-        multi_class = _get_enum_tag(multi_class_opt.value)
-
-    average_opt = config.get("average")
-    average = "macro"  # default
-    if average_opt is not None and hasattr(average_opt, "type") and average_opt.type == "some":
-        average = _get_enum_tag(average_opt.value)
+    multi_class = option_tag(config["multi_class"], "ovr")
+    average = option_tag(config["average"], "macro")
 
     try:
         n_classes = len(np.unique(y_true_np))
@@ -1464,7 +1339,7 @@ def sklearn_roc_auc_score_impl(
     inputs=[VectorType(IntegerType), MatrixType(FloatType)],
     output=FloatType,
 )
-def sklearn_log_loss_impl(
+def sklearn_log_loss(
     y_true: EastVector,
     y_proba: EastMatrix,
 ) -> float:
@@ -1487,13 +1362,8 @@ def sklearn_log_loss_impl(
     _check_sklearn_support()
     from sklearn.metrics import log_loss
 
-    try:
-        y_true_np = y_true.to_numpy()
-        y_proba_np = y_proba.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_log_loss: Invalid input data - {e}"
-        ) from e
+    y_true_np = y_true.to_numpy()
+    y_proba_np = y_proba.to_numpy()
 
     if y_true_np.shape[0] != y_proba_np.shape[0]:
         raise RuntimeError(
@@ -1516,7 +1386,7 @@ def sklearn_log_loss_impl(
     inputs=[MatrixType(FloatType), VectorType(IntegerType)],
     output=FloatType,
 )
-def sklearn_silhouette_score_impl(
+def sklearn_silhouette_score(
     X: EastMatrix, labels: EastVector
 ) -> float:
     """Compute the mean silhouette coefficient for clustering quality.
@@ -1542,13 +1412,8 @@ def sklearn_silhouette_score_impl(
     _check_sklearn_support()
     from sklearn.metrics import silhouette_score
 
-    try:
-        X_np = X.to_numpy()
-        labels_np = labels.to_numpy(dtype=int)
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_silhouette_score: Invalid input data - {e}"
-        ) from e
+    X_np = X.to_numpy()
+    labels_np = labels.to_numpy(dtype=int)
 
     if X_np.shape[0] != labels_np.shape[0]:
         raise RuntimeError(
@@ -1566,26 +1431,27 @@ def sklearn_silhouette_score_impl(
     return float(score)
 
 
-
 # ============================================================================
 # Flexible Metrics Implementation
 # ============================================================================
 
-# Regression metric function mapping
-REGRESSION_METRIC_FUNCTIONS = {
-    "mse": lambda y_true, y_pred: float(np.mean((y_true - y_pred) ** 2)),
-    "rmse": lambda y_true, y_pred: float(np.sqrt(np.mean((y_true - y_pred) ** 2))),
-    "mae": lambda y_true, y_pred: float(np.mean(np.abs(y_true - y_pred))),
-    "r2": None,  # Uses sklearn
-    "mape": None,  # Custom implementation
-    "explained_variance": None,  # Uses sklearn
-    "max_error": lambda y_true, y_pred: float(np.max(np.abs(y_true - y_pred))),
-    "median_ae": lambda y_true, y_pred: float(np.median(np.abs(y_true - y_pred))),
-}
+def _metric_param(metric_variant: EastVariant) -> float | None:
+    """A regression metric's parameter payload (pinball alpha, huber delta, tweedie power), or ``None``."""
+    value = metric_variant.value
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def _aggregate(per_target_values: list[float], aggregation: str) -> EastVariant:
+    """Per-target metric values as a ``MultiMetricValueType``: a ``per_target`` vector or the ``scalar`` mean."""
+    if aggregation == "per_target":
+        return EastVariant(
+            "per_target", EastVector(FloatType, np.array(per_target_values, dtype=np.float64))
+        )
+    return EastVariant("scalar", float(np.mean(per_target_values)))
 
 
 def _compute_regression_metric(
-    metric_name: str, y_true: np.ndarray, y_pred: np.ndarray, param: float = None
+    metric_name: str, y_true: np.ndarray, y_pred: np.ndarray, param: float | None = None
 ) -> float:
     """Compute a single regression metric.
 
@@ -1594,6 +1460,10 @@ def _compute_regression_metric(
         y_true: Ground truth values
         y_pred: Predicted values
         param: Optional parameter for metrics that need it (alpha for pinball, delta for huber, power for tweedie)
+
+    Raises:
+        ValueError: unknown metric name, or a metric sklearn cannot compute
+            for the data (``mean_tweedie_deviance`` on negative targets).
     """
     from sklearn import metrics as sklearn_metrics
 
@@ -1647,15 +1517,12 @@ def _compute_regression_metric(
     inputs=[VectorType(FloatType), VectorType(FloatType), ArrayType(RegressionMetricType)],
     output=MetricsResultType,
 )
-def sklearn_compute_metrics_impl(
+def sklearn_compute_metrics(
     y_true: EastVector,
     y_pred: EastVector,
     metrics: EastArray,
 ) -> EastArray:
     """Compute one or more regression metrics for single-target predictions.
-
-    Metrics that raise an exception are silently skipped rather than
-    failing the whole call.
 
     Args:
         y_true: ``Vector<Float>`` (``EastVector``) - ground-truth target
@@ -1678,18 +1545,17 @@ def sklearn_compute_metrics_impl(
     Returns:
         ``MetricsResultType`` (``Array<MetricResultType>``): one
         ``{metric: RegressionMetricType, value: Float}`` struct per
-        successfully computed metric, in input order.
+        metric, in input order.
 
     Raises:
         NotImplementedError: the ``sklearn`` extra is not installed.
-        RuntimeError: invalid input data or sample-count mismatch.
+        RuntimeError: sample-count mismatch.
+        ValueError: a metric sklearn cannot compute for the data
+            (``mean_tweedie_deviance`` on negative targets).
     """
     _check_sklearn_support()
-    try:
-        y_true_np = y_true.to_numpy()
-        y_pred_np = y_pred.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"sklearn_compute_metrics: Invalid input data - {e}") from e
+    y_true_np = y_true.to_numpy()
+    y_pred_np = y_pred.to_numpy()
 
     if y_true_np.shape[0] != y_pred_np.shape[0]:
         raise RuntimeError(
@@ -1697,23 +1563,17 @@ def sklearn_compute_metrics_impl(
             f"but y_pred has {y_pred_np.shape[0]} samples"
         )
 
-    results = []
-    for metric_variant in metrics:
-        metric_name = metric_variant.type
-        # Extract param for metrics that need it (pinball_loss, huber, mean_tweedie_deviance)
-        param = metric_variant.value if metric_variant.value is not None else None
-        try:
-            value = _compute_regression_metric(metric_name, y_true_np, y_pred_np, param)
-            results.append(
-                EastStruct(
-                    {
-                        "metric": EastVariant(metric_name, param),
-                        "value": value,
-                    }
-                )
-            )
-        except Exception:
-            pass  # Skip metrics that fail
+    results: list[EastStruct] = [
+        EastStruct(
+            {
+                "metric": metric_variant,
+                "value": _compute_regression_metric(
+                    metric_variant.type, y_true_np, y_pred_np, _metric_param(metric_variant)
+                ),
+            }
+        )
+        for metric_variant in metrics
+    ]
 
     return EastArray(MetricResultType, results)
 
@@ -1728,7 +1588,7 @@ def sklearn_compute_metrics_impl(
     ],
     output=MultiMetricsResultType,
 )
-def sklearn_compute_metrics_multi_impl(
+def sklearn_compute_metrics_multi(
     Y_true: EastMatrix,
     Y_pred: EastMatrix,
     metrics: EastArray,
@@ -1737,8 +1597,7 @@ def sklearn_compute_metrics_multi_impl(
     """Compute one or more regression metrics for multi-target predictions.
 
     Computes each metric per column of Y then aggregates according to
-    ``config["aggregation"]``.  Metrics that raise an exception are
-    silently skipped.
+    ``config["aggregation"]``.
 
     Args:
         Y_true: ``Matrix<Float>`` (``EastMatrix``) - ground-truth targets,
@@ -1747,7 +1606,7 @@ def sklearn_compute_metrics_multi_impl(
             must have the same shape as ``Y_true``.
         metrics: ``Array<RegressionMetricType>`` (``EastArray``) - same
             variant tags and parameters as
-            :func:`sklearn_compute_metrics_impl`.
+            :func:`sklearn_compute_metrics`.
         config: ``MultiMetricsConfigType`` (``EastStruct``) with fields:
 
             - ``aggregation`` (``Option<MetricAggregationType>``):
@@ -1756,23 +1615,20 @@ def sklearn_compute_metrics_multi_impl(
 
     Returns:
         ``MultiMetricsResultType`` (``Array<MultiMetricResultType>``): one
-        ``{metric, value: MultiMetricValueType}`` struct per successfully
-        computed metric.  ``value`` is tagged ``per_target``
+        ``{metric, value: MultiMetricValueType}`` struct per metric, in
+        input order.  ``value`` is tagged ``per_target``
         (``Vector<Float>``) or ``scalar`` (``Float``) depending on
         aggregation.
 
     Raises:
         NotImplementedError: the ``sklearn`` extra is not installed.
-        RuntimeError: invalid input data or shape mismatch.
+        RuntimeError: shape mismatch.
+        ValueError: a metric sklearn cannot compute for the data
+            (``mean_tweedie_deviance`` on negative targets).
     """
     _check_sklearn_support()
-    try:
-        Y_true_np = Y_true.to_numpy()
-        Y_pred_np = Y_pred.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_compute_metrics_multi: Invalid input data - {e}"
-        ) from e
+    Y_true_np = Y_true.to_numpy()
+    Y_pred_np = Y_pred.to_numpy()
 
     if Y_true_np.shape != Y_pred_np.shape:
         raise RuntimeError(
@@ -1782,48 +1638,32 @@ def sklearn_compute_metrics_multi_impl(
 
     n_targets = Y_true_np.shape[1]
 
-    # Get aggregation mode
-    agg_opt = _get_option(config.get("aggregation"), None)
-    aggregation = agg_opt.type if agg_opt else "per_target"
+    aggregation = option_tag(config["aggregation"], "per_target")
 
-    results = []
+    results: list[EastStruct] = []
     for metric_variant in metrics:
-        metric_name = metric_variant.type
-        # Extract param for metrics that need it
-        param = metric_variant.value if metric_variant.value is not None else None
-        try:
-            # Compute per target
-            per_target_values = []
-            for i in range(n_targets):
-                val = _compute_regression_metric(
-                    metric_name, Y_true_np[:, i], Y_pred_np[:, i], param
-                )
-                per_target_values.append(val)
-
-            # Format based on aggregation
-            if aggregation == "per_target":
-                result_value = EastVariant(
-                    "per_target", EastVector(FloatType, np.array(per_target_values, dtype=np.float64))
-                )
-            else:  # uniform_average
-                result_value = EastVariant("scalar", float(np.mean(per_target_values)))
-
-            results.append(
-                EastStruct(
-                    {
-                        "metric": EastVariant(metric_name, param),
-                        "value": result_value,
-                    }
-                )
-            )
-        except Exception:
-            pass  # Skip metrics that fail
+        param = _metric_param(metric_variant)
+        per_target_values = [
+            _compute_regression_metric(metric_variant.type, Y_true_np[:, i], Y_pred_np[:, i], param)
+            for i in range(n_targets)
+        ]
+        results.append(
+            EastStruct({"metric": metric_variant, "value": _aggregate(per_target_values, aggregation)})
+        )
 
     return EastArray(MultiMetricResultType, results)
 
 
-# Classification metric function mapping
+# Classification metrics that take sklearn's ``average`` argument
 CLASSIFICATION_METRICS_WITH_AVERAGE = {"precision", "recall", "f1", "jaccard"}
+
+
+def _cohen_kappa_weights(metric_variant: EastVariant) -> str | None:
+    """The ``cohen_kappa`` weighting case (``linear`` / ``quadratic``); ``None`` for ``none`` or any other metric."""
+    if metric_variant.type != "cohen_kappa":
+        return None
+    weights = metric_variant.value.type
+    return None if weights == "none" else weights
 
 
 def _compute_classification_metric(
@@ -1833,10 +1673,14 @@ def _compute_classification_metric(
     average: str = "macro",
     cohen_kappa_weights: str | None = None,
 ) -> float:
-    """Compute a single classification metric."""
+    """Compute a single classification metric.
+
+    Raises:
+        ValueError: unknown metric name.
+    """
     from sklearn import metrics as sklearn_metrics
 
-    kwargs = {}
+    kwargs: dict[str, Any] = {}
     if metric_name in CLASSIFICATION_METRICS_WITH_AVERAGE:
         kwargs["average"] = average
         kwargs["zero_division"] = 0
@@ -1854,11 +1698,9 @@ def _compute_classification_metric(
     elif metric_name == "matthews_corrcoef":
         return float(sklearn_metrics.matthews_corrcoef(y_true, y_pred))
     elif metric_name == "cohen_kappa":
-        # Handle weights parameter
-        weights = None
-        if cohen_kappa_weights and cohen_kappa_weights != "none":
-            weights = cohen_kappa_weights  # "linear" or "quadratic"
-        return float(sklearn_metrics.cohen_kappa_score(y_true, y_pred, weights=weights))
+        return float(
+            sklearn_metrics.cohen_kappa_score(y_true, y_pred, weights=cohen_kappa_weights)
+        )
     elif metric_name == "jaccard":
         return float(sklearn_metrics.jaccard_score(y_true, y_pred, **kwargs))
     else:
@@ -1875,15 +1717,13 @@ def _compute_classification_metric(
     ],
     output=ClassificationMetricResultsType,
 )
-def sklearn_compute_classification_metrics_impl(
+def sklearn_compute_classification_metrics(
     y_true: EastVector,
     y_pred: EastVector,
     metrics: EastArray,
     config: EastStruct,
 ) -> EastArray:
     """Compute one or more classification metrics for single-target predictions.
-
-    Metrics that raise an exception are silently skipped.
 
     Args:
         y_true: ``Vector<Integer>`` (``EastVector``) - ground-truth class
@@ -1911,20 +1751,15 @@ def sklearn_compute_classification_metrics_impl(
         ``ClassificationMetricResultsType``
         (``Array<ClassificationMetricResultType>``): one
         ``{metric: ClassificationMetricType, value: Float}`` struct per
-        successfully computed metric, in input order.
+        metric, in input order.
 
     Raises:
         NotImplementedError: the ``sklearn`` extra is not installed.
-        RuntimeError: invalid input data or sample-count mismatch.
+        RuntimeError: sample-count mismatch.
     """
     _check_sklearn_support()
-    try:
-        y_true_np = y_true.to_numpy()
-        y_pred_np = y_pred.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_compute_classification_metrics: Invalid input data - {e}"
-        ) from e
+    y_true_np = y_true.to_numpy()
+    y_pred_np = y_pred.to_numpy()
 
     if y_true_np.shape[0] != y_pred_np.shape[0]:
         raise RuntimeError(
@@ -1932,35 +1767,23 @@ def sklearn_compute_classification_metrics_impl(
             f"but y_pred has {y_pred_np.shape[0]} samples"
         )
 
-    # Get average mode
-    avg_opt = _get_option(config.get("average"), None)
-    average = avg_opt.type if avg_opt else "macro"
+    average = option_tag(config["average"], "macro")
 
-    results = []
-    for metric_variant in metrics:
-        metric_name = metric_variant.type
-        # Extract cohen_kappa weights if present
-        cohen_kappa_weights = None
-        if (
-            metric_name == "cohen_kappa"
-            and metric_variant.value is not None
-            and hasattr(metric_variant.value, "type")
-        ):
-            cohen_kappa_weights = metric_variant.value.type
-        try:
-            value = _compute_classification_metric(
-                metric_name, y_true_np, y_pred_np, average, cohen_kappa_weights
-            )
-            results.append(
-                EastStruct(
-                    {
-                        "metric": metric_variant,
-                        "value": value,
-                    }
-                )
-            )
-        except Exception:
-            pass  # Skip metrics that fail
+    results: list[EastStruct] = [
+        EastStruct(
+            {
+                "metric": metric_variant,
+                "value": _compute_classification_metric(
+                    metric_variant.type,
+                    y_true_np,
+                    y_pred_np,
+                    average,
+                    _cohen_kappa_weights(metric_variant),
+                ),
+            }
+        )
+        for metric_variant in metrics
+    ]
 
     return EastArray(ClassificationMetricResultType, results)
 
@@ -1975,7 +1798,7 @@ def sklearn_compute_classification_metrics_impl(
     ],
     output=MultiClassificationMetricResultsType,
 )
-def sklearn_compute_classification_metrics_multi_impl(
+def sklearn_compute_classification_metrics_multi(
     Y_true: EastMatrix,
     Y_pred: EastMatrix,
     metrics: EastArray,
@@ -1984,8 +1807,7 @@ def sklearn_compute_classification_metrics_multi_impl(
     """Compute one or more classification metrics for multi-target predictions.
 
     Computes each metric per column of Y then aggregates according to
-    ``config["aggregation"]``.  Metrics that raise an exception are
-    silently skipped.
+    ``config["aggregation"]``.
 
     Args:
         Y_true: ``Matrix<Float>`` (``EastMatrix``) - ground-truth integer
@@ -1996,7 +1818,7 @@ def sklearn_compute_classification_metrics_multi_impl(
             ``Y_true``.
         metrics: ``Array<ClassificationMetricType>`` (``EastArray``) -
             same variant tags and parameters as
-            :func:`sklearn_compute_classification_metrics_impl`.
+            :func:`sklearn_compute_classification_metrics`.
         config: ``MultiClassificationConfigType`` (``EastStruct``) with
             fields:
 
@@ -2008,22 +1830,17 @@ def sklearn_compute_classification_metrics_multi_impl(
     Returns:
         ``MultiClassificationMetricResultsType``
         (``Array<MultiClassificationMetricResultType>``): one
-        ``{metric, value: MultiMetricValueType}`` struct per successfully
-        computed metric.  ``value`` is tagged ``per_target``
+        ``{metric, value: MultiMetricValueType}`` struct per metric, in
+        input order.  ``value`` is tagged ``per_target``
         (``Vector<Float>``) or ``scalar`` (``Float``).
 
     Raises:
         NotImplementedError: the ``sklearn`` extra is not installed.
-        RuntimeError: invalid input data or shape mismatch.
+        RuntimeError: shape mismatch.
     """
     _check_sklearn_support()
-    try:
-        Y_true_np = Y_true.to_numpy(dtype=int)
-        Y_pred_np = Y_pred.to_numpy(dtype=int)
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_compute_classification_metrics_multi: Invalid input data - {e}"
-        ) from e
+    Y_true_np = Y_true.to_numpy(dtype=int)
+    Y_pred_np = Y_pred.to_numpy(dtype=int)
 
     if Y_true_np.shape != Y_pred_np.shape:
         raise RuntimeError(
@@ -2033,50 +1850,21 @@ def sklearn_compute_classification_metrics_multi_impl(
 
     n_targets = Y_true_np.shape[1]
 
-    # Get config options
-    avg_opt = _get_option(config.get("average"), None)
-    average = avg_opt.type if avg_opt else "macro"
-    agg_opt = _get_option(config.get("aggregation"), None)
-    aggregation = agg_opt.type if agg_opt else "per_target"
+    average = option_tag(config["average"], "macro")
+    aggregation = option_tag(config["aggregation"], "per_target")
 
-    results = []
+    results: list[EastStruct] = []
     for metric_variant in metrics:
-        metric_name = metric_variant.type
-        # Extract cohen_kappa weights if present
-        cohen_kappa_weights = None
-        if (
-            metric_name == "cohen_kappa"
-            and metric_variant.value is not None
-            and hasattr(metric_variant.value, "type")
-        ):
-            cohen_kappa_weights = metric_variant.value.type
-        try:
-            # Compute per target
-            per_target_values = []
-            for i in range(n_targets):
-                val = _compute_classification_metric(
-                    metric_name, Y_true_np[:, i], Y_pred_np[:, i], average, cohen_kappa_weights
-                )
-                per_target_values.append(val)
-
-            # Format based on aggregation
-            if aggregation == "per_target":
-                result_value = EastVariant(
-                    "per_target", EastVector(FloatType, np.array(per_target_values, dtype=np.float64))
-                )
-            else:  # uniform_average
-                result_value = EastVariant("scalar", float(np.mean(per_target_values)))
-
-            results.append(
-                EastStruct(
-                    {
-                        "metric": metric_variant,
-                        "value": result_value,
-                    }
-                )
+        weights = _cohen_kappa_weights(metric_variant)
+        per_target_values = [
+            _compute_classification_metric(
+                metric_variant.type, Y_true_np[:, i], Y_pred_np[:, i], average, weights
             )
-        except Exception:
-            pass  # Skip metrics that fail
+            for i in range(n_targets)
+        ]
+        results.append(
+            EastStruct({"metric": metric_variant, "value": _aggregate(per_target_values, aggregation)})
+        )
 
     return EastArray(MultiClassificationMetricResultType, results)
 
@@ -2084,20 +1872,6 @@ def sklearn_compute_classification_metrics_multi_impl(
 # ============================================================================
 # RegressorChain Helpers
 # ============================================================================
-
-
-def _serialize_model(model) -> EastBlob:
-    """Serialize model using cloudpickle."""
-    import cloudpickle
-
-    return EastBlob(cloudpickle.dumps(model))
-
-
-def _deserialize_model(blob: EastBlob):
-    """Deserialize model using cloudpickle."""
-    import cloudpickle
-
-    return cloudpickle.loads(bytes(blob))
 
 
 def _create_base_estimator(estimator_variant: EastVariant):
@@ -2109,33 +1883,33 @@ def _create_base_estimator(estimator_variant: EastVariant):
         from xgboost import XGBRegressor
 
         return XGBRegressor(
-            n_estimators=int(_get_option(config.get("n_estimators"), 100)),
-            max_depth=int(_get_option(config.get("max_depth"), 6)),
-            learning_rate=float(_get_option(config.get("learning_rate"), 0.3)),
-            min_child_weight=int(_get_option(config.get("min_child_weight"), 1)),
-            subsample=float(_get_option(config.get("subsample"), 1.0)),
-            colsample_bytree=float(_get_option(config.get("colsample_bytree"), 1.0)),
-            reg_alpha=float(_get_option(config.get("reg_alpha"), 0)),
-            reg_lambda=float(_get_option(config.get("reg_lambda"), 1)),
-            random_state=_get_option(config.get("random_state"), None),
-            n_jobs=int(_get_option(config.get("n_jobs"), -1)),
+            n_estimators=int(config["n_estimators"].unwrap_or(100)),
+            max_depth=int(config["max_depth"].unwrap_or(6)),
+            learning_rate=float(config["learning_rate"].unwrap_or(0.3)),
+            min_child_weight=int(config["min_child_weight"].unwrap_or(1)),
+            subsample=float(config["subsample"].unwrap_or(1.0)),
+            colsample_bytree=float(config["colsample_bytree"].unwrap_or(1.0)),
+            reg_alpha=float(config["reg_alpha"].unwrap_or(0)),
+            reg_lambda=float(config["reg_lambda"].unwrap_or(1)),
+            random_state=config["random_state"].unwrap_or(None),
+            n_jobs=int(config["n_jobs"].unwrap_or(-1)),
         )
 
     elif estimator_type == "lightgbm":
         from lightgbm import LGBMRegressor
 
         return LGBMRegressor(
-            n_estimators=int(_get_option(config.get("n_estimators"), 100)),
-            max_depth=int(_get_option(config.get("max_depth"), -1)),
-            learning_rate=float(_get_option(config.get("learning_rate"), 0.1)),
-            num_leaves=int(_get_option(config.get("num_leaves"), 31)),
-            min_child_samples=int(_get_option(config.get("min_child_samples"), 20)),
-            subsample=float(_get_option(config.get("subsample"), 1.0)),
-            colsample_bytree=float(_get_option(config.get("colsample_bytree"), 1.0)),
-            reg_alpha=float(_get_option(config.get("reg_alpha"), 0)),
-            reg_lambda=float(_get_option(config.get("reg_lambda"), 0)),
-            random_state=_get_option(config.get("random_state"), None),
-            n_jobs=int(_get_option(config.get("n_jobs"), -1)),
+            n_estimators=int(config["n_estimators"].unwrap_or(100)),
+            max_depth=int(config["max_depth"].unwrap_or(-1)),
+            learning_rate=float(config["learning_rate"].unwrap_or(0.1)),
+            num_leaves=int(config["num_leaves"].unwrap_or(31)),
+            min_child_samples=int(config["min_child_samples"].unwrap_or(20)),
+            subsample=float(config["subsample"].unwrap_or(1.0)),
+            colsample_bytree=float(config["colsample_bytree"].unwrap_or(1.0)),
+            reg_alpha=float(config["reg_alpha"].unwrap_or(0)),
+            reg_lambda=float(config["reg_lambda"].unwrap_or(0)),
+            random_state=config["random_state"].unwrap_or(None),
+            n_jobs=int(config["n_jobs"].unwrap_or(-1)),
             verbosity=-1,
         )
 
@@ -2143,16 +1917,15 @@ def _create_base_estimator(estimator_variant: EastVariant):
         from ngboost import NGBRegressor
         from ngboost.distns import LogNormal, Normal
 
-        dist_variant = _get_option(config.get("distribution"), None)
-        dist_type = _get_enum_tag(dist_variant) if dist_variant else "normal"
+        dist_type = option_tag(config["distribution"], "normal")
         dist = LogNormal if dist_type == "lognormal" else Normal
 
         return NGBRegressor(
-            n_estimators=int(_get_option(config.get("n_estimators"), 500)),
-            learning_rate=float(_get_option(config.get("learning_rate"), 0.01)),
-            minibatch_frac=float(_get_option(config.get("minibatch_frac"), 1.0)),
-            col_sample=float(_get_option(config.get("col_sample"), 1.0)),
-            random_state=_get_option(config.get("random_state"), None),
+            n_estimators=int(config["n_estimators"].unwrap_or(500)),
+            learning_rate=float(config["learning_rate"].unwrap_or(0.01)),
+            minibatch_frac=float(config["minibatch_frac"].unwrap_or(1.0)),
+            col_sample=float(config["col_sample"].unwrap_or(1.0)),
+            random_state=config["random_state"].unwrap_or(None),
             Dist=dist,
             verbose=False,
         )
@@ -2167,8 +1940,7 @@ def _create_base_estimator(estimator_variant: EastVariant):
             RationalQuadratic,
         )
 
-        kernel_variant = _get_option(config.get("kernel"), None)
-        kernel_type = _get_enum_tag(kernel_variant) if kernel_variant else "rbf"
+        kernel_type = option_tag(config["kernel"], "rbf")
 
         kernel_map = {
             "rbf": ConstantKernel() * RBF(),
@@ -2180,16 +1952,13 @@ def _create_base_estimator(estimator_variant: EastVariant):
         }
         kernel = kernel_map.get(kernel_type, ConstantKernel() * RBF())
 
-        alpha = _get_option(config.get("alpha"), 1e-10)
-        alpha = float(alpha) if alpha is not None else 1e-10
+        alpha = float(config["alpha"].unwrap_or(1e-10))
 
-        n_restarts = _get_option(config.get("n_restarts_optimizer"), 0)
-        n_restarts = int(n_restarts) if n_restarts is not None else 0
+        n_restarts = int(config["n_restarts_optimizer"].unwrap_or(0))
 
-        normalize_y = _get_option(config.get("normalize_y"), False)
-        normalize_y = bool(normalize_y) if normalize_y is not None else False
+        normalize_y = bool(config["normalize_y"].unwrap_or(False))
 
-        random_state = _get_option(config.get("random_state"), None)
+        random_state = config["random_state"].unwrap_or(None)
         if random_state is not None:
             random_state = int(random_state)
 
@@ -2212,7 +1981,7 @@ def _create_base_estimator(estimator_variant: EastVariant):
     inputs=[MatrixType(FloatType), MatrixType(FloatType), RegressorChainConfigType],
     output=SklearnModelBlobType,
 )
-def sklearn_regressor_chain_train_impl(
+def sklearn_regressor_chain_train(
     X: EastMatrix,
     Y: EastMatrix,
     config: EastStruct,
@@ -2222,7 +1991,7 @@ def sklearn_regressor_chain_train_impl(
     Each target in the chain is predicted using all features plus the
     predictions of all preceding targets, propagating inter-target
     dependencies.  The chain is serialised with cloudpickle for use with
-    :func:`sklearn_regressor_chain_predict_impl`.
+    :func:`sklearn_regressor_chain_predict`.
 
     Args:
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, shape
@@ -2260,14 +2029,9 @@ def sklearn_regressor_chain_train_impl(
     _check_sklearn_support()
     from sklearn.multioutput import RegressorChain
 
-    try:
-        X_np = X.to_numpy()
-        # Y is a matrix (n_samples x n_targets)
-        Y_np = Y.to_numpy(dtype=np.float32)
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_regressor_chain_train: Invalid input data - {e}"
-        ) from e
+    X_np = X.to_numpy()
+    # Y is a matrix (n_samples x n_targets)
+    Y_np = Y.to_numpy(dtype=np.float32)
 
     if X_np.shape[0] != Y_np.shape[0]:
         raise RuntimeError(
@@ -2290,12 +2054,12 @@ def sklearn_regressor_chain_train_impl(
     base_estimator_type = base_estimator_variant.type
 
     # Get order
-    order = _get_option(config.get("order"), None)
+    order = config["order"].unwrap_or(None)
     if order is not None:
         order = [int(x) for x in order]
 
     # Get random_state
-    random_state = _get_option(config.get("random_state"), None)
+    random_state = config["random_state"].unwrap_or(None)
     if random_state is not None:
         random_state = int(random_state)
 
@@ -2317,7 +2081,7 @@ def sklearn_regressor_chain_train_impl(
         "regressor_chain",
         EastStruct(
             {
-                "data": _serialize_model(chain),
+                "data": serialize(chain),
                 "n_features": n_features,
                 "n_targets": n_targets,
                 "base_estimator_type": base_estimator_type,
@@ -2331,7 +2095,7 @@ def sklearn_regressor_chain_train_impl(
     inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def sklearn_regressor_chain_predict_impl(
+def sklearn_regressor_chain_predict(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastMatrix:
@@ -2340,7 +2104,7 @@ def sklearn_regressor_chain_predict_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``regressor_chain``, as returned by
-            :func:`sklearn_regressor_chain_train_impl`.
+            :func:`sklearn_regressor_chain_train`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix, shape
             (n_samples, n_features); must have the same feature count as
             the training data.
@@ -2355,20 +2119,13 @@ def sklearn_regressor_chain_predict_impl(
             failure.
     """
     _check_sklearn_support()
-    if model_blob.type != "regressor_chain":
-        raise RuntimeError(
-            f"sklearn_regressor_chain_predict: Expected regressor_chain, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "regressor_chain", "sklearn_regressor_chain_predict")
+
+    X_np = X.to_numpy()
+
+    chain = deserialize(payload["data"])
 
     try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_regressor_chain_predict: Invalid input data - {e}"
-        ) from e
-
-    try:
-        chain = _deserialize_model(model_blob.value["data"])
         predictions = chain.predict(X_np)
     except Exception as e:
         raise RuntimeError(
@@ -2389,17 +2146,17 @@ def sklearn_regressor_chain_predict_impl(
     inputs=[MatrixType(FloatType), GMMConfigType],
     output=SklearnModelBlobType,
 )
-def sklearn_gmm_fit_impl(
+def sklearn_gmm_fit(
     X: EastMatrix,
     config: EastStruct,
 ) -> EastVariant:
     """Fit a Gaussian Mixture Model to data and return a cloudpickle-serialised model blob.
 
-    Use the returned blob with :func:`sklearn_gmm_predict_impl`,
-    :func:`sklearn_gmm_predict_proba_impl`,
-    :func:`sklearn_gmm_score_samples_impl`,
-    :func:`sklearn_gmm_sample_impl`,
-    :func:`sklearn_gmm_bic_impl`, and :func:`sklearn_gmm_aic_impl`.
+    Use the returned blob with :func:`sklearn_gmm_predict`,
+    :func:`sklearn_gmm_predict_proba`,
+    :func:`sklearn_gmm_score_samples`,
+    :func:`sklearn_gmm_sample`,
+    :func:`sklearn_gmm_bic`, and :func:`sklearn_gmm_aic`.
 
     Args:
         X: ``Matrix<Float>`` (``EastMatrix``) - training data, shape
@@ -2432,24 +2189,18 @@ def sklearn_gmm_fit_impl(
     _check_sklearn_support()
     from sklearn.mixture import GaussianMixture
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_gmm_fit: Invalid input data - {e}"
-        ) from e
+    X_np = X.to_numpy()
 
     n_features = X_np.shape[1]
 
     # Parse config
-    n_components = int(_get_option(config.get("n_components"), 1))
-    cov_type_variant = _get_option(config.get("covariance_type"), None)
-    covariance_type = _get_enum_tag(cov_type_variant) if cov_type_variant else "full"
-    max_iter = int(_get_option(config.get("max_iter"), 100))
-    n_init = int(_get_option(config.get("n_init"), 1))
-    tol = float(_get_option(config.get("tol"), 1e-3))
-    reg_covar = float(_get_option(config.get("reg_covar"), 1e-6))
-    random_state = _get_option(config.get("random_state"), None)
+    n_components = int(config["n_components"].unwrap_or(1))
+    covariance_type = option_tag(config["covariance_type"], "full")
+    max_iter = int(config["max_iter"].unwrap_or(100))
+    n_init = int(config["n_init"].unwrap_or(1))
+    tol = float(config["tol"].unwrap_or(1e-3))
+    reg_covar = float(config["reg_covar"].unwrap_or(1e-6))
+    random_state = config["random_state"].unwrap_or(None)
     if random_state is not None:
         random_state = int(random_state)
 
@@ -2473,7 +2224,7 @@ def sklearn_gmm_fit_impl(
         "gaussian_mixture",
         EastStruct(
             {
-                "data": _serialize_model(gmm),
+                "data": serialize(gmm),
                 "n_features": n_features,
                 "n_components": n_components,
             }
@@ -2486,7 +2237,7 @@ def sklearn_gmm_fit_impl(
     inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=VectorType(IntegerType),
 )
-def sklearn_gmm_predict_impl(
+def sklearn_gmm_predict(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastVector:
@@ -2495,7 +2246,7 @@ def sklearn_gmm_predict_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
-            :func:`sklearn_gmm_fit_impl`.
+            :func:`sklearn_gmm_fit`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data, shape (n_samples,
             n_features); must match the feature count of the fitting data.
 
@@ -2509,20 +2260,13 @@ def sklearn_gmm_predict_impl(
             failure.
     """
     _check_sklearn_support()
-    if model_blob.type != "gaussian_mixture":
-        raise RuntimeError(
-            f"sklearn_gmm_predict: Expected gaussian_mixture, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "gaussian_mixture", "sklearn_gmm_predict")
+
+    X_np = X.to_numpy()
+
+    gmm = deserialize(payload["data"])
 
     try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_gmm_predict: Invalid input data - {e}"
-        ) from e
-
-    try:
-        gmm = _deserialize_model(model_blob.value["data"])
         labels = gmm.predict(X_np)
     except Exception as e:
         raise RuntimeError(
@@ -2537,7 +2281,7 @@ def sklearn_gmm_predict_impl(
     inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def sklearn_gmm_predict_proba_impl(
+def sklearn_gmm_predict_proba(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastMatrix:
@@ -2546,7 +2290,7 @@ def sklearn_gmm_predict_proba_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
-            :func:`sklearn_gmm_fit_impl`.
+            :func:`sklearn_gmm_fit`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data, shape (n_samples,
             n_features).
 
@@ -2560,20 +2304,13 @@ def sklearn_gmm_predict_proba_impl(
             failure.
     """
     _check_sklearn_support()
-    if model_blob.type != "gaussian_mixture":
-        raise RuntimeError(
-            f"sklearn_gmm_predict_proba: Expected gaussian_mixture, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "gaussian_mixture", "sklearn_gmm_predict_proba")
+
+    X_np = X.to_numpy()
+
+    gmm = deserialize(payload["data"])
 
     try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_gmm_predict_proba: Invalid input data - {e}"
-        ) from e
-
-    try:
-        gmm = _deserialize_model(model_blob.value["data"])
         proba = gmm.predict_proba(X_np)
     except Exception as e:
         raise RuntimeError(
@@ -2588,7 +2325,7 @@ def sklearn_gmm_predict_proba_impl(
     inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
-def sklearn_gmm_score_samples_impl(
+def sklearn_gmm_score_samples(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastVector:
@@ -2597,7 +2334,7 @@ def sklearn_gmm_score_samples_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
-            :func:`sklearn_gmm_fit_impl`.
+            :func:`sklearn_gmm_fit`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data, shape (n_samples,
             n_features).
 
@@ -2611,20 +2348,13 @@ def sklearn_gmm_score_samples_impl(
             failure.
     """
     _check_sklearn_support()
-    if model_blob.type != "gaussian_mixture":
-        raise RuntimeError(
-            f"sklearn_gmm_score_samples: Expected gaussian_mixture, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "gaussian_mixture", "sklearn_gmm_score_samples")
+
+    X_np = X.to_numpy()
+
+    gmm = deserialize(payload["data"])
 
     try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_gmm_score_samples: Invalid input data - {e}"
-        ) from e
-
-    try:
-        gmm = _deserialize_model(model_blob.value["data"])
         scores = gmm.score_samples(X_np)
     except Exception as e:
         raise RuntimeError(
@@ -2639,7 +2369,7 @@ def sklearn_gmm_score_samples_impl(
     inputs=[SklearnModelBlobType, IntegerType],
     output=MatrixType(FloatType),
 )
-def sklearn_gmm_sample_impl(
+def sklearn_gmm_sample(
     model_blob: EastVariant,
     n_samples: int,
 ) -> EastMatrix:
@@ -2648,7 +2378,7 @@ def sklearn_gmm_sample_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
-            :func:`sklearn_gmm_fit_impl`.
+            :func:`sklearn_gmm_fit`.
         n_samples: ``Integer`` - number of samples to generate.
 
     Returns:
@@ -2660,13 +2390,11 @@ def sklearn_gmm_sample_impl(
         RuntimeError: wrong blob tag, or sampling failure.
     """
     _check_sklearn_support()
-    if model_blob.type != "gaussian_mixture":
-        raise RuntimeError(
-            f"sklearn_gmm_sample: Expected gaussian_mixture, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "gaussian_mixture", "sklearn_gmm_sample")
+
+    gmm = deserialize(payload["data"])
 
     try:
-        gmm = _deserialize_model(model_blob.value["data"])
         samples, _ = gmm.sample(int(n_samples))
     except Exception as e:
         raise RuntimeError(
@@ -2681,7 +2409,7 @@ def sklearn_gmm_sample_impl(
     inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=FloatType,
 )
-def sklearn_gmm_bic_impl(
+def sklearn_gmm_bic(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> float:
@@ -2693,7 +2421,7 @@ def sklearn_gmm_bic_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
-            :func:`sklearn_gmm_fit_impl`.
+            :func:`sklearn_gmm_fit`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to evaluate, shape
             (n_samples, n_features).
 
@@ -2706,20 +2434,13 @@ def sklearn_gmm_bic_impl(
             computation failure.
     """
     _check_sklearn_support()
-    if model_blob.type != "gaussian_mixture":
-        raise RuntimeError(
-            f"sklearn_gmm_bic: Expected gaussian_mixture, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "gaussian_mixture", "sklearn_gmm_bic")
+
+    X_np = X.to_numpy()
+
+    gmm = deserialize(payload["data"])
 
     try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_gmm_bic: Invalid input data - {e}"
-        ) from e
-
-    try:
-        gmm = _deserialize_model(model_blob.value["data"])
         return float(gmm.bic(X_np))
     except Exception as e:
         raise RuntimeError(
@@ -2732,7 +2453,7 @@ def sklearn_gmm_bic_impl(
     inputs=[SklearnModelBlobType, MatrixType(FloatType)],
     output=FloatType,
 )
-def sklearn_gmm_aic_impl(
+def sklearn_gmm_aic(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> float:
@@ -2744,7 +2465,7 @@ def sklearn_gmm_aic_impl(
     Args:
         model_blob: ``SklearnModelBlobType`` (``EastVariant``) tagged
             ``gaussian_mixture``, as returned by
-            :func:`sklearn_gmm_fit_impl`.
+            :func:`sklearn_gmm_fit`.
         X: ``Matrix<Float>`` (``EastMatrix``) - data to evaluate, shape
             (n_samples, n_features).
 
@@ -2757,20 +2478,13 @@ def sklearn_gmm_aic_impl(
             computation failure.
     """
     _check_sklearn_support()
-    if model_blob.type != "gaussian_mixture":
-        raise RuntimeError(
-            f"sklearn_gmm_aic: Expected gaussian_mixture, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "gaussian_mixture", "sklearn_gmm_aic")
+
+    X_np = X.to_numpy()
+
+    gmm = deserialize(payload["data"])
 
     try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(
-            f"sklearn_gmm_aic: Invalid input data - {e}"
-        ) from e
-
-    try:
-        gmm = _deserialize_model(model_blob.value["data"])
         return float(gmm.aic(X_np))
     except Exception as e:
         raise RuntimeError(

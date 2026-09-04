@@ -207,7 +207,7 @@ export const solver_tasks = [solver_task];
 
 The member side holds both crossings. The platform impl is keyed to the same
 dotted `"<pkg>.example"` name: `packages/python/pricing/src/pricing/example.py`
-is an `@platform_function`; `packages/node/api/src/platform.ts` is
+is an `@East.platform_function`; `packages/node/api/src/platform.ts` is
 `East.platform(...).implement(...)` default-exported as a `PlatformFunction[]`.
 Keep the member impl and the app-side `East.platform(...)` declaration in
 lockstep (same name + signature). The East function is
@@ -254,6 +254,6 @@ The generated `npm` scripts (`setup`, `build`, `test`, `deploy`, `start`,
 - **east-project** — the lifecycle after scaffolding: implement, build, deploy, run, watch, test.
 - **e3** — the SDK (`e3.input` / `e3.task` / `e3.package` / `e3.export`) + CLI the generated code uses; per-package environment auto-derivation and self-resolving `East.importFunction` imports.
 - **east** — the language for task bodies and `East.platform(...)` declarations.
-- **east-py** — author the `@platform_function` and the `East.function` a `--python-packages` member exports; **east-node-std** — the east-node platform fn a `--node-packages` member exports; **east** — its `East.function` and the app's `East.importFunction`.
+- **east-py** — author the `@East.platform_function` and the `East.function` a `--python-packages` member exports; **east-node-std** — the east-node platform fn a `--node-packages` member exports; **east** — its `East.function` and the app's `East.importFunction`.
 - **east-ui** / **e3-ui** / **e3-ui-cli** — the `--ui` surface and screenshotting it (`npm run shot`).
 - **east-design** — start here when you have a goal but no architecture yet.

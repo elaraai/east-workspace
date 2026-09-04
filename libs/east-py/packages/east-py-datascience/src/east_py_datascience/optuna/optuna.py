@@ -8,10 +8,10 @@ Provides Bayesian optimization using Optuna's TPE sampler for East programs.
 Supports general parameter optimization with mixed parameter types.
 """
 
-import importlib.util
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from east import variant
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     ArrayType,
@@ -25,7 +25,9 @@ from east.types.types import (
     StructType,
     VariantType,
 )
-from east.types.values import EastArray, EastStruct, EastVariant, is_east_variant
+from east.types.values import EastArray, EastStruct
+
+from east_py_datascience._common import extra_guard, option_tag
 
 if TYPE_CHECKING:
     import optuna
@@ -176,39 +178,7 @@ trial), ``best_score`` (``Float`` objective at the best trial), ``trials``
 ObjectiveFunctionType = ArrayType(NamedParamType)  # Input type for the function
 
 
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
-
-def _get_option(opt: EastVariant | None, default: Any) -> Any:
-    """Extract value from Option variant, returning default if None."""
-    if opt is None:
-        return default
-    if is_east_variant(opt) and opt.type == "some":
-        return opt.value
-    return default
-
-
-def _get_enum_tag(variant: EastVariant) -> str:
-    """Get tag name from enum-like variant."""
-    if is_east_variant(variant):
-        return variant.type
-    raise RuntimeError(f"_get_enum_tag: Expected EastVariant, got {type(variant)}")
-
-
-
-# Lazy import guard for optional dependency
-_HAS_OPTUNA_SUPPORT = importlib.util.find_spec("optuna") is not None
-
-
-def _check_optuna_support() -> None:
-    """Check if optuna support is available."""
-    if not _HAS_OPTUNA_SUPPORT:
-        raise NotImplementedError(
-            "Optuna support requires the 'optuna' extra. "
-            "Add east-py-datascience[optuna] to your pyproject.toml dependencies."
-        )
+_check_optuna_support = extra_guard("optuna", "optuna", "Optuna")
 
 
 # ============================================================================
@@ -225,7 +195,7 @@ def _check_optuna_support() -> None:
     ],
     output=StudyResultType,
 )
-def optuna_optimize_impl(
+def optuna_optimize(
     search_space: EastArray,
     objective_fn: Callable[[EastArray], float],
     config: EastStruct,
@@ -285,18 +255,15 @@ def optuna_optimize_impl(
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     # Parse config
-    direction_variant = _get_option(config.get("direction"), None)
-    direction = _get_enum_tag(direction_variant) if direction_variant else "minimize"
-
+    direction = option_tag(config["direction"], "minimize")
     n_trials = int(config["n_trials"])
-    random_state = _get_option(config.get("random_state"), None)
+    random_state = config["random_state"].unwrap_or(None)
     if random_state is not None:
         random_state = int(random_state)
-
-    pruner_variant = _get_option(config.get("pruner"), None)
-    pruner_name = _get_enum_tag(pruner_variant) if pruner_variant else "none"
+    pruner_name = option_tag(config["pruner"], "none")
 
     # Create pruner
+    pruner: optuna.pruners.BasePruner
     if pruner_name == "median":
         pruner = optuna.pruners.MedianPruner()
     elif pruner_name == "hyperband":
@@ -309,14 +276,9 @@ def optuna_optimize_impl(
     study = optuna.create_study(direction=direction, sampler=sampler, pruner=pruner)
 
     # Enqueue initial params if provided (warm-start)
-    initial_params = _get_option(config.get("initial_params"), None)
+    initial_params = config["initial_params"].unwrap_or(None)
     if initial_params is not None:
-        init_dict = {}
-        for param in initial_params:
-            name = str(param["name"])
-            value_variant = param["value"]
-            init_dict[name] = value_variant.value
-        study.enqueue_trial(init_dict)
+        study.enqueue_trial({str(param["name"]): param["value"].value for param in initial_params})
 
     def wrapped_objective(trial: optuna.Trial) -> float:
         """Wrap Optuna trial to call East objective function."""
@@ -329,107 +291,54 @@ def optuna_optimize_impl(
     return _make_study_result(study)
 
 
+def _named_param(name: str, value: Any) -> EastStruct:
+    """A ``NamedParamType`` struct for a Python parameter value, tagged by its type."""
+    if isinstance(value, bool):
+        tag = "bool"
+    elif isinstance(value, int):
+        tag = "int"
+    elif isinstance(value, float):
+        tag = "float"
+    elif isinstance(value, str):
+        tag = "string"
+    else:
+        raise TypeError(f"optuna parameter {name!r} has an unsupported value {value!r}")
+    return EastStruct({"name": name, "value": variant(tag, value, ParamValueType)})
+
+
 def _suggest_params_from_trial(
     trial: "optuna.Trial",
     search_space: EastArray,
 ) -> EastArray:
-    """Suggest parameters from Optuna trial based on search space."""
+    """Suggest one value per search-space parameter from the trial."""
     params: list[EastStruct] = []
-
     for param_def in search_space:
         name = str(param_def["name"])
-        kind_variant = param_def["kind"]
-        kind = _get_enum_tag(kind_variant)
-
+        kind = param_def["kind"].type
+        value: Any
         if kind == "int":
-            low = int(_get_option(param_def.get("low"), 1))
-            high = int(_get_option(param_def.get("high"), 100))
-            value = trial.suggest_int(name, low, high)
-            params.append(
-                EastStruct(
-                    {
-                        "name": name,
-                        "value": EastVariant("int", value),
-                    }
-                )
+            value = trial.suggest_int(
+                name, int(param_def["low"].unwrap_or(1)), int(param_def["high"].unwrap_or(100))
             )
-
         elif kind == "float":
-            low = float(_get_option(param_def.get("low"), 0.0))
-            high = float(_get_option(param_def.get("high"), 1.0))
-            value = trial.suggest_float(name, low, high)
-            params.append(
-                EastStruct(
-                    {
-                        "name": name,
-                        "value": EastVariant("float", value),
-                    }
-                )
+            value = trial.suggest_float(
+                name, float(param_def["low"].unwrap_or(0.0)), float(param_def["high"].unwrap_or(1.0))
             )
-
         elif kind == "log_uniform":
-            low = float(_get_option(param_def.get("low"), 1e-6))
-            high = float(_get_option(param_def.get("high"), 1.0))
-            value = trial.suggest_float(name, low, high, log=True)
-            params.append(
-                EastStruct(
-                    {
-                        "name": name,
-                        "value": EastVariant("float", value),
-                    }
-                )
+            value = trial.suggest_float(
+                name,
+                float(param_def["low"].unwrap_or(1e-6)),
+                float(param_def["high"].unwrap_or(1.0)),
+                log=True,
             )
-
         elif kind == "categorical":
-            choices_arr = _get_option(param_def.get("choices"), None)
-            if choices_arr is None:
+            choices = param_def["choices"].unwrap_or(None)
+            if choices is None:
                 raise ValueError(f"categorical param {name} requires choices")
-
-            # Extract Python values from EastVariant choices
-            py_choices = []
-            for choice in choices_arr:
-                py_choices.append(choice.value)
-
-            value = trial.suggest_categorical(name, py_choices)
-
-            # Convert back to ParamValueType variant
-            if isinstance(value, bool):
-                params.append(
-                    EastStruct(
-                        {
-                            "name": name,
-                            "value": EastVariant("bool", value),
-                        }
-                    )
-                )
-            elif isinstance(value, int):
-                params.append(
-                    EastStruct(
-                        {
-                            "name": name,
-                            "value": EastVariant("int", value),
-                        }
-                    )
-                )
-            elif isinstance(value, float):
-                params.append(
-                    EastStruct(
-                        {
-                            "name": name,
-                            "value": EastVariant("float", value),
-                        }
-                    )
-                )
-            elif isinstance(value, str):
-                params.append(
-                    EastStruct(
-                        {
-                            "name": name,
-                            "value": EastVariant("string", value),
-                        }
-                    )
-                )
-
+            value = trial.suggest_categorical(name, [choice.value for choice in choices])
+        else:
+            raise ValueError(f"unknown parameter kind {kind!r} for {name}")
+        params.append(_named_param(name, value))
     return EastArray(NamedParamType, params)
 
 
@@ -440,21 +349,18 @@ def _make_study_result(study: "optuna.Study") -> EastStruct:
     # Best params
     best_params = _params_to_east(study.best_params)
 
-    # All completed trials
-    trials: list[EastStruct] = []
-    for trial in study.trials:
-        if trial.state == optuna.trial.TrialState.COMPLETE:
-            trials.append(
-                EastStruct(
-                    {
-                        "trial_id": trial.number,
-                        "params": EastArray(
-                            NamedParamType, _params_to_east(trial.params)
-                        ),
-                        "score": float(trial.value),
-                    }
-                )
-            )
+    # All completed trials (a completed single-objective trial always carries a value)
+    trials: list[EastStruct] = [
+        EastStruct(
+            {
+                "trial_id": trial.number,
+                "params": EastArray(NamedParamType, _params_to_east(trial.params)),
+                "score": float(trial.value),
+            }
+        )
+        for trial in study.trials
+        if trial.state == optuna.trial.TrialState.COMPLETE and trial.value is not None
+    ]
 
     return EastStruct(
         {
@@ -466,46 +372,8 @@ def _make_study_result(study: "optuna.Study") -> EastStruct:
 
 
 def _params_to_east(params: dict) -> list[EastStruct]:
-    """Convert Python params dict to list of NamedParam."""
-    result: list[EastStruct] = []
-    for name, value in params.items():
-        if isinstance(value, bool):
-            result.append(
-                EastStruct(
-                    {
-                        "name": name,
-                        "value": EastVariant("bool", value),
-                    }
-                )
-            )
-        elif isinstance(value, int):
-            result.append(
-                EastStruct(
-                    {
-                        "name": name,
-                        "value": EastVariant("int", value),
-                    }
-                )
-            )
-        elif isinstance(value, float):
-            result.append(
-                EastStruct(
-                    {
-                        "name": name,
-                        "value": EastVariant("float", value),
-                    }
-                )
-            )
-        elif isinstance(value, str):
-            result.append(
-                EastStruct(
-                    {
-                        "name": name,
-                        "value": EastVariant("string", value),
-                    }
-                )
-            )
-    return result
+    """Optuna's ``{name: value}`` params as a list of ``NamedParamType`` structs."""
+    return [_named_param(name, value) for name, value in params.items()]
 
 
 # ============================================================================

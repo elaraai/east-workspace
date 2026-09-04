@@ -1,6 +1,6 @@
 ---
 name: east-node-std
-description: "Node.js platform functions for the East language. Use when writing East programs that need Console I/O, Environment variables, FileSystem operations, HTTP Fetch requests, Cryptography, Time operations, Path manipulation, Random number generation, or Testing. Triggers for: (1) Writing East programs with @elaraai/east-node-std, (2) Using platform functions like Console.log, Env.get, FileSystem.readFile, Fetch.get, Crypto.uuid, Time.now, Path.join, Random.normal, (3) Testing East code with describeEast and Assert, (4) Passing credentials/secrets to East tasks without putting them in source."
+description: "Node.js platform functions for the East language. Use when writing East programs that need Console I/O, Environment variables, FileSystem operations, HTTP Fetch requests, Cryptography, Time operations, Path manipulation, Random number generation, or Testing. Triggers for: (1) Writing East programs with @elaraai/east-node-std, (2) Using platform functions like Console.log, Env.get, FileSystem.readFile, Fetch.get, Crypto.uuid, Time.now, Path.join, Random.normal, (3) Testing East code with describeEast and Assert, (4) Passing credentials/secrets to East tasks without putting them in source, (5) Opening a beast2 collection file too big for memory lazily with FileSystem.openBeast (paged reads inside an East function, on every runtime)."
 ---
 
 # East Node Standard Library
@@ -61,6 +61,8 @@ Task → What do you need?
     ├─ FileSystem (read/write files and directories)
     │   ├─ Text → .readFile(), .writeFile(), .appendFile()
     │   ├─ Binary → .readFileBytes(), .writeFileBytes()
+    │   ├─ Huge beast2 collection file → .openBeast(T, path) — T is an ArrayType/SetType/DictType, passed FIRST; a frozen,
+    │   │   lazily paged value: size / get / has / $.for decode one segment (mapped on east-c and east-py, positioned reads on Node)
     │   ├─ Query → .exists(), .isFile(), .isDirectory()
     │   ├─ Directory → .createDirectory(), .readDirectory()
     │   └─ Delete → .deleteFile()
@@ -111,7 +113,7 @@ const compiled = East.compile(myFunction.toIR(), [...Console.Implementation, ...
 | Crypto | `import { Crypto } from "@elaraai/east-node-std"` | Hashing, UUIDs, random bytes |
 | Time | `import { Time } from "@elaraai/east-node-std"` | Timestamps and sleep |
 | Path | `import { Path } from "@elaraai/east-node-std"` | Path manipulation |
-| Random | `import { Random } from "@elaraai/east-node-std"` | 14 statistical distributions |
+| Random | `import { Random } from "@elaraai/east-node-std"` | Statistical distributions |
 | Assert | `import { Assert, describeEast } from "@elaraai/east-node-std"` | Testing utilities |
 
 ## Accessing Types
@@ -124,6 +126,50 @@ const method = Fetch.Types.Method;
 const config = Fetch.Types.RequestConfig;
 const response = Fetch.Types.Response;
 ```
+
+## Key Patterns
+
+### Open a huge beast2 collection file lazily
+
+`FileSystem.openBeast(T, path)` is the file-backed twin of `blob.openBeast(T)`
+(the **east** skill): the type comes first, the value is frozen, and only the
+segments a program touches are ever decoded. It is a generic platform call
+(`fs_open_beast<T>`) provided by the std family on every runtime, so an East
+function using it runs unchanged on the east-node, east-c and east-py
+runners — a python-authored function that calls it links into an east-c task.
+
+```typescript
+import { East, DictType, IntegerType, StringType, StructType } from "@elaraai/east";
+import { FileSystem } from "@elaraai/east-node-std";
+
+const TableType = DictType(IntegerType, StructType({ id: IntegerType, name: StringType }));
+
+const total = East.function([StringType], IntegerType, ($, path) => {
+    const table = $.let(FileSystem.openBeast(TableType, path));   // reads the index, not the file
+    const sum = $.let(table.get(7n).id);                          // one segment decoded
+    $.for(table, ($, row) => {                                    // one segment at a time
+        $.assign(sum, sum.add(row.id));
+    });
+    return sum;
+});
+```
+
+- The file's header must carry exactly `T` — a mismatch is
+  `Failed to open beast file <path>: beast2: cannot open a blob of type <wire> as <T>`,
+  the same text on every runtime; a missing file is `Failed to open beast file <path>: ...`.
+- The value is frozen: `insert` / `update` raise `cannot mutate a frozen value`;
+  `.copy()` gives a mutable copy (decoding the whole file).
+- A file without a paging index — what `East.Blob.encodeBeast` writes — or an
+  element shape holding `Ref` or function values decodes whole, frozen, with
+  the same value. Paged files come from `encodeBeast2PagedFor`, `Beast2Writer`
+  and every runner's collection output.
+- The value keeps its file open for as long as it lives (a descriptor on
+  Node, a read-only mapping on east-c and east-py): don't hold thousands of
+  opened files at once, and don't truncate or rewrite a file while a value
+  over it is alive — read it into a fresh value first.
+- For bytes already in hand (a `BlobType` dataset, a `Fetch.getBytes` result)
+  use `blob.openBeast(T)` instead; for an e3 task input, do nothing — large
+  inputs already open lazily.
 
 ## Related skills
 

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { readFileSync } from 'fs';
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'path';
 import { extname } from 'path';
@@ -22,6 +22,7 @@ import {
     EastIR,
     AsyncEastIR,
     type EastTypeValue,
+    type Beast2SyncRangeReader,
 } from '@elaraai/east';
 import type { PlatformFunction, IR, ValueTypeOf } from '@elaraai/east/internal';
 
@@ -364,6 +365,33 @@ export function loadInput(filePath: string, type: EastTypeValue): unknown {
     }
 }
 
+/** Bytes each lazily opened input has read from its descriptor so far —
+ *  what "paged from the file" came to, for the runner's verbose summary. */
+const lazyInputReads = new WeakMap<object, () => number>();
+
+/**
+ * Bytes a value from {@link loadInputLazy} has read from its file so far:
+ * the geometry (tail and head), every fence probe, and each segment frame
+ * decoded. `undefined` for any other value.
+ *
+ * @param value - a task input value
+ * @returns the byte count, or `undefined` when the value was not opened lazily
+ */
+export function lazyInputBytesRead(value: unknown): number | undefined {
+    return typeof value === 'object' && value !== null ? lazyInputReads.get(value)?.() : undefined;
+}
+
+/** The descriptors behind lazily opened inputs, closed when their value is
+ *  collected: the value reads segment frames from the descriptor for its
+ *  whole life. A runner holds one per lazy input. */
+const lazyInputFiles = new FinalizationRegistry<number>((fd) => {
+    try {
+        closeSync(fd);
+    } catch {
+        // Already closed — nothing else to release.
+    }
+});
+
 /**
  * Opens an input file as a lazy pager-backed collection value, when it can
  * be: a beast2 v5 collection blob carrying a segment index. Size, iteration
@@ -371,10 +399,17 @@ export function loadInput(filePath: string, type: EastTypeValue): unknown {
  * memory; any other operation hydrates transparently to the eager value's
  * exact semantics.
  *
+ * The file is never buffered whole: the value pages segment frames from an
+ * open descriptor through positioned reads (a Set or Dict input's first
+ * keyed read probes every segment's fence once), so its residency is the
+ * page cache and the process heap holds one decoded segment at a time — the
+ * difference between an out-of-memory kill and graceful eviction for an
+ * input near the runner's memory limit.
+ *
  * Returns `undefined` when the file cannot be served lazily (a non-beast2
- * format, a v4 or index-less blob, a non-collection root, or an element
- * shape carrying a `Ref` or function values) — the caller falls back to
- * {@link loadInput}.
+ * format, a v4 or index-less blob, a non-collection root, cross-segment
+ * aliasing, or an element shape carrying a `Ref` or function values) — the
+ * caller falls back to {@link loadInput}.
  *
  * The value opens **frozen**, like every task input, which is what makes
  * lazy service safe for any nested element shape: frozen values cannot be
@@ -388,12 +423,35 @@ export function loadInput(filePath: string, type: EastTypeValue): unknown {
  */
 export function loadInputLazy(filePath: string): unknown | undefined {
     if (getFileFormat(filePath) !== 'beast2') return undefined;
-    const data = readFileSync(filePath);
+    let fd = -1;
     try {
-        const extents = readBeast2Extents(data);
-        if (!isBeast2LazySafe(extents.typeValue, { frozen: true })) return undefined;
-        return openBeast2LazyFor(extents.typeValue, { frozen: true })(data);
+        fd = openSync(filePath, 'r');
+        const handle = fd;
+        let bytesRead = 0;
+        const reader: Beast2SyncRangeReader = {
+            size: fstatSync(handle).size,
+            read(offset, length) {
+                const out = new Uint8Array(length);
+                let done = 0;
+                while (done < length) {
+                    const n = readSync(handle, out, done, length - done, offset + done);
+                    if (n === 0) throw new Error(`beast2: short read at offset ${offset + done}`);
+                    done += n;
+                }
+                bytesRead += length;
+                return out;
+            },
+        };
+        const extents = readBeast2Extents(reader);
+        if (!extents.selfContained || !isBeast2LazySafe(extents.typeValue, { frozen: true })) return undefined;
+        const value = openBeast2LazyFor(extents.typeValue, { frozen: true })(reader) as object;
+        lazyInputFiles.register(value, handle);
+        lazyInputReads.set(value, () => bytesRead);
+        fd = -1; // the value owns the descriptor from here
+        return value;
     } catch {
         return undefined;
+    } finally {
+        if (fd >= 0) closeSync(fd);
     }
 }

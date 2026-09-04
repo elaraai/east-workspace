@@ -25,7 +25,7 @@ from .types import ZipEntriesType, ZipExtractedType, ZipOptionsType
     inputs=[ZipEntriesType, ZipOptionsType],
     output=BlobType,
 )
-def zip_compress_impl(
+def zip_compress(
     entries: EastArray,
     options: EastStruct,
 ) -> EastBlob:
@@ -82,7 +82,7 @@ def zip_compress_impl(
     inputs=[BlobType],
     output=ZipExtractedType,
 )
-def zip_decompress_impl(data: EastBlob) -> EastDict:
+def zip_decompress(data: EastBlob) -> EastDict:
     """Extract all files from a ZIP archive.
 
     Args:
@@ -116,6 +116,6 @@ zip_impl = platform_functions(__name__)
 
 __all__ = [
     "zip_impl",
-    "zip_compress_impl",
-    "zip_decompress_impl",
+    "zip_compress",
+    "zip_decompress",
 ]

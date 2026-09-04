@@ -59,3 +59,11 @@ endif()
 # platform and run natively, including the Windows (MSVC) CI leg.
 add_executable(test_std_compliance tests/test_compliance.c)
 target_link_libraries(test_std_compliance east-c-std)
+
+# fs_open_beast gate: the file maps and opens as a frozen paged value served
+# from the mapping, a header of another type is refused, an index-less file
+# decodes whole, and the mapping dies with the value. Run under ASan/LSan via
+# make leak-check (ctest in the build-asan tree).
+add_executable(test_fs_open_beast tests/test_fs_open_beast.c)
+target_link_libraries(test_fs_open_beast east-c-std)
+add_test(NAME std_fs_open_beast COMMAND test_fs_open_beast)

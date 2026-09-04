@@ -13,25 +13,25 @@ from east_py_io.storage.s3 import (
     S3ConfigType,
     S3ListResultType,
     S3ObjectMetadataType,
-    s3_delete_object_impl,
-    s3_get_object_impl,
-    s3_head_object_impl,
+    s3_delete_object,
+    s3_get_object,
+    s3_head_object,
     s3_impl,
-    s3_list_objects_impl,
-    s3_presign_url_impl,
-    s3_put_object_impl,
+    s3_list_objects,
+    s3_presign_url,
+    s3_put_object,
 )
 
 __all__ = [
     # Platform registration
     "s3_impl",
     # Directly-callable implementations
-    "s3_put_object_impl",
-    "s3_get_object_impl",
-    "s3_head_object_impl",
-    "s3_delete_object_impl",
-    "s3_list_objects_impl",
-    "s3_presign_url_impl",
+    "s3_put_object",
+    "s3_get_object",
+    "s3_head_object",
+    "s3_delete_object",
+    "s3_list_objects",
+    "s3_presign_url",
     # East type definitions
     "S3ConfigType",
     "S3ObjectMetadataType",

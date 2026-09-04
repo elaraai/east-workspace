@@ -14,7 +14,7 @@ from east.types.types import NullType, StringType
 
 
 @platform_function(name="console_log", inputs=[StringType], output=NullType)
-def console_log_impl(message: str) -> None:
+def console_log(message: str) -> None:
     """Write a message to stdout followed by a newline.
 
     Args:
@@ -27,7 +27,7 @@ def console_log_impl(message: str) -> None:
 
 
 @platform_function(name="console_error", inputs=[StringType], output=NullType)
-def console_error_impl(message: str) -> None:
+def console_error(message: str) -> None:
     """Write a message to stderr followed by a newline.
 
     Args:
@@ -40,7 +40,7 @@ def console_error_impl(message: str) -> None:
 
 
 @platform_function(name="console_write", inputs=[StringType], output=NullType)
-def console_write_impl(message: str) -> None:
+def console_write(message: str) -> None:
     """Write a message to stdout without appending a newline.
 
     Args:
@@ -59,7 +59,7 @@ console_impl = platform_functions(__name__)
 
 __all__ = [
     "console_impl",
-    "console_log_impl",
-    "console_error_impl",
-    "console_write_impl",
+    "console_log",
+    "console_error",
+    "console_write",
 ]

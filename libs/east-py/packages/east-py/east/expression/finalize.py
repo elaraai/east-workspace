@@ -469,6 +469,51 @@ def _finalize_ir(top, param_names: set, top_fn=None, cse: bool = True):
 
     callback_walk(top, False)
 
+    # Occurrences inside a GUARDED body — a TryCatch's `try_body` (#668). The
+    # body always evaluates, so `cond_walk` below is right not to call it
+    # conditional; but a failure inside it is CAUGHT, and a Let bound OUTSIDE
+    # the TryCatch evaluates outside the guard, where the same failure
+    # escapes the handler written to answer for it. `try_parse` is exactly
+    # this shape — `TryCatch(some(Parse(s)), none)` — so hoisting its Parse
+    # turned the non-raising parse into a raising one.
+    #
+    # What must not happen is the hoist LEAVING the guard, so this records
+    # the try_body path every occurrence shares (intersected the way `region`
+    # intersects Block paths below); the site check refuses only a Let that
+    # would land outside it. A guarded loop invariant still hoists to a Block
+    # inside the same guard, which is what keeps #525/#602 working under a
+    # try.
+    gpath: dict[int, tuple] = {}
+    guarded: set[int] = set()
+    g_walked: set[tuple] = set()
+
+    def guard_walk(node, path):
+        key = (id(node), path)
+        if key in g_walked:
+            return
+        g_walked.add(key)
+        i = id(node)
+        if path:
+            guarded.add(i)
+        prev = gpath.get(i)
+        if prev is None:
+            gpath[i] = path
+        elif prev != path:
+            n = 0
+            while n < len(prev) and n < len(path) and prev[n] == path[n]:
+                n += 1
+            gpath[i] = prev[:n]
+        if node.type == "TryCatch":
+            payload = node.value
+            guard_walk(payload["try_body"], path + (i,))
+            for f in ("catch_body", "message", "stack", "finally_body"):
+                guard_walk(payload[f], path)
+            return
+        for child in _node_children(node):
+            guard_walk(child, path)
+
+    guard_walk(top, ())
+
     # A name that is REBOUND between the function body and a node's occurrence
     # (an inner-lambda param or match/catch variable shadowing a top param)
     # must block the hoist — at the top the name resolves to the wrong
@@ -861,6 +906,16 @@ def _finalize_ir(top, param_names: set, top_fn=None, cse: bool = True):
                 continue      # a name no enclosing Block on this path binds
         else:
             home, at = None, 0            # the function body, as before #595
+        if i in guarded:
+            # The Let must evaluate under exactly the handlers its
+            # occurrences do. The function body is outside every guard, and
+            # an empty common path means the occurrences disagree (one
+            # guarded, one not), so no site serves them all. Equality — not a
+            # prefix — also refuses a site nested in a DEEPER guard, where an
+            # inner handler would swallow a failure meant for an outer one.
+            g = gpath.get(i, ())
+            if not g or home is None or gpath.get(home, ()) != g:
+                continue
         site[i] = (home, at)
         hoistable[i] = _fresh_name()
 

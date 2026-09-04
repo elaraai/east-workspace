@@ -239,6 +239,9 @@ static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx, bool include
 
     case EAST_VAL_PAGED:
         if (v->data.paged.hydrated) visit(v->data.paged.hydrated, ctx);
+        /* The owner is a retained edge like any other child (a leaf Blob in
+         * practice — visiting a leaf is a no-op for the collector). */
+        if (v->data.paged.owner) visit(v->data.paged.owner, ctx);
         break;
 
     default:
@@ -302,14 +305,7 @@ static void gc_destroy_contents(EastValue *v)
         break;
 
     case EAST_VAL_PAGED:
-        if (v->data.paged.pages) {
-            east_beast2_pages_free(v->data.paged.pages);
-            v->data.paged.pages = NULL;
-        }
-        if (v->data.paged.owns_data) east_free(v->data.paged.data);
-        v->data.paged.data = NULL;
-        east_value_release(v->data.paged.hydrated);
-        v->data.paged.hydrated = NULL;
+        east_paged_release_contents(v); /* pager, bytes per mode, child, owner; nulls fields */
         break;
 
     default:

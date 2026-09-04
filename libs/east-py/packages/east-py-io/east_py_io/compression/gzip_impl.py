@@ -21,7 +21,7 @@ from .types import GzipOptionsType
 
 
 @platform_function(name="gzip_compress", inputs=[BlobType, GzipOptionsType], output=BlobType)
-async def gzip_compress_impl(data: EastBlob, options: EastStruct) -> EastBlob:
+async def gzip_compress(data: EastBlob, options: EastStruct) -> EastBlob:
     """Compress a binary blob using gzip.
 
     Args:
@@ -55,7 +55,7 @@ async def gzip_compress_impl(data: EastBlob, options: EastStruct) -> EastBlob:
 
 
 @platform_function(name="gzip_decompress", inputs=[BlobType], output=BlobType)
-async def gzip_decompress_impl(data: EastBlob) -> EastBlob:
+async def gzip_decompress(data: EastBlob) -> EastBlob:
     """Decompress a gzip-compressed binary blob.
 
     Args:
@@ -80,6 +80,6 @@ gzip_impl = platform_functions(__name__)
 
 __all__ = [
     "gzip_impl",
-    "gzip_compress_impl",
-    "gzip_decompress_impl",
+    "gzip_compress",
+    "gzip_decompress",
 ]

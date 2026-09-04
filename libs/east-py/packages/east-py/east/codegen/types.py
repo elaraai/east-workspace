@@ -136,7 +136,10 @@ def type_constructors(t: EastType, into: set[str]) -> None:
 
 
 def type_key(t: Any) -> str:
-    """A structural key for deduplicating hoisted type constants."""
-    from east.expression.nodes import _type_key
+    """A structural key of a type: for deduplicating hoisted type constants
+    and for matching a provider's declared type against a node's. Recursive
+    scope ids are alpha-renamed, so a wrapper minted in this process keys
+    equal to the same structure decoded from the wire under a foreign id."""
+    from east.types.types import _alpha_key
 
-    return _type_key(t)
+    return repr(_alpha_key(t))

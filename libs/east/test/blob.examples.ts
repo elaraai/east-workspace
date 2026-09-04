@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BlobType, StringType, IntegerType, FloatType, StructType, ArrayType, example } from "@elaraai/east";
+import { East, BlobType, BooleanType, StringType, IntegerType, FloatType, StructType, ArrayType, DictType, SetType, RefType, SortedMap, SortedSet, compareFor, encodeBeast2For, encodeBeast2PagedFor, ref, example } from "@elaraai/east";
 
 // ---------------------------------------------------------------------------
 // Construction & Access
@@ -159,6 +159,143 @@ export const blobDecodeBeastV2 = example({
     }),
     inputs: [],
     returns: 42n,
+});
+
+// ---------------------------------------------------------------------------
+// Beast v2 lazy paged open
+// ---------------------------------------------------------------------------
+//
+// The blobs below are what the paged writers produce — segmented, indexed,
+// self-contained — 30 rows in segments of 10, so a keyed read decodes one of
+// three segments. An in-expression `East.Blob.encodeBeast` writes no index
+// and takes the whole-decode fallback (blobOpenBeastIndexless).
+
+const OpenRowType = StructType({ id: IntegerType, name: StringType });
+const OpenTableType = DictType(IntegerType, OpenRowType);
+const OpenTagsType = SetType(StringType);
+const OpenRowsType = ArrayType(StringType);
+const OpenCellsType = DictType(IntegerType, StructType({ r: RefType(IntegerType) }));
+
+const OPEN_TABLE_BLOB = encodeBeast2PagedFor(OpenTableType, { batchSize: 10 })(
+    new SortedMap(
+        Array.from({ length: 30 }, (_, i): [bigint, { id: bigint; name: string }] => [BigInt(i), { id: BigInt(i), name: `row-${i}` }]),
+        compareFor(IntegerType),
+    ),
+);
+const OPEN_TAGS_BLOB = encodeBeast2PagedFor(OpenTagsType, { batchSize: 10 })(
+    new SortedSet(Array.from({ length: 30 }, (_, i) => `tag-${String(i).padStart(4, "0")}`), compareFor(StringType)),
+);
+const OPEN_ROWS_BLOB = encodeBeast2PagedFor(OpenRowsType, { batchSize: 10 })(
+    Array.from({ length: 30 }, (_, i) => `row-${i}`),
+);
+const OPEN_CELLS_BLOB = encodeBeast2PagedFor(OpenCellsType, { batchSize: 10 })(
+    new SortedMap(
+        Array.from({ length: 30 }, (_, i): [bigint, { r: ref<bigint> }] => [BigInt(i), { r: ref(BigInt(i * 10)) }]),
+        compareFor(IntegerType),
+    ),
+);
+
+export const blobOpenBeastDict = example({
+    keywords: ["blob", "BlobType", "openBeast", "beast2", "lazy", "paged", "dict", "DictType", "index", "segment", "frozen"],
+    description: "Open an indexed beast2 dict blob lazily and read a key without decoding the whole collection",
+    fn: East.function([BlobType], IntegerType, ($, blob) => {
+        const table = $.let(blob.openBeast(OpenTableType));
+        return table.size().add(table.get(7n).id);
+    }),
+    inputs: [OPEN_TABLE_BLOB],
+    returns: 37n,
+});
+
+export const blobOpenBeastDictForLoop = example({
+    keywords: ["blob", "BlobType", "openBeast", "beast2", "lazy", "paged", "dict", "for", "loop", "stream", "segment"],
+    description: "Iterate a lazily opened beast2 dict with $.for, one decoded segment at a time",
+    fn: East.function([BlobType], IntegerType, ($, blob) => {
+        const table = $.let(blob.openBeast(OpenTableType));
+        const sum = $.let(0n);
+        $.for(table, ($, row) => {
+            $.assign(sum, sum.add(row.id));
+        });
+        return sum;
+    }),
+    inputs: [OPEN_TABLE_BLOB],
+    returns: 435n,
+});
+
+export const blobOpenBeastArray = example({
+    keywords: ["blob", "BlobType", "openBeast", "beast2", "lazy", "paged", "array", "ArrayType", "index"],
+    description: "Open an indexed beast2 array blob lazily and read one element by index",
+    fn: East.function([BlobType], StringType, ($, blob) => {
+        const rows = $.let(blob.openBeast(OpenRowsType));
+        return rows.get(25n);
+    }),
+    inputs: [OPEN_ROWS_BLOB],
+    returns: "row-25",
+});
+
+export const blobOpenBeastSet = example({
+    keywords: ["blob", "BlobType", "openBeast", "beast2", "lazy", "paged", "set", "SetType", "has", "membership"],
+    description: "Open an indexed beast2 set blob lazily and test membership",
+    fn: East.function([BlobType], BooleanType, ($, blob) => {
+        const tags = $.let(blob.openBeast(OpenTagsType));
+        return tags.has("tag-0007");
+    }),
+    inputs: [OPEN_TAGS_BLOB],
+    returns: true,
+});
+
+export const blobOpenBeastIndexless = example({
+    keywords: ["blob", "BlobType", "openBeast", "beast2", "encodeBeast", "index-less", "fallback", "whole decode", "frozen"],
+    description: "openBeast on an index-less beast2 blob falls back to the whole frozen decode",
+    fn: East.function([], IntegerType, ($) => {
+        const values = $.const([1n, 2n, 3n], ArrayType(IntegerType));
+        const encoded = $.let(East.Blob.encodeBeast(values, 'v2'));
+        return encoded.openBeast(ArrayType(IntegerType)).get(1n);
+    }),
+    inputs: [],
+    returns: 2n,
+});
+
+// The same table in the legacy v4 container: no paging index, so the open
+// decodes it whole — after the header's type has been checked, like v5.
+const OPEN_TABLE_V4_BLOB = encodeBeast2For(OpenTableType, { version: 4 })(
+    new SortedMap(
+        Array.from({ length: 30 }, (_, i): [bigint, { id: bigint; name: string }] => [BigInt(i), { id: BigInt(i), name: `row-${i}` }]),
+        compareFor(IntegerType),
+    ),
+);
+
+export const blobOpenBeastV4 = example({
+    keywords: ["blob", "BlobType", "openBeast", "beast2", "v4", "legacy", "container", "whole decode", "frozen"],
+    description: "openBeast on a legacy v4 container decodes it whole, frozen, with the same values",
+    fn: East.function([BlobType], IntegerType, ($, blob) => {
+        const table = $.let(blob.openBeast(OpenTableType));
+        return table.size().add(table.get(7n).id);
+    }),
+    inputs: [OPEN_TABLE_V4_BLOB],
+    returns: 37n,
+});
+
+export const blobOpenBeastRefShape = example({
+    keywords: ["blob", "BlobType", "openBeast", "beast2", "RefType", "shape gate", "fallback", "whole decode"],
+    description: "openBeast on a Ref-bearing element shape decodes whole, with the same semantics",
+    fn: East.function([BlobType], IntegerType, ($, blob) => {
+        const cells = $.let(blob.openBeast(OpenCellsType));
+        return cells.get(3n).r.get();
+    }),
+    inputs: [OPEN_CELLS_BLOB],
+    returns: 30n,
+});
+
+export const blobOpenBeastIs = example({
+    keywords: ["blob", "BlobType", "openBeast", "beast2", "frozen", "is", "value type", "equality"],
+    description: "Two lazily opened beast2 values compare by value under East.is, like every frozen collection",
+    fn: East.function([BlobType], BooleanType, ($, blob) => {
+        const first = $.let(blob.openBeast(OpenTableType));
+        const second = $.let(blob.openBeast(OpenTableType));
+        return East.is(first, second);
+    }),
+    inputs: [OPEN_TABLE_BLOB],
+    returns: true,
 });
 
 // ---------------------------------------------------------------------------

@@ -31,7 +31,7 @@ import { SortedSet } from "../../../containers/sortedset.js";
 import { SortedMap } from "../../../containers/sortedmap.js";
 import { type Beast2DecodeOptions, buildPlatformContext } from "../shared.js";
 import { writeTypeSection, readTypeSection, asTypeValue } from "./type-section.js";
-import { type Beast2Codec, FrameReader, writeFrame } from "./frames.js";
+import { type Beast2Codec, FrameReader, openFramePrefix, writeFrame } from "./frames.js";
 import {
   MAGIC_BYTES_V5,
   TAG_NEW,
@@ -47,6 +47,7 @@ import {
   isSegmentedRoot,
   type Beast2Index,
 } from "./codec.js";
+import { type Beast2SyncRangeReader, TAG_OR_TERMINATOR_FRAME, bytesReader, isBeast2SyncRangeReader, readExact, readU64LE, readBeast2ExtentsSync } from "./range.js";
 
 /** The collection kinds a v5 stream can hold at the root. */
 type SegmentedKind = "Array" | "Set" | "Dict";
@@ -613,6 +614,12 @@ export function iterBeast2SegmentsFor<T extends EastType>(type: T | EastTypeValu
  *  per reader. */
 const SEGMENT_CACHE_CAPACITY = 4;
 
+/** The bytes a fence probe reads first: the frame header plus enough of the
+ *  payload for the first key of any ordinary row. A key that does not fit
+ *  grows the probe fourfold until it does, the final attempt reading the
+ *  frame whole (mirrors east-c's probe). */
+const FENCE_PROBE_BYTES = 4096;
+
 /**
  * Random access over an indexed, self-contained v5 collection blob.
  *
@@ -623,6 +630,15 @@ const SEGMENT_CACHE_CAPACITY = 4;
  * read paths ({@link element} / {@link get}) reuse decoded segments through a
  * small LRU, so a read loop over neighbouring rows decodes each segment once
  * rather than once per element; {@link segment} itself always decodes fresh.
+ *
+ * The blob is either a whole `Uint8Array` or a {@link Beast2SyncRangeReader}:
+ * through a reader the open reads only the tail (footer + index) and the
+ * head (header sections), and every segment read fetches exactly that
+ * segment's frame — a file-backed reader keeps the wire bytes in the page
+ * cache rather than on the heap. A Set/Dict root's first keyed read verifies
+ * the fences, probing a bounded prefix of every frame once (never the frame,
+ * unless its first key is wider than the probe); later keyed reads fetch one
+ * frame.
  *
  * Set/Dict blobs page like Arrays: the wire holds the canonical value split
  * at segment boundaries (strictly ascending, disjoint segments), so row
@@ -642,7 +658,9 @@ export class Beast2Pages<T extends EastType = EastType> {
   readonly elementCount: number;
   /** Whether segments are independently decodable. */
   readonly selfContained: boolean;
-  private readonly data: Uint8Array;
+  private readonly source: Beast2SyncRangeReader;
+  /** Wire offset of the terminator frame — where the last segment's frame ends. */
+  private readonly segmentsEnd: number;
   private readonly indexData: Beast2Index;
   private readonly kind: SegmentedKind;
   private readonly typeValue: EastTypeValue;
@@ -664,14 +682,30 @@ export class Beast2Pages<T extends EastType = EastType> {
   private readonly segmentCache = new Map<number, { seg: any; first: any; last: any }>();
 
   /** @internal Use {@link openBeast2PagesFor}. */
-  constructor(data: Uint8Array, typeValue: EastTypeValue, options?: Beast2DecodeOptions) {
-    const { kind, sourceMap, frameOffset } = openSegmented(data, typeValue);
-    void frameOffset;
-    const index = readIndex(data);
-    if (!index) {
-      throw new Error(`beast2 v5: blob has no index/footer — paging needs a writer with index enabled`);
+  constructor(source: Uint8Array | Beast2SyncRangeReader, typeValue: EastTypeValue, options?: Beast2DecodeOptions) {
+    let kind: SegmentedKind;
+    let sourceMap: SourceMap;
+    let index: Beast2Index;
+    if (!isBeast2SyncRangeReader(source)) {
+      ({ kind, sourceMap } = openSegmented(source, typeValue));
+      const whole = readIndex(source);
+      if (!whole) {
+        throw new Error(`beast2 v5: blob has no index/footer — paging needs a writer with index enabled`);
+      }
+      index = whole;
+      // readIndex validated the footer, so the u64 before its magic is the
+      // index offset; the terminator frame sits directly ahead of it.
+      this.segmentsEnd = readU64LE(source, source.length - 16) - TAG_OR_TERMINATOR_FRAME.length;
+      this.source = bytesReader(source);
+    } else {
+      // Two positioned reads — the tail, then the head — give the whole
+      // geometry; the segment frames are read one at a time from here on.
+      const extents = readBeast2ExtentsSync(source);
+      ({ kind, sourceMap } = openSegmented(extents.head, typeValue));
+      index = { selfContained: extents.selfContained, offsets: [...extents.offsets], counts: [...extents.counts], totalCount: extents.elementCount };
+      this.segmentsEnd = extents.segmentsEnd;
+      this.source = source;
     }
-    this.data = data;
     this.indexData = index;
     this.kind = kind;
     this.typeValue = typeValue;
@@ -693,6 +727,16 @@ export class Beast2Pages<T extends EastType = EastType> {
   /** Number of segments in the blob. */
   get segmentCount(): number {
     return this.indexData.offsets.length;
+  }
+
+  /** Reads segment `i`'s frame — exactly its wire bytes, from its index
+   *  offset to the next segment's (or the terminator) — and opens its
+   *  logical chunk. The only place segment bytes are fetched, so a ranged
+   *  source touches one frame per decode. */
+  private frameReader(i: number): BufferReader {
+    const start = this.indexData.offsets[i]!;
+    const end = i + 1 < this.indexData.offsets.length ? this.indexData.offsets[i + 1]! : this.segmentsEnd;
+    return new FrameReader(readExact(this.source, start, end - start), 0).next();
   }
 
   /**
@@ -721,8 +765,7 @@ export class Beast2Pages<T extends EastType = EastType> {
     if (i < 0 || i >= this.indexData.offsets.length) {
       throw new Error(`beast2 v5: segment ${i} out of range (${this.indexData.offsets.length} segments)`);
     }
-    const cursor = new FrameReader(this.data, this.indexData.offsets[i]!);
-    const reader = cursor.next();
+    const reader = this.frameReader(i);
     const n = reader.readVarint();
     if (n !== this.indexData.counts[i]) {
       throw new Error(`beast2 v5: segment ${i} declares ${n} elements, index says ${this.indexData.counts[i]}`);
@@ -771,17 +814,37 @@ export class Beast2Pages<T extends EastType = EastType> {
   }
 
   /** Decodes just the first key/element of segment `i` — a bounded probe
-   *  (one frame inflate, one element decode), not a whole-segment decode. */
+   *  (a prefix of the frame read and inflated, one element decode), not a
+   *  whole-segment decode. A first key wider than the probe grows it; the
+   *  final attempt reads the frame whole, so corruption is still reported
+   *  with the frame's own error. */
   private firstKey(i: number): any {
     if (!this.fenceDec) {
       const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
       this.fenceDec = buildV5Decoder(keyType);
     }
-    const cursor = new FrameReader(this.data, this.indexData.offsets[i]!);
-    const reader = cursor.next();
-    reader.readVarint();  // element count — segments are never empty
-    const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, frozen: this.platform?.frozen ?? false, ...buildPlatformContext(this.platform) };
-    return this.fenceDec(reader, ctx);
+    const start = this.indexData.offsets[i]!;
+    const end = i + 1 < this.indexData.offsets.length ? this.indexData.offsets[i + 1]! : this.segmentsEnd;
+    const frameLen = end - start;
+    for (let probe = Math.min(frameLen, FENCE_PROBE_BYTES); ; probe = Math.min(frameLen, probe * 4)) {
+      const whole = probe === frameLen;
+      const bytes = readExact(this.source, start, probe);
+      const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, frozen: this.platform?.frozen ?? false, ...buildPlatformContext(this.platform) };
+      if (whole) {
+        const reader = new FrameReader(bytes, 0).next();
+        reader.readVarint();  // element count — segments are never empty
+        return this.fenceDec(reader, ctx);
+      }
+      try {
+        const reader = openFramePrefix(bytes);
+        if (reader !== null) {
+          reader.readVarint();
+          return this.fenceDec(reader, ctx);
+        }
+      } catch {
+        // Short, or corrupt: more of the frame decides which.
+      }
+    }
   }
 
   /**
@@ -988,16 +1051,20 @@ export class Beast2Pages<T extends EastType = EastType> {
 }
 
 /**
- * Builds a curried pages opener: `open(data)` parses the header, footer and
+ * Builds a curried pages opener: `open(source)` parses the header, footer and
  * index once and returns a {@link Beast2Pages} for random access.
+ *
+ * `source` is the whole blob, or a {@link Beast2SyncRangeReader} over it —
+ * then only the tail, the head and the segments actually read are ever
+ * fetched.
  *
  * @param type - the collection type (Array/Set/Dict)
  * @param options - decode options (platform functions for decoded functions)
  * @returns a function opening a blob for paged reads
  * @throws {TypeError} When `type` is not an Array, Set or Dict type.
  */
-export function openBeast2PagesFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (data: Uint8Array) => Beast2Pages<T> {
+export function openBeast2PagesFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (source: Uint8Array | Beast2SyncRangeReader) => Beast2Pages<T> {
   const typeValue = asTypeValue(type);
   checkSegmented(typeValue);
-  return (data) => new Beast2Pages<T>(data, typeValue, options);
+  return (source) => new Beast2Pages<T>(source, typeValue, options);
 }

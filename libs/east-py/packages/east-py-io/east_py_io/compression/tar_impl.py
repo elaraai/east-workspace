@@ -21,7 +21,7 @@ from .types import TarEntriesType, TarExtractedType
 
 
 @platform_function(name="tar_create", inputs=[TarEntriesType], output=BlobType)
-async def tar_create_impl(entries: EastArray) -> EastBlob:
+async def tar_create(entries: EastArray) -> EastBlob:
     """Create a TAR archive from an array of named file entries.
 
     Args:
@@ -61,7 +61,7 @@ async def tar_create_impl(entries: EastArray) -> EastBlob:
 
 
 @platform_function(name="tar_extract", inputs=[BlobType], output=TarExtractedType)
-async def tar_extract_impl(data: EastBlob) -> EastDict:
+async def tar_extract(data: EastBlob) -> EastDict:
     """Extract all regular files from a TAR archive.
 
     Args:
@@ -98,6 +98,6 @@ tar_impl = platform_functions(__name__)
 
 __all__ = [
     "tar_impl",
-    "tar_create_impl",
-    "tar_extract_impl",
+    "tar_create",
+    "tar_extract",
 ]

@@ -106,7 +106,7 @@ def convert_east_to_cell(value: EastVariant) -> Any:
     inputs=[BlobType, XlsxReadOptionsType],
     output=XlsxSheetType,
 )
-def xlsx_read_impl(blob: EastBlob, options: EastStruct) -> EastArray:
+def xlsx_read(blob: EastBlob, options: EastStruct) -> EastArray:
     """Read a single sheet from an XLSX file into a 2-D array of cells.
 
     Args:
@@ -168,7 +168,7 @@ def xlsx_read_impl(blob: EastBlob, options: EastStruct) -> EastArray:
     inputs=[XlsxSheetType, XlsxWriteOptionsType],
     output=BlobType,
 )
-def xlsx_write_impl(data: EastArray, options: EastStruct) -> EastBlob:
+def xlsx_write(data: EastArray, options: EastStruct) -> EastBlob:
     """Write a 2-D array of cells to an XLSX file.
 
     Args:
@@ -218,7 +218,7 @@ def xlsx_write_impl(data: EastArray, options: EastStruct) -> EastBlob:
     inputs=[BlobType],
     output=XlsxInfoType,
 )
-def xlsx_info_impl(blob: EastBlob) -> EastStruct:
+def xlsx_info(blob: EastBlob) -> EastStruct:
     """Return metadata about all sheets in an XLSX workbook.
 
     Args:
@@ -265,7 +265,7 @@ xlsx_impl = platform_functions(__name__)
 
 __all__ = [
     "xlsx_impl",
-    "xlsx_read_impl",
-    "xlsx_write_impl",
-    "xlsx_info_impl",
+    "xlsx_read",
+    "xlsx_write",
+    "xlsx_info",
 ]

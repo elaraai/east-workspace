@@ -100,7 +100,7 @@ def _lift(value: Any, hint: EastType | None = None) -> Expression:
     lifted = _lift_variant(value, hint)
     if lifted is not None:
         return lifted
-    lifted = _lift_collection(value)
+    lifted = _lift_collection(value, hint)
     if lifted is not None:
         return lifted
     if isinstance(value, dict):
@@ -382,27 +382,29 @@ class _ConstRegistry:
     hoisting the constructor would sit inline at the use site and re-build
     the constant on every evaluation — per row, or per ELEMENT inside a
     ``.map`` lambda, which is pathological for lookup tables. Entries are
-    deduped by python object identity, so one table referenced at N sites
-    binds once. Dependency order is construction order (inner constants of a
-    nested constant register first).
+    deduped by python object identity AND lifted type, so one table
+    referenced at N sites binds once — but an object lifted under two
+    different declared types is two constants, because a struct's IR type
+    comes from the slot it lands in (#671). Dependency order is construction
+    order (inner constants of a nested constant register first).
     """
 
     __slots__ = ("by_id", "entries")
 
     def __init__(self) -> None:
-        self.by_id: dict[int, tuple[str, EastType]] = {}
+        self.by_id: dict[int, list[tuple[str, EastType]]] = {}
         self.entries: list[tuple[str, Any, EastType]] = []
 
     def register(self, value: Any, node: Any, t: EastType) -> Expression:
         from east.expression.expr import Expression
 
-        hit = self.by_id.get(id(value))
-        if hit is None:
-            name = _fresh_name()
-            self.by_id[id(value)] = (name, t)
-            self.entries.append((name, node, t))
-        else:
-            name, t = hit
+        bound = self.by_id.setdefault(id(value), [])
+        for name, bound_t in bound:
+            if is_type_equal(bound_t, t):
+                return Expression(_var(name, bound_t), bound_t)
+        name = _fresh_name()
+        bound.append((name, t))
+        self.entries.append((name, node, t))
         return Expression(_var(name, t), t)
 
 
@@ -589,7 +591,8 @@ def _hoisted_const_names() -> frozenset[str]:
     """
     if _const_registry is None:
         return frozenset()
-    return frozenset(name for name, _t in _const_registry.by_id.values())
+    return frozenset(name for bound in _const_registry.by_id.values()
+                     for name, _t in bound)
 
 
 def _lower_compiled_call(fn_val_ptr: int, input_type_ptrs: list,
@@ -641,7 +644,7 @@ def _lower_compiled_call(fn_val_ptr: int, input_type_ptrs: list,
     return Expression(node, out_t)
 
 
-def _lift_collection(value: Any) -> Expression | None:
+def _lift_collection(value: Any, hint: EastType | None = None) -> Expression | None:
     """Lift a captured East collection/struct constant (#393).
 
     The value snapshots into constructor IR (NewArray/NewSet/NewDict/Struct,
@@ -701,12 +704,15 @@ def _lift_collection(value: Any) -> Expression | None:
             Expression(_k_new_dict(dict_t, entries), dict_t),
         )
     if is_east_struct(value):
-        # A captured struct constant (e.g. a config row) lifts field by field.
+        # A captured struct constant (e.g. a config row) lifts field by field,
+        # under the DECLARED struct type when there is one: an EastStruct
+        # carries no type of its own, so without the hint each field is typed
+        # from its own value and a `none` field has nothing to type it (#671).
         # One holding a traced part is no constant — it was built around a
         # proxy — so it lifts inline rather than as a hoisted Let, which would
         # be evaluated outside the function where the proxy's variable is
         # unbound.
-        lifted = _lift_struct({name: value[name] for name in value})
+        lifted = _lift_struct({name: value[name] for name in value}, hint)
         return lifted if _holds_traced(value) else _register_const(value, lifted)
     return None
 

@@ -8,6 +8,10 @@ Provides discrete combinatorial optimization by iteratively optimizing each
 element of a parameter vector over its candidate values.  Supports multi-start
 sampling for better exploration of the search space.
 
+The objective is **maximized**: each sweep keeps the candidate with the largest
+objective value, so negate a cost to minimize it.  Restarts (``samples``) run
+one after another on the calling thread.
+
 Ported from the Julia IterativeDecisionAlgorithm (ArrayParameterSpace branch).
 
 All three functions are implemented at C level via Cython PyCapsule callbacks;
@@ -67,6 +71,7 @@ there is no Python-callable wrapper.  Register them in your platform with the
     - ``success`` (``Boolean``): true when at least one evaluation succeeded.
 """
 
+from east.expression.platform import platform
 from east.runtime.platform import PlatformFunction
 from east.types.types import (
     ArrayType,
@@ -211,10 +216,23 @@ optimization_impl = [
     ),
 ]
 
+# The C callbacks above are the implementations, so there is no python
+# function to export under these names: what a body calls is the DECLARATION,
+# read off the registrations themselves rather than restated (#667).
+(
+    optimization_iterative,
+    optimization_iterative_incremental,
+    optimization_iterative_grouped,
+) = [platform(record["name"], record["inputs"], record["output"]) for record in optimization_impl]
+
 
 __all__ = [
     # Platform implementation
     "optimization_impl",
+    # The declarations an East body calls
+    "optimization_iterative",
+    "optimization_iterative_incremental",
+    "optimization_iterative_grouped",
     # Types
     "InitialStrategyType",
     "EvaluationOrderType",

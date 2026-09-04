@@ -69,6 +69,12 @@ class PlatformDeclaration:
         kind = "asyncPlatform" if self.is_async else "platform"
         return f"<East.{kind} '{self.name}'>"
 
+    @property
+    def east_platform_declaration(self) -> PlatformDeclaration:
+        """This declaration — the attribute a dual-mode implementation carries,
+        so a package may export either and a caller need not know which."""
+        return self
+
     def __call__(self, *args: Any) -> Any:
         from east.expression.expr import Expression
         from east.expression.function import _in_async_build
@@ -94,14 +100,22 @@ class PlatformDeclaration:
         output: Any = self.output
         if self.type_params is not None:
             # Generic (TS `East.genericPlatform`): the type arguments come
-            # first, as a list, and substitute for the declared placeholders.
-            if not args or not isinstance(args[0], (list, tuple)):
+            # first and substitute for the declared placeholders — as a list,
+            # `run([R, E], state)`, mirroring the TypeScript, or spread,
+            # `run(R, E, state)`, which is how the implementations read. A
+            # type argument is never a list, so the two never collide.
+            arity = len(self.type_params)
+            if args and isinstance(args[0], (list, tuple)):
+                type_args = list(args[0])
+                args = args[1:]
+            elif len(args) > arity:
+                type_args = list(args[:arity])
+                args = args[arity:]
+            else:
                 raise ExpressionError(
                     f"generic platform declaration '{self.name}' takes its type "
-                    f"arguments first, as a list of {len(self.type_params)} East type(s)"
+                    f"arguments first — {arity} East type(s), spread or as a list"
                 )
-            type_args = list(args[0])
-            args = args[1:]
             if len(type_args) != len(self.type_params):
                 raise ExpressionError(
                     f"generic platform declaration '{self.name}' expects "
@@ -246,7 +260,9 @@ def generic_platform(name: str, type_params: list[str], inputs: list,
     """Declare a GENERIC (polymorphic) platform call — the public
     ``East.genericPlatform``: the type parameters are named placeholders that
     may stand anywhere in ``inputs``/``output``, and the handle takes the
-    concrete type arguments first, as a list: ``log([StringType], s)``.
+    concrete type arguments first — as a list, ``log([StringType], s)``,
+    mirroring the TypeScript, or spread, ``log(StringType, s)``, which is how
+    a dual-mode implementation of the same function reads.
 
     Args:
         name: The platform function name.

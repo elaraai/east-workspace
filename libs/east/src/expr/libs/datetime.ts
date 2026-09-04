@@ -46,6 +46,17 @@ export default {
    * Components are: year, month (1-12), day (1-31), hour (0-23), minute (0-59),
    * second (0-59), and millisecond (0-999).
    *
+   * A component outside its range is NORMALISED, never rejected: it carries
+   * into the next one. `fromComponents(2024n, 2n, 31n)` is `2024-03-02`,
+   * `(2024n, 13n, 1n)` is `2025-01-01`, `(2024n, 1n, 0n)` is `2023-12-31`,
+   * and `(2023n, 2n, 29n)` — 2023 is not a leap year — is `2023-03-01`. So an
+   * impossible date becomes a real, wrong, plausible one rather than an error.
+   *
+   * Range-checking the inputs does not catch it, because `31 February` has
+   * every component in range. Build the date and ask it for its own month
+   * back: `$.let(East.DateTime.fromComponents(y, m, d))`, then
+   * `Expr.equal(dt.getMonth(), m).ifElse(() => some(dt), () => none)`.
+   *
    * @example
    * ```ts
    * const makeDate = East.function([IntegerType], DateTimeType, ($, year) => {

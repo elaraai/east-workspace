@@ -146,7 +146,7 @@ def create_s3_client(config: EastStruct) -> Any:
     inputs=[S3ConfigType, StringType, BlobType],
     output=NullType,
 )
-async def s3_put_object_impl(config: EastStruct, key: str, data: EastBlob) -> None:
+async def s3_put_object(config: EastStruct, key: str, data: EastBlob) -> None:
     """Upload an object to an S3 bucket.
 
     Args:
@@ -184,11 +184,11 @@ async def s3_put_object_impl(config: EastStruct, key: str, data: EastBlob) -> No
     inputs=[S3ConfigType, StringType],
     output=BlobType,
 )
-async def s3_get_object_impl(config: EastStruct, key: str) -> EastBlob:
+async def s3_get_object(config: EastStruct, key: str) -> EastBlob:
     """Download an object from an S3 bucket.
 
     Args:
-        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object_impl`.
+        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object`.
         key: ``String`` - object key (path) within the bucket.
 
     Returns:
@@ -214,11 +214,11 @@ async def s3_get_object_impl(config: EastStruct, key: str) -> EastBlob:
     inputs=[S3ConfigType, StringType],
     output=S3ObjectMetadataType,
 )
-async def s3_head_object_impl(config: EastStruct, key: str) -> EastStruct:
+async def s3_head_object(config: EastStruct, key: str) -> EastStruct:
     """Fetch metadata for an S3 object without downloading its body.
 
     Args:
-        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object_impl`.
+        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object`.
         key: ``String`` - object key (path) within the bucket.
 
     Returns:
@@ -266,11 +266,11 @@ async def s3_head_object_impl(config: EastStruct, key: str) -> EastStruct:
     inputs=[S3ConfigType, StringType],
     output=NullType,
 )
-async def s3_delete_object_impl(config: EastStruct, key: str) -> None:
+async def s3_delete_object(config: EastStruct, key: str) -> None:
     """Delete an object from an S3 bucket.
 
     Args:
-        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object_impl`.
+        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object`.
         key: ``String`` - object key (path) to delete.
 
     Returns:
@@ -295,7 +295,7 @@ async def s3_delete_object_impl(config: EastStruct, key: str) -> None:
     inputs=[S3ConfigType, StringType, IntegerType, OptionType(StringType)],
     output=S3ListResultType,
 )
-async def s3_list_objects_impl(
+async def s3_list_objects(
     config: EastStruct, prefix: str, max_keys: int, continuation_token: EastVariant
 ) -> EastStruct:
     """List objects in an S3 bucket filtered by a key prefix.
@@ -304,7 +304,7 @@ async def s3_list_objects_impl(
     to the S3 range of 1-1000.
 
     Args:
-        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object_impl`.
+        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object`.
         prefix: ``String`` - key prefix to filter results.
         max_keys: ``Integer`` - maximum objects to return per page; clamped
             to ``[1, 1000]``.
@@ -380,14 +380,14 @@ async def s3_list_objects_impl(
     inputs=[S3ConfigType, StringType, IntegerType],
     output=StringType,
 )
-async def s3_presign_url_impl(config: EastStruct, key: str, expires_in: int) -> str:
+async def s3_presign_url(config: EastStruct, key: str, expires_in: int) -> str:
     """Generate a presigned GET URL for temporary, unauthenticated object access.
 
     ``expires_in`` is clamped to the S3-supported range of 1 second to 7 days
     (604800 seconds).
 
     Args:
-        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object_impl`.
+        config: ``S3ConfigType`` (``EastStruct``) - see :func:`s3_put_object`.
         key: ``String`` - object key (path) within the bucket.
         expires_in: ``Integer`` - URL validity period in seconds; clamped to
             ``[1, 604800]``.
@@ -424,12 +424,12 @@ s3_impl = platform_functions(__name__)
 
 __all__ = [
     "s3_impl",
-    "s3_put_object_impl",
-    "s3_get_object_impl",
-    "s3_head_object_impl",
-    "s3_delete_object_impl",
-    "s3_list_objects_impl",
-    "s3_presign_url_impl",
+    "s3_put_object",
+    "s3_get_object",
+    "s3_head_object",
+    "s3_delete_object",
+    "s3_list_objects",
+    "s3_presign_url",
     "S3ConfigType",
     "S3ObjectMetadataType",
     "S3ListResultType",

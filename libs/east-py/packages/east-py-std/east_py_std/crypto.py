@@ -20,7 +20,7 @@ from east.types.values import EastBlob
 
 
 @platform_function(name="crypto_random_bytes", inputs=[IntegerType], output=BlobType)
-def crypto_random_bytes_impl(length: int) -> EastBlob:
+def crypto_random_bytes(length: int) -> EastBlob:
     """Generate cryptographically secure random bytes.
 
     Args:
@@ -40,7 +40,7 @@ def crypto_random_bytes_impl(length: int) -> EastBlob:
 
 
 @platform_function(name="crypto_hash_sha256", inputs=[StringType], output=StringType)
-def crypto_hash_sha256_impl(data: str) -> str:
+def crypto_hash_sha256(data: str) -> str:
     """Compute the SHA-256 hash of a UTF-8 string.
 
     Args:
@@ -54,7 +54,7 @@ def crypto_hash_sha256_impl(data: str) -> str:
 
 
 @platform_function(name="crypto_hash_sha256_bytes", inputs=[BlobType], output=BlobType)
-def crypto_hash_sha256_bytes_impl(data: EastBlob) -> EastBlob:
+def crypto_hash_sha256_bytes(data: EastBlob) -> EastBlob:
     """Compute the SHA-256 hash of binary data.
 
     Args:
@@ -67,7 +67,7 @@ def crypto_hash_sha256_bytes_impl(data: EastBlob) -> EastBlob:
 
 
 @platform_function(name="crypto_uuid", inputs=[], output=StringType)
-def crypto_uuid_impl() -> str:
+def crypto_uuid() -> str:
     """Generate a random version 4 UUID.
 
     Returns:
@@ -83,8 +83,8 @@ crypto_impl = platform_functions(__name__)
 
 __all__ = [
     "crypto_impl",
-    "crypto_random_bytes_impl",
-    "crypto_hash_sha256_impl",
-    "crypto_hash_sha256_bytes_impl",
-    "crypto_uuid_impl",
+    "crypto_random_bytes",
+    "crypto_hash_sha256",
+    "crypto_hash_sha256_bytes",
+    "crypto_uuid",
 ]

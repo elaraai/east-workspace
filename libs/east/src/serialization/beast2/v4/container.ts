@@ -874,6 +874,20 @@ export function decodeIRWithSourceMapV4(data: Uint8Array): { ir: any; sourceMap:
   return { ir, sourceMap };
 }
 
+/**
+ * Reads the root type a v4 blob's header declares, without decoding the
+ * value — the type table section sits right after the magic.
+ *
+ * @param data - a v4 beast2 blob
+ * @returns the declared root type
+ * @throws {Error} When the data is not a v4 container or its type table is
+ *   malformed.
+ */
+export function readBeast2V4Type(data: Uint8Array): EastTypeValue {
+  verifyMagic(data);
+  return readTypeTableSection(new BufferReader(data, MAGIC_BYTES.length)).rootType;
+}
+
 // =============================================================================
 // Public API — Decode (v4 container, self-describing)
 // =============================================================================

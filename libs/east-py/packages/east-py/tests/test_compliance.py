@@ -99,7 +99,7 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
     failed = 0
     depth = 0
 
-    def describe_impl(name, test_fn):
+    def describe(name, test_fn):
         nonlocal depth
         t0 = time.perf_counter()
         depth += 1
@@ -153,7 +153,7 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
     # `test` / `describe` take an ASYNC function body. The compile-time
     # signature check (east_compile_checked) rejects a drifted mirror.
     platform = [
-        PlatformFunction(name="describe", inputs=[StringType, AsyncFunctionType([], NullType)], output=NullType, type="sync", fn=describe_impl),
+        PlatformFunction(name="describe", inputs=[StringType, AsyncFunctionType([], NullType)], output=NullType, type="sync", fn=describe),
         PlatformFunction(name="test", inputs=[StringType, AsyncFunctionType([], NullType)], output=NullType, type="sync", fn=test_impl),
         PlatformFunction(name="testPass", inputs=[], output=NullType, type="sync", fn=test_pass),
         PlatformFunction(name="testFail", inputs=[StringType], output=NullType, type="sync", fn=test_fail),

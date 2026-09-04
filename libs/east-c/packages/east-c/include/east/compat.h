@@ -281,6 +281,8 @@ static inline int closedir(east_DIR *d)
 #else /* !_WIN32 */
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include <sys/stat.h>
 #include <sys/resource.h>
@@ -293,11 +295,33 @@ static inline int64_t east_realtime_millis(void)
     return (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
 }
 
+/* Peak resident set size in KB of THIS process. On Linux ru_maxrss inherits
+ * the parent's peak across fork + exec — a runner spawned from a large host
+ * (an orchestrator) would report the host's peak, not its own — so the
+ * mm-level high-water mark in /proc/self/status, which exec resets, is the
+ * source there; ru_maxrss elsewhere. */
 static inline long east_peak_rss_kb(void)
 {
+    FILE *status = fopen("/proc/self/status", "r");
+    if (status) {
+        char line[256];
+        long hwm = -1;
+        while (fgets(line, sizeof line, status)) {
+            if (strncmp(line, "VmHWM:", 6) == 0) {
+                hwm = strtol(line + 6, NULL, 10);
+                break;
+            }
+        }
+        fclose(status);
+        if (hwm >= 0) return hwm;
+    }
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
+#ifdef __APPLE__
+    return usage.ru_maxrss / 1024; /* Darwin reports bytes, not KB */
+#else
     return usage.ru_maxrss;
+#endif
 }
 
 static inline void east_init_crash_handling(void) {}

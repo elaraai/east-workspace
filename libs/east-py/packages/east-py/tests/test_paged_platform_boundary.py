@@ -14,13 +14,21 @@ wrapper. ``paged_value_is_hydrated`` is the laziness oracle: deterministic
 where an RSS assertion would be noise.
 """
 
+import gc
 from pathlib import Path
 
-from east.runtime._compiler_eastc import open_paged_value, paged_value_is_hydrated
+import pytest
+from east.runtime._compiler_eastc import (
+    open_paged_file,
+    open_paged_value,
+    open_paged_value_view,
+    paged_value_is_hydrated,
+)
 
 from east import (
     ArrayType,
     DictType,
+    East,
     EastArray,
     EastDict,
     EastSet,
@@ -31,8 +39,9 @@ from east import (
 )
 from east.ir.builders import ir_function, ir_platform, ir_variable
 from east.runtime.compiler import compile_from_value
+from east.runtime.errors import EastError
 from east.runtime.platform import PlatformFunction
-from east.serialization.beast2 import write_beast2_file
+from east.serialization.beast2 import open_beast2_file, write_beast2_file
 from east.types.types import FunctionType
 
 ROW = StructType([("qty", IntegerType), ("tags", ArrayType(StringType))])
@@ -160,6 +169,96 @@ def test_platform_fn_unfrozen_mutation_hydrates_and_applies(tmp_path):
     lazy = _open_lazy(compiled, data, frozen=False)
     assert compiled(lazy) == 1000 + 121
     assert paged_value_is_hydrated(lazy._east_c_paged) is True
+
+
+# ── the RETURN direction (#661) ──────────────────────────────────────────
+#
+# A platform function that returns a paged hold hands its C value straight
+# through; the compiled body then reads it at O(segment) — `check` receives
+# the same value later in the body and reports whether the served reads in
+# between hydrated it.
+
+
+def _check(d):
+    return 1 if paged_value_is_hydrated(d._c_ptr) else 0
+
+
+def _compile_source_then_check(source_impl, check_impl=_check):
+    source = East.platform("source", [], DT)
+    check = East.platform("check", [DT], IntegerType)
+
+    def body(b):
+        d = b.let(source())
+        n = b.let(d.size() + d.get("k00007").qty)
+        return check(d) * 1000 + n
+
+    fn = East.function([], IntegerType, body)
+    return East.compile(fn, platform=[
+        PlatformFunction(name="source", inputs=[], output=DT, type="sync", fn=source_impl),
+        PlatformFunction(name="check", inputs=[DT], output=IntegerType, type="sync", fn=check_impl),
+    ])
+
+
+def test_platform_fn_returning_a_paged_hold_stays_un_hydrated(tmp_path):
+    data = _dict_blob(tmp_path)
+
+    def source():
+        return open_paged_value_view(DT, data, frozen=True)
+
+    # 0 * 1000: `check` saw the value un-hydrated after size + a keyed read;
+    # N + 49: the body's own reads answered correctly.
+    assert _compile_source_then_check(source)() == N + 49
+
+
+def test_platform_fn_returning_a_beast2_file_outlives_the_python_object(tmp_path):
+    """The file object dies as soon as the impl returns — the C value keeps
+    the mapping alive through its release hook, so the body's keyed reads
+    still page (the hold's own lifetime is pinned by the refcount probes in
+    the open_paged_file test)."""
+    path = tmp_path / "input.beast2"
+    write_beast2_file(
+        path, DT,
+        EastDict(StringType, ROW, {
+            f"k{i:05d}": {"qty": i * 7, "tags": [f"t{i}-{j}" for j in range(i % 3)]}
+            for i in range(N)
+        }),
+        segment_rows=50)
+
+    def source():
+        return open_beast2_file(path)  # unreferenced after the return
+
+    compiled = _compile_source_then_check(source)
+    assert compiled() == N + 49
+    gc.collect()
+    assert compiled() == N + 49
+
+
+def test_platform_fn_paged_return_is_type_checked(tmp_path):
+    data = _dict_blob(tmp_path)
+    source = East.platform("source", [], ArrayType(IntegerType))
+    fn = East.function([], IntegerType, lambda b: source().size())
+    compiled = East.compile(fn, platform=[PlatformFunction(
+        name="source", inputs=[], output=ArrayType(IntegerType), type="sync",
+        fn=lambda: open_paged_value_view(DT, data, frozen=True))])
+    with pytest.raises(EastError, match="does not match its declared output type"):
+        compiled()
+
+
+def test_open_paged_file_maps_the_file_and_checks_its_type(tmp_path):
+    path = tmp_path / "input.beast2"
+    _dict_blob(tmp_path)
+    hold = open_paged_file(DT, path)
+    assert hold is not None
+    assert paged_value_is_hydrated(hold._east_c_paged) is False
+
+    compiled = _compile_source_then_check(lambda: hold)
+    assert compiled() == N + 49
+    assert paged_value_is_hydrated(hold._east_c_paged) is False
+    hold = None
+    gc.collect()
+
+    with pytest.raises(ValueError, match="cannot open a blob of type"):
+        open_paged_file(ArrayType(IntegerType), path)
 
 
 def test_platform_fn_array_and_set_inputs(tmp_path):

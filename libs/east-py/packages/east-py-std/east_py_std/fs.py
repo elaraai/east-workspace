@@ -8,15 +8,22 @@ Provides filesystem operations for East programs running in Python.
 """
 
 import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from east.runtime.platform import platform_function, platform_functions
-from east.types.types import ArrayType, BlobType, BooleanType, NullType, StringType
+from east.runtime._compiler_eastc import load_frozen_value, open_paged_file
+from east.runtime.platform import (
+    generic_platform_function,
+    platform_function,
+    platform_functions,
+)
+from east.types.types import ArrayType, BlobType, BooleanType, EastType, NullType, StringType
 from east.types.values import EastArray, EastBlob
 
 
 @platform_function(name="fs_read_file", inputs=[StringType], output=StringType)
-def fs_read_file_impl(path: str) -> str:
+def fs_read_file(path: str) -> str:
     """Read the entire contents of a file as UTF-8 text.
 
     Args:
@@ -38,7 +45,7 @@ def fs_read_file_impl(path: str) -> str:
 
 
 @platform_function(name="fs_write_file", inputs=[StringType, StringType], output=NullType)
-def fs_write_file_impl(path: str, content: str) -> None:
+def fs_write_file(path: str, content: str) -> None:
     """Write a UTF-8 string to a file, replacing any existing content.
 
     Args:
@@ -58,7 +65,7 @@ def fs_write_file_impl(path: str, content: str) -> None:
 
 
 @platform_function(name="fs_append_file", inputs=[StringType, StringType], output=NullType)
-def fs_append_file_impl(path: str, content: str) -> None:
+def fs_append_file(path: str, content: str) -> None:
     """Append a UTF-8 string to the end of a file.
 
     Creates the file if it does not exist.
@@ -81,7 +88,7 @@ def fs_append_file_impl(path: str, content: str) -> None:
 
 
 @platform_function(name="fs_delete_file", inputs=[StringType], output=NullType)
-def fs_delete_file_impl(path: str) -> None:
+def fs_delete_file(path: str) -> None:
     """Delete a file.
 
     Args:
@@ -97,7 +104,7 @@ def fs_delete_file_impl(path: str) -> None:
 
 
 @platform_function(name="fs_exists", inputs=[StringType], output=BooleanType)
-def fs_exists_impl(path: str) -> bool:
+def fs_exists(path: str) -> bool:
     """Check whether a file or directory exists at the given path.
 
     Args:
@@ -110,7 +117,7 @@ def fs_exists_impl(path: str) -> bool:
 
 
 @platform_function(name="fs_is_file", inputs=[StringType], output=BooleanType)
-def fs_is_file_impl(path: str) -> bool:
+def fs_is_file(path: str) -> bool:
     """Check whether a path points to a regular file.
 
     Args:
@@ -124,7 +131,7 @@ def fs_is_file_impl(path: str) -> bool:
 
 
 @platform_function(name="fs_is_directory", inputs=[StringType], output=BooleanType)
-def fs_is_directory_impl(path: str) -> bool:
+def fs_is_directory(path: str) -> bool:
     """Check whether a path points to a directory.
 
     Args:
@@ -138,7 +145,7 @@ def fs_is_directory_impl(path: str) -> bool:
 
 
 @platform_function(name="fs_create_directory", inputs=[StringType], output=NullType)
-def fs_create_directory_impl(path: str) -> None:
+def fs_create_directory(path: str) -> None:
     """Create a directory, including all necessary parent directories.
 
     Does nothing if the directory already exists.
@@ -157,7 +164,7 @@ def fs_create_directory_impl(path: str) -> None:
 
 
 @platform_function(name="fs_read_directory", inputs=[StringType], output=ArrayType(StringType))
-def fs_read_directory_impl(path: str) -> EastArray:
+def fs_read_directory(path: str) -> EastArray:
     """List the names of entries within a directory.
 
     Args:
@@ -175,7 +182,7 @@ def fs_read_directory_impl(path: str) -> EastArray:
 
 
 @platform_function(name="fs_read_file_bytes", inputs=[StringType], output=BlobType)
-def fs_read_file_bytes_impl(path: str) -> EastBlob:
+def fs_read_file_bytes(path: str) -> EastBlob:
     """Read the entire contents of a file as raw binary data.
 
     Args:
@@ -194,7 +201,7 @@ def fs_read_file_bytes_impl(path: str) -> EastBlob:
 
 
 @platform_function(name="fs_write_file_bytes", inputs=[StringType, BlobType], output=NullType)
-def fs_write_file_bytes_impl(path: str, content: bytes) -> None:
+def fs_write_file_bytes(path: str, content: bytes) -> None:
     """Write raw binary data to a file, replacing any existing content.
 
     Args:
@@ -213,21 +220,68 @@ def fs_write_file_bytes_impl(path: str, content: bytes) -> None:
         raise RuntimeError(f"Failed to write file bytes {path}: {err}") from err
 
 
-# Collected from the @platform_function decorations above.
+@generic_platform_function(type_parameters=["T"], name="fs_open_beast", inputs=[StringType], output="T")
+def fs_open_beast(_platform_list: Any, T: EastType) -> Callable[[str], Any]:  # noqa: N803
+    """Open an indexed beast2 collection file as a frozen, lazily paged value.
+
+    The factory behind ``FileSystem.openBeast``: inside an East body
+    ``fs_open_beast(DictType(K, V), path)`` is the call itself (the type
+    argument first, as TypeScript reads it); called from python with the
+    resolved ``T`` — an ``Array``, ``Set`` or ``Dict`` type — it returns
+    ``open(path)``. The file is memory-mapped and
+    opened as a paged value whose ``size``, keyed reads and ``for`` loop
+    decode one segment at a time, exactly as ``blob.open_beast`` does; the
+    mapping is released when the value dies, so nothing else has to keep it
+    alive. A file without a paging index (what ``East.Blob.encode_beast``
+    writes) or whose element shape holds ``Ref`` or function values decodes
+    whole, frozen. The file's header must carry exactly ``T``.
+
+    Args:
+        _platform_list: The platform list being registered (unused).
+        T: ``EastType`` - the collection type the file was written with.
+
+    Returns:
+        ``open(path)`` - takes ``String`` (``str``) and returns the frozen
+        collection of type ``T`` as a paged hold the compiled body reads at
+        O(segment).
+
+    Raises:
+        RuntimeError: From ``open(path)`` when the file cannot be opened as
+            ``T``: ``Failed to open beast file <path>: <detail>``, naming
+            both types on a header mismatch — the message every runtime
+            raises.
+    """
+
+    def open_beast(path: str) -> Any:
+        try:
+            hold = open_paged_file(T, path, frozen=True)
+            if hold is not None:
+                return hold
+            # Not pageable (index-less, or a gated element shape): the whole
+            # frozen decode, the same value every runtime produces.
+            return load_frozen_value(T, Path(path).read_bytes())
+        except (OSError, ValueError) as err:
+            raise RuntimeError(f"Failed to open beast file {path}: {err}") from err
+
+    return open_beast
+
+
+# Collected from the @platform_function / @generic_platform_function decorations above.
 fs_impl = platform_functions(__name__)
 
 
 __all__ = [
     "fs_impl",
-    "fs_read_file_impl",
-    "fs_write_file_impl",
-    "fs_append_file_impl",
-    "fs_delete_file_impl",
-    "fs_exists_impl",
-    "fs_is_file_impl",
-    "fs_is_directory_impl",
-    "fs_create_directory_impl",
-    "fs_read_directory_impl",
-    "fs_read_file_bytes_impl",
-    "fs_write_file_bytes_impl",
+    "fs_read_file",
+    "fs_write_file",
+    "fs_append_file",
+    "fs_delete_file",
+    "fs_exists",
+    "fs_is_file",
+    "fs_is_directory",
+    "fs_create_directory",
+    "fs_read_directory",
+    "fs_read_file_bytes",
+    "fs_write_file_bytes",
+    "fs_open_beast",
 ]

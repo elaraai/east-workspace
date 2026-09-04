@@ -24,14 +24,14 @@ from east_py_io.format.types import (
 )
 from east_py_io.format.xlsx import (
     xlsx_impl,
-    xlsx_info_impl,
-    xlsx_read_impl,
-    xlsx_write_impl,
+    xlsx_info,
+    xlsx_read,
+    xlsx_write,
 )
 from east_py_io.format.xml_impl import (
     xml_impl,
-    xml_parse_impl,
-    xml_serialize_impl,
+    xml_parse,
+    xml_serialize,
 )
 
 __all__ = [
@@ -49,11 +49,11 @@ __all__ = [
     "XmlSerializeConfigType",
     # XLSX
     "xlsx_impl",
-    "xlsx_read_impl",
-    "xlsx_write_impl",
-    "xlsx_info_impl",
+    "xlsx_read",
+    "xlsx_write",
+    "xlsx_info",
     # XML
     "xml_impl",
-    "xml_parse_impl",
-    "xml_serialize_impl",
+    "xml_parse",
+    "xml_serialize",
 ]

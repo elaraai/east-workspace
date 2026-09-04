@@ -21,7 +21,7 @@ import {
 } from '@elaraai/east';
 import type { PlatformFunction, EastTypeValue } from '@elaraai/east/internal';
 import { printTypeValue } from '@elaraai/east/internal';
-import { loadEastIR, loadInput, loadInputLazy } from './loader.js';
+import { lazyInputBytesRead, loadEastIR, loadInput, loadInputLazy } from './loader.js';
 
 function now(): bigint { return process.hrtime.bigint(); }
 function elapsed(start: bigint, end: bigint): number { return Number(end - start) / 1e6; }
@@ -158,12 +158,25 @@ export async function runProgram(
     // nested-container element shapes open lazily too.
     const threshold = lazyThreshold(opts);
     const inputs: unknown[] = [];
+    const lazyInputs: number[] = [];
     for (let i = 0; i < inputPaths.length; i++) {
         const wantLazy = i === opts.streamInput ||
             (threshold > 0 && statSync(inputPaths[i]!).size >= threshold);
         const lazy = wantLazy ? loadInputLazy(inputPaths[i]!) : undefined;
+        if (lazy !== undefined) {
+            lazyInputs.push(i);
+            if (verbose) console.error(`  input ${i}: opened lazily — paged from the file`);
+        }
         inputs.push(lazy !== undefined ? lazy : loadInput(inputPaths[i]!, inputTypes[i]!));
     }
+    /** The verbose summary's account of each lazy input: what paging came
+     *  to, against the file's size. */
+    const reportLazyReads = (): void => {
+        for (const i of lazyInputs) {
+            const read = lazyInputBytesRead(inputs[i]);
+            if (read !== undefined) console.error(`  input ${i}: ${formatSize(read)} read of ${formatFileSize(inputPaths[i]!)}`);
+        }
+    };
     if (emitSink) inputs.push(emitSink.emit);
 
     const t1 = now();
@@ -181,7 +194,10 @@ export async function runProgram(
             : maybeWriteOutput(outputPath, result, outputType, verbose);
         const t5 = now();
 
-        if (verbose) printTimingAndMemory(t0, t1, t2, t3, t4, t5);
+        if (verbose) {
+            printTimingAndMemory(t0, t1, t2, t3, t4, t5);
+            reportLazyReads();
+        }
     } else {
         const compiled = (eastIR as any).compile(platformFns);
         const t2 = now();
@@ -194,7 +210,10 @@ export async function runProgram(
             : maybeWriteOutput(outputPath, result, outputType, verbose);
         const t5 = now();
 
-        if (verbose) printTimingAndMemory(t0, t1, t2, t3, t4, t5);
+        if (verbose) {
+            printTimingAndMemory(t0, t1, t2, t3, t4, t5);
+            reportLazyReads();
+        }
     }
 
     return outputPath ? undefined : result;

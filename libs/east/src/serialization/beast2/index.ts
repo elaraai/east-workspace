@@ -19,13 +19,16 @@ import { IRType, type FunctionIR, type AsyncFunctionIR } from "../../ir.js";
 import type { PlatformFunction } from "../../platform.js";
 import { EastIR, AsyncEastIR } from "../../eastir.js";
 import type { SourceMap } from "../../location.js";
+import { BufferReader } from "../binary-utils.js";
 import { type Beast2DecodeOptions } from "./shared.js";
+import { readTypeSection } from "./v5/type-section.js";
 import {
   MAGIC_BYTES,
   encodeBeast2V4For,
   decodeBeast2V4For,
   decodeBeast2V4,
   decodeIRWithSourceMapV4,
+  readBeast2V4Type,
 } from "./v4/container.js";
 import {
   encodeBeast2V5For,
@@ -61,14 +64,36 @@ export {
   rebuildBeast2,
   type RebuildBeast2Options,
   type Beast2RangeReader,
+  type Beast2SyncRangeReader,
   type Beast2RangedExtents,
   type ReadBeast2ExtentsRangedOptions,
   readBeast2ExtentsRanged,
+  readBeast2ExtentsSync,
+  isBeast2SyncRangeReader,
   carveBeast2Ranged,
   spliceBeast2Tail,
 } from "./v5/geometry.js";
 export { openBeast2LazyFor, isBeast2LazySafe, type Beast2LazySafeOptions } from "./v5/lazy.js";
-import { readIndex } from "./v5/codec.js";
+import { readIndex, MAGIC_BYTES_V5 } from "./v5/codec.js";
+
+/**
+ * Reads the root type a beast2 blob's header declares, without decoding the
+ * value.
+ *
+ * Both container versions carry the type up front, so this is O(header) for
+ * either; the version is sniffed from the magic. A decoder built for another
+ * type would read garbage, which is what the in-expression opens
+ * (`blob.openBeast`, `FileSystem.openBeast`) check against on every runtime.
+ *
+ * @param data - the blob to inspect
+ * @returns the declared root type
+ * @throws {Error} When the data is not a beast2 container, or its type
+ *   section is malformed.
+ */
+export function readBeast2Type(data: Uint8Array): EastTypeValue {
+  if (sniffVersion(data) !== 5) return readBeast2V4Type(data);
+  return readTypeSection(new BufferReader(data, MAGIC_BYTES_V5.length)).rootType;
+}
 
 /**
  * Whether a blob carries the v5 trailing paging index (a well-formed

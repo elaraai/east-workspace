@@ -111,6 +111,7 @@ export const SPELLINGS: Record<string, Spelling> = {
   BlobEncodeBeast: { template: "East.Blob.encodeBeast({0})" },
   BlobEncodeBeast2: { template: "East.Blob.encodeBeast({0}, 'v2')" },
   BlobGetUint8: { template: "{0}.getUint8({1})" },
+  BlobOpenBeast2: { template: "{0}.openBeast({T0})" },
   BlobSize: { template: "{0}.size()" },
   BooleanAnd: { template: "{0}.bitAnd({1})" },
   BooleanNot: { template: "{0}.not()" },

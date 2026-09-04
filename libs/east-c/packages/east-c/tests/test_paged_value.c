@@ -457,6 +457,332 @@ static void test_release_states(void)
     }
 }
 
+/* The ownership modes of issue #658: a paged value that RETAINS the value
+ * whose bytes it aliases (the blob.openBeast builtin's Blob), released after
+ * the pager on every death path; and one whose bytes a host callback
+ * releases (an mmap), fired exactly once — never on a failed open. */
+static void test_owned_open(void)
+{
+    EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
+    size_t len = 0;
+    uint8_t *data = encode_int_dict(300, &len);
+    CHECK(data != NULL, "paged encode failed");
+    if (!data) return;
+    EastValue *blob = east_blob(data, len); /* copies the bytes */
+    free(data);
+    CHECK(blob != NULL, "blob alloc failed");
+    if (!blob) return;
+
+    for (int frozen = 0; frozen < 2; frozen++) {
+        EastValue *paged = east_beast2_open_paged_owned(blob, blob->data.blob.data,
+                                                        blob->data.blob.len, dt, frozen != 0);
+        CHECK(paged != NULL && paged->kind == EAST_VAL_PAGED, "owned open failed (frozen=%d)",
+              frozen);
+        if (!paged) continue;
+        CHECK(blob->ref_count == 2, "owner not retained: ref_count %d", blob->ref_count);
+        CHECK(paged->data.paged.owner == blob && !paged->data.paged.owns_data &&
+                  paged->data.paged.release == NULL,
+              "owned mode fields wrong");
+        CHECK(east_value_frozen(paged) == (frozen != 0), "frozen brand wrong (frozen=%d)", frozen);
+
+        EastValue *key = east_integer(123);
+        CHECK(east_dict_has(paged, key), "owned keyed read miss");
+        east_value_release(key);
+        CHECK(paged->data.paged.hydrated == NULL, "keyed read hydrated the owned value");
+
+        EastValue *h = east_paged_hydrated(paged);
+        CHECK(h != NULL && east_dict_len(h) == 300, "owned hydration failed");
+        CHECK(h == NULL || east_value_frozen(h) == (frozen != 0), "hydrated brand wrong");
+        east_value_release(paged);
+        CHECK(blob->ref_count == 1, "owner not released: ref_count %d", blob->ref_count);
+    }
+
+    /* Everything above read through the Blob's bytes without touching them:
+     * the paged encode is deterministic, so a fresh encode is the oracle. */
+    size_t again_len = 0;
+    uint8_t *again = encode_int_dict(300, &again_len);
+    CHECK(again != NULL && again_len == blob->data.blob.len &&
+              memcmp(again, blob->data.blob.data, again_len) == 0,
+          "owner bytes damaged");
+    free(again);
+
+    /* A failed open retains nothing: a Ref-bearing shape is gated even frozen. */
+    EastType *ref_row = east_struct_type((const char *[]){"r"},
+                                         (EastType *[]){east_ref_type(&east_integer_type)}, 1);
+    EastValue *refused = east_beast2_open_paged_owned(
+        blob, blob->data.blob.data, blob->data.blob.len, east_array_type(ref_row), true);
+    CHECK(refused == NULL, "gated shape unexpectedly opened owned");
+    free(east_builtin_get_error());
+    CHECK(blob->ref_count == 1, "failed owned open retained the owner");
+    CHECK(east_beast2_open_paged_owned(NULL, blob->data.blob.data, blob->data.blob.len, dt,
+                                       false) == NULL,
+          "owned open without an owner");
+    free(east_builtin_get_error());
+    east_value_release(blob);
+}
+
+typedef struct {
+    int calls;
+    uint8_t *data;
+    size_t len;
+} ReleaseProbe;
+
+static void release_probe(void *ctx, uint8_t *data, size_t len)
+{
+    ReleaseProbe *p = (ReleaseProbe *)ctx;
+    p->calls++;
+    p->data = data;
+    p->len = len;
+    free(data); /* the test's malloc'd bytes — an mmap would munmap here */
+}
+
+static void test_external_open(void)
+{
+    EastType *at = east_array_type(&east_integer_type);
+    size_t len = 0;
+    uint8_t *data = encode_int_array(500, &len);
+    CHECK(data != NULL, "paged encode failed");
+    if (!data) return;
+    ReleaseProbe probe = {0, NULL, 0};
+    EastValue *paged = east_beast2_open_paged_external(data, len, at, true, release_probe, &probe);
+    CHECK(paged != NULL && paged->kind == EAST_VAL_PAGED, "external open failed");
+    if (!paged) {
+        free(data);
+        return;
+    }
+    CHECK(!paged->data.paged.owns_data && paged->data.paged.release == release_probe &&
+              paged->data.paged.release_ctx == &probe && paged->data.paged.owner == NULL,
+          "external mode fields wrong");
+    CHECK(east_value_frozen(paged), "external frozen open not branded");
+    CHECK(east_array_len(paged) == 500, "external length %zu", east_array_len(paged));
+    CHECK(probe.calls == 0, "release fired before the value died");
+    EastValue *h = east_paged_hydrated(paged);
+    CHECK(h != NULL && east_value_frozen(h) && east_array_len(h) == 500, "external hydration");
+    east_value_release(paged);
+    CHECK(probe.calls == 1 && probe.data == data && probe.len == len,
+          "release fired %d time(s) with (%p, %zu)", probe.calls, (void *)probe.data, probe.len);
+
+    /* A gated shape never fires the callback and leaves the bytes ours. */
+    size_t glen = 0;
+    uint8_t *gdata = encode_int_array(5, &glen);
+    ReleaseProbe gprobe = {0, NULL, 0};
+    EastType *ref_row = east_struct_type((const char *[]){"r"},
+                                         (EastType *[]){east_ref_type(&east_integer_type)}, 1);
+    EastValue *refused = east_beast2_open_paged_external(gdata, glen, east_array_type(ref_row),
+                                                         true, release_probe, &gprobe);
+    CHECK(refused == NULL, "gated shape unexpectedly opened external");
+    free(east_builtin_get_error());
+    CHECK(gprobe.calls == 0, "release fired on a gated open");
+    free(gdata);
+
+    /* Nor does a blob that is not pageable (index-less whole-value v5). */
+    EastValue *arr = east_array_new(at->data.element);
+    EastValue *one = east_integer(1);
+    east_array_push(arr, one);
+    east_value_release(one);
+    ByteBuffer *whole = east_beast2_encode_v5(arr, at, EAST_BEAST2_CODEC_NONE, false);
+    east_value_release(arr);
+    CHECK(whole != NULL, "whole encode failed");
+    if (!whole) return;
+    uint8_t *wdata = malloc(whole->len);
+    memcpy(wdata, whole->data, whole->len);
+    size_t wlen = whole->len;
+    byte_buffer_free(whole);
+    ReleaseProbe wprobe = {0, NULL, 0};
+    EastValue *unpaged =
+        east_beast2_open_paged_external(wdata, wlen, at, false, release_probe, &wprobe);
+    CHECK(unpaged == NULL, "index-less blob unexpectedly opened external");
+    free(east_builtin_get_error());
+    CHECK(wprobe.calls == 0, "release fired on an unpageable open");
+
+    /* And a missing callback is refused up front, before the bytes are read. */
+    CHECK(east_beast2_open_paged_external(wdata, wlen, at, false, NULL, NULL) == NULL,
+          "external open without a callback");
+    free(east_builtin_get_error());
+    free(wdata);
+}
+
+static void test_release_modes_under_gc(void)
+{
+    /* A paged value reachable only through a reference cycle dies in the
+     * collector's destroy path, which must honour the ownership modes just
+     * like the refcount path: the owner is released, the callback fires
+     * exactly once. */
+    EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
+    size_t len = 0;
+    uint8_t *data = encode_int_dict(50, &len);
+    CHECK(data != NULL, "paged encode failed");
+    if (!data) return;
+    EastValue *blob = east_blob(data, len);
+    free(data);
+    EastValue *paged =
+        east_beast2_open_paged_owned(blob, blob->data.blob.data, blob->data.blob.len, dt, false);
+    CHECK(paged != NULL, "owned open failed");
+    if (!paged) {
+        east_value_release(blob);
+        return;
+    }
+    EastValue *cycle = east_array_new(NULL);
+    east_array_push(cycle, paged);
+    east_array_push(cycle, cycle); /* self-reference: garbage once our refs drop */
+    east_value_release(paged);
+    east_value_release(cycle);
+    CHECK(blob->ref_count == 2, "owner not held while the cycle is alive");
+    east_gc_collect_full();
+    CHECK(blob->ref_count == 1, "collector did not release the owner: ref_count %d",
+          blob->ref_count);
+    east_value_release(blob);
+
+    EastType *at = east_array_type(&east_integer_type);
+    size_t elen = 0;
+    uint8_t *edata = encode_int_array(50, &elen);
+    CHECK(edata != NULL, "paged encode failed");
+    if (!edata) return;
+    ReleaseProbe probe = {0, NULL, 0};
+    EastValue *ext = east_beast2_open_paged_external(edata, elen, at, false, release_probe, &probe);
+    CHECK(ext != NULL, "external open failed");
+    if (!ext) {
+        free(edata);
+        return;
+    }
+    EastValue *cycle2 = east_array_new(NULL);
+    east_array_push(cycle2, ext);
+    east_array_push(cycle2, cycle2);
+    east_value_release(ext);
+    east_value_release(cycle2);
+    CHECK(probe.calls == 0, "release fired before collection");
+    east_gc_collect_full();
+    CHECK(probe.calls == 1, "collector fired release %d time(s)", probe.calls);
+}
+
+/* The blob.openBeast builtin (issue #659), invoked through the registry the
+ * way the evaluator does: an indexed v5 collection Blob opens as a FROZEN
+ * paged value that retains the Blob and answers keyed reads from the pager;
+ * a v5 header of another type is refused, naming both types; an index-less
+ * blob and a gated (Ref-bearing) element shape decode whole, frozen. */
+static void test_open_beast_builtin(void)
+{
+    BuiltinRegistry *builtins = builtin_registry_new();
+    east_register_all_builtins(builtins);
+    EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
+
+    size_t len = 0;
+    uint8_t *data = encode_int_dict(300, &len);
+    CHECK(data != NULL, "paged encode failed");
+    if (!data) {
+        builtin_registry_free(builtins);
+        return;
+    }
+    EastValue *blob = east_blob(data, len);
+    free(data);
+    EastValue *args[1] = {blob};
+
+    BuiltinImpl open = builtin_registry_get(builtins, "BlobOpenBeast2", (EastType *[]){dt}, 1);
+    CHECK(open != NULL, "BlobOpenBeast2 is not registered");
+    EastValue *paged = open ? open(args, 1) : NULL;
+    if (!paged) {
+        char *err = east_builtin_get_error();
+        CHECK(false, "openBeast failed: %s", err ? err : "(none)");
+        free(err);
+    } else {
+        CHECK(paged->kind == EAST_VAL_PAGED, "openBeast did not page (kind %d)", (int)paged->kind);
+        CHECK(east_value_frozen(paged), "openBeast result not frozen");
+        CHECK(paged->kind == EAST_VAL_PAGED && paged->data.paged.owner == blob &&
+                  blob->ref_count == 2,
+              "openBeast did not retain the Blob (ref_count %d)", blob->ref_count);
+        EastValue *key = east_integer(42);
+        CHECK(east_dict_has(paged, key), "keyed read miss");
+        east_value_release(key);
+        CHECK(paged->kind != EAST_VAL_PAGED || paged->data.paged.hydrated == NULL,
+              "keyed read hydrated the opened value");
+        east_value_release(paged);
+        CHECK(blob->ref_count == 1, "Blob not released with the paged value");
+    }
+
+    /* A v5 header of another type is refused, naming both types. */
+    EastType *at = east_array_type(&east_integer_type);
+    BuiltinImpl open_as_array =
+        builtin_registry_get(builtins, "BlobOpenBeast2", (EastType *[]){at}, 1);
+    EastValue *refused = open_as_array ? open_as_array(args, 1) : NULL;
+    CHECK(refused == NULL, "openBeast opened a Dict blob as an Array");
+    if (refused) east_value_release(refused);
+    char *err = east_builtin_get_error();
+    CHECK(err != NULL && strstr(err, "cannot open a blob of type") != NULL,
+          "unexpected mismatch message: %s", err ? err : "(none)");
+    free(err);
+    CHECK(blob->ref_count == 1, "a refused open retained the Blob");
+    east_value_release(blob);
+
+    /* An index-less blob decodes whole, frozen. */
+    EastValue *dict = east_dict_new(dt->data.dict.key, dt->data.dict.value);
+    EastValue *k = east_integer(1);
+    EastValue *v = east_string("one");
+    east_dict_set(dict, k, v);
+    east_value_release(k);
+    east_value_release(v);
+    ByteBuffer *whole = east_beast2_encode_full(dict, dt);
+    east_value_release(dict);
+    CHECK(whole != NULL, "whole encode failed");
+    if (whole) {
+        EastValue *wblob = east_blob(whole->data, whole->len);
+        byte_buffer_free(whole);
+        EastValue *wargs[1] = {wblob};
+        BuiltinImpl open_whole =
+            builtin_registry_get(builtins, "BlobOpenBeast2", (EastType *[]){dt}, 1);
+        EastValue *eager = open_whole ? open_whole(wargs, 1) : NULL;
+        CHECK(eager != NULL && eager->kind == EAST_VAL_DICT && east_value_frozen(eager) &&
+                  east_dict_len(eager) == 1,
+              "index-less open did not decode whole and frozen");
+        if (eager) east_value_release(eager);
+        east_value_release(wblob);
+    }
+
+    /* A Ref-bearing element shape (gated even frozen) decodes whole, frozen. */
+    EastType *ref_row = east_struct_type((const char *[]){"r"},
+                                         (EastType *[]){east_ref_type(&east_integer_type)}, 1);
+    EastType *rt = east_dict_type(&east_integer_type, ref_row);
+    EastValue *cells = east_dict_new(rt->data.dict.key, rt->data.dict.value);
+    for (size_t i = 0; i < 20; i++) {
+        EastValue *inner = east_integer((int64_t)(i * 10));
+        EastValue *cell = east_ref_new(inner);
+        east_value_release(inner);
+        const char *names[] = {"r"};
+        EastValue *vals[] = {cell};
+        EastValue *row = east_struct_new(names, vals, 1, ref_row);
+        east_value_release(cell);
+        EastValue *rk = east_integer((int64_t)i);
+        east_dict_set(cells, rk, row);
+        east_value_release(rk);
+        east_value_release(row);
+    }
+    ByteBuffer *rbuf = east_beast2_encode_paged(cells, rt, EAST_BEAST2_CODEC_DEFLATE, 64);
+    east_value_release(cells);
+    CHECK(rbuf != NULL, "ref paged encode failed");
+    if (rbuf) {
+        EastValue *rblob = east_blob(rbuf->data, rbuf->len);
+        byte_buffer_free(rbuf);
+        EastValue *rargs[1] = {rblob};
+        BuiltinImpl open_refs =
+            builtin_registry_get(builtins, "BlobOpenBeast2", (EastType *[]){rt}, 1);
+        EastValue *rwhole = open_refs ? open_refs(rargs, 1) : NULL;
+        CHECK(rwhole != NULL && rwhole->kind == EAST_VAL_DICT && east_value_frozen(rwhole) &&
+                  east_dict_len(rwhole) == 20,
+              "gated shape did not decode whole and frozen");
+        if (rwhole) {
+            EastValue *k3 = east_integer(3);
+            EastValue *row = east_dict_get(rwhole, k3);
+            EastValue *cell = row ? east_struct_get_field(row, "r") : NULL;
+            EastValue *held = cell ? east_ref_get(cell) : NULL;
+            CHECK(held != NULL && held->kind == EAST_VAL_INTEGER && held->data.integer == 30,
+                  "ref element value wrong");
+            east_value_release(k3);
+            east_value_release(rwhole);
+        }
+        east_value_release(rblob);
+    }
+    builtin_registry_free(builtins);
+}
+
 int main(void)
 {
     east_type_of_type_init();
@@ -468,6 +794,10 @@ int main(void)
     test_frozen_open();
     test_platform_boundary();
     test_release_states();
+    test_owned_open();
+    test_external_open();
+    test_release_modes_under_gc();
+    test_open_beast_builtin();
 
     east_gc_collect_full();
 

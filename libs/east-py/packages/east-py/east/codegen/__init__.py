@@ -20,12 +20,15 @@ The contract the conformance suite pins: ``build(print(IR)) ≡ IR`` under
 """
 
 from east.codegen.printer import Unprintable, to_python_source
+from east.codegen.providers import Providers, providers_for
 from east.codegen.spellings import RAW_ONLY, SPELLINGS, Spelling, spelling_for
 from east.codegen.types import type_source
 
 __all__ = [
     "to_python_source",
     "Unprintable",
+    "Providers",
+    "providers_for",
     "type_source",
     "SPELLINGS",
     "Spelling",

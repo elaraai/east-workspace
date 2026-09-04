@@ -59,6 +59,13 @@ EastValue *east_beast2_decode_auto(const uint8_t *data, size_t len);
 // Extract the type schema from beast2-full encoded data (returns retained EastType*)
 EastType *east_beast2_extract_type(const uint8_t *data, size_t len);
 
+// Why `data` is not a beast2 container, or NULL when its magic names a
+// readable version — the diagnostics the TypeScript runtime gives
+// ("Data too short for Beast2 format: N bytes", "Invalid Beast2 magic at
+// offset i: expected 0x.., got 0x..", "Unknown Beast2 version: 0x.."),
+// formatted into `buf`. The open paths post it under their own prefix.
+const char *east_beast2_magic_problem(const uint8_t *data, size_t len, char *buf, size_t cap);
+
 // Decode beast2-full IR and convert to IRNode in one shot.
 // Keeps the type table alive across decode + IR conversion for O(1) type resolution.
 // Returns NULL on failure. Caller must call ir_node_release on the result.
@@ -148,6 +155,11 @@ size_t east_beast2_pages_segment_count(Beast2Pages *p);
 size_t east_beast2_pages_element_count(Beast2Pages *p);
 bool east_beast2_pages_self_contained(Beast2Pages *p);
 const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out);
+// What paging has cost so far: the segments and fences actually decoded —
+// a cache hit (segment or fence) is not counted again.
+// A runner reports these per lazy input — the account residency cannot give
+// on a mapping, where the kernel decides how much of a touched file is resident.
+void east_beast2_pages_stats(Beast2Pages *p, size_t *segments_decoded, size_t *fences_probed);
 EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i);
 EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row);
 // Segment i's FENCE: its first element (Array/Set) or first key (Dict),
@@ -263,6 +275,27 @@ EastValue *east_beast2_open_paged_frozen(uint8_t *data, size_t len, EastType *ty
 // release. Never takes ownership, success or failure.
 EastValue *east_beast2_open_paged_view(const uint8_t *data, size_t len, EastType *type,
                                        bool frozen);
+
+// Owned-bytes lazy open (issue #658): `data` aliases bytes that `owner` (a
+// Blob value, typically) keeps alive — the paged value RETAINS `owner` for
+// its whole lifetime and releases it after its pager, so the bytes outlive
+// every read. Never frees `data` itself. Returns NULL (owner not retained)
+// when the blob is not pageable or the element shape is gated, exactly like
+// east_beast2_open_paged; the caller then decodes whole.
+EastValue *east_beast2_open_paged_owned(EastValue *owner, const uint8_t *data, size_t len,
+                                        EastType *type, bool frozen);
+
+// Host-released lazy open (issue #658): the bytes belong to the host (an
+// mmap, a foreign buffer) and `release(ctx, data, len)` is invoked EXACTLY
+// ONCE, after the pager is freed, when the value dies — on the refcount
+// path and under the cycle collector alike. On NULL (not pageable, gated
+// shape, malformed container) the callback never fires and the bytes stay
+// the caller's, matching east_beast2_open_paged's ownership rule. The hook
+// may run inside the collector's destroy phase, so it must only release
+// what it owns (munmap, free, a Py_DECREF) and never re-enter the runtime.
+EastValue *east_beast2_open_paged_external(uint8_t *data, size_t len, EastType *type, bool frozen,
+                                           void (*release)(void *ctx, uint8_t *data, size_t len),
+                                           void *ctx);
 
 // The byte budget of a pager's decoded-segment cache (issue #560): the sum of
 // cached segments' decompressed frame lengths stays at or under the budget

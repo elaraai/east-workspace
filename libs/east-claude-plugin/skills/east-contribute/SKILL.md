@@ -142,7 +142,12 @@ Plain `tsc` cannot see East idiom mistakes (hand-rolled variants, `some/none`, r
 
 A project wires the tooling via `tsconfig.json` `compilerOptions.plugins: [{ "name": "@elaraai/tsserver-plugin-east" }]` + the eslint plugin with type-aware linting (`projectService: true`). Scaffolds from `npm create @elaraai/{e3,east}` ship both preconfigured — never re-add. (In VS Code, the tsconfig plugin loads only when the **workspace** TypeScript version is selected.)
 
-The 13 active East rules to satisfy (README lists 12; `no-untracked-east-data` is also active): `no-redundant-east-cast`, `prefer-explicit-east-type`, `prefer-some-none`, `no-handrolled-variant`, `no-east-namespaced-type`, `prefer-let-const-over-east-value`, `no-relative-src-import`, `no-let-const-in-expression`, `no-unexecuted-east-expression`, `no-reinlined-east-binding`, `no-east-data-builder-helper`, `prefer-jsx-over-factory-call`, `no-untracked-east-data`.
+The active rule set (hand-rolled variants, `some`/`none`, redundant casts,
+relative `src` imports, untracked data, JSX-vs-factory, …) is enumerated in
+`libs/eslint-plugin-east/README.md` — read it there rather than from a list
+here, which has already drifted once. What matters for the gate: `make lint`
+runs all of them over a real TS program, and every one it reports is a fix, not
+a suppression.
 
 ## 4. Reproduce (bugs) / design (features)
 
@@ -158,31 +163,48 @@ Edit the source. **Every public API you add or change MUST carry a TypeDoc comme
 
 `@example` form is also keyed on location: **expression classes** use the full `East.function(...) → East.compile(...) → execution` flow with inline `// result` comments and one `const compiled =`, and must be validated with the `east_compile` MCP tool until they compile; **regular classes** use plain realistic usage (no `compile()`).
 
-### East interop (absolute — these break silently, invisible to tsc)
+### East interop — read the authority, don't trust a summary
 
-**TypeScript** (`docs/conventions/EAST_TS_INTEROP.md`):
-- Runtime type check: `isValueOf(v, T)` — never `typeof`/`instanceof`. (Integer is `bigint`, variants are tagged structs, DateTime is not a JS `Date`.)
-- Equality/order: `equalFor(T)` / `lessFor(T)` / `compareFor(T)` — never `===`/`<`/`>`. Sorted containers: `new SortedMap(compareFor(KeyType))`, `arr.sort(compareFor(T))`.
-- Construct variants/options: `variant("Tag", data)` / `some(x)` / `none` — **never** hand-roll `{ tag, data }`. (No exceptions.)
-- Declare vars in an `East.function` block with `$.const(value, Type)` (immutable) / `$.let(value, Type)` (mutable). The 2nd arg is the **East type, not a name** — there is no name parameter. Prefer these over `East.value()`. Wrap external TS values with `East.value()`/`$.const()` before calling East methods on them.
+East values have runtime representations that plain TS/Python intuition gets
+wrong, and neither `tsc` nor `mypy` can see the mistakes. **This skill does not
+restate the rules**: a copy here rots against the source, and a stale copy is
+worse than no copy — it reads as authoritative while teaching a superseded
+idiom. Open the convention doc for the language you are editing, plus the
+per-package skill for the API you are calling:
 
-**Python** (`docs/conventions/EAST_PY_INTEROP.md`):
-- `compare_for`/`equal_for`/`less_for`, `make_east_key(T)` for `sorted(...)` — never raw `<`/`==`/`sorted`.
-- `variant("case", value, Type)` / `some` / `none` — never a `{"type","value"}` dict; read deserialized options with `is_east_variant` (`opt.type == "some"/"none"`), **not** `is_east_option`.
-- **Never reimplement an east-c builtin** — delegate (`arr.sorted()`, `s1.union(s2)`, `East.String.upper_case(s)`, `East.Integer.divide(a,b)`, `East.Float.sqrt(x)`). Python `//` ≠ East IntegerDivide.
-- Coerce/validate at the boundary: `coerce_to(raw, Type)` / `assert_value_of(result, output_type)`; let `@platform_function(output=...)` validate. Integer-vs-Float comes from the **declared** type (a Float-intended `3` → `3.0`).
+| You are editing | Read first |
+|---|---|
+| TypeScript building/consuming East values | `docs/conventions/EAST_TS_INTEROP.md` + the `east` skill |
+| Python building/consuming East values | `docs/conventions/EAST_PY_INTEROP.md` + the `east-py` skill (its expression-vs-eager surface table is the one that catches people) |
+| A Python module wrapping an optional native library | `docs/conventions/PYTHON_OPTIONAL_DEPS.md` + that package's `CLAUDE.md` |
+| An east-ui / e3-ui factory or renderer | `docs/conventions/EAST_UI_PROP_PATTERNS.md` + the `east-ui` / `e3-ui` skill |
+| A platform function (any language) | the owning package's skill — it documents the decorator/registration shape |
 
-**Python optional native deps** (`docs/conventions/PYTHON_OPTIONAL_DEPS.md`): module-level `find_spec` guard + `_check_<mod>_support()` raising `NotImplementedError`; **bare-import the native lib inside each impl function** (no top-level import, no `try/except ImportError`); add the extras group + two `[[tool.mypy.overrides]]` blocks; update the parent package's CLAUDE.md `## Modules` table.
+Five invariants are shared by all of them, and each corrupts data silently
+rather than failing loudly, so they are worth carrying in your head:
 
-### Development rules (hard — non-negotiable; the silent ones reviewers miss)
+- **Construct variants and options with the constructors.** TS `variant("Tag", data)` / `some(x)` / `none`; Python `variant("case", value, Type)` / `some` / `none`. A `{type, value}` literal is not a variant — it lacks the encoder symbol the runtime needs.
+- **Compare with the East comparators**, never `===` / `<` / `sorted`. TS `equalFor` / `lessFor` / `compareFor`; Python `equal_for` / `less_for` / `compare_for` / `make_east_key`.
+- **Derive decoded types from the East type**, never hand-roll a parallel mirror (TS `ValueTypeOf<typeof FooType>`).
+- **Coerce and validate at the boundary** — `coerce_to` / `assert_value_of` — and let the platform-function decorator validate its declared output.
+- **Never reimplement an east-c builtin.** Delegate to the value method or the `East.<Type>` namespace; Python `//` is not East `IntegerDivide`.
 
-These break nothing at first and rot later. They are not style preferences — each one shipped as a real bug in this repo.
+**Match the package you are in, not its oldest sibling.** How you read an
+option, which guard helper wraps an optional import, which mypy overrides a
+package needs — those are per-package current practice, and they diverge as
+packages modernise. Read the code next to your change and that package's skill
+before copying an idiom from elsewhere in the monorepo.
 
-- **Decode/value TS types: DERIVE from the East type, never hand-roll.** When an East type exists (`Foo.Types.Bar`, `BarType`), type its decoded JS shape as `ValueTypeOf<typeof Foo.Types.Bar>` (or `ValueTypeOf<typeof BarType>`, index a list with `[number]`). **Never** hand-author a parallel `interface BarValue { … }` mirror, and never invent local aliases like `type Opt<T> = {type;value}` / `type Var<K,V> = {type:K;value:V}` to stand in for `OptionType`/`VariantType`. A hand-rolled mirror silently drifts the moment the East type gains a field — a renderer's hand-rolled `ConfigValue` missed three new config fields this way and nobody's compiler complained. The host-app renderer convention (`east-ui-components/CLAUDE.md`) is explicit: props are typed `ValueTypeOf<typeof Foo.Types.Foo>`.
-- **Variants/options: CONSTRUCT with `variant()` / `some` / `none`, TYPE with `ValueTypeOf`.** Never a `{ type, value }` object literal (it lacks the encoder symbol the runtime needs — see `[[never-hand-roll-variants]]`), never a hand-rolled variant *type*. This applies in TS *and* in factory/renderer code that builds East values to pass to a component.
-- **Styling (east-ui-components / e3-ui-components renderers): theme recipes ONLY, zero inline styles.** All styling flows through `theme/recipes` (`useRecipe`) / `theme/slot-recipes` (`useSlotRecipe`) via the call-once-then-spread-slot idiom. **Never** `style={{…}}` and **never** inline Chakra style props (`bg` / `color` / `p` / `gap` / `fontFamily` / `minW` / `borderColor`…) — they bypass the design system and rot against the canonical design system (`libs/east-ui/app_design_system/`). If a styled element has no recipe, **add a slot recipe** encoding the `libs/east-ui/app_design_system/guidelines/reference/spec.css` tokens (semantic tokens like `bg.surface`, `border.subtle`, `bg.brand.subtle` — never raw hex/px). Genuinely-dynamic data bindings (`width={pct}`, `bg={toneToken(kind)}`) are the only inline exception. Pre-existing inline-style debt nearby is not licence to add more — flag it, don't replicate it.
-- **east-ui factories: reify mapper callbacks — never splice.** A per-row TS callback prop (`value: (v, row) => …`, `assignment: x => ({…})`, chart encodings) must become a real East function (east-ui `src/shared/reify.ts`: `mapRows` / `mapRowsBlock` / `reifyAccessor`) that the factory **calls** inside the eager `.map` — never invoked mid-map with its expression tree spliced in (double-eval + undefined captures). Behavior props are pass-through `FunctionType` values, lifted and never invoked at build time, capturing only data + bind-handles (never `UIComponentType` values). Full rules: `docs/conventions/EAST_UI_PROP_PATTERNS.md`.
+### Review findings that keep recurring
+
+Each of these shipped as a real bug here, and each survives a green `tsc`. The
+rule is stated; the mechanics live in the doc named beside it.
+
+- **Decode/value TS types: derive, never hand-roll.** Where an East type exists, type its decoded JS shape `ValueTypeOf<typeof FooType>`. A hand-authored `interface FooValue` mirror — or a local `type Opt<T> = {type;value}` standing in for `OptionType` — drifts the moment the East type gains a field, with no compiler complaint: a renderer's hand-rolled `ConfigValue` silently missed three new config fields this way. See `east-ui-components/CLAUDE.md`.
+- **east-ui / e3-ui renderers: theme recipes only, zero inline styles.** No `style={{…}}`, no inline Chakra style props — they bypass the design system and rot against `libs/east-ui/app_design_system/`. An element with no recipe gets a new slot recipe using semantic tokens, never raw hex/px. Dynamic data bindings are the only exception, and nearby debt is not licence to add more. See the `east-ui` skill + `app_design_system/`.
+- **east-ui factories: reify mapper callbacks, never splice.** A per-row callback prop must become a real East function the factory *calls* inside the eager `.map`, not an expression tree spliced mid-map (double-eval + undefined captures). Behavior props stay pass-through `FunctionType`, lifted and never invoked at build time. See `docs/conventions/EAST_UI_PROP_PATTERNS.md`.
 - **Before trusting a downstream type error, rebuild the chain.** A renderer type-checking a *stale* `dist` of its IR package (because the IR build `noEmitOnError`-aborted on an unrelated example) will silently miss new fields. After changing an IR type, build the IR package to **success** before believing the renderer compiles (see §7's stale-tree rule).
+- **A doc or skill you contradict is part of your change.** If your fix moves a package off a documented idiom — a helper it no longer uses, a mypy override it no longer needs — update that convention doc / `CLAUDE.md` / `STANDARDS.md` in the same PR. Leaving the old text standing is how the next contributor reintroduces the thing you just removed.
 
 ## 6. East code in examples + tests (HARD RULE)
 
@@ -211,12 +233,15 @@ export const arraySum = example({
 });
 ```
 
-**Per-lib test conventions** (read the lib's `STANDARDS.md` for specifics):
-- **east**: one file per type at `test/<name>.spec.ts`; `import { describeEast as describe, assertEast as assert } from "./platforms.spec.js"`; bodies are East functions; `assert.equal/notEqual/throws` via `$(...)`.
-- **east-node** (std/io): co-located `src/<mod>.spec.ts`; `import { describeEast, Assert } from "./test.js"`; pass platform impls via `{ platformFns: ModuleImpl }`; public modules use the **Grouped Export Object** (`{ ...fns, Implementation } as const`); use `East.compileAsync()` if any impl is async.
-- **e3**: co-located `src/<x>.spec.ts` with `node:test` + `node:assert`; **real filesystem only — never mock fs**; fresh `mkdtempSync` per test, cleaned in `afterEach` even on failure; cover happy/edge/error/atomicity/round-trip; atomic writes = temp-file + rename (retry transient Windows `EPERM/EACCES/EBUSY/EEXIST`).
-- **east-py-datascience** (hybrid TS+Python): TS holds **types + tests only**, Python holds impl — and the East types must match **exactly** across both. TS specs set `{ exportOnly: true }`, import `describeEast`/`Assert` from `@elaraai/east-node-std`, no `platformFns`. Its **examples are `*.examples.ts` (TS), not Python.** Plain `east-py`/`east-py-std`/`east-py-io` are skill-file-only with pytest tests and **no `*.examples` requirement**.
-- **east-ui / e3-ui**: two layers — public JSX **tags** (`@elaraai/east-ui`) desugar to the **same IR** as internal **factories** (`@elaraai/east-ui/internal`). Every compilable `@example` is mirrored by an `example()` in `*.examples.tsx` wired via `Assert.examples`. Omit `returns` for `UIComponentType`; **all `State.*` must live inside `<Reactive>`'s inner builder** (else the fn becomes async and the analyzer rejects it); store callbacks in `$.const`. **Visual verification is mandatory**: after a component/example change, `cd libs/east-ui && make east-ui-examples-html-<key>` and Read the PNG. e3-ui follows east-ui's `STANDARDS.md` verbatim.
+**Per-lib test conventions — routing only; the lib's `STANDARDS.md` is the
+authority for how to write the test**, and it is the file to update if the
+convention changes:
+
+- **east**: one file per type at `test/<name>.spec.ts`, harness from `./platforms.spec.js`; bodies are East functions asserted via `$(...)`.
+- **east-node** (std/io): co-located `src/<mod>.spec.ts`, harness from `./test.js`; platform impls passed as `{ platformFns: ModuleImpl }`; `East.compileAsync()` when any impl is async.
+- **e3**: co-located `src/<x>.spec.ts` on `node:test`. The rule that bites: **real filesystem only — never mock fs** (fresh `mkdtempSync` per test, cleaned in `afterEach` even on failure), and atomic writes are temp-file + rename with a retry for transient Windows `EPERM/EACCES/EBUSY/EEXIST`.
+- **east-py-datascience** (hybrid TS+Python): TS holds **types + tests only**, Python holds the impl, and the East types must match **exactly** across both. Specs are `{ exportOnly: true }` and export IR that pytest replays; its **examples are `*.examples.ts` (TS), not Python.** Plain `east-py` / `east-py-std` / `east-py-io` are skill-file-only, pytest-tested, with **no `*.examples` requirement**.
+- **east-ui / e3-ui**: public JSX **tags** desugar to the **same IR** as internal **factories**; every compilable `@example` is mirrored by an `example()` in `*.examples.tsx`. **Visual verification is a gate**: after a component/example change, `cd libs/east-ui && make east-ui-examples-html-<key>` and Read the PNG. e3-ui follows east-ui's `STANDARDS.md` verbatim.
 
 ## 7. Verify — the gate
 

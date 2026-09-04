@@ -4,7 +4,7 @@
 #
 """Google OR-Tools for East - CP-SAT, vehicle routing, LP/MIP, and graph algorithms.
 
-The ``*_impl`` functions are plain Python callables taking and returning East
+The platform functions are plain Python callables taking and returning East
 values - import them directly from a project's own ``@platform_function`` to
 reuse the implementations without an IR round-trip. The East type definitions
 (model, config, and result types) are re-exported here for building inputs with
@@ -26,8 +26,8 @@ from east_py_datascience.google_or.cpsat import (
     CpSatObjectiveType,
     CpSatResultType,
     cpsat_impl,
-    cpsat_solve_all_impl,
-    cpsat_solve_impl,
+    cpsat_solve,
+    cpsat_solve_all,
 )
 from east_py_datascience.google_or.graph import (
     AssignmentInputType,
@@ -39,11 +39,11 @@ from east_py_datascience.google_or.graph import (
     MinCostAssignmentResultType,
     MinCostFlowInputType,
     MinCostFlowResultType,
-    assignment_impl,
+    assignment,
     graph_impl,
-    max_flow_impl,
-    min_cost_assignment_impl,
-    min_cost_flow_impl,
+    max_flow,
+    min_cost_assignment,
+    min_cost_flow,
 )
 from east_py_datascience.google_or.linear import (
     LinearConfigType,
@@ -56,7 +56,7 @@ from east_py_datascience.google_or.linear import (
     LinearTermType,
     LinearVarType,
     linear_impl,
-    linear_solve_impl,
+    linear_solve,
 )
 from east_py_datascience.google_or.routing import (
     RoutingConfigType,
@@ -68,7 +68,7 @@ from east_py_datascience.google_or.routing import (
     RoutingRouteType,
     RoutingTimeWindowType,
     routing_impl,
-    routing_solve_impl,
+    routing_solve,
 )
 from east_py_datascience.google_or.types import (
     GoogleOrStatusType,
@@ -85,14 +85,14 @@ __all__ = [
     "linear_impl",
     "graph_impl",
     # Directly-callable implementations
-    "cpsat_solve_impl",
-    "cpsat_solve_all_impl",
-    "routing_solve_impl",
-    "linear_solve_impl",
-    "min_cost_flow_impl",
-    "max_flow_impl",
-    "assignment_impl",
-    "min_cost_assignment_impl",
+    "cpsat_solve",
+    "cpsat_solve_all",
+    "routing_solve",
+    "linear_solve",
+    "min_cost_flow",
+    "max_flow",
+    "assignment",
+    "min_cost_assignment",
     # Shared types
     "GoogleOrStatusType",
     # CP-SAT types

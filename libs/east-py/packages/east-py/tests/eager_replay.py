@@ -1172,6 +1172,7 @@ _ROWS: dict[str, Any] = {
     "BlobDecodeUtf16": lambda ev, n, a: a[0].decode_utf16(),
     "BlobDecodeBeast": lambda ev, n, a: a[0].decode_beast(ev.canon(n.value["type_parameters"][0])),
     "BlobDecodeBeast2": lambda ev, n, a: a[0].decode_beast(ev.canon(n.value["type_parameters"][0]), "v2"),
+    "BlobOpenBeast2": lambda ev, n, a: a[0].open_beast(ev.canon(n.value["type_parameters"][0])),
     "BlobDecodeCsv": lambda ev, n, a: a[0].decode_csv(ev.canon(n.value["type_parameters"][0]), a[1]),
     "BlobEncodeBeast": lambda ev, n, a: East.Blob.encode_beast(a[0], typ=ev.canon(n.value["type_parameters"][0])),
     "BlobEncodeBeast2": lambda ev, n, a: East.Blob.encode_beast(a[0], "v2", typ=ev.canon(n.value["type_parameters"][0])),

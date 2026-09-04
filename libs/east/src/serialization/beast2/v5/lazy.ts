@@ -38,6 +38,7 @@ import { type Beast2DecodeOptions } from "../shared.js";
 import { asTypeValue } from "./type-section.js";
 import { isSegmentedRoot } from "./codec.js";
 import { Beast2Pages } from "./stream.js";
+import { type Beast2SyncRangeReader } from "./range.js";
 
 /** The canonical-order violation error, matching the eager decoders. */
 function disjointError(kind: "Set" | "Dict", i: number): Error {
@@ -458,9 +459,14 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
 }
 
 /**
- * Builds a curried lazy opener: `open(data)` returns an ordinary collection
+ * Builds a curried lazy opener: `open(source)` returns an ordinary collection
  * value — a `SortedMap`, `SortedSet`, or array — backed by the blob's
  * segment index instead of a whole decode.
+ *
+ * `source` is the whole blob, or a {@link Beast2SyncRangeReader} over it — a
+ * file descriptor with positioned reads, say — in which case the open reads
+ * only the blob's tail and head, and each served read fetches exactly the
+ * segment frames it decodes, so the wire bytes never sit on the heap whole.
  *
  * Size, single-pass iteration, and keyed reads are served lazily with
  * O(segment) decoded memory; every other operation transparently hydrates
@@ -479,16 +485,16 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
  * @returns a function opening a blob as a lazy collection value
  * @throws {TypeError} When `type` is not an Array, Set or Dict type.
  */
-export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (data: Uint8Array) => ValueTypeOf<T> {
+export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (source: Uint8Array | Beast2SyncRangeReader) => ValueTypeOf<T> {
   const typeValue = asTypeValue(type);
   if (!isSegmentedRoot(typeValue)) {
     throw new TypeError(`beast2 v5 lazy values hold Array, Set or Dict roots, not ${typeValue.type}`);
   }
   const frozen = options?.frozen ?? false;
-  return (data: Uint8Array) => {
+  return (source: Uint8Array | Beast2SyncRangeReader) => {
     // The pages carry the decode options, so every segment (and fence) the
     // lazy value serves is decoded frozen at construction.
-    const pages = new Beast2Pages(data, typeValue, options);
+    const pages = new Beast2Pages(source, typeValue, options);
     let value: unknown;
     if (typeValue.type === "Array") {
       value = lazyArray(pages, frozen);

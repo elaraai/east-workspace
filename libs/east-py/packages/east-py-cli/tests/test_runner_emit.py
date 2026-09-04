@@ -19,6 +19,9 @@ case drives the sink from python instead of from a compiled program — the
 harness route that issue #592 closed.
 """
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -40,7 +43,7 @@ from east.serialization.beast2 import (
     read_beast2_index,
 )
 
-from east_py_cli.runner import _EmitSink, run_program
+from east_py_cli.runner import _EmitSink, _peak_rss_kb, run_program
 
 FIXTURES = Path(__file__).parent / "fixtures"
 INT_ARRAY = ArrayType(IntegerType)
@@ -99,6 +102,89 @@ def test_threshold_forces_the_lazy_input_path(tmp_path, monkeypatch):
         FIXTURES / "emit_fold.beast2", [], [], [FIXTURES / "events.beast2"], out_eager, emit="array"
     )
     assert out_lazy.read_bytes() == out_eager.read_bytes()
+
+
+def test_lazy_input_is_mapped_and_reported(tmp_path, monkeypatch, capsys):
+    # A lazily opened input is mapped, not read whole, and the verbose header
+    # says so; the run itself agrees with the eager control byte for byte.
+    out = tmp_path / "lazy.beast2"
+    monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", "1")
+    run_program(
+        FIXTURES / "emit_fold.beast2", [], [], [FIXTURES / "events.beast2"], out,
+        verbose=True, emit="array",
+    )
+    err = capsys.readouterr().err
+    assert "input 0: opened lazily — mapped from the file" in err
+    # The memory block is printed only where the runner can report a peak
+    # (not on Windows: no `resource` module and no /proc).
+    if _peak_rss_kb() is not None:
+        assert "Peak RSS" in err
+    control = tmp_path / "eager.beast2"
+    monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", "0")
+    run_program(
+        FIXTURES / "emit_fold.beast2", [], [], [FIXTURES / "events.beast2"], control,
+        verbose=True, emit="array",
+    )
+    assert "opened lazily" not in capsys.readouterr().err
+    assert out.read_bytes() == control.read_bytes()
+
+
+def _peak_rss_mb(stderr: str) -> float | None:
+    for line in stderr.splitlines():
+        if "Peak RSS:" in line:
+            number, unit = line.split("Peak RSS:")[1].split()
+            return float(number) / (1024.0 if unit == "KB" else 1.0)
+    return None
+
+
+def test_lazy_input_is_paged_one_segment_at_a_time(tmp_path):
+    # A keyed read into a wide input, twice, each its own process: the lazy
+    # run maps the file, the eager control reads and decodes it whole. The
+    # runner's account of the lazy input pins the cost exactly — every fence
+    # probed once, ONE segment decoded of many — on every operating system;
+    # peak RSS is only the coarse cross-check that the lazy run stays below
+    # the eager control, because a mapping's residency is the kernel's
+    # decision (a large-folio page cache makes a whole file resident around
+    # a handful of touched pages).
+    import re
+
+    from east import EastDict
+    from east.serialization.beast2 import write_beast2_file
+
+    table = tmp_path / "wide.beast2"
+    rows = 160_000
+    write_beast2_file(
+        table, INT_STR_DICT,
+        EastDict(IntegerType, StringType, {i: f"row-{i}-" + chr(97 + i % 26) * 190 for i in range(rows)}),
+        codec="none",
+    )
+    wire_mb = table.stat().st_size / (1024 * 1024)
+    assert wire_mb > 16
+
+    def run(threshold: str) -> tuple[str, str]:
+        proc = subprocess.run(
+            [sys.executable, "-m", "east_py_cli", "run", str(FIXTURES / "paged_has.beast2"),
+             "-i", str(table), "-v"],
+            env={**os.environ, "EAST_LAZY_INPUT_BYTES": threshold},
+            capture_output=True, text=True, check=True,
+        )
+        return proc.stdout, proc.stderr
+
+    lazy_out, lazy_err = run("1")
+    eager_out, eager_err = run("0")
+    assert lazy_out.strip() == "true" == eager_out.strip()
+    assert "input 0: opened lazily — mapped from the file" in lazy_err
+    assert "opened lazily" not in eager_err and "segments decoded" not in eager_err
+    account = re.search(r"input 0: (\d+) of (\d+) segments decoded, (\d+) fences probed", lazy_err)
+    assert account is not None, lazy_err
+    decoded, segments, fences = (int(g) for g in account.groups())
+    assert segments >= 8
+    assert decoded == 1, f"keyed read decoded {decoded} of {segments} segments"
+    assert fences == segments
+    lazy_rss, eager_rss = _peak_rss_mb(lazy_err), _peak_rss_mb(eager_err)
+    if lazy_rss is not None and eager_rss is not None:
+        assert lazy_rss < eager_rss, (
+            f"lazy peak {lazy_rss:.1f} MB not below eager peak {eager_rss:.1f} MB")
 
 
 def test_dict_emit_decodes_with_index(tmp_path):

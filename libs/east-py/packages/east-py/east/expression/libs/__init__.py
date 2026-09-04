@@ -30,9 +30,19 @@ class LazyFunction:
         self.__doc__ = doc
 
     def resolve(self) -> Any:
-        """The built artifact (built now if this is the first use)."""
+        """The built artifact (built now if this is the first use).
+
+        The build is DETACHED from any body that happens to be open: inside
+        one, ``East.function`` returns an inline Function expression rather
+        than an artifact, and memoising that would leave every later eager
+        call returning an expression too (#674). A stdlib body closes over
+        nothing, so it belongs to no enclosing build.
+        """
         if self._fn is None:
-            self._fn = self._build()
+            from east.expression.function import detached_build
+
+            with detached_build():
+                self._fn = self._build()
         return self._fn
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:

@@ -281,6 +281,17 @@ add_executable(test_source_map_lifetime tests/test_source_map_lifetime.c)
 target_link_libraries(test_source_map_lifetime east-c)
 add_test(NAME source_map_lifetime COMMAND test_source_map_lifetime)
 
+# Scope + datetime gate (#675, #676): two east-c defects that produced a wrong
+# ANSWER rather than an error, and where the TypeScript runner was already
+# right — so the same IR gave different results per runtime. A block must
+# SCOPE what it binds (two closures over same-named block constants read their
+# own), and the epoch-millisecond split must FLOOR (every pre-1970 datetime
+# decomposed one second late). Run under ASan/LSan: the block's environment is
+# allocated per evaluation and outlives the block only through a closure.
+add_executable(test_scope_and_datetime tests/test_scope_and_datetime.c)
+target_link_libraries(test_scope_and_datetime east-c)
+add_test(NAME scope_and_datetime COMMAND test_scope_and_datetime)
+
 # Platform-signature check parity gate (#62): compiles TS-exported IR against
 # drifted typed platform registrations and asserts east_compile_checked's
 # error text is byte-identical to the TS analyzer's. Skips (exit 77) unless

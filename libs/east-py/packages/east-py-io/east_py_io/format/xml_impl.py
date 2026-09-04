@@ -312,7 +312,7 @@ def serialize_xml(node: EastStruct, config: EastStruct) -> str:
     inputs=[BlobType, XmlParseConfigType],
     output=XmlNodeType,
 )
-def xml_parse_impl(blob: EastBlob, config: EastStruct) -> EastStruct:
+def xml_parse(blob: EastBlob, config: EastStruct) -> EastStruct:
     """Parse an XML document from a UTF-8 binary blob.
 
     The parser handles element nesting, attributes, CDATA sections, and
@@ -356,7 +356,7 @@ def xml_parse_impl(blob: EastBlob, config: EastStruct) -> EastStruct:
     inputs=[XmlNodeType, XmlSerializeConfigType],
     output=BlobType,
 )
-def xml_serialize_impl(node: EastStruct, config: EastStruct) -> EastBlob:
+def xml_serialize(node: EastStruct, config: EastStruct) -> EastBlob:
     """Serialize an ``XmlNodeType`` element tree to a UTF-8 binary blob.
 
     Args:
@@ -391,6 +391,6 @@ xml_impl = platform_functions(__name__)
 
 __all__ = [
     "xml_impl",
-    "xml_parse_impl",
-    "xml_serialize_impl",
+    "xml_parse",
+    "xml_serialize",
 ]

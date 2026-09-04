@@ -889,17 +889,37 @@ class _DateTimeNamespace:
         DateTimeFromComponents; TS ``fromComponents`` — the trailing
         components default to the first instant, as in TypeScript).
 
+        A component outside its range is NORMALISED, never rejected: it
+        carries into the next one. ``from_components(2024, 2, 31)`` is
+        ``2024-03-02``, ``(2024, 13, 1)`` is ``2025-01-01``, ``(2024, 1, 0)``
+        is ``2023-12-31``, and ``(2023, 2, 29)`` — 2023 is not a leap year —
+        is ``2023-03-01``. So an impossible date becomes a real, wrong,
+        plausible one rather than an error.
+
+        Range-checking the inputs does not catch it, because ``31 February``
+        has every component in range. Build the date and ask it for its own
+        month back::
+
+            East.let(East.DateTime.from_components(y, m, d),
+                     lambda b, dt: East.if_else(dt.get_month() == m, some(dt), none))
+
         Args:
             year: The full year, e.g. ``2026``.
-            month: The month, ``1`` (January) through ``12`` (December).
-            day: The day of the month, ``1`` through ``31``.
-            hour: The hour on a 24-hour clock, ``0`` through ``23``.
-            minute: The minute of the hour, ``0`` through ``59``.
-            second: The second of the minute, ``0`` through ``59``.
-            millisecond: The sub-second milliseconds, ``0`` through ``999``.
+            month: The month, ``1`` (January) through ``12`` (December); out
+                of range rolls the year.
+            day: The day of the month, ``1`` through ``31``; past the end of
+                the month rolls into the next one.
+            hour: The hour on a 24-hour clock, ``0`` through ``23``; out of
+                range rolls the day.
+            minute: The minute of the hour, ``0`` through ``59``; out of
+                range rolls the hour.
+            second: The second of the minute, ``0`` through ``59``; out of
+                range rolls the minute.
+            millisecond: The sub-second milliseconds, ``0`` through ``999``;
+                out of range rolls the second.
 
         Returns:
-            The UTC datetime built from the given components.
+            The UTC datetime the components describe, normalised.
         """
         return _call_builtin(
             "DateTimeFromComponents",

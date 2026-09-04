@@ -4,7 +4,7 @@
  */
 import type { AST } from "../ast.js";
 import { get_location_id } from "../location.js";
-import { ArrayType, IntegerType, StringType, type BlobType, type EastType, type StructType } from "../types.js";
+import { ArrayType, IntegerType, StringType, type BlobType, type DictType, type EastType, type SetType, type StructType } from "../types.js";
 import { valueOrExprToAstTyped } from "./ast.js";
 import { AstSymbol, Expr, FactorySymbol, type ToExpr } from "./expr.js";
 import type { IntegerExpr } from "./integer.js";
@@ -215,6 +215,59 @@ export class BlobExpr extends Expr<BlobType> {
     } else {
       throw new Error(`Unsupported Beast version: ${version}`);
     }
+  }
+
+  /**
+   * Opens an indexed beast2 v5 collection blob as a frozen lazy paged value.
+   *
+   * Reads the segment index can answer are served without decoding the whole
+   * collection: `size`, `get` / `tryGet` / `getOrDefault` / `has`, Array index
+   * reads, and `$.for` iteration, which streams one decoded segment at a time.
+   * Any other operation hydrates the whole value once, transparently, so the
+   * result is observationally the frozen whole decode. Frozen means the
+   * mutating builtins throw the uniform copy-first error and the collection
+   * compares by value under `East.is`.
+   *
+   * @param type - The Array, Set or Dict type of the encoded collection
+   * @returns An expression of `type` served from the blob's segment index
+   *
+   * @throws Error at build time if `type` is not an Array, Set or Dict type
+   * @throws East runtime error if the blob is not a beast2 encoding of `type`, or its v5 header declares a different type
+   *
+   * @remarks
+   * Paging needs the segmented, indexed, self-contained blobs the paged
+   * writers produce (`encodeBeast2PagedFor`, `Beast2Writer`, the runners'
+   * outputs, e3 datasets). A blob that cannot page — a v4 container, an
+   * index-less v5 blob such as `East.Blob.encodeBeast(value, 'v2')` writes,
+   * or an element shape carrying a `Ref` or a function value — decodes whole,
+   * frozen, with the same semantics. Only the beast2 family carries a
+   * container index, so there is no version argument.
+   *
+   * @example
+   * ```ts
+   * const RowType = StructType({ id: IntegerType, name: StringType });
+   * const TableType = DictType(IntegerType, RowType);
+   * const lookup = East.function([BlobType, IntegerType], StringType, ($, blob, key) => {
+   *   const table = $.let(blob.openBeast(TableType));
+   *   return table.get(key).name;
+   * });
+   * const compiled = East.compile(lookup, []);
+   * // Assume blob holds an indexed beast2 encoding of the table
+   * compiled(blob, 7n);  // "row-7", decoding only the segment holding key 7
+   * ```
+   */
+  openBeast<T extends ArrayType | SetType | DictType>(type: T): ExprType<T> {
+    if (type.type !== "Array" && type.type !== "Set" && type.type !== "Dict") {
+      throw new Error(`openBeast opens Array, Set or Dict blobs, not ${(type as EastType).type} — use decodeBeast for other types`);
+    }
+    return this[FactorySymbol]({
+      ast_type: "Builtin",
+      type,
+      loc_id: get_location_id(),
+      builtin: "BlobOpenBeast2",
+      type_parameters: [type],
+      arguments: [this[AstSymbol]],
+    }) as ExprType<T>;
   }
 
   /**

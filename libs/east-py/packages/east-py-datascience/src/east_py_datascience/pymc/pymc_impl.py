@@ -9,8 +9,7 @@ joint estimation with full posterior analysis using PyMC.
 Uses cloudpickle for model serialization.
 """
 
-import importlib.util
-import warnings
+from typing import Any
 
 import numpy as np
 from east.runtime.platform import platform_function, platform_functions
@@ -28,9 +27,15 @@ from east.types.types import (
     VariantType,
     VectorType,
 )
-from east.types.values import EastArray, EastBlob, EastMatrix, EastStruct, EastVariant
+from east.types.values import EastArray, EastMatrix, EastStruct, EastVariant, EastVector
 
-from east_py_datascience.types import _get_enum_tag, _get_option
+from east_py_datascience._common import (
+    deserialize,
+    extra_guard,
+    option_tag,
+    quiet_warnings,
+    serialize,
+)
 
 # ============================================================================
 # Type Definitions (must match TypeScript exactly)
@@ -397,36 +402,7 @@ Cases:
 """
 
 
-# ============================================================================
-# Serialization Helpers
-# ============================================================================
-
-
-def _serialize_model(model_data) -> EastBlob:
-    """Serialize model data using cloudpickle."""
-    import cloudpickle
-
-    return EastBlob(cloudpickle.dumps(model_data))
-
-
-def _deserialize_model(blob: EastBlob):
-    """Deserialize model data using cloudpickle."""
-    import cloudpickle
-
-    return cloudpickle.loads(bytes(blob))
-
-
-# Lazy import guard for optional dependency
-_HAS_PYMC_SUPPORT = importlib.util.find_spec("pymc") is not None
-
-
-def _check_pymc_support() -> None:
-    """Check if pymc support is available."""
-    if not _HAS_PYMC_SUPPORT:
-        raise NotImplementedError(
-            "PyMC support requires the 'pymc' extra. "
-            "Add east-py-datascience[pymc] to your pyproject.toml dependencies."
-        )
+_check_pymc_support = extra_guard("pymc", "pymc", "PyMC")
 
 
 # ============================================================================
@@ -440,14 +416,14 @@ def _build_prior(pm, name, prior_spec, shape):
         # Default: normal(0, 10)
         return pm.Normal(name, mu=0, sigma=10, shape=shape)
 
-    dist_tag = _get_enum_tag(prior_spec.get("distribution"))
-    params = prior_spec.get("params")
+    dist_tag = prior_spec["distribution"].type
+    params = prior_spec["params"]
 
-    mu_opt = _get_option(params.get("mu"), None)
-    sigma_opt = _get_option(params.get("sigma"), None)
-    tau_opt = _get_option(params.get("tau"), None)
-    lower_opt = _get_option(params.get("lower"), None)
-    upper_opt = _get_option(params.get("upper"), None)
+    mu_opt = params["mu"].unwrap_or(None)
+    sigma_opt = params["sigma"].unwrap_or(None)
+    tau_opt = params["tau"].unwrap_or(None)
+    lower_opt = params["lower"].unwrap_or(None)
+    upper_opt = params["upper"].unwrap_or(None)
 
     # Convert matrix params to numpy, broadcast to shape
     mu_val = float(mu_opt.to_numpy()[0, 0]) if mu_opt is not None else 0.0
@@ -500,11 +476,104 @@ def _build_likelihood(pm, name, mu, observed, likelihood_tag):
 
 def _get_mcmc_config(config):
     """Extract MCMC configuration from a config struct."""
-    samples = _get_option(config.get("samples"), 1000)
-    tune = _get_option(config.get("tune"), 1000)
-    chains = _get_option(config.get("chains"), 2)
-    target_accept = _get_option(config.get("target_accept"), 0.8)
-    return int(samples), int(tune), int(chains), float(target_accept)
+    return (
+        int(config["samples"].unwrap_or(1000)),
+        int(config["tune"].unwrap_or(1000)),
+        int(config["chains"].unwrap_or(2)),
+        float(config["target_accept"].unwrap_or(0.8)),
+    )
+
+
+# ============================================================================
+# Posterior access
+# ============================================================================
+
+
+def _flat_draws(idata, name: str) -> np.ndarray:
+    """A posterior variable's draws merged across chains: ``(chains * draws, *shape)``."""
+    values = idata.posterior[name].values
+    return values.reshape(-1, *values.shape[2:])
+
+
+def _thin_index(total: int, n: int) -> np.ndarray:
+    """Indices of up to ``n`` draws spread evenly over ``total``.
+
+    Deterministic thinning rather than a random subsample, so two predictions
+    from one blob agree and a call never depends on numpy's global RNG.
+    """
+    if n >= total:
+        return np.arange(total)
+    return np.linspace(0, total - 1, n).round().astype(int)
+
+
+def _layer_spec(model_data: dict, layer_name: str | None, func_name: str) -> dict:
+    """The multi-layer spec named ``layer_name``, or the first layer."""
+    specs = model_data["layer_specs"]
+    if layer_name is None:
+        return specs[0]
+    for spec in specs:
+        if spec["name"] == layer_name:
+            return spec
+    raise RuntimeError(f"{func_name}: layer '{layer_name}' not found")
+
+
+def _posterior_predictions(
+    model_data: dict, X_np: np.ndarray, layer_name: str | None, n_samples: int, func_name: str
+) -> np.ndarray:
+    """Per-draw predictions ``(n_draws, n_obs, n_targets)`` for any trained model.
+
+    Up to ``n_samples`` posterior draws are used (thinned evenly). Hierarchical
+    models with per-group coefficients average the groups; an L1-fallback
+    multi-layer model yields its single point estimate.
+    """
+    model_type = model_data["model_type"]
+    if model_type == "regression":
+        idata = model_data["idata"]
+        beta = _flat_draws(idata, "beta")
+        keep = _thin_index(beta.shape[0], n_samples)
+        preds = np.einsum("of,dft->dot", X_np, beta[keep])
+        if model_data["include_intercept"] and "intercept" in idata.posterior:
+            preds = preds + _flat_draws(idata, "intercept")[keep]  # (draws, 1, targets) broadcasts
+        return preds
+    if model_type == "hierarchical":
+        beta = _flat_draws(model_data["idata"], "beta")
+        beta = beta[_thin_index(beta.shape[0], n_samples)]
+        if model_data.get("pooling", "partial") != "full":
+            beta = beta.mean(axis=1)  # (draws, groups, features, targets) -> average the groups
+        return np.einsum("of,dft->dot", X_np, beta)
+    if model_type == "multi_layer":
+        parameter = _layer_spec(model_data, layer_name, func_name)["parameter"]
+        if model_data.get("method", "mcmc") == "l1_fallback":
+            return (X_np @ model_data["coefficients"][parameter])[np.newaxis]
+        beta = _flat_draws(model_data["idata"], parameter)
+        return np.einsum("of,dft->dot", X_np, beta[_thin_index(beta.shape[0], n_samples)])
+    raise RuntimeError(f"{func_name}: unknown model type '{model_type}'")
+
+
+def _convergence(idata, name: str) -> tuple[np.ndarray, np.ndarray]:
+    """Per-element ``(rhat, ess)`` of one posterior variable, shaped like the parameter.
+
+    Both come from ArviZ. R-hat needs at least two chains; with one it is
+    undefined and reported as NaN rather than a reassuring 1.0.
+    """
+    import arviz as az
+
+    subset = idata.posterior[[name]]
+    ess = np.asarray(az.ess(subset)[name].values, dtype=float)
+    if idata.posterior.sizes["chain"] < 2:
+        rhat = np.full(ess.shape, np.nan)
+    else:
+        rhat = np.asarray(az.rhat(subset)[name].values, dtype=float)
+    return rhat, ess
+
+
+def _rows_cols(shape: tuple[int, ...]) -> tuple[int, int]:
+    """A parameter's ``(rows, cols)`` for the summary: scalars are 1x1, vectors n x 1."""
+    if len(shape) == 0:
+        return 1, 1
+    if len(shape) == 1:
+        return shape[0], 1
+    return shape[0], shape[1]
 
 
 # ============================================================================
@@ -517,7 +586,7 @@ def _get_mcmc_config(config):
     inputs=[MatrixType(FloatType), MatrixType(FloatType), PyMCRegressionConfigType],
     output=PyMCModelBlobType,
 )
-def pymc_train_regression_impl(
+def pymc_train_regression(
     X: EastMatrix,
     Y: EastMatrix,
     config: EastStruct,
@@ -582,9 +651,9 @@ def pymc_train_regression_impl(
     n_samples, n_features = X_np.shape
     n_targets = Y_np.shape[1]
 
-    include_intercept = bool(_get_option(config.get("include_intercept"), True))
-    prior_spec = _get_option(config.get("prior"), None)
-    likelihood_tag = _get_enum_tag(_get_option(config.get("likelihood"), EastVariant("normal", None))) if _get_option(config.get("likelihood"), None) is not None else "normal"
+    include_intercept = bool(config["include_intercept"].unwrap_or(True))
+    prior_spec = config["prior"].unwrap_or(None)
+    likelihood_tag = option_tag(config["likelihood"], "normal")
     samples, tune, chains, target_accept = _get_mcmc_config(config)
 
     with pm.Model():
@@ -598,8 +667,7 @@ def pymc_train_regression_impl(
 
         _build_likelihood(pm, "obs", mu, Y_np, likelihood_tag)
 
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore")
+        with quiet_warnings():
             idata = pm.sample(
                 draws=samples,
                 tune=tune,
@@ -621,7 +689,7 @@ def pymc_train_regression_impl(
         "pymc_regression",
         EastStruct(
             {
-                "data": _serialize_model(model_data),
+                "data": serialize(model_data),
                 "n_features": n_features,
                 "n_targets": n_targets,
                 "include_intercept": include_intercept,
@@ -640,10 +708,10 @@ def pymc_train_regression_impl(
     ],
     output=PyMCModelBlobType,
 )
-def pymc_train_hierarchical_impl(
+def pymc_train_hierarchical(
     X: EastMatrix,
     Y: EastMatrix,
-    groups: EastArray,
+    groups: EastVector,
     config: EastStruct,
 ) -> EastVariant:
     """Fit a hierarchical Bayesian model with group-level pooling.
@@ -657,14 +725,14 @@ def pymc_train_hierarchical_impl(
             shape ``(n_samples, n_features)``.
         Y: ``Matrix<Float>`` (``EastMatrix``) - target matrix,
             shape ``(n_samples, n_targets)``.
-        groups: ``Vector<Integer>`` (``EastArray``) - integer group label per
+        groups: ``Vector<Integer>`` (``EastVector``) - integer group label per
             row; remapped to ``0..n_groups-1`` internally.
         config: ``PyMCHierarchicalConfigType`` (``EastStruct``) with fields:
 
             - ``prior`` (``Option<PyMCPriorSpecType>``): coefficient prior
               applied at the group level; defaults to
               ``Normal(mu=0, sigma=10)``. See
-              :func:`pymc_train_regression_impl` for the full prior spec.
+              :func:`pymc_train_regression` for the full prior spec.
               Ignored for ``partial`` pooling (hyperpriors are always
               ``Normal(0, 10)`` / ``HalfNormal(5)``).
             - ``likelihood`` (``Option<PyMCLikelihoodType>``): one of
@@ -708,16 +776,15 @@ def pymc_train_hierarchical_impl(
 
     n_samples, n_features = X_np.shape
     n_targets = Y_np.shape[1]
-    unique_groups = np.unique(groups_np)
+
+    # Group labels become 0..n_groups-1 indices into the group coefficients
+    unique_groups, group_idx = np.unique(groups_np, return_inverse=True)
     n_groups = len(unique_groups)
+    group_map = {int(g): i for i, g in enumerate(unique_groups)}
 
-    # Remap groups to 0..n_groups-1
-    group_map = {g: i for i, g in enumerate(unique_groups)}
-    group_idx = np.array([group_map[g] for g in groups_np])
-
-    prior_spec = _get_option(config.get("prior"), None)
-    likelihood_tag = _get_enum_tag(_get_option(config.get("likelihood"), EastVariant("normal", None))) if _get_option(config.get("likelihood"), None) is not None else "normal"
-    pooling_tag = _get_enum_tag(_get_option(config.get("pooling"), EastVariant("partial", None))) if _get_option(config.get("pooling"), None) is not None else "partial"
+    prior_spec = config["prior"].unwrap_or(None)
+    likelihood_tag = option_tag(config["likelihood"], "normal")
+    pooling_tag = option_tag(config["pooling"], "partial")
     samples, tune, chains, target_accept = _get_mcmc_config(config)
 
     with pm.Model():
@@ -752,8 +819,7 @@ def pymc_train_hierarchical_impl(
 
         _build_likelihood(pm, "obs", mu, Y_np, likelihood_tag)
 
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore")
+        with quiet_warnings():
             idata = pm.sample(
                 draws=samples,
                 tune=tune,
@@ -777,7 +843,7 @@ def pymc_train_hierarchical_impl(
         "pymc_hierarchical",
         EastStruct(
             {
-                "data": _serialize_model(model_data),
+                "data": serialize(model_data),
                 "n_features": n_features,
                 "n_targets": n_targets,
                 "n_groups": n_groups,
@@ -791,7 +857,7 @@ def pymc_train_hierarchical_impl(
     inputs=[ArrayType(PyMCNamedDataType), PyMCMultiLayerConfigType],
     output=PyMCModelBlobType,
 )
-def pymc_train_multi_layer_impl(
+def pymc_train_multi_layer(
     data: EastArray,
     config: EastStruct,
 ) -> EastVariant:
@@ -854,42 +920,25 @@ def pymc_train_multi_layer_impl(
     _check_pymc_support()
     import pymc as pm
 
-    # Parse named data
-    data_dict = {}
-    for item in data:
-        name = str(item.get("name"))
-        mat = item.get("data").to_numpy()
-        data_dict[name] = mat
-
-    # Parse layers
-    layers = list(config.get("layers"))
-    layer_specs = []
-    for layer in layers:
-        layer_specs.append({
-            "name": str(layer.get("name")),
-            "input": str(layer.get("input")),
-            "output": str(layer.get("output")),
-            "parameter": str(layer.get("parameter")),
-            "likelihood": _get_enum_tag(_get_option(layer.get("likelihood"), EastVariant("normal", None))) if _get_option(layer.get("likelihood"), None) is not None else "normal",
-        })
-
-    # Parse priors
-    named_priors = {}
-    priors_opt = _get_option(config.get("priors"), None)
-    if priors_opt is not None:
-        for p in priors_opt:
-            named_priors[str(p.get("name"))] = p.get("prior")
-
-    # Parse masks
-    named_masks = {}
-    masks_opt = _get_option(config.get("masks"), None)
-    if masks_opt is not None:
-        for m in masks_opt:
-            named_masks[str(m.get("name"))] = m.get("mask").to_numpy(dtype=bool)
+    data_dict = {str(item["name"]): item["data"].to_numpy() for item in data}
+    layer_specs = [
+        {
+            "name": str(layer["name"]),
+            "input": str(layer["input"]),
+            "output": str(layer["output"]),
+            "parameter": str(layer["parameter"]),
+            "likelihood": option_tag(layer["likelihood"], "normal"),
+        }
+        for layer in config["layers"]
+    ]
+    named_priors = {str(p["name"]): p["prior"] for p in config["priors"].unwrap_or([])}
+    named_masks = {
+        str(m["name"]): m["mask"].to_numpy(dtype=bool) for m in config["masks"].unwrap_or([])
+    }
 
     samples, tune, chains, target_accept = _get_mcmc_config(config)
-    force_full_mcmc = bool(_get_option(config.get("force_full_mcmc"), False))
-    fallback_l1_alpha = float(_get_option(config.get("fallback_l1_alpha"), 0.01))
+    force_full_mcmc = bool(config["force_full_mcmc"].unwrap_or(False))
+    fallback_l1_alpha = float(config["fallback_l1_alpha"].unwrap_or(0.01))
 
     # Count total parameters
     total_params = 0
@@ -908,7 +957,7 @@ def pymc_train_multi_layer_impl(
         # Use sklearn MultiTaskLasso as a fast point-estimate fallback
         from sklearn.linear_model import MultiTaskLasso
 
-        model_data = {
+        model_data: dict[str, Any] = {
             "model_type": "multi_layer",
             "method": "l1_fallback",
             "layer_specs": layer_specs,
@@ -940,8 +989,7 @@ def pymc_train_multi_layer_impl(
                 mu = pm.math.dot(X_layer, beta)
                 _build_likelihood(pm, f"{spec['name']}_obs", mu, Y_layer, spec["likelihood"])
 
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore")
+            with quiet_warnings():
                 idata = pm.sample(
                     draws=samples,
                     tune=tune,
@@ -963,7 +1011,7 @@ def pymc_train_multi_layer_impl(
         "pymc_multi_layer",
         EastStruct(
             {
-                "data": _serialize_model(model_data),
+                "data": serialize(model_data),
                 "layer_names": EastArray(StringType, layer_names),
                 "parameter_names": EastArray(StringType, parameter_names),
             }
@@ -976,7 +1024,7 @@ def pymc_train_multi_layer_impl(
     inputs=[PyMCModelBlobType, MatrixType(FloatType), PyMCPredictConfigType],
     output=MatrixType(FloatType),
 )
-def pymc_predict_impl(
+def pymc_predict(
     model_blob: EastVariant,
     X: EastMatrix,
     config: EastStruct,
@@ -993,9 +1041,9 @@ def pymc_predict_impl(
 
     Args:
         model_blob: ``PyMCModelBlobType`` (``EastVariant``) from
-            :func:`pymc_train_regression_impl`,
-            :func:`pymc_train_hierarchical_impl`, or
-            :func:`pymc_train_multi_layer_impl`.
+            :func:`pymc_train_regression`,
+            :func:`pymc_train_hierarchical`, or
+            :func:`pymc_train_multi_layer`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix,
             shape ``(n_obs, n_features)``.
         config: ``PyMCPredictConfigType`` (``EastStruct``) with fields:
@@ -1015,92 +1063,13 @@ def pymc_predict_impl(
     """
     _check_pymc_support()
 
-    model_data = _deserialize_model(model_blob.value["data"])
+    model_data = deserialize(model_blob.value["data"])
     X_np = X.to_numpy()
-    n_samples_pred = int(_get_option(config.get("n_samples"), 100))
-    layer_name = _get_option(config.get("layer"), None)
-    if layer_name is not None:
-        layer_name = str(layer_name)
+    n_samples_pred = int(config["n_samples"].unwrap_or(100))
+    layer_name = config["layer"].unwrap_or(None)
 
-    model_type = model_data["model_type"]
-
-    if model_type == "regression":
-        idata = model_data["idata"]
-        include_intercept = model_data["include_intercept"]
-
-        # Get beta posterior samples
-        beta_samples = idata.posterior["beta"].values  # (chains, draws, n_features, n_targets)
-        beta_flat = beta_samples.reshape(-1, *beta_samples.shape[2:])  # (total_draws, n_features, n_targets)
-
-        # Subsample
-        idx = np.random.choice(beta_flat.shape[0], size=min(n_samples_pred, beta_flat.shape[0]), replace=False)
-        beta_sub = beta_flat[idx]
-
-        # Compute predictions: X @ beta for each sample
-        preds = np.array([X_np @ beta_sub[i] for i in range(len(beta_sub))])
-
-        if include_intercept and "intercept" in idata.posterior:
-            intercept_samples = idata.posterior["intercept"].values
-            intercept_flat = intercept_samples.reshape(-1, *intercept_samples.shape[2:])
-            intercept_sub = intercept_flat[idx]
-            preds = preds + intercept_sub  # (n_draws, 1, n_targets) broadcasts to (n_draws, n_obs, n_targets)
-
-        # Mean prediction
-        mean_pred = preds.mean(axis=0)  # (n_obs, n_targets)
-
-    elif model_type == "hierarchical":
-        idata = model_data["idata"]
-        pooling = model_data.get("pooling", "partial")
-
-        beta_samples = idata.posterior["beta"].values
-        beta_flat = beta_samples.reshape(-1, *beta_samples.shape[2:])
-        idx = np.random.choice(beta_flat.shape[0], size=min(n_samples_pred, beta_flat.shape[0]), replace=False)
-        beta_sub = beta_flat[idx]
-
-        if pooling == "full":
-            # beta shape: (draws, n_features, n_targets)
-            preds = np.array([X_np @ beta_sub[i] for i in range(len(beta_sub))])
-        else:
-            # beta shape: (draws, n_groups, n_features, n_targets)
-            # For prediction, use group 0 (mean across groups)
-            beta_mean_groups = beta_sub.mean(axis=1)  # (draws, n_features, n_targets)
-            preds = np.array([X_np @ beta_mean_groups[i] for i in range(len(beta_mean_groups))])
-
-        mean_pred = preds.mean(axis=0)
-
-    elif model_type == "multi_layer":
-        method = model_data.get("method", "mcmc")
-        layer_specs = model_data["layer_specs"]
-
-        # Find which layer to predict for
-        target_spec = None
-        if layer_name is not None:
-            for spec in layer_specs:
-                if spec["name"] == layer_name:
-                    target_spec = spec
-                    break
-            if target_spec is None:
-                raise RuntimeError(f"pymc_predict: layer '{layer_name}' not found")
-        else:
-            target_spec = layer_specs[0]
-
-        param_name = target_spec["parameter"]
-
-        if method == "l1_fallback":
-            coef = model_data["coefficients"][param_name]
-            mean_pred = X_np @ coef
-        else:
-            idata = model_data["idata"]
-            beta_samples = idata.posterior[param_name].values
-            beta_flat = beta_samples.reshape(-1, *beta_samples.shape[2:])
-            idx = np.random.choice(beta_flat.shape[0], size=min(n_samples_pred, beta_flat.shape[0]), replace=False)
-            beta_sub = beta_flat[idx]
-            preds = np.array([X_np @ beta_sub[i] for i in range(len(beta_sub))])
-            mean_pred = preds.mean(axis=0)
-    else:
-        raise RuntimeError(f"pymc_predict: unknown model type '{model_type}'")
-
-    return EastMatrix(FloatType, mean_pred.astype(np.float64))
+    preds = _posterior_predictions(model_data, X_np, layer_name, n_samples_pred, "pymc_predict")
+    return EastMatrix(FloatType, preds.mean(axis=0).astype(np.float64))
 
 
 @platform_function(
@@ -1108,14 +1077,14 @@ def pymc_predict_impl(
     inputs=[PyMCModelBlobType, MatrixType(FloatType), PyMCPredictConfigType],
     output=MatrixType(FloatType),
 )
-def pymc_predict_distribution_impl(
+def pymc_predict_distribution(
     model_blob: EastVariant,
     X: EastMatrix,
     config: EastStruct,
 ) -> EastMatrix:
     """Return the full posterior predictive distribution as a sample matrix.
 
-    Unlike :func:`pymc_predict_impl`, this function does not average across
+    Unlike :func:`pymc_predict`, this function does not average across
     draws. Each row in the output corresponds to one posterior sample. Target
     dimensions are flattened into columns so the result is always 2-D.
 
@@ -1142,86 +1111,16 @@ def pymc_predict_distribution_impl(
         NotImplementedError: the ``pymc`` extra is not installed.
     """
     _check_pymc_support()
-    model_data = _deserialize_model(model_blob.value["data"])
+    model_data = deserialize(model_blob.value["data"])
     X_np = X.to_numpy()
-    n_samples_pred = int(_get_option(config.get("n_samples"), 100))
-    layer_name = _get_option(config.get("layer"), None)
-    if layer_name is not None:
-        layer_name = str(layer_name)
+    n_samples_pred = int(config["n_samples"].unwrap_or(100))
+    layer_name = config["layer"].unwrap_or(None)
 
-    model_type = model_data["model_type"]
-
-    if model_type == "regression":
-        idata = model_data["idata"]
-        include_intercept = model_data["include_intercept"]
-
-        beta_samples = idata.posterior["beta"].values
-        beta_flat = beta_samples.reshape(-1, *beta_samples.shape[2:])
-        idx = np.random.choice(beta_flat.shape[0], size=min(n_samples_pred, beta_flat.shape[0]), replace=False)
-        beta_sub = beta_flat[idx]
-
-        preds = np.array([X_np @ beta_sub[i] for i in range(len(beta_sub))])
-
-        if include_intercept and "intercept" in idata.posterior:
-            intercept_samples = idata.posterior["intercept"].values
-            intercept_flat = intercept_samples.reshape(-1, *intercept_samples.shape[2:])
-            intercept_sub = intercept_flat[idx]
-            preds = preds + intercept_sub  # (n_draws, 1, n_targets) broadcasts
-
-        # Return as (n_posterior_samples, n_obs * n_targets) flattened
-        n_post = preds.shape[0]
-        n_obs = preds.shape[1]
-        n_targ = preds.shape[2] if preds.ndim > 2 else 1
-        result = preds.reshape(n_post, n_obs * n_targ)
-
-    elif model_type == "multi_layer":
-        method = model_data.get("method", "mcmc")
-        layer_specs = model_data["layer_specs"]
-
-        target_spec = None
-        if layer_name is not None:
-            for spec in layer_specs:
-                if spec["name"] == layer_name:
-                    target_spec = spec
-                    break
-        if target_spec is None:
-            target_spec = layer_specs[0]
-
-        param_name = target_spec["parameter"]
-
-        if method == "l1_fallback":
-            coef = model_data["coefficients"][param_name]
-            pred = X_np @ coef
-            result = pred[np.newaxis, :]
-            result = result.reshape(1, -1)
-        else:
-            idata = model_data["idata"]
-            beta_samples = idata.posterior[param_name].values
-            beta_flat = beta_samples.reshape(-1, *beta_samples.shape[2:])
-            idx = np.random.choice(beta_flat.shape[0], size=min(n_samples_pred, beta_flat.shape[0]), replace=False)
-            beta_sub = beta_flat[idx]
-            preds = np.array([X_np @ beta_sub[i] for i in range(len(beta_sub))])
-            n_post = preds.shape[0]
-            result = preds.reshape(n_post, -1)
-    else:
-        # Hierarchical
-        idata = model_data["idata"]
-        pooling = model_data.get("pooling", "partial")
-        beta_samples = idata.posterior["beta"].values
-        beta_flat = beta_samples.reshape(-1, *beta_samples.shape[2:])
-        idx = np.random.choice(beta_flat.shape[0], size=min(n_samples_pred, beta_flat.shape[0]), replace=False)
-        beta_sub = beta_flat[idx]
-
-        if pooling == "full":
-            preds = np.array([X_np @ beta_sub[i] for i in range(len(beta_sub))])
-        else:
-            beta_mean_groups = beta_sub.mean(axis=1)
-            preds = np.array([X_np @ beta_mean_groups[i] for i in range(len(beta_mean_groups))])
-
-        n_post = preds.shape[0]
-        result = preds.reshape(n_post, -1)
-
-    return EastMatrix(FloatType, result.astype(np.float64))
+    preds = _posterior_predictions(
+        model_data, X_np, layer_name, n_samples_pred, "pymc_predict_distribution"
+    )
+    # One row per posterior draw, the (obs, target) grid flattened into columns
+    return EastMatrix(FloatType, preds.reshape(preds.shape[0], -1).astype(np.float64))
 
 
 @platform_function(
@@ -1229,7 +1128,7 @@ def pymc_predict_distribution_impl(
     inputs=[PyMCModelBlobType],
     output=ArrayType(PyMCParameterSummaryType),
 )
-def pymc_posterior_summary_impl(
+def pymc_posterior_summary(
     model_blob: EastVariant,
 ) -> EastArray:
     """Summarise the posterior distribution for each model parameter.
@@ -1255,17 +1154,16 @@ def pymc_posterior_summary_impl(
         NotImplementedError: the ``pymc`` extra is not installed.
     """
     _check_pymc_support()
-    import arviz as az
 
-    model_data = _deserialize_model(model_blob.value["data"])
+    model_data = deserialize(model_blob.value["data"])
     model_type = model_data["model_type"]
 
     if model_type == "multi_layer" and model_data.get("method") == "l1_fallback":
         # Return point estimates as summary
-        summaries = []
+        summaries: list[EastStruct] = []
         for param_name, coef in model_data["coefficients"].items():
             n_rows, n_cols = coef.shape
-            estimates = []
+            estimates: list[EastStruct] = []
             for r in range(n_rows):
                 for c in range(n_cols):
                     val = float(coef[r, c])
@@ -1289,102 +1187,62 @@ def pymc_posterior_summary_impl(
         return EastArray(PyMCParameterSummaryType, summaries)
 
     idata = model_data["idata"]
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore")
-        az.summary(idata)
-
-    # Get parameter names from posterior
-    param_vars = list(idata.posterior.data_vars)
-
     summaries = []
-    for var_name in param_vars:
-        var_data = idata.posterior[var_name].values  # (chains, draws, ...)
-        shape = var_data.shape[2:]  # parameter shape
-
-        if len(shape) == 0:
-            n_rows, n_cols = 1, 1
-        elif len(shape) == 1:
-            n_rows, n_cols = shape[0], 1
-        else:
-            n_rows, n_cols = shape[0], shape[1]
-
-        # Flatten samples
-        flat_samples = var_data.reshape(-1, *shape)
+    for var_name in idata.posterior.data_vars:
+        draws = _flat_draws(idata, var_name)  # (chains * draws, *shape)
+        shape = draws.shape[1:]
+        with quiet_warnings():
+            rhat, ess = _convergence(idata, var_name)
+        n_rows, n_cols = _rows_cols(shape)
 
         estimates = []
-        if len(shape) == 0:
-            samples_1d = flat_samples.ravel()
-            mean_val = float(np.mean(samples_1d))
-            median_val = float(np.median(samples_1d))
-            sd_val = float(np.std(samples_1d))
-            ci_lower = float(np.percentile(samples_1d, 2.5))
-            ci_upper = float(np.percentile(samples_1d, 97.5))
-            # Compute rhat and ess
-            rhat_val = _compute_rhat(var_data.reshape(var_data.shape[0], var_data.shape[1]))
-            ess_val = float(len(samples_1d))
-            estimates.append(EastStruct({
-                "index_row": 0,
-                "index_col": 0,
-                "mean": mean_val,
-                "median": median_val,
-                "sd": sd_val,
-                "ci_lower": ci_lower,
-                "ci_upper": ci_upper,
-                "rhat": rhat_val,
-                "ess": ess_val,
-            }))
-        else:
-            for r in range(n_rows):
-                for c in range(n_cols):
-                    if len(shape) == 1:
-                        samples_1d = flat_samples[:, r]
-                        chain_draws = var_data[:, :, r]
-                    else:
-                        samples_1d = flat_samples[:, r, c]
-                        chain_draws = var_data[:, :, r, c]
+        for r in range(n_rows):
+            for c in range(n_cols):
+                # A parameter with more than two dims (a hierarchical beta is
+                # groups x features x targets) is summarised over its trailing
+                # dims per (row, col): the worst R-hat and the smallest ESS.
+                if len(shape) == 0:
+                    samples, rhat_rc, ess_rc = draws, rhat, ess
+                elif len(shape) == 1:
+                    samples, rhat_rc, ess_rc = draws[:, r], rhat[r], ess[r]
+                else:
+                    samples, rhat_rc, ess_rc = draws[:, r, c], rhat[r, c], ess[r, c]
+                estimates.append(
+                    EastStruct(
+                        {
+                            "index_row": r,
+                            "index_col": c,
+                            "mean": float(np.mean(samples)),
+                            "median": float(np.median(samples)),
+                            "sd": float(np.std(samples)),
+                            "ci_lower": float(np.percentile(samples, 2.5)),
+                            "ci_upper": float(np.percentile(samples, 97.5)),
+                            "rhat": _nan_extreme(rhat_rc, np.nanmax),
+                            "ess": _nan_extreme(ess_rc, np.nanmin),
+                        }
+                    )
+                )
 
-                    mean_val = float(np.mean(samples_1d))
-                    median_val = float(np.median(samples_1d))
-                    sd_val = float(np.std(samples_1d))
-                    ci_lower = float(np.percentile(samples_1d, 2.5))
-                    ci_upper = float(np.percentile(samples_1d, 97.5))
-                    rhat_val = _compute_rhat(chain_draws)
-                    ess_val = float(len(samples_1d))
-
-                    estimates.append(EastStruct({
-                        "index_row": r,
-                        "index_col": c,
-                        "mean": mean_val,
-                        "median": median_val,
-                        "sd": sd_val,
-                        "ci_lower": ci_lower,
-                        "ci_upper": ci_upper,
-                        "rhat": rhat_val,
-                        "ess": ess_val,
-                    }))
-
-        summaries.append(EastStruct({
-            "parameter": var_name,
-            "shape_rows": n_rows,
-            "shape_cols": n_cols,
-            "estimates": EastArray(PyMCParameterEstimateType, estimates),
-        }))
+        summaries.append(
+            EastStruct(
+                {
+                    "parameter": var_name,
+                    "shape_rows": n_rows,
+                    "shape_cols": n_cols,
+                    "estimates": EastArray(PyMCParameterEstimateType, estimates),
+                }
+            )
+        )
 
     return EastArray(PyMCParameterSummaryType, summaries)
 
 
-def _compute_rhat(chain_draws):
-    """Compute simple R-hat from chain draws array of shape (chains, draws)."""
-    if chain_draws.shape[0] < 2:
-        return 1.0  # Can't compute with single chain
-    try:
-        import arviz as az
-        rhat = float(az.rhat({"x": chain_draws[np.newaxis, ...]})["x"].values)
-        if np.isnan(rhat):
-            return 1.0
-        return rhat
-    except Exception:
-        return 1.0
+def _nan_extreme(values: np.ndarray, reduce) -> float:
+    """``reduce`` (``np.nanmax`` / ``np.nanmin``) over ``values``; NaN when every entry is NaN."""
+    values = np.asarray(values, dtype=float)
+    if np.all(np.isnan(values)):
+        return float("nan")
+    return float(reduce(values))
 
 
 @platform_function(
@@ -1392,16 +1250,16 @@ def _compute_rhat(chain_draws):
     inputs=[PyMCModelBlobType, StringType, IntegerType],
     output=MatrixType(FloatType),
 )
-def pymc_posterior_samples_impl(
+def pymc_posterior_samples(
     model_blob: EastVariant,
     param_name: str,
     n_samples: int,
 ) -> EastMatrix:
     """Extract raw posterior samples for a named parameter as a flat matrix.
 
-    Randomly subsamples (with replacement when ``n_samples`` exceeds the
-    available draws) from the merged chain-draw pool. Parameter dimensions
-    beyond the first are flattened into columns.
+    Takes up to ``n_samples`` draws spread evenly over the merged chain-draw
+    pool (every draw when ``n_samples`` is at least the pool size).
+    Parameter dimensions beyond the first are flattened into columns.
 
     For L1-fallback multi-layer models, ``n_samples`` identical rows are
     returned (coefficient has no posterior variation).
@@ -1422,7 +1280,7 @@ def pymc_posterior_samples_impl(
         RuntimeError: ``param_name`` is not present in the model's posterior.
     """
     _check_pymc_support()
-    model_data = _deserialize_model(model_blob.value["data"])
+    model_data = deserialize(model_blob.value["data"])
     param_name = str(param_name)
     n_samples = int(n_samples)
 
@@ -1444,18 +1302,10 @@ def pymc_posterior_samples_impl(
             f"Available: {list(idata.posterior.data_vars)}"
         )
 
-    var_data = idata.posterior[param_name].values  # (chains, draws, ...)
-    flat = var_data.reshape(-1, *var_data.shape[2:])  # (total_draws, ...)
-
-    # Subsample
-    total = flat.shape[0]
-    idx = np.random.choice(total, size=min(n_samples, total), replace=n_samples > total)
-    selected = flat[idx]
-
+    flat = _flat_draws(idata, param_name)
+    selected = flat[_thin_index(flat.shape[0], n_samples)]
     # Flatten parameter dims to columns
-    result = selected.reshape(selected.shape[0], -1)
-
-    return EastMatrix(FloatType, result.astype(np.float64))
+    return EastMatrix(FloatType, selected.reshape(selected.shape[0], -1).astype(np.float64))
 
 
 @platform_function(
@@ -1463,16 +1313,18 @@ def pymc_posterior_samples_impl(
     inputs=[PyMCModelBlobType],
     output=PyMCDiagnosticsResultType,
 )
-def pymc_diagnostics_impl(
+def pymc_diagnostics(
     model_blob: EastVariant,
 ) -> EastStruct:
     """Run MCMC convergence diagnostics on a trained model.
 
     Reports per-parameter R-hat (convergence) and ESS (effective sample
-    size), counts divergent transitions from ``sample_stats``, and sets
-    ``converged=True`` only when all R-hat values are below 1.1 and there
-    are no divergences. L1-fallback models always return ``converged=True``
-    with an explanatory warning.
+    size) from ArviZ, counts divergent transitions from ``sample_stats``,
+    and sets ``converged=True`` only when all R-hat values are below 1.1 and
+    there are no divergences. R-hat needs at least two chains: a single-chain
+    model reports ``rhat_max`` as NaN with a warning, and is not judged
+    non-converged on that basis. L1-fallback models always return
+    ``converged=True`` with an explanatory warning.
 
     Args:
         model_blob: ``PyMCModelBlobType`` (``EastVariant``) from any train
@@ -1494,7 +1346,7 @@ def pymc_diagnostics_impl(
     """
     _check_pymc_support()
 
-    model_data = _deserialize_model(model_blob.value["data"])
+    model_data = deserialize(model_blob.value["data"])
 
     if model_data.get("method") == "l1_fallback":
         return EastStruct({
@@ -1511,45 +1363,32 @@ def pymc_diagnostics_impl(
     if hasattr(idata, "sample_stats") and "diverging" in idata.sample_stats:
         n_divergences = int(idata.sample_stats["diverging"].values.sum())
 
-    param_vars = list(idata.posterior.data_vars)
-    param_diags = []
+    param_diags: list[EastStruct] = []
     all_converged = True
-    warn_messages = []
+    warn_messages: list[str] = []
+    if idata.posterior.sizes["chain"] < 2:
+        warn_messages.append("R-hat is undefined with a single chain; sample at least 2 chains")
 
-    for var_name in param_vars:
-        var_data = idata.posterior[var_name].values
-        shape = var_data.shape[2:]
-
-        rhat_values = []
-        ess_values = []
-
-        if len(shape) == 0:
-            rhat_val = _compute_rhat(var_data.reshape(var_data.shape[0], var_data.shape[1]))
-            ess_val = float(var_data.size)
-            rhat_values.append(rhat_val)
-            ess_values.append(ess_val)
-        else:
-            flat_idx = np.ndindex(*shape)
-            for idx_tuple in flat_idx:
-                chain_draws = var_data[(slice(None), slice(None)) + idx_tuple]
-                rhat_val = _compute_rhat(chain_draws)
-                ess_val = float(chain_draws.size)
-                rhat_values.append(rhat_val)
-                ess_values.append(ess_val)
-
-        rhat_max = float(max(rhat_values)) if rhat_values else 1.0
-        ess_min = float(min(ess_values)) if ess_values else 0.0
+    for var_name in idata.posterior.data_vars:
+        with quiet_warnings():
+            rhat, ess = _convergence(idata, var_name)
+        rhat_max = _nan_extreme(rhat, np.nanmax)
+        ess_min = _nan_extreme(ess, np.nanmin)
 
         if rhat_max > 1.1:
             all_converged = False
             warn_messages.append(f"Parameter '{var_name}' has rhat={rhat_max:.3f} > 1.1")
 
-        param_diags.append(EastStruct({
-            "parameter": var_name,
-            "rhat_max": rhat_max,
-            "ess_min": ess_min,
-            "n_divergent": n_divergences,
-        }))
+        param_diags.append(
+            EastStruct(
+                {
+                    "parameter": var_name,
+                    "rhat_max": rhat_max,
+                    "ess_min": ess_min,
+                    "n_divergent": n_divergences,
+                }
+            )
+        )
 
     if n_divergences > 0:
         warn_messages.append(f"{n_divergences} divergent transitions detected")
@@ -1567,7 +1406,7 @@ def pymc_diagnostics_impl(
     inputs=[PyMCModelBlobType, MatrixType(FloatType), MatrixType(FloatType)],
     output=ArrayType(PyMCObservedFitType),
 )
-def pymc_posterior_predictive_check_impl(
+def pymc_posterior_predictive_check(
     model_blob: EastVariant,
     X: EastMatrix,
     Y_observed: EastMatrix,
@@ -1595,62 +1434,18 @@ def pymc_posterior_predictive_check_impl(
         NotImplementedError: the ``pymc`` extra is not installed.
     """
     _check_pymc_support()
-    model_data = _deserialize_model(model_blob.value["data"])
+    model_data = deserialize(model_blob.value["data"])
     X_np = X.to_numpy()
     Y_np = Y_observed.to_numpy()
     n_targets = Y_np.shape[1]
 
-    model_type = model_data["model_type"]
-
-    if model_type == "multi_layer" and model_data.get("method") == "l1_fallback":
-        # Use first layer's coefficients
-        layer_specs = model_data["layer_specs"]
-        spec = layer_specs[0]
-        coef = model_data["coefficients"][spec["parameter"]]
-        Y_pred = X_np @ coef
-        Y_pred_expanded = Y_pred[np.newaxis, :]  # (1, n_obs, n_targets)
-    elif model_type == "regression":
-        idata = model_data["idata"]
-        include_intercept = model_data["include_intercept"]
-        beta_samples = idata.posterior["beta"].values
-        beta_flat = beta_samples.reshape(-1, *beta_samples.shape[2:])
-        n_samp = min(100, beta_flat.shape[0])
-        idx = np.random.choice(beta_flat.shape[0], size=n_samp, replace=False)
-        beta_sub = beta_flat[idx]
-        Y_pred_expanded = np.array([X_np @ beta_sub[i] for i in range(len(beta_sub))])
-        if include_intercept and "intercept" in idata.posterior:
-            intercept_samples = idata.posterior["intercept"].values
-            intercept_flat = intercept_samples.reshape(-1, *intercept_samples.shape[2:])
-            intercept_sub = intercept_flat[idx]
-            Y_pred_expanded = Y_pred_expanded + intercept_sub  # (n_draws, 1, n_targets) broadcasts
-    elif model_type == "hierarchical":
-        idata = model_data["idata"]
-        pooling = model_data.get("pooling", "partial")
-        beta_samples = idata.posterior["beta"].values
-        beta_flat = beta_samples.reshape(-1, *beta_samples.shape[2:])
-        n_samp = min(100, beta_flat.shape[0])
-        idx = np.random.choice(beta_flat.shape[0], size=n_samp, replace=False)
-        beta_sub = beta_flat[idx]
-        if pooling == "full":
-            Y_pred_expanded = np.array([X_np @ beta_sub[i] for i in range(len(beta_sub))])
-        else:
-            beta_mean_groups = beta_sub.mean(axis=1)
-            Y_pred_expanded = np.array([X_np @ beta_mean_groups[i] for i in range(len(beta_mean_groups))])
-    else:
-        # multi_layer with mcmc
-        idata = model_data["idata"]
-        layer_specs = model_data["layer_specs"]
-        spec = layer_specs[0]
-        param_name = spec["parameter"]
-        beta_samples = idata.posterior[param_name].values
-        beta_flat = beta_samples.reshape(-1, *beta_samples.shape[2:])
-        n_samp = min(100, beta_flat.shape[0])
-        idx = np.random.choice(beta_flat.shape[0], size=n_samp, replace=False)
-        beta_sub = beta_flat[idx]
-        Y_pred_expanded = np.array([X_np @ beta_sub[i] for i in range(len(beta_sub))])
+    # (draws, obs, targets); a multi-layer model is checked on its first layer
+    Y_pred_expanded = _posterior_predictions(
+        model_data, X_np, None, 100, "pymc_posterior_predictive_check"
+    )
 
     # Compute per-target metrics
-    results = []
+    results: list[EastStruct] = []
     Y_pred_mean = Y_pred_expanded.mean(axis=0)  # (n_obs, n_targets)
 
     for t in range(n_targets):

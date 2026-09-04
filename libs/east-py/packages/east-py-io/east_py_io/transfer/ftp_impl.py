@@ -39,7 +39,7 @@ _clients: dict[str, Any] = {}
 @platform_function(
     name="ftp_connect", inputs=[FtpConfigType], output=ConnectionHandleType
 )
-async def ftp_connect_impl(config: EastStruct) -> str:
+async def ftp_connect(config: EastStruct) -> str:
     """Open a connection to an FTP server and return a session handle.
 
     Args:
@@ -85,12 +85,12 @@ async def ftp_connect_impl(config: EastStruct) -> str:
     inputs=[ConnectionHandleType, StringType, BlobType],
     output=NullType,
 )
-async def ftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
+async def ftp_put(handle: str, remote_path: str, data: EastBlob) -> None:
     """Upload a file to an FTP server.
 
     Args:
         handle: ``ConnectionHandleType`` (``String``) - session handle from
-            :func:`ftp_connect_impl`.
+            :func:`ftp_connect`.
         remote_path: ``String`` - destination path on the server.
         data: ``Blob`` (``EastBlob``) - binary content to upload.
 
@@ -115,12 +115,12 @@ async def ftp_put_impl(handle: str, remote_path: str, data: EastBlob) -> None:
 @platform_function(
     name="ftp_get", inputs=[ConnectionHandleType, StringType], output=BlobType
 )
-async def ftp_get_impl(handle: str, remote_path: str) -> EastBlob:
+async def ftp_get(handle: str, remote_path: str) -> EastBlob:
     """Download a file from an FTP server.
 
     Args:
         handle: ``ConnectionHandleType`` (``String``) - session handle from
-            :func:`ftp_connect_impl`.
+            :func:`ftp_connect`.
         remote_path: ``String`` - source path on the server.
 
     Returns:
@@ -148,12 +148,12 @@ async def ftp_get_impl(handle: str, remote_path: str) -> EastBlob:
 @platform_function(
     name="ftp_list", inputs=[ConnectionHandleType, StringType], output=FileListType
 )
-async def ftp_list_impl(handle: str, remote_path: str) -> EastArray:
+async def ftp_list(handle: str, remote_path: str) -> EastArray:
     """List entries in a directory on an FTP server.
 
     Args:
         handle: ``ConnectionHandleType`` (``String``) - session handle from
-            :func:`ftp_connect_impl`.
+            :func:`ftp_connect`.
         remote_path: ``String`` - directory path to list.
 
     Returns:
@@ -193,12 +193,12 @@ async def ftp_list_impl(handle: str, remote_path: str) -> EastArray:
 @platform_function(
     name="ftp_delete", inputs=[ConnectionHandleType, StringType], output=NullType
 )
-async def ftp_delete_impl(handle: str, remote_path: str) -> None:
+async def ftp_delete(handle: str, remote_path: str) -> None:
     """Delete a file on an FTP server.
 
     Args:
         handle: ``ConnectionHandleType`` (``String``) - session handle from
-            :func:`ftp_connect_impl`.
+            :func:`ftp_connect`.
         remote_path: ``String`` - path of the file to delete.
 
     Returns:
@@ -218,7 +218,7 @@ async def ftp_delete_impl(handle: str, remote_path: str) -> None:
 
 
 @platform_function(name="ftp_close", inputs=[ConnectionHandleType], output=NullType)
-def ftp_close_impl(handle: str) -> None:
+def ftp_close(handle: str) -> None:
     """Close a single FTP session (hard close, no QUIT command).
 
     Matches the TypeScript ``ftp_close`` which is synchronous - the
@@ -226,7 +226,7 @@ def ftp_close_impl(handle: str) -> None:
 
     Args:
         handle: ``ConnectionHandleType`` (``String``) - session handle from
-            :func:`ftp_connect_impl`.
+            :func:`ftp_connect`.
 
     Returns:
         ``Null`` on success.
@@ -247,7 +247,7 @@ def ftp_close_impl(handle: str) -> None:
 
 
 @platform_function(name="ftp_close_all", inputs=[], output=NullType)
-async def ftp_close_all_impl() -> None:
+async def ftp_close_all() -> None:
     """Close all open FTP sessions with a graceful QUIT.
 
     Returns:
@@ -264,11 +264,11 @@ ftp_impl = platform_functions(__name__)
 
 __all__ = [
     "ftp_impl",
-    "ftp_connect_impl",
-    "ftp_put_impl",
-    "ftp_get_impl",
-    "ftp_list_impl",
-    "ftp_delete_impl",
-    "ftp_close_impl",
-    "ftp_close_all_impl",
+    "ftp_connect",
+    "ftp_put",
+    "ftp_get",
+    "ftp_list",
+    "ftp_delete",
+    "ftp_close",
+    "ftp_close_all",
 ]

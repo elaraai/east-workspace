@@ -164,6 +164,16 @@ with no whole decode. The only element shapes that still decode whole are
 those carrying a `Ref` or a function; any operation the pager cannot serve
 hydrates once, transparently. Full mechanics under e3.streamTask below.
 
+Datasets stay inputs — the lazy open is already there, and only a dataset
+takes part in the dataflow's hashing and reactivity. Two in-expression
+opens give the same frozen, pager-served value for data that is NOT a
+dataset: `FileSystem.openBeast(T, path)` (the std family — every stock
+runner, so a python-authored function using it links into an east-c task)
+for a beast2 collection file on the runner's disk — a reference table, a
+file another tool wrote — and `blob.openBeast(T)` for bytes already in
+hand: a `BlobType` dataset, a `Fetch.getBytes` result. Neither is watched
+by the dataflow, so anything a task should react to is still an input.
+
 ```typescript
 // Default runner is east-node + @elaraai/east-node-std — every e3 project
 // already has Node, so this resolves with no extra setup.
@@ -579,7 +589,7 @@ const pkg = e3.package('myapp', '1.0.0', finalTask);
 Export package to a .zip file. Every `East.importFunction` in the package's
 tasks, functions and mutations is resolved and embedded as pure IR after an
 exact type check and a runner check of its platform dependencies: a package
-of the uv or npm workspace is exported by the export itself (#652);
+of the uv or npm workspace is exported by the export itself;
 `options.functions` lists manifests (paths, or decoded values) for packages
 built elsewhere, and wins for its package.
 

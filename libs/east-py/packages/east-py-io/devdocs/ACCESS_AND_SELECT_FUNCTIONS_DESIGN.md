@@ -161,7 +161,7 @@ def _check_mdb_support() -> None:
         )
 
 
-async def access_open_impl(config: EastStruct) -> str:
+async def access_open(config: EastStruct) -> str:
     """Open a Microsoft Access database file."""
     _check_mdb_support()
 
@@ -209,7 +209,7 @@ async def access_open_blob_impl(config: EastStruct) -> str:
         raise Exception(f"Access database open from blob failed: {e}") from e
 
 
-async def access_tables_impl(handle: str) -> EastStruct:
+async def access_tables(handle: str) -> EastStruct:
     """List all table names in the database."""
     _check_mdb_support()
 
@@ -365,7 +365,7 @@ def _convert_access_value(value: Any, access_type: str) -> Any:
         return value
 
 
-async def access_close_impl(handle: str) -> None:
+async def access_close(handle: str) -> None:
     """Close an Access database connection."""
     try:
         if handle not in _access_connections:
@@ -377,7 +377,7 @@ async def access_close_impl(handle: str) -> None:
         raise Exception(f"Access close failed: {e}") from e
 
 
-async def access_close_all_impl() -> None:
+async def access_close_all() -> None:
     """Close all Access connections."""
     _access_connections.clear()
 
@@ -389,7 +389,7 @@ access_impl = [
         inputs=[AccessConfigType],
         output=ConnectionHandleType,
         type="async",
-        fn=access_open_impl,
+        fn=access_open,
     ),
     PlatformFunction(
         name="access_open_blob",
@@ -403,7 +403,7 @@ access_impl = [
         inputs=[ConnectionHandleType],
         output=AccessTablesResultType,
         type="async",
-        fn=access_tables_impl,
+        fn=access_tables,
     ),
     GenericPlatformFunction(
         name="access_query",
@@ -417,14 +417,14 @@ access_impl = [
         inputs=[ConnectionHandleType],
         output=NullType,
         type="async",
-        fn=access_close_impl,
+        fn=access_close,
     ),
     PlatformFunction(
         name="access_close_all",
         inputs=[],
         output=NullType,
         type="async",
-        fn=access_close_all_impl,
+        fn=access_close_all,
     ),
 ]
 
@@ -726,12 +726,12 @@ Similar implementations for `postgres_select` and `mysql_select` following the s
 ### 5.2 Phase 2: Access Module
 
 - [ ] Create `east_py_io/sql/access.py`
-- [ ] Implement `access_open_impl`
+- [ ] Implement `access_open`
 - [ ] Implement `access_open_blob_impl`
-- [ ] Implement `access_tables_impl`
+- [ ] Implement `access_tables`
 - [ ] Implement `access_query_factory` (GenericPlatformFunction)
-- [ ] Implement `access_close_impl`
-- [ ] Implement `access_close_all_impl`
+- [ ] Implement `access_close`
+- [ ] Implement `access_close_all`
 - [ ] Add `access_impl` to module exports
 - [ ] Update `east_py_io/sql/__init__.py`
 

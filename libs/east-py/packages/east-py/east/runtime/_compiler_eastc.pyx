@@ -12,6 +12,7 @@ a Python callable that invokes east_call.  All 212+ builtins come from
 east-c via east_register_all_builtins — no Python builtins are used.
 """
 
+from cpython.ref cimport PyObject, Py_INCREF, Py_XDECREF
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uint8_t, uintptr_t
 from libc.stdlib cimport malloc, calloc, free
@@ -407,15 +408,30 @@ def compile_function_carrier(object carrier, object input_types, object output_t
     return carrier_fn
 
 
+cdef void _release_python_bytes(void* ctx, uint8_t* data, size_t length) noexcept with gil:
+    """The paged value's release hook for python-owned bytes (#658/#661):
+    ``ctx`` is the python object keeping the bytes alive (an mmap, a bytes),
+    retained once at open — drop that reference now that the last reader of
+    the bytes is gone. Fires on the refcount path and under the cycle
+    collector alike, from whatever thread releases the value, hence the
+    GIL — on a live interpreter, as for any Py_DECREF. The hook only drops
+    a reference; it must never re-enter the runtime."""
+    Py_XDECREF(<PyObject*>ctx)
+
+
 def open_paged_value_view(object east_type, object buffer, bint frozen=False):
-    """Open an indexed beast2 collection BUFFER as a lazy paged C value that
-    BORROWS the bytes (#560) — no copy: the caller (a mmap-owning file
-    object) must keep ``buffer`` alive, open and unchanged for the hold's
-    whole lifetime; the hold retains the buffer object to help enforce that.
-    ``east_type`` is a Python EastType or a raw ``EastType*`` pointer.
-    Returns ``None`` when the blob is not pageable (no index, aliased
-    segments, a gated element shape, or not a v5 container), exactly like
-    :func:`open_paged_value` — the caller falls back to the eager load.
+    """Open an indexed beast2 collection BUFFER as a lazy paged C value over
+    the buffer's own bytes (#560) — no copy. The C value RETAINS ``buffer``
+    (a mmap-owning file object's mapping, a ``bytes``) for its whole lifetime
+    through the paged value's release hook (#658), so the bytes outlive every
+    reader even when the python side drops its last reference — a platform
+    function may return the hold and let the file object die (#661). An
+    explicit ``mmap.close()`` is still the caller's responsibility to defer
+    while readers exist (``Beast2File.close`` does). ``east_type`` is a
+    Python EastType or a raw ``EastType*`` pointer. Returns ``None`` when the
+    blob is not pageable (no index, aliased segments, a gated element shape,
+    or not a v5 container), exactly like :func:`open_paged_value` — the
+    caller falls back to the eager load.
     """
     _ensure_runtime()
     cdef const uint8_t[::1] view = buffer
@@ -424,9 +440,13 @@ def open_paged_value_view(object east_type, object buffer, bint frozen=False):
         ptr = &view[0]
     cdef bint own_type = False
     cdef _eastc.EastType* c_type = _resolve_c_type(east_type, &own_type)
-    cdef _eastc.EastValue* v = _eastc.east_beast2_open_paged_view(
-        ptr, <size_t>view.shape[0], c_type, frozen)
+    # The C value's reference to the buffer object; released by the hook.
+    Py_INCREF(buffer)
+    cdef _eastc.EastValue* v = _eastc.east_beast2_open_paged_external(
+        <uint8_t*>ptr, <size_t>view.shape[0], c_type, frozen,
+        _release_python_bytes, <void*><PyObject*>buffer)
     if v == NULL:
+        Py_XDECREF(<PyObject*>buffer)  # never retained: the hook will not fire
         if own_type:
             _eastc.east_type_release(c_type)
         free(_eastc.east_builtin_get_error())
@@ -457,6 +477,51 @@ def open_paged_value_view(object east_type, object buffer, bint frozen=False):
     return _PagedViewHold()
 
 
+def open_paged_file(object east_type, object path, bint frozen=True):
+    """Open an indexed beast2 collection FILE as a lazy paged C value over a
+    memory mapping of the file (#660): the mapping is the C value's own —
+    retained through the paged value's release hook and unmapped when the
+    value dies — so no python object has to outlive it, and the wire bytes
+    are page cache, never process memory. ``east_type`` is a Python EastType
+    or a raw ``EastType*`` pointer; the file's header must carry exactly that
+    type. Returns the same hold shape as :func:`open_paged_value` (recognised
+    by ``_eastc_call``, ``bind`` and the platform-return seam), or ``None``
+    when the blob is not pageable — the caller then decodes whole.
+
+    Raises:
+        ValueError: If the file is not a beast2 v5 container of ``east_type``.
+        OSError: If the file cannot be opened or mapped.
+    """
+    import mmap as _mmap
+    import os as _os
+
+    from east._eastc_bridge import c_type_ptr_to_py_type
+    from east.serialization.beast2 import read_beast2_type
+    from east.serialization.east_printer import print_type
+
+    resolved = c_type_ptr_to_py_type(east_type) if isinstance(east_type, int) else east_type
+    if _os.stat(path).st_size == 0:
+        raise ValueError("Data too short for Beast2 format: 0 bytes")
+    with open(path, "rb") as handle:
+        # The mapping dups the descriptor, so the file object may close now.
+        mapping = _mmap.mmap(handle.fileno(), 0, access=_mmap.ACCESS_READ)
+    try:
+        # The header's type, read off the mapping (the buffer form names no
+        # path — the caller prefixes it once), for both container versions.
+        wire = read_beast2_type(mapping)
+        if wire != resolved:
+            raise ValueError(
+                "beast2: cannot open a blob of type "
+                f"{print_type(wire)} as {print_type(resolved)}")
+        hold = open_paged_value_view(east_type, mapping, frozen)
+    except BaseException:
+        mapping.close()
+        raise
+    if hold is None:
+        mapping.close()
+    return hold
+
+
 def paged_value_ref_count(uintptr_t ptr):
     """The C refcount of a paged value — the close-safety probe (#560): a
     count above the hold's own reference means a function bind or compiled
@@ -474,6 +539,20 @@ def paged_value_is_hydrated(uintptr_t ptr):
     if v == NULL or v.kind != _eastc.EAST_VAL_PAGED:
         return False
     return v.data.paged.hydrated != NULL
+
+
+def paged_value_stats(uintptr_t ptr):
+    """What a paged value's reads have cost so far, as ``(segments,
+    segments_decoded, fences_probed, hydrated)`` — the runner's account of a
+    lazy input (#663), which no residency figure can give on a mapping —
+    or ``None`` for any other value."""
+    cdef size_t segments = 0
+    cdef size_t decoded = 0
+    cdef size_t fences = 0
+    cdef bint hydrated = False
+    if not _eastc.east_paged_stats(<_eastc.EastValue*>ptr, &segments, &decoded, &fences, &hydrated):
+        return None
+    return (segments, decoded, fences, bool(hydrated))
 
 
 def open_paged_value(uintptr_t type_ptr, bytes data, bint frozen=False):
