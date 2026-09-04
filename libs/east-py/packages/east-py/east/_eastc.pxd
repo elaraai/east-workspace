@@ -19,6 +19,17 @@ from libc.stddef cimport size_t
 from libc.stdint cimport int32_t, int64_t, uint8_t, uint64_t
 
 
+# ─── stdbool.h ────────────────────────────────────────────────
+# Cython renders `bint` as C `int`. That is right for a bool passed or
+# returned BY VALUE (the C compiler converts), but wrong for a `bool *`
+# out-parameter: east-c writes one byte through the pointer while the caller
+# reads four. Declare such parameters with `cbool`, which emits the C
+# spelling `bool` and so matches the header exactly.
+
+cdef extern from "stdbool.h":
+    ctypedef bint cbool "bool"
+
+
 # ─── types.h ──────────────────────────────────────────────────────────────
 
 cdef extern from "east/types.h":
@@ -504,7 +515,7 @@ cdef extern from "east/serialization.h":
     void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes)
     EastValue *east_paged_hydrated(EastValue *v)
     bint east_paged_stats(EastValue *v, size_t *segments, size_t *segments_decoded,
-                          size_t *fences_probed, bint *hydrated)
+                          size_t *fences_probed, cbool *hydrated)
     EastType *east_beast2_pages_type(Beast2Pages *p)
 
     # v5 splice extents — byte geometry for merging blobs (issue #484)
