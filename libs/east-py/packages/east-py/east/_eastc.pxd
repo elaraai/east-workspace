@@ -267,6 +267,12 @@ cdef extern from "east/values.h":
         uint8_t *data
         size_t len
         EastValue *hydrated
+        # Ownership of `data` (#658): exactly one of owns_data, owner (a
+        # retained value the bytes alias), release (a host callback fired
+        # once when the value dies), or none (a borrowed view).
+        EastValue *owner
+        void (*release)(void *ctx, uint8_t *data, size_t len)
+        void *release_ctx
         bint frozen
         bint owns_data
 
@@ -483,6 +489,16 @@ cdef extern from "east/serialization.h":
     # alive and unchanged for the value's lifetime; never takes ownership.
     EastValue *east_beast2_open_paged_view(const uint8_t *data, size_t length, EastType *type,
                                            bint frozen)
+    # Owned-bytes lazy open (#658): the paged value retains `owner` (the value
+    # whose bytes `data` aliases) for its lifetime; NULL leaves it unretained.
+    EastValue *east_beast2_open_paged_owned(EastValue *owner, const uint8_t *data, size_t length,
+                                            EastType *type, bint frozen)
+    # Host-released lazy open (#658): `release(ctx, data, len)` fires exactly
+    # once when the value dies; never on a NULL return.
+    EastValue *east_beast2_open_paged_external(uint8_t *data, size_t length, EastType *type,
+                                               bint frozen,
+                                               void (*release)(void *ctx, uint8_t *data, size_t len),
+                                               void *ctx)
     # Byte budget of a pager's decoded-segment cache (#560); the
     # EAST_PAGED_CACHE_BYTES environment variable overrides the default.
     void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes)

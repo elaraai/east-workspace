@@ -1120,7 +1120,9 @@ EastValue *east_function_value(EastCompiledFn *fn)
 /*  Paged (lazy pager-backed collection)                               */
 /* ------------------------------------------------------------------ */
 
-EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len)
+EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len, bool owns_data,
+                          EastValue *owner, void (*release)(void *ctx, uint8_t *data, size_t len),
+                          void *release_ctx)
 {
     if (!pages || !data) return NULL;
     EastValue *v = alloc_value(EAST_VAL_PAGED);
@@ -1129,9 +1131,40 @@ EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len)
     v->data.paged.data = data;
     v->data.paged.len = len;
     v->data.paged.hydrated = NULL;
+    v->data.paged.owner = owner;
+    if (owner) east_value_retain(owner);
+    v->data.paged.release = release;
+    v->data.paged.release_ctx = release_ctx;
     v->data.paged.frozen = false;
-    v->data.paged.owns_data = true;
+    v->data.paged.owns_data = owns_data;
     return v;
+}
+
+void east_paged_release_contents(EastValue *v)
+{
+    if (!v) return;
+    /* The pager goes first: its fence cache and segment LRU hold decoded
+     * copies, never the wire bytes, but they are the last readers of `data`
+     * that could still be reached through the wrapper. */
+    if (v->data.paged.pages) {
+        east_beast2_pages_free(v->data.paged.pages);
+        v->data.paged.pages = NULL;
+    }
+    if (v->data.paged.owns_data) {
+        east_free(v->data.paged.data);
+    } else if (v->data.paged.release) {
+        v->data.paged.release(v->data.paged.release_ctx, v->data.paged.data, v->data.paged.len);
+    }
+    v->data.paged.data = NULL;
+    v->data.paged.len = 0;
+    v->data.paged.owns_data = false;
+    v->data.paged.release = NULL;
+    v->data.paged.release_ctx = NULL;
+    east_value_release(v->data.paged.hydrated);
+    v->data.paged.hydrated = NULL;
+    /* The owner is released last: `data` aliased its bytes until here. */
+    east_value_release(v->data.paged.owner);
+    v->data.paged.owner = NULL;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1232,9 +1265,7 @@ void east_value_release(EastValue *v)
         break;
 
     case EAST_VAL_PAGED:
-        if (v->data.paged.pages) east_beast2_pages_free(v->data.paged.pages);
-        if (v->data.paged.owns_data) east_free(v->data.paged.data);
-        east_value_release(v->data.paged.hydrated);
+        east_paged_release_contents(v);
         break;
     }
 

@@ -264,6 +264,27 @@ EastValue *east_beast2_open_paged_frozen(uint8_t *data, size_t len, EastType *ty
 EastValue *east_beast2_open_paged_view(const uint8_t *data, size_t len, EastType *type,
                                        bool frozen);
 
+// Owned-bytes lazy open (issue #658): `data` aliases bytes that `owner` (a
+// Blob value, typically) keeps alive — the paged value RETAINS `owner` for
+// its whole lifetime and releases it after its pager, so the bytes outlive
+// every read. Never frees `data` itself. Returns NULL (owner not retained)
+// when the blob is not pageable or the element shape is gated, exactly like
+// east_beast2_open_paged; the caller then decodes whole.
+EastValue *east_beast2_open_paged_owned(EastValue *owner, const uint8_t *data, size_t len,
+                                        EastType *type, bool frozen);
+
+// Host-released lazy open (issue #658): the bytes belong to the host (an
+// mmap, a foreign buffer) and `release(ctx, data, len)` is invoked EXACTLY
+// ONCE, after the pager is freed, when the value dies — on the refcount
+// path and under the cycle collector alike. On NULL (not pageable, gated
+// shape, malformed container) the callback never fires and the bytes stay
+// the caller's, matching east_beast2_open_paged's ownership rule. The hook
+// may run inside the collector's destroy phase, so it must only release
+// what it owns (munmap, free, a Py_DECREF) and never re-enter the runtime.
+EastValue *east_beast2_open_paged_external(uint8_t *data, size_t len, EastType *type, bool frozen,
+                                           void (*release)(void *ctx, uint8_t *data, size_t len),
+                                           void *ctx);
+
 // The byte budget of a pager's decoded-segment cache (issue #560): the sum of
 // cached segments' decompressed frame lengths stays at or under the budget
 // (the newest segment always caches, even alone over it). Defaults to 64 MiB;

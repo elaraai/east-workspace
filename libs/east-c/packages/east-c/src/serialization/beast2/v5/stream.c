@@ -1598,7 +1598,15 @@ static bool lazy_shape_gate(const EastType *type, bool frozen)
     return false;
 }
 
-static EastValue *open_paged_common(uint8_t *data, size_t len, EastType *type, bool frozen)
+/* The one constructor behind every lazy open: the pager, then the value
+ * born with its ownership of `data` settled (see east_paged_new) — there is
+ * no state in which the bytes could be released under a mode the caller did
+ * not ask for. On NULL nothing of the caller's has been taken: the bytes
+ * stay theirs, an owner is not retained, a release callback never fires. */
+static EastValue *open_paged_common(uint8_t *data, size_t len, EastType *type, bool frozen,
+                                    bool owns_data, EastValue *owner,
+                                    void (*release)(void *ctx, uint8_t *data, size_t len),
+                                    void *release_ctx)
 {
     Beast2Pages *pages = east_beast2_pages_new(data, len, type);
     if (!pages) return NULL;
@@ -1611,7 +1619,7 @@ static EastValue *open_paged_common(uint8_t *data, size_t len, EastType *type, b
         return NULL;
     }
     pages->frozen = frozen;
-    EastValue *v = east_paged_new(pages, data, len);
+    EastValue *v = east_paged_new(pages, data, len, owns_data, owner, release, release_ctx);
     if (!v) {
         east_beast2_pages_free(pages);
         return NULL;
@@ -1626,7 +1634,7 @@ EastValue *east_beast2_open_paged(uint8_t *data, size_t len, EastType *type)
      * by identity) must not be served as fresh pager decodes — the caller
      * falls back to the eager whole decode, which is always correct. */
     if (!lazy_shape_gate(type, false)) return NULL;
-    return open_paged_common(data, len, type, false);
+    return open_paged_common(data, len, type, false, true, NULL, NULL, NULL);
 }
 
 EastValue *east_beast2_open_paged_frozen(uint8_t *data, size_t len, EastType *type)
@@ -1634,15 +1642,38 @@ EastValue *east_beast2_open_paged_frozen(uint8_t *data, size_t len, EastType *ty
     /* The collapsed frozen gate (#539): only Ref- and function-bearing
      * element shapes still force the eager (frozen) decode. */
     if (!lazy_shape_gate(type, true)) return NULL;
-    return open_paged_common(data, len, type, true);
+    return open_paged_common(data, len, type, true, true, NULL, NULL, NULL);
 }
 
 EastValue *east_beast2_open_paged_view(const uint8_t *data, size_t len, EastType *type, bool frozen)
 {
     if (!lazy_shape_gate(type, frozen)) return NULL;
-    EastValue *v = open_paged_common((uint8_t *)data, len, type, frozen);
-    if (v) v->data.paged.owns_data = false;
-    return v;
+    return open_paged_common((uint8_t *)data, len, type, frozen, false, NULL, NULL, NULL);
+}
+
+EastValue *east_beast2_open_paged_owned(EastValue *owner, const uint8_t *data, size_t len,
+                                        EastType *type, bool frozen)
+{
+    if (!owner) {
+        east_builtin_error("beast2 v5: an owned lazy open needs the value that owns the bytes");
+        return NULL;
+    }
+    if (!lazy_shape_gate(type, frozen)) return NULL;
+    return open_paged_common((uint8_t *)data, len, type, frozen, false, owner, NULL, NULL);
+}
+
+EastValue *east_beast2_open_paged_external(uint8_t *data, size_t len, EastType *type, bool frozen,
+                                           void (*release)(void *ctx, uint8_t *data, size_t len),
+                                           void *ctx)
+{
+    if (!release) {
+        east_builtin_error("beast2 v5: an external lazy open needs a release callback");
+        return NULL;
+    }
+    if (!lazy_shape_gate(type, frozen)) return NULL;
+    /* On NULL the bytes stay the caller's and the callback never fires — the
+     * same ownership rule east_beast2_open_paged applies to its free(). */
+    return open_paged_common(data, len, type, frozen, false, NULL, release, ctx);
 }
 
 EastValue *east_paged_hydrated(EastValue *v)

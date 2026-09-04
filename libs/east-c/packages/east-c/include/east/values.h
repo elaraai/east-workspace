@@ -159,11 +159,23 @@ struct EastValue {
         } function;
         struct {
             Beast2Pages *pages; /* fences + segment cache over `data` */
-            uint8_t *data;      /* blob bytes; owned iff owns_data */
+            uint8_t *data;      /* blob bytes — see the ownership modes below */
             size_t len;
             EastValue *hydrated; /* NULL until the first unsupported op */
-            bool frozen;         /* frozen open: segments decode frozen, mutation refuses */
-            bool owns_data;      /* false for a borrowed view (an mmap the host keeps alive) */
+            /* Ownership of `data`, exactly one of:
+             *  - owns_data: east_free(data) on release (east_beast2_open_paged);
+             *  - owner:     a retained value whose bytes `data` aliases (a Blob,
+             *               east_beast2_open_paged_owned), released after the pager;
+             *  - release:   a host callback (munmap, a Py_DECREF, ...) invoked
+             *               exactly once with (release_ctx, data, len) when the
+             *               value dies (east_beast2_open_paged_external);
+             *  - none:      borrowed — the host keeps the bytes alive
+             *               (east_beast2_open_paged_view). */
+            EastValue *owner;
+            void (*release)(void *ctx, uint8_t *data, size_t len);
+            void *release_ctx;
+            bool frozen;    /* frozen open: segments decode frozen, mutation refuses */
+            bool owns_data; /* east_free(data) on release; false for every other mode */
         } paged;
     } data;
 
@@ -431,10 +443,22 @@ EastValue *east_matrix_new_uninit(EastType *elem_type, size_t rows, size_t cols)
 
 EastValue *east_function_value(EastCompiledFn *fn);
 
-/* Wraps an already-open pager and its owned blob bytes as an EAST_VAL_PAGED
- * value. Construction seam for east_beast2_open_paged (serialization.h),
- * which is the public entry — it validates the blob and builds the pager. */
-EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len);
+/* Wraps an already-open pager and the blob bytes it reads as an EAST_VAL_PAGED
+ * value, born with its ownership of `data` settled — exactly one of:
+ * `owns_data` (east_free on release), `owner` (a value whose bytes `data`
+ * aliases, retained here and released after the pager), `release` (a host
+ * callback fired once with (release_ctx, data, len) when the value dies), or
+ * none of them (borrowed — the host keeps the bytes alive). Construction seam
+ * for the east_beast2_open_paged* entries (serialization.h), which validate
+ * the blob and build the pager. */
+EastValue *east_paged_new(Beast2Pages *pages, uint8_t *data, size_t len, bool owns_data,
+                          EastValue *owner, void (*release)(void *ctx, uint8_t *data, size_t len),
+                          void *release_ctx);
+/* Frees a paged value's pager, releases its bytes per their ownership mode
+ * (owns_data / release callback / owner), and drops the hydrated child,
+ * nulling the fields. Shared by the refcount release path and the GC
+ * cycle-collector, so every death path honours the same contract. */
+void east_paged_release_contents(EastValue *v);
 
 // Ref counting
 void east_value_retain(EastValue *v);
