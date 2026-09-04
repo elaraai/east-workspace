@@ -19,9 +19,11 @@ Each section keeps its issue's repro and its reason.
 
 import pytest
 from east._eastc_bridge import c_function_value_type
+from east.runtime._compiler_eastc import diff_ir
 from east.serialization._beast2_eastc import _EmitAccumCore
 
 from east import (
+    ArrayType,
     DictType,
     East,
     EastArray,
@@ -313,6 +315,193 @@ class TestConditionalHoist:
                        "none": lambda _b, _: 0.0,
                    }))
         assert list(_key_rows().map(k.bind(_table()))) == [42.0, 0.0]
+
+
+# ── the CSE must not hoist out of a GUARDED body (#668) ────────────────────
+
+
+class TestGuardedHoist:
+    """``try_parse`` lowers to ``TryCatch(some(Parse(s)), none)``. The CSE
+    hoisted that ``Parse`` to a ``Let`` above the ``TryCatch`` — the body
+    always evaluates, so the conditional filter did not apply — and the parse
+    failure then escaped the very handler written to answer for it. The
+    non-raising parse raised, but only with a BOUND receiver inside a
+    collection callback: a solo occurrence hoists only inside a callback, and
+    the receiver has to be reachable from the hoist site."""
+
+    XS = ["24", "", "abc"]
+
+    def test_try_parse_answers_none_for_a_bound_receiver_in_a_callback(self):
+        xs = coerce_to(self.XS, ArrayType(StringType))
+        out = ArrayType(OptionType(IntegerType))
+        direct = East.function([ArrayType(StringType)], out,
+                               lambda b, a: a.map(lambda b, s: s.try_parse(IntegerType)))
+        bound = East.function([ArrayType(StringType)], out,
+                              lambda b, a: a.map(lambda b, s: East.let(
+                                  s, lambda b, t: t.try_parse(IntegerType))))
+        assert [v.type for v in direct(xs)] == ["some", "none", "none"]
+        assert [v.type for v in bound(xs)] == ["some", "none", "none"]
+
+    def test_the_block_bound_spelling_agrees_too(self):
+        xs = coerce_to(self.XS, ArrayType(StringType))
+        out = ArrayType(OptionType(FloatType))
+        via_const = East.function([ArrayType(StringType)], out,
+                                  lambda b, a: a.map(lambda b, s: b.const(s).try_parse(FloatType)))
+        assert [v.type for v in via_const(xs)] == ["some", "none", "none"]
+
+    def test_a_shared_read_inside_a_try_body_is_still_caught(self):
+        # No callback and no binder: one expression READ TWICE inside the try
+        # is the ordinary shared-subtree hoist, and it escaped the handler
+        # just the same. The issue's "needs both a callback and a bound
+        # receiver" describes how it was found, not how far it reaches.
+        guarded = East.function(
+            [StringType], IntegerType,
+            lambda b, s: East.try_catch(
+                lambda b2: s.parse(IntegerType) + s.parse(IntegerType),
+                lambda b2, m, st: -1))
+        assert guarded("") == -1
+        assert guarded("21") == 42
+
+    def test_a_read_both_guarded_and_unguarded_stays_put(self):
+        # One occurrence inside the try, one outside: no single site
+        # evaluates under the handlers both need, so the node stays where the
+        # trace put it and each occurrence keeps its own guard.
+        mixed = East.function(
+            [StringType], IntegerType,
+            lambda b, s: East.block(lambda b2: (
+                b2.do(East.try_catch(lambda b3: s.parse(IntegerType),
+                                     lambda b3, m, st: b3.return_(-1))),
+                b2.return_(s.parse(IntegerType)))[-1]))
+        assert mixed("") == -1
+        assert mixed("21") == 21
+
+    def test_filter_map_keeps_only_what_parsed(self):
+        xs = coerce_to(self.XS, ArrayType(StringType))
+        kept = East.function([ArrayType(StringType)], ArrayType(IntegerType),
+                             lambda b, a: a.filter_map(lambda b, s: East.let(
+                                 s, lambda b, t: t.try_parse(IntegerType))))
+        assert list(kept(xs)) == [24]
+
+
+# ── a spliced body's statements stay inside the expression (#670) ───────────
+
+
+class TestSplicedBodyStaysInItsArm:
+    """Calling an ``East.function`` artifact inside another body re-runs its
+    source body. It used to run in the CALLER's statement frame, so a
+    ``b.let`` / ``b.const`` / ``b.if_`` it appended landed ABOVE the
+    expression that consumed it — and an ``East.if_else`` arm spelled as a
+    named function evaluated even when the arm was not taken. Only the
+    artifact-splice path did this: the same body without a binding, and the
+    same body inlined with ``East.let``, were always lazy."""
+
+    ARG = ArrayType(StringType)
+
+    @staticmethod
+    def _parse_first():
+        @East.function([ArrayType(StringType)], IntegerType)
+        def parse_first(b, xs):
+            rows = b.const(xs.get(0).parse(IntegerType))
+            return rows + 0
+
+        return parse_first
+
+    def test_a_binding_in_an_untaken_arm_does_not_evaluate(self):
+        parse_first = self._parse_first()
+        guarded = East.function([self.ARG], IntegerType,
+                                lambda b, xs: if_else(xs.length() < 0, parse_first(xs), 99))
+        assert guarded(["not a number"]) == 99
+
+    def test_a_statement_in_an_untaken_arm_does_not_evaluate(self):
+        # every statement kind, not just the bindings
+        @East.function([ArrayType(StringType)], IntegerType)
+        def peek(b, xs):
+            b.if_(xs.length() >= 0, lambda b: b.do(xs.get(0).parse(IntegerType)))
+            return 7
+
+        guarded = East.function([self.ARG], IntegerType,
+                                lambda b, xs: if_else(xs.length() < 0, peek(xs), 99))
+        assert guarded(["not a number"]) == 99
+
+    def test_the_taken_arm_still_computes(self):
+        parse_first = self._parse_first()
+        guarded = East.function([self.ARG], IntegerType,
+                                lambda b, xs: if_else(xs.length() > 0, parse_first(xs), 99))
+        assert guarded(["7"]) == 7
+
+    def test_the_guard_holds_inside_a_collection_callback(self):
+        @East.function([StringType], IntegerType)
+        def parse_one(b, s):
+            n = b.const(s.parse(IntegerType))
+            return n + 0
+
+        mapped = East.function([self.ARG], ArrayType(IntegerType),
+                               lambda b, xs: xs.map(lambda b, el: if_else(el.length() > 9,
+                                                                          parse_one(el), -1)))
+        assert list(mapped(["nope", "also nope"])) == [-1, -1]
+
+    def test_a_pure_spliced_body_is_unchanged(self):
+        # the overwhelming majority: no statements, so the splice returns the
+        # very expression it built and the IR is what it always was
+        @East.function([IntegerType], IntegerType)
+        def twice(b, x):
+            return x * 2
+
+        composed = East.function([IntegerType], IntegerType, lambda b, x: twice(x) + 1)
+        assert composed(20) == 41
+        inline = East.function([IntegerType], IntegerType, lambda b, x: (x * 2) + 1)
+        assert diff_ir(composed._east_ir, inline._east_ir) is None
+
+
+# ── a coerced value lifts under the type it was coerced TO (#671) ───────────
+
+
+class TestCoercedValueLifts:
+    """``_lift`` threaded its declared-type hint through every branch except
+    the captured-collection one, and an ``EastStruct`` carries no type of its
+    own — so a struct that had just been VALIDATED by ``coerce_to`` lifted
+    field-by-field from the values, and a ``none`` field had nothing to type
+    it. The identical struct spelled as a plain mapping worked, which left
+    the validated value the one you could not use."""
+
+    OPT = StructType([("n", OptionType(IntegerType))])
+
+    def _read(self, cfg):
+        return East.function([IntegerType], IntegerType,
+                             lambda b, i: East.value(cfg, self.OPT)["n"].unwrap_or(-1))(0)
+
+    def test_a_coerced_struct_with_a_none_option_field_lifts(self):
+        assert self._read({"n": none}) == -1                      # the mapping always worked
+        assert self._read(coerce_to({"n": none}, self.OPT)) == -1  # the coerced value now does
+
+    def test_the_some_case_and_b_const_agree(self):
+        assert self._read(coerce_to({"n": some(5)}, self.OPT)) == 5
+        assert East.function([IntegerType], IntegerType,
+                             lambda b, i: b.const(coerce_to({"n": none}, self.OPT),
+                                                  self.OPT)["n"].unwrap_or(-1))(0) == -1
+
+    def test_a_recursive_hint_types_the_fields_too(self):
+        from east.types.types import recursive_type
+
+        NodeT = recursive_type(lambda r: StructType([("v", IntegerType),
+                                                     ("kids", ArrayType(r))]))
+        built = East.function([IntegerType], IntegerType,
+                              lambda b, i: East.value(coerce_to({"v": 1, "kids": []}, NodeT),
+                                                      NodeT).unwrap()["v"])
+        assert built(0) == 1
+
+    def test_one_object_under_two_declared_types_is_two_constants(self):
+        # The hoisted-constant registry deduped by object identity alone. Now
+        # that a struct's IR type comes from the SLOT it lands in, one object
+        # lifted under two types must bind twice or the second use would read
+        # the first's type.
+        Narrow = StructType([("v", VariantType([("a", IntegerType)]))])
+        Wide = StructType([("v", VariantType([("a", IntegerType), ("b", StringType)]))])
+        row = coerce_to({"v": {"type": "a", "value": 1}}, Narrow)
+        both = East.function([IntegerType], IntegerType,
+                             lambda b, i: East.value(row, Narrow)["v"].unwrap("a")
+                             + East.value(row, Wide)["v"].unwrap("a"))
+        assert both(0) == 2
 
 
 # ── bind() type-checks by SUBSUMPTION, not content inference (#558 B) ───────

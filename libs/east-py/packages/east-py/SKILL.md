@@ -179,7 +179,9 @@ Task → What do you need?
     │   │   │            digit_count · round_nearest/up/down/truncate(x, step)
     │   │   ├─ Float → East.Float.approx_equal · round_floor/ceil/half/trunc · round_nearest/up/down/truncate(x, step) · round_to_decimals ·
     │   │   │          print_fixed · print_comma_seperated · print_currency · print_compact · print_percentage
-    │   │   ├─ DateTime → East.DateTime.from_components · from_epoch_milliseconds · parse_formatted · print_formatted ·
+    │   │   ├─ DateTime → East.DateTime.from_components (NORMALISES out-of-range components: (2024, 2, 31)
+    │   │   │   is 2024-03-02 — validate by round-tripping get_month(), not by range-checking) ·
+    │   │   │   from_epoch_milliseconds · parse_formatted · print_formatted ·
     │   │   │             round_down/up/nearest_{millisecond,second,minute,hour,day,week} · round_down_month · round_down_year
     │   │   ├─ String → East.String.print_json(value) · print_error(message, stack) · Blob → East.Blob.encode_beast(value, "v1"|"v2")
     │   │   ├─ Array → East.Array.range · linspace · generate(size, T, fn) · Set → East.Set.generate(size, K, fn, on_conflict=) ·
@@ -1405,7 +1407,7 @@ under East's total order) and `East.clamp(value, lo, hi)` — all dual-mode.
 
 | Signature | Notes |
 |-----------|-------|
-| `from_components(year, month=1, day=1, hour=0, minute=0, second=0, millisecond=0)` | construct (TS defaults: the trailing components are the first instant) |
+| `from_components(year, month=1, day=1, hour=0, minute=0, second=0, millisecond=0)` | construct (TS defaults: the trailing components are the first instant). An out-of-range component NORMALISES into the next one, it never raises: `(2024, 2, 31)` is `2024-03-02`, `(2024, 13, 1)` is `2025-01-01`, `(2023, 2, 29)` is `2023-03-01`. Range-checking the inputs does not catch it (31 February is all in range) — build the date and check `dt.get_month() == month` |
 | `from_epoch_milliseconds(millis)` · `to_epoch_milliseconds(dt) -> int` | epoch round-trip |
 | `get_year/get_month/get_day_of_month/get_day_of_week(dt) -> int` | `get_day_of_week`: Monday == 1 |
 | `get_hour/get_minute/get_second/get_millisecond(dt) -> int` | components |

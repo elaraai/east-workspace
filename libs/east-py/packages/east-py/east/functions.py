@@ -220,10 +220,13 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
                      providers: dict[str, str] | None = None) -> EastStruct:
     """Build a package's function manifest from its named functions.
 
-    Every function exports as a closed value: a function with captures (a
-    closure over an enclosing body) is rejected, as is a ``.bind`` result (no
-    IR of its own) and a function that itself holds an unresolved import —
-    link before exporting; exports do not chain. The exported IR carries no
+    Every function exports as a closed value: one that reads a variable its
+    own IR does not bind (a closure over an enclosing body) is rejected, as
+    is a ``.bind`` result (no IR of its own) and a function that itself holds
+    an unresolved import — link before exporting; exports do not chain. A
+    build's OWN hoisted constants — the ``Block[Let…, Function]`` a captured
+    lookup table or a stdlib format string produces — are exported with the
+    function and close over nothing (#669). The exported IR carries no
     location ids (a manifest has no source map).
 
     Args:
@@ -243,6 +246,8 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
         manifest = East.export_functions("maths", "1.0.0", {"double": double})
         Path("maths.functions.beast2").write_bytes(East.encode_function_manifest(manifest))
     """
+    from east.expression.finalize import _free_vars
+
     if not package:
         raise ValueError("export_functions: the package name is empty")
     exports: list[EastStruct] = []
@@ -252,11 +257,19 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
         except TypeError as e:
             raise TypeError(f"export_functions: {name}: {e}") from None
         root = _root_function(ir, f"export_functions: {name}")
-        captures = [v.value["name"] for v in root.value["captures"]]
-        if captures:
+        # Closed means the exported IR BINDS every name it reads. A build's
+        # own hoisted constants sit in Lets above the function and travel
+        # with it (the whole Block is what is exported below), so a capture
+        # naming one resolves wherever the IR lands; only a name nothing in
+        # the IR binds is a closure over an enclosing body (#669).
+        free: dict[str, Any] = {}
+        _free_vars(ir, frozenset(), free)
+        if free:
             raise ValueError(
-                f"export_functions: {name} captures {', '.join(captures)} — an exported function "
-                "is a closed value; only functions with no captures export")
+                f"export_functions: {name} reads {', '.join(free)}, which its own IR does not "
+                "bind — an exported function is a closed value: it may bind what it reads "
+                "(a build's hoisted constants do), but it may not close over an enclosing body")
+        ir = _rename_hoisted_constants(ir, package, name)
         imports = _count_imports(ir)
         if imports:
             raise ValueError(
@@ -273,6 +286,40 @@ def export_functions(package: str, version: str, functions: dict[str, Any],
         "package": package,
         "version": version,
     })
+
+
+def _rename_hoisted_constants(ir: Any, package: str, name: str) -> Any:
+    """The build's hoisted constants renamed uniquely to this export.
+
+    A build names them from a per-PROCESS counter (``__n0``, ``__n1``), so
+    two packages exported from two different processes both start at
+    ``__n0``. Linked into one program those ``Let``s land in one scope —
+    east-c binds a Block's statements in the enclosing environment and its
+    closures share that environment, so the second constant overwrites the
+    first and BOTH functions read it, while the TypeScript runner scopes the
+    Block and answers correctly. Renaming here makes the collision
+    impossible whatever the importer does, and whichever runner runs it.
+    """
+    if ir.type != "Block":
+        return ir
+    statements = list(ir.value["statements"])
+    prefix = f"_export_{_identifier(package)}_{_identifier(name)}"
+    renames = {stmt.value["variable"].value["name"]: f"{prefix}_{i}"
+               for i, stmt in enumerate(statements[:-1]) if stmt.type == "Let"}
+    if not renames:
+        return ir
+
+    def replace(node: Any) -> Any:
+        if node.type != "Variable":
+            return None
+        new_name = renames.get(node.value["name"])
+        if new_name is None:
+            return None
+        fields = dict(node.value.items())
+        fields["name"] = new_name
+        return EastVariant("Variable", EastStruct(fields))
+
+    return _rebuild(ir, replace)
 
 
 def _strip_locations(node: Any) -> Any:

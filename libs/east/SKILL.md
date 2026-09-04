@@ -189,6 +189,8 @@ Task → What do you need?
     │   ├─ Integer → East.Integer.printCommaSeperated(), .roundNearest(), .printOrdinal()
     │   ├─ Float → East.Float.roundToDecimals(), .printCurrency(), .printCompact()
     │   ├─ DateTime → East.DateTime.fromComponents(), .roundDownDay(), .parseFormatted()
+    │   │   (fromComponents NORMALISES an out-of-range component into the next one — (2024, 2, 31)
+    │   │    is 2024-03-02 — so validate by round-tripping getMonth(), not by range-checking)
     │   ├─ Array → East.Array.range(), .linspace(), .generate()
     │   ├─ Set → East.Set.generate()
     │   ├─ Dict → East.Dict.generate()

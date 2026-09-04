@@ -333,12 +333,28 @@ def _returns(ir: Any) -> bool:
 
 def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
     """An artifact called with expression proxies INSIDE another body: its
-    source body re-runs against the caller's block, splicing its expression
-    into the surrounding build (#470). A body that ``b.return_``s cannot be
-    spliced — the return would leave the CALLER — so it embeds as the inline
-    Function node and the call lowers to a ``Call`` (the TypeScript shape)."""
+    source body re-runs in its OWN statement frame, and the expression that
+    frame assembles to splices into the surrounding build (#470).
+
+    The frame is the whole point (#670): a statement the body appends —
+    ``b.let``, ``b.const``, ``b.if_`` — belongs to the spliced expression,
+    not to the caller's block. Run in the caller's frame it would land
+    ABOVE the expression that consumes it, so a body used as an
+    ``East.if_else`` arm evaluated even when the arm was not taken. Every
+    other expression form that runs a body (``East.let``, ``try_catch``,
+    ``.match``) opens its own frame for the same reason; this one did not.
+
+    A body that ``b.return_``s cannot be spliced — the return would leave
+    the CALLER — so it embeds as the inline Function node and the call
+    lowers to a ``Call`` (the TypeScript shape)."""
     from east.expression.lift import _lift_artifact
-    from east.expression.statements import _call_function_body, _frames
+    from east.expression.statements import (
+        _call_function_body,
+        _close_frame,
+        _frames,
+        _open_frame,
+        assemble,
+    )
 
     # A callback slot hands a function value every argument of the
     # builtin's callback signature (ArrayMap: element, index); a value
@@ -353,7 +369,18 @@ def _splice(artifact: Any, fn: Any, args: tuple) -> Any:
             return embedded(*args)
     if not _frames:
         raise ExpressionError("an East.function was called with expression arguments outside a build")
-    return _call_function_body(fn, _frames[-1], list(args), "East.function")
+    frame = _open_frame(_frames[-1].return_type)
+    try:
+        result = _call_function_body(fn, frame, list(args), "East.function")
+    finally:
+        _close_frame(frame)
+    if not frame.statements:
+        return result          # a pure body: the expression it built, as before
+    # The EFFECTS frame stays the CALLER's: a body whose assembled value the
+    # caller then throws away is a discarded expression, and the caller's
+    # check names it — pushing one here would swallow the mutation instead.
+    return assemble(frame, result, "function",
+                    getattr(artifact, "_east_out_type", None))
 
 
 def _assemble(fn: Any, ir_value: Any, out_type: EastType,
@@ -404,6 +431,10 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
     function_callable._east_retrace = fn         # marks the callable trace-safe
     function_callable._east_fn_binds = tuple(fn_binds)
     function_callable._east_param_types = tuple(param_types)
+    # The declared output types a spliced body's assembled value, so a
+    # statement-ful body returning something that needs a type from context
+    # (a bare `none`, a general variant) splices as its own build typed it.
+    function_callable._east_out_type = out_type
     function_callable._east_platforms = ()
     function_callable._east_is_async = is_async
     function_callable._east_source_map = source_map

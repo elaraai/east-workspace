@@ -146,6 +146,34 @@ def test_a_derivation_read_once_inside_a_callback_hoists_out_of_it():
     assert got == want
 
 
+def test_a_loop_invariant_inside_a_try_body_still_hoists():
+    """#668 refuses a hoist that would LEAVE a guarded body — not every hoist
+    under one. A `Let` landing inside the same `try` evaluates under the same
+    handler, so the invariant still comes out of the per-element callback;
+    without this the guard costs an O(n x loop) recomputation nothing reports."""
+    INT = ArrayType(IntegerType)
+
+    def fn(_b, a, xs):
+        return East.try_catch(
+            lambda _b2: East.let(a.map(lambda _b3, v: v * 2),
+                                 lambda _b3, d: d.sum() + d.sum()
+                                 + xs.map(lambda _b4, x: x + d.sum()).sum()),
+            lambda _b2, _m, _st: -1)
+
+    ir = trace(fn, [INT, INT])[0]
+    # `d.sum()` inside the `xs.map` body is invariant, so it BINDS — to a Let
+    # inside the try, where it evaluates under the same handler — and the
+    # per-element body reads that binding. Refusing every hoist under a guard
+    # (rather than only one that would leave it) costs exactly this Let, and
+    # nothing else in the IR reports the O(n x fold) it puts back.
+    assert any(n.type == "Let"
+               and n.value["value"].type == "Builtin"
+               and n.value["value"].value["builtin"] == "ArrayFold"
+               for n in _walk(ir)), \
+        "the invariant fold did not bind — it is evaluated per element inside the guard"
+    assert East.function([INT, INT], IntegerType, fn)([1, 2, 3], [10, 20]) == 78
+
+
 def _walk(node):
     stack = [node]
     while stack:
