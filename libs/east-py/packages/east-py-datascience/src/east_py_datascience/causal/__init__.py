@@ -4,12 +4,15 @@
 #
 """Causal inference for East — one declarative entry point, ``Causal.experiment``.
 
-``causal_experiment_impl`` is a plain Python callable taking and returning East
-values — import it from a project's own ``@platform_function`` to reuse the
-implementation without an IR round-trip. The East type definitions (config,
-result) are re-exported here for building inputs with ``coerce_to`` and validating
-outputs. The raw DoWhy / EconML / PyALE estimators are internal implementation
-that ``experiment`` composes.
+``causal_experiment`` is a plain Python callable taking and returning East
+values — import it from a project's own ``@East.platform_function`` to reuse
+the implementation without an IR round-trip — and the same object called
+inside an East body is the platform call, the row type first:
+``causal_experiment(RowType, rows, config)``. The estimation reads the rows,
+not the type. The East type definitions (config, result) are re-exported here
+for building inputs with ``coerce_to`` and validating outputs. The raw DoWhy /
+EconML / PyALE estimators are internal implementation that ``experiment``
+composes.
 """
 
 from east_py_datascience.causal.causal_impl import (
@@ -31,8 +34,8 @@ from east_py_datascience.causal.causal_impl import (
     RefutationType,
     RefuteSpecType,
     TrialOptionType,
-    causal_design_validation_impl,
-    causal_experiment_impl,
+    causal_design_validation,
+    causal_experiment,
     causal_impl,
 )
 
@@ -40,8 +43,8 @@ __all__ = [
     # Platform registration
     "causal_impl",
     # Directly-callable implementations
-    "causal_experiment_impl",
-    "causal_design_validation_impl",
+    "causal_experiment",
+    "causal_design_validation",
     # East type definitions
     "CausalWeightingSchemeType",
     "CausalEstimatorType",

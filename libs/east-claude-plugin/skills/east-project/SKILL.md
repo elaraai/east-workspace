@@ -99,7 +99,7 @@ subpath export (a `PlatformFunction[]`).
 
 **Python half (added only when east-py is on, runnable after `uv sync`):** a
 `platform_module/` package whose `__init__.py` is a thin **aggregator**.
-- `platform_module/example.py` — an example `@platform_function` ending with
+- `platform_module/example.py` — an example `@East.platform_function` ending with
   `<name>_impl = platform_functions(__name__)`; `__init__.py` spreads it into the
   top-level `platform` list `east-py run -p platform_module` loads. This mirrors
   the first-party east-py-std / east-py-datascience packages. A setuptools

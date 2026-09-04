@@ -1144,7 +1144,7 @@ Tensor3DBoolType = ArrayType(ArrayType(ArrayType(BooleanType)))
     inputs=[MatrixType(FloatType), MatrixType(FloatType), LightningConfigType, OptionType(Tensor3DBoolType), OptionType(GroupWeightsType), OptionType(MatrixType(FloatType))],
     output=LightningResultType,
 )
-def lightning_train_impl(
+def lightning_train(
     X: EastMatrix,
     y: EastMatrix,
     config: EastStruct,
@@ -1181,7 +1181,7 @@ def lightning_train_impl(
                 condition_dim?}``: LSTM/GRU autoencoder (``cell_type``:
                 ``lstm`` or ``gru``); ``bidirectional`` encoder, always
                 unidirectional decoder; supports
-                :func:`lightning_generate_sequence_impl`.
+                :func:`lightning_generate_sequence`.
               - ``transformer`` ``{n_channels, sequence_length, d_model,
                 n_attention_heads, n_layers, d_ff?, latent_dim,
                 condition_dim?}``: Transformer autoencoder with positional
@@ -1626,7 +1626,7 @@ def lightning_train_impl(
     inputs=[LightningModelBlobType, MatrixType(FloatType), OptionType(Tensor3DBoolType), OptionType(MatrixType(FloatType))],
     output=MatrixType(FloatType),
 )
-def lightning_predict_impl(
+def lightning_predict(
     model_blob: EastVariant,
     X: EastMatrix,
     masks: EastVariant | None,
@@ -1640,7 +1640,7 @@ def lightning_predict_impl(
 
     Args:
         model_blob: ``LightningModelBlobType`` (``EastVariant``)
-            from :func:`lightning_train_impl`.
+            from :func:`lightning_train`.
         X: ``Matrix<Float>`` (``EastMatrix``) - input features
            (n_samples x n_features).
         masks: ``Option<Array<Array<Array<Boolean>>>>`` (``EastVariant``) -
@@ -1716,7 +1716,7 @@ def lightning_predict_impl(
     inputs=[LightningModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def lightning_encode_impl(
+def lightning_encode(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastMatrix:
@@ -1727,7 +1727,7 @@ def lightning_encode_impl(
 
     Args:
         model_blob: ``LightningModelBlobType`` (``EastVariant``)
-            from :func:`lightning_train_impl`.
+            from :func:`lightning_train`.
         X: ``Matrix<Float>`` (``EastMatrix``) - input features
            (n_samples x n_features).
 
@@ -1764,7 +1764,7 @@ def lightning_encode_impl(
     inputs=[LightningModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def lightning_decode_impl(
+def lightning_decode(
     model_blob: EastVariant,
     z: EastMatrix,
 ) -> EastMatrix:
@@ -1775,12 +1775,12 @@ def lightning_decode_impl(
     returning (sigmoid for ``binary``, per-head softmax for ``multi_head``,
     identity for ``regression``).
 
-    Use :func:`lightning_decode_conditional_impl` when the architecture
+    Use :func:`lightning_decode_conditional` when the architecture
     sets ``condition_dim``.
 
     Args:
         model_blob: ``LightningModelBlobType`` (``EastVariant``)
-            from :func:`lightning_train_impl`.
+            from :func:`lightning_train`.
         z: ``Matrix<Float>`` (``EastMatrix``) - latent vectors
            (n_samples x latent_dim).
 
@@ -1791,7 +1791,7 @@ def lightning_decode_impl(
     Raises:
         NotImplementedError: the ``lightning`` extra is not installed.
         RuntimeError: architecture is ``mlp``; model requires a condition
-            vector (use :func:`lightning_decode_conditional_impl`); or
+            vector (use :func:`lightning_decode_conditional`); or
             decoding fails.
     """
     _check_lightning_support()
@@ -1827,21 +1827,21 @@ def lightning_decode_impl(
     inputs=[LightningModelBlobType, MatrixType(FloatType), MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def lightning_decode_conditional_impl(
+def lightning_decode_conditional(
     model_blob: EastVariant,
     z: EastMatrix,
     condition: EastMatrix,
 ) -> EastMatrix:
     """Decode latent vectors to output with a per-sample condition vector.
 
-    Applies the same output activation as :func:`lightning_decode_impl` but
+    Applies the same output activation as :func:`lightning_decode` but
     concatenates ``condition`` to the latent before the decoder, enabling
     controlled generation for temporal architectures (``conv1d``,
     ``sequential``, ``transformer``) that set ``condition_dim``.
 
     Args:
         model_blob: ``LightningModelBlobType`` (``EastVariant``)
-            from :func:`lightning_train_impl`.
+            from :func:`lightning_train`.
         z: ``Matrix<Float>`` (``EastMatrix``) - latent vectors
            (n_samples x latent_dim).
         condition: ``Matrix<Float>`` (``EastMatrix``) - condition vectors
@@ -1898,7 +1898,7 @@ def lightning_decode_conditional_impl(
     inputs=[LightningModelBlobType, MatrixType(FloatType), OptionType(MatrixType(FloatType)), LightningGenerateConfigType],
     output=MatrixType(FloatType),
 )
-def lightning_generate_sequence_impl(
+def lightning_generate_sequence(
     model_blob: EastVariant,
     prefix: EastMatrix,
     condition: EastVariant | None,
@@ -1915,7 +1915,7 @@ def lightning_generate_sequence_impl(
 
     Args:
         model_blob: ``LightningModelBlobType`` (``EastVariant``)
-            from :func:`lightning_train_impl` with ``sequential``
+            from :func:`lightning_train` with ``sequential``
             architecture.
         prefix: ``Matrix<Float>`` (``EastMatrix``) - optional prefix sequence
             (n_prefix_steps x n_channels). Pass an empty matrix (0 rows)

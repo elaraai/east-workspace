@@ -1,6 +1,6 @@
 ---
 name: east-py-datascience
-description: "Data science and machine learning platform functions for the East language (TypeScript types + directly-callable Python implementations). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, Torch MLP, Lightning, GP), Bayesian inference (PyMC), causal inference (Causal: DoWhy, EconML DML, ALE), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks with Torch MLP or Lightning, (8) Data preprocessing and metrics with Sklearn, (9) Conformal prediction intervals with MAPIE, (10) Model explainability with Shap, (11) Iterative coordinate descent with Optimization, (12) Constraint programming, vehicle routing, LP/MIP, or graph algorithms with GoogleOr, (13) Bayesian regression, hierarchical models, and multi-layer estimation with PyMC, (14) Economic ontology simulation via discrete event simulation with Simulation, (15) One declarative causal experiment — naive vs adjusted effect, overlap, robustness, and an honesty verdict — with Causal.experiment, (16) Calling the east_py_datascience *_impl functions directly from a project's own Python @platform_function."
+description: "Data science and machine learning platform functions for the East language (TypeScript types + directly-callable Python implementations). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, Torch MLP, Lightning, GP), Bayesian inference (PyMC), causal inference (Causal: DoWhy, EconML DML, ALE), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks with Torch MLP or Lightning, (8) Data preprocessing and metrics with Sklearn, (9) Conformal prediction intervals with MAPIE, (10) Model explainability with Shap, (11) Iterative coordinate descent with Optimization, (12) Constraint programming, vehicle routing, LP/MIP, or graph algorithms with GoogleOr, (13) Bayesian regression, hierarchical models, and multi-layer estimation with PyMC, (14) Economic ontology simulation via discrete event simulation with Simulation, (15) One declarative causal experiment — naive vs adjusted effect, overlap, robustness, and an honesty verdict — with Causal.experiment, (16) Calling the east_py_datascience functions (xgboost_train_regressor, mads_optimize, …) from a project's own Python @East.platform_function, or inside an East.function body — the same object does both."
 ---
 
 # East Data Science
@@ -271,22 +271,25 @@ const result = $.let(Module.optimize(objective, x0, bounds, config));
 // result.x_best, result.f_best
 ```
 
-## Calling from Python (direct `*_impl` functions)
+## Calling from Python (the functions directly)
 
-Every platform function has a Python implementation in the `east_py_datascience`
-package that is a **plain callable taking and returning East values** — no IR,
-no compile. A project's own `@platform_function` can import and call them
-directly (the preferred way to use lightning/torch/xgboost/sklearn/etc. from
-project Python code). Each module re-exports its functions from its package:
+Every platform function is exported from `east_py_datascience` under its
+own name (`xgboost_train_regressor`, `mads_optimize`, …) as a **plain
+callable taking and returning East values** — no IR, no compile — and, the
+same object, callable inside an `East.function` body, where the call is the
+`Platform` node with the function's declared signature (#667). A project's
+own `@East.platform_function` can import and call them directly (the
+preferred way to use lightning/torch/xgboost/sklearn/etc. from project
+Python code); an East body written in python calls them the same way and
+compiles against the package's `platform` list:
 
 ```python
-from east import (EastMatrix, EastVector, FloatType, MatrixType, VectorType,
-                  coerce_to, platform_function)
-from east_py_datascience.xgboost import (
-    XGBoostConfigType, xgboost_train_regressor_impl, xgboost_predict_impl)
+from east import (East, EastMatrix, EastVector, FloatType, MatrixType, VectorType,
+                  coerce_to)
+from east_py_datascience import XGBoostConfigType, xgboost_train_regressor, xgboost_predict
 
-@platform_function(inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType)],
-                   output=VectorType(FloatType))
+@East.platform_function(inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType)],
+                        output=VectorType(FloatType))
 def forecast(X_train, y_train, X_new):
     # Build the config struct from a plain dict - coerce_to fills Option fields
     config = coerce_to({
@@ -298,8 +301,8 @@ def forecast(X_train, y_train, X_new):
         "max_cat_to_onehot": None, "max_cat_threshold": None,
         "scale_pos_weight": None,  # binary class-imbalance weight (classifier only)
     }, XGBoostConfigType)
-    model = xgboost_train_regressor_impl(X_train, y_train, config)   # East blob in/out
-    return xgboost_predict_impl(model, X_new)
+    model = xgboost_train_regressor(X_train, y_train, config)   # East blob in/out
+    return xgboost_predict(model, X_new)
 ```
 
 Rules:
@@ -314,19 +317,29 @@ Rules:
 - **Model blobs round-trip**: the variant blob a train function returns is
   exactly what the predict/explain functions accept — store it, pass it
   between platform functions, or hand it to `Shap`.
-- **Registering everything instead**: `from east_py_datascience import platform`
-  and pass it to `compile_async()` to wire all functions to East IR (this is
-  what the e3 Python runner does).
+- **Inside an East body**: `East.function([...], ..., lambda b, X, y, cfg:
+  xgboost_predict(xgboost_train_regressor(X, y, cfg), X))` — the calls are
+  `Platform` nodes; `East.compile(fn, platform=east_py_datascience.platform)`
+  runs it (this list is also what the e3 Python runner registers).
+- **The generic ones take the type argument FIRST in a body**, as the
+  TypeScript reads: `causal_experiment(RowType, rows, config)`,
+  `alns_optimize(SolutionType, initial, objective, destroy, repair, config)`.
+  From python they are called with the values alone
+  (`causal_experiment(rows, config)`) — they read the rows, not the type.
+- **`simulation_run` and `optimization_iterative*` run in C**, so there is no
+  python to call: the name exports the declaration, and a body calls it the
+  same way — `simulation_run(Resources, Events, state, events, process,
+  config)`.
 - Optional deps gate at call time: functions raise `NotImplementedError`
   naming the missing extra (e.g. `east-py-datascience[causal]`).
 
 For the East-value API itself (eager methods, `coerce_to`, `to_numpy`/`to_torch`,
-`@platform_function`), load the **east-py** skill.
+`@East.platform_function`), load the **east-py** skill.
 
 ## Related skills
 
 - **e3** — **required to run these**: they need the Python runtime, so wrap each in an `e3.task` with a Python runner (`{ runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } }` — the typed runner resolves east-py from the project's `.venv`; no `uv run` wrapper needed). They do not run on the default Node / C runtime.
 - **east** — the language for objective functions, configs, and result handling.
-- **east-py** — the Python runtime: East values as plain Python data, eager methods, and the `@platform_function` on-ramp — pairs with the direct `*_impl` calls above.
+- **east-py** — the Python runtime: East values as plain Python data, eager methods, and the `@East.platform_function` on-ramp — pairs with the direct calls above.
 - **east-ontology** — the decisions these models improve are the `decision` nodes of the business's economic ontology.
 - **east-design** — place the forecast / optimization in a decision-oriented architecture.

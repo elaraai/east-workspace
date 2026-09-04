@@ -88,7 +88,7 @@ def _check_ngboost_support() -> None:
     inputs=[MatrixType(FloatType), VectorType(FloatType), NGBoostConfigType],
     output=NGBoostModelBlobType,
 )
-def ngboost_train_regressor_impl(
+def ngboost_train_regressor(
     X: EastMatrix,
     y: EastVector,
     config: EastStruct,
@@ -96,8 +96,8 @@ def ngboost_train_regressor_impl(
     """Train an NGBoost probabilistic regressor and return a serialized model blob.
 
     Fits natural gradient boosted decision trees using either a Normal or
-    LogNormal output distribution. Use :func:`ngboost_predict_impl` for point
-    predictions and :func:`ngboost_predict_dist_impl` for full uncertainty
+    LogNormal output distribution. Use :func:`ngboost_predict` for point
+    predictions and :func:`ngboost_predict_dist` for full uncertainty
     quantification.
 
     Args:
@@ -195,7 +195,7 @@ def ngboost_train_regressor_impl(
     inputs=[NGBoostModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
-def ngboost_predict_impl(
+def ngboost_predict(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastVector:
@@ -204,7 +204,7 @@ def ngboost_predict_impl(
     Args:
         model_blob: ``NGBoostModelBlobType`` (``EastVariant``) tagged
             ``ngboost_regressor`` - as returned by
-            :func:`ngboost_train_regressor_impl`.
+            :func:`ngboost_train_regressor`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
             same number of columns the model was trained with.
 
@@ -245,7 +245,7 @@ def ngboost_predict_impl(
     inputs=[NGBoostModelBlobType, MatrixType(FloatType), NGBoostPredictConfigType],
     output=NGBoostPredictResultType,
 )
-def ngboost_predict_dist_impl(
+def ngboost_predict_dist(
     model_blob: EastVariant,
     X: EastMatrix,
     config: EastStruct,
@@ -258,7 +258,7 @@ def ngboost_predict_dist_impl(
     Args:
         model_blob: ``NGBoostModelBlobType`` (``EastVariant``) tagged
             ``ngboost_regressor`` - as returned by
-            :func:`ngboost_train_regressor_impl`.
+            :func:`ngboost_train_regressor`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
             same number of columns the model was trained with.
         config: ``NGBoostPredictConfigType`` (``EastStruct``) with fields:

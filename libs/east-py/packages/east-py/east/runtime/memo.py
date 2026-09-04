@@ -43,6 +43,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from east.expression.lift import _tracing
 from east.serialization.beast2 import (
     decode_beast2_with_header_for,
     encode_beast2_with_header_for,
@@ -187,7 +188,14 @@ def memoize(fn: Callable[..., Any] | None = None, *, salt: str = "") -> Callable
             _store(path, out)
         return out
 
-    run: Any = run_async if pf["type"] == "async" else run_sync
+    serve: Any = run_async if pf["type"] == "async" else run_sync
+
+    # The memo serves values; inside an East body the call is still the
+    # platform function's own Platform node (#667).
+    def run(*args: Any) -> Any:
+        if _tracing():
+            return fn(*args)
+        return serve(*args)
 
     run.__name__ = getattr(fn, "__name__", pf["name"])
     run.__doc__ = fn.__doc__

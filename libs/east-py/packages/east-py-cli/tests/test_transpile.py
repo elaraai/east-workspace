@@ -69,3 +69,27 @@ def test_transpile_accepts_the_examples_export_record(tmp_path):
     namespace: dict = {}
     exec(compile(result.stdout, "example.py", "exec"), namespace)
     assert diff_ir(ir, namespace["ex"]._east_ir) is None
+
+
+def test_transpile_imports_a_providers_implementation_with_p(tmp_path):
+    """``-p east-py-std``: a platform call the package implements prints as
+    the package's own function, not a restated declaration (#667)."""
+    from east import East, IntegerType, StringType
+    from east.serialization.beast2 import encode_beast2_with_header_for
+    from east.types.type_of_type import IRType
+    from east_py_std import fs_read_file_bytes
+
+    size = East.function([StringType], IntegerType, lambda b, p: fs_read_file_bytes(p).size())
+    ir_file = tmp_path / "size.beast2"
+    ir_file.write_bytes(encode_beast2_with_header_for(IRType)(size._east_ir))
+    result = _run("transpile", str(ir_file), "-p", "east-py-std", "--name", "size")
+    assert result.returncode == 0, result.stderr
+    assert "from east_py_std import fs_read_file_bytes" in result.stdout
+    assert "East.platform(" not in result.stdout
+    namespace: dict = {}
+    exec(compile(result.stdout, "size.py", "exec"), namespace)
+    assert diff_ir(size._east_ir, namespace["size"]._east_ir) is None
+    plain = _run("transpile", str(ir_file), "--name", "size")
+    assert "fs_read_file_bytes = East.platform(" in plain.stdout
+    missing = _run("transpile", str(ir_file), "-p", "no-such-package")
+    assert missing.returncode == 1 and "no_such_package" in missing.stderr

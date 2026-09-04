@@ -208,7 +208,7 @@ def _check_xgboost_support() -> None:
     inputs=[MatrixType(FloatType), VectorType(FloatType), XGBoostConfigType],
     output=XGBoostModelBlobType,
 )
-def xgboost_train_regressor_impl(
+def xgboost_train_regressor(
     X: EastMatrix,
     y: EastVector,
     config: EastStruct,
@@ -380,7 +380,7 @@ def xgboost_train_regressor_impl(
     inputs=[MatrixType(FloatType), VectorType(IntegerType), XGBoostConfigType],
     output=XGBoostModelBlobType,
 )
-def xgboost_train_classifier_impl(
+def xgboost_train_classifier(
     X: EastMatrix,
     y: EastVector,
     config: EastStruct,
@@ -397,7 +397,7 @@ def xgboost_train_classifier_impl(
         y: ``Vector<Integer>`` (``EastVector``) - integer class labels; must
             have the same number of rows as ``X``.
         config: ``XGBoostConfigType`` (``EastStruct``) - see
-            :func:`xgboost_train_regressor_impl` for field descriptions.
+            :func:`xgboost_train_regressor` for field descriptions.
             All fields apply identically.
 
     Returns:
@@ -534,7 +534,7 @@ def xgboost_train_classifier_impl(
     inputs=[XGBoostModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
-def xgboost_predict_impl(
+def xgboost_predict(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastVector:
@@ -543,7 +543,7 @@ def xgboost_predict_impl(
     Args:
         model_blob: ``XGBoostModelBlobType`` (``EastVariant``) tagged
             ``xgboost_regressor`` - as returned by
-            :func:`xgboost_train_regressor_impl`.
+            :func:`xgboost_train_regressor`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
             same number of columns the model was trained with.
 
@@ -592,7 +592,7 @@ def xgboost_predict_impl(
     inputs=[XGBoostModelBlobType, MatrixType(FloatType)],
     output=VectorType(IntegerType),
 )
-def xgboost_predict_class_impl(
+def xgboost_predict_class(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastVector:
@@ -604,7 +604,7 @@ def xgboost_predict_class_impl(
     Args:
         model_blob: ``XGBoostModelBlobType`` (``EastVariant``) tagged
             ``xgboost_classifier`` - as returned by
-            :func:`xgboost_train_classifier_impl`.
+            :func:`xgboost_train_classifier`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
             same number of columns the model was trained with.
 
@@ -661,7 +661,7 @@ def xgboost_predict_class_impl(
     inputs=[XGBoostModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def xgboost_predict_proba_impl(
+def xgboost_predict_proba(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastMatrix:
@@ -674,7 +674,7 @@ def xgboost_predict_proba_impl(
     Args:
         model_blob: ``XGBoostModelBlobType`` (``EastVariant``) tagged
             ``xgboost_classifier`` - as returned by
-            :func:`xgboost_train_classifier_impl`.
+            :func:`xgboost_train_classifier`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
             same number of columns the model was trained with.
 
@@ -728,7 +728,7 @@ def xgboost_predict_proba_impl(
     inputs=[MatrixType(FloatType), VectorType(FloatType), XGBoostQuantileConfigType],
     output=XGBoostModelBlobType,
 )
-def xgboost_train_quantile_impl(
+def xgboost_train_quantile(
     X: EastMatrix,
     y: EastVector,
     config: EastStruct,
@@ -921,7 +921,7 @@ def xgboost_train_quantile_impl(
     inputs=[XGBoostModelBlobType, MatrixType(FloatType)],
     output=XGBoostQuantilePredictResultType,
 )
-def xgboost_predict_quantile_impl(
+def xgboost_predict_quantile(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastStruct:
@@ -930,7 +930,7 @@ def xgboost_predict_quantile_impl(
     Args:
         model_blob: ``XGBoostModelBlobType`` (``EastVariant``) tagged
             ``xgboost_quantile`` - as returned by
-            :func:`xgboost_train_quantile_impl`.
+            :func:`xgboost_train_quantile`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
             same number of columns the model was trained with.
 

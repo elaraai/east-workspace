@@ -156,7 +156,7 @@ def _check_simanneal_support() -> None:
     ],
     output=AnnealResultType,
 )
-def simanneal_optimize_impl(
+def simanneal_optimize(
     initial_state: EastVariant,
     energy_fn: Callable[[EastVariant], float],
     move_fn: Callable[[EastVariant], EastVariant],
@@ -289,14 +289,14 @@ def simanneal_optimize_impl(
     ],
     output=AnnealResultType,
 )
-def simanneal_optimize_permutation_impl(
+def simanneal_optimize_permutation(
     initial_perm: EastVector,
     energy_fn: Callable[[EastVector], float],
     config: EastStruct,
 ) -> EastStruct:
     """Run simulated annealing on a permutation using random two-element swaps.
 
-    Specialization of :func:`simanneal_optimize_impl` for permutation problems
+    Specialization of :func:`simanneal_optimize` for permutation problems
     (e.g. TSP, job scheduling). The state is maintained as a NumPy array
     internally; ``energy_fn`` receives a ``Vector<Integer>`` view at each
     evaluation. The move operator swaps two randomly selected indices.
@@ -307,7 +307,7 @@ def simanneal_optimize_permutation_impl(
         energy_fn: ``Function<[Vector<Integer>], Float>`` (callable) - scores
             the current permutation; lower energy is preferred.
         config: ``AnnealConfigType`` (``EastStruct``) - see
-            :func:`simanneal_optimize_impl` for all fields (``t_max``,
+            :func:`simanneal_optimize` for all fields (``t_max``,
             ``t_min``, ``steps``, ``updates``, ``auto_schedule``,
             ``random_state``).
 
@@ -415,14 +415,14 @@ def simanneal_optimize_permutation_impl(
     ],
     output=AnnealResultType,
 )
-def simanneal_optimize_subset_impl(
+def simanneal_optimize_subset(
     initial_selection: EastVector,
     energy_fn: Callable[[EastVector], float],
     config: EastStruct,
 ) -> EastStruct:
     """Run simulated annealing on a binary subset selection using bit-flip moves.
 
-    Specialization of :func:`simanneal_optimize_impl` for subset-selection
+    Specialization of :func:`simanneal_optimize` for subset-selection
     problems (e.g. feature selection, portfolio construction). The state is a
     boolean mask over items; at each step a random bit is flipped. The state is
     maintained internally as a NumPy boolean array; ``energy_fn`` receives a
@@ -434,7 +434,7 @@ def simanneal_optimize_subset_impl(
         energy_fn: ``Function<[Vector<Boolean>], Float>`` (callable) - scores
             the current selection mask; lower energy is preferred.
         config: ``AnnealConfigType`` (``EastStruct``) - see
-            :func:`simanneal_optimize_impl` for all fields (``t_max``,
+            :func:`simanneal_optimize` for all fields (``t_max``,
             ``t_min``, ``steps``, ``updates``, ``auto_schedule``,
             ``random_state``).
 

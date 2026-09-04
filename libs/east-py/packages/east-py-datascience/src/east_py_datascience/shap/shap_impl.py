@@ -194,7 +194,7 @@ def _extract_tree_model(model_blob: EastVariant, function_name: str):
     inputs=[TreeExplainerConfigType],
     output=ShapModelBlobType,
 )
-def shap_tree_explainer_create_impl(
+def shap_tree_explainer_create(
     config: EastVariant,
 ) -> EastVariant:
     """Create a SHAP TreeExplainer for tree-based models.
@@ -209,7 +209,7 @@ def shap_tree_explainer_create_impl(
     - ``MAPIERegressorBlobType`` cases: ``mapie_split``, ``mapie_cross``,
       ``mapie_cqr`` - the underlying XGBoost estimator is extracted from
       the MAPIE wrapper (LightGBM base models are **not** supported; use
-      :func:`shap_kernel_explainer_create_impl` instead).
+      :func:`shap_kernel_explainer_create` instead).
     - ``MAPIEClassifierBlobType`` case: ``mapie_classifier`` - same
       XGBoost-only restriction applies.
 
@@ -228,7 +228,7 @@ def shap_tree_explainer_create_impl(
     Returns:
         ``ShapModelBlobType`` (``EastVariant``) tagged ``shap_tree_explainer``
         with ``{data: Blob (cloudpickle), n_features: Integer}``.  Pass to
-        :func:`shap_compute_values_impl`.
+        :func:`shap_compute_values`.
 
     Raises:
         NotImplementedError: the ``shap`` extra is not installed.
@@ -508,7 +508,7 @@ def _extract_model_from_blob(model_blob: EastVariant, function_name: str):
     inputs=[AnyModelBlobType, MatrixType(FloatType)],
     output=ShapModelBlobType,
 )
-def shap_kernel_explainer_create_impl(
+def shap_kernel_explainer_create(
     model_blob: EastVariant,
     X_background: EastArray,
 ) -> EastVariant:
@@ -516,7 +516,7 @@ def shap_kernel_explainer_create_impl(
 
     Model-agnostic explainer that treats the model as a black box and
     approximates SHAP values via weighted linear regression over coalition
-    samples.  Slower than :func:`shap_tree_explainer_create_impl` but
+    samples.  Slower than :func:`shap_tree_explainer_create` but
     supports all model types in ``AnyModelBlobType``, including:
 
     - XGBoost / LightGBM regressors and classifiers.
@@ -538,7 +538,7 @@ def shap_kernel_explainer_create_impl(
     Returns:
         ``ShapModelBlobType`` (``EastVariant``) tagged ``shap_kernel_explainer``
         with ``{data: Blob (cloudpickle), n_features: Integer}``.  Pass to
-        :func:`shap_compute_values_impl`.
+        :func:`shap_compute_values`.
 
     Raises:
         NotImplementedError: the ``shap`` extra is not installed.
@@ -592,7 +592,7 @@ def shap_kernel_explainer_create_impl(
     inputs=[ShapModelBlobType, MatrixType(FloatType), StringVectorType],
     output=ShapResultType,
 )
-def shap_compute_values_impl(
+def shap_compute_values(
     explainer_blob: EastVariant,
     X: EastArray,
     feature_names: EastArray,
@@ -615,8 +615,8 @@ def shap_compute_values_impl(
     Args:
         explainer_blob: ``ShapModelBlobType`` (``EastVariant``) tagged
             ``shap_tree_explainer`` or ``shap_kernel_explainer``, produced
-            by :func:`shap_tree_explainer_create_impl` or
-            :func:`shap_kernel_explainer_create_impl`.
+            by :func:`shap_tree_explainer_create` or
+            :func:`shap_kernel_explainer_create`.
         X: ``Matrix<Float>`` (``EastMatrix``) - samples to explain.
         feature_names: ``Array<String>`` (``EastArray``) - one name per
             feature column; included verbatim in the result.
@@ -773,7 +773,7 @@ def shap_compute_values_impl(
     inputs=[ShapValuesType, StringVectorType],
     output=FeatureImportanceType,
 )
-def shap_feature_importance_impl(
+def shap_feature_importance(
     shap_values: EastVariant,
     feature_names: EastArray,
 ) -> EastStruct:
@@ -784,7 +784,7 @@ def shap_feature_importance_impl(
 
     Args:
         shap_values: ``ShapValuesType`` (``EastVariant``) from
-            :func:`shap_compute_values_impl`:
+            :func:`shap_compute_values`:
 
             - ``matrix_2d`` ``Matrix<Float>`` ``(n_samples, n_features)``:
               regression or binary classification - ``mean(|SHAP|)`` across

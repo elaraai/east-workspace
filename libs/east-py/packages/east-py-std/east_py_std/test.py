@@ -16,7 +16,6 @@ import time
 from typing import Any
 
 from east.runtime.platform import (
-    PlatformFunction,
     platform_function,
     platform_functions,
 )
@@ -40,7 +39,7 @@ def reset_counters(out=None):
 
 
 @platform_function(name="testPass", inputs=[], output=NullType)
-def test_pass_impl() -> None:
+def test_pass() -> None:
     """Signal that a test assertion passed (no-op at runtime).
 
     Returns:
@@ -49,7 +48,7 @@ def test_pass_impl() -> None:
 
 
 @platform_function(name="testFail", inputs=[StringType], output=NullType)
-def test_fail_impl(message: str) -> None:
+def test_fail(message: str) -> None:
     """Signal that a test assertion failed by raising an AssertionError.
 
     Args:
@@ -65,6 +64,10 @@ def test_fail_impl(message: str) -> None:
     raise AssertionError(message)
 
 
+# The one std function whose python name is not its platform name: `test`
+# here would shadow the `east_py_std.test` submodule on the package root.
+@platform_function(name="test", inputs=[StringType, FunctionType([], NullType)],
+                   output=NullType, is_async=True)
 def test_impl_fn(name: str, body: Any) -> None:
     """Run a single named test case, tracking pass/fail and logging elapsed time.
 
@@ -95,7 +98,9 @@ def test_impl_fn(name: str, body: Any) -> None:
         failed += 1
 
 
-def describe_impl(name: str, body: Any) -> None:
+@platform_function(name="describe", inputs=[StringType, FunctionType([], NullType)],
+                   output=NullType, is_async=True)
+def describe(name: str, body: Any) -> None:
     """Define a named test suite, logging a header and summary with elapsed time.
 
     Increments the nesting depth while ``body`` runs so that nested test cases
@@ -125,34 +130,18 @@ def describe_impl(name: str, body: Any) -> None:
             _out.write(f"{mark} {name} ({dur:.6f}ms)\n")
 
 
-# `test` and `describe` declare type="async" while their impls are plain
-# `def`, so the decorator's sync/async inference would flip them — they stay
-# raw PlatformFunction to preserve the declared async behavior.
-test_impl = [
-    *platform_functions(__name__),
-    PlatformFunction(
-        name="test",
-        inputs=[StringType, FunctionType([], NullType)],
-        output=NullType,
-        type="async",
-        fn=test_impl_fn,
-    ),
-    PlatformFunction(
-        name="describe",
-        inputs=[StringType, FunctionType([], NullType)],
-        output=NullType,
-        type="async",
-        fn=describe_impl,
-    ),
-]
+# `test` and `describe` are async on every runtime while their python is a
+# plain `def` — `is_async=True` declares that, so the decorator's inference
+# does not flip them.
+test_impl = platform_functions(__name__)
 
 
 __all__ = [
     "test_impl",
-    "test_pass_impl",
-    "test_fail_impl",
+    "test_pass",
+    "test_fail",
     "test_impl_fn",
-    "describe_impl",
+    "describe",
     "passed",
     "failed",
     "reset_counters",

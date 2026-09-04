@@ -27,6 +27,7 @@ from east.runtime.platform import (
     platform_functions,
 )
 from east.types.types import (
+    ArrayType,
     NullType,
     StringType,
     get_option_inner_type,
@@ -43,6 +44,7 @@ from east.types.values import EastArray, EastStruct, EastVariant
 
 from .types import (
     AccessConfigType,
+    AccessQueryOptionsType,
     AccessTablesResultType,
     ConnectionHandleType,
 )
@@ -175,7 +177,7 @@ def _check_type_compatibility(field_type: Any, expected_east: str) -> tuple[bool
     inputs=[AccessConfigType],
     output=ConnectionHandleType,
 )
-async def access_open_impl(config: EastStruct) -> str:
+async def access_open(config: EastStruct) -> str:
     """Open a Microsoft Access database file and return a connection handle.
 
     Supports ``.mdb`` (Access 97/2000/2002/2003) and ``.accdb``
@@ -192,8 +194,8 @@ async def access_open_impl(config: EastStruct) -> str:
 
     Returns:
         ``String`` - opaque connection handle, passed to
-        ``access_tables_impl`` / ``access_query_factory`` /
-        ``access_close_impl``.
+        ``access_tables`` / ``access_query`` /
+        ``access_close``.
 
     Raises:
         NotImplementedError: the ``access`` extra (access-parser) is not
@@ -226,11 +228,11 @@ async def access_open_impl(config: EastStruct) -> str:
     inputs=[ConnectionHandleType],
     output=AccessTablesResultType,
 )
-async def access_tables_impl(handle: str) -> EastStruct:
+async def access_tables(handle: str) -> EastStruct:
     """List the names of all user tables in the database.
 
     Args:
-        handle: ``String`` - connection handle from ``access_open_impl``.
+        handle: ``String`` - connection handle from ``access_open``.
 
     Returns:
         ``AccessTablesResultType`` (``EastStruct``): ``{tables:
@@ -282,7 +284,7 @@ def access_query_factory(row_type: Any) -> Any:
 
         Args:
             handle: ``String`` - connection handle from
-                ``access_open_impl``.
+                ``access_open``.
             options: ``AccessQueryOptionsType`` (``EastStruct``) with
                 fields:
 
@@ -442,8 +444,13 @@ def access_query_factory(row_type: Any) -> Any:
     name="access_query",
     type_parameters=["T"],
     is_async=True,
+    inputs=[ConnectionHandleType, AccessQueryOptionsType],
+    output=ArrayType("T"),
 )
-def _access_query_factory(_platform_list: Any, T: Any) -> Any:  # noqa: N803
+def access_query(_platform_list: Any, T: Any) -> Any:  # noqa: N803
+    """``access_query<T>``: from python the factory (``access_query(None,
+    Row)`` returns the typed reader), inside an East body the call itself —
+    ``access_query(Row, handle, options)``, the row type first."""
     return access_query_factory(T)
 
 
@@ -452,14 +459,14 @@ def _access_query_factory(_platform_list: Any, T: Any) -> Any:  # noqa: N803
     inputs=[ConnectionHandleType],
     output=NullType,
 )
-async def access_close_impl(handle: str) -> None:
+async def access_close(handle: str) -> None:
     """Release an Access database connection handle.
 
     access-parser does not require an explicit close call; this removes the
     internal reference so the parser object can be garbage-collected.
 
     Args:
-        handle: ``String`` - connection handle from ``access_open_impl``.
+        handle: ``String`` - connection handle from ``access_open``.
 
     Raises:
         Exception: the handle is unknown.
@@ -479,7 +486,7 @@ async def access_close_impl(handle: str) -> None:
     inputs=[],
     output=NullType,
 )
-async def access_close_all_impl() -> None:
+async def access_close_all() -> None:
     """Release every open Access connection handle managed by this process.
 
     Clears the internal connection map; useful for test teardown.
@@ -492,9 +499,10 @@ access_impl = platform_functions(__name__)
 
 __all__ = [
     "access_impl",
-    "access_open_impl",
-    "access_tables_impl",
+    "access_open",
+    "access_tables",
+    "access_query",
     "access_query_factory",
-    "access_close_impl",
-    "access_close_all_impl",
+    "access_close",
+    "access_close_all",
 ]

@@ -73,7 +73,7 @@ def _check_lightgbm_support() -> None:
     inputs=[MatrixType(FloatType), VectorType(FloatType), LightGBMConfigType],
     output=LightGBMModelBlobType,
 )
-def lightgbm_train_regressor_impl(
+def lightgbm_train_regressor(
     X: EastMatrix,
     y: EastVector,
     config: EastStruct,
@@ -189,7 +189,7 @@ def lightgbm_train_regressor_impl(
     inputs=[MatrixType(FloatType), VectorType(IntegerType), LightGBMConfigType],
     output=LightGBMModelBlobType,
 )
-def lightgbm_train_classifier_impl(
+def lightgbm_train_classifier(
     X: EastMatrix,
     y: EastVector,
     config: EastStruct,
@@ -202,7 +202,7 @@ def lightgbm_train_classifier_impl(
         y: ``Vector<Integer>`` (``EastVector``) - integer class labels; must
             have the same number of rows as ``X``.
         config: ``LightGBMConfigType`` (``EastStruct``) - see
-            :func:`lightgbm_train_regressor_impl` for field descriptions.
+            :func:`lightgbm_train_regressor` for field descriptions.
             All fields apply identically.
 
     Returns:
@@ -286,7 +286,7 @@ def lightgbm_train_classifier_impl(
     inputs=[LightGBMModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
-def lightgbm_predict_impl(
+def lightgbm_predict(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastVector:
@@ -295,7 +295,7 @@ def lightgbm_predict_impl(
     Args:
         model_blob: ``LightGBMModelBlobType`` (``EastVariant``) tagged
             ``lightgbm_regressor`` - as returned by
-            :func:`lightgbm_train_regressor_impl`.
+            :func:`lightgbm_train_regressor`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
             same number of columns the model was trained with.
 
@@ -338,7 +338,7 @@ def lightgbm_predict_impl(
     inputs=[LightGBMModelBlobType, MatrixType(FloatType)],
     output=VectorType(IntegerType),
 )
-def lightgbm_predict_class_impl(
+def lightgbm_predict_class(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastVector:
@@ -347,7 +347,7 @@ def lightgbm_predict_class_impl(
     Args:
         model_blob: ``LightGBMModelBlobType`` (``EastVariant``) tagged
             ``lightgbm_classifier`` - as returned by
-            :func:`lightgbm_train_classifier_impl`.
+            :func:`lightgbm_train_classifier`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
             same number of columns the model was trained with.
 
@@ -391,7 +391,7 @@ def lightgbm_predict_class_impl(
     inputs=[LightGBMModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def lightgbm_predict_proba_impl(
+def lightgbm_predict_proba(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastMatrix:
@@ -400,7 +400,7 @@ def lightgbm_predict_proba_impl(
     Args:
         model_blob: ``LightGBMModelBlobType`` (``EastVariant``) tagged
             ``lightgbm_classifier`` - as returned by
-            :func:`lightgbm_train_classifier_impl`.
+            :func:`lightgbm_train_classifier`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
             same number of columns the model was trained with.
 

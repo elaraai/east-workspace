@@ -53,7 +53,13 @@ build(print(IR)) ≡ IR        under east-c's normalizer
   `Compression.Tar.create(entries)` with `import { Compression } from
   "@elaraai/east-node-io"` — the printer walks the module's exports for the
   declaration handle of that name and signature, so the library's own
-  structure is the spelling; python has no grouped surface) and otherwise
+  structure is the spelling; python, `to_python_source`'s `providers`:
+  `from east_py_io import GzipOptionsType, gzip_compress` and the call
+  itself, the packages' own names, since a `@East.platform_function` is
+  callable in a body and a package with only a C implementation exports its
+  declaration — a struct or variant type the package names prints by that
+  name too, and a provider is used only where its declared signature IS the
+  node's) and otherwise
   hoists to a declaration **named after the platform function**
   (`const tar_create = East.asyncPlatform("tar_create", …)` /
   `tar_create = East.asyncPlatform('tar_create', …)`; `my.log` is
@@ -135,7 +141,7 @@ python), so the mapping is one table.
 | expression `TryCatch` (no finally) | `Expr.tryCatch(body, ($, message, stack) => e)` | `East.try_catch(…)` |
 | expression `Block` | `Expr.block($ => { …; return e; })` | `East.block(…)` |
 | `As` / `WrapRecursive` / `UnwrapRecursive` | `East.as(v, T)` / `East.wrapRecursive(v, T)` / `v.unwrap()` | `East.as_(v, T)` / `East.wrap_recursive(v, T)` / `v.unwrap()` |
-| `Platform` | the library's export when its module is given — `Compression.Tar.create(args)`, imported (`libraries`); else `const <name> = East.platform(name, [T…], O)`; `<name>(args)`; generic: `East.genericPlatform(…)` called `<name>([T…], args)` | `<name> = East.platform(…)`; `<name>(args)` — the declaration's name is the platform function's (`tar_create`) |
+| `Platform` | the library's export when its module is given — `Compression.Tar.create(args)`, imported (`libraries`); else `const <name> = East.platform(name, [T…], O)`; `<name>(args)`; generic: `East.genericPlatform(…)` called `<name>([T…], args)` | the implementing package's export when its package is given — `gzip_compress(args)`, imported (`providers`), generic called `<name>(T…, args)` with the type arguments spread; else `<name> = East.platform(…)`; `<name>(args)` — the declaration's name is the platform function's (`tar_create`), generic called `<name>([T…], args)` |
 | `Builtin` with a spelling row | the row (`{0}.add({1})`, `East.print({0})`, …) | the row (`{0}.add({1})`, `East.print({0})`, …) |
 | `Builtin` without a row | `East.builtin(name, [T…], [args], out)` | `East.builtin(name, [T…], [args], out)` |
 | `StringConcat` chains | `.concat(…)` — `East.str\`…\`` builds the same chain | `.concat(…)` — `East.str` builds the same chain |

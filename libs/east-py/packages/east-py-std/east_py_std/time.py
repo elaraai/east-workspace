@@ -17,7 +17,7 @@ from east.types.types import DateTimeType, IntegerType, NullType, StringType
 
 
 @platform_function(name="time_now", inputs=[], output=IntegerType)
-def time_now_impl() -> int:
+def time_now() -> int:
     """Return the current wall-clock time as a Unix timestamp in milliseconds.
 
     Returns:
@@ -28,7 +28,7 @@ def time_now_impl() -> int:
 
 
 @platform_function(name="time_sleep", inputs=[IntegerType], output=NullType)
-async def time_sleep_impl(ms: int) -> None:
+async def time_sleep(ms: int) -> None:
     """Suspend execution for the given number of milliseconds.
 
     Args:
@@ -51,7 +51,7 @@ async def time_sleep_impl(ms: int) -> None:
     inputs=[DateTimeType, StringType],
     output=IntegerType,
 )
-def time_get_timezone_offset_impl(dt: datetime, zone_name: str) -> int:
+def time_get_timezone_offset(dt: datetime, zone_name: str) -> int:
     """Return the UTC offset in minutes for an IANA timezone at a given instant.
 
     The offset is positive when the timezone is ahead of UTC and negative when
@@ -97,7 +97,7 @@ time_impl = platform_functions(__name__)
 
 __all__ = [
     "time_impl",
-    "time_now_impl",
-    "time_sleep_impl",
-    "time_get_timezone_offset_impl",
+    "time_now",
+    "time_sleep",
+    "time_get_timezone_offset",
 ]

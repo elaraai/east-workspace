@@ -67,6 +67,7 @@ there is no Python-callable wrapper.  Register them in your platform with the
     - ``success`` (``Boolean``): true when at least one evaluation succeeded.
 """
 
+from east.expression.platform import platform
 from east.runtime.platform import PlatformFunction
 from east.types.types import (
     ArrayType,
@@ -211,10 +212,23 @@ optimization_impl = [
     ),
 ]
 
+# The C callbacks above are the implementations, so there is no python
+# function to export under these names: what a body calls is the DECLARATION,
+# read off the registrations themselves rather than restated (#667).
+(
+    optimization_iterative,
+    optimization_iterative_incremental,
+    optimization_iterative_grouped,
+) = [platform(record["name"], record["inputs"], record["output"]) for record in optimization_impl]
+
 
 __all__ = [
     # Platform implementation
     "optimization_impl",
+    # The declarations an East body calls
+    "optimization_iterative",
+    "optimization_iterative_incremental",
+    "optimization_iterative_grouped",
     # Types
     "InitialStrategyType",
     "EvaluationOrderType",

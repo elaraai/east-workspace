@@ -22,7 +22,7 @@ from east.types.values import EastVariant
 
 
 @platform_function(name="env_get", inputs=[StringType], output=OptionType(StringType))
-def env_get_impl(name: str) -> EastVariant:
+def env_get(name: str) -> EastVariant:
     """Read an environment variable from the process environment.
 
     Impure by design (like ``time_now``): the value is read at runtime and is
@@ -48,5 +48,5 @@ env_impl = platform_functions(__name__)
 
 __all__ = [
     "env_impl",
-    "env_get_impl",
+    "env_get",
 ]

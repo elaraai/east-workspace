@@ -115,10 +115,14 @@ Task → What do you need?
     │   │   FunctionType(I, O) · AsyncFunctionType(I, O) · PatchType(T)
     │   ├─ Author → East.function([T…], Out, lambda b, x: …) · @East.function([T…], Out) def f(b, x) · East.asyncFunction(…)  ❗out is required
     │   │   ├─ a pure body compiles immediately → f(values) runs natively · xs.map(f) · f.bind(table) pre-binds trailing params BY REFERENCE
-    │   │   ├─ a platform call inside → East.platform(name, inputs, output) / East.asyncPlatform · optional=True · East.genericPlatform(name, ["T"], …)
-    │   │   ├─ implement it in python → @East.platform_function(inputs=[…], output=…[, name=]) — paired with the declaration BY NAME (the def's, or name=)
+    │   │   ├─ a platform call inside → CALL THE IMPLEMENTATION: a @East.platform_function is dual-mode (#667) — fs_read_file(path) from east_py_std,
+    │   │   │   your own decorated def — the call is the Platform node with its declared signature · a stock generic: fs_open_beast(T, path), T first ·
+    │   │   │   East.platform(name, inputs, output) / East.asyncPlatform · optional=True · East.genericPlatform(name, ["T"], …) only for a function
+    │   │   │   implemented elsewhere (another package, another runtime)
+    │   │   ├─ implement it in python → @East.platform_function(inputs=[…], output=…[, name=]) · @East.generic_platform_function(type_parameters=, inputs=, output=)
+    │   │   │   — the def's name (or name=) is what every runtime pairs the call with
     │   │   ├─ compile with the implementations → East.compile(fn, platform=East.platform_functions(__name__)) / East.compileAsync (analyzed first; a
-    │   │   │   declaration no implementation matches is a named EastError)
+    │   │   │   call no implementation matches is a named EastError)
     │   │   └─ spelled INSIDE a body → an inline Function EXPRESSION (bind it with b.const, hand it to a slot, or call it — a Call node)
     │   ├─ Block statements — the block `b` a body receives FIRST (TS `$`); a bare `lambda x:` is refused
     │   │   ├─ Variables → b.let(value[, T]) (mutable) · b.const(value[, T]) · b.assign(var, value)
@@ -412,8 +416,8 @@ name**; two are about **East functions**, the program itself:
 
 | Step | Call | What it is |
 |---|---|---|
-| **Declare** a platform function's signature | `East.platform(name, inputs, output)` (`East.asyncPlatform`, `East.genericPlatform`) | a handle a body CALLS — it emits the `Platform` node; nothing runs here |
-| **Implement** it in python | `@East.platform_function(inputs=…, output=…)` (`@East.generic_platform_function`; `East.platform_functions(__name__)` collects a module's) | the host side: a plain python function over East VALUES, its result validated against `output`; its name — the `def`'s, or `name=` — MUST equal the declaration's |
+| **Implement** a platform function in python | `@East.platform_function(inputs=…, output=…)` (`@East.generic_platform_function(type_parameters=, inputs=, output=)`; `East.platform_functions(__name__)` collects a module's) | the host side AND the body's spelling (#667): a plain python function over East VALUES, its result validated against `output` — and, called inside a body, the `Platform` node with this very signature. Its name — the `def`'s, or `name=` — is what every runtime pairs the call with |
+| **Declare** one implemented elsewhere | `East.platform(name, inputs, output)` (`East.asyncPlatform`, `East.genericPlatform`) | a handle a body CALLS — it emits the `Platform` node; nothing runs here. For a function implemented in another package or runtime; a python implementation you hold needs no declaration |
 | **Build** an East function | `East.function(inputs, out, body)` / `@East.function(inputs, out)` (`East.asyncFunction`) | runs `body` once over expression proxies and records IR; a pure one is already callable |
 | **Compile** with the implementations | `East.compile(fn, platform=[…])` (`East.compileAsync`) | analyzes the IR against the implementations — a declaration no implementation matches by name is `Platform function '<name>' not found` — and returns the native callable |
 
@@ -426,6 +430,7 @@ the pairing, on every runtime.
 
 ```python
 from east import East, ArrayType, FloatType, IntegerType, NullType, StringType, StructType
+from east_py_std import fs_read_file, platform as std
 
 Row = StructType([("sku", StringType), ("qty", IntegerType)])
 
@@ -433,21 +438,28 @@ Row = StructType([("sku", StringType), ("qty", IntegerType)])
 score = East.function([Row], FloatType, lambda b, r: r.qty.to_float() * 1.5)
 score({"sku": "a", "qty": 2})            # 3.0 — a pure artifact is a callable on values
 
-# DECLARE — the handle a body calls; its name pairs it with the implementation
-log = East.platform("t.log", [StringType], NullType)
-greet = East.function([StringType], NullType,
-                      lambda b, name: log(East.String.concat("hello ", name)))
-greet("bob")                             # EastError: Platform function 't.log' is not
-                                         #   available — compile with East.compile(fn, platform=[...])
-
-# IMPLEMENT — python over East values; `name=` because "t.log" is not an identifier
+# IMPLEMENT — python over East values; `name=` because "t.log" is not an identifier.
+# The decorated function is DUAL-MODE (#667): log_line("x") runs the python;
+# inside a body, log_line(name) IS the Platform node 't.log' with this signature.
 @East.platform_function(inputs=[StringType], output=NullType, name="t.log")
 def log_line(line):
     print(line)
 
-# COMPILE — pair the declaration with its implementation, by name
+greet = East.function([StringType], NullType,
+                      lambda b, name: log_line(East.String.concat("hello ", name)))
+greet("bob")                             # EastError: Platform function 't.log' is not
+                                         #   available — compile with East.compile(fn, platform=[...])
+
+# COMPILE — the implementation, by name (the same record the decorator registered)
 run = East.compile(greet, platform=East.platform_functions(__name__))
 run("bob")                               # prints "hello bob"
+
+# A stock implementation is called the same way — no East.platform line restates it
+first = East.function([StringType], StringType, lambda b, path: fs_read_file(path).split("\n").get(0))
+East.compile(first, platform=std)("hosts.txt")
+
+# DECLARE — only for a function implemented elsewhere (another package or runtime):
+remote = East.platform("t.remote", [StringType], NullType)
 ```
 
 **An East function inside a platform function.** The implementation is
@@ -474,7 +486,7 @@ Each call in detail:
 |---|---|---|
 | `East.function(param_types, out, body)` | a `Function` artifact | `param_types` is a LIST (`[]` for none); the body takes the block first — `lambda b, x: …` / `def f(b, x)`, as EVERY body does (`lambda x: …` is refused with the fix-it); `out` is required, and a body whose expression has another type raises naming both; with `body` omitted it is a DECORATOR |
 | `East.asyncFunction(param_types, out, body)` | an `AsyncFunction` artifact | for bodies calling async platform declarations; compile with `East.compileAsync` |
-| `East.platform(name, inputs, output, optional=False)` | a declaration handle | callable INSIDE a body (emits the `Platform` node); calling one outside raises `expression-level`; `East.genericPlatform(name, ["T"], inputs, output)` is the type-parameterised form |
+| `East.platform(name, inputs, output, optional=False)` | a declaration handle | callable INSIDE a body (emits the `Platform` node); calling one outside raises `expression-level`; `East.genericPlatform(name, ["T"], inputs, output)` is the type-parameterised form. Needed only for a function implemented elsewhere: a `@East.platform_function` you hold emits the same node itself (#667) |
 | `East.asyncPlatform(name, inputs, output)` | an async declaration | calling it from a SYNC body is a build error naming `East.asyncFunction` |
 | `East.compile(fn, platform=[])` / `East.compileAsync(...)` | a native callable | takes an artifact or a raw IR value; the IR is analyzed against `platform` first (`east.ir.analyze`, the TS `analyzeIR`): a signature mismatch or a missing implementation is an `EastError` naming the call — unless the declaration is `optional=True`, which compiles to a stub that raises at the call (TS parity) |
 
@@ -849,6 +861,8 @@ print(to_python_source(classify))        # `@East.function(..., cse=False)` / `d
 
 ```bash
 east-py transpile program.json -o program.py --name main   # the same, from a file
+east-py transpile program.json -p east-py-std -p east-py-io   # platform calls print as the packages' own
+                                                              # functions and named types (#667), not restated declarations
 east-c ir normalize program.json -o canonical.json         # the canonical form
 east-c ir diff a.json b.beast2                             # first difference, or "identical"
 east-c ir convert program.json -o program.beast2           # json <-> beast2, source map intact
@@ -869,7 +883,20 @@ exactness table permits — `+ - *` on numbers, `/` on Floats, comparisons,
 spellings elsewhere; `East.builtin(...)` for `RAW_ONLY`), and the eager
 compliance replay derives its rows from the same table. A function referenced
 as a VALUE in the IR (`$.let(East.DateTime.roundDownWeek)`) prints as the
-inline `@East.function` it is — the IR carries the body, not the name.
+inline `@East.function` it is — the IR carries the body, not the name. A
+platform call prints as a hoisted `East.platform(...)` declaration named
+after the function — or, given the implementing packages
+(`to_python_source(ir, providers=providers_for(["east_py_std"]))`,
+`east-py transpile -p east-py-std`), as `from east_py_std import
+fs_read_file` and the call itself, with a struct or variant type the
+package names (`GzipOptionsType`) printed by its name — the python reading
+of the TypeScript printer's library handles; the plugin's example index is
+rendered this way. A provider is used only where its declared signature IS
+the node's, so a signature that has drifted keeps the declaration rather
+than printing a wrong import. A package with nothing python to run — the
+function is implemented in C — exports the DECLARATION under the same name
+(`simulation_run`, `optimization_iterative`), which a body calls
+identically.
 
 ### Diagnostics at edit time — `east-py lint`, flake8, `east-py lsp` (#638)
 
@@ -1593,9 +1620,9 @@ a loop.
 
 | Signature | Description |
 |-----------|-------------|
-| `@East.platform_function(*, inputs, output, name=None, validate_output=True, validate_input=False)` | Register a Python fn; infers sync/async from the def; validates output against `output`; paired with the `East.platform(name, …)` declaration by name (the def's, or `name=`). Also importable bare: `from east import platform_function` |
-| `@East.generic_platform_function(*, type_parameters, name=None, is_async=False)` | Type-parameterized factory: the decorated fn is `fn(platform, *type_params) -> impl`; `is_async` is **explicit** (not inferred) |
-| a platform function RETURNING a lazy value | A `@platform_function` may return a paged hold — an `open_beast2_file(...)` value, `open_paged_file(T, path)` (a C-owned mapping), `fs_open_beast_impl(...)`'s result — and the compiled body keeps its O(segment) cost model: the C value crosses the return seam by pointer (checked against the declared output type, never re-marshalled through python), and nothing python-side has to outlive it — the mapping is the value's own. Boundary symmetry with #621's paged arguments |
+| `@East.platform_function(*, inputs, output, name=None, validate_output=True, validate_input=False)` | Register a Python fn; infers sync/async from the def; validates output against `output`. DUAL-MODE (#667): called with values it runs the python (an async def's coroutine, to await); called inside an `East.function` / `East.asyncFunction` body it emits the `Platform` node with this signature — an async one inside a sync body is the build-time error. Paired at compile by name (the def's, or `name=`). Also importable bare: `from east import platform_function` |
+| `@East.generic_platform_function(*, type_parameters, name=None, is_async=False, inputs=None, output=None, type_erased=False)` | Type-parameterized factory: the decorated fn is `fn(platform, *type_params) -> impl`; `is_async` is **explicit** (not inferred). With `inputs=`/`output=` (placeholders allowed anywhere: `output="T"`, `output=ArrayType("T")`) it is dual-mode too: `open_beast(DictType(K, V), path)` in a body — the type arguments first, as TypeScript reads — emits the generic node; without them a body call is a build error naming what to declare. `type_erased=True` when the implementation ignores the type arguments (it reads the values): the decorated fn IS the implementation, python calls it directly (`causal_experiment(rows, config)`) and the factory the runtime binds is derived |
+| a platform function RETURNING a lazy value | A `@platform_function` may return a paged hold — an `open_beast2_file(...)` value, `open_paged_file(T, path)` (a C-owned mapping), `fs_open_beast(...)`'s result — and the compiled body keeps its O(segment) cost model: the C value crosses the return seam by pointer (checked against the declared output type, never re-marshalled through python), and nothing python-side has to outlive it — the mapping is the value's own. Boundary symmetry with #621's paged arguments |
 | `East.platform_functions(module) -> list` | Collects every decorated fn in `module` (pass `__name__`). Two consumers: `East.compile()` for in-process use, and a package's top-level `platform` list that `east-py run -p <module>` (and the e3 `{ custom }` runner) loads |
 | `@memoize` / `@memoize(salt="…")` / `memoized = memoize(fn, salt="…")` | Content-addressed memo over ONE platform function. Apply **above** `@East.platform_function` (or inline on an imported one). Key = sha256(name + salts + per-input digests of the with-header BEAST2 encodings via the declared input types); value = with-header BEAST2 of the output, decoded via the declared output type. Inert by default |
 | `configure_memo(directory, salt="")` | Activate (`None` deactivates) memoization for `@memoize` functions; overrides `EAST_MEMO_DIR` / `EAST_MEMO_SALT` env vars. Bump `salt` to invalidate after code edits — input-derived keys can't see them |
@@ -1971,7 +1998,7 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
   Keyed gets / iteration on a lazily-opened (paged) input stay O(segment)
   through the proxy; frozen collections compare by value under `Is`. The
   same value comes from `blob.open_beast(T)` / `EastBlob.open_beast(T)` and
-  from `FileSystem.openBeast` (`fs_open_beast_impl` in **east-py-std**) —
+  from `FileSystem.openBeast` (`fs_open_beast` in **east-py-std**) —
   frozen, paged, one segment per keyed read.
 - **A callback East cannot express RAISES** — everywhere, eager paths
   included, with the offending binding NAMED. That covers both halves: a
@@ -2001,8 +2028,8 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
   POC needs a real model or solver.
 - **east-py-std** / **east-py-io** — the platform functions on the Python runtime:
   Console/FileSystem/Fetch/Crypto/Time/Random, and SQL/NoSQL/S3/FTP/SFTP/XLSX/XML/compression —
-  each `*_impl` directly callable with East values. (Their TypeScript authoring siblings are
-  **east-node-std** / **east-node-io**.)
+  each exported under its own name, callable with East values and, the same object, inside an
+  East body (#667). (Their TypeScript authoring siblings are **east-node-std** / **east-node-io**.)
 - **e3** — run compiled East functions as durable, content-addressed dataflow tasks; wire a
   project-owned Python platform module via a `{ custom: 'platform_module' }` task runner.
 - **east-project** — scaffold (`--platform`) and package a project-owned platform module (the

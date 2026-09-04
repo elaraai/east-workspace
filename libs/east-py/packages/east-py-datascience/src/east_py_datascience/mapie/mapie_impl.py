@@ -673,7 +673,7 @@ def _check_mapie_support() -> None:
     inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType), VectorType(FloatType), MAPIEConfigType],
     output=MAPIERegressorBlobType,
 )
-def mapie_train_conformal_regressor_impl(
+def mapie_train_conformal_regressor(
     X_train: EastMatrix,
     y_train: EastVector,
     X_calib: EastMatrix,
@@ -726,7 +726,7 @@ def mapie_train_conformal_regressor_impl(
         ``MAPIEBaseModelDataType`` is tagged ``xgboost``
         (``XGBoostModelBlobType``) or ``lightgbm``
         (``LightGBMModelBlobType``).  Use with
-        :func:`mapie_predict_interval_impl`.
+        :func:`mapie_predict_interval`.
 
     Raises:
         NotImplementedError: the ``mapie`` extra is not installed.
@@ -888,7 +888,7 @@ def mapie_train_conformal_regressor_impl(
     inputs=[MatrixType(FloatType), VectorType(FloatType), MatrixType(FloatType), VectorType(FloatType), MAPIECQRConfigType],
     output=MAPIERegressorBlobType,
 )
-def mapie_train_cqr_impl(
+def mapie_train_cqr(
     X_train: EastMatrix,
     y_train: EastVector,
     X_calib: EastMatrix,
@@ -921,7 +921,7 @@ def mapie_train_cqr_impl(
         ``MAPIERegressorBlobType`` (``EastVariant``) tagged ``mapie_cqr``
         with ``{data: MAPIEBaseModelDataType (histogram), n_features:
         Integer, confidence_level: Float}``.  Use with
-        :func:`mapie_predict_interval_impl`.
+        :func:`mapie_predict_interval`.
 
     Raises:
         NotImplementedError: the ``mapie`` extra is not installed.
@@ -1038,7 +1038,7 @@ def _extract_from_base_model_data(data_variant):
     inputs=[MAPIERegressorBlobType, MatrixType(FloatType)],
     output=IntervalResultType,
 )
-def mapie_predict_interval_impl(
+def mapie_predict_interval(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastStruct:
@@ -1049,8 +1049,8 @@ def mapie_predict_interval_impl(
 
     Args:
         model_blob: ``MAPIERegressorBlobType`` (``EastVariant``) - a blob
-            produced by :func:`mapie_train_conformal_regressor_impl` or
-            :func:`mapie_train_cqr_impl` (tagged ``mapie_split``,
+            produced by :func:`mapie_train_conformal_regressor` or
+            :func:`mapie_train_cqr` (tagged ``mapie_split``,
             ``mapie_cross``, or ``mapie_cqr``).
         X: ``Matrix<Float>`` (``EastMatrix``) - features to predict, must
             have the same number of columns the model was trained with.
@@ -1133,7 +1133,7 @@ def mapie_predict_interval_impl(
     ],
     output=MAPIEClassifierBlobType,
 )
-def mapie_train_conformal_classifier_impl(
+def mapie_train_conformal_classifier(
     X_train: EastMatrix,
     y_train: EastVector,
     X_calib: EastMatrix,
@@ -1145,7 +1145,7 @@ def mapie_train_conformal_classifier_impl(
     Fits the base classifier on the training set, then calibrates prediction
     sets on the calibration set using ``SplitConformalClassifier``.  Class
     labels are automatically remapped to a contiguous 0-indexed range
-    internally and remapped back in :func:`mapie_predict_set_impl`.
+    internally and remapped back in :func:`mapie_predict_set`.
 
     Args:
         X_train: ``Matrix<Float>`` (``EastMatrix``) - training features,
@@ -1160,7 +1160,7 @@ def mapie_train_conformal_classifier_impl(
 
             - ``base_model`` (``BaseClassifierType``, required): ``xgboost``
               ``XGBoostConfigType`` or ``lightgbm`` ``LightGBMConfigType``
-              (see :func:`mapie_train_conformal_regressor_impl` for field
+              (see :func:`mapie_train_conformal_regressor` for field
               details; ``sample_weight`` supported for XGBoost).
             - ``method`` (``Option<ClassificationMethodType>``): ``lac``
               (Least Ambiguous Classifier, default) or ``aps`` (Adaptive
@@ -1175,7 +1175,7 @@ def mapie_train_conformal_classifier_impl(
         n_features: Integer, n_classes: Integer,
         classes: Vector<Integer> (original labels),
         confidence_level: Float}``.  Use with
-        :func:`mapie_predict_set_impl`.
+        :func:`mapie_predict_set`.
 
     Raises:
         NotImplementedError: the ``mapie`` extra is not installed.
@@ -1330,7 +1330,7 @@ def mapie_train_conformal_classifier_impl(
     inputs=[MAPIEClassifierBlobType, MatrixType(FloatType)],
     output=PredictionSetResultType,
 )
-def mapie_predict_set_impl(
+def mapie_predict_set(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastStruct:
@@ -1342,7 +1342,7 @@ def mapie_predict_set_impl(
 
     Args:
         model_blob: ``MAPIEClassifierBlobType`` (``EastVariant``) - a blob
-            produced by :func:`mapie_train_conformal_classifier_impl`
+            produced by :func:`mapie_train_conformal_classifier`
             (tagged ``mapie_classifier``).
         X: ``Matrix<Float>`` (``EastMatrix``) - features to predict; must
             have the same number of columns the model was trained with.
@@ -1452,21 +1452,21 @@ def mapie_predict_set_impl(
     inputs=[MAPIERegressorBlobType],
     output=UncertaintyPredictorType,
 )
-def mapie_uncertainty_predictor_regressor_impl(
+def mapie_uncertainty_predictor_regressor(
     model_blob: EastVariant,
 ) -> EastVariant:
     """Wrap a MAPIE regressor as an interval-width uncertainty predictor.
 
     Produces a lightweight blob whose ``predict`` returns ``upper - lower``
     (interval width) rather than a point prediction.  Designed for use with
-    :func:`shap_kernel_explainer_create_impl <east_py_datascience.shap.shap_impl.shap_kernel_explainer_create_impl>`
+    :func:`shap_kernel_explainer_create <east_py_datascience.shap.shap_impl.shap_kernel_explainer_create>`
     to explain which features drive prediction uncertainty.
 
     Args:
         model_blob: ``MAPIERegressorBlobType`` (``EastVariant``) - a blob
             tagged ``mapie_split``, ``mapie_cross``, or ``mapie_cqr`` from
-            :func:`mapie_train_conformal_regressor_impl` or
-            :func:`mapie_train_cqr_impl`.
+            :func:`mapie_train_conformal_regressor` or
+            :func:`mapie_train_cqr`.
 
     Returns:
         ``UncertaintyPredictorType`` (``EastVariant``) tagged
@@ -1507,7 +1507,7 @@ def mapie_uncertainty_predictor_regressor_impl(
     inputs=[MAPIEClassifierBlobType],
     output=UncertaintyPredictorType,
 )
-def mapie_uncertainty_predictor_classifier_impl(
+def mapie_uncertainty_predictor_classifier(
     model_blob: EastVariant,
 ) -> EastVariant:
     """Wrap a MAPIE classifier as a set-size uncertainty predictor.
@@ -1515,13 +1515,13 @@ def mapie_uncertainty_predictor_classifier_impl(
     Produces a lightweight blob whose ``predict`` returns the prediction
     set size (number of classes in the conformal set) rather than class
     probabilities.  Designed for use with
-    :func:`shap_kernel_explainer_create_impl <east_py_datascience.shap.shap_impl.shap_kernel_explainer_create_impl>`
+    :func:`shap_kernel_explainer_create <east_py_datascience.shap.shap_impl.shap_kernel_explainer_create>`
     to explain which features drive classification ambiguity.
 
     Args:
         model_blob: ``MAPIEClassifierBlobType`` (``EastVariant``) - a blob
             tagged ``mapie_classifier`` from
-            :func:`mapie_train_conformal_classifier_impl`.
+            :func:`mapie_train_conformal_classifier`.
 
     Returns:
         ``UncertaintyPredictorType`` (``EastVariant``) tagged

@@ -74,7 +74,7 @@ alns_impl = [
         ],
         output=ALNSResultType(_GenericSolutionType),  # Placeholder
         type="sync",
-        fn=alns_optimize_impl,
+        fn=alns_optimize,
     ),
 ]
 ```
@@ -134,7 +134,7 @@ alns_impl = [
         name="alns_optimize",
         type_parameters=["S"],
         type="sync",
-        fn=lambda S: alns_optimize_impl,
+        fn=lambda S: alns_optimize,
     ),
 ]
 ```
@@ -389,7 +389,7 @@ alns_impl = [
         name="alns_optimize",
         type_parameters=["S"],
         type="sync",
-        fn=lambda S: alns_optimize_impl,
+        fn=lambda S: alns_optimize,
     ),
 ]
 ```
@@ -417,7 +417,7 @@ When TypeScript compiles `alns_optimize([MySolutionType], ...)`:
 
 1. Compiler sees `type_parameters = [{ "type": "Struct", "fields": {...} }]`
 2. Looks up platform definition, finds `type_parameters = ["S"]`
-3. Calls `fn(S)` which returns `alns_optimize_impl`
+3. Calls `fn(S)` which returns `alns_optimize`
 4. Uses that evaluator for the call with the value arguments
 
 ---

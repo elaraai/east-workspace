@@ -110,7 +110,7 @@ def _check_gp_support() -> None:
     inputs=[MatrixType(FloatType), VectorType(FloatType), GPConfigType],
     output=GPModelBlobType,
 )
-def gp_train_impl(
+def gp_train(
     X: EastMatrix,
     y: EastVector,
     config: EastStruct,
@@ -146,8 +146,8 @@ def gp_train_impl(
     Returns:
         ``ModelBlobType`` (``EastVariant``) tagged ``gp_regressor``:
         ``{data: Blob (cloudpickle), n_features: Integer,
-        kernel_type: String}`` for use with :func:`gp_predict_impl` /
-        :func:`gp_predict_std_impl`.
+        kernel_type: String}`` for use with :func:`gp_predict` /
+        :func:`gp_predict_std`.
 
     Raises:
         NotImplementedError: the ``gp`` extra is not installed.
@@ -226,7 +226,7 @@ def gp_train_impl(
     inputs=[GPModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
-def gp_predict_impl(
+def gp_predict(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastVector:
@@ -234,7 +234,7 @@ def gp_predict_impl(
 
     Args:
         model_blob: ``ModelBlobType`` (``EastVariant``) tagged
-            ``gp_regressor`` - as returned by :func:`gp_train_impl`.
+            ``gp_regressor`` - as returned by :func:`gp_train`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
             same number of columns the model was trained with.
 
@@ -279,7 +279,7 @@ def gp_predict_impl(
     inputs=[GPModelBlobType, MatrixType(FloatType)],
     output=GPPredictResultType,
 )
-def gp_predict_std_impl(
+def gp_predict_std(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastStruct:
@@ -287,7 +287,7 @@ def gp_predict_std_impl(
 
     Args:
         model_blob: ``ModelBlobType`` (``EastVariant``) tagged
-            ``gp_regressor`` - as returned by :func:`gp_train_impl`.
+            ``gp_regressor`` - as returned by :func:`gp_train`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix; must have the
             same number of columns the model was trained with.
 

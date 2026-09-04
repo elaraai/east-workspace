@@ -214,7 +214,7 @@ def _check_google_or_support() -> None:
     inputs=[MinCostFlowInputType],
     output=MinCostFlowResultType,
 )
-def min_cost_flow_impl(
+def min_cost_flow(
     input_data: EastStruct,
 ) -> EastStruct:
     """Solve a minimum-cost flow problem using OR-Tools' SimpleMinCostFlow.
@@ -321,7 +321,7 @@ def min_cost_flow_impl(
     inputs=[MaxFlowInputType],
     output=MaxFlowResultType,
 )
-def max_flow_impl(
+def max_flow(
     input_data: EastStruct,
 ) -> EastStruct:
     """Solve a maximum-flow problem using OR-Tools' SimpleMaxFlow.
@@ -397,7 +397,7 @@ def max_flow_impl(
     inputs=[AssignmentInputType],
     output=AssignmentResultType,
 )
-def assignment_impl(
+def assignment(
     input_data: EastStruct,
 ) -> EastStruct:
     """Solve a linear sum assignment problem using OR-Tools' Hungarian algorithm.
@@ -504,7 +504,7 @@ def assignment_impl(
     inputs=[MinCostAssignmentInputType],
     output=MinCostAssignmentResultType,
 )
-def min_cost_assignment_impl(
+def min_cost_assignment(
     input_data: EastStruct,
 ) -> EastStruct:
     """Solve a sparse bipartite assignment using OR-Tools' SimpleMinCostFlow.

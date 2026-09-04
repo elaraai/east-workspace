@@ -674,7 +674,7 @@ def _bootstrap_ci(df, treatment, outcome, causes, method_tag, target_units,
 # ============================================================================
 
 
-def causal_effect_impl(data: EastArray, config: EastStruct) -> EastStruct:
+def causal_effect(data: EastArray, config: EastStruct) -> EastStruct:
     """Estimate a backdoor-adjusted causal effect of treatment on outcome.
 
     Identifies the effect with DoWhy given the common causes, then estimates
@@ -760,17 +760,17 @@ def causal_effect_impl(data: EastArray, config: EastStruct) -> EastStruct:
     )
 
 
-def causal_refute_impl(
+def causal_refute(
     data: EastArray, config: EastStruct, refuter: EastVariant
 ) -> EastStruct:
     """Refute an estimated causal effect with a DoWhy refutation test.
 
     Re-runs the estimation from ``config`` (same semantics as
-    :func:`causal_effect_impl`, bootstrap ignored), then applies the refuter.
+    :func:`causal_effect`, bootstrap ignored), then applies the refuter.
 
     Args:
         data: ``Matrix<Float>`` (``EastMatrix``) - one row per unit.
-        config: ``CausalEffectConfigType`` - see :func:`causal_effect_impl`.
+        config: ``CausalEffectConfigType`` - see :func:`causal_effect`.
         refuter: ``CausalRefuterType`` (``EastVariant``), one of:
 
             - ``placebo_treatment`` ``{num_simulations}``: permute the
@@ -911,7 +911,7 @@ def _create_nuisance_model(variant: EastVariant | None, classifier: bool, random
     return LinearRegression()
 
 
-def causal_dml_train_impl(
+def causal_dml_train(
     Y: EastVector,
     T: EastVector,
     X: EastMatrix,
@@ -947,8 +947,8 @@ def causal_dml_train_impl(
     Returns:
         ``CausalDMLModelBlobType`` (``EastVariant`` tagged ``causal_dml``):
         ``{data: Blob (cloudpickle), n_features_x: Integer,
-        confidence_level: Float}`` for use with :func:`causal_dml_effect_impl`
-        / :func:`causal_dml_ate_impl`.
+        confidence_level: Float}`` for use with :func:`causal_dml_effect`
+        / :func:`causal_dml_ate`.
 
     Raises:
         NotImplementedError: the ``causal`` extra is not installed.
@@ -1042,11 +1042,11 @@ def _load_dml_model(model_blob: EastVariant, X: EastMatrix, func_name: str):
     return est, X_np, confidence_level
 
 
-def causal_dml_effect_impl(model_blob: EastVariant, X: EastMatrix) -> EastVector:
+def causal_dml_effect(model_blob: EastVariant, X: EastMatrix) -> EastVector:
     """Per-row conditional average treatment effects from a fitted DML model.
 
     Args:
-        model_blob: ``CausalDMLModelBlobType`` from :func:`causal_dml_train_impl`.
+        model_blob: ``CausalDMLModelBlobType`` from :func:`causal_dml_train`.
         X: ``Matrix<Float>`` (``EastMatrix``) - effect modifiers; must have
             the same number of columns the model was trained with.
 
@@ -1069,11 +1069,11 @@ def causal_dml_effect_impl(model_blob: EastVariant, X: EastMatrix) -> EastVector
     return EastVector(FloatType, np.asarray(effects, dtype=np.float64).ravel())
 
 
-def causal_dml_ate_impl(model_blob: EastVariant, X: EastMatrix) -> EastStruct:
+def causal_dml_ate(model_blob: EastVariant, X: EastMatrix) -> EastStruct:
     """Average treatment effect with confidence interval from a fitted DML model.
 
     Args:
-        model_blob: ``CausalDMLModelBlobType`` from :func:`causal_dml_train_impl`.
+        model_blob: ``CausalDMLModelBlobType`` from :func:`causal_dml_train`.
         X: ``Matrix<Float>`` (``EastMatrix``) - effect modifiers to average
             the CATE over.
 
@@ -1105,7 +1105,7 @@ def causal_dml_ate_impl(model_blob: EastVariant, X: EastMatrix) -> EastStruct:
 # ============================================================================
 
 
-def causal_ale_impl(data: EastArray, config: EastStruct) -> EastStruct:
+def causal_ale(data: EastArray, config: EastStruct) -> EastStruct:
     """Accumulated local effects dose-response curve of a feature on an outcome.
 
     Fits a HistGradientBoosting emulator of the outcome on all non-outcome
@@ -1777,7 +1777,7 @@ def _experiment_sensitivity(data, config, treatment, outcome, strengths):
     refuter = EastVariant("unobserved_common_cause",
                           EastStruct({"effect_strengths": [float(s) for s in strengths]}))
     try:
-        r = causal_refute_impl(data, _effect_config_from(config, treatment, outcome), refuter)
+        r = causal_refute(data, _effect_config_from(config, treatment, outcome), refuter)
         effects = [float(x) for x in r.get("new_effects").to_numpy()]
     except Exception:
         return None
@@ -1796,7 +1796,7 @@ def _experiment_dose(data, config, outcome, dose_feature):
         "random_state": config.get("random_state"),
     })
     try:
-        a = causal_ale_impl(data, ale_config)
+        a = causal_ale(data, ale_config)
     except Exception:
         return EastVariant("none", None)
     return EastVariant("some", EastStruct({
@@ -1807,7 +1807,7 @@ def _experiment_dose(data, config, outcome, dose_feature):
     }))
 
 
-def causal_experiment_impl(data: EastArray, config: EastStruct) -> EastStruct:
+def causal_experiment(data: EastArray, config: EastStruct) -> EastStruct:
     """One declarative causal experiment → numbers + overlap + an honesty verdict.
 
     Binary treatment, backdoor adjustment. Computes the naive (raw) and adjusted
@@ -2121,7 +2121,7 @@ def _design_options(d_effect, alpha, target_power, shares, func):
     ]
 
 
-def causal_design_validation_impl(
+def causal_design_validation(
     data: EastArray, config: EastStruct, result: EastStruct, design_config: EastStruct
 ) -> EastStruct:
     """Design the real controlled trial that would validate an experiment result.
@@ -2275,24 +2275,28 @@ def causal_design_validation_impl(
 # Platform Function Registration
 # ============================================================================
 
-# `causal_effect` / `causal_refute` / `causal_ale` are generic over the row
-# struct `T` (their input is `Array<Struct<T>>`, and `T` differs per dataset).
-# `@generic_platform_function` registers a *factory* `(platform_list, *T) -> impl`;
-# these impls don't depend on `T` (the DataFrame is built from the records), so
-# the factory just returns the impl. This helper collapses that boilerplate.
-def _register_generic_over_rows(name: str, impl):
-    @generic_platform_function(name=name, type_parameters=["T"], is_async=False)
-    def _factory(_platform_list, _T):  # noqa: N803
-        return impl
-    return _factory
+# The causal entry points are generic over the row struct `T` (their input is
+# `Array<T>`, and `T` differs per dataset) but read the VALUES, not the type —
+# the DataFrame is built from the records — so they register type-erased: the
+# decorated implementation stays directly callable from python, and the same
+# name inside an East body is the call with the row type first.
+def _register_generic_over_rows(name: str, impl, inputs: list, output):
+    return generic_platform_function(
+        name=name, type_parameters=["T"], is_async=False,
+        inputs=inputs, output=output, type_erased=True)(impl)
 
 
 # `Causal.experiment` is the sole public causal entry point. The effect / refute
-# / ale / dml `*_impl` functions remain as INTERNAL machinery that experiment
-# composes (and that the dose-response / CATE widenings will reuse) — they are no
-# longer registered as standalone platform functions.
-_register_generic_over_rows("causal_experiment", causal_experiment_impl)
-_register_generic_over_rows("causal_design_validation", causal_design_validation_impl)
+# / ale / dml functions remain as INTERNAL machinery that experiment composes
+# (and that the dose-response / CATE widenings will reuse) — they are no longer
+# registered as standalone platform functions.
+causal_experiment = _register_generic_over_rows(
+    "causal_experiment", causal_experiment,
+    [ArrayType("T"), CausalExperimentConfigType], CausalExperimentResultType)
+causal_design_validation = _register_generic_over_rows(
+    "causal_design_validation", causal_design_validation,
+    [ArrayType("T"), CausalExperimentConfigType, CausalExperimentResultType, DesignConfigType],
+    ExperimentDesignType)
 
 # Collected from the @platform_function / @generic_platform_function decorations above.
 causal_impl = platform_functions(__name__)

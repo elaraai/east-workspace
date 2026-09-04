@@ -225,7 +225,7 @@ def _check_optuna_support() -> None:
     ],
     output=StudyResultType,
 )
-def optuna_optimize_impl(
+def optuna_optimize(
     search_space: EastArray,
     objective_fn: Callable[[EastArray], float],
     config: EastStruct,

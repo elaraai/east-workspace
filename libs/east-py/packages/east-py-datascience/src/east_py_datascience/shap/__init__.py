@@ -4,7 +4,7 @@
 #
 """SHAP feature explainability for East - tree and kernel explainers.
 
-The ``*_impl`` functions are plain Python callables taking and returning East
+The platform functions are plain Python callables taking and returning East
 values - import them directly from a project's own ``@platform_function`` to
 reuse the implementations without an IR round-trip.  The East type definitions
 (config, blob, and result types) are re-exported here for building inputs with
@@ -12,11 +12,11 @@ reuse the implementations without an IR round-trip.  The East type definitions
 """
 
 from east_py_datascience.shap.shap_impl import (
-    shap_compute_values_impl,
-    shap_feature_importance_impl,
+    shap_compute_values,
+    shap_feature_importance,
     shap_impl,
-    shap_kernel_explainer_create_impl,
-    shap_tree_explainer_create_impl,
+    shap_kernel_explainer_create,
+    shap_tree_explainer_create,
 )
 from east_py_datascience.types import (
     FeatureImportanceType,
@@ -31,10 +31,10 @@ __all__ = [
     # Platform registration
     "shap_impl",
     # Directly-callable implementations
-    "shap_tree_explainer_create_impl",
-    "shap_kernel_explainer_create_impl",
-    "shap_compute_values_impl",
-    "shap_feature_importance_impl",
+    "shap_tree_explainer_create",
+    "shap_kernel_explainer_create",
+    "shap_compute_values",
+    "shap_feature_importance",
     # East type definitions
     "TreeExplainerConfigType",
     "ModelBlobType",

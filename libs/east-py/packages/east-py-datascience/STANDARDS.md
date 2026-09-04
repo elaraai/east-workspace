@@ -241,7 +241,7 @@ MADSResultType = StructType([
 # Implementation
 # ===========================================
 
-def mads_optimize_impl(
+def mads_optimize(
     objective_fn: Callable[[EastArray], float],
     x0: EastArray,
     bounds: EastStruct,
@@ -282,7 +282,7 @@ mads_impl = [
         ],
         output=MADSResultType,
         type="sync",  # or "async"
-        fn=mads_optimize_impl,
+        fn=mads_optimize,
     ),
 ]
 

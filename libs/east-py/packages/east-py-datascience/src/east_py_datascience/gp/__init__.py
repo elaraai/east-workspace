@@ -4,7 +4,7 @@
 #
 """Gaussian Process regression for East - posterior mean and uncertainty.
 
-The ``*_impl`` functions are plain Python callables taking and returning East
+The platform functions are plain Python callables taking and returning East
 values - import them directly from a project's own ``@platform_function`` to
 reuse the implementations without an IR round-trip. The East type definitions
 (config, blob, and result types) are re-exported here for building inputs with
@@ -13,9 +13,9 @@ reuse the implementations without an IR round-trip. The East type definitions
 
 from east_py_datascience.gp.gp_impl import (
     gp_impl,
-    gp_predict_impl,
-    gp_predict_std_impl,
-    gp_train_impl,
+    gp_predict,
+    gp_predict_std,
+    gp_train,
 )
 from east_py_datascience.types import (
     GPConfigType,
@@ -28,9 +28,9 @@ __all__ = [
     # Platform registration
     "gp_impl",
     # Directly-callable implementations
-    "gp_train_impl",
-    "gp_predict_impl",
-    "gp_predict_std_impl",
+    "gp_train",
+    "gp_predict",
+    "gp_predict_std",
     # East type definitions
     "GPConfigType",
     "GPKernelType",

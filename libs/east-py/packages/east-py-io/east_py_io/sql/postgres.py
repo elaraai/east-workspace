@@ -30,6 +30,7 @@ def _check_postgres_support() -> None:
             "Add east-py-io[postgres] to your pyproject.toml dependencies."
         )
 from east.types.types import (
+    ArrayType,
     NullType,
     StringType,
     get_option_inner_type,
@@ -137,7 +138,7 @@ def convert_native_to_param(value: Any) -> EastVariant:
     inputs=[PostgresConfigType],
     output=ConnectionHandleType,
 )
-async def postgres_connect_impl(config: EastStruct) -> str:
+async def postgres_connect(config: EastStruct) -> str:
     """Create an asyncpg connection pool and return a handle.
 
     Args:
@@ -154,7 +155,7 @@ async def postgres_connect_impl(config: EastStruct) -> str:
 
     Returns:
         ``String`` - opaque connection handle, passed to
-        ``postgres_query_impl`` / ``postgres_close_impl``.
+        ``postgres_query`` / ``postgres_close``.
 
     Raises:
         NotImplementedError: the ``postgres`` extra (asyncpg) is not
@@ -207,7 +208,7 @@ async def postgres_connect_impl(config: EastStruct) -> str:
     inputs=[ConnectionHandleType, StringType, SqlParametersType],
     output=SqlResultType,
 )
-async def postgres_query_impl(handle: str, sql: str, params: EastArray) -> EastVariant:
+async def postgres_query(handle: str, sql: str, params: EastArray) -> EastVariant:
     """Execute a parameterized SQL statement and return a typed result.
 
     Dispatches on the leading keyword of the SQL string (``SELECT``,
@@ -215,7 +216,7 @@ async def postgres_query_impl(handle: str, sql: str, params: EastArray) -> EastV
     with ``rowsAffected = 0``).
 
     Args:
-        handle: ``String`` - connection handle from ``postgres_connect_impl``.
+        handle: ``String`` - connection handle from ``postgres_connect``.
         sql: ``String`` - SQL statement with ``$1``, ``$2``, ... positional
             placeholders (asyncpg style).
         params: ``Array<SqlParameterType>`` (``EastArray``) - bind values in
@@ -305,11 +306,11 @@ async def postgres_query_impl(handle: str, sql: str, params: EastArray) -> EastV
     inputs=[ConnectionHandleType],
     output=NullType,
 )
-async def postgres_close_impl(handle: str) -> None:
+async def postgres_close(handle: str) -> None:
     """Gracefully close a PostgreSQL connection pool and release its handle.
 
     Args:
-        handle: ``String`` - connection handle from ``postgres_connect_impl``.
+        handle: ``String`` - connection handle from ``postgres_connect``.
 
     Raises:
         NotImplementedError: the ``postgres`` extra (asyncpg) is not
@@ -334,7 +335,7 @@ async def postgres_close_impl(handle: str) -> None:
     inputs=[],
     output=NullType,
 )
-async def postgres_close_all_impl() -> None:
+async def postgres_close_all() -> None:
     """Gracefully close every open PostgreSQL connection pool managed by this process.
 
     Clears the internal pool map; useful for test teardown.
@@ -460,7 +461,7 @@ def postgres_select_factory(row_type: Any) -> Any:
 
         Args:
             handle: ``String`` - connection handle from
-                ``postgres_connect_impl``.
+                ``postgres_connect``.
             sql: ``String`` - ``SELECT`` statement with ``$1``, ``$2``, ...
                 positional placeholders.
             params: ``Array<SqlParameterType>`` (``EastArray``) - bind
@@ -572,8 +573,13 @@ def postgres_select_factory(row_type: Any) -> Any:
     name="postgres_select",
     type_parameters=["T"],
     is_async=True,
+    inputs=[ConnectionHandleType, StringType, SqlParametersType],
+    output=ArrayType("T"),
 )
-def _postgres_select_factory(_platform_list: Any, T: Any) -> Any:  # noqa: N803
+def postgres_select(_platform_list: Any, T: Any) -> Any:  # noqa: N803
+    """``postgres_select<T>``: from python the factory (``postgres_select(None,
+    Row)`` returns the typed opener), inside an East body the call itself —
+    ``postgres_select(Row, handle, sql, params)``, the row type first."""
     return postgres_select_factory(T)
 
 
@@ -582,8 +588,10 @@ postgres_impl = platform_functions(__name__)
 
 __all__ = [
     "postgres_impl",
-    "postgres_connect_impl",
-    "postgres_query_impl",
-    "postgres_close_impl",
-    "postgres_close_all_impl",
+    "postgres_connect",
+    "postgres_query",
+    "postgres_select",
+    "postgres_select_factory",
+    "postgres_close",
+    "postgres_close_all",
 ]

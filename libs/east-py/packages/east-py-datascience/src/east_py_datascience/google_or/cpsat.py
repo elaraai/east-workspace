@@ -662,7 +662,7 @@ def _extract_assignments(
     inputs=[CpSatModelType, CpSatConfigType],
     output=CpSatResultType,
 )
-def cpsat_solve_impl(
+def cpsat_solve(
     model_data: EastStruct,
     config: EastStruct,
 ) -> EastStruct:
@@ -701,7 +701,7 @@ def cpsat_solve_impl(
               solver log (default false).
             - ``seed`` (``Option<Integer>``): random seed for the solver.
             - ``max_solutions`` (``Option<Integer>``): ignored by this
-              function (used by :func:`cpsat_solve_all_impl`).
+              function (used by :func:`cpsat_solve_all`).
             - ``relative_gap_limit`` (``Option<Float>``): declare
               optimality when proven gap <= this fraction (e.g. 0.005).
             - ``absolute_gap_limit`` (``Option<Float>``): declare
@@ -759,7 +759,7 @@ def cpsat_solve_impl(
     inputs=[CpSatModelType, CpSatConfigType],
     output=ArrayType(CpSatResultType),
 )
-def cpsat_solve_all_impl(
+def cpsat_solve_all(
     model_data: EastStruct,
     config: EastStruct,
 ) -> EastArray:
@@ -771,9 +771,9 @@ def cpsat_solve_all_impl(
 
     Args:
         model_data: ``CpSatModelType`` (``EastStruct``) - same schema as
-            :func:`cpsat_solve_impl`.
+            :func:`cpsat_solve`.
         config: ``CpSatConfigType`` (``EastStruct``) - same schema as
-            :func:`cpsat_solve_impl`; ``max_solutions`` (``Option<Integer>``)
+            :func:`cpsat_solve`; ``max_solutions`` (``Option<Integer>``)
             caps the number of solutions collected (default 100).
 
     Returns:

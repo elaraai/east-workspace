@@ -23,6 +23,7 @@ from east.types.types import (
     ArrayType,
     BooleanType,
     FloatType,
+    FunctionType,
     IntegerType,
     NullType,
     OptionType,
@@ -207,7 +208,21 @@ def _check_alns_support() -> None:
 # ============================================================================
 
 
-def alns_optimize_impl(
+@generic_platform_function(
+    name="alns_optimize",
+    type_parameters=["S"],
+    is_async=False,
+    inputs=[
+        "S",
+        FunctionType(["S"], FloatType),
+        ArrayType(FunctionType(["S"], "S")),
+        ArrayType(FunctionType(["S"], "S")),
+        ALNSConfigType,
+    ],
+    output=ALNSResultType("S"),
+    type_erased=True,
+)
+def alns_optimize(
     initial_solution: Any,
     objective_fn: Callable[[Any], float],
     destroy_operators: EastArray,
@@ -227,7 +242,7 @@ def alns_optimize_impl(
           ``repair_operators[i](s)`` all produce values of the same East type
           ``S``.
         - ``objective_fn(s)`` returns a ``Float`` (lower = better).
-        - Type safety is enforced at the TypeScript/IR level; ``alns_optimize_impl``
+        - Type safety is enforced at the TypeScript/IR level; ``alns_optimize``
           receives plain East values at runtime.
 
     Args:
@@ -414,23 +429,6 @@ def alns_optimize_impl(
                 "success": False,
             }
         )
-
-
-# ============================================================================
-# Platform Function Registration
-# ============================================================================
-
-# ALNS is generic over solution type S.
-# The factory receives the type parameter and returns the implementation.
-# Type safety is enforced at the TypeScript level.
-
-@generic_platform_function(
-    name="alns_optimize",
-    type_parameters=["S"],
-    is_async=False,
-)
-def _alns_optimize_factory(_platform_list: Any, S: Any) -> Callable:  # noqa: N803
-    return alns_optimize_impl
 
 
 # Collected from the @generic_platform_function decoration above.

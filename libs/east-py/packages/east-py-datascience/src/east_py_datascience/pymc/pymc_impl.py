@@ -517,7 +517,7 @@ def _get_mcmc_config(config):
     inputs=[MatrixType(FloatType), MatrixType(FloatType), PyMCRegressionConfigType],
     output=PyMCModelBlobType,
 )
-def pymc_train_regression_impl(
+def pymc_train_regression(
     X: EastMatrix,
     Y: EastMatrix,
     config: EastStruct,
@@ -640,7 +640,7 @@ def pymc_train_regression_impl(
     ],
     output=PyMCModelBlobType,
 )
-def pymc_train_hierarchical_impl(
+def pymc_train_hierarchical(
     X: EastMatrix,
     Y: EastMatrix,
     groups: EastArray,
@@ -664,7 +664,7 @@ def pymc_train_hierarchical_impl(
             - ``prior`` (``Option<PyMCPriorSpecType>``): coefficient prior
               applied at the group level; defaults to
               ``Normal(mu=0, sigma=10)``. See
-              :func:`pymc_train_regression_impl` for the full prior spec.
+              :func:`pymc_train_regression` for the full prior spec.
               Ignored for ``partial`` pooling (hyperpriors are always
               ``Normal(0, 10)`` / ``HalfNormal(5)``).
             - ``likelihood`` (``Option<PyMCLikelihoodType>``): one of
@@ -791,7 +791,7 @@ def pymc_train_hierarchical_impl(
     inputs=[ArrayType(PyMCNamedDataType), PyMCMultiLayerConfigType],
     output=PyMCModelBlobType,
 )
-def pymc_train_multi_layer_impl(
+def pymc_train_multi_layer(
     data: EastArray,
     config: EastStruct,
 ) -> EastVariant:
@@ -976,7 +976,7 @@ def pymc_train_multi_layer_impl(
     inputs=[PyMCModelBlobType, MatrixType(FloatType), PyMCPredictConfigType],
     output=MatrixType(FloatType),
 )
-def pymc_predict_impl(
+def pymc_predict(
     model_blob: EastVariant,
     X: EastMatrix,
     config: EastStruct,
@@ -993,9 +993,9 @@ def pymc_predict_impl(
 
     Args:
         model_blob: ``PyMCModelBlobType`` (``EastVariant``) from
-            :func:`pymc_train_regression_impl`,
-            :func:`pymc_train_hierarchical_impl`, or
-            :func:`pymc_train_multi_layer_impl`.
+            :func:`pymc_train_regression`,
+            :func:`pymc_train_hierarchical`, or
+            :func:`pymc_train_multi_layer`.
         X: ``Matrix<Float>`` (``EastMatrix``) - feature matrix,
             shape ``(n_obs, n_features)``.
         config: ``PyMCPredictConfigType`` (``EastStruct``) with fields:
@@ -1108,14 +1108,14 @@ def pymc_predict_impl(
     inputs=[PyMCModelBlobType, MatrixType(FloatType), PyMCPredictConfigType],
     output=MatrixType(FloatType),
 )
-def pymc_predict_distribution_impl(
+def pymc_predict_distribution(
     model_blob: EastVariant,
     X: EastMatrix,
     config: EastStruct,
 ) -> EastMatrix:
     """Return the full posterior predictive distribution as a sample matrix.
 
-    Unlike :func:`pymc_predict_impl`, this function does not average across
+    Unlike :func:`pymc_predict`, this function does not average across
     draws. Each row in the output corresponds to one posterior sample. Target
     dimensions are flattened into columns so the result is always 2-D.
 
@@ -1229,7 +1229,7 @@ def pymc_predict_distribution_impl(
     inputs=[PyMCModelBlobType],
     output=ArrayType(PyMCParameterSummaryType),
 )
-def pymc_posterior_summary_impl(
+def pymc_posterior_summary(
     model_blob: EastVariant,
 ) -> EastArray:
     """Summarise the posterior distribution for each model parameter.
@@ -1392,7 +1392,7 @@ def _compute_rhat(chain_draws):
     inputs=[PyMCModelBlobType, StringType, IntegerType],
     output=MatrixType(FloatType),
 )
-def pymc_posterior_samples_impl(
+def pymc_posterior_samples(
     model_blob: EastVariant,
     param_name: str,
     n_samples: int,
@@ -1463,7 +1463,7 @@ def pymc_posterior_samples_impl(
     inputs=[PyMCModelBlobType],
     output=PyMCDiagnosticsResultType,
 )
-def pymc_diagnostics_impl(
+def pymc_diagnostics(
     model_blob: EastVariant,
 ) -> EastStruct:
     """Run MCMC convergence diagnostics on a trained model.
@@ -1567,7 +1567,7 @@ def pymc_diagnostics_impl(
     inputs=[PyMCModelBlobType, MatrixType(FloatType), MatrixType(FloatType)],
     output=ArrayType(PyMCObservedFitType),
 )
-def pymc_posterior_predictive_check_impl(
+def pymc_posterior_predictive_check(
     model_blob: EastVariant,
     X: EastMatrix,
     Y_observed: EastMatrix,

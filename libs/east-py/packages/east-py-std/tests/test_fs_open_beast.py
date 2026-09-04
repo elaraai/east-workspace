@@ -31,7 +31,7 @@ from east.runtime.errors import EastError
 from east.runtime.platform import PlatformFunction
 from east.serialization.beast2 import encode_beast2_v5_for, write_beast2_file
 
-from east_py_std import fs_impl, fs_open_beast_impl
+from east_py_std import fs_impl, fs_open_beast
 
 ROW = StructType([("id", IntegerType), ("name", StringType)])
 TABLE = DictType(IntegerType, ROW)
@@ -137,7 +137,7 @@ def test_the_mapping_is_the_values_own(tmp_path):
     the value)."""
     path = tmp_path / "table.beast2"
     _write_table(path)
-    hold = fs_open_beast_impl(None, TABLE)(str(path))
+    hold = fs_open_beast(None, TABLE)(str(path))
     assert hold is not None
     assert paged_value_ref_count(hold._east_c_paged) == 1
     if sys.platform != "win32":  # a mapped file cannot be unlinked on Windows

@@ -4,7 +4,7 @@
 #
 """Optuna Bayesian optimization for East - TPE-sampled hyperparameter search.
 
-The ``*_impl`` functions are plain Python callables taking and returning East
+The platform functions are plain Python callables taking and returning East
 values - import them directly from a project's own ``@platform_function`` to
 reuse the implementations without an IR round-trip. The East type definitions
 (search space, config, and result types) are re-exported here for building
@@ -22,14 +22,14 @@ from east_py_datascience.optuna.optuna import (
     StudyResultType,
     TrialResultType,
     optuna_impl,
-    optuna_optimize_impl,
+    optuna_optimize,
 )
 
 __all__ = [
     # Platform registration
     "optuna_impl",
     # Directly-callable implementations
-    "optuna_optimize_impl",
+    "optuna_optimize",
     # East type definitions
     "ParamValueType",
     "ParamSpaceKindType",

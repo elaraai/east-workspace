@@ -33,6 +33,7 @@ def _check_sqlite_support() -> None:
             "Add east-py-io[sqlite] to your pyproject.toml dependencies."
         )
 from east.types.types import (
+    ArrayType,
     NullType,
     StringType,
     get_option_inner_type,
@@ -312,7 +313,7 @@ def _convert_value_for_type(
     inputs=[SqliteConfigType],
     output=ConnectionHandleType,
 )
-async def sqlite_connect_impl(config: EastStruct) -> str:
+async def sqlite_connect(config: EastStruct) -> str:
     """Open a SQLite database and return a connection handle.
 
     Uses APSW to open the file (or an in-memory database) with the appropriate
@@ -328,8 +329,8 @@ async def sqlite_connect_impl(config: EastStruct) -> str:
               ignoring ``path`` (default ``False``).
 
     Returns:
-        ``String`` - opaque connection handle, passed to ``sqlite_query_impl``
-        / ``sqlite_close_impl``.
+        ``String`` - opaque connection handle, passed to ``sqlite_query``
+        / ``sqlite_close``.
 
     Raises:
         NotImplementedError: the ``sqlite`` extra (apsw) is not installed.
@@ -377,7 +378,7 @@ async def sqlite_connect_impl(config: EastStruct) -> str:
     inputs=[ConnectionHandleType, StringType, SqlParametersType],
     output=SqlResultType,
 )
-async def sqlite_query_impl(handle: str, sql: str, params: EastArray) -> EastVariant:
+async def sqlite_query(handle: str, sql: str, params: EastArray) -> EastVariant:
     """Execute a parameterized SQL statement and return a typed result.
 
     Dispatches on the leading keyword of the SQL string (``SELECT``,
@@ -387,7 +388,7 @@ async def sqlite_query_impl(handle: str, sql: str, params: EastArray) -> EastVar
     declared type are returned as ``Float`` to match TypeScript behavior.
 
     Args:
-        handle: ``String`` - connection handle from ``sqlite_connect_impl``.
+        handle: ``String`` - connection handle from ``sqlite_connect``.
         sql: ``String`` - SQL statement with ``?`` positional placeholders.
         params: ``Array<SqlParameterType>`` (``EastArray``) - bind values in
             placeholder order.
@@ -480,11 +481,11 @@ async def sqlite_query_impl(handle: str, sql: str, params: EastArray) -> EastVar
     inputs=[ConnectionHandleType],
     output=NullType,
 )
-async def sqlite_close_impl(handle: str) -> None:
+async def sqlite_close(handle: str) -> None:
     """Close a SQLite database connection and release its handle.
 
     Args:
-        handle: ``String`` - connection handle from ``sqlite_connect_impl``.
+        handle: ``String`` - connection handle from ``sqlite_connect``.
 
     Raises:
         NotImplementedError: the ``sqlite`` extra (apsw) is not installed.
@@ -508,7 +509,7 @@ async def sqlite_close_impl(handle: str) -> None:
     inputs=[],
     output=NullType,
 )
-async def sqlite_close_all_impl() -> None:
+async def sqlite_close_all() -> None:
     """Close every open SQLite connection managed by this process.
 
     Clears the internal connection map; useful for test teardown.
@@ -549,7 +550,7 @@ def sqlite_select_factory(*args: Any) -> Any:
         ``Option<...>`` in ``T``.
 
         Args:
-            handle: ``String`` - connection handle from ``sqlite_connect_impl``.
+            handle: ``String`` - connection handle from ``sqlite_connect``.
             sql: ``String`` - ``SELECT`` statement with ``?`` placeholders.
             params: ``Array<SqlParameterType>`` (``EastArray``) - bind values.
 
@@ -706,8 +707,13 @@ def sqlite_select_factory(*args: Any) -> Any:
     name="sqlite_select",
     type_parameters=["T"],
     is_async=True,
+    inputs=[ConnectionHandleType, StringType, SqlParametersType],
+    output=ArrayType("T"),
 )
-def _sqlite_select_factory(_platform_list: Any, T: Any) -> Any:  # noqa: N803
+def sqlite_select(_platform_list: Any, T: Any) -> Any:  # noqa: N803
+    """``sqlite_select<T>``: from python the factory (``sqlite_select(None,
+    Row)`` returns the typed opener), inside an East body the call itself —
+    ``sqlite_select(Row, handle, sql, params)``, the row type first."""
     return sqlite_select_factory(T)
 
 
@@ -717,6 +723,8 @@ sqlite_impl = platform_functions(__name__)
 
 __all__ = [
     "sqlite_impl",
+    "sqlite_select",
+    "sqlite_select_factory",
     "SqliteConfigType",
     "ConnectionHandleType",
     "SqlParametersType",

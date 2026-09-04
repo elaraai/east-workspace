@@ -37,6 +37,7 @@ how it went unrun for a while.
 
 from __future__ import annotations
 
+import contextlib
 import glob
 import io
 import json
@@ -46,7 +47,7 @@ from pathlib import Path
 import pytest
 from east.runtime._compiler_eastc import diff_ir
 
-from east.codegen import to_python_source
+from east.codegen import Providers, to_python_source
 from east.serialization.json import decode_json_for, encode_json_for
 from east.types.type_of_type import IRType
 
@@ -68,9 +69,9 @@ if REQUIRED and not EXAMPLES:
         "(`npm run export:examples` in libs/east, or set EAST_EXAMPLES_IR_DIR)")
 
 
-def _rebuild(ir, label: str):
+def _rebuild(ir, label: str, providers: Providers | None = None):
     """Print ``ir`` as python, build the module, return the rebuilt IR."""
-    source = to_python_source(ir, name="main")
+    source = to_python_source(ir, name="main", providers=providers)
     if SAVE_DIR:
         out = Path(SAVE_DIR) / f"{label}.py"
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -161,3 +162,50 @@ def test_example_round_trips_and_runs(path):
     from east.utils.ordering import equal_for
 
     assert equal_for(output_type)(got, expected), f"{label}: computed {got!r}, example declares {expected!r}"
+
+
+# ── every exported example, printed through the stock providers ─────────────
+#
+# The plugin index renders every example this way (#667): a platform call
+# the stock packages implement prints as the package's own function and a
+# type they name prints by its name. The rebuild goes through the dual-mode
+# decorator, so the contract is the same one — and pinned here for the
+# examples that actually import a provider.
+
+
+def _stock_providers() -> Providers:
+    providers = Providers()
+    for package in ("east_py_std", "east_py_io", "east_py_datascience"):
+        # an optional dependency this environment lacks leaves that package out
+        with contextlib.suppress(Exception):
+            providers.add_module(package)
+    return providers
+
+
+def _index_programs() -> list[tuple[str, str]]:
+    """``(id, ir json)`` of every program entry of the plugin's example index —
+    the corpus the index renders through the providers (east-node-std,
+    east-node-io and east-py-datascience examples included, which the
+    exported examples directory does not hold). Empty outside the monorepo."""
+    index = Path(__file__).resolve().parents[5] / "east-claude-plugin" / "index.json"
+    if not index.exists():
+        return []
+    with open(index, encoding="utf-8") as f:
+        entries = json.load(f)["entries"]
+    return [(e["id"], e["ir"]) for e in entries if e.get("ir")]
+
+
+INDEX_PROGRAMS = _index_programs()
+STOCK_PROVIDERS = _stock_providers() if INDEX_PROGRAMS or EXAMPLES else None
+
+
+@pytest.mark.skipif(not INDEX_PROGRAMS, reason="no plugin example index beside this checkout")
+@pytest.mark.parametrize("entry", INDEX_PROGRAMS, ids=[e[0] for e in INDEX_PROGRAMS])
+def test_index_example_round_trips_through_the_stock_providers(entry):
+    label, encoded = entry
+    ir = decode_json_for(IRType)(encoded)
+    built, source = _rebuild(ir, "providers/" + label.replace(":", "/"), STOCK_PROVIDERS)
+    if "from east_py_" not in source:
+        pytest.skip("no stock platform call or named type in this example")
+    diff = diff_ir(ir, built._east_ir)
+    assert diff is None, f"{label}: rebuilt IR differs at {diff}"

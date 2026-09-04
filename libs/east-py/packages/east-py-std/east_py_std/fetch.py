@@ -120,7 +120,7 @@ decoded response body), ``ok`` (``Boolean`` - ``True`` when
 
 
 @platform_function(name="fetch_get", inputs=[StringType], output=StringType)
-async def fetch_get_impl(url: str) -> str:
+async def fetch_get(url: str) -> str:
     """Perform an HTTP GET request and return the response body.
 
     Args:
@@ -146,7 +146,7 @@ async def fetch_get_impl(url: str) -> str:
 
 
 @platform_function(name="fetch_get_bytes", inputs=[StringType], output=BlobType)
-async def fetch_get_bytes_impl(url: str) -> EastBlob:
+async def fetch_get_bytes(url: str) -> EastBlob:
     """Perform an HTTP GET request and return the response body as raw bytes.
 
     Args:
@@ -172,7 +172,7 @@ async def fetch_get_bytes_impl(url: str) -> EastBlob:
 
 
 @platform_function(name="fetch_post", inputs=[StringType, StringType], output=StringType)
-async def fetch_post_impl(url: str, body: str) -> str:
+async def fetch_post(url: str, body: str) -> str:
     """Perform an HTTP POST request with a plain-text body.
 
     Sends ``body`` encoded as UTF-8 with ``Content-Type: text/plain``.
@@ -204,7 +204,7 @@ async def fetch_post_impl(url: str, body: str) -> str:
 
 
 @platform_function(name="fetch_request", inputs=[FetchRequestConfigType], output=FetchResponseType)
-async def fetch_request_impl(config: EastStruct[FetchRequestConfig]) -> EastStruct[FetchResponse]:
+async def fetch_request(config: EastStruct[FetchRequestConfig]) -> EastStruct[FetchResponse]:
     """Perform an HTTP request with full control over method, headers, and body.
 
     Non-2xx responses are captured rather than raised: check ``ok`` or ``status``
@@ -297,10 +297,10 @@ fetch_impl = platform_functions(__name__)
 
 __all__ = [
     "fetch_impl",
-    "fetch_get_impl",
-    "fetch_get_bytes_impl",
-    "fetch_post_impl",
-    "fetch_request_impl",
+    "fetch_get",
+    "fetch_get_bytes",
+    "fetch_post",
+    "fetch_request",
     "FetchMethodType",
     "FetchRequestConfigType",
     "FetchResponseType",

@@ -59,7 +59,12 @@ platform function (``tar_create = East.asyncPlatform('tar_create', …)``;
 ``my.log`` is ``my_log``; a second signature under one name takes a ``_2``
 suffix; ``_pN`` when the name cannot be an identifier), one per distinct
 signature — a body variable of that name is renamed ``v_N`` so it never
-shadows the declaration. A function called where it stands — the ``Call`` of a Function literal a
+shadows the declaration. Given ``providers`` (``east.codegen.providers``,
+#667), a call whose implementing package exports the dual-mode function
+under a name imports it instead — ``from east_py_io import gzip_compress``
+— and a struct or variant type a provider names prints by that name
+(``GzipOptionsType``), as the TypeScript printer prints a library's
+handles. A function called where it stands — the ``Call`` of a Function literal a
 TypeScript artifact leaves at its call site — prints inline,
 ``East.function(...)(x)``: a python artifact called inside another body
 SPLICES its body into the caller (#470) rather than emitting a ``Call``, so
@@ -101,6 +106,7 @@ from east.codegen.doc import (
     softline,
     will_break,
 )
+from east.codegen.providers import Providers
 from east.codegen.spellings import spelling_for
 from east.codegen.types import TYPE_IMPORTS, type_constructors, type_doc, type_key
 from east.functions import IMPORT_PLATFORM
@@ -337,9 +343,14 @@ def _fill(text: str, slot: Any) -> Doc:
 
 
 class _Printer:
-    def __init__(self, root_name: str, width: float) -> None:
+    def __init__(self, root_name: str, width: float, providers: Providers | None = None) -> None:
         self.root_name = root_name
         self.width = width
+        self.providers = providers
+        #: module -> the names the module imports from a provider
+        self.imports: dict[str, set[str]] = {}
+        #: platform signature -> the provider's exported name (no hoisted declaration)
+        self.provided: dict[tuple, str] = {}
         self.types: dict[str, tuple[str, Doc]] = {}     # type key -> (const name, source)
         self.literals: dict[str, Any] = {}               # type key -> its host-literal printer
         self.platforms: dict[tuple, str] = {}             # signature -> declaration name
@@ -366,11 +377,15 @@ class _Printer:
 
     def type_ref(self, t: EastType) -> Doc:
         """A type as source, inline; a recursive type hoisted to a ``_tN``
-        constant."""
-        type_constructors(t, self.used)
+        constant; a type a provider names, by that name."""
         if t.type in ("Null", "Never", "Boolean", "Integer", "Float", "String", "DateTime", "Blob"):
+            type_constructors(t, self.used)
             return type_doc(t)
         key = type_key(t)
+        named = self.providers.types.get(key) if self.providers is not None else None
+        if named is not None and self.import_name(*named):
+            return named[1]
+        type_constructors(t, self.used)
         if "recursive_type(" not in key and "Recursive" not in key:
             return type_doc(t)
         hit = self.types.get(key)
@@ -386,6 +401,54 @@ class _Printer:
         inputs = tuple(type_key(a.value["type"]) for a in p["arguments"])
         tps = tuple(type_key(t) for t in p["type_parameters"])
         return (p["name"], inputs, type_key(p["type"]), bool(p["async"]), bool(p["optional"]), tps)
+
+    def import_name(self, module: str, attr: str) -> bool:
+        """Reserve ``attr`` as an import from ``module`` — false when the
+        name is already something else in this module (a builtin import,
+        the root function, an import from another module)."""
+        names = self.imports.setdefault(module, set())
+        if attr in names:
+            return True
+        if attr in _MODULE_NAMES or attr == self.root_name or attr in self.platform_names \
+                or any(attr in other for other in self.imports.values()):
+            return False
+        names.add(attr)
+        self.platform_names.add(attr)
+        self.reserved.add(attr)
+        return True
+
+    def provider_for(self, p: Any) -> str | None:
+        """The name a provider exports the platform call as, when the
+        provider's declared signature is the node's — the printed call then
+        rebuilds this very node — else ``None``."""
+        if self.providers is None or p["optional"]:
+            return None
+        hit = self.providers.functions.get(p["name"])
+        if hit is None:
+            return None
+        module, attr, record = hit
+        if bool(p["async"]) != (record.get("type", "sync") == "async"):
+            return None
+        tps = list(p["type_parameters"])
+        if "type_parameters" in record:
+            decl = getattr(getattr(importlib_module(module), attr, None), "east_platform_declaration", None)
+            if decl is None or len(tps) != len(record["type_parameters"]):
+                return None
+            from east.expression.platform import _apply_type_args
+
+            subst = dict(zip(decl.type_params, tps, strict=True))
+            inputs = [_apply_type_args(subst, t) for t in decl.inputs]
+            output = _apply_type_args(subst, decl.output)
+        elif tps:
+            return None
+        else:
+            inputs, output = list(record["inputs"]), record["output"]
+        args = list(p["arguments"])
+        if len(args) != len(inputs) or type_key(output) != type_key(p["type"]):
+            return None
+        if any(type_key(a.value["type"]) != type_key(t) for a, t in zip(args, inputs, strict=True)):
+            return None
+        return attr if self.import_name(module, attr) else None
 
     def platform_name(self, ir_name: str) -> str:
         """The module-level name of a hoisted declaration: the platform
@@ -419,14 +482,21 @@ class _Printer:
                 is_import = p["name"] == IMPORT_PLATFORM and len(args) == 2 and all(a.type == "Value" for a in args)
                 if not is_import:
                     sig = self.platform_signature(p)
-                    if sig not in self.platforms:
-                        name = self.platform_name(p["name"])
-                        self.platforms[sig] = name
-                        self.reserved.add(name)
+                    if sig not in self.platforms and sig not in self.provided:
+                        provided = self.provider_for(p)
+                        if provided is not None:
+                            self.provided[sig] = provided
+                        else:
+                            name = self.platform_name(p["name"])
+                            self.platforms[sig] = name
+                            self.reserved.add(name)
             stack.extend(reversed(list(_node_children(n))))
 
     def platform_ref(self, p: Any) -> str:
         sig = self.platform_signature(p)
+        provided = self.provided.get(sig)
+        if provided is not None:
+            return provided
         name = self.platforms.get(sig)
         if name is None:
             name = self.platform_name(p["name"])
@@ -768,8 +838,11 @@ class _Printer:
             args = [self.value_doc(_platform_argument(a), scope, pre, d, typed=True) for a in arg_nodes]
             ref = self.platform_ref(p)
             if p["type_parameters"]:
-                tps = bracket("[", [self.type_ref(t) for t in p["type_parameters"]], "]")
-                return [ref, call_args([tps, *args])]
+                type_args = [self.type_ref(t) for t in p["type_parameters"]]
+                if self.platform_signature(p) in self.provided:
+                    # a provider takes its type arguments first, as TypeScript reads
+                    return [ref, call_args([*type_args, *args])]
+                return [ref, call_args([bracket("[", type_args, "]"), *args])]
             return [ref, call_args(args)]
         if kind in ("Function", "AsyncFunction"):
             return self.function_expr(node, scope, pre)
@@ -1199,6 +1272,9 @@ class _Printer:
         ]
         if self.uses_datetime:
             parts.append("from datetime import datetime, timezone")
+        for module, imported in sorted(self.imports.items()):
+            if imported:
+                parts.append(f"from {module} import {', '.join(sorted(imported))}")
         parts.append("")
         for _key, (name, src) in self.types.items():
             parts.append([name, " = ", src])
@@ -1238,7 +1314,15 @@ def _ir_of(fn_or_ir: Any) -> Any:
     raise TypeError("to_python_source takes an East.function result or an IR value")
 
 
-def to_python_source(fn_or_ir: Any, *, name: str | None = None, width: float = LINE_WIDTH) -> str:
+def importlib_module(name: str) -> Any:
+    """The imported module ``name`` (already imported by the providers)."""
+    import importlib
+
+    return importlib.import_module(name)
+
+
+def to_python_source(fn_or_ir: Any, *, name: str | None = None, width: float = LINE_WIDTH,
+                     providers: Providers | None = None) -> str:
     """Print East IR as a python module that rebuilds it.
 
     Args:
@@ -1250,6 +1334,12 @@ def to_python_source(fn_or_ir: Any, *, name: str | None = None, width: float = L
             (default ``"main"``).
         width: The line width the layout keeps to (default
             ``LINE_WIDTH``); ``math.inf`` prints every construct on one line.
+        providers: The packages whose implementations and named types the
+            module imports instead of restating (``providers_for([...])``,
+            #667): a platform call the providers implement under the node's
+            exact signature prints as that function, a struct or variant
+            type they name prints by its name. Without providers every
+            platform call hoists to a declaration.
 
     Returns:
         The module source. Importing it (or ``exec``-ing it) binds ``name``
@@ -1262,5 +1352,5 @@ def to_python_source(fn_or_ir: Any, *, name: str | None = None, width: float = L
             unknown node kind. Builtins without a python spelling print
             through ``East.builtin(...)`` and are never unprintable.
     """
-    printer = _Printer(name or "main", width)
+    printer = _Printer(name or "main", width, providers)
     return printer.module(_ir_of(fn_or_ir))

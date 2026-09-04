@@ -96,7 +96,7 @@ PlatformFunction(
 The implementation simply calls the objective function:
 
 ```python
-def optuna_optimize_impl(search_space, objective_fn, config):
+def optuna_optimize(search_space, objective_fn, config):
     # objective_fn is a compiled Python callable
     def wrapped_objective(trial):
         params = suggest_params_from_trial(trial, search_space)

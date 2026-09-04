@@ -1,18 +1,19 @@
 """An example Python platform function owned by the ``__PACKAGE_NAME__`` package.
 
 Platform functions let East call NATIVE Python (numpy, pandas, scikit-learn, …)
-that East itself can't express. The ``@platform_function`` is bound to East by
-its dotted ``"__PACKAGE_NAME__.<fn>"`` name, which the TypeScript declaration in
-``src/packages/__PACKAGE_NAME__.ts`` mirrors exactly — keep the two in lockstep.
-Add native dependencies to this package's ``pyproject.toml`` and import them
+that East itself can't express. The ``@East.platform_function`` is bound to
+East by its dotted ``"__PACKAGE_NAME__.<fn>"`` name, which the TypeScript
+declaration in ``src/packages/__PACKAGE_NAME__.ts`` mirrors exactly — keep the
+two in lockstep. A python-authored East body (``functions.py``) needs no
+declaration: the decorated function is callable inside one directly. Add
+native dependencies to this package's ``pyproject.toml`` and import them
 inside the body.
 """
 
-from east.runtime.platform import platform_function, platform_functions
-from east.types.types import ArrayType, FloatType
+from east import ArrayType, East, FloatType
 
 
-@platform_function(
+@East.platform_function(
     inputs=[ArrayType(FloatType)],
     output=FloatType,
     name="__PACKAGE_NAME__.example",
@@ -24,4 +25,4 @@ def example(values):
 
 
 # The platform functions defined in THIS module, in definition order.
-example_impl = platform_functions(__name__)
+example_impl = East.platform_functions(__name__)

@@ -158,7 +158,7 @@ def east_to_doc(doc: EastDict) -> dict[str, Any]:
 
 
 @platform_function(name="mongodb_connect", inputs=[MongoConfigType], output=ConnectionHandleType)
-async def mongo_connect_impl(config: EastStruct) -> str:
+async def mongo_connect(config: EastStruct) -> str:
     """Open an async MongoDB connection and return a connection handle.
 
     Connects to the MongoDB server at ``config["uri"]``, pings the
@@ -214,12 +214,12 @@ async def mongo_connect_impl(config: EastStruct) -> str:
     inputs=[ConnectionHandleType, MongoDocumentType],
     output=StringType,
 )
-async def mongo_insert_one_impl(handle: str, document: EastDict) -> str:
+async def mongo_insert_one(handle: str, document: EastDict) -> str:
     """Insert a single document into the MongoDB collection.
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``mongo_connect_impl``.
+            from ``mongo_connect``.
         document: ``MongoDocumentType`` (``EastDict``) - the document to
             insert; field values are ``BsonValueType`` variants.
 
@@ -249,12 +249,12 @@ async def mongo_insert_one_impl(handle: str, document: EastDict) -> str:
     inputs=[ConnectionHandleType, MongoDocumentType],
     output=OptionType(MongoDocumentType),
 )
-async def mongo_find_one_impl(handle: str, filter_doc: EastDict) -> EastVariant:
+async def mongo_find_one(handle: str, filter_doc: EastDict) -> EastVariant:
     """Find the first document matching a filter in MongoDB.
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``mongo_connect_impl``.
+            from ``mongo_connect``.
         filter_doc: ``MongoDocumentType`` (``EastDict``) - MongoDB query
             filter; use an empty dict to match any document.
 
@@ -290,12 +290,12 @@ async def mongo_find_one_impl(handle: str, filter_doc: EastDict) -> EastVariant:
     inputs=[ConnectionHandleType, MongoDocumentType, MongoFindOptionsType],
     output=ArrayType(MongoDocumentType),
 )
-async def mongo_find_impl(handle: str, filter_doc: EastDict, options: EastStruct) -> EastArray:
+async def mongo_find(handle: str, filter_doc: EastDict, options: EastStruct) -> EastArray:
     """Find all documents matching a filter in MongoDB, with pagination.
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``mongo_connect_impl``.
+            from ``mongo_connect``.
         filter_doc: ``MongoDocumentType`` (``EastDict``) - MongoDB query
             filter; use an empty dict to match all documents.
         options: ``MongoFindOptionsType`` (``EastStruct``) with fields:
@@ -347,7 +347,7 @@ async def mongo_find_impl(handle: str, filter_doc: EastDict, options: EastStruct
     inputs=[ConnectionHandleType, MongoDocumentType, MongoDocumentType],
     output=IntegerType,
 )
-async def mongo_update_one_impl(handle: str, filter_doc: EastDict, update_doc: EastDict) -> int:
+async def mongo_update_one(handle: str, filter_doc: EastDict, update_doc: EastDict) -> int:
     """Update the first document matching a filter in MongoDB.
 
     When ``update_doc`` contains MongoDB operator keys (starting with
@@ -357,7 +357,7 @@ async def mongo_update_one_impl(handle: str, filter_doc: EastDict, update_doc: E
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``mongo_connect_impl``.
+            from ``mongo_connect``.
         filter_doc: ``MongoDocumentType`` (``EastDict``) - query filter
             identifying the document to update.
         update_doc: ``MongoDocumentType`` (``EastDict``) - either a
@@ -397,12 +397,12 @@ async def mongo_update_one_impl(handle: str, filter_doc: EastDict, update_doc: E
     inputs=[ConnectionHandleType, MongoDocumentType],
     output=IntegerType,
 )
-async def mongo_delete_one_impl(handle: str, filter_doc: EastDict) -> int:
+async def mongo_delete_one(handle: str, filter_doc: EastDict) -> int:
     """Delete the first document matching a filter from MongoDB.
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``mongo_connect_impl``.
+            from ``mongo_connect``.
         filter_doc: ``MongoDocumentType`` (``EastDict``) - query filter
             identifying the document to delete.
 
@@ -432,12 +432,12 @@ async def mongo_delete_one_impl(handle: str, filter_doc: EastDict) -> int:
     inputs=[ConnectionHandleType, MongoDocumentType],
     output=IntegerType,
 )
-async def mongo_delete_many_impl(handle: str, filter_doc: EastDict) -> int:
+async def mongo_delete_many(handle: str, filter_doc: EastDict) -> int:
     """Delete all documents matching a filter from MongoDB.
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``mongo_connect_impl``.
+            from ``mongo_connect``.
         filter_doc: ``MongoDocumentType`` (``EastDict``) - query filter
             identifying the documents to delete; use an empty dict to
             delete all documents in the collection.
@@ -463,12 +463,12 @@ async def mongo_delete_many_impl(handle: str, filter_doc: EastDict) -> int:
 
 
 @platform_function(name="mongodb_close", inputs=[ConnectionHandleType], output=NullType)
-async def mongo_close_impl(handle: str) -> None:
+async def mongo_close(handle: str) -> None:
     """Close a single MongoDB connection and remove its handle.
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``mongo_connect_impl``.
+            from ``mongo_connect``.
 
     Returns:
         ``Null`` - always ``None`` on success.
@@ -490,7 +490,7 @@ async def mongo_close_impl(handle: str) -> None:
 
 
 @platform_function(name="mongodb_close_all", inputs=[], output=NullType)
-async def mongo_close_all_impl() -> None:
+async def mongo_close_all() -> None:
     """Close all open MongoDB connections managed by this process.
 
     Iterates every handle in the internal connection store, closes each
@@ -514,13 +514,13 @@ mongodb_impl = platform_functions(__name__)
 
 __all__ = [
     "mongodb_impl",
-    "mongo_connect_impl",
-    "mongo_insert_one_impl",
-    "mongo_find_one_impl",
-    "mongo_find_impl",
-    "mongo_update_one_impl",
-    "mongo_delete_one_impl",
-    "mongo_delete_many_impl",
-    "mongo_close_impl",
-    "mongo_close_all_impl",
+    "mongo_connect",
+    "mongo_insert_one",
+    "mongo_find_one",
+    "mongo_find",
+    "mongo_update_one",
+    "mongo_delete_one",
+    "mongo_delete_many",
+    "mongo_close",
+    "mongo_close_all",
 ]

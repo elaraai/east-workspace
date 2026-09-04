@@ -139,7 +139,7 @@ def _reset_to_crypto() -> None:
 
 
 @platform_function(name="random_uniform", inputs=[], output=FloatType)
-def random_uniform_impl() -> float:
+def random_uniform() -> float:
     """Sample a uniform random float from ``[0.0, 1.0)``.
 
     Returns:
@@ -149,7 +149,7 @@ def random_uniform_impl() -> float:
 
 
 @platform_function(name="random_normal", inputs=[], output=FloatType)
-def random_normal_impl() -> float:
+def random_normal() -> float:
     """Sample a random float from the standard normal distribution N(0, 1).
 
     Uses the Marsaglia polar method (Box-Muller transform).
@@ -170,7 +170,7 @@ def random_normal_impl() -> float:
 @platform_function(
     name="random_range", inputs=[IntegerType, IntegerType], output=IntegerType
 )
-def random_range_impl(min_val: int, max_val: int) -> int:
+def random_range(min_val: int, max_val: int) -> int:
     """Sample a uniformly distributed random integer from the closed interval ``[min, max]``.
 
     Args:
@@ -190,7 +190,7 @@ def random_range_impl(min_val: int, max_val: int) -> int:
 
 
 @platform_function(name="random_exponential", inputs=[FloatType], output=FloatType)
-def random_exponential_impl(lambda_rate: float) -> float:
+def random_exponential(lambda_rate: float) -> float:
     """Sample a random float from an exponential distribution with rate lambda.
 
     Args:
@@ -212,7 +212,7 @@ def random_exponential_impl(lambda_rate: float) -> float:
 
 
 @platform_function(name="random_weibull", inputs=[FloatType], output=FloatType)
-def random_weibull_impl(shape_k: float) -> float:
+def random_weibull(shape_k: float) -> float:
     """Sample a random float from a Weibull distribution with scale 1.
 
     Args:
@@ -231,7 +231,7 @@ def random_weibull_impl(shape_k: float) -> float:
 
 
 @platform_function(name="random_bernoulli", inputs=[FloatType], output=IntegerType)
-def random_bernoulli_impl(p: float) -> int:
+def random_bernoulli(p: float) -> int:
     """Perform a single Bernoulli trial with success probability p.
 
     Args:
@@ -252,7 +252,7 @@ def random_bernoulli_impl(p: float) -> int:
 @platform_function(
     name="random_binomial", inputs=[IntegerType, FloatType], output=IntegerType
 )
-def random_binomial_impl(n: int, p: float) -> int:
+def random_binomial(n: int, p: float) -> int:
     """Sample the number of successes in n independent Bernoulli trials.
 
     Args:
@@ -279,7 +279,7 @@ def random_binomial_impl(n: int, p: float) -> int:
 
 
 @platform_function(name="random_geometric", inputs=[FloatType], output=IntegerType)
-def random_geometric_impl(p: float) -> int:
+def random_geometric(p: float) -> int:
     """Sample the number of trials until the first success in a Bernoulli process.
 
     Args:
@@ -298,7 +298,7 @@ def random_geometric_impl(p: float) -> int:
 
 
 @platform_function(name="random_poisson", inputs=[FloatType], output=IntegerType)
-def random_poisson_impl(lambda_rate: float) -> int:
+def random_poisson(lambda_rate: float) -> int:
     """Sample the number of events from a Poisson process with rate lambda.
 
     Uses the Knuth algorithm for small lambda and a normal approximation for
@@ -347,7 +347,7 @@ def random_poisson_impl(lambda_rate: float) -> int:
 
 
 @platform_function(name="random_pareto", inputs=[FloatType], output=FloatType)
-def random_pareto_impl(alpha: float) -> float:
+def random_pareto(alpha: float) -> float:
     """Sample a random float from a Pareto distribution with scale 1.
 
     Args:
@@ -370,7 +370,7 @@ def random_pareto_impl(alpha: float) -> float:
 @platform_function(
     name="random_log_normal", inputs=[FloatType, FloatType], output=FloatType
 )
-def random_log_normal_impl(mu: float, sigma: float) -> float:
+def random_log_normal(mu: float, sigma: float) -> float:
     """Sample a random float from a log-normal distribution.
 
     Args:
@@ -388,12 +388,12 @@ def random_log_normal_impl(mu: float, sigma: float) -> float:
     """
     if sigma <= 0:
         raise ValueError(f"Sigma must be positive, got {sigma}")
-    z = random_normal_impl()
+    z = random_normal()
     return math.exp(mu + sigma * z)
 
 
 @platform_function(name="random_irwin_hall", inputs=[IntegerType], output=FloatType)
-def random_irwin_hall_impl(n: int) -> float:
+def random_irwin_hall(n: int) -> float:
     """Sample the sum of n independent Uniform(0, 1) random variables.
 
     Args:
@@ -413,7 +413,7 @@ def random_irwin_hall_impl(n: int) -> float:
 
 
 @platform_function(name="random_bates", inputs=[IntegerType], output=FloatType)
-def random_bates_impl(n: int) -> float:
+def random_bates(n: int) -> float:
     """Sample the mean of n independent Uniform(0, 1) random variables.
 
     Args:
@@ -428,11 +428,11 @@ def random_bates_impl(n: int) -> float:
     """
     if n <= 0:
         raise ValueError(f"n must be positive, got {n}")
-    return random_irwin_hall_impl(n) / n
+    return random_irwin_hall(n) / n
 
 
 @platform_function(name="random_seed", inputs=[IntegerType], output=NullType)
-def random_seed_impl(seed: int) -> None:
+def random_seed(seed: int) -> None:
     """Seed the random number generator for reproducible sequences.
 
     Switches the global RNG from the cryptographically secure default to a
@@ -453,18 +453,18 @@ random_impl = platform_functions(__name__)
 
 __all__ = [
     "random_impl",
-    "random_uniform_impl",
-    "random_normal_impl",
-    "random_range_impl",
-    "random_exponential_impl",
-    "random_weibull_impl",
-    "random_bernoulli_impl",
-    "random_binomial_impl",
-    "random_geometric_impl",
-    "random_poisson_impl",
-    "random_pareto_impl",
-    "random_log_normal_impl",
-    "random_irwin_hall_impl",
-    "random_bates_impl",
-    "random_seed_impl",
+    "random_uniform",
+    "random_normal",
+    "random_range",
+    "random_exponential",
+    "random_weibull",
+    "random_bernoulli",
+    "random_binomial",
+    "random_geometric",
+    "random_poisson",
+    "random_pareto",
+    "random_log_normal",
+    "random_irwin_hall",
+    "random_bates",
+    "random_seed",
 ]

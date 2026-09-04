@@ -87,7 +87,7 @@ def _make_enum(tag: str) -> EastVariant:
     inputs=[CurveFunctionType, VectorType(FloatType), VectorType(FloatType), CurveFitConfigType],
     output=CurveFitResultType,
 )
-def scipy_curve_fit_impl(
+def scipy_curve_fit(
     curve_type: EastVariant,
     x: EastVector,
     y: EastVector,
@@ -301,7 +301,7 @@ def scipy_curve_fit_impl(
     inputs=[VectorType(FloatType)],
     output=StatsDescribeResultType,
 )
-def scipy_stats_describe_impl(data: EastVector) -> EastStruct:
+def scipy_stats_describe(data: EastVector) -> EastStruct:
     """Compute descriptive statistics for a numeric sample via scipy.stats.describe.
 
     Args:
@@ -339,7 +339,7 @@ def scipy_stats_describe_impl(data: EastVector) -> EastStruct:
     inputs=[VectorType(FloatType), VectorType(FloatType)],
     output=CorrelationResultType,
 )
-def scipy_stats_pearsonr_impl(x: EastVector, y: EastVector) -> EastStruct:
+def scipy_stats_pearsonr(x: EastVector, y: EastVector) -> EastStruct:
     """Compute the Pearson product-moment correlation coefficient between two samples.
 
     Args:
@@ -375,7 +375,7 @@ def scipy_stats_pearsonr_impl(x: EastVector, y: EastVector) -> EastStruct:
     inputs=[VectorType(FloatType), VectorType(FloatType)],
     output=CorrelationResultType,
 )
-def scipy_stats_spearmanr_impl(x: EastVector, y: EastVector) -> EastStruct:
+def scipy_stats_spearmanr(x: EastVector, y: EastVector) -> EastStruct:
     """Compute the Spearman rank-order correlation coefficient between two samples.
 
     A non-parametric measure of monotonic association; robust to outliers and
@@ -414,7 +414,7 @@ def scipy_stats_spearmanr_impl(x: EastVector, y: EastVector) -> EastStruct:
     inputs=[VectorType(FloatType), VectorType(FloatType)],
     output=VectorType(FloatType),
 )
-def scipy_stats_percentile_impl(data: EastVector, percentiles: EastVector) -> EastVector:
+def scipy_stats_percentile(data: EastVector, percentiles: EastVector) -> EastVector:
     """Compute one or more percentiles of a dataset.
 
     Args:
@@ -439,7 +439,7 @@ def scipy_stats_percentile_impl(data: EastVector, percentiles: EastVector) -> Ea
     inputs=[VectorType(FloatType), FloatType],
     output=FloatType,
 )
-def scipy_stats_percentileofscore_impl(data: EastVector, score: float) -> float:
+def scipy_stats_percentileofscore(data: EastVector, score: float) -> float:
     """Compute the percentile rank of a single score relative to a dataset.
 
     Args:
@@ -463,7 +463,7 @@ def scipy_stats_percentileofscore_impl(data: EastVector, score: float) -> float:
     inputs=[VectorType(FloatType)],
     output=FloatType,
 )
-def scipy_stats_iqr_impl(data: EastVector) -> float:
+def scipy_stats_iqr(data: EastVector) -> float:
     """Compute the interquartile range (Q3 - Q1) of a sample.
 
     Args:
@@ -486,7 +486,7 @@ def scipy_stats_iqr_impl(data: EastVector) -> float:
     inputs=[VectorType(FloatType)],
     output=FloatType,
 )
-def scipy_stats_median_impl(data: EastVector) -> float:
+def scipy_stats_median(data: EastVector) -> float:
     """Compute the median of a sample.
 
     Args:
@@ -505,7 +505,7 @@ def scipy_stats_median_impl(data: EastVector) -> float:
     inputs=[VectorType(FloatType)],
     output=FloatType,
 )
-def scipy_stats_mad_impl(data: EastVector) -> float:
+def scipy_stats_mad(data: EastVector) -> float:
     """Compute the median absolute deviation (MAD) of a sample.
 
     MAD is a robust dispersion measure: median(|x - median(x)|).
@@ -530,7 +530,7 @@ def scipy_stats_mad_impl(data: EastVector) -> float:
     inputs=[VectorType(FloatType)],
     output=RobustStatsResultType,
 )
-def scipy_stats_robust_impl(data: EastVector) -> EastStruct:
+def scipy_stats_robust(data: EastVector) -> EastStruct:
     """Compute a full set of outlier-resistant summary statistics in one pass.
 
     Combines median, interquartile range, median absolute deviation, and
@@ -569,7 +569,7 @@ def scipy_stats_robust_impl(data: EastVector) -> EastStruct:
     inputs=[VectorType(FloatType), VectorType(FloatType), InterpolateConfigType],
     output=ScipyModelBlobType,
 )
-def scipy_interpolate_1d_fit_impl(
+def scipy_interpolate_1d_fit(
     x: EastVector,
     y: EastVector,
     config: EastStruct,
@@ -578,7 +578,7 @@ def scipy_interpolate_1d_fit_impl(
 
     The fitted model is serialized with cloudpickle and returned as a
     ``ScipyModelBlobType`` variant for use with
-    :func:`scipy_interpolate_1d_predict_impl`.
+    :func:`scipy_interpolate_1d_predict`.
 
     Args:
         x: ``Vector<Float>`` (``EastVector``) - knot positions; must be
@@ -625,7 +625,7 @@ def scipy_interpolate_1d_fit_impl(
     inputs=[ScipyModelBlobType, VectorType(FloatType)],
     output=VectorType(FloatType),
 )
-def scipy_interpolate_1d_predict_impl(
+def scipy_interpolate_1d_predict(
     model_blob: EastVariant,
     x: EastVector,
 ) -> EastVector:
@@ -636,7 +636,7 @@ def scipy_interpolate_1d_predict_impl(
 
     Args:
         model_blob: ``ScipyModelBlobType`` (``EastVariant`` tagged
-            ``scipy_interp_1d``) from :func:`scipy_interpolate_1d_fit_impl`.
+            ``scipy_interp_1d``) from :func:`scipy_interpolate_1d_fit`.
         x: ``Vector<Float>`` (``EastVector``) - query points.
 
     Returns:
@@ -664,7 +664,7 @@ def scipy_interpolate_1d_predict_impl(
     inputs=[ScalarObjectiveType, VectorType(FloatType), OptimizeConfigType],
     output=OptimizeResultType,
 )
-def scipy_optimize_minimize_impl(
+def scipy_optimize_minimize(
     objective_fn: Callable[[EastVector], float],
     x0: EastVector,
     config: EastStruct,
@@ -741,7 +741,7 @@ def scipy_optimize_minimize_impl(
     inputs=[VectorType(FloatType), QuadraticConfigType, OptimizeConfigType],
     output=OptimizeResultType,
 )
-def scipy_optimize_minimize_quadratic_impl(
+def scipy_optimize_minimize_quadratic(
     x0: EastVector,
     quadratic: EastStruct,
     config: EastStruct,
@@ -761,7 +761,7 @@ def scipy_optimize_minimize_quadratic_impl(
             - ``b`` (``Vector<Float>``): linear coefficient vector.
             - ``c`` (``Float``): scalar constant.
         config: ``OptimizeConfigType`` (``EastStruct``) - see
-            :func:`scipy_optimize_minimize_impl` for fields.
+            :func:`scipy_optimize_minimize` for fields.
 
     Returns:
         ``OptimizeResultType`` (``EastStruct``): ``x`` (``Vector<Float>``),
@@ -826,7 +826,7 @@ def scipy_optimize_minimize_quadratic_impl(
     ],
     output=DualAnnealResultType,
 )
-def scipy_optimize_dual_annealing_impl(
+def scipy_optimize_dual_annealing(
     objective_fn: Callable[[EastVector], float],
     x0_opt: EastVariant | None,
     bounds: EastStruct,
@@ -954,7 +954,7 @@ def scipy_optimize_dual_annealing_impl(
     inputs=[VectorType(FloatType), HistogramConfigType],
     output=HistogramResultType,
 )
-def scipy_histogram_impl(
+def scipy_histogram(
     data: EastVector,
     config: EastStruct,
 ) -> EastStruct:
@@ -1030,14 +1030,14 @@ def scipy_histogram_impl(
     inputs=[VectorType(FloatType), KdeConfigType],
     output=ScipyModelBlobType,
 )
-def scipy_kde_fit_impl(
+def scipy_kde_fit(
     data: EastVector,
     config: EastStruct,
 ) -> EastVariant:
     """Fit a Gaussian kernel density estimator to a 1-D sample.
 
     The fitted KDE is serialized with cloudpickle and returned as a
-    ``ScipyModelBlobType`` variant for use with :func:`scipy_kde_evaluate_impl`.
+    ``ScipyModelBlobType`` variant for use with :func:`scipy_kde_evaluate`.
 
     Args:
         data: ``Vector<Float>`` (``EastVector``) - the training sample.
@@ -1105,7 +1105,7 @@ def scipy_kde_fit_impl(
     inputs=[ScipyModelBlobType, VectorType(FloatType)],
     output=VectorType(FloatType),
 )
-def scipy_kde_evaluate_impl(
+def scipy_kde_evaluate(
     model_blob: EastVariant,
     points: EastVector,
 ) -> EastVector:
@@ -1113,7 +1113,7 @@ def scipy_kde_evaluate_impl(
 
     Args:
         model_blob: ``ScipyModelBlobType`` (``EastVariant`` tagged ``scipy_kde``)
-            from :func:`scipy_kde_fit_impl`.
+            from :func:`scipy_kde_fit`.
         points: ``Vector<Float>`` (``EastVector``) - points at which to
             evaluate the density.
 

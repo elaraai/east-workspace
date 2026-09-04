@@ -10,13 +10,13 @@ reuse the implementations without an IR round-trip.
 """
 
 from east_py_io.compression.gzip_impl import (
-    gzip_compress_impl,
-    gzip_decompress_impl,
+    gzip_compress,
+    gzip_decompress,
     gzip_impl,
 )
 from east_py_io.compression.tar_impl import (
-    tar_create_impl,
-    tar_extract_impl,
+    tar_create,
+    tar_extract,
     tar_impl,
 )
 from east_py_io.compression.types import (
@@ -32,8 +32,8 @@ from east_py_io.compression.types import (
     ZipOptionsType,
 )
 from east_py_io.compression.zip_impl import (
-    zip_compress_impl,
-    zip_decompress_impl,
+    zip_compress,
+    zip_decompress,
     zip_impl,
 )
 
@@ -51,14 +51,14 @@ __all__ = [
     "TarExtractedType",
     # Gzip
     "gzip_impl",
-    "gzip_compress_impl",
-    "gzip_decompress_impl",
+    "gzip_compress",
+    "gzip_decompress",
     # Tar
     "tar_impl",
-    "tar_create_impl",
-    "tar_extract_impl",
+    "tar_create",
+    "tar_extract",
     # Zip
     "zip_impl",
-    "zip_compress_impl",
-    "zip_decompress_impl",
+    "zip_compress",
+    "zip_decompress",
 ]

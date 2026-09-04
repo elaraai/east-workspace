@@ -226,7 +226,7 @@ def _get_metaheuristic(metaheuristic: EastVariant | None) -> int | None:
     inputs=[RoutingModelType, RoutingConfigType],
     output=RoutingResultType,
 )
-def routing_solve_impl(
+def routing_solve(
     model_data: EastStruct,
     config: EastStruct,
 ) -> EastStruct:

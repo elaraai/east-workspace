@@ -24,6 +24,17 @@ BAD = ("from east import East, IntegerType\n"
 CLEAN = ("from east import East, IntegerType\n"
          "\n"
          "double = East.function([IntegerType], IntegerType, lambda b, x: x * 2)\n")
+# A body calling a platform IMPLEMENTATION directly (#667): the dual-mode
+# object is East's own, never python work the rules refuse.
+DIRECT = ("from east import East, IntegerType, StringType\n"
+          "from east_py_std import fs_read_file_bytes\n"
+          "\n"
+          "@East.platform_function(inputs=[IntegerType], output=IntegerType)\n"
+          "def half(x):\n"
+          "    return x // 2\n"
+          "\n"
+          "size = East.function([StringType], IntegerType, lambda b, p: fs_read_file_bytes(p).size())\n"
+          "quarter = East.function([IntegerType], IntegerType, lambda b, x: half(half(x)))\n")
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
@@ -54,6 +65,13 @@ def test_lint_is_quiet_and_succeeds_on_clean_code(tmp_path):
     root = _tree(tmp_path)
     result = _run("lint", str(root / "pkg" / "clean.py"))
     assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "All clear."
+
+
+def test_lint_does_not_flag_a_body_calling_a_platform_implementation(tmp_path):
+    (tmp_path / "direct.py").write_text(DIRECT, encoding="utf-8")
+    result = _run("lint", str(tmp_path / "direct.py"))
+    assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.strip() == "All clear."
 
 

@@ -220,7 +220,7 @@ def _detect_solver_id(
     inputs=[LinearModelType, LinearConfigType],
     output=LinearResultType,
 )
-def linear_solve_impl(
+def linear_solve(
     model_data: EastStruct,
     config: EastStruct,
 ) -> EastStruct:

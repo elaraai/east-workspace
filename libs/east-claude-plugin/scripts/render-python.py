@@ -13,6 +13,13 @@ the generator, from an environment where ``east`` imports::
 
 Every entry with an ``ir`` gets its ``python``; entries without one (UI,
 hand-written stubs) are left alone. The file is rewritten in place.
+
+A platform call prints as the implementing package's own function and a
+struct or variant type the package names prints by that name (#667) — the
+python reading of what the TypeScript rendering spells through the
+library's handles — for every stock package this environment can import;
+a package that does not import here (an optional dependency missing) is
+skipped with a warning and its calls print as declarations.
 """
 
 from __future__ import annotations
@@ -21,9 +28,12 @@ import json
 import sys
 from pathlib import Path
 
-from east.codegen import to_python_source
+from east.codegen import Providers, to_python_source
 from east.serialization.json import decode_json_for
 from east.types.type_of_type import IRType
+
+#: The stock platform packages, in provider order.
+STOCK_PACKAGES = ("east_py_std", "east_py_io", "east_py_datascience")
 
 
 def main(argv: list[str]) -> int:
@@ -33,13 +43,20 @@ def main(argv: list[str]) -> int:
     path = Path(argv[1])
     data = json.loads(path.read_text(encoding="utf-8"))
     decode = decode_json_for(IRType)
+    providers = Providers()
+    for package in STOCK_PACKAGES:
+        try:
+            providers.add_module(package)
+        except Exception as e:  # noqa: BLE001 — an optional dependency this environment lacks
+            print(f"[!] {package} does not import here ({e}); its calls print as declarations",
+                  file=sys.stderr)
     rendered = 0
     for entry in data["entries"]:
         ir = entry.get("ir")
         if ir is None:
             continue
         name = entry["id"].rsplit(":", 1)[1]
-        entry["python"] = to_python_source(decode(ir.encode("utf-8")), name=name)
+        entry["python"] = to_python_source(decode(ir.encode("utf-8")), name=name, providers=providers)
         rendered += 1
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"[+] Rendered {rendered} example(s) as python in {path}", file=sys.stderr)

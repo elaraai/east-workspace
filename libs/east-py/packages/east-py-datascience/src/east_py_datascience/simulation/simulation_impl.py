@@ -15,10 +15,14 @@ East type variables:
 - ``E`` - the event type: a user-defined ``VariantType`` where each case is
   an economic activity.
 
-Because it is generic, it is not decorated with ``@platform_function`` and
-has no Python-callable wrapper. It is registered via ``GenericPlatformFunction``
-backed by a pure-C factory (``simulation_run_capsule``). The entire event loop
-runs in C without the GIL.
+Because the whole event loop runs in C without the GIL, there is no Python
+implementation to decorate: the registration is a ``GenericPlatformFunction``
+backed by a pure-C factory (``simulation_run_capsule``). What the package
+exports under the name ``simulation_run`` is the DECLARATION —
+``East.genericPlatform`` — so an East body calls it as any other platform
+function, ``simulation_run(Resources, Events, state, events, process,
+config)``, and the printer spells it that way (#667). There is no eager
+python call: the function IS the C event loop.
 
 **Platform function signature** (East types)::
 
@@ -64,11 +68,48 @@ how process-from-process triggering works (directed cyclic economic graph).
   (millisecond precision).
 """
 
+from east.expression.platform import generic_platform
 from east.runtime.platform import GenericPlatformFunction
+from east.types.types import (
+    ArrayType,
+    DateTimeType,
+    FunctionType,
+    IntegerType,
+    OptionType,
+    StructType,
+)
 
 from east_py_datascience.simulation._simulation_eastc import (
     simulation_run_capsule,
 )
+
+ScheduledEventType = StructType([("date", DateTimeType), ("event", "E")])
+"""One queued event: when it happens, and the activity variant ``E`` it is."""
+
+ProcessResultType = StructType([("state", "R"), ("events", ArrayType(ScheduledEventType))])
+"""What the handler returns: the updated resource state, and events to schedule."""
+
+ProcessFnType = FunctionType(["R", DateTimeType, "E"], ProcessResultType)
+"""The handler the loop calls once per dequeued event."""
+
+SimulationConfigType = StructType(
+    [("max_events", OptionType(IntegerType)), ("end_date", OptionType(DateTimeType))]
+)
+"""Run limits: the safety cap on events processed, and the date to stop at."""
+
+SimulationResultType = StructType(
+    [("final_state", "R"), ("events_processed", IntegerType), ("final_date", DateTimeType)]
+)
+"""The state after the last event, how many were processed, and when."""
+
+simulation_run = generic_platform(
+    "simulation_run",
+    ["R", "E"],
+    ["R", ArrayType(ScheduledEventType), ProcessFnType, SimulationConfigType],
+    SimulationResultType,
+)
+"""``simulation_run<R, E>`` — the declaration an East body calls; the C
+factory below implements it."""
 
 simulation_impl = [
     GenericPlatformFunction(
@@ -81,5 +122,11 @@ simulation_impl = [
 ]
 
 __all__ = [
+    "simulation_run",
     "simulation_impl",
+    "ScheduledEventType",
+    "ProcessResultType",
+    "ProcessFnType",
+    "SimulationConfigType",
+    "SimulationResultType",
 ]

@@ -216,7 +216,7 @@ test("scaffold e3: --platform with east-py (default) emits BOTH the TS-East and 
   assert.ok(existsSync(join(dir, "platform_module", "example.py")), "platform_module/example.py is emitted");
   const examplePy = readFileSync(join(dir, "platform_module", "example.py"), "utf8");
   assert.ok(examplePy.includes('name="my-proj.example_python"'), "platform fn uses the dotted <project>.<fn> name");
-  assert.ok(examplePy.includes("example_impl = platform_functions(__name__)"), "submodule collects its own fns");
+  assert.ok(examplePy.includes("example_impl = East.platform_functions(__name__)"), "submodule collects its own fns");
   const initPy = readFileSync(join(dir, "platform_module", "__init__.py"), "utf8");
   assert.ok(initPy.includes("from .example import example_impl"), "__init__ imports the submodule");
   assert.ok(initPy.includes("platform = [*example_impl]"), "__init__ aggregates into the platform list");

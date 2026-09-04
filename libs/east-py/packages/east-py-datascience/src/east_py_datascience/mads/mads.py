@@ -181,7 +181,7 @@ def _check_mads_support() -> None:
     ],
     output=MADSResultType,
 )
-def mads_optimize_impl(
+def mads_optimize(
     objective_fn: Callable[[EastVector], float],
     x0: EastVector,
     bounds: EastStruct,

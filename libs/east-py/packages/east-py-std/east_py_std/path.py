@@ -16,7 +16,7 @@ from east.types.values import EastArray
 
 
 @platform_function(name="path_join", inputs=[ArrayType(StringType)], output=StringType)
-def path_join_impl(segments: EastArray) -> str:
+def path_join(segments: EastArray) -> str:
     """Join path segments into a single path using forward slashes.
 
     Args:
@@ -33,7 +33,7 @@ def path_join_impl(segments: EastArray) -> str:
 
 
 @platform_function(name="path_resolve", inputs=[StringType], output=StringType)
-def path_resolve_impl(path: str) -> str:
+def path_resolve(path: str) -> str:
     """Resolve a path to an absolute path relative to the current working directory.
 
     Args:
@@ -47,7 +47,7 @@ def path_resolve_impl(path: str) -> str:
 
 
 @platform_function(name="path_dirname", inputs=[StringType], output=StringType)
-def path_dirname_impl(path: str) -> str:
+def path_dirname(path: str) -> str:
     """Extract the directory portion of a path.
 
     Args:
@@ -61,7 +61,7 @@ def path_dirname_impl(path: str) -> str:
 
 
 @platform_function(name="path_basename", inputs=[StringType], output=StringType)
-def path_basename_impl(path: str) -> str:
+def path_basename(path: str) -> str:
     """Extract the final component (file name) from a path.
 
     Args:
@@ -75,7 +75,7 @@ def path_basename_impl(path: str) -> str:
 
 
 @platform_function(name="path_extname", inputs=[StringType], output=StringType)
-def path_extname_impl(path: str) -> str:
+def path_extname(path: str) -> str:
     """Extract the file extension from a path.
 
     Args:
@@ -95,9 +95,9 @@ path_impl = platform_functions(__name__)
 
 __all__ = [
     "path_impl",
-    "path_join_impl",
-    "path_resolve_impl",
-    "path_dirname_impl",
-    "path_basename_impl",
-    "path_extname_impl",
+    "path_join",
+    "path_resolve",
+    "path_dirname",
+    "path_basename",
+    "path_extname",
 ]

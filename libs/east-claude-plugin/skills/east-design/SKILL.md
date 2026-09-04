@@ -96,7 +96,7 @@ Ask only what you can't already infer from the developer's description. Group qu
 | Optimization / scheduling / routing | **east-py-datascience** (MADS, Optuna, SimAnneal, GoogleOr) |
 | Bayesian inference / uncertainty | **east-py-datascience** (PyMC, MAPIE conformal) |
 | Discrete-event simulation | **east-py-datascience** (Simulation) |
-| Native code East can't express (a 3rd-party lib, bespoke algorithm) — Python or TS | a **project-owned platform module** → **east-project** (`--platform`), authored with **east** (`East.platform().implement()`) / **east-py** (`@platform_function`) |
+| Native code East can't express (a 3rd-party lib, bespoke algorithm) — Python or TS | a **project-owned platform module** → **east-project** (`--platform`), authored with **east** (`East.platform().implement()`) / **east-py** (`@East.platform_function`, callable in a body) |
 
 **Where do results go?** (drives the output skills)
 

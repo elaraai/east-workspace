@@ -4,7 +4,7 @@
 #
 """MAPIE conformal prediction for East - regression, CQR, and classification.
 
-The ``*_impl`` functions are plain Python callables taking and returning East
+The platform functions are plain Python callables taking and returning East
 values - import them directly from a project's own ``@platform_function`` to
 reuse the implementations without an IR round-trip.  The East type definitions
 (config, blob, and result types) are re-exported here for building inputs with
@@ -28,26 +28,26 @@ from east_py_datascience.mapie.mapie_impl import (
     UncertaintyPredictorType,
     XGBoostConfigType,
     mapie_impl,
-    mapie_predict_interval_impl,
-    mapie_predict_set_impl,
-    mapie_train_conformal_classifier_impl,
-    mapie_train_conformal_regressor_impl,
-    mapie_train_cqr_impl,
-    mapie_uncertainty_predictor_classifier_impl,
-    mapie_uncertainty_predictor_regressor_impl,
+    mapie_predict_interval,
+    mapie_predict_set,
+    mapie_train_conformal_classifier,
+    mapie_train_conformal_regressor,
+    mapie_train_cqr,
+    mapie_uncertainty_predictor_classifier,
+    mapie_uncertainty_predictor_regressor,
 )
 
 __all__ = [
     # Platform registration
     "mapie_impl",
     # Directly-callable implementations
-    "mapie_train_conformal_regressor_impl",
-    "mapie_train_cqr_impl",
-    "mapie_predict_interval_impl",
-    "mapie_train_conformal_classifier_impl",
-    "mapie_predict_set_impl",
-    "mapie_uncertainty_predictor_regressor_impl",
-    "mapie_uncertainty_predictor_classifier_impl",
+    "mapie_train_conformal_regressor",
+    "mapie_train_cqr",
+    "mapie_predict_interval",
+    "mapie_train_conformal_classifier",
+    "mapie_predict_set",
+    "mapie_uncertainty_predictor_regressor",
+    "mapie_uncertainty_predictor_classifier",
     # East type definitions
     "XGBoostConfigType",
     "LightGBMConfigType",

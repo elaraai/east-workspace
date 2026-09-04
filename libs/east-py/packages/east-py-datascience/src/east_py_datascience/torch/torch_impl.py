@@ -407,7 +407,7 @@ n_features: Integer, hidden_layers: Array<Integer>, output_dim: Integer}``),
     inputs=[MatrixType(FloatType), VectorType(FloatType), TorchMLPConfigType, TorchTrainConfigType],
     output=TorchTrainOutputType,
 )
-def torch_mlp_train_impl(
+def torch_mlp_train(
     X: EastMatrix,
     y: EastVector,
     mlp_config: EastStruct,
@@ -482,7 +482,7 @@ def torch_mlp_train_impl(
     inputs=[MatrixType(FloatType), MatrixType(FloatType), TorchMLPConfigType, TorchTrainConfigType],
     output=TorchTrainOutputType,
 )
-def torch_mlp_train_multi_impl(
+def torch_mlp_train_multi(
     X: EastMatrix,
     y: EastMatrix,
     mlp_config: EastStruct,
@@ -490,7 +490,7 @@ def torch_mlp_train_multi_impl(
 ) -> EastStruct:
     """Train a multi-output PyTorch MLP and return the model blob with training metrics.
 
-    Identical to :func:`torch_mlp_train_impl` except that ``y`` is a matrix;
+    Identical to :func:`torch_mlp_train` except that ``y`` is a matrix;
     the output dimension defaults to ``y.shape[1]`` and can be overridden by
     ``mlp_config["output_dim"]``. Suitable for multi-output regression and
     autoencoder reconstruction tasks.
@@ -500,14 +500,14 @@ def torch_mlp_train_multi_impl(
         y: ``Matrix<Float>`` (``EastMatrix``) - target matrix
            (n_samples x n_outputs).
         mlp_config: ``TorchMLPConfigType`` (``EastStruct``) - see
-            :func:`torch_mlp_train_impl`.  ``output_dim`` overrides the
+            :func:`torch_mlp_train`.  ``output_dim`` overrides the
             inferred ``y.shape[1]`` when set.
         train_config: ``TorchTrainConfigType`` (``EastStruct``) - see
-            :func:`torch_mlp_train_impl`.
+            :func:`torch_mlp_train`.
 
     Returns:
         ``TorchTrainOutputType`` (``EastStruct``) - same layout as
-        :func:`torch_mlp_train_impl`.
+        :func:`torch_mlp_train`.
 
     Raises:
         NotImplementedError: the ``torch`` extra is not installed.
@@ -531,7 +531,7 @@ def torch_mlp_train_multi_impl(
     inputs=[TorchModelBlobType, MatrixType(FloatType)],
     output=VectorType(FloatType),
 )
-def torch_mlp_predict_impl(
+def torch_mlp_predict(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastVector:
@@ -543,7 +543,7 @@ def torch_mlp_predict_impl(
 
     Args:
         model_blob: ``TorchModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
-            from :func:`torch_mlp_train_impl` or :func:`torch_mlp_train_multi_impl`.
+            from :func:`torch_mlp_train` or :func:`torch_mlp_train_multi`.
         X: ``Matrix<Float>`` (``EastMatrix``) - input features
            (n_samples x n_features).
 
@@ -604,7 +604,7 @@ def torch_mlp_predict_impl(
     inputs=[TorchModelBlobType, MatrixType(FloatType)],
     output=MatrixType(FloatType),
 )
-def torch_mlp_predict_multi_impl(
+def torch_mlp_predict_multi(
     model_blob: EastVariant,
     X: EastMatrix,
 ) -> EastMatrix:
@@ -615,7 +615,7 @@ def torch_mlp_predict_multi_impl(
 
     Args:
         model_blob: ``TorchModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
-            from :func:`torch_mlp_train_multi_impl`.
+            from :func:`torch_mlp_train_multi`.
         X: ``Matrix<Float>`` (``EastMatrix``) - input features
            (n_samples x n_features).
 
@@ -677,7 +677,7 @@ def torch_mlp_predict_multi_impl(
     inputs=[TorchModelBlobType, MatrixType(FloatType), IntegerType],
     output=MatrixType(FloatType),
 )
-def torch_mlp_encode_impl(
+def torch_mlp_encode(
     model_blob: EastVariant,
     X: EastMatrix,
     layer_index: int,
@@ -699,8 +699,8 @@ def torch_mlp_encode_impl(
 
     Args:
         model_blob: ``TorchModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
-            from :func:`torch_mlp_train_impl` or
-            :func:`torch_mlp_train_multi_impl`.
+            from :func:`torch_mlp_train` or
+            :func:`torch_mlp_train_multi`.
         X: ``Matrix<Float>`` (``EastMatrix``) - input features
            (n_samples x n_features).
         layer_index: ``Integer`` - 0-indexed hidden layer whose activations
@@ -794,20 +794,20 @@ def torch_mlp_encode_impl(
     inputs=[TorchModelBlobType, MatrixType(FloatType), IntegerType],
     output=MatrixType(FloatType),
 )
-def torch_mlp_decode_impl(
+def torch_mlp_decode(
     model_blob: EastVariant,
     embeddings: EastMatrix,
     layer_index: int,
 ) -> EastMatrix:
     """Decode embeddings through the decoder portion of an MLP.
 
-    The complement to :func:`torch_mlp_encode_impl`. Takes activations that
+    The complement to :func:`torch_mlp_encode`. Takes activations that
     originate from hidden layer ``layer_index`` and applies all subsequent
     layers (skipping layer ``layer_index`` and its activation/dropout), ending
     at the final output.
 
     Primary use-case: compute a weighted blend of bottleneck embeddings from
-    :func:`torch_mlp_encode_impl`, then decode to reconstruct the output
+    :func:`torch_mlp_encode`, then decode to reconstruct the output
     distribution.
 
     For a network with ``hidden_layers=[8, 2, 8]``:
@@ -817,8 +817,8 @@ def torch_mlp_decode_impl(
 
     Args:
         model_blob: ``TorchModelBlobType`` (``EastVariant`` tagged ``torch_mlp``)
-            from :func:`torch_mlp_train_impl` or
-            :func:`torch_mlp_train_multi_impl`.
+            from :func:`torch_mlp_train` or
+            :func:`torch_mlp_train_multi`.
         embeddings: ``Matrix<Float>`` (``EastMatrix``) - activations at
             ``layer_index`` (n_samples x hidden_dim at that layer).
         layer_index: ``Integer`` - 0-indexed hidden layer the embeddings come

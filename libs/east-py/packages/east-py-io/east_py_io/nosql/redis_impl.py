@@ -38,7 +38,7 @@ _clients: dict[str, Any] = {}
     inputs=[RedisConfigType],
     output=ConnectionHandleType,
 )
-async def redis_connect_impl(config: EastStruct) -> str:
+async def redis_connect(config: EastStruct) -> str:
     """Open an async Redis connection and return a connection handle.
 
     Connects to the Redis server described by ``config``, issues a
@@ -104,12 +104,12 @@ async def redis_connect_impl(config: EastStruct) -> str:
     inputs=[ConnectionHandleType, StringType],
     output=OptionType(StringType),
 )
-async def redis_get_impl(handle: str, key: str) -> EastVariant:
+async def redis_get(handle: str, key: str) -> EastVariant:
     """Retrieve a string value from Redis by key.
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``redis_connect_impl``.
+            from ``redis_connect``.
         key: ``String`` - the key to look up.
 
     Returns:
@@ -139,12 +139,12 @@ async def redis_get_impl(handle: str, key: str) -> EastVariant:
     inputs=[ConnectionHandleType, StringType, StringType],
     output=NullType,
 )
-async def redis_set_impl(handle: str, key: str, value: str) -> None:
+async def redis_set(handle: str, key: str, value: str) -> None:
     """Set a string key-value pair in Redis with no expiration.
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``redis_connect_impl``.
+            from ``redis_connect``.
         key: ``String`` - the key to write.
         value: ``String`` - the value to store.
 
@@ -169,12 +169,12 @@ async def redis_set_impl(handle: str, key: str, value: str) -> None:
     inputs=[ConnectionHandleType, StringType, StringType, IntegerType],
     output=NullType,
 )
-async def redis_setex_impl(handle: str, key: str, value: str, ttl: int) -> None:
+async def redis_setex(handle: str, key: str, value: str, ttl: int) -> None:
     """Set a string key-value pair in Redis with a TTL expiration.
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``redis_connect_impl``.
+            from ``redis_connect``.
         key: ``String`` - the key to write.
         value: ``String`` - the value to store.
         ttl: ``Integer`` - time-to-live in seconds; the key is
@@ -201,12 +201,12 @@ async def redis_setex_impl(handle: str, key: str, value: str, ttl: int) -> None:
     inputs=[ConnectionHandleType, StringType],
     output=IntegerType,
 )
-async def redis_del_impl(handle: str, key: str) -> int:
+async def redis_del(handle: str, key: str) -> int:
     """Delete a key from Redis.
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``redis_connect_impl``.
+            from ``redis_connect``.
         key: ``String`` - the key to delete.
 
     Returns:
@@ -232,12 +232,12 @@ async def redis_del_impl(handle: str, key: str) -> int:
     inputs=[ConnectionHandleType],
     output=NullType,
 )
-async def redis_close_impl(handle: str) -> None:
+async def redis_close(handle: str) -> None:
     """Close a single Redis connection and remove its handle.
 
     Args:
         handle: ``String`` (``ConnectionHandleType``) - connection handle
-            from ``redis_connect_impl``.
+            from ``redis_connect``.
 
     Returns:
         ``Null`` - always ``None`` on success.
@@ -261,7 +261,7 @@ async def redis_close_impl(handle: str) -> None:
     inputs=[],
     output=NullType,
 )
-async def redis_close_all_impl() -> None:
+async def redis_close_all() -> None:
     """Close all open Redis connections managed by this process.
 
     Iterates every handle in the internal connection store, closes each
@@ -284,11 +284,11 @@ redis_impl = platform_functions(__name__)
 
 __all__ = [
     "redis_impl",
-    "redis_connect_impl",
-    "redis_get_impl",
-    "redis_set_impl",
-    "redis_setex_impl",
-    "redis_del_impl",
-    "redis_close_impl",
-    "redis_close_all_impl",
+    "redis_connect",
+    "redis_get",
+    "redis_set",
+    "redis_setex",
+    "redis_del",
+    "redis_close",
+    "redis_close_all",
 ]
