@@ -107,7 +107,9 @@ class NoPythonWork:
     name = "no-python-work"
     code = 6
     category = "error"
-    supersedes: tuple[str, ...] = ()
+    # The capture refuses the helper by name before an eager body runs, which is
+    # the more specific message where both rules see the same helper.
+    supersedes: tuple[str, ...] = ("no-python-data-work",)
     description = ("No python work inside an eager callback — no module objects, python builtins, "
                    "imported python functions or helpers doing python work; capture side-tables with "
                    "East.function / .bind.")
