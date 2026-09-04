@@ -549,7 +549,7 @@ def paged_value_stats(uintptr_t ptr):
     cdef size_t segments = 0
     cdef size_t decoded = 0
     cdef size_t fences = 0
-    cdef bint hydrated = False
+    cdef _eastc.cbool hydrated = False
     if not _eastc.east_paged_stats(<_eastc.EastValue*>ptr, &segments, &decoded, &fences, &hydrated):
         return None
     return (segments, decoded, fences, bool(hydrated))
