@@ -52,11 +52,14 @@ def _holds_traced(value: Any) -> bool:
     return _deep(value)
 
 
-def variant(case: str, value: EastValue, typ: EastType | None = None) -> EastVariant | Expression:
+def variant(
+    case: str, value: EastValue | None, typ: EastType | None = None
+) -> EastVariant | Expression:
     """Build a tagged variant value.
 
     If ``typ`` (a VariantType) is given, ``case`` must be one of its cases and
-    ``value`` is coerced/validated against that case's type.
+    ``value`` is coerced/validated against that case's type; ``None`` is the
+    payload of a ``NullType`` case (an enum-style tag), coerced to ``east_null``.
 
     Dual-mode, like ``struct``: a payload holding a traced expression makes
     this the Variant IR the builder emits. With ``typ`` the case and the

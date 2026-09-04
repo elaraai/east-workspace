@@ -2,7 +2,7 @@
 
 ## Overview
 
-`east-py-data-science` is a Python package providing platform functions for data science and machine learning operations in the East programming language. It enables East programs to train models, make predictions, perform optimization, and compute feature importance using industry-standard libraries.
+`east-py-datascience` is a Python package providing platform functions for data science and machine learning operations in the East programming language. It enables East programs to train models, make predictions, perform optimization, and compute feature importance using industry-standard libraries.
 
 ## Design Principles
 
@@ -119,71 +119,37 @@ let result = optuna_optimize(search_space, objective, config);
 ## Package Structure
 
 ```
-packages/
-└── east-py-data-science/
-    ├── pyproject.toml
-    ├── README.md
-    └── east_py_data_science/
-        ├── __init__.py           # Main exports, python_data_science_platform
-        ├── types.py              # Shared type definitions
-        ├── helpers.py            # _get_option, conversion helpers
-        ├── scikit.py             # scikit-learn operations
-        ├── xgboost_impl.py       # XGBoost gradient boosting
-        ├── lightgbm_impl.py      # LightGBM gradient boosting
-        ├── ngboost_impl.py       # NGBoost probabilistic predictions
-        ├── optuna_impl.py        # Hyperparameter optimization
-        ├── shap_impl.py          # Feature importance/explainability
-        ├── scipy_impl.py         # Scientific computing utilities
-        ├── torch_impl.py         # PyTorch neural networks
-        ├── gp_impl.py            # Gaussian Process regression
-        └── mads_impl.py          # MADS derivative-free optimization
+packages/east-py-datascience/
+├── pyproject.toml
+├── src/                            # TypeScript: platform declarations + types (one dir per library)
+├── test/                           # TypeScript: export-only specs (*.spec.ts)
+├── tests/test_compliance.py        # Python: replays the exported IR
+└── src/east_py_datascience/        # Python package
+    ├── __init__.py                 # Main exports, `platform`
+    ├── types.py                    # Shared type definitions
+    ├── _common.py                  # serialize/deserialize, extra_guard, option_tag, expect_case, quiet_warnings
+    ├── _categorical.py             # Categorical column handling shared by the tree models
+    ├── sklearn/                    # One package per library: <lib>/<lib>_impl.py + __init__.py
+    ├── xgboost/
+    ├── lightgbm/
+    ├── lightning/                  # lightning_impl.py + _models.py (torch classes, imported lazily)
+    ├── optimization/               # optimization.py + _optimization_eastc.pyx (Cython, C-level loop)
+    └── ...                         # see CLAUDE.md for the full module list
 ```
 
 ## Dependencies
 
-```toml
-[project]
-dependencies = [
-    "east-py",
-    # Core ML
-    "scikit-learn>=1.3.0",
-    "scipy>=1.11.0",
-    # ONNX support
-    "onnx>=1.14.0",
-    "onnxruntime>=1.15.0",
-    "skl2onnx>=1.15.0",
-    # Gradient boosting
-    "xgboost>=2.0.0",
-    "lightgbm>=4.0.0",
-    "ngboost>=0.5.0",
-    "onnxmltools>=1.11.0",  # For XGBoost/LightGBM ONNX export
-    # Hyperparameter optimization
-    "optuna>=3.0.0",
-    # Explainability
-    "shap>=0.42.0",
-    # Serialization fallback
-    "cloudpickle>=2.2.0",
-]
-
-[project.optional-dependencies]
-torch = ["torch>=2.0.0"]
-gp = ["gpflow>=2.9.0", "tensorflow>=2.12.0"]
-mads = ["PyNomadBBO>=2.0.0"]
-```
+The only core runtime dependency is numpy (plus `elaraai-east-py`). Every
+library is an optional extra — `east-py-datascience[xgboost]`, `[lightning]`,
+`[causal]`, ... or `[all]` — declared in `pyproject.toml`; each module guards
+its extra with `extra_guard` and imports the library inside the platform
+function (see `docs/conventions/PYTHON_OPTIONAL_DEPS.md`).
 
 ## Module Documentation
 
-1. [Shared Types](./01_types.md) - Core type definitions and helpers
-2. [Scikit-Learn](./02_scikit.md) - Preprocessing, model selection, metrics
-3. [XGBoost](./03_xgboost.md) - Gradient boosting for regression/classification
-4. [LightGBM](./04_lightgbm.md) - Fast gradient boosting
-5. [NGBoost](./05_ngboost.md) - Probabilistic predictions with uncertainty
-6. [Optuna](./06_optuna.md) - Hyperparameter optimization
-7. [SHAP](./07_shap.md) - Feature importance and explainability
-8. [SciPy](./08_scipy.md) - Scientific computing utilities
-9. [PyTorch](./09_torch.md) - Neural network models
-10. [Gaussian Process](./10_gp.md) - GP regression with uncertainty
-11. [MADS](./11_mads.md) - Derivative-free blackbox optimization (PyNomadBBO)
+Per-module documentation lives in each implementation's docstrings (every
+platform function documents its East fields, return shape and errors) and in
+`SKILL.md`, which backs the `east:east-py-datascience` plugin skill.
 
 ## Usage Example (East Code)
 
@@ -211,25 +177,28 @@ let importance = xgboost_feature_importance(model, feature_names);
 
 ## Helper Functions
 
-The package uses helper functions for East type handling:
+`east_py_datascience._common` holds the helpers every module shares; options
+are read through the `EastVariant` API rather than by inspecting tags:
 
 ```python
-from east.types.values import is_east_variant  # For checking deserialized options
+from east_py_datascience._common import (
+    deserialize,     # cloudpickle blob -> object
+    expect_case,     # model-blob guard: the payload when the case matches, else a named RuntimeError
+    extra_guard,     # build a module's `_check_<lib>_support()` for an optional extra
+    option_tag,      # case name of an Option<Variant> config field, or a default
+    quiet_warnings,  # scoped UserWarning / FutureWarning filter around chatty fits
+    serialize,       # object -> cloudpickle EastBlob
+)
 
-def _get_option(value, default):
-    """Extract value from Option variant or return default.
-
-    Note: Use is_east_variant (not is_east_option) because deserialized IR
-    uses EastVariant with 'some'/'none' tags, not EastOption instances.
-    """
-    if is_east_variant(value) and value.type == "some":
-        return value.value
-    return default
-
-def _get_enum_tag(variant: EastVariant) -> str:
-    """Get the tag name from an enum-style EastVariant."""
-    return variant.type
+max_iter = int(config["max_iter"].unwrap_or(100))       # Option<Integer>
+weights = config["weights"].unwrap_or(None)              # Option<Matrix<Float>> -> EastMatrix | None
+kernel = option_tag(config["kernel"], "rbf")             # Option<Variant> -> "rbf" | "matern_3_2" | ...
+payload = expect_case(model_blob, "xgboost_regressor", "xgboost_predict")
 ```
+
+Results are built with the constructors from `east` — `some(x)` / `none`,
+`variant(case, value, Type)` — and `EastStruct` / `EastVector` / `EastMatrix`;
+never a hand-rolled `{"type", "value"}` dict.
 
 ## Implementation Checklist
 

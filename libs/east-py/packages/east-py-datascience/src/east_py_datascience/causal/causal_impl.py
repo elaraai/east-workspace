@@ -9,12 +9,12 @@ treatment effects via double machine learning (EconML LinearDML), and
 accumulated local effects dose-response curves (PyALE).
 """
 
-import importlib.util
 import logging
 import math
+from typing import Any
 
 import numpy as np
-from east import assert_value_of
+from east import assert_value_of, none, some, variant
 from east.runtime.platform import generic_platform_function, platform_functions
 from east.types.types import (
     ArrayType,
@@ -29,9 +29,9 @@ from east.types.types import (
     VariantType,
     VectorType,
 )
-from east.types.values import EastArray, EastBlob, EastMatrix, EastStruct, EastVariant, EastVector
+from east.types.values import EastArray, EastMatrix, EastStruct, EastVariant, EastVector
 
-from east_py_datascience.types import _get_option
+from east_py_datascience._common import deserialize, extra_guard, serialize
 
 # ============================================================================
 # Type Definitions for Causal
@@ -347,46 +347,12 @@ grid value), ``lower`` / ``upper`` (CIs, present when ``include_ci``),
 # Optional Dependency Guards
 # ============================================================================
 
-_HAS_DOWHY_SUPPORT = importlib.util.find_spec("dowhy") is not None
-_HAS_ECONML_SUPPORT = importlib.util.find_spec("econml") is not None
-_HAS_PYALE_SUPPORT = importlib.util.find_spec("PyALE") is not None
-_HAS_STATSMODELS_SUPPORT = importlib.util.find_spec("statsmodels") is not None
-
-
-def _check_statsmodels_support() -> None:
-    """Raise if the causal extra (statsmodels) isn't installed."""
-    if not _HAS_STATSMODELS_SUPPORT:
-        raise NotImplementedError(
-            "Trial-design power analysis requires the 'causal' extra. "
-            "Add east-py-datascience[causal] to your pyproject.toml dependencies."
-        )
-
-
-def _check_dowhy_support() -> None:
-    """Raise if the causal extra (dowhy) isn't installed."""
-    if not _HAS_DOWHY_SUPPORT:
-        raise NotImplementedError(
-            "Causal effect estimation requires the 'causal' extra. "
-            "Add east-py-datascience[causal] to your pyproject.toml dependencies."
-        )
-
-
-def _check_econml_support() -> None:
-    """Raise if the causal extra (econml) isn't installed."""
-    if not _HAS_ECONML_SUPPORT:
-        raise NotImplementedError(
-            "DML estimation requires the 'causal' extra. "
-            "Add east-py-datascience[causal] to your pyproject.toml dependencies."
-        )
-
-
-def _check_pyale_support() -> None:
-    """Raise if the causal extra (PyALE) isn't installed."""
-    if not _HAS_PYALE_SUPPORT:
-        raise NotImplementedError(
-            "ALE curves require the 'causal' extra. "
-            "Add east-py-datascience[causal] to your pyproject.toml dependencies."
-        )
+# The `causal` extra bundles four libraries; each entry point guards the one
+# it actually needs, so a partial install fails naming the right capability.
+_check_dowhy_support = extra_guard("dowhy", "causal", "Causal effect estimation")
+_check_econml_support = extra_guard("econml", "causal", "DML estimation")
+_check_pyale_support = extra_guard("PyALE", "causal", "ALE curve")
+_check_statsmodels_support = extra_guard("statsmodels", "causal", "Trial-design power analysis")
 
 
 # ============================================================================
@@ -398,11 +364,7 @@ def _build_dataframe(data: EastArray, func_name: str):
     """Build a pandas DataFrame from an array of row structs (fields = columns)."""
     import pandas as pd
 
-    try:
-        records = [dict(row.items()) for row in data]
-    except Exception as e:
-        raise RuntimeError(f"{func_name}: Invalid input data - {e}") from e
-
+    records = [dict(row.items()) for row in data]
     if not records:
         raise RuntimeError(f"{func_name}: data must have at least one row")
     df = pd.DataFrame.from_records(records)
@@ -530,20 +492,20 @@ def _extract_effect_config(config: EastStruct, func_name: str):
     treatment = str(config.get("treatment"))
     outcome = str(config.get("outcome"))
     common_causes = [str(c) for c in config.get("common_causes")]
-    categorical_opt = _get_option(config.get("categorical"), None)
+    categorical_opt = config["categorical"].unwrap_or(None)
     categorical = [str(c) for c in categorical_opt] if categorical_opt is not None else []
-    method_variant = _get_option(config.get("method"), None)
+    method_variant = config["method"].unwrap_or(None)
     method_tag = "linear_regression" if method_variant is None else method_variant.type
     scheme = "ips_stabilized_weight"
     if method_tag == "propensity_score_weighting":
-        scheme_opt = _get_option(method_variant.value.get("weighting_scheme"), None)
+        scheme_opt = method_variant.value["weighting_scheme"].unwrap_or(None)
         if scheme_opt is not None:
             scheme = scheme_opt.type
-    target_variant = _get_option(config.get("target_units"), None)
+    target_variant = config["target_units"].unwrap_or(None)
     target_units = "ate" if target_variant is None else target_variant.type
-    trim_variant = _get_option(config.get("trim"), None)
-    bootstrap = _get_option(config.get("bootstrap"), None)
-    random_state = _get_option(config.get("random_state"), None)
+    trim_variant = config["trim"].unwrap_or(None)
+    bootstrap = config["bootstrap"].unwrap_or(None)
+    random_state = config["random_state"].unwrap_or(None)
     if random_state is not None:
         random_state = int(random_state)
     # An empty backdoor set is the unadjusted ("naive") estimate — a legitimate
@@ -626,8 +588,8 @@ def _bootstrap_ci(df, treatment, outcome, causes, method_tag, target_units,
                   bootstrap: EastStruct, random_state):
     """Percentile bootstrap CI, resampling clusters when configured."""
     reps = int(bootstrap.get("reps"))
-    cluster_column = _get_option(bootstrap.get("cluster_column"), None)
-    confidence_level = float(_get_option(bootstrap.get("confidence_level"), 0.95))
+    cluster_column = bootstrap["cluster_column"].unwrap_or(None)
+    confidence_level = float(bootstrap["confidence_level"].unwrap_or(0.95))
     rng = np.random.default_rng(random_state)
 
     estimates = []
@@ -735,7 +697,7 @@ def causal_effect(data: EastArray, config: EastStruct) -> EastStruct:
     except Exception as e:
         raise RuntimeError(f"{func_name}: Estimation failed - {e}") from e
 
-    ci_variant = EastVariant("none", None)
+    ci_variant = none
     if bootstrap is not None:
         try:
             lower, upper = _bootstrap_ci(
@@ -746,7 +708,7 @@ def causal_effect(data: EastArray, config: EastStruct) -> EastStruct:
             raise
         except Exception as e:
             raise RuntimeError(f"{func_name}: Bootstrap failed - {e}") from e
-        ci_variant = EastVariant("some", EastStruct({"lower": lower, "upper": upper}))
+        ci_variant = some(EastStruct({"lower": lower, "upper": upper}))
 
     t = df[treatment].to_numpy() > 0.5
     return EastStruct(
@@ -769,7 +731,8 @@ def causal_refute(
     :func:`causal_effect`, bootstrap ignored), then applies the refuter.
 
     Args:
-        data: ``Matrix<Float>`` (``EastMatrix``) - one row per unit.
+        data: ``Array<Struct>`` (``EastArray`` of ``EastStruct``) - one struct
+            per unit; the struct's fields ARE the columns.
         config: ``CausalEffectConfigType`` - see :func:`causal_effect`.
         refuter: ``CausalRefuterType`` (``EastVariant``), one of:
 
@@ -812,6 +775,8 @@ def causal_refute(
 
     refuter_tag = refuter.type
     refuter_config = refuter.value
+    if refuter_config is None:  # every CausalRefuterType case carries a config struct
+        raise RuntimeError(f"{func_name}: refuter {refuter_tag!r} has no config")
     new_effects: list[float] = []
     p_value = None
 
@@ -836,7 +801,7 @@ def causal_refute(
                 new_effects.append(float(np.asarray(res.new_effect).ravel()[0]))
         else:
             kwargs = {}
-            num_simulations = _get_option(refuter_config.get("num_simulations"), None)
+            num_simulations = refuter_config["num_simulations"].unwrap_or(None)
             if num_simulations is not None:
                 kwargs["num_simulations"] = int(num_simulations)
             if refuter_tag == "placebo_treatment":
@@ -847,7 +812,7 @@ def causal_refute(
             else:
                 method_name = "data_subset_refuter"
                 kwargs["subset_fraction"] = float(
-                    _get_option(refuter_config.get("subset_fraction"), 0.8)
+                    refuter_config["subset_fraction"].unwrap_or(0.8)
                 )
             if random_state is not None:
                 kwargs["random_seed"] = random_state
@@ -865,7 +830,7 @@ def causal_refute(
         {
             "estimated_effect": float(estimate.value),
             "new_effects": EastVector(FloatType, np.array(new_effects, dtype=np.float64)),
-            "p_value": EastVariant("some", p_value) if p_value is not None else EastVariant("none", None),
+            "p_value": some(p_value) if p_value is not None else none,
         }
     )
 
@@ -875,20 +840,25 @@ def causal_refute(
 # ============================================================================
 
 
-def _create_nuisance_model(variant: EastVariant | None, classifier: bool, random_state):
+def _nuisance_option(cfg: EastStruct | None, key: str, default: Any) -> Any:
+    """A nuisance-model option, or ``default`` when no model spec was given (the default model)."""
+    return default if cfg is None else cfg[key].unwrap_or(default)
+
+
+def _create_nuisance_model(spec: EastVariant | None, classifier: bool, random_state):
     """Build a nuisance model from CausalNuisanceModelType (default random forest)."""
-    tag = "random_forest" if variant is None else variant.type
-    cfg = None if variant is None else variant.value
+    tag = "random_forest" if spec is None else spec.type
+    cfg = None if spec is None else spec.value
 
     if tag == "random_forest":
         from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
-        kwargs = {
-            "n_estimators": int(_get_option(cfg.get("n_estimators"), 100)) if cfg else 100,
-            "min_samples_leaf": int(_get_option(cfg.get("min_samples_leaf"), 5)) if cfg else 5,
+        kwargs: dict[str, Any] = {
+            "n_estimators": int(_nuisance_option(cfg, "n_estimators", 100)),
+            "min_samples_leaf": int(_nuisance_option(cfg, "min_samples_leaf", 5)),
             "random_state": random_state,
         }
-        max_depth = _get_option(cfg.get("max_depth"), None) if cfg else None
+        max_depth = _nuisance_option(cfg, "max_depth", None)
         if max_depth is not None:
             kwargs["max_depth"] = int(max_depth)
         return RandomForestClassifier(**kwargs) if classifier else RandomForestRegressor(**kwargs)
@@ -897,9 +867,9 @@ def _create_nuisance_model(variant: EastVariant | None, classifier: bool, random
         from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
 
         kwargs = {
-            "n_estimators": int(_get_option(cfg.get("n_estimators"), 100)),
-            "learning_rate": float(_get_option(cfg.get("learning_rate"), 0.1)),
-            "max_depth": int(_get_option(cfg.get("max_depth"), 3)),
+            "n_estimators": int(_nuisance_option(cfg, "n_estimators", 100)),
+            "learning_rate": float(_nuisance_option(cfg, "learning_rate", 0.1)),
+            "max_depth": int(_nuisance_option(cfg, "max_depth", 3)),
             "random_state": random_state,
         }
         return GradientBoostingClassifier(**kwargs) if classifier else GradientBoostingRegressor(**kwargs)
@@ -957,14 +927,11 @@ def causal_dml_train(
     _check_econml_support()
     func_name = "causal_dml_train"
 
-    try:
-        Y_np = Y.to_numpy()
-        T_np = T.to_numpy()
-        X_np = X.to_numpy()
-        W_opt = _get_option(W, None)
-        W_np = W_opt.to_numpy() if W_opt is not None else None
-    except Exception as e:
-        raise RuntimeError(f"{func_name}: Invalid input data - {e}") from e
+    Y_np = Y.to_numpy()
+    T_np = T.to_numpy()
+    X_np = X.to_numpy()
+    W_opt = W.unwrap_or(None)
+    W_np = W_opt.to_numpy() if W_opt is not None else None
 
     if Y_np.shape[0] != T_np.shape[0] or Y_np.shape[0] != X_np.shape[0]:
         raise RuntimeError(
@@ -976,18 +943,18 @@ def causal_dml_train(
             f"{func_name}: W has {W_np.shape[0]} samples but Y has {Y_np.shape[0]}"
         )
 
-    discrete_treatment = bool(_get_option(config.get("discrete_treatment"), False))
-    cv_folds = int(_get_option(config.get("cv_folds"), 2))
-    confidence_level = float(_get_option(config.get("confidence_level"), 0.95))
-    random_state = _get_option(config.get("random_state"), None)
+    discrete_treatment = bool(config["discrete_treatment"].unwrap_or(False))
+    cv_folds = int(config["cv_folds"].unwrap_or(2))
+    confidence_level = float(config["confidence_level"].unwrap_or(0.95))
+    random_state = config["random_state"].unwrap_or(None)
     if random_state is not None:
         random_state = int(random_state)
 
     model_y = _create_nuisance_model(
-        _get_option(config.get("model_y"), None), classifier=False, random_state=random_state
+        config["model_y"].unwrap_or(None), classifier=False, random_state=random_state
     )
     model_t = _create_nuisance_model(
-        _get_option(config.get("model_t"), None),
+        config["model_t"].unwrap_or(None),
         classifier=discrete_treatment,
         random_state=random_state,
     )
@@ -1007,13 +974,11 @@ def causal_dml_train(
     except Exception as e:
         raise RuntimeError(f"{func_name}: Training failed - {e}") from e
 
-    import cloudpickle
-
     return EastVariant(
         "causal_dml",
         EastStruct(
             {
-                "data": EastBlob(cloudpickle.dumps(est)),
+                "data": serialize(est),
                 "n_features_x": X_np.shape[1],
                 "confidence_level": confidence_level,
             }
@@ -1023,17 +988,13 @@ def causal_dml_train(
 
 def _load_dml_model(model_blob: EastVariant, X: EastMatrix, func_name: str):
     """Deserialize a DML blob and validate X; returns (est, X_np, confidence_level)."""
-    import cloudpickle
 
     model_data = model_blob.value
-    est = cloudpickle.loads(bytes(model_data.get("data")))
+    est = deserialize(model_data.get("data"))
     n_features_x = model_data.get("n_features_x")
     confidence_level = float(model_data.get("confidence_level"))
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"{func_name}: Invalid input data - {e}") from e
+    X_np = X.to_numpy()
     if X_np.shape[1] != n_features_x:
         raise RuntimeError(
             f"{func_name}: Model trained with {n_features_x} X features "
@@ -1145,13 +1106,13 @@ def causal_ale(data: EastArray, config: EastStruct) -> EastStruct:
 
     outcome = str(config.get("outcome"))
     feature = str(config.get("feature"))
-    categorical_opt = _get_option(config.get("categorical"), None)
+    categorical_opt = config["categorical"].unwrap_or(None)
     categorical = [str(c) for c in categorical_opt] if categorical_opt is not None else []
-    grid_size = int(_get_option(config.get("grid_size"), 10))
-    include_ci = bool(_get_option(config.get("include_ci"), True))
-    confidence_level = float(_get_option(config.get("confidence_level"), 0.95))
-    emulator = _get_option(config.get("emulator"), None)
-    random_state = _get_option(config.get("random_state"), None)
+    grid_size = int(config["grid_size"].unwrap_or(10))
+    include_ci = bool(config["include_ci"].unwrap_or(True))
+    confidence_level = float(config["confidence_level"].unwrap_or(0.95))
+    emulator = config["emulator"].unwrap_or(None)
+    random_state = config["random_state"].unwrap_or(None)
     if random_state is not None:
         random_state = int(random_state)
 
@@ -1168,14 +1129,14 @@ def causal_ale(data: EastArray, config: EastStruct) -> EastStruct:
         from sklearn.ensemble import HistGradientBoostingRegressor
 
         hgb_kwargs = {
-            "max_iter": int(_get_option(emulator.get("n_estimators"), 300)) if emulator else 300,
-            "learning_rate": float(_get_option(emulator.get("learning_rate"), 0.05)) if emulator else 0.05,
+            "max_iter": int(emulator["n_estimators"].unwrap_or(300)) if emulator else 300,
+            "learning_rate": float(emulator["learning_rate"].unwrap_or(0.05)) if emulator else 0.05,
             "random_state": random_state,
         }
-        max_depth = _get_option(emulator.get("max_depth"), None) if emulator else None
+        max_depth = emulator["max_depth"].unwrap_or(None) if emulator else None
         if max_depth is not None:
             hgb_kwargs["max_depth"] = int(max_depth)
-        min_samples_leaf = _get_option(emulator.get("min_samples_leaf"), None) if emulator else None
+        min_samples_leaf = emulator["min_samples_leaf"].unwrap_or(None) if emulator else None
         if min_samples_leaf is not None:
             hgb_kwargs["min_samples_leaf"] = int(min_samples_leaf)
         gbm = HistGradientBoostingRegressor(**hgb_kwargs)
@@ -1206,18 +1167,14 @@ def causal_ale(data: EastArray, config: EastStruct) -> EastStruct:
     effect = res["eff"].to_numpy(dtype=np.float64)
     size = res["size"].to_numpy(dtype=np.int64)
 
-    lower_variant = EastVariant("none", None)
-    upper_variant = EastVariant("none", None)
+    lower_variant = none
+    upper_variant = none
     if include_ci:
         lower_cols = [c for c in res.columns if str(c).startswith("lowerCI")]
         upper_cols = [c for c in res.columns if str(c).startswith("upperCI")]
         if lower_cols and upper_cols:
-            lower_variant = EastVariant(
-                "some", EastVector(FloatType, res[lower_cols[0]].to_numpy(dtype=np.float64))
-            )
-            upper_variant = EastVariant(
-                "some", EastVector(FloatType, res[upper_cols[0]].to_numpy(dtype=np.float64))
-            )
+            lower_variant = some(EastVector(FloatType, res[lower_cols[0]].to_numpy(dtype=np.float64)))
+            upper_variant = some(EastVector(FloatType, res[upper_cols[0]].to_numpy(dtype=np.float64)))
 
     return EastStruct(
         {
@@ -1622,21 +1579,22 @@ def _experiment_placebo(df, treatment, outcome, causes, method_tag, target_units
     rng = np.random.default_rng(random_state)
     base = df[treatment].to_numpy()
 
-    groups = None
-    cluster_labels = None
+    # (row indices per cluster, cluster-level treatment label) when the
+    # treatment is assigned per cluster; None for the row-level permutation.
+    clusters: tuple[list[np.ndarray], np.ndarray] | None = None
     if cluster_column is not None and cluster_column in df.columns:
         cluster_vals = df[cluster_column].to_numpy()
         cand = [np.where(cluster_vals == u)[0] for u in np.unique(cluster_vals)]
         fracs = [float((base[idx] > 0.5).mean()) for idx in cand]
         # Cluster-level assignment ⇒ each cluster's treated-fraction is exactly 0 or 1.
         if len(cand) > 1 and all(f in (0.0, 1.0) for f in fracs):
-            groups = cand
-            cluster_labels = np.array([1.0 if f == 1.0 else 0.0 for f in fracs])
+            clusters = (cand, np.array([1.0 if f == 1.0 else 0.0 for f in fracs]))
 
     vals = []
     for _ in range(sims):
         d2 = df.copy()
-        if groups is not None:
+        if clusters is not None:
+            groups, cluster_labels = clusters
             perm = rng.permutation(len(cluster_labels))
             # Reject any permutation that leaves the LABEL vector unchanged — not just
             # the index-identity. A shuffle that only permutes same-labelled clusters
@@ -1682,7 +1640,7 @@ def _meandiff_ci(y, t, bootstrap_opt, random_state, cluster_ids=None):
     reps, cl = 200, 0.95
     if bootstrap_opt is not None:
         reps = int(bootstrap_opt.get("reps"))
-        cl = float(_get_option(bootstrap_opt.get("confidence_level"), 0.95))
+        cl = float(bootstrap_opt["confidence_level"].unwrap_or(0.95))
     rng = np.random.default_rng(random_state)
     n = len(y)
     est = []
@@ -1714,8 +1672,8 @@ def _experiment_ci(df, treatment, outcome, causes, method_tag, target_units,
     """(lower, upper) for the adjusted estimate via the percentile bootstrap (default 200 reps)."""
     bs = bootstrap_opt
     if bs is None:
-        bs = EastStruct({"reps": 200, "cluster_column": EastVariant("none", None),
-                         "confidence_level": EastVariant("some", 0.95)})
+        bs = EastStruct({"reps": 200, "cluster_column": none,
+                         "confidence_level": some(0.95)})
     return _bootstrap_ci(df, treatment, outcome, causes, method_tag, target_units, bs, random_state)
 
 
@@ -1762,8 +1720,8 @@ def _effect_config_from(config: EastStruct, treatment: str, outcome: str) -> Eas
         "categorical": config.get("categorical"),
         "method": config.get("method"),
         "target_units": config.get("estimand"),
-        "trim": EastVariant("none", None),
-        "bootstrap": EastVariant("none", None),
+        "trim": none,
+        "bootstrap": none,
         "random_state": config.get("random_state"),
     })
 
@@ -1774,8 +1732,11 @@ def _experiment_sensitivity(data, config, treatment, outcome, strengths):
     Returns ``(strengths, effects)`` as plain float lists (the caller attaches
     the observed-confounder benchmarks and builds the struct), or ``None``.
     """
-    refuter = EastVariant("unobserved_common_cause",
-                          EastStruct({"effect_strengths": [float(s) for s in strengths]}))
+    refuter = variant(
+        "unobserved_common_cause",
+        EastStruct({"effect_strengths": [float(s) for s in strengths]}),
+        CausalRefuterType,
+    )
     try:
         r = causal_refute(data, _effect_config_from(config, treatment, outcome), refuter)
         effects = [float(x) for x in r.get("new_effects").to_numpy()]
@@ -1789,17 +1750,17 @@ def _experiment_dose(data, config, outcome, dose_feature):
     ale_config = EastStruct({
         "outcome": outcome, "feature": dose_feature,
         "categorical": config.get("categorical"),
-        "grid_size": EastVariant("some", 10),
-        "include_ci": EastVariant("some", True),
-        "confidence_level": EastVariant("some", 0.95),
-        "emulator": EastVariant("none", None),
+        "grid_size": some(10),
+        "include_ci": some(True),
+        "confidence_level": some(0.95),
+        "emulator": none,
         "random_state": config.get("random_state"),
     })
     try:
         a = causal_ale(data, ale_config)
     except Exception:
-        return EastVariant("none", None)
-    return EastVariant("some", EastStruct({
+        return none
+    return some(EastStruct({
         "feature": dose_feature,
         "grid": a.get("grid"), "effect": a.get("effect"),
         "lower": a.get("lower"), "upper": a.get("upper"),
@@ -1829,43 +1790,43 @@ def causal_experiment(data: EastArray, config: EastStruct) -> EastStruct:
     treatment = str(config.get("treatment"))
     outcome = str(config.get("outcome"))
     common_causes = [str(c) for c in config.get("common_causes")]
-    categorical_opt = _get_option(config.get("categorical"), None)
+    categorical_opt = config["categorical"].unwrap_or(None)
     categorical = [str(c) for c in categorical_opt] if categorical_opt is not None else []
-    method_variant = _get_option(config.get("method"), None)
+    method_variant = config["method"].unwrap_or(None)
     # Default to linear regression — the natural backdoor estimator for a
     # continuous outcome (propensity weighting is an explicit opt-in, and needs
     # at least one confounder).
     method_tag = "linear_regression" if method_variant is None else method_variant.type
     if method_tag == "propensity_score_weighting" and not common_causes:
         method_tag = "linear_regression"
-    estimand_variant = _get_option(config.get("estimand"), None)
+    estimand_variant = config["estimand"].unwrap_or(None)
     target_units = "ate" if estimand_variant is None else estimand_variant.type
-    refute_opt = _get_option(config.get("refute"), None)
+    refute_opt = config["refute"].unwrap_or(None)
     want_placebo = bool(refute_opt.get("placebo")) if refute_opt is not None else False
     want_random_cc = bool(refute_opt.get("random_common_cause")) if refute_opt is not None else False
     want_data_subset = bool(refute_opt.get("data_subset")) if refute_opt is not None else False
     sensitivity_strengths = None
     if refute_opt is not None:
-        ss = _get_option(refute_opt.get("sensitivity"), None)
+        ss = refute_opt["sensitivity"].unwrap_or(None)
         sensitivity_strengths = [float(s) for s in ss] if ss is not None else None
-    dose_feature_opt = _get_option(config.get("dose_feature"), None)
+    dose_feature_opt = config["dose_feature"].unwrap_or(None)
     dose_feature = str(dose_feature_opt) if dose_feature_opt is not None else None
-    min_overlap = float(_get_option(config.get("min_overlap"), 0.10))
-    min_var = float(_get_option(config.get("min_treatment_variation"), 0.02))
+    min_overlap = float(config["min_overlap"].unwrap_or(0.10))
+    min_var = float(config["min_treatment_variation"].unwrap_or(0.02))
     # Graded-overlap threshold (G1/G2). Off-by-default knobs (G3/G6) keep a None
     # sentinel so the feature is disabled unless the caller opts in.
-    strong_overlap = float(_get_option(config.get("strong_overlap"), 0.55))
-    evalue_floor = _get_option(config.get("evalue_floor"), None)
+    strong_overlap = float(config["strong_overlap"].unwrap_or(0.55))
+    evalue_floor = config["evalue_floor"].unwrap_or(None)
     if evalue_floor is not None:
         evalue_floor = float(evalue_floor)
-    expected_sign_opt = _get_option(config.get("expected_sign"), None)
+    expected_sign_opt = config["expected_sign"].unwrap_or(None)
     expected_sign = expected_sign_opt.type if expected_sign_opt is not None else None
-    bootstrap_opt = _get_option(config.get("bootstrap"), None)
-    cluster_column = (_get_option(bootstrap_opt.get("cluster_column"), None)
+    bootstrap_opt = config["bootstrap"].unwrap_or(None)
+    cluster_column = (bootstrap_opt["cluster_column"].unwrap_or(None)
                       if bootstrap_opt is not None else None)
     if cluster_column is not None:
         cluster_column = str(cluster_column)
-    random_state = _get_option(config.get("random_state"), None)
+    random_state = config["random_state"].unwrap_or(None)
     if random_state is not None:
         random_state = int(random_state)
 
@@ -1885,12 +1846,12 @@ def causal_experiment(data: EastArray, config: EastStruct) -> EastStruct:
     # Echo the materiality band the verdict applies, so a consumer can SAY it
     # ("smaller than what would matter here").
     materiality = 0.10 * outcome_sd
-    treated_mean_opt = EastVariant("some", float(y[t].mean())) if n_t else EastVariant("none", None)
-    control_mean_opt = EastVariant("some", float(y[~t].mean())) if n_c else EastVariant("none", None)
+    treated_mean_opt = some(float(y[t].mean())) if n_t else none
+    control_mean_opt = some(float(y[~t].mean())) if n_c else none
 
     naive = float(y[t].mean() - y[~t].mean()) if n_t and n_c else 0.0
     nci = _meandiff_ci(y, t, bootstrap_opt, random_state, cluster_ids=cluster_ids)
-    naive_ci = EastVariant("some", EastStruct({"lower": nci[0], "upper": nci[1]})) if nci else EastVariant("none", None)
+    naive_ci = some(EastStruct({"lower": nci[0], "upper": nci[1]})) if nci else none
 
     balance_rows = _experiment_balance(df, treatment, common_causes, expansion)
     th, ch, support_frac, positivity_ok = _experiment_overlap(df, treatment, causes, random_state, min_overlap)
@@ -1907,19 +1868,23 @@ def causal_experiment(data: EastArray, config: EastStruct) -> EastStruct:
     else:
         support_tag = "thin"
 
-    adjusted = EastVariant("none", None)
-    refutation = EastVariant("none", None)
+    adjusted = none
+    refutation = none
     # Every FAILING verdict gate, machine-readable — empty for `causal` (all
     # gates passed) and for the refusals (the verdict tag itself is the reason).
-    reasons: list = []
+    reasons: list[str] = []
     # Post-adjustment SMD per balance column (PSW only) — {} when not computed.
-    adj_bal: dict = {}
+    adj_bal: dict[str, float] = {}
 
     minfrac = (min(n_t, n_c) / n_total) if n_total else 0.0
     if minfrac < min_var:
-        verdict = EastVariant("not_estimable", f"treatment barely varies: the minority arm is {minfrac:.1%} of rows")
+        verdict = variant(
+            "not_estimable",
+            f"treatment barely varies: the minority arm is {minfrac:.1%} of rows",
+            ExperimentVerdictType,
+        )
     elif support_frac < min_overlap:
-        verdict = EastVariant("non_identifiable_positivity", None)
+        verdict = variant("non_identifiable_positivity", None, ExperimentVerdictType)
     else:
         adj_effect = _manual_effect(df, treatment, outcome, causes, method_tag, target_units, random_state)
         try:
@@ -1974,17 +1939,17 @@ def causal_experiment(data: EastArray, config: EastStruct) -> EastStruct:
             tag = "modest"
         else:
             tag = "causal"
-        verdict = EastVariant(tag, None)
+        verdict = variant(tag, None, ExperimentVerdictType)
 
         # Post-adjustment balance — only the propensity estimator reweights, so
         # only it has an "after" picture to report.
         if method_tag == "propensity_score_weighting" and causes:
             adj_bal = _experiment_balance_adjusted(df, treatment, causes, balance_rows, random_state)
-        expected_sign_ok = (EastVariant("some", bool(sign_match)) if sign_match is not None
-                            else EastVariant("none", None))
-        adjusted = EastVariant("some", EastStruct({
+        expected_sign_ok = (some(bool(sign_match)) if sign_match is not None
+                            else none)
+        adjusted = some(EastStruct({
             "effect": float(adj_effect),
-            "ci": EastVariant("some", EastStruct({"lower": float(alo), "upper": float(ahi)})),
+            "ci": some(EastStruct({"lower": float(alo), "upper": float(ahi)})),
         }))
         ci_half = abs(ahi - alo) / 2.0
         rcc = (_experiment_random_cc(df, treatment, outcome, causes, method_tag, target_units,
@@ -1994,7 +1959,7 @@ def causal_experiment(data: EastArray, config: EastStruct) -> EastStruct:
                           if want_data_subset else (None, None))
         sens = (_experiment_sensitivity(data, config, treatment, outcome, sensitivity_strengths)
                 if sensitivity_strengths else None)
-        sens_struct = None
+        sens_struct: EastStruct | None = None
         if sens is not None:
             s_list, e_list = sens
             benchmarks = _experiment_benchmarks(
@@ -2007,37 +1972,37 @@ def causal_experiment(data: EastArray, config: EastStruct) -> EastStruct:
                     EastStruct({"column": col, "strength": float(s)}) for (col, s) in benchmarks
                 ]),
             })
-        refutation = EastVariant("some", EastStruct({
-            "placebo_effect": EastVariant("some", float(placebo)) if want_placebo else EastVariant("none", None),
-            "placebo_passes": EastVariant("some", bool(not placebo_fails)) if want_placebo else EastVariant("none", None),
-            "random_cc_within_ci": EastVariant("some", rcc) if rcc is not None else EastVariant("none", None),
-            "data_subset_effect": EastVariant("some", ds_eff) if ds_eff is not None else EastVariant("none", None),
-            "data_subset_std": EastVariant("some", ds_std) if ds_std is not None else EastVariant("none", None),
-            "robustness_value": EastVariant("some", robustness_value),
-            "sensitivity": EastVariant("some", sens_struct) if sens_struct is not None else EastVariant("none", None),
+        refutation = some(EastStruct({
+            "placebo_effect": some(float(placebo)) if want_placebo else none,
+            "placebo_passes": some(bool(not placebo_fails)) if want_placebo else none,
+            "random_cc_within_ci": some(rcc) if rcc is not None else none,
+            "data_subset_effect": some(ds_eff) if ds_eff is not None else none,
+            "data_subset_std": some(ds_std) if ds_std is not None else none,
+            "robustness_value": some(robustness_value),
+            "sensitivity": some(sens_struct) if sens_struct is not None else none,
             "expected_sign_ok": expected_sign_ok,
         }))
 
-    overlap = EastStruct({
+    overlap: EastStruct = EastStruct({
         "treated_propensity": EastVector(FloatType, th),
         "control_propensity": EastVector(FloatType, ch),
         "common_support_frac": float(support_frac),
         "positivity_ok": bool(positivity_ok),
-        "support_strength": EastVariant(support_tag, None),
+        "support_strength": variant(support_tag, None, SupportStrengthType),
     })
-    balance = EastArray(BalanceRowType, [
+    balance: EastArray = EastArray(BalanceRowType, [
         EastStruct({
             "column": col, "base_column": base, "treated_mean": mt, "control_mean": mc, "std_diff": sd,
-            "std_diff_adjusted": (EastVariant("some", adj_bal[col]) if col in adj_bal
-                                  else EastVariant("none", None)),
+            "std_diff_adjusted": (some(adj_bal[col]) if col in adj_bal
+                                  else none),
         })
         for (col, base, mt, mc, sd) in balance_rows
     ])
 
     dose_response = (_experiment_dose(data, config, outcome, dose_feature)
-                     if dose_feature is not None else EastVariant("none", None))
+                     if dose_feature is not None else none)
 
-    result = EastStruct({
+    result: EastStruct = EastStruct({
         "naive": float(naive),
         "naive_ci": naive_ci,
         "adjusted": adjusted,
@@ -2050,7 +2015,9 @@ def causal_experiment(data: EastArray, config: EastStruct) -> EastStruct:
         "refutation": refutation,
         "dose_response": dose_response,
         "verdict": verdict,
-        "verdict_reasons": EastArray(VerdictReasonType, [EastVariant(r, None) for r in reasons]),
+        "verdict_reasons": EastArray(
+            VerdictReasonType, [variant(r, None, VerdictReasonType) for r in reasons]
+        ),
         "outcome_sd": float(outcome_sd),
         "materiality_threshold": float(materiality),
         "treated_outcome_mean": treated_mean_opt,
@@ -2149,10 +2116,10 @@ def causal_design_validation(
     from statsmodels.stats.power import NormalIndPower
 
     outcome = str(config.get("outcome"))
-    alpha = float(_get_option(design_config.get("alpha"), 0.05))
-    target_power = float(_get_option(design_config.get("target_power"), 0.8))
-    materiality = _get_option(design_config.get("materiality"), None)
-    shares_opt = _get_option(design_config.get("treated_shares"), None)
+    alpha = float(design_config["alpha"].unwrap_or(0.05))
+    target_power = float(design_config["target_power"].unwrap_or(0.8))
+    materiality = design_config["materiality"].unwrap_or(None)
+    shares_opt = design_config["treated_shares"].unwrap_or(None)
     shares = [float(s) for s in shares_opt] if shares_opt else [0.5]
 
     verdict = result.get("verdict")
@@ -2166,7 +2133,7 @@ def causal_design_validation(
     # Effect the trial is powered to detect: the observed effect when we trust one
     # (clear / de-bias), else the materiality threshold (a small effect = 0.2·SD by
     # convention) — flagged in the rationale as an assumption to override.
-    adjusted = _get_option(result.get("adjusted"), None)
+    adjusted = result["adjusted"].unwrap_or(None)
     observed = abs(float(adjusted.get("effect"))) if adjusted is not None else 0.0
     assumed_materiality = float(materiality) if materiality is not None else 0.2 * outcome_sd
     if basis in ("detect_observed", "de_bias") and observed > 1e-9:
@@ -2196,9 +2163,9 @@ def causal_design_validation(
             cp = float("nan")
         if not np.isfinite(cp):
             cp = 0.0
-        current_power = EastVariant("some", float(min(max(cp, 0.0), 1.0)))
+        current_power = some(float(min(max(cp, 0.0), 1.0)))
     else:
-        current_power = EastVariant("none", None)
+        current_power = none
 
     # The detect-chance curve: total head-count → power, at the primary split, on a
     # grid spanning a small start up to past the target so the target sits inside.
@@ -2220,9 +2187,9 @@ def causal_design_validation(
             p = 0.0
         n_pts.append(int(n_tot))
         p_pts.append(float(min(max(p, 0.0), 1.0)))
-    power_curve = EastStruct({
-        "n": EastVector(IntegerType, n_pts),
-        "power": EastVector(FloatType, p_pts),
+    power_curve: EastStruct = EastStruct({
+        "n": EastVector(IntegerType, np.array(n_pts, dtype=np.int64)),
+        "power": EastVector(FloatType, np.array(p_pts, dtype=np.float64)),
     })
 
     # Match the arms on the confounders that were most lopsided (|SMD| desc),
@@ -2254,9 +2221,9 @@ def causal_design_validation(
     if pct is not None and basis in ("resolve_vs_null",):
         rationale += f" Today's data has only a {pct:.0%} chance of catching it."
 
-    design = EastStruct({
+    design: EastStruct = EastStruct({
         "verdict": verdict,
-        "basis": EastVariant(basis, None),
+        "basis": variant(basis, None, DesignBasisType),
         "target_effect": float(target_effect),
         "outcome_sd": float(outcome_sd),
         "target_power": float(target_power),

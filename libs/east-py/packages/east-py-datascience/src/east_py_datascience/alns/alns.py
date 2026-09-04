@@ -14,7 +14,6 @@ ALNS is designed for combinatorial optimization problems where:
 - Local search alone gets stuck in local minima
 """
 
-import importlib.util
 from collections.abc import Callable
 from typing import Any
 
@@ -22,6 +21,7 @@ from east.runtime.platform import generic_platform_function, platform_functions
 from east.types.types import (
     ArrayType,
     BooleanType,
+    EastType,
     FloatType,
     FunctionType,
     IntegerType,
@@ -30,7 +30,9 @@ from east.types.types import (
     StructType,
     VariantType,
 )
-from east.types.values import EastArray, EastStruct, EastVariant, is_east_variant
+from east.types.values import EastArray, EastStruct
+
+from east_py_datascience._common import extra_guard
 
 # ============================================================================
 # Type Definitions
@@ -143,16 +145,16 @@ randomness, default 42).
 """
 
 
-def ALNSResultType(solution_type: Any) -> StructType:
+def ALNSResultType(solution_type: EastType) -> EastType:
     """Create ALNS result type for a given solution type.
 
     Fields: ``best_solution`` (``S`` best solution found),
     ``best_objective`` (``Float`` objective at that solution),
     ``iterations`` (``Integer`` total iterations completed),
     ``runtime`` (``Float`` wall-clock seconds),
-    ``success`` (``Boolean`` true when ALNS completed normally; false on
-    exception, in which case the initial solution is returned with
-    ``best_objective = inf``).
+    ``success`` (``Boolean`` - always true; kept for the result contract. A
+    failure inside an operator or the objective raises instead of being
+    reported here).
     """
     return StructType(
         [
@@ -165,42 +167,7 @@ def ALNSResultType(solution_type: Any) -> StructType:
     )
 
 
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
-
-def _get_option(opt: EastVariant | None, default: Any) -> Any:
-    """Extract value from Option variant, returning default if None.
-
-    Note: The runtime creates EastVariant instances, not EastOption instances,
-    even for Option types. So we check the tag directly rather than using
-    is_east_option().
-    """
-    if opt is None:
-        return default
-    if is_east_variant(opt) and opt.type == "some":
-        return opt.value
-    return default
-
-
-def _get_enum_tag(variant: EastVariant) -> str:
-    """Get the tag name of a variant."""
-    return variant.type
-
-
-
-# Lazy import guard for optional dependency
-_HAS_ALNS_SUPPORT = importlib.util.find_spec("alns") is not None
-
-
-def _check_alns_support() -> None:
-    """Check if alns support is available."""
-    if not _HAS_ALNS_SUPPORT:
-        raise NotImplementedError(
-            "Alns support requires the 'alns' extra. "
-            "Add east-py-datascience[alns] to your pyproject.toml dependencies."
-        )
+_check_alns_support = extra_guard("alns", "alns", "ALNS")
 
 
 # ============================================================================
@@ -288,12 +255,13 @@ def alns_optimize(
         ``ALNSResultType(S)`` (``EastStruct``): ``best_solution`` (``S``),
         ``best_objective`` (``Float``), ``iterations`` (``Integer`` total
         iterations completed), ``runtime`` (``Float`` wall-clock seconds),
-        ``success`` (``Boolean`` true when the alns library completed
-        normally; false on exception, in which case ``initial_solution``
-        is returned with ``best_objective = inf``).
+        ``success`` (``Boolean`` - always true; kept for the result contract).
 
     Raises:
         NotImplementedError: the ``alns`` extra is not installed.
+        Exception: whatever an operator or the objective raised - a failure
+            in user code propagates rather than being reported as
+            ``success = false``.
     """
     _check_alns_support()
     import alns
@@ -307,7 +275,7 @@ def alns_optimize(
     from alns.stop import MaxIterations, MaxRuntime, NoImprovement
 
     # Create random state
-    seed = int(_get_option(config.get("seed"), 42))
+    seed = int(config["seed"].unwrap_or(42))
     rng = np.random.default_rng(seed)
 
     # Wrap solution in State class (required by alns library)
@@ -351,84 +319,55 @@ def alns_optimize(
     for i, repair_fn in enumerate(repair_operators):
         alns_instance.add_repair_operator(make_repair(repair_fn), name=f"repair_{i}")
 
-    # Configure acceptance criterion
-    accept_config = _get_option(config.get("acceptance"), None)
-    if accept_config is None or _get_enum_tag(accept_config) == "simulated_annealing":
-        sa_config = accept_config.value if accept_config else {}
-        start_temp = float(
-            _get_option(
-                sa_config.get("start_temperature") if sa_config else None, 100.0
-            )
-        )
-        end_temp = float(
-            _get_option(sa_config.get("end_temperature") if sa_config else None, 0.01)
-        )
-        step = float(_get_option(sa_config.get("step") if sa_config else None, 0.99))
+    # Acceptance criterion (default: simulated annealing with its defaults)
+    acceptance = config["acceptance"].unwrap_or(None)
+    if acceptance is None or acceptance.type == "simulated_annealing":
+        sa = None if acceptance is None else acceptance.value
+        start_temp = 100.0 if sa is None else float(sa["start_temperature"].unwrap_or(100.0))
+        end_temp = 0.01 if sa is None else float(sa["end_temperature"].unwrap_or(0.01))
+        step = 0.99 if sa is None else float(sa["step"].unwrap_or(0.99))
         accept = SimulatedAnnealing(start_temp, end_temp, step)
-    elif _get_enum_tag(accept_config) == "hill_climbing":
+    elif acceptance.type == "hill_climbing":
         accept = HillClimbing()
-    elif _get_enum_tag(accept_config) == "record_to_record":
-        rtr_config = accept_config.value
-        threshold = float(_get_option(rtr_config.get("threshold"), 0.05))
-        accept = RecordToRecordTravel(threshold)
+    elif acceptance.type == "record_to_record":
+        accept = RecordToRecordTravel(float(acceptance.value["threshold"].unwrap_or(0.05)))
     else:
-        # Default to simulated annealing
-        accept = SimulatedAnnealing(100.0, 0.01, 0.99)
+        raise ValueError(f"alns_optimize: unknown acceptance criterion {acceptance.type!r}")
 
-    # Configure operator selection
-    select_config = _get_option(config.get("operator_selection"), None)
-    rw_config = select_config.value if select_config else {}
-    scores_raw = _get_option(
-        rw_config.get("scores") if rw_config else None, [33, 9, 3, 0]
+    # Operator selection (roulette wheel is the only strategy)
+    selection = config["operator_selection"].unwrap_or(None)
+    roulette = None if selection is None else selection.value
+    scores = [33, 9, 3, 0]
+    decay = 0.8
+    if roulette is not None:
+        scores = [int(s) for s in roulette["scores"].unwrap_or(scores)]
+        decay = float(roulette["decay"].unwrap_or(decay))
+    select = RouletteWheel(scores, decay, len(destroy_operators), len(repair_operators))
+
+    # Stopping criterion (default: 1000 iterations)
+    stop_config = config["stop"].unwrap_or(None)
+    if stop_config is None or stop_config.type == "max_iterations":
+        stop = MaxIterations(1000 if stop_config is None else int(stop_config.value))
+    elif stop_config.type == "max_runtime":
+        stop = MaxRuntime(float(stop_config.value))
+    elif stop_config.type == "no_improvement":
+        stop = NoImprovement(int(stop_config.value))
+    else:
+        raise ValueError(f"alns_optimize: unknown stop criterion {stop_config.type!r}")
+
+    result = alns_instance.iterate(SolutionState(initial_solution), select, accept, stop)
+    best_state = result.best_state
+    statistics = result.statistics
+
+    return EastStruct(
+        {
+            "best_solution": best_state.solution,
+            "best_objective": float(best_state.objective()),
+            "iterations": int(len(statistics.objectives)),
+            "runtime": float(statistics.total_runtime),
+            "success": True,
+        }
     )
-    scores = [int(s) for s in scores_raw] if isinstance(scores_raw, EastArray) else list(scores_raw)
-    decay = float(_get_option(rw_config.get("decay") if rw_config else None, 0.8))
-    num_destroy = len(destroy_operators)
-    num_repair = len(repair_operators)
-    select = RouletteWheel(scores, decay, num_destroy, num_repair)
-
-    # Configure stopping criterion
-    stop_config = _get_option(config.get("stop"), None)
-    if stop_config is None or _get_enum_tag(stop_config) == "max_iterations":
-        max_iter = int(stop_config.value) if stop_config else 1000
-        stop = MaxIterations(max_iter)
-    elif _get_enum_tag(stop_config) == "max_runtime":
-        max_time = float(stop_config.value)
-        stop = MaxRuntime(max_time)
-    elif _get_enum_tag(stop_config) == "no_improvement":
-        max_iter = int(stop_config.value)
-        stop = NoImprovement(max_iter)
-    else:
-        # Default to max iterations
-        stop = MaxIterations(1000)
-
-    # Run optimization with error handling
-    initial_state = SolutionState(initial_solution)
-    try:
-        result = alns_instance.iterate(initial_state, select, accept, stop)
-        best_state = result.best_state
-        statistics = result.statistics
-
-        return EastStruct(
-            {
-                "best_solution": best_state.solution,
-                "best_objective": float(best_state.objective()),
-                "iterations": int(len(statistics.objectives)),
-                "runtime": float(statistics.total_runtime),
-                "success": True,
-            }
-        )
-    except Exception:
-        # Return failure result with initial solution
-        return EastStruct(
-            {
-                "best_solution": initial_solution,
-                "best_objective": float("inf"),
-                "iterations": 0,
-                "runtime": 0.0,
-                "success": False,
-            }
-        )
 
 
 # Collected from the @generic_platform_function decoration above.

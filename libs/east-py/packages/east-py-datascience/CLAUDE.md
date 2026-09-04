@@ -6,20 +6,41 @@ TypeScript + Python package:
 - `src/` — TypeScript source (platform function type definitions).
 - `src/east_py_datascience/` — Python source (platform function
   implementations).
-- `tests/` — Python `pytest` tests that run exported IR from TS tests.
+- `test/` — TypeScript export-only specs (`*.spec.ts`); their IR is what
+  the Python side runs.
+- `tests/` — `test_compliance.py`, a pytest wrapper that replays that IR
+  (one subprocess per IR file, through east-py's core runner).
 
 ## Commands
 
 ```bash
 make build       # tsc
-make test        # both TS tests and Python pytest
+make test        # export the spec IR, then replay it with pytest
+make test-export # export IR to /tmp/east-py-datascience (for the Python side)
+make test-py     # replay already-exported IR (EAST_DATASCIENCE_IR_DIR overrides the dir)
 make lint        # eslint + ruff
-make test-export # export IR to /tmp/east-py-datascience (for Python side)
+make typecheck   # mypy
 ```
+
+The canonical full run is `make test-east-py-datascience EAST_QUIET=1` from
+`libs/east-py` (export + replay through the core runner). After editing a
+`.pyx`, run `make reinstall-east-py-datascience` there to rebuild the
+extension; `.py` edits are live through the editable install.
 
 See [`../../../../docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFILE_TARGETS.md).
 
 ## Modules
+
+### Shared helpers
+
+- `_common.py` — `serialize` / `deserialize` (cloudpickle blobs),
+  `extra_guard` (every module builds its `_check_<lib>_support()` from it),
+  `option_tag` / `expect_case` (option and model-blob readers), and
+  `quiet_warnings` (scoped `UserWarning` / `FutureWarning` filter for chatty
+  fits). Reuse these; do not re-implement them per module.
+- `_categorical.py` — categorical column handling shared by xgboost,
+  lightgbm, mapie and shap (`categorical_config`, `prepare_categorical`,
+  `apply_categorical`).
 
 ### Optimization
 
@@ -37,7 +58,7 @@ See [`../../../../docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conven
 - **LightGBM** (`lightgbm/`) — fast gradient boosting with leaf-wise growth.
 - **NGBoost** (`ngboost/`) — probabilistic gradient boosting with uncertainty.
 - **Torch** (`torch/`) — neural networks with PyTorch (MLP).
-- **Lightning** (`lightning/`) — PyTorch Lightning (MLP, autoencoder, conv1d, sequential, transformer).
+- **Lightning** (`lightning/`) — PyTorch Lightning (MLP, autoencoder, conv1d, sequential, transformer); the torch classes live in `_models.py`, imported lazily so the package never loads torch at import.
 - **GP** (`gp/`) — Gaussian Process regression.
 
 ### Bayesian inference

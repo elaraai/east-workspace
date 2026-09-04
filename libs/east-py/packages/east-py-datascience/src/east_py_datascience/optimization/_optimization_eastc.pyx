@@ -14,7 +14,7 @@ from cpython.pycapsule cimport PyCapsule_New
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t
 from libc.stdlib cimport malloc, free, realloc, rand, srand
-from libc.string cimport strdup, memcpy
+from libc.string cimport strdup, memcpy, strcmp
 from libc.math cimport INFINITY
 
 from east cimport _eastc
@@ -91,7 +91,7 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
         if inner_val != NULL and inner_val.kind == _eastc.EAST_VAL_VARIANT:
             # Check if inner variant tag is "random"
             if inner_val.data.variant.case_tag != NULL:
-                if inner_val.data.variant.case_tag[0] == b'r':  # "random"
+                if strcmp(inner_val.data.variant.case_tag, b"random") == 0:
                     use_random_init = True
 
     opt_val = _eastc.east_struct_get_field(config_val, "order")
@@ -99,7 +99,7 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
         inner_val = opt_val.data.variant.value
         if inner_val != NULL and inner_val.kind == _eastc.EAST_VAL_VARIANT:
             if inner_val.data.variant.case_tag != NULL:
-                if inner_val.data.variant.case_tag[0] == b'r':  # "random"
+                if strcmp(inner_val.data.variant.case_tag, b"random") == 0:
                     use_random_order = True
 
     opt_val = _eastc.east_struct_get_field(config_val, "mode")
@@ -107,7 +107,7 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
         inner_val = opt_val.data.variant.value
         if inner_val != NULL and inner_val.kind == _eastc.EAST_VAL_VARIANT:
             if inner_val.data.variant.case_tag != NULL:
-                if inner_val.data.variant.case_tag[0] == b's':  # "swap"
+                if strcmp(inner_val.data.variant.case_tag, b"swap") == 0:
                     use_swap = True
 
     srand(seed)
@@ -133,6 +133,16 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
     for i in range(n_dims):
         spaces[i] = _eastc.east_array_get(spaces_val, i)
 
+    # Dimension visit order for coordinate descent: identity, reshuffled
+    # before every pass under order=random.
+    cdef size_t *dim_order = <size_t*>malloc(n_dims * sizeof(size_t))
+    if dim_order == NULL:
+        free(spaces)
+        err.error_message = strdup(b"optimization_iterative: out of memory")
+        return err
+    for i in range(n_dims):
+        dim_order[i] = i
+
     cdef double global_best_obj = -INFINITY
     cdef _eastc.EastValue *global_best_params = NULL
     cdef int total_iterations = 0
@@ -142,7 +152,8 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
     cdef _eastc.EvalResult call_result
     cdef double obj, best_obj
     cdef bint changed
-    cdef size_t j, n_candidates
+    cdef size_t j, k, n_candidates
+    cdef size_t saved_dim
     cdef int64_t saved_val, candidate_val
     cdef int sample_idx, iter_idx
     cdef int64_t *param_data
@@ -157,6 +168,7 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
         params = _eastc.east_vector_new(elem_type, n_dims)
         if params == NULL:
             free(spaces)
+            free(dim_order)
             err.error_message = strdup(b"optimization_iterative: vector alloc failed")
             return err
 
@@ -201,6 +213,7 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
         if call_result.status != _eastc.EVAL_OK and call_result.status != _eastc.EVAL_RETURN:
             _eastc.east_value_release(params)
             free(spaces)
+            free(dim_order)
             return call_result
         best_obj = call_result.value.data.float64
         _eastc.east_value_release(call_result.value)
@@ -228,6 +241,7 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
                             if global_best_params != NULL:
                                 _eastc.east_value_release(global_best_params)
                             free(spaces)
+                            free(dim_order)
                             return call_result
                         obj = call_result.value.data.float64
                         _eastc.east_value_release(call_result.value)
@@ -242,8 +256,15 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
                             param_data[j] = param_data[i]
                             param_data[i] = saved_val
             else:
-                # Coordinate descent
-                for i in range(n_dims):
+                # Coordinate descent, visiting dimensions in dim_order
+                if use_random_order and n_dims > 1:
+                    for k in range(n_dims - 1, 0, -1):
+                        j = rand() % (k + 1)
+                        saved_dim = dim_order[k]
+                        dim_order[k] = dim_order[j]
+                        dim_order[j] = saved_dim
+                for k in range(n_dims):
+                    i = dim_order[k]
                     sp = spaces[i]
                     sp_data = <int64_t*>sp.data.vector.data
                     sp_len = sp.data.vector.len
@@ -260,6 +281,7 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
                             if global_best_params != NULL:
                                 _eastc.east_value_release(global_best_params)
                             free(spaces)
+                            free(dim_order)
                             return call_result
                         obj = call_result.value.data.float64
                         _eastc.east_value_release(call_result.value)
@@ -290,6 +312,8 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
 
     free(spaces)
 
+    free(dim_order)
+
     # Build result struct
     cdef const char **field_names = <const char**>malloc(5 * sizeof(const char*))
     cdef _eastc.EastValue **field_values = <_eastc.EastValue**>malloc(5 * sizeof(_eastc.EastValue*))
@@ -318,7 +342,7 @@ cdef _eastc.EvalResult _optimization_iterative_impl(
     return _eastc.eval_ok(result)
 
 
-# ─── Inline C for incremental pthread worker ──────────────────────────
+# ─── Inline C for the incremental sample worker ───────────────────────
 
 cdef extern from *:
     """
@@ -329,7 +353,7 @@ cdef extern from *:
     #include "east/values.h"
     #include "east/eval_result.h"
 
-    /* xorshift32 — deterministic per-thread PRNG */
+    /* xorshift32 — deterministic per-sample PRNG */
     static unsigned int _incr_rand(unsigned int *state) {
         unsigned int x = *state;
         x ^= x << 13;
@@ -351,7 +375,7 @@ cdef extern from *:
         unsigned int     seed;
         PlatformRegistry *platform;
         BuiltinRegistry  *builtins;
-        /* per-thread output */
+        /* per-sample output */
         double       best_obj;
         EastValue   *best_params;
         int          iterations;
@@ -583,8 +607,11 @@ cdef _eastc.EvalResult _optimization_iterative_incremental_impl(
         _eastc.EastValue **args, size_t num_args,
         _eastc.EastType **input_types, size_t num_input_types,
         _eastc.EastType *output_type) noexcept with gil:
-    """Incremental iterative optimisation with per-element contributions
-    and multi-threaded sample parallelism."""
+    """Incremental iterative optimisation with per-element contributions.
+
+    The restarts (``samples``) run one after another on the calling thread;
+    each is a plain C worker, so the inner loop carries no Python overhead.
+    """
     cdef _eastc.EvalResult err
     err.status = _eastc.EVAL_ERROR
     err.value = NULL
@@ -641,7 +668,7 @@ cdef _eastc.EvalResult _optimization_iterative_incremental_impl(
         inner_val = opt_val.data.variant.value
         if inner_val != NULL and inner_val.kind == _eastc.EAST_VAL_VARIANT:
             if inner_val.data.variant.case_tag != NULL:
-                if inner_val.data.variant.case_tag[0] == b'r':
+                if strcmp(inner_val.data.variant.case_tag, b"random") == 0:
                     use_random_init = True
 
     opt_val = _eastc.east_struct_get_field(config_val, "mode")
@@ -649,7 +676,7 @@ cdef _eastc.EvalResult _optimization_iterative_incremental_impl(
         inner_val = opt_val.data.variant.value
         if inner_val != NULL and inner_val.kind == _eastc.EAST_VAL_VARIANT:
             if inner_val.data.variant.case_tag != NULL:
-                if inner_val.data.variant.case_tag[0] == b's':
+                if strcmp(inner_val.data.variant.case_tag, b"swap") == 0:
                     use_swap = True
 
     # ── extract spaces ────────────────────────────────────────────────
@@ -756,7 +783,7 @@ cdef _eastc.EvalResult _optimization_iterative_incremental_impl(
     return _eastc.eval_ok(result)
 
 
-# ─── Inline C for grouped pthread worker ──────────────────────────────
+# ─── Inline C for the grouped sample worker ───────────────────────────
 
 cdef extern from *:
     """
@@ -787,7 +814,7 @@ cdef extern from *:
         /* unique group values (shared read-only) */
         int64_t         *group_keys;
         size_t           n_groups;
-        /* per-thread output */
+        /* per-sample output */
         double       best_obj;
         EastValue   *best_params;
         int          iterations;
@@ -946,9 +973,6 @@ cdef extern from *:
 
                     for (size_t c = 0; c < sp_len; c++) {
                         int64_t cand = sp_data[c];
-                        if (cand == pdata[i] && cand == old_val) {
-                            /* no change from current best or original — already evaluated */
-                        }
                         pdata[i] = cand;
 
                         int g_new = _find_group(w->group_keys, ng, cand);
@@ -1069,8 +1093,11 @@ cdef _eastc.EvalResult _optimization_iterative_grouped_impl(
         _eastc.EastValue **args, size_t num_args,
         _eastc.EastType **input_types, size_t num_input_types,
         _eastc.EastType *output_type) noexcept with gil:
-    """Group-based iterative optimisation with per-value contributions
-    and multi-threaded sample parallelism."""
+    """Group-based iterative optimisation with per-value contributions.
+
+    The restarts (``samples``) run one after another on the calling thread;
+    each is a plain C worker, so the inner loop carries no Python overhead.
+    """
     cdef _eastc.EvalResult err
     err.status = _eastc.EVAL_ERROR
     err.value = NULL
@@ -1127,7 +1154,7 @@ cdef _eastc.EvalResult _optimization_iterative_grouped_impl(
         inner_val = opt_val.data.variant.value
         if inner_val != NULL and inner_val.kind == _eastc.EAST_VAL_VARIANT:
             if inner_val.data.variant.case_tag != NULL:
-                if inner_val.data.variant.case_tag[0] == b'r':
+                if strcmp(inner_val.data.variant.case_tag, b"random") == 0:
                     use_random_init = True
 
     opt_val = _eastc.east_struct_get_field(config_val, "mode")
@@ -1135,7 +1162,7 @@ cdef _eastc.EvalResult _optimization_iterative_grouped_impl(
         inner_val = opt_val.data.variant.value
         if inner_val != NULL and inner_val.kind == _eastc.EAST_VAL_VARIANT:
             if inner_val.data.variant.case_tag != NULL:
-                if inner_val.data.variant.case_tag[0] == b's':
+                if strcmp(inner_val.data.variant.case_tag, b"swap") == 0:
                     use_swap = True
 
     # ── extract spaces ────────────────────────────────────────────────

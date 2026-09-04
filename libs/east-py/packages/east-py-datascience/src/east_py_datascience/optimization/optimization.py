@@ -8,6 +8,10 @@ Provides discrete combinatorial optimization by iteratively optimizing each
 element of a parameter vector over its candidate values.  Supports multi-start
 sampling for better exploration of the search space.
 
+The objective is **maximized**: each sweep keeps the candidate with the largest
+objective value, so negate a cost to minimize it.  Restarts (``samples``) run
+one after another on the calling thread.
+
 Ported from the Julia IterativeDecisionAlgorithm (ArrayParameterSpace branch).
 
 All three functions are implemented at C level via Cython PyCapsule callbacks;

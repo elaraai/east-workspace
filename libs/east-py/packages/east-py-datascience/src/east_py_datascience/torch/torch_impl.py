@@ -8,16 +8,11 @@ Provides neural network models using PyTorch.
 Uses cloudpickle for model serialization.
 """
 
-import warnings
+from collections.abc import Callable
 
-# Suppress torch warnings before import
-warnings.filterwarnings("ignore", module="torch")
-
-import importlib.util  # noqa: E402
-
-import numpy as np  # noqa: E402
-from east.runtime.platform import platform_function, platform_functions  # noqa: E402
-from east.types.types import (  # noqa: E402
+import numpy as np
+from east.runtime.platform import platform_function, platform_functions
+from east.types.types import (
     ArrayType,
     BlobType,
     FloatType,
@@ -27,50 +22,28 @@ from east.types.types import (  # noqa: E402
     VariantType,
     VectorType,
 )
-from east.types.values import (  # noqa: E402
+from east.types.values import (
     EastArray,
-    EastBlob,
     EastMatrix,
     EastStruct,
     EastVariant,
     EastVector,
 )
 
-from east_py_datascience.types import (  # noqa: E402
+from east_py_datascience._common import (
+    deserialize,
+    expect_case,
+    extra_guard,
+    option_tag,
+    quiet_warnings,
+    serialize,
+)
+from east_py_datascience.types import (
     TorchMLPConfigType,
     TorchModelBlobType,
     TorchTrainConfigType,
     TorchTrainResultType,
-    _get_enum_tag,
-    _get_option,
 )
-
-# ============================================================================
-# Serialization Helpers
-# ============================================================================
-
-
-def _serialize_model(model) -> EastBlob:
-    """Serialize PyTorch model using cloudpickle."""
-    import cloudpickle
-
-    try:
-        return EastBlob(cloudpickle.dumps(model))
-    except Exception as e:
-        raise RuntimeError(f"_serialize_model: Failed to serialize model - {e}")
-
-
-def _deserialize_model(blob: EastBlob):
-    """Deserialize PyTorch model using cloudpickle."""
-    import cloudpickle
-
-    try:
-        return cloudpickle.loads(bytes(blob))
-    except Exception as e:
-        raise RuntimeError(f"_deserialize_model: Failed to deserialize model - {e}")
-
-
-
 
 # ============================================================================
 # Internal Training Helper
@@ -111,34 +84,15 @@ def _torch_mlp_train_internal(
     # Determine output dimension
     n_outputs = y_np.shape[1] if is_multi_output else 1
 
-    # MLP config
-    hidden_layers_arr = mlp_config.get("hidden_layers")
-    hidden_layers = (
-        [int(h) for h in hidden_layers_arr] if hidden_layers_arr else [64, 32]
-    )
-
-    activation_variant = _get_option(mlp_config.get("activation"), None)
-    activation_name = (
-        _get_enum_tag(activation_variant) if activation_variant else "relu"
-    )
-
-    dropout = _get_option(mlp_config.get("dropout"), 0.0)
-
+    # MLP config (an empty hidden_layers falls back to the documented default)
+    hidden_layers = [int(h) for h in mlp_config["hidden_layers"]] or [64, 32]
+    activation_name = option_tag(mlp_config["activation"], "relu")
+    dropout = float(mlp_config["dropout"].unwrap_or(0.0))
     # Output activation (applied to final layer only)
-    output_activation_variant = _get_option(mlp_config.get("output_activation"), None)
-    output_activation_name = (
-        _get_enum_tag(output_activation_variant)
-        if output_activation_variant
-        else "none"
-    )
-
-    # Parse loss
-    loss_variant = _get_option(train_config.get("loss"), None)
-    loss_name = _get_enum_tag(loss_variant) if loss_variant else "mse"
-
-    # output_dim from config overrides inferred, but default to inferred n_outputs
-    output_dim = _get_option(mlp_config.get("output_dim"), n_outputs)
-    output_dim = int(output_dim) if output_dim is not None else n_outputs
+    output_activation_name = option_tag(mlp_config["output_activation"], "none")
+    loss_name = option_tag(train_config["loss"], "mse")
+    # output_dim from config overrides the inferred n_outputs
+    output_dim = int(mlp_config["output_dim"].unwrap_or(n_outputs))
 
     # Build model
     try:
@@ -150,7 +104,7 @@ def _torch_mlp_train_internal(
         }
         activation_cls = activation_map.get(activation_name, nn.ReLU)
 
-        layers = []
+        layers: list[nn.Module] = []
         prev_dim = n_features
         for hidden_dim in hidden_layers:
             layers.append(nn.Linear(prev_dim, hidden_dim))
@@ -169,28 +123,16 @@ def _torch_mlp_train_internal(
 
         model = nn.Sequential(*layers)
     except Exception as e:
-        raise RuntimeError(f"torch_mlp_train: Failed to build model - {e}")
+        raise RuntimeError(f"torch_mlp_train: Failed to build model - {e}") from e
 
     # Training config
-    epochs = _get_option(train_config.get("epochs"), 100)
-    epochs = int(epochs) if epochs is not None else 100
-
-    batch_size = _get_option(train_config.get("batch_size"), 32)
-    batch_size = int(batch_size) if batch_size is not None else 32
-
-    lr = _get_option(train_config.get("learning_rate"), 0.001)
-    lr = float(lr) if lr is not None else 0.001
-
-    optimizer_variant = _get_option(train_config.get("optimizer"), None)
-    optimizer_name = _get_enum_tag(optimizer_variant) if optimizer_variant else "adam"
-
-    patience = _get_option(train_config.get("early_stopping"), 0)
-    patience = int(patience) if patience is not None else 0
-
-    val_split = _get_option(train_config.get("validation_split"), 0.2)
-    val_split = float(val_split) if val_split is not None else 0.2
-
-    random_state = _get_option(train_config.get("random_state"), None)
+    epochs = int(train_config["epochs"].unwrap_or(100))
+    batch_size = int(train_config["batch_size"].unwrap_or(32))
+    lr = float(train_config["learning_rate"].unwrap_or(0.001))
+    optimizer_name = option_tag(train_config["optimizer"], "adam")
+    patience = int(train_config["early_stopping"].unwrap_or(0))
+    val_split = float(train_config["validation_split"].unwrap_or(0.2))
+    random_state = train_config["random_state"].unwrap_or(None)
     if random_state is not None:
         random_state = int(random_state)
         torch.manual_seed(random_state)
@@ -198,8 +140,8 @@ def _torch_mlp_train_internal(
 
     # Convert to tensors and prepare data
     try:
-        X_tensor = torch.FloatTensor(X_np)
-        y_tensor = torch.FloatTensor(y_np)
+        X_tensor = torch.tensor(X_np, dtype=torch.float32)
+        y_tensor = torch.tensor(y_np, dtype=torch.float32)
 
         # For single output, unsqueeze to 2D
         if not is_multi_output:
@@ -224,6 +166,7 @@ def _torch_mlp_train_internal(
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
         # Loss and optimizer
+        criterion: nn.Module
         if loss_name == "bce_with_logits":
             if output_activation_name == "sigmoid":
                 raise RuntimeError(
@@ -234,7 +177,7 @@ def _torch_mlp_train_internal(
         elif loss_name == "bce":
             criterion = nn.BCELoss()
         else:
-            loss_map = {
+            loss_map: dict[str, Callable[[], nn.Module]] = {
                 "mse": nn.MSELoss,
                 "mae": nn.L1Loss,
                 "cross_entropy": nn.CrossEntropyLoss,
@@ -245,6 +188,7 @@ def _torch_mlp_train_internal(
         # KL divergence requires log probabilities as input
         use_log_for_kl = loss_name == "kl_div"
 
+        optimizer: torch.optim.Optimizer
         if optimizer_name == "adam":
             optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         elif optimizer_name == "sgd":
@@ -256,13 +200,12 @@ def _torch_mlp_train_internal(
     except Exception as e:
         raise RuntimeError(
             f"torch_mlp_train: Failed to prepare training data - X shape: {X_np.shape} - {e}"
-        )
+        ) from e
 
     # Training loop
     try:
         # Suppress PyTorch warnings during training
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             train_losses = []
             val_losses = []
             best_val_loss = float("inf")
@@ -313,12 +256,12 @@ def _torch_mlp_train_internal(
     except Exception as e:
         raise RuntimeError(
             f"torch_mlp_train: Training failed - X shape: {X_np.shape} - {e}"
-        )
+        ) from e
 
     # Serialize model
-    model_data = _serialize_model(model)
+    model_data = serialize(model)
 
-    model_blob = EastVariant(
+    model_blob: EastVariant = EastVariant(
         "torch_mlp",
         EastStruct(
             {
@@ -330,7 +273,7 @@ def _torch_mlp_train_internal(
         ),
     )
 
-    train_result = EastStruct(
+    train_result: EastStruct = EastStruct(
         {
             "train_losses": EastVector(FloatType, data=np.array(train_losses, dtype=np.float64)),
             "val_losses": EastVector(FloatType, data=np.array(val_losses, dtype=np.float64)),
@@ -346,18 +289,7 @@ def _torch_mlp_train_internal(
     )
 
 
-
-# Lazy import guard for optional dependency
-_HAS_TORCH_SUPPORT = importlib.util.find_spec("torch") is not None
-
-
-def _check_torch_support() -> None:
-    """Check if torch support is available."""
-    if not _HAS_TORCH_SUPPORT:
-        raise NotImplementedError(
-            "Torch support requires the 'torch' extra. "
-            "Add east-py-datascience[torch] to your pyproject.toml dependencies."
-        )
+_check_torch_support = extra_guard("torch", "torch", "PyTorch")
 
 
 # ============================================================================
@@ -466,11 +398,8 @@ def torch_mlp_train(
             failure.
     """
     _check_torch_support()
-    try:
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"torch_mlp_train: Invalid input data - {e}")
+    X_np = X.to_numpy()
+    y_np = y.to_numpy()
 
     return _torch_mlp_train_internal(
         X_np, y_np, mlp_config, train_config, is_multi_output=False
@@ -515,11 +444,8 @@ def torch_mlp_train_multi(
             failure.
     """
     _check_torch_support()
-    try:
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"torch_mlp_train_multi: Invalid input data - {e}")
+    X_np = X.to_numpy()
+    y_np = y.to_numpy()
 
     return _torch_mlp_train_internal(
         X_np, y_np, mlp_config, train_config, is_multi_output=True
@@ -559,31 +485,24 @@ def torch_mlp_predict(
     import torch
 
     # Validate model type
-    if model_blob.type != "torch_mlp":
-        raise RuntimeError(
-            f"torch_mlp_predict: Expected torch_mlp model, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "torch_mlp", "torch_mlp_predict")
 
     try:
-        model = _deserialize_model(model_blob.value["data"])
+        model = deserialize(payload["data"])
     except Exception as e:
-        raise RuntimeError(f"torch_mlp_predict: Failed to deserialize model - {e}")
+        raise RuntimeError(f"torch_mlp_predict: Failed to deserialize model - {e}") from e
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"torch_mlp_predict: Invalid input data - {e}")
+    X_np = X.to_numpy()
 
     # Make predictions
     try:
         # Suppress warnings during prediction
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             # Set model to eval mode
             model.eval()
 
             with torch.no_grad():
-                X_tensor = torch.FloatTensor(X_np)
+                X_tensor = torch.tensor(X_np, dtype=torch.float32)
                 predictions = model(X_tensor).numpy()
 
         # Flatten if single output
@@ -596,7 +515,7 @@ def torch_mlp_predict(
     except Exception as e:
         raise RuntimeError(
             f"torch_mlp_predict: Prediction failed - X shape: {X_np.shape} - {e}"
-        )
+        ) from e
 
 
 @platform_function(
@@ -632,33 +551,26 @@ def torch_mlp_predict_multi(
     import torch
 
     # Validate model type
-    if model_blob.type != "torch_mlp":
-        raise RuntimeError(
-            f"torch_mlp_predict_multi: Expected torch_mlp model, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "torch_mlp", "torch_mlp_predict_multi")
 
     try:
-        model = _deserialize_model(model_blob.value["data"])
+        model = deserialize(payload["data"])
     except Exception as e:
         raise RuntimeError(
             f"torch_mlp_predict_multi: Failed to deserialize model - {e}"
-        )
+        ) from e
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"torch_mlp_predict_multi: Invalid input data - {e}")
+    X_np = X.to_numpy()
 
     # Make predictions
     try:
         # Suppress warnings during prediction
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=Warning)
+        with quiet_warnings():
             # Set model to eval mode
             model.eval()
 
             with torch.no_grad():
-                X_tensor = torch.FloatTensor(X_np)
+                X_tensor = torch.tensor(X_np, dtype=torch.float32)
                 predictions = model(X_tensor).numpy()
 
         # Ensure 2D output
@@ -669,7 +581,7 @@ def torch_mlp_predict_multi(
     except Exception as e:
         raise RuntimeError(
             f"torch_mlp_predict_multi: Prediction failed - X shape: {X_np.shape} - {e}"
-        )
+        ) from e
 
 
 @platform_function(
@@ -715,26 +627,21 @@ def torch_mlp_encode(
         RuntimeError: model blob is not tagged ``torch_mlp``,
             ``layer_index`` is out of range, or encoding fails.
     """
+    _check_torch_support()
     import torch
 
     # Validate model type
-    if model_blob.type != "torch_mlp":
-        raise RuntimeError(
-            f"torch_mlp_encode: Expected torch_mlp model, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "torch_mlp", "torch_mlp_encode")
 
     try:
-        model = _deserialize_model(model_blob.value["data"])
+        model = deserialize(payload["data"])
     except Exception as e:
-        raise RuntimeError(f"torch_mlp_encode: Failed to deserialize model - {e}")
+        raise RuntimeError(f"torch_mlp_encode: Failed to deserialize model - {e}") from e
 
-    try:
-        X_np = X.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"torch_mlp_encode: Invalid input data - {e}")
+    X_np = X.to_numpy()
 
     # Get hidden layer dimensions from model metadata
-    hidden_layers = list(model_blob.value["hidden_layers"])
+    hidden_layers = list(payload["hidden_layers"])
     n_hidden = len(hidden_layers)
 
     if layer_index < 0 or layer_index >= n_hidden:
@@ -748,7 +655,7 @@ def torch_mlp_encode(
         model.eval()
 
         with torch.no_grad():
-            X_tensor = torch.FloatTensor(X_np)
+            X_tensor = torch.tensor(X_np, dtype=torch.float32)
 
             # Run through model layers up to and including the target layer
             # Model structure: [Linear, Activation, (Dropout), Linear, Activation, (Dropout), ..., Linear]
@@ -786,7 +693,7 @@ def torch_mlp_encode(
         raise RuntimeError(
             f"torch_mlp_encode: Encoding failed - X shape: {X_np.shape}, "
             f"layer_index: {layer_index} - {e}"
-        )
+        ) from e
 
 
 @platform_function(
@@ -838,23 +745,17 @@ def torch_mlp_decode(
     import torch
 
     # Validate model type
-    if model_blob.type != "torch_mlp":
-        raise RuntimeError(
-            f"torch_mlp_decode: Expected torch_mlp model, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "torch_mlp", "torch_mlp_decode")
 
     try:
-        model = _deserialize_model(model_blob.value["data"])
+        model = deserialize(payload["data"])
     except Exception as e:
-        raise RuntimeError(f"torch_mlp_decode: Failed to deserialize model - {e}")
+        raise RuntimeError(f"torch_mlp_decode: Failed to deserialize model - {e}") from e
 
-    try:
-        emb_np = embeddings.to_numpy()
-    except Exception as e:
-        raise RuntimeError(f"torch_mlp_decode: Invalid embeddings data - {e}")
+    emb_np = embeddings.to_numpy()
 
     # Get hidden layer dimensions from model metadata
-    hidden_layers = list(model_blob.value["hidden_layers"])
+    hidden_layers = list(payload["hidden_layers"])
     n_hidden = len(hidden_layers)
 
     if layer_index < 0 or layer_index >= n_hidden:
@@ -877,7 +778,7 @@ def torch_mlp_decode(
         model.eval()
 
         with torch.no_grad():
-            x = torch.FloatTensor(emb_np)
+            x = torch.tensor(emb_np, dtype=torch.float32)
 
             # Find where to start in the model
             # We need to skip: (layer_index + 1) hidden layer blocks
@@ -913,7 +814,7 @@ def torch_mlp_decode(
         raise RuntimeError(
             f"torch_mlp_decode: Decoding failed - embeddings shape: {emb_np.shape}, "
             f"layer_index: {layer_index} - {e}"
-        )
+        ) from e
 
 
 # ============================================================================

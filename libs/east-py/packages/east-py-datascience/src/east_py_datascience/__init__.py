@@ -16,6 +16,7 @@ Provides ML and optimization capabilities for East programs running in Python.
 # RUNPATH: register core's `east/` dir on the DLL search path so the datascience
 # .pyd's — two package levels away — find east_c_shared.dll.
 import os
+from importlib.metadata import PackageNotFoundError, version
 
 import east  # noqa: F401
 
@@ -218,6 +219,7 @@ from east_py_datascience.types import (
     OptimizeResultType,
     # Flexible metrics types
     RegressionMetricType,
+    RobustStatsResultType,
     ScalarObjectiveType,
     SplitConfigType,
     SplitResultType,
@@ -235,7 +237,10 @@ from east_py_datascience.xgboost.xgboost_impl import (
     xgboost_train_regressor,
 )
 
-__version__ = "0.1.0"
+try:
+    __version__ = version("elaraai-east-py-datascience")
+except PackageNotFoundError:  # a source checkout that is not installed
+    __version__ = "0.0.0"
 
 # Complete data science platform implementation
 # Pass this list to compile_async() to enable all platform functions
@@ -409,8 +414,6 @@ __all__ = [
     "VectorObjectiveType",
     "SplitConfigType",
     "SplitResultType",
-    "ThreeWaySplitConfigType",
-    "ThreeWaySplitResultType",
     "ModelBlobType",
     # Flexible metrics types
     "RegressionMetricType",

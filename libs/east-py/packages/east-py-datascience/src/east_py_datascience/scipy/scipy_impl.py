@@ -8,28 +8,23 @@ Provides scientific computing utilities: statistics, optimization,
 interpolation, and curve fitting.
 """
 
-import importlib.util
 import warnings
 from collections.abc import Callable
+from typing import Any
 
 import numpy as np
+from east import variant
 from east.runtime.platform import platform_function, platform_functions
-
-# Lazy import guard for optional dependency
-_HAS_SCIPY_SUPPORT = importlib.util.find_spec("scipy") is not None
-
-
-def _check_scipy_support() -> None:
-    """Check if SciPy support is available."""
-    if not _HAS_SCIPY_SUPPORT:
-        raise NotImplementedError(
-            "Scipy support requires the 'scipy' extra. "
-            "Add east-py-datascience[scipy] to your pyproject.toml dependencies."
-        )
-
 from east.types.types import FloatType, OptionType, VectorType
-from east.types.values import EastBlob, EastStruct, EastVariant, EastVector
+from east.types.values import EastStruct, EastVariant, EastVector
 
+from east_py_datascience._common import (
+    deserialize,
+    expect_case,
+    extra_guard,
+    option_tag,
+    serialize,
+)
 from east_py_datascience.types import (
     CorrelationResultType,
     CurveFitConfigType,
@@ -41,6 +36,7 @@ from east_py_datascience.types import (
     HistogramConfigType,
     HistogramResultType,
     InterpolateConfigType,
+    InterpolationKindType,
     KdeConfigType,
     OptimizeConfigType,
     OptimizeResultType,
@@ -49,32 +45,88 @@ from east_py_datascience.types import (
     ScalarObjectiveType,
     ScipyModelBlobType,
     StatsDescribeResultType,
-    _get_enum_tag,
-    _get_option,
 )
 
-# ============================================================================
-# Native Serialization Helpers
-# ============================================================================
+_check_scipy_support = extra_guard("scipy", "scipy", "SciPy")
+
+# ``OptimizeMethodType`` case -> scipy.optimize.minimize method name
+_MINIMIZE_METHODS = {
+    "bfgs": "BFGS",
+    "l_bfgs_b": "L-BFGS-B",
+    "nelder_mead": "Nelder-Mead",
+    "powell": "Powell",
+    "cg": "CG",
+}
 
 
-def _serialize_native(model) -> EastBlob:
-    """Serialize a model using cloudpickle."""
-    import cloudpickle
-
-    return EastBlob(cloudpickle.dumps(model))
+_INF = float("inf")
 
 
-def _deserialize_native(data: EastBlob):
-    """Deserialize a model using cloudpickle."""
-    import cloudpickle
-
-    return cloudpickle.loads(bytes(data))
+def _exponential_decay(x: np.ndarray, a: float, b: float) -> np.ndarray:
+    return a * np.exp(-b * x)
 
 
-def _make_enum(tag: str) -> EastVariant:
-    """Create an enum-like variant (tag with null value)."""
-    return EastVariant(tag, None)
+def _exponential_with_offset(x: np.ndarray, a: float, b: float, c: float) -> np.ndarray:
+    return a + b * np.exp(-c * x)
+
+
+def _exponential_growth(x: np.ndarray, a: float, b: float) -> np.ndarray:
+    return a * np.exp(b * x)
+
+
+def _logistic(x: np.ndarray, L: float, k: float, x0: float) -> np.ndarray:  # noqa: N803
+    return L / (1 + np.exp(-k * (x - x0)))
+
+
+def _gompertz(x: np.ndarray, a: float, b: float, c: float) -> np.ndarray:
+    return a * np.exp(-b * np.exp(-c * x))
+
+
+def _power_law(x: np.ndarray, a: float, b: float) -> np.ndarray:
+    return a * np.power(np.maximum(x, 1e-10), b)
+
+
+def _linear(x: np.ndarray, a: float, b: float) -> np.ndarray:
+    return a + b * x
+
+
+def _quadratic(x: np.ndarray, a: float, b: float, c: float) -> np.ndarray:
+    return a + b * x + c * x**2
+
+
+def _cubic(x: np.ndarray, a: float, b: float, c: float, d: float) -> np.ndarray:
+    return a + b * x + c * x**2 + d * x**3
+
+
+def _linear_guess(x: np.ndarray, y: np.ndarray) -> list[float]:
+    return [float(y[0]), float((y[-1] - y[0]) / (x[-1] - x[0] + 1e-10))]
+
+
+# ``CurveFunctionType`` built-in case -> (model, initial guess from (x, y), (lower, upper) bounds).
+# The guesses come from the data's endpoints/extremes; the bounds keep rates and
+# amplitudes non-negative where the shape requires it.
+_BUILTIN_CURVES: dict[
+    str,
+    tuple[Callable[..., Any], Callable[[np.ndarray, np.ndarray], list[float]], tuple[list[float], list[float]]],
+] = {
+    "exponential_decay": (_exponential_decay, lambda x, y: [float(y[0]), 0.1], ([0.0, 0.0], [_INF, _INF])),
+    "exponential_with_offset": (
+        _exponential_with_offset,
+        lambda x, y: [float(y[-1]), float(y[0] - y[-1]), 0.1],
+        ([-_INF, -_INF, 0.0], [_INF, _INF, _INF]),
+    ),
+    "exponential_growth": (_exponential_growth, lambda x, y: [float(y[0]), 0.1], ([0.0, 0.0], [_INF, _INF])),
+    "logistic": (
+        _logistic,
+        lambda x, y: [float(y.max()), 1.0, float(x.mean())],
+        ([0.0, 0.0, -_INF], [_INF, _INF, _INF]),
+    ),
+    "gompertz": (_gompertz, lambda x, y: [float(y.max()), 1.0, 0.1], ([0.0, 0.0, 0.0], [_INF] * 3)),
+    "power_law": (_power_law, lambda x, y: [1.0, 1.0], ([-_INF, -_INF], [_INF, _INF])),
+    "linear": (_linear, _linear_guess, ([-_INF] * 2, [_INF] * 2)),
+    "quadratic": (_quadratic, lambda x, y: [float(y[0]), 0.0, 0.0], ([-_INF] * 3, [_INF] * 3)),
+    "cubic": (_cubic, lambda x, y: [float(y[0]), 0.0, 0.0, 0.0], ([-_INF] * 4, [_INF] * 4)),
+}
 
 
 # ============================================================================
@@ -127,103 +179,36 @@ def scipy_curve_fit(
 
     Returns:
         ``CurveFitResultType`` (``EastStruct``): ``params``
-        (``Vector<Float>`` - fitted parameters, empty on failure), ``success``
-        (``Boolean``), ``r_squared`` (``Float``, clipped to [-10, 1]).
+        (``Vector<Float>`` - fitted parameters, empty when the optimizer did
+        not converge), ``success`` (``Boolean``), ``r_squared`` (``Float``,
+        clipped to [-10, 1]).
 
     Raises:
         NotImplementedError: the ``scipy`` extra is not installed.
         RuntimeError: unknown curve type tag.
+        Exception: whatever a ``custom`` curve function raised during the
+            fit - only scipy's own convergence and input failures become a
+            ``success = false`` result.
     """
     _check_scipy_support()
     from scipy.optimize import OptimizeWarning, curve_fit
 
     x_np = x.to_numpy()
     y_np = y.to_numpy()
-    max_iter = _get_option(config.get("max_iter"), 5000)
+    max_iter = config["max_iter"].unwrap_or(5000)
 
     tag = curve_type.type
+    model_func: Callable[..., Any]
+    p0: list[float]
+    bounds: tuple[list[float], list[float]]
 
-    # Built-in curves with smart defaults
-    if tag == "exponential_decay":
-
-        def model_func(x, a, b):
-            return a * np.exp(-b * x)
-
-        p0 = [float(y_np[0]), 0.1]
-        bounds = ([0, 0], [np.inf, np.inf])
-
-    elif tag == "exponential_with_offset":
-
-        def model_func(x, a, b, c):
-            return a + b * np.exp(-c * x)
-
-        p0 = [float(y_np[-1]), float(y_np[0] - y_np[-1]), 0.1]
-        bounds = ([-np.inf, -np.inf, 0], [np.inf, np.inf, np.inf])
-
-    elif tag == "exponential_growth":
-
-        def model_func(x, a, b):
-            return a * np.exp(b * x)
-
-        p0 = [float(y_np[0]), 0.1]
-        bounds = ([0, 0], [np.inf, np.inf])
-
-    elif tag == "logistic":
-
-        def model_func(x, L, k, x0):
-            return L / (1 + np.exp(-k * (x - x0)))
-
-        p0 = [float(y_np.max()), 1.0, float(x_np.mean())]
-        bounds = ([0, 0, -np.inf], [np.inf, np.inf, np.inf])
-
-    elif tag == "gompertz":
-
-        def model_func(x, a, b, c):
-            return a * np.exp(-b * np.exp(-c * x))
-
-        p0 = [float(y_np.max()), 1.0, 0.1]
-        bounds = ([0, 0, 0], [np.inf, np.inf, np.inf])
-
-    elif tag == "power_law":
-
-        def model_func(x, a, b):
-            return a * np.power(np.maximum(x, 1e-10), b)
-
-        p0 = [1.0, 1.0]
-        bounds = ([-np.inf, -np.inf], [np.inf, np.inf])
-
-    elif tag == "linear":
-
-        def model_func(x, a, b):
-            return a + b * x
-
-        slope = (y_np[-1] - y_np[0]) / (x_np[-1] - x_np[0] + 1e-10)
-        p0 = [float(y_np[0]), float(slope)]
-        bounds = ([-np.inf, -np.inf], [np.inf, np.inf])
-
-    elif tag == "quadratic":
-
-        def model_func(x, a, b, c):
-            return a + b * x + c * x**2
-
-        p0 = [float(y_np[0]), 0.0, 0.0]
-        bounds = ([-np.inf, -np.inf, -np.inf], [np.inf, np.inf, np.inf])
-
-    elif tag == "cubic":
-
-        def model_func(x, a, b, c, d):
-            return a + b * x + c * x**2 + d * x**3
-
-        p0 = [float(y_np[0]), 0.0, 0.0, 0.0]
-        bounds = ([-np.inf] * 4, [np.inf] * 4)
-
-    elif tag == "custom":
+    if tag == "custom":
         custom_config = curve_type.value
         east_fn = custom_config["fn"]  # Compiled East function
         n_params = int(custom_config["n_params"])
 
         # Get fixed params (empty vector if not provided)
-        fixed_params_opt = _get_option(custom_config.get("fixed_params"), None)
+        fixed_params_opt = custom_config["fixed_params"].unwrap_or(None)
         fixed_params_arr = (
             fixed_params_opt
             if fixed_params_opt is not None
@@ -239,30 +224,27 @@ def scipy_curve_fit(
         model_func = np.vectorize(scalar_model, excluded=list(range(1, n_params + 1)))
 
         # Initial guess
-        initial_guess = _get_option(config.get("initial_guess"), None)
-        p0 = (
-            list(initial_guess.to_numpy())
-            if initial_guess
-            else [1.0] * n_params
-        )
+        initial_guess = config["initial_guess"].unwrap_or(None)
+        p0 = [float(v) for v in initial_guess.to_numpy()] if initial_guess is not None else [1.0] * n_params
 
         # Bounds
-        bounds_opt = _get_option(custom_config.get("param_bounds"), None)
-        if bounds_opt:
+        bounds_opt = custom_config["param_bounds"].unwrap_or(None)
+        if bounds_opt is not None:
             bounds = (
-                list(bounds_opt["lower"].to_numpy()),
-                list(bounds_opt["upper"].to_numpy()),
+                [float(v) for v in bounds_opt["lower"].to_numpy()],
+                [float(v) for v in bounds_opt["upper"].to_numpy()],
             )
         else:
-            bounds = ([-np.inf] * n_params, [np.inf] * n_params)
+            bounds = ([-_INF] * n_params, [_INF] * n_params)
+
+    elif tag in _BUILTIN_CURVES:
+        model_func, guess, bounds = _BUILTIN_CURVES[tag]
+        # The config's initial guess overrides the built-in one
+        config_guess = config["initial_guess"].unwrap_or(None)
+        p0 = guess(x_np, y_np) if config_guess is None else [float(v) for v in config_guess.to_numpy()]
 
     else:
         raise RuntimeError(f"scipy_curve_fit: Unknown curve type: {tag}")
-
-    # Override initial guess if provided in config
-    config_guess = _get_option(config.get("initial_guess"), None)
-    if config_guess is not None and tag != "custom":
-        p0 = list(config_guess.to_numpy())
 
     try:
         # Suppress OptimizeWarning about covariance estimation
@@ -271,22 +253,10 @@ def scipy_curve_fit(
             params, _ = curve_fit(
                 model_func, x_np, y_np, p0=p0, bounds=bounds, maxfev=int(max_iter)
             )
-
-        # Compute R²
-        y_pred = model_func(x_np, *params)
-        ss_res = np.sum((y_np - y_pred) ** 2)
-        ss_tot = np.sum((y_np - y_np.mean()) ** 2)
-        r2 = 1 - ss_res / ss_tot if ss_tot > 1e-10 else 0.0
-
-        return EastStruct(
-            {
-                "params": EastVector(FloatType, np.array(params, dtype=np.float64)),
-                "success": True,
-                "r_squared": float(np.clip(r2, -10, 1)),
-            }
-        )
-
-    except Exception:
+    except (RuntimeError, ValueError):
+        # scipy's "optimal parameters not found" / rejected input: a failed fit
+        # is a result, not an error. Anything else (a custom curve function
+        # raising, say) propagates.
         return EastStruct(
             {
                 "params": EastVector(FloatType, np.array([], dtype=np.float64)),
@@ -294,6 +264,20 @@ def scipy_curve_fit(
                 "r_squared": 0.0,
             }
         )
+
+    # Compute R²
+    y_pred = model_func(x_np, *params)
+    ss_res = np.sum((y_np - y_pred) ** 2)
+    ss_tot = np.sum((y_np - y_np.mean()) ** 2)
+    r2 = 1 - ss_res / ss_tot if ss_tot > 1e-10 else 0.0
+
+    return EastStruct(
+        {
+            "params": EastVector(FloatType, np.array(params, dtype=np.float64)),
+            "success": True,
+            "r_squared": float(np.clip(r2, -10, 1)),
+        }
+    )
 
 
 @platform_function(
@@ -426,8 +410,6 @@ def scipy_stats_percentile(data: EastVector, percentiles: EastVector) -> EastVec
         ``Vector<Float>`` (``EastVector``) - one value per entry in
         ``percentiles``, in the same order.
     """
-    import numpy as np
-
     data_np = data.to_numpy()
     q_np = percentiles.to_numpy()
     result = np.percentile(data_np, q_np)
@@ -495,8 +477,6 @@ def scipy_stats_median(data: EastVector) -> float:
     Returns:
         ``Float`` - the median value.
     """
-    import numpy as np
-
     return float(np.median(data.to_numpy()))
 
 
@@ -547,7 +527,6 @@ def scipy_stats_robust(data: EastVector) -> EastStruct:
         NotImplementedError: the ``scipy`` extra is not installed.
     """
     _check_scipy_support()
-    import numpy as np
     from scipy import stats
 
     data_np = data.to_numpy()
@@ -604,8 +583,7 @@ def scipy_interpolate_1d_fit(
     x_np = x.to_numpy()
     y_np = y.to_numpy()
 
-    kind_variant = _get_option(config.get("kind"), None)
-    kind = _get_enum_tag(kind_variant) if kind_variant else "linear"
+    kind = option_tag(config["kind"], "linear")
 
     interp = interpolate.interp1d(x_np, y_np, kind=kind, fill_value="extrapolate")
 
@@ -613,8 +591,8 @@ def scipy_interpolate_1d_fit(
         "scipy_interp_1d",
         EastStruct(
             {
-                "data": _serialize_native(interp),
-                "kind": _make_enum(kind),
+                "data": serialize(interp),
+                "kind": variant(kind, None, InterpolationKindType),
             }
         ),
     )
@@ -646,12 +624,9 @@ def scipy_interpolate_1d_predict(
     Raises:
         RuntimeError: ``model_blob`` is not tagged ``scipy_interp_1d``.
     """
-    if model_blob.type != "scipy_interp_1d":
-        raise RuntimeError(
-            f"scipy_interpolate_1d_predict: Expected scipy_interp_1d, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "scipy_interp_1d", "scipy_interpolate_1d_predict")
 
-    interp = _deserialize_native(model_blob.value["data"])
+    interp = deserialize(payload["data"])
     x_np = x.to_numpy()
 
     y_np = interp(x_np)
@@ -706,24 +681,16 @@ def scipy_optimize_minimize(
         x_east = EastVector(FloatType, np.asarray(x, dtype=np.float64))
         return objective_fn(x_east)
 
-    method_variant = _get_option(config.get("method"), None)
-    method = _get_enum_tag(method_variant) if method_variant else "l_bfgs_b"
-    method_map = {
-        "bfgs": "BFGS",
-        "l_bfgs_b": "L-BFGS-B",
-        "nelder_mead": "Nelder-Mead",
-        "powell": "Powell",
-        "cg": "CG",
-    }
+    method = option_tag(config["method"], "l_bfgs_b")
 
     result = optimize.minimize(
         wrapped_objective,
         x0_np,
-        method=method_map.get(method, "L-BFGS-B"),
+        method=_MINIMIZE_METHODS.get(method, "L-BFGS-B"),
         options={
-            "maxiter": _get_option(config.get("max_iter"), 1000),
+            "maxiter": config["max_iter"].unwrap_or(1000),
         },
-        tol=_get_option(config.get("tol"), 1e-6),
+        tol=config["tol"].unwrap_or(1e-6),
     )
 
     return EastStruct(
@@ -785,25 +752,17 @@ def scipy_optimize_minimize_quadratic(
     def gradient(x):
         return A_np @ x + b_np
 
-    method_variant = _get_option(config.get("method"), None)
-    method = _get_enum_tag(method_variant) if method_variant else "l_bfgs_b"
-    method_map = {
-        "bfgs": "BFGS",
-        "l_bfgs_b": "L-BFGS-B",
-        "nelder_mead": "Nelder-Mead",
-        "powell": "Powell",
-        "cg": "CG",
-    }
+    method = option_tag(config["method"], "l_bfgs_b")
 
     result = optimize.minimize(
         objective,
         x0_np,
-        method=method_map.get(method, "L-BFGS-B"),
+        method=_MINIMIZE_METHODS.get(method, "L-BFGS-B"),
         jac=gradient,
         options={
-            "maxiter": _get_option(config.get("max_iter"), 1000),
+            "maxiter": config["max_iter"].unwrap_or(1000),
         },
-        tol=_get_option(config.get("tol"), 1e-6),
+        tol=config["tol"].unwrap_or(1e-6),
     )
 
     return EastStruct(
@@ -828,7 +787,7 @@ def scipy_optimize_minimize_quadratic(
 )
 def scipy_optimize_dual_annealing(
     objective_fn: Callable[[EastVector], float],
-    x0_opt: EastVariant | None,
+    x0_opt: EastVariant,
     bounds: EastStruct,
     config: EastStruct,
 ) -> EastStruct:
@@ -885,9 +844,8 @@ def scipy_optimize_dual_annealing(
     bounds_list = list(zip(lower, upper, strict=False))
 
     # Optional initial guess
-    x0 = None
-    if x0_opt is not None and hasattr(x0_opt, "type") and x0_opt.type == "some":
-        x0 = x0_opt.value.to_numpy()
+    x0_vec = x0_opt.unwrap_or(None)
+    x0 = None if x0_vec is None else x0_vec.to_numpy()
 
     # Wrapper: numpy -> EastVector -> objective_fn -> float
     def objective_wrapper(x: np.ndarray) -> float:
@@ -897,36 +855,35 @@ def scipy_optimize_dual_annealing(
     # Build kwargs from config
     kwargs: dict = {}
 
-    maxfun = _get_option(config.get("maxfun"), None)
+    maxfun = config["maxfun"].unwrap_or(None)
     if maxfun is not None:
         kwargs["maxfun"] = int(maxfun)
 
-    maxiter = _get_option(config.get("maxiter"), None)
+    maxiter = config["maxiter"].unwrap_or(None)
     if maxiter is not None:
         kwargs["maxiter"] = int(maxiter)
 
-    initial_temp = _get_option(config.get("initial_temp"), None)
+    initial_temp = config["initial_temp"].unwrap_or(None)
     if initial_temp is not None:
         kwargs["initial_temp"] = float(initial_temp)
 
-    restart_temp_ratio = _get_option(config.get("restart_temp_ratio"), None)
+    restart_temp_ratio = config["restart_temp_ratio"].unwrap_or(None)
     if restart_temp_ratio is not None:
         kwargs["restart_temp_ratio"] = float(restart_temp_ratio)
 
-    visit = _get_option(config.get("visit"), None)
+    visit = config["visit"].unwrap_or(None)
     if visit is not None:
         kwargs["visit"] = float(visit)
 
-    accept = _get_option(config.get("accept"), None)
+    accept = config["accept"].unwrap_or(None)
     if accept is not None:
         kwargs["accept"] = float(accept)
 
-    seed = _get_option(config.get("seed"), None)
+    seed = config["seed"].unwrap_or(None)
     if seed is not None:
         kwargs["seed"] = int(seed)
 
-    no_local_search = _get_option(config.get("no_local_search"), None)
-    if no_local_search:
+    if config["no_local_search"].unwrap_or(False):
         kwargs["no_local_search"] = True
 
     # Run optimization
@@ -991,15 +948,15 @@ def scipy_histogram(
     data_np = data.to_numpy()
 
     # Extract config
-    bins_val = _get_option(config.get("bins"), 10)
-    bin_method = _get_option(config.get("bin_method"), None)
-    range_min = _get_option(config.get("range_min"), None)
-    range_max = _get_option(config.get("range_max"), None)
-    density = _get_option(config.get("density"), False)
-    weights = _get_option(config.get("weights"), None)
+    bins_val = config["bins"].unwrap_or(10)
+    bin_method = config["bin_method"].unwrap_or(None)
+    range_min = config["range_min"].unwrap_or(None)
+    range_max = config["range_max"].unwrap_or(None)
+    density = config["density"].unwrap_or(False)
+    weights = config["weights"].unwrap_or(None)
 
-    # Determine bins argument
-    bins_arg = _get_enum_tag(bin_method) if bin_method is not None else int(bins_val)
+    # An automatic estimator overrides the numeric bin count
+    bins_arg = bin_method.type if bin_method is not None else int(bins_val)
 
     # Determine range
     hist_range = None
@@ -1066,15 +1023,16 @@ def scipy_kde_fit(
     data_np = data.to_numpy()
 
     # Extract config
-    bandwidth_method = _get_option(config.get("bandwidth"), None)
-    bandwidth_scalar = _get_option(config.get("bandwidth_scalar"), None)
-    weights = _get_option(config.get("weights"), None)
+    bandwidth_method = config["bandwidth"].unwrap_or(None)
+    bandwidth_scalar = config["bandwidth_scalar"].unwrap_or(None)
+    weights = config["weights"].unwrap_or(None)
 
-    # Determine bw_method
+    # An explicit bandwidth factor overrides the selection rule
+    bw_method: float | str
     if bandwidth_scalar is not None:
         bw_method = float(bandwidth_scalar)
     elif bandwidth_method is not None:
-        bw_method = _get_enum_tag(bandwidth_method)
+        bw_method = bandwidth_method.type
     else:
         bw_method = "scott"
 
@@ -1087,7 +1045,7 @@ def scipy_kde_fit(
         "scipy_kde",
         EastStruct(
             {
-                "data": _serialize_native(kde),
+                "data": serialize(kde),
                 "metadata": EastStruct(
                     {
                         "bandwidth": float(kde.factor),
@@ -1124,12 +1082,9 @@ def scipy_kde_evaluate(
     Raises:
         RuntimeError: ``model_blob`` is not tagged ``scipy_kde``.
     """
-    if model_blob.type != "scipy_kde":
-        raise RuntimeError(
-            f"scipy_kde_evaluate: Expected scipy_kde, got {model_blob.type}"
-        )
+    payload = expect_case(model_blob, "scipy_kde", "scipy_kde_evaluate")
 
-    kde = _deserialize_native(model_blob.value["data"])
+    kde = deserialize(payload["data"])
     points_np = points.to_numpy()
 
     densities = kde.evaluate(points_np)

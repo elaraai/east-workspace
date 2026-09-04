@@ -65,6 +65,13 @@ def _check_xgboost_support() -> None:
         )
 ```
 
+**Check for a package-local helper before hand-writing that.**
+`east-py-datascience` builds the same guard from one line —
+`_check_xgboost_support = extra_guard("xgboost", "xgboost", "XGBoost")`
+(`east_py_datascience._common.extra_guard`), which runs the `find_spec` probe
+at import and returns the checker. `east-py-io` has no such helper, so it
+spells the guard out as above. Follow the package you are editing.
+
 ### Layer 2 — bare lazy imports inside each impl function
 
 Inside each implementation function, call the guard first, then **bare
@@ -92,18 +99,23 @@ Rules:
 ## 3. Mypy overrides
 
 mypy can't resolve imports for libraries the developer hasn't
-installed. Add overrides in `pyproject.toml` for both the external
-library and your wrapper module:
+installed. Add an override in `pyproject.toml` for the external library:
 
 ```toml
 [[tool.mypy.overrides]]
 module = ["xgboost", "xgboost.*"]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["east_py_datascience.xgboost.*"]
-ignore_errors = true
 ```
+
+A few libraries assemble their public names at import time (a lazy or star
+re-export), so `ignore_missing_imports` leaves mypy seeing an empty module and
+every attribute becomes an error. Those need `follow_imports = "skip"` instead
+— see the list in `east-py-datascience/pyproject.toml`.
+
+**Do not silence your own wrapper module.** An `ignore_errors = true` override
+on `east_py_datascience.*` / `east_py_io.*` turns the type checker off for the
+code you just wrote, which is exactly where the boundary bugs live. Type the
+wrapper and let `make typecheck` cover it.
 
 ---
 
@@ -115,6 +127,8 @@ ignore_errors = true
    top of the module.
 3. In every impl function: call the guard, then bare-import inside
    the function body.
-4. Add two `[[tool.mypy.overrides]]` blocks (one for the library, one
-   for your wrapper).
+4. Add a `[[tool.mypy.overrides]]` block for the library
+   (`ignore_missing_imports`; `follow_imports = "skip"` if its names are
+   assembled at import time). Never `ignore_errors` your own module.
 5. Update the parent package's CLAUDE.md `## Modules` table.
+6. Run `make typecheck` and `make lint` from `libs/east-py`.

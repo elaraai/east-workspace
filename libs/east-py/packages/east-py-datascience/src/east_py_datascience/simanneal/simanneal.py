@@ -8,12 +8,13 @@ Provides discrete optimization using the simanneal library.
 Ideal for combinatorial problems like TSP, scheduling, and subset selection.
 """
 
-import importlib.util
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
+from east import variant
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
     BooleanType,
@@ -25,7 +26,9 @@ from east.types.types import (
     VariantType,
     VectorType,
 )
-from east.types.values import EastStruct, EastVariant, EastVector, is_east_variant
+from east.types.values import EastStruct, EastVariant, EastVector
+
+from east_py_datascience._common import extra_guard
 
 # ============================================================================
 # Type Definitions
@@ -113,32 +116,52 @@ annealer produced a valid result).
 """
 
 
+_check_simanneal_support = extra_guard("simanneal", "simanneal", "simanneal")
+
+
 # ============================================================================
-# Helper Functions
+# Helpers
 # ============================================================================
 
 
-def _get_option(opt: EastVariant | None, default: Any) -> Any:
-    """Extract value from Option variant, returning default if None."""
-    if opt is None:
-        return default
-    if is_east_variant(opt) and opt.type == "some":
-        return opt.value
-    return default
+@contextmanager
+def _seeded(random_state: int | None) -> Iterator[None]:
+    """Seed Python's ``random`` for the run, restoring the caller's generator state afterwards.
+
+    ``simanneal`` draws from the module-level generator, so the seed has to be
+    global for a run to be reproducible; restoring the state keeps that from
+    leaking into unrelated code in the same process.
+    """
+    if random_state is None:
+        yield
+        return
+    saved = random.getstate()
+    random.seed(random_state)
+    try:
+        yield
+    finally:
+        random.setstate(saved)
 
 
+def _configure_schedule(annealer: Any, config: EastStruct) -> None:
+    """Apply the ``AnnealConfigType`` schedule fields to an annealer.
 
-# Lazy import guard for optional dependency
-_HAS_SIMANNEAL_SUPPORT = importlib.util.find_spec("simanneal") is not None
-
-
-def _check_simanneal_support() -> None:
-    """Check if simanneal support is available."""
-    if not _HAS_SIMANNEAL_SUPPORT:
-        raise NotImplementedError(
-            "Simanneal support requires the 'simanneal' extra. "
-            "Add east-py-datascience[simanneal] to your pyproject.toml dependencies."
-        )
+    ``auto_schedule`` runs simanneal's calibration and overrides the explicit
+    ``t_max`` / ``t_min`` / ``steps``.
+    """
+    t_max = config["t_max"].unwrap_or(None)
+    if t_max is not None:
+        annealer.Tmax = float(t_max)
+    t_min = config["t_min"].unwrap_or(None)
+    if t_min is not None:
+        annealer.Tmin = float(t_min)
+    steps = config["steps"].unwrap_or(None)
+    if steps is not None:
+        annealer.steps = int(steps)
+    annealer.updates = int(config["updates"].unwrap_or(0))  # 0 = silent
+    auto_minutes = config["auto_schedule"].unwrap_or(None)
+    if auto_minutes is not None:
+        annealer.set_schedule(annealer.auto(minutes=float(auto_minutes)))
 
 
 # ============================================================================
@@ -211,11 +234,6 @@ def simanneal_optimize(
     _check_simanneal_support()
     from simanneal import Annealer
 
-    # Set random seed if provided
-    random_state = _get_option(config.get("random_state"), None)
-    if random_state is not None:
-        random.seed(int(random_state))
-
     class EastAnnealer(Annealer):
         """Annealer that wraps East energy and move functions."""
 
@@ -239,36 +257,10 @@ def simanneal_optimize(
             """Calculate energy using East energy function."""
             return self.energy_fn(self.state)
 
-    # Create annealer instance
     annealer = EastAnnealer(initial_state, energy_fn, move_fn)
-
-    # Configure schedule
-    t_max = _get_option(config.get("t_max"), None)
-    if t_max is not None:
-        annealer.Tmax = float(t_max)
-
-    t_min = _get_option(config.get("t_min"), None)
-    if t_min is not None:
-        annealer.Tmin = float(t_min)
-
-    steps = _get_option(config.get("steps"), None)
-    if steps is not None:
-        annealer.steps = int(steps)
-
-    updates = _get_option(config.get("updates"), None)
-    if updates is not None:
-        annealer.updates = int(updates)
-    else:
-        annealer.updates = 0  # Suppress output by default
-
-    # Auto-calibrate if requested
-    auto_minutes = _get_option(config.get("auto_schedule"), None)
-    if auto_minutes is not None:
-        schedule = annealer.auto(minutes=float(auto_minutes))
-        annealer.set_schedule(schedule)
-
-    # Run optimization
-    best_state, best_energy = annealer.anneal()
+    with _seeded(config["random_state"].unwrap_or(None)):
+        _configure_schedule(annealer, config)
+        best_state, best_energy = annealer.anneal()
 
     return EastStruct(
         {
@@ -322,17 +314,8 @@ def simanneal_optimize_permutation(
     _check_simanneal_support()
     from simanneal import Annealer
 
-    # Set random seed if provided
-    random_state = _get_option(config.get("random_state"), None)
-    if random_state is not None:
-        random.seed(int(random_state))
-
-    # Convert to numpy array for efficient operations
+    # The state lives in a numpy array the move operator mutates in place
     state_arr = initial_perm.to_numpy(dtype=np.int64)
-
-    # Pre-allocate EastVector for energy function calls (reused each call)
-    cached_east_array: EastVector | None = None
-    cached_state_hash: int | None = None
 
     class PermutationAnnealer(Annealer):
         """Annealer for permutation problems with swap moves."""
@@ -355,49 +338,18 @@ def simanneal_optimize_permutation(
             self.state[i], self.state[j] = self.state[j], self.state[i]
 
         def energy(self):
-            """Calculate energy from permutation."""
-            nonlocal cached_east_array, cached_state_hash
-            # Cache EastVector based on state content hash
-            state_hash = hash(self.state.tobytes())
-            if cached_state_hash != state_hash or cached_east_array is None:
-                cached_east_array = EastVector(IntegerType, self.state.astype(np.int64))
-                cached_state_hash = state_hash
-            return self.energy_fn(cached_east_array)
+            """Calculate energy from permutation (a copy, so the East function never sees a later mutation)."""
+            return self.energy_fn(EastVector(IntegerType, self.state.copy()))
 
     annealer = PermutationAnnealer(state_arr, energy_fn)
+    with _seeded(config["random_state"].unwrap_or(None)):
+        _configure_schedule(annealer, config)
+        best_state_arr, best_energy = annealer.anneal()
 
-    # Configure schedule
-    t_max = _get_option(config.get("t_max"), None)
-    if t_max is not None:
-        annealer.Tmax = float(t_max)
-
-    t_min = _get_option(config.get("t_min"), None)
-    if t_min is not None:
-        annealer.Tmin = float(t_min)
-
-    steps = _get_option(config.get("steps"), None)
-    if steps is not None:
-        annealer.steps = int(steps)
-
-    updates = _get_option(config.get("updates"), None)
-    if updates is not None:
-        annealer.updates = int(updates)
-    else:
-        annealer.updates = 0
-
-    auto_minutes = _get_option(config.get("auto_schedule"), None)
-    if auto_minutes is not None:
-        schedule = annealer.auto(minutes=float(auto_minutes))
-        annealer.set_schedule(schedule)
-
-    # Run optimization
-    best_state_arr, best_energy = annealer.anneal()
-
-    # Convert numpy array back to EastVector only at return
     return EastStruct(
         {
-            "best_state": EastVariant(
-                "int_array", EastVector(IntegerType, best_state_arr.astype(np.int64))
+            "best_state": variant(
+                "int_array", EastVector(IntegerType, best_state_arr.astype(np.int64)), DiscreteStateType
             ),
             "best_energy": float(best_energy if best_energy is not None else 0.0),
             "steps_taken": int(annealer.steps),
@@ -449,17 +401,8 @@ def simanneal_optimize_subset(
     _check_simanneal_support()
     from simanneal import Annealer
 
-    # Set random seed if provided
-    random_state = _get_option(config.get("random_state"), None)
-    if random_state is not None:
-        random.seed(int(random_state))
-
-    # Convert to numpy array for efficient operations
+    # The state lives in a numpy array the move operator mutates in place
     state_arr = initial_selection.to_numpy(dtype=np.bool_)
-
-    # Pre-allocate EastVector for energy function calls (reused each call)
-    cached_east_array: EastVector | None = None
-    cached_state_hash: int | None = None
 
     class SubsetAnnealer(Annealer):
         """Annealer for subset selection with bit-flip moves."""
@@ -481,49 +424,17 @@ def simanneal_optimize_subset(
             self.state[i] = not self.state[i]
 
         def energy(self):
-            """Calculate energy from selection."""
-            nonlocal cached_east_array, cached_state_hash
-            # Cache EastVector based on state content hash
-            state_hash = hash(self.state.tobytes())
-            if cached_state_hash != state_hash or cached_east_array is None:
-                cached_east_array = EastVector(BooleanType, self.state)
-                cached_state_hash = state_hash
-            return self.energy_fn(cached_east_array)
+            """Calculate energy from selection (a copy, so the East function never sees a later mutation)."""
+            return self.energy_fn(EastVector(BooleanType, self.state.copy()))
 
     annealer = SubsetAnnealer(state_arr, energy_fn)
+    with _seeded(config["random_state"].unwrap_or(None)):
+        _configure_schedule(annealer, config)
+        best_state_arr, best_energy = annealer.anneal()
 
-    # Configure schedule
-    t_max = _get_option(config.get("t_max"), None)
-    if t_max is not None:
-        annealer.Tmax = float(t_max)
-
-    t_min = _get_option(config.get("t_min"), None)
-    if t_min is not None:
-        annealer.Tmin = float(t_min)
-
-    steps = _get_option(config.get("steps"), None)
-    if steps is not None:
-        annealer.steps = int(steps)
-
-    updates = _get_option(config.get("updates"), None)
-    if updates is not None:
-        annealer.updates = int(updates)
-    else:
-        annealer.updates = 0
-
-    auto_minutes = _get_option(config.get("auto_schedule"), None)
-    if auto_minutes is not None:
-        schedule = annealer.auto(minutes=float(auto_minutes))
-        annealer.set_schedule(schedule)
-
-    best_state_arr, best_energy = annealer.anneal()
-
-    # Convert numpy array back to EastVector only at return
     return EastStruct(
         {
-            "best_state": EastVariant(
-                "bool_array", EastVector(BooleanType, best_state_arr)
-            ),
+            "best_state": variant("bool_array", EastVector(BooleanType, best_state_arr), DiscreteStateType),
             "best_energy": float(best_energy if best_energy is not None else 0.0),
             "steps_taken": int(annealer.steps),
             "success": best_energy is not None,

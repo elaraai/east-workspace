@@ -415,7 +415,10 @@ jobs:
 
       - name: Install C build dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install cmake || true
+        # libomp: the xgboost macOS wheel dlopens @rpath/libomp.dylib and
+        # resolves it from Homebrew. Runner image 20260828.587 stopped shipping
+        # it, which fails every xgboost test with a dlopen error.
+        run: brew install cmake libomp || true
 
       - name: Download datascience IR
         uses: actions/download-artifact@v4
