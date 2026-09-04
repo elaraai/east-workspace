@@ -6798,7 +6798,7 @@ var require_dist = __commonJS({
 });
 
 // mcp/server.ts
-import { join as join3, dirname as dirname3 } from "node:path";
+import { join as join4, dirname as dirname4 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
@@ -10848,7 +10848,7 @@ var NEVER2 = Object.freeze({
 });
 // @__NO_SIDE_EFFECTS__
 function $constructor(name, initializer3, params) {
-  function init(inst, def) {
+  function init2(inst, def) {
     var _a;
     Object.defineProperty(inst, "_zod", {
       value: inst._zod ?? {},
@@ -10871,14 +10871,14 @@ function $constructor(name, initializer3, params) {
   function _(def) {
     var _a;
     const inst = params?.Parent ? new Definition() : this;
-    init(inst, def);
+    init2(inst, def);
     (_a = inst._zod).deferred ?? (_a.deferred = []);
     for (const fn of inst._zod.deferred) {
       fn();
     }
     return inst;
   }
-  Object.defineProperty(_, "init", { value: init });
+  Object.defineProperty(_, "init", { value: init2 });
   Object.defineProperty(_, Symbol.hasInstance, {
     value: (inst) => {
       if (params?.Parent && inst instanceof params.Parent)
@@ -22933,9 +22933,9 @@ function getEntry(index, id) {
 }
 
 // lib/plugin-status.ts
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync as existsSync2, readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname as dirname2, join as join2, resolve } from "node:path";
+import { dirname as dirname3, join as join3, resolve } from "node:path";
 
 // lib/east-project.ts
 import { readFile as readFile2 } from "node:fs/promises";
@@ -22949,6 +22949,12 @@ var PACKAGE_SKILL_MAP = {
   "@elaraai/e3": "e3",
   "@elaraai/e3-ui": "e3-ui"
 };
+var PYTHON_SKILL_MAP = [
+  [/elaraai-east-py-datascience(?![\w-])/, "east-py-datascience"],
+  [/elaraai-east-py-std(?![\w-])/, "east-py-std"],
+  [/elaraai-east-py-io(?![\w-])/, "east-py-io"],
+  [/elaraai-east-py(?![\w-])/, "east-py"]
+];
 async function findPackageJson(startDir) {
   let dir = startDir;
   while (true) {
@@ -22960,6 +22966,22 @@ async function findPackageJson(startDir) {
       if (parent === dir) return null;
       dir = parent;
     }
+  }
+}
+async function findPyProject(startDir) {
+  let dir = startDir;
+  while (true) {
+    const texts = [];
+    for (const name of ["pyproject.toml", "uv.lock"]) {
+      try {
+        texts.push(await readFile2(join(dir, name), "utf-8"));
+      } catch {
+      }
+    }
+    if (texts.length > 0) return texts.join("\n");
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 function detectEastSkills(pkg) {
@@ -22976,10 +22998,46 @@ function detectEastSkills(pkg) {
   }
   return skills;
 }
+function detectPythonSkills(pyproject) {
+  if (pyproject === null) return [];
+  const skills = [];
+  for (const [pattern, skill] of PYTHON_SKILL_MAP) {
+    if (pattern.test(pyproject)) skills.push(skill);
+  }
+  return skills;
+}
 async function getEastProjectInfo(cwd) {
   const pkg = await findPackageJson(cwd);
-  const skills = detectEastSkills(pkg);
-  return { isEast: skills.length > 0, skills, pkg };
+  const tsSkills = detectEastSkills(pkg);
+  const pySkills = detectPythonSkills(await findPyProject(cwd));
+  const languages = [];
+  if (tsSkills.length > 0) languages.push("typescript");
+  if (pySkills.length > 0) languages.push("python");
+  const skills = [...tsSkills, ...pySkills.filter((s) => !tsSkills.includes(s))];
+  return { isEast: skills.length > 0, skills, languages, pkg };
+}
+
+// lib/plugin-status.ts
+import { execFile } from "node:child_process";
+
+// ../east-diagnostics/dist/src/python-lint.js
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname as dirname2, join as join2 } from "node:path";
+function findEastPy(fromDir) {
+  const override = process.env["EAST_PY_LINT"];
+  if (override !== void 0 && override !== "")
+    return override;
+  let dir = fromDir;
+  for (; ; ) {
+    for (const candidate of [join2(dir, ".venv", "bin", "east-py"), join2(dir, ".venv", "Scripts", "east-py.exe")]) {
+      if (existsSync(candidate))
+        return candidate;
+    }
+    const parent = dirname2(dir);
+    if (parent === dir)
+      return "east-py";
+    dir = parent;
+  }
 }
 
 // lib/plugin-status.ts
@@ -22997,9 +23055,9 @@ function resolves(fromDir, spec) {
 function nearestTsconfig(fromDir) {
   let dir = resolve(fromDir);
   for (; ; ) {
-    const candidate = join2(dir, "tsconfig.json");
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname2(dir);
+    const candidate = join3(dir, "tsconfig.json");
+    if (existsSync2(candidate)) return candidate;
+    const parent = dirname3(dir);
     if (parent === dir) return void 0;
     dir = parent;
   }
@@ -23017,15 +23075,15 @@ var BUNDLED = [
 async function checkPluginStatus(pluginRoot, cwd) {
   const checks = [];
   checks.push(await check2("Plugin", () => {
-    const pkg = JSON.parse(readFileSync(join2(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync(join3(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
     return { name: "Plugin", status: "ok", detail: `version ${pkg.version ?? "?"} (${pluginRoot})` };
   }));
   checks.push(await check2("Bundled artifacts", () => {
-    const missing = BUNDLED.filter((a) => !existsSync(join2(pluginRoot, a)));
+    const missing = BUNDLED.filter((a) => !existsSync2(join3(pluginRoot, a)));
     return missing.length === 0 ? { name: "Bundled artifacts", status: "ok", detail: `all ${BUNDLED.length} hook/daemon/MCP bundles present` } : { name: "Bundled artifacts", status: "fail", detail: `missing ${missing.length}: ${missing.join(", ")}` };
   }));
   checks.push(await check2("Hooks registered", () => {
-    const json = JSON.parse(readFileSync(join2(pluginRoot, "hooks", "hooks.json"), "utf8"));
+    const json = JSON.parse(readFileSync(join3(pluginRoot, "hooks", "hooks.json"), "utf8"));
     const events = Object.keys(json.hooks ?? {});
     const diagnoseWired = JSON.stringify(json.hooks ?? {}).includes("diagnose.js");
     return {
@@ -23035,7 +23093,7 @@ async function checkPluginStatus(pluginRoot, cwd) {
     };
   }));
   checks.push(await check2("Example search", async () => {
-    const indexPath = join2(pluginRoot, "index.json");
+    const indexPath = join3(pluginRoot, "index.json");
     const data = JSON.parse(readFileSync(indexPath, "utf8"));
     const entries = data.entries ?? [];
     const programs = entries.filter((e) => e.ir !== void 0);
@@ -23050,7 +23108,7 @@ async function checkPluginStatus(pluginRoot, cwd) {
     };
   }));
   checks.push(await check2("Skills", () => {
-    const dirs = readdirSync(join2(pluginRoot, "skills"), { withFileTypes: true }).filter((d) => d.isDirectory() && existsSync(join2(pluginRoot, "skills", d.name, "SKILL.md"))).map((d) => d.name);
+    const dirs = readdirSync(join3(pluginRoot, "skills"), { withFileTypes: true }).filter((d) => d.isDirectory() && existsSync2(join3(pluginRoot, "skills", d.name, "SKILL.md"))).map((d) => d.name);
     return { name: "Skills", status: dirs.length > 0 ? "ok" : "warn", detail: `${dirs.length}: ${dirs.join(", ")}` };
   }));
   checks.push(await check2("East project (cwd)", async () => {
@@ -23059,6 +23117,27 @@ async function checkPluginStatus(pluginRoot, cwd) {
       name: "East project (cwd)",
       status: isEast ? "ok" : "warn",
       detail: isEast ? `detected: ${skills.join(", ")}` : `${cwd} is not an East project \u2014 hooks stay idle here (expected outside East projects)`
+    };
+  }));
+  checks.push(await check2("Diagnostics (python / east-py)", async () => {
+    const command = findEastPy(cwd);
+    const rules = await new Promise((done) => {
+      execFile(command, ["lint", "--list-rules"], { timeout: 8e3, encoding: "utf-8" }, (error2, stdout) => {
+        if (error2 !== null) {
+          done(null);
+          return;
+        }
+        done(stdout.split("\n").filter((l) => l.startsWith("EAS")).length);
+      });
+    });
+    return rules === null ? {
+      name: "Diagnostics (python / east-py)",
+      status: "warn",
+      detail: `\`${command}\` did not answer \u2014 python East files get NO review until east-py resolves (a project .venv above the file, east-py on PATH, or EAST_PY_LINT)`
+    } : {
+      name: "Diagnostics (python / east-py)",
+      status: "ok",
+      detail: `${command} \u2014 ${rules} rules`
     };
   }));
   checks.push(await check2("Diagnostics (PostToolUse daemon)", () => {
@@ -23072,7 +23151,7 @@ async function checkPluginStatus(pluginRoot, cwd) {
     if (!tsconfig) status = "warn";
     const eastOk = resolves(cwd, "@elaraai/east") !== void 0;
     parts.push(eastOk ? "@elaraai/east resolvable (built)" : "@elaraai/east not resolvable/built");
-    const daemonOk = existsSync(join2(pluginRoot, ".build/daemon/server.js"));
+    const daemonOk = existsSync2(join3(pluginRoot, ".build/daemon/server.js"));
     if (!daemonOk) {
       parts.push("daemon bundle MISSING");
       status = "fail";
@@ -23094,8 +23173,8 @@ function formatStatus(checks) {
 }
 
 // mcp/server.ts
-var __dirname = dirname3(fileURLToPath(import.meta.url));
-var INDEX_PATH = join3(__dirname, "..", "..", "index.json");
+var __dirname = dirname4(fileURLToPath(import.meta.url));
+var INDEX_PATH = join4(__dirname, "..", "..", "index.json");
 var indexPromise = loadIndex(INDEX_PATH);
 var server = new McpServer({
   name: "east",
@@ -23169,7 +23248,7 @@ server.tool(
     directory: external_exports.string().optional().describe("Project directory to check for diagnostics readiness (defaults to the current working directory)")
   },
   async ({ directory }) => {
-    const checks = await checkPluginStatus(join3(__dirname, "..", ".."), directory ?? process.cwd());
+    const checks = await checkPluginStatus(join4(__dirname, "..", ".."), directory ?? process.cwd());
     return { content: [{ type: "text", text: formatStatus(checks) }] };
   }
 );

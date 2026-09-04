@@ -47,6 +47,12 @@ var PACKAGE_SKILL_MAP = {
   "@elaraai/e3": "e3",
   "@elaraai/e3-ui": "e3-ui"
 };
+var PYTHON_SKILL_MAP = [
+  [/elaraai-east-py-datascience(?![\w-])/, "east-py-datascience"],
+  [/elaraai-east-py-std(?![\w-])/, "east-py-std"],
+  [/elaraai-east-py-io(?![\w-])/, "east-py-io"],
+  [/elaraai-east-py(?![\w-])/, "east-py"]
+];
 async function findPackageJson(startDir) {
   let dir = startDir;
   while (true) {
@@ -58,6 +64,22 @@ async function findPackageJson(startDir) {
       if (parent === dir) return null;
       dir = parent;
     }
+  }
+}
+async function findPyProject(startDir) {
+  let dir = startDir;
+  while (true) {
+    const texts = [];
+    for (const name of ["pyproject.toml", "uv.lock"]) {
+      try {
+        texts.push(await readFile(join(dir, name), "utf-8"));
+      } catch {
+      }
+    }
+    if (texts.length > 0) return texts.join("\n");
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 function detectEastSkills(pkg) {
@@ -74,10 +96,23 @@ function detectEastSkills(pkg) {
   }
   return skills;
 }
+function detectPythonSkills(pyproject) {
+  if (pyproject === null) return [];
+  const skills = [];
+  for (const [pattern, skill] of PYTHON_SKILL_MAP) {
+    if (pattern.test(pyproject)) skills.push(skill);
+  }
+  return skills;
+}
 async function getEastProjectInfo(cwd) {
   const pkg = await findPackageJson(cwd);
-  const skills = detectEastSkills(pkg);
-  return { isEast: skills.length > 0, skills, pkg };
+  const tsSkills = detectEastSkills(pkg);
+  const pySkills = detectPythonSkills(await findPyProject(cwd));
+  const languages = [];
+  if (tsSkills.length > 0) languages.push("typescript");
+  if (pySkills.length > 0) languages.push("python");
+  const skills = [...tsSkills, ...pySkills.filter((s) => !tsSkills.includes(s))];
+  return { isEast: skills.length > 0, skills, languages, pkg };
 }
 
 // lib/transcript.ts

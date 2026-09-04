@@ -1,11 +1,11 @@
 // status/report.ts
-import { dirname as dirname3, resolve as resolve2 } from "node:path";
+import { dirname as dirname4, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // lib/plugin-status.ts
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync as existsSync2, readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname as dirname2, join as join2, resolve } from "node:path";
+import { dirname as dirname3, join as join3, resolve } from "node:path";
 
 // lib/search.ts
 import { readFile } from "node:fs/promises";
@@ -1860,6 +1860,12 @@ var PACKAGE_SKILL_MAP = {
   "@elaraai/e3": "e3",
   "@elaraai/e3-ui": "e3-ui"
 };
+var PYTHON_SKILL_MAP = [
+  [/elaraai-east-py-datascience(?![\w-])/, "east-py-datascience"],
+  [/elaraai-east-py-std(?![\w-])/, "east-py-std"],
+  [/elaraai-east-py-io(?![\w-])/, "east-py-io"],
+  [/elaraai-east-py(?![\w-])/, "east-py"]
+];
 async function findPackageJson(startDir) {
   let dir = startDir;
   while (true) {
@@ -1871,6 +1877,22 @@ async function findPackageJson(startDir) {
       if (parent === dir) return null;
       dir = parent;
     }
+  }
+}
+async function findPyProject(startDir) {
+  let dir = startDir;
+  while (true) {
+    const texts = [];
+    for (const name of ["pyproject.toml", "uv.lock"]) {
+      try {
+        texts.push(await readFile2(join(dir, name), "utf-8"));
+      } catch {
+      }
+    }
+    if (texts.length > 0) return texts.join("\n");
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 function detectEastSkills(pkg) {
@@ -1887,10 +1909,46 @@ function detectEastSkills(pkg) {
   }
   return skills;
 }
+function detectPythonSkills(pyproject) {
+  if (pyproject === null) return [];
+  const skills = [];
+  for (const [pattern, skill] of PYTHON_SKILL_MAP) {
+    if (pattern.test(pyproject)) skills.push(skill);
+  }
+  return skills;
+}
 async function getEastProjectInfo(cwd2) {
   const pkg = await findPackageJson(cwd2);
-  const skills = detectEastSkills(pkg);
-  return { isEast: skills.length > 0, skills, pkg };
+  const tsSkills = detectEastSkills(pkg);
+  const pySkills = detectPythonSkills(await findPyProject(cwd2));
+  const languages = [];
+  if (tsSkills.length > 0) languages.push("typescript");
+  if (pySkills.length > 0) languages.push("python");
+  const skills = [...tsSkills, ...pySkills.filter((s) => !tsSkills.includes(s))];
+  return { isEast: skills.length > 0, skills, languages, pkg };
+}
+
+// lib/plugin-status.ts
+import { execFile } from "node:child_process";
+
+// ../east-diagnostics/dist/src/python-lint.js
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname as dirname2, join as join2 } from "node:path";
+function findEastPy(fromDir) {
+  const override = process.env["EAST_PY_LINT"];
+  if (override !== void 0 && override !== "")
+    return override;
+  let dir = fromDir;
+  for (; ; ) {
+    for (const candidate of [join2(dir, ".venv", "bin", "east-py"), join2(dir, ".venv", "Scripts", "east-py.exe")]) {
+      if (existsSync(candidate))
+        return candidate;
+    }
+    const parent = dirname2(dir);
+    if (parent === dir)
+      return "east-py";
+    dir = parent;
+  }
 }
 
 // lib/plugin-status.ts
@@ -1908,9 +1966,9 @@ function resolves(fromDir, spec) {
 function nearestTsconfig(fromDir) {
   let dir = resolve(fromDir);
   for (; ; ) {
-    const candidate = join2(dir, "tsconfig.json");
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname2(dir);
+    const candidate = join3(dir, "tsconfig.json");
+    if (existsSync2(candidate)) return candidate;
+    const parent = dirname3(dir);
     if (parent === dir) return void 0;
     dir = parent;
   }
@@ -1928,15 +1986,15 @@ var BUNDLED = [
 async function checkPluginStatus(pluginRoot2, cwd2) {
   const checks2 = [];
   checks2.push(await check("Plugin", () => {
-    const pkg = JSON.parse(readFileSync(join2(pluginRoot2, ".claude-plugin", "plugin.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync(join3(pluginRoot2, ".claude-plugin", "plugin.json"), "utf8"));
     return { name: "Plugin", status: "ok", detail: `version ${pkg.version ?? "?"} (${pluginRoot2})` };
   }));
   checks2.push(await check("Bundled artifacts", () => {
-    const missing = BUNDLED.filter((a) => !existsSync(join2(pluginRoot2, a)));
+    const missing = BUNDLED.filter((a) => !existsSync2(join3(pluginRoot2, a)));
     return missing.length === 0 ? { name: "Bundled artifacts", status: "ok", detail: `all ${BUNDLED.length} hook/daemon/MCP bundles present` } : { name: "Bundled artifacts", status: "fail", detail: `missing ${missing.length}: ${missing.join(", ")}` };
   }));
   checks2.push(await check("Hooks registered", () => {
-    const json = JSON.parse(readFileSync(join2(pluginRoot2, "hooks", "hooks.json"), "utf8"));
+    const json = JSON.parse(readFileSync(join3(pluginRoot2, "hooks", "hooks.json"), "utf8"));
     const events = Object.keys(json.hooks ?? {});
     const diagnoseWired = JSON.stringify(json.hooks ?? {}).includes("diagnose.js");
     return {
@@ -1946,7 +2004,7 @@ async function checkPluginStatus(pluginRoot2, cwd2) {
     };
   }));
   checks2.push(await check("Example search", async () => {
-    const indexPath = join2(pluginRoot2, "index.json");
+    const indexPath = join3(pluginRoot2, "index.json");
     const data = JSON.parse(readFileSync(indexPath, "utf8"));
     const entries = data.entries ?? [];
     const programs = entries.filter((e) => e.ir !== void 0);
@@ -1961,7 +2019,7 @@ async function checkPluginStatus(pluginRoot2, cwd2) {
     };
   }));
   checks2.push(await check("Skills", () => {
-    const dirs = readdirSync(join2(pluginRoot2, "skills"), { withFileTypes: true }).filter((d) => d.isDirectory() && existsSync(join2(pluginRoot2, "skills", d.name, "SKILL.md"))).map((d) => d.name);
+    const dirs = readdirSync(join3(pluginRoot2, "skills"), { withFileTypes: true }).filter((d) => d.isDirectory() && existsSync2(join3(pluginRoot2, "skills", d.name, "SKILL.md"))).map((d) => d.name);
     return { name: "Skills", status: dirs.length > 0 ? "ok" : "warn", detail: `${dirs.length}: ${dirs.join(", ")}` };
   }));
   checks2.push(await check("East project (cwd)", async () => {
@@ -1970,6 +2028,27 @@ async function checkPluginStatus(pluginRoot2, cwd2) {
       name: "East project (cwd)",
       status: isEast ? "ok" : "warn",
       detail: isEast ? `detected: ${skills.join(", ")}` : `${cwd2} is not an East project \u2014 hooks stay idle here (expected outside East projects)`
+    };
+  }));
+  checks2.push(await check("Diagnostics (python / east-py)", async () => {
+    const command = findEastPy(cwd2);
+    const rules = await new Promise((done) => {
+      execFile(command, ["lint", "--list-rules"], { timeout: 8e3, encoding: "utf-8" }, (error, stdout) => {
+        if (error !== null) {
+          done(null);
+          return;
+        }
+        done(stdout.split("\n").filter((l) => l.startsWith("EAS")).length);
+      });
+    });
+    return rules === null ? {
+      name: "Diagnostics (python / east-py)",
+      status: "warn",
+      detail: `\`${command}\` did not answer \u2014 python East files get NO review until east-py resolves (a project .venv above the file, east-py on PATH, or EAST_PY_LINT)`
+    } : {
+      name: "Diagnostics (python / east-py)",
+      status: "ok",
+      detail: `${command} \u2014 ${rules} rules`
     };
   }));
   checks2.push(await check("Diagnostics (PostToolUse daemon)", () => {
@@ -1983,7 +2062,7 @@ async function checkPluginStatus(pluginRoot2, cwd2) {
     if (!tsconfig) status = "warn";
     const eastOk = resolves(cwd2, "@elaraai/east") !== void 0;
     parts.push(eastOk ? "@elaraai/east resolvable (built)" : "@elaraai/east not resolvable/built");
-    const daemonOk = existsSync(join2(pluginRoot2, ".build/daemon/server.js"));
+    const daemonOk = existsSync2(join3(pluginRoot2, ".build/daemon/server.js"));
     if (!daemonOk) {
       parts.push("daemon bundle MISSING");
       status = "fail";
@@ -2005,7 +2084,7 @@ function formatStatus(checks2) {
 }
 
 // status/report.ts
-var pluginRoot = resolve2(dirname3(fileURLToPath(import.meta.url)), "..", "..");
+var pluginRoot = resolve2(dirname4(fileURLToPath(import.meta.url)), "..", "..");
 var cwd = resolve2(process.argv[2] ?? process.cwd());
 var checks = await checkPluginStatus(pluginRoot, cwd);
 console.log(formatStatus(checks));

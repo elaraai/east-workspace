@@ -28,6 +28,12 @@ var PACKAGE_SKILL_MAP = {
   "@elaraai/e3": "e3",
   "@elaraai/e3-ui": "e3-ui"
 };
+var PYTHON_SKILL_MAP = [
+  [/elaraai-east-py-datascience(?![\w-])/, "east-py-datascience"],
+  [/elaraai-east-py-std(?![\w-])/, "east-py-std"],
+  [/elaraai-east-py-io(?![\w-])/, "east-py-io"],
+  [/elaraai-east-py(?![\w-])/, "east-py"]
+];
 async function findPackageJson(startDir) {
   let dir = startDir;
   while (true) {
@@ -39,6 +45,22 @@ async function findPackageJson(startDir) {
       if (parent === dir) return null;
       dir = parent;
     }
+  }
+}
+async function findPyProject(startDir) {
+  let dir = startDir;
+  while (true) {
+    const texts = [];
+    for (const name of ["pyproject.toml", "uv.lock"]) {
+      try {
+        texts.push(await readFile(join(dir, name), "utf-8"));
+      } catch {
+      }
+    }
+    if (texts.length > 0) return texts.join("\n");
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 function detectEastSkills(pkg) {
@@ -55,10 +77,23 @@ function detectEastSkills(pkg) {
   }
   return skills;
 }
+function detectPythonSkills(pyproject) {
+  if (pyproject === null) return [];
+  const skills = [];
+  for (const [pattern, skill] of PYTHON_SKILL_MAP) {
+    if (pattern.test(pyproject)) skills.push(skill);
+  }
+  return skills;
+}
 async function getEastProjectInfo(cwd) {
   const pkg = await findPackageJson(cwd);
-  const skills = detectEastSkills(pkg);
-  return { isEast: skills.length > 0, skills, pkg };
+  const tsSkills = detectEastSkills(pkg);
+  const pySkills = detectPythonSkills(await findPyProject(cwd));
+  const languages = [];
+  if (tsSkills.length > 0) languages.push("typescript");
+  if (pySkills.length > 0) languages.push("python");
+  const skills = [...tsSkills, ...pySkills.filter((s) => !tsSkills.includes(s))];
+  return { isEast: skills.length > 0, skills, languages, pkg };
 }
 
 // lib/diagnostics-client.ts
@@ -132,12 +167,59 @@ var EAST_RULES_CONTEXT = [
   "- prefer-jsx-over-factory-call \u2014 in a `.tsx` file, avoid `Foo.Root(...)`; author the `<Foo>` tag.",
   "- no-relative-src-import \u2014 avoid importing another package via `../src` or `@elaraai/x/src`; use its published package name."
 ].join("\n");
+var EAST_RULES_CONTEXT_PY = [
+  "What the East python linter checks \u2014 `east-py lint`, the flake8 `EAS` codes and the language server all run the SAME rules, so author to these from the start. Inside an `East.function` body the code must be East all the way down, and most of these are BUILD-TIME REFUSALS said early, not style notes:",
+  "",
+  "Body shape (the strict surface):",
+  "- body-takes-block-first \u2014 every body takes the block first: `lambda b, x: \u2026` / `def f(b, x)`, never `lambda x: \u2026`; the block is for statements, so `b.price` is not a field read.",
+  "- no-statement-on-outer-block \u2014 inside a nested body use THAT body's block: `lambda b: b.assign(...)`, not `lambda _b: b.assign(...)` reaching outward.",
+  "- no-discarded-expression \u2014 a bare expression statement is built and thrown away; append it with `b.do(...)` or return it.",
+  "",
+  "Python that cannot be traced (the build refuses these):",
+  "- no-python-boolean \u2014 avoid `and` / `or` / `not` / `if` / `in` / `len()` / iteration / `int()` / `float()` over an expression; use `&`, `|`, `~`, `b.if_(...)` / `East.if_else(...)`, and the expression's own methods.",
+  "- no-python-formatting \u2014 avoid f-strings / `str()` / `format()` / `%` over an expression; build strings with `+`, or `East.String.print(T, value)`.",
+  "- no-operator-fork \u2014 avoid `//`, `%`, `**` and `a[-1]` on an expression; call `East.Integer.divide` / `remainder` / `pow`, and spell the element you mean.",
+  "- no-python-round \u2014 avoid `round(x)` (ties-to-even); call `East.Float.round_half` / `round_floor` / `round_ceil` / `round_trunc`.",
+  "- no-python-work \u2014 avoid an eager callback reaching for a module, an installed package, or a python `def` doing work; express it in East.",
+  "- no-deprecated-alias \u2014 use the canonical spelling (e.g. `.reduce()`, not `.fold()`).",
+  "",
+  "Bindings & values:",
+  "- no-let-const-in-expression \u2014 give `b.let` / `b.const` its own statement; don't bury a declaration inside an expression.",
+  "- prefer-explicit-east-type \u2014 avoid `b.let([])` / `b.let({})`; pass the East type, e.g. `b.let([], ArrayType(IntegerType))`.",
+  "- no-untracked-east-data \u2014 avoid a plain python literal local reaching an expression's method; bind it with `b.const(rows, Type)`.",
+  "- no-reinlined-east-binding \u2014 an expression held in a python local and used twice is re-inlined and re-evaluated; bind it once with `b.let` / `b.const`.",
+  "- no-redundant-east-cast \u2014 avoid `b.let(East.value(x, T), T)`; pass the value and type to `b.let` directly.",
+  "- prefer-let-const-over-east-value \u2014 inside a body declare with `b.const(value, Type)` / `b.let`, not `East.value(...)`.",
+  "",
+  "Variants & comparison:",
+  '- prefer-some-none \u2014 avoid `variant("some", x)` / `variant("none", None)`; use `some(x)` / `none`.',
+  '- no-handrolled-variant \u2014 avoid a `{"type": \u2026, "value": \u2026}` dict; use `variant("Tag", value, Type)` \u2014 the encoder needs what it constructs.',
+  "- no-host-comparison-on-east-values \u2014 outside a body, avoid `==` / `<` on a decoded variant or option; use `equal_for(T)` / `compare_for(T)` (and `make_east_key(T)` for `sorted`).",
+  "",
+  "Build time vs runtime (python computing what East should declare):",
+  "- no-build-time-clock \u2014 avoid `datetime.now()` / `time.time()` at module scope; author the constant, or read the clock inside a platform function.",
+  "- no-compile-time-data-injection \u2014 avoid `open()` / `json.load` / `os.environ` at module import; load at runtime (an e3 input, a dataset, a platform function).",
+  '- no-inline-credentials \u2014 avoid a literal password / token; `East.Env.get("YOUR_VAR")`, since IR is content-addressed and replicated.',
+  '- no-module-scope-east-macro \u2014 avoid a module-scope helper that builds IR for a body, or a composite `f"{a}|{b}"` key; make it an `East.function`, or model typed / nested East data.',
+  "- no-python-east-data \u2014 avoid assembling East rows with a module-scope comprehension or loop; write them out, or produce them at runtime.",
+  "- no-python-string-building \u2014 avoid an f-string assembling an East string constant (a regex, a template, a key); spell the constant out.",
+  "- no-derived-struct-fields \u2014 avoid declaring a type from another type's fields; a declaration is a wire format, so spell the fields.",
+  "- no-python-data-work \u2014 avoid a python helper doing the parse / strip / null-check / coerce work for a body; express it in East."
+].join("\n");
+function eastRulesContextFor(languages) {
+  const python = languages.includes("python");
+  const typescript = languages.includes("typescript") || !python;
+  const parts = [];
+  if (typescript) parts.push(EAST_RULES_CONTEXT);
+  if (python) parts.push(EAST_RULES_CONTEXT_PY);
+  return parts.join("\n\n");
+}
 
 // hooks/session-start.ts
 async function main() {
   const event = await readHookInput();
   const cwd = event.cwd || process.cwd();
-  const { isEast, skills } = await getEastProjectInfo(cwd);
+  const { isEast, skills, languages } = await getEastProjectInfo(cwd);
   if (!isEast) process.exit(0);
   warmDaemon(cwd);
   const skillList = skills.map((s) => `/east:${s}`).join(", ");
@@ -156,7 +238,7 @@ async function main() {
     "Preemptive diagnostics:",
     "- After you read or edit an East file, the plugin injects an `<east-code-review>` block listing TypeScript errors and East-specific idiom issues. Treat it as authoritative and fix what it flags \u2014 it's preemptive, so resolving it now avoids build-and-retry loops later. The rules it enforces are summarised below; write to them up front.",
     "",
-    EAST_RULES_CONTEXT
+    eastRulesContextFor(languages)
   ].join("\n");
   writeHookOutput("SessionStart", context);
 }
