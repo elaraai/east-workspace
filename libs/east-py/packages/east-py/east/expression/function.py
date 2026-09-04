@@ -39,7 +39,13 @@ from east.expression.lift import (
     _registry_entries,
     _trace_inner_fn,
 )
-from east.expression.location import SourceMap, source_map_scope
+from east.expression.location import (
+    Location,
+    SourceMap,
+    author_frames_of,
+    capture_frames,
+    source_map_scope,
+)
 from east.expression.nodes import _builtin, _var
 from east.types.types import EastType
 
@@ -522,7 +528,24 @@ def _check_signature(param_types: Any, out: Any, entry: str) -> list[EastType]:
 
 def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
            cse: bool = True) -> Any:
-    """The shared strict-builder core behind ``East.function``/``asyncFunction``."""
+    """The shared strict-builder core behind ``East.function``/``asyncFunction``.
+
+    Under a check (:func:`collect_build_errors`) a failure is recorded and a
+    placeholder returned instead of raising, so one import reports every
+    broken function in the module.
+    """
+    if _collector is None:
+        return _build_strict(param_types, out, body, is_async=is_async, entry=entry, cse=cse)
+    call_site = capture_frames()
+    try:
+        return _build_strict(param_types, out, body, is_async=is_async, entry=entry, cse=cse)
+    except Exception as error:  # noqa: BLE001 - the checker reports whatever the build raised
+        return _record_build_error(error, body, entry, call_site)
+
+
+def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
+                  cse: bool = True) -> Any:
+    """The build itself — raises on any failure."""
     types = _check_signature(param_types, out, entry)
     if not callable(body):
         raise TypeError(f"{entry} body must be callable, got {type(body).__name__}")
@@ -551,6 +574,110 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
 
     analyze_ir(ir_value, source_map=source_map)
     return _assemble(body, ir_value, out, types, fn_binds, is_async, source_map)
+
+
+# ─── Check mode (#653) ──────────────────────────────────────────────────────
+#
+# `east-py check` needs EVERY broken function in a module, not the first one.
+# A build normally raises out of the module's import, so the second failure is
+# never reached. Under `collect_build_errors()` a failed build is RECORDED
+# with its authoring location and replaced by a placeholder artifact, and the
+# import carries on — one run, every error.
+#
+# The collector is deliberately not a public East surface: nothing but the
+# checker opens it, and outside it `_build` behaves exactly as before.
+
+
+class BuildError:
+    """One build failure: what raised, where the author wrote it, and the
+    artifact name it was building."""
+
+    __slots__ = ("name", "kind", "message", "frames")
+
+    def __init__(self, name: str, kind: str, message: str,
+                 frames: tuple[Location, ...]) -> None:
+        self.name = name
+        self.kind = kind
+        self.message = message
+        self.frames = frames
+
+    @property
+    def location(self) -> Location | None:
+        """The innermost authoring frame, or None when the raise happened
+        entirely inside East."""
+        return self.frames[0] if self.frames else None
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        where = self.location
+        at = f"{where[0]}:{where[1]}:{where[2]}" if where else "?"
+        return f"<BuildError {self.kind} at {at}: {self.message[:60]}>"
+
+
+_collector: list[BuildError] | None = None
+
+
+def collecting_build_errors() -> bool:
+    """Whether a check is collecting build failures instead of raising."""
+    return _collector is not None
+
+
+@contextlib.contextmanager
+def collect_build_errors():
+    """Record build failures instead of raising them.
+
+    Every ``East.function`` / ``East.asyncFunction`` built inside the context
+    that fails is appended to the yielded list and replaced by a placeholder
+    that raises if anything CALLS it, so importing a module reports all of its
+    broken functions in one pass rather than stopping at the first.
+
+    Yields:
+        The list of :class:`BuildError`, filled as builds fail.
+    """
+    global _collector
+    previous = _collector
+    collected: list[BuildError] = []
+    _collector = collected
+    try:
+        yield collected
+    finally:
+        _collector = previous
+
+
+class _FailedArtifact:
+    """Stands in for a function whose build failed under a check, so the rest
+    of the module still imports. Calling it re-raises what the build said."""
+
+    __slots__ = ("_name", "_message")
+
+    def __init__(self, name: str, message: str) -> None:
+        self._name = name
+        self._message = message
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        raise ExpressionError(f"{self._name} failed to build: {self._message}")
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"<East function {self._name} (failed to build)>"
+
+
+def _record_build_error(error: BaseException, body: Any, entry: str,
+                        call_site: tuple[Location, ...]) -> _FailedArtifact:
+    """Append ``error`` to the open collector and return its placeholder.
+
+    The location is the innermost AUTHOR frame the error was raised on. Some
+    refusals never reach the author's code — a signature or arity check fires
+    before the body runs, so the traceback is East's own all the way down. For
+    those the ``East.function`` call site stands in, which is the line the
+    author has to change either way.
+    """
+    assert _collector is not None
+    name = getattr(body, "__name__", None) or entry
+    if name == "<lambda>":
+        name = entry
+    frames = author_frames_of(error.__traceback__) or call_site
+    _collector.append(BuildError(name, type(error).__name__, str(error), frames))
+    return _FailedArtifact(name, str(error))
 
 
 def function(param_types: list[EastType], out: EastType, body: Any = None, *,

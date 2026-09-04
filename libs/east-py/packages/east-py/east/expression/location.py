@@ -45,6 +45,7 @@ __all__ = [
     "Location",
     "SourceMap",
     "UNKNOWN_LOC_ID",
+    "author_frames_of",
     "capture_frames",
     "current_source_map",
     "location_id",
@@ -292,6 +293,46 @@ def _position(frame: Any) -> tuple[int, int]:
             if start_col is not None:
                 column = start_col + 1
     return line, column
+
+
+def author_frames_of(tb: Any) -> tuple[Location, ...]:
+    """The author's frames of a TRACEBACK, innermost first.
+
+    :func:`capture_frames` reads the live stack while a node is being built;
+    this reads the stack a build error was raised on, which is what
+    ``east-py check`` needs to say WHERE a refusal happened after catching it.
+    The same filtering applies — East's own package, the standard library and
+    installed packages drop out, so the stack heads with the line the author
+    wrote.
+
+    Args:
+        tb: The traceback to walk (``exception.__traceback__``).
+
+    Returns:
+        The author's ``(file, line, column)`` frames, innermost first; empty
+        when the raise happened entirely inside East or the standard library.
+    """
+    frames: list[Location] = []
+    current = tb
+    while current is not None:
+        code = current.tb_frame.f_code
+        path = _author_path(code.co_filename)
+        if path is not None:
+            line = current.tb_lineno
+            column = 0
+            table = _position_table(code)
+            if table is not None:
+                index = current.tb_lasti // 2
+                if 0 <= index < len(table):
+                    start_line, start_col = table[index]
+                    if start_line is not None:
+                        line = start_line
+                    if start_col is not None:
+                        column = start_col + 1
+            frames.append((path, line, column))
+        current = current.tb_next
+    frames.reverse()
+    return tuple(frames)
 
 
 def capture_frames() -> tuple[Location, ...]:
