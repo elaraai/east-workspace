@@ -7,10 +7,13 @@
 from __future__ import annotations
 
 from east.diagnostics.rules.body_takes_block_first import BodyTakesBlockFirst
+from east.diagnostics.rules.no_build_time_clock import NoBuildTimeClock
+from east.diagnostics.rules.no_compile_time_data_injection import NoCompileTimeDataInjection
 from east.diagnostics.rules.no_deprecated_alias import NoDeprecatedAlias
 from east.diagnostics.rules.no_discarded_expression import NoDiscardedExpression
 from east.diagnostics.rules.no_handrolled_variant import NoHandrolledVariant
 from east.diagnostics.rules.no_host_comparison_on_east_values import NoHostComparisonOnEastValues
+from east.diagnostics.rules.no_inline_credentials import NoInlineCredentials
 from east.diagnostics.rules.no_let_const_in_expression import NoLetConstInExpression
 from east.diagnostics.rules.no_module_scope_east_macro import NoModuleScopeEastMacro
 from east.diagnostics.rules.no_operator_fork import NoOperatorFork
@@ -47,6 +50,9 @@ ALL_RULES: tuple[Rule, ...] = (
     PreferLetConstOverEastValue(),
     NoHostComparisonOnEastValues(),
     NoModuleScopeEastMacro(),
+    NoBuildTimeClock(),
+    NoInlineCredentials(),
+    NoCompileTimeDataInjection(),
 )
 
 RULES_BY_NAME: dict[str, Rule] = {rule.name: rule for rule in ALL_RULES}
