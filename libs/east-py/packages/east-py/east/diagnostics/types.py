@@ -73,11 +73,21 @@ class Body:
 
     def is_expression(self, node: ast.AST) -> bool:
         """Whether ``node`` denotes an East expression: a name the body holds
-        an expression under (or one of an enclosing body), or an attribute /
-        call / subscript chain rooted at one."""
+        an expression under (or one of an enclosing body), an attribute /
+        call / subscript chain rooted at one, or an OPERATOR applied to one
+        (``x * 2`` builds an expression exactly as ``x.multiply(2)`` does —
+        the #624 operator table is why the spelling exists)."""
         root = node
         while isinstance(root, (ast.Attribute, ast.Call, ast.Subscript)):
             root = root.func if isinstance(root, ast.Call) else root.value
+        if isinstance(root, ast.BinOp):
+            return self.is_expression(root.left) or self.is_expression(root.right)
+        if isinstance(root, ast.UnaryOp):
+            return self.is_expression(root.operand)
+        if isinstance(root, ast.Compare):
+            return self.is_expression(root.left) or any(self.is_expression(c) for c in root.comparators)
+        if isinstance(root, ast.BoolOp):
+            return any(self.is_expression(v) for v in root.values)
         if not isinstance(root, ast.Name):
             return False
         body: Body | None = self

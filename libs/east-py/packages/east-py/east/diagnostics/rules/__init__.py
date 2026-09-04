@@ -10,15 +10,20 @@ from east.diagnostics.rules.body_takes_block_first import BodyTakesBlockFirst
 from east.diagnostics.rules.no_deprecated_alias import NoDeprecatedAlias
 from east.diagnostics.rules.no_discarded_expression import NoDiscardedExpression
 from east.diagnostics.rules.no_handrolled_variant import NoHandrolledVariant
+from east.diagnostics.rules.no_host_comparison_on_east_values import NoHostComparisonOnEastValues
 from east.diagnostics.rules.no_let_const_in_expression import NoLetConstInExpression
+from east.diagnostics.rules.no_module_scope_east_macro import NoModuleScopeEastMacro
 from east.diagnostics.rules.no_operator_fork import NoOperatorFork
 from east.diagnostics.rules.no_python_boolean import NoPythonBoolean
 from east.diagnostics.rules.no_python_formatting import NoPythonFormatting
 from east.diagnostics.rules.no_python_round import NoPythonRound
 from east.diagnostics.rules.no_python_work import NoPythonWork
+from east.diagnostics.rules.no_redundant_east_cast import NoRedundantEastCast
+from east.diagnostics.rules.no_reinlined_east_binding import NoReinlinedEastBinding
 from east.diagnostics.rules.no_statement_on_outer_block import NoStatementOnOuterBlock
 from east.diagnostics.rules.no_untracked_east_data import NoUntrackedEastData
 from east.diagnostics.rules.prefer_explicit_east_type import PreferExplicitEastType
+from east.diagnostics.rules.prefer_let_const_over_east_value import PreferLetConstOverEastValue
 from east.diagnostics.rules.prefer_some_none import PreferSomeNone
 from east.diagnostics.types import Rule
 
@@ -37,6 +42,11 @@ ALL_RULES: tuple[Rule, ...] = (
     PreferExplicitEastType(),
     NoLetConstInExpression(),
     NoUntrackedEastData(),
+    NoReinlinedEastBinding(),
+    NoRedundantEastCast(),
+    PreferLetConstOverEastValue(),
+    NoHostComparisonOnEastValues(),
+    NoModuleScopeEastMacro(),
 )
 
 RULES_BY_NAME: dict[str, Rule] = {rule.name: rule for rule in ALL_RULES}
