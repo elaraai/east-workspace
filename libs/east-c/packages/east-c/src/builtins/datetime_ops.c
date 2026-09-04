@@ -12,12 +12,21 @@
 #include <string.h>
 #include <time.h>
 
-/* Helper: get struct tm from epoch millis (UTC) */
+/* Helper: get struct tm from epoch millis (UTC).
+ *
+ * The split FLOORS toward negative infinity. C division truncates toward
+ * ZERO, so a negative epoch-ms would land on the next second UP and every
+ * pre-1970 datetime would decompose one second late — -1 read as
+ * 1970-01-01 00:00:00 rather than 1969-12-31 23:59:59. The millisecond
+ * getter already takes its remainder this way, and JavaScript's Date does
+ * too, so this is what makes the components agree across runtimes. */
 static struct tm millis_to_tm(int64_t millis)
 {
-    time_t secs = (time_t)(millis / 1000);
+    int64_t secs = millis / 1000;
+    if (millis % 1000 < 0) secs -= 1;
+    time_t t = (time_t)secs;
     struct tm result;
-    gmtime_r(&secs, &result);
+    gmtime_r(&t, &result);
     return result;
 }
 

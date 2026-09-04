@@ -23,6 +23,7 @@ function's beast2 encoding carries the map for every other runner.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from east.expression.errors import ExpressionError
@@ -162,6 +163,55 @@ def trace(fn: Any, param_types: list[EastType],
     ir = _function_ir(all_types, all_params, result, consts, is_async=is_async,
                       out=out_hint, cse=cse)
     return ir, result.east_type, [hold for _name, hold, _t in fn_consts]
+
+
+@contextlib.contextmanager
+def detached_build():
+    """Build as if no other build were open — the whole trace state is set
+    aside and restored (#674).
+
+    ``East.function`` returns an inline Function EXPRESSION when a build is
+    already open, so a stdlib function whose FIRST use in the process happens
+    inside a body would memoise an expression, and every later EAGER call
+    would return one too. A stdlib body is closed over nothing, so its
+    artifact does not belong to the enclosing build and is better built
+    outside it: the memoised value is then always the artifact, whichever use
+    came first.
+    """
+    from east.expression import lift, location, naming, statements
+
+    global _async_build
+    saved = {
+        "const": lift._const_registry, "fn": lift._fn_registry,
+        "hoisting": lift._hoisting, "effects": list(lift._effect_frames),
+        "loops": list(lift._loop_frames), "frames": list(statements._frames),
+        "scopes": list(naming._scopes), "pending": set(naming._pending),
+        "async": _async_build, "map": location._current,
+    }
+    lift._const_registry = None
+    lift._fn_registry = None
+    lift._hoisting = True
+    lift._effect_frames.clear()
+    lift._loop_frames.clear()
+    statements._frames.clear()
+    naming._scopes.clear()
+    naming._pending.clear()
+    _async_build = False
+    location._current = None      # its own map, not the enclosing build's
+    try:
+        yield
+    finally:
+        lift._const_registry = saved["const"]
+        lift._fn_registry = saved["fn"]
+        lift._hoisting = saved["hoisting"]
+        lift._effect_frames[:] = saved["effects"]
+        lift._loop_frames[:] = saved["loops"]
+        statements._frames[:] = saved["frames"]
+        naming._scopes[:] = saved["scopes"]
+        naming._pending.clear()
+        naming._pending.update(saved["pending"])
+        _async_build = saved["async"]
+        location._current = saved["map"]
 
 
 def _output_matches(out_type: EastType, declared: EastType) -> bool:

@@ -1684,8 +1684,17 @@ const builtin_evaluators: Record<BuiltinName, (loc_id: bigint, source_map: Sourc
   DateTimeDurationMilliseconds: (_loc_id: bigint, _source_map: SourceMap | null) => (date1: Date, date2: Date) => BigInt(date1.getTime() - date2.getTime()),
   DateTimeToEpochMilliseconds: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date) => BigInt(date.getTime()),
   DateTimeFromEpochMilliseconds: (_loc_id: bigint, _source_map: SourceMap | null) => (milliseconds: bigint) => new Date(Number(milliseconds)),
-  DateTimeFromComponents: (_loc_id: bigint, _source_map: SourceMap | null) => (year: bigint, month: bigint, day: bigint, hour: bigint, minute: bigint, second: bigint, millisecond: bigint) =>
-    new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second), Number(millisecond))),
+  DateTimeFromComponents: (_loc_id: bigint, _source_map: SourceMap | null) => (year: bigint, month: bigint, day: bigint, hour: bigint, minute: bigint, second: bigint, millisecond: bigint) => {
+    const y = Number(year);
+    const date = new Date(Date.UTC(y, Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second), Number(millisecond)));
+    // `Date.UTC` applies JavaScript's legacy two-digit-year rule, remapping a
+    // year of 0-99 to 1900-1999. East years mean what they say (east-c sets
+    // `tm_year = year - 1900` and does no remapping), so undo it — on the
+    // ROLLED year, since an out-of-range month or day may have carried into
+    // it and the normalisation is part of the contract.
+    if (y >= 0 && y <= 99) date.setUTCFullYear(date.getUTCFullYear() - 1900);
+    return date;
+  },
   DateTimePrintFormat: (_loc_id: bigint, _source_map: SourceMap | null) => (date: Date, tokens: DateTimeFormatToken[]) => {
     return formatDateTime(date, tokens);
   },

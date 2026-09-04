@@ -418,16 +418,41 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
     /* ----- IR_BLOCK ------------------------------------------------ */
     case IR_BLOCK: {
+        /* A block SCOPES what it binds. Evaluating its statements in the
+         * enclosing environment would leak them: two blocks binding the same
+         * name — the shape a build with hoisted constants emits, one per
+         * exported function — would then share one binding, and because a
+         * closure here captures the environment rather than snapshotting it,
+         * even a function created before the second binding would read it
+         * (#675). The TypeScript runner scopes a block and answers
+         * correctly, so this was a cross-runtime divergence, not only a
+         * wrong answer.
+         *
+         * Only a block that BINDS needs a scope, so the common statement
+         * sequence still costs nothing. */
+        Environment *block_env = env;
+        for (size_t i = 0; i < node->data.block.num_stmts; i++) {
+            if (node->data.block.stmts[i] && node->data.block.stmts[i]->kind == IR_LET) {
+                block_env = env_new(env);
+                if (!block_env) return eval_error_at(node, "out of memory");
+                break;
+            }
+        }
+
         EastValue *last = east_null();
         east_value_retain(last);
 
         for (size_t i = 0; i < node->data.block.num_stmts; i++) {
             east_value_release(last);
-            EvalResult r = eval_ir(node->data.block.stmts[i], env, platform, builtins);
-            if (r.status != EVAL_OK) return r;
+            EvalResult r = eval_ir(node->data.block.stmts[i], block_env, platform, builtins);
+            if (r.status != EVAL_OK) {
+                if (block_env != env) env_release(block_env);
+                return r;
+            }
             last = r.value;
         }
 
+        if (block_env != env) env_release(block_env);
         return eval_ok(last);
     }
 
