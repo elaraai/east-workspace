@@ -50,6 +50,7 @@ from east_py_std.fs import (
     fs_impl,
     fs_is_directory_impl,
     fs_is_file_impl,
+    fs_open_beast_impl,
     fs_read_directory_impl,
     fs_read_file_bytes_impl,
     fs_read_file_impl,
@@ -153,6 +154,7 @@ __all__ = [
     "fs_read_directory_impl",
     "fs_read_file_bytes_impl",
     "fs_write_file_bytes_impl",
+    "fs_open_beast_impl",
     # ---------- path ----------
     "path_join_impl",
     "path_resolve_impl",

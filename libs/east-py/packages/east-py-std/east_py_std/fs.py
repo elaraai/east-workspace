@@ -8,10 +8,17 @@ Provides filesystem operations for East programs running in Python.
 """
 
 import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from east.runtime.platform import platform_function, platform_functions
-from east.types.types import ArrayType, BlobType, BooleanType, NullType, StringType
+from east.runtime._compiler_eastc import load_frozen_value, open_paged_file
+from east.runtime.platform import (
+    generic_platform_function,
+    platform_function,
+    platform_functions,
+)
+from east.types.types import ArrayType, BlobType, BooleanType, EastType, NullType, StringType
 from east.types.values import EastArray, EastBlob
 
 
@@ -213,7 +220,51 @@ def fs_write_file_bytes_impl(path: str, content: bytes) -> None:
         raise RuntimeError(f"Failed to write file bytes {path}: {err}") from err
 
 
-# Collected from the @platform_function decorations above.
+@generic_platform_function(type_parameters=["T"], name="fs_open_beast")
+def fs_open_beast_impl(_platform_list: Any, T: EastType) -> Callable[[str], Any]:  # noqa: N803
+    """Open an indexed beast2 collection file as a frozen, lazily paged value.
+
+    The factory behind ``FileSystem.openBeast`` (``fs_open_beast([T], path)``
+    in a body): called with the resolved ``T`` — an ``Array``, ``Set`` or
+    ``Dict`` type — it returns ``open(path)``. The file is memory-mapped and
+    opened as a paged value whose ``size``, keyed reads and ``for`` loop
+    decode one segment at a time, exactly as ``blob.open_beast`` does; the
+    mapping is released when the value dies, so nothing else has to keep it
+    alive. A file without a paging index (what ``East.Blob.encode_beast``
+    writes) or whose element shape holds ``Ref`` or function values decodes
+    whole, frozen. The file's header must carry exactly ``T``.
+
+    Args:
+        _platform_list: The platform list being registered (unused).
+        T: ``EastType`` - the collection type the file was written with.
+
+    Returns:
+        ``open(path)`` - takes ``String`` (``str``) and returns the frozen
+        collection of type ``T`` as a paged hold the compiled body reads at
+        O(segment).
+
+    Raises:
+        RuntimeError: From ``open(path)`` when the file cannot be opened as
+            ``T``: ``Failed to open beast file <path>: <detail>``, naming
+            both types on a header mismatch — the message every runtime
+            raises.
+    """
+
+    def open_beast(path: str) -> Any:
+        try:
+            hold = open_paged_file(T, path, frozen=True)
+            if hold is not None:
+                return hold
+            # Not pageable (index-less, or a gated element shape): the whole
+            # frozen decode, the same value every runtime produces.
+            return load_frozen_value(T, Path(path).read_bytes())
+        except (OSError, ValueError) as err:
+            raise RuntimeError(f"Failed to open beast file {path}: {err}") from err
+
+    return open_beast
+
+
+# Collected from the @platform_function / @generic_platform_function decorations above.
 fs_impl = platform_functions(__name__)
 
 
@@ -230,4 +281,5 @@ __all__ = [
     "fs_read_directory_impl",
     "fs_read_file_bytes_impl",
     "fs_write_file_bytes_impl",
+    "fs_open_beast_impl",
 ]

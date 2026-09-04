@@ -313,6 +313,10 @@ jobs:
         shell: cmd
         run: if not exist \tmp mkdir \tmp
 
+      - name: Run east-py-std tests
+        working-directory: libs/east-py/packages/east-py-std
+        run: uv run pytest tests -q --no-cov
+
       - name: Run east-py-std compliance
         working-directory: libs/east-py
         run: uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir "$GITHUB_WORKSPACE/ir-std" -p east_py_std

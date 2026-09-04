@@ -105,6 +105,7 @@ test-conformance:
 
 test-east-py-std:
 	uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-std -p east_py_std $(QUIET_FLAG)
+	cd packages/east-py-std && uv run pytest tests -q --no-cov
 
 test-east-py-io:
 	uv run --package elaraai-east-py-io python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-io -p east_py_std -p east_py_io $(QUIET_FLAG)

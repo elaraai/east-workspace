@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, IntegerType, StringType, example } from "@elaraai/east";
+import { East, BooleanType, IntegerType, StringType, BlobType, ArrayType, SetType, DictType, StructType, SortedMap, SortedSet, compareFor, encodeBeast2PagedFor, example } from "@elaraai/east";
 import { FileSystem } from "@elaraai/east-node-std";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -123,4 +123,97 @@ export const fsWriteAndReadFileBytes = example({
     }),
     inputs: [],
     returns: true,
+});
+
+// The blobs below are what the paged writers produce — segmented, indexed,
+// self-contained — 30 rows in segments of 10, so a keyed read decodes one of
+// three segments. Each example writes its blob to a file first, because
+// FileSystem.openBeast opens a PATH: the file is what gets mapped (east-c,
+// east-py) or read (Node) and paged from.
+
+const OpenRowType = StructType({ id: IntegerType, name: StringType });
+const OpenTableType = DictType(IntegerType, OpenRowType);
+const OpenTagsType = SetType(StringType);
+const OpenRowsType = ArrayType(StringType);
+
+const OPEN_TABLE_BLOB = encodeBeast2PagedFor(OpenTableType, { batchSize: 10 })(
+    new SortedMap(
+        Array.from({ length: 30 }, (_, i): [bigint, { id: bigint; name: string }] => [BigInt(i), { id: BigInt(i), name: `row-${i}` }]),
+        compareFor(IntegerType),
+    ),
+);
+const OPEN_TAGS_BLOB = encodeBeast2PagedFor(OpenTagsType, { batchSize: 10 })(
+    new SortedSet(Array.from({ length: 30 }, (_, i) => `tag-${String(i).padStart(4, "0")}`), compareFor(StringType)),
+);
+const OPEN_ROWS_BLOB = encodeBeast2PagedFor(OpenRowsType, { batchSize: 10 })(
+    Array.from({ length: 30 }, (_, i) => `row-${i}`),
+);
+
+export const fsOpenBeastDict = example({
+    keywords: ["fs", "FileSystem", "openBeast", "beast2", "lazy", "paged", "dict", "DictType", "file", "mmap", "frozen"],
+    description: "Open an indexed beast2 dict file lazily and read a key without decoding the whole file",
+    fn: East.asyncFunction([BlobType], IntegerType, ($, blob) => {
+        const path = $.let(East.value(join(tmpdir(), "ex-open-beast-dict.beast2")));
+        $(FileSystem.writeFileBytes(path, blob));
+        const table = $.let(FileSystem.openBeast(OpenTableType, path));
+        return table.size().add(table.get(7n).id);
+    }),
+    inputs: [OPEN_TABLE_BLOB],
+    returns: 37n,
+});
+
+export const fsOpenBeastDictForLoop = example({
+    keywords: ["fs", "FileSystem", "openBeast", "beast2", "lazy", "paged", "dict", "for", "loop", "stream", "segment"],
+    description: "Iterate a lazily opened beast2 dict file with $.for, one decoded segment at a time",
+    fn: East.asyncFunction([BlobType], IntegerType, ($, blob) => {
+        const path = $.let(East.value(join(tmpdir(), "ex-open-beast-loop.beast2")));
+        $(FileSystem.writeFileBytes(path, blob));
+        const table = $.let(FileSystem.openBeast(OpenTableType, path));
+        const sum = $.let(0n);
+        $.for(table, ($, row) => {
+            $.assign(sum, sum.add(row.id));
+        });
+        return sum;
+    }),
+    inputs: [OPEN_TABLE_BLOB],
+    returns: 435n,
+});
+
+export const fsOpenBeastArray = example({
+    keywords: ["fs", "FileSystem", "openBeast", "beast2", "lazy", "paged", "array", "ArrayType", "index", "file"],
+    description: "Open an indexed beast2 array file lazily and read one element by index",
+    fn: East.asyncFunction([BlobType], StringType, ($, blob) => {
+        const path = $.let(East.value(join(tmpdir(), "ex-open-beast-array.beast2")));
+        $(FileSystem.writeFileBytes(path, blob));
+        const rows = $.let(FileSystem.openBeast(OpenRowsType, path));
+        return rows.get(25n);
+    }),
+    inputs: [OPEN_ROWS_BLOB],
+    returns: "row-25",
+});
+
+export const fsOpenBeastSet = example({
+    keywords: ["fs", "FileSystem", "openBeast", "beast2", "lazy", "paged", "set", "SetType", "has", "membership", "file"],
+    description: "Open an indexed beast2 set file lazily and test membership",
+    fn: East.asyncFunction([BlobType], BooleanType, ($, blob) => {
+        const path = $.let(East.value(join(tmpdir(), "ex-open-beast-set.beast2")));
+        $(FileSystem.writeFileBytes(path, blob));
+        const tags = $.let(FileSystem.openBeast(OpenTagsType, path));
+        return tags.has("tag-0007");
+    }),
+    inputs: [OPEN_TAGS_BLOB],
+    returns: true,
+});
+
+export const fsOpenBeastIndexless = example({
+    keywords: ["fs", "FileSystem", "openBeast", "beast2", "encodeBeast", "index-less", "fallback", "whole decode", "frozen"],
+    description: "FileSystem.openBeast on an index-less beast2 file falls back to the whole frozen decode",
+    fn: East.asyncFunction([], IntegerType, ($) => {
+        const path = $.let(East.value(join(tmpdir(), "ex-open-beast-indexless.beast2")));
+        const values = $.const([1n, 2n, 3n], ArrayType(IntegerType));
+        $(FileSystem.writeFileBytes(path, East.Blob.encodeBeast(values, 'v2')));
+        return FileSystem.openBeast(ArrayType(IntegerType), path).get(1n);
+    }),
+    inputs: [],
+    returns: 2n,
 });

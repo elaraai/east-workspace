@@ -10,6 +10,10 @@
 #include <east/types.h>
 #include <east/eval_result.h>
 #include <east/compat.h>
+#include <east/builtins.h>
+#include <east/serialization.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +22,8 @@
 #ifndef _WIN32
 #include <unistd.h>
 #include <dirent.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 #endif
 #include <errno.h>
 
@@ -269,6 +275,179 @@ static EvalResult fs_write_file_bytes(EastValue **args, size_t num_args, EastTyp
     return eval_ok(east_null());
 }
 
+/*
+ * FileSystem.openBeast (fs_open_beast<T>): the file-backed twin of the
+ * blob.openBeast builtin. The file is mapped read-only and handed to the
+ * host-released lazy open, so the paged value reads its segments straight
+ * from the page cache and the mapping lives exactly as long as the value
+ * does — the release hook below unmaps it when the value dies. A file that
+ * cannot page (no index, or a Ref- or function-bearing element shape)
+ * decodes whole, frozen, and its mapping is dropped at once. Windows has no
+ * mmap here: the file is read into a heap buffer the same hook frees. The
+ * file must stay as it is while the value is alive: a mapping of a file
+ * truncated underneath it faults on the next read.
+ */
+static void fs_release_mapping(void *ctx, uint8_t *data, size_t len)
+{
+    (void)ctx;
+#ifndef _WIN32
+    munmap(data, len);
+#else
+    (void)len;
+    free(data);
+#endif
+}
+
+/* Maps (POSIX) or reads (Windows) the whole file. NULL on failure, with the
+ * detail text in *detail. */
+static uint8_t *fs_map_file(const char *path, size_t *len_out, const char **detail)
+{
+#ifndef _WIN32
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        *detail = strerror(errno);
+        return NULL;
+    }
+    struct stat st;
+    if (fstat(fd, &st) != 0) {
+        *detail = strerror(errno);
+        close(fd);
+        return NULL;
+    }
+    if (S_ISDIR(st.st_mode)) {
+        *detail = strerror(EISDIR);
+        close(fd);
+        return NULL;
+    }
+    if (st.st_size <= 0) {
+        *detail = "Data too short for Beast2 format: 0 bytes";
+        close(fd);
+        return NULL;
+    }
+    size_t len = (size_t)st.st_size;
+    void *map = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0);
+    int map_errno = errno;
+    close(fd);
+    if (map == MAP_FAILED) {
+        *detail = strerror(map_errno);
+        return NULL;
+    }
+    *len_out = len;
+    return (uint8_t *)map;
+#else
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        *detail = strerror(errno);
+        return NULL;
+    }
+    /* 64-bit positions: `ftell` is 32-bit on Windows, and these files are
+     * the ones too big to read whole. */
+    _fseeki64(f, 0, SEEK_END);
+    long long size = _ftelli64(f);
+    _fseeki64(f, 0, SEEK_SET);
+    if (size <= 0) {
+        fclose(f);
+        *detail = size < 0 ? strerror(errno) : "Data too short for Beast2 format: 0 bytes";
+        return NULL;
+    }
+    uint8_t *buf = malloc((size_t)size);
+    if (!buf) {
+        fclose(f);
+        *detail = "out of memory";
+        return NULL;
+    }
+    size_t read_bytes = fread(buf, 1, (size_t)size, f);
+    fclose(f);
+    if (read_bytes != (size_t)size) {
+        free(buf);
+        *detail = "short read";
+        return NULL;
+    }
+    *len_out = read_bytes;
+    return buf;
+#endif
+}
+
+static EvalResult fs_open_beast(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
+{
+    (void)num_args;
+    (void)input_types;
+    (void)num_input_types;
+    const char *path = args[0]->data.string.data;
+    /* The evaluator passes the call's resolved output type: T itself. */
+    EastType *type = output_type;
+    if (!type) return fs_error("open beast file", path, "the collection type is unknown");
+
+    size_t len = 0;
+    const char *detail = NULL;
+    uint8_t *data = fs_map_file(path, &len, &detail);
+    if (!data) return fs_error("open beast file", path, detail ? detail : "cannot map file");
+
+    /* Not a beast2 container at all: the diagnostics the other runtimes
+     * give, under the same prefix. */
+    char magic_msg[128];
+    const char *magic_problem = east_beast2_magic_problem(data, len, magic_msg, sizeof magic_msg);
+    if (magic_problem) {
+        fs_release_mapping(NULL, data, len);
+        return fs_error("open beast file", path, magic_problem);
+    }
+
+    /* The header must carry exactly the requested type — both container
+     * versions name it; a type the header cannot be read for is left to the
+     * decode, which reports its own failure. */
+    EastType *wire = east_beast2_extract_type(data, len);
+    if (wire) {
+        if (!east_type_equal(wire, type)) {
+            char *wire_s = east_print_type(wire);
+            char *want_s = east_print_type(type);
+            char msg[1024];
+            snprintf(msg, sizeof msg, "beast2: cannot open a blob of type %s as %s",
+                     wire_s ? wire_s : "?", want_s ? want_s : "?");
+            free(wire_s);
+            free(want_s);
+            east_type_release(wire);
+            fs_release_mapping(NULL, data, len);
+            return fs_error("open beast file", path, msg);
+        }
+        east_type_release(wire);
+    } else {
+        free(east_builtin_get_error());
+    }
+
+    EastValue *paged =
+        east_beast2_open_paged_external(data, len, type, true, fs_release_mapping, NULL);
+    if (paged) return eval_ok(paged);
+    /* Not pageable: the callback never fired, the mapping is still ours.
+     * Keep the pager's reason in case the decode fails without one. */
+    char *open_err = east_builtin_get_error();
+
+    EastValue *whole = east_beast2_decode_full_frozen(data, len, type);
+    fs_release_mapping(NULL, data, len);
+    if (!whole) {
+        char *err = east_builtin_get_error();
+        const char *detail = err ? err : (open_err ? open_err : "beast2 decode failed");
+        EvalResult r = fs_error("open beast file", path, detail);
+        free(err);
+        free(open_err);
+        return r;
+    }
+    free(open_err);
+    return eval_ok(whole);
+}
+
+/* The generic's one type argument is the output type itself, and the
+ * evaluator hands every call its resolved output type, so there is nothing
+ * to specialise per instantiation: one implementation serves every T. (A
+ * per-T closure would need a thread-local stash of `type_params`, which is
+ * unsafe here because arguments are evaluated after the registry lookup.) */
+static PlatformFn fs_open_beast_factory(EastType **type_params, size_t num_type_params)
+{
+    (void)type_params;
+    (void)num_type_params;
+    return fs_open_beast;
+}
+
 void east_std_register_fs(PlatformRegistry *reg)
 {
     platform_registry_add(reg, "fs_read_file", fs_read_file, false);
@@ -282,4 +461,5 @@ void east_std_register_fs(PlatformRegistry *reg)
     platform_registry_add(reg, "fs_read_directory", fs_read_directory, false);
     platform_registry_add(reg, "fs_read_file_bytes", fs_read_file_bytes, false);
     platform_registry_add(reg, "fs_write_file_bytes", fs_write_file_bytes, false);
+    platform_registry_add_generic(reg, "fs_open_beast", fs_open_beast_factory, false);
 }
