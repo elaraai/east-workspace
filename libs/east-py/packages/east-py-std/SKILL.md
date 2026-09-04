@@ -66,6 +66,8 @@ Task → What do you need?
     ├─ Filesystem
     │   ├─ Text → fs_read_file_impl(path) · fs_write_file_impl(path, text) · fs_append_file_impl(path, text)
     │   ├─ Bytes → fs_read_file_bytes_impl(path) -> Blob · fs_write_file_bytes_impl(path, blob)
+    │   ├─ Huge beast2 collection file → fs_open_beast_impl(platform, T)(path) — the factory behind FileSystem.openBeast (fs_open_beast<T>):
+    │   │   a FROZEN paged value over a mapping of the file; size / keyed reads / iteration decode one segment
     │   ├─ Inspect → fs_exists_impl · fs_is_file_impl · fs_is_directory_impl · fs_read_directory_impl
     │   └─ Manage → fs_create_directory_impl · fs_delete_file_impl
     │
@@ -135,6 +137,41 @@ from east_py_std import random_normal_impl, random_seed_impl
 random_seed_impl(42)                    # same seed -> same draws
 noise = random_normal_impl(0.0, 1.0)
 ```
+
+### Open a huge beast2 collection file lazily
+
+`fs_open_beast` is the std family's one generic platform function — the
+implementation behind `FileSystem.openBeast(T, path)` on every runtime. The
+factory takes the resolved type argument and returns the opener; the value
+it returns is a frozen paged proxy (the same value a large task input opens
+as): size, keyed reads and iteration decode one segment from a mapping of
+the file, mutation raises `cannot mutate a frozen value`, and a file whose
+header carries another type raises
+`Failed to open beast file <path>: beast2: cannot open a blob of type <wire> as <T>`.
+
+```python
+from east import DictType, IntegerType, StringType, StructType
+from east_py_std import fs_open_beast_impl
+
+Table = DictType(IntegerType, StructType([("id", IntegerType), ("name", StringType)]))
+open_table = fs_open_beast_impl(None, Table)    # the factory: (platform list, T) -> open(path)
+table = open_table("rows.beast2")               # mapped, nothing decoded yet
+table[7]["name"]                                 # one segment decoded
+
+# In a body: the declaration, then `platform` (or fs_impl) at East.compile
+open_beast = East.genericPlatform("fs_open_beast", ["T"], [StringType], "T")
+total = East.function([StringType], IntegerType,
+                      lambda b, path: open_beast([Table], path).get(7).id)
+East.compile(total, platform=fs_impl)("rows.beast2")
+```
+
+An index-less file (what `East.Blob.encode_beast` writes) decodes whole,
+frozen, with the same value; for bytes already in hand use
+`EastBlob.open_beast(T)` / `blob.open_beast(T)` in a body (the **east-py**
+skill), and for a file you hold in python `open_beast2_file` gives the
+richer read surface. The value keeps its mapping of the file for as long as
+it lives: don't hold thousands of opened files at once, and don't truncate
+or rewrite a file while a value over it is alive.
 
 Scalars cross the boundary as plain Python (`str`/`int`/`float`/`bool`/
 `datetime`); `Blob` is `EastBlob`, `Array<String>` is `EastArray` with eager

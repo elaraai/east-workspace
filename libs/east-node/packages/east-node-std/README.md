@@ -9,14 +9,14 @@
 
 ## Features
 
-- **📁 File System** - Read/write files, manage directories
-- **🖥️ Console I/O** - stdout/stderr output, stdin input
-- **🌐 HTTP Client** - Modern Fetch API for HTTP requests
+- **File System** - Read/write files, manage directories, open huge beast2 collection files lazily
+- **Console I/O** - stdout/stderr output, stdin input
+- **HTTP Client** - Modern Fetch API for HTTP requests
 - **Cryptography** - Random bytes, SHA-256, UUID generation
-- **🎲 Random** - Random number generation with 14 statistical distributions
-- **⏱️ Time Operations** - Timestamps and sleep
-- **🛤️ Path Utilities** - Cross-platform path manipulation
-- **🧪 Test Framework** - Built-in testing utilities
+- **Random** - Random number generation with statistical distributions
+- **Time Operations** - Timestamps and sleep
+- **Path Utilities** - Cross-platform path manipulation
+- **Test Framework** - Built-in testing utilities
 - **Type-Safe** - Full TypeScript support with EastError handling
 
 ## Installation
@@ -49,17 +49,17 @@ compiled("/path/to/input.txt");
 
 ## Platform Functions
 
-East Node provides seven platform modules:
+East Node provides these platform modules:
 
 | Module | Functions | Description |
 |--------|-----------|-------------|
 | **Console** | `log`, `error`, `write` | Console I/O operations |
-| **FileSystem** | `readFile`, `writeFile`, `exists`, `createDirectory`, etc. | File system operations (11 functions) |
+| **FileSystem** | `readFile`, `writeFile`, `exists`, `createDirectory`, `openBeast`, etc. | File system operations, including lazily paged beast2 collection files |
 | **Fetch** | `get`, `post`, `request` | HTTP client using Fetch API |
 | **Crypto** | `randomBytes`, `hashSha256`, `uuid` | Cryptographic operations |
 | **Time** | `now`, `sleep` | Time and delay operations |
 | **Path** | `join`, `resolve`, `dirname`, `basename`, `extname` | Path manipulation |
-| **Random** | `uniform`, `normal`, `range`, `exponential`, `bernoulli`, etc. | Random number generation with 14 distributions |
+| **Random** | `uniform`, `normal`, `range`, `exponential`, `bernoulli`, etc. | Random number generation with statistical distributions |
 
 **Complete platform:**
 ```typescript

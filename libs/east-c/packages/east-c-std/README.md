@@ -9,7 +9,7 @@
 ## Modules
 
 - **Console** — `log`, `warn`, `error`
-- **FileSystem** — `readFile`, `writeFile`, `exists`, `listDir`
+- **FileSystem** — `readFile`, `writeFile`, `exists`, `listDir`, `openBeast` (a beast2 collection file mapped and paged, frozen — the generic `fs_open_beast<T>`)
 - **Path** — `join`, `dirname`, `basename`, `extname`
 - **Crypto** — `uuid`, `random`, `sha256`
 - **Time** — `now`, `add`, `diff`, `format`

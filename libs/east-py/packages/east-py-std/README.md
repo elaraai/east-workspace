@@ -58,6 +58,7 @@ from east_py_std import python_platform
 - `fs_read_directory(path: String) -> Array<String>` - List directory contents
 - `fs_read_file_bytes(path: String) -> Blob` - Read file as binary
 - `fs_write_file_bytes(path: String, content: Blob) -> Null` - Write binary to file
+- `fs_open_beast<T>(path: String) -> T` - Open an indexed beast2 Array/Set/Dict file as a frozen, lazily paged value: the file is mapped and one segment is resident at a time (`fs_open_beast_impl(platform, T)` is the factory behind `FileSystem.openBeast`)
 
 ### Path Manipulation (`path_impl`)
 

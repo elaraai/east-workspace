@@ -137,6 +137,7 @@ Task → What do you need?
     │   ├─ Blob
     │   │   ├─ Read → .size(), .getUint8()
     │   │   ├─ Decode → .decodeUtf8(), .decodeUtf16(), .decodeBeast(), .decodeCsv(rowType, { nullStrings: [] by default (empty field == empty string; opt in for none), defaults: per-column fallback/constant-fill, skipShortRows: drop ragged rows instead of erroring, trimFields, … })
+    │   │   ├─ Open a huge collection lazily → .openBeast(ArrayType(T) | SetType(K) | DictType(K, V)) — a FROZEN paged value: size, get, has and $.for decode one segment at a time (an index-less blob, or a Ref-/function-bearing element shape, decodes whole, frozen; the blob's header type must equal T)
     │   │   └─ Compare → .equals()/.equal()/.eq(), .notEquals()/.notEqual()/.ne()
     │   ├─ Array
     │   │   ├─ Read → .size(), .length(), .has(), .get(), .at(), .tryGet(), .getKeys()
@@ -219,6 +220,9 @@ Task → What do you need?
         │   { functions: [manifest…] } for one built elsewhere
         │   └─ Export yours for python → East.exportFunctions(pkg, version, { name: fn }) + East.encodeFunctionManifest · `east-node export-functions built.js -o pkg.functions.beast2 -p <platform-pkg>` · East.linkImports(fn, manifests) to link in-process
         ├─ Data, INSIDE an East function → East.Blob.encodeBeast(value, 'v2'), blob.decodeBeast(type, 'v2')
+        │   ├─ A huge collection blob → blob.openBeast(T): frozen, pager-backed — keyed reads and $.for decode ONE segment; identical on the east-node, east-c and east-py runtimes
+        │   │   (East.Blob.encodeBeast writes NO paging index, so paged blobs come from encodeBeast2PagedFor / Beast2Writer / a runner's collection output)
+        │   └─ A huge collection FILE → FileSystem.openBeast(T, path) — the std family's generic platform call (east-node-std / east-c-std / east-py-std): the same frozen paged value, mapped from the file (Node pages it through positioned reads) — see east-node-std
         └─ Data, from TypeScript (host side, `@elaraai/east`) — see "Binary serialization (beast2)"
             ├─ Whole value → encodeBeast2For(T)(value) / decodeBeast2For(T)(blob)
             │   └─ Don't know the type? → decodeBeast2(blob) → { type, value }
@@ -510,7 +514,9 @@ no call-site change to adopt a newer container.
 | `encodeBeast2SegmentsFor(T, opts?): (batches) => Uint8Array` | In-memory convenience over the writer |
 | `encodeBeast2PagedFor(T, opts?): (value) => Uint8Array` | Encode ONE whole collection value segmented + indexed — the write-side sibling of `openBeast2PagesFor`, for values that will be read paged later. Batches adapt to `opts.targetSegmentBytes` of wire output (capped at `opts.batchSize` elements), so wide rows still yield right-sized segments. Same wire form as the writer; bytes differ from the whole-value encode of the same value |
 | `iterBeast2SegmentsFor(T, opts?): (blob) => Generator` | Yields one decoded collection per segment — O(segment) decoded memory |
-| `openBeast2PagesFor(T, opts?): (blob) => Beast2Pages` | Random access: `.elementCount` and `.segmentCount` are O(1) from the trailing index; `.segment(i)`, `.element(row)` (Array roots) and `.slice(offset, limit)` (every root kind — Set/Dict windows address the canonical sorted order; clamps like `Array.slice`) decode only the segments they touch; `.get(key)` looks up one Set element / Dict value via the verified segment fences |
+| `openBeast2PagesFor(T, opts?): (source) => Beast2Pages` | Random access: `.elementCount` and `.segmentCount` are O(1) from the trailing index; `.segment(i)`, `.element(row)` (Array roots) and `.slice(offset, limit)` (every root kind — Set/Dict windows address the canonical sorted order; clamps like `Array.slice`) decode only the segments they touch; `.get(key)` looks up one Set element / Dict value via the verified segment fences. `source` is the blob or a `Beast2SyncRangeReader` |
+| `openBeast2LazyFor(T, opts?): (source) => ValueTypeOf<T>` | An ordinary `SortedMap` / `SortedSet` / array served from the index: `size`, keyed reads and single-pass iteration decode one segment at a time; any other operation hydrates once, so the value is observationally the eager decode. `opts.frozen` opens it frozen (mutation refused, value semantics under `Is`), which is what `blob.openBeast` and `FileSystem.openBeast` do. `isBeast2LazySafe(T, { frozen })` is the element-shape gate (only `Ref`- and function-bearing shapes decode whole when frozen) |
+| `Beast2SyncRangeReader` — `{ size, read(offset, length) }` | Positioned reads instead of a whole `Uint8Array`, accepted wherever a blob is: the open reads only the tail (footer + index) and the head, and each decoded segment is one exact-range read — an fd-backed reader keeps the wire bytes in the page cache, never on the heap whole. `readBeast2Extents(reader)` reads the geometry the same way; `readBeast2ExtentsRanged` is the async twin for HTTP / S3 ranged reads |
 
 **Example:**
 ```typescript
@@ -553,6 +559,12 @@ pages.element(4_000_000);                           // decodes ONE segment
 - The writer defaults to self-contained segments plus an index, which is what
   makes `openBeast2PagesFor` and parallel decode possible; pass
   `{ selfContained: false }` only if you need aliasing to span segments.
+- Inside an East function the lazy open is `blob.openBeast(T)`, and for a
+  file on disk `FileSystem.openBeast(T, path)` (east-node-std, with the same
+  call in east-c-std and east-py-std). Both hand back the frozen lazy value
+  every runner gives a large task input: keyed reads and `$.for` cost one
+  segment, mutation is refused (`.copy()` first), and the blob's header type
+  is checked against `T` before anything decodes.
 
 ## Related skills
 
