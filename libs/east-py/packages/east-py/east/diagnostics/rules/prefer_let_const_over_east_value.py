@@ -1,3 +1,7 @@
+#
+# Copyright (c) 2025 Elara AI Pty Ltd
+# Licensed under the Business Source License 1.1. See LICENSE.md for details.
+#
 
 """``prefer-let-const-over-east-value``: inside a body, ``East.value(v, T)``
 bound to a python local — or returned — erases the East type at the place the

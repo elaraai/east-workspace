@@ -1,3 +1,7 @@
+#
+# Copyright (c) 2025 Elara AI Pty Ltd
+# Licensed under the Business Source License 1.1. See LICENSE.md for details.
+#
 
 """``no-redundant-east-cast``: ``b.let(East.value(x, T), T)`` states the East
 type twice, and the two can drift. The block builder's second argument already

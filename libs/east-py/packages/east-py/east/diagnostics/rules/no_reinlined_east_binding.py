@@ -1,3 +1,7 @@
+#
+# Copyright (c) 2025 Elara AI Pty Ltd
+# Licensed under the Business Source License 1.1. See LICENSE.md for details.
+#
 
 """``no-reinlined-east-binding``: an East expression is a value tree, not a
 slot. Held in a plain python local and used twice inside a body, the tree is
