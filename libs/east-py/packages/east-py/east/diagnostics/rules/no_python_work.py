@@ -107,6 +107,7 @@ class NoPythonWork:
     name = "no-python-work"
     code = 6
     category = "error"
+    supersedes: tuple[str, ...] = ()
     description = ("No python work inside an eager callback — no module objects, python builtins, "
                    "imported python functions or helpers doing python work; capture side-tables with "
                    "East.function / .bind.")

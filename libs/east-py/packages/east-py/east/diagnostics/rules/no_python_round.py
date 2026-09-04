@@ -23,6 +23,7 @@ class NoPythonRound:
     name = "no-python-round"
     code = 5
     category = "error"
+    supersedes: tuple[str, ...] = ()
     description = "No python round() on an East expression — East.Float.round_half / round_floor / round_ceil / round_trunc."
 
     def check(self, body: Body, ctx: Context) -> None:

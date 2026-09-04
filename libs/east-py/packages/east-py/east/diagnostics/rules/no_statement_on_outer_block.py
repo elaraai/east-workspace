@@ -26,6 +26,7 @@ class NoStatementOnOuterBlock:
     name = "no-statement-on-outer-block"
     code = 7
     category = "error"
+    supersedes: tuple[str, ...] = ()
     description = ("A statement inside a nested body must use that body's own block, not an enclosing "
                    "body's — `lambda b: b.assign(...)`, not `lambda _b: b.assign(...)`.")
 

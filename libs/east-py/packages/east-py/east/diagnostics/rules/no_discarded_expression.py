@@ -36,6 +36,7 @@ class NoDiscardedExpression:
     name = "no-discarded-expression"
     code = 9
     category = "error"
+    supersedes: tuple[str, ...] = ()
     description = "A bare expression statement in a body does not reach the compiled body — b.do(...) it, or return it."
 
     def check(self, body: Body, ctx: Context) -> None:

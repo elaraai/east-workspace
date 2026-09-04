@@ -40,7 +40,7 @@ from pathlib import Path
 
 from east.diagnostics.rules import ALL_RULES, RULES_BY_NAME
 from east.diagnostics.scope import collect_bodies, collect_module_scope, is_east_module
-from east.diagnostics.types import CODE_PREFIX, Body, Context, Diagnostic, Rule
+from east.diagnostics.types import CODE_PREFIX, Body, Context, Diagnostic, ModuleRule, Rule
 
 __all__ = [
     "ALL_RULES",
@@ -48,6 +48,8 @@ __all__ = [
     "Diagnostic",
     "Rule",
     "run_east_rules",
+    "apply_precedence",
+    "precedence_cycles",
     "lint_paths",
     "DEFAULT_EXCLUDES",
 ]
@@ -87,6 +89,11 @@ def run_east_rules(source: str, filename: str = "<string>", *,
     off = set(disabled)
     rules = [r for r in ALL_RULES if r.name not in off]
 
+    # module scope first: the build-time concerns that sit in no body
+    for rule in rules:
+        if isinstance(rule, ModuleRule):
+            rule.check_module(ctx)
+
     def visit(body: Body) -> None:
         for rule in rules:
             rule.check(body, ctx)
@@ -96,8 +103,63 @@ def run_east_rules(source: str, filename: str = "<string>", *,
     for body in ctx.bodies:
         visit(body)
     out = [d for d in ctx.diagnostics if not _suppressed(d, ctx.lines)]
+    out = apply_precedence(out, rules)
     out.sort(key=lambda d: (d.line, d.column, d.code))
     return out
+
+
+def _overlaps(a: Diagnostic, b: Diagnostic) -> bool:
+    """Whether two findings cover any of the same source."""
+    return ((a.line, a.column) <= (b.end_line, b.end_column)
+            and (b.line, b.column) <= (a.end_line, a.end_column))
+
+
+def apply_precedence(found: list[Diagnostic], rules: Iterable[Rule]) -> list[Diagnostic]:
+    """One mistake, one finding.
+
+    Several rules can match the same code — a python helper doing data work
+    inside an eager callback is ``no-python-data-work`` *and* the general
+    ``no-python-work``; an f-string over a constant is
+    ``no-python-string-building`` *and* ``no-python-formatting``. Each rule
+    declares the rules it ``supersedes``; a finding is dropped when a finding
+    of a superseding rule overlaps it, so the author reads the most specific
+    message and only that one.
+
+    Args:
+        found: The findings, before precedence.
+        rules: The active rules, carrying the relation.
+
+    Returns:
+        The findings that survive, in the order given.
+    """
+    beats = {rule.name: frozenset(rule.supersedes) for rule in rules}
+    return [
+        d for d in found
+        if not any(d.rule in beats.get(other.rule, frozenset()) and _overlaps(d, other)
+                   for other in found if other is not d)
+    ]
+
+
+def precedence_cycles(rules: Iterable[Rule]) -> list[str]:
+    """The rule names caught in a ``supersedes`` cycle (including a rule that
+    supersedes itself) — empty when the relation is a partial order. The
+    corpus test pins this: a cycle would silence both rules."""
+    beats = {rule.name: tuple(rule.supersedes) for rule in rules}
+    bad: list[str] = []
+    for start in beats:
+        seen: set[str] = set()
+        stack = [start]
+        while stack:
+            name = stack.pop()
+            for nxt in beats.get(name, ()):
+                if nxt == start:
+                    bad.append(start)
+                    stack = []
+                    break
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+    return sorted(set(bad))
 
 
 def _suppressed(d: Diagnostic, lines: list[str]) -> bool:

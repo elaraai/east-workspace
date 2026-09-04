@@ -29,6 +29,7 @@ class NoOperatorFork:
     name = "no-operator-fork"
     code = 2
     category = "error"
+    supersedes: tuple[str, ...] = ()
     description = ("`//`, `%`, `**` and `a[-1]` on an East expression diverge from East's builtins — "
                    "call East.Integer.divide / remainder / pow, and spell the element you mean.")
 

@@ -88,6 +88,7 @@ class NoDeprecatedAlias:
     name = "no-deprecated-alias"
     code = 8
     category = "warning"
+    supersedes: tuple[str, ...] = ()
     description = "A deprecated python-idiom alias — the spelling is the TypeScript name."
 
     def check(self, body: Body, ctx: Context) -> None:
