@@ -151,6 +151,19 @@ def test_rejects_what_the_encoder_never_emits(typ, text, why):
     assert not accepts(typ, text), why
 
 
+def test_joins_an_escaped_surrogate_pair():
+    """An astral character escaped as a surrogate pair is ONE code point.
+
+    Python strings are code points, not UTF-16 code units, so decoding the
+    halves separately would leave two lone surrogates where east-node and
+    east-c produce the character — a document read differently on different
+    runtimes.
+    """
+    want = "a\U0001F600b"
+    for text in (json.dumps(want, ensure_ascii=False), json.dumps(want, ensure_ascii=True)):
+        assert read(StringType, text) == want
+
+
 def test_accepts_a_leap_day():
     assert accepts(DATE_STRUCT, '{"v":"2024-02-29T00:00:00.000+00:00"}')
 

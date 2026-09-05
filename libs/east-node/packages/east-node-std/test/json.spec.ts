@@ -157,6 +157,14 @@ describe("the reader accepts exactly what jsonSchemaFor describes", () => {
         });
     }
 
+    unitTest("joins an escaped surrogate pair into one code point", () => {
+        // A producer emitting ASCII-only JSON escapes an astral character as a
+        // surrogate pair; every runtime must read it back as the character.
+        const want = "a\u{1F600}b";
+        assert.equal(read(StringType, JSON.stringify(want)), want);
+        assert.equal(read(StringType, '"a\\ud83d\\ude00b"'), want);
+    });
+
     unitTest("accepts February 29 in a leap year", () => {
         assert.ok(accepts(DateStruct, '{"v":"2024-02-29T00:00:00.000+00:00"}'));
     });

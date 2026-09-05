@@ -194,6 +194,19 @@ class JsonReader:
     def _peek(self) -> str | None:
         return self._buf[self._pos] if self._fill() else None
 
+    def _ensure(self, count: int) -> bool:
+        """Buffer at least ``count`` characters from the cursor, if they exist."""
+        while len(self._buf) - self._pos < count:
+            if self._eof:
+                return False
+            chunk = self._chunks.next()
+            if chunk is None:
+                self._eof = True
+                return False
+            self._buf = self._buf[self._pos :] + chunk
+            self._pos = 0
+        return True
+
     def _take(self) -> str:
         if not self._fill():
             self._fail("unexpected end of document")
@@ -250,7 +263,24 @@ class JsonReader:
                 hexits = "".join(self._take() for _ in range(4))
                 if not re.fullmatch(r"[0-9a-fA-F]{4}", hexits):
                     self._fail(f'invalid \\u escape "\\u{hexits}"')
-                out.append(chr(int(hexits, 16)))
+                code = int(hexits, 16)
+                # A high surrogate followed by an escaped low surrogate is ONE
+                # astral code point. Python strings are code points, not UTF-16
+                # code units, so decoding the halves separately would leave two
+                # lone surrogates where east-node and east-c produce the
+                # character — the same divergence east-c's parser guards.
+                if 0xD800 <= code <= 0xDBFF and self._ensure(6):
+                    ahead = self._buf[self._pos : self._pos + 6]
+                    if (
+                        ahead[0] == "\\"
+                        and ahead[1] == "u"
+                        and re.fullmatch(r"[0-9a-fA-F]{4}", ahead[2:])
+                    ):
+                        low = int(ahead[2:], 16)
+                        if 0xDC00 <= low <= 0xDFFF:
+                            self._pos += 6
+                            code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)
+                out.append(chr(code))
                 continue
             self._fail(f'invalid escape "\\{esc}"')
 
