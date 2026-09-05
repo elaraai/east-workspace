@@ -18,6 +18,7 @@ export {
 } from "./beast2/index.js";
 export * from "./json.js";
 export * from "./json_schema.js";
+export * from "./json_schema_to_type.js";
 export * from "./csv.js";
 
 // export * from "./beast-stream.js";
