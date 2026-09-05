@@ -48,8 +48,31 @@ class EastPyConfig:
     source: Path | None = field(default=None, compare=False)
 
 
+def _pyprojects(start: str | Path) -> list[Path]:
+    """Every ``pyproject.toml`` at or above ``start``, nearest first."""
+    here = Path(start).resolve()
+    if here.is_file():
+        here = here.parent
+    found: list[Path] = []
+    for directory in [here, *here.parents]:
+        candidate = directory / "pyproject.toml"
+        if candidate.is_file():
+            found.append(candidate)
+    return found
+
+
 def find_pyproject(start: str | Path) -> Path | None:
-    """The nearest ``pyproject.toml`` at or above ``start``.
+    """The nearest ``pyproject.toml`` that CONFIGURES East, at or above ``start``.
+
+    Not simply the nearest file. A uv workspace member has its own
+    ``pyproject.toml`` — that is what makes it a member — and it usually says
+    nothing about East, so stopping at the first file found would give every
+    file in the package the defaults and silently ignore the policy the
+    workspace root declares. The search continues past a pyproject with no
+    ``[tool.east-py]`` section.
+
+    Falls back to the nearest file when nothing above configures East, so a
+    caller still learns which project a path belongs to.
 
     Args:
         start: A file or directory to search upward from.
@@ -57,14 +80,11 @@ def find_pyproject(start: str | Path) -> Path | None:
     Returns:
         The path, or None when there is no pyproject above ``start``.
     """
-    here = Path(start).resolve()
-    if here.is_file():
-        here = here.parent
-    for directory in [here, *here.parents]:
-        candidate = directory / "pyproject.toml"
-        if candidate.is_file():
+    found = _pyprojects(start)
+    for candidate in found:
+        if _section(candidate) is not None:
             return candidate
-    return None
+    return found[0] if found else None
 
 
 def load_config(start: str | Path) -> EastPyConfig:
@@ -83,13 +103,8 @@ def load_config(start: str | Path) -> EastPyConfig:
     path = find_pyproject(start)
     if path is None:
         return EastPyConfig()
-    try:
-        with path.open("rb") as handle:
-            table = tomllib.load(handle)
-    except (OSError, tomllib.TOMLDecodeError):
-        return EastPyConfig()
-    section = table.get("tool", {}).get(SECTION)
-    if not isinstance(section, dict):
+    section = _section(path)
+    if section is None:
         return EastPyConfig(source=path)
     return EastPyConfig(
         disable=_names(section.get("disable")),
@@ -97,6 +112,21 @@ def load_config(start: str | Path) -> EastPyConfig:
         check=section.get("check") is True,
         source=path,
     )
+
+
+def _section(path: Path) -> dict[str, object] | None:
+    """The ``[tool.east-py]`` table of ``path``, or None when it has none.
+
+    A file that cannot be read or parsed counts as having none: a diagnostics
+    tool must never be what stops a project building.
+    """
+    try:
+        with path.open("rb") as handle:
+            table = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError, ValueError):
+        return None
+    section = table.get("tool", {}).get(SECTION) if isinstance(table.get("tool"), dict) else None
+    return section if isinstance(section, dict) else None
 
 
 def _names(value: object) -> tuple[str, ...]:

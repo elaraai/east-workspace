@@ -13,6 +13,14 @@ dependencies = [
   "pytest-subtests",
 ]
 
+# East diagnostics (`east-py lint` / `check`, the flake8 and pylsp plugins, and
+# `east-py lsp`) read this section. `check = true` lets an EDITOR run the build
+# tier, which type-checks your East functions by BUILDING them — it imports the
+# module, so it is off unless a project asks. Set it to false if you would
+# rather run `east-py check` yourself.
+[tool.east-py]
+check = true
+
 # Packaging block — without it `uv sync` would not install this project's own
 # code, so `east-py run -p platform_module` could not import it. Matches the
 # repo's pure-Python packages (east-py-std/io/cli). This variant of

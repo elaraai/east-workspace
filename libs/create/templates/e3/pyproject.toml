@@ -12,3 +12,11 @@ dependencies = [
   "pytest",
   "pytest-subtests",
 ]
+
+# East diagnostics (`east-py lint` / `check`, the flake8 and pylsp plugins, and
+# `east-py lsp`) read this section. `check = true` lets an EDITOR run the build
+# tier, which type-checks your East functions by BUILDING them — it imports the
+# module, so it is off unless a project asks. Set it to false if you would
+# rather run `east-py check` yourself.
+[tool.east-py]
+check = true

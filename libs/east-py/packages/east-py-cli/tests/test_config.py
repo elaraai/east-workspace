@@ -126,3 +126,41 @@ def test_east_py_lint_applies_the_project_disable(tmp_path):
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stdout
     assert "All clear." in result.stdout
+
+
+def test_a_uv_workspace_member_inherits_the_root_policy(tmp_path):
+    """A member has its OWN pyproject — that is what makes it a member — and
+    usually says nothing about East. Stopping at the first file found would
+    give every file in the package the defaults and silently ignore the root."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.east-py]\ncheck = true\ndisable = ["no-operator-fork"]\n', encoding="utf-8")
+    member = tmp_path / "packages" / "member"
+    member.mkdir(parents=True)
+    (member / "pyproject.toml").write_text('[project]\nname = "member"\n', encoding="utf-8")
+
+    config = load_config(member / "mod.py")
+    assert config.check is True
+    assert config.disable == ("no-operator-fork",)
+    assert config.source == tmp_path / "pyproject.toml"
+
+
+def test_a_member_that_configures_east_itself_wins(tmp_path):
+    (tmp_path / "pyproject.toml").write_text('[tool.east-py]\ncheck = true\n', encoding="utf-8")
+    member = tmp_path / "packages" / "own"
+    member.mkdir(parents=True)
+    (member / "pyproject.toml").write_text('[tool.east-py]\ncheck = false\n', encoding="utf-8")
+
+    config = load_config(member / "mod.py")
+    assert config.check is False
+    assert config.source == member / "pyproject.toml"
+
+
+def test_with_nothing_configuring_east_the_nearest_project_is_still_named(tmp_path):
+    member = tmp_path / "packages" / "plain"
+    member.mkdir(parents=True)
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "root"\n', encoding="utf-8")
+    (member / "pyproject.toml").write_text('[project]\nname = "plain"\n', encoding="utf-8")
+
+    config = load_config(member / "mod.py")
+    assert config.check is False and config.disable == ()
+    assert config.source == member / "pyproject.toml", "the nearest file, so a caller knows the project"
