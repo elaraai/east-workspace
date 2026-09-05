@@ -60,17 +60,13 @@ async function findPackageJson(startDir) {
 async function findPyProject(startDir) {
   let dir = startDir;
   while (true) {
-    const texts = [];
-    for (const name of ["pyproject.toml", "uv.lock"]) {
-      try {
-        texts.push(await readFile(join(dir, name), "utf-8"));
-      } catch {
-      }
+    try {
+      return await readFile(join(dir, "pyproject.toml"), "utf-8");
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return null;
+      dir = parent;
     }
-    if (texts.length > 0) return texts.join("\n");
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
   }
 }
 function detectEastSkills(pkg) {

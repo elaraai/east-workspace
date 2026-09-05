@@ -392,3 +392,20 @@ def test_precedence_leaves_unrelated_rules_alone():
     rules = [_Beats("one"), _Beats("two")]
     found = [_finding("one", 3), _finding("two", 3)]
     assert len(apply_precedence(found, rules)) == 2
+
+
+def test_a_declared_supersedes_edge_must_be_reachable():
+    """A rule may only claim to supersede another if the two can actually report
+    at overlapping ranges. Two edges shipped that could never fire — the rules
+    were disjoint by construction — and nothing could tell, because
+    `apply_precedence` silently does nothing when ranges do not overlap and
+    `precedence_cycles` only looks at the graph. Declaring an unreachable edge
+    is documentation that is wrong; either the rules overlap, or say nothing."""
+    declared = {(r.name, s) for r in ALL_RULES for s in r.supersedes}
+    # Every edge must be justified by a fixture in which BOTH rules fire — the
+    # corpus asserts one rule per bad fixture, so an edge with no such fixture
+    # is by definition unreachable there.
+    assert declared == set(), (
+        "a supersedes edge is declared but no fixture exercises it; add a fixture "
+        f"where both rules fire, or drop the edge: {sorted(declared)}"
+    )

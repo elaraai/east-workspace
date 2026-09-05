@@ -49,6 +49,13 @@ function authorLocations(stack: string | undefined): Location[] {
     return locationsFromStack(stack).filter((l) => !SELF_PATHS.includes(String(l.filename)));
 }
 
+// The builders as they were BEFORE anything decorated them, captured once at
+// module load. Restoring to these — rather than to whatever was installed when
+// a check started — is what makes an accidental overlap recoverable.
+const PRISTINE = { function: East.function, asyncFunction: East.asyncFunction };
+/** Whether a check currently has the builders decorated. */
+let patching = false;
+
 /** The environment variable a module can read to skip its import-time work. */
 export const GUARD = 'EAST_CHECK';
 
@@ -95,7 +102,16 @@ export async function checkModule(modulePath: string): Promise<BuildFinding[]> {
     const collected: Collected[] = [];
     let depth = 0;
 
-    const original = { function: East.function, asyncFunction: East.asyncFunction };
+    if (patching) {
+        throw new Error(
+            'east-node check is already running in this process. It decorates the global ' +
+            '`East.function` builders around one import, so a second overlapping call would ' +
+            "restore the first call's wrappers permanently — after which every later build " +
+            'would push into a dead collector instead of throwing. Run checks one at a time.',
+        );
+    }
+    patching = true;
+    const original = PRISTINE;
     const wrap = (build: (...args: any[]) => any, entry: string) => (...args: any[]): any => {
         const top = depth++ === 0;
         try {
@@ -133,8 +149,12 @@ export async function checkModule(modulePath: string): Promise<BuildFinding[]> {
     } catch (error) {
         findings.push(importFailure(error, absolute));
     } finally {
-        (East as any).function = original.function;
-        (East as any).asyncFunction = original.asyncFunction;
+        // Restore the PRISTINE builders captured at module load, never whatever
+        // happened to be installed on entry: restoring a wrapper is how a
+        // second overlapping call would leave one installed for good.
+        (East as any).function = PRISTINE.function;
+        (East as any).asyncFunction = PRISTINE.asyncFunction;
+        patching = false;
         if (previousGuard === undefined) delete process.env[GUARD];
         else process.env[GUARD] = previousGuard;
     }

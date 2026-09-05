@@ -16,8 +16,13 @@ The second is why this server exists rather than a subprocess per document.
 Measured on ``east-py check`` here: a cold subprocess costs 0.12s for a module
 whose dependencies import lazily and 0.81s for one that imports torch at module
 scope, while a re-check in a warm process costs 0.0003s once those dependencies
-are in ``sys.modules``. On SAVE a subprocess would do; debounced on CHANGE,
-which is what makes a type error appear as you type, it would not. The build
+are in ``sys.modules``. The build tier runs on SAVE, not on change: it imports the module, which
+reads it from DISK, so running it against an unsaved buffer would report the
+last saved version's errors at the last saved version's line numbers, painted
+onto the document in front of you. Stale-and-misplaced is worse than absent.
+That is also what #653 specified. The warm process still earns its keep — a
+save costs 0.0003s here against 0.12-0.81s for a subprocess, so the tier can
+run on every save of a big project without being felt. The build
 tier runs on a worker thread and is debounced, so a slow or wedged build never
 blocks the rules — and the client owns restarting this process if it stops
 answering at all.
@@ -174,7 +179,12 @@ def serve() -> int:
         return rules, path
 
     def build_later(ls: Any, uri: str, path: str, rules: list[dict[str, Any]]) -> None:
-        """Run the build tier off the request path, debounced per document."""
+        """Run the build tier off the request path, debounced per document.
+
+        Only ever called for a document whose DISK contents are the ones being
+        reported on — an open, or a save. `check_module` imports the module,
+        and an import reads the file, not the editor's buffer.
+        """
 
         def go() -> None:
             findings = lsp_build_diagnostics(path)
@@ -203,9 +213,12 @@ def serve() -> int:
 
     @server.feature(lsp.TEXT_DOCUMENT_DID_CHANGE)
     def did_change(ls: Any, params: Any) -> None:
+        # Tier one only. The buffer is dirty and the build tier reads disk, so
+        # running it here would republish the last SAVED version's errors at
+        # that version's lines. The cached build findings for this document are
+        # merged in by `publish` and stay until the next save replaces them.
         uri = params.text_document.uri
-        rules, path = run_rules(ls, uri)
-        build_later(ls, uri, path, rules)
+        run_rules(ls, uri)
 
     @server.feature(lsp.TEXT_DOCUMENT_DID_SAVE)
     def did_save(ls: Any, params: Any) -> None:

@@ -104,7 +104,7 @@ def _builds_ir(node: ast.AST, ctx: Context) -> bool:
 
 
 #: the separators a composite key joins its parts with
-_KEY_SEPARATORS = frozenset({"|", ":", "-", "/", "_", ".", "#", ""})
+_KEY_SEPARATORS = frozenset({"|", ":", "-", "/", "_", ".", "#"})
 
 
 def _composite_key(node: ast.AST) -> bool:
@@ -120,8 +120,11 @@ def _composite_key(node: ast.AST) -> bool:
         return False
     if sum(isinstance(v, ast.FormattedValue) for v in node.values) < 2:
         return False
+    # The RAW chunk, not a stripped one: stripping made every whitespace-only
+    # chunk compare equal to "", so `f"{name} {count}"` — prose, by this
+    # function's own definition — read as a key.
     return all(
-        v.value.strip() in _KEY_SEPARATORS
+        v.value in _KEY_SEPARATORS
         for v in node.values
         if isinstance(v, ast.Constant) and isinstance(v.value, str)
     )

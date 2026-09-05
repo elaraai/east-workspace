@@ -214,8 +214,7 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         send({ id, result: null });
         return;
       case "exit":
-        python.dispose();
-        exit(shuttingDown ? 0 : 1);
+        shutdown(shuttingDown ? 0 : 1);
         return;
       case "textDocument/didOpen": {
         const path = uriToPath(params?.textDocument?.uri ?? "");
@@ -307,6 +306,14 @@ export function runEastLsp(options: EastLspOptions = {}): void {
       }
     }
   });
-  input.on("close", () => exit(0));
-  input.on("end", () => exit(0));
+  // The client going away ends the session, and the python child must go with
+  // it. Wiring this only to the `exit` MESSAGE was not enough: a disconnecting
+  // client may never send one, and with an injected `exit` (tests, or any
+  // embedder) the child and its three stdio pipes were simply leaked.
+  const shutdown = (code: number): void => {
+    python.dispose();
+    exit(code);
+  };
+  input.on("close", () => shutdown(0));
+  input.on("end", () => shutdown(0));
 }

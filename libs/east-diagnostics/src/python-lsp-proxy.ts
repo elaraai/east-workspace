@@ -129,11 +129,16 @@ export class PythonLspProxy {
     }
 
     const id = this.nextId++;
+    // The resolver takes the OUTCOME. `handleExit` settles every pending entry
+    // so a dying child never hangs the caller — but settling them as success
+    // meant a child that died during the handshake left `ready === true` with
+    // no child attached, writing `initialized` into a destroyed pipe and
+    // refusing to restart until the backoff lapsed.
     const initialized = new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(false), INITIALIZE_TIMEOUT_MS);
-      this.pending.set(id, () => {
+      this.pending.set(id, (answered: boolean) => {
         clearTimeout(timer);
-        resolve(true);
+        resolve(answered);
       });
     });
     this.write({ jsonrpc: "2.0", id, method: "initialize", params: { processId: process.pid, rootUri: null, capabilities: {} } });
@@ -156,7 +161,8 @@ export class PythonLspProxy {
     return true;
   }
 
-  private readonly pending = new Map<number | string, () => void>();
+  /** id -> settle(answered): true when the child replied, false when it went away. */
+  private readonly pending = new Map<number | string, (answered: boolean) => void>();
 
   private handleExit(): void {
     if (this.child !== undefined) {
@@ -165,7 +171,7 @@ export class PythonLspProxy {
     }
     this.ready = false;
     this.lastExitAt = Date.now();
-    for (const resolve of this.pending.values()) resolve();
+    for (const settle of this.pending.values()) settle(false);
     this.pending.clear();
   }
 
@@ -206,10 +212,10 @@ export class PythonLspProxy {
 
   private handle(message: Message): void {
     if (message.id !== undefined && message.id !== null && message.method === undefined) {
-      const resolve = this.pending.get(message.id);
-      if (resolve !== undefined) {
+      const settle = this.pending.get(message.id);
+      if (settle !== undefined) {
         this.pending.delete(message.id);
-        resolve();
+        settle(true);
       }
       return;
     }

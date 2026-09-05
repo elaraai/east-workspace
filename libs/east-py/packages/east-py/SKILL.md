@@ -1006,8 +1006,11 @@ syntactic (which names hold expressions, what python does to them), so a
 clean `lint` is necessary but not sufficient — the type errors live behind
 `east-py check`, which builds the module and reports what the builder says.
 `make lint` runs the rules over every east-py package's own East bodies.
-Where two rules match the same code the more specific one wins and the other
-is dropped, so one mistake reads as one message.
+
+The rules are written to be disjoint — each mistake is one rule's to report —
+and the corpus test pins that (a bad fixture trips only its own rule). Where a
+future rule genuinely overlaps an existing one it declares `supersedes`, and
+the more specific message is the one you see; no rule needs that today.
 
 ### Cross-language functions: `east-py export-functions` and `East.import_function`
 

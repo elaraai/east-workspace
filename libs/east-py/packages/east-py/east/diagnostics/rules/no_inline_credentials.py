@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import ast
 
-from east.diagnostics.types import Body, Context
+from east.diagnostics.types import Body, Context, body_nodes
 
 #: the config fields that carry a secret, by name — a config is usually built
 #: as a plain dict, far from any declared East type, so the name is the tell
@@ -49,7 +49,11 @@ class NoInlineCredentials:
                    "name, not the secret.")
 
     def check(self, body: Body, ctx: Context) -> None:
-        for node in ast.walk(body.node):
+        # `body_nodes`, not `ast.walk(body.node)`: a nested body is visited as a
+        # body of its own, so walking into it reports every finding twice — and
+        # `apply_precedence` cannot dedupe that, since it only drops findings
+        # ACROSS different rules.
+        for node in body_nodes(body):
             self._dict(node, ctx)
 
     def check_module(self, ctx: Context) -> None:

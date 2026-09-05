@@ -2891,9 +2891,9 @@ var PythonLspProxy = class {
     const id = this.nextId++;
     const initialized = new Promise((resolve3) => {
       const timer = setTimeout(() => resolve3(false), INITIALIZE_TIMEOUT_MS);
-      this.pending.set(id, () => {
+      this.pending.set(id, (answered) => {
         clearTimeout(timer);
-        resolve3(true);
+        resolve3(answered);
       });
     });
     this.write({ jsonrpc: "2.0", id, method: "initialize", params: { processId: process.pid, rootUri: null, capabilities: {} } });
@@ -2912,6 +2912,7 @@ var PythonLspProxy = class {
     this.startedBefore = true;
     return true;
   }
+  /** id -> settle(answered): true when the child replied, false when it went away. */
   pending = /* @__PURE__ */ new Map();
   handleExit() {
     if (this.child !== void 0) {
@@ -2920,8 +2921,8 @@ var PythonLspProxy = class {
     }
     this.ready = false;
     this.lastExitAt = Date.now();
-    for (const resolve3 of this.pending.values())
-      resolve3();
+    for (const settle of this.pending.values())
+      settle(false);
     this.pending.clear();
   }
   write(message) {
@@ -2963,10 +2964,10 @@ ${body}`);
   }
   handle(message) {
     if (message.id !== void 0 && message.id !== null && message.method === void 0) {
-      const resolve3 = this.pending.get(message.id);
-      if (resolve3 !== void 0) {
+      const settle = this.pending.get(message.id);
+      if (settle !== void 0) {
         this.pending.delete(message.id);
-        resolve3();
+        settle(true);
       }
       return;
     }
@@ -3191,8 +3192,7 @@ ${body}`);
         send({ id, result: null });
         return;
       case "exit":
-        python.dispose();
-        exit(shuttingDown ? 0 : 1);
+        shutdown(shuttingDown ? 0 : 1);
         return;
       case "textDocument/didOpen": {
         const path = uriToPath(params?.textDocument?.uri ?? "");
@@ -3291,8 +3291,12 @@ ${body}`);
       }
     }
   });
-  input.on("close", () => exit(0));
-  input.on("end", () => exit(0));
+  const shutdown = (code) => {
+    python.dispose();
+    exit(code);
+  };
+  input.on("close", () => shutdown(0));
+  input.on("end", () => shutdown(0));
 }
 
 // daemon/lsp.ts

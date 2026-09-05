@@ -99,7 +99,7 @@ test("a save is forwarded as a save, so the build tier runs without the debounce
   proxy.dispose();
 });
 
-test("a child that never answers initialize does not wedge the proxy", async () => {
+test("a child that dies during the handshake is a FAILED start, not a ready one", async () => {
   const child = new FakeChild(false);
   const proxy = proxyWith(child);
   const done = proxy.didOpen("/p/a.py", "file:///p/a.py", "import east\n");
@@ -107,6 +107,11 @@ test("a child that never answers initialize does not wedge the proxy", async () 
   await done;
   assert.ok(!child.received.some((m) => m.method === "textDocument/didOpen"),
     "nothing is forwarded to a child that never became ready");
+  // `handleExit` settles the pending handshake so the caller is never hung —
+  // but settling it as SUCCESS left the proxy believing it was ready, with no
+  // child attached, writing into a destroyed pipe.
+  assert.ok(!child.received.some((m) => m.method === "initialized"),
+    "a dead child must not be sent `initialized`");
   proxy.dispose();
 });
 

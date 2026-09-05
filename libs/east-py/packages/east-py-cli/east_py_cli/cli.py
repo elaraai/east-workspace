@@ -513,12 +513,26 @@ def cmd_lint(args: argparse.Namespace) -> int:
     if missing:
         print(f"Error: no such file or directory: {', '.join(missing)}", file=sys.stderr)
         return 2
-    # The project's own policy (`[tool.east-py]` in pyproject.toml) first; the
-    # flags ADD to it, so a one-off `--disable` never has to restate the file.
-    config = load_config(paths[0])
-    disabled = (*config.disable, *args.disable)
-    found = lint_paths(paths, disabled=disabled,
-                       excludes=(*DEFAULT_EXCLUDES, *config.exclude, *args.exclude))
+    # Per PATH, not once for the first one: `east-py lint pkg-a pkg-b` spans two
+    # uv workspace members, and each carries its own `[tool.east-py]`. Applying
+    # pkg-a's policy to pkg-b silently disabled the wrong rules there.
+    # The flags ADD to whatever the file says, so a one-off `--disable` never
+    # has to restate it.
+    found = {}
+    warned: set[str] = set()
+    for path in paths:
+        config = load_config(path)
+        for name in config.disable:
+            if name not in RULES_BY_NAME and name not in warned:
+                warned.add(name)
+                source = config.source or "pyproject.toml"
+                print(f"Warning: {source}: [tool.east-py] disable names unknown rule {name!r} — "
+                      "see `east-py lint --list-rules`", file=sys.stderr)
+        found.update(lint_paths(
+            [path],
+            disabled=(*config.disable, *args.disable),
+            excludes=(*DEFAULT_EXCLUDES, *config.exclude, *args.exclude),
+        ))
     count = sum(len(ds) for ds in found.values())
     if args.format == "json":
         records = [

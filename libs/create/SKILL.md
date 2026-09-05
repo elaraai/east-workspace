@@ -106,7 +106,7 @@ npm create @elaraai/e3 -- --help               # full flag list
 my-app/
 ├── package.json            # @elaraai/* pinned; cross-platform npm scripts (setup/build/test/deploy/start/watch)
 ├── tsconfig.json           # + tsserver-plugin-east (unless --no-editor-diagnostics)
-├── pyproject.toml          # e3 + east-py runner only; `[tool.east-py] check = true` opts into the build-check tier
+├── pyproject.toml          # e3 + east-py runner only; `[tool.east-py]` configures diagnostics (`check` opts into the build tier)
 ├── eslint.config.js        # unless --no-eslint
 └── src/
     ├── index.ts            # a sample e3.input + e3.task; the e3.package is the default export

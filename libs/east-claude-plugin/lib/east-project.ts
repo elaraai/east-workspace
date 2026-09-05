@@ -43,24 +43,28 @@ export async function findPackageJson(startDir: string): Promise<PackageJson | n
   }
 }
 
-/** The nearest `pyproject.toml` above `startDir`, as text (uv.lock alongside it
- * is read too: a workspace member's own pyproject may not name the East
- * distributions its lockfile resolves). */
+/**
+ * The nearest `pyproject.toml` above `startDir`, as text.
+ *
+ * `uv.lock` is deliberately NOT read. This runs on a hot path — every session
+ * start, every subagent start, every gated write, and every reviewed file — and
+ * a lockfile is large (~1 MB in this repo), so reading one per call to
+ * substring-match it was real work repeated constantly. It was also wrong:
+ * a lockfile lists TRANSITIVE resolutions, so a TypeScript-only project that
+ * merely resolved an East distribution somewhere in its graph was reported as
+ * a python East project and handed the python cheat-sheet. A project that
+ * authors East in python declares it in its own `pyproject.toml`.
+ */
 export async function findPyProject(startDir: string): Promise<string | null> {
   let dir = startDir;
   while (true) {
-    const texts: string[] = [];
-    for (const name of ["pyproject.toml", "uv.lock"]) {
-      try {
-        texts.push(await readFile(join(dir, name), "utf-8"));
-      } catch {
-        /* not here */
-      }
+    try {
+      return await readFile(join(dir, "pyproject.toml"), "utf-8");
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return null;
+      dir = parent;
     }
-    if (texts.length > 0) return texts.join("\n");
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
   }
 }
 

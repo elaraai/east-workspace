@@ -95,11 +95,22 @@ def _import(target: str) -> None:
         added = parent not in sys.path
         if added:
             sys.path.insert(0, parent)
+        # A name that cannot collide with a real module. Registering the file
+        # under its bare stem overwrote whatever `models` / `types` / `config`
+        # the process had genuinely imported, and popping it afterwards evicted
+        # the real one — so in a warm server the next `import models` re-executed
+        # it. Whatever was there is restored either way.
+        key = f"_east_check_{path.stem}"
+        had = key in sys.modules
+        previous = sys.modules.get(key)
         try:
-            sys.modules[path.stem] = module
+            sys.modules[key] = module
             spec.loader.exec_module(module)
         finally:
-            sys.modules.pop(path.stem, None)
+            if had:
+                sys.modules[key] = previous  # type: ignore[assignment]
+            else:
+                sys.modules.pop(key, None)
             if added and sys.path and sys.path[0] == parent:
                 sys.path.pop(0)
     else:

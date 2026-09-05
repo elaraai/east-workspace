@@ -119,7 +119,10 @@ test("scaffold e3: pyproject + index default export are emitted", () => {
   // reads `[tool.east-py]`, and the build tier is off everywhere until a
   // project opts in — so a scaffold that wants it has to say so.
   assert.ok(pyproject.includes("[tool.east-py]"), "pyproject configures the East diagnostics");
-  assert.ok(/\[tool\.east-py\][\s\S]*check = true/.test(pyproject), "the build tier is opted into");
+  // Off by default: the build tier IMPORTS the module, so an editor would run
+  // this project's code on every save. The comment above it shows how to opt in.
+  assert.ok(/\[tool\.east-py\][\s\S]*check = false/.test(pyproject), "the build tier is not opted into by default");
+  assert.ok(pyproject.includes("check = true"), "the comment shows how to turn it on");
 
   const index = readFileSync(join(dir, "src", "index.ts"), "utf8");
   assert.ok(index.includes("export default"), "e3 index must default-export the package");
@@ -227,7 +230,7 @@ test("scaffold e3: --platform with east-py (default) emits BOTH the TS-East and 
   assert.ok(initPy.includes("platform = [*example_impl]"), "__init__ aggregates into the platform list");
   const pyproject = readFileSync(join(dir, "pyproject.toml"), "utf8");
   assert.ok(pyproject.includes("[build-system]"), "platform pyproject has a build-system block");
-  assert.ok(/\[tool\.east-py\][\s\S]*check = true/.test(pyproject), "the platform pyproject opts into the build tier too");
+  assert.ok(/\[tool\.east-py\][\s\S]*check = false/.test(pyproject), "the platform pyproject is not opted in either");
   assert.ok(pyproject.includes('packages = ["platform_module"]'), "setuptools discovers platform_module");
   assert.ok(!existsSync(join(dir, "pyproject.platform.toml")), "the pyproject variant is renamed, not emitted alongside");
   assert.ok(existsSync(join(dir, "src", "platform_module.ts")), "TS declaration for the Python platform fn");

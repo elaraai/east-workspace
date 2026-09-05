@@ -24,6 +24,7 @@ function's beast2 encoding carries the map for every other runner.
 from __future__ import annotations
 
 import contextlib
+import threading
 from typing import Any
 
 from east.expression.errors import ExpressionError
@@ -534,7 +535,7 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
     placeholder returned instead of raising, so one import reports every
     broken function in the module.
     """
-    if _collector is None:
+    if _current_collector() is None:
         return _build_strict(param_types, out, body, is_async=is_async, entry=entry, cse=cse)
     call_site = capture_frames()
     try:
@@ -613,12 +614,23 @@ class BuildError:
         return f"<BuildError {self.kind} at {at}: {self.message[:60]}>"
 
 
-_collector: list[BuildError] | None = None
+#: PER-THREAD, not a module global. The language server runs the build tier on
+#: a worker thread per document AND synchronously on save, so two checks can be
+#: open at once. With one shared slot their save/restore interleaves: one
+#: check's `finally` clears the other's collector — so its remaining failures
+#: RAISE instead of being recorded — and the last restore can leave a dead
+#: collector installed for the life of the process, after which every build
+#: failure anywhere silently returns a placeholder instead of raising.
+_state = threading.local()
+
+
+def _current_collector() -> list[BuildError] | None:
+    return getattr(_state, "collector", None)
 
 
 def collecting_build_errors() -> bool:
     """Whether a check is collecting build failures instead of raising."""
-    return _collector is not None
+    return _current_collector() is not None
 
 
 @contextlib.contextmanager
@@ -626,21 +638,23 @@ def collect_build_errors():
     """Record build failures instead of raising them.
 
     Every ``East.function`` / ``East.asyncFunction`` built inside the context
-    that fails is appended to the yielded list and replaced by a placeholder
-    that raises if anything CALLS it, so importing a module reports all of its
-    broken functions in one pass rather than stopping at the first.
+    ON THIS THREAD that fails is appended to the yielded list and replaced by a
+    placeholder that raises if anything CALLS it, so importing a module reports
+    all of its broken functions in one pass rather than stopping at the first.
+
+    Thread-scoped: a concurrent check on another thread collects into its own
+    list and neither disturbs the other.
 
     Yields:
         The list of :class:`BuildError`, filled as builds fail.
     """
-    global _collector
-    previous = _collector
+    previous = _current_collector()
     collected: list[BuildError] = []
-    _collector = collected
+    _state.collector = collected
     try:
         yield collected
     finally:
-        _collector = previous
+        _state.collector = previous
 
 
 class _FailedArtifact:
@@ -671,12 +685,13 @@ def _record_build_error(error: BaseException, body: Any, entry: str,
     those the ``East.function`` call site stands in, which is the line the
     author has to change either way.
     """
-    assert _collector is not None
+    collector = _current_collector()
+    assert collector is not None
     name = getattr(body, "__name__", None) or entry
     if name == "<lambda>":
         name = entry
     frames = author_frames_of(error.__traceback__) or call_site
-    _collector.append(BuildError(name, type(error).__name__, str(error), frames))
+    collector.append(BuildError(name, type(error).__name__, str(error), frames))
     return _FailedArtifact(name, str(error))
 
 
