@@ -4,6 +4,7 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 
 import {
     ArrayType,
@@ -26,6 +27,7 @@ import {
     StructType,
     VariantType,
     VectorType,
+    type EastType,
 } from "../types.js";
 import { jsonSchemaFor, type JsonSchema } from "./json_schema.js";
 import { toJSONFor } from "./json.js";
@@ -310,6 +312,46 @@ describe("jsonSchemaFor", () => {
                 () => jsonSchemaFor(StructType({ f: FunctionType([], IntegerType) })),
                 /cannot describe Function/);
         });
+    });
+
+    test("matches the cross-language corpus digest", () => {
+        // The python twin asserts this same digest over the same corpus in the
+        // same order (east-py tests/serialization/test_json_schema.py). Two
+        // languages agreeing on one hash is what keeps a partner from being
+        // handed different contracts; changing the emitted bytes deliberately
+        // means updating both constants, which is the point.
+        const RecursiveCorpusType = RecursiveType((self: any) => VariantType({
+            nil: NullType,
+            cons: StructType({ head: IntegerType, tail: self }),
+        }));
+        const corpus: [string, EastType][] = [
+            ["Null", NullType], ["Boolean", BooleanType], ["Integer", IntegerType],
+            ["Float", FloatType], ["String", StringType], ["DateTime", DateTimeType],
+            ["Blob", BlobType],
+            ["Array", ArrayType(IntegerType)], ["Set", SetType(StringType)],
+            ["Dict", DictType(StringType, IntegerType)],
+            ["Struct", StructType({ a: StringType, b: IntegerType, c: DateTimeType })],
+            ["Variant", VariantType({ ok: IntegerType, err: StringType })],
+            ["Option", OptionType(StringType)],
+            ["Ref", RefType(IntegerType)],
+            ["Vector", VectorType(FloatType)], ["Matrix", MatrixType(IntegerType)],
+            ["nested", ArrayType(StructType({
+                id: IntegerType, tags: SetType(StringType),
+                note: OptionType(StringType), when: DateTimeType,
+            }))],
+            ["recursive", RecursiveCorpusType],
+            ["arrayRecursive", ArrayType(RecursiveCorpusType)],
+        ];
+        const lines: string[] = [];
+        for (const draft of ["2020-12", "draft-07", "openapi-3.0"] as const) {
+            for (const [name, type] of corpus) {
+                lines.push(`${draft}|${name}=${JSON.stringify(jsonSchemaFor(type, { draft }))}`);
+            }
+        }
+        assert.equal(lines.length, 57);
+        assert.equal(
+            createHash("sha256").update(lines.join("\n")).digest("hex"),
+            "260592523fd5e2437d2303b36fe17fea8602f93d35891d00c945ae9bd52fb427");
     });
 
     test("emits byte-identical documents for the same type and release", () => {
