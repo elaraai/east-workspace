@@ -12,6 +12,12 @@ from east.serialization.csv import (
     decode_csv_for,
     encode_csv_for,
 )
+from east.serialization.json_schema import (
+    EAST_JSON_PATTERNS,
+    JsonSchema,
+    JsonSchemaDraft,
+    json_schema_for,
+)
 
 __all__ = [
     # CSV
@@ -21,4 +27,9 @@ __all__ = [
     "CsvLocation",
     "decode_csv_for",
     "encode_csv_for",
+    # JSON Schema
+    "EAST_JSON_PATTERNS",
+    "JsonSchema",
+    "JsonSchemaDraft",
+    "json_schema_for",
 ]
