@@ -103,6 +103,27 @@ const BLOB_PATTERN = "^0x(?:[0-9a-f]{2})*$";
 /** The non-finite floats JSON cannot hold, as the encoder spells them. Sorted for determinism. */
 const FLOAT_SPECIALS = ["-0.0", "-Infinity", "Infinity", "NaN"];
 
+/**
+ * The exact lexical forms East JSON's scalar encodings take.
+ *
+ * @remarks
+ * Published so a reader can enforce precisely what {@link jsonSchemaFor}
+ * describes — the contract and the check are then one definition, not two that
+ * have to be kept in step by hand. Each is stricter than the historic decoder,
+ * which also accepts hexadecimal and whitespace-padded integers, a `Z` suffix
+ * or any numeric offset on a timestamp, and uppercase hex blobs.
+ */
+export const EAST_JSON_PATTERNS = {
+  /** Decimal i64, no leading zeros, no sign on zero. */
+  get integer(): string { return integerPattern(); },
+  /** RFC 3339 in UTC with three fractional digits and an explicit `+00:00`. */
+  datetime: DATETIME_PATTERN,
+  /** `0x` followed by an even count of lowercase hex digits. */
+  blob: BLOB_PATTERN,
+  /** The non-finite floats, as strings, in the order the schema lists them. */
+  floatSpecials: FLOAT_SPECIALS as readonly string[],
+} as const;
+
 /** Per-walk state: the `$defs` being accumulated and the names already assigned. */
 interface DefsContext {
   draft: JsonSchemaDraft;
