@@ -1,13 +1,13 @@
 ---
 name: east-py-std
-description: "Standard platform functions for the East language on the Python runtime - console, environment variables, filesystem, HTTP fetch, crypto, time, path, random, testing. Use when writing Python (not the TypeScript DSL) that calls or registers these platform functions. Triggers for: (1) Calling east_py_std functions (env_get, fs_read_file, fetch_request, crypto_uuid, random_normal, ...) from python or inside an East.function body — the same object does both, (2) Registering the east_py_std platform list with compile() so East programs can use Console/Env/FileSystem/Fetch/Crypto/Time/Path/Random/Test on the Python runtime, (3) Building FetchRequestConfigType requests in Python, (4) Deterministic random streams with random_seed. For authoring East programs in TypeScript against these functions, use the east-node-std skill instead."
+description: "Standard platform functions for the East language on the Python runtime - console, environment variables, filesystem, HTTP fetch, crypto, time, path, random, large-JSON reading, testing. Use when writing Python (not the TypeScript DSL) that calls or registers these platform functions. Triggers for: (1) Calling east_py_std functions (env_get, fs_read_file, fetch_request, crypto_uuid, random_normal, ...) from python or inside an East.function body — the same object does both, (2) Registering the east_py_std platform list with compile() so East programs can use Console/Env/FileSystem/Fetch/Crypto/Time/Path/Random/Json/Test on the Python runtime, (3) Building FetchRequestConfigType requests in Python, (4) Deterministic random streams with random_seed, (5) Reading a JSON document too large to decode whole — ingesting a multi-gigabyte payload from another system — with json_open / json_more / json_next, strictly against a published contract. For authoring East programs in TypeScript against these functions, use the east-node-std skill instead."
 ---
 
 # East.py Standard Platform Functions
 
 `east_py_std` is the Python implementation of the East standard platform:
 console, environment variables, filesystem, HTTP fetch, crypto, time, path,
-random, and testing.
+random, large-JSON reading, and testing.
 Every function is exported under its platform name (`fs_read_file`,
 `fetch_get`, …) and is **dual-mode**: a plain Python callable taking
 and returning East values — call it from a project `@East.platform_function`
@@ -76,6 +76,14 @@ Task → What do you need?
     │   │   size / keyed reads / iteration decode one segment
     │   ├─ Inspect → fs_exists · fs_is_file · fs_is_directory · fs_read_directory
     │   └─ Manage → fs_create_directory · fs_delete_file
+    │
+    ├─ JSON too large to decode whole
+    │   ├─ Open → json_open(path, pointer) · json_open_text(text, pointer) -> handle
+    │   │   (pointer is RFC 6901: "" for the whole document, "/data" for an envelope's array)
+    │   ├─ Iterate → json_more(handle) then json_next(T, handle) in a body — the type FIRST;
+    │   │   from python the factory: json_next(None, T)(handle)
+    │   ├─ One subtree → json_value(T, path, pointer) — the small members beside a huge array
+    │   └─ Release → json_close(handle)
     │
     ├─ HTTP
     │   ├─ Convenience → fetch_get(url) -> String · fetch_get_bytes(url) -> Blob ·
@@ -181,6 +189,64 @@ skill), and for a file you hold in python `open_beast2_file` gives the
 richer read surface. The value keeps its mapping of the file for as long as
 it lives: don't hold thousands of opened files at once, and don't truncate
 or rewrite a file while a value over it is alive.
+
+### Read a JSON document too large to decode whole
+
+`json_open` positions a reader on the array or object an RFC 6901 pointer
+names; `json_next` reads ONE element against a type. `json_next` and
+`json_value` are generic, so they read as `fs_open_beast` does — the type
+argument first in a body, the factory from python.
+
+```python
+from east import East, IntegerType, StringType, StructType
+from east_py_std import json_close, json_more, json_next, json_open_text, platform
+
+Row = StructType([("id", IntegerType)])
+
+# From python — the factory: (platform list, T) -> read(handle)
+handle = json_open_text('[{"id":"1"},{"id":"2"}]', "")
+read = json_next(None, Row)
+rows = []
+while json_more(handle):
+    rows.append(read(handle))
+json_close(handle)                      # [{'id': 1}, {'id': 2}]
+
+# In a body — the call itself, the type argument first
+def body(b, text):
+    h = b.let(json_open_text(text, ""))
+    acc = b.let(0)
+    b.while_(json_more(h), lambda b: b.assign(acc, acc + json_next(Row, h)["id"]))
+    b.do(json_close(h))
+    return acc
+
+summed = East.function([StringType], IntegerType, body)
+East.compile(summed, platform=platform)('[{"id":"10"},{"id":"20"}]')   # 30
+```
+
+- **`{"meta": {…}, "data": [10M rows]}` is the ordinary shape.** Never type the
+  whole document as one value — a `Struct` holding the array materialises it
+  however good the reader is. Point at the array, and read the envelope
+  separately with `json_value(MetaType, path, "/meta")`; a member AFTER the
+  array costs a scan, not a parse.
+- **It is strict, and deliberately stricter than `parse_json`.** It accepts
+  exactly what `json_schema_for(T)` describes — what the ENCODER emits — so a
+  producer validating against the published schema cannot send something that
+  is then rejected. An `Integer` must be a quoted decimal in i64 range: not
+  `"0x10"`, `"0b101"`, `" 7 "`, `"007"`, `"-0"`, nor a bare JSON number. A
+  `DateTime` must carry an explicit `+00:00` — where `parse_json` takes `Z` or
+  any numeric offset — and a day its month does not have (`2026-02-30`) is
+  refused rather than rolled forward. A `Blob`'s hex must be lowercase, where
+  `parse_json` takes either case.
+- **Errors name the offending node** by RFC 6901 pointer:
+  `json_next: /1/id: "not-an-integer" is not a 64-bit integer in East JSON's form`
+  — the same text `east-node-std` and `east-c-std` produce.
+- **`json_more` is a predicate, `json_next` advances.** They need not
+  alternate, and asking `json_more` twice is harmless.
+- **A JSON object iterates as entries**: pass a `Struct` of exactly `key` and
+  `value` (the key must be `String`), which is what a `Dict` output needs.
+- Handles are held until closed, as a database connection is.
+- A document nested deeper than 2048 is refused on every runtime — JSON is an
+  untrusted-input boundary.
 
 Scalars cross the boundary as plain Python (`str`/`int`/`float`/`bool`/
 `datetime`); `Blob` is `EastBlob`, `Array<String>` is `EastArray` with eager
