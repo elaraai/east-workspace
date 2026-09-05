@@ -38,6 +38,7 @@ import re
 from collections.abc import Iterable
 from pathlib import Path
 
+from east.diagnostics.config import EastPyConfig, find_pyproject, load_config
 from east.diagnostics.rules import ALL_RULES, RULES_BY_NAME
 from east.diagnostics.scope import collect_bodies, collect_module_scope, is_east_module
 from east.diagnostics.types import CODE_PREFIX, Body, Context, Diagnostic, ModuleRule, Rule
@@ -52,6 +53,9 @@ __all__ = [
     "precedence_cycles",
     "lint_paths",
     "DEFAULT_EXCLUDES",
+    "EastPyConfig",
+    "find_pyproject",
+    "load_config",
 ]
 
 _NOQA = re.compile(r"#\s*noqa(?::\s*([A-Za-z0-9_,\s-]+))?\s*$")

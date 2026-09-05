@@ -56,6 +56,8 @@ def _range(line: int, column: int, end_line: int, end_column: int) -> dict[str, 
 def lsp_diagnostics(source: str, filename: str) -> list[dict[str, Any]]:
     """Tier one: the rules of ``source`` in LSP shape — a zero-based
     ``range``, a ``severity``, the ``EASnnn`` code, and the message."""
+    from east.diagnostics import load_config
+
     return [
         {
             "range": _range(d.line, d.column, d.end_line, d.end_column),
@@ -64,18 +66,28 @@ def lsp_diagnostics(source: str, filename: str) -> list[dict[str, Any]]:
             "source": SOURCE,
             "message": f"{d.message} [{d.rule}]",
         }
-        for d in run_east_rules(source, filename)
+        for d in run_east_rules(source, filename, disabled=load_config(filename).disable)
     ]
 
 
 def lsp_build_diagnostics(path: str) -> list[dict[str, Any]]:
     """Tier two: the BUILD's errors for the module at ``path``, in LSP shape.
 
+    Returns nothing unless the project opts in with ``[tool.east-py] check =
+    true``. The rules READ a file; this one RUNS it, and importing a module
+    executes it — an editor must not start doing that to someone's project
+    because a language server happened to be installed. An explicit
+    ``east-py check`` is consent in itself and does not consult the setting.
+
     Only findings the build reports against ``path`` itself are returned — a
     module it imports has its own document.
     """
+    from east.diagnostics import load_config
+
     from east_py_cli.check import check_module
 
+    if not load_config(path).check:
+        return []
     try:
         findings = check_module(path)
     except BaseException:  # noqa: BLE001 - a module may do anything on import

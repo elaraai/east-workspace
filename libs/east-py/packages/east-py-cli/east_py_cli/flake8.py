@@ -18,7 +18,7 @@ import ast
 from collections.abc import Iterator
 from pathlib import Path
 
-from east.diagnostics import run_east_rules
+from east.diagnostics import load_config, run_east_rules
 
 from east_py_cli import __version__
 
@@ -40,5 +40,6 @@ class EastChecker:
             source = "".join(self.lines)
         else:
             source = Path(self.filename).read_text(encoding="utf-8")
-        for d in run_east_rules(source, self.filename):
+        disabled = load_config(self.filename).disable
+        for d in run_east_rules(source, self.filename, disabled=disabled):
             yield d.line, max(d.column - 1, 0), f"{d.flake8_code} {d.message} [{d.rule}]", type(self)

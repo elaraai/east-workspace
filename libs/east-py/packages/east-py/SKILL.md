@@ -981,6 +981,24 @@ when it sees that.
 | `no-derived-struct-fields` (EAS025, warning) | `Derived = StructType([… for f in Other.value])` | a type declaration is a wire format — spell the fields |
 | `no-python-data-work` (EAS026, warning) | a python helper doing parse / strip / null-check / coerce work for a body that calls it | express it in East, where it runs on every row |
 
+Configure it once, in the project's own `pyproject.toml` — every surface
+reads it (`east-py lint`, the flake8 plugin, the pylsp plugin, `east-py lsp`):
+
+```toml
+[tool.east-py]
+check = true                       # let an EDITOR run the build tier (off by default)
+disable = ["no-deprecated-alias"]  # rules to skip
+exclude = ["fixtures", "vendor"]   # extra directory names not to walk
+```
+
+`check` is off unless a project asks, deliberately: the rules READ a file, the
+build check RUNS it, and an editor should not start importing someone's
+modules on save because a language server happened to be installed. An
+explicit `east-py check` on the command line is consent in itself and ignores
+the setting. Unreadable or malformed configuration falls back to the defaults
+rather than raising — a diagnostics tool must never be what stops a project
+building.
+
 A file that does not import `east` is never diagnosed; a line ending in
 `# noqa` (or `# noqa: EAS002` / `# noqa: no-operator-fork`) is skipped;
 `.venv`, `node_modules`, `build`, `tests` are not walked. The rules are

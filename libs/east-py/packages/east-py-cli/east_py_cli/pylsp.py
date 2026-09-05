@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from east.diagnostics import run_east_rules
+from east.diagnostics import load_config, run_east_rules
 
 #: pylsp severities: Error = 1, Warning = 2, Information = 3
 SEVERITY = {"error": 1, "warning": 2, "suggestion": 3}
@@ -51,7 +51,7 @@ def east_diagnostics(source: str, path: str) -> list[dict[str, Any]]:
             "message": f"{d.message} [{d.rule}]",
             "severity": SEVERITY.get(d.category, 1),
         }
-        for d in run_east_rules(source, path)
+        for d in run_east_rules(source, path, disabled=load_config(path).disable)
     ]
 
 

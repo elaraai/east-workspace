@@ -497,7 +497,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
     """
     import json
 
-    from east.diagnostics import ALL_RULES, DEFAULT_EXCLUDES, RULES_BY_NAME, lint_paths
+    from east.diagnostics import ALL_RULES, DEFAULT_EXCLUDES, RULES_BY_NAME, lint_paths, load_config
 
     if args.list_rules:
         for rule in ALL_RULES:
@@ -513,7 +513,12 @@ def cmd_lint(args: argparse.Namespace) -> int:
     if missing:
         print(f"Error: no such file or directory: {', '.join(missing)}", file=sys.stderr)
         return 2
-    found = lint_paths(paths, disabled=args.disable, excludes=(*DEFAULT_EXCLUDES, *args.exclude))
+    # The project's own policy (`[tool.east-py]` in pyproject.toml) first; the
+    # flags ADD to it, so a one-off `--disable` never has to restate the file.
+    config = load_config(paths[0])
+    disabled = (*config.disable, *args.disable)
+    found = lint_paths(paths, disabled=disabled,
+                       excludes=(*DEFAULT_EXCLUDES, *config.exclude, *args.exclude))
     count = sum(len(ds) for ds in found.values())
     if args.format == "json":
         records = [
