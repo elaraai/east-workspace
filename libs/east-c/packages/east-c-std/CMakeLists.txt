@@ -2,6 +2,7 @@ add_library(east-c-std
     src/console.c
     src/env.c
     src/fs.c
+    src/json.c
     src/path.c
     src/crypto.c
     src/time_ops.c
@@ -67,3 +68,7 @@ target_link_libraries(test_std_compliance east-c-std)
 add_executable(test_fs_open_beast tests/test_fs_open_beast.c)
 target_link_libraries(test_fs_open_beast east-c-std)
 add_test(NAME std_fs_open_beast COMMAND test_fs_open_beast)
+
+add_executable(test_json_reader tests/test_json_reader.c)
+target_link_libraries(test_json_reader east-c-std)
+add_test(NAME std_json_reader COMMAND test_json_reader)
