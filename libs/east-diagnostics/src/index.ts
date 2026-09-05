@@ -11,6 +11,8 @@ export { runEastLsp } from "./lsp.js";
 export type { EastLspOptions } from "./lsp.js";
 export { findEastPy, runEastPyLint, renderPythonReview, PYTHON_EAST_IMPORT } from "./python-lint.js";
 export type { PythonDiagnostic } from "./python-lint.js";
+export { PythonLspProxy } from "./python-lsp-proxy.js";
+export type { PythonLspProxyOptions } from "./python-lsp-proxy.js";
 export { getEastModule } from "./east-module.js";
 export type { EastModule } from "./east-module.js";
 export { reifyEastType } from "./type-reify.js";

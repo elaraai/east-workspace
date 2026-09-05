@@ -13,6 +13,22 @@ dependencies = [
   "pytest-subtests",
 ]
 
+# East diagnostics (`east-py lint`, the flake8 and pylsp plugins, and
+# `east-py lsp`) read this section.
+#
+# `check` turns on the BUILD tier, which type-checks your East functions by
+# building them — the only way to type-check an East body, since East's checker
+# is the builder. It is off here because building means IMPORTING the module,
+# so your editor would execute this project's code on every save. Turn it on
+# once your module-level code is safe to run on save, or skips its work when it
+# sees `EAST_CHECK`:
+#
+#   check = true
+#
+# `east-py check src/` on the command line always works and ignores this.
+[tool.east-py]
+check = false
+
 # Packaging block — without it `uv sync` would not install this project's own
 # code, so `east-py run -p platform_module` could not import it. Matches the
 # repo's pure-Python packages (east-py-std/io/cli). This variant of

@@ -107,6 +107,12 @@ class NoPythonWork:
     name = "no-python-work"
     code = 6
     category = "error"
+    # Nothing to supersede: `no-python-data-work` only fires for a helper called
+    # from a NON-eager body, and this rule only fires inside an eager one, so the
+    # two are disjoint by construction. The declaration that used to sit here was
+    # dead — the rules report at different ranges (a call site vs a module-scope
+    # `def`), so `_overlaps` could never have fired it, and no test could tell.
+    supersedes: tuple[str, ...] = ()
     description = ("No python work inside an eager callback — no module objects, python builtins, "
                    "imported python functions or helpers doing python work; capture side-tables with "
                    "East.function / .bind.")

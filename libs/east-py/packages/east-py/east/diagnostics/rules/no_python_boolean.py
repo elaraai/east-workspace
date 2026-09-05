@@ -37,6 +37,7 @@ class NoPythonBoolean:
     name = "no-python-boolean"
     code = 4
     category = "error"
+    supersedes: tuple[str, ...] = ()
     description = ("No python `and` / `or` / `not` / `if` / `in` / `len()` / iteration / `int()` / `float()` "
                    "over an East expression — use `&`, `|`, `~`, East.if_else, and the expression's methods.")
 

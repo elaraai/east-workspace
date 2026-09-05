@@ -1,6 +1,6 @@
 ---
 name: east-py
-description: "East in Python: (A) East EXPRESSIONS — write East functions in Python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), one expression class per East type with the TypeScript methods in snake_case, the standard library (East.Integer.print_compact, East.Float.round_to_decimals, East.DateTime.round_down_week, East.str), East.platform + East.compile, and IR ↔ python codegen; (B) East VALUES — East runtime data as ordinary Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the SAME names, validation/coercion, beast2 files, numpy/torch, and @East.platform_function to expose Python to East. Use when writing Python (not the TypeScript DSL) against east-py. Triggers for: (1) Writing an East function in Python (East.function, b.let/b.if_/b.for_, expression methods, the stdlib), (2) Constructing/validating East values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) Transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) Scalar builtins and the stdlib via East.<Type>, (5) @East.platform_function, (6) beast2 files and numpy/torch through EastVector/EastMatrix, (7) Porting a plain-Python data-science POC into an East platform function, (8) Printing IR as python (east-py transpile), (9) Exporting East functions for TypeScript / e3 tasks and importing TypeScript-authored ones (East.export_functions / East.import_function, east-py export-functions), (10) Diagnosing East bodies at edit time — the build's refusals as lint (east-py lint, flake8 EAS codes, east-py lsp)."
+description: "East in Python: (A) East EXPRESSIONS — write East functions in Python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), one expression class per East type with the TypeScript methods in snake_case, the standard library (East.Integer.print_compact, East.Float.round_to_decimals, East.DateTime.round_down_week, East.str), East.platform + East.compile, and IR ↔ python codegen; (B) East VALUES — East runtime data as ordinary Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the SAME names, validation/coercion, beast2 files, numpy/torch, and @East.platform_function to expose Python to East. Use when writing Python (not the TypeScript DSL) against east-py. Triggers for: (1) Writing an East function in Python (East.function, b.let/b.if_/b.for_, expression methods, the stdlib), (2) Constructing/validating East values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) Transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) Scalar builtins and the stdlib via East.<Type>, (5) @East.platform_function, (6) beast2 files and numpy/torch through EastVector/EastMatrix, (7) Porting a plain-Python data-science POC into an East platform function, (8) Printing IR as python (east-py transpile), (9) Exporting East functions for TypeScript / e3 tasks and importing TypeScript-authored ones (East.export_functions / East.import_function, east-py export-functions), (10) Diagnosing East bodies at edit time — the build's refusals as lint (east-py lint, flake8 EAS codes, east-py lsp) and its TYPE errors as a build check (east-py check)."
 ---
 
 # East.py — East expressions and East values in Python
@@ -219,7 +219,9 @@ Task → What do you need?
     │   ├─ IR ↔ python → to_python_source(fn) · `east-py transpile prog.json -o prog.py` · compile_from_beast2/json/east (a function compiled
     │   │   elsewhere — pass it to any eager method) · compile_from_value (IR built with east.ir.builders) · `east-c ir normalize|diff|convert`
     │   ├─ The build's refusals at EDIT time → `east-py lint src/` (exit 1 on any finding; `--format json`, `--disable RULE`, `# noqa`) ·
-    │   │   `flake8 --select EAS` (the plugin) · `east-py lsp` (an editor) — nine rules, each the build's own message (see Diagnostics)
+    │   │   `flake8 --select EAS` (the plugin) · `east-py lsp` (an editor) — 26 rules, each the build's own message (see Diagnostics)
+    │   ├─ TYPE errors at edit time (a wrong `out`, a refused callback) → `east-py check src/mod.py` — runs the build, reports every
+    │   │   broken function at its line; the rules are syntactic and cannot see these (see Diagnostics)
     │   └─ Across languages → the package's root module declares `east_functions = {"name": fn}`; an e3 task names it with East.importFunction and
     │       e3.export exports + links a uv-workspace package by itself (`east-py export-functions pkg -o pkg.functions.beast2 -p east-py-std` only for a
     │       package built elsewhere) · East.import_function(pkg, name, FunctionType) to call a TypeScript-authored one (`east-node export-functions`) ·
@@ -913,7 +915,7 @@ function is implemented in C — exports the DECLARATION under the same name
 (`simulation_run`, `optimization_iterative`), which a body calls
 identically.
 
-### Diagnostics at edit time — `east-py lint`, flake8, `east-py lsp`
+### Diagnostics at edit time — `east-py lint`, `east-py check`, flake8, `east-py lsp`
 
 Everything the strict surface refuses at build time — a body without the
 block, `//` on an expression, an f-string over one, `if` on one, a callback
@@ -923,17 +925,39 @@ in it; an eager callback on an East value; a `@East.platform_function`'s East
 inputs), and says at edit time what the build would say — **one message, two
 moments**: every rule's text IS the refusal the build raises for the same
 code, pinned by building the very source the rules read
-(`tests/diagnostics`). Three surfaces, one engine; the python twin of
-`@elaraai/east-diagnostics`:
+(`tests/diagnostics`). Five surfaces, one engine; the python twin of
+`@elaraai/east-diagnostics`.
+
+Two TIERS, because they cost different things. The **rules** read the `ast`:
+instant, and they still say something useful about a file that does not parse.
+The **check** RUNS the build (`east-py check`), which is the only way to type
+check a python East body — East's type checker IS the builder — and costs the
+module's import.
 
 ```bash
 east-py lint src/                         # file:line:col: category [rule] message — exit 1 on any finding
 east-py lint src/ --format json           # the findings as records
 east-py lint src/ --disable no-deprecated-alias --exclude fixtures
-east-py lint --list-rules                 # EAS001 … EAS009
+east-py lint --list-rules                 # EAS001 … EAS026
+east-py check src/mod.py                  # the BUILD's errors — the type errors lint cannot see; --format json
 flake8 --select EAS src/                  # the same rules inside flake8 (east-py-cli registers the plugin)
-east-py lsp                               # a Language Server over stdio — pip install 'east-py-cli[lsp]'
+east-py lsp                               # a Language Server over stdio, both tiers — pip install 'east-py-cli[lsp]'
+# pylsp                                   # python-lsp-server runs the rules too (east-py-cli registers the plugin)
 ```
+
+The rules run on every change; the build tier runs on **save**, and only when
+the project opts in (below). It reads the module from DISK — an import does —
+so running it against an unsaved buffer would report the last saved version's
+errors at that version's lines. Pyright/Pylance has no plugin API, so flake8
+and pylsp are the two editor paths that need no East-specific server.
+
+`east-py check` imports the module and builds every East function in it,
+reporting each failure at its authoring line: a body whose expression type
+differs from the declared `out`, a callback the capture refuses, an
+`IRAnalysisError`. It reports EVERY broken function, not the first — a build
+normally raises out of the import. Importing runs the module, so it sets
+`EAST_CHECK=1` for the duration and a module should skip its import-time work
+when it sees that.
 
 | Rule | Flags | What the build says |
 |---|---|---|
@@ -946,14 +970,54 @@ east-py lsp                               # a Language Server over stdio — pip
 | `no-statement-on-outer-block` (EAS007) | `b.if_(p, lambda _b: b.assign(…))` — a statement on an enclosing body's block | `b.assign() was called on an OUTER block …` |
 | `no-deprecated-alias` (EAS008, warning) | `.fold`, `.lower`, `East.Boolean.and_`, … (read off the surface's own deprecation docstrings) | `.fold() is deprecated: the spelling is .reduce() (the TypeScript name)` |
 | `no-discarded-expression` (EAS009) | a bare `acc.push_last(x)` / `East.error(…)` / `xs.size()` line in a body | `.push_last() was evaluated and thrown away … b.do(…)` |
+| `prefer-some-none` (EAS010, warning) | `variant("some", x)` / `variant("none", None)` | use `some(value)` / `none` |
+| `no-handrolled-variant` (EAS011, warning) | a `{"type": …, "value": …}` dict | `variant("Tag", value, Type)` — the encoder needs what it constructs |
+| `prefer-explicit-east-type` (EAS012, suggestion) | `b.let([])` / `b.const({})` / `b.let(list())` | pass the East type: `b.let([], ArrayType(IntegerType))` |
+| `no-let-const-in-expression` (EAS013, warning) | `b.let` / `b.const` buried in a call argument, an element, a chain target | give the declaration its own statement |
+| `no-untracked-east-data` (EAS014, suggestion) | a plain python list/dict local reaching an expression's method | `b.const(rows, Type)` — a local carries no East type and re-inlines |
+| `no-reinlined-east-binding` (EAS015) | an expression held in a python local and read twice in a body | `b.let`/`b.const` once — the tree is copied and re-evaluated per use |
+| `no-redundant-east-cast` (EAS016, warning) | `b.let(East.value(x, T), T)` | pass the value and type to `b.let` directly |
+| `prefer-let-const-over-east-value` (EAS017, suggestion) | `East.value(...)` assigned or returned inside a body | `b.const(value, Type)` — `East.value` erases the type at the binding |
+| `no-host-comparison-on-east-values` (EAS018, warning) | `==` / `<` on a decoded VARIANT or OPTION outside a body (scalars are fine — a decoded Integer is an `int`) | `equal_for(T)` / `compare_for(T)`, `make_east_key(T)` for `sorted` |
+| `no-module-scope-east-macro` (EAS019, warning) | a module-scope helper building IR that a body then calls, or a composite `f"{a}|{b}"` key | make it an `East.function`; model typed / nested East data |
+| `no-build-time-clock` (EAS020, warning) | `datetime.now()` / `time.time()` at module scope | author the constant, or read the clock inside a platform function |
+| `no-inline-credentials` (EAS021, warning) | a literal `password` / `token` / `secret_access_key` (a localhost sibling host is exempt) | `East.Env.get("VAR")` — IR is content-addressed and replicated |
+| `no-compile-time-data-injection` (EAS022, warning) | `open()` / `json.load` / `Path.read_text` / `os.environ` at module import | load at runtime: an e3 input, a dataset, a platform function |
+| `no-python-east-data` (EAS023, warning) | East rows assembled by a module-scope comprehension or loop, then handed to a body | write the rows out, or produce them at runtime |
+| `no-python-string-building` (EAS024, warning) | an f-string assembling an East string CONSTANT — a regex, a template, a key | spell the constant out |
+| `no-derived-struct-fields` (EAS025, warning) | `Derived = StructType([… for f in Other.value])` | a type declaration is a wire format — spell the fields |
+| `no-python-data-work` (EAS026, warning) | a python helper doing parse / strip / null-check / coerce work for a body that calls it | express it in East, where it runs on every row |
+
+Configure it once, in the project's own `pyproject.toml` — every surface
+reads it (`east-py lint`, the flake8 plugin, the pylsp plugin, `east-py lsp`):
+
+```toml
+[tool.east-py]
+check = true                       # let an EDITOR run the build tier (off by default)
+disable = ["no-deprecated-alias"]  # rules to skip
+exclude = ["fixtures", "vendor"]   # extra directory names not to walk
+```
+
+`check` is off unless a project asks, deliberately: the rules READ a file, the
+build check RUNS it, and an editor should not start importing someone's
+modules on save because a language server happened to be installed. An
+explicit `east-py check` on the command line is consent in itself and ignores
+the setting. Unreadable or malformed configuration falls back to the defaults
+rather than raising — a diagnostics tool must never be what stops a project
+building.
 
 A file that does not import `east` is never diagnosed; a line ending in
 `# noqa` (or `# noqa: EAS002` / `# noqa: no-operator-fork`) is skipped;
 `.venv`, `node_modules`, `build`, `tests` are not walked. The rules are
-syntactic (which names hold expressions, what python does to them) — the
-build's type checking is not repeated, so a clean lint is necessary, not
-sufficient, and `make lint` runs it over every east-py package's own East
-bodies.
+syntactic (which names hold expressions, what python does to them), so a
+clean `lint` is necessary but not sufficient — the type errors live behind
+`east-py check`, which builds the module and reports what the builder says.
+`make lint` runs the rules over every east-py package's own East bodies.
+
+The rules are written to be disjoint — each mistake is one rule's to report —
+and the corpus test pins that (a bad fixture trips only its own rule). Where a
+future rule genuinely overlaps an existing one it declares `supersedes`, and
+the more specific message is the one you see; no rule needs that today.
 
 ### Cross-language functions: `east-py export-functions` and `East.import_function`
 

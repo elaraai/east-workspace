@@ -170,6 +170,19 @@ def create_parser() -> argparse.ArgumentParser:
     lint_parser.add_argument(
         "--list-rules", action="store_true", help="List the rules and exit")
 
+    # check command (#653): the BUILD's own errors — python's type check
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Build a module's East functions and report the build's own errors "
+             "at their lines — the type errors `lint` cannot see",
+    )
+    check_parser.add_argument(
+        "targets", nargs="+", help="Modules to check (a .py path, or a dotted module name)")
+    check_parser.add_argument(
+        "--format", choices=("text", "json"), default="text",
+        help="text: one `file:line:col: category [rule] message` line per finding (default); "
+             "json: the findings as records, the shape `lint --format json` emits")
+
     # lsp command (#638): the same diagnostics for an editor
     subparsers.add_parser(
         "lsp",
@@ -484,7 +497,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
     """
     import json
 
-    from east.diagnostics import ALL_RULES, DEFAULT_EXCLUDES, RULES_BY_NAME, lint_paths
+    from east.diagnostics import ALL_RULES, DEFAULT_EXCLUDES, RULES_BY_NAME, lint_paths, load_config
 
     if args.list_rules:
         for rule in ALL_RULES:
@@ -500,7 +513,26 @@ def cmd_lint(args: argparse.Namespace) -> int:
     if missing:
         print(f"Error: no such file or directory: {', '.join(missing)}", file=sys.stderr)
         return 2
-    found = lint_paths(paths, disabled=args.disable, excludes=(*DEFAULT_EXCLUDES, *args.exclude))
+    # Per PATH, not once for the first one: `east-py lint pkg-a pkg-b` spans two
+    # uv workspace members, and each carries its own `[tool.east-py]`. Applying
+    # pkg-a's policy to pkg-b silently disabled the wrong rules there.
+    # The flags ADD to whatever the file says, so a one-off `--disable` never
+    # has to restate it.
+    found = {}
+    warned: set[str] = set()
+    for path in paths:
+        config = load_config(path)
+        for name in config.disable:
+            if name not in RULES_BY_NAME and name not in warned:
+                warned.add(name)
+                source = config.source or "pyproject.toml"
+                print(f"Warning: {source}: [tool.east-py] disable names unknown rule {name!r} — "
+                      "see `east-py lint --list-rules`", file=sys.stderr)
+        found.update(lint_paths(
+            [path],
+            disabled=(*config.disable, *args.disable),
+            excludes=(*DEFAULT_EXCLUDES, *config.exclude, *args.exclude),
+        ))
     count = sum(len(ds) for ds in found.values())
     if args.format == "json":
         records = [
@@ -523,6 +555,37 @@ def cmd_lint(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check(args: argparse.Namespace) -> int:
+    """``east-py check``: build the module's East functions (#653).
+
+    Reports every build failure, not just the first — the same JSON records
+    ``lint --format json`` emits, tagged ``build``. Exit 1 when there is any
+    finding, 0 when the module builds clean, 2 for a usage error.
+    """
+    import json
+
+    from east_py_cli.check import check_module
+
+    findings = []
+    for target in args.targets:
+        if target.endswith(".py") and not Path(target).exists():
+            print(f"Error: no such file: {target}", file=sys.stderr)
+            return 2
+        findings.extend(check_module(target))
+
+    if args.format == "json":
+        print(json.dumps([f.as_record() for f in findings], indent=2))
+        return 1 if findings else 0
+    for finding in findings:
+        print(finding.format(finding.path))
+    if findings:
+        plural = "" if len(findings) == 1 else "s"
+        print(f"Found {len(findings)} build error{plural}.")
+        return 1
+    print("All clear.")
+    return 0
+
+
 def cmd_lsp(args: argparse.Namespace) -> int:
     """``east-py lsp``: serve the diagnostics over the Language Server Protocol."""
     del args
@@ -540,6 +603,8 @@ def main() -> None:
         cmd_transpile(args)
     elif args.command == "lint":
         sys.exit(cmd_lint(args))
+    elif args.command == "check":
+        sys.exit(cmd_check(args))
     elif args.command == "lsp":
         sys.exit(cmd_lsp(args))
     elif args.command == "export-functions":

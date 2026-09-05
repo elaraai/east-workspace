@@ -149,6 +149,29 @@ here, which has already drifted once. What matters for the gate: `make lint`
 runs all of them over a real TS program, and every one it reports is a fix, not
 a suppression.
 
+**Editing python? The tooling is different and you must run it yourself.**
+`tsserver-plugin-east` and `eslint-plugin-east` see nothing in a `.py` file;
+Pyright/Pylance has no plugin API, so there is no editor plugin to ride. The
+python twins live in `east.diagnostics` and are surfaced five ways — `east-py
+lint`, `east-py check`, the flake8 `EAS` codes, a pylsp plugin, and `east-py
+lsp` — and `cd libs/east-py && make lint` runs the rules over every package's
+own East bodies, which is the gate:
+
+```bash
+cd libs/east-py
+make lint                        # ruff + license headers + the East rules (east-py lint)
+uv run east-py lint packages/…   # the rules alone; --list-rules names all of them
+uv run east-py check path/mod.py # the BUILD's errors — a wrong declared `out`, a refused
+                                 #   capture, an IRAnalysisError; the rules cannot see these
+```
+
+Two tiers, and the difference matters when you are chasing a failure: the
+**rules** read the `ast` (syntactic — which names hold expressions, what python
+does to them), while **`east-py check`** runs the build, which is the only way
+to type-check a python East body because East's type checker IS the builder. A
+clean `east-py lint` is necessary, not sufficient. Neither `mypy` nor `ruff`
+sees either class of mistake.
+
 ## 4. Reproduce (bugs) / design (features)
 
 **Bug:** run the issue's reproduction and confirm the failure *before* editing — it proves the claimed root cause and prevents a wrong fix. Put a scratch repro under the owning lib's `test/` (or a temp file) using that lib's import convention (§6) so you don't trip `no-relative-src-import`.

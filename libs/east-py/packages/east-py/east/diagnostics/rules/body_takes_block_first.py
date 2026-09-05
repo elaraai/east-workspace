@@ -33,6 +33,7 @@ class BodyTakesBlockFirst:
     name = "body-takes-block-first"
     code = 1
     category = "error"
+    supersedes: tuple[str, ...] = ()
     description = ("An East body must take the block first and use it only for statements: "
                    "`lambda b, x: …` / `def f(b, x)`, never `lambda x: …` or `b.price`.")
 

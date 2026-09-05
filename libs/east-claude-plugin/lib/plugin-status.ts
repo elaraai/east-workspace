@@ -3,6 +3,8 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { buildSearchIndex } from "./search.js";
 import { getEastProjectInfo } from "./east-project.js";
+import { execFile } from "node:child_process";
+import { findEastPy } from "@elaraai/east-diagnostics";
 
 export interface FeatureCheck {
   name: string;
@@ -44,6 +46,7 @@ const BUNDLED = [
   ".build/hooks/pre-write.js",
   ".build/hooks/pre-read.js",
   ".build/hooks/diagnose.js",
+  ".build/hooks/diagnose-bash.js",
   ".build/daemon/server.js",
   ".build/daemon/lsp.js",
   ".build/mcp/server.js",
@@ -108,6 +111,30 @@ export async function checkPluginStatus(pluginRoot: string, cwd: string): Promis
       status: isEast ? "ok" : "warn",
       detail: isEast ? `detected: ${skills.join(", ")}` : `${cwd} is not an East project — hooks stay idle here (expected outside East projects)`,
     };
+  }));
+
+  checks.push(await check("Diagnostics (python / east-py)", async () => {
+    // Without this check a missing east-py is INVISIBLE: runEastPyLint returns
+    // null, every python file silently gets no review, and the rest of this
+    // report stays green.
+    const command = findEastPy(cwd);
+    const rules = await new Promise<number | null>((done) => {
+      execFile(command, ["lint", "--list-rules"], { timeout: 8000, encoding: "utf-8" }, (error, stdout) => {
+        if (error !== null) { done(null); return; }
+        done(stdout.split("\n").filter((l) => l.startsWith("EAS")).length);
+      });
+    });
+    return rules === null
+      ? {
+          name: "Diagnostics (python / east-py)",
+          status: "warn" as const,
+          detail: `\`${command}\` did not answer — python East files get NO review until east-py resolves (a project .venv above the file, east-py on PATH, or EAST_PY_LINT)`,
+        }
+      : {
+          name: "Diagnostics (python / east-py)",
+          status: "ok" as const,
+          detail: `${command} — ${rules} rules`,
+        };
   }));
 
   checks.push(await check("Diagnostics (PostToolUse daemon)", () => {

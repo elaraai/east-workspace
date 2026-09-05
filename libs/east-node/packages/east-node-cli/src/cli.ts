@@ -12,6 +12,8 @@ import { runProgram } from './runner.js';
 import { writeSnapshot, readSnapshot } from './snapshot.js';
 import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile.js';
 import { exportFunctionsFromModule } from './export-functions.js';
+import { serve as serveLsp } from './lsp.js';
+import { checkModule, formatFinding } from './check.js';
 import { East } from '@elaraai/east';
 
 const require = createRequire(import.meta.url);
@@ -300,6 +302,35 @@ export function main(): void {
         .option('--package-version <version>', 'The version recorded in the manifest (default: 0.0.0)')
         .option('--only <name...>', 'Export only these functions of `eastFunctions` (default: all)')
         .action(cmdExportFunctions);
+
+    program
+        .command('check')
+        .description("Build a module's East functions and report the build's own errors at their lines — the errors tsc cannot see")
+        .argument('<module>', 'Path to the built module to check')
+        .option('--format <kind>', 'text (default) or json — the record shape `east-py check --format json` emits', 'text')
+        .action(async (modulePath: string, options: { format?: string }) => {
+            if (options.format !== 'text' && options.format !== 'json') {
+                return fail(`Error: --format must be text or json, got '${options.format}'`);
+            }
+            const findings = await checkModule(modulePath);
+            if (options.format === 'json') {
+                console.log(JSON.stringify(findings, null, 2));
+            } else {
+                for (const finding of findings) console.log(formatFinding(finding));
+                console.log(findings.length === 0
+                    ? 'All clear.'
+                    : `Found ${findings.length} build error${findings.length === 1 ? '' : 's'}.`);
+            }
+            if (findings.length > 0) process.exit(1);
+        });
+
+    program
+        .command('lsp')
+        .description('Serve the East diagnostics as a Language Server over stdio (needs @elaraai/east-diagnostics)')
+        .action(async () => {
+            const code = await serveLsp();
+            if (code !== 0) process.exit(code);
+        });
 
     program
         .command('version')

@@ -1,13 +1,13 @@
 import { readHookInput, writeHookOutput } from "../lib/hook-io.js";
 import { getEastProjectInfo } from "../lib/east-project.js";
 import { warmDaemon } from "../lib/diagnostics-client.js";
-import { EAST_RULES_CONTEXT } from "../lib/east-rules-context.js";
+import { eastRulesContextFor } from "../lib/east-rules-context.js";
 
 async function main() {
   const event = await readHookInput();
   const cwd = event.cwd || process.cwd();
 
-  const { isEast, skills } = await getEastProjectInfo(cwd);
+  const { isEast, skills, languages } = await getEastProjectInfo(cwd);
   if (!isEast) process.exit(0);
 
   // Start the diagnostics daemon early so the first edit isn't cold.
@@ -29,7 +29,7 @@ async function main() {
     "Preemptive diagnostics:",
     "- After you read or edit an East file, the plugin injects an `<east-code-review>` block listing TypeScript errors and East-specific idiom issues. Treat it as authoritative and fix what it flags — it's preemptive, so resolving it now avoids build-and-retry loops later. The rules it enforces are summarised below; write to them up front.",
     "",
-    EAST_RULES_CONTEXT,
+    eastRulesContextFor(languages),
   ].join("\n");
 
   writeHookOutput("SessionStart", context);

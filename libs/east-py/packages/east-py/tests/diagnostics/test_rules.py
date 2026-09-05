@@ -26,7 +26,9 @@ from east.diagnostics import (
     DEFAULT_EXCLUDES,
     RULES_BY_NAME,
     Diagnostic,
+    apply_precedence,
     lint_paths,
+    precedence_cycles,
     run_east_rules,
 )
 from east.expression.errors import ExpressionError
@@ -332,3 +334,78 @@ def test_lint_paths_walks_a_tree_and_skips_the_excluded_directories(tmp_path):
     # a file path is linted as given; an excluded name only applies to directories walked
     assert list(lint_paths([tmp_path / "tests" / "bad.py"])) == [str(tmp_path / "tests" / "bad.py")]
     assert lint_paths([tmp_path], excludes=(*DEFAULT_EXCLUDES, "pkg")) == {}
+
+
+# ── precedence: one mistake, one finding ─────────────────────────────────────
+
+
+def _finding(rule: str, line: int, column: int = 1, end_column: int = 10) -> Diagnostic:
+    return Diagnostic(rule=rule, code=0, message="", line=line, column=column,
+                      end_line=line, end_column=end_column)
+
+
+class _Beats:
+    """A stand-in rule carrying only the relation."""
+
+    def __init__(self, name: str, supersedes: tuple[str, ...] = ()) -> None:
+        self.name = name
+        self.code = 0
+        self.category = "error"
+        self.description = name
+        self.supersedes = supersedes
+
+    def check(self, body, ctx) -> None:  # pragma: no cover - never invoked
+        del body, ctx
+
+
+def test_every_rule_declares_the_precedence_relation():
+    for rule in ALL_RULES:
+        assert isinstance(rule.supersedes, tuple), f"{rule.name} declares no supersedes tuple"
+        assert rule.name not in rule.supersedes, f"{rule.name} supersedes itself"
+        for superseded in rule.supersedes:
+            assert superseded in RULES_BY_NAME, f"{rule.name} supersedes unknown rule {superseded!r}"
+
+
+def test_the_precedence_relation_is_acyclic():
+    """A cycle would drop BOTH findings and silence the pair — the one failure
+    mode of the mechanism that is worse than having no mechanism."""
+    assert precedence_cycles(ALL_RULES) == []
+    cyclic = [_Beats("a", ("b",)), _Beats("b", ("a",))]
+    assert precedence_cycles(cyclic) == ["a", "b"]
+
+
+def test_a_superseded_finding_is_dropped_where_the_specific_one_overlaps():
+    rules = [_Beats("specific", ("general",)), _Beats("general")]
+    found = [_finding("general", 3), _finding("specific", 3)]
+    assert [d.rule for d in apply_precedence(found, rules)] == ["specific"]
+
+
+def test_a_superseded_finding_on_another_line_survives():
+    """Precedence is about ONE mistake — a separate occurrence of the general
+    problem elsewhere is still worth saying."""
+    rules = [_Beats("specific", ("general",)), _Beats("general")]
+    found = [_finding("general", 9), _finding("specific", 3)]
+    assert {d.rule for d in apply_precedence(found, rules)} == {"general", "specific"}
+
+
+def test_precedence_leaves_unrelated_rules_alone():
+    rules = [_Beats("one"), _Beats("two")]
+    found = [_finding("one", 3), _finding("two", 3)]
+    assert len(apply_precedence(found, rules)) == 2
+
+
+def test_a_declared_supersedes_edge_must_be_reachable():
+    """A rule may only claim to supersede another if the two can actually report
+    at overlapping ranges. Two edges shipped that could never fire — the rules
+    were disjoint by construction — and nothing could tell, because
+    `apply_precedence` silently does nothing when ranges do not overlap and
+    `precedence_cycles` only looks at the graph. Declaring an unreachable edge
+    is documentation that is wrong; either the rules overlap, or say nothing."""
+    declared = {(r.name, s) for r in ALL_RULES for s in r.supersedes}
+    # Every edge must be justified by a fixture in which BOTH rules fire — the
+    # corpus asserts one rule per bad fixture, so an edge with no such fixture
+    # is by definition unreachable there.
+    assert declared == set(), (
+        "a supersedes edge is declared but no fixture exercises it; add a fixture "
+        f"where both rules fire, or drop the edge: {sorted(declared)}"
+    )

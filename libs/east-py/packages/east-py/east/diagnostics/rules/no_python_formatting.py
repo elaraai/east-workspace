@@ -31,6 +31,7 @@ class NoPythonFormatting:
     name = "no-python-formatting"
     code = 3
     category = "error"
+    supersedes: tuple[str, ...] = ()
     description = ("No f-string / str() / format() / `%` formatting over an East expression — "
                    "build strings with `+` or East.String.print(T, value).")
 

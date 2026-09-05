@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, runtime_checkable
 
 Category = Literal["error", "warning", "suggestion"]
 
@@ -73,11 +73,21 @@ class Body:
 
     def is_expression(self, node: ast.AST) -> bool:
         """Whether ``node`` denotes an East expression: a name the body holds
-        an expression under (or one of an enclosing body), or an attribute /
-        call / subscript chain rooted at one."""
+        an expression under (or one of an enclosing body), an attribute /
+        call / subscript chain rooted at one, or an OPERATOR applied to one
+        (``x * 2`` builds an expression exactly as ``x.multiply(2)`` does —
+        the #624 operator table is why the spelling exists)."""
         root = node
         while isinstance(root, (ast.Attribute, ast.Call, ast.Subscript)):
             root = root.func if isinstance(root, ast.Call) else root.value
+        if isinstance(root, ast.BinOp):
+            return self.is_expression(root.left) or self.is_expression(root.right)
+        if isinstance(root, ast.UnaryOp):
+            return self.is_expression(root.operand)
+        if isinstance(root, ast.Compare):
+            return self.is_expression(root.left) or any(self.is_expression(c) for c in root.comparators)
+        if isinstance(root, ast.BoolOp):
+            return any(self.is_expression(v) for v in root.values)
         if not isinstance(root, ast.Name):
             return False
         body: Body | None = self
@@ -135,6 +145,27 @@ class Context:
         #: the names the module binds to the ``East`` namespace object
         self.east_names: set[str] = set()
         self.bodies: list[Body] = []
+        self._body_node_ids: set[int] | None = None
+
+    def in_body(self, node: ast.AST) -> bool:
+        """Whether ``node`` sits inside ANY East body.
+
+        What a module-scope rule asks so it does not re-report what the
+        body walk already covers. The id set is built once per file, on
+        first use, after :func:`collect_bodies` has filled ``bodies``.
+        """
+        if self._body_node_ids is None:
+            ids: set[int] = set()
+
+            def walk(body: Body) -> None:
+                ids.update(id(n) for n in ast.walk(body.node))
+                for child in body.children:
+                    walk(child)
+
+            for body in self.bodies:
+                walk(body)
+            self._body_node_ids = ids
+        return id(node) in self._body_node_ids
 
     def report(self, node: ast.AST, rule: Rule, message: str, category: Category | None = None) -> None:
         line = getattr(node, "lineno", 1)
@@ -148,14 +179,32 @@ class Context:
 
 
 class Rule(Protocol):
-    """One rule: a name, a stable number, and ``check`` over every body."""
+    """One rule: a name, a stable number, and ``check`` over every body.
+
+    ``supersedes`` names the rules this one wins over where their findings
+    overlap — the precedence relation :func:`east.diagnostics.run_east_rules`
+    applies so that one mistake yields one finding. A rule that supersedes
+    nothing declares the empty tuple; a rule never supersedes itself, and the
+    relation must be acyclic (the engine pins both).
+    """
 
     name: str
     code: int
     category: Category
     description: str
+    supersedes: tuple[str, ...]
 
     def check(self, body: Body, ctx: Context) -> None: ...
+
+
+@runtime_checkable
+class ModuleRule(Protocol):
+    """A rule that also reads MODULE scope — the build-time concerns that are
+    not inside any body (a clock read at import, a literal credential, data
+    loaded at module load, a duplicated definition name). ``check_module``
+    runs once per file, before the bodies are walked."""
+
+    def check_module(self, ctx: Context) -> None: ...
 
 
 def body_nodes(body: Body) -> Iterable[ast.AST]:

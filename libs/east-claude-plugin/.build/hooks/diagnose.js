@@ -1,10 +1,3 @@
-// hooks/diagnose.ts
-import { readFile as readFile2 } from "node:fs/promises";
-import { existsSync as existsSync3, writeFileSync as writeFileSync2 } from "node:fs";
-import { createHash as createHash2 } from "node:crypto";
-import { tmpdir as tmpdir3 } from "node:os";
-import { join as join4, dirname as dirname4, resolve as resolve2 } from "node:path";
-
 // lib/hook-io.ts
 async function readHookInput() {
   let input = "";
@@ -23,6 +16,13 @@ function writeHookOutput(hookEventName, additionalContext) {
   process.stdout.write(JSON.stringify(output));
 }
 
+// lib/review.ts
+import { readFile as readFile2 } from "node:fs/promises";
+import { existsSync as existsSync3, writeFileSync as writeFileSync2 } from "node:fs";
+import { createHash as createHash2 } from "node:crypto";
+import { tmpdir as tmpdir3 } from "node:os";
+import { join as join4, dirname as dirname4, resolve as resolve2 } from "node:path";
+
 // lib/east-project.ts
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
@@ -35,12 +35,30 @@ var PACKAGE_SKILL_MAP = {
   "@elaraai/e3": "e3",
   "@elaraai/e3-ui": "e3-ui"
 };
+var PYTHON_SKILL_MAP = [
+  [/elaraai-east-py-datascience(?![\w-])/, "east-py-datascience"],
+  [/elaraai-east-py-std(?![\w-])/, "east-py-std"],
+  [/elaraai-east-py-io(?![\w-])/, "east-py-io"],
+  [/elaraai-east-py(?![\w-])/, "east-py"]
+];
 async function findPackageJson(startDir) {
   let dir = startDir;
   while (true) {
     try {
       const content = await readFile(join(dir, "package.json"), "utf-8");
       return JSON.parse(content);
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return null;
+      dir = parent;
+    }
+  }
+}
+async function findPyProject(startDir) {
+  let dir = startDir;
+  while (true) {
+    try {
+      return await readFile(join(dir, "pyproject.toml"), "utf-8");
     } catch {
       const parent = dirname(dir);
       if (parent === dir) return null;
@@ -62,10 +80,23 @@ function detectEastSkills(pkg) {
   }
   return skills;
 }
+function detectPythonSkills(pyproject) {
+  if (pyproject === null) return [];
+  const skills = [];
+  for (const [pattern, skill] of PYTHON_SKILL_MAP) {
+    if (pattern.test(pyproject)) skills.push(skill);
+  }
+  return skills;
+}
 async function getEastProjectInfo(cwd) {
   const pkg = await findPackageJson(cwd);
-  const skills = detectEastSkills(pkg);
-  return { isEast: skills.length > 0, skills, pkg };
+  const tsSkills = detectEastSkills(pkg);
+  const pySkills = detectPythonSkills(await findPyProject(cwd));
+  const languages = [];
+  if (tsSkills.length > 0) languages.push("typescript");
+  if (pySkills.length > 0) languages.push("python");
+  const skills = [...tsSkills, ...pySkills.filter((s) => !tsSkills.includes(s))];
+  return { isEast: skills.length > 0, skills, languages, pkg };
 }
 
 // lib/diagnostics-client.ts
@@ -218,41 +249,48 @@ async function getPythonDiagnosticsText(file, budgetMs = 4e3) {
   return records === null ? null : renderPythonReview(records);
 }
 
-// hooks/diagnose.ts
+// lib/review.ts
 var EAST_IMPORT_PATTERN = /@elaraai\/east/;
 var SKIP_PATH = /[/\\](node_modules|dist|build|\.venv|\.git)[/\\]/;
-async function main() {
-  const event = await readHookInput();
-  const filePath = event.tool_input?.file_path;
-  if (filePath === void 0) process.exit(0);
-  if (SKIP_PATH.test(filePath)) process.exit(0);
+function reviewable(filePath) {
+  if (SKIP_PATH.test(filePath)) return false;
+  return /\.(py|ts|tsx|js)$/.test(filePath);
+}
+async function reviewFile(sessionId, filePath) {
+  if (!reviewable(filePath)) return null;
   const python = filePath.endsWith(".py");
-  if (!python && !filePath.endsWith(".ts") && !filePath.endsWith(".tsx") && !filePath.endsWith(".js")) {
-    process.exit(0);
-  }
   let content;
   try {
     content = await readFile2(filePath, "utf-8");
   } catch {
-    process.exit(0);
-    return;
+    return null;
   }
-  if (!(python ? PYTHON_EAST_IMPORT : EAST_IMPORT_PATTERN).test(content)) process.exit(0);
+  if (!(python ? PYTHON_EAST_IMPORT : EAST_IMPORT_PATTERN).test(content)) return null;
   const projectDir = dirname4(resolve2(filePath));
   if (!python) {
     const { isEast } = await getEastProjectInfo(projectDir);
-    if (!isEast) process.exit(0);
+    if (!isEast) return null;
   }
-  const key = createHash2("sha1").update(`${event.session_id}\0${filePath}\0`).update(content).digest("hex").slice(0, 20);
+  const key = createHash2("sha1").update(`${sessionId}\0${filePath}\0`).update(content).digest("hex").slice(0, 20);
   const marker = join4(tmpdir3(), `east-diag-seen-${key}`);
-  if (existsSync3(marker)) process.exit(0);
+  if (existsSync3(marker)) return null;
   const text = python ? await getPythonDiagnosticsText(filePath) : await getDiagnosticsText(projectDir, filePath);
-  if (text === null) process.exit(0);
+  if (text === null) return null;
   try {
     writeFileSync2(marker, "");
   } catch {
   }
-  if (text === "") process.exit(0);
+  return text;
+}
+
+// hooks/diagnose.ts
+async function main() {
+  const event = await readHookInput();
+  const filePath = event.tool_input?.file_path;
+  if (filePath === void 0) process.exit(0);
+  if (event.tool_name !== "Read" && !filePath.endsWith(".py")) process.exit(0);
+  const text = await reviewFile(event.session_id, filePath);
+  if (text === null || text === "") process.exit(0);
   writeHookOutput("PostToolUse", text);
 }
 main().catch(() => process.exit(0));

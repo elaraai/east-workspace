@@ -78,7 +78,17 @@ function startServer() {
     }
   }
 
-  return { send, waitFor, dispose: () => service.dispose() };
+  // Ending the input is what a client disconnecting looks like: it is the
+  // signal the server cleans up on, including stopping the python child.
+  // Without it a stand-in `east-py lsp` outlives every test in the file.
+  return {
+    send,
+    waitFor,
+    dispose: () => {
+      input.end();
+      service.dispose();
+    },
+  };
 }
 
 test("LSP lifecycle: initialize, overlay diagnostics, clean after change, shutdown", async () => {
@@ -140,15 +150,18 @@ test("unknown requests get MethodNotFound, unknown notifications are ignored", a
   server.dispose();
 });
 
-test("LSP publishes east-py's findings for a python document that imports east, through the project's own east-py (#648)", async () => {
-  // A stand-in `east-py` in a project's `.venv`, answering as the real one does:
-  // the findings as JSON on stdout, exit 1. The document is an unsaved buffer.
+test("LSP proxies a python document to a persistent east-py lsp child, and forwards what it publishes (#648, #681)", async () => {
+  // A stand-in `east-py` in a project's `.venv` that speaks LSP, as the real
+  // `east-py lsp` does: it answers `initialize` and publishes diagnostics for a
+  // document that imports east. The proxy keeps ONE of these alive rather than
+  // spawning a process per check, which is what lets the build tier (#653) run
+  // below save granularity.
   const dir = mkdtempSync(join(tmpdir(), "east-lsp-py-"));
   const bin = join(dir, ".venv", "bin");
   mkdirSync(bin, { recursive: true });
-  const record = { path: join(dir, "mod.py"), rule: "no-operator-fork", code: "EAS002", category: "error", line: 5, column: 12, end_line: 5, end_column: 18, message: "python `//` floors" };
-  writeFileSync(join(bin, "findings.json"), JSON.stringify([record]));
-  writeFileSync(join(bin, "east-py"), "#!/bin/sh\ncat \"$(dirname \"$0\")/findings.json\"\nexit 1\n");
+  // The package root, as PROJ above — a .py fixture is not compiled into dist/.
+  const standIn = join(process.cwd(), "test-fixtures", "fake-east-py-lsp.py");
+  writeFileSync(join(bin, "east-py"), `#!/bin/sh\nexec python3 ${JSON.stringify(standIn)} "$@"\n`);
   chmodSync(join(bin, "east-py"), 0o755);
   const saved = process.env["EAST_PY_LINT"];
   process.env["EAST_PY_LINT"] = "";
@@ -165,7 +178,7 @@ test("LSP publishes east-py's findings for a python document that imports east, 
     assert.equal(d.source, "east-py");
     assert.equal(d.severity, 1);
     assert.deepEqual(d.range, { start: { line: 4, character: 11 }, end: { line: 4, character: 17 } });
-    // a python document that does not import east gets an empty publish, and east-py is never run
+    // a python document that does not import east is cleared without reaching the child
     const plain = join(dir, "plain.py");
     server.send({ method: "textDocument/didOpen", params: { textDocument: { uri: pathToFileURL(plain).href, languageId: "python", version: 1, text: "def halve(x):\n    return x // 2\n" } } });
     const empty = await server.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri.endsWith("plain.py"));
