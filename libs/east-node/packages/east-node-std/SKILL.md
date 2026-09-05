@@ -1,6 +1,6 @@
 ---
 name: east-node-std
-description: "Node.js platform functions for the East language. Use when writing East programs that need Console I/O, Environment variables, FileSystem operations, HTTP Fetch requests, Cryptography, Time operations, Path manipulation, Random number generation, or Testing. Triggers for: (1) Writing East programs with @elaraai/east-node-std, (2) Using platform functions like Console.log, Env.get, FileSystem.readFile, Fetch.get, Crypto.uuid, Time.now, Path.join, Random.normal, (3) Testing East code with describeEast and Assert, (4) Passing credentials/secrets to East tasks without putting them in source, (5) Opening a beast2 collection file too big for memory lazily with FileSystem.openBeast (paged reads inside an East function, on every runtime)."
+description: "Node.js platform functions for the East language. Use when writing East programs that need Console I/O, Environment variables, FileSystem operations, HTTP Fetch requests, Cryptography, Time operations, Path manipulation, Random number generation, reading large JSON documents, or Testing. Triggers for: (1) Writing East programs with @elaraai/east-node-std, (2) Using platform functions like Console.log, Env.get, FileSystem.readFile, Fetch.get, Crypto.uuid, Time.now, Path.join, Random.normal, (3) Testing East code with describeEast and Assert, (4) Passing credentials/secrets to East tasks without putting them in source, (5) Opening a beast2 collection file too big for memory lazily with FileSystem.openBeast (paged reads inside an East function, on every runtime), (6) Reading a JSON document too large to decode whole — ingesting a multi-gigabyte payload from another system — with Json.open / Json.more / Json.next, strictly against a published contract."
 ---
 
 # East Node Standard Library
@@ -67,6 +67,13 @@ Task → What do you need?
     │   ├─ Directory → .createDirectory(), .readDirectory()
     │   └─ Delete → .deleteFile()
     │
+    ├─ Json (read a JSON document too large to decode whole)
+    │   ├─ Open → .open(path, pointer) / .openText(text, pointer) → an opaque handle;
+    │   │   pointer is RFC 6901 ("" for the whole document, "/data" for an envelope's array)
+    │   ├─ Iterate → .more(handle) then .next(T, handle) — T FIRST, one element in flight
+    │   ├─ One subtree → .value(T, path, pointer) — for the small members beside a huge array
+    │   └─ Release → .close(handle)
+    │
     ├─ Fetch (HTTP requests)
     │   └─ .get(), .getBytes(), .post(), .request()
     │
@@ -109,6 +116,7 @@ const compiled = East.compile(myFunction.toIR(), [...Console.Implementation, ...
 | Console | `import { Console } from "@elaraai/east-node-std"` | stdout/stderr output |
 | Env | `import { Env } from "@elaraai/east-node-std"` | Environment variables (runtime credentials/config; name in IR, value from the environment) |
 | FileSystem | `import { FileSystem } from "@elaraai/east-node-std"` | Read/write files and directories |
+| Json | `import { Json } from "@elaraai/east-node-std"` | Read a JSON document too large to decode whole, strictly |
 | Fetch | `import { Fetch } from "@elaraai/east-node-std"` | HTTP requests |
 | Crypto | `import { Crypto } from "@elaraai/east-node-std"` | Hashing, UUIDs, random bytes |
 | Time | `import { Time } from "@elaraai/east-node-std"` | Timestamps and sleep |
@@ -171,9 +179,63 @@ const total = East.function([StringType], IntegerType, ($, path) => {
   use `blob.openBeast(T)` instead; for an e3 task input, do nothing — large
   inputs already open lazily.
 
+### Read a JSON document too large to decode whole
+
+`Json.open` positions a reader on the array or object an RFC 6901 pointer
+names; `Json.next(T, handle)` reads ONE element against `T`. The type comes
+first, as it does for `FileSystem.openBeast`. One element is in flight at a
+time whatever the document's size, so the natural home is an `e3.streamTask`
+producer that emits as it reads.
+
+```typescript
+import { East, ArrayType, IntegerType, StringType, StructType } from "@elaraai/east";
+import { Json } from "@elaraai/east-node-std";
+
+const RowType = StructType({ id: IntegerType, name: StringType });
+
+const total = East.function([StringType], IntegerType, ($, path) => {
+    const handle = $.let(Json.open(path, "/data"));   // skips to the array; parses nothing before it
+    const sum = $.let(0n);
+    $.while(Json.more(handle), $ => {
+        $.assign(sum, sum.add(Json.next(RowType, handle).id));
+    });
+    $(Json.close(handle));
+    return sum;
+});
+```
+
+- **`{"meta": {…}, "data": [10M rows]}` is the ordinary shape.** Never type the
+  whole document as one value — `StructType({ meta: …, data: ArrayType(RowType) })`
+  materialises the array however good the reader is. Point at the array, and
+  read the envelope separately with `Json.value(MetaType, path, "/meta")`;
+  a member AFTER the array costs a scan, not a parse.
+- **It is strict, and deliberately stricter than `parseJson`.** It accepts
+  exactly what `jsonSchemaFor(T)` describes — what the ENCODER emits — so a
+  producer validating against the published schema cannot send something that
+  is then rejected. An `Integer` must be a quoted decimal in i64 range: not
+  `"0x10"`, `"0b101"`, `" 7 "`, `"007"`, `"-0"`, nor a bare JSON number. A
+  `DateTime` must carry an explicit `+00:00`, not `Z` and not a numeric offset,
+  and a day its month does not have (`2026-02-30`) is refused rather than
+  rolled forward. A `Blob`'s hex must be lowercase.
+- **Errors name the offending node** by RFC 6901 pointer:
+  `json_next: /1/id: "not-an-integer" is not a 64-bit integer in East JSON's form`.
+- **`more` is a predicate, `next` advances.** They need not alternate, and
+  asking `more` twice is harmless.
+- **A JSON object iterates as entries**: pass a `Struct` of exactly `key` and
+  `value` (the key must be `String`), which is what a `Dict` output needs.
+- Handles are held until closed, as a database connection is. A body that can
+  fail mid-document should close in a `.catch` that re-raises — a `$.try` whose
+  `.catch` is left implicit swallows the error.
+- The same six functions (`json_open`, `json_open_text`, `json_more`,
+  `json_next`, `json_value`, `json_close`) exist in `east-py-std` and
+  `east-c-std` with the same strictness and the same messages, so a program
+  using them runs unchanged on every runner.
+- A document nested deeper than 2048 is refused on every runtime — JSON is an
+  untrusted-input boundary.
+
 ## Related skills
 
-- **east** — the language these platform functions plug into; compile with `NodePlatform`.
+- **east** — the language these platform functions plug into; compile with `NodePlatform`. `jsonSchemaFor(T)` there publishes the contract this reader enforces.
 - **east-node-io** — the heavier I/O layer (SQL / NoSQL, S3, FTP / SFTP, XLSX / XML, compression) when `FileSystem` / `Fetch` aren't enough.
 - **e3** — run these effects as durable, cached tasks instead of one-off scripts.
 - **east-project** — to author your OWN custom platform function (not just use these stock ones): `East.platform(...).implement(...)` default-exported from your package's `./platform`, called from an e3 task via `{ runtime: 'east-node', platforms: [{ custom: '@elaraai/<project>' }] }`.
