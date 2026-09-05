@@ -81,7 +81,7 @@ npm create @elaraai/e3 -- --help               # full flag list
 |---|---|---|
 | `--install` / `--no-install` | install when TTY | Run `npm install` (+ `uv sync` for e3) after scaffolding. |
 | `--eslint` / `--no-eslint` | on | Add ESLint wired with `@elaraai/eslint-plugin-east` (the East lint rules). |
-| `--editor-diagnostics` / `--no-editor-diagnostics` | on | Add `@elaraai/tsserver-plugin-east` to `tsconfig.json` (editor squiggles for East idioms). |
+| `--editor-diagnostics` / `--no-editor-diagnostics` | on | Add `@elaraai/tsserver-plugin-east` to `tsconfig.json` (editor squiggles for East idioms). TypeScript only — the python diagnostics need no flag: `elaraai-east-py-cli` brings `east-py lint` / `check` / `lsp` plus flake8 and pylsp plugins, configured by the generated `[tool.east-py]`. |
 
 **`e3` only:**
 

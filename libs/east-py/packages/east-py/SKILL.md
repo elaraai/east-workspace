@@ -925,7 +925,7 @@ in it; an eager callback on an East value; a `@East.platform_function`'s East
 inputs), and says at edit time what the build would say — **one message, two
 moments**: every rule's text IS the refusal the build raises for the same
 code, pinned by building the very source the rules read
-(`tests/diagnostics`). Four surfaces, one engine; the python twin of
+(`tests/diagnostics`). Five surfaces, one engine; the python twin of
 `@elaraai/east-diagnostics`.
 
 Two TIERS, because they cost different things. The **rules** read the `ast`:
@@ -941,8 +941,15 @@ east-py lint src/ --disable no-deprecated-alias --exclude fixtures
 east-py lint --list-rules                 # EAS001 … EAS026
 east-py check src/mod.py                  # the BUILD's errors — the type errors lint cannot see; --format json
 flake8 --select EAS src/                  # the same rules inside flake8 (east-py-cli registers the plugin)
-east-py lsp                               # a Language Server over stdio, BOTH tiers — pip install 'east-py-cli[lsp]'
+east-py lsp                               # a Language Server over stdio, both tiers — pip install 'east-py-cli[lsp]'
+# pylsp                                   # python-lsp-server runs the rules too (east-py-cli registers the plugin)
 ```
+
+The rules run on every change; the build tier runs on **save**, and only when
+the project opts in (below). It reads the module from DISK — an import does —
+so running it against an unsaved buffer would report the last saved version's
+errors at that version's lines. Pyright/Pylance has no plugin API, so flake8
+and pylsp are the two editor paths that need no East-specific server.
 
 `east-py check` imports the module and builds every East function in it,
 reporting each failure at its authoring line: a body whose expression type
