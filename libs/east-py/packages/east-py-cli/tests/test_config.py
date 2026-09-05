@@ -13,7 +13,7 @@ from pathlib import Path
 
 from east.diagnostics import find_pyproject, load_config
 
-from east_py_cli.lsp import lsp_build_diagnostics, lsp_diagnostics
+from east_py_cli.lsp import lsp_build_diagnostics, lsp_diagnostics, same_file
 
 BAD = ("from east import East, IntegerType\n"
        "\n"
@@ -164,3 +164,30 @@ def test_with_nothing_configuring_east_the_nearest_project_is_still_named(tmp_pa
     config = load_config(member / "mod.py")
     assert config.check is False and config.disable == ()
     assert config.source == member / "pyproject.toml", "the nearest file, so a caller knows the project"
+
+
+def test_findings_are_matched_by_path_not_by_string(tmp_path):
+    """A finding's path comes from East's source map — separators normalized to
+    `/`, possibly relativized against the working directory — while the document
+    path arrives in the platform's own spelling. Comparing the two as STRINGS
+    matched nothing on Windows, so the whole build tier returned empty there."""
+    target = tmp_path / "pkg" / "mod.py"
+    target.parent.mkdir(parents=True)
+    target.write_text(WRONG_OUT, encoding="utf-8")
+
+    # Same file, three spellings that differ as strings on every platform.
+    detoured = tmp_path / "pkg" / ".." / "pkg" / "mod.py"
+    assert same_file(str(target), str(detoured))
+    assert same_file(str(target), str(target.resolve()))
+    assert not same_file(str(target), str(tmp_path / "pkg" / "other.py"))
+
+
+def test_the_build_tier_reports_through_a_detoured_path(tmp_path):
+    (tmp_path / "pyproject.toml").write_text('[tool.east-py]\ncheck = true\n', encoding="utf-8")
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "mod.py").write_text(WRONG_OUT, encoding="utf-8")
+
+    detoured = str(tmp_path / "pkg" / ".." / "pkg" / "mod.py")
+    found = lsp_build_diagnostics(detoured)
+    assert len(found) == 1, "the finding must survive a path spelled differently from the map's"

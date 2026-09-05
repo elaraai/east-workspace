@@ -72,7 +72,9 @@ def test_a_declared_output_mismatch_is_reported_at_its_line(tmp_path):
 def test_every_finding_carries_the_authors_own_file_and_line(tmp_path):
     path = _module(tmp_path, THREE_BROKEN)
     for finding in check_module(path):
-        assert finding.path == str(Path(path).resolve()), finding
+        # Compare as PATHS: East's source map normalizes separators to `/` and
+        # may relativize, so the string spellings differ on Windows.
+        assert Path(finding.path).resolve() == Path(path).resolve(), finding
         assert finding.line >= 1 and finding.column >= 1
 
 

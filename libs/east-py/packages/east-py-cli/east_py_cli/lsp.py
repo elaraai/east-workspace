@@ -33,6 +33,7 @@ from __future__ import annotations
 import contextlib
 import sys
 import threading
+from pathlib import Path
 from typing import Any
 
 from east.diagnostics import run_east_rules
@@ -101,8 +102,23 @@ def lsp_build_diagnostics(path: str) -> list[dict[str, Any]]:
             "message": f"{f.message} [{f.rule}]",
         }
         for f in findings
-        if f.path == path
+        if same_file(f.path, path)
     ]
+
+
+def same_file(a: str, b: str) -> bool:
+    """Whether two paths name the same file.
+
+    Not a string comparison. A finding's path comes from East's source map,
+    which normalizes separators to ``/`` and relativizes against the working
+    directory; the document path comes from the editor in the platform's own
+    spelling. On Windows those never matched as strings, so every build finding
+    was filtered out and the whole tier was silently dead.
+    """
+    try:
+        return Path(a).resolve() == Path(b).resolve()
+    except (OSError, ValueError):
+        return a == b
 
 
 NEEDS_PYGLS = ("east-py lsp needs pygls — install it with `pip install pygls` "
