@@ -401,8 +401,6 @@ def test_a_stdlib_function_first_used_in_a_trace_still_runs_eagerly():
     returned — so a first use inside a body poisoned every later EAGER call
     for the life of the process. The build is detached from any open body, so
     the memoised value is the artifact whichever use came first."""
-    from datetime import datetime, timezone
-
     from east.expression.libs import datetime as dt_lib
 
     fn = dt_lib.round_up_hour
@@ -412,10 +410,10 @@ def test_a_stdlib_function_first_used_in_a_trace_still_runs_eagerly():
         traced = East.function([DateTimeType, IntegerType], DateTimeType,
                                lambda b, d, s: East.DateTime.round_up_hour(d, s))
 
-        when = datetime(2025, 1, 1, 8, 30, tzinfo=timezone.utc)
+        when = datetime(2025, 1, 1, 8, 30, tzinfo=UTC)
         eager = East.DateTime.round_up_hour(when, 6)
         assert isinstance(eager, datetime), f"eager call returned {type(eager).__name__}"
-        assert eager == datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc)
+        assert eager == datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
         assert traced(when, 6) == eager      # and the traced build still runs
         assert hasattr(fn.resolve(), "_eastc_handle")   # an artifact, not an expression
     finally:
