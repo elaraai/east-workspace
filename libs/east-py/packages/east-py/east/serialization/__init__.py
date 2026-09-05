@@ -18,6 +18,10 @@ from east.serialization.json_schema import (
     JsonSchemaDraft,
     json_schema_for,
 )
+from east.serialization.json_schema_to_type import (
+    JsonSchemaUnsupportedError,
+    type_from_json_schema,
+)
 
 __all__ = [
     # CSV
@@ -32,4 +36,6 @@ __all__ = [
     "JsonSchema",
     "JsonSchemaDraft",
     "json_schema_for",
+    "JsonSchemaUnsupportedError",
+    "type_from_json_schema",
 ]
