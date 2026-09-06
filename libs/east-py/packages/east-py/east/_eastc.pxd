@@ -540,6 +540,17 @@ cdef extern from "east/serialization.h":
     # JSON IR wrapper decode (mirrors east_beast2_decode_ir for JSON)
     IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out, EastSourceMap **source_map_out)
 
+    # Strict streaming JSON reader. The reader BORROWS `data` for its whole
+    # life, so whatever owns those bytes must outlive it.
+    ctypedef struct EastJsonReader:
+        pass
+    EastJsonReader *east_json_reader_open(const char *data, size_t len, const char *pointer,
+                                          cbool enter, char **error_out)
+    cbool east_json_reader_more(EastJsonReader *r)
+    EastValue *east_json_reader_next(EastJsonReader *r, EastType *type, char **error_out)
+    EastValue *east_json_reader_read(EastJsonReader *r, EastType *type, char **error_out)
+    void east_json_reader_free(EastJsonReader *r)
+
     # CSV serialization
     char *east_csv_encode(EastValue *array, EastType *type, EastValue *config)
     EastValue *east_csv_decode(const char *csv, EastType *type, EastValue *config)

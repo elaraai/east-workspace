@@ -245,11 +245,11 @@ East.compile(summed, platform=platform)('[{"id":"10"},{"id":"20"}]')   # 30
 - **A JSON object iterates as entries**: pass a `Struct` of exactly `key` and
   `value` (the key must be `String`), which is what a `Dict` output needs.
 - Handles are held until closed, as a database connection is.
-- **Deep nesting is refused everywhere, at a bound the host sets.** This reader
-  recurses per level and python's own stack gives out nearer 150, where
-  east-node and east-c refuse past 2048. All three refuse with the same kind of
-  error rather than a stack overflow, but a document nested hundreds deep is
-  not portable.
+- **The reader is east-c's**, reached through east-py's Cython bridge, as every
+  other codec here is — so the accepted forms, the 2048 nesting bound, the
+  surrogate-pair joining and the error text are shared with `east-c-std` rather
+  than reimplemented. A document nested deeper than 2048 is refused on every
+  runtime.
 - **Three things the schema cannot say.** A `Ref` the encoder wrote as
   `{"$ref": ...}` for a repeated target is not readable, so a value with shared
   references does not validate against its own published schema. A `Dict` whose

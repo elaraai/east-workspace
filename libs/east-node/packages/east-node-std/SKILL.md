@@ -228,17 +228,16 @@ const total = East.function([StringType], IntegerType, ($, path) => {
   `.catch` is left implicit swallows the error.
 - The same six functions (`json_open`, `json_open_text`, `json_more`,
   `json_next`, `json_value`, `json_close`) exist in `east-py-std` and
-  `east-c-std`, and **accept and reject exactly the same documents** — that is
-  the property the shared compliance corpus pins. The error TEXT is identical
-  wherever it carries a pointer (`/1/id: …`); east-c words a few shape
-  mismatches differently (`expected an object, got [1]` where Node says
-  `expected "{", got "["`), so match on the pointer, not the sentence.
-- **Deep nesting is refused everywhere, at a bound the host sets.** Node and
-  east-c refuse past 2048; the Python reader recurses per level and its own
-  stack gives out earlier, nearer 150. All three refuse with the same kind of
-  error rather than a stack overflow, but a document nested hundreds deep is
-  not portable — JSON is an untrusted-input boundary, and this is the one place
-  the runtimes do not draw the line together.
+  `east-c-std`, and **accept and reject exactly the same documents** — the
+  property the shared compliance corpus pins. `east-py-std` is east-c's reader
+  through a Cython bridge, so python and C agree by construction; this Node
+  implementation is the second one, and it words a few shape mismatches
+  differently (`expected "{", got "["` where the others say `expected an
+  object, got [1]`). Messages that carry a pointer are identical everywhere, so
+  match on the pointer rather than the sentence.
+- **A document nested deeper than 2048 is refused on every runtime** — JSON is
+  an untrusted-input boundary, and the bound is the same on all three, on the
+  value being read and on junk being skipped past alike.
 - **Three things the schema cannot say, so they are stated here.** A `Ref` that
   the encoder wrote as `{"$ref": …}` (a repeated target) is not readable — as
   with `Array`/`Set`/`Dict` aliasing, a value with shared references does not

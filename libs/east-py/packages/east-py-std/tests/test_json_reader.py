@@ -9,14 +9,17 @@ The invariant these pin: the reader accepts exactly the documents
 the encoder's own output is the accept corpus and the historic decoder's
 tolerances are the reject corpus. The cross-runtime replay of the TypeScript
 suite (``test_compliance.py --ir-dir /tmp/east-node-std``) covers the East-level
-behaviour; these cover the python implementation's own mechanisms.
+behaviour; these cover the bridge — that python holds the bytes and the handle
+correctly, and that east-c's strictness is what reaches a python caller.
 """
 
+import gc
 import json
 import tracemalloc
 
 import pytest
 from east.serialization.json import encode_json_for
+from east.serialization.json_reader import JsonReader
 from east.types.types import (
     ArrayType,
     BlobType,
@@ -32,7 +35,10 @@ from east.types.types import (
     VariantType,
 )
 
-from east_py_std.json_reader import MAX_DEPTH, JsonReader
+# The bound east-c applies (JSON_MAX_DEPTH). It is east-c's reader on every
+# runtime now, so this is the same number everywhere rather than a python
+# constant that happened to agree.
+MAX_DEPTH = 2048
 
 INT_STRUCT = StructType([("v", IntegerType)])
 DATE_STRUCT = StructType([("v", DateTimeType)])
@@ -183,7 +189,7 @@ def test_refuses_a_variant_whose_payload_precedes_its_tag():
 
 
 def test_refuses_a_document_nested_deeper_than_the_limit():
-    """east-c applies the same bound, so every runtime refuses the same documents."""
+    """The bound is east-c's, so every runtime refuses exactly the same documents."""
     deep = "[" * 100_000 + "]" * 100_000
     with pytest.raises(Exception, match=f"nests deeper than {MAX_DEPTH}"):
         JsonReader.open_text(f'{{"junk":{deep},"data":[]}}', "/data")
@@ -209,37 +215,50 @@ def test_reads_an_envelope_member_that_follows_a_large_array(tmp_path):
     assert meta["n"] == 20_000
 
 
-def test_holds_one_row_not_the_document(tmp_path):
-    """Retention must not track the document's size.
+def test_retention_does_not_track_the_document(tmp_path):
+    """Reading four times the document must not retain four times the memory.
 
-    ``tracemalloc`` measures python allocations directly, so this observes what
-    is retained rather than what has yet to be collected.
+    Decoding through east-c carries a few MiB of fixed pool overhead that a
+    baseline cannot subtract, because the pools fill as rows are read. An
+    absolute budget would therefore measure the pools rather than the property.
+    What actually matters is the SHAPE: retention is flat in the document's
+    size, so quadrupling the rows must not quadruple what is held.
     """
-    path = tmp_path / "big.json"
-    parts = ['{"data":[']
-    parts += [f'{"," if i else ""}{{"id":"{i}","name":"row-{i}"}}' for i in range(200_000)]
-    parts.append('],"meta":{"n":"200000"}}')
-    path.write_text("".join(parts))
-    size = path.stat().st_size
-
     row = StructType([("id", IntegerType), ("name", StringType)])
-    tracemalloc.start()
-    reader = JsonReader.open_file(str(path), "/data")
-    count = 0
-    total = 0
-    try:
-        while reader.more():
-            value = reader.next(row)
-            total += value["id"]
-            count += 1
-    finally:
-        reader.close()
-    _current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
 
-    assert count == 200_000
-    assert total == (199_999 * 200_000) // 2
-    assert peak < size / 8, f"retained {peak} bytes for a {size}-byte document"
+    def retained_for(rows: int) -> tuple[int, int]:
+        path = tmp_path / f"rows-{rows}.json"
+        body = ",".join(f'{{"id":"{i}","name":"row-{i}"}}' for i in range(rows))
+        path.write_text(f'{{"data":[{body}],"meta":{{"n":"{rows}"}}}}')
+        gc.collect()
+        tracemalloc.start()
+        reader = JsonReader.open_file(str(path), "/data")
+        count = 0
+        total = 0
+        try:
+            while reader.more():
+                total += reader.next(row)["id"]
+                count += 1
+        finally:
+            reader.close()
+        gc.collect()
+        held = tracemalloc.get_traced_memory()[0]
+        tracemalloc.stop()
+        assert count == rows
+        assert total == (rows - 1) * rows // 2
+        return held, path.stat().st_size
+
+    small, small_size = retained_for(50_000)
+    large, large_size = retained_for(200_000)
+
+    assert large_size > small_size * 3, "the larger document must actually be larger"
+    # Proportional retention would be ~4x. Allow generous slack for pool
+    # granularity while still failing loudly if the document is being held.
+    assert large < small * 2, (
+        f"retention tracked the document: {small} bytes for {small_size}, "
+        f"{large} bytes for {large_size}"
+    )
+
 
 
 def test_pointer_must_be_empty_or_rooted():

@@ -501,6 +501,11 @@ typedef struct {
      * selects. Without it the reader would accept "a\qb" and a raw U+0001 that
      * east-node and east-py both refuse. */
     bool strict;
+    /* Set when a strict skip walked past JSON_MAX_DEPTH. The skip is iterative,
+     * so it is in no danger itself, but east-node's skip recurses and refuses —
+     * and a reader that navigates past untrusted junk should draw the line in
+     * the same place on every runtime. */
+    bool depth_exceeded;
 } JsonParser;
 
 /* Maximum jp_decode recursion depth. JSON is an untrusted-input boundary;
@@ -570,6 +575,10 @@ static void jp_skip_json_value(JsonParser *p)
         int depth = 1;
         bool in_str = false;
         while (p->pos < p->len && depth > 0) {
+            if (p->strict && depth > JSON_MAX_DEPTH) {
+                p->depth_exceeded = true;
+                return;
+            }
             char oc = p->input[p->pos++];
             if (in_str) {
                 if (oc == '\\' && p->pos < p->len)
@@ -591,6 +600,10 @@ static void jp_skip_json_value(JsonParser *p)
         int depth = 1;
         bool in_str = false;
         while (p->pos < p->len && depth > 0) {
+            if (p->strict && depth > JSON_MAX_DEPTH) {
+                p->depth_exceeded = true;
+                return;
+            }
             char ac = p->input[p->pos++];
             if (in_str) {
                 if (ac == '\\' && p->pos < p->len)
@@ -1688,6 +1701,7 @@ EastValue *east_json_decode(const char *json, EastType *type)
     parser.len = strlen(json);
     parser.depth = 0;
     parser.strict = false;
+    parser.depth_exceeded = false;
 
     jp_debug = (getenv("EAST_JSON_DEBUG") != NULL);
 
@@ -2789,6 +2803,7 @@ EastValue *east_json_decode_with_error(const char *json, EastType *type, char **
     parser.len = strlen(json);
     parser.depth = 0;
     parser.strict = false;
+    parser.depth_exceeded = false;
 
     jp_debug = (getenv("EAST_JSON_DEBUG") != NULL);
 
@@ -3952,6 +3967,10 @@ static bool jr_enter_member(EastJsonReader *r, const char *key, char **error_out
         free(name);
         if (hit) return true;
         jp_skip_json_value(&r->p);
+        if (r->p.depth_exceeded) {
+            jr_fail(r, error_out, "document nests deeper than %d", JSON_MAX_DEPTH);
+            return false;
+        }
         if (jp_match(&r->p, '}')) {
             jr_fail(r, error_out, "no member \"%s\"", key);
             return false;
@@ -3985,6 +4004,10 @@ static bool jr_enter_index(EastJsonReader *r, const char *segment, char **error_
     for (size_t i = 0;; i++) {
         if (i == target) return true;
         jp_skip_json_value(&r->p);
+        if (r->p.depth_exceeded) {
+            jr_fail(r, error_out, "document nests deeper than %d", JSON_MAX_DEPTH);
+            return false;
+        }
         if (jp_match(&r->p, ']')) {
             jr_fail(r, error_out, "no element %zu", target);
             return false;
