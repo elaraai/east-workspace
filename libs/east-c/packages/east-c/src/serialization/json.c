@@ -137,6 +137,61 @@ static void strbuf_append_json_string(StrBuf *sb, const char *str, size_t len)
 }
 
 /* ================================================================== */
+/*  Calendar validity                                                  */
+/* ================================================================== */
+
+static bool east_json_leap_year(int year)
+{
+    return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+}
+
+/* Days in `month` (1-12) of `year`; 0 when the month is out of range. The
+ * civil-from-days arithmetic below happily turns 31 April into 1 May, so every
+ * decode path checks the day against this before trusting it. */
+static int east_json_days_in_month(int year, int month)
+{
+    static const int days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (month < 1 || month > 12) return 0;
+    if (month == 2 && east_json_leap_year(year)) return 29;
+    return days[month - 1];
+}
+
+/* True when the fields name an instant that exists. */
+static bool east_json_datetime_fields_valid(int year, int month, int day, int hour, int min,
+                                            int sec, int ms)
+{
+    int dim = east_json_days_in_month(year, month);
+    if (dim == 0 || day < 1 || day > dim) return false;
+    if (hour < 0 || hour > 23 || min < 0 || min > 59 || sec < 0 || sec > 59) return false;
+    if (ms < 0 || ms > 999) return false;
+    return true;
+}
+
+/* ================================================================== */
+/*  Integer lexical form                                               */
+/* ================================================================== */
+
+/* The decimal spelling East JSON writes: an optional '-', then either "0"
+ * alone or digits with no leading zero. Says nothing about magnitude — a
+ * caller that needs the i64 bound checks it separately, so a value that is
+ * merely too large is not reported as though it were malformed. */
+static bool east_json_integer_form(const char *s, size_t len)
+{
+    if (len == 0) return false;
+    size_t i = 0;
+    if (s[0] == '-') {
+        i = 1;
+        if (len == 1) return false;
+    }
+    /* "0" is the only spelling starting with zero, and it is never signed. */
+    if (s[i] == '0') return i == 0 && len == 1;
+    for (size_t k = i; k < len; k++) {
+        if (s[k] < '0' || s[k] > '9') return false;
+    }
+    return true;
+}
+
+/* ================================================================== */
 /*  JSON Encoder (type-driven)                                         */
 /* ================================================================== */
 
@@ -1127,6 +1182,11 @@ static EastValue *jp_decode_inner(JsonParser *p, EastType *type, JRefCtx *ctx)
             }
         }
 
+        if (!east_json_datetime_fields_valid(year, month, day, hour, min, sec, ms)) {
+            free(s);
+            return NULL;
+        }
+
         int64_t y = year;
         int64_t m_adj = month;
         if (m_adj <= 2) {
@@ -1670,6 +1730,17 @@ static EastValue *jp_decode_err_inner(JsonParser *p, EastType *type, JRefCtx *ct
                 }
                 return NULL;
             }
+            /* A spelling the encoder never writes — "007", "+7", "-0", "0x10",
+             * surrounding space — is malformed, not out of range. Checking the
+             * form first keeps those two faults reporting as themselves. */
+            if (!east_json_integer_form(s, slen)) {
+                free(s);
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(err, jp_fmt_error(p, "expected string representing integer"));
+                }
+                return NULL;
+            }
             /* Try to parse as integer */
             char *end;
             long long val = strtoll(s, &end, 10);
@@ -1821,39 +1892,17 @@ static EastValue *jp_decode_err_inner(JsonParser *p, EastType *type, JRefCtx *ct
                 sscanf(tz + 1, "%d:%d", &tz_hour, &tz_min);
             }
 
-            /* Validate date values */
-            if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || min > 59 ||
-                sec > 59) {
-                /* Check if Date would be invalid */
-                /* Simple check: very out-of-range values */
-                int64_t y = year;
-                int64_t m_adj = month;
-                if (m_adj <= 2) {
-                    y--;
-                    m_adj += 9;
-                } else {
-                    m_adj -= 3;
-                }
-                int64_t era = (y >= 0 ? y : y - 399) / 400;
-                int64_t yoe = y - era * 400;
-                int64_t doy = (153 * m_adj + 2) / 5 + day - 1;
-                int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-                int64_t days = era * 146097 + doe - 719468;
-                int64_t epoch_secs = days * 86400 + hour * 3600 + min * 60 + sec;
-                epoch_secs -= tz_sign * (tz_hour * 3600 + tz_min * 60);
-                int64_t epoch_ms = epoch_secs * 1000 + ms;
-                /* If NaN equivalent (TS Date invalid) - report error */
-                /* For extreme values like month 13 or hour 25, TS new Date() gives invalid */
-                if (month > 12 || hour > 23 || min > 59 || sec > 59) {
-                    free(s);
-                    if (err) {
-                        p->pos = save;
-                        jde_set_msg(err, jp_fmt_error(p, "invalid date string"));
-                    }
-                    return NULL;
-                }
+            /* The fields must name an instant that exists. Day-of-month is the
+             * one the civil-from-days arithmetic cannot catch by itself: it
+             * turns 30 February into 2 March rather than failing, which is
+             * silent corruption of a date the sender got wrong. */
+            if (!east_json_datetime_fields_valid(year, month, day, hour, min, sec, ms)) {
                 free(s);
-                return east_datetime(epoch_ms);
+                if (err) {
+                    p->pos = save;
+                    jde_set_msg(err, jp_fmt_error(p, "invalid date string"));
+                }
+                return NULL;
             }
 
             int64_t y = year;
@@ -2888,9 +2937,9 @@ struct EastJsonReader {
     char **path; /* segment stack, for RFC 6901 error pointers */
     size_t path_len;
     size_t path_cap;
-    size_t index;    /* index within the container being iterated */
-    bool started;    /* iteration has begun, so a separator is due */
-    char container;  /* '[', '{', or 0 once exhausted */
+    size_t index;   /* index within the container being iterated */
+    bool started;   /* iteration has begun, so a separator is due */
+    char container; /* '[', '{', or 0 once exhausted */
 };
 
 static void jr_path_push(EastJsonReader *r, const char *seg)
@@ -2966,21 +3015,9 @@ static void *jr_fail(EastJsonReader *r, char **error_out, const char *fmt, ...)
  * schema's generated pattern describes, checked without a regex. */
 static bool jr_integer_form(const char *s, size_t len)
 {
-    if (len == 0) return false;
-    size_t i = 0;
-    bool neg = false;
-    if (s[0] == '-') {
-        neg = true;
-        i = 1;
-        if (len == 1) return false;
-    }
-    if (s[i] == '0') {
-        /* "0" alone is the only form starting with zero, and never signed. */
-        return !neg && len - i == 1;
-    }
-    for (size_t k = i; k < len; k++) {
-        if (s[k] < '0' || s[k] > '9') return false;
-    }
+    if (!east_json_integer_form(s, len)) return false;
+    bool neg = s[0] == '-';
+    size_t i = neg ? 1 : 0;
     const char *bound = neg ? "9223372036854775808" : "9223372036854775807";
     size_t digits = len - i;
     if (digits > 19) return false;
@@ -2995,11 +3032,6 @@ static bool jr_two_digit(const char *s, int lo, int hi, int *out)
     if (v < lo || v > hi) return false;
     if (out) *out = v;
     return true;
-}
-
-static bool jr_leap(int year)
-{
-    return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
 }
 
 /* YYYY-MM-DDTHH:MM:SS.mmm+00:00 — the canonical text the encoder writes.
@@ -3028,10 +3060,7 @@ static bool jr_datetime_form(const char *s, size_t len, int64_t *epoch_ms_out)
 
     /* The field bounds above cannot rule out a day the month does not have;
      * a payload naming one must be refused, not silently rolled forward. */
-    static const int days_in[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    int limit = days_in[month - 1];
-    if (month == 2 && jr_leap(year)) limit = 29;
-    if (day > limit) return false;
+    if (day > east_json_days_in_month(year, month)) return false;
 
     int64_t y = year;
     int64_t m_adj = month;
@@ -3105,7 +3134,7 @@ static bool jr_each_element(EastJsonReader *r, JrElementFn body, void *ctx, char
 
 typedef struct {
     EastType *elem;
-    EastValue *out;   /* array or set under construction */
+    EastValue *out; /* array or set under construction */
     bool is_set;
 } JrCollect;
 
@@ -3150,7 +3179,8 @@ static EastValue *jr_read_struct(EastJsonReader *r, EastType *type, char **error
         free(seen);
         return NULL;
     }
-    for (size_t i = 0; i < nf; i++) names[i] = type->data.struct_.fields[i].name;
+    for (size_t i = 0; i < nf; i++)
+        names[i] = type->data.struct_.fields[i].name;
 
     if (jp_peek(&r->p) != '}') {
         for (;;) {
@@ -3203,7 +3233,8 @@ static EastValue *jr_read_struct(EastJsonReader *r, EastType *type, char **error
     }
     {
         EastValue *result = east_struct_new(names, values, nf, type);
-        for (size_t i = 0; i < nf; i++) east_value_release(values[i]);
+        for (size_t i = 0; i < nf; i++)
+            east_value_release(values[i]);
         free(names);
         free(values);
         free(seen);
@@ -3877,8 +3908,8 @@ EastJsonReader *east_json_reader_open(const char *data, size_t len, const char *
             r->p.pos++;
             ok = jr_enter_index(r, segment, error_out);
         } else {
-            jr_fail(r, error_out, "cannot descend into \"%c\" looking for \"%s\"",
-                    c ? c : '?', segment);
+            jr_fail(r, error_out, "cannot descend into \"%c\" looking for \"%s\"", c ? c : '?',
+                    segment);
             ok = false;
         }
         if (!ok) {
@@ -3996,7 +4027,8 @@ EastValue *east_json_reader_read(EastJsonReader *r, EastType *type, char **error
 void east_json_reader_free(EastJsonReader *r)
 {
     if (!r) return;
-    for (size_t i = 0; i < r->path_len; i++) free(r->path[i]);
+    for (size_t i = 0; i < r->path_len; i++)
+        free(r->path[i]);
     free(r->path);
     free(r);
 }
