@@ -107,7 +107,7 @@ def _draft_of_schema_uri(uri: str, path: list[str]) -> str:
         key = "https:" + key[len("http:") :]
     draft = _SCHEMA_URI_DRAFTS.get(key)
     if draft is None:
-        _fail(
+        return _fail(
             f'type_from_json_schema cannot read the JSON Schema release "{uri}" — it reads '
             "2020-12, draft-07, and OpenAPI 3.0 schema objects, which carry no $schema of "
             "their own",

@@ -19,9 +19,12 @@ from east.runtime.platform import (
     platform_function,
     platform_functions,
 )
-from east.types.types import BooleanType, EastType, NullType, StringType
 
-from east_py_std.json_reader import JsonReader
+# The reader itself is east-c's, reached through east-py's Cython bridge — the
+# same arrangement every other codec here uses. east-py-std stays pure python
+# and holds only the handle table.
+from east.serialization.json_reader import JsonReader
+from east.types.types import BooleanType, EastType, NullType, StringType
 
 # Open readers, keyed by the opaque handle an East program carries.
 _readers: dict[str, JsonReader] = {}
