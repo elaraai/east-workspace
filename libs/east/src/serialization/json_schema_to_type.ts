@@ -22,7 +22,7 @@ import {
   type EastType,
   type RecursiveTypeMarker,
 } from "../types.js";
-import type { JsonSchema, JsonSchemaValue } from "./json_schema.js";
+import type { JsonSchema, JsonSchemaDraft, JsonSchemaValue } from "./json_schema.js";
 
 /**
  * Raised when a schema cannot be expressed as an East type.
@@ -79,17 +79,58 @@ function asSchema(v: JsonSchemaValue | undefined, path: string[], what: string):
   return v as JsonSchema;
 }
 
-/** Where a document keeps its definitions, whichever release wrote it. */
-function definitionsOf(root: JsonSchema): { defs: Record<string, JsonSchema>; keyword: string } {
-  const modern = root["$defs"];
-  if (modern !== undefined && typeof modern === "object" && modern !== null && !Array.isArray(modern)) {
-    return { defs: modern as Record<string, JsonSchema>, keyword: "$defs" };
+/** The `$schema` values this converter recognises, normalised, and the release each names. */
+const SCHEMA_URI_DRAFTS: Record<string, JsonSchemaDraft> = {
+  "https://json-schema.org/draft/2020-12/schema": "2020-12",
+  "https://json-schema.org/draft-07/schema": "draft-07",
+};
+
+/**
+ * The release a document declares.
+ *
+ * @throws {JsonSchemaUnsupportedError} On a release this converter cannot read
+ *
+ * @remarks
+ * A document that declares a release is taken at its word, so one written for
+ * draft-04 (or a release later than these) is refused by name rather than
+ * structurally guessed at and quietly mis-read. The scheme and a trailing `#`
+ * carry no meaning in a `$schema` value, so both are normalised away.
+ */
+function draftOfSchemaUri(uri: string, path: string[]): JsonSchemaDraft {
+  const key = uri.replace(/#$/, "").replace(/^http:/, "https:");
+  const draft = SCHEMA_URI_DRAFTS[key];
+  if (draft === undefined) {
+    fail(
+      `typeFromJsonSchema cannot read the JSON Schema release "${uri}" — it reads 2020-12, ` +
+      "draft-07, and OpenAPI 3.0 schema objects, which carry no $schema of their own", path);
   }
-  const legacy = root["definitions"];
-  if (legacy !== undefined && typeof legacy === "object" && legacy !== null && !Array.isArray(legacy)) {
-    return { defs: legacy as Record<string, JsonSchema>, keyword: "definitions" };
+  return draft;
+}
+
+/**
+ * Where a document keeps its definitions.
+ *
+ * @remarks
+ * The declared release says which keyword to expect, but a document that
+ * declares one and uses the other still resolves: only the prefix its `$ref`s
+ * are written against actually matters, and that is read back from whichever
+ * keyword is present.
+ */
+function definitionsOf(
+  root: JsonSchema,
+  draft: JsonSchemaDraft | undefined,
+): { defs: Record<string, JsonSchema>; keyword: string } {
+  const asDefs = (v: JsonSchemaValue | undefined): Record<string, JsonSchema> | null =>
+    v !== undefined && typeof v === "object" && v !== null && !Array.isArray(v)
+      ? (v as Record<string, JsonSchema>)
+      : null;
+
+  const order: string[] = draft === "draft-07" ? ["definitions", "$defs"] : ["$defs", "definitions"];
+  for (const keyword of order) {
+    const defs = asDefs(root[keyword]);
+    if (defs !== null) return { defs, keyword };
   }
-  return { defs: {}, keyword: "$defs" };
+  return { defs: {}, keyword: draft === "draft-07" ? "definitions" : "$defs" };
 }
 
 /** The definition name a local `$ref` points at, or null when it is not local. */
@@ -144,13 +185,32 @@ interface Context {
  * mutually recursive definitions are refused, because East supports only
  * self-recursion.
  *
+ * A `$schema` is honoured when present, and a release this cannot read — a
+ * draft-04 document, say — is refused by name instead of being structurally
+ * guessed at. It is not required: an OpenAPI 3.0 schema object is a fragment of
+ * a larger document and carries none, so demanding one would reject what
+ * `jsonSchemaFor(T, { draft: "openapi-3.0" })` emits.
+ *
  * @example
  * ```ts
  * const T = typeFromJsonSchema(JSON.parse(readFileSync("contract.schema.json", "utf-8")));
  * ```
  */
 export function typeFromJsonSchema(schema: JsonSchema): EastType {
-  const { defs, keyword } = definitionsOf(schema);
+  // A declared release is honoured; its absence is not an error, because an
+  // OpenAPI 3.0 schema object is a fragment of a larger document and carries no
+  // $schema of its own — refusing that would refuse what jsonSchemaFor writes
+  // for `draft: "openapi-3.0"`.
+  const declared = schema["$schema"];
+  let draft: JsonSchemaDraft | undefined;
+  if (declared !== undefined) {
+    if (typeof declared !== "string") {
+      fail("typeFromJsonSchema expected \"$schema\" to be a string", ["$schema"]);
+    }
+    draft = draftOfSchemaUri(declared, ["$schema"]);
+  }
+
+  const { defs, keyword } = definitionsOf(schema, draft);
   const ctx: Context = {
     defsKeyword: keyword,
     defs,
