@@ -151,6 +151,68 @@ def test_reads_definitions_from_either_keyword():
     assert legacy == StringType
 
 
+@pytest.mark.parametrize("draft", ["2020-12", "draft-07"])
+def test_honours_schema_on_the_releases_it_emits(draft):
+    schema = json_schema_for(ArrayType(IntegerType), draft=draft)
+    assert "$schema" in schema
+    assert type_from_json_schema(schema) == ArrayType(IntegerType)
+
+
+def test_accepts_a_fragment_carrying_no_schema():
+    """An OpenAPI 3.0 schema object carries no ``$schema`` of its own.
+
+    It is a fragment of a larger document, so requiring one would reject
+    exactly what ``json_schema_for(..., draft="openapi-3.0")`` emits.
+    """
+    schema = json_schema_for(ArrayType(IntegerType), draft="openapi-3.0")
+    assert "$schema" not in schema
+    assert type_from_json_schema(schema) == ArrayType(IntegerType)
+    assert type_from_json_schema({"type": "string"}) == StringType
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "http://json-schema.org/draft-04/schema#",
+        "https://json-schema.org/draft/2019-09/schema",
+    ],
+)
+def test_refuses_a_release_it_cannot_read(uri):
+    with pytest.raises(JsonSchemaUnsupportedError, match="cannot read the JSON Schema release") as e:
+        type_from_json_schema({"$schema": uri, "type": "string"})
+    assert e.value.pointer == "/$schema"
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "https://json-schema.org/draft/2020-12/schema",
+        "http://json-schema.org/draft/2020-12/schema#",
+        "http://json-schema.org/draft-07/schema#",
+        "https://json-schema.org/draft-07/schema",
+    ],
+)
+def test_ignores_the_scheme_and_a_trailing_hash(uri):
+    """Neither is significant in a ``$schema`` value, and producers vary."""
+    assert type_from_json_schema({"$schema": uri, "type": "string"}) == StringType
+
+
+def test_refuses_a_non_string_schema():
+    with pytest.raises(JsonSchemaUnsupportedError, match=r'expected "\$schema" to be a string'):
+        type_from_json_schema({"$schema": 7, "type": "string"})
+
+
+def test_resolves_draft_07_definitions_it_declares():
+    built = type_from_json_schema(
+        {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "$ref": "#/definitions/Leaf",
+            "definitions": {"Leaf": {"type": "string"}},
+        }
+    )
+    assert built == StringType
+
+
 def test_refuses_mutually_recursive_definitions():
     with pytest.raises(JsonSchemaUnsupportedError, match="mutually recursive"):
         type_from_json_schema(

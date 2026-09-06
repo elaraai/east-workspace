@@ -199,6 +199,60 @@ describe("typeFromJsonSchema", () => {
         });
     });
 
+    describe("the declared release", () => {
+        test("honours $schema on the releases it emits", () => {
+            for (const draft of ["2020-12", "draft-07"] as const) {
+                const schema = jsonSchemaFor(ArrayType(IntegerType), { draft });
+                assert.ok(schema["$schema"] !== undefined, `${draft} must stamp $schema`);
+                assert.ok(isTypeEqual(typeFromJsonSchema(schema), ArrayType(IntegerType)));
+            }
+        });
+
+        test("accepts a fragment carrying no $schema", () => {
+            // An OpenAPI 3.0 schema object lives inside an OpenAPI document and
+            // carries no $schema of its own, so requiring one would reject what
+            // jsonSchemaFor emits for that release.
+            const schema = jsonSchemaFor(ArrayType(IntegerType), { draft: "openapi-3.0" });
+            assert.equal(schema["$schema"], undefined);
+            assert.ok(isTypeEqual(typeFromJsonSchema(schema), ArrayType(IntegerType)));
+            assert.ok(isTypeEqual(typeFromJsonSchema({ type: "string" }), StringType));
+        });
+
+        test("refuses a release it cannot read, rather than guessing", () => {
+            refuses(
+                { $schema: "http://json-schema.org/draft-04/schema#", type: "string" },
+                /cannot read the JSON Schema release/, "/$schema");
+            refuses(
+                { $schema: "https://json-schema.org/draft/2019-09/schema", type: "string" },
+                /cannot read the JSON Schema release/, "/$schema");
+        });
+
+        test("ignores the scheme and a trailing # in $schema", () => {
+            // Neither is significant in a $schema value, and producers vary.
+            for (const uri of [
+                "https://json-schema.org/draft/2020-12/schema",
+                "http://json-schema.org/draft/2020-12/schema#",
+                "http://json-schema.org/draft-07/schema#",
+                "https://json-schema.org/draft-07/schema",
+            ]) {
+                assert.ok(isTypeEqual(typeFromJsonSchema({ $schema: uri, type: "string" }), StringType), uri);
+            }
+        });
+
+        test("refuses a non-string $schema", () => {
+            refuses({ $schema: 7, type: "string" }, /expected "\$schema" to be a string/, "/$schema");
+        });
+
+        test("resolves draft-07 definitions even though it declares them", () => {
+            const T = typeFromJsonSchema({
+                $schema: "http://json-schema.org/draft-07/schema#",
+                $ref: "#/definitions/Leaf",
+                definitions: { Leaf: { type: "string" } },
+            });
+            assert.ok(isTypeEqual(T, StringType));
+        });
+    });
+
     describe("keywords East cannot express", () => {
         const unsupported: [string, JsonSchema, RegExp, string][] = [
             ["allOf", { type: "object", allOf: [{ type: "string" }] }, /have no intersection/, "/allOf"],

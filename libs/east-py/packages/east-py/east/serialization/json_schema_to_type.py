@@ -84,15 +84,52 @@ def _as_schema(value: Any, path: list[str], what: str) -> JsonSchema:
     return value
 
 
-def _definitions(root: JsonSchema) -> tuple[dict[str, JsonSchema], str]:
-    """Where a document keeps its definitions, whichever release wrote it."""
-    modern = root.get("$defs")
-    if isinstance(modern, dict):
-        return modern, "$defs"
-    legacy = root.get("definitions")
-    if isinstance(legacy, dict):
-        return legacy, "definitions"
-    return {}, "$defs"
+# The ``$schema`` values this converter recognises, normalised, and the release each names.
+_SCHEMA_URI_DRAFTS: dict[str, str] = {
+    "https://json-schema.org/draft/2020-12/schema": "2020-12",
+    "https://json-schema.org/draft-07/schema": "draft-07",
+}
+
+
+def _draft_of_schema_uri(uri: str, path: list[str]) -> str:
+    """The release a document declares.
+
+    A document that declares a release is taken at its word, so one written for
+    draft-04 (or a release later than these) is refused by name rather than
+    structurally guessed at and quietly mis-read. The scheme and a trailing
+    ``#`` carry no meaning in a ``$schema`` value, so both normalise away.
+
+    Raises:
+        JsonSchemaUnsupportedError: On a release this converter cannot read.
+    """
+    key = uri[:-1] if uri.endswith("#") else uri
+    if key.startswith("http:"):
+        key = "https:" + key[len("http:") :]
+    draft = _SCHEMA_URI_DRAFTS.get(key)
+    if draft is None:
+        _fail(
+            f'type_from_json_schema cannot read the JSON Schema release "{uri}" — it reads '
+            "2020-12, draft-07, and OpenAPI 3.0 schema objects, which carry no $schema of "
+            "their own",
+            path,
+        )
+    return draft
+
+
+def _definitions(root: JsonSchema, draft: str | None) -> tuple[dict[str, JsonSchema], str]:
+    """Where a document keeps its definitions.
+
+    The declared release says which keyword to expect, but a document that
+    declares one and uses the other still resolves: only the prefix its
+    ``$ref``s are written against matters, and that is read back from whichever
+    keyword is present.
+    """
+    order = ["definitions", "$defs"] if draft == "draft-07" else ["$defs", "definitions"]
+    for keyword in order:
+        found = root.get(keyword)
+        if isinstance(found, dict):
+            return found, keyword
+    return {}, "definitions" if draft == "draft-07" else "$defs"
 
 
 def _ref_target(ref: str, keyword: str) -> str | None:
@@ -187,8 +224,21 @@ def type_from_json_schema(schema: JsonSchema) -> EastType:
     ``Dict`` from an array of two-property objects. A foreign document without
     those annotations still converts, under a documented structural mapping,
     but does not promise to round-trip.
+
+    A ``$schema`` is honoured when present, and a release this cannot read — a
+    draft-04 document, say — is refused by name instead of being structurally
+    guessed at. It is not required: an OpenAPI 3.0 schema object is a fragment
+    of a larger document and carries none, so demanding one would reject what
+    ``json_schema_for(T, draft="openapi-3.0")`` emits.
     """
-    defs, keyword = _definitions(schema)
+    declared = schema.get("$schema")
+    draft: str | None = None
+    if declared is not None:
+        if not isinstance(declared, str):
+            _fail('type_from_json_schema expected "$schema" to be a string', ["$schema"])
+        draft = _draft_of_schema_uri(declared, ["$schema"])
+
+    defs, keyword = _definitions(schema, draft)
     return _build(schema, _Context(defs, keyword), [])
 
 
