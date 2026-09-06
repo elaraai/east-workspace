@@ -796,8 +796,15 @@ function parseUtcDateTime(text: string): Date | null {
     const minute = Number(text.slice(14, 16));
     const second = Number(text.slice(17, 19));
     const millis = Number(text.slice(20, 23));
-    const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second, millis));
-    // Date.UTC maps years 0-99 into the 1900s, so the year is checked too.
+    // Year 0 has no proleptic-Gregorian reading the three runtimes share —
+    // python's datetime starts at year 1 — so the contract is 0001..9999.
+    if (year < 1) return null;
+    // Date.UTC maps years 0-99 into the 1900s, so a one- or two-digit year has
+    // to be set explicitly. The base year is a leap year so that 02-29 always
+    // constructs, and the read-back below is what then rejects it in a common
+    // year — `new Date` rolls 2025-02-29 into 2025-03-01 rather than failing.
+    const date = new Date(Date.UTC(2000, month - 1, day, hour, minute, second, millis));
+    date.setUTCFullYear(year);
     if (date.getUTCFullYear() !== year
         || date.getUTCMonth() !== month - 1
         || date.getUTCDate() !== day) {

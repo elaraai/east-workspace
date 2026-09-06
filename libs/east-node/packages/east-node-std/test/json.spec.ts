@@ -39,6 +39,56 @@ function accepts(type: EastType, text: string): boolean {
     }
 }
 
+const IntStruct = StructType({ v: IntegerType });
+const DateStruct = StructType({ v: DateTimeType });
+const BlobStruct = StructType({ v: BlobType });
+const FloatStruct = StructType({ v: FloatType });
+const StringStruct = StructType({ v: StringType });
+
+/**
+ * Every payload the published contract excludes.
+ *
+ * This is ONE corpus, replayed by east-c and east-py through the `describeEast`
+ * block below — not three hand-maintained lists that happen to agree. The
+ * divergences that hid here (east-c taking an invalid escape, a raw control
+ * character, a bad \u, and JSON numbers its own grammar forbids) were invisible
+ * precisely because each runtime had its own list.
+ */
+const REJECTED: [string, EastType, string][] = [
+    ["Integer as hexadecimal", IntStruct, '{"v":"0x10"}'],
+    ["Integer as binary", IntStruct, '{"v":"0b101"}'],
+    ["Integer as octal", IntStruct, '{"v":"0o17"}'],
+    ["Integer padded with spaces", IntStruct, '{"v":" 7 "}'],
+    ["Integer with a leading zero", IntStruct, '{"v":"007"}'],
+    ["Integer with an explicit plus", IntStruct, '{"v":"+7"}'],
+    ["negative zero", IntStruct, '{"v":"-0"}'],
+    ["Integer as a JSON number", IntStruct, '{"v":7}'],
+    ["Integer past the i64 ceiling", IntStruct, '{"v":"9223372036854775808"}'],
+    ["an unsigned 64-bit id", IntStruct, '{"v":"18446744073709551615"}'],
+    ["DateTime with a Z suffix", DateStruct, '{"v":"2022-06-29T13:43:00.123Z"}'],
+    ["DateTime with a numeric offset", DateStruct, '{"v":"2022-06-29T13:43:00.123+05:00"}'],
+    ["DateTime without milliseconds", DateStruct, '{"v":"2022-06-29T13:43:00+00:00"}'],
+    ["a day February does not have", DateStruct, '{"v":"2026-02-30T00:00:00.000+00:00"}'],
+    ["a day April does not have", DateStruct, '{"v":"2026-04-31T00:00:00.000+00:00"}'],
+    ["February 29 in a common year", DateStruct, '{"v":"2025-02-29T00:00:00.000+00:00"}'],
+    ["year zero", DateStruct, '{"v":"0000-01-01T00:00:00.000+00:00"}'],
+    ["Blob in uppercase hex", BlobStruct, '{"v":"0xDEADBEEF"}'],
+    ["Blob with an odd digit count", BlobStruct, '{"v":"0x123"}'],
+    ["Blob without the 0x prefix", BlobStruct, '{"v":"deadbeef"}'],
+    ["an unmodelled field", IntStruct, '{"v":"1","extra":1}'],
+    ["a missing field", IntStruct, "{}"],
+    ["a duplicated field", IntStruct, '{"v":"1","v":"2"}'],
+    // JSON's own rules about strings, which the lenient decoder waved through.
+    ["an escape JSON does not define", StringStruct, '{"v":"a\\qb"}'],
+    ["a raw control character in a string", StringStruct, '{"v":"a\u0001b"}'],
+    ["a \\u escape that is not hex", StringStruct, '{"v":"\\uzzzz"}'],
+    // ...and about numbers.
+    ["a Float with a leading zero", FloatStruct, '{"v":007}'],
+    ["a Float that is a bare minus", FloatStruct, '{"v":-}'],
+    ["a Float with an empty exponent", FloatStruct, '{"v":1e}'],
+    ["a Float with an empty fraction", FloatStruct, '{"v":1.}'],
+];
+
 describeEast("Json platform functions", (test) => {
     Assert.examples(test, {
         jsonReadArray: ex.jsonReadArray,
@@ -71,6 +121,38 @@ describeEast("Json platform functions", (test) => {
         $(Json.next(StructType({ id: IntegerType }), handle));
         $(Assert.throws(Json.next(StructType({ id: IntegerType }), handle), /\/1\/id/));
         $(Json.close(handle));
+    });
+
+    test("refuses every payload the contract excludes", $ => {
+        // Error TEXT still varies between runtimes (east-c writes its own
+        // wording for shape mismatches), so this pins the accept/reject
+        // decision, which is the part the contract actually promises.
+        for (const [, type, text] of REJECTED) {
+            const handle = $.let(Json.openText(`[${text}]`, ""));
+            $(Assert.throws(Json.next(type, handle), /./));
+            $(Json.close(handle));
+        }
+    });
+
+    test("accepts what the contract includes", $ => {
+        const ok: [EastType, string][] = [
+            [IntStruct, '{"v":"0"}'],
+            [IntStruct, '{"v":"-9223372036854775808"}'],
+            [IntStruct, '{"v":"9223372036854775807"}'],
+            [DateStruct, '{"v":"2024-02-29T00:00:00.000+00:00"}'],
+            [DateStruct, '{"v":"0001-01-01T00:00:00.000+00:00"}'],
+            [BlobStruct, '{"v":"0x"}'],
+            [BlobStruct, '{"v":"00ff"}'.replace("00ff", "0x00ff")],
+            [FloatStruct, '{"v":0}'],
+            [FloatStruct, '{"v":-1.5e10}'],
+            [FloatStruct, '{"v":"NaN"}'],
+            [StringStruct, '{"v":"a\\u0041b"}'],
+        ];
+        for (const [type, text] of ok) {
+            const handle = $.let(Json.openText(`[${text}]`, ""));
+            $(Json.next(type, handle));
+            $(Json.close(handle));
+        }
     });
 
     test("a handle cannot be used after it is closed", $ => {
@@ -120,38 +202,7 @@ describe("the reader accepts exactly what jsonSchemaFor describes", () => {
         assert.ok(equalFor(T)(out, rows), "the encoder's output must round-trip through the reader");
     });
 
-    const IntStruct = StructType({ v: IntegerType });
-    const DateStruct = StructType({ v: DateTimeType });
-    const BlobStruct = StructType({ v: BlobType });
-
-    // Each row is a payload the historic decoder tolerates and the published
-    // contract does not. BigInt() swallows every one of the integer spellings.
-    const rejected: [string, EastType, string][] = [
-        ["Integer as hexadecimal", IntStruct, '{"v":"0x10"}'],
-        ["Integer as binary", IntStruct, '{"v":"0b101"}'],
-        ["Integer as octal", IntStruct, '{"v":"0o17"}'],
-        ["Integer padded with spaces", IntStruct, '{"v":" 7 "}'],
-        ["Integer with a leading zero", IntStruct, '{"v":"007"}'],
-        ["Integer with an explicit plus", IntStruct, '{"v":"+7"}'],
-        ["negative zero", IntStruct, '{"v":"-0"}'],
-        ["Integer as a JSON number", IntStruct, '{"v":7}'],
-        ["Integer past the i64 ceiling", IntStruct, '{"v":"9223372036854775808"}'],
-        ["an unsigned 64-bit id", IntStruct, '{"v":"18446744073709551615"}'],
-        ["DateTime with a Z suffix", DateStruct, '{"v":"2022-06-29T13:43:00.123Z"}'],
-        ["DateTime with a numeric offset", DateStruct, '{"v":"2022-06-29T13:43:00.123+05:00"}'],
-        ["DateTime without milliseconds", DateStruct, '{"v":"2022-06-29T13:43:00+00:00"}'],
-        ["a day February does not have", DateStruct, '{"v":"2026-02-30T00:00:00.000+00:00"}'],
-        ["a day April does not have", DateStruct, '{"v":"2026-04-31T00:00:00.000+00:00"}'],
-        ["February 29 in a common year", DateStruct, '{"v":"2025-02-29T00:00:00.000+00:00"}'],
-        ["Blob in uppercase hex", BlobStruct, '{"v":"0xDEADBEEF"}'],
-        ["Blob with an odd digit count", BlobStruct, '{"v":"0x123"}'],
-        ["Blob without the 0x prefix", BlobStruct, '{"v":"deadbeef"}'],
-        ["an unmodelled field", IntStruct, '{"v":"1","extra":1}'],
-        ["a missing field", IntStruct, "{}"],
-        ["a duplicated field", IntStruct, '{"v":"1","v":"2"}'],
-    ];
-
-    for (const [name, type, text] of rejected) {
+    for (const [name, type, text] of REJECTED) {
         unitTest(`rejects ${name}`, () => {
             assert.equal(accepts(type, text), false, `${text} must not satisfy the contract`);
         });

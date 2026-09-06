@@ -204,6 +204,15 @@ add_executable(test_recursive_type_lifecycle tests/test_recursive_type_lifecycle
 target_link_libraries(test_recursive_type_lifecycle east-c)
 add_test(NAME recursive_type_lifecycle COMMAND test_recursive_type_lifecycle)
 
+# Hashmap churn gate: insert/delete past the table's capacity used to fill it
+# with tombstones and spin find_index forever, because only live entries counted
+# toward the load factor. The failure mode is a hang, not an assertion, so this
+# one carries a timeout.
+add_executable(test_hashmap_churn tests/test_hashmap_churn.c)
+target_link_libraries(test_hashmap_churn east-c)
+add_test(NAME hashmap_churn COMMAND test_hashmap_churn)
+set_tests_properties(hashmap_churn PROPERTIES TIMEOUT 60)
+
 # type_of_type interning gate (issue #83): east_type_to_value must memoize the
 # type->value conversion so two struct fields sharing one interned EastType*
 # share one EastValue* sub-tree — otherwise the beast2 type-of-type encoding
