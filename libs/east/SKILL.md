@@ -1,6 +1,6 @@
 ---
 name: east
-description: "East programming language - a statically typed, expression-based language embedded in TypeScript. Use when writing East programs with @elaraai/east. Triggers for: (1) Writing East functions with East.function() or East.asyncFunction(), (2) Defining types (IntegerType, StringType, ArrayType, StructType, VariantType, etc.), (3) Using platform functions with East.platform() or East.asyncPlatform(), (4) Compiling East programs with East.compile(), (5) Working with East expressions (arithmetic, collections, control flow), (6) Serializing East IR with .toIR() and EastIR.fromJSON(), (7) Standard library operations (formatting, rounding, generation), (8) Printing IR back as East.function source with East.toSource() / east-node transpile (and the python twin), (9) Calling a function authored in python (or exporting one for python) with East.importFunction / East.exportFunctions and east-node export-functions."
+description: "East programming language - a statically typed, expression-based language embedded in TypeScript. Use when writing East programs with @elaraai/east. Triggers for: (1) Writing East functions with East.function() or East.asyncFunction(), (2) Defining types (IntegerType, StringType, ArrayType, StructType, VariantType, etc.), (3) Using platform functions with East.platform() or East.asyncPlatform(), (4) Compiling East programs with East.compile(), (5) Working with East expressions (arithmetic, collections, control flow), (6) Serializing East IR with .toIR() and EastIR.fromJSON(), (7) Standard library operations (formatting, rounding, generation), (8) Printing IR back as East.function source with East.toSource() / east-node transpile (and the python twin), (9) Calling a function authored in python (or exporting one for python) with East.importFunction / East.exportFunctions and east-node export-functions, (10) Publishing a JSON Schema contract for an East type with jsonSchemaFor, or building an East type from a vendored schema with typeFromJsonSchema."
 ---
 
 # East Language
@@ -221,6 +221,11 @@ Task → What do you need?
         ├─ A function authored in python (or another TS package) → East.importFunction(pkg, name, FunctionType([...], Out)) — callable; e3.export resolves a uv- or npm-workspace package by itself,
         │   { functions: [manifest…] } for one built elsewhere
         │   └─ Export yours for python → East.exportFunctions(pkg, version, { name: fn }) + East.encodeFunctionManifest · `east-node export-functions built.js -o pkg.functions.beast2 -p <platform-pkg>` · East.linkImports(fn, manifests) to link in-process
+        ├─ A JSON contract for a type (publish what a producer must send) → jsonSchemaFor(T, { draft })
+        │   — a plain function like compareFor, at BUILD time; emits 2020-12 (default), draft-07 or openapi-3.0,
+        │   describing East JSON strictly (Integer as a quoted i64, DateTime as +00:00, Blob as lowercase hex)
+        │   └─ and back, from a vendored schema → typeFromJsonSchema(schema) — throws, naming the keyword and its
+        │       RFC 6901 pointer, on what East cannot express (allOf, not, if/then/else, anyOf, an open record, …)
         ├─ Data, INSIDE an East function → East.Blob.encodeBeast(value, 'v2'), blob.decodeBeast(type, 'v2')
         │   ├─ A huge collection blob → blob.openBeast(T): frozen, pager-backed — keyed reads and $.for decode ONE segment; identical on the east-node, east-c and east-py runtimes
         │   │   (East.Blob.encodeBeast writes NO paging index, so paged blobs come from encodeBeast2PagedFor / Beast2Writer / a runner's collection output)
@@ -493,6 +498,48 @@ writeFileSync("maths.functions.beast2", East.encodeFunctionManifest(manifest));
   runner's packages (stock families count across runtimes: `east-py-std` ≡
   `@elaraai/east-node-std` ≡ `east-c-std`). See `docs/conventions/EAST_CODEGEN.md` §6.
 
+### A JSON contract for a type: `jsonSchemaFor` / `typeFromJsonSchema`
+
+`East.String.printJson` writes **East JSON** — lossless and self-describing —
+but nothing tells anybody else what that looks like. `jsonSchemaFor(T)` emits a
+JSON Schema describing exactly that encoding, so a third-party producer can
+validate a payload before sending it. These are plain host-side functions, like
+`compareFor`: build time, no expression, no IR.
+
+```typescript
+import { ArrayType, IntegerType, StringType, StructType, jsonSchemaFor, typeFromJsonSchema } from "@elaraai/east";
+
+const ReadingType = StructType({ sensor: StringType, litres: IntegerType });
+writeFileSync("contract.schema.json",
+    JSON.stringify(jsonSchemaFor(ArrayType(ReadingType), { draft: "draft-07" }), null, 2));
+
+const T = typeFromJsonSchema(JSON.parse(readFileSync("partner.schema.json", "utf-8")));
+```
+
+| Signature | Description | Example |
+|-----------|-------------|---------|
+| **JSON Schema** |
+| `jsonSchemaFor(type: EastType, options?: { draft }): JsonSchema` | The schema describing `type`'s East-JSON encoding. `draft` is `"2020-12"` (default), `"draft-07"` or `"openapi-3.0"` — a consumer's validator pins one. Throws on `Never`, `Function`, `AsyncFunction` | `jsonSchemaFor(ArrayType(RowType))` |
+| `typeFromJsonSchema(schema: JsonSchema): EastType` | The East type a schema describes. Throws `JsonSchemaUnsupportedError`, carrying the RFC 6901 pointer, on a keyword East cannot express | `typeFromJsonSchema(vendored)` |
+| `EAST_JSON_PATTERNS` | The exact lexical forms East JSON's scalars take (`integer`, `datetime`, `blob`, `floatSpecials`), so a reader enforces precisely what the schema describes | `new RegExp(EAST_JSON_PATTERNS.integer)` |
+
+- **It describes what the ENCODER emits, not what the decoder tolerates.** The
+  two differ: `parseJson` accepts anything `BigInt()` swallows (`"0x10"`,
+  `" 7 "`, `"007"`), a `Z` suffix or any offset on a timestamp, and uppercase
+  hex. None of those appear in the contract, so a producer that validates
+  cannot send something the strict reader then rejects.
+- **The document is deterministic and identical across languages.** Key order,
+  `$defs` names (first-encounter order, never type ids) and variant case order
+  are fixed by the type — east-py's `json_schema_for` emits the same bytes.
+- **Annotations make the inverse exact.** `x-east-type` is what lets
+  `typeFromJsonSchema` tell `DateTime` from a `String` with `format:
+  date-time`, `Set` from `Array`, and `Dict` from an array of two-property
+  objects. A foreign schema without them still converts, under a documented
+  structural mapping that does not promise to round-trip.
+- To READ a document larger than memory under this contract, use `Json.open` /
+  `Json.next` from **east-node-std** (and its `east-py-std` / `east-c-std`
+  twins).
+
 ### Binary serialization (beast2)
 
 `East.Blob.encodeBeast(value, 'v2')` is the builtin you call **inside** an East
@@ -572,7 +619,7 @@ pages.element(4_000_000);                           // decodes ONE segment
 
 East is the language inside every other skill's `East.function` bodies. East itself is pure — load the skill that matches the capability you're adding:
 
-- **east-node-std** — side effects on Node: files, HTTP (`Fetch`), crypto, time, random.
+- **east-node-std** — side effects on Node: files, HTTP (`Fetch`), crypto, time, random, and `Json.open` / `Json.next` to read a document too large to decode whole.
 - **east-node-io** — databases (SQL / NoSQL), S3, FTP / SFTP, XLSX / XML, compression.
 - **east-py-datascience** — optimization, ML, Bayesian inference, simulation.
 - **east-ui** — typed UI components returning `UIComponentType`.

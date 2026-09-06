@@ -21,6 +21,7 @@ export * from "./crypto.js";
 export * from "./time.js";
 export * from "./fetch.js";
 export * from "./random.js";
+export * from "./json.js";
 
 // Import implementations for combined export
 import { ConsoleImpl } from "./console.js";
@@ -31,6 +32,7 @@ import { CryptoImpl } from "./crypto.js";
 import { TimeImpl } from "./time.js";
 import { FetchImpl } from "./fetch.js";
 import { RandomImpl } from "./random.js";
+import { JsonImpl } from "./json.js";
 import { TestImpl } from "./test.js";
 
 /**
@@ -62,6 +64,7 @@ export const NodePlatform = [
     ...TimeImpl,
     ...FetchImpl,
     ...RandomImpl,
+    ...JsonImpl,
     ...TestImpl,
 ];
 
@@ -90,6 +93,7 @@ export const NodePlatformSync = [
     ...PathImpl,
     ...CryptoImpl,
     ...RandomImpl,
+    ...JsonImpl,
     // TimeImpl excluded (has async sleep)
     // FetchImpl excluded (all async)
 ];

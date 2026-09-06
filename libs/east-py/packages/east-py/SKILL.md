@@ -1,6 +1,6 @@
 ---
 name: east-py
-description: "East in Python: (A) East EXPRESSIONS — write East functions in Python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), one expression class per East type with the TypeScript methods in snake_case, the standard library (East.Integer.print_compact, East.Float.round_to_decimals, East.DateTime.round_down_week, East.str), East.platform + East.compile, and IR ↔ python codegen; (B) East VALUES — East runtime data as ordinary Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the SAME names, validation/coercion, beast2 files, numpy/torch, and @East.platform_function to expose Python to East. Use when writing Python (not the TypeScript DSL) against east-py. Triggers for: (1) Writing an East function in Python (East.function, b.let/b.if_/b.for_, expression methods, the stdlib), (2) Constructing/validating East values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) Transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) Scalar builtins and the stdlib via East.<Type>, (5) @East.platform_function, (6) beast2 files and numpy/torch through EastVector/EastMatrix, (7) Porting a plain-Python data-science POC into an East platform function, (8) Printing IR as python (east-py transpile), (9) Exporting East functions for TypeScript / e3 tasks and importing TypeScript-authored ones (East.export_functions / East.import_function, east-py export-functions), (10) Diagnosing East bodies at edit time — the build's refusals as lint (east-py lint, flake8 EAS codes, east-py lsp)."
+description: "East in Python: (A) East EXPRESSIONS — write East functions in Python with East.function / East.asyncFunction, the block `b` (TypeScript's `$`), one expression class per East type with the TypeScript methods in snake_case, the standard library (East.Integer.print_compact, East.Float.round_to_decimals, East.DateTime.round_down_week, East.str), East.platform + East.compile, and IR ↔ python codegen; (B) East VALUES — East runtime data as ordinary Python (EastArray/Set/Dict/Vector/Matrix/Struct/Variant/Ref/Blob) whose eager methods run in east-c under the SAME names, validation/coercion, beast2 files, numpy/torch, and @East.platform_function to expose Python to East. Use when writing Python (not the TypeScript DSL) against east-py. Triggers for: (1) Writing an East function in Python (East.function, b.let/b.if_/b.for_, expression methods, the stdlib), (2) Constructing/validating East values (array/struct/variant/some/none, coerce_to/assert_value_of), (3) Transforming values with eager methods (sort/map/filter/reduce/group_*/set algebra/dict merge), (4) Scalar builtins and the stdlib via East.<Type>, (5) @East.platform_function, (6) beast2 files and numpy/torch through EastVector/EastMatrix, (7) Porting a plain-Python data-science POC into an East platform function, (8) Printing IR as python (east-py transpile), (9) Exporting East functions for TypeScript / e3 tasks and importing TypeScript-authored ones (East.export_functions / East.import_function, east-py export-functions), (10) Diagnosing East bodies at edit time — the build's refusals as lint (east-py lint, flake8 EAS codes, east-py lsp), (11) Publishing a JSON Schema contract for an East type with json_schema_for, or building an East type from a vendored schema with type_from_json_schema."
 ---
 
 # East.py — East expressions and East values in Python
@@ -240,6 +240,10 @@ Task → What do you need?
     │   │   ├─ List every problem (empty == conforms) → explain_value_of(value, typ)
     │   │   ├─ Boolean check → is_value_of(value, typ)
     │   │   └─ Infer a value's type → type_of(value)
+    │   ├─ Publish a JSON contract ANOTHER system validates against → json_schema_for(T, draft="2020-12"|"draft-07"|"openapi-3.0")
+    │   │   (from east.serialization; a plain function like compare_for — it describes East's OWN JSON encoding, and emits the
+    │   │   same bytes the TypeScript jsonSchemaFor does) · and back → type_from_json_schema(schema) ❗JsonSchemaUnsupportedError,
+    │   │   carrying the RFC 6901 .pointer of the keyword East cannot express
     │   ├─ Transform a value (every callback is an East function body: the block first — fn(b, el), or fn(b, el, idx) for the builtin's index)
     │   │   ├─ Array<T>
     │   │   │   ├─ Access → get(i[, fn(b, i)]) ❗bounds · at(i) · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · size()/length() ·
@@ -1193,6 +1197,50 @@ Container constructors are also direct: `EastArray(elem, items=None)`, `EastSet(
 `EastDict(key, value, items=None)`, `EastVector(elem, data=None, length=0)`,
 `EastMatrix(elem, data=None, rows=0, cols=0)`, `EastRef(value)`.
 
+### A JSON contract for a type — `json_schema_for` / `type_from_json_schema`
+
+`East.String.print_json` writes **East JSON** — lossless and self-describing — but
+nothing tells another system what that looks like. `json_schema_for(T)` emits the JSON
+Schema describing exactly that encoding, so a producer can validate a payload before
+sending it to you. Plain host-side functions, like `compare_for`: build time, no
+expression, no IR.
+
+```python
+import json
+from pathlib import Path
+
+from east import ArrayType, IntegerType, StringType, StructType
+from east.serialization import json_schema_for, type_from_json_schema
+
+Reading = StructType([("sensor", StringType), ("litres", IntegerType)])
+Path("contract.schema.json").write_text(
+    json.dumps(json_schema_for(ArrayType(Reading), draft="draft-07"), indent=2))
+
+T = type_from_json_schema(json.loads(Path("partner.schema.json").read_text()))
+```
+
+| Signature | Notes |
+|-----------|-------|
+| `json_schema_for(typ, draft="2020-12") -> JsonSchema` | The schema describing `typ`'s East-JSON encoding. `draft` is `"2020-12"`, `"draft-07"` or `"openapi-3.0"` — a consumer's validator pins one. `Never`, `Function` and `AsyncFunction` raise `TypeError` naming what has no JSON form |
+| `type_from_json_schema(schema) -> EastType` ❗ | The East type a schema describes. Raises `JsonSchemaUnsupportedError` — whose `.pointer` is the RFC 6901 location, also quoted in the message — on a keyword East cannot express (`allOf`, `not`, `if`/`then`/`else`, `anyOf`, `patternProperties`, `prefixItems`, a type union, an open record, an optional property, an untagged `oneOf`, a non-local `$ref`, mutually recursive definitions) |
+| `EAST_JSON_PATTERNS` | The exact lexical forms East JSON's scalars take — `.integer` `.datetime` `.blob` `.float_specials` — so a reader enforces precisely what the schema describes (the TypeScript twin spells the last one `floatSpecials`) |
+
+- **It describes what the ENCODER emits, not what the decoder tolerates.** The two
+  differ: `parse_json` accepts a `Z` suffix or any numeric offset on a `DateTime` and
+  uppercase `Blob` hex, and the TypeScript `parseJson` is looser still on `Integer`
+  (`"0x10"`, `" 7 "`, `"007"` all parse there, though not here). None appear in the
+  contract, so a producer that validates against it cannot send something a strict
+  reader then rejects.
+- **The document is deterministic and identical across languages** — key order, `$defs`
+  names (first-encounter order, never type ids) and variant case order are fixed by the
+  type, so this and the TypeScript `jsonSchemaFor` emit the same bytes for the same type.
+- **Annotations make the inverse exact.** `x-east-type` is what lets
+  `type_from_json_schema` tell `DateTime` from a `String` with `format: date-time`, `Set`
+  from `Array`, and `Dict` from an array of two-property objects. A foreign schema without
+  them still converts, under a structural mapping that does not promise to round-trip.
+- To READ a document larger than memory under this contract, use `json_open` / `json_next`
+  from **east-py-std**.
+
 ### EastArray — complete method surface
 
 Eager; results are live east-c-backed values that chain. `arr[i]`, `len(arr)`, `for x in arr`
@@ -2052,7 +2100,8 @@ out = EastMatrix(FloatType, model(t).detach().cpu().numpy())   # bridge canonica
   Optuna, MADS, PyMC, SHAP, Torch, GoogleOR, Simulation). The home once a `@East.platform_function`
   POC needs a real model or solver.
 - **east-py-std** / **east-py-io** — the platform functions on the Python runtime:
-  Console/FileSystem/Fetch/Crypto/Time/Random, and SQL/NoSQL/S3/FTP/SFTP/XLSX/XML/compression —
+  Console/FileSystem/Fetch/Crypto/Time/Random and the strict large-JSON reader, and
+  SQL/NoSQL/S3/FTP/SFTP/XLSX/XML/compression —
   each exported under its own name, callable with East values and, the same object, inside an
   East body. (Their TypeScript authoring siblings are **east-node-std** / **east-node-io**.)
 - **e3** — run compiled East functions as durable, content-addressed dataflow tasks; wire a
