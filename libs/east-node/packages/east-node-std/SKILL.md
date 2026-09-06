@@ -228,10 +228,25 @@ const total = East.function([StringType], IntegerType, ($, path) => {
   `.catch` is left implicit swallows the error.
 - The same six functions (`json_open`, `json_open_text`, `json_more`,
   `json_next`, `json_value`, `json_close`) exist in `east-py-std` and
-  `east-c-std` with the same strictness and the same messages, so a program
-  using them runs unchanged on every runner.
-- A document nested deeper than 2048 is refused on every runtime — JSON is an
-  untrusted-input boundary.
+  `east-c-std`, and **accept and reject exactly the same documents** — that is
+  the property the shared compliance corpus pins. The error TEXT is identical
+  wherever it carries a pointer (`/1/id: …`); east-c words a few shape
+  mismatches differently (`expected an object, got [1]` where Node says
+  `expected "{", got "["`), so match on the pointer, not the sentence.
+- **Deep nesting is refused everywhere, at a bound the host sets.** Node and
+  east-c refuse past 2048; the Python reader recurses per level and its own
+  stack gives out earlier, nearer 150. All three refuse with the same kind of
+  error rather than a stack overflow, but a document nested hundreds deep is
+  not portable — JSON is an untrusted-input boundary, and this is the one place
+  the runtimes do not draw the line together.
+- **Three things the schema cannot say, so they are stated here.** A `Ref` that
+  the encoder wrote as `{"$ref": …}` (a repeated target) is not readable — as
+  with `Array`/`Set`/`Dict` aliasing, a value with shared references does not
+  validate against its own published schema. A `Dict` with two entries carrying
+  the same key satisfies `uniqueItems` (the entry objects differ) and is still
+  refused. A `Variant` must carry `"type"` before `"value"`, because the
+  payload cannot be typed before the case is known — the only place member
+  order matters; struct fields may arrive in any order.
 
 ## Related skills
 

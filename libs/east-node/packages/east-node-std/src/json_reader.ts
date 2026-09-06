@@ -473,6 +473,13 @@ export class JsonReader {
         }
         try {
             return this.readValueInner(type);
+        } catch (e) {
+            // V8's stack gives out before MAX_DEPTH on the typed read, so the
+            // depth guard above never fires there. The document is still
+            // refused for nesting, with the contract's error rather than a bare
+            // RangeError escaping json_next.
+            if (e instanceof RangeError) this.fail("document nests deeper than this runtime can read");
+            throw e;
         } finally {
             this.depth--;
         }

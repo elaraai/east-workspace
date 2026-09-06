@@ -245,8 +245,17 @@ East.compile(summed, platform=platform)('[{"id":"10"},{"id":"20"}]')   # 30
 - **A JSON object iterates as entries**: pass a `Struct` of exactly `key` and
   `value` (the key must be `String`), which is what a `Dict` output needs.
 - Handles are held until closed, as a database connection is.
-- A document nested deeper than 2048 is refused on every runtime — JSON is an
-  untrusted-input boundary.
+- **Deep nesting is refused everywhere, at a bound the host sets.** This reader
+  recurses per level and python's own stack gives out nearer 150, where
+  east-node and east-c refuse past 2048. All three refuse with the same kind of
+  error rather than a stack overflow, but a document nested hundreds deep is
+  not portable.
+- **Three things the schema cannot say.** A `Ref` the encoder wrote as
+  `{"$ref": ...}` for a repeated target is not readable, so a value with shared
+  references does not validate against its own published schema. A `Dict` whose
+  entries repeat a key satisfies `uniqueItems` and is still refused. A
+  `Variant` must carry `"type"` before `"value"`; struct fields may arrive in
+  any order.
 
 Scalars cross the boundary as plain Python (`str`/`int`/`float`/`bool`/
 `datetime`); `Blob` is `EastBlob`, `Array<String>` is `EastArray` with eager
