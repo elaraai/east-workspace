@@ -565,7 +565,7 @@ class JsonReader:
             if self._peek() != '"':
                 self._fail("expected Integer as a quoted decimal string")
             text = self._read_string()
-            if not _INTEGER_RE.match(text):
+            if not _INTEGER_RE.fullmatch(text):
                 self._fail(f"{_q(text)} is not a 64-bit integer in East JSON's form")
             return int(text)
 
@@ -583,7 +583,7 @@ class JsonReader:
             if self._peek() != '"':
                 self._fail("expected DateTime as a string")
             text = self._read_string()
-            if not _DATETIME_RE.match(text):
+            if not _DATETIME_RE.fullmatch(text):
                 self._fail(f"{_q(text)} is not East JSON's UTC date-time form")
             parsed = _parse_utc_datetime(text)
             if parsed is None:
@@ -595,7 +595,7 @@ class JsonReader:
             if self._peek() != '"':
                 self._fail("expected Blob as a string")
             text = self._read_string()
-            if not _BLOB_RE.match(text):
+            if not _BLOB_RE.fullmatch(text):
                 self._fail(f"{_q(text)} is not East JSON's 0x-prefixed lowercase hex form")
             return EastBlob(bytes.fromhex(text[2:]))
 

@@ -14,6 +14,11 @@ typedef struct {
     HashmapEntry *entries;
     size_t capacity;
     size_t count;
+    /* Deleted slots still occupying the table. Counted toward the load factor,
+     * because probing stops only at a truly empty slot: a table churned by
+     * insert/delete keeps `count` low while filling with tombstones, and once
+     * none are empty the probe cannot terminate. */
+    size_t tombstones;
 } Hashmap;
 
 Hashmap *hashmap_new(void);

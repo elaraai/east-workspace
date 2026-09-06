@@ -495,6 +495,12 @@ typedef struct {
     size_t pos;
     size_t len;
     int depth; /* current jp_decode recursion depth (untrusted-input guard) */
+    /* The strict reader shares this tokeniser with the lenient whole-document
+     * decoder. Where the two must differ — JSON's own rules about escapes and
+     * control characters, which the decoder has always waved through — this
+     * selects. Without it the reader would accept "a\qb" and a raw U+0001 that
+     * east-node and east-py both refuse. */
+    bool strict;
 } JsonParser;
 
 /* Maximum jp_decode recursion depth. JSON is an untrusted-input boundary;
@@ -678,6 +684,16 @@ static char *jp_parse_string(JsonParser *p, size_t *out_len)
                 char hex[5];
                 memcpy(hex, p->input + p->pos, 4);
                 hex[4] = '\0';
+                if (p->strict) {
+                    for (int hi = 0; hi < 4; hi++) {
+                        char hc = hex[hi];
+                        if (!((hc >= '0' && hc <= '9') || (hc >= 'a' && hc <= 'f') ||
+                              (hc >= 'A' && hc <= 'F'))) {
+                            free(sb.data);
+                            return NULL;
+                        }
+                    }
+                }
                 p->pos += 4;
                 unsigned int cp = (unsigned int)strtoul(hex, NULL, 16);
                 /* A high surrogate followed by an escaped low surrogate is ONE
@@ -715,10 +731,20 @@ static char *jp_parse_string(JsonParser *p, size_t *out_len)
                 break;
             }
             default:
+                if (p->strict) {
+                    /* JSON names its escapes; "\q" is not one of them. */
+                    free(sb.data);
+                    return NULL;
+                }
                 strbuf_append_char(&sb, esc);
                 break;
             }
         } else {
+            if (p->strict && (unsigned char)c < 0x20) {
+                /* A raw control character has to be escaped inside a string. */
+                free(sb.data);
+                return NULL;
+            }
             strbuf_append_char(&sb, c);
             p->pos++;
         }
@@ -1661,6 +1687,7 @@ EastValue *east_json_decode(const char *json, EastType *type)
     parser.pos = 0;
     parser.len = strlen(json);
     parser.depth = 0;
+    parser.strict = false;
 
     jp_debug = (getenv("EAST_JSON_DEBUG") != NULL);
 
@@ -2761,6 +2788,7 @@ EastValue *east_json_decode_with_error(const char *json, EastType *type, char **
     parser.pos = 0;
     parser.len = strlen(json);
     parser.depth = 0;
+    parser.strict = false;
 
     jp_debug = (getenv("EAST_JSON_DEBUG") != NULL);
 
@@ -3047,6 +3075,10 @@ static bool jr_datetime_form(const char *s, size_t len, int64_t *epoch_ms_out)
     if (memcmp(s + 23, "+00:00", 6) != 0) return false;
 
     int year = (s[0] - '0') * 1000 + (s[1] - '0') * 100 + (s[2] - '0') * 10 + (s[3] - '0');
+    /* Year 0 has no proleptic-Gregorian reading the three runtimes share:
+     * python's datetime starts at year 1, and JavaScript's Date maps 0-99 into
+     * the 1900s. Bounding the reader at 1..9999 is what makes them agree. */
+    if (year < 1) return false;
     int month, day, hour, minute, second;
     if (!jr_two_digit(s + 5, 1, 12, &month)) return false;
     if (!jr_two_digit(s + 8, 1, 31, &day)) return false;
@@ -3092,16 +3124,103 @@ static bool jr_blob_form(const char *s, size_t len)
     return true;
 }
 
+/* JSON's own number grammar, and the token's exact value.
+ *
+ * jp_parse_number is deliberately forgiving for the whole-document decoder: it
+ * takes "007" as 7, a bare "-" as 0, "1e" as 1, and it truncates the token at
+ * 128 bytes — so a legal but long number decoded to a DIFFERENT Float here than
+ * on east-node and east-py. Neither is acceptable at a contract boundary. */
+static bool jr_read_number(EastJsonReader *r, double *out)
+{
+    JsonParser *p = &r->p;
+    jp_skip_ws(p);
+    size_t start = p->pos;
+
+    if (p->pos < p->len && p->input[p->pos] == '-') p->pos++;
+    if (p->pos >= p->len) return false;
+    if (p->input[p->pos] == '0') {
+        p->pos++; /* a leading zero stands alone */
+    } else if (p->input[p->pos] >= '1' && p->input[p->pos] <= '9') {
+        while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos]))
+            p->pos++;
+    } else {
+        return false;
+    }
+    if (p->pos < p->len && p->input[p->pos] == '.') {
+        p->pos++;
+        if (p->pos >= p->len || !isdigit((unsigned char)p->input[p->pos])) return false;
+        while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos]))
+            p->pos++;
+    }
+    if (p->pos < p->len && (p->input[p->pos] == 'e' || p->input[p->pos] == 'E')) {
+        p->pos++;
+        if (p->pos < p->len && (p->input[p->pos] == '+' || p->input[p->pos] == '-')) p->pos++;
+        if (p->pos >= p->len || !isdigit((unsigned char)p->input[p->pos])) return false;
+        while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos]))
+            p->pos++;
+    }
+
+    /* The mapping is not NUL-terminated, so strtod needs an exact copy — of the
+     * whole token, however long, which is what keeps the value identical. */
+    size_t n = p->pos - start;
+    char stackbuf[64];
+    char *buf = (n < sizeof stackbuf) ? stackbuf : malloc(n + 1);
+    if (!buf) return false;
+    memcpy(buf, p->input + start, n);
+    buf[n] = '\0';
+    *out = strtod(buf, NULL);
+    if (buf != stackbuf) free(buf);
+    return true;
+}
+
+/* Name equality that respects an embedded NUL.
+ *
+ * jp_parse_string hands back a length because a JSON name may legally contain
+ * an escaped NUL; comparing with strcmp alone lets a name whose first NUL falls
+ * where a declared name ends alias that declared name, which is exactly the
+ * aliasing a contract boundary must refuse. */
+static bool jr_name_eq(const char *parsed, size_t parsed_len, const char *declared)
+{
+    size_t n = strlen(declared);
+    return n == parsed_len && memcmp(parsed, declared, n) == 0;
+}
+
 /* ---- the strict typed read ---- */
 
 static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_out);
 
-/* The raw JSON at the cursor, for a message. Caller frees. */
+/* How much of the offending value a message quotes. */
+#define JR_RAW_MAX 80
+
+/* The raw JSON at the cursor, for a message. Caller frees.
+ *
+ * Bounded on purpose. The value under the cursor can be the entire document,
+ * and this runs on the read path whose whole premise is that the document never
+ * lands on the heap — a type mismatch at the root of a 4 GB file would
+ * otherwise allocate 4 GB to build a message that is truncated to 512 bytes
+ * anyway. */
 static char *jr_raw(EastJsonReader *r)
 {
     size_t save = r->p.pos;
-    char *raw = jp_extract_raw_value(&r->p);
+    jp_skip_ws(&r->p);
+    size_t start = r->p.pos;
+    jp_skip_json_value(&r->p);
+    size_t end = r->p.pos;
     r->p.pos = save;
+
+    if (end <= start) return strdup("null");
+    size_t n = end - start;
+    bool clipped = n > JR_RAW_MAX;
+    if (clipped) n = JR_RAW_MAX;
+    char *raw = malloc(n + 4);
+    if (!raw) return NULL;
+    memcpy(raw, r->p.input + start, n);
+    if (clipped) {
+        memcpy(raw + n, "...", 3);
+        raw[n + 3] = '\0';
+    } else {
+        raw[n] = '\0';
+    }
     return raw;
 }
 
@@ -3197,7 +3316,7 @@ static EastValue *jr_read_struct(EastJsonReader *r, EastType *type, char **error
             }
             size_t idx = nf;
             for (size_t i = 0; i < nf; i++) {
-                if (strcmp(names[i], fname) == 0) {
+                if (jr_name_eq(fname, fname_len, names[i])) {
                     idx = i;
                     break;
                 }
@@ -3259,6 +3378,7 @@ static EastValue *jr_read_variant(EastJsonReader *r, EastType *type, char **erro
         return v;
     }
     char *tag = NULL;
+    size_t tag_len = 0;
     EastValue *value = NULL;
     bool have_value = false;
 
@@ -3278,21 +3398,20 @@ static EastValue *jr_read_variant(EastJsonReader *r, EastType *type, char **erro
             jr_fail(r, error_out, "expected \":\" after a field name");
             goto fail;
         }
-        if (strcmp(fname, "type") == 0) {
+        if (jr_name_eq(fname, fname_len, "type")) {
             free(fname);
             if (tag) {
                 jr_fail(r, error_out, "duplicate \"type\" in Variant");
                 goto fail;
             }
-            size_t tlen;
-            tag = jp_parse_string(&r->p, &tlen);
+            tag = jp_parse_string(&r->p, &tag_len);
             if (!tag) {
                 jr_fail(r, error_out, "expected a variant case name");
                 goto fail;
             }
             bool known = false;
             for (size_t i = 0; i < type->data.variant.num_cases; i++) {
-                if (strcmp(type->data.variant.cases[i].name, tag) == 0) {
+                if (jr_name_eq(tag, tag_len, type->data.variant.cases[i].name)) {
                     known = true;
                     break;
                 }
@@ -3306,7 +3425,7 @@ static EastValue *jr_read_variant(EastJsonReader *r, EastType *type, char **erro
                 jr_fail(r, error_out, "a Variant must carry \"type\" before \"value\"");
                 goto fail;
             }
-        } else if (strcmp(fname, "value") == 0) {
+        } else if (jr_name_eq(fname, fname_len, "value")) {
             free(fname);
             if (have_value) {
                 jr_fail(r, error_out, "duplicate \"value\" in Variant");
@@ -3318,7 +3437,7 @@ static EastValue *jr_read_variant(EastJsonReader *r, EastType *type, char **erro
             }
             EastType *case_type = NULL;
             for (size_t i = 0; i < type->data.variant.num_cases; i++) {
-                if (strcmp(type->data.variant.cases[i].name, tag) == 0) {
+                if (jr_name_eq(tag, tag_len, type->data.variant.cases[i].name)) {
                     case_type = type->data.variant.cases[i].type;
                     break;
                 }
@@ -3391,7 +3510,7 @@ static bool jr_read_entry(EastJsonReader *r, size_t index, void *vctx, char **er
             jr_fail(r, error_out, "expected \":\" after a field name");
             goto entry_fail;
         }
-        if (strcmp(fname, "key") == 0) {
+        if (jr_name_eq(fname, fname_len, "key")) {
             free(fname);
             if (have_key) {
                 jr_fail(r, error_out, "duplicate \"key\" in Dict entry");
@@ -3402,7 +3521,7 @@ static bool jr_read_entry(EastJsonReader *r, size_t index, void *vctx, char **er
             jr_path_pop(r);
             if (!key) goto entry_fail;
             have_key = true;
-        } else if (strcmp(fname, "value") == 0) {
+        } else if (jr_name_eq(fname, fname_len, "value")) {
             free(fname);
             if (have_val) {
                 jr_fail(r, error_out, "duplicate \"value\" in Dict entry");
@@ -3602,7 +3721,16 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
             free(s);
             result = east_float(v);
         } else if (c == '-' || (c >= '0' && c <= '9')) {
-            result = east_float(jp_parse_number(&r->p, NULL, 0));
+            size_t save = r->p.pos;
+            double v;
+            if (jr_read_number(r, &v)) {
+                result = east_float(v);
+            } else {
+                r->p.pos = save;
+                char *raw = jr_raw(r);
+                jr_fail(r, error_out, "expected a Float, got %s", raw);
+                free(raw);
+            }
         } else {
             char *raw = jr_raw(r);
             jr_fail(r, error_out, "expected a Float, got %s", raw);
@@ -3820,7 +3948,7 @@ static bool jr_enter_member(EastJsonReader *r, const char *key, char **error_out
             jr_fail(r, error_out, "expected \":\" after a field name");
             return false;
         }
-        bool hit = strcmp(name, key) == 0;
+        bool hit = jr_name_eq(name, nlen, key);
         free(name);
         if (hit) return true;
         jp_skip_json_value(&r->p);
@@ -3837,11 +3965,17 @@ static bool jr_enter_member(EastJsonReader *r, const char *key, char **error_out
 
 static bool jr_enter_index(EastJsonReader *r, const char *segment, char **error_out)
 {
-    for (const char *s = segment; *s; s++) {
-        if (*s < '0' || *s > '9') {
-            jr_fail(r, error_out, "expected an array index, got \"%s\"", segment);
-            return false;
-        }
+    /* The same index spelling east-node and east-py accept: "0", or a digit
+     * string with no leading zero. An empty segment and "007" are refused
+     * rather than silently read as 0 and 7. */
+    size_t seg_len = strlen(segment);
+    bool well_formed = seg_len > 0 && (segment[0] != '0' || seg_len == 1);
+    for (size_t i = 0; well_formed && i < seg_len; i++) {
+        if (segment[i] < '0' || segment[i] > '9') well_formed = false;
+    }
+    if (!well_formed) {
+        jr_fail(r, error_out, "expected an array index, got \"%s\"", segment);
+        return false;
     }
     size_t target = (size_t)strtoull(segment, NULL, 10);
     if (jp_peek(&r->p) == ']') {
@@ -3873,6 +4007,7 @@ EastJsonReader *east_json_reader_open(const char *data, size_t len, const char *
     r->p.pos = 0;
     r->p.len = len;
     r->p.depth = 0;
+    r->p.strict = true;
 
     const char *pt = pointer ? pointer : "";
     if (pt[0] != '\0' && pt[0] != '/') {
@@ -3949,7 +4084,14 @@ bool east_json_reader_more(EastJsonReader *r)
 EastValue *east_json_reader_next(EastJsonReader *r, EastType *type, char **error_out)
 {
     if (error_out) *error_out = NULL;
-    if (!r || r->container == 0) return jr_fail(r, error_out, "the reader is exhausted");
+    /* jr_fail dereferences the reader to build its pointer, so a NULL one
+     * cannot go through it — and this is a published entry point in
+     * east/serialization.h, where _read, _more and _free all guard. */
+    if (!r) {
+        if (error_out) *error_out = strdup("the reader is exhausted");
+        return NULL;
+    }
+    if (r->container == 0) return jr_fail(r, error_out, "the reader is exhausted");
 
     /* The separator belongs to the advance, not to the predicate, so reading
      * two elements in a row needs no `more` between them. */
