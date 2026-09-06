@@ -484,11 +484,7 @@ def _build_annotated(  # noqa: PLR0911
             ),
         )
     if annotation == "Ref":
-        alternatives = node.get("oneOf")
-        if not isinstance(alternatives, list) or not alternatives:
-            _fail('type_from_json_schema needs "oneOf" on a Ref', [*path, "oneOf"])
-        inner = _as_schema(alternatives[0], [*path, "oneOf", "0"], "oneOf[0]")
-        return RefType(_build_items(inner, ctx, [*path, "oneOf", "0"]))
+        return RefType(_build_items(node, ctx, path))
     return _fail(
         f'type_from_json_schema does not recognise the x-east-type "{annotation}"',
         [*path, "x-east-type"],

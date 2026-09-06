@@ -580,9 +580,16 @@ function createJSONDecoder(
             const y = Number(value.slice(0, 4));
             const mo = Number(value.slice(5, 7));
             const d = Number(value.slice(8, 10));
+            const h = Number(value.slice(11, 13));
+            const mi = Number(value.slice(14, 16));
+            const sec = Number(value.slice(17, 19));
             const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
             const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-            if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth[mo - 1]!) {
+            // Hour 24 is the one `new Date` normalises rather than rejecting
+            // (it rolls to 00:00 the next day), so the time of day is bounded
+            // here as well — east-c bounds all three.
+            if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth[mo - 1]!
+                || h > 23 || mi > 59 || sec > 59) {
                 throw new JSONDecodeError(`invalid date string, got ${JSON.stringify(value)}`);
             }
             const date = new Date(value);
