@@ -389,7 +389,10 @@ function buildStruct(node: JsonSchema, ctx: Context, path: string[]): EastType {
   const requiredNames = new Set<string>(
     Array.isArray(required) ? required.filter((r): r is string => typeof r === "string") : []);
 
-  const fields: Record<string, EastType> = {};
+  // Names come from the document, so the accumulator must have no prototype:
+  // assigning "__proto__" on a plain object sets the prototype instead of a
+  // field, silently dropping it. The python twin uses a list of pairs.
+  const fields: Record<string, EastType> = Object.create(null) as Record<string, EastType>;
   for (const [name, value] of Object.entries(props)) {
     if (!requiredNames.has(name)) {
       fail(
@@ -427,7 +430,9 @@ function buildVariant(node: JsonSchema, ctx: Context, path: string[]): EastType 
     fail("typeFromJsonSchema needs a non-empty \"oneOf\"", [...path, "oneOf"]);
   }
 
-  const cases: Record<string, EastType> = {};
+  // As above — and reading `cases["constructor"]` on a plain object finds
+  // Object.prototype's, which reported a false duplicate case.
+  const cases: Record<string, EastType> = Object.create(null) as Record<string, EastType>;
   for (let i = 0; i < alternatives.length; i++) {
     const altPath = [...path, "oneOf", String(i)];
     const alternative = asSchema(alternatives[i], altPath, `oneOf[${i}]`);
@@ -477,14 +482,8 @@ function buildAnnotated(annotation: string, node: JsonSchema, ctx: Context, path
         build(asSchema(key, [...entryPath, "properties", "key"], "key"), ctx, [...entryPath, "properties", "key"]),
         build(asSchema(value, [...entryPath, "properties", "value"], "value"), ctx, [...entryPath, "properties", "value"]));
     }
-    case "Ref": {
-      const alternatives = node["oneOf"];
-      if (!Array.isArray(alternatives) || alternatives.length === 0) {
-        fail("typeFromJsonSchema needs \"oneOf\" on a Ref", [...path, "oneOf"]);
-      }
-      const inner = asSchema(alternatives[0], [...path, "oneOf", "0"], "oneOf[0]");
-      return RefType(buildItems(inner, ctx, [...path, "oneOf", "0"]));
-    }
+    case "Ref":
+      return RefType(buildItems(node, ctx, path));
     default:
       fail(`typeFromJsonSchema does not recognise the x-east-type "${annotation}"`, [...path, "x-east-type"]);
   }

@@ -90,5 +90,21 @@ await describe("JsonStrict", (test) => {
         $(assert.throws(
             East.value("\"2026-02-30T00:00:00.000+05:30\"").parseJson(DateTimeType),
             /invalid date string/));
+
+        // Hour 24 is the same defect one unit up: `new Date` normalises it to
+        // 00:00 the next day rather than refusing, so it read as a different
+        // instant in TypeScript while east-c refused it.
+        $(assert.throws(
+            East.value("\"2026-01-01T24:00:00.000+00:00\"").parseJson(DateTimeType),
+            /invalid date string/));
+        $(assert.throws(
+            East.value("\"2026-01-01T00:60:00.000+00:00\"").parseJson(DateTimeType),
+            /invalid date string/));
+        $(assert.throws(
+            East.value("\"2026-01-01T00:00:60.000+00:00\"").parseJson(DateTimeType),
+            /invalid date string/));
+        $(assert.equal(
+            East.value("\"2026-01-01T23:59:59.999+00:00\"").parseJson(DateTimeType),
+            East.value(new Date(Date.UTC(2026, 0, 1, 23, 59, 59, 999)))));
     });
 });

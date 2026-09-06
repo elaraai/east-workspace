@@ -256,19 +256,19 @@ function schemaOf(t: EastTypeValue, ctx: DefsContext): JsonSchema {
       };
 
     case "Ref": {
-      // A Ref encodes as a one-element array, or as a relative pointer once the
-      // same target has been written already.
-      const inner = schemaOf(t.value as EastTypeValue, ctx);
+      // A Ref encodes as a one-element array. The encoder ALSO writes
+      // `{"$ref": …}` once the same target has been written before, but no
+      // reader resolves that back — a streaming reader cannot, having discarded
+      // what the pointer refers to — so advertising it would describe documents
+      // the reader then rejects. It is excluded for the same reason aliasing is
+      // excluded for Array/Set/Dict, and with the same consequence, stated in
+      // the docs: a value with shared references does not validate against its
+      // own published schema.
       return {
-        oneOf: [
-          { type: "array", items: inner, minItems: 1, maxItems: 1 },
-          {
-            type: "object",
-            properties: { $ref: { type: "string" } },
-            required: ["$ref"],
-            additionalProperties: false,
-          },
-        ],
+        type: "array",
+        items: schemaOf(t.value as EastTypeValue, ctx),
+        minItems: 1,
+        maxItems: 1,
         "x-east-type": "Ref",
       };
     }

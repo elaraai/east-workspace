@@ -105,7 +105,7 @@ def test_matches_the_cross_language_corpus_digest():
             lines.append(f"{draft}|{name}={document}")
     assert len(lines) == 57
     digest = hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
-    assert digest == "260592523fd5e2437d2303b36fe17fea8602f93d35891d00c945ae9bd52fb427"
+    assert digest == "1e81eb8f85b480e3029ea589c02ae71e465d5b391814a1ddb0ed22325201cf3c"
 
 
 def test_stamps_schema_for_the_releases_that_carry_one():

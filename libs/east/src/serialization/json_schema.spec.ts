@@ -215,12 +215,21 @@ describe("jsonSchemaFor", () => {
             assert.equal((m["items"] as JsonSchema)["type"], "array");
         });
 
-        test("allows a Ref to appear as a pointer once it has been written", () => {
-            const schema = body(jsonSchemaFor(RefType(StringType)));
-            const alternatives = schema["oneOf"] as JsonSchema[];
-            assert.equal(alternatives.length, 2);
-            assert.equal(alternatives[0]!["type"], "array");
-            assert.deepEqual(alternatives[1]!["required"], ["$ref"]);
+        test("describes Ref as a one-element array, without the aliasing form", () => {
+            // The encoder ALSO writes {"$ref": …} for a target it has already
+            // written, but no reader resolves that back — a streaming reader has
+            // discarded what the pointer refers to — so advertising it would
+            // describe documents the reader then rejects. Excluded for the same
+            // reason as Array/Set/Dict aliasing, with the same stated
+            // consequence: a value with shared references does not validate
+            // against its own published schema.
+            assert.deepEqual(body(jsonSchemaFor(RefType(StringType))), {
+                type: "array",
+                items: { type: "string" },
+                minItems: 1,
+                maxItems: 1,
+                "x-east-type": "Ref",
+            });
         });
     });
 
@@ -351,7 +360,7 @@ describe("jsonSchemaFor", () => {
         assert.equal(lines.length, 57);
         assert.equal(
             createHash("sha256").update(lines.join("\n")).digest("hex"),
-            "260592523fd5e2437d2303b36fe17fea8602f93d35891d00c945ae9bd52fb427");
+            "1e81eb8f85b480e3029ea589c02ae71e465d5b391814a1ddb0ed22325201cf3c");
     });
 
     test("emits byte-identical documents for the same type and release", () => {

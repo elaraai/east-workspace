@@ -256,18 +256,19 @@ def _schema_of(t: EastType, ctx: _Context) -> JsonSchema:  # noqa: PLR0911, PLR0
         }
 
     if kind == "Ref":
-        # A Ref encodes as a one-element array, or as a relative pointer once
-        # the same target has been written already.
+        # A Ref encodes as a one-element array. The encoder ALSO writes
+        # {"$ref": ...} once the same target has been written before, but no
+        # reader resolves that back — a streaming reader cannot, having
+        # discarded what the pointer refers to — so advertising it would
+        # describe documents the reader then rejects. Excluded for the same
+        # reason aliasing is excluded for Array/Set/Dict, and with the same
+        # consequence: a value with shared references does not validate against
+        # its own published schema.
         return {
-            "oneOf": [
-                {"type": "array", "items": _schema_of(t.value, ctx), "minItems": 1, "maxItems": 1},
-                {
-                    "type": "object",
-                    "properties": {"$ref": {"type": "string"}},
-                    "required": ["$ref"],
-                    "additionalProperties": False,
-                },
-            ],
+            "type": "array",
+            "items": _schema_of(t.value, ctx),
+            "minItems": 1,
+            "maxItems": 1,
             "x-east-type": "Ref",
         }
 
