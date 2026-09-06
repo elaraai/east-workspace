@@ -264,7 +264,7 @@ describe("streaming and hardening", () => {
         writeFileSync(path, parts.join(""));
         try {
             const script = `
-                import { JsonReader } from ${JSON.stringify(fileURLToPath(new URL("../src/json_reader.js", import.meta.url)))};
+                import { JsonReader } from ${JSON.stringify(new URL("../src/json_reader.js", import.meta.url).href)};
                 import { IntegerType, StringType, StructType, toEastTypeValue } from "@elaraai/east";
                 import { statSync } from "node:fs";
                 const T = toEastTypeValue(StructType({ id: IntegerType, name: StringType }));
