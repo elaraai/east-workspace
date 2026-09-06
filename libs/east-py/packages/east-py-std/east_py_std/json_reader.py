@@ -534,6 +534,12 @@ class JsonReader:
             self._fail(f"document nests deeper than {MAX_DEPTH}")
         try:
             return self._read_value_inner(typ)
+        except RecursionError:
+            # This runtime's own stack gives out before MAX_DEPTH: the typed
+            # read recurses per level and python's limit is well below it. The
+            # document is still refused for nesting, with the contract's error
+            # rather than a bare RecursionError escaping json_next.
+            self._fail("document nests deeper than this runtime can read")
         finally:
             self._depth -= 1
 
