@@ -252,7 +252,11 @@ export function toJSONFor(type: EastType | EastTypeValue, typeCtx: JSONEncodeTyp
         // Encode as RFC 3339 date-time string (see RFC 3339 Section 5.6)
         // Always use UTC timezone (+00:00) for consistency
         return (date: Date, _ctx?: JSONEncodeValueContext) => {
-            const year = date.getUTCFullYear();
+            // Pad the year like east-c's "%04d": a year below 1000 written bare
+            // ("500-01-01T…") fails the decoder's own \d{4} check, so it would
+            // not survive its own round trip.
+            const y = date.getUTCFullYear();
+            const year = y < 0 ? `-${(-y).toString().padStart(3, '0')}` : y.toString().padStart(4, '0');
             const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
             const day = date.getUTCDate().toString().padStart(2, '0');
             const hour = date.getUTCHours().toString().padStart(2, '0');
@@ -511,6 +515,13 @@ function createJSONDecoder(
     } else if (type.type === "Integer") {
         return (value: unknown, _ctx?: JSONDecodeValueContext) => {
             if (typeof value === "string" && value.length > 0) {
+                // Only the decimal form the encoder writes. `BigInt()` alone
+                // also swallows "0x10", "0b101", "0o17", " 7 ", "+7", "007" and
+                // "-0" — none of which east-c accepts, so taking them here made
+                // the same document decode differently per runtime.
+                if (!/^(?:0|-?[1-9][0-9]*)$/.test(value)) {
+                    throw new JSONDecodeError(`expected string representing integer, got ${JSON.stringify(value)}`);
+                }
                 let bigint: bigint;
                 try {
                     bigint = BigInt(value);
@@ -561,6 +572,18 @@ function createJSONDecoder(
             const iso8601WithTimezone = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(Z|[+-]\d{2}:\d{2})$/;
             if (!iso8601WithTimezone.test(value)) {
                 throw new JSONDecodeError(`expected ISO 8601 date string with timezone (e.g. "2022-06-29T13:43:00.123Z" or "2022-06-29T13:43:00.123+05:00"), got ${JSON.stringify(value)}`);
+            }
+            // `new Date` rejects month 13 and hour 25 but rolls a day its month
+            // does not have — 2026-02-30 becomes 2 March — so the calendar has
+            // to be checked before the value is trusted. The offset cannot
+            // change whether the written day exists, so this reads the literal.
+            const y = Number(value.slice(0, 4));
+            const mo = Number(value.slice(5, 7));
+            const d = Number(value.slice(8, 10));
+            const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+            const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+            if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth[mo - 1]!) {
+                throw new JSONDecodeError(`invalid date string, got ${JSON.stringify(value)}`);
             }
             const date = new Date(value);
             if (isNaN(date.getTime())) {
