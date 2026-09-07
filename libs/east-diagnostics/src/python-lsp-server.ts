@@ -109,7 +109,12 @@ export function runEastPyLsp(options: EastPyLspOptions = {}): void {
   const exit = options.exit ?? ((code: number) => process.exit(code));
   const log = options.log ?? ((line: string) => process.stderr.write(`[east-py] ${line}\n`));
   const inProject = options.eastPythonProject ?? isEastPythonProject;
-  const lint = options.lint ?? runEastPyLint;
+  const resolveCommand = options.resolveCommand ?? findEastPy;
+  // The fallback runs the same `east-py` the child would have: one resolution
+  // for both paths, so "the server cannot start" never turns into "some other
+  // east-py on PATH answers instead".
+  const lint = options.lint ?? ((file: string, content: string | undefined) =>
+    runEastPyLint(file, content, 4000, resolveCommand(dirname(file))));
 
   // path -> the client's uri and the current buffer
   const open = new Map<string, { uri: string; text: string }>();

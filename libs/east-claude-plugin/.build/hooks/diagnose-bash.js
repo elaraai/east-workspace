@@ -205,8 +205,7 @@ function findEastPy(fromDir) {
     dir = parent;
   }
 }
-function runEastPyLint(file, content, budgetMs = 4e3) {
-  const command = findEastPy(dirname3(file));
+function runEastPyLint(file, content, budgetMs = 4e3, command = findEastPy(dirname3(file))) {
   let target = file;
   let scratch = null;
   if (content !== void 0) {
@@ -239,8 +238,7 @@ function runEastPyLint(file, content, budgetMs = 4e3) {
     );
   });
 }
-function runEastPyCheck(file, budgetMs = 8e3) {
-  const command = findEastPy(dirname3(file));
+function runEastPyCheck(file, budgetMs = 8e3, command = findEastPy(dirname3(file))) {
   return new Promise((resolveFindings) => {
     execFile(command, ["check", "--format", "json", "--only-if-enabled", file], { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } }, (error, stdout) => {
       if (error !== null && error.code !== 1) {

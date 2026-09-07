@@ -83,8 +83,7 @@ function findEastPyProject(fromDir) {
     dir = parent;
   }
 }
-function runEastPyLint(file, content, budgetMs = 4e3) {
-  const command = findEastPy(dirname(file));
+function runEastPyLint(file, content, budgetMs = 4e3, command = findEastPy(dirname(file))) {
   let target = file;
   let scratch = null;
   if (content !== void 0) {
@@ -392,7 +391,8 @@ function runEastPyLsp(options = {}) {
   const log = options.log ?? ((line) => process.stderr.write(`[east-py] ${line}
 `));
   const inProject = options.eastPythonProject ?? isEastPythonProject;
-  const lint = options.lint ?? runEastPyLint;
+  const resolveCommand = options.resolveCommand ?? findEastPy;
+  const lint = options.lint ?? ((file, content) => runEastPyLint(file, content, 4e3, resolveCommand(dirname3(file))));
   const open = /* @__PURE__ */ new Map();
   const pendingLint = /* @__PURE__ */ new Map();
   const gated = /* @__PURE__ */ new Map();

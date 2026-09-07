@@ -196,16 +196,36 @@ writeFileSync(process.env.EAST_CHECK_PROBE, process.env.${GUARD} ?? 'unset');
 
 
 describe('east-node lsp', () => {
-    it('serves the East language server over stdio', async () => {
+    it('serves the East language server over stdio, or says what to install when the optional peer is absent', async () => {
+        // The language service is an OPTIONAL peer: built here in a full
+        // workspace checkout, absent in a runner that built east-node alone.
+        // Both are legitimate environments, and the command has one right
+        // answer in each.
+        const specifier = '@elaraai/east-diagnostics';
+        let available = true;
+        try {
+            await import(specifier);
+        } catch {
+            available = false;
+        }
         const child = spawn(process.execPath, [join(process.cwd(), 'bin', 'east-node.mjs'), 'lsp'], { stdio: 'pipe' });
         let out = '';
+        let err = '';
+        let exited: number | null | undefined;
         child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString('utf8'); });
+        child.stderr.on('data', (chunk: Buffer) => { err += chunk.toString('utf8'); });
+        child.on('exit', (code) => { exited = code; });
         const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: {} } });
         child.stdin.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
         const deadline = Date.now() + 30_000;
-        while (!out.includes('"id":1') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+        while (!out.includes('"id":1') && exited === undefined && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
         try {
-            assert.match(out, /textDocumentSync/, `the initialize reply: ${out.slice(0, 200)}`);
+            if (available) {
+                assert.match(out, /textDocumentSync/, `the initialize reply: ${out.slice(0, 200)} / stderr: ${err}`);
+            } else {
+                assert.equal(exited, 1, `without the peer the command exits 1: stdout ${out.slice(0, 200)} / stderr ${err}`);
+                assert.match(err, /east-node lsp needs @elaraai\/east-diagnostics/);
+            }
         } finally {
             child.stdin.end();
             child.kill();

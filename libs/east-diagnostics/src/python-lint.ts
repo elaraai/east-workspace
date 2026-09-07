@@ -78,9 +78,10 @@ export function findEastPyProject(fromDir: string): string | undefined {
  * `null` when no east-py answered (absent, failed, or over `budgetMs`), so
  * callers can stay silent. `content` (an unsaved buffer) is linted from a
  * temporary copy under the file's own name; the file itself otherwise.
+ * `command` is the `east-py` to run; by default the one `findEastPy` resolves
+ * for the file.
  */
-export function runEastPyLint(file: string, content?: string, budgetMs = 4000): Promise<PythonDiagnostic[] | null> {
-  const command = findEastPy(dirname(file));
+export function runEastPyLint(file: string, content?: string, budgetMs = 4000, command = findEastPy(dirname(file))): Promise<PythonDiagnostic[] | null> {
   let target = file;
   let scratch: string | null = null;
   if (content !== undefined) {
@@ -121,8 +122,7 @@ export function runEastPyLint(file: string, content?: string, budgetMs = 4000): 
  * build tier (`[tool.east-py] check = true`), `null` when no east-py answered.
  * A cold subprocess, the right shape for a hook that runs once per file.
  */
-export function runEastPyCheck(file: string, budgetMs = 8000): Promise<PythonDiagnostic[] | null> {
-  const command = findEastPy(dirname(file));
+export function runEastPyCheck(file: string, budgetMs = 8000, command = findEastPy(dirname(file))): Promise<PythonDiagnostic[] | null> {
   return new Promise((resolveFindings) => {
     execFile(
       command,
