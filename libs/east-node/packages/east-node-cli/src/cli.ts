@@ -306,13 +306,14 @@ export function main(): void {
     program
         .command('check')
         .description("Build a module's East functions and report the build's own errors at their lines — the errors tsc cannot see")
-        .argument('<module>', 'Path to the built module to check')
+        .argument('<module...>', 'Path(s) to the built module(s) to check')
         .option('--format <kind>', 'text (default) or json — the record shape `east-py check --format json` emits', 'text')
-        .action(async (modulePath: string, options: { format?: string }) => {
+        .action(async (modulePaths: string[], options: { format?: string }) => {
             if (options.format !== 'text' && options.format !== 'json') {
                 return fail(`Error: --format must be text or json, got '${options.format}'`);
             }
-            const findings = await checkModule(modulePath);
+            const findings = [];
+            for (const modulePath of modulePaths) findings.push(...await checkModule(modulePath));
             if (options.format === 'json') {
                 console.log(JSON.stringify(findings, null, 2));
             } else {

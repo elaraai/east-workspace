@@ -14,9 +14,11 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, execFileSync } from 'node:child_process';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { checkModule, formatFinding, GUARD } from './check.js';
 
@@ -125,6 +127,62 @@ writeFileSync(process.env.EAST_CHECK_PROBE, process.env.${GUARD} ?? 'unset');
         }
     });
 
+    it('emits the east-py check record shape, key for key', async () => {
+        const mod = moduleWith(THREE_BROKEN);
+        try {
+            const [finding] = await checkModule(mod.path);
+            assert.deepEqual(Object.keys(finding!).sort(),
+                ['category', 'code', 'column', 'end_column', 'end_line', 'line', 'message', 'path', 'rule']);
+        } finally {
+            mod.dispose();
+        }
+    });
+
+    it('wraps the East the MODULE resolves, not the checker\'s own copy', async () => {
+        // A second, distinct copy of @elaraai/east on disk: the module resolves
+        // it through its own node_modules, so it is a different module instance
+        // from the one this checker imported. Decorating the checker's copy
+        // would leave every build here unwrapped.
+        // the package root: `exports` maps only the entry, so walk up from it (dist/src/index.js)
+        const eastPackage = join(dirname(fileURLToPath(import.meta.resolve('@elaraai/east'))), '..', '..');
+        const dir = mkdtempSync(join(tmpdir(), 'east-node-check-other-'));
+        const copy = join(dir, 'node_modules', '@elaraai', 'east');
+        mkdirSync(copy, { recursive: true });
+        cpSync(join(eastPackage, 'package.json'), join(copy, 'package.json'));
+        cpSync(join(eastPackage, 'dist'), join(copy, 'dist'), { recursive: true });
+        symlinkSync(join(eastPackage, 'node_modules'), join(copy, 'node_modules'), 'junction');
+        const path = join(dir, 'mod.mjs');
+        writeFileSync(path, THREE_BROKEN.replace(JSON.stringify(EAST), JSON.stringify('@elaraai/east')));
+        try {
+            const findings = await checkModule(path);
+            assert.equal(findings.length, 3, findings.map((f) => `${f.rule}: ${f.message}`).join('\n'));
+            assert.deepEqual([...new Set(findings.map((f) => f.rule))], ['build']);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('the CLI prints the same records as JSON and exits 1', () => {
+        const mod = moduleWith(THREE_BROKEN);
+        try {
+            let stdout = '';
+            try {
+                execFileSync(process.execPath, [join(process.cwd(), 'bin', 'east-node.mjs'), 'check', mod.path, '--format', 'json'], { encoding: 'utf-8' });
+                assert.fail('expected exit 1');
+            } catch (error) {
+                const e = error as { status?: number; stdout?: string };
+                assert.equal(e.status, 1);
+                stdout = e.stdout ?? '';
+            }
+            const records = JSON.parse(stdout) as Record<string, unknown>[];
+            assert.equal(records.length, 3);
+            assert.deepEqual(Object.keys(records[0]!).sort(),
+                ['category', 'code', 'column', 'end_column', 'end_line', 'line', 'message', 'path', 'rule']);
+        } finally {
+            mod.dispose();
+        }
+    });
+
     it('formats a finding the way east-py check does', async () => {
         const mod = moduleWith(THREE_BROKEN);
         try {
@@ -132,6 +190,25 @@ writeFileSync(process.env.EAST_CHECK_PROBE, process.env.${GUARD} ?? 'unset');
             assert.match(formatFinding(finding!), /^.+mod\.mjs:5:\d+: error \[build\] /);
         } finally {
             mod.dispose();
+        }
+    });
+});
+
+
+describe('east-node lsp', () => {
+    it('serves the East language server over stdio', async () => {
+        const child = spawn(process.execPath, [join(process.cwd(), 'bin', 'east-node.mjs'), 'lsp'], { stdio: 'pipe' });
+        let out = '';
+        child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString('utf8'); });
+        const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: {} } });
+        child.stdin.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+        const deadline = Date.now() + 30_000;
+        while (!out.includes('"id":1') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+        try {
+            assert.match(out, /textDocumentSync/, `the initialize reply: ${out.slice(0, 200)}`);
+        } finally {
+            child.stdin.end();
+            child.kill();
         }
     });
 });
