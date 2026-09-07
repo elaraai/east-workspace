@@ -19,11 +19,14 @@ are East bodies (``east.diagnostics.scope``), which names hold expressions
 inside them, and what python does to those names. Type inference of the
 expressions themselves is the build's job and is not repeated here.
 
-Three surfaces, one engine:
+One engine, several surfaces:
 
 - ``run_east_rules(source, filename)`` — the API (and ``lint_paths`` over a tree);
 - ``east-py lint <paths>`` — the CLI, and a flake8 plugin (``EAS`` codes);
-- ``east-py lsp`` — a Language Server (pygls) publishing the same diagnostics.
+- ``east-py lsp`` — a Language Server (pygls) publishing the same diagnostics,
+  plus the BUILD tier (``east-py check``) that runs the module and reports the
+  builder's own errors — the type errors these rules cannot see;
+- a ``python-lsp-server`` plugin carrying the rules.
 
 A line ending in ``# noqa`` or ``# noqa: EAS001, …`` suppresses its
 diagnostics, as under flake8/ruff. A file that does not import ``east`` is
@@ -49,9 +52,8 @@ __all__ = [
     "Diagnostic",
     "Rule",
     "run_east_rules",
-    "apply_precedence",
-    "precedence_cycles",
     "lint_paths",
+    "python_files",
     "DEFAULT_EXCLUDES",
     "EastPyConfig",
     "find_pyproject",
@@ -107,63 +109,8 @@ def run_east_rules(source: str, filename: str = "<string>", *,
     for body in ctx.bodies:
         visit(body)
     out = [d for d in ctx.diagnostics if not _suppressed(d, ctx.lines)]
-    out = apply_precedence(out, rules)
     out.sort(key=lambda d: (d.line, d.column, d.code))
     return out
-
-
-def _overlaps(a: Diagnostic, b: Diagnostic) -> bool:
-    """Whether two findings cover any of the same source."""
-    return ((a.line, a.column) <= (b.end_line, b.end_column)
-            and (b.line, b.column) <= (a.end_line, a.end_column))
-
-
-def apply_precedence(found: list[Diagnostic], rules: Iterable[Rule]) -> list[Diagnostic]:
-    """One mistake, one finding.
-
-    Several rules can match the same code — a python helper doing data work
-    inside an eager callback is ``no-python-data-work`` *and* the general
-    ``no-python-work``; an f-string over a constant is
-    ``no-python-string-building`` *and* ``no-python-formatting``. Each rule
-    declares the rules it ``supersedes``; a finding is dropped when a finding
-    of a superseding rule overlaps it, so the author reads the most specific
-    message and only that one.
-
-    Args:
-        found: The findings, before precedence.
-        rules: The active rules, carrying the relation.
-
-    Returns:
-        The findings that survive, in the order given.
-    """
-    beats = {rule.name: frozenset(rule.supersedes) for rule in rules}
-    return [
-        d for d in found
-        if not any(d.rule in beats.get(other.rule, frozenset()) and _overlaps(d, other)
-                   for other in found if other is not d)
-    ]
-
-
-def precedence_cycles(rules: Iterable[Rule]) -> list[str]:
-    """The rule names caught in a ``supersedes`` cycle (including a rule that
-    supersedes itself) — empty when the relation is a partial order. The
-    corpus test pins this: a cycle would silence both rules."""
-    beats = {rule.name: tuple(rule.supersedes) for rule in rules}
-    bad: list[str] = []
-    for start in beats:
-        seen: set[str] = set()
-        stack = [start]
-        while stack:
-            name = stack.pop()
-            for nxt in beats.get(name, ()):
-                if nxt == start:
-                    bad.append(start)
-                    stack = []
-                    break
-                if nxt not in seen:
-                    seen.add(nxt)
-                    stack.append(nxt)
-    return sorted(set(bad))
 
 
 def _suppressed(d: Diagnostic, lines: list[str]) -> bool:
@@ -187,9 +134,8 @@ def lint_paths(paths: Iterable[str | os.PathLike[str]], *, disabled: Iterable[st
         ``{path: diagnostics}`` for the files with at least one diagnostic,
         paths sorted.
     """
-    skip = set(excludes)
     out: dict[str, list[Diagnostic]] = {}
-    for file in sorted(_python_files(paths, skip)):
+    for file in python_files(paths, excludes):
         try:
             source = Path(file).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:
@@ -201,7 +147,12 @@ def lint_paths(paths: Iterable[str | os.PathLike[str]], *, disabled: Iterable[st
     return out
 
 
-def _python_files(paths: Iterable[str | os.PathLike[str]], skip: set[str]) -> list[Path]:
+def python_files(paths: Iterable[str | os.PathLike[str]],
+                 excludes: Iterable[str] = DEFAULT_EXCLUDES) -> list[Path]:
+    """Every ``.py`` file under ``paths`` (files or directories), sorted — the
+    walk ``east-py lint`` and ``east-py check`` share, skipping the excluded
+    directory names."""
+    skip = set(excludes)
     files: list[Path] = []
     for p in paths:
         path = Path(p)
@@ -212,4 +163,4 @@ def _python_files(paths: Iterable[str | os.PathLike[str]], skip: set[str]) -> li
         for root, dirs, names in os.walk(path):
             dirs[:] = sorted(d for d in dirs if d not in skip)
             files.extend(Path(root) / n for n in sorted(names) if n.endswith(".py"))
-    return files
+    return sorted(files)

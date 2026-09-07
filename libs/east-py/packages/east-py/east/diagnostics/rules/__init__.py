@@ -26,7 +26,6 @@ from east.diagnostics.rules.no_python_round import NoPythonRound
 from east.diagnostics.rules.no_python_string_building import NoPythonStringBuilding
 from east.diagnostics.rules.no_python_work import NoPythonWork
 from east.diagnostics.rules.no_redundant_east_cast import NoRedundantEastCast
-from east.diagnostics.rules.no_reinlined_east_binding import NoReinlinedEastBinding
 from east.diagnostics.rules.no_statement_on_outer_block import NoStatementOnOuterBlock
 from east.diagnostics.rules.no_untracked_east_data import NoUntrackedEastData
 from east.diagnostics.rules.prefer_explicit_east_type import PreferExplicitEastType
@@ -49,7 +48,6 @@ ALL_RULES: tuple[Rule, ...] = (
     PreferExplicitEastType(),
     NoLetConstInExpression(),
     NoUntrackedEastData(),
-    NoReinlinedEastBinding(),
     NoRedundantEastCast(),
     PreferLetConstOverEastValue(),
     NoHostComparisonOnEastValues(),

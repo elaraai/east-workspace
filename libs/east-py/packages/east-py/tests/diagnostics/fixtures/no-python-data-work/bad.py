@@ -3,14 +3,15 @@
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
 # ruff: noqa
-"""The cleaning left behind in python by a migration."""
-from east import East, FloatType, StringType
+"""The cleaning left behind in python by a migration: the null check is
+decided about the PROXY, once, at build time."""
+from east import East, StringType
 
 
 def _clean(v):  # expect: no-python-data-work
-    return float(v.strip())
+    return v.trim() if v is not None else ""
 
 
-@East.function([StringType], FloatType)
+@East.function([StringType], StringType)
 def parsed(b, s):
     return _clean(s)

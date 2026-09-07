@@ -10,4 +10,4 @@ from east import East, IntegerType
 @East.function([IntegerType], IntegerType)
 def held(b, x):
     v = b.const(3, IntegerType)
-    return v + x.max(East.value(2, IntegerType))
+    return v + x.add(East.value(2, IntegerType))

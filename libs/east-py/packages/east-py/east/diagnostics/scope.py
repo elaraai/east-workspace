@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Iterator
 
 from east.diagnostics.types import Body, Context
 
@@ -145,7 +146,7 @@ def _chain_root(node: ast.AST) -> ast.AST:
     return node
 
 
-def _rooted_at_east(node: ast.AST, ctx: Context) -> bool:
+def rooted_at_east(node: ast.AST, ctx: Context) -> bool:
     """Whether a chain is rooted at an ``east`` import (``East.new_dict(…)``,
     ``EastArray(…)``, ``east.types.values.EastDict(…)``)."""
     root = _chain_root(node)
@@ -173,7 +174,7 @@ def east_evidence(ctx: Context) -> set[str]:
                     continue
                 params = [a.arg for a in [*node.args.posonlyargs, *node.args.args]]
                 for param, declared in zip(params, inputs.elts, strict=False):
-                    if _rooted_at_east(declared, ctx):
+                    if rooted_at_east(declared, ctx):
                         names.add(param)
     changed = True
     while changed:
@@ -186,10 +187,82 @@ def east_evidence(ctx: Context) -> set[str]:
             if target in names:
                 continue
             root = _chain_root(node.value)
-            if _rooted_at_east(node.value, ctx) or (isinstance(root, ast.Name) and root.id in names):
+            if rooted_at_east(node.value, ctx) or (isinstance(root, ast.Name) and root.id in names):
                 names.add(target)
                 changed = True
     return names
+
+
+def is_main_guard(node: ast.AST) -> bool:
+    """``if __name__ == "__main__":`` — the block a script runs and an import
+    never does."""
+    if not isinstance(node, ast.If) or not isinstance(node.test, ast.Compare):
+        return False
+    test = node.test
+    if len(test.ops) != 1 or not isinstance(test.ops[0], ast.Eq) or len(test.comparators) != 1:
+        return False
+    sides = (test.left, test.comparators[0])
+    return (any(isinstance(s, ast.Name) and s.id == "__name__" for s in sides)
+            and any(isinstance(s, ast.Constant) and s.value == "__main__" for s in sides))
+
+
+def import_time_nodes(ctx: Context) -> Iterator[ast.AST]:
+    """Every node that RUNS when the module is imported.
+
+    The module's statements and class bodies, a ``def``'s decorators and
+    default values — not the inside of a ``def`` or ``lambda``, which runs when
+    called, and not the body of ``if __name__ == "__main__":``, which runs when
+    the file is a script and never on import. What a rule about build-time
+    side effects walks: a clock read or a file read in a script's ``main`` is
+    the script's own business.
+    """
+    stack: list[ast.AST] = list(reversed(ctx.tree.body))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            defaults = [d for d in node.args.kw_defaults if d is not None]
+            stack.extend(reversed([*node.decorator_list, *node.args.defaults, *defaults]))
+            continue
+        if isinstance(node, ast.Lambda):
+            stack.extend(reversed(node.args.defaults))
+            continue
+        if is_main_guard(node):
+            stack.extend(reversed(node.orelse))
+            continue
+        yield node
+        stack.extend(reversed(list(ast.iter_child_nodes(node))))
+
+
+def main_guard_node_ids(ctx: Context) -> set[int]:
+    """The ids of every node under a module-level ``if __name__ == "__main__":``."""
+    ids: set[int] = set()
+    for node in ctx.tree.body:
+        if is_main_guard(node):
+            ids.update(id(n) for n in node.body for n in ast.walk(n))
+    return ids
+
+
+#: the calls that hand python data to East at module scope
+EAST_BOUNDARY_CALLS = frozenset({
+    "value", "coerce_to", "assert_value_of", "is_value_of", "explain_value_of", "struct", "array",
+})
+
+
+def reaches_east(name: str, ctx: Context) -> bool:
+    """Whether the module-level ``name`` is handed to East: read inside a body,
+    or passed to an East boundary call at module scope (``East.value(rows, T)``,
+    ``coerce_to(rows, T)``, ``array(T, rows)``)."""
+    for node in ast.walk(ctx.tree):
+        if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Load) \
+                and ctx.in_body(node):
+            return True
+        if isinstance(node, ast.Call) and not ctx.in_body(node):
+            func = node.func
+            called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if called in EAST_BOUNDARY_CALLS \
+                    and any(isinstance(a, ast.Name) and a.id == name for a in node.args):
+                return True
+    return False
 
 
 #: the constructors of MUTABLE East collections — a capture refuses a callback that reads one
@@ -207,7 +280,7 @@ def mutable_collections(ctx: Context) -> set[str]:
             continue
         func = node.value.func
         ctor = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-        if ctor in MUTABLE_CTORS and _rooted_at_east(node.value, ctx):
+        if ctor in MUTABLE_CTORS and rooted_at_east(node.value, ctx):
             names.update(t.id for t in node.targets if isinstance(t, ast.Name))
     return names
 
@@ -246,7 +319,7 @@ def collect_bodies(ctx: Context) -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in CALLBACK_METHODS:
             receiver = _chain_root(node.func.value)
             if not (isinstance(receiver, ast.Name) and receiver.id in evidence) \
-                    and not _rooted_at_east(node.func.value, ctx):
+                    and not rooted_at_east(node.func.value, ctx):
                 continue
             for arg in [*node.args, *(k.value for k in node.keywords)]:
                 if isinstance(arg, ast.Lambda):

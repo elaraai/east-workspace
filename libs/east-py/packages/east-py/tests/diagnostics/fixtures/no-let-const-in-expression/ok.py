@@ -3,7 +3,7 @@
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
 # ruff: noqa
-"""Every declaration on a statement of its own."""
+"""Every declaration on a statement of its own — a tuple of them included."""
 from east import ArrayType, East, IntegerType
 
 
@@ -13,5 +13,6 @@ def totals(b, x):
     total = b.let(base + 1)
     two = b.const(2, IntegerType)
     rows = b.let([x, two], ArrayType(IntegerType))
+    first, second = b.let(x), b.const(3, IntegerType)
     b.do(rows)
-    return total
+    return total + first + second

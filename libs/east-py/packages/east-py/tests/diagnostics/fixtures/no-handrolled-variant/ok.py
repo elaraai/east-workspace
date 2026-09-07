@@ -4,15 +4,18 @@
 #
 # ruff: noqa
 """Variants built by variant(), and dicts that are only dicts."""
-from east import East, IntegerType, StringType, VariantCaseDef, VariantType, variant
+from east import East, IntegerType, StringType, VariantType, variant
 
-Shape = VariantType([VariantCaseDef("circle", IntegerType), VariantCaseDef("label", StringType)])
+Shape = VariantType([("circle", IntegerType), ("label", StringType)])
 seed = variant("circle", 3, Shape)
 settings = {"type": "circle", "value": 3, "note": "three keys, not a variant"}
 
 
+def payload():
+    return {"type": "circle", "value": 3}  # a JSON body for some other system: it never meets East
+
+
 @East.function([IntegerType], IntegerType)
 def sized(b, x):
-    shape = b.let(variant("circle", 3, Shape))
-    b.do(shape)
+    shape = b.const(seed, Shape)
     return x

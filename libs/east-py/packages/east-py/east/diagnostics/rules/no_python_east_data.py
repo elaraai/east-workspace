@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 
+from east.diagnostics.scope import reaches_east
 from east.diagnostics.types import Body, Context
 
 MESSAGE = ("this East data is assembled by python at module scope, so the rows are not readable "
@@ -29,9 +30,8 @@ _GROWERS = frozenset({"append", "extend", "add", "update", "insert"})
 
 class NoPythonEastData:
     name = "no-python-east-data"
-    code = 23
+    code = 22
     category = "warning"
-    supersedes: tuple[str, ...] = ()
     description = ("No East data assembled by a module-scope comprehension or loop — write the "
                    "rows out, or produce them at runtime.")
 
@@ -43,7 +43,7 @@ class NoPythonEastData:
         if not assembled:
             return
         for name, node in sorted(assembled.items()):
-            if _reaches_east(name, ctx):
+            if reaches_east(name, ctx):
                 ctx.report(node, self, MESSAGE)
 
 
@@ -61,19 +61,3 @@ def _assembled_names(ctx: Context) -> dict[str, ast.AST]:
                         and inner.func.attr in _GROWERS and isinstance(inner.func.value, ast.Name)):
                     out.setdefault(inner.func.value.id, node)
     return out
-
-
-def _reaches_east(name: str, ctx: Context) -> bool:
-    """Whether ``name`` is read inside an East body, or handed to East at
-    module scope (``East.value(rows, T)``, ``coerce_to(rows, T)``)."""
-    for node in ast.walk(ctx.tree):
-        if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Load) \
-                and ctx.in_body(node):
-            return True
-        if isinstance(node, ast.Call) and not ctx.in_body(node):
-            func = node.func
-            called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-            if called in ("value", "coerce_to", "assert_value_of") \
-                    and any(isinstance(a, ast.Name) and a.id == name for a in node.args):
-                return True
-    return False

@@ -28,7 +28,6 @@ class NoUntrackedEastData:
     name = "no-untracked-east-data"
     code = 14
     category = "suggestion"
-    supersedes: tuple[str, ...] = ()
     description = ("Data reaching an East expression must be bound with b.const / b.let, not held "
                    "in a plain python local.")
 

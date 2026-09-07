@@ -30,12 +30,8 @@ _COMPREHENSIONS = (ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp)
 
 class NoDerivedStructFields:
     name = "no-derived-struct-fields"
-    code = 25
+    code = 24
     category = "warning"
-    # Disjoint by construction: this rule reports a type DECLARATION, while
-    # `no-python-east-data` reports the comprehension that assembles rows for a
-    # body. Declaring the relation here was dead — the ranges never overlap.
-    supersedes: tuple[str, ...] = ()
     description = "No East type whose fields are computed from another type — spell them out."
 
     def check(self, body: Body, ctx: Context) -> None:

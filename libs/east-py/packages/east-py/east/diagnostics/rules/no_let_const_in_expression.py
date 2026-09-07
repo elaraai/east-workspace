@@ -6,8 +6,9 @@
 in the block and hand back its handle. The only readable position for that is
 a statement of its own. Buried in an expression — a call argument, a struct
 field's value, an element, the target of a chain — it hides a declaration
-inside something that reads as a value, and it type-checks fine. The
-TypeScript rule of the same name.
+inside something that reads as a value, and it type-checks fine. A tuple of
+declarations (``first, second = b.let(x), b.let(y)``) is two statements and
+reads as such. The TypeScript rule of the same name.
 """
 
 from __future__ import annotations
@@ -27,7 +28,6 @@ class NoLetConstInExpression:
     name = "no-let-const-in-expression"
     code = 13
     category = "warning"
-    supersedes: tuple[str, ...] = ()
     description = "b.let / b.const belongs on its own statement, never buried inside an expression."
 
     def check(self, body: Body, ctx: Context) -> None:
@@ -40,16 +40,20 @@ class NoLetConstInExpression:
                     and isinstance(node.func.value, ast.Name) and node.func.value.id == body.block):
                 continue
             parent = parents.get(id(node))
-            if parent is None or _is_binding_position(parent, node):
+            if parent is None or _is_binding_position(parent, node, parents):
                 continue
             ctx.report(node, self, message(node.func.attr))
 
 
-def _is_binding_position(parent: ast.AST, node: ast.AST) -> bool:
+def _is_binding_position(parent: ast.AST, node: ast.AST, parents: dict[int, ast.AST]) -> bool:
     """The positions where a declaration reads as a declaration: the value of
-    an assignment, a bare statement, a ``return``, or a lambda's whole body."""
+    an assignment (an element of a tuple assignment included), a bare
+    statement, a ``return``, or a lambda's whole body."""
     if isinstance(parent, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and parent.value is node:
         return True
+    if isinstance(parent, ast.Tuple):
+        grandparent = parents.get(id(parent))
+        return isinstance(grandparent, ast.Assign) and grandparent.value is parent
     if isinstance(parent, ast.Expr) and parent.value is node:
         return True
     if isinstance(parent, ast.Return) and parent.value is node:

@@ -181,18 +181,15 @@ class Context:
 class Rule(Protocol):
     """One rule: a name, a stable number, and ``check`` over every body.
 
-    ``supersedes`` names the rules this one wins over where their findings
-    overlap — the precedence relation :func:`east.diagnostics.run_east_rules`
-    applies so that one mistake yields one finding. A rule that supersedes
-    nothing declares the empty tuple; a rule never supersedes itself, and the
-    relation must be acyclic (the engine pins both).
+    The rules are disjoint by construction — each mistake is one rule's to
+    report, and the corpus pins it (a bad fixture trips only its own rule) —
+    so there is no precedence relation to declare.
     """
 
     name: str
     code: int
     category: Category
     description: str
-    supersedes: tuple[str, ...]
 
     def check(self, body: Body, ctx: Context) -> None: ...
 

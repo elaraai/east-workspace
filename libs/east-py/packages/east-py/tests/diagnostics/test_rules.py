@@ -26,9 +26,7 @@ from east.diagnostics import (
     DEFAULT_EXCLUDES,
     RULES_BY_NAME,
     Diagnostic,
-    apply_precedence,
     lint_paths,
-    precedence_cycles,
     run_east_rules,
 )
 from east.expression.errors import ExpressionError
@@ -267,6 +265,27 @@ class TestOneMessageTwoMoments:
         exec(compile(source, "moment.py", "exec"), {})  # builds
         assert "b.do(...)" in _messages(source, "no-discarded-expression")[0]
 
+    def test_a_python_list_in_b_let_is_the_lift_refusal(self):
+        """The build cannot lift a bare python list, empty or not; the rule's
+        message opens with the build's."""
+        source = ("from east import East, IntegerType\n"
+                  "@East.function([IntegerType], IntegerType)\n"
+                  "def f(b, x):\n"
+                  "    xs = b.let([1, 2, 3])\n"
+                  "    return x\n")
+        assert _messages(source, "prefer-explicit-east-type")[0].startswith(_build(source))
+
+    def test_host_ordering_on_a_decoded_option_raises(self):
+        source = "from east import some\nordered = some(3) < some(4)\n"
+        with pytest.raises(TypeError):
+            exec(compile(source, "moment.py", "exec"), {})
+        assert "TypeError" in _messages(source, "no-host-comparison-on-east-values")[0]
+
+    def test_host_equality_on_a_decoded_variant_is_structural_and_not_flagged(self):
+        source = "from east import some\nsame = some(3) == some(3)\nassert same\n"
+        exec(compile(source, "moment.py", "exec"), {})
+        assert diagnose(source) == []
+
     def test_deprecated_alias(self):
         source = ("from east import East, ArrayType, IntegerType\n"
                   "@East.function([ArrayType(IntegerType)], IntegerType)\n"
@@ -336,76 +355,30 @@ def test_lint_paths_walks_a_tree_and_skips_the_excluded_directories(tmp_path):
     assert lint_paths([tmp_path], excludes=(*DEFAULT_EXCLUDES, "pkg")) == {}
 
 
-# ── precedence: one mistake, one finding ─────────────────────────────────────
+# ── the fixtures are real East ───────────────────────────────────────────────
+#
+# Every ok fixture must BUILD: a correct spelling the build refuses is a rule
+# recommending something that does not exist. A bad fixture builds or raises
+# as its rule's category says — an ERROR rule mirrors a refusal, so its bad
+# fixture raises; a warning or suggestion is something the build accepts.
 
 
-def _finding(rule: str, line: int, column: int = 1, end_column: int = 10) -> Diagnostic:
-    return Diagnostic(rule=rule, code=0, message="", line=line, column=column,
-                      end_line=line, end_column=end_column)
+def _exec_fixture(path: Path) -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        exec(compile(path.read_text(), str(path), "exec"), {"__name__": "fixture", "__file__": str(path)})
 
 
-class _Beats:
-    """A stand-in rule carrying only the relation."""
-
-    def __init__(self, name: str, supersedes: tuple[str, ...] = ()) -> None:
-        self.name = name
-        self.code = 0
-        self.category = "error"
-        self.description = name
-        self.supersedes = supersedes
-
-    def check(self, body, ctx) -> None:  # pragma: no cover - never invoked
-        del body, ctx
+@pytest.mark.parametrize("rule", ALL_RULES, ids=RULE_IDS)
+def test_ok_fixtures_are_real_east(rule):
+    _exec_fixture(FIXTURES / rule.name / "ok.py")
 
 
-def test_every_rule_declares_the_precedence_relation():
-    for rule in ALL_RULES:
-        assert isinstance(rule.supersedes, tuple), f"{rule.name} declares no supersedes tuple"
-        assert rule.name not in rule.supersedes, f"{rule.name} supersedes itself"
-        for superseded in rule.supersedes:
-            assert superseded in RULES_BY_NAME, f"{rule.name} supersedes unknown rule {superseded!r}"
-
-
-def test_the_precedence_relation_is_acyclic():
-    """A cycle would drop BOTH findings and silence the pair — the one failure
-    mode of the mechanism that is worse than having no mechanism."""
-    assert precedence_cycles(ALL_RULES) == []
-    cyclic = [_Beats("a", ("b",)), _Beats("b", ("a",))]
-    assert precedence_cycles(cyclic) == ["a", "b"]
-
-
-def test_a_superseded_finding_is_dropped_where_the_specific_one_overlaps():
-    rules = [_Beats("specific", ("general",)), _Beats("general")]
-    found = [_finding("general", 3), _finding("specific", 3)]
-    assert [d.rule for d in apply_precedence(found, rules)] == ["specific"]
-
-
-def test_a_superseded_finding_on_another_line_survives():
-    """Precedence is about ONE mistake — a separate occurrence of the general
-    problem elsewhere is still worth saying."""
-    rules = [_Beats("specific", ("general",)), _Beats("general")]
-    found = [_finding("general", 9), _finding("specific", 3)]
-    assert {d.rule for d in apply_precedence(found, rules)} == {"general", "specific"}
-
-
-def test_precedence_leaves_unrelated_rules_alone():
-    rules = [_Beats("one"), _Beats("two")]
-    found = [_finding("one", 3), _finding("two", 3)]
-    assert len(apply_precedence(found, rules)) == 2
-
-
-def test_a_declared_supersedes_edge_must_be_reachable():
-    """A rule may only claim to supersede another if the two can actually report
-    at overlapping ranges. Two edges shipped that could never fire — the rules
-    were disjoint by construction — and nothing could tell, because
-    `apply_precedence` silently does nothing when ranges do not overlap and
-    `precedence_cycles` only looks at the graph. Declaring an unreachable edge
-    is documentation that is wrong; either the rules overlap, or say nothing."""
-    declared = {(r.name, s) for r in ALL_RULES for s in r.supersedes}
-    # Every edge must be justified by a fixture in which BOTH rules fire — the
-    # corpus asserts one rule per bad fixture, so an edge with no such fixture
-    # is by definition unreachable there.
-    assert declared == set(), (
-        "a supersedes edge is declared but no fixture exercises it; add a fixture "
-        f"where both rules fire, or drop the edge: {sorted(declared)}"
-    )
+@pytest.mark.parametrize("rule", ALL_RULES, ids=RULE_IDS)
+def test_bad_fixtures_build_or_refuse_as_the_category_says(rule):
+    path = FIXTURES / rule.name / "bad.py"
+    if rule.category == "error":
+        with pytest.raises((ExpressionError, TypeError)):
+            _exec_fixture(path)
+    else:
+        _exec_fixture(path)

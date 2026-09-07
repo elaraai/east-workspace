@@ -2,11 +2,13 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""``prefer-explicit-east-type``: the one-argument ``b.let(x)`` infers the
-East type from the python value. Fine when the value determines one; for an
-empty list, dict or set it does not, and the inferred element type is a guess
-the build will disagree with later. Give the type. The TypeScript rule of the
-same name.
+"""``prefer-explicit-east-type``: the one-argument ``b.let(x)`` / ``b.const(x)``
+infers the East type from the python value, and a bare python list, tuple or
+set has none to infer — the build refuses to lift it, empty or not.
+``b.let([], ArrayType(IntegerType))`` gives the type;
+``East.new_array(IntegerType, [...])`` builds the value. The TypeScript rule of
+the same name, where an empty ``[]`` is merely under-determined; here the lift
+is refused outright, so the message is the build's.
 """
 
 from __future__ import annotations
@@ -15,22 +17,22 @@ import ast
 
 from east.diagnostics.types import Body, Context, body_nodes
 
-#: the zero-argument constructors that build an empty python container
-_EMPTY_CTORS = frozenset({"list", "dict", "set"})
+#: the zero-argument constructors that build a python container the build cannot lift
+_CONTAINER_CTORS = {"list": "list", "set": "set", "tuple": "tuple"}
 
 
-def message(method: str) -> str:
-    return (f"b.{method}(...) cannot infer an East type from an empty container — pass it as the "
-            f"second argument, e.g. b.{method}([], ArrayType(IntegerType))")
+def message(method: str, kind: str) -> str:
+    return (f"cannot lift python value of type {kind} into an East expression — pass the East type "
+            f"as b.{method}'s second argument, e.g. b.{method}([], ArrayType(IntegerType)), or build "
+            "the value with East.new_array / East.new_set")
 
 
 class PreferExplicitEastType:
     name = "prefer-explicit-east-type"
     code = 12
-    category = "suggestion"
-    supersedes: tuple[str, ...] = ()
-    description = ("b.let / b.const over an empty container needs the East type explicitly — "
-                   "b.let([], ArrayType(IntegerType)).")
+    category = "error"
+    description = ("b.let / b.const over a bare python list, set or tuple cannot lift it — "
+                   "pass the East type: b.let([], ArrayType(IntegerType)).")
 
     def check(self, body: Body, ctx: Context) -> None:
         if body.block is None:
@@ -42,15 +44,22 @@ class PreferExplicitEastType:
                 continue
             if len(node.args) != 1 or node.keywords:
                 continue
-            if _under_determined(node.args[0]):
-                ctx.report(node.args[0], self, message(node.func.attr))
+            kind = _unliftable(node.args[0])
+            if kind is not None:
+                ctx.report(node.args[0], self, message(node.func.attr, kind))
 
 
-def _under_determined(value: ast.AST) -> bool:
-    """An empty container: ``[]``, ``{}``, ``list()``, ``dict()``, ``set()``."""
-    if isinstance(value, ast.List) and not value.elts:
-        return True
-    if isinstance(value, ast.Dict) and not value.keys:
-        return True
-    return (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
-            and value.func.id in _EMPTY_CTORS and not value.args and not value.keywords)
+def _unliftable(value: ast.AST) -> str | None:
+    """The python container kind the build refuses to lift, or None."""
+    if isinstance(value, (ast.List, ast.ListComp)):
+        return "list"
+    if isinstance(value, ast.Tuple):
+        return "tuple"
+    if isinstance(value, (ast.Set, ast.SetComp)):
+        return "set"
+    if isinstance(value, ast.GeneratorExp):
+        return "generator"
+    if (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
+            and value.func.id in _CONTAINER_CTORS and not value.args and not value.keywords):
+        return _CONTAINER_CTORS[value.func.id]
+    return None

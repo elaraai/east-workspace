@@ -3,13 +3,16 @@
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
 """``no-module-scope-east-macro``: a module-scope python ``def`` whose every
-return builds East IR is an authoring-time macro. It expands inline at each
-call, cannot be serialized, and cannot recurse — everything a real
-``East.function`` can do. The other shape is a helper assembling a composite
-string key from an f-string (``f"{org}|{line}"``), which is the signature of a
-string-keyed data model where typed or nested East data belongs. The
-TypeScript rule of the same name; ``no-python-work`` covers the different
-concern of a helper doing python WORK inside an eager callback.
+return builds East IR, expanded into a body at each call, is an
+authoring-time macro. It cannot be serialized and cannot recurse — everything
+a real ``East.function`` can do. The other shape is a helper a body calls to
+assemble a composite string key from an f-string (``f"{org}|{line}"``), which
+is the signature of a string-keyed data model where typed or nested East data
+belongs. Both arms need the helper to be CALLED FROM A BODY: ``some(x)`` /
+``variant(...)`` build a plain East VALUE outside one, and an f-string helper
+that only ever serves python is python's own business. The TypeScript rule of
+the same name; ``no-python-work`` covers the different concern of a helper
+doing python WORK inside an eager callback.
 """
 
 from __future__ import annotations
@@ -32,11 +35,10 @@ _VALUE_CTORS = frozenset({"variant", "some"})
 
 class NoModuleScopeEastMacro:
     name = "no-module-scope-east-macro"
-    code = 19
+    code = 18
     category = "warning"
-    supersedes: tuple[str, ...] = ()
-    description = ("No module-scope python helper that builds East IR or a composite string key — "
-                   "make it an East.function, or model typed / nested East data.")
+    description = ("No module-scope python helper that a body calls to build East IR or a composite "
+                   "string key — make it an East.function, or model typed / nested East data.")
 
     def check(self, body: Body, ctx: Context) -> None:
         # A macro is a module-scope def; the body walk never sees one.
@@ -49,26 +51,19 @@ class NoModuleScopeEastMacro:
             if node.name in ctx.east_artifacts or node.decorator_list:
                 continue  # an East artifact, or something a decorator already governs
             returns = _returns(node)
-            if not returns:
+            if not returns or not _called_from_a_body(node.name, ctx):
                 continue
-            if all(_builds_ir(r, ctx) for r in returns) and _called_from_a_body(node.name, ctx):
+            if all(_builds_ir(r, ctx) for r in returns):
                 ctx.report(node, self, IR_MESSAGE)
             elif all(_composite_key(r) for r in returns):
                 ctx.report(node, self, KEY_MESSAGE)
 
 
 def _called_from_a_body(name: str, ctx: Context) -> bool:
-    """Whether ``name`` is called from inside an East body.
+    """Whether ``name`` is called from inside an East body — the tell that
+    separates a macro from an eager value builder or a python helper."""
 
-    The tell that separates a macro from an eager value builder. ``some(x)`` /
-    ``variant(...)`` build expression IR inside a body and a plain East VALUE
-    outside one, and python carries no type to tell them apart — a platform
-    function's helper assembling an ``EastStruct`` of options is ordinary eager
-    data, not a macro. What makes it a macro is being expanded inline INTO a
-    body at each call, so that is what the rule looks for.
-    """
-
-    def calls(body) -> bool:  # noqa: ANN001 - Body, avoiding a circular import in the annotation
+    def calls(body: Body) -> bool:
         for node in ast.walk(body.node):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name:
                 return True
@@ -113,18 +108,11 @@ def _composite_key(node: ast.AST) -> bool:
 
     The literal chunks are the tell: a KEY glues its parts with a punctuation
     separator, while prose (a diagnostic message, a log line, a docstring)
-    carries words and spaces between them. Without that distinction every
-    message-building helper in a codebase reads as a data model.
+    carries words and spaces between them, and ``f"{a}{b}"`` glues nothing.
     """
     if not isinstance(node, ast.JoinedStr):
         return False
     if sum(isinstance(v, ast.FormattedValue) for v in node.values) < 2:
         return False
-    # The RAW chunk, not a stripped one: stripping made every whitespace-only
-    # chunk compare equal to "", so `f"{name} {count}"` — prose, by this
-    # function's own definition — read as a key.
-    return all(
-        v.value in _KEY_SEPARATORS
-        for v in node.values
-        if isinstance(v, ast.Constant) and isinstance(v.value, str)
-    )
+    chunks = [v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str)]
+    return bool(chunks) and all(chunk in _KEY_SEPARATORS for chunk in chunks)

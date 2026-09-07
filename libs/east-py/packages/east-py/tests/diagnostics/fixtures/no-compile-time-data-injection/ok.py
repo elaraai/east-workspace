@@ -3,13 +3,16 @@
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
 # ruff: noqa
-"""Reads that happen at runtime, where the deployment's data lives."""
+"""Reads that happen at runtime, and import-time reads that never reach East."""
 import json
+import os
 from pathlib import Path
 
 from east import East, StringType
 
 SEED_PATH = "seed.json"
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+BANNER = Path(__file__).read_text()[:1]
 
 
 def load_rows(path):
@@ -18,3 +21,12 @@ def load_rows(path):
 
 def notes_for(name):
     return Path(name).read_text()
+
+
+@East.function([StringType], StringType)
+def labelled(b, s):
+    return s + SEED_PATH
+
+
+if __name__ == "__main__":
+    print(open(__file__).read())

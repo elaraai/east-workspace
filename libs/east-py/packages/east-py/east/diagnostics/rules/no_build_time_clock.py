@@ -6,20 +6,22 @@
 BUILD moment into the program. East source is compiled and deployed; a
 constant computed as "two hours ago" means two hours before the deploy, and
 means something different every day after it. Author the datetime, or read
-the clock at RUNTIME inside a platform function — which is what a platform
-function is for, so a read inside a ``def`` is never flagged. The TypeScript
-rule of the same name.
+the clock at RUNTIME — inside a platform function, or ``east_py_std``'s
+``time_now()`` in a body — so a read inside a ``def`` is never flagged, and
+neither is a script's ``if __name__ == "__main__":`` block, which an import
+never runs. The TypeScript rule of the same name.
 """
 
 from __future__ import annotations
 
 import ast
 
+from east.diagnostics.scope import import_time_nodes
 from east.diagnostics.types import Body, Context
 
 MESSAGE = ("a module-scope clock read bakes the BUILD moment into the deployed program — author "
-           "the datetime as a constant, or read the clock at runtime inside a platform function "
-           "(east_py_std's Time)")
+           "the datetime as a constant, or read the clock at runtime: inside a platform function, "
+           "or east_py_std's time_now() in a body")
 
 #: ``datetime.now()`` / ``datetime.utcnow()`` / ``datetime.today()``
 _DATETIME_READS = frozenset({"now", "utcnow", "today"})
@@ -29,9 +31,8 @@ _TIME_READS = frozenset({"time", "time_ns", "monotonic", "monotonic_ns", "perf_c
 
 class NoBuildTimeClock:
     name = "no-build-time-clock"
-    code = 20
+    code = 19
     category = "warning"
-    supersedes: tuple[str, ...] = ()
     description = ("No clock read at module scope of East source — it bakes the build moment into "
                    "the deployed program.")
 
@@ -40,16 +41,9 @@ class NoBuildTimeClock:
         del body, ctx
 
     def check_module(self, ctx: Context) -> None:
-        # Everything that runs at IMPORT: the module's statements and a class
-        # body, but not the inside of a def or lambda, which runs when called.
-        stack: list[ast.AST] = list(ctx.tree.body)
-        while stack:
-            node = stack.pop()
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                continue
+        for node in import_time_nodes(ctx):
             if isinstance(node, ast.Call) and _is_clock_read(node):
                 ctx.report(node, self, MESSAGE)
-            stack.extend(ast.iter_child_nodes(node))
 
 
 def _is_clock_read(node: ast.Call) -> bool:

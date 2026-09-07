@@ -25,9 +25,8 @@ MESSAGE = ("this East string constant is assembled by an f-string, so what it ac
 
 class NoPythonStringBuilding:
     name = "no-python-string-building"
-    code = 24
+    code = 23
     category = "warning"
-    supersedes: tuple[str, ...] = ()
     description = ("No East string constant assembled by a module-scope f-string — spell it out.")
 
     def check(self, body: Body, ctx: Context) -> None:

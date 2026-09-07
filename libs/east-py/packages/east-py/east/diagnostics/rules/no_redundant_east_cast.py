@@ -25,14 +25,8 @@ def message(method: str) -> str:
 
 class NoRedundantEastCast:
     name = "no-redundant-east-cast"
-    code = 16
+    code = 15
     category = "warning"
-    # Disjoint by construction, so nothing to supersede: this rule fires only
-    # on `b.let(East.value(...), T)`, where the assignment's value is the
-    # `b.let` call rather than the `East.value` one that
-    # `prefer-let-const-over-east-value` looks for. The edge that used to be
-    # declared here could never fire.
-    supersedes: tuple[str, ...] = ()
     description = "No East.value(...) wrapper inside b.let / b.const — the block builder carries the type."
 
     def check(self, body: Body, ctx: Context) -> None:

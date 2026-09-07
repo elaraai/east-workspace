@@ -3,16 +3,16 @@
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
 # ruff: noqa
-"""The Option constructors, and a variant that is not an Option."""
-from east import East, IntegerType, OptionType, StringType, VariantCaseDef, VariantType, none, some, variant
+"""The Option constructors, and a variant of the author's own whose case is called some."""
+from east import East, IntegerType, OptionType, StringType, VariantType, none, some, variant
 
-Shape = VariantType([VariantCaseDef("circle", IntegerType), VariantCaseDef("label", StringType)])
+Shape = VariantType([("circle", IntegerType), ("label", StringType)])
+Count = VariantType([("some", IntegerType), ("many", IntegerType)])
+one = variant("some", 1, Count)
+tagged = variant("circle", 3, Shape)
 
 
 @East.function([IntegerType], OptionType(IntegerType))
 def wrapped(b, x):
     held = b.let(some(x))
-    empty = b.let(none)
-    tagged = b.let(variant("circle", x, Shape))
-    b.do(tagged)
-    return b.if_(x > 0, lambda b: held).else_(lambda b: empty)
+    return East.if_else(x > 0, held, none)

@@ -25,9 +25,8 @@ RETURN_MESSAGE = ("returning East.value(...) erases the East type — bind it wi
 
 class PreferLetConstOverEastValue:
     name = "prefer-let-const-over-east-value"
-    code = 17
+    code = 16
     category = "suggestion"
-    supersedes: tuple[str, ...] = ()
     description = "Inside a body, declare with b.let / b.const rather than East.value(...)."
 
     def check(self, body: Body, ctx: Context) -> None:

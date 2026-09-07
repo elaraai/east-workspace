@@ -4,7 +4,7 @@
 #
 # ruff: noqa
 """Both wire formats readable where they are declared."""
-from east import IntegerType, StringType, StructFieldDef, StructType
+from east import IntegerType, StringType, StructType
 
-Source = StructType([StructFieldDef("org", StringType), StructFieldDef("line", IntegerType)])
-Derived = StructType([StructFieldDef("org", StringType), StructFieldDef("line", IntegerType)])
+Source = StructType([("org", StringType), ("line", IntegerType)])
+Derived = StructType([("org", StringType), ("line", IntegerType)])

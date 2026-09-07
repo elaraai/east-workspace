@@ -3,27 +3,35 @@
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
 """``no-compile-time-data-injection``: reading data while the module is
-IMPORTED bakes that data into the program. The file read at build time is the
-file as it was on the build machine; the environment variable read at build
-time is the builder's, not the deployment's. Both belong at runtime — an e3
-input, a dataset, or a platform function, which is precisely what a platform
-function is for, so a read inside a ``def`` is never flagged.
+IMPORTED and handing it to East bakes that data into the program. The file
+read at build time is the file as it was on the build machine; the
+environment variable read at build time is the builder's, not the
+deployment's. Both belong at runtime — an e3 input, a dataset, or a platform
+function, which is precisely what a platform function is for, so a read
+inside a ``def`` is never flagged.
 
-The TypeScript rule of the same name, whose fs/`process.env` set becomes
-python's ``open`` / ``Path.read_text`` / ``json.load`` / ``os.environ`` and
-the dataframe readers.
+Only a read that REACHES East is the program's: bound to a name a body reads
+or a boundary call takes (``b.const(ROWS, T)``, ``coerce_to(ROWS, T)``), or
+fed straight into an East constructor. A log level or a path read at import
+for python's own use is python's business, and so is a script's
+``if __name__ == "__main__":`` block, which an import never runs. The
+TypeScript rule of the same name, whose fs/`process.env` set becomes python's
+``open`` / ``Path.read_text`` / ``json.load`` / ``os.environ`` and the
+dataframe readers.
 """
 
 from __future__ import annotations
 
 import ast
 
+from east.diagnostics.scope import import_time_nodes, reaches_east, rooted_at_east
 from east.diagnostics.types import Body, Context
 
 MESSAGE = ("reading data at module import bakes the build machine's copy into the program — load "
            "it at runtime instead (an e3 input, a dataset, or a platform function)")
 ENV_MESSAGE = ("reading the environment at module import captures the BUILDER's environment, not "
-               'the deployment\'s — read it at runtime with East.Env.get("YOUR_VAR")')
+               "the deployment's — read it at runtime: east_py_std's env_get(\"YOUR_VAR\") in a body, "
+               "or os.environ inside a platform function")
 
 #: read calls whose receiver is a path-like or a module we can name
 _READ_CALLS = frozenset({
@@ -32,16 +40,13 @@ _READ_CALLS = frozenset({
 })
 #: the bare builtins that read
 _READ_BUILTINS = frozenset({"open"})
-#: ``os.environ`` / ``os.getenv`` / ``environ.get``
-_ENV_ATTRS = frozenset({"getenv", "environ"})
 
 
 class NoCompileTimeDataInjection:
     name = "no-compile-time-data-injection"
-    code = 22
+    code = 21
     category = "warning"
-    supersedes: tuple[str, ...] = ()
-    description = ("No file or environment read at module import in East source — load data at "
+    description = ("No file or environment read at module import handed to East — load data at "
                    "runtime.")
 
     def check(self, body: Body, ctx: Context) -> None:
@@ -49,15 +54,28 @@ class NoCompileTimeDataInjection:
         del body, ctx
 
     def check_module(self, ctx: Context) -> None:
-        stack: list[ast.AST] = list(ctx.tree.body)
+        for node in import_time_nodes(ctx):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names = [t.id for t in targets if isinstance(t, ast.Name)]
+            if not (any(reaches_east(name, ctx) for name in names) or rooted_at_east(node.value, ctx)):
+                continue
+            self._reads(node.value, ctx)
+
+    def _reads(self, value: ast.AST, ctx: Context) -> None:
+        """Report the OUTERMOST read in ``value`` — `json.load(open(p))` is one read."""
+        stack: list[ast.AST] = [value]
         while stack:
             node = stack.pop()
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            if isinstance(node, ast.Lambda):
                 continue
             if _is_env_read(node):
                 ctx.report(node, self, ENV_MESSAGE)
-            elif isinstance(node, ast.Call) and _is_data_read(node):
+                continue
+            if isinstance(node, ast.Call) and _is_data_read(node):
                 ctx.report(node, self, MESSAGE)
+                continue
             stack.extend(ast.iter_child_nodes(node))
 
 

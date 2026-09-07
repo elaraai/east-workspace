@@ -3,27 +3,28 @@
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
 """``no-python-data-work``: a python helper doing the DATA work — parsing,
-stripping, null-checking, coercing — for a body that calls it.
+stripping, null-checking, coercing — on an EXPRESSION a body hands it.
 
 The ``_f(v)`` shape left behind by a migration: the East function is real, but
-the cleaning still happens in python, so it runs at build time over expression
-proxies rather than at runtime over the data. What survives into the IR is
-whatever the proxy happened to produce. Express it in East, where it runs on
-every row.
+the cleaning still happens in python, so it runs once at build time over an
+expression proxy rather than at runtime over the data — ``v is not None`` is
+decided about the proxy, forever. What survives into the IR is whatever the
+proxy happened to produce. Express it in East, where it runs on every row.
 
-``no-python-work`` is the sibling for an EAGER callback, where the capture
-refuses the helper by name before the body runs; it supersedes this rule where
-both see the same helper.
+The tell is the ARGUMENT: a helper called with a plain python value
+(``norm(COLUMNS[0])``) does python work on python data and is fine. And an
+eager callback's helper is refused by the capture itself, by name — that is
+``no-python-work``'s message, so this rule leaves eager callbacks alone.
 """
 
 from __future__ import annotations
 
 import ast
 
-from east.diagnostics.types import Body, Context
+from east.diagnostics.types import Body, Context, body_nodes
 
 MESSAGE = ("this helper does the data work — parsing, stripping, null-checking, coercing — in "
-           "python for a body that calls it, so it runs once at build time over an expression "
+           "python on an expression a body hands it, so it runs once at build time over the "
            "proxy rather than over each row. Express it in East")
 
 #: the string/number munging a migrated helper is made of
@@ -37,11 +38,10 @@ _DATA_BUILTINS = frozenset({"float", "int", "str", "bool", "round", "abs", "len"
 
 class NoPythonDataWork:
     name = "no-python-data-work"
-    code = 26
+    code = 25
     category = "warning"
-    supersedes: tuple[str, ...] = ()
-    description = ("No python helper doing parse / strip / null-check / coerce work for a body — "
-                   "express it in East.")
+    description = ("No python helper doing parse / strip / null-check / coerce work on an expression "
+                   "a body hands it — express it in East.")
 
     def check(self, body: Body, ctx: Context) -> None:
         del body, ctx  # the helper is a module-scope def; the module pass finds it
@@ -55,7 +55,7 @@ class NoPythonDataWork:
             params = {a.arg for a in [*node.args.posonlyargs, *node.args.args]}
             if not params:
                 continue
-            if _does_data_work(node, params) and _called_from_a_function_body(node.name, ctx):
+            if _does_data_work(node, params) and _called_with_an_expression(node.name, ctx):
                 ctx.report(node, self, MESSAGE)
 
 
@@ -80,15 +80,15 @@ def _mentions(node: ast.AST, params: set[str]) -> bool:
     return any(isinstance(n, ast.Name) and n.id in params for n in ast.walk(node))
 
 
-def _called_from_a_function_body(name: str, ctx: Context) -> bool:
-    """Called from a NON-eager body. An eager callback's helper is refused by
-    the capture itself and belongs to ``no-python-work``."""
+def _called_with_an_expression(name: str, ctx: Context) -> bool:
+    """Called from a NON-eager body with an expression argument."""
 
     def calls(body: Body) -> bool:
-        if body.kind != "eager" and any(
-                isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == name
-                for n in ast.walk(body.node)):
-            return True
+        if body.kind != "eager":
+            for n in body_nodes(body):
+                if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == name
+                        and any(body.is_expression(a) for a in n.args)):
+                    return True
         return any(calls(child) for child in body.children)
 
-    return any(body.kind != "eager" and calls(body) for body in ctx.bodies)
+    return any(calls(body) for body in ctx.bodies if body.kind != "eager")
