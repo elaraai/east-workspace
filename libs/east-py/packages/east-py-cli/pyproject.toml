@@ -22,6 +22,11 @@ classifiers = [
 
 dependencies = [
     "elaraai-east-py",
+    # `east-py lsp` is what the Claude Code plugin and any editor without a
+    # tsserver-style plugin API run for python East files (#681), so the server
+    # it is built on ships with the CLI rather than behind an extra a project
+    # can forget. Both major lines are supported.
+    "pygls>=1.3.0",
 ]
 
 [tool.uv.sources]
@@ -33,12 +38,9 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "mypy>=1.11.0",
     "ruff>=0.6.0",
-    # `east-py lsp` is part of the development path now (#681): the Claude Code
-    # plugin proxies a persistent one for every python East file. A bare install
-    # still works without it — the command says what to install and exits.
-    "pygls>=1.3.0",
 ]
-# `east-py lsp` — the East diagnostics as a Language Server (#638)
+# Kept for `pip install 'elaraai-east-py-cli[lsp]'` in older instructions;
+# pygls is a dependency proper now.
 lsp = [
     "pygls>=1.3.0",
 ]

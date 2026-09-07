@@ -5,6 +5,7 @@
 """CLI argument parsing and main entry point."""
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -177,18 +178,26 @@ def create_parser() -> argparse.ArgumentParser:
              "at their lines — the type errors `lint` cannot see",
     )
     check_parser.add_argument(
-        "targets", nargs="+", help="Modules to check (a .py path, or a dotted module name)")
+        "targets", nargs="+",
+        help="Modules to check (a .py path, a directory of them, or a dotted module name)")
     check_parser.add_argument(
         "--format", choices=("text", "json"), default="text",
         help="text: one `file:line:col: category [rule] message` line per finding (default); "
              "json: the findings as records, the shape `lint --format json` emits")
+    check_parser.add_argument(
+        "--only-if-enabled", action="store_true",
+        help="Check only where the project's pyproject.toml opts in ([tool.east-py] check = true) — "
+             "what an editor hook asks before importing a module on the author's behalf")
 
-    # lsp command (#638): the same diagnostics for an editor
-    subparsers.add_parser(
+    # lsp command (#638, #681): the same diagnostics for an editor, both tiers
+    lsp_parser = subparsers.add_parser(
         "lsp",
-        help="Serve the East diagnostics as a Language Server over stdio (needs pygls: "
-        "pip install 'elaraai-east-py-cli[lsp]')",
+        help="Serve the East diagnostics as a Language Server over stdio (needs pygls)",
     )
+    lsp_parser.add_argument(
+        "--probe", action="store_true",
+        help="Report whether the server can start here (pygls importable) and exit — for a "
+             "launcher or a health check")
 
     # version command
     version_parser = subparsers.add_parser("version", help="Show version information")
@@ -564,14 +573,14 @@ def cmd_check(args: argparse.Namespace) -> int:
     """
     import json
 
-    from east_py_cli.check import check_module
+    from east_py_cli.check import check_targets
 
-    findings = []
     for target in args.targets:
-        if target.endswith(".py") and not Path(target).exists():
-            print(f"Error: no such file: {target}", file=sys.stderr)
+        looks_like_a_path = target.endswith(".py") or os.sep in target or Path(target).exists()
+        if looks_like_a_path and not Path(target).exists():
+            print(f"Error: no such file or directory: {target}", file=sys.stderr)
             return 2
-        findings.extend(check_module(target))
+    findings = check_targets(args.targets, only_if_enabled=args.only_if_enabled)
 
     if args.format == "json":
         print(json.dumps([f.as_record() for f in findings], indent=2))
@@ -588,10 +597,9 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 def cmd_lsp(args: argparse.Namespace) -> int:
     """``east-py lsp``: serve the diagnostics over the Language Server Protocol."""
-    del args
-    from east_py_cli.lsp import serve
+    from east_py_cli.lsp import probe, serve
 
-    return serve()
+    return probe() if args.probe else serve()
 
 
 def main() -> None:

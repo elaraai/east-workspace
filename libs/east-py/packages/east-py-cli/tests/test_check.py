@@ -16,7 +16,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from east_py_cli.check import GUARD, check_module, guarded
+from east_py_cli.check import (
+    GUARD,
+    check_module,
+    check_targets,
+    expand_targets,
+    forget_module,
+    guarded,
+)
 
 THREE_BROKEN = '''
 from east import East
@@ -153,3 +160,75 @@ def test_the_cli_refuses_a_missing_file(tmp_path):
     result = _run("check", str(tmp_path / "nope.py"))
     assert result.returncode == 2
     assert "no such file" in result.stderr
+
+
+def test_a_directory_target_checks_every_module_under_it(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    _module(src, THREE_BROKEN, "a.py")
+    _module(src, CLEAN, "b.py")
+    (src / "tests").mkdir()
+    _module(src / "tests", THREE_BROKEN, "test_c.py")  # an excluded directory, as for lint
+    assert [Path(t).name for t in expand_targets([str(src)])] == ["a.py", "b.py"]
+    findings = check_targets([str(src)])
+    assert len(findings) == 3 and all(Path(f.path).name == "a.py" for f in findings)
+
+
+def test_the_cli_takes_a_directory(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    _module(src, THREE_BROKEN, "a.py")
+    result = _run("check", str(src))
+    assert result.returncode == 1, result.stderr
+    assert result.stdout.count("[build]") == 3
+
+
+def test_a_module_that_cannot_be_found_is_reported_against_the_target_not_the_checker(tmp_path):
+    """The checker's own frames are never the author's — an editable install
+    used to put `check.py:117` on every ModuleNotFoundError."""
+    [finding] = check_module("no_such_module_east_check_xyz")
+    assert finding.rule == "import"
+    assert finding.path == "no_such_module_east_check_xyz" and finding.line == 1
+    assert "check.py" not in finding.path
+
+
+def test_a_dotted_module_is_re_executed_on_every_check(tmp_path, monkeypatch):
+    _module(tmp_path, THREE_BROKEN, "dotted_mod.py")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    first = check_module("dotted_mod")
+    second = check_module("dotted_mod")
+    assert len(first) == len(second) == 3, "a warm re-check must not hand back the cached module"
+    assert "dotted_mod" not in sys.modules, "the checker's import must not become the process's module"
+
+
+def test_forget_module_evicts_what_was_loaded_from_the_path(tmp_path, monkeypatch):
+    helper = _module(tmp_path, "LIMIT = 1\n", "helper_to_forget.py")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    import importlib
+    importlib.import_module("helper_to_forget")
+    assert "helper_to_forget" in sys.modules
+    assert forget_module(helper) == ["helper_to_forget"]
+    assert "helper_to_forget" not in sys.modules
+    assert forget_module(helper) == []
+    assert "east" in sys.modules and forget_module(sys.modules["east"].__file__) == [], "East itself is never evicted"
+
+
+def test_only_if_enabled_skips_a_project_that_has_not_opted_in(tmp_path):
+    silent = tmp_path / "silent"
+    silent.mkdir()
+    (silent / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    opted = tmp_path / "opted"
+    opted.mkdir()
+    (opted / "pyproject.toml").write_text("[tool.east-py]\ncheck = true\n", encoding="utf-8")
+    quiet = _module(silent, THREE_BROKEN)
+    loud = _module(opted, THREE_BROKEN)
+    assert check_targets([quiet], only_if_enabled=True) == []
+    assert len(check_targets([loud], only_if_enabled=True)) == 3
+    assert len(check_targets([quiet])) == 3, "the command line never asks"
+    result = _run("check", "--only-if-enabled", "--format", "json", quiet)
+    assert result.returncode == 0 and json.loads(result.stdout) == []
+
+
+def test_a_module_that_exits_at_import_is_an_import_finding_not_a_crash(tmp_path):
+    [finding] = check_module(_module(tmp_path, "from east import East\nraise SystemExit(3)\n"))
+    assert finding.rule == "import" and "SystemExit" in finding.message

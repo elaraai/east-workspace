@@ -12,7 +12,7 @@ approximation of one. A slot type mismatch, an ``out`` that does not match the
 body, a callback the capture refuses, an ``IRAnalysisError``: none of these are
 visible to the rules, and all of them are visible here.
 
-Two things make it a checker rather than an import:
+Three things make it a checker rather than an import:
 
 - **Every build, not the first failure.** ``collect_build_errors`` records a
   failed build and hands back a placeholder, so one run reports every broken
@@ -22,7 +22,18 @@ Two things make it a checker rather than an import:
   skips its module-level side effects — reading files, calling platform
   implementations, ``East.compile`` — when it is set. A module that ignores the
   guard still gets checked; it just does its import-time work first, which is
-  why the caller runs this in a subprocess with a timeout.
+  why a caller runs this in a subprocess with a timeout.
+- **A fresh execution every time.** A ``.py`` target is executed under a
+  private module name and unregistered afterwards; a dotted target is evicted
+  from ``sys.modules`` and re-imported, since ``import_module`` alone hands a
+  warm process the cached module and reports nothing. The modules a target
+  IMPORTS stay cached for the process's life — that is what makes a warm
+  re-check cheap — so a language server evicts a module when its file is saved
+  (:func:`forget_module`), and a one-shot CLI never has the problem.
+
+One check runs at a time per process: the guard, ``sys.path`` and
+``sys.modules`` are process-wide state, and the builder itself is not
+thread-safe.
 """
 
 from __future__ import annotations
@@ -31,14 +42,25 @@ import importlib
 import importlib.util
 import os
 import sys
-from collections.abc import Iterator
+import threading
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from east.expression.location import Location
+
 #: the environment variable a module can read to skip its import-time work
 GUARD = "EAST_CHECK"
+
+#: this package's own directory — the checker's frames are never the author's,
+#: but an editable install puts them outside site-packages, where the source
+#: map's filter would otherwise count them as authored
+_SELF_DIR = Path(__file__).resolve().parent
+
+#: one check at a time per process
+_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -82,8 +104,58 @@ def guarded() -> Iterator[None]:
             os.environ[GUARD] = previous
 
 
+def expand_targets(targets: Iterable[str], *, excludes: Iterable[str] = ()) -> list[str]:
+    """A directory becomes every ``.py`` file under it, walked as ``east-py
+    lint`` walks (the default excludes plus the project's own); a ``.py`` path
+    or a dotted module name stays as it is."""
+    from east.diagnostics import DEFAULT_EXCLUDES, load_config, python_files
+
+    out: list[str] = []
+    for target in targets:
+        path = Path(target)
+        if path.is_dir():
+            config = load_config(path)
+            skip = (*DEFAULT_EXCLUDES, *config.exclude, *excludes)
+            out.extend(str(file) for file in python_files([path], excludes=skip))
+        else:
+            out.append(target)
+    return out
+
+
+def forget_module(path: str | os.PathLike[str]) -> list[str]:
+    """Evict from ``sys.modules`` every module that was loaded from ``path``.
+
+    What a warm language server does when a file is SAVED, so the next check of
+    a module that imports it re-executes the new version rather than the cached
+    one. East's own packages are never evicted — re-importing the builder into a
+    running process would split its state.
+
+    Returns:
+        The names evicted, for the caller's log.
+    """
+    try:
+        target = Path(path).resolve()
+    except OSError:
+        return []
+    evicted: list[str] = []
+    for name, module in list(sys.modules.items()):
+        if name == "east" or name.startswith(("east.", "east_py_cli")):
+            continue
+        file = getattr(module, "__file__", None)
+        if not file:
+            continue
+        try:
+            same = Path(file).resolve() == target
+        except OSError:
+            continue
+        if same:
+            del sys.modules[name]
+            evicted.append(name)
+    return evicted
+
+
 def _import(target: str) -> None:
-    """Import ``target`` — a dotted module name, or a path to a ``.py`` file."""
+    """Execute ``target`` afresh — a dotted module name, or a path to a ``.py`` file."""
     if target.endswith(".py"):
         path = Path(target).resolve()
         spec = importlib.util.spec_from_file_location(path.stem, path)
@@ -113,15 +185,26 @@ def _import(target: str) -> None:
                 sys.modules.pop(key, None)
             if added and sys.path and sys.path[0] == parent:
                 sys.path.pop(0)
-    else:
+        return
+    # A dotted name is re-executed, not looked up: `import_module` hands a warm
+    # process the cached module back, and a second check would report nothing.
+    had = target in sys.modules
+    previous = sys.modules.pop(target, None)
+    try:
         importlib.import_module(target)
+    finally:
+        if had:
+            sys.modules[target] = previous  # type: ignore[assignment]
+        else:
+            sys.modules.pop(target, None)
 
 
 def check_module(target: str) -> list[BuildFinding]:
     """Build every East function in ``target`` and report what failed.
 
     Args:
-        target: A ``.py`` path, or a dotted module name.
+        target: A ``.py`` path, or a dotted module name. (A directory is
+            expanded first by :func:`expand_targets`.)
 
     Returns:
         The findings, in source order. A module that fails to import at all
@@ -132,14 +215,15 @@ def check_module(target: str) -> list[BuildFinding]:
 
     findings: list[BuildFinding] = []
     default = str(Path(target).resolve()) if target.endswith(".py") else target
-    with guarded(), collect_build_errors() as errors:
+    with _LOCK, guarded(), collect_build_errors() as errors:
         try:
             _import(target)
-        except BaseException as e:  # noqa: BLE001 - a module may raise anything on import
+        except KeyboardInterrupt:
+            raise
+        except BaseException as e:  # noqa: BLE001 - a module may raise anything on import, SystemExit included
             findings.append(_import_failure(e, default))
     for error in errors:
-        where = error.location
-        path, line, column = where if where is not None else (default, 1, 1)
+        path, line, column = _innermost(error.frames, default)
         findings.append(BuildFinding(
             path=path, line=line, column=max(column, 1),
             end_line=line, end_column=max(column, 1) + 1,
@@ -150,12 +234,47 @@ def check_module(target: str) -> list[BuildFinding]:
     return findings
 
 
+def check_targets(targets: Iterable[str], *, only_if_enabled: bool = False) -> list[BuildFinding]:
+    """Check every target — directories expanded — and concatenate the findings.
+
+    Args:
+        targets: ``.py`` paths, directories, or dotted module names.
+        only_if_enabled: Skip a target whose project has not opted into the
+            build tier (``[tool.east-py] check = true``) — what an editor hook
+            asks, since it imports the module on the author's behalf. The
+            command line never asks: running it is consent in itself.
+    """
+    from east.diagnostics import load_config
+
+    findings: list[BuildFinding] = []
+    for target in expand_targets(targets):
+        if only_if_enabled and not load_config(target if target.endswith(".py") else ".").check:
+            continue
+        findings.extend(check_module(target))
+    return findings
+
+
+def _is_self(path: str) -> bool:
+    try:
+        return Path(path).resolve().is_relative_to(_SELF_DIR)
+    except OSError:
+        return False
+
+
+def _innermost(frames: tuple[Location, ...], default: str) -> Location:
+    """The innermost AUTHOR frame — the checker's own frames dropped — or the
+    default location when there is none."""
+    for frame in frames:
+        if not _is_self(frame[0]):
+            return frame
+    return (default, 1, 1)
+
+
 def _import_failure(error: BaseException, default: str) -> BuildFinding:
     """The module did not import — report it where the author's stack ends."""
     from east.expression.location import author_frames_of
 
-    frames = author_frames_of(error.__traceback__)
-    path, line, column = frames[0] if frames else (default, 1, 1)
+    path, line, column = _innermost(author_frames_of(error.__traceback__), default)
     return BuildFinding(
         path=path, line=line, column=max(column, 1),
         end_line=line, end_column=max(column, 1) + 1,

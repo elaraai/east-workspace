@@ -12,32 +12,43 @@ Two tiers, because they cost different amounts and fail differently:
   its East functions, which is what makes it a TYPE check — and what makes it
   cost the module's whole import.
 
-The second is why this server exists rather than a subprocess per document.
-Measured on ``east-py check`` here: a cold subprocess costs 0.12s for a module
-whose dependencies import lazily and 0.81s for one that imports torch at module
-scope, while a re-check in a warm process costs 0.0003s once those dependencies
-are in ``sys.modules``. The build tier runs on SAVE, not on change: it imports the module, which
-reads it from DISK, so running it against an unsaved buffer would report the
-last saved version's errors at the last saved version's line numbers, painted
-onto the document in front of you. Stale-and-misplaced is worse than absent.
-That is also what #653 specified. The warm process still earns its keep — a
-save costs 0.0003s here against 0.12-0.81s for a subprocess, so the tier can
-run on every save of a big project without being felt. The build
-tier runs on a worker thread and is debounced, so a slow or wedged build never
-blocks the rules — and the client owns restarting this process if it stops
-answering at all.
+The second is why this server exists rather than a subprocess per document:
+a re-check in a warm process costs a fraction of a millisecond once the
+module's dependencies are in ``sys.modules``, against 0.1–0.8 s for a cold
+subprocess. The build tier reads the module from DISK — an import does — so it
+runs when the file on disk is what the editor shows: on OPEN (debounced, since
+an editor restoring a session opens many files at once) and on SAVE (at
+once), and only when the project has opted in with ``[tool.east-py] check =
+true``. Its findings are cached per document and merged into every publish, so
+a keystroke never blinks them out; the next save replaces them. A save also
+evicts the saved module from ``sys.modules``, so a module that imports it is
+checked against the new version next time.
 
-Built on ``pygls``: ``pip install 'elaraai-east-py-cli[lsp]'``. Without it
-``east-py lsp`` says so and exits. :func:`lsp_diagnostics` and
-:func:`lsp_build_diagnostics` are the protocol-shaped payloads and need no
-``pygls``.
+The build tier runs on ONE long-lived worker thread — never on the handler,
+never on a fresh thread per document. pygls runs a plain handler on its event
+loop, so an import that wedges there would block every document; and an East
+artifact built on a short-lived thread and collected after that thread exits
+aborts the interpreter, so a ``threading.Timer`` per open would take the
+server down within a few opens. One worker, a debounced queue inside it, and
+the builder — which keeps its trace state in module globals — is never
+entered from two threads.
+
+Built on ``pygls``, 1.3 or 2.x (the two spell the server class and the
+publish call differently; both are served). ``east-py lsp --probe`` says
+whether the server can start here, for a launcher or a health check.
+:func:`lsp_diagnostics` and :func:`lsp_build_diagnostics` are the
+protocol-shaped payloads and need no ``pygls``.
 """
 
 from __future__ import annotations
 
-import contextlib
+import asyncio
+import importlib
+import importlib.metadata
 import sys
 import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +59,8 @@ from east_py_cli import __version__
 #: LSP DiagnosticSeverity: Error = 1, Warning = 2, Information = 3
 SEVERITY = {"error": 1, "warning": 2, "suggestion": 3}
 SOURCE = "east-py"
-#: how long a change settles before the build tier runs, in seconds
+#: how long an OPEN settles before the build tier runs, in seconds — a save
+#: runs it at once
 BUILD_DEBOUNCE = 0.6
 
 
@@ -96,7 +108,10 @@ def lsp_build_diagnostics(path: str) -> list[dict[str, Any]]:
         return []
     try:
         findings = check_module(path)
-    except BaseException:  # noqa: BLE001 - a module may do anything on import
+    except KeyboardInterrupt:
+        raise
+    except BaseException as e:  # noqa: BLE001 - a module may do anything on import
+        print(f"east-py lsp: the build tier failed for {path}: {type(e).__name__}: {e}", file=sys.stderr)
         return []
     return [
         {
@@ -127,25 +142,114 @@ def same_file(a: str, b: str) -> bool:
 
 
 NEEDS_PYGLS = ("east-py lsp needs pygls — install it with `pip install pygls` "
-               "(or `pip install 'elaraai-east-py-cli[lsp]'`)")
+               "(or reinstall elaraai-east-py-cli, which depends on it)")
+
+
+def _import_pygls() -> tuple[Any, Any]:
+    """``(the LanguageServer class, lsprotocol.types)`` — pygls 2 moved the
+    server class to ``pygls.lsp.server``; 1.x keeps it in ``pygls.server``.
+
+    Raises:
+        ImportError: When neither pygls nor lsprotocol is importable.
+    """
+    lsp = importlib.import_module("lsprotocol.types")
+    for module_name in ("pygls.lsp.server", "pygls.server"):
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+        server_cls = getattr(module, "LanguageServer", None)
+        if server_cls is not None:
+            return server_cls, lsp
+    raise ImportError("pygls")
+
+
+def probe() -> int:
+    """``east-py lsp --probe``: whether the server can start here — what a
+    launcher or a health check asks before trusting it. Prints the answer,
+    returns the exit code."""
+    try:
+        _import_pygls()
+    except ImportError:
+        print(NEEDS_PYGLS, file=sys.stderr)
+        return 1
+    try:
+        version = importlib.metadata.version("pygls")
+    except importlib.metadata.PackageNotFoundError:
+        version = "unknown"
+    print(f"east-py lsp ok (pygls {version})")
+    return 0
+
+
+class _BuildWorker:
+    """The build tier's ONE thread: a debounced queue of documents, checked
+    one at a time, for the life of the server."""
+
+    def __init__(self, run: Callable[[str, str], None]) -> None:
+        self._run = run
+        #: path -> (deadline, uri)
+        self._due: dict[str, tuple[float, str]] = {}
+        self._cv = threading.Condition()
+        self._stopped = False
+        self._thread = threading.Thread(target=self._loop, name="east-py-build", daemon=True)
+        self._thread.start()
+
+    def request(self, path: str, uri: str, delay: float) -> None:
+        with self._cv:
+            self._due[path] = (time.monotonic() + delay, uri)
+            self._cv.notify()
+
+    def cancel(self, path: str) -> None:
+        with self._cv:
+            self._due.pop(path, None)
+
+    def stop(self) -> None:
+        with self._cv:
+            self._stopped = True
+            self._cv.notify()
+
+    def _loop(self) -> None:
+        while True:
+            with self._cv:
+                while not self._stopped:
+                    if not self._due:
+                        self._cv.wait()
+                        continue
+                    path, (deadline, uri) = min(self._due.items(), key=lambda item: item[1][0])
+                    wait = deadline - time.monotonic()
+                    if wait <= 0:
+                        del self._due[path]
+                        break
+                    self._cv.wait(wait)
+                if self._stopped:
+                    return
+            try:
+                self._run(path, uri)
+            except Exception as e:  # noqa: BLE001 - the worker outlives any one document's failure
+                print(f"east-py lsp: build tier failed for {path}: {type(e).__name__}: {e}", file=sys.stderr)
 
 
 def serve() -> int:
     """Serves both tiers over stdio until the client closes the connection.
     Returns the exit code."""
     try:
-        from lsprotocol import types as lsp  # type: ignore[import-not-found,unused-ignore]
-        from pygls.server import LanguageServer  # type: ignore[import-not-found,unused-ignore]
+        server_cls, lsp = _import_pygls()
     except ImportError:
         print(NEEDS_PYGLS, file=sys.stderr)
         return 1
 
-    server = LanguageServer(SOURCE, __version__)
-    # path -> the build findings last computed for it, merged into every
-    # publish so a keystroke does not blink them out and back.
+    from east_py_cli.check import forget_module
+
+    server = server_cls(SOURCE, __version__)
+    # path -> the rules last computed, and the build findings last computed;
+    # every publish merges both, so a keystroke never blinks a build finding out
+    rules_cache: dict[str, list[dict[str, Any]]] = {}
     build_cache: dict[str, list[dict[str, Any]]] = {}
-    timers: dict[str, threading.Timer] = {}
     lock = threading.Lock()
+    #: the event loop the handlers run on, captured on first use, so the
+    #: worker hands its publishes back to it rather than writing the transport
+    #: from a second thread
+    loop_holder: dict[str, Any] = {"loop": None}
 
     def to_lsp(record: dict[str, Any]) -> Any:
         return lsp.Diagnostic(
@@ -161,84 +265,84 @@ def serve() -> int:
             message=record["message"],
         )
 
-    def document(ls: Any, uri: str) -> Any:
-        workspace = ls.workspace
+    def document(uri: str) -> Any:
+        workspace = server.workspace
         get = getattr(workspace, "get_text_document", None) or workspace.get_document
         return get(uri)
 
-    def publish(ls: Any, uri: str, rules: list[dict[str, Any]], path: str) -> None:
+    def publish(uri: str, path: str) -> None:
         with lock:
-            merged = [*rules, *build_cache.get(path, [])]
-        ls.publish_diagnostics(uri, [to_lsp(r) for r in merged])
+            merged = [*rules_cache.get(path, []), *build_cache.get(path, [])]
+        diagnostics = [to_lsp(r) for r in merged]
+        publish_params = getattr(server, "text_document_publish_diagnostics", None)
+        if publish_params is not None:  # pygls >= 2
+            publish_params(lsp.PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics))
+        else:  # pygls 1.x
+            server.publish_diagnostics(uri, diagnostics)
 
-    def run_rules(ls: Any, uri: str) -> tuple[list[dict[str, Any]], str]:
-        doc = document(ls, uri)
+    def remember_loop() -> None:
+        try:
+            loop_holder["loop"] = asyncio.get_running_loop()
+        except RuntimeError:
+            loop_holder["loop"] = None
+
+    def run_rules(uri: str) -> str:
+        remember_loop()
+        doc = document(uri)
         path = doc.path or uri
-        rules = lsp_diagnostics(doc.source, path)
-        publish(ls, uri, rules, path)
-        return rules, path
-
-    def build_later(ls: Any, uri: str, path: str, rules: list[dict[str, Any]]) -> None:
-        """Run the build tier off the request path, debounced per document.
-
-        Only ever called for a document whose DISK contents are the ones being
-        reported on — an open, or a save. `check_module` imports the module,
-        and an import reads the file, not the editor's buffer.
-        """
-
-        def go() -> None:
-            findings = lsp_build_diagnostics(path)
-            with lock:
-                build_cache[path] = findings
-            # Never let the build tier kill the server: it runs on a worker
-            # thread, and a raise here would take the thread down silently.
-            with contextlib.suppress(Exception):
-                publish(ls, uri, rules, path)
-
+        found = lsp_diagnostics(doc.source, path)
         with lock:
-            existing = timers.pop(path, None)
-        if existing is not None:
-            existing.cancel()
-        timer = threading.Timer(BUILD_DEBOUNCE, go)
-        timer.daemon = True
+            rules_cache[path] = found
+        publish(uri, path)
+        return path
+
+    def build(path: str, uri: str) -> None:
+        # on the worker thread
+        findings = lsp_build_diagnostics(path)
         with lock:
-            timers[path] = timer
-        timer.start()
+            build_cache[path] = findings
+        loop = loop_holder["loop"]
+        if loop is not None and not loop.is_closed():
+            loop.call_soon_threadsafe(publish, uri, path)
+        else:
+            publish(uri, path)
+
+    worker = _BuildWorker(build)
 
     @server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
     def did_open(ls: Any, params: Any) -> None:
+        del ls
         uri = params.text_document.uri
-        rules, path = run_rules(ls, uri)
-        build_later(ls, uri, path, rules)
+        path = run_rules(uri)
+        worker.request(path, uri, BUILD_DEBOUNCE)
 
     @server.feature(lsp.TEXT_DOCUMENT_DID_CHANGE)
     def did_change(ls: Any, params: Any) -> None:
         # Tier one only. The buffer is dirty and the build tier reads disk, so
         # running it here would republish the last SAVED version's errors at
-        # that version's lines. The cached build findings for this document are
-        # merged in by `publish` and stay until the next save replaces them.
-        uri = params.text_document.uri
-        run_rules(ls, uri)
+        # that version's lines. The cached build findings stay merged in.
+        del ls
+        run_rules(params.text_document.uri)
 
     @server.feature(lsp.TEXT_DOCUMENT_DID_SAVE)
     def did_save(ls: Any, params: Any) -> None:
+        del ls
         uri = params.text_document.uri
-        rules, path = run_rules(ls, uri)
-        # A save is the moment the file on disk matches the buffer, so the
-        # build tier runs against it without waiting out the debounce.
-        findings = lsp_build_diagnostics(path)
-        with lock:
-            build_cache[path] = findings
-        publish(ls, uri, rules, path)
+        path = run_rules(uri)
+        forget_module(path)
+        worker.request(path, uri, 0.0)
 
     @server.feature(lsp.TEXT_DOCUMENT_DID_CLOSE)
     def did_close(ls: Any, params: Any) -> None:
-        path = document(ls, params.text_document.uri).path
+        del ls
+        path = document(params.text_document.uri).path
+        worker.cancel(path)
         with lock:
+            rules_cache.pop(path, None)
             build_cache.pop(path, None)
-            timer = timers.pop(path, None)
-        if timer is not None:
-            timer.cancel()
 
-    server.start_io()
+    try:
+        server.start_io()
+    finally:
+        worker.stop()
     return 0

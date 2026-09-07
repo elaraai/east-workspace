@@ -30,14 +30,6 @@ from east.diagnostics import load_config, run_east_rules
 SEVERITY = {"error": 1, "warning": 2, "suggestion": 3}
 
 
-def _hookimpl() -> Any:
-    """pylsp's pluggy marker, imported lazily so this module stays importable
-    (and testable) without pylsp installed."""
-    from pylsp import hookimpl  # type: ignore[import-not-found,unused-ignore]
-
-    return hookimpl
-
-
 def east_diagnostics(source: str, path: str) -> list[dict[str, Any]]:
     """The rules of ``source`` in pylsp's diagnostic shape."""
     return [
