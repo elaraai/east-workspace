@@ -49,14 +49,17 @@ async function findPackageJson(startDir) {
 }
 async function findPyProject(startDir) {
   let dir = startDir;
+  let nearest = null;
   while (true) {
     try {
-      return await readFile(join(dir, "pyproject.toml"), "utf-8");
+      const text = await readFile(join(dir, "pyproject.toml"), "utf-8");
+      if (PYTHON_SKILL_MAP.some(([pattern]) => pattern.test(text))) return text;
+      nearest ??= text;
     } catch {
-      const parent = dirname(dir);
-      if (parent === dir) return null;
-      dir = parent;
     }
+    const parent = dirname(dir);
+    if (parent === dir) return nearest;
+    dir = parent;
   }
 }
 function detectEastSkills(pkg) {
@@ -136,26 +139,25 @@ var EAST_RULES_CONTEXT_PY = [
   "",
   "Bindings & values:",
   "- no-let-const-in-expression \u2014 give `b.let` / `b.const` its own statement; don't bury a declaration inside an expression.",
-  "- prefer-explicit-east-type \u2014 avoid `b.let([])` / `b.let({})`; pass the East type, e.g. `b.let([], ArrayType(IntegerType))`.",
+  "- prefer-explicit-east-type \u2014 a bare python list / set / tuple in `b.let(...)` / `b.const(...)` cannot be lifted (the build refuses it, empty or not); pass the East type, e.g. `b.let([], ArrayType(IntegerType))`, or build it with `East.new_array`.",
   "- no-untracked-east-data \u2014 avoid a plain python literal local reaching an expression's method; bind it with `b.const(rows, Type)`.",
-  "- no-reinlined-east-binding \u2014 an expression held in a python local and used twice is re-inlined and re-evaluated; bind it once with `b.let` / `b.const`.",
   "- no-redundant-east-cast \u2014 avoid `b.let(East.value(x, T), T)`; pass the value and type to `b.let` directly.",
   "- prefer-let-const-over-east-value \u2014 inside a body declare with `b.const(value, Type)` / `b.let`, not `East.value(...)`.",
   "",
   "Variants & comparison:",
   '- prefer-some-none \u2014 avoid `variant("some", x)` / `variant("none", None)`; use `some(x)` / `none`.',
-  '- no-handrolled-variant \u2014 avoid a `{"type": \u2026, "value": \u2026}` dict; use `variant("Tag", value, Type)` \u2014 the encoder needs what it constructs.',
-  "- no-host-comparison-on-east-values \u2014 outside a body, avoid `==` / `<` on a decoded variant or option; use `equal_for(T)` / `compare_for(T)` (and `make_east_key(T)` for `sorted`).",
+  '- no-handrolled-variant \u2014 avoid a `{"type": \u2026, "value": \u2026}` dict reaching East (a body, `East.value`, `coerce_to`, `array`); use `variant("Tag", value, Type)` \u2014 the encoder needs what it constructs.',
+  "- no-host-comparison-on-east-values \u2014 outside a body, never `<` / `>` a decoded variant or option: it raises TypeError; use `compare_for(T)` / `less_for(T)` (and `make_east_key(T)` for `sorted`). `==` is structural and fine.",
   "",
   "Build time vs runtime (python computing what East should declare):",
-  "- no-build-time-clock \u2014 avoid `datetime.now()` / `time.time()` at module scope; author the constant, or read the clock inside a platform function.",
-  "- no-compile-time-data-injection \u2014 avoid `open()` / `json.load` / `os.environ` at module import; load at runtime (an e3 input, a dataset, a platform function).",
-  '- no-inline-credentials \u2014 avoid a literal password / token; `East.Env.get("YOUR_VAR")`, since IR is content-addressed and replicated.',
-  '- no-module-scope-east-macro \u2014 avoid a module-scope helper that builds IR for a body, or a composite `f"{a}|{b}"` key; make it an `East.function`, or model typed / nested East data.',
+  "- no-build-time-clock \u2014 avoid `datetime.now()` / `time.time()` at module scope; author the constant, or read the clock at runtime (a platform function, or `east_py_std`'s `time_now()` in a body).",
+  "- no-compile-time-data-injection \u2014 avoid `open()` / `json.load` / `os.environ` at module import when the result reaches East; load at runtime (an e3 input, a dataset, a platform function, `east_py_std`'s `env_get`).",
+  '- no-inline-credentials \u2014 avoid a literal password / token; read it at runtime \u2014 `east_py_std`\'s `env_get("YOUR_VAR")` in a body, `os.environ` in a platform function \u2014 since IR is content-addressed and replicated.',
+  '- no-module-scope-east-macro \u2014 avoid a module-scope helper a body calls to build IR, or to assemble a composite `f"{a}|{b}"` key; make it an `East.function`, or model typed / nested East data.',
   "- no-python-east-data \u2014 avoid assembling East rows with a module-scope comprehension or loop; write them out, or produce them at runtime.",
   "- no-python-string-building \u2014 avoid an f-string assembling an East string constant (a regex, a template, a key); spell the constant out.",
   "- no-derived-struct-fields \u2014 avoid declaring a type from another type's fields; a declaration is a wire format, so spell the fields.",
-  "- no-python-data-work \u2014 avoid a python helper doing the parse / strip / null-check / coerce work for a body; express it in East."
+  "- no-python-data-work \u2014 avoid a python helper doing the parse / strip / null-check / coerce work on an expression a body hands it; express it in East."
 ].join("\n");
 function eastRulesContextFor(languages) {
   const python = languages.includes("python");

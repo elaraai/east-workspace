@@ -5,23 +5,25 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { dirname } from "node:path";
 import { findEastPy } from "./python-lint.js";
+import { frame, FrameReader, type JsonRpcMessage } from "./jsonrpc-stdio.js";
 
-// A persistent `east-py lsp` child, proxied (#681).
+// One persistent `east-py lsp` child, proxied (#681).
 //
-// The python path used to shell out to `east-py lint` once per debounced
-// change. That is fine for the rules — they are pure `ast` work — but the
-// build check (#653) imports the module, and a process per check pays that
+// The build check (#653) imports the module, and a process per check pays that
 // import every time: measured here, 0.12s for a module whose dependencies
 // import lazily and 0.81s for one importing torch at module scope, against
-// 0.0003s to re-check in a process that already holds them. On save a
-// subprocess would do; debounced on change, it would not.
+// 0.0003s to re-check in a process that already holds them. So the python
+// server stays warm, and this class owns it: started lazily by the first
+// document, verified by its `initialize` reply, restarted after a crash once
+// the backoff has elapsed with every open document replayed, and killed when
+// its owner goes away — on the handshake timeout too, so a child that will not
+// answer is never left running.
 //
-// Keeping the child behind this proxy rather than registering `east-py lsp` as
-// a second LSP server means venv resolution stays in `findEastPy`, where it
-// already walks up to the nearest `.venv` and honours EAST_PY_LINT, and the
-// existing "no east-py answered → say nothing" degradation is preserved: a
-// child that will not start is simply absent, never a claim that a file is
-// clean.
+// Every method is safe to call when no child is running: the proxy stays
+// silent rather than erroring. A START that fails — no command, no reply, a
+// child that dies during the handshake — is reported through `onUnavailable`
+// with the reason, so the owner can fall back (the python launcher drops to a
+// cold `east-py lint` per change) instead of hiding the cause.
 
 /** How long to wait for the child's `initialize` reply before giving up. */
 const INITIALIZE_TIMEOUT_MS = 15_000;
@@ -39,54 +41,66 @@ export interface PythonDiagnostic {
 export interface PythonLspProxyOptions {
   /** Called when the child publishes diagnostics for a document. */
   onDiagnostics: (uri: string, diagnostics: PythonDiagnostic[]) => void;
+  /** Called when a start fails, with the reason — the owner's cue to fall back. */
+  onUnavailable?: (reason: string) => void;
+  /** Called with each line the child writes to stderr; defaults to this process's stderr. */
+  onStderr?: (line: string) => void;
   /** Resolve the `east-py` command for a file's directory; defaults to `findEastPy`. */
   resolveCommand?: (fromDir: string) => string;
   /** Spawn override, for tests. */
   spawnChild?: (command: string, args: string[]) => ChildProcessWithoutNullStreams;
+  /** How long to wait for `initialize`; defaults to 15 s. */
+  initializeTimeoutMs?: number;
+  /** How long to wait after a crash before respawning; defaults to 5 s. */
+  restartBackoffMs?: number;
 }
 
-interface Message {
-  jsonrpc: "2.0";
-  id?: number | string | null;
-  method?: string;
-  params?: any;
-  result?: unknown;
-  error?: { code: number; message: string };
+interface OpenDocument {
+  uri: string;
+  text: string;
+  version: number;
 }
 
 /**
  * Owns one long-lived `east-py lsp` process and forwards `.py` documents to it.
- *
- * Started lazily by the first document, restarted after a crash (once the
- * backoff has elapsed), and stopped on `dispose`. Every method is safe to call
- * when no child is running: the proxy stays silent rather than erroring, which
- * is what keeps a project without east-py working exactly as before.
  */
 export class PythonLspProxy {
   private child: ChildProcessWithoutNullStreams | undefined;
-  private buffer = Buffer.alloc(0);
+  private readonly reader = new FrameReader((message) => this.handle(message));
   private nextId = 1;
   private ready = false;
   private starting: Promise<boolean> | undefined;
   private lastExitAt = 0;
+  private lastStderr = "";
   private disposed = false;
-  /** Whether a child has been up before — a FIRST start has nothing to replay. */
-  private startedBefore = false;
-  /** Documents currently open on the child, so a restart can reopen them. */
-  private readonly open = new Map<string, { uri: string; text: string; languageId: string }>();
+  /** Documents open on the proxy — what a (re)start replays to the child. */
+  private readonly open = new Map<string, OpenDocument>();
+  /** path -> the document version the CURRENT child has been sent, by didOpen or didChange. */
+  private readonly seenByChild = new Map<string, number>();
+  /** id -> settle(answered): true when the child replied, false when it went away. */
+  private readonly pending = new Map<number | string, (answered: boolean) => void>();
 
   constructor(private readonly options: PythonLspProxyOptions) {}
+
+  /** Whether a child is up and initialized. */
+  get available(): boolean {
+    return this.ready && this.child !== undefined;
+  }
 
   private resolveCommand(fromDir: string): string {
     return (this.options.resolveCommand ?? findEastPy)(fromDir);
   }
 
+  private unavailable(reason: string): void {
+    this.options.onUnavailable?.(reason);
+  }
+
   /** Start the child if it is not running. Resolves false when it cannot start. */
   private async ensure(fromDir: string): Promise<boolean> {
     if (this.disposed) return false;
-    if (this.ready && this.child !== undefined) return true;
+    if (this.available) return true;
     if (this.starting !== undefined) return this.starting;
-    if (Date.now() - this.lastExitAt < RESTART_BACKOFF_MS) return false;
+    if (Date.now() - this.lastExitAt < (this.options.restartBackoffMs ?? RESTART_BACKOFF_MS)) return false;
 
     this.starting = this.start(fromDir).finally(() => {
       this.starting = undefined;
@@ -100,23 +114,48 @@ export class PythonLspProxy {
     try {
       const spawnChild = this.options.spawnChild ?? ((c, a) => spawn(c, a, { stdio: "pipe" }));
       child = spawnChild(command, ["lsp"]);
-    } catch {
+    } catch (error) {
       this.lastExitAt = Date.now();
+      this.unavailable(`could not spawn \`${command} lsp\`: ${(error as Error).message}`);
       return false;
     }
     this.child = child;
-    this.buffer = Buffer.alloc(0);
+    this.reader.reset();
+    this.seenByChild.clear();
+    this.lastStderr = "";
 
-    child.on("error", () => this.handleExit());
-    child.on("exit", () => this.handleExit());
-    child.stdout.on("data", (chunk: Buffer) => this.receive(chunk));
-    // The child's stderr is its own business (a missing pygls says so there);
-    // draining it keeps the pipe from filling and wedging the process.
-    child.stderr.resume();
-    // The child must never be what keeps this process alive: a language server
-    // exits when its CLIENT goes away. `dispose` (wired to the input stream
-    // closing) is the real cleanup; this is the backstop for a child that
-    // somehow outlives it.
+    child.on("error", (error: Error) => {
+      // A spawn failure surfaces here, asynchronously — ENOENT for a command
+      // that is not there. The handshake below is what reports it.
+      this.lastStderr = error.message;
+      this.handleExit(child);
+    });
+    // `close` follows `exit` once the stdio pipes have drained, so the child's
+    // last words on stderr (why it could not start) are read before the
+    // bookkeeping is cleared; `exit` alone would race them. The grace timer is
+    // for a child whose pipes never close.
+    child.on("exit", () => {
+      const grace = setTimeout(() => this.handleExit(child), 250);
+      (grace as { unref?: () => void }).unref?.();
+    });
+    child.on("close", () => this.handleExit(child));
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (child === this.child) this.reader.push(chunk);
+    });
+    // The child's stderr is where it says WHY it cannot start (a missing pygls
+    // says so there): keep the last line for the failure report and pass every
+    // line on, so a log of this process shows the cause.
+    let stderrRest = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrRest += chunk.toString("utf8");
+      const lines = stderrRest.split(/\r?\n/);
+      stderrRest = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line.trim() === "") continue;
+        this.lastStderr = line;
+        (this.options.onStderr ?? ((l: string) => process.stderr.write(`[east-py lsp] ${l}\n`)))(line);
+      }
+    });
     // A stray child must be physically unable to hold this process open. The
     // process handle AND its three stdio pipes are separate libuv handles, and
     // the `data` reader above keeps the loop alive on its own — unref every
@@ -129,13 +168,11 @@ export class PythonLspProxy {
     }
 
     const id = this.nextId++;
-    // The resolver takes the OUTCOME. `handleExit` settles every pending entry
-    // so a dying child never hangs the caller — but settling them as success
-    // meant a child that died during the handshake left `ready === true` with
-    // no child attached, writing `initialized` into a destroyed pipe and
-    // refusing to restart until the backoff lapsed.
+    // The resolver takes the OUTCOME: `handleExit` settles every pending entry
+    // as failure so a dying child never hangs the caller and never leaves
+    // `ready` true with no child attached.
     const initialized = new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), INITIALIZE_TIMEOUT_MS);
+      const timer = setTimeout(() => resolve(false), this.options.initializeTimeoutMs ?? INITIALIZE_TIMEOUT_MS);
       this.pending.set(id, (answered: boolean) => {
         clearTimeout(timer);
         resolve(answered);
@@ -144,73 +181,68 @@ export class PythonLspProxy {
     this.write({ jsonrpc: "2.0", id, method: "initialize", params: { processId: process.pid, rootUri: null, capabilities: {} } });
     const ok = await initialized;
     if (!ok) {
-      this.handleExit();
+      const alive = child === this.child;
+      const why = this.lastStderr !== ""
+        ? this.lastStderr
+        : alive ? `no initialize reply within ${this.options.initializeTimeoutMs ?? INITIALIZE_TIMEOUT_MS} ms` : "exited during the handshake";
+      // A child that never answered is still running: kill it, or it lives on
+      // beside its replacement.
+      this.handleExit(child);
+      this.unavailable(`\`${command} lsp\` did not start: ${why}`);
       return false;
     }
     this.write({ jsonrpc: "2.0", method: "initialized", params: {} });
     this.ready = true;
-    // Reopen what was open before a RESTART, so a crash is invisible to the
-    // editor. Not on a first start: the document that triggered it is about to
-    // be forwarded by its own caller, and replaying it here would open it twice.
-    if (this.startedBefore) {
-      for (const doc of this.open.values()) {
-        this.write({ jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: { ...doc, version: 1 } } });
-      }
+    // Every document open on the proxy is opened on THIS child — a first start
+    // and a restart alike, since the child has seen nothing either way. The
+    // caller that triggered the start finds its document already open and
+    // sends what it meant to send (a change, a save) rather than a second open.
+    for (const [path, doc] of this.open) {
+      this.write({ jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: { uri: doc.uri, languageId: "python", version: doc.version, text: doc.text } } });
+      this.seenByChild.set(path, doc.version);
     }
-    this.startedBefore = true;
     return true;
   }
 
-  /** id -> settle(answered): true when the child replied, false when it went away. */
-  private readonly pending = new Map<number | string, (answered: boolean) => void>();
-
-  private handleExit(): void {
-    if (this.child !== undefined) {
-      this.child.removeAllListeners();
-      this.child = undefined;
-    }
+  private handleExit(child: ChildProcessWithoutNullStreams): void {
+    // Only the child we currently own: a late `exit` from one already replaced
+    // must not clear the fresh one's bookkeeping.
+    if (child !== this.child) return;
+    this.child = undefined;
     this.ready = false;
+    this.seenByChild.clear();
     this.lastExitAt = Date.now();
+    child.removeAllListeners();
+    try {
+      child.kill();
+    } catch {
+      /* already gone */
+    }
+    // Killing the process is not enough to let this one exit: its stdio pipes
+    // are their own libuv handles, and the `data` reader on stdout keeps the
+    // event loop alive after the child is gone. Destroy them explicitly.
+    for (const stream of [child.stdout, child.stderr, child.stdin]) {
+      try {
+        stream.destroy();
+      } catch {
+        /* already closed */
+      }
+    }
     for (const settle of this.pending.values()) settle(false);
     this.pending.clear();
   }
 
-  private write(message: Message): void {
+  private write(message: JsonRpcMessage): void {
     const child = this.child;
     if (child === undefined || child.stdin.destroyed) return;
-    const body = JSON.stringify(message);
     try {
-      child.stdin.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
+      child.stdin.write(frame(message));
     } catch {
-      this.handleExit();
+      this.handleExit(child);
     }
   }
 
-  private receive(chunk: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-    for (;;) {
-      const headerEnd = this.buffer.indexOf("\r\n\r\n");
-      if (headerEnd < 0) return;
-      const header = this.buffer.subarray(0, headerEnd).toString("utf8");
-      const match = /Content-Length:\s*(\d+)/i.exec(header);
-      if (match === null) {
-        this.buffer = this.buffer.subarray(headerEnd + 4);
-        continue;
-      }
-      const length = Number(match[1]);
-      const bodyStart = headerEnd + 4;
-      if (this.buffer.length < bodyStart + length) return;
-      const body = this.buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
-      this.buffer = this.buffer.subarray(bodyStart + length);
-      try {
-        this.handle(JSON.parse(body) as Message);
-      } catch {
-        // A malformed frame from the child is skipped, not fatal.
-      }
-    }
-  }
-
-  private handle(message: Message): void {
+  private handle(message: JsonRpcMessage): void {
     if (message.id !== undefined && message.id !== null && message.method === undefined) {
       const settle = this.pending.get(message.id);
       if (settle !== undefined) {
@@ -227,61 +259,62 @@ export class PythonLspProxy {
     }
   }
 
+  /**
+   * Bring the child up to `doc`: a didOpen when this child has not seen the
+   * document, a didChange when it has an older version, nothing when a start
+   * just replayed exactly this version.
+   */
+  private deliver(path: string, doc: OpenDocument): void {
+    const delivered = this.seenByChild.get(path);
+    if (delivered === doc.version) return;
+    if (delivered === undefined) {
+      this.write({ jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: { uri: doc.uri, languageId: "python", version: doc.version, text: doc.text } } });
+    } else {
+      this.write({ jsonrpc: "2.0", method: "textDocument/didChange", params: { textDocument: { uri: doc.uri, version: doc.version }, contentChanges: [{ text: doc.text }] } });
+    }
+    this.seenByChild.set(path, doc.version);
+  }
+
   /** Forward an opened document, starting the child if needed. */
   async didOpen(path: string, uri: string, text: string): Promise<void> {
-    this.open.set(path, { uri, text, languageId: "python" });
+    const doc: OpenDocument = { uri, text, version: 1 };
+    this.open.set(path, doc);
     if (!(await this.ensure(dirname(path)))) return;
-    this.write({ jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "python", version: 1, text } } });
+    this.deliver(path, doc);
   }
 
   /** Forward a change. */
   async didChange(path: string, uri: string, text: string): Promise<void> {
     const known = this.open.get(path);
-    this.open.set(path, { uri, text, languageId: "python" });
+    const doc: OpenDocument = { uri, text, version: (known?.version ?? 0) + 1 };
+    this.open.set(path, doc);
     if (!(await this.ensure(dirname(path)))) return;
-    if (known === undefined) {
-      this.write({ jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "python", version: 1, text } } });
-      return;
-    }
-    this.write({ jsonrpc: "2.0", method: "textDocument/didChange", params: { textDocument: { uri, version: 2 }, contentChanges: [{ text }] } });
+    this.deliver(path, doc);
   }
 
   /** Forward a save — the moment the build tier runs without waiting. */
   async didSave(path: string, uri: string, text: string): Promise<void> {
-    this.open.set(path, { uri, text, languageId: "python" });
+    const known = this.open.get(path);
+    const doc: OpenDocument = { uri, text, version: known?.version ?? 1 };
+    this.open.set(path, doc);
     if (!(await this.ensure(dirname(path)))) return;
+    this.deliver(path, doc);
     this.write({ jsonrpc: "2.0", method: "textDocument/didSave", params: { textDocument: { uri }, text } });
   }
 
   /** Forward a close. */
   didClose(path: string, uri: string): void {
     this.open.delete(path);
-    if (!this.ready) return;
+    if (!this.available || !this.seenByChild.has(path)) return;
+    this.seenByChild.delete(path);
     this.write({ jsonrpc: "2.0", method: "textDocument/didClose", params: { textDocument: { uri } } });
   }
 
   /** Stop the child. */
   dispose(): void {
     this.disposed = true;
-    const child = this.child;
-    this.handleExit();
     this.open.clear();
-    if (child !== undefined) {
-      try {
-        child.kill();
-      } catch {
-        /* already gone */
-      }
-      // Killing the process is not enough to let this one exit: its stdio pipes
-      // are their own libuv handles, and the `data` reader on stdout keeps the
-      // event loop alive after the child is gone. Destroy them explicitly.
-      for (const stream of [child.stdout, child.stderr, child.stdin]) {
-        try {
-          stream.destroy();
-        } catch {
-          /* already closed */
-        }
-      }
-    }
+    const child = this.child;
+    if (child !== undefined) this.handleExit(child);
   }
 }

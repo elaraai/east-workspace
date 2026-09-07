@@ -43,8 +43,14 @@ class FakeChild extends EventEmitter {
 
   kill(): boolean {
     this.killed = true;
-    this.emit("exit", 0);
+    this.die(0);
     return true;
+  }
+
+  /** What a real child does: `exit`, then `close` once the pipes drain. */
+  die(code: number): void {
+    this.emit("exit", code);
+    this.emit("close", code);
   }
 }
 
@@ -103,7 +109,7 @@ test("a child that dies during the handshake is a FAILED start, not a ready one"
   const child = new FakeChild(false);
   const proxy = proxyWith(child);
   const done = proxy.didOpen("/p/a.py", "file:///p/a.py", "import east\n");
-  child.emit("exit", 1); // dies during startup
+  child.die(1); // dies during startup
   await done;
   assert.ok(!child.received.some((m) => m.method === "textDocument/didOpen"),
     "nothing is forwarded to a child that never became ready");
@@ -120,12 +126,53 @@ test("a crash is backed off rather than respawned hot", async () => {
   const proxy = new PythonLspProxy({
     onDiagnostics: () => {},
     resolveCommand: () => "east-py",
-    spawnChild: () => { spawns += 1; const c = new FakeChild(); queueMicrotask(() => c.emit("exit", 1)); return c as never; },
+    spawnChild: () => { spawns += 1; const c = new FakeChild(); queueMicrotask(() => c.die(1)); return c as never; },
   });
   await proxy.didOpen("/p/a.py", "file:///p/a.py", "import east\n");
   await proxy.didChange("/p/a.py", "file:///p/a.py", "import east\nx=1\n");
   await proxy.didChange("/p/a.py", "file:///p/a.py", "import east\nx=2\n");
   assert.equal(spawns, 1, "a child that dies on startup must not be respawned on every keystroke");
+  proxy.dispose();
+});
+
+test("a child that never answers initialize is killed, not left running beside its replacement", async () => {
+  const child = new FakeChild(false);
+  const reasons: string[] = [];
+  const proxy = new PythonLspProxy({
+    onDiagnostics: () => {},
+    onUnavailable: (reason) => reasons.push(reason),
+    resolveCommand: () => "east-py",
+    spawnChild: () => child as never,
+    initializeTimeoutMs: 50,
+  });
+  await proxy.didOpen("/p/a.py", "file:///p/a.py", "import east\n");
+  assert.equal(child.killed, true, "the handshake timed out: the child must not outlive the attempt");
+  assert.equal(reasons.length, 1);
+  assert.match(reasons[0]!, /did not start/);
+  proxy.dispose();
+});
+
+test("after a failed first start, the next successful start opens the document before changing it", async () => {
+  const dead = new FakeChild(false);
+  const live = new FakeChild();
+  let spawns = 0;
+  const proxy = new PythonLspProxy({
+    onDiagnostics: () => {},
+    resolveCommand: () => "east-py",
+    spawnChild: () => (spawns++ === 0 ? dead : live) as never,
+    initializeTimeoutMs: 50,
+    restartBackoffMs: 0,
+  });
+  await proxy.didOpen("/p/a.py", "file:///p/a.py", "import east\n");
+  assert.equal(live.received.length, 0);
+  await proxy.didChange("/p/a.py", "file:///p/a.py", "import east\nx = 1\n");
+  const methods = live.received.map((m) => m.method);
+  assert.deepEqual(methods, ["initialize", "initialized", "textDocument/didOpen"],
+    "the child that never saw the document gets a didOpen, not a didChange for an unknown uri");
+  await proxy.didChange("/p/a.py", "file:///p/a.py", "import east\nx = 2\n");
+  const change = live.received.at(-1);
+  assert.equal(change.method, "textDocument/didChange");
+  assert.equal(change.params.textDocument.version, 3, "versions count up per document");
   proxy.dispose();
 });
 

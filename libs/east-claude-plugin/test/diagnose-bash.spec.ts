@@ -24,7 +24,7 @@ function project(): string {
     column: 12,
     message: "python `//` floors; East IntegerDivide truncates — spell it .divide(2)",
   }]));
-  writeFileSync(join(bin, "east-py"), `#!/bin/sh\ncat "$(dirname "$0")/findings.json"\nexit 1\n`);
+  writeFileSync(join(bin, "east-py"), `#!/bin/sh\n# lint answers with the findings; check answers with the build findings (empty unless a file beside says otherwise)\nhere="$(dirname "$0")"\ncase "$1" in\n  lint) cat "$here/findings.json"; exit 1 ;;\n  check) if [ -f "$here/build.json" ]; then cat "$here/build.json"; exit 1; else echo "[]"; exit 0; fi ;;\n  *) echo "[]"; exit 0 ;;\nesac\n`);
   chmodSync(join(bin, "east-py"), 0o755);
   writeFileSync(
     join(dir, "mod.py"),

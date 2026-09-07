@@ -49,6 +49,7 @@ const BUNDLED = [
   ".build/hooks/diagnose-bash.js",
   ".build/daemon/server.js",
   ".build/daemon/lsp.js",
+  ".build/daemon/east-py-lsp.js",
   ".build/mcp/server.js",
 ];
 
@@ -116,24 +117,30 @@ export async function checkPluginStatus(pluginRoot: string, cwd: string): Promis
   checks.push(await check("Diagnostics (python / east-py)", async () => {
     // Without this check a missing east-py is INVISIBLE: runEastPyLint returns
     // null, every python file silently gets no review, and the rest of this
-    // report stays green.
+    // report stays green. Two questions: do the rules answer, and can the warm
+    // server (`east-py lsp`, the build tier's home) start.
     const command = findEastPy(cwd);
-    const rules = await new Promise<number | null>((done) => {
-      execFile(command, ["lint", "--list-rules"], { timeout: 8000, encoding: "utf-8" }, (error, stdout) => {
-        if (error !== null) { done(null); return; }
-        done(stdout.split("\n").filter((l) => l.startsWith("EAS")).length);
+    const run = (args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> => new Promise((done) => {
+      execFile(command, args, { timeout: 8000, encoding: "utf-8" }, (error, stdout, stderr) => {
+        done({ ok: error === null, stdout: String(stdout), stderr: String(stderr) });
       });
     });
-    return rules === null
-      ? {
-          name: "Diagnostics (python / east-py)",
-          status: "warn" as const,
-          detail: `\`${command}\` did not answer — python East files get NO review until east-py resolves (a project .venv above the file, east-py on PATH, or EAST_PY_LINT)`,
-        }
+    const listed = await run(["lint", "--list-rules"]);
+    if (!listed.ok) {
+      return {
+        name: "Diagnostics (python / east-py)",
+        status: "warn" as const,
+        detail: `\`${command}\` did not answer — python East files get NO review until east-py resolves (a project .venv above the file, east-py on PATH, or EAST_PY_LINT)`,
+      };
+    }
+    const rules = listed.stdout.split("\n").filter((l) => l.startsWith("EAS")).length;
+    const probe = await run(["lsp", "--probe"]);
+    return probe.ok
+      ? { name: "Diagnostics (python / east-py)", status: "ok" as const, detail: `${command} — ${rules} rules; ${probe.stdout.trim()} (warm server + build tier)` }
       : {
           name: "Diagnostics (python / east-py)",
-          status: "ok" as const,
-          detail: `${command} — ${rules} rules`,
+          status: "warn" as const,
+          detail: `${command} — ${rules} rules, but \`east-py lsp\` cannot start (${probe.stderr.trim().split("\n")[0] ?? "no reason given"}): the rules still run per change, the build tier is off`,
         };
   }));
 

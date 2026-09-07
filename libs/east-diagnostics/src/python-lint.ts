@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -45,6 +45,34 @@ export function findEastPy(fromDir: string): string {
   }
 }
 
+/** A `pyproject.toml` that declares an east-py distribution as a dependency. */
+const EAST_PY_DEPENDENCY = /elaraai-east-py(?![\w-])|elaraai-east-py-(?:std|io|datascience|cli)(?![\w-])/;
+
+/**
+ * The directory of the nearest `pyproject.toml` at or above `fromDir` that
+ * depends on east-py — what makes a directory an east-py PROJECT, as opposed
+ * to a python file that happens to import `east`. A uv workspace root that
+ * declares it counts for every member below it, so the walk continues past a
+ * member's own pyproject that says nothing. `undefined` when nothing above
+ * declares it.
+ */
+export function findEastPyProject(fromDir: string): string | undefined {
+  let dir = fromDir;
+  for (;;) {
+    const candidate = join(dir, "pyproject.toml");
+    if (existsSync(candidate)) {
+      try {
+        if (EAST_PY_DEPENDENCY.test(readFileSync(candidate, "utf-8"))) return dir;
+      } catch {
+        /* unreadable: keep walking */
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
 /**
  * The east-py findings for a python file — `""`-free: `[]` when clean,
  * `null` when no east-py answered (absent, failed, or over `budgetMs`), so
@@ -69,6 +97,38 @@ export function runEastPyLint(file: string, content?: string, budgetMs = 4000): 
       (error, stdout) => {
         if (scratch !== null) rmSync(scratch, { recursive: true, force: true });
         // exit 1 means findings (they are on stdout); anything else means no answer
+        if (error !== null && (error as { code?: number | string }).code !== 1) {
+          resolveFindings(null);
+          return;
+        }
+        let records: unknown;
+        try {
+          records = JSON.parse(stdout);
+        } catch {
+          resolveFindings(null);
+          return;
+        }
+        resolveFindings(Array.isArray(records) ? (records as PythonDiagnostic[]) : null);
+      },
+    );
+  });
+}
+
+/**
+ * The BUILD's findings for a python file — `east-py check --format json
+ * --only-if-enabled`, the records `runEastPyLint` returns plus the `build` /
+ * `import` rules — `[]` when clean or when the project has not opted into the
+ * build tier (`[tool.east-py] check = true`), `null` when no east-py answered.
+ * A cold subprocess, the right shape for a hook that runs once per file.
+ */
+export function runEastPyCheck(file: string, budgetMs = 8000): Promise<PythonDiagnostic[] | null> {
+  const command = findEastPy(dirname(file));
+  return new Promise((resolveFindings) => {
+    execFile(
+      command,
+      ["check", "--format", "json", "--only-if-enabled", file],
+      { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
+      (error, stdout) => {
         if (error !== null && (error as { code?: number | string }).code !== 1) {
           resolveFindings(null);
           return;

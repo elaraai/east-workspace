@@ -72,6 +72,20 @@ test("a project with neither is not an East project", async () => {
   }
 });
 
+test("a uv workspace member whose own pyproject says nothing is still the root's East project", async () => {
+  const dir = project({
+    "pyproject.toml": PYPROJECT,
+    "packages/member/pyproject.toml": '[project]\nname = "member"\n',
+  });
+  try {
+    const info = await getEastProjectInfo(join(dir, "packages", "member"));
+    assert.equal(info.isEast, true, "the nearest pyproject is not the last word");
+    assert.deepEqual(info.languages, ["python"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("the longest python distribution name wins, so -std is never also bare east-py", () => {
   assert.deepEqual(detectPythonSkills('dependencies = ["elaraai-east-py-std"]'), ["east-py-std"]);
   assert.deepEqual(detectPythonSkills('dependencies = ["elaraai-east-py-io"]'), ["east-py-io"]);

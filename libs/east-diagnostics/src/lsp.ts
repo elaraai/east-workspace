@@ -5,30 +5,17 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDiagnosticsService, type DiagnosticsService } from "./service.js";
-import { PYTHON_EAST_IMPORT } from "./python-lint.js";
-import { PythonLspProxy } from "./python-lsp-proxy.js";
+import { frame, FrameReader, type JsonRpcMessage } from "./jsonrpc-stdio.js";
 import type { EastDiagnosticCategory } from "./types.js";
 
-// Minimal LSP server over stdio: full-document sync in, publishDiagnostics
-// out, everything backed by the shared DiagnosticsService — and, for a `.py`
-// document that imports east, by a persistent `east-py lsp` child this server
-// proxies (#648, #681). Hand-rolled JSON-RPC framing keeps the package
-// dependency-free.
+// Minimal LSP server over stdio for TypeScript: full-document sync in,
+// publishDiagnostics out, everything backed by the shared DiagnosticsService.
+// Hand-rolled JSON-RPC framing keeps the package dependency-free.
 //
-// The python side is a proxy rather than a computation here because its second
-// tier — the build check (#653) — imports the module, and only a process that
-// stays warm can afford that below save granularity. Everything else about the
-// python path is unchanged: the same venv resolution, and the same silence
-// (never a claim of "clean") when no east-py answers.
-
-interface JsonRpcMessage {
-  jsonrpc: "2.0";
-  id?: number | string | null;
-  method?: string;
-  params?: any;
-  result?: unknown;
-  error?: { code: number; message: string };
-}
+// Python is NOT this server's: `runEastPyLsp` (python-lsp-server.ts) is its
+// own server with its own lifecycle, registered for `.py` beside this one. A
+// `.py` document that still reaches here — an old manifest — gets an empty
+// publish, never a verdict.
 
 const EAST_IMPORT_PATTERN = /@elaraai\//;
 // Vendored / built / generated trees: never diagnose code the user doesn't own.
@@ -90,42 +77,7 @@ export function runEastLsp(options: EastLspOptions = {}): void {
   let shuttingDown = false;
 
   function send(message: object): void {
-    const body = JSON.stringify({ jsonrpc: "2.0", ...message });
-    output.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
-  }
-
-  // The python child publishes straight through: it owns its own debounce and
-  // its two tiers, so its diagnostics arrive when each tier answers.
-  const python = new PythonLspProxy({
-    onDiagnostics: (uri, diagnostics) => {
-      send({ method: "textDocument/publishDiagnostics", params: { uri, diagnostics } });
-    },
-  });
-
-  /** Whether a python document is ours to diagnose at all. */
-  function pythonReviewable(path: string, content: string | undefined): boolean {
-    return content !== undefined && !SKIP_PATH.test(path) && PYTHON_EAST_IMPORT.test(content);
-  }
-
-  /** Forward a python document to the child, or clear it when it is not East. */
-  function forwardPython(path: string, content: string | undefined, kind: "open" | "change" | "save"): void {
-    const uri = `file://${path}`;
-    if (!pythonReviewable(path, content)) {
-      send({ method: "textDocument/publishDiagnostics", params: { uri, diagnostics: [] } });
-      return;
-    }
-    const text = content as string;
-    void (kind === "open" ? python.didOpen(path, uri, text)
-      : kind === "save" ? python.didSave(path, uri, text)
-        : python.didChange(path, uri, text));
-  }
-
-  function readSource(path: string): string | undefined {
-    try {
-      return readFileSync(path, "utf-8");
-    } catch {
-      return undefined;
-    }
+    output.write(frame(message));
   }
 
   function publish(path: string): void {
@@ -136,10 +88,6 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         return undefined;
       }
     })();
-    if (path.endsWith(".py")) {
-      forwardPython(path, content, "change");
-      return;
-    }
     let diagnostics: object[] = [];
     if (content !== undefined && !SKIP_PATH.test(path) && EAST_IMPORT_PATTERN.test(content)) {
       const starts = lineStarts(content);
@@ -168,6 +116,13 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         // Never let a diagnose failure kill the server.
       }
     }, DEBOUNCE_MS));
+  }
+
+  /** A python document is another server's: clear it, never judge it. */
+  function notOurs(path: string): boolean {
+    if (!path.endsWith(".py")) return false;
+    send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics: [] } });
+    return true;
   }
 
   function handle(message: JsonRpcMessage): void {
@@ -220,11 +175,8 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         const path = uriToPath(params?.textDocument?.uri ?? "");
         const text = params?.textDocument?.text;
         if (path === undefined || typeof text !== "string") return;
+        if (notOurs(path)) return;
         open.set(path, text);
-        if (path.endsWith(".py")) {
-          forwardPython(path, text, "open");
-          return;
-        }
         service.setOverlay(path, text);
         schedule(path);
         return;
@@ -233,11 +185,8 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         const path = uriToPath(params?.textDocument?.uri ?? "");
         const text = params?.contentChanges?.at?.(-1)?.text;
         if (path === undefined || typeof text !== "string") return;
+        if (notOurs(path)) return;
         open.set(path, text);
-        if (path.endsWith(".py")) {
-          forwardPython(path, text, "change");
-          return;
-        }
         service.setOverlay(path, text);
         schedule(path);
         return;
@@ -245,18 +194,14 @@ export function runEastLsp(options: EastLspOptions = {}): void {
       case "textDocument/didSave": {
         const path = uriToPath(params?.textDocument?.uri ?? "");
         if (path === undefined) return;
+        if (notOurs(path)) return;
         const text = params?.text;
         if (typeof text === "string") {
           open.set(path, text);
-          if (!path.endsWith(".py")) service.setOverlay(path, text);
+          service.setOverlay(path, text);
         } else {
           open.delete(path);
-          if (!path.endsWith(".py")) service.clearOverlay(path);
-        }
-        if (path.endsWith(".py")) {
-          // A save is where the build tier runs without waiting out the debounce.
-          forwardPython(path, open.get(path) ?? readSource(path), "save");
-          return;
+          service.clearOverlay(path);
         }
         schedule(path);
         return;
@@ -265,7 +210,6 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         const path = uriToPath(params?.textDocument?.uri ?? "");
         if (path === undefined) return;
         open.delete(path);
-        if (path.endsWith(".py")) python.didClose(path, `file://${path}`);
         if (!path.endsWith(".py")) service.clearOverlay(path);
         const timer = pending.get(path);
         if (timer !== undefined) clearTimeout(timer);
@@ -281,39 +225,17 @@ export function runEastLsp(options: EastLspOptions = {}): void {
     }
   }
 
-  // Content-Length framed reader.
-  let buffer = Buffer.alloc(0);
-  input.on("data", (chunk: Buffer) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    for (;;) {
-      const headerEnd = buffer.indexOf("\r\n\r\n");
-      if (headerEnd < 0) return;
-      const header = buffer.subarray(0, headerEnd).toString("utf8");
-      const match = /Content-Length:\s*(\d+)/i.exec(header);
-      if (match === null) {
-        buffer = buffer.subarray(headerEnd + 4);
-        continue;
-      }
-      const length = Number(match[1]);
-      const bodyStart = headerEnd + 4;
-      if (buffer.length < bodyStart + length) return;
-      const body = buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
-      buffer = buffer.subarray(bodyStart + length);
-      try {
-        handle(JSON.parse(body) as JsonRpcMessage);
-      } catch {
-        // Malformed frame — skip it rather than dying mid-session.
-      }
+  const reader = new FrameReader((message) => {
+    try {
+      handle(message);
+    } catch {
+      // Never let one message kill the server.
     }
   });
-  // The client going away ends the session, and the python child must go with
-  // it. Wiring this only to the `exit` MESSAGE was not enough: a disconnecting
-  // client may never send one, and with an injected `exit` (tests, or any
-  // embedder) the child and its three stdio pipes were simply leaked.
-  const shutdown = (code: number): void => {
-    python.dispose();
-    exit(code);
-  };
+  input.on("data", (chunk: Buffer) => reader.push(chunk));
+  // The client going away ends the session: a disconnecting client may never
+  // send the `exit` message.
+  const shutdown = (code: number): void => exit(code);
   input.on("close", () => shutdown(0));
   input.on("end", () => shutdown(0));
 }

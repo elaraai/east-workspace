@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 // Which files a bash command WRITES.
 //
 // Nothing in the plugin saw these: the hooks match Edit|Write and Read, so a
@@ -40,26 +42,32 @@ function lastToken(segment: string): string | undefined {
  * The paths a bash command appears to write.
  *
  * Recognises `>` / `>>` redirects (which is also how a `cat > f <<'EOF'`
- * heredoc lands), `tee`, `sed -i`, and `cp` / `mv` destinations.
+ * heredoc lands), `tee`, `sed -i`, and `cp` / `mv` destinations. With `cwd`
+ * given, the paths come back absolute, and a `cd` earlier in the command
+ * moves the directory the segments after it resolve against — `cd src && cat
+ * > model.py` writes `src/model.py`, not `./model.py`.
  */
-export function writtenPaths(command: string): string[] {
+export function writtenPaths(command: string, cwd?: string): string[] {
   const found = new Set<string>();
-
-  for (const match of command.matchAll(/>>?\s*(['"]?)([^\s'";|&<>]+)\1/g)) {
-    const path = unquote(match[2] ?? "");
-    if (isRealPath(path)) found.add(path);
-  }
+  let dir = cwd;
+  const add = (path: string): void => {
+    if (!isRealPath(path)) return;
+    found.add(dir === undefined ? path : resolve(dir, path));
+  };
 
   for (const segment of segments(command)) {
     const trimmed = segment.trim();
-    for (const match of trimmed.matchAll(/\btee\s+(?:-a\s+)?(['"]?)([^\s'";|&<>]+)\1/g)) {
-      const path = unquote(match[2] ?? "");
-      if (isRealPath(path)) found.add(path);
+    const moved = /^cd\s+(['"]?)([^\s'";|&<>]+)\1\s*$/.exec(trimmed);
+    if (moved !== null && dir !== undefined) {
+      dir = resolve(dir, unquote(moved[2] ?? ""));
+      continue;
     }
+    for (const match of trimmed.matchAll(/>>?\s*(['"]?)([^\s'";|&<>]+)\1/g)) add(unquote(match[2] ?? ""));
+    for (const match of trimmed.matchAll(/\btee\s+(?:-a\s+)?(['"]?)([^\s'";|&<>]+)\1/g)) add(unquote(match[2] ?? ""));
     // `sed -i … file`, `cp a b`, `mv a b`, `install … dest` — the destination is last
     if (/^\s*(sed\s+(-[^\s]*\s+)*-i|cp|mv|install)\b/.test(trimmed)) {
       const path = lastToken(trimmed);
-      if (path !== undefined) found.add(path);
+      if (path !== undefined) add(path);
     }
   }
 

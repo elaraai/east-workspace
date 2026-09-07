@@ -38,6 +38,13 @@ test("each segment of a compound command is read separately", () => {
   assert.deepEqual(found.sort(), ["b.py", "c.py"]);
 });
 
+test("with a cwd the paths come back absolute, and a `cd` moves the segments after it", () => {
+  assert.deepEqual(writtenPaths("cat > model.py <<'EOF'\nimport east\nEOF", "/proj"), ["/proj/model.py"]);
+  assert.deepEqual(writtenPaths("cd src && cat > model.py <<'EOF'\nimport east\nEOF", "/proj"), ["/proj/src/model.py"]);
+  assert.deepEqual(writtenPaths("cd src; cp a.py b.py; cd ../lib && tee c.py", "/proj").sort(), ["/proj/lib/c.py", "/proj/src/b.py"]);
+  assert.deepEqual(writtenPaths("cd /elsewhere && echo x > d.py", "/proj"), ["/elsewhere/d.py"]);
+});
+
 test("only reviewable extensions outside vendored trees reach a review", () => {
   assert.equal(reviewable("model.py"), true);
   assert.equal(reviewable("a.ts"), true);

@@ -2807,138 +2807,20 @@ function createDiagnosticsService(options = {}) {
 import { readFileSync as readFileSync2 } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// ../east-diagnostics/dist/src/python-lint.js
-import { existsSync as existsSync3, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname as dirname3, join as join4 } from "node:path";
-var PYTHON_EAST_IMPORT = /^\s*(?:from\s+east(?:\.[\w.]+)?\s+import\b|import\s+east\b)/m;
-function findEastPy(fromDir) {
-  const override = process.env["EAST_PY_LINT"];
-  if (override !== void 0 && override !== "")
-    return override;
-  let dir = fromDir;
-  for (; ; ) {
-    for (const candidate of [join4(dir, ".venv", "bin", "east-py"), join4(dir, ".venv", "Scripts", "east-py.exe")]) {
-      if (existsSync3(candidate))
-        return candidate;
-    }
-    const parent = dirname3(dir);
-    if (parent === dir)
-      return "east-py";
-    dir = parent;
-  }
-}
-
-// ../east-diagnostics/dist/src/python-lsp-proxy.js
-import { spawn } from "node:child_process";
-import { dirname as dirname4 } from "node:path";
-var INITIALIZE_TIMEOUT_MS = 15e3;
-var RESTART_BACKOFF_MS = 5e3;
-var PythonLspProxy = class {
-  options;
-  child;
-  buffer = Buffer.alloc(0);
-  nextId = 1;
-  ready = false;
-  starting;
-  lastExitAt = 0;
-  disposed = false;
-  /** Whether a child has been up before — a FIRST start has nothing to replay. */
-  startedBefore = false;
-  /** Documents currently open on the child, so a restart can reopen them. */
-  open = /* @__PURE__ */ new Map();
-  constructor(options) {
-    this.options = options;
-  }
-  resolveCommand(fromDir) {
-    return (this.options.resolveCommand ?? findEastPy)(fromDir);
-  }
-  /** Start the child if it is not running. Resolves false when it cannot start. */
-  async ensure(fromDir) {
-    if (this.disposed)
-      return false;
-    if (this.ready && this.child !== void 0)
-      return true;
-    if (this.starting !== void 0)
-      return this.starting;
-    if (Date.now() - this.lastExitAt < RESTART_BACKOFF_MS)
-      return false;
-    this.starting = this.start(fromDir).finally(() => {
-      this.starting = void 0;
-    });
-    return this.starting;
-  }
-  async start(fromDir) {
-    const command = this.resolveCommand(fromDir);
-    let child;
-    try {
-      const spawnChild = this.options.spawnChild ?? ((c, a) => spawn(c, a, { stdio: "pipe" }));
-      child = spawnChild(command, ["lsp"]);
-    } catch {
-      this.lastExitAt = Date.now();
-      return false;
-    }
-    this.child = child;
-    this.buffer = Buffer.alloc(0);
-    child.on("error", () => this.handleExit());
-    child.on("exit", () => this.handleExit());
-    child.stdout.on("data", (chunk) => this.receive(chunk));
-    child.stderr.resume();
-    for (const handle of [child, child.stdout, child.stderr, child.stdin]) {
-      const unref = handle.unref;
-      if (typeof unref === "function")
-        unref.call(handle);
-    }
-    const id = this.nextId++;
-    const initialized = new Promise((resolve3) => {
-      const timer = setTimeout(() => resolve3(false), INITIALIZE_TIMEOUT_MS);
-      this.pending.set(id, (answered) => {
-        clearTimeout(timer);
-        resolve3(answered);
-      });
-    });
-    this.write({ jsonrpc: "2.0", id, method: "initialize", params: { processId: process.pid, rootUri: null, capabilities: {} } });
-    const ok = await initialized;
-    if (!ok) {
-      this.handleExit();
-      return false;
-    }
-    this.write({ jsonrpc: "2.0", method: "initialized", params: {} });
-    this.ready = true;
-    if (this.startedBefore) {
-      for (const doc of this.open.values()) {
-        this.write({ jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: { ...doc, version: 1 } } });
-      }
-    }
-    this.startedBefore = true;
-    return true;
-  }
-  /** id -> settle(answered): true when the child replied, false when it went away. */
-  pending = /* @__PURE__ */ new Map();
-  handleExit() {
-    if (this.child !== void 0) {
-      this.child.removeAllListeners();
-      this.child = void 0;
-    }
-    this.ready = false;
-    this.lastExitAt = Date.now();
-    for (const settle of this.pending.values())
-      settle(false);
-    this.pending.clear();
-  }
-  write(message) {
-    const child = this.child;
-    if (child === void 0 || child.stdin.destroyed)
-      return;
-    const body = JSON.stringify(message);
-    try {
-      child.stdin.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r
+// ../east-diagnostics/dist/src/jsonrpc-stdio.js
+function frame(message) {
+  const body = JSON.stringify({ jsonrpc: "2.0", ...message });
+  return `Content-Length: ${Buffer.byteLength(body, "utf8")}\r
 \r
-${body}`);
-    } catch {
-      this.handleExit();
-    }
+${body}`;
+}
+var FrameReader = class {
+  onMessage;
+  buffer = Buffer.alloc(0);
+  constructor(onMessage) {
+    this.onMessage = onMessage;
   }
-  receive(chunk) {
+  push(chunk) {
     this.buffer = Buffer.concat([this.buffer, chunk]);
     for (; ; ) {
       const headerEnd = this.buffer.indexOf("\r\n\r\n");
@@ -2956,79 +2838,17 @@ ${body}`);
         return;
       const body = this.buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
       this.buffer = this.buffer.subarray(bodyStart + length);
+      let message;
       try {
-        this.handle(JSON.parse(body));
+        message = JSON.parse(body);
       } catch {
+        continue;
       }
+      this.onMessage(message);
     }
   }
-  handle(message) {
-    if (message.id !== void 0 && message.id !== null && message.method === void 0) {
-      const settle = this.pending.get(message.id);
-      if (settle !== void 0) {
-        this.pending.delete(message.id);
-        settle(true);
-      }
-      return;
-    }
-    if (message.method === "textDocument/publishDiagnostics") {
-      const uri = message.params?.uri;
-      if (typeof uri === "string") {
-        this.options.onDiagnostics(uri, message.params?.diagnostics ?? []);
-      }
-    }
-  }
-  /** Forward an opened document, starting the child if needed. */
-  async didOpen(path, uri, text) {
-    this.open.set(path, { uri, text, languageId: "python" });
-    if (!await this.ensure(dirname4(path)))
-      return;
-    this.write({ jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "python", version: 1, text } } });
-  }
-  /** Forward a change. */
-  async didChange(path, uri, text) {
-    const known = this.open.get(path);
-    this.open.set(path, { uri, text, languageId: "python" });
-    if (!await this.ensure(dirname4(path)))
-      return;
-    if (known === void 0) {
-      this.write({ jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "python", version: 1, text } } });
-      return;
-    }
-    this.write({ jsonrpc: "2.0", method: "textDocument/didChange", params: { textDocument: { uri, version: 2 }, contentChanges: [{ text }] } });
-  }
-  /** Forward a save — the moment the build tier runs without waiting. */
-  async didSave(path, uri, text) {
-    this.open.set(path, { uri, text, languageId: "python" });
-    if (!await this.ensure(dirname4(path)))
-      return;
-    this.write({ jsonrpc: "2.0", method: "textDocument/didSave", params: { textDocument: { uri }, text } });
-  }
-  /** Forward a close. */
-  didClose(path, uri) {
-    this.open.delete(path);
-    if (!this.ready)
-      return;
-    this.write({ jsonrpc: "2.0", method: "textDocument/didClose", params: { textDocument: { uri } } });
-  }
-  /** Stop the child. */
-  dispose() {
-    this.disposed = true;
-    const child = this.child;
-    this.handleExit();
-    this.open.clear();
-    if (child !== void 0) {
-      try {
-        child.kill();
-      } catch {
-      }
-      for (const stream of [child.stdout, child.stderr, child.stdin]) {
-        try {
-          stream.destroy();
-        } catch {
-        }
-      }
-    }
+  reset() {
+    this.buffer = Buffer.alloc(0);
   }
 };
 
@@ -3079,34 +2899,7 @@ function runEastLsp(options = {}) {
   const pending = /* @__PURE__ */ new Map();
   let shuttingDown = false;
   function send(message) {
-    const body = JSON.stringify({ jsonrpc: "2.0", ...message });
-    output.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r
-\r
-${body}`);
-  }
-  const python = new PythonLspProxy({
-    onDiagnostics: (uri, diagnostics) => {
-      send({ method: "textDocument/publishDiagnostics", params: { uri, diagnostics } });
-    }
-  });
-  function pythonReviewable(path, content) {
-    return content !== void 0 && !SKIP_PATH.test(path) && PYTHON_EAST_IMPORT.test(content);
-  }
-  function forwardPython(path, content, kind) {
-    const uri = `file://${path}`;
-    if (!pythonReviewable(path, content)) {
-      send({ method: "textDocument/publishDiagnostics", params: { uri, diagnostics: [] } });
-      return;
-    }
-    const text = content;
-    void (kind === "open" ? python.didOpen(path, uri, text) : kind === "save" ? python.didSave(path, uri, text) : python.didChange(path, uri, text));
-  }
-  function readSource(path) {
-    try {
-      return readFileSync2(path, "utf-8");
-    } catch {
-      return void 0;
-    }
+    output.write(frame(message));
   }
   function publish(path) {
     const content = open.get(path) ?? (() => {
@@ -3116,10 +2909,6 @@ ${body}`);
         return void 0;
       }
     })();
-    if (path.endsWith(".py")) {
-      forwardPython(path, content, "change");
-      return;
-    }
     let diagnostics = [];
     if (content !== void 0 && !SKIP_PATH.test(path) && EAST_IMPORT_PATTERN.test(content)) {
       const starts = lineStarts(content);
@@ -3147,6 +2936,12 @@ ${body}`);
       } catch {
       }
     }, DEBOUNCE_MS));
+  }
+  function notOurs(path) {
+    if (!path.endsWith(".py"))
+      return false;
+    send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics: [] } });
+    return true;
   }
   function handle(message) {
     const { method, id, params } = message;
@@ -3199,11 +2994,9 @@ ${body}`);
         const text = params?.textDocument?.text;
         if (path === void 0 || typeof text !== "string")
           return;
-        open.set(path, text);
-        if (path.endsWith(".py")) {
-          forwardPython(path, text, "open");
+        if (notOurs(path))
           return;
-        }
+        open.set(path, text);
         service.setOverlay(path, text);
         schedule(path);
         return;
@@ -3213,11 +3006,9 @@ ${body}`);
         const text = params?.contentChanges?.at?.(-1)?.text;
         if (path === void 0 || typeof text !== "string")
           return;
-        open.set(path, text);
-        if (path.endsWith(".py")) {
-          forwardPython(path, text, "change");
+        if (notOurs(path))
           return;
-        }
+        open.set(path, text);
         service.setOverlay(path, text);
         schedule(path);
         return;
@@ -3226,19 +3017,15 @@ ${body}`);
         const path = uriToPath(params?.textDocument?.uri ?? "");
         if (path === void 0)
           return;
+        if (notOurs(path))
+          return;
         const text = params?.text;
         if (typeof text === "string") {
           open.set(path, text);
-          if (!path.endsWith(".py"))
-            service.setOverlay(path, text);
+          service.setOverlay(path, text);
         } else {
           open.delete(path);
-          if (!path.endsWith(".py"))
-            service.clearOverlay(path);
-        }
-        if (path.endsWith(".py")) {
-          forwardPython(path, open.get(path) ?? readSource(path), "save");
-          return;
+          service.clearOverlay(path);
         }
         schedule(path);
         return;
@@ -3248,8 +3035,6 @@ ${body}`);
         if (path === void 0)
           return;
         open.delete(path);
-        if (path.endsWith(".py"))
-          python.didClose(path, `file://${path}`);
         if (!path.endsWith(".py"))
           service.clearOverlay(path);
         const timer = pending.get(path);
@@ -3266,35 +3051,14 @@ ${body}`);
         return;
     }
   }
-  let buffer = Buffer.alloc(0);
-  input.on("data", (chunk) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    for (; ; ) {
-      const headerEnd = buffer.indexOf("\r\n\r\n");
-      if (headerEnd < 0)
-        return;
-      const header = buffer.subarray(0, headerEnd).toString("utf8");
-      const match = /Content-Length:\s*(\d+)/i.exec(header);
-      if (match === null) {
-        buffer = buffer.subarray(headerEnd + 4);
-        continue;
-      }
-      const length = Number(match[1]);
-      const bodyStart = headerEnd + 4;
-      if (buffer.length < bodyStart + length)
-        return;
-      const body = buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
-      buffer = buffer.subarray(bodyStart + length);
-      try {
-        handle(JSON.parse(body));
-      } catch {
-      }
+  const reader = new FrameReader((message) => {
+    try {
+      handle(message);
+    } catch {
     }
   });
-  const shutdown = (code) => {
-    python.dispose();
-    exit(code);
-  };
+  input.on("data", (chunk) => reader.push(chunk));
+  const shutdown = (code) => exit(code);
   input.on("close", () => shutdown(0));
   input.on("end", () => shutdown(0));
 }

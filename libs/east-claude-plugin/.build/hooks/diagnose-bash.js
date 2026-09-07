@@ -1,6 +1,3 @@
-// hooks/diagnose-bash.ts
-import { resolve as resolve3 } from "node:path";
-
 // lib/hook-io.ts
 async function readHookInput() {
   let input = "";
@@ -59,14 +56,17 @@ async function findPackageJson(startDir) {
 }
 async function findPyProject(startDir) {
   let dir = startDir;
+  let nearest = null;
   while (true) {
     try {
-      return await readFile(join(dir, "pyproject.toml"), "utf-8");
+      const text = await readFile(join(dir, "pyproject.toml"), "utf-8");
+      if (PYTHON_SKILL_MAP.some(([pattern]) => pattern.test(text))) return text;
+      nearest ??= text;
     } catch {
-      const parent = dirname(dir);
-      if (parent === dir) return null;
-      dir = parent;
     }
+    const parent = dirname(dir);
+    if (parent === dir) return nearest;
+    dir = parent;
   }
 }
 function detectEastSkills(pkg) {
@@ -185,7 +185,7 @@ async function getDiagnosticsText(workspace, file, budgetMs = 4e3) {
 
 // ../east-diagnostics/dist/src/python-lint.js
 import { execFile } from "node:child_process";
-import { existsSync as existsSync2, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync as existsSync2, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { basename, dirname as dirname3, join as join3 } from "node:path";
 var PYTHON_EAST_IMPORT = /^\s*(?:from\s+east(?:\.[\w.]+)?\s+import\b|import\s+east\b)/m;
@@ -239,6 +239,25 @@ function runEastPyLint(file, content, budgetMs = 4e3) {
     );
   });
 }
+function runEastPyCheck(file, budgetMs = 8e3) {
+  const command = findEastPy(dirname3(file));
+  return new Promise((resolveFindings) => {
+    execFile(command, ["check", "--format", "json", "--only-if-enabled", file], { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } }, (error, stdout) => {
+      if (error !== null && error.code !== 1) {
+        resolveFindings(null);
+        return;
+      }
+      let records;
+      try {
+        records = JSON.parse(stdout);
+      } catch {
+        resolveFindings(null);
+        return;
+      }
+      resolveFindings(Array.isArray(records) ? records : null);
+    });
+  });
+}
 function renderPythonReview(records) {
   if (records.length === 0)
     return "";
@@ -248,8 +267,9 @@ function renderPythonReview(records) {
 
 // lib/east-py-lint.ts
 async function getPythonDiagnosticsText(file, budgetMs = 4e3) {
-  const records = await runEastPyLint(file, void 0, budgetMs);
-  return records === null ? null : renderPythonReview(records);
+  const [rules, build] = await Promise.all([runEastPyLint(file, void 0, budgetMs), runEastPyCheck(file, budgetMs)]);
+  if (rules === null) return null;
+  return renderPythonReview([...rules, ...build ?? []]);
 }
 
 // lib/review.ts
@@ -287,6 +307,7 @@ async function reviewFile(sessionId, filePath) {
 }
 
 // lib/bash-writes.ts
+import { resolve as resolve3 } from "node:path";
 function isRealPath(token) {
   if (token === "" || token.startsWith("&")) return false;
   if (/^\d+$/.test(token)) return false;
@@ -304,21 +325,25 @@ function lastToken(segment) {
   const last = tokens.at(-1);
   return last !== void 0 && isRealPath(last) ? last : void 0;
 }
-function writtenPaths(command) {
+function writtenPaths(command, cwd) {
   const found = /* @__PURE__ */ new Set();
-  for (const match of command.matchAll(/>>?\s*(['"]?)([^\s'";|&<>]+)\1/g)) {
-    const path = unquote(match[2] ?? "");
-    if (isRealPath(path)) found.add(path);
-  }
+  let dir = cwd;
+  const add = (path) => {
+    if (!isRealPath(path)) return;
+    found.add(dir === void 0 ? path : resolve3(dir, path));
+  };
   for (const segment of segments(command)) {
     const trimmed = segment.trim();
-    for (const match of trimmed.matchAll(/\btee\s+(?:-a\s+)?(['"]?)([^\s'";|&<>]+)\1/g)) {
-      const path = unquote(match[2] ?? "");
-      if (isRealPath(path)) found.add(path);
+    const moved = /^cd\s+(['"]?)([^\s'";|&<>]+)\1\s*$/.exec(trimmed);
+    if (moved !== null && dir !== void 0) {
+      dir = resolve3(dir, unquote(moved[2] ?? ""));
+      continue;
     }
+    for (const match of trimmed.matchAll(/>>?\s*(['"]?)([^\s'";|&<>]+)\1/g)) add(unquote(match[2] ?? ""));
+    for (const match of trimmed.matchAll(/\btee\s+(?:-a\s+)?(['"]?)([^\s'";|&<>]+)\1/g)) add(unquote(match[2] ?? ""));
     if (/^\s*(sed\s+(-[^\s]*\s+)*-i|cp|mv|install)\b/.test(trimmed)) {
       const path = lastToken(trimmed);
-      if (path !== void 0) found.add(path);
+      if (path !== void 0) add(path);
     }
   }
   return [...found];
@@ -329,14 +354,11 @@ async function main() {
   const event = await readHookInput();
   const command = event.tool_input?.command;
   if (typeof command !== "string" || command === "") process.exit(0);
-  const candidates = writtenPaths(command).map((p) => resolve3(event.cwd || process.cwd(), p)).filter(reviewable);
+  const candidates = writtenPaths(command, event.cwd || process.cwd()).filter(reviewable);
   if (candidates.length === 0) process.exit(0);
-  const blocks = [];
-  for (const path of candidates.slice(0, 10)) {
-    const text = await reviewFile(event.session_id, path);
-    if (text !== null && text !== "") blocks.push(`### ${path}
-${text}`);
-  }
+  const reviews = await Promise.all(candidates.slice(0, 10).map(async (path) => ({ path, text: await reviewFile(event.session_id, path) })));
+  const blocks = reviews.filter((r) => r.text !== null && r.text !== "").map((r) => `### ${r.path}
+${r.text}`);
   if (blocks.length === 0) process.exit(0);
   writeHookOutput("PostToolUse", blocks.join("\n\n"));
 }

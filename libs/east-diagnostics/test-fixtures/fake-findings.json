@@ -1,0 +1,1 @@
+[{"path": "mod.py", "rule": "no-operator-fork", "code": "EAS002", "category": "error", "line": 5, "column": 12, "end_line": 5, "end_column": 18, "message": "python `//` floors the quotient"}]

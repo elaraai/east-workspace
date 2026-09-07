@@ -56,14 +56,17 @@ async function findPackageJson(startDir) {
 }
 async function findPyProject(startDir) {
   let dir = startDir;
+  let nearest = null;
   while (true) {
     try {
-      return await readFile(join(dir, "pyproject.toml"), "utf-8");
+      const text = await readFile(join(dir, "pyproject.toml"), "utf-8");
+      if (PYTHON_SKILL_MAP.some(([pattern]) => pattern.test(text))) return text;
+      nearest ??= text;
     } catch {
-      const parent = dirname(dir);
-      if (parent === dir) return null;
-      dir = parent;
     }
+    const parent = dirname(dir);
+    if (parent === dir) return nearest;
+    dir = parent;
   }
 }
 function detectEastSkills(pkg) {
@@ -182,7 +185,7 @@ async function getDiagnosticsText(workspace, file, budgetMs = 4e3) {
 
 // ../east-diagnostics/dist/src/python-lint.js
 import { execFile } from "node:child_process";
-import { existsSync as existsSync2, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync as existsSync2, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { basename, dirname as dirname3, join as join3 } from "node:path";
 var PYTHON_EAST_IMPORT = /^\s*(?:from\s+east(?:\.[\w.]+)?\s+import\b|import\s+east\b)/m;
@@ -236,6 +239,25 @@ function runEastPyLint(file, content, budgetMs = 4e3) {
     );
   });
 }
+function runEastPyCheck(file, budgetMs = 8e3) {
+  const command = findEastPy(dirname3(file));
+  return new Promise((resolveFindings) => {
+    execFile(command, ["check", "--format", "json", "--only-if-enabled", file], { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } }, (error, stdout) => {
+      if (error !== null && error.code !== 1) {
+        resolveFindings(null);
+        return;
+      }
+      let records;
+      try {
+        records = JSON.parse(stdout);
+      } catch {
+        resolveFindings(null);
+        return;
+      }
+      resolveFindings(Array.isArray(records) ? records : null);
+    });
+  });
+}
 function renderPythonReview(records) {
   if (records.length === 0)
     return "";
@@ -245,8 +267,9 @@ function renderPythonReview(records) {
 
 // lib/east-py-lint.ts
 async function getPythonDiagnosticsText(file, budgetMs = 4e3) {
-  const records = await runEastPyLint(file, void 0, budgetMs);
-  return records === null ? null : renderPythonReview(records);
+  const [rules, build] = await Promise.all([runEastPyLint(file, void 0, budgetMs), runEastPyCheck(file, budgetMs)]);
+  if (rules === null) return null;
+  return renderPythonReview([...rules, ...build ?? []]);
 }
 
 // lib/review.ts

@@ -27,7 +27,7 @@ function project(): string {
     message: "python `//` floors; East IntegerDivide truncates — spell it .divide(2)",
   };
   writeFileSync(join(bin, "findings.json"), JSON.stringify([record]));
-  writeFileSync(join(bin, "east-py"), `#!/bin/sh\ncat "$(dirname "$0")/findings.json"\nexit 1\n`);
+  writeFileSync(join(bin, "east-py"), `#!/bin/sh\n# lint answers with the findings; check answers with the build findings (empty unless a file beside says otherwise)\nhere="$(dirname "$0")"\ncase "$1" in\n  lint) cat "$here/findings.json"; exit 1 ;;\n  check) if [ -f "$here/build.json" ]; then cat "$here/build.json"; exit 1; else echo "[]"; exit 0; fi ;;\n  *) echo "[]"; exit 0 ;;\nesac\n`);
   chmodSync(join(bin, "east-py"), 0o755);
   writeFileSync(
     join(dir, "mod.py"),
@@ -84,6 +84,22 @@ test("a python EDIT is reviewed here, not left to the language server (#684)", (
       assert.match(out, /<east-code-review>/, `${tool} on a python file must be reviewed`);
       assert.match(out, /no-operator-fork/);
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the build tier's findings join the review, so the hook shows what the language server shows (#653)", () => {
+  const dir = project();
+  try {
+    writeFileSync(join(dir, ".venv", "bin", "build.json"), JSON.stringify([{
+      path: join(dir, "mod.py"), rule: "build", code: "EAS900", category: "error",
+      line: 3, column: 1, end_line: 3, end_column: 2,
+      message: "halve: East.function body produced Integer, declared out is String",
+    }]));
+    const out = runHook(join(dir, "mod.py"));
+    assert.match(out, /no-operator-fork/);
+    assert.match(out, /- \[error\] 3:1 \(build\) halve: East.function body produced Integer/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

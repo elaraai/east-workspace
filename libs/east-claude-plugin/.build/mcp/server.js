@@ -22933,7 +22933,7 @@ function getEntry(index, id) {
 }
 
 // lib/plugin-status.ts
-import { existsSync as existsSync2, readFileSync, readdirSync } from "node:fs";
+import { existsSync as existsSync2, readFileSync as readFileSync2, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname as dirname3, join as join3, resolve } from "node:path";
 
@@ -22970,14 +22970,17 @@ async function findPackageJson(startDir) {
 }
 async function findPyProject(startDir) {
   let dir = startDir;
+  let nearest = null;
   while (true) {
     try {
-      return await readFile2(join(dir, "pyproject.toml"), "utf-8");
+      const text = await readFile2(join(dir, "pyproject.toml"), "utf-8");
+      if (PYTHON_SKILL_MAP.some(([pattern]) => pattern.test(text))) return text;
+      nearest ??= text;
     } catch {
-      const parent = dirname(dir);
-      if (parent === dir) return null;
-      dir = parent;
     }
+    const parent = dirname(dir);
+    if (parent === dir) return nearest;
+    dir = parent;
   }
 }
 function detectEastSkills(pkg) {
@@ -23017,7 +23020,7 @@ async function getEastProjectInfo(cwd) {
 import { execFile } from "node:child_process";
 
 // ../east-diagnostics/dist/src/python-lint.js
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname as dirname2, join as join2 } from "node:path";
 function findEastPy(fromDir) {
   const override = process.env["EAST_PY_LINT"];
@@ -23067,12 +23070,13 @@ var BUNDLED = [
   ".build/hooks/diagnose-bash.js",
   ".build/daemon/server.js",
   ".build/daemon/lsp.js",
+  ".build/daemon/east-py-lsp.js",
   ".build/mcp/server.js"
 ];
 async function checkPluginStatus(pluginRoot, cwd) {
   const checks = [];
   checks.push(await check2("Plugin", () => {
-    const pkg = JSON.parse(readFileSync(join3(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync2(join3(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
     return { name: "Plugin", status: "ok", detail: `version ${pkg.version ?? "?"} (${pluginRoot})` };
   }));
   checks.push(await check2("Bundled artifacts", () => {
@@ -23080,7 +23084,7 @@ async function checkPluginStatus(pluginRoot, cwd) {
     return missing.length === 0 ? { name: "Bundled artifacts", status: "ok", detail: `all ${BUNDLED.length} hook/daemon/MCP bundles present` } : { name: "Bundled artifacts", status: "fail", detail: `missing ${missing.length}: ${missing.join(", ")}` };
   }));
   checks.push(await check2("Hooks registered", () => {
-    const json = JSON.parse(readFileSync(join3(pluginRoot, "hooks", "hooks.json"), "utf8"));
+    const json = JSON.parse(readFileSync2(join3(pluginRoot, "hooks", "hooks.json"), "utf8"));
     const events = Object.keys(json.hooks ?? {});
     const diagnoseWired = JSON.stringify(json.hooks ?? {}).includes("diagnose.js");
     return {
@@ -23091,7 +23095,7 @@ async function checkPluginStatus(pluginRoot, cwd) {
   }));
   checks.push(await check2("Example search", async () => {
     const indexPath = join3(pluginRoot, "index.json");
-    const data = JSON.parse(readFileSync(indexPath, "utf8"));
+    const data = JSON.parse(readFileSync2(indexPath, "utf8"));
     const entries = data.entries ?? [];
     const programs = entries.filter((e) => e.ir !== void 0);
     const python = programs.filter((e) => typeof e.python === "string").length;
@@ -23118,23 +23122,25 @@ async function checkPluginStatus(pluginRoot, cwd) {
   }));
   checks.push(await check2("Diagnostics (python / east-py)", async () => {
     const command = findEastPy(cwd);
-    const rules = await new Promise((done) => {
-      execFile(command, ["lint", "--list-rules"], { timeout: 8e3, encoding: "utf-8" }, (error2, stdout) => {
-        if (error2 !== null) {
-          done(null);
-          return;
-        }
-        done(stdout.split("\n").filter((l) => l.startsWith("EAS")).length);
+    const run = (args) => new Promise((done) => {
+      execFile(command, args, { timeout: 8e3, encoding: "utf-8" }, (error2, stdout, stderr) => {
+        done({ ok: error2 === null, stdout: String(stdout), stderr: String(stderr) });
       });
     });
-    return rules === null ? {
+    const listed = await run(["lint", "--list-rules"]);
+    if (!listed.ok) {
+      return {
+        name: "Diagnostics (python / east-py)",
+        status: "warn",
+        detail: `\`${command}\` did not answer \u2014 python East files get NO review until east-py resolves (a project .venv above the file, east-py on PATH, or EAST_PY_LINT)`
+      };
+    }
+    const rules = listed.stdout.split("\n").filter((l) => l.startsWith("EAS")).length;
+    const probe = await run(["lsp", "--probe"]);
+    return probe.ok ? { name: "Diagnostics (python / east-py)", status: "ok", detail: `${command} \u2014 ${rules} rules; ${probe.stdout.trim()} (warm server + build tier)` } : {
       name: "Diagnostics (python / east-py)",
       status: "warn",
-      detail: `\`${command}\` did not answer \u2014 python East files get NO review until east-py resolves (a project .venv above the file, east-py on PATH, or EAST_PY_LINT)`
-    } : {
-      name: "Diagnostics (python / east-py)",
-      status: "ok",
-      detail: `${command} \u2014 ${rules} rules`
+      detail: `${command} \u2014 ${rules} rules, but \`east-py lsp\` cannot start (${probe.stderr.trim().split("\n")[0] ?? "no reason given"}): the rules still run per change, the build tier is off`
     };
   }));
   checks.push(await check2("Diagnostics (PostToolUse daemon)", () => {

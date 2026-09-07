@@ -4,7 +4,6 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -150,42 +149,17 @@ test("unknown requests get MethodNotFound, unknown notifications are ignored", a
   server.dispose();
 });
 
-test("LSP proxies a python document to a persistent east-py lsp child, and forwards what it publishes (#648, #681)", async () => {
-  // A stand-in `east-py` in a project's `.venv` that speaks LSP, as the real
-  // `east-py lsp` does: it answers `initialize` and publishes diagnostics for a
-  // document that imports east. The proxy keeps ONE of these alive rather than
-  // spawning a process per check, which is what lets the build tier (#653) run
-  // below save granularity.
-  const dir = mkdtempSync(join(tmpdir(), "east-lsp-py-"));
-  const bin = join(dir, ".venv", "bin");
-  mkdirSync(bin, { recursive: true });
-  // The package root, as PROJ above — a .py fixture is not compiled into dist/.
-  const standIn = join(process.cwd(), "test-fixtures", "fake-east-py-lsp.py");
-  writeFileSync(join(bin, "east-py"), `#!/bin/sh\nexec python3 ${JSON.stringify(standIn)} "$@"\n`);
-  chmodSync(join(bin, "east-py"), 0o755);
-  const saved = process.env["EAST_PY_LINT"];
-  process.env["EAST_PY_LINT"] = "";
+test("a python document is another server's: cleared, never judged, no child spawned", async () => {
   const server = startServer();
   try {
-    const file = join(dir, "mod.py");
+    const file = join(tmpdir(), "not-mine.py");
     const uri = pathToFileURL(file).href;
     server.send({ id: 1, method: "initialize", params: { capabilities: {} } });
     await server.waitFor((m) => m.id === 1);
-    server.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "python", version: 1, text: "from east import East, IntegerType\n\n@East.function([IntegerType], IntegerType)\ndef halve(b, x):\n    return x // 2\n" } } });
-    const publish = await server.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri.endsWith("mod.py") && m.params.diagnostics.length > 0);
-    const [d] = publish.message.params.diagnostics;
-    assert.equal(d.code, "no-operator-fork");
-    assert.equal(d.source, "east-py");
-    assert.equal(d.severity, 1);
-    assert.deepEqual(d.range, { start: { line: 4, character: 11 }, end: { line: 4, character: 17 } });
-    // a python document that does not import east is cleared without reaching the child
-    const plain = join(dir, "plain.py");
-    server.send({ method: "textDocument/didOpen", params: { textDocument: { uri: pathToFileURL(plain).href, languageId: "python", version: 1, text: "def halve(x):\n    return x // 2\n" } } });
-    const empty = await server.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri.endsWith("plain.py"));
-    assert.equal(empty.message.params.diagnostics.length, 0);
+    server.send({ method: "textDocument/didOpen", params: { textDocument: { uri, languageId: "python", version: 1, text: "from east import East\nx = 1 // 2\n" } } });
+    const publish = await server.waitFor((m) => m.method === "textDocument/publishDiagnostics" && m.params.uri.endsWith("not-mine.py"));
+    assert.deepEqual(publish.message.params.diagnostics, []);
   } finally {
     server.dispose();
-    if (saved === undefined) delete process.env["EAST_PY_LINT"]; else process.env["EAST_PY_LINT"] = saved;
-    rmSync(dir, { recursive: true, force: true });
   }
 });

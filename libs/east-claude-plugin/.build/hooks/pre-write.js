@@ -68,14 +68,17 @@ async function findPackageJson(startDir) {
 }
 async function findPyProject(startDir) {
   let dir = startDir;
+  let nearest = null;
   while (true) {
     try {
-      return await readFile(join(dir, "pyproject.toml"), "utf-8");
+      const text = await readFile(join(dir, "pyproject.toml"), "utf-8");
+      if (PYTHON_SKILL_MAP.some(([pattern]) => pattern.test(text))) return text;
+      nearest ??= text;
     } catch {
-      const parent = dirname(dir);
-      if (parent === dir) return null;
-      dir = parent;
     }
+    const parent = dirname(dir);
+    if (parent === dir) return nearest;
+    dir = parent;
   }
 }
 function detectEastSkills(pkg) {

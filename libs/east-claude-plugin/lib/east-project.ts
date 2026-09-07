@@ -44,7 +44,13 @@ export async function findPackageJson(startDir: string): Promise<PackageJson | n
 }
 
 /**
- * The nearest `pyproject.toml` above `startDir`, as text.
+ * The `pyproject.toml` that governs `startDir`, as text: the nearest one at
+ * or above it that depends on an east-py distribution, else the nearest one
+ * at all. A uv workspace member has its own pyproject — that is what makes it
+ * a member — and it usually says nothing about East, so stopping at the first
+ * file found would call every member a non-East project while the root
+ * declares otherwise; the walk continues past a pyproject that does not
+ * mention east-py (the same rule `east.diagnostics.config` applies).
  *
  * `uv.lock` is deliberately NOT read. This runs on a hot path — every session
  * start, every subagent start, every gated write, and every reviewed file — and
@@ -53,18 +59,22 @@ export async function findPackageJson(startDir: string): Promise<PackageJson | n
  * a lockfile lists TRANSITIVE resolutions, so a TypeScript-only project that
  * merely resolved an East distribution somewhere in its graph was reported as
  * a python East project and handed the python cheat-sheet. A project that
- * authors East in python declares it in its own `pyproject.toml`.
+ * authors East in python declares it in a `pyproject.toml` of its own.
  */
 export async function findPyProject(startDir: string): Promise<string | null> {
   let dir = startDir;
+  let nearest: string | null = null;
   while (true) {
     try {
-      return await readFile(join(dir, "pyproject.toml"), "utf-8");
+      const text = await readFile(join(dir, "pyproject.toml"), "utf-8");
+      if (PYTHON_SKILL_MAP.some(([pattern]) => pattern.test(text))) return text;
+      nearest ??= text;
     } catch {
-      const parent = dirname(dir);
-      if (parent === dir) return null;
-      dir = parent;
+      /* no pyproject here: keep walking */
     }
+    const parent = dirname(dir);
+    if (parent === dir) return nearest;
+    dir = parent;
   }
 }
 
@@ -83,7 +93,7 @@ export function detectEastSkills(pkg: PackageJson | null): string[] {
   return skills;
 }
 
-/** The east-py skills a pyproject/uv.lock text depends on. */
+/** The east-py skills a pyproject.toml text depends on. */
 export function detectPythonSkills(pyproject: string | null): string[] {
   if (pyproject === null) return [];
   const skills: string[] = [];
