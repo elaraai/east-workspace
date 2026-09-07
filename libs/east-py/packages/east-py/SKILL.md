@@ -219,8 +219,8 @@ Task → What do you need?
     │   ├─ IR ↔ python → to_python_source(fn) · `east-py transpile prog.json -o prog.py` · compile_from_beast2/json/east (a function compiled
     │   │   elsewhere — pass it to any eager method) · compile_from_value (IR built with east.ir.builders) · `east-c ir normalize|diff|convert`
     │   ├─ The build's refusals at EDIT time → `east-py lint src/` (exit 1 on any finding; `--format json`, `--disable RULE`, `# noqa`) ·
-    │   │   `flake8 --select EAS` (the plugin) · `east-py lsp` (an editor) — 26 rules, each the build's own message (see Diagnostics)
-    │   ├─ TYPE errors at edit time (a wrong `out`, a refused callback) → `east-py check src/mod.py` — runs the build, reports every
+    │   │   `flake8 --select EAS` (the plugin) · `east-py lsp` (an editor) — 25 rules, each the build's own message (see Diagnostics)
+    │   ├─ TYPE errors at edit time (a wrong `out`, a refused callback) → `east-py check src/` — runs the build, reports every
     │   │   broken function at its line; the rules are syntactic and cannot see these (see Diagnostics)
     │   └─ Across languages → the package's root module declares `east_functions = {"name": fn}`; an e3 task names it with East.importFunction and
     │       e3.export exports + links a uv-workspace package by itself (`east-py export-functions pkg -o pkg.functions.beast2 -p east-py-std` only for a
@@ -938,18 +938,24 @@ module's import.
 east-py lint src/                         # file:line:col: category [rule] message — exit 1 on any finding
 east-py lint src/ --format json           # the findings as records
 east-py lint src/ --disable no-deprecated-alias --exclude fixtures
-east-py lint --list-rules                 # EAS001 … EAS026
-east-py check src/mod.py                  # the BUILD's errors — the type errors lint cannot see; --format json
+east-py lint --list-rules                 # EAS001 … EAS025
+east-py check src/                        # the BUILD's errors — the type errors lint cannot see; a file, a directory, or a module; --format json
 flake8 --select EAS src/                  # the same rules inside flake8 (east-py-cli registers the plugin)
-east-py lsp                               # a Language Server over stdio, both tiers — pip install 'east-py-cli[lsp]'
+east-py lsp                               # a Language Server over stdio, both tiers (east-py lsp --probe: can it start here?)
 # pylsp                                   # python-lsp-server runs the rules too (east-py-cli registers the plugin)
 ```
 
-The rules run on every change; the build tier runs on **save**, and only when
-the project opts in (below). It reads the module from DISK — an import does —
-so running it against an unsaved buffer would report the last saved version's
-errors at that version's lines. Pyright/Pylance has no plugin API, so flake8
-and pylsp are the two editor paths that need no East-specific server.
+The rules run on every change; the build tier runs on **open** (debounced)
+and on **save** (at once), and only when the project opts in (below). It reads
+the module from DISK — an import does — so running it against an unsaved
+buffer would report the last saved version's errors at that version's lines.
+It runs on one long-lived worker thread inside the server, never on the
+handler, and a save evicts the saved module from the warm process so a module
+that imports it is checked against the new version next time. Pyright/Pylance
+has no plugin API, so flake8 and pylsp are the two editor paths that need no
+East-specific server; the Claude Code plugin registers a launcher for `.py`
+files that runs the project's own `east-py lsp` and falls back to `east-py
+lint` per change when that server cannot start.
 
 `east-py check` imports the module and builds every East function in it,
 reporting each failure at its authoring line: a body whose expression type
@@ -957,7 +963,10 @@ differs from the declared `out`, a callback the capture refuses, an
 `IRAnalysisError`. It reports EVERY broken function, not the first — a build
 normally raises out of the import. Importing runs the module, so it sets
 `EAST_CHECK=1` for the duration and a module should skip its import-time work
-when it sees that.
+when it sees that. A target is a `.py` file, a directory (walked as `lint`
+walks it), or a dotted module name; every target is executed afresh, and
+`--only-if-enabled` makes it honour the project's opt-in — what the plugin's
+read hook passes, so the hook and the language server show the same findings.
 
 | Rule | Flags | What the build says |
 |---|---|---|
@@ -972,21 +981,20 @@ when it sees that.
 | `no-discarded-expression` (EAS009) | a bare `acc.push_last(x)` / `East.error(…)` / `xs.size()` line in a body | `.push_last() was evaluated and thrown away … b.do(…)` |
 | `prefer-some-none` (EAS010, warning) | `variant("some", x)` / `variant("none", None)` | use `some(value)` / `none` |
 | `no-handrolled-variant` (EAS011, warning) | a `{"type": …, "value": …}` dict | `variant("Tag", value, Type)` — the encoder needs what it constructs |
-| `prefer-explicit-east-type` (EAS012, suggestion) | `b.let([])` / `b.const({})` / `b.let(list())` | pass the East type: `b.let([], ArrayType(IntegerType))` |
-| `no-let-const-in-expression` (EAS013, warning) | `b.let` / `b.const` buried in a call argument, an element, a chain target | give the declaration its own statement |
+| `prefer-explicit-east-type` (EAS012) | `b.let([])` / `b.let([1, 2])` / `b.const(list())` — a bare python list, set or tuple, empty or not | `cannot lift python value of type list …` — pass the East type: `b.let([], ArrayType(IntegerType))`, or build it with `East.new_array` |
+| `no-let-const-in-expression` (EAS013, warning) | `b.let` / `b.const` buried in a call argument, an element, a chain target (a tuple of declarations is fine) | give the declaration its own statement |
 | `no-untracked-east-data` (EAS014, suggestion) | a plain python list/dict local reaching an expression's method | `b.const(rows, Type)` — a local carries no East type and re-inlines |
-| `no-reinlined-east-binding` (EAS015) | an expression held in a python local and read twice in a body | `b.let`/`b.const` once — the tree is copied and re-evaluated per use |
-| `no-redundant-east-cast` (EAS016, warning) | `b.let(East.value(x, T), T)` | pass the value and type to `b.let` directly |
-| `prefer-let-const-over-east-value` (EAS017, suggestion) | `East.value(...)` assigned or returned inside a body | `b.const(value, Type)` — `East.value` erases the type at the binding |
-| `no-host-comparison-on-east-values` (EAS018, warning) | `==` / `<` on a decoded VARIANT or OPTION outside a body (scalars are fine — a decoded Integer is an `int`) | `equal_for(T)` / `compare_for(T)`, `make_east_key(T)` for `sorted` |
-| `no-module-scope-east-macro` (EAS019, warning) | a module-scope helper building IR that a body then calls, or a composite `f"{a}|{b}"` key | make it an `East.function`; model typed / nested East data |
-| `no-build-time-clock` (EAS020, warning) | `datetime.now()` / `time.time()` at module scope | author the constant, or read the clock inside a platform function |
-| `no-inline-credentials` (EAS021, warning) | a literal `password` / `token` / `secret_access_key` (a localhost sibling host is exempt) | `East.Env.get("VAR")` — IR is content-addressed and replicated |
-| `no-compile-time-data-injection` (EAS022, warning) | `open()` / `json.load` / `Path.read_text` / `os.environ` at module import | load at runtime: an e3 input, a dataset, a platform function |
-| `no-python-east-data` (EAS023, warning) | East rows assembled by a module-scope comprehension or loop, then handed to a body | write the rows out, or produce them at runtime |
-| `no-python-string-building` (EAS024, warning) | an f-string assembling an East string CONSTANT — a regex, a template, a key | spell the constant out |
-| `no-derived-struct-fields` (EAS025, warning) | `Derived = StructType([… for f in Other.value])` | a type declaration is a wire format — spell the fields |
-| `no-python-data-work` (EAS026, warning) | a python helper doing parse / strip / null-check / coerce work for a body that calls it | express it in East, where it runs on every row |
+| `no-redundant-east-cast` (EAS015, warning) | `b.let(East.value(x, T), T)` | pass the value and type to `b.let` directly |
+| `prefer-let-const-over-east-value` (EAS016, suggestion) | `East.value(...)` assigned or returned inside a body | `b.const(value, Type)` — `East.value` erases the type at the binding |
+| `no-host-comparison-on-east-values` (EAS017) | `<` / `>` on a decoded VARIANT or OPTION outside a body — it raises `TypeError` (`==` is structural and fine; a decoded Integer is an `int`) | `compare_for(T)` / `less_for(T)`, `make_east_key(T)` for `sorted` |
+| `no-module-scope-east-macro` (EAS018, warning) | a module-scope helper a body calls to build IR, or to assemble a composite `f"{a}|{b}"` key | make it an `East.function`; model typed / nested East data |
+| `no-build-time-clock` (EAS019, warning) | `datetime.now()` / `time.time()` at module scope (a script's `if __name__ == "__main__":` is not module scope) | author the constant, or read the clock at runtime — a platform function, or `east_py_std`'s `time_now()` in a body |
+| `no-inline-credentials` (EAS020, warning) | a literal `password` / `token` / `secret_access_key` (a localhost sibling host, a header NAME like `X-Api-Key`, and a `${TEMPLATE}` are exempt) | read it at runtime: `east_py_std`'s `env_get("VAR")` in a body, `os.environ` in a platform function — IR is content-addressed and replicated |
+| `no-compile-time-data-injection` (EAS021, warning) | `open()` / `json.load` / `Path.read_text` / `os.environ` at module import, when the result REACHES East (a body reads it, or a boundary call takes it) | load at runtime: an e3 input, a dataset, a platform function |
+| `no-python-east-data` (EAS022, warning) | East rows assembled by a module-scope comprehension or loop, then handed to a body | write the rows out, or produce them at runtime |
+| `no-python-string-building` (EAS023, warning) | an f-string assembling an East string CONSTANT — a regex, a template, a key | spell the constant out |
+| `no-derived-struct-fields` (EAS024, warning) | `Derived = StructType([… for f in Other.value])` | a type declaration is a wire format — spell the fields |
+| `no-python-data-work` (EAS025, warning) | a python helper doing parse / strip / null-check / coerce work on an EXPRESSION a body hands it | express it in East, where it runs on every row |
 
 Configure it once, in the project's own `pyproject.toml` — every surface
 reads it (`east-py lint`, the flake8 plugin, the pylsp plugin, `east-py lsp`):
@@ -1015,9 +1023,13 @@ clean `lint` is necessary but not sufficient — the type errors live behind
 `make lint` runs the rules over every east-py package's own East bodies.
 
 The rules are written to be disjoint — each mistake is one rule's to report —
-and the corpus test pins that (a bad fixture trips only its own rule). Where a
-future rule genuinely overlaps an existing one it declares `supersedes`, and
-the more specific message is the one you see; no rule needs that today.
+and the corpus pins it: a bad fixture trips only its own rule, every `ok.py`
+builds, and a bad fixture builds or raises as its rule's category says. One
+TypeScript rule has no python twin on purpose: `no-reinlined-east-binding`
+warns that an `Expr` held in a JS `const` and used twice is re-inlined, but the
+python build's common-subexpression pass binds a reused python local to ONE
+`Let` (`fields = r.data.split("|")` read for thirty columns splits once), so
+the hazard does not exist here.
 
 ### Cross-language functions: `east-py export-functions` and `East.import_function`
 
