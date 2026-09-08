@@ -208,6 +208,18 @@ describe("typeFromJsonSchema", () => {
                 OptionType(StructType({ a: StringType }))));
             assert.ok(isTypeEqual(typeFromJsonSchema({ type: ["null"] }), NullType));
         });
+
+        test("reads a oneOf of null and one other schema as an Option of it", () => {
+            assert.ok(isTypeEqual(typeFromJsonSchema({ oneOf: [{ type: "null" }, { type: "string" }] }), OptionType(StringType)));
+            assert.ok(isTypeEqual(typeFromJsonSchema({ oneOf: [{ type: "integer" }, { type: "null" }] }), OptionType(IntegerType)));
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ oneOf: [{ type: "null" }, { type: "array", items: { type: "string" } }] }),
+                OptionType(ArrayType(StringType))));
+            // Two nulls, or none, is not that spelling: it is an untagged union.
+            for (const oneOf of [[{ type: "null" }, { type: "null" }], [{ type: "string" }, { type: "integer" }]]) {
+                assert.throws(() => typeFromJsonSchema({ oneOf }), /an untagged union is not an East variant/);
+            }
+        });
     });
 
     describe("definitions", () => {

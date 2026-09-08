@@ -209,9 +209,9 @@ interface Context {
  * | `{"type":"array","items":X}` | `Array<X>` |
  * | a closed object with `required` covering every property | `Struct` |
  * | `oneOf` of objects tagged by a constant `type` | `Variant` |
- * | `nullable: true` beside a type, or `{"type":["string","null"]}` | `Option<String>` |
+ * | `nullable: true` beside a type, `{"type":["string","null"]}`, or a `oneOf` of null and one other schema | `Option<String>` |
  *
- * The last two read as an Option because East JSON writes a `none` whose
+ * The last row reads as an Option because East JSON writes a `none` whose
  * payload cannot itself be null as `null`, so the nulls such a contract
  * permits are exactly what the reader accepts. A node whose own spelling
  * already admits null — the null type, a union with null, an Option
@@ -547,6 +547,15 @@ function buildVariant(node: JsonSchema, ctx: Context, path: string[]): EastType 
     fail("typeFromJsonSchema needs a non-empty \"oneOf\"", [...path, "oneOf"]);
   }
 
+  // JSON Schema's own `oneOf` spelling of "this or null" — null beside one
+  // other schema — reads as an Option of it, for the reason `nullable` and
+  // the type union do. A tagged Option is two objects, so it never matches.
+  if (alternatives.length === 2) {
+    const schemas = alternatives.map((a, i) => asSchema(a, [...path, "oneOf", String(i)], `oneOf[${i}]`));
+    const at = payloadBesideNull(schemas);
+    if (at !== null) return OptionType(build(schemas[at]!, ctx, [...path, "oneOf", String(at)]));
+  }
+
   // As above — and reading `cases["constructor"]` on a plain object finds
   // Object.prototype's, which reported a false duplicate case.
   const cases: Record<string, EastType> = Object.create(null) as Record<string, EastType>;
@@ -581,6 +590,14 @@ function isNullSchema(node: JsonSchema): boolean {
     && Array.isArray(choices) && choices.length === 1 && choices[0] === null;
 }
 
+/** The index of the payload beside a single null alternative, or `null` when the pair is not that shape. */
+function payloadBesideNull(schemas: JsonSchema[]): number | null {
+  if (schemas.length !== 2) return null;
+  const nulls = schemas.map(isNullSchema);
+  if (nulls[0] === nulls[1]) return null;
+  return nulls[0] ? 1 : 0;
+}
+
 function buildAnnotated(annotation: string, node: JsonSchema, ctx: Context, path: string[]): EastType {
   switch (annotation) {
     case "Option": {
@@ -593,13 +610,12 @@ function buildAnnotated(annotation: string, node: JsonSchema, ctx: Context, path
           [...path, "oneOf"]);
       }
       const schemas = alternatives.map((a, i) => asSchema(a, [...path, "oneOf", String(i)], `oneOf[${i}]`));
-      const nulls = schemas.map(isNullSchema);
-      if (nulls[0] === nulls[1]) {
+      const at = payloadBesideNull(schemas);
+      if (at === null) {
         fail(
           "typeFromJsonSchema needs an Option's \"oneOf\" to hold one null alternative and one payload",
           [...path, "oneOf"]);
       }
-      const at = nulls[0] ? 1 : 0;
       return OptionType(build(schemas[at]!, ctx, [...path, "oneOf", String(at)]));
     }
     case "Integer": return IntegerType;

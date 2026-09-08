@@ -234,7 +234,7 @@ Task → What do you need?
         │   an Option as null or its payload)
         │   └─ and back, from a vendored schema → typeFromJsonSchema(schema) — throws, naming the keyword and its
         │       RFC 6901 pointer, on what East cannot express (allOf, not, if/then/else, anyOf, an open record, …);
-        │       `nullable: true` and `["string", "null"]` read as an Option
+        │       `nullable: true`, `["string", "null"]` and a `oneOf` of null and one schema read as an Option
         ├─ Data, INSIDE an East function → East.Blob.encodeBeast(value, 'v2'), blob.decodeBeast(type, 'v2')
         │   ├─ A huge collection blob → blob.openBeast(T): frozen, pager-backed — keyed reads and $.for decode ONE segment; identical on the east-node, east-c and east-py runtimes
         │   │   (East.Blob.encodeBeast writes NO paging index, so paged blobs come from encodeBeast2PagedFor / Beast2Writer / a runner's collection output)
@@ -581,10 +581,11 @@ const T = typeFromJsonSchema(JSON.parse(readFileSync("partner.schema.json", "utf
   objects, and a flat `Option` from any other `oneOf`. A foreign schema
   without them still converts, under a documented structural mapping that
   does not promise to round-trip: OpenAPI 3.0's `nullable: true` beside a
-  type, and JSON Schema's own `{"type": ["string", "null"]}`, read as
-  `Option<String>` — East JSON writes a `none` whose payload cannot be null
-  as `null`, so the nulls such a contract permits are exactly what the reader
-  accepts (a node that already admits null is left as it is).
+  type, JSON Schema's own `{"type": ["string", "null"]}`, and a `oneOf` of
+  null and one other schema, read as `Option<String>` — East JSON writes a
+  `none` whose payload cannot be null as `null`, so the nulls such a
+  contract permits are exactly what the reader accepts (a node that already
+  admits null is left as it is).
 - **Recursion binds one `RecursiveType` per cycle group.** Definitions that
   reference each other — a `Node` whose children are a `NodeList` of `Node` —
   convert as long as every cycle in the group passes through one definition,

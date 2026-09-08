@@ -246,7 +246,7 @@ Task → What do you need?
     │   │   (from east.serialization; a plain function like compare_for — it describes East's OWN JSON encoding, and emits the
     │   │   same bytes the TypeScript jsonSchemaFor does; an Option is null or its payload) · and back →
     │   │   type_from_json_schema(schema) ❗JsonSchemaUnsupportedError,
-    │   │   carrying the RFC 6901 .pointer of the keyword East cannot express (`nullable: true` and `["string", "null"]` read as an Option)
+    │   │   carrying the RFC 6901 .pointer of the keyword East cannot express (`nullable: true`, `["string", "null"]` and a `oneOf` of null and one schema read as an Option)
     │   ├─ Transform a value (every callback is an East function body: the block first — fn(b, el), or fn(b, el, idx) for the builtin's index)
     │   │   ├─ Array<T>
     │   │   │   ├─ Access → get(i[, fn(b, i)]) ❗bounds · at(i) · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · size()/length() ·
@@ -1327,11 +1327,11 @@ T = type_from_json_schema(json.loads(Path("partner.schema.json").read_text()))
   `type_from_json_schema` tell `DateTime` from a `String` with `format: date-time`, `Set`
   from `Array`, `Dict` from an array of two-property objects, and a flat `Option` from any
   other `oneOf`. A foreign schema without them still converts, under a structural mapping
-  that does not promise to round-trip: OpenAPI 3.0's `nullable: true` beside a type, and
-  JSON Schema's own `{"type": ["string", "null"]}`, read as `Option<String>` — East JSON
-  writes a `none` whose payload cannot be null as `null`, so the nulls such a contract
-  permits are exactly what the reader accepts (a node that already admits null is left as
-  it is).
+  that does not promise to round-trip: OpenAPI 3.0's `nullable: true` beside a type, JSON
+  Schema's own `{"type": ["string", "null"]}`, and a `oneOf` of null and one other schema,
+  read as `Option<String>` — East JSON writes a `none` whose payload cannot be null as
+  `null`, so the nulls such a contract permits are exactly what the reader accepts (a node
+  that already admits null is left as it is).
 - **Recursion binds one `recursive_type` per cycle group.** Definitions that reference each
   other — a `Node` whose children are a `NodeList` of `Node` — convert as long as every cycle
   in the group passes through one definition, which becomes the binder; entered at any other

@@ -296,9 +296,10 @@ def type_from_json_schema(schema: JsonSchema) -> EastType:
     those annotations still converts, under a documented structural mapping,
     but does not promise to round-trip.
 
-    OpenAPI 3.0's ``nullable: true`` beside a type, and JSON Schema's own
-    ``{"type": ["string", "null"]}``, read as an ``Option`` of that type: East
-    JSON writes a ``none`` whose payload cannot itself be null as ``null``, so
+    OpenAPI 3.0's ``nullable: true`` beside a type, JSON Schema's own
+    ``{"type": ["string", "null"]}``, and a ``oneOf`` of null and one other
+    schema, read as an ``Option`` of that type: East JSON writes a ``none``
+    whose payload cannot itself be null as ``null``, so
     the nulls such a contract permits are exactly what the reader accepts. A
     node whose own spelling already admits null — the null type, a union with
     null, an Option annotation — is left as it is.
@@ -546,6 +547,18 @@ def _build_variant(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType
     if not isinstance(alternatives, list) or not alternatives:
         _fail('type_from_json_schema needs a non-empty "oneOf"', [*path, "oneOf"])
 
+    # JSON Schema's own `oneOf` spelling of "this or null" -- null beside one
+    # other schema -- reads as an Option of it, for the reason `nullable` and
+    # the type union do. A tagged Option is two objects, so it never matches.
+    if len(alternatives) == 2:
+        schemas = [
+            _as_schema(alt, [*path, "oneOf", str(i)], f"oneOf[{i}]")
+            for i, alt in enumerate(alternatives)
+        ]
+        at = _payload_beside_null(schemas)
+        if at is not None:
+            return OptionType(_build(schemas[at], ctx, [*path, "oneOf", str(at)]))
+
     cases: list[tuple[str, EastType]] = []
     seen: set[str] = set()
     for i, raw in enumerate(alternatives):
@@ -596,6 +609,19 @@ def _is_null_schema(node: JsonSchema) -> bool:
     )
 
 
+def _payload_beside_null(schemas: list[JsonSchema]) -> int | None:
+    """The index of the payload beside one null alternative.
+
+    ``None`` when the pair is not that shape.
+    """
+    if len(schemas) != 2:
+        return None
+    nulls = [_is_null_schema(schema) for schema in schemas]
+    if nulls[0] == nulls[1]:
+        return None
+    return 1 if nulls[0] else 0
+
+
 def _build_annotated(  # noqa: PLR0911
     annotation: str, node: JsonSchema, ctx: _Context, path: list[str]
 ) -> EastType:
@@ -613,14 +639,13 @@ def _build_annotated(  # noqa: PLR0911
             _as_schema(alt, [*path, "oneOf", str(i)], f"oneOf[{i}]")
             for i, alt in enumerate(alternatives)
         ]
-        nulls = [_is_null_schema(schema) for schema in schemas]
-        if nulls[0] == nulls[1]:
+        at = _payload_beside_null(schemas)
+        if at is None:
             _fail(
                 'type_from_json_schema needs an Option\'s "oneOf" to hold one null alternative '
                 "and one payload",
                 [*path, "oneOf"],
             )
-        at = 1 if nulls[0] else 0
         return OptionType(_build(schemas[at], ctx, [*path, "oneOf", str(at)]))
     if annotation == "Integer":
         return IntegerType

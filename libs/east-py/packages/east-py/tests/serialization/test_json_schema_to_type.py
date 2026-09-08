@@ -409,6 +409,29 @@ def test_reads_one_type_beside_null_in_a_type_union_as_an_option():
     assert type_from_json_schema({"type": ["null"]}) == NullType
 
 
+def test_reads_a_oneof_of_null_and_one_other_schema_as_an_option():
+    assert type_from_json_schema({"oneOf": [{"type": "null"}, {"type": "string"}]}) == option(
+        StringType
+    )
+    assert type_from_json_schema({"oneOf": [{"type": "integer"}, {"type": "null"}]}) == option(
+        IntegerType
+    )
+    assert type_from_json_schema(
+        {"oneOf": [{"type": "null"}, {"type": "array", "items": {"type": "string"}}]}
+    ) == option(ArrayType(StringType))
+
+
+@pytest.mark.parametrize(
+    "one_of",
+    [[{"type": "null"}, {"type": "null"}], [{"type": "string"}, {"type": "integer"}]],
+    ids=["two nulls", "no null"],
+)
+def test_a_oneof_that_is_not_null_beside_one_schema_is_an_untagged_union(one_of):
+    """Two nulls, or none, is not that spelling."""
+    with pytest.raises(JsonSchemaUnsupportedError, match="an untagged union is not an East variant"):
+        type_from_json_schema({"oneOf": one_of})
+
+
 def test_a_null_type_beside_nullable_is_refused_at_type():
     """``nullable`` no longer shadows the fault: the explicit null is the type, and refused as it."""
     with pytest.raises(
