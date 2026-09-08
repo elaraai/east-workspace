@@ -24,10 +24,10 @@
  */
 
 import * as path from 'node:path';
-import { parseRepoLocationSync, getValidToken, getCredential, decodeJwtPayload, formatError } from '@elaraai/e3-cli/internal';
+import { parseRepoLocationSync, getValidToken, getCredential, decodeJwtPayload } from '@elaraai/e3-cli/internal';
 import { repoStatus, type RepositoryStatus } from '@elaraai/e3-api-client';
 import { startRepoServer, type RepoServerHandle } from '../e3-server.js';
-import { createHttpApi, isApiCode, type Api } from './api.js';
+import { createHttpApi, describeError, isApiCode, type Api } from './api.js';
 import type { Refusal, SessionInfo } from './state/actions.js';
 
 /** An open session. */
@@ -129,7 +129,7 @@ function connectionError(err: unknown): string {
     const cause = (err as { cause?: { code?: string; message?: string } }).cause;
     if (cause?.code !== undefined) return cause.code;
     if (cause?.message !== undefined) return cause.message;
-    return formatError(err);
+    return describeError(err);
 }
 
 /**
@@ -150,7 +150,7 @@ export async function openSession(target: string, options: OpenSessionOptions = 
         try {
             server = await start(parsed.path);
         } catch (err) {
-            throw new SessionRefusal({ kind: 'error', message: `could not start the embedded server: ${formatError(err)}` });
+            throw new SessionRefusal({ kind: 'error', message: `could not start the embedded server: ${describeError(err)}` });
         }
         step(`embedded e3 api server · ${server.apiUrl.replace(/^https?:\/\//, '')}`);
         const api = createHttpApi({ apiUrl: server.apiUrl, repo: server.repo, token: async () => null });

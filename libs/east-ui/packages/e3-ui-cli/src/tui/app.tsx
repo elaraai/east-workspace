@@ -18,8 +18,8 @@ import * as os from 'node:os';
 import { createRequire } from 'node:module';
 import { render, type Instance } from 'ink';
 import { createElement } from 'react';
-import { formatError } from '@elaraai/e3-cli/internal';
 import type { TuiOptions } from '../commands/tui.js';
+import { describeError } from './api.js';
 import { App } from './ui/App.js';
 import { createController, type Controller } from './controller.js';
 import { createFeeds } from './data/feeds.js';
@@ -59,7 +59,7 @@ export async function runTui(options: TuiOptions): Promise<number> {
     const theme = createTheme(level);
     const stateFile = statePath(env, process.platform, os.homedir());
     const loaded = loadState(stateFile);
-    const persist: Persister = createPersister(stateFile, loaded.state, { onError: (err) => log(`state write failed: ${formatError(err)}`) });
+    const persist: Persister = createPersister(stateFile, loaded.state, { onError: (err) => log(`state write failed: ${describeError(err)}`) });
     if (loaded.recoveredFrom !== undefined) log(`state file was corrupt; moved to ${loaded.recoveredFrom}`);
 
     const size = { columns: process.stdout.columns || 80, rows: process.stdout.rows || 24 };
@@ -99,7 +99,7 @@ export async function runTui(options: TuiOptions): Promise<number> {
             try {
                 await command.parseAsync(['login', url], { from: 'user' });
             } catch (err) {
-                process.stderr.write(`${formatError(err)}\n`);
+                process.stderr.write(`${describeError(err)}\n`);
             }
         });
         await openTarget(url === session?.info.origin ? session.info.target : url);
@@ -185,7 +185,7 @@ export async function runTui(options: TuiOptions): Promise<number> {
                 return;
             }
             log(`open failed: ${fatalText(err)}`);
-            store.dispatch({ type: 'view/root', view: { kind: 'refusal', refusal: { kind: 'error', message: formatError(err) } } });
+            store.dispatch({ type: 'view/root', view: { kind: 'refusal', refusal: { kind: 'error', message: describeError(err) } } });
         }
     };
 

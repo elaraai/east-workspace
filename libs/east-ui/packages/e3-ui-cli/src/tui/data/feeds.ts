@@ -18,9 +18,8 @@
  */
 
 import type { DataflowEvent, DataflowExecutionState } from '@elaraai/e3-api-client';
-import { formatError } from '@elaraai/e3-cli/internal';
 import type { Api } from '../api.js';
-import { isApiCode } from '../api.js';
+import { describeError, isApiCode } from '../api.js';
 import type { TuiState } from '../state/actions.js';
 import { connectionState, createPoller, type PollClock, type Poller } from '../state/poll.js';
 import type { Store } from '../state/store.js';
@@ -40,6 +39,8 @@ export interface Feeds {
     stop(): void;
     /** Fires every running poller now (`/refresh`, `R`). */
     refresh(): void;
+    /** Fires one poller now, by key (`execution:<ws>` after a launch); unknown keys are ignored. */
+    fire(key: string): void;
     /** The running pollers (for the connection pill and tests). */
     pollers(): Poller[];
     /** Re-derives the feed set now (after a session change). */
@@ -94,7 +95,7 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                 }
             }
         } catch (err) {
-            deps.log?.(`repo ${name} facts failed: ${formatError(err)}`);
+            deps.log?.(`repo ${name} facts failed: ${describeError(err)}`);
         }
         store.dispatch({ type: 'data/repoDeploy', repo: name, deploy: latest });
     };
@@ -182,7 +183,7 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                         const result = await api.workspaceStatus(ws);
                         store.dispatch({ type: 'data/status', ws, result, at: (deps.clock?.now ?? Date.now)() });
                     } catch (err) {
-                        store.dispatch({ type: 'data/statusError', ws, error: formatError(err) });
+                        store.dispatch({ type: 'data/statusError', ws, error: describeError(err) });
                         throw err;
                     }
                 },
@@ -294,7 +295,7 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                 run: spec.run,
                 onResult: () => dispatchConnection(),
                 onError: (error, failures) => {
-                    deps.log?.(`feed ${spec.key} failed (${failures}): ${formatError(error)}`);
+                    deps.log?.(`feed ${spec.key} failed (${failures}): ${describeError(error)}`);
                     dispatchConnection();
                 },
             });
@@ -321,6 +322,9 @@ export function createFeeds(deps: FeedsDeps): Feeds {
         },
         refresh() {
             for (const poller of running.values()) poller.fireNow();
+        },
+        fire(key) {
+            running.get(key)?.fireNow();
         },
         pollers: () => [...running.values()],
         sync,

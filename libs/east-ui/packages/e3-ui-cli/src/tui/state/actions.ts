@@ -191,6 +191,8 @@ export interface Toast {
     id: number;
     text: string;
     tone: Tone;
+    /** The glyph before the text (the tone's glyph when absent). */
+    glyph?: string | undefined;
     /** Epoch milliseconds when it expires. */
     until: number;
 }

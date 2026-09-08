@@ -24,6 +24,7 @@ import { layoutOf, registerListModel } from '../../model/index.js';
 import { datasetEntries } from '../../model/catalogue.js';
 import { datasetStatusCell, eventCell, executionStatusCell, statusText, taskStatusCell } from '../../model/status.js';
 import { registerViewHooks, type Controller } from '../../controller.js';
+import { isRunLive, lockHolderText } from '../../data/dataflow.js';
 import { b, blank, d, lineWidth, lrLine, t, type Line, type RenderCtx } from '../lines.js';
 import { centredBlock, renderTable, sectionLine, withScrollbar, type TableRow } from '../shell/widgets.js';
 
@@ -96,8 +97,7 @@ export function dashboardTitle(state: TuiState, ws: string, ctx: RenderCtx): Lin
     const lock = status?.lock;
     if (lock !== undefined) {
         if (lock.type === 'some') {
-            const holder = lock.value;
-            right.push(t(` ${g.sep} `), b(`lock: pid ${holder.pid}`, 'warn'), d(` ${holder.command.type === 'some' ? holder.command.value : ''} ${timeAgo(holder.acquiredAt, ctx.now)}`));
+            right.push(t(` ${g.sep} `), b(`lock: ${lockHolderText(lock.value, ctx.now, g)}`, 'warn'));
         } else {
             right.push(d(` ${g.sep} lock: none`));
         }
@@ -223,9 +223,9 @@ export function latestPerTask(events: readonly DataflowEvent[]): DataflowEvent[]
     return order.map(task => latest.get(task)!);
 }
 
-/** Whether an execution is live (running, or launched and not yet seen running). */
+/** Whether an execution is live (running, launched and not yet seen running, or being stopped). */
 function isLive(execution: ExecutionData | undefined): boolean {
-    return execution !== undefined && (execution.state?.status.type === 'running' || execution.settling);
+    return execution !== undefined && (execution.state?.status.type === 'running' || execution.settling || execution.stopping);
 }
 
 /** The execution panel: a header line, the event rows, and which rows open logs. */
@@ -482,7 +482,7 @@ export function renderDashboard(state: TuiState, ctx: RenderCtx): Line[] {
 export function dashboardHints(state: TuiState, ctx: RenderCtx): { left: string; right: string } {
     const polled = state.data.polledAt;
     const ws = state.view.kind === 'dashboard' ? state.view.ws : null;
-    const running = ws !== null && isLive(state.data.execution[ws]);
+    const running = ws !== null && isRunLive(state, ws);
     return {
         left: running ? '↑↓ move   ⏎ open   x stop   / commands' : '↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands',
         right: polled !== null ? `polled ${agoShort(polled, ctx.now)}` : '',

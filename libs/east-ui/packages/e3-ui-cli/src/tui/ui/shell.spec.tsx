@@ -115,7 +115,7 @@ describe('the command box', () => {
         mounted = await mountApp({ view: dashboardView(), now: () => now });
         mounted.controller.toast('Dataflow started · main · 6 tasks queued', 'pos');
         await mounted.dispatch({ type: 'pendingKey', key: null });
-        assert.match(mounted.lines()[33]!, /^ ● Dataflow started · main · 6 tasks queued\s*$/);
+        assert.match(mounted.lines()[33]!, /^ ›  ● Dataflow started · main · 6 tasks queued\s*$/);
         await mounted.type('/');
         assert.match(mounted.lines()[35]!, /^ ● Dataflow started/);
         now += 4_000;

@@ -55,6 +55,7 @@ import {
     type WorkspaceStatusResult,
 } from '@elaraai/e3-api-client';
 import { urlPathToTreePath, type TreePath, type WorkspaceState } from '@elaraai/e3-types';
+import { formatError } from '@elaraai/e3-cli/internal';
 
 /**
  * A dotted dataset path (`.inputs.sales`, `inputs.sales`, `.tasks.forecast.output`)
@@ -168,6 +169,25 @@ export function createHttpApi(config: HttpApiConfig): Api {
  */
 export function isApiCode(err: unknown, code: string): boolean {
     return typeof err === 'object' && err !== null && (err as { name?: unknown }).name === 'ApiError' && (err as { code?: unknown }).code === code;
+}
+
+/**
+ * An error as one line for a toast or the log — e3-cli's `formatError`
+ * (`Workspace not found: {"workspace":"main"}`), except that details the
+ * JSON encoder refuses (a BigInt pid in a lock holder) fall back to the
+ * humanized code alone instead of throwing.
+ *
+ * @param err - The error
+ * @returns The line
+ */
+export function describeError(err: unknown): string {
+    try {
+        return formatError(err);
+    } catch {
+        const code = apiCode(err);
+        if (code !== undefined) return code.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+        return err instanceof Error ? err.message : String(err);
+    }
 }
 
 /**

@@ -66,6 +66,12 @@ describe('feeds', () => {
         assert.equal(state.data.datasets['main']?.length, 2);
         assert.equal(state.data.execution['main']?.state, null);
         assert.equal(state.connection.kind, 'connected');
+        // fire() polls one feed now; unknown keys are ignored.
+        const before = api.calls.length;
+        feeds.fire('status:main');
+        feeds.fire('nothing:here');
+        await settle();
+        assert.deepEqual(api.calls.slice(before), ['workspaceStatus main']);
         // Leaving the workspace stops its feeds.
         store.dispatch({ type: 'view/root', view: { kind: 'help', tab: 'everywhere' } });
         assert.deepEqual(feeds.pollers().map(p => p.status().key), ['workspaces']);

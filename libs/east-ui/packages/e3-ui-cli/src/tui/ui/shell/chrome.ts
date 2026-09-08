@@ -15,7 +15,7 @@ import { columnPlan, breakpoint } from '../../render/layout.js';
 import { displayWidth, padEnd, lr } from '../../render/text.js';
 import type { TuiState, View } from '../../state/actions.js';
 import { dirtyCount } from '../../state/reducer.js';
-import { describe, parseCommand } from '../../input/commands.js';
+import { RUN_FLAGS, describe, parseCommand } from '../../input/commands.js';
 import { connectionCell } from '../../model/status.js';
 import { blank, fitLine, fitRows, lrLine, rule, t, b, d, type Line, type RenderCtx } from '../lines.js';
 import { launchStep } from '../views/launch.js';
@@ -49,11 +49,12 @@ export function pills(state: TuiState, ctx: RenderCtx): Line {
     if (dirty > 0) out.push(b(`${g.diamond} ${dirty} DIRTY`, 'warn'), t('  '));
     const ws = state.view.kind === 'dashboard' || state.view.kind === 'task' || state.view.kind === 'input' ? state.view.ws : null;
     const execution = ws !== null ? state.data.execution[ws] : undefined;
-    if (execution?.state?.status.type === 'running' || execution?.settling === true) {
+    if (execution?.state?.status.type === 'running' || execution?.settling === true || execution?.stopping === true) {
         const total = ws !== null ? state.data.status[ws]?.result.tasks.length ?? 0 : 0;
         const done = execution.events.filter(e => e.type !== 'start').length;
         const spin = g.spinner[ctx.spinner % g.spinner.length]!;
-        out.push(b(`${g.quarter} RUNNING ${done}/${total} ${spin}`, 'info'), t('  '));
+        if (execution.stopping) out.push(b(`${g.square} STOPPING ${spin}`, 'warn'), t('  '));
+        else out.push(b(`${g.quarter} RUNNING ${done}/${total} ${spin}`, 'info'), t('  '));
     }
     const conn = connectionCell(state.connection, g);
     if (conn !== null) out.push(b(`${conn.glyph} ${conn.word}`, conn.tone), t('  '));
@@ -72,7 +73,7 @@ export function renderHeader(state: TuiState, ctx: RenderCtx): Line {
 function toastLine(state: TuiState, ctx: RenderCtx): Line | null {
     const toast = state.toast;
     if (toast === null || toast.until < ctx.now) return null;
-    const glyph = toast.tone === 'neg' ? ctx.g.cross : toast.tone === 'warn' ? ctx.g.half : toast.tone === 'info' ? ctx.g.quarter : ctx.g.dot;
+    const glyph = toast.glyph ?? (toast.tone === 'neg' ? ctx.g.cross : toast.tone === 'warn' ? ctx.g.half : toast.tone === 'info' ? ctx.g.quarter : ctx.g.dot);
     return [t(' '), b(`${glyph} `, toast.tone), t(toast.text)];
 }
 
@@ -129,7 +130,8 @@ export function renderCommandBox(state: TuiState, ctx: RenderCtx): Line[] {
         const statusSpan = status.error ? t(status.text, 'neg') : d(status.text);
         middle = lrLine([...typed, t(' '.repeat(pad)), statusSpan], [d(status.keys), t('         ')], width);
     } else if (toast !== null) {
-        middle = toast;
+        // The toast sits after the prompt (` ›  ● Dataflow started · main · 6 tasks queued`).
+        middle = [...prompt, t(' '), ...toast.slice(1)];
     } else {
         const hint = '/ commands · type a name to jump · ? help';
         const at = Math.min(50, Math.max(6, width - displayWidth(hint) - 6));
@@ -182,6 +184,10 @@ export function renderHintBar(state: TuiState, ctx: RenderCtx, hints: { left: st
     const width = ctx.layout.columns;
     const toast = toastLine(state, ctx);
     if (toast !== null && state.command.mode !== 'idle') return fitLine(toast, width);
+    // While `/run` is being typed the row lists its flags.
+    if (state.command.mode === 'edit' && /^\/run(\s|$)/.test(state.command.text)) {
+        return [d(lr(` ${RUN_FLAGS.map(f => (f.hint === '' ? f.flag : `${f.flag}  ${f.hint}`)).join('    ')}`, '', width))];
+    }
     return [d(lr(` ${hints.left}`, hints.right === '' ? '' : `${hints.right} `, width))];
 }
 

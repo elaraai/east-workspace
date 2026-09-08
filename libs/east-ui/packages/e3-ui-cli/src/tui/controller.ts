@@ -13,9 +13,9 @@
  */
 
 import type { Key } from 'ink';
-import { formatError } from '@elaraai/e3-cli/internal';
-import type { Api } from './api.js';
-import type { Feeds } from './data/feeds.js';
+import { describeError, type Api } from './api.js';
+import { cancelRun, startRun } from './data/dataflow.js';
+import { viewWorkspace, type Feeds } from './data/feeds.js';
 import { complete } from './input/completion.js';
 import { parseCommand, type ParsedCommand } from './input/commands.js';
 import { resolve as resolveKey, type KeyAction, type KeyContext } from './input/keymap.js';
@@ -82,8 +82,8 @@ export interface Controller {
     onKey(input: string, key: Key): void;
     /** Runs a command line (`/task forecast`, or a fuzzy jump). */
     execute(text: string): Promise<void>;
-    /** Shows a toast for three seconds. */
-    toast(text: string, tone?: Tone): void;
+    /** Shows a toast for three seconds (with the tone's glyph, or `glyph`). */
+    toast(text: string, tone?: Tone, glyph?: string): void;
     /** Replaces the view (or pushes it onto the history). */
     navigate(view: View, push?: boolean): void;
     /** Opens a task view. */
@@ -197,13 +197,13 @@ export function createController(deps: ControllerDeps): Controller {
             try {
                 await runCommand(parsed.command);
             } catch (err) {
-                deps.log(`command ${trimmed} failed: ${formatError(err)}`);
-                controller.toast(formatError(err), 'neg');
+                deps.log(`command ${trimmed} failed: ${describeError(err)}`);
+                controller.toast(describeError(err), 'neg');
             }
         },
-        toast(text, tone = 'pos') {
+        toast(text, tone = 'pos', glyph) {
             const id = ++toastSeq;
-            dispatch({ type: 'toast', toast: { id, text, tone, until: deps.now() + 3_000 } });
+            dispatch({ type: 'toast', toast: { id, text, tone, ...(glyph !== undefined ? { glyph } : {}), until: deps.now() + 3_000 } });
             const timer = setTimeout(() => dispatch({ type: 'toast/clear', id }), 3_000);
             timer.unref?.();
         },
@@ -432,6 +432,18 @@ export function createController(deps: ControllerDeps): Controller {
                 return;
             }
             case 'login': await deps.login(command.url); return;
+            case 'run': {
+                const here = viewWorkspace(s);
+                if (here === null) { controller.toast('open a workspace first', 'warn'); return; }
+                await startRun(controller, here, { force: command.force, filter: command.filter, concurrency: command.concurrency });
+                return;
+            }
+            case 'stop': {
+                const here = viewWorkspace(s);
+                if (here === null) { controller.toast('open a workspace first', 'warn'); return; }
+                await cancelRun(controller, here);
+                return;
+            }
             case 'logs': {
                 if (ws === null) { controller.toast('open a workspace first', 'warn'); return; }
                 controller.openTask(ws, command.task, 'logs');

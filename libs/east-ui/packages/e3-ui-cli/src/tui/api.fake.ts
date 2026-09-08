@@ -15,6 +15,7 @@
 
 import {
     ApiError,
+    type DataflowOptions,
     type DataflowEvent,
     type DataflowExecutionState,
     type DatasetStatusDetail,
@@ -498,10 +499,12 @@ export class FakeApi implements Api {
         });
     }
 
-    async dataflowExecuteLaunch(ws: string): Promise<void> {
-        return this.call(`dataflowExecuteLaunch ${ws}`, () => {
+    async dataflowExecuteLaunch(ws: string, options: DataflowOptions = {}): Promise<void> {
+        const flags = `${options.force === true ? ' --force' : ''}${options.filter != null ? ` --filter ${options.filter}` : ''}${options.concurrency != null ? ` --concurrency ${options.concurrency}` : ''}`;
+        return this.call(`dataflowExecuteLaunch ${ws}${flags}`, () => {
             const w = this.ws(ws);
             if (w.lock !== undefined) throw new ApiError('workspace_locked', { workspace: ws, holder: variant('known', { pid: BigInt(w.lock.pid), acquiredAt: w.lock.acquiredAt, bootId: none, command: some(w.lock.command) }) });
+            if (w.execution?.status === 'running') throw new ApiError('workspace_locked', { workspace: ws, holder: variant('unknown', null) });
             const script = this.script ?? { events: [], final: 'completed' as const };
             const state: FakeExecution = { status: 'running', startedAt: new Date().toISOString(), completedAt: null, events: [] };
             w.execution = state;
