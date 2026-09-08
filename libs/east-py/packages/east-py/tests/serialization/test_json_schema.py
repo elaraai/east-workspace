@@ -105,7 +105,7 @@ def test_matches_the_cross_language_corpus_digest():
             lines.append(f"{draft}|{name}={document}")
     assert len(lines) == 57
     digest = hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
-    assert digest == "1e81eb8f85b480e3029ea589c02ae71e465d5b391814a1ddb0ed22325201cf3c"
+    assert digest == "7083a9ae6f830e8724c707c0f0636a57be01fe2085874e83fea00883401c1a6b"
 
 
 def test_stamps_schema_for_the_releases_that_carry_one():
@@ -157,10 +157,12 @@ def test_integer_pattern_rejects_what_the_encoder_never_emits(text):
     [
         "2022-06-29T13:43:00.123Z",  # the decoder takes Z; the encoder never writes it
         "2022-06-29T13:43:00.123+05:00",
+        "0000-01-01T00:00:00.000+00:00",  # year 0, below the range every runtime reads
         "2022-13-29T13:43:00.123+00:00",
         "2022-06-32T13:43:00.123+00:00",
         "2022-06-29T24:43:00.123+00:00",
         "2022-06-29T13:43:00+00:00",
+        "٢٠٢٦-01-01T00:00:00.000+00:00",  # Arabic-Indic digits
     ],
 )
 def test_datetime_pattern_rejects_non_canonical_text(text):
@@ -169,6 +171,23 @@ def test_datetime_pattern_rejects_non_canonical_text(text):
 
 def test_datetime_pattern_accepts_the_canonical_form():
     assert re.match(EAST_JSON_PATTERNS.datetime, "2022-06-29T13:43:00.123+00:00")
+    assert re.match(EAST_JSON_PATTERNS.datetime, "0001-01-01T00:00:00.000+00:00")
+    assert re.match(EAST_JSON_PATTERNS.datetime, "9999-12-31T23:59:59.999+00:00")
+
+
+def test_patterns_spell_every_digit_as_an_ascii_class():
+    """``\\d`` is any Unicode digit to python's ``re``.
+
+    A partner validating with a python engine would pass a timestamp written in
+    Arabic-Indic digits that the reader then refuses, so the contract spells
+    every digit class ``[0-9]`` and reads the same on every engine.
+    """
+    for pattern in (
+        EAST_JSON_PATTERNS.integer,
+        EAST_JSON_PATTERNS.datetime,
+        EAST_JSON_PATTERNS.blob,
+    ):
+        assert "\\d" not in pattern
 
 
 @pytest.mark.parametrize("text", ["0xDEADBEEF", "0x123", "deadbeef", "0xgg"])

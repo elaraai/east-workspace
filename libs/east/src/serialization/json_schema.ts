@@ -89,13 +89,19 @@ function integerPattern(): string {
  * @remarks
  * Stricter than the decoder, deliberately: the decoder also accepts a `Z`
  * suffix and any numeric offset, neither of which the encoder ever emits.
- * Calendar-impossible dates such as `2026-02-30` still match — no regex a
- * schema can carry rules them out — and are rejected when the date is
- * constructed.
+ * The year is pinned to `0001`–`9999`, the range every runtime reads (python's
+ * datetime starts at year 1), so `0000` is refused by the validator rather
+ * than only by the reader. Every digit class is spelled `[0-9]`, never `\d`:
+ * a validator built on python's `re` reads `\d` as any Unicode digit, so a
+ * timestamp written in Arabic-Indic digits would pass a partner's check and
+ * then fail on receipt. Calendar-impossible dates such as `2026-02-30` still
+ * match — no regex a schema can carry rules them out — and are rejected when
+ * the date is constructed.
  */
 const DATETIME_PATTERN =
-  "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])" +
-  "T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}\\+00:00$";
+  "^(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})" +
+  "-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])" +
+  "T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}\\+00:00$";
 
 /** The canonical text `Blob` encodes to — `0x` and an even count of lowercase hex. */
 const BLOB_PATTERN = "^0x(?:[0-9a-f]{2})*$";

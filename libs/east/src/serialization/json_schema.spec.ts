@@ -29,7 +29,7 @@ import {
     VectorType,
     type EastType,
 } from "../types.js";
-import { jsonSchemaFor, type JsonSchema } from "./json_schema.js";
+import { EAST_JSON_PATTERNS, jsonSchemaFor, type JsonSchema } from "./json_schema.js";
 import { toJSONFor } from "./json.js";
 
 /** The pattern a leaf type's schema pins, as a compiled regex. */
@@ -135,6 +135,7 @@ describe("jsonSchemaFor", () => {
 
         test("rejects out-of-range calendar fields", () => {
             for (const bad of [
+                "0000-01-01T00:00:00.000+00:00",  // year 0, below the range every runtime reads
                 "2022-13-29T13:43:00.123+00:00",  // month 13
                 "2022-06-32T13:43:00.123+00:00",  // day 32
                 "2022-06-29T24:43:00.123+00:00",  // hour 24
@@ -144,6 +145,23 @@ describe("jsonSchemaFor", () => {
                 "2022-06-29 13:43:00.123+00:00",  // space, not T
             ]) {
                 assert.ok(!pattern.test(bad), `${bad} should be rejected`);
+            }
+        });
+
+        test("accepts the first and last years the reader does", () => {
+            assert.ok(pattern.test("0001-01-01T00:00:00.000+00:00"));
+            assert.ok(pattern.test("9999-12-31T23:59:59.999+00:00"));
+        });
+    });
+
+    describe("digit classes", () => {
+        test("spells every digit as [0-9], never \\d", () => {
+            // A validator built on python's `re` reads \d as any Unicode digit,
+            // so a timestamp in Arabic-Indic digits would pass a partner's check
+            // and then fail on receipt. The contract has to read the same on
+            // every regex engine a partner might use.
+            for (const p of [EAST_JSON_PATTERNS.integer, EAST_JSON_PATTERNS.datetime, EAST_JSON_PATTERNS.blob]) {
+                assert.ok(!p.includes("\\d"), `${p} must not use \\d`);
             }
         });
     });
@@ -360,7 +378,7 @@ describe("jsonSchemaFor", () => {
         assert.equal(lines.length, 57);
         assert.equal(
             createHash("sha256").update(lines.join("\n")).digest("hex"),
-            "1e81eb8f85b480e3029ea589c02ae71e465d5b391814a1ddb0ed22325201cf3c");
+            "7083a9ae6f830e8724c707c0f0636a57be01fe2085874e83fea00883401c1a6b");
     });
 
     test("emits byte-identical documents for the same type and release", () => {
