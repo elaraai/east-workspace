@@ -22,6 +22,7 @@
  *   Matrix   -> JSON array of arrays
  */
 
+#include "east/compat.h" /* EAST_PRINTF_FMT */
 #include "east/serialization.h"
 #include "east/types.h"
 #include "east/values.h"
@@ -495,17 +496,6 @@ typedef struct {
     size_t pos;
     size_t len;
     int depth; /* current jp_decode recursion depth (untrusted-input guard) */
-    /* The strict reader shares this tokeniser with the lenient whole-document
-     * decoder. Where the two must differ — JSON's own rules about escapes and
-     * control characters, which the decoder has always waved through — this
-     * selects. Without it the reader would accept "a\qb" and a raw U+0001 that
-     * east-node and east-py both refuse. */
-    bool strict;
-    /* Set when a strict skip walked past JSON_MAX_DEPTH. The skip is iterative,
-     * so it is in no danger itself, but east-node's skip recurses and refuses —
-     * and a reader that navigates past untrusted junk should draw the line in
-     * the same place on every runtime. */
-    bool depth_exceeded;
 } JsonParser;
 
 /* Maximum jp_decode recursion depth. JSON is an untrusted-input boundary;
@@ -575,10 +565,6 @@ static void jp_skip_json_value(JsonParser *p)
         int depth = 1;
         bool in_str = false;
         while (p->pos < p->len && depth > 0) {
-            if (p->strict && depth > JSON_MAX_DEPTH) {
-                p->depth_exceeded = true;
-                return;
-            }
             char oc = p->input[p->pos++];
             if (in_str) {
                 if (oc == '\\' && p->pos < p->len)
@@ -600,10 +586,6 @@ static void jp_skip_json_value(JsonParser *p)
         int depth = 1;
         bool in_str = false;
         while (p->pos < p->len && depth > 0) {
-            if (p->strict && depth > JSON_MAX_DEPTH) {
-                p->depth_exceeded = true;
-                return;
-            }
             char ac = p->input[p->pos++];
             if (in_str) {
                 if (ac == '\\' && p->pos < p->len)
@@ -697,16 +679,6 @@ static char *jp_parse_string(JsonParser *p, size_t *out_len)
                 char hex[5];
                 memcpy(hex, p->input + p->pos, 4);
                 hex[4] = '\0';
-                if (p->strict) {
-                    for (int hi = 0; hi < 4; hi++) {
-                        char hc = hex[hi];
-                        if (!((hc >= '0' && hc <= '9') || (hc >= 'a' && hc <= 'f') ||
-                              (hc >= 'A' && hc <= 'F'))) {
-                            free(sb.data);
-                            return NULL;
-                        }
-                    }
-                }
                 p->pos += 4;
                 unsigned int cp = (unsigned int)strtoul(hex, NULL, 16);
                 /* A high surrogate followed by an escaped low surrogate is ONE
@@ -744,20 +716,10 @@ static char *jp_parse_string(JsonParser *p, size_t *out_len)
                 break;
             }
             default:
-                if (p->strict) {
-                    /* JSON names its escapes; "\q" is not one of them. */
-                    free(sb.data);
-                    return NULL;
-                }
                 strbuf_append_char(&sb, esc);
                 break;
             }
         } else {
-            if (p->strict && (unsigned char)c < 0x20) {
-                /* A raw control character has to be escaped inside a string. */
-                free(sb.data);
-                return NULL;
-            }
             strbuf_append_char(&sb, c);
             p->pos++;
         }
@@ -796,7 +758,7 @@ static double jp_parse_number(JsonParser *p, char *raw_buf, size_t raw_cap)
     if (numlen >= sizeof(tmp)) numlen = sizeof(tmp) - 1;
     memcpy(tmp, p->input + start, numlen);
     tmp[numlen] = '\0';
-    return strtod(tmp, NULL);
+    return east_strtod_c(tmp, NULL);
 }
 
 /* ================================================================== */
@@ -1184,7 +1146,7 @@ static EastValue *jp_decode_inner(JsonParser *p, EastType *type, JRefCtx *ctx)
             else if (strcmp(s, "-0.0") == 0)
                 v = -0.0;
             else
-                v = strtod(s, NULL);
+                v = east_strtod_c(s, NULL);
             free(s);
             return east_float(v);
         }
@@ -1700,8 +1662,6 @@ EastValue *east_json_decode(const char *json, EastType *type)
     parser.pos = 0;
     parser.len = strlen(json);
     parser.depth = 0;
-    parser.strict = false;
-    parser.depth_exceeded = false;
 
     jp_debug = (getenv("EAST_JSON_DEBUG") != NULL);
 
@@ -2802,8 +2762,6 @@ EastValue *east_json_decode_with_error(const char *json, EastType *type, char **
     parser.pos = 0;
     parser.len = strlen(json);
     parser.depth = 0;
-    parser.strict = false;
-    parser.depth_exceeded = false;
 
     jp_debug = (getenv("EAST_JSON_DEBUG") != NULL);
 
@@ -2969,32 +2927,57 @@ IRNode *east_json_decode_ir(const char *json, EastValue **ir_value_out,
  * element at a time, so a caller mapping a file never puts the document on the
  * heap.
  *
- * It shares the tokeniser above rather than carrying its own: jp_skip_ws,
- * jp_peek, jp_match, jp_parse_string (surrogate pairs joined), jp_parse_number
- * and jp_skip_json_value are the same code the whole-document decoder uses.
- * What differs is that every scalar form is CHECKED rather than coerced.
+ * It carries its own tokeniser and shares only jp_skip_ws / jp_peek / jp_match
+ * with the lenient whole-document decoder above: every scalar form is CHECKED
+ * rather than coerced, every string is validated as UTF-8, and a value that is
+ * skipped past is held to the same grammar as one that is read. east-node's
+ * json_reader.ts is the twin of this code — the messages, the pointer, the
+ * depth accounting and the quoting rule are the same there, and the shared
+ * compliance corpus pins that they stay so.
  */
+
+/* One path segment. Held with its length: a member name may legally contain an
+ * escaped NUL, and a pointer built through strlen would end there. */
+typedef struct {
+    char *text;
+    size_t len;
+} JrSegment;
 
 struct EastJsonReader {
     JsonParser p;
-    char **path; /* segment stack, for RFC 6901 error pointers */
+    JrSegment *path; /* segment stack, for RFC 6901 error pointers */
     size_t path_len;
     size_t path_cap;
-    size_t index;   /* index within the container being iterated */
+    size_t index;   /* index within the array being iterated */
     bool started;   /* iteration has begun, so a separator is due */
     char container; /* '[', '{', or 0 once exhausted */
 };
 
-static void jr_path_push(EastJsonReader *r, const char *seg)
+/* How many code points of an offending value a message quotes before an
+ * ellipsis. The same bound, counted the same way, applies on east-node. */
+#define JR_QUOTE_MAX 200
+
+static void jr_path_push_len(EastJsonReader *r, const char *seg, size_t len)
 {
     if (r->path_len >= r->path_cap) {
         size_t cap = r->path_cap ? r->path_cap * 2 : 16;
-        char **np = realloc(r->path, cap * sizeof(char *));
+        JrSegment *np = realloc(r->path, cap * sizeof(JrSegment));
         if (!np) return;
         r->path = np;
         r->path_cap = cap;
     }
-    r->path[r->path_len++] = strdup(seg);
+    char *copy = malloc(len + 1);
+    if (!copy) return;
+    memcpy(copy, seg, len);
+    copy[len] = '\0';
+    r->path[r->path_len].text = copy;
+    r->path[r->path_len].len = len;
+    r->path_len++;
+}
+
+static void jr_path_push(EastJsonReader *r, const char *seg)
+{
+    jr_path_push_len(r, seg, strlen(seg));
 }
 
 static void jr_path_push_index(EastJsonReader *r, size_t i)
@@ -3006,7 +2989,7 @@ static void jr_path_push_index(EastJsonReader *r, size_t i)
 
 static void jr_path_pop(EastJsonReader *r)
 {
-    if (r->path_len > 0) free(r->path[--r->path_len]);
+    if (r->path_len > 0) free(r->path[--r->path_len].text);
 }
 
 /* "/a/b" with RFC 6901 escaping, or "" at the root. */
@@ -3015,41 +2998,587 @@ static char *jr_pointer(EastJsonReader *r)
     StrBuf sb = strbuf_new(64);
     for (size_t i = 0; i < r->path_len; i++) {
         strbuf_append_char(&sb, '/');
-        for (const char *s = r->path[i]; *s; s++) {
-            if (*s == '~')
+        const JrSegment *seg = &r->path[i];
+        for (size_t k = 0; k < seg->len; k++) {
+            char c = seg->text[k];
+            if (c == '~')
                 strbuf_append_str(&sb, "~0");
-            else if (*s == '/')
+            else if (c == '/')
                 strbuf_append_str(&sb, "~1");
             else
-                strbuf_append_char(&sb, *s);
+                strbuf_append_char(&sb, c);
         }
     }
     return strbuf_finish(&sb);
 }
 
+/* ---- messages ---- */
+
 /* Sets *error_out to "<pointer>: <message>" (or just the message at the root)
- * and returns NULL, so a failing read is one line at the call site. */
+ * and returns NULL, so a failing read is one line at the call site. The message
+ * is sized to fit: it can quote a value, and a clipped quote would not be the
+ * text east-node produces. */
+static void *jr_fail(EastJsonReader *r, char **error_out, const char *fmt, ...)
+    EAST_PRINTF_FMT(3, 4);
 static void *jr_fail(EastJsonReader *r, char **error_out, const char *fmt, ...)
 {
     if (!error_out) return NULL;
-    char body[512];
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(body, sizeof body, fmt, ap);
+    int n = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (n < 0) {
+        *error_out = NULL;
+        return NULL;
+    }
+    char *body = malloc((size_t)n + 1);
+    if (!body) {
+        *error_out = NULL;
+        return NULL;
+    }
+    va_start(ap, fmt);
+    vsnprintf(body, (size_t)n + 1, fmt, ap);
     va_end(ap);
 
     char *ptr = jr_pointer(r);
-    size_t total = strlen(body) + strlen(ptr) + 4;
-    char *msg = malloc(total);
-    if (msg) {
-        if (ptr[0])
-            snprintf(msg, total, "%s: %s", ptr, body);
-        else
-            snprintf(msg, total, "%s", body);
+    if (ptr && ptr[0]) {
+        size_t total = strlen(ptr) + 2 + (size_t)n + 1;
+        char *msg = malloc(total);
+        if (msg) snprintf(msg, total, "%s: %s", ptr, body);
+        free(body);
+        *error_out = msg;
+    } else {
+        *error_out = body;
     }
     free(ptr);
-    *error_out = msg;
     return NULL;
+}
+
+/* ---- UTF-8 ---- */
+
+/* Streaming UTF-8 validity, per RFC 3629: overlong forms, encoded surrogates and
+ * code points past U+10FFFF are refused, byte by byte, so a document can be
+ * checked without being decoded. east-node runs the identical table. */
+typedef struct {
+    int need;
+    unsigned char lo;
+    unsigned char hi;
+} JrUtf8;
+
+static void jr_utf8_init(JrUtf8 *u)
+{
+    u->need = 0;
+    u->lo = 0x80;
+    u->hi = 0xBF;
+}
+
+/* Feeds one byte; false when it cannot belong to well-formed UTF-8. */
+static bool jr_utf8_feed(JrUtf8 *u, unsigned char b)
+{
+    if (u->need == 0) {
+        if (b < 0x80) return true;
+        u->lo = 0x80;
+        u->hi = 0xBF;
+        if (b >= 0xC2 && b <= 0xDF) {
+            u->need = 1;
+        } else if (b == 0xE0) {
+            u->need = 2;
+            u->lo = 0xA0;
+        } else if ((b >= 0xE1 && b <= 0xEC) || b == 0xEE || b == 0xEF) {
+            u->need = 2;
+        } else if (b == 0xED) {
+            u->need = 2;
+            u->hi = 0x9F;
+        } else if (b == 0xF0) {
+            u->need = 3;
+            u->lo = 0x90;
+        } else if (b >= 0xF1 && b <= 0xF3) {
+            u->need = 3;
+        } else if (b == 0xF4) {
+            u->need = 3;
+            u->hi = 0x8F;
+        } else {
+            return false;
+        }
+        return true;
+    }
+    if (b < u->lo || b > u->hi) return false;
+    u->need--;
+    u->lo = 0x80;
+    u->hi = 0xBF;
+    return true;
+}
+
+/* The byte length a lead byte announces, or 1 when it announces nothing valid. */
+static size_t jr_sequence_length(unsigned char lead)
+{
+    if (lead >= 0xC2 && lead <= 0xDF) return 2;
+    if (lead >= 0xE0 && lead <= 0xEF) return 3;
+    if (lead >= 0xF0 && lead <= 0xF4) return 4;
+    return 1;
+}
+
+/* Appends a code point as UTF-8 — or, for a lone surrogate, as the WTF-8 bytes
+ * JavaScript's string would hold. */
+static void jr_append_utf8(StrBuf *sb, unsigned int cp)
+{
+    if (cp < 0x80) {
+        strbuf_append_char(sb, (char)cp);
+    } else if (cp < 0x800) {
+        strbuf_append_char(sb, (char)(0xC0 | (cp >> 6)));
+        strbuf_append_char(sb, (char)(0x80 | (cp & 0x3F)));
+    } else if (cp < 0x10000) {
+        strbuf_append_char(sb, (char)(0xE0 | (cp >> 12)));
+        strbuf_append_char(sb, (char)(0x80 | ((cp >> 6) & 0x3F)));
+        strbuf_append_char(sb, (char)(0x80 | (cp & 0x3F)));
+    } else {
+        strbuf_append_char(sb, (char)(0xF0 | (cp >> 18)));
+        strbuf_append_char(sb, (char)(0x80 | ((cp >> 12) & 0x3F)));
+        strbuf_append_char(sb, (char)(0x80 | ((cp >> 6) & 0x3F)));
+        strbuf_append_char(sb, (char)(0x80 | (cp & 0x3F)));
+    }
+}
+
+/* A value quoted for a message, as JSON.stringify spells it — JSON's escapes,
+ * a lone surrogate as \uXXXX — clipped to JR_QUOTE_MAX code points with an
+ * ellipsis. */
+static void jr_append_quoted(StrBuf *sb, const char *s, size_t len)
+{
+    strbuf_append_char(sb, '"');
+    size_t points = 0;
+    size_t i = 0;
+    while (i < len) {
+        unsigned char c = (unsigned char)s[i];
+        if ((c & 0xC0) != 0x80) {
+            /* A new code point starts here. */
+            if (++points > JR_QUOTE_MAX) {
+                strbuf_append_str(sb, "\xE2\x80\xA6");
+                break;
+            }
+        }
+        if (c == 0xED && i + 2 < len && ((unsigned char)s[i + 1] & 0xE0) == 0xA0) {
+            unsigned int cp = ((unsigned int)(c & 0x0F) << 12) |
+                              ((unsigned int)((unsigned char)s[i + 1] & 0x3F) << 6) |
+                              (unsigned int)((unsigned char)s[i + 2] & 0x3F);
+            char esc[8];
+            snprintf(esc, sizeof esc, "\\u%04x", cp);
+            strbuf_append_str(sb, esc);
+            i += 3;
+            continue;
+        }
+        switch (c) {
+        case '"':
+            strbuf_append_str(sb, "\\\"");
+            break;
+        case '\\':
+            strbuf_append_str(sb, "\\\\");
+            break;
+        case '\b':
+            strbuf_append_str(sb, "\\b");
+            break;
+        case '\f':
+            strbuf_append_str(sb, "\\f");
+            break;
+        case '\n':
+            strbuf_append_str(sb, "\\n");
+            break;
+        case '\r':
+            strbuf_append_str(sb, "\\r");
+            break;
+        case '\t':
+            strbuf_append_str(sb, "\\t");
+            break;
+        default:
+            if (c < 0x20) {
+                char esc[8];
+                snprintf(esc, sizeof esc, "\\u%04x", c);
+                strbuf_append_str(sb, esc);
+            } else {
+                strbuf_append_char(sb, (char)c);
+            }
+            break;
+        }
+        i++;
+    }
+    strbuf_append_char(sb, '"');
+}
+
+static char *jr_quote(const char *s, size_t len)
+{
+    StrBuf sb = strbuf_new(len + 3);
+    jr_append_quoted(&sb, s, len);
+    return strbuf_finish(&sb);
+}
+
+static bool jr_lookahead(JsonParser *p, const char *word)
+{
+    size_t n = strlen(word);
+    return p->pos + n <= p->len && memcmp(p->input + p->pos, word, n) == 0;
+}
+
+static bool jr_isdigit(char c)
+{
+    return c >= '0' && c <= '9';
+}
+
+static bool jr_isxdigit(char c)
+{
+    return jr_isdigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+/* What sits at the cursor, for a message: `a string`, `a number`, `an array`,
+ * `an object`, `a boolean`, `null`, `end of document`, or the quoted character
+ * when it starts no JSON value. Caller frees. */
+static char *jr_describe(EastJsonReader *r)
+{
+    JsonParser *p = &r->p;
+    jp_skip_ws(p);
+    if (p->pos >= p->len) return strdup("end of document");
+    unsigned char b = (unsigned char)p->input[p->pos];
+    if (b == '"') return strdup("a string");
+    if (b == '[') return strdup("an array");
+    if (b == '{') return strdup("an object");
+    if (b == '-' || jr_isdigit((char)b)) return strdup("a number");
+    if (jr_lookahead(p, "true") || jr_lookahead(p, "false")) return strdup("a boolean");
+    if (jr_lookahead(p, "null")) return strdup("null");
+
+    /* One code point, quoted — U+FFFD when the bytes here are not a sequence. */
+    size_t want = jr_sequence_length(b);
+    size_t have = p->len - p->pos;
+    if (want > have) want = have;
+    JrUtf8 u;
+    jr_utf8_init(&u);
+    bool valid = true;
+    for (size_t i = 0; i < want && valid; i++)
+        valid = jr_utf8_feed(&u, (unsigned char)p->input[p->pos + i]);
+    if (valid && u.need > 0) valid = false;
+    StrBuf sb = strbuf_new(16);
+    if (valid)
+        jr_append_quoted(&sb, p->input + p->pos, want);
+    else
+        jr_append_quoted(&sb, "\xEF\xBF\xBD", 3);
+    return strbuf_finish(&sb);
+}
+
+/* ---- tokens ---- */
+
+/* The string whose opening quote is at the cursor. With `sb` NULL the string is
+ * validated and skipped; otherwise its bytes accumulate there. Returns false
+ * with *error_out set. */
+static bool jr_scan_string(EastJsonReader *r, StrBuf *sb, char **error_out)
+{
+    JsonParser *p = &r->p;
+    p->pos++; /* the opening quote, checked by the caller */
+    JrUtf8 u;
+    jr_utf8_init(&u);
+    for (;;) {
+        size_t start = p->pos;
+        while (p->pos < p->len) {
+            unsigned char b = (unsigned char)p->input[p->pos];
+            if (b == '"' || b == '\\' || b < 0x20) break;
+            if (b >= 0x80 && !jr_utf8_feed(&u, b)) {
+                jr_fail(r, error_out, "invalid UTF-8 in string");
+                return false;
+            }
+            p->pos++;
+        }
+        if (sb) strbuf_append(sb, p->input + start, p->pos - start);
+        if (p->pos >= p->len) {
+            jr_fail(r, error_out, "unexpected end of document");
+            return false;
+        }
+        unsigned char b = (unsigned char)p->input[p->pos];
+        if (b < 0x20) {
+            jr_fail(r, error_out, "unescaped control character U+%04x in string", b);
+            return false;
+        }
+        /* A quote or an escape ends the run; a character cannot straddle it. */
+        if (u.need > 0) {
+            jr_fail(r, error_out, "invalid UTF-8 in string");
+            return false;
+        }
+        p->pos++;
+        if (b == '"') return true;
+
+        if (p->pos >= p->len) {
+            jr_fail(r, error_out, "unexpected end of document");
+            return false;
+        }
+        char esc = p->input[p->pos++];
+        switch (esc) {
+        case '"':
+            if (sb) strbuf_append_char(sb, '"');
+            break;
+        case '\\':
+            if (sb) strbuf_append_char(sb, '\\');
+            break;
+        case '/':
+            if (sb) strbuf_append_char(sb, '/');
+            break;
+        case 'b':
+            if (sb) strbuf_append_char(sb, '\b');
+            break;
+        case 'f':
+            if (sb) strbuf_append_char(sb, '\f');
+            break;
+        case 'n':
+            if (sb) strbuf_append_char(sb, '\n');
+            break;
+        case 'r':
+            if (sb) strbuf_append_char(sb, '\r');
+            break;
+        case 't':
+            if (sb) strbuf_append_char(sb, '\t');
+            break;
+        case 'u': {
+            if (p->pos + 4 > p->len) {
+                jr_fail(r, error_out, "unexpected end of document");
+                return false;
+            }
+            char hex[5];
+            memcpy(hex, p->input + p->pos, 4);
+            hex[4] = '\0';
+            for (int hi = 0; hi < 4; hi++) {
+                if (!jr_isxdigit(hex[hi])) {
+                    jr_fail(r, error_out, "invalid \\u escape \"\\u%s\"", hex);
+                    return false;
+                }
+            }
+            p->pos += 4;
+            unsigned int cp = (unsigned int)strtoul(hex, NULL, 16);
+            /* A high surrogate followed by an escaped low surrogate is ONE
+             * astral code point, as it is when JavaScript concatenates the
+             * two code units; an unpaired one keeps its WTF-8 form. */
+            if (cp >= 0xD800 && cp <= 0xDBFF && p->pos + 6 <= p->len && p->input[p->pos] == '\\' &&
+                p->input[p->pos + 1] == 'u') {
+                char lo_hex[5];
+                memcpy(lo_hex, p->input + p->pos + 2, 4);
+                lo_hex[4] = '\0';
+                bool well_formed = true;
+                for (int hi = 0; hi < 4 && well_formed; hi++)
+                    well_formed = jr_isxdigit(lo_hex[hi]);
+                if (well_formed) {
+                    unsigned int lo = (unsigned int)strtoul(lo_hex, NULL, 16);
+                    if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                        p->pos += 6;
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                    }
+                }
+            }
+            if (sb) jr_append_utf8(sb, cp);
+            break;
+        }
+        default:
+            jr_fail(r, error_out, "invalid escape \"\\%c\"", esc);
+            return false;
+        }
+    }
+}
+
+/* A quoted name at the cursor — a struct field, an object member. NULL with
+ * *error_out set. */
+static char *jr_read_name(EastJsonReader *r, const char *what, size_t *len_out, char **error_out)
+{
+    jp_skip_ws(&r->p);
+    if (jp_peek(&r->p) != '"') {
+        char *got = jr_describe(r);
+        jr_fail(r, error_out, "expected a %s name, got %s", what, got);
+        free(got);
+        return NULL;
+    }
+    StrBuf sb = strbuf_new(32);
+    if (!jr_scan_string(r, &sb, error_out)) {
+        free(sb.data);
+        return NULL;
+    }
+    *len_out = sb.len;
+    return strbuf_finish(&sb);
+}
+
+/* The skip path's twin of jr_read_name: validated, never built. */
+static bool jr_skip_name(EastJsonReader *r, char **error_out)
+{
+    jp_skip_ws(&r->p);
+    if (jp_peek(&r->p) != '"') {
+        char *got = jr_describe(r);
+        jr_fail(r, error_out, "expected a field name, got %s", got);
+        free(got);
+        return false;
+    }
+    return jr_scan_string(r, NULL, error_out);
+}
+
+/* The ':' after a name. */
+static bool jr_expect_colon(EastJsonReader *r, const char *what, char **error_out)
+{
+    jp_skip_ws(&r->p);
+    if (jp_peek(&r->p) != ':') {
+        char *got = jr_describe(r);
+        jr_fail(r, error_out, "expected \":\" after a %s name, got %s", what, got);
+        free(got);
+        return false;
+    }
+    r->p.pos++;
+    return true;
+}
+
+/* The number at the cursor, held to JSON's grammar. When text_out is non-NULL
+ * the token's text is returned in a caller-freed, NUL-terminated buffer. */
+static bool jr_scan_number(EastJsonReader *r, char **text_out, char **error_out)
+{
+    JsonParser *p = &r->p;
+    size_t start = p->pos;
+    if (p->pos < p->len && p->input[p->pos] == '-') {
+        p->pos++;
+        if (p->pos >= p->len || !jr_isdigit(p->input[p->pos])) {
+            jr_fail(r, error_out, "expected a digit after \"-\"");
+            return false;
+        }
+    }
+    if (p->pos < p->len && p->input[p->pos] == '0') {
+        p->pos++; /* a leading zero stands alone */
+    } else if (p->pos < p->len && jr_isdigit(p->input[p->pos])) {
+        while (p->pos < p->len && jr_isdigit(p->input[p->pos]))
+            p->pos++;
+    } else {
+        char *got = jr_describe(r);
+        jr_fail(r, error_out, "expected a number, got %s", got);
+        free(got);
+        return false;
+    }
+    if (p->pos < p->len && p->input[p->pos] == '.') {
+        p->pos++;
+        if (p->pos >= p->len || !jr_isdigit(p->input[p->pos])) {
+            jr_fail(r, error_out, "expected a digit after the decimal point");
+            return false;
+        }
+        while (p->pos < p->len && jr_isdigit(p->input[p->pos]))
+            p->pos++;
+    }
+    if (p->pos < p->len && (p->input[p->pos] == 'e' || p->input[p->pos] == 'E')) {
+        p->pos++;
+        if (p->pos < p->len && (p->input[p->pos] == '+' || p->input[p->pos] == '-')) p->pos++;
+        if (p->pos >= p->len || !jr_isdigit(p->input[p->pos])) {
+            jr_fail(r, error_out, "expected a digit in the exponent");
+            return false;
+        }
+        while (p->pos < p->len && jr_isdigit(p->input[p->pos]))
+            p->pos++;
+    }
+    if (text_out) {
+        /* The mapping is not NUL-terminated, so the conversion needs an exact
+         * copy — of the whole token, however long, which is what keeps the
+         * value identical to east-node's Number(). */
+        size_t n = p->pos - start;
+        char *text = malloc(n + 1);
+        if (!text) {
+            jr_fail(r, error_out, "out of memory");
+            return false;
+        }
+        memcpy(text, p->input + start, n);
+        text[n] = '\0';
+        *text_out = text;
+    }
+    return true;
+}
+
+static bool jr_scan_literal(EastJsonReader *r, const char *word, char **error_out)
+{
+    JsonParser *p = &r->p;
+    for (const char *w = word; *w; w++) {
+        if (p->pos >= p->len) {
+            jr_fail(r, error_out, "unexpected end of document");
+            return false;
+        }
+        if (p->input[p->pos++] != *w) {
+            jr_fail(r, error_out, "expected %s", word);
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Consumes one value without constructing anything, holding it to the grammar
+ * that a read would: strings, numbers, literals and separators are all
+ * checked, and nesting is bounded the way east-node bounds it — every value,
+ * a scalar included, is one level. Iterative, so the document cannot reach the
+ * C stack; the bound is the contract's, not this runtime's. */
+static bool jr_skip_value(EastJsonReader *r, char **error_out)
+{
+    JsonParser *p = &r->p;
+    char stack[JSON_MAX_DEPTH];
+    int depth = 0; /* containers open */
+    for (;;) {
+        /* A value is due; its depth is one more than the containers around it. */
+        if (depth + 1 > JSON_MAX_DEPTH) {
+            jr_fail(r, error_out, "document nests deeper than %d", JSON_MAX_DEPTH);
+            return false;
+        }
+        jp_skip_ws(p);
+        if (p->pos >= p->len) {
+            jr_fail(r, error_out, "unexpected end of document");
+            return false;
+        }
+        char b = p->input[p->pos];
+        if (b == '"') {
+            if (!jr_scan_string(r, NULL, error_out)) return false;
+        } else if (b == '-' || jr_isdigit(b)) {
+            if (!jr_scan_number(r, NULL, error_out)) return false;
+        } else if (b == 't') {
+            if (!jr_scan_literal(r, "true", error_out)) return false;
+        } else if (b == 'f') {
+            if (!jr_scan_literal(r, "false", error_out)) return false;
+        } else if (b == 'n') {
+            if (!jr_scan_literal(r, "null", error_out)) return false;
+        } else if (b == '[' || b == '{') {
+            p->pos++;
+            jp_skip_ws(p);
+            char close = b == '[' ? ']' : '}';
+            if (p->pos < p->len && p->input[p->pos] == close) {
+                p->pos++; /* empty: a complete value */
+            } else {
+                stack[depth++] = b;
+                if (b == '{') {
+                    if (!jr_skip_name(r, error_out)) return false;
+                    if (!jr_expect_colon(r, "field", error_out)) return false;
+                }
+                continue; /* its first element is due */
+            }
+        } else {
+            char *got = jr_describe(r);
+            jr_fail(r, error_out, "unexpected character %s", got);
+            free(got);
+            return false;
+        }
+
+        /* A value is complete: a separator follows, or this container ends,
+         * and so may the ones enclosing it. */
+        for (;;) {
+            if (depth == 0) return true;
+            char open = stack[depth - 1];
+            jp_skip_ws(p);
+            if (p->pos >= p->len) {
+                jr_fail(r, error_out, "unexpected end of document");
+                return false;
+            }
+            char sep = p->input[p->pos++];
+            if (sep == ',') {
+                if (open == '{') {
+                    if (!jr_skip_name(r, error_out)) return false;
+                    if (!jr_expect_colon(r, "field", error_out)) return false;
+                }
+                break; /* the next value is due */
+            }
+            if (sep == (open == '[' ? ']' : '}')) {
+                depth--;
+                continue;
+            }
+            jr_fail(r, error_out,
+                    open == '[' ? "expected \",\" or \"]\" in array"
+                                : "expected \",\" or \"}\" in object");
+            return false;
+        }
+    }
 }
 
 /* ---- the exact lexical forms East JSON's scalars take ---- */
@@ -3078,36 +3607,37 @@ static bool jr_two_digit(const char *s, int lo, int hi, int *out)
 }
 
 /* YYYY-MM-DDTHH:MM:SS.mmm+00:00 — the canonical text the encoder writes.
- * Stricter than the decoder, which also takes `Z` and any numeric offset. */
-static bool jr_datetime_form(const char *s, size_t len, int64_t *epoch_ms_out)
+ * Stricter than the decoder, which also takes `Z` and any numeric offset.
+ * 0: the form, and a real date; 1: not the form; 2: the form, but a day the
+ * month does not have — the one fault no pattern can carry. */
+static int jr_datetime_check(const char *s, size_t len, int64_t *epoch_ms_out)
 {
-    if (len != 29) return false;
+    if (len != 29) return 1;
     for (int i = 0; i < 4; i++) {
-        if (s[i] < '0' || s[i] > '9') return false;
+        if (s[i] < '0' || s[i] > '9') return 1;
     }
     if (s[4] != '-' || s[7] != '-' || s[10] != 'T' || s[13] != ':' || s[16] != ':' || s[19] != '.')
-        return false;
-    if (memcmp(s + 23, "+00:00", 6) != 0) return false;
+        return 1;
+    if (memcmp(s + 23, "+00:00", 6) != 0) return 1;
 
     int year = (s[0] - '0') * 1000 + (s[1] - '0') * 100 + (s[2] - '0') * 10 + (s[3] - '0');
-    /* Year 0 has no proleptic-Gregorian reading the three runtimes share:
-     * python's datetime starts at year 1, and JavaScript's Date maps 0-99 into
-     * the 1900s. Bounding the reader at 1..9999 is what makes them agree. */
-    if (year < 1) return false;
+    /* The pattern pins the year to 0001..9999 — the range every runtime
+     * reads, python's datetime starting at year 1 — so 0000 is not the form. */
+    if (year < 1) return 1;
     int month, day, hour, minute, second;
-    if (!jr_two_digit(s + 5, 1, 12, &month)) return false;
-    if (!jr_two_digit(s + 8, 1, 31, &day)) return false;
-    if (!jr_two_digit(s + 11, 0, 23, &hour)) return false;
-    if (!jr_two_digit(s + 14, 0, 59, &minute)) return false;
-    if (!jr_two_digit(s + 17, 0, 59, &second)) return false;
+    if (!jr_two_digit(s + 5, 1, 12, &month)) return 1;
+    if (!jr_two_digit(s + 8, 1, 31, &day)) return 1;
+    if (!jr_two_digit(s + 11, 0, 23, &hour)) return 1;
+    if (!jr_two_digit(s + 14, 0, 59, &minute)) return 1;
+    if (!jr_two_digit(s + 17, 0, 59, &second)) return 1;
     for (int i = 20; i < 23; i++) {
-        if (s[i] < '0' || s[i] > '9') return false;
+        if (s[i] < '0' || s[i] > '9') return 1;
     }
     int ms = (s[20] - '0') * 100 + (s[21] - '0') * 10 + (s[22] - '0');
 
     /* The field bounds above cannot rule out a day the month does not have;
      * a payload naming one must be refused, not silently rolled forward. */
-    if (day > east_json_days_in_month(year, month)) return false;
+    if (day > east_json_days_in_month(year, month)) return 2;
 
     int64_t y = year;
     int64_t m_adj = month;
@@ -3124,7 +3654,7 @@ static bool jr_datetime_form(const char *s, size_t len, int64_t *epoch_ms_out)
     int64_t days = era * 146097 + doe - 719468;
     if (epoch_ms_out)
         *epoch_ms_out = (days * 86400 + hour * 3600 + minute * 60 + second) * 1000 + ms;
-    return true;
+    return 0;
 }
 
 /* "0x" and an even count of LOWERCASE hex. */
@@ -3139,59 +3669,10 @@ static bool jr_blob_form(const char *s, size_t len)
     return true;
 }
 
-/* JSON's own number grammar, and the token's exact value.
- *
- * jp_parse_number is deliberately forgiving for the whole-document decoder: it
- * takes "007" as 7, a bare "-" as 0, "1e" as 1, and it truncates the token at
- * 128 bytes — so a legal but long number decoded to a DIFFERENT Float here than
- * on east-node and east-py. Neither is acceptable at a contract boundary. */
-static bool jr_read_number(EastJsonReader *r, double *out)
-{
-    JsonParser *p = &r->p;
-    jp_skip_ws(p);
-    size_t start = p->pos;
-
-    if (p->pos < p->len && p->input[p->pos] == '-') p->pos++;
-    if (p->pos >= p->len) return false;
-    if (p->input[p->pos] == '0') {
-        p->pos++; /* a leading zero stands alone */
-    } else if (p->input[p->pos] >= '1' && p->input[p->pos] <= '9') {
-        while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos]))
-            p->pos++;
-    } else {
-        return false;
-    }
-    if (p->pos < p->len && p->input[p->pos] == '.') {
-        p->pos++;
-        if (p->pos >= p->len || !isdigit((unsigned char)p->input[p->pos])) return false;
-        while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos]))
-            p->pos++;
-    }
-    if (p->pos < p->len && (p->input[p->pos] == 'e' || p->input[p->pos] == 'E')) {
-        p->pos++;
-        if (p->pos < p->len && (p->input[p->pos] == '+' || p->input[p->pos] == '-')) p->pos++;
-        if (p->pos >= p->len || !isdigit((unsigned char)p->input[p->pos])) return false;
-        while (p->pos < p->len && isdigit((unsigned char)p->input[p->pos]))
-            p->pos++;
-    }
-
-    /* The mapping is not NUL-terminated, so strtod needs an exact copy — of the
-     * whole token, however long, which is what keeps the value identical. */
-    size_t n = p->pos - start;
-    char stackbuf[64];
-    char *buf = (n < sizeof stackbuf) ? stackbuf : malloc(n + 1);
-    if (!buf) return false;
-    memcpy(buf, p->input + start, n);
-    buf[n] = '\0';
-    *out = strtod(buf, NULL);
-    if (buf != stackbuf) free(buf);
-    return true;
-}
-
 /* Name equality that respects an embedded NUL.
  *
- * jp_parse_string hands back a length because a JSON name may legally contain
- * an escaped NUL; comparing with strcmp alone lets a name whose first NUL falls
+ * A parsed name carries a length because a JSON name may legally contain an
+ * escaped NUL; comparing with strcmp alone lets a name whose first NUL falls
  * where a declared name ends alias that declared name, which is exactly the
  * aliasing a contract boundary must refuse. */
 static bool jr_name_eq(const char *parsed, size_t parsed_len, const char *declared)
@@ -3204,39 +3685,25 @@ static bool jr_name_eq(const char *parsed, size_t parsed_len, const char *declar
 
 static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_out);
 
-/* How much of the offending value a message quotes. */
-#define JR_RAW_MAX 80
-
-/* The raw JSON at the cursor, for a message. Caller frees.
- *
- * Bounded on purpose. The value under the cursor can be the entire document,
- * and this runs on the read path whose whole premise is that the document never
- * lands on the heap — a type mismatch at the root of a 4 GB file would
- * otherwise allocate 4 GB to build a message that is truncated to 512 bytes
- * anyway. */
-static char *jr_raw(EastJsonReader *r)
+/* The quoted string value at the cursor. NULL with *error_out set. */
+static char *jr_read_string_value(EastJsonReader *r, size_t *len_out, char **error_out)
 {
-    size_t save = r->p.pos;
-    jp_skip_ws(&r->p);
-    size_t start = r->p.pos;
-    jp_skip_json_value(&r->p);
-    size_t end = r->p.pos;
-    r->p.pos = save;
-
-    if (end <= start) return strdup("null");
-    size_t n = end - start;
-    bool clipped = n > JR_RAW_MAX;
-    if (clipped) n = JR_RAW_MAX;
-    char *raw = malloc(n + 4);
-    if (!raw) return NULL;
-    memcpy(raw, r->p.input + start, n);
-    if (clipped) {
-        memcpy(raw + n, "...", 3);
-        raw[n + 3] = '\0';
-    } else {
-        raw[n] = '\0';
+    StrBuf sb = strbuf_new(32);
+    if (!jr_scan_string(r, &sb, error_out)) {
+        free(sb.data);
+        return NULL;
     }
-    return raw;
+    *len_out = sb.len;
+    return strbuf_finish(&sb);
+}
+
+/* The `expected X, got Y` refusal for a value that is not what the type needs. */
+static void *jr_fail_expected(EastJsonReader *r, char **error_out, const char *expected)
+{
+    char *got = jr_describe(r);
+    jr_fail(r, error_out, "expected %s, got %s", expected, got);
+    free(got);
+    return NULL;
 }
 
 /* Runs `body` over each element of a JSON array, pushing the index onto the
@@ -3245,12 +3712,12 @@ typedef bool (*JrElementFn)(EastJsonReader *r, size_t index, void *ctx, char **e
 
 static bool jr_each_element(EastJsonReader *r, JrElementFn body, void *ctx, char **error_out)
 {
-    if (!jp_match(&r->p, '[')) {
-        char *raw = jr_raw(r);
-        jr_fail(r, error_out, "expected an array, got %s", raw);
-        free(raw);
+    jp_skip_ws(&r->p);
+    if (jp_peek(&r->p) != '[') {
+        jr_fail_expected(r, error_out, "an array");
         return false;
     }
+    r->p.pos++;
     if (jp_peek(&r->p) == ']') {
         r->p.pos++;
         return true;
@@ -3258,8 +3725,13 @@ static bool jr_each_element(EastJsonReader *r, JrElementFn body, void *ctx, char
     for (size_t i = 0;; i++) {
         if (!body(r, i, ctx, error_out)) return false;
         jp_skip_ws(&r->p);
-        if (jp_match(&r->p, ']')) return true;
-        if (!jp_match(&r->p, ',')) {
+        if (r->p.pos >= r->p.len) {
+            jr_fail(r, error_out, "unexpected end of document");
+            return false;
+        }
+        char sep = r->p.input[r->p.pos++];
+        if (sep == ']') return true;
+        if (sep != ',') {
             jr_fail(r, error_out, "expected \",\" or \"]\" in array");
             return false;
         }
@@ -3277,12 +3749,13 @@ static bool jr_collect_element(EastJsonReader *r, size_t index, void *vctx, char
     JrCollect *c = (JrCollect *)vctx;
     jr_path_push_index(r, index);
     EastValue *elem = jr_read_value(r, c->elem, error_out);
-    jr_path_pop(r);
-    if (!elem) return false;
+    if (!elem) {
+        jr_path_pop(r);
+        return false;
+    }
     if (c->is_set) {
         if (east_set_has(c->out, elem)) {
             east_value_release(elem);
-            jr_path_push_index(r, index);
             jr_fail(r, error_out, "duplicate element in Set");
             jr_path_pop(r);
             return false;
@@ -3292,17 +3765,15 @@ static bool jr_collect_element(EastJsonReader *r, size_t index, void *vctx, char
         east_array_push(c->out, elem);
     }
     east_value_release(elem);
+    jr_path_pop(r);
     return true;
 }
 
 static EastValue *jr_read_struct(EastJsonReader *r, EastType *type, char **error_out)
 {
-    if (!jp_match(&r->p, '{')) {
-        char *raw = jr_raw(r);
-        EastValue *v = jr_fail(r, error_out, "expected an object, got %s", raw);
-        free(raw);
-        return v;
-    }
+    jp_skip_ws(&r->p);
+    if (jp_peek(&r->p) != '{') return jr_fail_expected(r, error_out, "an object");
+    r->p.pos++;
     size_t nf = type->data.struct_.num_fields;
     const char **names = calloc(nf ? nf : 1, sizeof(char *));
     EastValue **values = calloc(nf ? nf : 1, sizeof(EastValue *));
@@ -3311,22 +3782,19 @@ static EastValue *jr_read_struct(EastJsonReader *r, EastType *type, char **error
         free(names);
         free(values);
         free(seen);
-        return NULL;
+        return jr_fail(r, error_out, "out of memory");
     }
     for (size_t i = 0; i < nf; i++)
         names[i] = type->data.struct_.fields[i].name;
 
+    jp_skip_ws(&r->p);
     if (jp_peek(&r->p) != '}') {
         for (;;) {
             size_t fname_len;
-            char *fname = jp_parse_string(&r->p, &fname_len);
-            if (!fname) {
-                jr_fail(r, error_out, "expected a field name");
-                goto fail;
-            }
-            if (!jp_match(&r->p, ':')) {
+            char *fname = jr_read_name(r, "field", &fname_len, error_out);
+            if (!fname) goto fail;
+            if (!jr_expect_colon(r, "field", error_out)) {
                 free(fname);
-                jr_fail(r, error_out, "expected \":\" after a field name");
                 goto fail;
             }
             size_t idx = nf;
@@ -3337,31 +3805,47 @@ static EastValue *jr_read_struct(EastJsonReader *r, EastType *type, char **error
                 }
             }
             if (idx == nf) {
-                jr_fail(r, error_out, "unexpected field \"%s\"", fname);
+                char *q = jr_quote(fname, fname_len);
+                jr_fail(r, error_out, "unexpected field %s", q);
+                free(q);
                 free(fname);
                 goto fail;
             }
             if (seen[idx]) {
-                jr_fail(r, error_out, "duplicate field \"%s\"", fname);
+                char *q = jr_quote(fname, fname_len);
+                jr_fail(r, error_out, "duplicate field %s", q);
+                free(q);
                 free(fname);
                 goto fail;
             }
-            jr_path_push(r, fname);
+            jr_path_push_len(r, fname, fname_len);
+            free(fname);
             values[idx] = jr_read_value(r, type->data.struct_.fields[idx].type, error_out);
             jr_path_pop(r);
-            free(fname);
             if (!values[idx]) goto fail;
             seen[idx] = true;
-            if (!jp_match(&r->p, ',')) break;
+            jp_skip_ws(&r->p);
+            if (r->p.pos >= r->p.len) {
+                jr_fail(r, error_out, "unexpected end of document");
+                goto fail;
+            }
+            char sep = r->p.input[r->p.pos++];
+            if (sep == '}') break;
+            if (sep != ',') {
+                jr_fail(r, error_out, "expected \",\" or \"}\" in object");
+                goto fail;
+            }
         }
+    } else {
+        r->p.pos++;
     }
-    if (!jp_match(&r->p, '}')) {
-        jr_fail(r, error_out, "expected \",\" or \"}\" in object");
-        goto fail;
-    }
+    /* Field order is the type's, not the document's — JSON objects are
+     * unordered, so the encoder's order is not something to require. */
     for (size_t i = 0; i < nf; i++) {
         if (!seen[i]) {
-            jr_fail(r, error_out, "missing field \"%s\"", names[i]);
+            char *q = jr_quote(names[i], strlen(names[i]));
+            jr_fail(r, error_out, "missing field %s", q);
+            free(q);
             goto fail;
         }
     }
@@ -3386,31 +3870,22 @@ fail:
 
 static EastValue *jr_read_variant(EastJsonReader *r, EastType *type, char **error_out)
 {
-    if (!jp_match(&r->p, '{')) {
-        char *raw = jr_raw(r);
-        EastValue *v = jr_fail(r, error_out, "expected an object, got %s", raw);
-        free(raw);
-        return v;
-    }
+    jp_skip_ws(&r->p);
+    if (jp_peek(&r->p) != '{') return jr_fail_expected(r, error_out, "an object");
+    r->p.pos++;
     char *tag = NULL;
     size_t tag_len = 0;
     EastValue *value = NULL;
     bool have_value = false;
 
-    if (jp_peek(&r->p) == '}') {
-        jr_fail(r, error_out, "a Variant needs type and value");
-        return NULL;
-    }
+    jp_skip_ws(&r->p);
+    if (jp_peek(&r->p) == '}') return jr_fail(r, error_out, "a Variant needs type and value");
     for (;;) {
         size_t fname_len;
-        char *fname = jp_parse_string(&r->p, &fname_len);
-        if (!fname) {
-            jr_fail(r, error_out, "expected a field name");
-            goto fail;
-        }
-        if (!jp_match(&r->p, ':')) {
+        char *fname = jr_read_name(r, "field", &fname_len, error_out);
+        if (!fname) goto fail;
+        if (!jr_expect_colon(r, "field", error_out)) {
             free(fname);
-            jr_fail(r, error_out, "expected \":\" after a field name");
             goto fail;
         }
         if (jr_name_eq(fname, fname_len, "type")) {
@@ -3419,11 +3894,13 @@ static EastValue *jr_read_variant(EastJsonReader *r, EastType *type, char **erro
                 jr_fail(r, error_out, "duplicate \"type\" in Variant");
                 goto fail;
             }
-            tag = jp_parse_string(&r->p, &tag_len);
-            if (!tag) {
-                jr_fail(r, error_out, "expected a variant case name");
+            jp_skip_ws(&r->p);
+            if (jp_peek(&r->p) != '"') {
+                jr_fail_expected(r, error_out, "a variant case name");
                 goto fail;
             }
+            tag = jr_read_string_value(r, &tag_len, error_out);
+            if (!tag) goto fail;
             bool known = false;
             for (size_t i = 0; i < type->data.variant.num_cases; i++) {
                 if (jr_name_eq(tag, tag_len, type->data.variant.cases[i].name)) {
@@ -3432,7 +3909,9 @@ static EastValue *jr_read_variant(EastJsonReader *r, EastType *type, char **erro
                 }
             }
             if (!known) {
-                jr_fail(r, error_out, "unknown variant case \"%s\"", tag);
+                char *q = jr_quote(tag, tag_len);
+                jr_fail(r, error_out, "unknown variant case %s", q);
+                free(q);
                 goto fail;
             }
             if (have_value) {
@@ -3457,21 +3936,29 @@ static EastValue *jr_read_variant(EastJsonReader *r, EastType *type, char **erro
                     break;
                 }
             }
-            jr_path_push(r, tag);
+            jr_path_push_len(r, tag, tag_len);
             value = jr_read_value(r, case_type, error_out);
             jr_path_pop(r);
             if (!value) goto fail;
             have_value = true;
         } else {
-            jr_fail(r, error_out, "unexpected field \"%s\" in Variant", fname);
+            char *q = jr_quote(fname, fname_len);
+            jr_fail(r, error_out, "unexpected field %s in Variant", q);
+            free(q);
             free(fname);
             goto fail;
         }
-        if (!jp_match(&r->p, ',')) break;
-    }
-    if (!jp_match(&r->p, '}')) {
-        jr_fail(r, error_out, "expected \",\" or \"}\" in Variant");
-        goto fail;
+        jp_skip_ws(&r->p);
+        if (r->p.pos >= r->p.len) {
+            jr_fail(r, error_out, "unexpected end of document");
+            goto fail;
+        }
+        char sep = r->p.input[r->p.pos++];
+        if (sep == '}') break;
+        if (sep != ',') {
+            jr_fail(r, error_out, "expected \",\" or \"}\" in Variant");
+            goto fail;
+        }
     }
     if (!tag || !have_value) {
         jr_fail(r, error_out, "a Variant needs both type and value");
@@ -3499,30 +3986,27 @@ static bool jr_read_entry(EastJsonReader *r, size_t index, void *vctx, char **er
 {
     JrDictCtx *d = (JrDictCtx *)vctx;
     jr_path_push_index(r, index);
-    if (!jp_match(&r->p, '{')) {
-        jr_fail(r, error_out, "expected a Dict entry object");
-        jr_path_pop(r);
-        return false;
-    }
     EastValue *key = NULL;
     EastValue *val = NULL;
     bool have_key = false, have_val = false;
 
+    jp_skip_ws(&r->p);
+    if (jp_peek(&r->p) != '{') {
+        jr_fail_expected(r, error_out, "an object");
+        goto entry_fail;
+    }
+    r->p.pos++;
+    jp_skip_ws(&r->p);
     if (jp_peek(&r->p) == '}') {
         jr_fail(r, error_out, "a Dict entry needs key and value");
-        jr_path_pop(r);
-        return false;
+        goto entry_fail;
     }
     for (;;) {
         size_t fname_len;
-        char *fname = jp_parse_string(&r->p, &fname_len);
-        if (!fname) {
-            jr_fail(r, error_out, "expected a field name");
-            goto entry_fail;
-        }
-        if (!jp_match(&r->p, ':')) {
+        char *fname = jr_read_name(r, "field", &fname_len, error_out);
+        if (!fname) goto entry_fail;
+        if (!jr_expect_colon(r, "field", error_out)) {
             free(fname);
-            jr_fail(r, error_out, "expected \":\" after a field name");
             goto entry_fail;
         }
         if (jr_name_eq(fname, fname_len, "key")) {
@@ -3548,15 +4032,23 @@ static bool jr_read_entry(EastJsonReader *r, size_t index, void *vctx, char **er
             if (!val) goto entry_fail;
             have_val = true;
         } else {
-            jr_fail(r, error_out, "unexpected field \"%s\" in Dict entry", fname);
+            char *q = jr_quote(fname, fname_len);
+            jr_fail(r, error_out, "unexpected field %s in Dict entry", q);
+            free(q);
             free(fname);
             goto entry_fail;
         }
-        if (!jp_match(&r->p, ',')) break;
-    }
-    if (!jp_match(&r->p, '}')) {
-        jr_fail(r, error_out, "expected \",\" or \"}\" in Dict entry");
-        goto entry_fail;
+        jp_skip_ws(&r->p);
+        if (r->p.pos >= r->p.len) {
+            jr_fail(r, error_out, "unexpected end of document");
+            goto entry_fail;
+        }
+        char sep = r->p.input[r->p.pos++];
+        if (sep == '}') break;
+        if (sep != ',') {
+            jr_fail(r, error_out, "expected \",\" or \"}\" in Dict entry");
+            goto entry_fail;
+        }
     }
     if (!have_key || !have_val) {
         jr_fail(r, error_out, "a Dict entry needs both key and value");
@@ -3599,6 +4091,7 @@ static bool jr_tensor_element(EastJsonReader *r, size_t index, void *vctx, char 
         void *nd = realloc(t->data, cap * t->elem_size);
         if (!nd) {
             east_value_release(elem);
+            jr_fail(r, error_out, "out of memory");
             return false;
         }
         t->data = nd;
@@ -3662,24 +4155,25 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
 
     switch (type->kind) {
     case EAST_TYPE_NULL:
-        if (jp_match_str(&r->p, "null")) {
+        jp_skip_ws(&r->p);
+        if (jr_lookahead(&r->p, "null")) {
+            r->p.pos += 4;
             result = east_null();
         } else {
-            char *raw = jr_raw(r);
-            jr_fail(r, error_out, "expected null, got %s", raw);
-            free(raw);
+            jr_fail_expected(r, error_out, "null");
         }
         break;
 
     case EAST_TYPE_BOOLEAN:
-        if (jp_match_str(&r->p, "true"))
+        jp_skip_ws(&r->p);
+        if (jr_lookahead(&r->p, "true")) {
+            r->p.pos += 4;
             result = east_boolean(true);
-        else if (jp_match_str(&r->p, "false"))
+        } else if (jr_lookahead(&r->p, "false")) {
+            r->p.pos += 5;
             result = east_boolean(false);
-        else {
-            char *raw = jr_raw(r);
-            jr_fail(r, error_out, "expected a boolean, got %s", raw);
-            free(raw);
+        } else {
+            jr_fail_expected(r, error_out, "a boolean");
         }
         break;
 
@@ -3688,19 +4182,16 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
          * through a double on the way in. */
         jp_skip_ws(&r->p);
         if (jp_peek(&r->p) != '"') {
-            char *raw = jr_raw(r);
-            jr_fail(r, error_out, "expected Integer as a quoted decimal string, got %s", raw);
-            free(raw);
+            jr_fail_expected(r, error_out, "Integer as a quoted decimal string");
             break;
         }
         size_t slen;
-        char *s = jp_parse_string(&r->p, &slen);
-        if (!s) {
-            jr_fail(r, error_out, "expected Integer as a quoted decimal string");
-            break;
-        }
+        char *s = jr_read_string_value(r, &slen, error_out);
+        if (!s) break;
         if (!jr_integer_form(s, slen)) {
-            jr_fail(r, error_out, "\"%s\" is not a 64-bit integer in East JSON's form", s);
+            char *q = jr_quote(s, slen);
+            jr_fail(r, error_out, "%s is not a 64-bit integer in East JSON's form", q);
+            free(q);
             free(s);
             break;
         }
@@ -3714,42 +4205,34 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
         char c = jp_peek(&r->p);
         if (c == '"') {
             size_t slen;
-            char *s = jp_parse_string(&r->p, &slen);
-            if (!s) {
-                jr_fail(r, error_out, "expected a Float");
-                break;
-            }
+            char *s = jr_read_string_value(r, &slen, error_out);
+            if (!s) break;
             double v;
-            if (strcmp(s, "NaN") == 0)
+            if (slen == 3 && memcmp(s, "NaN", 3) == 0)
                 v = NAN;
-            else if (strcmp(s, "Infinity") == 0)
+            else if (slen == 8 && memcmp(s, "Infinity", 8) == 0)
                 v = INFINITY;
-            else if (strcmp(s, "-Infinity") == 0)
+            else if (slen == 9 && memcmp(s, "-Infinity", 9) == 0)
                 v = -INFINITY;
-            else if (strcmp(s, "-0.0") == 0)
+            else if (slen == 4 && memcmp(s, "-0.0", 4) == 0)
                 v = -0.0;
             else {
-                jr_fail(r, error_out, "\"%s\" is not one of the non-finite float spellings", s);
+                char *q = jr_quote(s, slen);
+                jr_fail(r, error_out, "%s is not one of the non-finite float spellings", q);
+                free(q);
                 free(s);
                 break;
             }
             free(s);
             result = east_float(v);
-        } else if (c == '-' || (c >= '0' && c <= '9')) {
-            size_t save = r->p.pos;
-            double v;
-            if (jr_read_number(r, &v)) {
-                result = east_float(v);
-            } else {
-                r->p.pos = save;
-                char *raw = jr_raw(r);
-                jr_fail(r, error_out, "expected a Float, got %s", raw);
-                free(raw);
+        } else if (c == '-' || jr_isdigit(c)) {
+            char *text = NULL;
+            if (jr_scan_number(r, &text, error_out)) {
+                result = east_float(east_strtod_c(text, NULL));
+                free(text);
             }
         } else {
-            char *raw = jr_raw(r);
-            jr_fail(r, error_out, "expected a Float, got %s", raw);
-            free(raw);
+            jr_fail_expected(r, error_out, "a Float");
         }
         break;
     }
@@ -3757,17 +4240,12 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
     case EAST_TYPE_STRING: {
         jp_skip_ws(&r->p);
         if (jp_peek(&r->p) != '"') {
-            char *raw = jr_raw(r);
-            jr_fail(r, error_out, "expected a String, got %s", raw);
-            free(raw);
+            jr_fail_expected(r, error_out, "a String");
             break;
         }
         size_t slen;
-        char *s = jp_parse_string(&r->p, &slen);
-        if (!s) {
-            jr_fail(r, error_out, "expected a String");
-            break;
-        }
+        char *s = jr_read_string_value(r, &slen, error_out);
+        if (!s) break;
         result = east_string_len(s, slen);
         free(s);
         break;
@@ -3776,20 +4254,21 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
     case EAST_TYPE_DATETIME: {
         jp_skip_ws(&r->p);
         if (jp_peek(&r->p) != '"') {
-            char *raw = jr_raw(r);
-            jr_fail(r, error_out, "expected DateTime as a string, got %s", raw);
-            free(raw);
+            jr_fail_expected(r, error_out, "DateTime as a string");
             break;
         }
         size_t slen;
-        char *s = jp_parse_string(&r->p, &slen);
-        if (!s) {
-            jr_fail(r, error_out, "expected DateTime as a string");
-            break;
-        }
+        char *s = jr_read_string_value(r, &slen, error_out);
+        if (!s) break;
         int64_t epoch_ms = 0;
-        if (!jr_datetime_form(s, slen, &epoch_ms)) {
-            jr_fail(r, error_out, "\"%s\" is not East JSON's UTC date-time form", s);
+        int fault = jr_datetime_check(s, slen, &epoch_ms);
+        if (fault != 0) {
+            char *q = jr_quote(s, slen);
+            jr_fail(r, error_out,
+                    fault == 1 ? "%s is not East JSON's UTC date-time form"
+                               : "%s is not a real date",
+                    q);
+            free(q);
             free(s);
             break;
         }
@@ -3801,19 +4280,16 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
     case EAST_TYPE_BLOB: {
         jp_skip_ws(&r->p);
         if (jp_peek(&r->p) != '"') {
-            char *raw = jr_raw(r);
-            jr_fail(r, error_out, "expected Blob as a string, got %s", raw);
-            free(raw);
+            jr_fail_expected(r, error_out, "Blob as a string");
             break;
         }
         size_t slen;
-        char *s = jp_parse_string(&r->p, &slen);
-        if (!s) {
-            jr_fail(r, error_out, "expected Blob as a string");
-            break;
-        }
+        char *s = jr_read_string_value(r, &slen, error_out);
+        if (!s) break;
         if (!jr_blob_form(s, slen)) {
-            jr_fail(r, error_out, "\"%s\" is not East JSON's 0x-prefixed lowercase hex form", s);
+            char *q = jr_quote(s, slen);
+            jr_fail(r, error_out, "%s is not East JSON's 0x-prefixed lowercase hex form", q);
+            free(q);
             free(s);
             break;
         }
@@ -3828,6 +4304,8 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
             }
             result = east_blob(bytes, blob_len);
             free(bytes);
+        } else {
+            jr_fail(r, error_out, "out of memory");
         }
         free(s);
         break;
@@ -3839,7 +4317,10 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
                        .out = type->kind == EAST_TYPE_SET ? east_set_new(type->data.element)
                                                           : east_array_new(type->data.element),
                        .is_set = type->kind == EAST_TYPE_SET};
-        if (!c.out) break;
+        if (!c.out) {
+            jr_fail(r, error_out, "out of memory");
+            break;
+        }
         if (jr_each_element(r, jr_collect_element, &c, error_out)) {
             result = c.out;
         } else {
@@ -3852,7 +4333,10 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
         JrDictCtx d = {.key_type = type->data.dict.key,
                        .val_type = type->data.dict.value,
                        .dict = east_dict_new(type->data.dict.key, type->data.dict.value)};
-        if (!d.dict) break;
+        if (!d.dict) {
+            jr_fail(r, error_out, "out of memory");
+            break;
+        }
         if (jr_each_element(r, jr_read_entry, &d, error_out)) {
             result = d.dict;
         } else {
@@ -3870,15 +4354,25 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
         break;
 
     case EAST_TYPE_REF: {
-        if (!jp_match(&r->p, '[')) {
-            char *raw = jr_raw(r);
-            jr_fail(r, error_out, "expected a Ref as a one-element array, got %s", raw);
-            free(raw);
+        jp_skip_ws(&r->p);
+        if (jp_peek(&r->p) != '[') {
+            jr_fail_expected(r, error_out, "a Ref as a one-element array");
+            break;
+        }
+        r->p.pos++;
+        if (jp_peek(&r->p) == ']') {
+            jr_fail(r, error_out, "expected a Ref to hold exactly one element");
             break;
         }
         EastValue *inner = jr_read_value(r, type->data.element, error_out);
         if (!inner) break;
-        if (!jp_match(&r->p, ']')) {
+        jp_skip_ws(&r->p);
+        if (r->p.pos >= r->p.len) {
+            east_value_release(inner);
+            jr_fail(r, error_out, "unexpected end of document");
+            break;
+        }
+        if (r->p.input[r->p.pos++] != ']') {
             east_value_release(inner);
             jr_fail(r, error_out, "expected a Ref to hold exactly one element");
             break;
@@ -3891,7 +4385,7 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
     case EAST_TYPE_VECTOR: {
         size_t esize = jr_elem_size(type->data.element);
         if (esize == 0) {
-            jr_fail(r, error_out, "a Vector element must be Float, Integer or Boolean");
+            jr_fail(r, error_out, "a Vector or Matrix element must be Float, Integer or Boolean");
             break;
         }
         JrTensor t = {.elem = type->data.element, .elem_size = esize};
@@ -3906,7 +4400,7 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
     case EAST_TYPE_MATRIX: {
         size_t esize = jr_elem_size(type->data.element);
         if (esize == 0) {
-            jr_fail(r, error_out, "a Matrix element must be Float, Integer or Boolean");
+            jr_fail(r, error_out, "a Vector or Matrix element must be Float, Integer or Boolean");
             break;
         }
         JrMatrix m = {0};
@@ -3950,32 +4444,38 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
 /* Positions the cursor on the value of `key`, skipping the members before it. */
 static bool jr_enter_member(EastJsonReader *r, const char *key, char **error_out)
 {
-    if (jp_peek(&r->p) == '}') return jr_fail(r, error_out, "no member \"%s\"", key) != NULL;
+    jp_skip_ws(&r->p);
+    if (jp_peek(&r->p) == '}') {
+        char *q = jr_quote(key, strlen(key));
+        jr_fail(r, error_out, "no member %s", q);
+        free(q);
+        return false;
+    }
     for (;;) {
         size_t nlen;
-        char *name = jp_parse_string(&r->p, &nlen);
-        if (!name) {
-            jr_fail(r, error_out, "expected a field name");
-            return false;
-        }
-        if (!jp_match(&r->p, ':')) {
+        char *name = jr_read_name(r, "field", &nlen, error_out);
+        if (!name) return false;
+        if (!jr_expect_colon(r, "field", error_out)) {
             free(name);
-            jr_fail(r, error_out, "expected \":\" after a field name");
             return false;
         }
         bool hit = jr_name_eq(name, nlen, key);
         free(name);
         if (hit) return true;
-        jp_skip_json_value(&r->p);
-        if (r->p.depth_exceeded) {
-            jr_fail(r, error_out, "document nests deeper than %d", JSON_MAX_DEPTH);
+        if (!jr_skip_value(r, error_out)) return false;
+        jp_skip_ws(&r->p);
+        if (r->p.pos >= r->p.len) {
+            jr_fail(r, error_out, "unexpected end of document");
             return false;
         }
-        if (jp_match(&r->p, '}')) {
-            jr_fail(r, error_out, "no member \"%s\"", key);
+        char sep = r->p.input[r->p.pos++];
+        if (sep == '}') {
+            char *q = jr_quote(key, strlen(key));
+            jr_fail(r, error_out, "no member %s", q);
+            free(q);
             return false;
         }
-        if (!jp_match(&r->p, ',')) {
+        if (sep != ',') {
             jr_fail(r, error_out, "expected \",\" or \"}\" in object");
             return false;
         }
@@ -3990,29 +4490,37 @@ static bool jr_enter_index(EastJsonReader *r, const char *segment, char **error_
     size_t seg_len = strlen(segment);
     bool well_formed = seg_len > 0 && (segment[0] != '0' || seg_len == 1);
     for (size_t i = 0; well_formed && i < seg_len; i++) {
-        if (segment[i] < '0' || segment[i] > '9') well_formed = false;
+        if (!jr_isdigit(segment[i])) well_formed = false;
     }
     if (!well_formed) {
-        jr_fail(r, error_out, "expected an array index, got \"%s\"", segment);
+        char *q = jr_quote(segment, seg_len);
+        jr_fail(r, error_out, "expected an array index, got %s", q);
+        free(q);
         return false;
     }
-    size_t target = (size_t)strtoull(segment, NULL, 10);
+    /* Compared as text, never as a number: an index past what a word holds is
+     * simply never reached, and the message names what was asked for. */
+    jp_skip_ws(&r->p);
     if (jp_peek(&r->p) == ']') {
-        jr_fail(r, error_out, "no element %zu", target);
+        jr_fail(r, error_out, "no element %s", segment);
         return false;
     }
+    char current[24];
     for (size_t i = 0;; i++) {
-        if (i == target) return true;
-        jp_skip_json_value(&r->p);
-        if (r->p.depth_exceeded) {
-            jr_fail(r, error_out, "document nests deeper than %d", JSON_MAX_DEPTH);
+        snprintf(current, sizeof current, "%zu", i);
+        if (strcmp(current, segment) == 0) return true;
+        if (!jr_skip_value(r, error_out)) return false;
+        jp_skip_ws(&r->p);
+        if (r->p.pos >= r->p.len) {
+            jr_fail(r, error_out, "unexpected end of document");
             return false;
         }
-        if (jp_match(&r->p, ']')) {
-            jr_fail(r, error_out, "no element %zu", target);
+        char sep = r->p.input[r->p.pos++];
+        if (sep == ']') {
+            jr_fail(r, error_out, "no element %s", segment);
             return false;
         }
-        if (!jp_match(&r->p, ',')) {
+        if (sep != ',') {
             jr_fail(r, error_out, "expected \",\" or \"]\" in array");
             return false;
         }
@@ -4030,11 +4538,12 @@ EastJsonReader *east_json_reader_open(const char *data, size_t len, const char *
     r->p.pos = 0;
     r->p.len = len;
     r->p.depth = 0;
-    r->p.strict = true;
 
     const char *pt = pointer ? pointer : "";
     if (pt[0] != '\0' && pt[0] != '/') {
-        jr_fail(r, error_out, "a JSON Pointer must be empty or start with \"/\", got \"%s\"", pt);
+        char *q = jr_quote(pt, strlen(pt));
+        jr_fail(r, error_out, "a JSON Pointer must be empty or start with \"/\", got %s", q);
+        free(q);
         east_json_reader_free(r);
         return NULL;
     }
@@ -4066,8 +4575,11 @@ EastJsonReader *east_json_reader_open(const char *data, size_t len, const char *
             r->p.pos++;
             ok = jr_enter_index(r, segment, error_out);
         } else {
-            jr_fail(r, error_out, "cannot descend into \"%c\" looking for \"%s\"", c ? c : '?',
-                    segment);
+            char *got = jr_describe(r);
+            char *q = jr_quote(segment, strlen(segment));
+            jr_fail(r, error_out, "cannot descend into %s looking for %s", got, q);
+            free(q);
+            free(got);
             ok = false;
         }
         if (!ok) {
@@ -4083,7 +4595,7 @@ EastJsonReader *east_json_reader_open(const char *data, size_t len, const char *
 
     char c = jp_peek(&r->p);
     if (c != '[' && c != '{') {
-        jr_fail(r, error_out, "expected an array or object to iterate, got \"%c\"", c ? c : '?');
+        jr_fail_expected(r, error_out, "an array or object to iterate");
         east_json_reader_free(r);
         return NULL;
     }
@@ -4116,6 +4628,33 @@ EastValue *east_json_reader_next(EastJsonReader *r, EastType *type, char **error
     }
     if (r->container == 0) return jr_fail(r, error_out, "the reader is exhausted");
 
+    /* An object's members arrive as {key, value} structs, which is what a
+     * Dict output needs. The two fields may be declared in either order — the
+     * struct is built in the type's own order — and the key must be a String.
+     * The type is checked before anything is consumed, the separator included,
+     * at the container's own pointer: no member has been named yet, and a
+     * refused call leaves the reader where it was. */
+    size_t key_at = SIZE_MAX, value_at = SIZE_MAX;
+    if (r->container == '{') {
+        if (type && type->kind == EAST_TYPE_STRUCT && type->data.struct_.num_fields == 2) {
+            for (size_t i = 0; i < 2; i++) {
+                const char *fname = type->data.struct_.fields[i].name;
+                if (strcmp(fname, "key") == 0)
+                    key_at = i;
+                else if (strcmp(fname, "value") == 0)
+                    value_at = i;
+            }
+        }
+        if (key_at == SIZE_MAX || value_at == SIZE_MAX) {
+            return jr_fail(r, error_out,
+                           "iterating an object needs a Struct with exactly the fields key and "
+                           "value");
+        }
+        if (type->data.struct_.fields[key_at].type->kind != EAST_TYPE_STRING) {
+            return jr_fail(r, error_out, "iterating an object needs a String key");
+        }
+    }
+
     /* The separator belongs to the advance, not to the predicate, so reading
      * two elements in a row needs no `more` between them. */
     if (r->started) {
@@ -4131,53 +4670,41 @@ EastValue *east_json_reader_next(EastJsonReader *r, EastType *type, char **error
     }
     r->started = true;
 
-    jr_path_push_index(r, r->index);
-    r->index++;
-    EastValue *result;
-
     if (r->container == '{') {
-        /* An object's members arrive as {key, value} structs, which is what a
-         * Dict output needs. */
-        if (type->kind != EAST_TYPE_STRUCT || type->data.struct_.num_fields != 2 ||
-            strcmp(type->data.struct_.fields[0].name, "key") != 0 ||
-            strcmp(type->data.struct_.fields[1].name, "value") != 0) {
-            jr_path_pop(r);
-            return jr_fail(r, error_out,
-                           "iterating an object needs a Struct with exactly the fields key and "
-                           "value");
-        }
-        if (type->data.struct_.fields[0].type->kind != EAST_TYPE_STRING) {
-            jr_path_pop(r);
-            return jr_fail(r, error_out, "iterating an object needs a String key");
-        }
         size_t nlen;
-        char *name = jp_parse_string(&r->p, &nlen);
-        if (!name) {
-            jr_path_pop(r);
-            return jr_fail(r, error_out, "expected a member name");
-        }
-        if (!jp_match(&r->p, ':')) {
+        char *name = jr_read_name(r, "member", &nlen, error_out);
+        if (!name) return NULL;
+        if (!jr_expect_colon(r, "member", error_out)) {
             free(name);
-            jr_path_pop(r);
-            return jr_fail(r, error_out, "expected \":\" after a member name");
+            return NULL;
         }
-        EastValue *value = jr_read_value(r, type->data.struct_.fields[1].type, error_out);
+        r->index++;
+        /* An error inside the member is located by its name, as RFC 6901
+         * addresses an object's members. */
+        jr_path_push_len(r, name, nlen);
+        EastValue *value = jr_read_value(r, type->data.struct_.fields[value_at].type, error_out);
+        jr_path_pop(r);
         if (!value) {
             free(name);
-            jr_path_pop(r);
             return NULL;
         }
         EastValue *key = east_string_len(name, nlen);
         free(name);
-        const char *names[2] = {"key", "value"};
-        EastValue *values[2] = {key, value};
-        result = east_struct_new(names, values, 2, type);
+        const char *names[2];
+        EastValue *values[2];
+        for (size_t i = 0; i < 2; i++) {
+            names[i] = type->data.struct_.fields[i].name;
+            values[i] = i == key_at ? key : value;
+        }
+        EastValue *result = east_struct_new(names, values, 2, type);
         east_value_release(key);
         east_value_release(value);
-    } else {
-        result = jr_read_value(r, type, error_out);
+        return result;
     }
 
+    jr_path_push_index(r, r->index);
+    r->index++;
+    EastValue *result = jr_read_value(r, type, error_out);
     jr_path_pop(r);
     return result;
 }
@@ -4193,7 +4720,7 @@ void east_json_reader_free(EastJsonReader *r)
 {
     if (!r) return;
     for (size_t i = 0; i < r->path_len; i++)
-        free(r->path[i]);
+        free(r->path[i].text);
     free(r->path);
     free(r);
 }
