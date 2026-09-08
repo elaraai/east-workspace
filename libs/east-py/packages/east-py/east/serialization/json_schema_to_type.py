@@ -23,6 +23,7 @@ from east.types.types import (
     IntegerType,
     MatrixType,
     NullType,
+    OptionType,
     RecursiveType,
     RefType,
     SetType,
@@ -30,6 +31,9 @@ from east.types.types import (
     StructType,
     VariantType,
     VectorType,
+    is_null_type,
+    is_option_type,
+    is_recursive_type,
 )
 
 JsonSchema = dict[str, Any]
@@ -295,10 +299,13 @@ def type_from_json_schema(schema: JsonSchema) -> EastType:
     those annotations still converts, under a documented structural mapping,
     but does not promise to round-trip.
 
-    OpenAPI 3.0's ``nullable: true`` beside a type is refused rather than
-    dropped: East JSON has no bare null for any type but ``Null``, so the only
-    reading would silently admit a schema whose nulls the reader then rejects
-    — model the value as an Option instead.
+    OpenAPI 3.0's ``nullable: true`` beside a type, JSON Schema's own
+    ``{"type": ["string", "null"]}``, and a ``oneOf`` of null and one other
+    schema, read as an ``Option`` of that type: East JSON writes a ``none``
+    whose payload cannot itself be null as ``null``, so
+    the nulls such a contract permits are exactly what the reader accepts. A
+    type that already admits null — ``Null``, or an Option, however the
+    document spells it — is left as it is.
 
     Cycles among definitions become ``RecursiveType``s, one per cycle group:
     ``Node -> NodeList -> Node`` is one type with the alias inlined. A group
@@ -324,7 +331,7 @@ def type_from_json_schema(schema: JsonSchema) -> EastType:
     return _build(schema, _Context(defs, keyword), [])
 
 
-def _build(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:  # noqa: PLR0911, PLR0912
+def _build(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:
     for keyword, reason in _UNSUPPORTED.items():
         if keyword in node:
             _fail(
@@ -332,20 +339,37 @@ def _build(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:  # noq
                 [*path, keyword],
             )
 
-    # OpenAPI 3.0 spells "this or null" as `nullable: true`. East JSON has no
-    # bare null for any type but Null itself -- an Option is a tagged object --
-    # so the only reading is the Null spelling: `nullable` with no type, $ref,
-    # oneOf or annotation. Beside anything else it would be dropped silently,
-    # and the reader would then refuse the nulls the partner's contract permits.
-    if node.get("nullable") is True and any(
-        key in node for key in ("type", "$ref", "oneOf", "x-east-type")
-    ):
-        _fail(
-            'type_from_json_schema cannot express "nullable" beside a type — East JSON has no '
-            "bare null for it; model the value as an Option (a oneOf tagged none and some)",
-            [*path, "nullable"],
-        )
+    # OpenAPI 3.0 spells "this or null" as `nullable: true`. Beside nothing
+    # typed it is the Null spelling itself; beside a type it reads as an Option
+    # of that type -- East JSON writes a `none` whose payload cannot be null as
+    # `null`, so the nulls the partner's contract permits are exactly what the
+    # reader accepts. A type that already admits null -- Null, or an Option,
+    # however the document spells it -- is left as it is: wrapping it would
+    # make its nulls a tagged `none`, which is not what the document says.
+    nullable = node.get("nullable") is True
+    if nullable and not any(key in node for key in ("type", "$ref", "oneOf", "x-east-type")):
+        return NullType
+    built = _build_typed(node, ctx, path)
+    return OptionType(built) if nullable and not _admits_null(built) else built
 
+
+def _admits_null(typ: EastType) -> bool:
+    """Whether a type already admits null, so ``nullable`` beside its schema adds nothing.
+
+    ``Null``, an Option, or a ``Recursive`` wrapper of either -- judged on the
+    type that was built rather than on the node's spelling, so a ``$ref`` to
+    such a definition, or a ``oneOf`` of null and one other schema, is not
+    wrapped a second time.
+    """
+    while is_recursive_type(typ) and typ.value.type == "wrapper":
+        typ = typ.value.value["inner"]
+    if is_null_type(typ):
+        return True
+    return is_option_type(typ) and is_null_type(typ.value[0]["type"])
+
+
+def _build_typed(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:  # noqa: PLR0911, PLR0912
+    """The node's type, ``nullable`` aside."""
     ref = node.get("$ref")
     if isinstance(ref, str):
         return _build_ref(ref, ctx, [*path, "$ref"])
@@ -358,16 +382,21 @@ def _build(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:  # noq
     if "oneOf" in node:
         return _build_variant(node, ctx, path)
 
-    # OpenAPI 3.0 has no "null" type and spells it with `nullable`.
-    if "type" not in node and node.get("nullable") is True:
-        return NullType
-
     kind = node.get("type")
 
     if isinstance(kind, list):
+        # JSON Schema's own spelling of "this or null": one type beside "null"
+        # reads as an Option of it, for the reason `nullable` does. Anything
+        # wider is a union East has no discriminated form for.
+        others = [k for k in kind if k != "null"]
+        if len(others) < len(kind) and len(others) <= 1:
+            if not others:
+                return NullType
+            return OptionType(_build_typed({**node, "type": others[0]}, ctx, path))
         _fail(
             f"type_from_json_schema cannot express a union of primitive types "
-            f"[{', '.join(_spell(k) for k in kind)}] — East unions are discriminated variants",
+            f"[{', '.join(_spell(k) for k in kind)}] — East unions are discriminated variants, "
+            'and only one type beside "null" reads, as an Option',
             [*path, "type"],
         )
 
@@ -526,6 +555,18 @@ def _build_variant(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType
     if not isinstance(alternatives, list) or not alternatives:
         _fail('type_from_json_schema needs a non-empty "oneOf"', [*path, "oneOf"])
 
+    # JSON Schema's own `oneOf` spelling of "this or null" -- null beside one
+    # other schema -- reads as an Option of it, for the reason `nullable` and
+    # the type union do. A tagged Option is two objects, so it never matches.
+    if len(alternatives) == 2:
+        schemas = [
+            _as_schema(alt, [*path, "oneOf", str(i)], f"oneOf[{i}]")
+            for i, alt in enumerate(alternatives)
+        ]
+        at = _payload_beside_null(schemas)
+        if at is not None:
+            return OptionType(_build(schemas[at], ctx, [*path, "oneOf", str(at)]))
+
     cases: list[tuple[str, EastType]] = []
     seen: set[str] = set()
     for i, raw in enumerate(alternatives):
@@ -562,9 +603,58 @@ def _build_variant(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType
     return VariantType(cases)
 
 
+def _is_null_schema(node: JsonSchema) -> bool:
+    """Whether a node is one of the spellings of Null the generator emits."""
+    if node.get("type") == "null":
+        return True
+    choices = node.get("enum")
+    return (
+        node.get("nullable") is True
+        and "type" not in node
+        and isinstance(choices, list)
+        and len(choices) == 1
+        and choices[0] is None
+    )
+
+
+def _payload_beside_null(schemas: list[JsonSchema]) -> int | None:
+    """The index of the payload beside one null alternative.
+
+    ``None`` when the pair is not that shape.
+    """
+    if len(schemas) != 2:
+        return None
+    nulls = [_is_null_schema(schema) for schema in schemas]
+    if nulls[0] == nulls[1]:
+        return None
+    return 1 if nulls[0] else 0
+
+
 def _build_annotated(  # noqa: PLR0911
     annotation: str, node: JsonSchema, ctx: _Context, path: list[str]
 ) -> EastType:
+    if annotation == "Option":
+        # A flat Option: null, or the payload. The tagged form carries no
+        # annotation and reads structurally, as the Variant it is.
+        alternatives = node.get("oneOf")
+        if not isinstance(alternatives, list) or len(alternatives) != 2:
+            _fail(
+                'type_from_json_schema needs an Option\'s "oneOf" to hold exactly two '
+                "alternatives — null and the payload",
+                [*path, "oneOf"],
+            )
+        schemas = [
+            _as_schema(alt, [*path, "oneOf", str(i)], f"oneOf[{i}]")
+            for i, alt in enumerate(alternatives)
+        ]
+        at = _payload_beside_null(schemas)
+        if at is None:
+            _fail(
+                'type_from_json_schema needs an Option\'s "oneOf" to hold one null alternative '
+                "and one payload",
+                [*path, "oneOf"],
+            )
+        return OptionType(_build(schemas[at], ctx, [*path, "oneOf", str(at)]))
     if annotation == "Integer":
         return IntegerType
     if annotation == "Float":

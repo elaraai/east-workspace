@@ -46,6 +46,10 @@ def option(inner):
     return VariantType([("none", NullType), ("some", inner)])
 
 
+# The ordinary linked list: an Option of the struct itself, flat at every depth.
+CHAIN_TYPE = RecursiveType(lambda self: StructType([("head", IntegerType), ("next", option(self))]))
+
+
 CORPUS = [
     ("Null", NullType),
     ("Boolean", BooleanType),
@@ -78,6 +82,19 @@ CORPUS = [
     ),
     ("recursive", RECURSIVE_TYPE),
     ("arrayRecursive", ArrayType(RECURSIVE_TYPE)),
+    # Every form an Option takes: flat over each kind of payload, and tagged
+    # over the two payloads that can themselves be null.
+    ("optionInteger", option(IntegerType)),
+    ("optionFloat", option(FloatType)),
+    ("optionNull", option(NullType)),
+    ("optionOption", option(option(StringType))),
+    ("optionVariant", option(VariantType([("ok", NullType), ("err", StringType)]))),
+    ("optionStruct", option(StructType([("a", IntegerType)]))),
+    ("arrayOption", ArrayType(option(StringType))),
+    ("dictOption", DictType(StringType, option(IntegerType))),
+    ("optionRecursive", option(RECURSIVE_TYPE)),
+    ("chain", CHAIN_TYPE),
+    ("optionChain", option(CHAIN_TYPE)),
 ]
 
 
@@ -332,35 +349,149 @@ def test_refuses_a_definition_that_is_not_a_schema_object_at_its_pointer():
 
 
 @pytest.mark.parametrize(
-    "schema",
+    ("schema", "want"),
     [
-        {"type": "string", "nullable": True},
-        {"$ref": "#/$defs/L", "nullable": True, "$defs": {"L": {"type": "string"}}},
-        {
-            "nullable": True,
-            "oneOf": [
-                {
-                    "type": "object",
-                    "properties": {"type": {"const": "ok"}, "value": {"type": "integer"}},
-                    "required": ["type", "value"],
-                    "additionalProperties": False,
-                }
-            ],
-        },
-        {"type": None, "nullable": True},
+        ({"type": "string", "nullable": True}, option(StringType)),
+        (
+            {"type": "array", "items": {"type": "integer"}, "nullable": True},
+            option(ArrayType(IntegerType)),
+        ),
+        (
+            {"$ref": "#/$defs/L", "nullable": True, "$defs": {"L": {"type": "string"}}},
+            option(StringType),
+        ),
+        (
+            {
+                "nullable": True,
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {"type": {"const": "ok"}, "value": {"type": "integer"}},
+                        "required": ["type", "value"],
+                        "additionalProperties": False,
+                    }
+                ],
+            },
+            option(VariantType([("ok", IntegerType)])),
+        ),
+        ({"x-east-type": "Integer", "nullable": True}, option(IntegerType)),
     ],
 )
-def test_refuses_nullable_beside_a_type_rather_than_dropping_it(schema):
-    """East JSON has no bare null for a String, so the nulls would be refused on read."""
+def test_reads_nullable_beside_a_type_as_an_option(schema, want):
+    """East JSON writes a none whose payload cannot be null as null.
+
+    So the nulls the contract permits are exactly what the reader accepts.
+    """
+    assert type_from_json_schema(schema) == want
+
+
+def test_leaves_nullable_alone_beside_a_spelling_that_admits_null():
+    """Wrapping these would make their nulls a tagged none, which is not what the document says."""
+    assert type_from_json_schema({"type": "null", "nullable": True}) == NullType
+    assert type_from_json_schema({"type": ["string", "null"], "nullable": True}) == option(
+        StringType
+    )
+    flat = json_schema_for(option(StringType), draft="openapi-3.0")
+    assert type_from_json_schema({**flat, "nullable": True}) == option(StringType)
+
+
+def test_leaves_nullable_alone_beside_a_definition_or_oneof_that_already_admits_null():
+    """Judged on the type that was built, not on the node's spelling.
+
+    A second wrap would make the document's nulls a tagged none.
+    """
+    assert type_from_json_schema(
+        {"nullable": True, "oneOf": [{"type": "null"}, {"type": "string"}]}
+    ) == option(StringType)
+    assert type_from_json_schema(
+        {
+            "nullable": True,
+            "$ref": "#/$defs/Maybe",
+            "$defs": {"Maybe": {"type": ["string", "null"]}},
+        }
+    ) == option(StringType)
+    assert (
+        type_from_json_schema(
+            {"nullable": True, "$ref": "#/$defs/Nothing", "$defs": {"Nothing": {"type": "null"}}}
+        )
+        == NullType
+    )
+    assert type_from_json_schema(
+        {"nullable": True, "$ref": "#/$defs/Word", "$defs": {"Word": {"type": "string"}}}
+    ) == option(StringType)
+
+
+def test_reads_one_type_beside_null_in_a_type_union_as_an_option():
+    assert type_from_json_schema({"type": ["string", "null"]}) == option(StringType)
+    assert type_from_json_schema({"type": ["null", "integer"]}) == option(IntegerType)
+    assert type_from_json_schema(
+        {
+            "type": ["object", "null"],
+            "properties": {"a": {"type": "string"}},
+            "required": ["a"],
+            "additionalProperties": False,
+        }
+    ) == option(StructType([("a", StringType)]))
+    assert type_from_json_schema({"type": ["null"]}) == NullType
+
+
+def test_reads_a_oneof_of_null_and_one_other_schema_as_an_option():
+    assert type_from_json_schema({"oneOf": [{"type": "null"}, {"type": "string"}]}) == option(
+        StringType
+    )
+    assert type_from_json_schema({"oneOf": [{"type": "integer"}, {"type": "null"}]}) == option(
+        IntegerType
+    )
+    assert type_from_json_schema(
+        {"oneOf": [{"type": "null"}, {"type": "array", "items": {"type": "string"}}]}
+    ) == option(ArrayType(StringType))
+
+
+@pytest.mark.parametrize(
+    "one_of",
+    [[{"type": "null"}, {"type": "null"}], [{"type": "string"}, {"type": "integer"}]],
+    ids=["two nulls", "no null"],
+)
+def test_a_oneof_that_is_not_null_beside_one_schema_is_an_untagged_union(one_of):
+    """Two nulls, or none, is not that spelling."""
+    with pytest.raises(JsonSchemaUnsupportedError, match="an untagged union is not an East variant"):
+        type_from_json_schema({"oneOf": one_of})
+
+
+def test_a_null_type_beside_nullable_is_refused_at_type():
+    """``nullable`` no longer shadows the fault: the explicit null is the type, and refused as it."""
     with pytest.raises(
-        JsonSchemaUnsupportedError, match='cannot express "nullable" beside a type'
+        JsonSchemaUnsupportedError, match='does not recognise the type "null"'
     ) as excinfo:
-        type_from_json_schema(schema)
-    assert excinfo.value.pointer == "/nullable"
+        type_from_json_schema({"type": None, "nullable": True})
+    assert excinfo.value.pointer == "/type"
 
 
 def test_nullable_false_asserts_nothing():
     assert type_from_json_schema({"type": "string", "nullable": False}) == StringType
+
+
+@pytest.mark.parametrize(
+    ("schema", "message"),
+    [
+        (
+            {"x-east-type": "Option", "oneOf": [{"type": "string"}]},
+            'needs an Option\'s "oneOf" to hold exactly two alternatives',
+        ),
+        (
+            {"x-east-type": "Option", "oneOf": [{"type": "string"}, {"type": "integer"}]},
+            'needs an Option\'s "oneOf" to hold one null alternative and one payload',
+        ),
+        (
+            {"x-east-type": "Option", "oneOf": [{"type": "null"}, {"type": "null"}]},
+            'needs an Option\'s "oneOf" to hold one null alternative and one payload',
+        ),
+    ],
+)
+def test_refuses_a_malformed_option_annotation_pointing_at_its_oneof(schema, message):
+    with pytest.raises(JsonSchemaUnsupportedError, match=message) as excinfo:
+        type_from_json_schema(schema)
+    assert excinfo.value.pointer == "/oneOf"
 
 
 @pytest.mark.parametrize(
@@ -455,9 +586,17 @@ def test_refuses_an_optional_property_pointing_at_it():
     assert excinfo.value.pointer == "/properties/b"
 
 
-def test_refuses_a_union_of_primitive_types():
-    with pytest.raises(JsonSchemaUnsupportedError, match="discriminated variants"):
-        type_from_json_schema({"type": ["string", "null"]})
+@pytest.mark.parametrize(
+    "kinds", [["string", "integer"], ["string", "integer", "null"]], ids=["no null", "with null"]
+)
+def test_refuses_a_union_of_more_than_one_type(kinds):
+    """Only one type beside "null" has an East reading, as an Option."""
+    with pytest.raises(
+        JsonSchemaUnsupportedError,
+        match='discriminated variants, and only one type beside "null" reads, as an Option',
+    ) as excinfo:
+        type_from_json_schema({"type": kinds})
+    assert excinfo.value.pointer == "/type"
 
 
 def test_refuses_an_unconstrained_schema():

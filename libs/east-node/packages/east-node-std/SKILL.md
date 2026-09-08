@@ -217,6 +217,16 @@ const total = East.function([StringType], IntegerType, ($, path) => {
   `DateTime` must carry an explicit `+00:00`, not `Z` and not a numeric offset,
   and a day its month does not have (`2026-02-30`) is refused rather than
   rolled forward. A `Blob`'s hex must be lowercase.
+- **An `Option<T>` is `null` or `T`'s own encoding** wherever `T` can never
+  itself encode as `null`: a row's `note: Option<String>` reads `none` from
+  `"note": null` and `some` from `"note": "x"`, and the tagged
+  `{"type": "some", "value": "x"}` object there is refused as the payload it
+  is not (`expected a String, got an object`). Only `Option<Null>` and
+  `Option<Option<T>>` keep the tagged object — what keeps `some(none)`
+  distinct from `none` — so a bare `null` there is refused
+  (`expected an object, got null`). The rule is the same on every runtime,
+  with nothing to configure, and `jsonSchemaFor` describes a flat Option as
+  `oneOf [null, T]`.
 - **Errors name the offending node** by RFC 6901 pointer — an array element by
   its index, an object member by its name (`~` and `/` escaped as `~0` / `~1`):
   `json_next: /1/id: "not-an-integer" is not a 64-bit integer in East JSON's form`,

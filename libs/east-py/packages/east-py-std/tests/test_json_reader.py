@@ -184,9 +184,65 @@ def test_accepts_object_fields_in_any_order():
 
 def test_refuses_a_variant_whose_payload_precedes_its_tag():
     """The payload cannot be typed before the case is known."""
-    typ = VariantType([("none", NullType), ("some", IntegerType)])
-    assert accepts(typ, '{"type":"some","value":"1"}')
-    assert not accepts(typ, '{"value":"1","type":"some"}')
+    typ = VariantType([("ok", IntegerType), ("err", StringType)])
+    assert accepts(typ, '{"type":"ok","value":"1"}')
+    assert not accepts(typ, '{"value":"1","type":"ok"}')
+
+
+def test_reads_an_option_as_null_or_its_payload_and_tagged_only_where_the_payload_can_be_null():
+    """The one type-directed choice of form East JSON makes, as east-c reads it for python.
+
+    An Option whose payload can never encode as null is null or the payload,
+    so the tagged object there is refused as the payload it is not, in the
+    payload's own words. Option<Option<T>> and Option<Null> keep the tagged
+    form, so a bare null there is refused as the object it is not.
+    """
+    from east.types.values import EastVariant
+
+    option_int = VariantType([("none", NullType), ("some", IntegerType)])
+    flat = StructType([("v", option_int)])
+    assert read(flat, '{"v":null}')["v"] == EastVariant("none", None)
+    assert read(flat, '{"v":"7"}')["v"] == EastVariant("some", 7)
+    assert refusal(flat, '{"v":{"type":"some","value":"7"}}') == (
+        "/v: expected Integer as a quoted decimal string, got an object"
+    )
+    assert refusal(flat, '{"v":{"type":"none","value":null}}') == (
+        "/v: expected Integer as a quoted decimal string, got an object"
+    )
+    assert refusal(flat, '{"v":"x"}') == '/v: "x" is not a 64-bit integer in East JSON\'s form'
+
+    nested = StructType([("v", VariantType([("none", NullType), ("some", option_int)]))])
+    assert read(nested, '{"v":{"type":"some","value":null}}')["v"] == EastVariant(
+        "some", EastVariant("none", None)
+    )
+    assert read(nested, '{"v":{"type":"some","value":"1"}}')["v"] == EastVariant(
+        "some", EastVariant("some", 1)
+    )
+    assert refusal(nested, '{"v":null}') == "/v: expected an object, got null"
+    assert refusal(nested, '{"v":"1"}') == "/v: expected an object, got a string"
+
+    unit = StructType([("v", VariantType([("none", NullType), ("some", NullType)]))])
+    assert read(unit, '{"v":{"type":"none","value":null}}')["v"] == EastVariant("none", None)
+    assert read(unit, '{"v":{"type":"some","value":null}}')["v"] == EastVariant("some", None)
+    assert refusal(unit, '{"v":null}') == "/v: expected an object, got null"
+
+    # A recursive payload is judged by what the wrapper encodes: the ordinary
+    # linked list, next: Option<self>, is flat at every depth.
+    from east.types.types import RecursiveType
+
+    chain = RecursiveType(
+        lambda self: StructType(
+            [("head", IntegerType), ("next", VariantType([("none", NullType), ("some", self)]))]
+        )
+    )
+    got = read(chain, '{"head":"2","next":{"head":"1","next":null}}')
+    assert got["head"] == 2
+    assert got["next"].type == "some"
+    assert got["next"].value["head"] == 1
+    assert got["next"].value["next"] == EastVariant("none", None)
+    assert refusal(chain, '{"head":"1","next":{"type":"none","value":null}}') == (
+        '/next: unexpected field "type"'
+    )
 
 
 def test_refuses_a_document_nested_deeper_than_the_limit():
@@ -205,6 +261,7 @@ def test_reads_an_envelope_member_that_follows_a_large_array(tmp_path):
     path = tmp_path / "envelope.json"
     parts = ['{"data":[']
     parts += [f'{"," if i else ""}{{"id":"{i}"}}' for i in range(20_000)]
+
     parts.append('],"meta":{"n":"20000"}}')
     path.write_text("".join(parts))
 
@@ -259,7 +316,6 @@ def test_retention_does_not_track_the_document(tmp_path):
         f"retention tracked the document: {small} bytes for {small_size}, "
         f"{large} bytes for {large_size}"
     )
-
 
 
 def test_pointer_must_be_empty_or_rooted():

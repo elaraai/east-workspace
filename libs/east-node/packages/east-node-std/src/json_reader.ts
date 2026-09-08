@@ -7,8 +7,11 @@ import {
     EAST_JSON_PATTERNS,
     SortedMap,
     SortedSet,
+    jsonFlatOptionPayload,
     matrix,
+    none,
     ref,
+    some,
     variant,
     type EastTypeValue,
 } from "@elaraai/east";
@@ -875,8 +878,17 @@ export class JsonReader {
             case "Struct":
                 return this.readStruct(type.value as { name: string; type: EastTypeValue }[]);
 
-            case "Variant":
+            case "Variant": {
+                const flat = jsonFlatOptionPayload(type, this.recursive);
+                if (flat !== null) {
+                    // null is none; anything else is the payload, read where
+                    // the Option stands — one document value, so one level.
+                    this.skipSpace();
+                    if (this.startsWith("null")) { this.pos += 4; return none; }
+                    return some(this.readValueInner(flat));
+                }
                 return this.readVariant(type.value as { name: string; type: EastTypeValue }[]);
+            }
 
             case "Recursive": {
                 const rec = type.value as { type: "wrapper" | "ref"; value: any };

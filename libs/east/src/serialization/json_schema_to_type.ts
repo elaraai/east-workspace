@@ -12,6 +12,7 @@ import {
   IntegerType,
   MatrixType,
   NullType,
+  OptionType,
   RecursiveType,
   RefType,
   SetType,
@@ -208,11 +209,13 @@ interface Context {
  * | `{"type":"array","items":X}` | `Array<X>` |
  * | a closed object with `required` covering every property | `Struct` |
  * | `oneOf` of objects tagged by a constant `type` | `Variant` |
+ * | `nullable: true` beside a type, `{"type":["string","null"]}`, or a `oneOf` of null and one other schema | `Option<String>` |
  *
- * OpenAPI 3.0's `nullable: true` beside a type is refused rather than dropped:
- * East JSON has no bare null for any type but `Null`, so the only reading
- * would silently admit a schema whose nulls the reader then rejects — model
- * the value as an Option instead.
+ * The last row reads as an Option because East JSON writes a `none` whose
+ * payload cannot itself be null as `null`, so the nulls such a contract
+ * permits are exactly what the reader accepts. A type that already admits
+ * null — `Null`, or an Option, however the document spells it — is left as
+ * it is.
  *
  * Definitions are resolved through `$defs` or `definitions`, whichever the
  * document uses. Cycles among definitions become `RecursiveType`s, one per
@@ -352,18 +355,43 @@ function build(node: JsonSchema, ctx: Context, path: string[]): EastType {
     }
   }
 
-  // OpenAPI 3.0 spells "this or null" as `nullable: true`. East JSON has no
-  // bare null for any type but Null itself — an Option is a tagged object — so
-  // the only reading is the Null spelling: `nullable` with no type, $ref, oneOf
-  // or annotation. Beside anything else it would be dropped silently, and the
-  // reader would then refuse the nulls the partner's contract permits.
-  if (node["nullable"] === true
-      && (has(node, "type") || has(node, "$ref") || has(node, "oneOf") || has(node, "x-east-type"))) {
-    fail(
-      "typeFromJsonSchema cannot express \"nullable\" beside a type — East JSON has no bare null " +
-      "for it; model the value as an Option (a oneOf tagged none and some)", [...path, "nullable"]);
+  // OpenAPI 3.0 spells "this or null" as `nullable: true`. Beside nothing typed
+  // it is the Null spelling itself; beside a type it reads as an Option of that
+  // type — East JSON writes a `none` whose payload cannot be null as `null`, so
+  // the nulls the partner's contract permits are exactly what the reader
+  // accepts. A type that already admits null — Null, or an Option, however
+  // the document spells it — is left as it is: wrapping it would make its
+  // nulls a tagged `none`, which is not what the document says.
+  const nullable = node["nullable"] === true;
+  if (nullable && !has(node, "type") && !has(node, "$ref") && !has(node, "oneOf") && !has(node, "x-east-type")) {
+    return NullType;
   }
+  const built = buildTyped(node, ctx, path);
+  return nullable && !admitsNull(built) ? OptionType(built) : built;
+}
 
+/**
+ * Whether a type's encoding already admits `null`, so `nullable` beside its
+ * schema adds nothing — `Null`, an Option, or a `Recursive` wrapper of either.
+ * Judged on the type that was built rather than on the node's spelling, so a
+ * `$ref` to such a definition, or a `oneOf` of null and one other schema, is
+ * not wrapped a second time.
+ */
+function admitsNull(type: EastType): boolean {
+  let t: unknown = type;
+  while (typeof t === "object" && t !== null && (t as EastType).type === "Recursive") {
+    t = (t as RecursiveType).node;
+  }
+  if (typeof t !== "object" || t === null) return false;
+  const built = t as EastType;
+  if (built.type === "Null") return true;
+  if (built.type !== "Variant") return false;
+  const names = Object.keys(built.cases);
+  return names.length === 2 && names[0] === "none" && names[1] === "some" && built.cases["none"].type === "Null";
+}
+
+/** The node's type, `nullable` aside. */
+function buildTyped(node: JsonSchema, ctx: Context, path: string[]): EastType {
   const ref = node["$ref"];
   if (typeof ref === "string") return buildRef(ref, ctx, [...path, "$ref"]);
 
@@ -373,14 +401,20 @@ function build(node: JsonSchema, ctx: Context, path: string[]): EastType {
 
   if (has(node, "oneOf")) return buildVariant(node, ctx, path);
 
-  // OpenAPI 3.0 has no "null" type and spells it with `nullable`.
-  if (!has(node, "type") && node["nullable"] === true) return NullType;
-
   const type = node["type"];
   if (Array.isArray(type)) {
+    // JSON Schema's own spelling of "this or null": one type beside "null"
+    // reads as an Option of it, for the reason `nullable` does. Anything wider
+    // is a union East has no discriminated form for.
+    const others = type.filter(t => t !== "null");
+    if (others.length < type.length && others.length <= 1) {
+      if (others.length === 0) return NullType;
+      return OptionType(buildTyped({ ...node, type: others[0]! }, ctx, path));
+    }
     fail(
       `typeFromJsonSchema cannot express a union of primitive types [${type.map(spell).join(", ")}] — ` +
-      "East unions are discriminated variants", [...path, "type"]);
+      "East unions are discriminated variants, and only one type beside \"null\" reads, as an Option",
+      [...path, "type"]);
   }
 
   switch (type) {
@@ -525,6 +559,15 @@ function buildVariant(node: JsonSchema, ctx: Context, path: string[]): EastType 
     fail("typeFromJsonSchema needs a non-empty \"oneOf\"", [...path, "oneOf"]);
   }
 
+  // JSON Schema's own `oneOf` spelling of "this or null" — null beside one
+  // other schema — reads as an Option of it, for the reason `nullable` and
+  // the type union do. A tagged Option is two objects, so it never matches.
+  if (alternatives.length === 2) {
+    const schemas = alternatives.map((a, i) => asSchema(a, [...path, "oneOf", String(i)], `oneOf[${i}]`));
+    const at = payloadBesideNull(schemas);
+    if (at !== null) return OptionType(build(schemas[at]!, ctx, [...path, "oneOf", String(at)]));
+  }
+
   // As above — and reading `cases["constructor"]` on a plain object finds
   // Object.prototype's, which reported a false duplicate case.
   const cases: Record<string, EastType> = Object.create(null) as Record<string, EastType>;
@@ -551,8 +594,42 @@ function buildVariant(node: JsonSchema, ctx: Context, path: string[]): EastType 
   return VariantType(cases);
 }
 
+/** Whether a node is one of the spellings of `Null` the generator emits. */
+function isNullSchema(node: JsonSchema): boolean {
+  if (node["type"] === "null") return true;
+  const choices = node["enum"];
+  return node["nullable"] === true && !has(node, "type")
+    && Array.isArray(choices) && choices.length === 1 && choices[0] === null;
+}
+
+/** The index of the payload beside a single null alternative, or `null` when the pair is not that shape. */
+function payloadBesideNull(schemas: JsonSchema[]): number | null {
+  if (schemas.length !== 2) return null;
+  const nulls = schemas.map(isNullSchema);
+  if (nulls[0] === nulls[1]) return null;
+  return nulls[0] ? 1 : 0;
+}
+
 function buildAnnotated(annotation: string, node: JsonSchema, ctx: Context, path: string[]): EastType {
   switch (annotation) {
+    case "Option": {
+      // A flat Option: null, or the payload. The tagged form carries no
+      // annotation and reads structurally, as the Variant it is.
+      const alternatives = node["oneOf"];
+      if (!Array.isArray(alternatives) || alternatives.length !== 2) {
+        fail(
+          "typeFromJsonSchema needs an Option's \"oneOf\" to hold exactly two alternatives — null and the payload",
+          [...path, "oneOf"]);
+      }
+      const schemas = alternatives.map((a, i) => asSchema(a, [...path, "oneOf", String(i)], `oneOf[${i}]`));
+      const at = payloadBesideNull(schemas);
+      if (at === null) {
+        fail(
+          "typeFromJsonSchema needs an Option's \"oneOf\" to hold one null alternative and one payload",
+          [...path, "oneOf"]);
+      }
+      return OptionType(build(schemas[at]!, ctx, [...path, "oneOf", String(at)]));
+    }
     case "Integer": return IntegerType;
     case "Float": return FloatType;
     case "DateTime": return DateTimeType;

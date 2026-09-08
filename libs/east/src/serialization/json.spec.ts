@@ -22,6 +22,7 @@ import {
     IntegerType,
     NeverType,
     NullType,
+    OptionType,
     RecursiveType,
     SetType,
     StringType,
@@ -31,8 +32,9 @@ import {
     VectorType,
     MatrixType,
 } from '../types.js';
+import { toEastTypeValue, type EastTypeValue } from '../type_of_type.js';
 import { matrix } from '../containers/matrix.js';
-import { decodeJSONFor, encodeJSONFor, fromJSONFor, toJSONFor } from "./json.js";
+import { decodeJSONFor, encodeJSONFor, fromJSONFor, jsonFlatOptionPayload, toJSONFor } from "./json.js";
 import { isFrozenValue } from "../frozen.js";
 import { compareFor, equalFor } from "../comparison.js";
 import { SortedSet } from "../containers/sortedset.js";
@@ -345,16 +347,16 @@ describe('Json encoding/decoding of EAST values', () => {
 
     test('should encode/decode variant', () => {
         const type = VariantType({
-            none: NullType,
-            some: DateTimeType,
+            ok: DateTimeType,
+            err: StringType,
         });
         const decoded = [
-            none,
-            some(new Date("2022-06-29T13:43:00.123+00:00")),
+            variant("ok", new Date("2022-06-29T13:43:00.123+00:00")),
+            variant("err", "bad"),
         ];
         const encoded = [
-            { type: "none", value: null },
-            { type: "some", value: "2022-06-29T13:43:00.123+00:00" },
+            { type: "ok", value: "2022-06-29T13:43:00.123+00:00" },
+            { type: "err", value: "bad" },
         ];
         const erroneous = [
             undefined,
@@ -362,13 +364,102 @@ describe('Json encoding/decoding of EAST values', () => {
             1,
             "",
             {},
-            { type: "none" },
-            { value: null },
+            { type: "ok" },
+            { value: "bad" },
             { type: "nothing", value: null },
-            { type: "none", value: 1 },
+            { type: "err", value: 1 },
         ];
 
         run(type, decoded, encoded, erroneous);
+    });
+
+    test('should encode an Option as null or its payload when the payload cannot be null', () => {
+        // The one type-directed choice of form East JSON makes: none is null
+        // and some is the payload itself, because at this position the payload
+        // can never encode as null — so null has one reading. The tagged object
+        // is then refused by the payload's own decoder.
+        run(OptionType(DateTimeType),
+            [none, some(new Date("2022-06-29T13:43:00.123+00:00"))],
+            [null, "2022-06-29T13:43:00.123+00:00"],
+            [undefined, 1, "", {}, [], { type: "none", value: null }, { type: "some", value: "2022-06-29T13:43:00.123+00:00" }]);
+        run(OptionType(StringType), [none, some("x"), some("")], [null, "x", ""], [undefined, 1, {}, { type: "none", value: null }]);
+        run(OptionType(IntegerType), [none, some(7n)], [null, "7"], [7, { type: "some", value: "7" }]);
+        run(OptionType(FloatType), [none, some(NaN), some(1.5)], [null, "NaN", 1.5], ["nan"]);
+        run(OptionType(StructType({ a: IntegerType })), [none, some({ a: 1n })], [null, { a: "1" }], [{}, { type: "some", value: { a: "1" } }]);
+        // A variant is always an object, so it is a flat payload — Null case and all.
+        const OkErr = VariantType({ ok: NullType, err: StringType });
+        run(OptionType(OkErr), [none, some(variant("ok", null)), some(variant("err", "bad"))],
+            [null, { type: "ok", value: null }, { type: "err", value: "bad" }],
+            [{ type: "some", value: { type: "ok", value: null } }]);
+        run(ArrayType(OptionType(StringType)), [[], [none, some("x")]], [[], [null, "x"]], [[{ type: "none", value: null }]]);
+        run(DictType(StringType, OptionType(IntegerType)),
+            [new SortedMap<any, any>([["a", none], ["b", some(1n)]], compareFor(StringType))],
+            [[{ key: "a", value: null }, { key: "b", value: "1" }]],
+            [[{ key: "a", value: { type: "none", value: null } }]]);
+    });
+
+    test('should keep the tagged form for an Option whose payload can itself be null', () => {
+        // The two cases that pin the predicate: some(none) must stay distinct
+        // from none, and some(null) from none, so the tag carries the difference.
+        run(OptionType(OptionType(StringType)),
+            [none, some(none), some(some("x"))],
+            [{ type: "none", value: null }, { type: "some", value: null }, { type: "some", value: "x" }],
+            [null, "x", { type: "some", value: { type: "none", value: null } }]);
+        run(OptionType(NullType),
+            [none, some(null)],
+            [{ type: "none", value: null }, { type: "some", value: null }],
+            [null, {}]);
+    });
+
+    test('should encode an Option of a recursive type by what the wrapper encodes', () => {
+        // next: Option<self> is the ordinary linked list. self refers back to a
+        // struct, so the Option is flat at every depth.
+        const ChainType = RecursiveType((self: any) => StructType({ head: IntegerType, next: OptionType(self) }));
+        run(ChainType,
+            [{ head: 1n, next: none }, { head: 2n, next: some({ head: 1n, next: none }) }],
+            [{ head: "1", next: null }, { head: "2", next: { head: "1", next: null } }],
+            [{ head: "1" }, { head: "1", next: { type: "none", value: null } }]);
+        run(OptionType(ChainType),
+            [none, some({ head: 1n, next: none })],
+            [null, { head: "1", next: null }],
+            [{ type: "none", value: null }]);
+        // Whereas a wrapper around an Option is judged as that Option: flat
+        // itself, but tagged when it is the payload of another Option.
+        const MaybeChainType = RecursiveType((self: any) => OptionType(StructType({ head: IntegerType, next: self })));
+        run(MaybeChainType,
+            [none, some({ head: 1n, next: none })],
+            [null, { head: "1", next: null }],
+            [{ type: "none", value: null }]);
+        run(OptionType(MaybeChainType),
+            [none, some(none), some(some({ head: 1n, next: none }))],
+            [{ type: "none", value: null }, { type: "some", value: null }, { type: "some", value: { head: "1", next: null } }],
+            [null]);
+    });
+
+    test('jsonFlatOptionPayload names the payload of a flat Option and nothing else', () => {
+        const T = (t: EastType) => toEastTypeValue(t);
+        assert.deepEqual(jsonFlatOptionPayload(T(OptionType(StringType))), T(StringType));
+        assert.deepEqual(jsonFlatOptionPayload(T(OptionType(VariantType({ ok: NullType })))), T(VariantType({ ok: NullType })));
+        assert.equal(jsonFlatOptionPayload(T(OptionType(NullType))), null);
+        assert.equal(jsonFlatOptionPayload(T(OptionType(OptionType(StringType)))), null);
+        // Not an Option at all: another type, another shape of variant, or a
+        // none that carries data — which no bare null could stand for.
+        assert.equal(jsonFlatOptionPayload(T(StringType)), null);
+        assert.equal(jsonFlatOptionPayload(T(VariantType({ ok: IntegerType, err: StringType }))), null);
+        assert.equal(jsonFlatOptionPayload(T(VariantType({ none: IntegerType, some: StringType }))), null);
+        assert.equal(jsonFlatOptionPayload(T(VariantType({ none: NullType, some: StringType, other: NullType }))), null);
+        // A wrapper is judged by what it wraps; a back-reference by the inner
+        // type of the wrapper it names, which the scope supplies.
+        const ChainType = RecursiveType((self: any) => StructType({ head: IntegerType, next: OptionType(self) }));
+        assert.deepEqual(jsonFlatOptionPayload(T(OptionType(ChainType))), T(ChainType));
+        const wrapper = (T(ChainType).value as { type: "wrapper"; value: { id: bigint; inner: EastTypeValue } }).value;
+        const fields = wrapper.inner.value as { name: string; type: EastTypeValue }[];
+        const next = fields.find(f => f.name === "next")!.type;
+        assert.throws(() => jsonFlatOptionPayload(next), /unresolved recursive reference/);
+        const scope = new Map<bigint, EastTypeValue>([[wrapper.id, wrapper.inner]]);
+        assert.deepEqual(jsonFlatOptionPayload(next, scope), (next.value as { name: string; type: EastTypeValue }[])[1]!.type);
+        const MaybeChainType = RecursiveType((self: any) => OptionType(StructType({ head: IntegerType, next: self })));
+        assert.equal(jsonFlatOptionPayload(T(OptionType(MaybeChainType))), null);
     });
 
     test('should encode/decode simple linked list', () => {
@@ -824,12 +915,12 @@ describe('Json encoding/decoding of EAST values', () => {
         }
 
         // Test error for variant case value
-        const variantDecoder = fromJSONFor(VariantType({ none: NullType, some: IntegerType }));
+        const variantDecoder = fromJSONFor(VariantType({ ok: IntegerType, err: StringType }));
         try {
-            variantDecoder({ type: "some", value: "not an integer" });
+            variantDecoder({ type: "ok", value: "not an integer" });
             assert.fail('Should have thrown');
         } catch (e: any) {
-            assert.equal(e.message, 'Error occurred because expected string representing integer, got "not an integer" at .some (line 1, col 1) while parsing value of type ".Variant [(name="none", type=.Null), (name="some", type=.Integer)]"');
+            assert.equal(e.message, 'Error occurred because expected string representing integer, got "not an integer" at .ok (line 1, col 1) while parsing value of type ".Variant [(name="err", type=.String), (name="ok", type=.Integer)]"');
         }
 
         // Test error for unknown variant type
@@ -837,7 +928,24 @@ describe('Json encoding/decoding of EAST values', () => {
             variantDecoder({ type: "unknown", value: null });
             assert.fail('Should have thrown');
         } catch (e: any) {
-            assert.equal(e.message, 'Error occurred because unknown variant type "unknown", got {"type":"unknown","value":null} (line 1, col 1) while parsing value of type ".Variant [(name="none", type=.Null), (name="some", type=.Integer)]"');
+            assert.equal(e.message, 'Error occurred because unknown variant type "unknown", got {"type":"unknown","value":null} (line 1, col 1) while parsing value of type ".Variant [(name="err", type=.String), (name="ok", type=.Integer)]"');
+        }
+
+        // Test error for a tagged object under a flat Option: the payload's own
+        // decoder speaks, and the path gains no segment — the payload sits
+        // where the Option does.
+        const optionDecoder = fromJSONFor(StructType({ note: OptionType(IntegerType) }));
+        try {
+            optionDecoder({ note: { type: "some", value: "7" } });
+            assert.fail('Should have thrown');
+        } catch (e: any) {
+            assert.equal(e.message, 'Error occurred because expected string representing integer, got {"type":"some","value":"7"} at .note (line 1, col 1) while parsing value of type ".Struct [(name="note", type=.Variant [(name="none", type=.Null), (name="some", type=.Integer)])]"');
+        }
+        try {
+            optionDecoder({ note: 7 });
+            assert.fail('Should have thrown');
+        } catch (e: any) {
+            assert.equal(e.message, 'Error occurred because expected string representing integer, got 7 at .note (line 1, col 1) while parsing value of type ".Struct [(name="note", type=.Variant [(name="none", type=.Null), (name="some", type=.Integer)])]"');
         }
 
         // Test error for deeply nested structure - array of structs with error in second element
@@ -1113,6 +1221,13 @@ describe('Json encoding/decoding of EAST values', () => {
         const fromJson = fromJSONFor(VariantType({ some: IntegerType }), false);
         const v = fromJson({ type: "some", value: "42" });
         assert.ok(!Object.isFrozen(v));
+    });
+
+    test('should freeze a decoded flat Option when frozen=true', () => {
+        const fromJson = fromJSONFor(OptionType(IntegerType), true);
+        assert.ok(Object.isFrozen(fromJson("42")));
+        assert.ok(Object.isFrozen(fromJson(null)));
+        assert.ok(!Object.isFrozen(fromJSONFor(OptionType(IntegerType), false)("42")));
     });
 
     test('should handle JSON.parse syntax errors in decodeJSONFor', () => {

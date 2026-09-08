@@ -530,6 +530,91 @@ int main(void)
         }
     }
 
+    /* An Option is null or its payload wherever the payload cannot itself be
+     * null, so the tagged object there is refused as the payload it is not;
+     * only Option<Null> and Option<Option<T>> keep the tagged form, so a bare
+     * null there is refused as the object it is not. The rule is the one the
+     * encoder and both whole-document decoders apply. */
+    {
+        const char *cases[] = {"none", "some"};
+        EastType *option_int =
+            east_variant_type(cases, (EastType *[]){&east_null_type, &east_integer_type}, 2);
+        EastType *option_option =
+            east_variant_type(cases, (EastType *[]){&east_null_type, option_int}, 2);
+        EastType *option_null =
+            east_variant_type(cases, (EastType *[]){&east_null_type, &east_null_type}, 2);
+
+        EastType *opt = struct_of("v", option_int);
+        EastType *nested = struct_of("v", option_option);
+        EastType *unit = struct_of("v", option_null);
+        CHECK(accepts("{\"v\":null}", opt), "a flat none reads");
+        CHECK(accepts("{\"v\":\"7\"}", opt), "a flat some reads");
+        refuses_with("{\"v\":{\"type\":\"some\",\"value\":\"7\"}}", opt,
+                     "/v: expected Integer as a quoted decimal string, got an object");
+        refuses_with("{\"v\":{\"type\":\"none\",\"value\":null}}", opt,
+                     "/v: expected Integer as a quoted decimal string, got an object");
+        refuses_with("{\"v\":\"x\"}", opt, "/v: \"x\" is not a 64-bit integer in East JSON's form");
+        CHECK(accepts("{\"v\":{\"type\":\"some\",\"value\":null}}", nested),
+              "some(none) reads tagged");
+        CHECK(accepts("{\"v\":{\"type\":\"some\",\"value\":\"1\"}}", nested),
+              "some(some(1)) reads tagged");
+        refuses_with("{\"v\":null}", nested, "/v: expected an object, got null");
+        refuses_with("{\"v\":\"1\"}", nested, "/v: expected an object, got a string");
+        CHECK(accepts("{\"v\":{\"type\":\"none\",\"value\":null}}", unit),
+              "Option<Null>'s none reads tagged");
+        CHECK(accepts("{\"v\":{\"type\":\"some\",\"value\":null}}", unit),
+              "Option<Null>'s some reads tagged");
+        refuses_with("{\"v\":null}", unit, "/v: expected an object, got null");
+
+        /* What is read back is the value, and the encoder writes it the same way. */
+        const char *docs[] = {"{\"v\":null}", "{\"v\":\"7\"}"};
+        const char *want_case[] = {"none", "some"};
+        for (size_t i = 0; i < 2; i++) {
+            char *err = NULL;
+            EastValue *v = read_doc(docs[i], strlen(docs[i]), opt, &err);
+            CHECK(v != NULL, "%s reads: %s", docs[i], err ? err : "");
+            free(err);
+            if (!v) continue;
+            EastValue *field = east_struct_get_field(v, "v");
+            CHECK(field && field->kind == EAST_VAL_VARIANT &&
+                      strcmp(east_variant_case_name(field), want_case[i]) == 0,
+                  "%s reads as %s", docs[i], want_case[i]);
+            char *json = east_json_encode(v, opt);
+            CHECK(json && strcmp(json, docs[i]) == 0, "%s encodes back as itself: %s", docs[i],
+                  json ? json : "(null)");
+            free(json);
+            east_value_release(v);
+        }
+
+        /* A recursive payload is judged by what the wrapper encodes: the
+         * ordinary linked list, next: Option<self>, is flat at every depth. */
+        EastType *rec = east_recursive_type_new();
+        EastType *next = east_variant_type(cases, (EastType *[]){&east_null_type, rec}, 2);
+        EastType *node = east_struct_type((const char *[]){"head", "next"},
+                                          (EastType *[]){&east_integer_type, next}, 2);
+        east_recursive_type_set(rec, node);
+        {
+            const char *doc = "{\"head\":\"2\",\"next\":{\"head\":\"1\",\"next\":null}}";
+            char *err = NULL;
+            EastValue *v = read_doc(doc, strlen(doc), rec, &err);
+            CHECK(v != NULL, "a chain reads: %s", err ? err : "");
+            free(err);
+            if (v) {
+                char *json = east_json_encode(v, rec);
+                CHECK(json && strcmp(json, doc) == 0, "a chain encodes back as itself: %s",
+                      json ? json : "(null)");
+                free(json);
+                east_value_release(v);
+            }
+        }
+        refuses_with("{\"head\":\"1\",\"next\":{\"type\":\"none\",\"value\":null}}", rec,
+                     "/next: unexpected field \"type\"");
+
+        east_type_release(opt);
+        east_type_release(nested);
+        east_type_release(unit);
+    }
+
     /* A Float is read the same under any LC_NUMERIC: "1.5" is 1.5, not the 1
      * a comma locale's strtod stops at — and prints back as "1.5". Skipped
      * where the host has no comma locale to switch to. */

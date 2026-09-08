@@ -52,6 +52,10 @@ def option(inner):
     return VariantType([("none", NullType), ("some", inner)])
 
 
+# The ordinary linked list: an Option of the struct itself, flat at every depth.
+CHAIN_TYPE = RecursiveType(lambda self: StructType([("head", IntegerType), ("next", option(self))]))
+
+
 # The corpus the cross-language digest is taken over. The TypeScript suite
 # holds the same list in the same order (json_schema.spec.ts).
 CORPUS = [
@@ -86,6 +90,16 @@ CORPUS = [
     ),
     ("recursive", RECURSIVE_TYPE),
     ("arrayRecursive", ArrayType(RECURSIVE_TYPE)),
+    # Every form an Option takes: flat over each kind of payload, and tagged
+    # over the two payloads that can themselves be null.
+    ("optionInteger", option(IntegerType)),
+    ("optionNull", option(NullType)),
+    ("optionOption", option(option(StringType))),
+    ("optionVariant", option(VariantType([("ok", NullType), ("err", StringType)]))),
+    ("arrayOption", ArrayType(option(StringType))),
+    ("dictOption", DictType(StringType, option(IntegerType))),
+    ("optionRecursive", option(RECURSIVE_TYPE)),
+    ("chain", CHAIN_TYPE),
 ]
 
 DRAFTS = ("2020-12", "draft-07", "openapi-3.0")
@@ -103,9 +117,9 @@ def test_matches_the_cross_language_corpus_digest():
         for name, typ in CORPUS:
             document = json.dumps(json_schema_for(typ, draft=draft), separators=(",", ":"))
             lines.append(f"{draft}|{name}={document}")
-    assert len(lines) == 57
+    assert len(lines) == 81
     digest = hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
-    assert digest == "7083a9ae6f830e8724c707c0f0636a57be01fe2085874e83fea00883401c1a6b"
+    assert digest == "457a0ca6a2d616a37c54bbd85bb1cf35908160152761004eb4c83a000755cae0"
 
 
 def test_stamps_schema_for_the_releases_that_carry_one():
@@ -215,10 +229,50 @@ def test_variant_pins_each_tag():
 
 
 def test_openapi_uses_an_enum_where_the_release_has_no_const():
-    schema = json_schema_for(option(StringType), draft="openapi-3.0")
+    schema = json_schema_for(
+        VariantType([("ok", IntegerType), ("err", StringType)]), draft="openapi-3.0"
+    )
     tag = schema["oneOf"][0]["properties"]["type"]
-    assert tag["enum"] == ["none"]
+    assert tag["enum"] == ["err"]
     assert "const" not in tag
+
+
+def test_option_is_null_or_its_payload_annotated():
+    """The one type-directed choice of form East JSON makes.
+
+    An Option whose payload can never encode as null is null or the payload,
+    and the null alternative is the release's own spelling of Null.
+    """
+    assert json_schema_for(option(StringType), draft="draft-07") == {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "oneOf": [{"type": "null"}, {"type": "string"}],
+        "x-east-type": "Option",
+    }
+    assert json_schema_for(option(StringType), draft="openapi-3.0") == {
+        "oneOf": [{"nullable": True, "enum": [None]}, {"type": "string"}],
+        "x-east-type": "Option",
+    }
+    # A variant is always an object, so it is a flat payload.
+    inner = json_schema_for(option(VariantType([("ok", NullType), ("err", StringType)])))
+    assert inner["x-east-type"] == "Option"
+    assert inner["oneOf"][0] == {"type": "null"}
+
+
+@pytest.mark.parametrize("typ", [option(NullType), option(option(StringType))])
+def test_option_keeps_the_tagged_form_where_the_payload_can_be_null(typ):
+    """some(none) must stay distinct from none, and some(null) from none."""
+    schema = json_schema_for(typ)
+    assert "x-east-type" not in schema
+    assert [alt["properties"]["type"]["const"] for alt in schema["oneOf"]] == ["none", "some"]
+
+
+def test_option_judges_a_recursive_payload_by_what_the_wrapper_encodes():
+    schema = json_schema_for(CHAIN_TYPE)
+    assert schema["$defs"]["Recursive1"]["properties"]["next"] == {
+        "oneOf": [{"type": "null"}, {"$ref": "#/$defs/Recursive1"}],
+        "x-east-type": "Option",
+    }
+    assert json_schema_for(option(CHAIN_TYPE))["x-east-type"] == "Option"
 
 
 def test_null_has_no_null_type_on_openapi():

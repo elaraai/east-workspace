@@ -1,11 +1,11 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1153,
+    "totalEntries": 1154,
     "totalFiles": 194,
     "packages": {
       "east": 550,
-      "east-node-std": 53,
+      "east-node-std": 54,
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 338,
@@ -154,7 +154,7 @@
         "async": false
       },
       "inputs": "[]",
-      "returns": "{\"type\":\"some\",\"value\":\"30\"}",
+      "returns": "\"30\"",
       "builtins": [
         "ArrayTryGet"
       ]
@@ -1125,7 +1125,7 @@
         "async": false
       },
       "inputs": "[]",
-      "returns": "{\"type\":\"some\",\"value\":\"1\"}",
+      "returns": "\"1\"",
       "builtins": [
         "ArrayFirstMap",
         "Equal"
@@ -1162,7 +1162,7 @@
         "async": false
       },
       "inputs": "[]",
-      "returns": "{\"type\":\"some\",\"value\":\"1\"}",
+      "returns": "\"1\"",
       "builtins": [
         "ArrayFirstMap",
         "Equal",
@@ -1237,7 +1237,7 @@
         "async": false
       },
       "inputs": "[]",
-      "returns": "{\"type\":\"some\",\"value\":\"50\"}",
+      "returns": "\"50\"",
       "builtins": [
         "ArrayFirstMap",
         "Equal",
@@ -1687,7 +1687,7 @@
         "async": false
       },
       "inputs": "[]",
-      "returns": "{\"type\":\"some\",\"value\":\"1\"}",
+      "returns": "\"1\"",
       "builtins": [
         "ArrayMapReduce",
         "ArraySize",
@@ -1726,7 +1726,7 @@
         "async": false
       },
       "inputs": "[]",
-      "returns": "{\"type\":\"some\",\"value\":\"1\"}",
+      "returns": "\"1\"",
       "builtins": [
         "ArrayMapReduce",
         "ArraySize",
@@ -2707,7 +2707,7 @@
         "async": false
       },
       "inputs": "[]",
-      "returns": "[{\"key\":\"0\",\"value\":{\"type\":\"some\",\"value\":\"3\"}},{\"key\":\"1\",\"value\":{\"type\":\"none\",\"value\":null}}]",
+      "returns": "[{\"key\":\"0\",\"value\":\"3\"},{\"key\":\"1\",\"value\":null}]",
       "builtins": [
         "ArrayGroupFold",
         "Equal",
@@ -5198,7 +5198,7 @@
         "output": "IntegerType",
         "async": false
       },
-      "inputs": "[[{\"key\":\"k\",\"value\":\"1\"}],{\"type\":\"some\",\"value\":\"2\"}]",
+      "inputs": "[[{\"key\":\"k\",\"value\":\"1\"}],\"2\"]",
       "returns": "\"3\"",
       "builtins": [
         "DictCopy",
@@ -18288,7 +18288,7 @@
         "async": false
       },
       "inputs": "[]",
-      "returns": "{\"type\":\"some\",\"value\":\"42\"}",
+      "returns": "\"42\"",
       "builtins": []
     },
     {
@@ -21248,7 +21248,7 @@
         "file"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, IntegerType, OptionType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { FileSystem, Json } from \"@elaraai/east-node-std\";",
         "import { tmpdir } from \"node:os\";",
         "import { join } from \"node:path\";"
@@ -21295,7 +21295,7 @@
         "stream"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, IntegerType, OptionType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { FileSystem, Json } from \"@elaraai/east-node-std\";",
         "import { tmpdir } from \"node:os\";",
         "import { join } from \"node:path\";"
@@ -21341,7 +21341,7 @@
         "skip"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, IntegerType, OptionType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { FileSystem, Json } from \"@elaraai/east-node-std\";",
         "import { tmpdir } from \"node:os\";",
         "import { join } from \"node:path\";"
@@ -21383,7 +21383,7 @@
         "string"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, IntegerType, OptionType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { FileSystem, Json } from \"@elaraai/east-node-std\";",
         "import { tmpdir } from \"node:os\";",
         "import { join } from \"node:path\";"
@@ -21427,7 +21427,7 @@
         "stream"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { East, IntegerType, OptionType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { FileSystem, Json } from \"@elaraai/east-node-std\";",
         "import { tmpdir } from \"node:os\";",
         "import { join } from \"node:path\";"
@@ -21453,6 +21453,54 @@
         "json_more",
         "json_next",
         "json_open"
+      ]
+    },
+    {
+      "id": "east-node-std:json.examples.ts:jsonReadOptional",
+      "skill": "east-node-std",
+      "package": "east-node-std",
+      "file": "east-node/packages/east-node-std/test/json.examples.ts",
+      "suite": "",
+      "test": "Read rows whose optional field is null or present: an Option is null for none and the value itself for some",
+      "keywords": [
+        "json",
+        "Json",
+        "next",
+        "Option",
+        "OptionType",
+        "optional",
+        "nullable",
+        "null",
+        "none",
+        "some",
+        "missing"
+      ],
+      "imports": [
+        "import { East, IntegerType, OptionType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { FileSystem, Json } from \"@elaraai/east-node-std\";",
+        "import { tmpdir } from \"node:os\";",
+        "import { join } from \"node:path\";"
+      ],
+      "languages": [
+        "typescript",
+        "python"
+      ],
+      "ir": "{\"type\":\"AsyncFunction\",\"value\":{\"type\":{\"type\":\"AsyncFunction\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"name\":\"handle\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Platform\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"name\":\"json_open_text\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"[{\\\"id\\\":\\\"1\\\",\\\"note\\\":null},{\\\"id\\\":\\\"2\\\",\\\"note\\\":\\\"paid\\\"},{\\\"id\\\":\\\"3\\\",\\\"note\\\":null}]\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"\"}}}],\"async\":false,\"optional\":false}}}},{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"noted\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}}}},{\"type\":\"While\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"predicate\":{\"type\":\"Platform\",\"value\":{\"type\":{\"type\":\"Boolean\",\"value\":null},\"loc_id\":\"0\",\"name\":\"json_more\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"name\":\"handle\",\"mutable\":true,\"captured\":false}}],\"async\":false,\"optional\":false}},\"label\":{\"name\":\"_0\",\"loc_id\":\"0\"},\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"id\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"note\",\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"none\",\"type\":{\"type\":\"Null\",\"value\":null}},{\"name\":\"some\",\"type\":{\"type\":\"String\",\"value\":null}}]}}]},\"loc_id\":\"0\",\"name\":\"row\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Platform\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"4#variable/Variable/type/Struct\"}},\"loc_id\":\"0\",\"name\":\"json_next\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#variable/Variable/type/Struct\"}}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"name\":\"handle\",\"mutable\":true,\"captured\":false}}],\"async\":false,\"optional\":false}}}},{\"type\":\"IfElse\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"ifs\":[{\"predicate\":{\"type\":\"Match\",\"value\":{\"type\":{\"type\":\"Boolean\",\"value\":null},\"loc_id\":\"0\",\"variant\":{\"type\":\"GetField\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"10#0/Let/variable/Variable/type/Struct/1/type/Variant\"}},\"loc_id\":\"0\",\"field\":\"note\",\"struct\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"12#0/Let/variable/Variable/type/Struct\"}},\"loc_id\":\"0\",\"name\":\"row\",\"mutable\":true,\"captured\":false}}}},\"cases\":[{\"case\":\"none\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"name\":\"_3\",\"mutable\":false,\"captured\":false}},\"body\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Boolean\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Boolean\",\"value\":false}}}},{\"case\":\"some\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"name\":\"_4\",\"mutable\":false,\"captured\":false}},\"body\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Boolean\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Boolean\",\"value\":true}}}}]}},\"body\":{\"type\":\"Assign\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"noted\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"IntegerAdd\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"noted\",\"mutable\":true,\"captured\":false}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"1\"}}}]}}}}}],\"else_body\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Null\",\"value\":null}}}}}]}}}},{\"type\":\"Platform\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"name\":\"json_close\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"name\":\"handle\",\"mutable\":true,\"captured\":false}}],\"async\":false,\"optional\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"noted\",\"mutable\":true,\"captured\":false}}]}}}}",
+      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, IntegerType, StringType, StructType, OptionType } from \"@elaraai/east\";\nimport { Json, json_next } from \"@elaraai/east-node-std\";\n\nexport const jsonReadOptional = East.asyncFunction([], IntegerType, ($) => {\n  const handle = $.let(\n    Json.openText(\n      \"[{\\\"id\\\":\\\"1\\\",\\\"note\\\":null},{\\\"id\\\":\\\"2\\\",\\\"note\\\":\\\"paid\\\"},{\\\"id\\\":\\\"3\\\",\\\"note\\\":null}]\",\n      \"\",\n    ),\n  );\n  const noted = $.let(0n);\n  $.while(Json.more(handle), ($, label) => {\n    const row = $.let(\n      json_next([StructType({ id: IntegerType, note: OptionType(StringType) })], handle),\n    );\n    $.if(row.note.match({ none: ($, _3) => false, some: ($, _4) => true }), ($) => {\n      $.assign(noted, noted.add(1n));\n    });\n  });\n  $(Json.close(handle));\n  return noted;\n});\n",
+      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, IntegerType, StringType, StructType, OptionType\nfrom east_py_std import json_close, json_more, json_next, json_open_text\n\n@East.asyncFunction([], IntegerType, cse=False)\ndef jsonReadOptional(b):\n    handle = b.let(\n        json_open_text(\n            '[{\"id\":\"1\",\"note\":null},{\"id\":\"2\",\"note\":\"paid\"},{\"id\":\"3\",\"note\":null}]',\n            '',\n        ),\n    )\n    noted = b.let(0)\n    def _b1(b, label):\n        row = b.let(\n            json_next(StructType([('id', IntegerType), ('note', OptionType(StringType))]), handle),\n        )\n        b.if_(\n            row.note.match({'none': lambda b, _3: False, 'some': lambda b, _4: True}),\n            lambda b: b.assign(noted, (noted + 1)),\n        )\n    b.while_(json_more(handle), _b1)\n    b.do(json_close(handle))\n    return noted\n",
+      "signature": {
+        "inputs": [],
+        "output": "IntegerType",
+        "async": true
+      },
+      "inputs": "[]",
+      "returns": "\"1\"",
+      "builtins": [
+        "IntegerAdd",
+        "json_close",
+        "json_more",
+        "json_next",
+        "json_open_text"
       ]
     },
     {

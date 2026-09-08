@@ -17,6 +17,9 @@
  *   Dict     -> array of {"key":...,"value":...}
  *   Struct   -> JSON object
  *   Variant  -> {"type":"CaseName","value":...}
+ *   Option   -> null for none and the payload's own encoding for some, whenever
+ *               that encoding can never be null; Option<Null> and
+ *               Option<Option<T>> keep the Variant form (json_flat_option_payload)
  *   Ref      -> encode inner value
  *   Vector   -> JSON array
  *   Matrix   -> JSON array of arrays
@@ -190,6 +193,47 @@ static bool east_json_integer_form(const char *s, size_t len)
         if (s[k] < '0' || s[k] > '9') return false;
     }
     return true;
+}
+
+/* ================================================================== */
+/*  Option: the one type-directed choice of form                       */
+/* ================================================================== */
+
+/* Whether `type` is the exact Option shape — Variant { none: Null, some: T }.
+ * Cases are sorted, so none is at 0 and some at 1; a `none` carrying anything
+ * but Null could not be written as a bare null, so its type is checked too. */
+static bool json_is_option_type(const EastType *type)
+{
+    if (!type || type->kind != EAST_TYPE_VARIANT || type->data.variant.num_cases != 2) return false;
+    const EastTypeField *cases = type->data.variant.cases;
+    return strcmp(cases[0].name, "none") == 0 && cases[0].type &&
+           cases[0].type->kind == EAST_TYPE_NULL && strcmp(cases[1].name, "some") == 0;
+}
+
+/* The payload type of an Option that East JSON encodes flat — null for none,
+ * the payload's own encoding for some — or NULL when `type` is not an Option
+ * or its payload can itself encode as null: Null, or another Option, looking
+ * through Recursive. The one rule every runtime applies, with no option, mode
+ * or policy: the encoder, both whole-document decoders and the strict reader
+ * below (python's codec and reader too), and the schema pair in TypeScript
+ * and python. Only Option<Null> and Option<Option<T>> keep the tagged Variant
+ * form, which is what keeps some(none) distinct from none. */
+static EastType *json_flat_option_payload(EastType *type)
+{
+    if (!json_is_option_type(type)) return NULL;
+    EastType *payload = type->data.variant.cases[1].type;
+    /* Look through Recursive to the type actually encoded there. A wrapper's
+     * back-references ARE the wrapper in this representation, so a bounded
+     * walk enters every scope once, and a type that only refers to itself —
+     * one with no values — cannot loop. */
+    EastType *inner = payload;
+    for (int hops = 0; inner && inner->kind == EAST_TYPE_RECURSIVE && hops < 64; hops++) {
+        /* A wrapper not yet closed encodes as null: nothing to be flat over. */
+        if (!inner->data.recursive.node) return NULL;
+        inner = inner->data.recursive.node;
+    }
+    if (!inner || inner->kind == EAST_TYPE_NULL || json_is_option_type(inner)) return NULL;
+    return payload;
 }
 
 /* ================================================================== */
@@ -375,6 +419,17 @@ static void json_encode_value(StrBuf *sb, EastValue *value, EastType *type)
     }
 
     case EAST_TYPE_VARIANT: {
+        EastType *flat = json_flat_option_payload(type);
+        if (flat) {
+            /* An Option whose payload never encodes as null: none is null and
+             * some is the payload itself, at the Option's own position. */
+            if (strcmp(east_variant_case_name(value), "none") == 0) {
+                strbuf_append_str(sb, "null");
+            } else {
+                json_encode_value(sb, value->data.variant.value, flat);
+            }
+            break;
+        }
         size_t ci = value->data.variant.case_idx;
         const char *case_name = east_variant_case_name(value);
         EastType *case_type =
@@ -1407,6 +1462,24 @@ static EastValue *jp_decode_inner(JsonParser *p, EastType *type, JRefCtx *ctx)
     }
 
     case EAST_TYPE_VARIANT: {
+        EastType *flat = json_flat_option_payload(type);
+        if (flat) {
+            /* null is none; anything else is the payload, read where the
+             * Option stands — the same document value, so the same depth and
+             * no aliasing-path segment. */
+            if (jp_match_str(p, "null")) {
+                EastValue *nothing = east_null();
+                EastValue *result = east_variant_new("none", nothing, type);
+                east_value_release(nothing);
+                return result;
+            }
+            EastValue *inner = jp_decode_inner(p, flat, ctx);
+            if (!inner) return NULL;
+            EastValue *result = east_variant_new("some", inner, type);
+            east_value_release(inner);
+            return result;
+        }
+
         EastValue *ref = jp_try_ref(p, ctx);
         if (ref) return ref;
 
@@ -2346,6 +2419,25 @@ static EastValue *jp_decode_err_inner(JsonParser *p, EastType *type, JRefCtx *ct
     }
 
     case EAST_TYPE_VARIANT: {
+        EastType *flat = json_flat_option_payload(type);
+        if (flat) {
+            /* null is none; anything else is the payload, read where the
+             * Option stands. A tagged object here is refused by the payload's
+             * own decoder, as the type says it must be, and the error path
+             * gains no segment: the payload sits where the Option does. */
+            if (jp_match_str(p, "null")) {
+                EastValue *nothing = east_null();
+                EastValue *result = east_variant_new("none", nothing, type);
+                east_value_release(nothing);
+                return result;
+            }
+            EastValue *inner = jp_decode_err_inner(p, flat, ctx, err);
+            if (!inner) return NULL;
+            EastValue *result = east_variant_new("some", inner, type);
+            east_value_release(inner);
+            return result;
+        }
+
         EastValue *ref = jp_try_ref(p, ctx);
         if (ref) return ref;
 
@@ -4349,9 +4441,31 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
         result = jr_read_struct(r, type, error_out);
         break;
 
-    case EAST_TYPE_VARIANT:
-        result = jr_read_variant(r, type, error_out);
+    case EAST_TYPE_VARIANT: {
+        EastType *flat = json_flat_option_payload(type);
+        if (!flat) {
+            result = jr_read_variant(r, type, error_out);
+            break;
+        }
+        /* null is none; anything else is the payload, read where the Option
+         * stands — one document value, so one level of depth. */
+        jp_skip_ws(&r->p);
+        if (jr_lookahead(&r->p, "null")) {
+            r->p.pos += 4;
+            EastValue *nothing = east_null();
+            result = east_variant_new("none", nothing, type);
+            east_value_release(nothing);
+            break;
+        }
+        r->p.depth--;
+        EastValue *inner = jr_read_value(r, flat, error_out);
+        r->p.depth++;
+        if (inner) {
+            result = east_variant_new("some", inner, type);
+            east_value_release(inner);
+        }
         break;
+    }
 
     case EAST_TYPE_REF: {
         jp_skip_ws(&r->p);
