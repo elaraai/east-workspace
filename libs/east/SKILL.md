@@ -230,9 +230,11 @@ Task → What do you need?
         │   └─ Export yours for python → East.exportFunctions(pkg, version, { name: fn }) + East.encodeFunctionManifest · `east-node export-functions built.js -o pkg.functions.beast2 -p <platform-pkg>` · East.linkImports(fn, manifests) to link in-process
         ├─ A JSON contract for a type (publish what a producer must send) → jsonSchemaFor(T, { draft })
         │   — a plain function like compareFor, at BUILD time; emits 2020-12 (default), draft-07 or openapi-3.0,
-        │   describing East JSON strictly (Integer as a quoted i64, DateTime as +00:00, Blob as lowercase hex)
+        │   describing East JSON strictly (Integer as a quoted i64, DateTime as +00:00, Blob as lowercase hex,
+        │   an Option as null or its payload)
         │   └─ and back, from a vendored schema → typeFromJsonSchema(schema) — throws, naming the keyword and its
-        │       RFC 6901 pointer, on what East cannot express (allOf, not, if/then/else, anyOf, an open record, …)
+        │       RFC 6901 pointer, on what East cannot express (allOf, not, if/then/else, anyOf, an open record, …);
+        │       `nullable: true` and `["string", "null"]` read as an Option
         ├─ Data, INSIDE an East function → East.Blob.encodeBeast(value, 'v2'), blob.decodeBeast(type, 'v2')
         │   ├─ A huge collection blob → blob.openBeast(T): frozen, pager-backed — keyed reads and $.for decode ONE segment; identical on the east-node, east-c and east-py runtimes
         │   │   (East.Blob.encodeBeast writes NO paging index, so paged blobs come from encodeBeast2PagedFor / Beast2Writer / a runner's collection output)
@@ -551,6 +553,20 @@ const T = typeFromJsonSchema(JSON.parse(readFileSync("partner.schema.json", "utf
 | `typeFromJsonSchema(schema: JsonSchema): EastType` | The East type a schema describes. Throws `JsonSchemaUnsupportedError`, carrying the RFC 6901 pointer, on a keyword East cannot express | `typeFromJsonSchema(vendored)` |
 | `EAST_JSON_PATTERNS` | The exact lexical forms East JSON's scalars take (`integer`, `datetime`, `blob`, `floatSpecials`), so a reader enforces precisely what the schema describes | `new RegExp(EAST_JSON_PATTERNS.integer)` |
 
+- **An `Option<T>` is `null` or `T`'s own encoding** wherever `T` can never
+  itself encode as `null`: `none` prints as `null`, `some("x")` as `"x"`,
+  `some(7n)` as `"7"`, and a struct field `note: Option<String>` as
+  `"note": null` or `"note": "x"` — an absent key is still an error. Only the
+  two payloads whose encoding can be `null` keep the tagged
+  `{"type": …, "value": …}` object: `Option<Null>` and `Option<Option<T>>`,
+  which is what keeps `some(none)` distinct from `none`. A `Recursive` payload
+  is judged by what it wraps, so a linked list's `next: Option<self>` is flat
+  at every depth. The rule is a total function of the type — no option, mode
+  or policy, nothing to call — and the same on every runtime; the schema
+  describes a flat Option as `oneOf [null, T]` annotated
+  `x-east-type: "Option"`. The tagged object under a flat Option is refused
+  by the payload's own decoder
+  (`expected string, got {"type":"none","value":null}`).
 - **It describes what the ENCODER emits, not what the decoder tolerates.** The
   two differ: `parseJson` accepts anything `BigInt()` swallows (`"0x10"`,
   `" 7 "`, `"007"`), a `Z` suffix or any offset on a timestamp, and uppercase
@@ -561,17 +577,21 @@ const T = typeFromJsonSchema(JSON.parse(readFileSync("partner.schema.json", "utf
   are fixed by the type — east-py's `json_schema_for` emits the same bytes.
 - **Annotations make the inverse exact.** `x-east-type` is what lets
   `typeFromJsonSchema` tell `DateTime` from a `String` with `format:
-  date-time`, `Set` from `Array`, and `Dict` from an array of two-property
-  objects. A foreign schema without them still converts, under a documented
-  structural mapping that does not promise to round-trip.
+  date-time`, `Set` from `Array`, `Dict` from an array of two-property
+  objects, and a flat `Option` from any other `oneOf`. A foreign schema
+  without them still converts, under a documented structural mapping that
+  does not promise to round-trip: OpenAPI 3.0's `nullable: true` beside a
+  type, and JSON Schema's own `{"type": ["string", "null"]}`, read as
+  `Option<String>` — East JSON writes a `none` whose payload cannot be null
+  as `null`, so the nulls such a contract permits are exactly what the reader
+  accepts (a node that already admits null is left as it is).
 - **Recursion binds one `RecursiveType` per cycle group.** Definitions that
   reference each other — a `Node` whose children are a `NodeList` of `Node` —
   convert as long as every cycle in the group passes through one definition,
   which becomes the binder; entered at any other member the group unrolls to
   it. Three definitions that each reference the other two need two binders
   and are refused, naming them. Reachability decides what recurses, never the
-  order the references appear in. `nullable: true` beside a type is refused
-  too — East JSON has no bare null for it; model the value as an `Option`.
+  order the references appear in.
 - **The patterns are portable.** `datetime` spans years 0001–9999, the range
   every runtime represents, and every pattern spells digits as `[0-9]`, so a
   python validator (where `\d` matches any Unicode digit) and a JavaScript one

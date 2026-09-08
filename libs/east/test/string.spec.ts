@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, BooleanType, IntegerType, NullType, StringType, StructType, variant, VariantType, FloatType, DateTimeType, BlobType, SetType, DictType, RecursiveType, ref, RefType, some, none } from "../src/index.js";
+import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, StructType, variant, VariantType, FloatType, DateTimeType, BlobType, SetType, DictType, RecursiveType, ref, RefType, some, none } from "../src/index.js";
 import { EastTypeType, toEastTypeValue } from "../src/type_of_type.js";
 import { printFor as eastPrintFor } from "../src/serialization/east.js";
 import { toJSONFor as eastToJSONFor } from "../src/serialization/json.js";
@@ -1190,8 +1190,8 @@ await describe("String", (test) => {
         $(assert.equal(East.value("{\"name\":\"Alice\",\"age\":\"30\"}").parseJson(StructType({ name: StringType, age: IntegerType })), { name: "Alice", age: 30n })); // Normal case
 
         // Variant - {"type": "caseName", "value": ...}
-        $(assert.equal(East.value("{\"type\":\"none\",\"value\":null}").parseJson(VariantType({ none: NullType, some: IntegerType })), none)); // Edge case: nullary variant (null payload)
-        $(assert.equal(East.value("{\"type\":\"some\",\"value\":\"42\"}").parseJson(VariantType({ none: NullType, some: IntegerType })), some(42n))); // Normal case: variant with data
+        $(assert.equal(East.value("{\"type\":\"nothing\",\"value\":null}").parseJson(VariantType({ nothing: NullType, just: IntegerType })), variant("nothing", null))); // Edge case: nullary variant (null payload)
+        $(assert.equal(East.value("{\"type\":\"just\",\"value\":\"42\"}").parseJson(VariantType({ nothing: NullType, just: IntegerType })), variant("just", 42n))); // Normal case: variant with data
         $(assert.equal(East.value("{\"type\":\"ok\",\"value\":\"success\"}").parseJson(VariantType({ ok: StringType, error: StringType })), variant("ok", "success"))); // Normal case
         $(assert.equal(East.value("{\"type\":\"error\",\"value\":\"failure\"}").parseJson(VariantType({ ok: StringType, error: StringType })), variant("error", "failure"))); // Normal case
 
@@ -1401,21 +1401,27 @@ await describe("String", (test) => {
 
         // Variant - not an object
         $(assert.throws(
-            East.value("\"not an object\"").parseJson(VariantType({ some: IntegerType, none: NullType })),
+            East.value("\"not an object\"").parseJson(VariantType({ ok: IntegerType, error: StringType })),
             /Error occurred because expected object with type and value for Variant, got "not an object" \(line 1, col 1\) while parsing value of type .*/
         ));
         $(assert.throws(
-            East.value("123").parseJson(VariantType({ some: IntegerType, none: NullType })),
+            East.value("123").parseJson(VariantType({ ok: IntegerType, error: StringType })),
             /Error occurred because expected object with type and value for Variant, got 123 \(line 1, col 1\) while parsing value of type .*/
         ));
         // Variant - missing "type" or "value" field
         $(assert.throws(
-            East.value("{\"value\":\"42\"}").parseJson(VariantType({ some: IntegerType, none: NullType })),
+            East.value("{\"value\":\"42\"}").parseJson(VariantType({ ok: IntegerType, error: StringType })),
             /Error occurred because expected object with type and value for Variant, got \{"value":"42"\} \(line 1, col 1\) while parsing value of type .*/
         ));
         $(assert.throws(
-            East.value("{\"type\":\"some\"}").parseJson(VariantType({ some: IntegerType, none: NullType })),
-            /Error occurred because expected object with type and value for Variant, got \{"type":"some"\} \(line 1, col 1\) while parsing value of type .*/
+            East.value("{\"type\":\"ok\"}").parseJson(VariantType({ ok: IntegerType, error: StringType })),
+            /Error occurred because expected object with type and value for Variant, got \{"type":"ok"\} \(line 1, col 1\) while parsing value of type .*/
+        ));
+        // Option - the tagged object under a flat Option is refused as the
+        // payload it is not, by the payload's own decoder
+        $(assert.throws(
+            East.value("{\"type\":\"some\",\"value\":\"7\"}").parseJson(OptionType(IntegerType)),
+            /Error occurred because expected string representing integer, got \{"type":"some","value":"7"\} \(line 1, col 1\) while parsing value of type .*/
         ));
 
         // === Nested Structure Errors (existing tests) ===
@@ -1452,13 +1458,13 @@ await describe("String", (test) => {
 
         // Test error for variant case value
         $(assert.throws(
-            East.value("{\"type\":\"some\",\"value\":\"not an integer\"}").parseJson(VariantType({ none: NullType, some: IntegerType })),
-            /Error occurred because expected string representing integer, got "not an integer" at \.some \(line 1, col 1\) while parsing value of type .*/
+            East.value("{\"type\":\"ok\",\"value\":\"not an integer\"}").parseJson(VariantType({ ok: IntegerType, error: StringType })),
+            /Error occurred because expected string representing integer, got "not an integer" at \.ok \(line 1, col 1\) while parsing value of type .*/
         ));
 
         // Test error for unknown variant type
         $(assert.throws(
-            East.value("{\"type\":\"unknown\",\"value\":null}").parseJson(VariantType({ none: NullType, some: IntegerType })),
+            East.value("{\"type\":\"unknown\",\"value\":null}").parseJson(VariantType({ ok: IntegerType, error: StringType })),
             /Error occurred because unknown variant type "unknown", got \{"type":"unknown","value":null\} \(line 1, col 1\) while parsing value of type .*/
         ));
 

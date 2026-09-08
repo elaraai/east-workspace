@@ -244,8 +244,9 @@ Task → What do you need?
     │   │   └─ Infer a value's type → type_of(value)
     │   ├─ Publish a JSON contract ANOTHER system validates against → json_schema_for(T, draft="2020-12"|"draft-07"|"openapi-3.0")
     │   │   (from east.serialization; a plain function like compare_for — it describes East's OWN JSON encoding, and emits the
-    │   │   same bytes the TypeScript jsonSchemaFor does) · and back → type_from_json_schema(schema) ❗JsonSchemaUnsupportedError,
-    │   │   carrying the RFC 6901 .pointer of the keyword East cannot express
+    │   │   same bytes the TypeScript jsonSchemaFor does; an Option is null or its payload) · and back →
+    │   │   type_from_json_schema(schema) ❗JsonSchemaUnsupportedError,
+    │   │   carrying the RFC 6901 .pointer of the keyword East cannot express (`nullable: true` and `["string", "null"]` read as an Option)
     │   ├─ Transform a value (every callback is an East function body: the block first — fn(b, el), or fn(b, el, idx) for the builtin's index)
     │   │   ├─ Array<T>
     │   │   │   ├─ Access → get(i[, fn(b, i)]) ❗bounds · at(i) · get_or_default(i, d) · try_get(i) · has(i) · get_keys(idxs) · size()/length() ·
@@ -1298,9 +1299,21 @@ T = type_from_json_schema(json.loads(Path("partner.schema.json").read_text()))
 | Signature | Notes |
 |-----------|-------|
 | `json_schema_for(typ, draft="2020-12") -> JsonSchema` | The schema describing `typ`'s East-JSON encoding. `draft` is `"2020-12"`, `"draft-07"` or `"openapi-3.0"` — a consumer's validator pins one. `Never`, `Function` and `AsyncFunction` raise `TypeError` naming what has no JSON form |
-| `type_from_json_schema(schema) -> EastType` ❗ | The East type a schema describes. Raises `JsonSchemaUnsupportedError` — whose `.pointer` is the RFC 6901 location, also quoted in the message — on a keyword East cannot express (`allOf`, `not`, `if`/`then`/`else`, `anyOf`, `patternProperties`, `prefixItems`, a type union, an open record, an optional property, an untagged `oneOf`, a non-local `$ref`, `nullable` beside a type, a cycle of definitions that no single definition breaks) |
+| `type_from_json_schema(schema) -> EastType` ❗ | The East type a schema describes. Raises `JsonSchemaUnsupportedError` — whose `.pointer` is the RFC 6901 location, also quoted in the message — on a keyword East cannot express (`allOf`, `not`, `if`/`then`/`else`, `anyOf`, `patternProperties`, `prefixItems`, a union of more than one type, an open record, an optional property, an untagged `oneOf`, a non-local `$ref`, a cycle of definitions that no single definition breaks) |
 | `EAST_JSON_PATTERNS` | The exact lexical forms East JSON's scalars take — `.integer` `.datetime` `.blob` `.float_specials` — so a reader enforces precisely what the schema describes (the TypeScript twin spells the last one `floatSpecials`) |
 
+- **An `Option<T>` is `null` or `T`'s own encoding** wherever `T` can never itself encode
+  as `null`: `none` prints as `null`, `some("x")` as `"x"`, `some(7)` as `"7"`, and a
+  struct field `("note", OptionType(StringType))` as `"note": null` or `"note": "x"` — an
+  absent key is still an error. Only the two payloads whose encoding can be `null` keep
+  the tagged `{"type": …, "value": …}` object: `Option<Null>` and `Option<Option<T>>`,
+  which is what keeps `some(none)` distinct from `none`. A recursive payload is judged by
+  what it wraps, so a linked list's `("next", OptionType(self))` is flat at every depth.
+  The rule is a total function of the type — no option, mode or policy, nothing to call —
+  applied by east-c's codec and reader (python's too) and by `json_schema_for`, which
+  describes a flat Option as `oneOf [null, T]` annotated `x-east-type: "Option"`. The
+  tagged object under a flat Option is refused by the payload's own
+  decoder (`expected string, got {"type":"none","value":null}`).
 - **It describes what the ENCODER emits, not what the decoder tolerates.** The two
   differ: `parse_json` accepts a `Z` suffix or any numeric offset on a `DateTime` and
   uppercase `Blob` hex, and the TypeScript `parseJson` is looser still on `Integer`
@@ -1312,15 +1325,19 @@ T = type_from_json_schema(json.loads(Path("partner.schema.json").read_text()))
   type, so this and the TypeScript `jsonSchemaFor` emit the same bytes for the same type.
 - **Annotations make the inverse exact.** `x-east-type` is what lets
   `type_from_json_schema` tell `DateTime` from a `String` with `format: date-time`, `Set`
-  from `Array`, and `Dict` from an array of two-property objects. A foreign schema without
-  them still converts, under a structural mapping that does not promise to round-trip.
+  from `Array`, `Dict` from an array of two-property objects, and a flat `Option` from any
+  other `oneOf`. A foreign schema without them still converts, under a structural mapping
+  that does not promise to round-trip: OpenAPI 3.0's `nullable: true` beside a type, and
+  JSON Schema's own `{"type": ["string", "null"]}`, read as `Option<String>` — East JSON
+  writes a `none` whose payload cannot be null as `null`, so the nulls such a contract
+  permits are exactly what the reader accepts (a node that already admits null is left as
+  it is).
 - **Recursion binds one `recursive_type` per cycle group.** Definitions that reference each
   other — a `Node` whose children are a `NodeList` of `Node` — convert as long as every cycle
   in the group passes through one definition, which becomes the binder; entered at any other
   member the group unrolls to it. Three definitions that each reference the other two need two
   binders and are refused, naming them. Reachability decides what recurses, never the order
-  the references appear in. `nullable: true` beside a type is refused too — East JSON has no
-  bare null for it; model the value as an `OptionType`.
+  the references appear in.
 - **The patterns are portable.** `datetime` spans years 0001–9999, the range every runtime
   represents, and every pattern spells digits as `[0-9]` — python's `\d` matches any Unicode
   digit — so a validator here and one in JavaScript accept the same strings.
@@ -1544,7 +1561,7 @@ expressions it emits IR. The `stdlib:` rows are the TypeScript standard library
 | `contains(s, substring)` · `starts_with(s, prefix)` · `ends_with(s, suffix)` · `index_of(s, substring) -> int` | search (`-> bool`/`int`) |
 | `regex_contains(s, pattern, flags="")` · `regex_index_of(s, pattern, flags="")` · `regex_replace(s, pattern, replacement, flags="")` | regex |
 | `parse(typ, s)` ❗ · `print(typ, value) -> str` (the root `East.print(value[, typ])` is the same builtin, value first) | East **text** format; `parse` is a **strict whole-string** parser — trailing or leading junk raises (`"598-"`, `"$5"`, `"1.2.3"` all raise; in a body use `.try_parse(T)` for the optional form) |
-| `parse_json(typ, s)` · `print_json(typ, value) -> str` / `print_json(value)` | East **JSON** (`Integer` encodes as a JSON *string*: `print_json(ArrayType(IntegerType), [1,2,3]) == '["1","2","3"]'`); the one-argument form (TS `printJson(value)`) takes the value's own type |
+| `parse_json(typ, s)` · `print_json(typ, value) -> str` / `print_json(value)` | East **JSON** (`Integer` encodes as a JSON *string*: `print_json(ArrayType(IntegerType), [1,2,3]) == '["1","2","3"]'`; an `Option` is `null` for `none` and the payload itself for `some` wherever the payload cannot be null — `print_json(OptionType(IntegerType), some(7)) == '"7"'` — and only `Option<Null>` / `Option<Option<T>>` keep the `{"type": …, "value": …}` object); the one-argument form (TS `printJson(value)`) takes the value's own type |
 | stdlib: `print_error(message, stack) -> str` | `"Error: <message>"` + one `[i] file line:column` per `{filename, line, column}` frame (TS `printError`) |
 
 **`East.Blob`**

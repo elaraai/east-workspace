@@ -12,6 +12,7 @@ import {
   IntegerType,
   MatrixType,
   NullType,
+  OptionType,
   RecursiveType,
   RefType,
   SetType,
@@ -208,11 +209,13 @@ interface Context {
  * | `{"type":"array","items":X}` | `Array<X>` |
  * | a closed object with `required` covering every property | `Struct` |
  * | `oneOf` of objects tagged by a constant `type` | `Variant` |
+ * | `nullable: true` beside a type, or `{"type":["string","null"]}` | `Option<String>` |
  *
- * OpenAPI 3.0's `nullable: true` beside a type is refused rather than dropped:
- * East JSON has no bare null for any type but `Null`, so the only reading
- * would silently admit a schema whose nulls the reader then rejects — model
- * the value as an Option instead.
+ * The last two read as an Option because East JSON writes a `none` whose
+ * payload cannot itself be null as `null`, so the nulls such a contract
+ * permits are exactly what the reader accepts. A node whose own spelling
+ * already admits null — the null type, a union with null, an Option
+ * annotation — is left as it is.
  *
  * Definitions are resolved through `$defs` or `definitions`, whichever the
  * document uses. Cycles among definitions become `RecursiveType`s, one per
@@ -352,18 +355,31 @@ function build(node: JsonSchema, ctx: Context, path: string[]): EastType {
     }
   }
 
-  // OpenAPI 3.0 spells "this or null" as `nullable: true`. East JSON has no
-  // bare null for any type but Null itself — an Option is a tagged object — so
-  // the only reading is the Null spelling: `nullable` with no type, $ref, oneOf
-  // or annotation. Beside anything else it would be dropped silently, and the
-  // reader would then refuse the nulls the partner's contract permits.
-  if (node["nullable"] === true
-      && (has(node, "type") || has(node, "$ref") || has(node, "oneOf") || has(node, "x-east-type"))) {
-    fail(
-      "typeFromJsonSchema cannot express \"nullable\" beside a type — East JSON has no bare null " +
-      "for it; model the value as an Option (a oneOf tagged none and some)", [...path, "nullable"]);
+  // OpenAPI 3.0 spells "this or null" as `nullable: true`. Beside nothing typed
+  // it is the Null spelling itself; beside a type it reads as an Option of that
+  // type — East JSON writes a `none` whose payload cannot be null as `null`, so
+  // the nulls the partner's contract permits are exactly what the reader
+  // accepts. A node that already admits null — the null type, a union with
+  // null, an Option annotation — is left as it is: wrapping it would make its
+  // nulls a tagged `none`, which is not what the document says.
+  const nullable = node["nullable"] === true;
+  if (nullable && !has(node, "type") && !has(node, "$ref") && !has(node, "oneOf") && !has(node, "x-east-type")) {
+    return NullType;
   }
+  const built = buildTyped(node, ctx, path);
+  return nullable && !admitsNull(node) ? OptionType(built) : built;
+}
 
+/** Whether a node's own spelling already allows `null`, so `nullable` beside it adds nothing. */
+function admitsNull(node: JsonSchema): boolean {
+  const type = node["type"];
+  return type === "null"
+    || (Array.isArray(type) && type.includes("null"))
+    || node["x-east-type"] === "Option";
+}
+
+/** The node's type, `nullable` aside. */
+function buildTyped(node: JsonSchema, ctx: Context, path: string[]): EastType {
   const ref = node["$ref"];
   if (typeof ref === "string") return buildRef(ref, ctx, [...path, "$ref"]);
 
@@ -373,14 +389,20 @@ function build(node: JsonSchema, ctx: Context, path: string[]): EastType {
 
   if (has(node, "oneOf")) return buildVariant(node, ctx, path);
 
-  // OpenAPI 3.0 has no "null" type and spells it with `nullable`.
-  if (!has(node, "type") && node["nullable"] === true) return NullType;
-
   const type = node["type"];
   if (Array.isArray(type)) {
+    // JSON Schema's own spelling of "this or null": one type beside "null"
+    // reads as an Option of it, for the reason `nullable` does. Anything wider
+    // is a union East has no discriminated form for.
+    const others = type.filter(t => t !== "null");
+    if (others.length < type.length && others.length <= 1) {
+      if (others.length === 0) return NullType;
+      return OptionType(buildTyped({ ...node, type: others[0]! }, ctx, path));
+    }
     fail(
       `typeFromJsonSchema cannot express a union of primitive types [${type.map(spell).join(", ")}] — ` +
-      "East unions are discriminated variants", [...path, "type"]);
+      "East unions are discriminated variants, and only one type beside \"null\" reads, as an Option",
+      [...path, "type"]);
   }
 
   switch (type) {
@@ -551,8 +573,35 @@ function buildVariant(node: JsonSchema, ctx: Context, path: string[]): EastType 
   return VariantType(cases);
 }
 
+/** Whether a node is one of the spellings of `Null` the generator emits. */
+function isNullSchema(node: JsonSchema): boolean {
+  if (node["type"] === "null") return true;
+  const choices = node["enum"];
+  return node["nullable"] === true && !has(node, "type")
+    && Array.isArray(choices) && choices.length === 1 && choices[0] === null;
+}
+
 function buildAnnotated(annotation: string, node: JsonSchema, ctx: Context, path: string[]): EastType {
   switch (annotation) {
+    case "Option": {
+      // A flat Option: null, or the payload. The tagged form carries no
+      // annotation and reads structurally, as the Variant it is.
+      const alternatives = node["oneOf"];
+      if (!Array.isArray(alternatives) || alternatives.length !== 2) {
+        fail(
+          "typeFromJsonSchema needs an Option's \"oneOf\" to hold exactly two alternatives — null and the payload",
+          [...path, "oneOf"]);
+      }
+      const schemas = alternatives.map((a, i) => asSchema(a, [...path, "oneOf", String(i)], `oneOf[${i}]`));
+      const nulls = schemas.map(isNullSchema);
+      if (nulls[0] === nulls[1]) {
+        fail(
+          "typeFromJsonSchema needs an Option's \"oneOf\" to hold one null alternative and one payload",
+          [...path, "oneOf"]);
+      }
+      const at = nulls[0] ? 1 : 0;
+      return OptionType(build(schemas[at]!, ctx, [...path, "oneOf", String(at)]));
+    }
     case "Integer": return IntegerType;
     case "Float": return FloatType;
     case "DateTime": return DateTimeType;

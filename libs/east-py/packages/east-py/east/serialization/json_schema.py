@@ -11,9 +11,15 @@ and matches what the TypeScript implementation emits byte for byte: key order,
 ``$defs`` names and case order are fixed by the type, never by process state.
 """
 
+from collections.abc import Mapping
 from typing import Any, Literal
 
-from east.types.types import EastType
+from east.types.types import (
+    EastType,
+    is_null_type,
+    is_option_type,
+    is_recursive_type,
+)
 
 # The releases a contract can be published in. A consumer's validator pins one,
 # so the document has to be emitted in the one they can actually read; this
@@ -136,6 +142,85 @@ def _defs_keyword(draft: str) -> str:
     return "$defs" if draft == "2020-12" else "definitions"
 
 
+def _is_json_option_type(typ: EastType) -> bool:
+    """The exact Option shape -- ``Variant{none: Null, some: T}`` -- as East JSON checks it.
+
+    :func:`east.types.is_option_type` looks at the case names alone; the JSON
+    rule also needs ``none`` to carry ``Null``, since a ``none`` with data could
+    not be written as a bare ``null``.
+    """
+    return is_option_type(typ) and is_null_type(typ.value[0]["type"])
+
+
+def _flat_option_payload(
+    typ: EastType, scope: Mapping[int, EastType] | None = None
+) -> EastType | None:
+    """The payload type of an Option that East JSON encodes flat, or ``None``.
+
+    East JSON encodes ``Option<T>`` as ``null`` for ``none`` and as the
+    encoding of ``T`` for ``some`` whenever the encoding of ``T`` can never
+    itself be ``null`` -- every decode knows ``T`` at its position, so
+    ``null`` then has one reading. The only encodings that can be ``null``
+    are ``Null``'s and a flat Option's, so those two payloads keep the tagged
+    ``{"type": ..., "value": ...}`` form: that is what keeps ``some(none)``
+    distinct from ``none``, and ``some(null)`` from ``none``. A ``Recursive``
+    payload is judged by what it wraps -- a wrapper by its inner type, a
+    back-reference by the inner type of the wrapper it names -- so the
+    ``next: Option<self>`` of a linked list is flat like the struct it refers
+    to. The rule is a total function of the type, the same on every runtime,
+    with no option, mode or policy: east-c applies it in the codec and the
+    reader python rides, and the schema applies it here, as the TypeScript
+    schema does.
+
+    Args:
+        typ: The type at this position of the document.
+        scope: Every enclosing ``Recursive`` wrapper's inner type by id, for a
+            payload that is a back-reference into one of them.
+
+    Returns:
+        The ``some`` payload's type when ``Option<T>`` encodes as ``null`` or
+        as ``T``'s own encoding; ``None`` when ``typ`` is not an Option, or
+        when its payload keeps the tagged form.
+
+    Raises:
+        ValueError: When the payload is a back-reference ``scope`` does not
+            resolve.
+    """
+    if not _is_json_option_type(typ):
+        return None
+    payload = typ.value[1]["type"]
+    # Look through Recursive to the type actually encoded there. Each scope is
+    # entered once, so a wrapper that only refers back to itself -- a type with
+    # no values -- cannot loop.
+    inner = payload
+    entered: set[int] = set()
+    while is_recursive_type(inner):
+        rec = inner.value
+        rec_id = rec.value["id"] if rec.type == "wrapper" else rec.value
+        if rec_id in entered:
+            break
+        entered.add(rec_id)
+        if rec.type == "wrapper":
+            inner = rec.value["inner"]
+        else:
+            resolved = scope.get(rec_id) if scope is not None else None
+            if resolved is None:
+                raise ValueError(f"json_schema_for: unresolved recursive reference {rec_id}")
+            inner = resolved
+    if is_null_type(inner) or _is_json_option_type(inner):
+        return None
+    return payload
+
+
+def _null_schema(draft: str) -> JsonSchema:
+    """The draft's spelling of ``Null`` -- also the alternative a flat Option's ``none`` takes."""
+    # OpenAPI 3.0 predates the "null" type; `nullable` plus a closed enum is
+    # the documented equivalent.
+    if draft == "openapi-3.0":
+        return {"nullable": True, "enum": [None]}
+    return {"type": "null"}
+
+
 class _Context:
     """Per-walk state: the definitions being accumulated and the names assigned."""
 
@@ -144,6 +229,9 @@ class _Context:
         self.defs: JsonSchema = {}
         # Recursive scope id -> definition name, in first-encounter order.
         self.names: dict[int, str] = {}
+        # Recursive scope id -> the wrapper's inner type, for an Option whose
+        # payload refers back to it.
+        self.inners: dict[int, EastType] = {}
 
 
 def json_schema_for(typ: EastType, draft: JsonSchemaDraft = "2020-12") -> JsonSchema:
@@ -159,6 +247,12 @@ def json_schema_for(typ: EastType, draft: JsonSchemaDraft = "2020-12") -> JsonSc
     Raises:
         TypeError: If the type has no JSON form -- ``Never``, ``Function`` or
             ``AsyncFunction`` -- naming the offending type.
+
+    An ``Option<T>`` whose payload can never encode as ``null`` is described
+    as it encodes -- ``oneOf`` the draft's null and ``T``'s own schema,
+    annotated ``x-east-type: "Option"`` -- and only ``Option<Null>`` and
+    ``Option<Option<T>>``, the two payloads that can themselves be ``null``,
+    keep the tagged object.
 
     Example:
         >>> from east.types.types import ArrayType, IntegerType, StringType, StructType
@@ -201,11 +295,7 @@ def _schema_of(t: EastType, ctx: _Context) -> JsonSchema:  # noqa: PLR0911, PLR0
         )
 
     if kind == "Null":
-        # OpenAPI 3.0 predates the "null" type; `nullable` plus a closed enum is
-        # the documented equivalent.
-        if ctx.draft == "openapi-3.0":
-            return {"nullable": True, "enum": [None]}
-        return {"type": "null"}
+        return _null_schema(ctx.draft)
 
     if kind == "Boolean":
         return {"type": "boolean"}
@@ -306,6 +396,14 @@ def _schema_of(t: EastType, ctx: _Context) -> JsonSchema:  # noqa: PLR0911, PLR0
         }
 
     if kind == "Variant":
+        flat = _flat_option_payload(t, ctx.inners)
+        if flat is not None:
+            # A flat Option: null never satisfies the payload's schema, so the
+            # oneOf is exact, and the annotation names what it came from.
+            return {
+                "oneOf": [_null_schema(ctx.draft), _schema_of(flat, ctx)],
+                "x-east-type": "Option",
+            }
         alternatives = []
         for case in t.value:
             # draft-04 (and so OpenAPI 3.0) has no `const`; a single-valued enum
@@ -338,6 +436,7 @@ def _schema_of(t: EastType, ctx: _Context) -> JsonSchema:  # noqa: PLR0911, PLR0
         # between runs and between languages.
         name = f"Recursive{len(ctx.names) + 1}"
         ctx.names[wrapper["id"]] = name
+        ctx.inners[wrapper["id"]] = wrapper["inner"]
         # Reserve the slot before recursing so a back-reference resolves.
         ctx.defs[name] = {}
         ctx.defs[name] = _schema_of(wrapper["inner"], ctx)

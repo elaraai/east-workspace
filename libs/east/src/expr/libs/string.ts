@@ -53,7 +53,7 @@ export default {
    *   $.return(East.String.printJson(person));
    * });
    * const compiled = East.compile(toJson.toIR(), []);
-   * compiled({ name: "Alice", age: 30n });  // '{"name":"Alice","age":30}'
+   * compiled({ name: "Alice", age: 30n });  // '{"name":"Alice","age":"30"}' — an Integer is a decimal string
    * ```
    *
    * @example
@@ -63,7 +63,20 @@ export default {
    *   $.return(East.String.printJson(arr));
    * });
    * const compiled = East.compile(arrayToJson.toIR(), []);
-   * compiled([1n, 2n, 3n]);  // '[1,2,3]'
+   * compiled([1n, 2n, 3n]);  // '["1","2","3"]'
+   * ```
+   *
+   * @example
+   * ```ts
+   * // An Option is null for none and the payload itself for some, wherever the
+   * // payload cannot itself encode as null (Option<Null> and Option<Option<T>>
+   * // keep the tagged {"type": …, "value": …} object)
+   * const optionToJson = East.function([OptionType(StringType)], StringType, ($, note) => {
+   *   $.return(East.String.printJson(note));
+   * });
+   * const compiled = East.compile(optionToJson.toIR(), []);
+   * compiled(none);       // 'null'
+   * compiled(some("x"));  // '"x"'
    * ```
    */
   printJson(value: Expr): StringExpr {

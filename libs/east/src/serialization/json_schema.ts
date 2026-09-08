@@ -5,6 +5,7 @@
 import { toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
 import type { EastType } from "../types.js";
 import { isVariant } from "../containers/variant.js";
+import { jsonFlatOptionPayload } from "./json.js";
 
 /** A JSON value appearing inside a schema document. */
 export type JsonSchemaValue = string | number | boolean | null | JsonSchemaValue[] | JsonSchema;
@@ -136,6 +137,15 @@ interface DefsContext {
   defs: JsonSchema;
   /** Recursive type id → def name, assigned in first-encounter order. */
   names: Map<bigint, string>;
+  /** Recursive type id → the wrapper's inner type, for an Option whose payload refers back to it. */
+  inners: Map<bigint, EastTypeValue>;
+}
+
+/** The draft's spelling of `Null` — also the alternative a flat Option's `none` takes. */
+function nullSchema(draft: JsonSchemaDraft): JsonSchema {
+  // OpenAPI 3.0 predates the "null" type; `nullable` plus a closed enum is
+  // the documented equivalent.
+  return draft === "openapi-3.0" ? { nullable: true, enum: [null] } : { type: "null" };
 }
 
 /** Where definitions live, and how they are referenced, in a given release. */
@@ -160,6 +170,11 @@ function defsKeyword(draft: JsonSchemaDraft): string {
  * whitespace-padded integers, a `Z` suffix on timestamps and uppercase hex
  * blobs, and none of those appear here.
  *
+ * An `Option<T>` whose payload can never encode as `null` is described as it
+ * encodes — `oneOf` the draft's `null` and `T`'s own schema, annotated
+ * `x-east-type: "Option"` — and only `Option<Null>` and `Option<Option<T>>`,
+ * the two payloads that can themselves be `null`, keep the tagged object.
+ *
  * The document is deterministic — key order, `$defs` names and case order are
  * fixed by the type, not by process state — so the TypeScript and Python
  * implementations emit byte-identical bytes for the same type and release.
@@ -175,7 +190,7 @@ export function jsonSchemaFor(type: EastType | EastTypeValue, options: JsonSchem
   const draft = options.draft ?? "2020-12";
   const typeValue = isVariant(type) ? (type as EastTypeValue) : toEastTypeValue(type as EastType);
 
-  const ctx: DefsContext = { draft, defs: {}, names: new Map() };
+  const ctx: DefsContext = { draft, defs: {}, names: new Map(), inners: new Map() };
   const body = schemaOf(typeValue, ctx);
 
   const out: JsonSchema = {};
@@ -200,11 +215,7 @@ function schemaOf(t: EastTypeValue, ctx: DefsContext): JsonSchema {
         "jsonSchemaFor cannot describe AsyncFunction — JSON has no function form");
 
     case "Null":
-      // OpenAPI 3.0 predates the "null" type; `nullable` plus a closed enum is
-      // the documented equivalent.
-      return ctx.draft === "openapi-3.0"
-        ? { nullable: true, enum: [null] }
-        : { type: "null" };
+      return nullSchema(ctx.draft);
 
     case "Boolean":
       return { type: "boolean" };
@@ -307,6 +318,12 @@ function schemaOf(t: EastTypeValue, ctx: DefsContext): JsonSchema {
     }
 
     case "Variant": {
+      const flat = jsonFlatOptionPayload(t, ctx.inners);
+      if (flat !== null) {
+        // A flat Option: `null` never satisfies the payload's schema, so the
+        // oneOf is exact, and the annotation names what it came from.
+        return { oneOf: [nullSchema(ctx.draft), schemaOf(flat, ctx)], "x-east-type": "Option" };
+      }
       const cases = t.value as { name: string; type: EastTypeValue }[];
       return {
         oneOf: cases.map(c => ({
@@ -338,6 +355,7 @@ function schemaOf(t: EastTypeValue, ctx: DefsContext): JsonSchema {
       // between runs and between languages.
       const name = `Recursive${ctx.names.size + 1}`;
       ctx.names.set(w.id, name);
+      ctx.inners.set(w.id, w.inner);
       // Reserve the slot before recursing so a back-reference resolves.
       ctx.defs[name] = {};
       ctx.defs[name] = schemaOf(w.inner, ctx);

@@ -5,6 +5,8 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { Ajv } from "ajv";
+import { Ajv2020 } from "ajv/dist/2020.js";
 
 import {
     ArrayType,
@@ -28,9 +30,24 @@ import {
     VariantType,
     VectorType,
     type EastType,
+    type ValueTypeOf,
 } from "../types.js";
-import { EAST_JSON_PATTERNS, jsonSchemaFor, type JsonSchema } from "./json_schema.js";
+import { none, some } from "../containers/variant.js";
+import { EAST_JSON_PATTERNS, jsonSchemaFor, type JsonSchema, type JsonSchemaDraft } from "./json_schema.js";
 import { toJSONFor } from "./json.js";
+
+/**
+ * A validator a partner would use, for the releases JSON Schema validators
+ * implement. Unknown keywords (`x-east-type`) and formats are tolerated, as a
+ * partner's validator would be configured to tolerate them.
+ */
+function validatorFor(draft: Exclude<JsonSchemaDraft, "openapi-3.0">, schema: JsonSchema): (doc: unknown) => boolean {
+    const ajv = draft === "2020-12"
+        ? new Ajv2020({ strict: false, validateFormats: false })
+        : new Ajv({ strict: false, validateFormats: false });
+    const validate = ajv.compile(schema);
+    return (doc: unknown) => validate(doc) === true;
+}
 
 /** The pattern a leaf type's schema pins, as a compiled regex. */
 function patternOf(schema: JsonSchema): RegExp {
@@ -266,11 +283,92 @@ describe("jsonSchemaFor", () => {
         });
 
         test("uses a single-valued enum where the release has no const", () => {
-            const schema = body(jsonSchemaFor(OptionType(StringType), { draft: "openapi-3.0" }));
+            const schema = body(jsonSchemaFor(VariantType({ ok: IntegerType, err: StringType }), { draft: "openapi-3.0" }));
             const alternatives = schema["oneOf"] as JsonSchema[];
             const tag = (alternatives[0]!["properties"] as JsonSchema)["type"] as JsonSchema;
-            assert.deepEqual(tag["enum"], ["none"]);
+            assert.deepEqual(tag["enum"], ["err"]);
             assert.equal(tag["const"], undefined);
+        });
+    });
+
+    describe("Option", () => {
+        test("describes a flat Option as null or its payload, annotated", () => {
+            // The one type-directed choice of form East JSON makes: an Option
+            // whose payload can never encode as null is null or the payload.
+            assert.deepEqual(body(jsonSchemaFor(OptionType(StringType))), {
+                oneOf: [{ type: "null" }, { type: "string" }],
+                "x-east-type": "Option",
+            });
+            // The null alternative is the release's own spelling of Null.
+            assert.deepEqual(body(jsonSchemaFor(OptionType(StringType), { draft: "openapi-3.0" })), {
+                oneOf: [{ nullable: true, enum: [null] }, { type: "string" }],
+                "x-east-type": "Option",
+            });
+            // A variant is always an object, so it is a flat payload.
+            const inner = body(jsonSchemaFor(OptionType(VariantType({ ok: NullType, err: StringType }))));
+            assert.equal(inner["x-east-type"], "Option");
+            assert.deepEqual((inner["oneOf"] as JsonSchema[])[0], { type: "null" });
+        });
+
+        test("keeps the tagged form where the payload can itself be null", () => {
+            // some(none) must stay distinct from none, and some(null) from
+            // none, so these two carry the tag — and no Option annotation.
+            for (const T of [OptionType(NullType), OptionType(OptionType(StringType))]) {
+                const schema = body(jsonSchemaFor(T));
+                assert.equal(schema["x-east-type"], undefined);
+                const tags = (schema["oneOf"] as JsonSchema[])
+                    .map(a => ((a["properties"] as JsonSchema)["type"] as JsonSchema)["const"]);
+                assert.deepEqual(tags, ["none", "some"]);
+            }
+        });
+
+        test("judges a recursive payload by what the wrapper encodes", () => {
+            // next: Option<self> is the ordinary linked list; self is a struct.
+            const ChainType = RecursiveType((self: any) => StructType({ head: IntegerType, next: OptionType(self) }));
+            const schema = jsonSchemaFor(ChainType);
+            const properties = ((schema["$defs"] as JsonSchema)["Recursive1"] as JsonSchema)["properties"] as JsonSchema;
+            assert.deepEqual(properties["next"], {
+                oneOf: [{ type: "null" }, { $ref: "#/$defs/Recursive1" }],
+                "x-east-type": "Option",
+            });
+            assert.equal(body(jsonSchemaFor(OptionType(ChainType)))["x-east-type"], "Option");
+        });
+
+        test("a flat none validates and the tagged object no longer does, under a real validator", () => {
+            // What the encoder writes validates against the published schema,
+            // and the object the old encoding wrote is now refused by it — for
+            // every form an Option takes, in the releases validators implement.
+            const RowType = StructType({
+                note: OptionType(StringType),
+                count: OptionType(IntegerType),
+                maybe: OptionType(OptionType(IntegerType)),
+                unit: OptionType(NullType),
+                flags: ArrayType(OptionType(BooleanType)),
+                chain: RecursiveType((self: any) => StructType({ head: IntegerType, next: OptionType(self) })),
+            });
+            const rows: ValueTypeOf<typeof RowType>[] = [
+                { note: none, count: some(7n), maybe: some(none), unit: some(null), flags: [none, some(true)], chain: { head: 1n, next: some({ head: 2n, next: none }) } },
+                { note: some("x"), count: none, maybe: none, unit: none, flags: [], chain: { head: 0n, next: none } },
+                { note: some(""), count: some(-1n), maybe: some(some(3n)), unit: none, flags: [some(false)], chain: { head: 3n, next: none } },
+            ];
+            const encode = toJSONFor(RowType) as (row: ValueTypeOf<typeof RowType>) => Record<string, unknown>;
+            for (const draft of ["2020-12", "draft-07"] as const) {
+                const valid = validatorFor(draft, jsonSchemaFor(RowType, { draft }));
+                for (const row of rows) {
+                    assert.ok(valid(encode(row)), `${draft}: the encoder's output validates`);
+                }
+                const base = encode(rows[0]!);
+                assert.equal(valid({ ...base, note: { type: "none", value: null } }), false,
+                    `${draft}: the tagged object no longer validates under a flat Option`);
+                assert.equal(valid({ ...base, count: { type: "some", value: "7" } }), false,
+                    `${draft}: the tagged object no longer validates under a flat Option`);
+                assert.equal(valid({ ...base, maybe: null }), false,
+                    `${draft}: a bare null does not validate under an Option of an Option`);
+                assert.equal(valid({ ...base, unit: null }), false,
+                    `${draft}: a bare null does not validate under an Option of Null`);
+                assert.equal(valid({ ...base, chain: { head: "1", next: { type: "none", value: null } } }), false,
+                    `${draft}: the tagged object no longer validates through a recursive wrapper`);
+            }
         });
     });
 
@@ -351,6 +449,9 @@ describe("jsonSchemaFor", () => {
             nil: NullType,
             cons: StructType({ head: IntegerType, tail: self }),
         }));
+        const ChainCorpusType = RecursiveType((self: any) => StructType({
+            head: IntegerType, next: OptionType(self),
+        }));
         const corpus: [string, EastType][] = [
             ["Null", NullType], ["Boolean", BooleanType], ["Integer", IntegerType],
             ["Float", FloatType], ["String", StringType], ["DateTime", DateTimeType],
@@ -368,6 +469,16 @@ describe("jsonSchemaFor", () => {
             }))],
             ["recursive", RecursiveCorpusType],
             ["arrayRecursive", ArrayType(RecursiveCorpusType)],
+            // Every form an Option takes: flat over each kind of payload, and
+            // tagged over the two payloads that can themselves be null.
+            ["optionInteger", OptionType(IntegerType)],
+            ["optionNull", OptionType(NullType)],
+            ["optionOption", OptionType(OptionType(StringType))],
+            ["optionVariant", OptionType(VariantType({ ok: NullType, err: StringType }))],
+            ["arrayOption", ArrayType(OptionType(StringType))],
+            ["dictOption", DictType(StringType, OptionType(IntegerType))],
+            ["optionRecursive", OptionType(RecursiveCorpusType)],
+            ["chain", ChainCorpusType],
         ];
         const lines: string[] = [];
         for (const draft of ["2020-12", "draft-07", "openapi-3.0"] as const) {
@@ -375,10 +486,10 @@ describe("jsonSchemaFor", () => {
                 lines.push(`${draft}|${name}=${JSON.stringify(jsonSchemaFor(type, { draft }))}`);
             }
         }
-        assert.equal(lines.length, 57);
+        assert.equal(lines.length, 81);
         assert.equal(
             createHash("sha256").update(lines.join("\n")).digest("hex"),
-            "7083a9ae6f830e8724c707c0f0636a57be01fe2085874e83fea00883401c1a6b");
+            "457a0ca6a2d616a37c54bbd85bb1cf35908160152761004eb4c83a000755cae0");
     });
 
     test("emits byte-identical documents for the same type and release", () => {

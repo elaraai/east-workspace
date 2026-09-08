@@ -15,10 +15,44 @@ import { describeEast, Assert, FileSystem, Json, NodePlatform } from "@elaraai/e
 import { JsonReader } from "../src/json_reader.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { unlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as ex from "./json.examples.js";
+
+// The files the East-level tests write through the platform, named once here:
+// a path is host data, so it is computed outside the East bodies that use it.
+const EMPTY_PATH = join(tmpdir(), "json-empty.json");
+const MISSING_POINTER_PATH = join(tmpdir(), "json-missing-pointer.json");
+const SCALAR_POINTER_PATH = join(tmpdir(), "json-scalar-pointer.json");
+const BAD_ROW_PATH = join(tmpdir(), "json-bad-row.json");
+const INVALID_UTF8_PATH = join(tmpdir(), "json-invalid-utf8.json");
+const CLOSED_PATH = join(tmpdir(), "json-closed.json");
+const STREAM_PROBE_PATH = join(tmpdir(), "json-stream-probe.json");
+
+/**
+ * The refusals the East-level tests pin, as exact patterns. Built here, once:
+ * a pattern is host data, so nothing in an East body computes it.
+ */
+const REFUSALS = {
+    emptyFile: exactly("json_open: the document is empty"),
+    emptyText: exactly("json_open_text: expected an array or object to iterate, got end of document"),
+    noMember: exactly('json_open: no member "nope"'),
+    noElement: exactly("json_open_text: no element 5"),
+    badIndex: exactly('json_open_text: expected an array index, got "x"'),
+    descendIntoScalar: exactly('json_open_text: /a: cannot descend into a string looking for "b"'),
+    badPointer: exactly('json_open_text: a JSON Pointer must be empty or start with "/", got "data"'),
+    scalarTarget: exactly("json_open: /data: expected an array or object to iterate, got a string"),
+    badRow: exactly('json_next: /1/id: "not-an-integer" is not a 64-bit integer in East JSON\'s form'),
+    tooDeep: exactly("json_open_text: document nests deeper than 2048"),
+    invalidUtf8: exactly("json_next: /0/v: invalid UTF-8 in string"),
+    badMember: exactly('json_next: /b~0~1c: "x" is not a 64-bit integer in East JSON\'s form'),
+    notAnEntryType: exactly("json_next: iterating an object needs a Struct with exactly the fields key and value"),
+    notAStringKey: exactly("json_next: iterating an object needs a String key"),
+    closedMore: exactly("json_more: no open JSON reader for this handle"),
+    closedNext: exactly("json_next: no open JSON reader for this handle"),
+    closedClose: exactly("json_close: no open JSON reader for this handle"),
+    exhausted: exactly("json_next: the reader is exhausted"),
+};
 
 /** A regex matching exactly `text`, on every runtime's regex engine. */
 function exactly(text: string): RegExp {
@@ -56,10 +90,17 @@ const IntArrayStruct = StructType({ v: ArrayType(IntegerType) });
 const StringSetStruct = StructType({ v: SetType(StringType) });
 const DictStruct = StructType({ v: DictType(StringType, IntegerType) });
 const RefStruct = StructType({ v: RefType(IntegerType) });
+const VariantStruct = StructType({ v: VariantType({ ok: IntegerType, err: StringType }) });
 const OptionStruct = StructType({ v: OptionType(IntegerType) });
+const OptionOptionStruct = StructType({ v: OptionType(OptionType(IntegerType)) });
+const OptionNullStruct = StructType({ v: OptionType(NullType) });
 const VectorStruct = StructType({ v: VectorType(FloatType) });
 const MatrixStruct = StructType({ v: MatrixType(IntegerType) });
 const NestedStruct = StructType({ v: StructType({ a: IntegerType }) });
+const IdStruct = StructType({ id: IntegerType });
+const IntKeyEntry = StructType({ key: IntegerType, value: IntegerType });
+/** A type with no JSON form, typed as one the signature accepts, so the BUILD is what refuses it. */
+const NO_JSON_FORM = FunctionType([], IntegerType) as unknown as typeof IntegerType;
 
 /**
  * Every payload the published contract excludes, with the exact text each
@@ -190,22 +231,38 @@ const REJECTED: [string, EastType, string, string][] = [
     ["a ragged Matrix", MatrixStruct, '{"v":[["1","2"],["3"]]}',
         "/0/v: Matrix row 1 has 1 columns, expected 2"],
     // Variants.
-    ["an unknown variant case", OptionStruct, '{"v":{"type":"maybe","value":"1"}}',
+    ["an unknown variant case", VariantStruct, '{"v":{"type":"maybe","value":"1"}}',
         '/0/v: unknown variant case "maybe"'],
-    ["a Variant whose payload precedes its tag", OptionStruct, '{"v":{"value":"1","type":"some"}}',
+    ["a Variant whose payload precedes its tag", VariantStruct, '{"v":{"value":"1","type":"ok"}}',
         '/0/v: a Variant must carry "type" before "value"'],
-    ["an empty Variant", OptionStruct, '{"v":{}}',
+    ["an empty Variant", VariantStruct, '{"v":{}}',
         "/0/v: a Variant needs type and value"],
-    ["a Variant without its payload", OptionStruct, '{"v":{"type":"some"}}',
+    ["a Variant without its payload", VariantStruct, '{"v":{"type":"ok"}}',
         "/0/v: a Variant needs both type and value"],
-    ["a Variant with an extra field", OptionStruct, '{"v":{"type":"some","value":"1","extra":1}}',
+    ["a Variant with an extra field", VariantStruct, '{"v":{"type":"ok","value":"1","extra":1}}',
         '/0/v: unexpected field "extra" in Variant'],
-    ["a Variant with two tags", OptionStruct, '{"v":{"type":"some","type":"none","value":"1"}}',
+    ["a Variant with two tags", VariantStruct, '{"v":{"type":"ok","type":"err","value":"1"}}',
         '/0/v: duplicate "type" in Variant'],
-    ["a Variant whose tag is not a string", OptionStruct, '{"v":{"type":1,"value":"1"}}',
+    ["a Variant whose tag is not a string", VariantStruct, '{"v":{"type":1,"value":"1"}}',
         "/0/v: expected a variant case name, got a number"],
-    ["a Variant payload of the wrong form", OptionStruct, '{"v":{"type":"some","value":"x"}}',
-        '/0/v/some: "x" is not a 64-bit integer in East JSON\'s form'],
+    ["a Variant payload of the wrong form", VariantStruct, '{"v":{"type":"ok","value":"x"}}',
+        '/0/v/ok: "x" is not a 64-bit integer in East JSON\'s form'],
+    // Options: null or the payload where the payload cannot itself be null, so
+    // the tagged object is refused as the payload it is not, by the payload's
+    // own words; tagged where the payload can be null, so a bare null is
+    // refused as the object it is not.
+    ["a tagged none under a flat Option", OptionStruct, '{"v":{"type":"none","value":null}}',
+        "/0/v: expected Integer as a quoted decimal string, got an object"],
+    ["a tagged some under a flat Option", OptionStruct, '{"v":{"type":"some","value":"1"}}',
+        "/0/v: expected Integer as a quoted decimal string, got an object"],
+    ["a flat Option payload of the wrong form", OptionStruct, '{"v":"x"}',
+        '/0/v: "x" is not a 64-bit integer in East JSON\'s form'],
+    ["a bare null under an Option of an Option", OptionOptionStruct, '{"v":null}',
+        "/0/v: expected an object, got null"],
+    ["a flat payload under an Option of an Option", OptionOptionStruct, '{"v":"1"}',
+        "/0/v: expected an object, got a string"],
+    ["a bare null under an Option of Null", OptionNullStruct, '{"v":null}',
+        "/0/v: expected an object, got null"],
 ];
 
 /** Documents whose fault lies before the pointer target, on the skipped path. */
@@ -224,11 +281,54 @@ const REJECTED_ON_OPEN: [string, string, string][] = [
  * level, an object and an array alike, on every runtime.
  */
 const DEEP_MIXED = "{\"a\":[".repeat(1500) + "1" + "]}".repeat(1500);
+const DEEP_MIXED_DOC = `{"junk":${DEEP_MIXED},"data":[]}`;
+
+/** Every payload the published contract includes, read as element 0 of an array. */
+const ACCEPTED: [EastType, string][] = [
+    [IntStruct, '{"v":"0"}'],
+    [IntStruct, '{"v":"-9223372036854775808"}'],
+    [IntStruct, '{"v":"9223372036854775807"}'],
+    [DateStruct, '{"v":"2024-02-29T00:00:00.000+00:00"}'],
+    [DateStruct, '{"v":"0001-01-01T00:00:00.000+00:00"}'],
+    [DateStruct, '{"v":"9999-12-31T23:59:59.999+00:00"}'],
+    [BlobStruct, '{"v":"0x"}'],
+    [BlobStruct, '{"v":"0x00ff"}'],
+    [FloatStruct, '{"v":0}'],
+    [FloatStruct, '{"v":-1.5e10}'],
+    [FloatStruct, '{"v":"NaN"}'],
+    [StringStruct, '{"v":"a\\u0041b"}'],
+    [BoolStruct, '{"v":false}'],
+    [NullStruct, '{"v":null}'],
+    [IntArrayStruct, '{"v":[]}'],
+    [IntArrayStruct, '{"v":["1","2"]}'],
+    [StringSetStruct, '{"v":["b","a"]}'],
+    [DictStruct, '{"v":[{"value":"1","key":"a"}]}'],
+    [RefStruct, '{"v":["7"]}'],
+    [VariantStruct, '{"v":{"type":"err","value":"bad"}}'],
+    // An Option is null or its payload where the payload cannot be null, and
+    // tagged where it can.
+    [OptionStruct, '{"v":null}'],
+    [OptionStruct, '{"v":"1"}'],
+    [OptionOptionStruct, '{"v":{"type":"none","value":null}}'],
+    [OptionOptionStruct, '{"v":{"type":"some","value":null}}'],
+    [OptionOptionStruct, '{"v":{"type":"some","value":"1"}}'],
+    [OptionNullStruct, '{"v":{"type":"some","value":null}}'],
+    [VectorStruct, '{"v":[1.5,"NaN","-Infinity",2]}'],
+    [MatrixStruct, '{"v":[["1","2"],["3","4"]]}'],
+    [MatrixStruct, '{"v":[]}'],
+    [MatrixStruct, '{"v":[[]]}'],
+    [NestedStruct, '{"v":{"a":"1"}}'],
+    // Pretty-printed input is JSON too.
+    [IntStruct, '{\n\t"v" : "1"\n}'],
+];
 
 const LinkedListType = RecursiveType((self: any) => VariantType({
     nil: NullType,
     cons: StructType({ head: IntegerType, tail: self }),
 }));
+
+/** The ordinary linked list: an Option of the struct itself, flat at every depth. */
+const ChainType = RecursiveType((self: any) => StructType({ head: IntegerType, next: OptionType(self) }));
 
 /** Every type the reader constructs, for the round trip replayed on each runtime. */
 const RoundTripType = StructType({
@@ -237,6 +337,10 @@ const RoundTripType = StructType({
     meta: DictType(StringType, IntegerType), raw: BlobType,
     vec: VectorType(FloatType), cell: RefType(IntegerType),
     list: LinkedListType, grid: ArrayType(ArrayType(IntegerType)), nothing: NullType,
+    // Every form an Option takes: flat, tagged over a payload that can be
+    // null, flat inside a collection, and flat through a recursive wrapper.
+    maybe: OptionType(OptionType(IntegerType)), unit: OptionType(NullType),
+    flags: ArrayType(OptionType(BooleanType)), chain: ChainType,
 });
 
 describeEast("Json platform functions", (test) => {
@@ -246,6 +350,7 @@ describeEast("Json platform functions", (test) => {
         jsonValueEnvelope: ex.jsonValueEnvelope,
         jsonReadText: ex.jsonReadText,
         jsonReadObjectAsEntries: ex.jsonReadObjectAsEntries,
+        jsonReadOptional: ex.jsonReadOptional,
     });
 
     test("open of a missing path throws", $ => {
@@ -255,71 +360,72 @@ describeEast("Json platform functions", (test) => {
     });
 
     test("an empty document is refused by name", $ => {
-        const path = $.let(East.value(join(tmpdir(), "json-empty.json")));
+        const path = $.let(EMPTY_PATH);
         $(FileSystem.writeFile(path, ""));
-        $(Assert.throws(Json.open(path, ""), exactly("json_open: the document is empty")));
-        $(Assert.throws(Json.openText("", ""),
-            exactly("json_open_text: expected an array or object to iterate, got end of document")));
+        $(Assert.throws(Json.open(path, ""), REFUSALS.emptyFile));
+        $(Assert.throws(Json.openText("", ""), REFUSALS.emptyText));
     });
 
     test("a pointer that does not resolve throws, naming the member", $ => {
-        const path = $.let(East.value(join(tmpdir(), "json-missing-pointer.json")));
+        const path = $.let(MISSING_POINTER_PATH);
         $(FileSystem.writeFile(path, '{"data":[]}'));
-        $(Assert.throws(Json.open(path, "/nope"), exactly('json_open: no member "nope"')));
-        $(Assert.throws(Json.openText("[[1],[2]]", "/5"), exactly("json_open_text: no element 5")));
-        $(Assert.throws(Json.openText("[[1],[2]]", "/x"),
-            exactly('json_open_text: expected an array index, got "x"')));
-        $(Assert.throws(Json.openText('{"a":"s"}', "/a/b"),
-            exactly('json_open_text: /a: cannot descend into a string looking for "b"')));
-        $(Assert.throws(Json.openText("[]", "data"),
-            exactly('json_open_text: a JSON Pointer must be empty or start with "/", got "data"')));
+        $(Assert.throws(Json.open(path, "/nope"), REFUSALS.noMember));
+        $(Assert.throws(Json.openText("[[1],[2]]", "/5"), REFUSALS.noElement));
+        $(Assert.throws(Json.openText("[[1],[2]]", "/x"), REFUSALS.badIndex));
+        $(Assert.throws(Json.openText('{"a":"s"}', "/a/b"), REFUSALS.descendIntoScalar));
+        $(Assert.throws(Json.openText("[]", "data"), REFUSALS.badPointer));
     });
 
     test("pointing at a scalar rather than a container throws", $ => {
-        const path = $.let(East.value(join(tmpdir(), "json-scalar-pointer.json")));
+        const path = $.let(SCALAR_POINTER_PATH);
         $(FileSystem.writeFile(path, '{"data":"not a container"}'));
-        $(Assert.throws(Json.open(path, "/data"),
-            exactly("json_open: /data: expected an array or object to iterate, got a string")));
+        $(Assert.throws(Json.open(path, "/data"), REFUSALS.scalarTarget));
     });
 
     test("a row that violates the contract throws, naming its pointer", $ => {
-        const path = $.let(East.value(join(tmpdir(), "json-bad-row.json")));
+        const path = $.let(BAD_ROW_PATH);
         $(FileSystem.writeFile(path, '[{"id":"1"},{"id":"not-an-integer"}]'));
         const handle = $.let(Json.open(path, ""));
-        $(Json.next(StructType({ id: IntegerType }), handle));
-        $(Assert.throws(Json.next(StructType({ id: IntegerType }), handle),
-            exactly('json_next: /1/id: "not-an-integer" is not a 64-bit integer in East JSON\'s form')));
+        $(Json.next(IdStruct, handle));
+        $(Assert.throws(Json.next(IdStruct, handle), REFUSALS.badRow));
         $(Json.close(handle));
     });
 
-    test("refuses every payload the contract excludes, with the same text on every runtime", $ => {
-        for (const [, type, text, message] of REJECTED) {
-            const handle = $.let(Json.openText(`[${text}]`, ""));
-            $(Assert.throws(Json.next(type, handle), exactly(`json_next: ${message}`)));
+    // One compliance test per excluded payload, so a divergence names its case
+    // on every runtime. The document and the pattern are host data, built here.
+    for (const [name, type, text, message] of REJECTED) {
+        const doc = `[${text}]`;
+        const pattern = exactly(`json_next: ${message}`);
+        test(`refuses ${name}, with the same text on every runtime`, $ => {
+            const handle = $.let(Json.openText(doc, ""));
+            $(Assert.throws(Json.next(type, handle), pattern));
             $(Json.close(handle));
-        }
-    });
+        });
+    }
 
-    test("holds a skipped value to the grammar, with the same text on every runtime", $ => {
-        // Navigating past junk is not reading it, but it is still JSON: a fault
-        // before the pointer target is refused at open, and refused alike.
-        for (const [, text, message] of REJECTED_ON_OPEN) {
-            $(Assert.throws(Json.openText(text, "/data"), exactly(`json_open_text: ${message}`)));
-        }
-        $(Assert.throws(Json.openText(`{"junk":${DEEP_MIXED},"data":[]}`, "/data"),
-            exactly("json_open_text: document nests deeper than 2048")));
+    // Navigating past junk is not reading it, but it is still JSON: a fault
+    // before the pointer target is refused at open, and refused alike.
+    for (const [name, text, message] of REJECTED_ON_OPEN) {
+        const pattern = exactly(`json_open_text: ${message}`);
+        test(`holds ${name} to the grammar, with the same text on every runtime`, $ => {
+            $(Assert.throws(Json.openText(text, "/data"), pattern));
+        });
+    }
+
+    test("holds a skipped value to the nesting bound, with the same text on every runtime", $ => {
+        $(Assert.throws(Json.openText(DEEP_MIXED_DOC, "/data"), REFUSALS.tooDeep));
     });
 
     test("refuses invalid UTF-8 in a string on every runtime", $ => {
         // Bytes, not text: an East String cannot carry them, so they arrive
         // through a file. Node used to repair them to U+FFFD, east-c to pass
         // them through — a document that read as different values per runtime.
-        const path = $.let(East.value(join(tmpdir(), "json-invalid-utf8.json")));
+        const path = $.let(INVALID_UTF8_PATH);
         $(FileSystem.writeFileBytes(path, new Uint8Array([
             0x5b, 0x7b, 0x22, 0x76, 0x22, 0x3a, 0x22, 0x61, 0xff, 0x62, 0x22, 0x7d, 0x5d, // [{"v":"a<ff>b"}]
         ])));
         const handle = $.let(Json.open(path, ""));
-        $(Assert.throws(Json.next(StringStruct, handle), exactly("json_next: /0/v: invalid UTF-8 in string")));
+        $(Assert.throws(Json.next(StringStruct, handle), REFUSALS.invalidUtf8));
         $(Json.close(handle));
         // ...whereas a well-formed multi-byte character, escaped or raw, reads.
         const text = $.let(Json.openText('[{"v":"\\u00e9\\ud83d\\ude00é😀"}]', ""));
@@ -327,67 +433,49 @@ describeEast("Json platform functions", (test) => {
         $(Json.close(text));
     });
 
-    test("accepts what the contract includes", $ => {
-        const ok: [EastType, string][] = [
-            [IntStruct, '{"v":"0"}'],
-            [IntStruct, '{"v":"-9223372036854775808"}'],
-            [IntStruct, '{"v":"9223372036854775807"}'],
-            [DateStruct, '{"v":"2024-02-29T00:00:00.000+00:00"}'],
-            [DateStruct, '{"v":"0001-01-01T00:00:00.000+00:00"}'],
-            [DateStruct, '{"v":"9999-12-31T23:59:59.999+00:00"}'],
-            [BlobStruct, '{"v":"0x"}'],
-            [BlobStruct, '{"v":"00ff"}'.replace("00ff", "0x00ff")],
-            [FloatStruct, '{"v":0}'],
-            [FloatStruct, '{"v":-1.5e10}'],
-            [FloatStruct, '{"v":"NaN"}'],
-            [StringStruct, '{"v":"a\\u0041b"}'],
-            [BoolStruct, '{"v":false}'],
-            [NullStruct, '{"v":null}'],
-            [IntArrayStruct, '{"v":[]}'],
-            [IntArrayStruct, '{"v":["1","2"]}'],
-            [StringSetStruct, '{"v":["b","a"]}'],
-            [DictStruct, '{"v":[{"value":"1","key":"a"}]}'],
-            [RefStruct, '{"v":["7"]}'],
-            [OptionStruct, '{"v":{"type":"none","value":null}}'],
-            [VectorStruct, '{"v":[1.5,"NaN","-Infinity",2]}'],
-            [MatrixStruct, '{"v":[["1","2"],["3","4"]]}'],
-            [MatrixStruct, '{"v":[]}'],
-            [MatrixStruct, '{"v":[[]]}'],
-            [NestedStruct, '{"v":{"a":"1"}}'],
-            // Pretty-printed input is JSON too.
-            [IntStruct, '{\n\t"v" : "1"\n}'],
-        ];
-        for (const [type, text] of ok) {
-            const handle = $.let(Json.openText(`[ ${text} ]`, ""));
+    // One compliance test per included payload, on every runtime.
+    for (const [i, [type, text]] of ACCEPTED.entries()) {
+        const doc = `[ ${text} ]`;
+        test(`accepts what the contract includes, case ${i}: ${text.replace(/\s+/g, " ")}`, $ => {
+            const handle = $.let(Json.openText(doc, ""));
             $(Json.next(type, handle));
             $(Assert.equal(Json.more(handle), false));
             $(Json.close(handle));
-        }
-    });
+        });
+    }
 
     test("everything the encoder emits reads back equal, on every runtime", $ => {
         // The other half of the invariant, for every type the reader
         // constructs — Vector, Ref and a recursive type included (a Matrix has
         // no literal, so it gets its own case): what this runtime's printJson
         // writes, its reader reads back as the same value.
-        const rows = $.const(East.value([
+        const rows = $.const([
             {
                 id: 0n, name: "a", at: new Date(0), ratio: 1.5, ok: true, note: none,
                 tags: new Set(["x", "y"]), meta: new Map([["k", 1n]]), raw: new Uint8Array([1, 255]),
                 vec: new Float64Array([0.5, -2, 1e21]),
                 cell: ref(7n), list: variant("cons", { head: 1n, tail: variant("cons", { head: 2n, tail: variant("nil", null) }) }),
                 grid: [[1n], []], nothing: null,
+                maybe: some(none), unit: some(null), flags: [none, some(true)],
+                chain: { head: 1n, next: some({ head: 2n, next: none }) },
             },
             {
                 id: 9223372036854775807n, name: "é中\"\\\n\t", at: new Date("2026-02-28T23:59:59.999Z"),
                 ratio: -0, ok: false, note: some("hi"), tags: new Set<string>(), meta: new Map<string, bigint>(),
                 raw: new Uint8Array([]), vec: new Float64Array([]),
                 cell: ref(-1n), list: variant("nil", null), grid: [], nothing: null,
+                maybe: none, unit: none, flags: [], chain: { head: 0n, next: none },
             },
-        ], ArrayType(RoundTripType)));
+            {
+                id: -1n, name: "", at: new Date(0), ratio: 0, ok: true, note: some(""),
+                tags: new Set<string>(), meta: new Map<string, bigint>(), raw: new Uint8Array([0]),
+                vec: new Float64Array([]), cell: ref(0n), list: variant("nil", null), grid: [], nothing: null,
+                maybe: some(some(3n)), unit: none, flags: [some(false)], chain: { head: 3n, next: none },
+            },
+        ], ArrayType(RoundTripType));
         const text = $.let(East.String.printJson(rows));
         const reader = $.let(Json.openText(text, ""));
-        const back = $.let(East.value([], ArrayType(RoundTripType)));
+        const back = $.let([], ArrayType(RoundTripType));
         $.while(Json.more(reader), $ => {
             $(back.pushLast(Json.next(RoundTripType, reader)));
         });
@@ -427,34 +515,31 @@ describeEast("Json platform functions", (test) => {
         $(Json.close(b));
         const bad = $.let(Json.openText('{"a":"1","b~/c":"x"}', ""));
         $(Json.next(KeyFirst, bad));
-        $(Assert.throws(Json.next(KeyFirst, bad),
-            exactly('json_next: /b~0~1c: "x" is not a 64-bit integer in East JSON\'s form')));
+        $(Assert.throws(Json.next(KeyFirst, bad), REFUSALS.badMember));
         $(Json.close(bad));
     });
 
     test("iterating an object with the wrong row type is refused at the container", $ => {
         const handle = $.let(Json.openText('{"a":"1"}', ""));
-        $(Assert.throws(Json.next(IntegerType, handle),
-            exactly("json_next: iterating an object needs a Struct with exactly the fields key and value")));
-        $(Assert.throws(Json.next(StructType({ key: IntegerType, value: IntegerType }), handle),
-            exactly("json_next: iterating an object needs a String key")));
+        $(Assert.throws(Json.next(IntegerType, handle), REFUSALS.notAnEntryType));
+        $(Assert.throws(Json.next(IntKeyEntry, handle), REFUSALS.notAStringKey));
         $(Json.close(handle));
     });
 
     test("a handle cannot be used after it is closed", $ => {
-        const path = $.let(East.value(join(tmpdir(), "json-closed.json")));
+        const path = $.let(CLOSED_PATH);
         $(FileSystem.writeFile(path, "[]"));
         const handle = $.let(Json.open(path, ""));
         $(Json.close(handle));
-        $(Assert.throws(Json.more(handle), exactly("json_more: no open JSON reader for this handle")));
-        $(Assert.throws(Json.next(IntStruct, handle), exactly("json_next: no open JSON reader for this handle")));
-        $(Assert.throws(Json.close(handle), exactly("json_close: no open JSON reader for this handle")));
+        $(Assert.throws(Json.more(handle), REFUSALS.closedMore));
+        $(Assert.throws(Json.next(IntStruct, handle), REFUSALS.closedNext));
+        $(Assert.throws(Json.close(handle), REFUSALS.closedClose));
     });
 
     test("reading past the end is refused, and the reader stays closed", $ => {
         const handle = $.let(Json.openText('[{"v":"1"}]', ""));
         $(Json.next(IntStruct, handle));
-        $(Assert.throws(Json.next(IntStruct, handle), exactly("json_next: the reader is exhausted")));
+        $(Assert.throws(Json.next(IntStruct, handle), REFUSALS.exhausted));
         $(Assert.equal(Json.more(handle), false));
         $(Json.close(handle));
     });
@@ -470,21 +555,24 @@ describe("the reader accepts exactly what jsonSchemaFor describes", () => {
         id: IntegerType, name: StringType, at: DateTimeType, ratio: FloatType,
         ok: BooleanType, note: OptionType(StringType), tags: SetType(StringType),
         meta: DictType(StringType, IntegerType), raw: BlobType,
+        maybe: OptionType(OptionType(IntegerType)), flags: ArrayType(OptionType(BooleanType)),
     });
     const rows: ValueTypeOf<typeof RowType>[] = [
         {
             id: 0n, name: "a", at: new Date(0), ratio: 1.5, ok: true, note: none,
             tags: new Set(["x", "y"]), meta: new Map([["k", 1n]]), raw: new Uint8Array([1, 255]),
+            maybe: some(none), flags: [none, some(true)],
         },
         {
             id: 9223372036854775807n, name: "é中\"\\\n", at: new Date("2026-02-28T23:59:59.999Z"),
             ratio: -0, ok: false, note: some("hi"), tags: new Set(), meta: new Map(),
-            raw: new Uint8Array([]),
+            raw: new Uint8Array([]), maybe: none, flags: [],
         },
         {
             id: -9223372036854775808n, name: "", at: new Date("1999-12-31T00:00:00.001Z"),
             ratio: Infinity, ok: true, note: some(""), tags: new Set(["z"]),
             meta: new Map([["a", -1n], ["b", 2n]]), raw: new Uint8Array([0]),
+            maybe: some(some(3n)), flags: [some(false)],
         },
     ];
 
@@ -526,9 +614,25 @@ describe("the reader accepts exactly what jsonSchemaFor describes", () => {
 
     unitTest("refuses a Variant whose payload precedes its tag", () => {
         // The payload cannot be typed before the case is known.
-        const T = OptionType(IntegerType);
-        assert.ok(accepts(T, '{"type":"some","value":"1"}'));
-        assert.equal(accepts(T, '{"value":"1","type":"some"}'), false);
+        const T = VariantType({ ok: IntegerType, err: StringType });
+        assert.ok(accepts(T, '{"type":"ok","value":"1"}'));
+        assert.equal(accepts(T, '{"value":"1","type":"ok"}'), false);
+    });
+
+    unitTest("reads an Option as null or its payload, and tagged only where the payload can be null", () => {
+        const eq = (T: EastType, got: unknown, want: unknown) => assert.ok(equalFor(T)(got, want), `got ${JSON.stringify(got, (_, v) => typeof v === "bigint" ? String(v) : v)}`);
+        eq(OptionType(IntegerType), read(OptionType(IntegerType), "null"), none);
+        eq(OptionType(IntegerType), read(OptionType(IntegerType), '"7"'), some(7n));
+        assert.equal(accepts(OptionType(IntegerType), '{"type":"some","value":"7"}'), false);
+        // some(none) must stay distinct from none, and some(null) from none.
+        eq(OptionType(OptionType(IntegerType)), read(OptionType(OptionType(IntegerType)), '{"type":"some","value":null}'), some(none));
+        assert.equal(accepts(OptionType(OptionType(IntegerType)), "null"), false);
+        eq(OptionType(NullType), read(OptionType(NullType), '{"type":"none","value":null}'), none);
+        assert.equal(accepts(OptionType(NullType), "null"), false);
+        // A recursive payload is judged by what the wrapper encodes.
+        eq(ChainType, read(ChainType, '{"head":"2","next":{"head":"1","next":null}}'), { head: 2n, next: some({ head: 1n, next: none }) });
+        eq(OptionType(ChainType), read(OptionType(ChainType), "null"), none);
+        assert.equal(accepts(ChainType, '{"head":"1","next":{"type":"none","value":null}}'), false);
     });
 });
 
@@ -552,22 +656,23 @@ describe("streaming and hardening", () => {
     unitTest("holds one row, not the document", () => {
         // The measurement runs in a child with the collector exposed: heap is
         // sampled after a forced collection, so it reflects what is retained
-        // rather than what has yet to be swept.
-        const path = join(tmpdir(), "json-stream-probe.json");
-        const parts = ['{"data":['];
-        for (let i = 0; i < 300_000; i++) parts.push(`${i ? "," : ""}{"id":"${i}","name":"row-${i}"}`);
-        parts.push('],"meta":{"n":"300000"}}');
-        writeFileSync(path, parts.join(""));
-        try {
-            const script = `
-                import { JsonReader } from ${JSON.stringify(new URL("../src/json_reader.js", import.meta.url).href)};
-                import { IntegerType, StringType, StructType, toEastTypeValue } from "@elaraai/east";
-                import { statSync } from "node:fs";
+        // rather than what has yet to be swept. The child writes the probe
+        // file itself, before the reader opens it, and removes it after.
+        const script = `
+            import { JsonReader } from ${JSON.stringify(new URL("../src/json_reader.js", import.meta.url).href)};
+            import { IntegerType, StringType, StructType, toEastTypeValue } from "@elaraai/east";
+            import { statSync, unlinkSync, writeFileSync } from "node:fs";
+            const path = ${JSON.stringify(STREAM_PROBE_PATH)};
+            const parts = ['{"data":['];
+            for (let i = 0; i < 300000; i++) parts.push((i ? "," : "") + '{"id":"' + i + '","name":"row-' + i + '"}');
+            parts.push('],"meta":{"n":"300000"}}');
+            writeFileSync(path, parts.join(""));
+            try {
                 const T = toEastTypeValue(StructType({ id: IntegerType, name: StringType }));
-                const bytes = statSync(${JSON.stringify(path)}).size;
+                const bytes = statSync(path).size;
                 const settle = () => { globalThis.gc(); globalThis.gc(); return process.memoryUsage().heapUsed; };
                 const before = settle();
-                const r = JsonReader.openFile(${JSON.stringify(path)}, "/data");
+                const r = JsonReader.openFile(path, "/data");
                 let n = 0, peak = 0, sum = 0n;
                 while (r.more()) {
                     const row = r.next(T);
@@ -575,48 +680,43 @@ describe("streaming and hardening", () => {
                     if (n % 50000 === 0) peak = Math.max(peak, settle() - before);
                 }
                 r.close();
-                console.log(JSON.stringify({ bytes, n, peak, sum: String(sum) }));
-            `;
-            const out = execFileSync(
-                process.execPath,
-                ["--expose-gc", "--input-type=module", "-e", script],
-                { cwd: fileURLToPath(new URL("../..", import.meta.url)), encoding: "utf8" });
-            const { bytes, n, peak, sum } = JSON.parse(out.trim()) as
-                { bytes: number; n: number; peak: number; sum: string };
-            assert.equal(n, 300_000, "every row is read");
-            assert.equal(sum, String((299_999n * 300_000n) / 2n), "every row is read correctly");
-            assert.ok(
-                peak < bytes / 8,
-                `retained heap must not track the document (file ${bytes} bytes, retained ${peak})`);
-        } finally {
-            unlinkSync(path);
-        }
+                console.log([bytes, n, peak, String(sum)].join("\\n"));
+            } finally {
+                unlinkSync(path);
+            }
+        `;
+        const out = execFileSync(
+            process.execPath,
+            ["--expose-gc", "--input-type=module", "-e", script],
+            { cwd: fileURLToPath(new URL("../..", import.meta.url)), encoding: "utf8" });
+        // One number per line, so the child's report needs no parser here.
+        const [bytesText, nText, peakText, sum] = out.trim().split("\n") as [string, string, string, string];
+        const bytes = Number(bytesText), n = Number(nText), peak = Number(peakText);
+        assert.equal(n, 300_000, "every row is read");
+        assert.equal(sum, String((299_999n * 300_000n) / 2n), "every row is read correctly");
+        assert.ok(
+            peak < bytes / 8,
+            `retained heap must not track the document (file ${bytes} bytes, retained ${peak})`);
     });
 
     unitTest("reads an envelope member that follows a large array", () => {
-        const path = join(tmpdir(), "json-envelope-after.json");
+        // The member after the array is reached by skipping the array, not by
+        // parsing it — the same path a file takes, on a payload in hand.
         const parts = ['{"data":['];
         for (let i = 0; i < 20_000; i++) parts.push(`${i ? "," : ""}{"id":"${i}"}`);
         parts.push('],"meta":{"n":"20000"}}');
-        writeFileSync(path, parts.join(""));
+        const reader = JsonReader.openValueText(parts.join(""), "/meta");
         try {
-            const reader = JsonReader.openValueFile(path, "/meta");
-            try {
-                const meta = reader.readValue(toEastTypeValue(StructType({ n: IntegerType }))) as { n: bigint };
-                assert.equal(meta.n, 20_000n);
-            } finally {
-                reader.close();
-            }
+            const meta = reader.readValue(toEastTypeValue(StructType({ n: IntegerType }))) as { n: bigint };
+            assert.equal(meta.n, 20_000n);
         } finally {
-            unlinkSync(path);
+            reader.close();
         }
     });
 
     unitTest("a type with no JSON form is refused when the expression is built", () => {
         assert.throws(
-            () => East.function([StringType], IntegerType, ($, handle) =>
-                (Json as unknown as { next: (t: unknown, h: unknown) => never }).next(
-                    FunctionType([], IntegerType), handle)),
+            () => East.function([StringType], IntegerType, ($, handle) => Json.next(NO_JSON_FORM, handle)),
             /cannot read .* it has no JSON form/);
     });
 });

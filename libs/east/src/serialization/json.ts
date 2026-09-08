@@ -29,8 +29,18 @@ function _encodeJSONPointerComponent(component: string): string {
   return component.replace(/~/g, '~0').replace(/\//g, '~1');
 }
 
-/** Stack of encoders for recursive types */
-type JSONEncodeTypeContext = Map<bigint, (value: any, ctx?: JSONEncodeValueContext) => unknown>;
+/**
+ * Per-walk state for recursive types while an encoder is built.
+ *
+ * @remarks
+ * `fns` holds each wrapper's encoder so a back-reference reuses it; `scope`
+ * holds each wrapper's inner type so {@link jsonFlatOptionPayload} can judge
+ * an Option whose payload is a back-reference.
+ */
+type JSONEncodeTypeContext = {
+  fns: Map<bigint, (value: any, ctx?: JSONEncodeValueContext) => unknown>;
+  scope: Map<bigint, EastTypeValue>;
+};
 
 /**
  * Value-level context for tracking seen mutable containers during JSON encoding.
@@ -43,8 +53,11 @@ type JSONEncodeValueContext = {
   currentPath: string[];     // Current position in JSON structure
 };
 
-/** Stack of decoders for recursive types */
-type JSONDecodeTypeContext = Map<bigint, (json: any, ctx?: JSONDecodeValueContext) => any>;
+/** Per-walk state for recursive types while a decoder is built — the decoding twin of {@link JSONEncodeTypeContext}. */
+type JSONDecodeTypeContext = {
+  fns: Map<bigint, (json: any, ctx?: JSONDecodeValueContext) => any>;
+  scope: Map<bigint, EastTypeValue>;
+};
 
 /**
  * Value-level context for tracking decoded mutable containers during JSON decoding.
@@ -143,6 +156,75 @@ function _decodeJSONPointerComponent(component: string): string {
   return component.replace(/~1/g, '/').replace(/~0/g, '~');
 }
 
+/** Whether `type` is the exact Option shape — `Variant{ none: Null, some: T }`. */
+function isOptionTypeValue(type: EastTypeValue): boolean {
+  if (type.type !== "Variant") return false;
+  const cases = type.value as { name: string; type: EastTypeValue }[];
+  return cases.length === 2
+    && cases[0]!.name === "none" && cases[0]!.type.type === "Null"
+    && cases[1]!.name === "some";
+}
+
+/**
+ * The payload type of an Option that East JSON encodes flat, or `null`.
+ *
+ * @internal Not an authoring API — `printJson`, `parseJson`, `Json.next` and
+ * the schema pair apply the rule on their own. It is exported only so the
+ * east-node-std reader applies the same function as the codec and the schema
+ * here (east-c carries the same rule for itself and python), rather than a
+ * copy that could drift.
+ *
+ * @param type - The type at this position of the document
+ * @param scope - Every enclosing `Recursive` wrapper's inner type by id, for
+ * a payload that is a back-reference into one of them
+ * @returns The `some` payload's type when `Option<T>` encodes as `null` or as
+ * `T`'s own encoding; `null` when `type` is not an Option, or when its payload
+ * keeps the tagged form
+ * @throws {Error} When the payload is a back-reference `scope` does not resolve
+ *
+ * @remarks
+ * East JSON encodes `Option<T>` as `null` for `none` and as the encoding of
+ * `T` for `some` whenever the encoding of `T` can never itself be `null` —
+ * every decode knows `T` at its position, so `null` then has one reading.
+ * The only encodings that can be `null` are `Null`'s and a flat Option's, so
+ * those two payloads keep the tagged `{"type": …, "value": …}` form: that is
+ * what keeps `some(none)` distinct from `none`, and `some(null)` from `none`.
+ * A `Recursive` payload is judged by what it wraps — a wrapper by its inner
+ * type, a back-reference by the inner type of the wrapper it names — so the
+ * `next: Option<self>` of a linked list is flat like the struct it refers to.
+ * The rule is a total function of the type, the same on every runtime, with
+ * no option, mode or policy.
+ */
+export function jsonFlatOptionPayload(
+  type: EastTypeValue,
+  scope?: ReadonlyMap<bigint, EastTypeValue>,
+): EastTypeValue | null {
+  if (!isOptionTypeValue(type)) return null;
+  const payload = (type.value as { name: string; type: EastTypeValue }[])[1]!.type;
+  // Look through Recursive to the type actually encoded there. Each scope is
+  // entered once, so a wrapper that only refers back to itself — a type with
+  // no values — cannot loop.
+  let inner = payload;
+  const entered = new Set<bigint>();
+  while (inner.type === "Recursive") {
+    const rec = inner.value as { type: "wrapper" | "ref"; value: any };
+    const id = rec.type === "wrapper" ? (rec.value.id as bigint) : (rec.value as bigint);
+    if (entered.has(id)) break;
+    entered.add(id);
+    if (rec.type === "wrapper") {
+      inner = rec.value.inner as EastTypeValue;
+    } else {
+      const resolved = scope?.get(id);
+      if (resolved === undefined) {
+        throw new Error(`jsonFlatOptionPayload: unresolved recursive reference ${id}`);
+      }
+      inner = resolved;
+    }
+  }
+  if (inner.type === "Null" || isOptionTypeValue(inner)) return null;
+  return payload;
+}
+
 export function encodeJSONFor(type: EastTypeValue): (x: any) => Uint8Array
 export function encodeJSONFor<T extends EastType>(type: T): (x: ValueTypeOf<T>) => Uint8Array
 export function encodeJSONFor(type: EastTypeValue | EastType): (x: any) => Uint8Array {
@@ -224,7 +306,10 @@ export function toJSONFor<T extends EastType>(
     type: T,
     typeCtx?: JSONEncodeTypeContext
 ): (value: ValueTypeOf<T>, ctx?: JSONEncodeValueContext) => unknown
-export function toJSONFor(type: EastType | EastTypeValue, typeCtx: JSONEncodeTypeContext = new Map()): (value: any, ctx?: JSONEncodeValueContext) => unknown {
+export function toJSONFor(
+    type: EastType | EastTypeValue,
+    typeCtx: JSONEncodeTypeContext = { fns: new Map(), scope: new Map() },
+): (value: any, ctx?: JSONEncodeValueContext) => unknown {
     // Convert EastType to EastTypeValue if necessary
     if (!isVariant(type)) {
         type = toEastTypeValue(type);
@@ -397,6 +482,17 @@ export function toJSONFor(type: EastType | EastTypeValue, typeCtx: JSONEncodeTyp
         }
         return ret;
     } else if (type.type === "Variant") {
+        const flat = jsonFlatOptionPayload(type, typeCtx.scope);
+        if (flat !== null) {
+            // An Option whose payload never encodes as null: none is null and
+            // some is the payload itself, at the Option's own position — so
+            // the aliasing path gains no segment here, on either side.
+            let payloadToJson: (value: any, ctx?: JSONEncodeValueContext) => unknown;
+            const ret = (value: variant, ctx?: JSONEncodeValueContext) =>
+                value.type === "none" ? null : payloadToJson(value.value, ctx);
+            payloadToJson = toJSONFor(flat, typeCtx);
+            return ret;
+        }
         const caseToJson: { [key: string]: (value: any, ctx?: JSONEncodeValueContext) => unknown } = {};
         const ret = (value: variant, ctx: JSONEncodeValueContext = { refs: new Map(), currentPath: [] }) => {
             const type = value.type;
@@ -412,11 +508,13 @@ export function toJSONFor(type: EastType | EastTypeValue, typeCtx: JSONEncodeTyp
     } else if (type.type === "Recursive" && (type.value as any).type === "wrapper") {
         let inner: any;
         const ret = (...args: any[]) => inner(...args);
-        typeCtx.set((type.value as any).value.id as bigint, ret);
-        inner = toJSONFor((type.value as any).value.inner, typeCtx);
+        const wrapper = (type.value as any).value as { id: bigint; inner: EastTypeValue };
+        typeCtx.fns.set(wrapper.id, ret);
+        typeCtx.scope.set(wrapper.id, wrapper.inner);
+        inner = toJSONFor(wrapper.inner, typeCtx);
         return ret;
     } else if (type.type === "Recursive") {
-        const ret = typeCtx.get((type.value as any).value as bigint);
+        const ret = typeCtx.fns.get((type.value as any).value as bigint);
         if (ret === undefined) {
             throw new Error(`Internal error: Recursive type context not found`);
         }
@@ -494,7 +592,7 @@ export function fromJSONFor(type: EastTypeValue, frozen: boolean = false): (valu
 function createJSONDecoder(
     type: EastTypeValue,
     frozen: boolean = false,
-    typeCtx: JSONDecodeTypeContext = new Map()
+    typeCtx: JSONDecodeTypeContext = { fns: new Map(), scope: new Map() },
 ): (value: unknown, ctx?: JSONDecodeValueContext) => any {
     if (type.type === "Never") {
         return ((_: never, _ctx?: JSONDecodeValueContext) => { throw new Error("Cannot decode Never type from JSON"); }) as any;
@@ -896,6 +994,22 @@ function createJSONDecoder(
         }
         return ret;
     } else if (type.type === "Variant") {
+        const flat = jsonFlatOptionPayload(type, typeCtx.scope);
+        if (flat !== null) {
+            // The twin of the flat encoder: null is none, anything else is the
+            // payload, read where the Option stands. A tagged object here is
+            // refused by the payload's own decoder, as the type says it must be.
+            let payloadFromJson: (value: unknown, ctx?: JSONDecodeValueContext) => any;
+            const ret = (json: unknown, ctx?: JSONDecodeValueContext) => {
+                const v = json === null ? variant("none", null) : variant("some", payloadFromJson(json, ctx));
+                if (frozen) {
+                    Object.freeze(v);
+                }
+                return v;
+            };
+            payloadFromJson = createJSONDecoder(flat, frozen, typeCtx);
+            return ret;
+        }
         const caseFromJson: { [key: string]: ((value: any, ctx?: JSONDecodeValueContext) => any) | null } = {} as any;
         const ret = (json: unknown, ctx: JSONDecodeValueContext = { refs: new Map(), currentPath: [] }) => {
             if (typeof json !== "object" || json === null || !("type" in json) || !("value" in json)) {
@@ -937,11 +1051,13 @@ function createJSONDecoder(
     } else if (type.type === "Recursive" && (type.value as any).type === "wrapper") {
         let inner: any;
         const ret = (...args: any[]) => inner(...args);
-        typeCtx.set((type.value as any).value.id as bigint, ret);
-        inner = createJSONDecoder((type.value as any).value.inner, frozen, typeCtx);
+        const wrapper = (type.value as any).value as { id: bigint; inner: EastTypeValue };
+        typeCtx.fns.set(wrapper.id, ret);
+        typeCtx.scope.set(wrapper.id, wrapper.inner);
+        inner = createJSONDecoder(wrapper.inner, frozen, typeCtx);
         return ret;
     } else if (type.type === "Recursive") {
-        const ret = typeCtx.get((type.value as any).value as bigint);
+        const ret = typeCtx.fns.get((type.value as any).value as bigint);
         if (ret === undefined) {
             throw new Error(`Internal error: Recursive type context not found`);
         }

@@ -35,6 +35,9 @@ const LinkedListType = RecursiveType((self: any) => VariantType({
     cons: StructType({ head: IntegerType, tail: self }),
 }));
 
+/** The ordinary linked list: an Option of the struct itself, flat at every depth. */
+const ChainType = RecursiveType((self: any) => StructType({ head: IntegerType, next: OptionType(self) }));
+
 /** The corpus both directions are pinned against. */
 const CORPUS: [string, EastType][] = [
     ["Null", NullType],
@@ -61,6 +64,19 @@ const CORPUS: [string, EastType][] = [
     }))],
     ["recursive", LinkedListType],
     ["Array<recursive>", ArrayType(LinkedListType)],
+    // Every form an Option takes: flat over each kind of payload, and tagged
+    // over the two payloads that can themselves be null.
+    ["Option<Integer>", OptionType(IntegerType)],
+    ["Option<Float>", OptionType(FloatType)],
+    ["Option<Null>", OptionType(NullType)],
+    ["Option<Option<String>>", OptionType(OptionType(StringType))],
+    ["Option<Variant>", OptionType(VariantType({ ok: NullType, err: StringType }))],
+    ["Option<Struct>", OptionType(StructType({ a: IntegerType }))],
+    ["Array<Option<String>>", ArrayType(OptionType(StringType))],
+    ["Dict<String,Option<Integer>>", DictType(StringType, OptionType(IntegerType))],
+    ["Option<recursive>", OptionType(LinkedListType)],
+    ["chain", ChainType],
+    ["Option<chain>", OptionType(ChainType)],
 ];
 
 const DRAFTS: JsonSchemaDraft[] = ["2020-12", "draft-07", "openapi-3.0"];
@@ -151,6 +167,46 @@ describe("typeFromJsonSchema", () => {
             // promise to round-trip.
             const T = typeFromJsonSchema({ type: "array", items: { type: "string" }, uniqueItems: true });
             assert.ok(isTypeEqual(T, ArrayType(StringType)));
+        });
+
+        test("reads nullable beside a type as an Option of it", () => {
+            // East JSON writes a none whose payload cannot be null as null, so
+            // the nulls the contract permits are exactly what the reader accepts.
+            assert.ok(isTypeEqual(typeFromJsonSchema({ type: "string", nullable: true }), OptionType(StringType)));
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ type: "array", items: { type: "integer" }, nullable: true }),
+                OptionType(ArrayType(IntegerType))));
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ $ref: "#/$defs/L", nullable: true, $defs: { L: { type: "string" } } }),
+                OptionType(StringType)));
+            assert.ok(isTypeEqual(typeFromJsonSchema({
+                nullable: true,
+                oneOf: [{
+                    type: "object", properties: { type: { const: "ok" }, value: { type: "integer" } },
+                    required: ["type", "value"], additionalProperties: false,
+                }],
+            }), OptionType(VariantType({ ok: IntegerType }))));
+            assert.ok(isTypeEqual(typeFromJsonSchema({ "x-east-type": "Integer", nullable: true }), OptionType(IntegerType)));
+            // `nullable: false` asserts nothing.
+            assert.ok(isTypeEqual(typeFromJsonSchema({ type: "string", nullable: false }), StringType));
+        });
+
+        test("leaves nullable alone beside a spelling that already admits null", () => {
+            // Wrapping these would make their nulls a tagged none, which is not
+            // what the document says.
+            assert.ok(isTypeEqual(typeFromJsonSchema({ type: "null", nullable: true }), NullType));
+            assert.ok(isTypeEqual(typeFromJsonSchema({ type: ["string", "null"], nullable: true }), OptionType(StringType)));
+            const flat = jsonSchemaFor(OptionType(StringType), { draft: "openapi-3.0" });
+            assert.ok(isTypeEqual(typeFromJsonSchema({ ...flat, nullable: true }), OptionType(StringType)));
+        });
+
+        test("reads one type beside null in a type union as an Option of it", () => {
+            assert.ok(isTypeEqual(typeFromJsonSchema({ type: ["string", "null"] }), OptionType(StringType)));
+            assert.ok(isTypeEqual(typeFromJsonSchema({ type: ["null", "integer"] }), OptionType(IntegerType)));
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ type: ["object", "null"], properties: { a: { type: "string" } }, required: ["a"], additionalProperties: false }),
+                OptionType(StructType({ a: StringType }))));
+            assert.ok(isTypeEqual(typeFromJsonSchema({ type: ["null"] }), NullType));
         });
     });
 
@@ -376,25 +432,23 @@ describe("typeFromJsonSchema", () => {
             }, /"b" is optional.*model it as an Option/, "/properties/b");
         });
 
-        test("refuses a union of primitive types", () => {
-            refuses({ type: ["string", "null"] }, /East unions are discriminated variants/, "/type");
+        test("refuses a union of more than one type, with or without null", () => {
+            // Only one type beside "null" has an East reading, as an Option.
+            refuses({ type: ["string", "integer"] },
+                /East unions are discriminated variants, and only one type beside "null" reads, as an Option/, "/type");
+            refuses({ type: ["string", "integer", "null"] },
+                /cannot express a union of primitive types \[string, integer, null\]/, "/type");
         });
 
-        test("refuses nullable beside a type, rather than dropping it", () => {
-            // East JSON has no bare null for a String, so accepting this would
-            // admit a contract whose nulls the reader then refuses.
-            refuses({ type: "string", nullable: true }, /cannot express "nullable" beside a type/, "/nullable");
-            refuses({ $ref: "#/$defs/L", nullable: true, $defs: { L: { type: "string" } } },
-                /cannot express "nullable" beside a type/, "/nullable");
-            refuses({
-                nullable: true,
-                oneOf: [{
-                    type: "object", properties: { type: { const: "ok" }, value: { type: "integer" } },
-                    required: ["type", "value"], additionalProperties: false,
-                }],
-            }, /cannot express "nullable" beside a type/, "/nullable");
-            // `nullable: false` asserts nothing.
-            assert.ok(isTypeEqual(typeFromJsonSchema({ type: "string", nullable: false }), StringType));
+        test("refuses a malformed Option annotation, pointing at its oneOf", () => {
+            refuses({ "x-east-type": "Option", oneOf: [{ type: "string" }] },
+                /needs an Option's "oneOf" to hold exactly two alternatives/, "/oneOf");
+            refuses({ "x-east-type": "Option", oneOf: [{ type: "string" }, { type: "integer" }] },
+                /needs an Option's "oneOf" to hold one null alternative and one payload/, "/oneOf");
+            refuses({ "x-east-type": "Option", oneOf: [{ type: "null" }, { type: "null" }] },
+                /needs an Option's "oneOf" to hold one null alternative and one payload/, "/oneOf");
+            refuses({ "x-east-type": "Option", oneOf: [{ type: "null" }, { not: { type: "string" } }] },
+                /have no negation/, "/oneOf/1/not");
         });
 
         test("treats an explicit null as present, never as absent", () => {
@@ -403,7 +457,7 @@ describe("typeFromJsonSchema", () => {
             refuses({ type: "array", items: null }, /expected items to be a schema object/, "/items");
             refuses({ $schema: null, type: "string" }, /expected "\$schema" to be a string/, "/$schema");
             refuses({ type: null }, /does not recognise the type "null"/, "/type");
-            refuses({ type: null, nullable: true }, /cannot express "nullable" beside a type/, "/nullable");
+            refuses({ type: null, nullable: true }, /does not recognise the type "null"/, "/type");
             refuses(
                 { type: "object", properties: null, additionalProperties: false },
                 /expected properties to be a schema object/, "/properties");
