@@ -229,9 +229,18 @@ export function normalizeFramePath(raw: string): string {
   }
 }
 
-function capture_stack_frames(): Location[] {
-  const err = new Error();
-  const stack = err.stack;
+/**
+ * Parse a stack string into the author's source locations, innermost first.
+ *
+ * The filtering is the same one {@link get_location} applies while building a
+ * node: East's own frames, node internals and installed packages drop out, so
+ * the result heads with the line the author wrote.
+ *
+ * @param stack - An `Error.stack` string, or undefined
+ * @returns The author's locations, innermost first; empty when the stack is
+ *          absent or holds no author frame
+ */
+export function locationsFromStack(stack: string | undefined): Location[] {
   if (!stack) return [];
 
   const lines = stack.split('\n').slice(1); // Skip "Error" line
@@ -251,6 +260,10 @@ function capture_stack_frames(): Location[] {
   }
 
   return frames;
+}
+
+function capture_stack_frames(): Location[] {
+  return locationsFromStack(new Error().stack);
 }
 
 export function get_location(): Location[] {

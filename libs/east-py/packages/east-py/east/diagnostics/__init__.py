@@ -19,11 +19,14 @@ are East bodies (``east.diagnostics.scope``), which names hold expressions
 inside them, and what python does to those names. Type inference of the
 expressions themselves is the build's job and is not repeated here.
 
-Three surfaces, one engine:
+One engine, several surfaces:
 
 - ``run_east_rules(source, filename)`` — the API (and ``lint_paths`` over a tree);
 - ``east-py lint <paths>`` — the CLI, and a flake8 plugin (``EAS`` codes);
-- ``east-py lsp`` — a Language Server (pygls) publishing the same diagnostics.
+- ``east-py lsp`` — a Language Server (pygls) publishing the same diagnostics,
+  plus the BUILD tier (``east-py check``) that runs the module and reports the
+  builder's own errors — the type errors these rules cannot see;
+- a ``python-lsp-server`` plugin carrying the rules.
 
 A line ending in ``# noqa`` or ``# noqa: EAS001, …`` suppresses its
 diagnostics, as under flake8/ruff. A file that does not import ``east`` is
@@ -38,9 +41,10 @@ import re
 from collections.abc import Iterable
 from pathlib import Path
 
+from east.diagnostics.config import EastPyConfig, find_pyproject, load_config
 from east.diagnostics.rules import ALL_RULES, RULES_BY_NAME
 from east.diagnostics.scope import collect_bodies, collect_module_scope, is_east_module
-from east.diagnostics.types import CODE_PREFIX, Body, Context, Diagnostic, Rule
+from east.diagnostics.types import CODE_PREFIX, Body, Context, Diagnostic, ModuleRule, Rule
 
 __all__ = [
     "ALL_RULES",
@@ -49,7 +53,11 @@ __all__ = [
     "Rule",
     "run_east_rules",
     "lint_paths",
+    "python_files",
     "DEFAULT_EXCLUDES",
+    "EastPyConfig",
+    "find_pyproject",
+    "load_config",
 ]
 
 _NOQA = re.compile(r"#\s*noqa(?::\s*([A-Za-z0-9_,\s-]+))?\s*$")
@@ -87,6 +95,11 @@ def run_east_rules(source: str, filename: str = "<string>", *,
     off = set(disabled)
     rules = [r for r in ALL_RULES if r.name not in off]
 
+    # module scope first: the build-time concerns that sit in no body
+    for rule in rules:
+        if isinstance(rule, ModuleRule):
+            rule.check_module(ctx)
+
     def visit(body: Body) -> None:
         for rule in rules:
             rule.check(body, ctx)
@@ -121,9 +134,8 @@ def lint_paths(paths: Iterable[str | os.PathLike[str]], *, disabled: Iterable[st
         ``{path: diagnostics}`` for the files with at least one diagnostic,
         paths sorted.
     """
-    skip = set(excludes)
     out: dict[str, list[Diagnostic]] = {}
-    for file in sorted(_python_files(paths, skip)):
+    for file in python_files(paths, excludes):
         try:
             source = Path(file).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:
@@ -135,7 +147,12 @@ def lint_paths(paths: Iterable[str | os.PathLike[str]], *, disabled: Iterable[st
     return out
 
 
-def _python_files(paths: Iterable[str | os.PathLike[str]], skip: set[str]) -> list[Path]:
+def python_files(paths: Iterable[str | os.PathLike[str]],
+                 excludes: Iterable[str] = DEFAULT_EXCLUDES) -> list[Path]:
+    """Every ``.py`` file under ``paths`` (files or directories), sorted — the
+    walk ``east-py lint`` and ``east-py check`` share, skipping the excluded
+    directory names."""
+    skip = set(excludes)
     files: list[Path] = []
     for p in paths:
         path = Path(p)
@@ -146,4 +163,4 @@ def _python_files(paths: Iterable[str | os.PathLike[str]], skip: set[str]) -> li
         for root, dirs, names in os.walk(path):
             dirs[:] = sorted(d for d in dirs if d not in skip)
             files.extend(Path(root) / n for n in sorted(names) if n.endswith(".py"))
-    return files
+    return sorted(files)

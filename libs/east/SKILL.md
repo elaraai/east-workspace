@@ -1,6 +1,6 @@
 ---
 name: east
-description: "East programming language - a statically typed, expression-based language embedded in TypeScript. Use when writing East programs with @elaraai/east. Triggers for: (1) Writing East functions with East.function() or East.asyncFunction(), (2) Defining types (IntegerType, StringType, ArrayType, StructType, VariantType, etc.), (3) Using platform functions with East.platform() or East.asyncPlatform(), (4) Compiling East programs with East.compile(), (5) Working with East expressions (arithmetic, collections, control flow), (6) Serializing East IR with .toIR() and EastIR.fromJSON(), (7) Standard library operations (formatting, rounding, generation), (8) Printing IR back as East.function source with East.toSource() / east-node transpile (and the python twin), (9) Calling a function authored in python (or exporting one for python) with East.importFunction / East.exportFunctions and east-node export-functions."
+description: "East programming language - a statically typed, expression-based language embedded in TypeScript. Use when writing East programs with @elaraai/east. Triggers for: (1) Writing East functions with East.function() or East.asyncFunction(), (2) Defining types (IntegerType, StringType, ArrayType, StructType, VariantType, etc.), (3) Using platform functions with East.platform() or East.asyncPlatform(), (4) Compiling East programs with East.compile(), (5) Working with East expressions (arithmetic, collections, control flow), (6) Serializing East IR with .toIR() and EastIR.fromJSON(), (7) Standard library operations (formatting, rounding, generation), (8) Printing IR back as East.function source with East.toSource() / east-node transpile (and the python twin), (9) Calling a function authored in python (or exporting one for python) with East.importFunction / East.exportFunctions and east-node export-functions, (10) Checking that a module's East functions BUILD — `east-node check` reports the build's own errors (a wrong declared output, a refused capture, an IRAnalysisError) at their lines, which tsc cannot see — and serving the diagnostics to an editor with `east-node lsp`."
 ---
 
 # East Language
@@ -214,6 +214,13 @@ Task → What do you need?
     │   ├─ Apply patch → East.applyPatch(value, patch) → returns patched value
     │   ├─ Compose patches → East.composePatch(first, second, type) → returns combined patch
     │   └─ Invert patch → East.invertPatch(patch, type) → returns undo patch
+    │
+    ├─ Diagnostics — what tsc CANNOT see
+    │   ├─ East idiom mistakes at edit time → `@elaraai/tsserver-plugin-east` (editor squiggles) · `@elaraai/eslint-plugin-east`'s
+    │   │   `east/east-rules` in `make lint` · the Claude plugin's language server
+    │   └─ The BUILD's own errors (a body whose type differs from the declared output, a capture the builder refuses, an
+    │       IRAnalysisError) → `east-node check dist/mod.js` — imports the module and reports EVERY broken function at its
+    │       line; `--format json` matches `east-py check`. `east-node lsp` serves the diagnostics over stdio (see east-py for the python twins)
     │
     └─ Serialization
         ├─ IR → fn.toIR(), ir.toJSON(), EastIR.fromJSON(data).compile(platform)
@@ -449,6 +456,27 @@ east-py transpile double.beast2 -o double.py               # the python twin (to
   name (`($, x) =>` for a `(value, index)` callback) prints as `_N`.
 - The contract, the construct table and the three round-trip suites:
   `docs/conventions/EAST_CODEGEN.md`.
+
+### Checking that a module builds: `east-node check`
+
+`tsc` type-checks the TypeScript AROUND an East program; it does not build the
+program. East's own refusals happen when `East.function` runs at module load —
+a body whose expression type differs from the declared output, a capture the
+builder rejects, an `IRAnalysisError` — and nothing surfaces them until
+something imports the module.
+
+```bash
+east-node check dist/index.js                 # every broken function, at its line
+east-node check dist/index.js --format json   # the records `east-py check --format json` emits
+east-node lsp                                 # the diagnostics over stdio (needs @elaraai/east-diagnostics)
+```
+
+- It reports **every** broken function, not the first: the builders are
+  decorated for the duration of one import so a failure is recorded and
+  replaced by a placeholder rather than thrown.
+- Importing a module runs it, so `EAST_CHECK=1` is set for the duration and a
+  module should skip its import-time work when it sees that.
+- `east-py check` is the python twin, same records and same guard.
 
 ### Cross-language functions: `East.importFunction` / `East.exportFunctions`
 

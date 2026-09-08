@@ -1,16 +1,18 @@
 import { readHookInput, writeHookOutput } from "../lib/hook-io.js";
 import { getEastProjectInfo } from "../lib/east-project.js";
-import { EAST_RULES_CONTEXT } from "../lib/east-rules-context.js";
+import { eastRulesContextFor } from "../lib/east-rules-context.js";
 
 async function main() {
   const event = await readHookInput();
   const cwd = event.cwd || process.cwd();
 
-  const { isEast, skills } = await getEastProjectInfo(cwd);
+  const { isEast, skills, languages } = await getEastProjectInfo(cwd);
   if (!isEast) process.exit(0);
 
   const skillList = skills.map((s) => `/east:${s}`).join(", ");
-  const packageList = skills.map((s) => `@elaraai/${s}`).join(", ");
+  const packageList = skills
+    .map((s) => (s.startsWith("east-py") ? `elaraai-${s}` : `@elaraai/${s}`))
+    .join(", ");
 
   const context = [
     `This is an East project using ${packageList}.`,
@@ -22,7 +24,7 @@ async function main() {
     "- East is a statically typed, expression-based language embedded in TypeScript — it has unique patterns that differ from regular TypeScript.",
     `- Available skills: ${skillList}`,
     "",
-    EAST_RULES_CONTEXT,
+    eastRulesContextFor(languages),
   ].join("\n");
 
   writeHookOutput("SubagentStart", context);

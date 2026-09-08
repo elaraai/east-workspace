@@ -50,7 +50,8 @@
     "tar-stream": "^3.1.7"
   },
   "peerDependencies": {
-    "@elaraai/east": "workspace:*"
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-diagnostics": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.18.1",
@@ -60,5 +61,10 @@
     "eslint": "^9.34.0",
     "eslint-plugin-headers": "^1.3.3",
     "typescript": "~5.9.2"
+  },
+  "peerDependenciesMeta": {
+    "@elaraai/east-diagnostics": {
+      "optional": true
+    }
   }
 }

@@ -31,3 +31,60 @@ export const EAST_RULES_CONTEXT: string = [
   "- prefer-jsx-over-factory-call — in a `.tsx` file, avoid `Foo.Root(...)`; author the `<Foo>` tag.",
   "- no-relative-src-import — avoid importing another package via `../src` or `@elaraai/x/src`; use its published package name.",
 ].join("\n");
+
+// The python twin, covering `east.diagnostics` (`east-py lint`, the flake8
+// plugin, the language server). Spelled in python: the block is `b`, not `$`;
+// bodies take the block first; the strict expression surface (#625) REFUSES
+// most of these at build time rather than merely discouraging them.
+//
+// Keep in sync with libs/east-py/packages/east-py/east/diagnostics/rules.
+export const EAST_RULES_CONTEXT_PY: string = [
+  "What the East python linter checks — `east-py lint`, the flake8 `EAS` codes and the language server all run the SAME rules, so author to these from the start. Inside an `East.function` body the code must be East all the way down, and most of these are BUILD-TIME REFUSALS said early, not style notes:",
+  "",
+  "Body shape (the strict surface):",
+  "- body-takes-block-first — every body takes the block first: `lambda b, x: …` / `def f(b, x)`, never `lambda x: …`; the block is for statements, so `b.price` is not a field read.",
+  "- no-statement-on-outer-block — inside a nested body use THAT body's block: `lambda b: b.assign(...)`, not `lambda _b: b.assign(...)` reaching outward.",
+  "- no-discarded-expression — a bare expression statement is built and thrown away; append it with `b.do(...)` or return it.",
+  "",
+  "Python that cannot be traced (the build refuses these):",
+  "- no-python-boolean — avoid `and` / `or` / `not` / `if` / `in` / `len()` / iteration / `int()` / `float()` over an expression; use `&`, `|`, `~`, `b.if_(...)` / `East.if_else(...)`, and the expression's own methods.",
+  "- no-python-formatting — avoid f-strings / `str()` / `format()` / `%` over an expression; build strings with `+`, or `East.String.print(T, value)`.",
+  "- no-operator-fork — avoid `//`, `%`, `**` and `a[-1]` on an expression; call `East.Integer.divide` / `remainder` / `pow`, and spell the element you mean.",
+  "- no-python-round — avoid `round(x)` (ties-to-even); call `East.Float.round_half` / `round_floor` / `round_ceil` / `round_trunc`.",
+  "- no-python-work — avoid an eager callback reaching for a module, an installed package, or a python `def` doing work; express it in East.",
+  "- no-deprecated-alias — use the canonical spelling (e.g. `.reduce()`, not `.fold()`).",
+  "",
+  "Bindings & values:",
+  "- no-let-const-in-expression — give `b.let` / `b.const` its own statement; don't bury a declaration inside an expression.",
+  "- prefer-explicit-east-type — a bare python list / set / tuple in `b.let(...)` / `b.const(...)` cannot be lifted (the build refuses it, empty or not); pass the East type, e.g. `b.let([], ArrayType(IntegerType))`, or build it with `East.new_array`.",
+  "- no-untracked-east-data — avoid a plain python literal local reaching an expression's method; bind it with `b.const(rows, Type)`.",
+  "- no-redundant-east-cast — avoid `b.let(East.value(x, T), T)`; pass the value and type to `b.let` directly.",
+  "- prefer-let-const-over-east-value — inside a body declare with `b.const(value, Type)` / `b.let`, not `East.value(...)`.",
+  "",
+  "Variants & comparison:",
+  "- prefer-some-none — avoid `variant(\"some\", x)` / `variant(\"none\", None)`; use `some(x)` / `none`.",
+  "- no-handrolled-variant — avoid a `{\"type\": …, \"value\": …}` dict reaching East (a body, `East.value`, `coerce_to`, `array`); use `variant(\"Tag\", value, Type)` — the encoder needs what it constructs.",
+  "- no-host-comparison-on-east-values — outside a body, never `<` / `>` a decoded variant or option: it raises TypeError; use `compare_for(T)` / `less_for(T)` (and `make_east_key(T)` for `sorted`). `==` is structural and fine.",
+  "",
+  "Build time vs runtime (python computing what East should declare):",
+  "- no-build-time-clock — avoid `datetime.now()` / `time.time()` at module scope; author the constant, or read the clock at runtime (a platform function, or `east_py_std`'s `time_now()` in a body).",
+  "- no-compile-time-data-injection — avoid `open()` / `json.load` / `os.environ` at module import when the result reaches East; load at runtime (an e3 input, a dataset, a platform function, `east_py_std`'s `env_get`).",
+  "- no-inline-credentials — avoid a literal password / token; read it at runtime — `east_py_std`'s `env_get(\"YOUR_VAR\")` in a body, `os.environ` in a platform function — since IR is content-addressed and replicated.",
+  "- no-module-scope-east-macro — avoid a module-scope helper a body calls to build IR, or to assemble a composite `f\"{a}|{b}\"` key; make it an `East.function`, or model typed / nested East data.",
+  "- no-python-east-data — avoid assembling East rows with a module-scope comprehension or loop; write them out, or produce them at runtime.",
+  "- no-python-string-building — avoid an f-string assembling an East string constant (a regex, a template, a key); spell the constant out.",
+  "- no-derived-struct-fields — avoid declaring a type from another type's fields; a declaration is a wire format, so spell the fields.",
+  "- no-python-data-work — avoid a python helper doing the parse / strip / null-check / coerce work on an expression a body hands it; express it in East.",
+].join("\n");
+
+/** The cheat-sheet(s) for the detected language(s) — both, for a project that
+ * is both. An unknown/empty language list falls back to TypeScript, which is
+ * what a project with an `@elaraai/*` dependency and no python is. */
+export function eastRulesContextFor(languages: readonly string[]): string {
+  const python = languages.includes("python");
+  const typescript = languages.includes("typescript") || !python;
+  const parts: string[] = [];
+  if (typescript) parts.push(EAST_RULES_CONTEXT);
+  if (python) parts.push(EAST_RULES_CONTEXT_PY);
+  return parts.join("\n\n");
+}

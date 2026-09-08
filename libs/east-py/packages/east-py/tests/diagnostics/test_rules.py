@@ -265,6 +265,27 @@ class TestOneMessageTwoMoments:
         exec(compile(source, "moment.py", "exec"), {})  # builds
         assert "b.do(...)" in _messages(source, "no-discarded-expression")[0]
 
+    def test_a_python_list_in_b_let_is_the_lift_refusal(self):
+        """The build cannot lift a bare python list, empty or not; the rule's
+        message opens with the build's."""
+        source = ("from east import East, IntegerType\n"
+                  "@East.function([IntegerType], IntegerType)\n"
+                  "def f(b, x):\n"
+                  "    xs = b.let([1, 2, 3])\n"
+                  "    return x\n")
+        assert _messages(source, "prefer-explicit-east-type")[0].startswith(_build(source))
+
+    def test_host_ordering_on_a_decoded_option_raises(self):
+        source = "from east import some\nordered = some(3) < some(4)\n"
+        with pytest.raises(TypeError):
+            exec(compile(source, "moment.py", "exec"), {})
+        assert "TypeError" in _messages(source, "no-host-comparison-on-east-values")[0]
+
+    def test_host_equality_on_a_decoded_variant_is_structural_and_not_flagged(self):
+        source = "from east import some\nsame = some(3) == some(3)\nassert same\n"
+        exec(compile(source, "moment.py", "exec"), {})
+        assert diagnose(source) == []
+
     def test_deprecated_alias(self):
         source = ("from east import East, ArrayType, IntegerType\n"
                   "@East.function([ArrayType(IntegerType)], IntegerType)\n"
@@ -332,3 +353,32 @@ def test_lint_paths_walks_a_tree_and_skips_the_excluded_directories(tmp_path):
     # a file path is linted as given; an excluded name only applies to directories walked
     assert list(lint_paths([tmp_path / "tests" / "bad.py"])) == [str(tmp_path / "tests" / "bad.py")]
     assert lint_paths([tmp_path], excludes=(*DEFAULT_EXCLUDES, "pkg")) == {}
+
+
+# ── the fixtures are real East ───────────────────────────────────────────────
+#
+# Every ok fixture must BUILD: a correct spelling the build refuses is a rule
+# recommending something that does not exist. A bad fixture builds or raises
+# as its rule's category says — an ERROR rule mirrors a refusal, so its bad
+# fixture raises; a warning or suggestion is something the build accepts.
+
+
+def _exec_fixture(path: Path) -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        exec(compile(path.read_text(), str(path), "exec"), {"__name__": "fixture", "__file__": str(path)})
+
+
+@pytest.mark.parametrize("rule", ALL_RULES, ids=RULE_IDS)
+def test_ok_fixtures_are_real_east(rule):
+    _exec_fixture(FIXTURES / rule.name / "ok.py")
+
+
+@pytest.mark.parametrize("rule", ALL_RULES, ids=RULE_IDS)
+def test_bad_fixtures_build_or_refuse_as_the_category_says(rule):
+    path = FIXTURES / rule.name / "bad.py"
+    if rule.category == "error":
+        with pytest.raises((ExpressionError, TypeError)):
+            _exec_fixture(path)
+    else:
+        _exec_fixture(path)

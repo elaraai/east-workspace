@@ -18,7 +18,15 @@
       ],
       "extensionToLanguage": {
         ".ts": "typescript",
-        ".tsx": "typescriptreact",
+        ".tsx": "typescriptreact"
+      }
+    },
+    "east-py": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/.build/daemon/east-py-lsp.js"
+      ],
+      "extensionToLanguage": {
         ".py": "python"
       }
     }

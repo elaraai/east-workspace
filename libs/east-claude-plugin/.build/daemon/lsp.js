@@ -2807,62 +2807,50 @@ function createDiagnosticsService(options = {}) {
 import { readFileSync as readFileSync2 } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// ../east-diagnostics/dist/src/python-lint.js
-import { execFile } from "node:child_process";
-import { existsSync as existsSync3, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, dirname as dirname3, join as join4 } from "node:path";
-var PYTHON_EAST_IMPORT = /^\s*(?:from\s+east(?:\.[\w.]+)?\s+import\b|import\s+east\b)/m;
-function findEastPy(fromDir) {
-  const override = process.env["EAST_PY_LINT"];
-  if (override !== void 0 && override !== "")
-    return override;
-  let dir = fromDir;
-  for (; ; ) {
-    for (const candidate of [join4(dir, ".venv", "bin", "east-py"), join4(dir, ".venv", "Scripts", "east-py.exe")]) {
-      if (existsSync3(candidate))
-        return candidate;
-    }
-    const parent = dirname3(dir);
-    if (parent === dir)
-      return "east-py";
-    dir = parent;
-  }
+// ../east-diagnostics/dist/src/jsonrpc-stdio.js
+function frame(message) {
+  const body = JSON.stringify({ jsonrpc: "2.0", ...message });
+  return `Content-Length: ${Buffer.byteLength(body, "utf8")}\r
+\r
+${body}`;
 }
-function runEastPyLint(file, content, budgetMs = 4e3) {
-  const command = findEastPy(dirname3(file));
-  let target = file;
-  let scratch = null;
-  if (content !== void 0) {
-    scratch = mkdtempSync(join4(tmpdir(), "east-py-lint-"));
-    target = join4(scratch, basename(file));
-    writeFileSync(target, content, "utf-8");
+var FrameReader = class {
+  onMessage;
+  buffer = Buffer.alloc(0);
+  constructor(onMessage) {
+    this.onMessage = onMessage;
   }
-  return new Promise((resolveFindings) => {
-    execFile(
-      command,
-      ["lint", "--format", "json", target],
-      // UTF-8 stdio: python encodes a piped stdout in the locale's code page on Windows (cp1252), and the findings carry em dashes
-      { timeout: budgetMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
-      (error, stdout) => {
-        if (scratch !== null)
-          rmSync(scratch, { recursive: true, force: true });
-        if (error !== null && error.code !== 1) {
-          resolveFindings(null);
-          return;
-        }
-        let records;
-        try {
-          records = JSON.parse(stdout);
-        } catch {
-          resolveFindings(null);
-          return;
-        }
-        resolveFindings(Array.isArray(records) ? records : null);
+  push(chunk) {
+    this.buffer = Buffer.concat([this.buffer, chunk]);
+    for (; ; ) {
+      const headerEnd = this.buffer.indexOf("\r\n\r\n");
+      if (headerEnd < 0)
+        return;
+      const header = this.buffer.subarray(0, headerEnd).toString("utf8");
+      const match = /Content-Length:\s*(\d+)/i.exec(header);
+      if (match === null) {
+        this.buffer = this.buffer.subarray(headerEnd + 4);
+        continue;
       }
-    );
-  });
-}
+      const length = Number(match[1]);
+      const bodyStart = headerEnd + 4;
+      if (this.buffer.length < bodyStart + length)
+        return;
+      const body = this.buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
+      this.buffer = this.buffer.subarray(bodyStart + length);
+      let message;
+      try {
+        message = JSON.parse(body);
+      } catch {
+        continue;
+      }
+      this.onMessage(message);
+    }
+  }
+  reset() {
+    this.buffer = Buffer.alloc(0);
+  }
+};
 
 // ../east-diagnostics/dist/src/lsp.js
 var EAST_IMPORT_PATTERN = /@elaraai\//;
@@ -2911,31 +2899,7 @@ function runEastLsp(options = {}) {
   const pending = /* @__PURE__ */ new Map();
   let shuttingDown = false;
   function send(message) {
-    const body = JSON.stringify({ jsonrpc: "2.0", ...message });
-    output.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r
-\r
-${body}`);
-  }
-  function publishPython(path, content) {
-    if (content === void 0 || SKIP_PATH.test(path) || !PYTHON_EAST_IMPORT.test(content)) {
-      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics: [] } });
-      return;
-    }
-    void runEastPyLint(path, open.has(path) ? content : void 0).then((records) => {
-      if (records === null)
-        return;
-      const diagnostics = records.map((r) => ({
-        range: {
-          start: { line: r.line - 1, character: r.column - 1 },
-          end: { line: (r.end_line ?? r.line) - 1, character: (r.end_column ?? r.column + 1) - 1 }
-        },
-        severity: SEVERITY[r.category] ?? 2,
-        code: r.rule,
-        source: "east-py",
-        message: r.message
-      }));
-      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics } });
-    });
+    output.write(frame(message));
   }
   function publish(path) {
     const content = open.get(path) ?? (() => {
@@ -2945,10 +2909,6 @@ ${body}`);
         return void 0;
       }
     })();
-    if (path.endsWith(".py")) {
-      publishPython(path, content);
-      return;
-    }
     let diagnostics = [];
     if (content !== void 0 && !SKIP_PATH.test(path) && EAST_IMPORT_PATTERN.test(content)) {
       const starts = lineStarts(content);
@@ -2976,6 +2936,12 @@ ${body}`);
       } catch {
       }
     }, DEBOUNCE_MS));
+  }
+  function notOurs(path) {
+    if (!path.endsWith(".py"))
+      return false;
+    send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics: [] } });
+    return true;
   }
   function handle(message) {
     const { method, id, params } = message;
@@ -3021,16 +2987,17 @@ ${body}`);
         send({ id, result: null });
         return;
       case "exit":
-        exit(shuttingDown ? 0 : 1);
+        shutdown(shuttingDown ? 0 : 1);
         return;
       case "textDocument/didOpen": {
         const path = uriToPath(params?.textDocument?.uri ?? "");
         const text = params?.textDocument?.text;
         if (path === void 0 || typeof text !== "string")
           return;
+        if (notOurs(path))
+          return;
         open.set(path, text);
-        if (!path.endsWith(".py"))
-          service.setOverlay(path, text);
+        service.setOverlay(path, text);
         schedule(path);
         return;
       }
@@ -3039,9 +3006,10 @@ ${body}`);
         const text = params?.contentChanges?.at?.(-1)?.text;
         if (path === void 0 || typeof text !== "string")
           return;
+        if (notOurs(path))
+          return;
         open.set(path, text);
-        if (!path.endsWith(".py"))
-          service.setOverlay(path, text);
+        service.setOverlay(path, text);
         schedule(path);
         return;
       }
@@ -3049,15 +3017,15 @@ ${body}`);
         const path = uriToPath(params?.textDocument?.uri ?? "");
         if (path === void 0)
           return;
+        if (notOurs(path))
+          return;
         const text = params?.text;
         if (typeof text === "string") {
           open.set(path, text);
-          if (!path.endsWith(".py"))
-            service.setOverlay(path, text);
+          service.setOverlay(path, text);
         } else {
           open.delete(path);
-          if (!path.endsWith(".py"))
-            service.clearOverlay(path);
+          service.clearOverlay(path);
         }
         schedule(path);
         return;
@@ -3083,33 +3051,16 @@ ${body}`);
         return;
     }
   }
-  let buffer = Buffer.alloc(0);
-  input.on("data", (chunk) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    for (; ; ) {
-      const headerEnd = buffer.indexOf("\r\n\r\n");
-      if (headerEnd < 0)
-        return;
-      const header = buffer.subarray(0, headerEnd).toString("utf8");
-      const match = /Content-Length:\s*(\d+)/i.exec(header);
-      if (match === null) {
-        buffer = buffer.subarray(headerEnd + 4);
-        continue;
-      }
-      const length = Number(match[1]);
-      const bodyStart = headerEnd + 4;
-      if (buffer.length < bodyStart + length)
-        return;
-      const body = buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
-      buffer = buffer.subarray(bodyStart + length);
-      try {
-        handle(JSON.parse(body));
-      } catch {
-      }
+  const reader = new FrameReader((message) => {
+    try {
+      handle(message);
+    } catch {
     }
   });
-  input.on("close", () => exit(0));
-  input.on("end", () => exit(0));
+  input.on("data", (chunk) => reader.push(chunk));
+  const shutdown = (code) => exit(code);
+  input.on("close", () => shutdown(0));
+  input.on("end", () => shutdown(0));
 }
 
 // daemon/lsp.ts

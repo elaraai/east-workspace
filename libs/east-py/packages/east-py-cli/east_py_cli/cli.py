@@ -5,6 +5,7 @@
 """CLI argument parsing and main entry point."""
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -170,12 +171,33 @@ def create_parser() -> argparse.ArgumentParser:
     lint_parser.add_argument(
         "--list-rules", action="store_true", help="List the rules and exit")
 
-    # lsp command (#638): the same diagnostics for an editor
-    subparsers.add_parser(
-        "lsp",
-        help="Serve the East diagnostics as a Language Server over stdio (needs pygls: "
-        "pip install 'elaraai-east-py-cli[lsp]')",
+    # check command (#653): the BUILD's own errors — python's type check
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Build a module's East functions and report the build's own errors "
+             "at their lines — the type errors `lint` cannot see",
     )
+    check_parser.add_argument(
+        "targets", nargs="+",
+        help="Modules to check (a .py path, a directory of them, or a dotted module name)")
+    check_parser.add_argument(
+        "--format", choices=("text", "json"), default="text",
+        help="text: one `file:line:col: category [rule] message` line per finding (default); "
+             "json: the findings as records, the shape `lint --format json` emits")
+    check_parser.add_argument(
+        "--only-if-enabled", action="store_true",
+        help="Check only where the project's pyproject.toml opts in ([tool.east-py] check = true) — "
+             "what an editor hook asks before importing a module on the author's behalf")
+
+    # lsp command (#638, #681): the same diagnostics for an editor, both tiers
+    lsp_parser = subparsers.add_parser(
+        "lsp",
+        help="Serve the East diagnostics as a Language Server over stdio (needs pygls)",
+    )
+    lsp_parser.add_argument(
+        "--probe", action="store_true",
+        help="Report whether the server can start here (pygls importable) and exit — for a "
+             "launcher or a health check")
 
     # version command
     version_parser = subparsers.add_parser("version", help="Show version information")
@@ -484,7 +506,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
     """
     import json
 
-    from east.diagnostics import ALL_RULES, DEFAULT_EXCLUDES, RULES_BY_NAME, lint_paths
+    from east.diagnostics import ALL_RULES, DEFAULT_EXCLUDES, RULES_BY_NAME, lint_paths, load_config
 
     if args.list_rules:
         for rule in ALL_RULES:
@@ -500,7 +522,26 @@ def cmd_lint(args: argparse.Namespace) -> int:
     if missing:
         print(f"Error: no such file or directory: {', '.join(missing)}", file=sys.stderr)
         return 2
-    found = lint_paths(paths, disabled=args.disable, excludes=(*DEFAULT_EXCLUDES, *args.exclude))
+    # Per PATH, not once for the first one: `east-py lint pkg-a pkg-b` spans two
+    # uv workspace members, and each carries its own `[tool.east-py]`. Applying
+    # pkg-a's policy to pkg-b silently disabled the wrong rules there.
+    # The flags ADD to whatever the file says, so a one-off `--disable` never
+    # has to restate it.
+    found = {}
+    warned: set[str] = set()
+    for path in paths:
+        config = load_config(path)
+        for name in config.disable:
+            if name not in RULES_BY_NAME and name not in warned:
+                warned.add(name)
+                source = config.source or "pyproject.toml"
+                print(f"Warning: {source}: [tool.east-py] disable names unknown rule {name!r} — "
+                      "see `east-py lint --list-rules`", file=sys.stderr)
+        found.update(lint_paths(
+            [path],
+            disabled=(*config.disable, *args.disable),
+            excludes=(*DEFAULT_EXCLUDES, *config.exclude, *args.exclude),
+        ))
     count = sum(len(ds) for ds in found.values())
     if args.format == "json":
         records = [
@@ -523,12 +564,42 @@ def cmd_lint(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check(args: argparse.Namespace) -> int:
+    """``east-py check``: build the module's East functions (#653).
+
+    Reports every build failure, not just the first — the same JSON records
+    ``lint --format json`` emits, tagged ``build``. Exit 1 when there is any
+    finding, 0 when the module builds clean, 2 for a usage error.
+    """
+    import json
+
+    from east_py_cli.check import check_targets
+
+    for target in args.targets:
+        looks_like_a_path = target.endswith(".py") or os.sep in target or Path(target).exists()
+        if looks_like_a_path and not Path(target).exists():
+            print(f"Error: no such file or directory: {target}", file=sys.stderr)
+            return 2
+    findings = check_targets(args.targets, only_if_enabled=args.only_if_enabled)
+
+    if args.format == "json":
+        print(json.dumps([f.as_record() for f in findings], indent=2))
+        return 1 if findings else 0
+    for finding in findings:
+        print(finding.format(finding.path))
+    if findings:
+        plural = "" if len(findings) == 1 else "s"
+        print(f"Found {len(findings)} build error{plural}.")
+        return 1
+    print("All clear.")
+    return 0
+
+
 def cmd_lsp(args: argparse.Namespace) -> int:
     """``east-py lsp``: serve the diagnostics over the Language Server Protocol."""
-    del args
-    from east_py_cli.lsp import serve
+    from east_py_cli.lsp import probe, serve
 
-    return serve()
+    return probe() if args.probe else serve()
 
 
 def main() -> None:
@@ -540,6 +611,8 @@ def main() -> None:
         cmd_transpile(args)
     elif args.command == "lint":
         sys.exit(cmd_lint(args))
+    elif args.command == "check":
+        sys.exit(cmd_check(args))
     elif args.command == "lsp":
         sys.exit(cmd_lsp(args))
     elif args.command == "export-functions":

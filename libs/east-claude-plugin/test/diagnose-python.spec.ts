@@ -27,7 +27,7 @@ function project(): string {
     message: "python `//` floors; East IntegerDivide truncates — spell it .divide(2)",
   };
   writeFileSync(join(bin, "findings.json"), JSON.stringify([record]));
-  writeFileSync(join(bin, "east-py"), `#!/bin/sh\ncat "$(dirname "$0")/findings.json"\nexit 1\n`);
+  writeFileSync(join(bin, "east-py"), `#!/bin/sh\n# lint answers with the findings; check answers with the build findings (empty unless a file beside says otherwise)\nhere="$(dirname "$0")"\ncase "$1" in\n  lint) cat "$here/findings.json"; exit 1 ;;\n  check) if [ -f "$here/build.json" ]; then cat "$here/build.json"; exit 1; else echo "[]"; exit 0; fi ;;\n  *) echo "[]"; exit 0 ;;\nesac\n`);
   chmodSync(join(bin, "east-py"), 0o755);
   writeFileSync(
     join(dir, "mod.py"),
@@ -37,11 +37,11 @@ function project(): string {
   return dir;
 }
 
-function runHook(file: string): string {
+function runHook(file: string, toolName = "Read"): string {
   const input = JSON.stringify({
     cwd: "/",
     session_id: `test-${Date.now()}-${Math.random()}`, // unique so the per-session content dedupe doesn't self-skip across runs
-    tool_name: "Read",
+    tool_name: toolName,
     tool_input: { file_path: file },
   });
   return execFileSync(process.execPath, [hook], {
@@ -67,6 +67,39 @@ test("diagnose hook leaves a python file that does not import east alone", () =>
   const dir = project();
   try {
     assert.equal(runHook(join(dir, "plain.py")), "");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a python EDIT is reviewed here, not left to the language server (#684)", () => {
+  // The python path through the LSP needs east-py to resolve from the file's
+  // directory and says nothing at all when it does not — reported as "the
+  // python hooks don't fire". The hook covers Edit/Write for python so a
+  // missing server is not silent.
+  const dir = project();
+  try {
+    for (const tool of ["Edit", "Write"]) {
+      const out = runHook(join(dir, "mod.py"), tool);
+      assert.match(out, /<east-code-review>/, `${tool} on a python file must be reviewed`);
+      assert.match(out, /no-operator-fork/);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the build tier's findings join the review, so the hook shows what the language server shows (#653)", () => {
+  const dir = project();
+  try {
+    writeFileSync(join(dir, ".venv", "bin", "build.json"), JSON.stringify([{
+      path: join(dir, "mod.py"), rule: "build", code: "EAS900", category: "error",
+      line: 3, column: 1, end_line: 3, end_column: 2,
+      message: "halve: East.function body produced Integer, declared out is String",
+    }]));
+    const out = runHook(join(dir, "mod.py"));
+    assert.match(out, /no-operator-fork/);
+    assert.match(out, /- \[error\] 3:1 \(build\) halve: East.function body produced Integer/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

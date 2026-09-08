@@ -5,22 +5,17 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createDiagnosticsService, type DiagnosticsService } from "./service.js";
-import { PYTHON_EAST_IMPORT, runEastPyLint } from "./python-lint.js";
+import { frame, FrameReader, type JsonRpcMessage } from "./jsonrpc-stdio.js";
 import type { EastDiagnosticCategory } from "./types.js";
 
-// Minimal LSP server over stdio: full-document sync in, publishDiagnostics
-// out, everything backed by the shared DiagnosticsService — and, for a `.py`
-// document that imports east, by the project's own `east-py lint` (#648).
+// Minimal LSP server over stdio for TypeScript: full-document sync in,
+// publishDiagnostics out, everything backed by the shared DiagnosticsService.
 // Hand-rolled JSON-RPC framing keeps the package dependency-free.
-
-interface JsonRpcMessage {
-  jsonrpc: "2.0";
-  id?: number | string | null;
-  method?: string;
-  params?: any;
-  result?: unknown;
-  error?: { code: number; message: string };
-}
+//
+// Python is NOT this server's: `runEastPyLsp` (python-lsp-server.ts) is its
+// own server with its own lifecycle, registered for `.py` beside this one. A
+// `.py` document that still reaches here — an old manifest — gets an empty
+// publish, never a verdict.
 
 const EAST_IMPORT_PATTERN = /@elaraai\//;
 // Vendored / built / generated trees: never diagnose code the user doesn't own.
@@ -82,30 +77,7 @@ export function runEastLsp(options: EastLspOptions = {}): void {
   let shuttingDown = false;
 
   function send(message: object): void {
-    const body = JSON.stringify({ jsonrpc: "2.0", ...message });
-    output.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
-  }
-
-  /** A python document: the east-py rules, run out of process; published when they answer. */
-  function publishPython(path: string, content: string | undefined): void {
-    if (content === undefined || SKIP_PATH.test(path) || !PYTHON_EAST_IMPORT.test(content)) {
-      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics: [] } });
-      return;
-    }
-    void runEastPyLint(path, open.has(path) ? content : undefined).then((records) => {
-      if (records === null) return; // no east-py answered: say nothing rather than "clean"
-      const diagnostics = records.map((r) => ({
-        range: {
-          start: { line: r.line - 1, character: r.column - 1 },
-          end: { line: (r.end_line ?? r.line) - 1, character: (r.end_column ?? r.column + 1) - 1 },
-        },
-        severity: SEVERITY[r.category] ?? 2,
-        code: r.rule,
-        source: "east-py",
-        message: r.message,
-      }));
-      send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics } });
-    });
+    output.write(frame(message));
   }
 
   function publish(path: string): void {
@@ -116,10 +88,6 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         return undefined;
       }
     })();
-    if (path.endsWith(".py")) {
-      publishPython(path, content);
-      return;
-    }
     let diagnostics: object[] = [];
     if (content !== undefined && !SKIP_PATH.test(path) && EAST_IMPORT_PATTERN.test(content)) {
       const starts = lineStarts(content);
@@ -148,6 +116,13 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         // Never let a diagnose failure kill the server.
       }
     }, DEBOUNCE_MS));
+  }
+
+  /** A python document is another server's: clear it, never judge it. */
+  function notOurs(path: string): boolean {
+    if (!path.endsWith(".py")) return false;
+    send({ method: "textDocument/publishDiagnostics", params: { uri: `file://${path}`, diagnostics: [] } });
+    return true;
   }
 
   function handle(message: JsonRpcMessage): void {
@@ -194,14 +169,15 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         send({ id, result: null });
         return;
       case "exit":
-        exit(shuttingDown ? 0 : 1);
+        shutdown(shuttingDown ? 0 : 1);
         return;
       case "textDocument/didOpen": {
         const path = uriToPath(params?.textDocument?.uri ?? "");
         const text = params?.textDocument?.text;
         if (path === undefined || typeof text !== "string") return;
+        if (notOurs(path)) return;
         open.set(path, text);
-        if (!path.endsWith(".py")) service.setOverlay(path, text);
+        service.setOverlay(path, text);
         schedule(path);
         return;
       }
@@ -209,21 +185,23 @@ export function runEastLsp(options: EastLspOptions = {}): void {
         const path = uriToPath(params?.textDocument?.uri ?? "");
         const text = params?.contentChanges?.at?.(-1)?.text;
         if (path === undefined || typeof text !== "string") return;
+        if (notOurs(path)) return;
         open.set(path, text);
-        if (!path.endsWith(".py")) service.setOverlay(path, text);
+        service.setOverlay(path, text);
         schedule(path);
         return;
       }
       case "textDocument/didSave": {
         const path = uriToPath(params?.textDocument?.uri ?? "");
         if (path === undefined) return;
+        if (notOurs(path)) return;
         const text = params?.text;
         if (typeof text === "string") {
           open.set(path, text);
-          if (!path.endsWith(".py")) service.setOverlay(path, text);
+          service.setOverlay(path, text);
         } else {
           open.delete(path);
-          if (!path.endsWith(".py")) service.clearOverlay(path);
+          service.clearOverlay(path);
         }
         schedule(path);
         return;
@@ -247,31 +225,17 @@ export function runEastLsp(options: EastLspOptions = {}): void {
     }
   }
 
-  // Content-Length framed reader.
-  let buffer = Buffer.alloc(0);
-  input.on("data", (chunk: Buffer) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    for (;;) {
-      const headerEnd = buffer.indexOf("\r\n\r\n");
-      if (headerEnd < 0) return;
-      const header = buffer.subarray(0, headerEnd).toString("utf8");
-      const match = /Content-Length:\s*(\d+)/i.exec(header);
-      if (match === null) {
-        buffer = buffer.subarray(headerEnd + 4);
-        continue;
-      }
-      const length = Number(match[1]);
-      const bodyStart = headerEnd + 4;
-      if (buffer.length < bodyStart + length) return;
-      const body = buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
-      buffer = buffer.subarray(bodyStart + length);
-      try {
-        handle(JSON.parse(body) as JsonRpcMessage);
-      } catch {
-        // Malformed frame — skip it rather than dying mid-session.
-      }
+  const reader = new FrameReader((message) => {
+    try {
+      handle(message);
+    } catch {
+      // Never let one message kill the server.
     }
   });
-  input.on("close", () => exit(0));
-  input.on("end", () => exit(0));
+  input.on("data", (chunk: Buffer) => reader.push(chunk));
+  // The client going away ends the session: a disconnecting client may never
+  // send the `exit` message.
+  const shutdown = (code: number): void => exit(code);
+  input.on("close", () => shutdown(0));
+  input.on("end", () => shutdown(0));
 }

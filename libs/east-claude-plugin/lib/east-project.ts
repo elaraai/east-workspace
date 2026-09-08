@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 
+/** Which language(s) an East project is authored in. A project may be both. */
+export type EastLanguage = "typescript" | "python";
+
 const PACKAGE_SKILL_MAP: Record<string, string> = {
   "@elaraai/east": "east",
   "@elaraai/east-node-std": "east-node-std",
@@ -10,6 +13,16 @@ const PACKAGE_SKILL_MAP: Record<string, string> = {
   "@elaraai/e3": "e3",
   "@elaraai/e3-ui": "e3-ui",
 };
+
+// The python distributions, matched against pyproject.toml / uv.lock text.
+// Ordered longest-first and anchored with a non-name lookahead so
+// `elaraai-east-py-std` never also counts as `elaraai-east-py`.
+const PYTHON_SKILL_MAP: ReadonlyArray<readonly [RegExp, string]> = [
+  [/elaraai-east-py-datascience(?![\w-])/, "east-py-datascience"],
+  [/elaraai-east-py-std(?![\w-])/, "east-py-std"],
+  [/elaraai-east-py-io(?![\w-])/, "east-py-io"],
+  [/elaraai-east-py(?![\w-])/, "east-py"],
+];
 
 interface PackageJson {
   dependencies?: Record<string, string>;
@@ -30,6 +43,41 @@ export async function findPackageJson(startDir: string): Promise<PackageJson | n
   }
 }
 
+/**
+ * The `pyproject.toml` that governs `startDir`, as text: the nearest one at
+ * or above it that depends on an east-py distribution, else the nearest one
+ * at all. A uv workspace member has its own pyproject — that is what makes it
+ * a member — and it usually says nothing about East, so stopping at the first
+ * file found would call every member a non-East project while the root
+ * declares otherwise; the walk continues past a pyproject that does not
+ * mention east-py (the same rule `east.diagnostics.config` applies).
+ *
+ * `uv.lock` is deliberately NOT read. This runs on a hot path — every session
+ * start, every subagent start, every gated write, and every reviewed file — and
+ * a lockfile is large (~1 MB in this repo), so reading one per call to
+ * substring-match it was real work repeated constantly. It was also wrong:
+ * a lockfile lists TRANSITIVE resolutions, so a TypeScript-only project that
+ * merely resolved an East distribution somewhere in its graph was reported as
+ * a python East project and handed the python cheat-sheet. A project that
+ * authors East in python declares it in a `pyproject.toml` of its own.
+ */
+export async function findPyProject(startDir: string): Promise<string | null> {
+  let dir = startDir;
+  let nearest: string | null = null;
+  while (true) {
+    try {
+      const text = await readFile(join(dir, "pyproject.toml"), "utf-8");
+      if (PYTHON_SKILL_MAP.some(([pattern]) => pattern.test(text))) return text;
+      nearest ??= text;
+    } catch {
+      /* no pyproject here: keep walking */
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return nearest;
+    dir = parent;
+  }
+}
+
 export function detectEastSkills(pkg: PackageJson | null): string[] {
   if (!pkg) return [];
   const allDeps: Record<string, string> = {
@@ -45,14 +93,41 @@ export function detectEastSkills(pkg: PackageJson | null): string[] {
   return skills;
 }
 
+/** The east-py skills a pyproject.toml text depends on. */
+export function detectPythonSkills(pyproject: string | null): string[] {
+  if (pyproject === null) return [];
+  const skills: string[] = [];
+  for (const [pattern, skill] of PYTHON_SKILL_MAP) {
+    if (pattern.test(pyproject)) skills.push(skill);
+  }
+  return skills;
+}
+
 export interface EastProjectInfo {
   isEast: boolean;
   skills: string[];
+  /** The language(s) detected — drives which rule cheat-sheet an agent is given. */
+  languages: EastLanguage[];
   pkg: PackageJson | null;
 }
 
+/**
+ * What kind of East project `cwd` sits in.
+ *
+ * Both ecosystems count. A project whose East dependency is declared only in
+ * `pyproject.toml` — no package.json anywhere — is an East project, and used
+ * to report `isEast: false`, so the session and subagent hooks injected
+ * nothing at all for it: no skill list, no rule cheat-sheet. (The diagnose and
+ * pre-write hooks never consulted this, gating on an `import east` instead,
+ * which is why diagnostics worked there while orientation did not.)
+ */
 export async function getEastProjectInfo(cwd: string): Promise<EastProjectInfo> {
   const pkg = await findPackageJson(cwd);
-  const skills = detectEastSkills(pkg);
-  return { isEast: skills.length > 0, skills, pkg };
+  const tsSkills = detectEastSkills(pkg);
+  const pySkills = detectPythonSkills(await findPyProject(cwd));
+  const languages: EastLanguage[] = [];
+  if (tsSkills.length > 0) languages.push("typescript");
+  if (pySkills.length > 0) languages.push("python");
+  const skills = [...tsSkills, ...pySkills.filter((s) => !tsSkills.includes(s))];
+  return { isEast: skills.length > 0, skills, languages, pkg };
 }

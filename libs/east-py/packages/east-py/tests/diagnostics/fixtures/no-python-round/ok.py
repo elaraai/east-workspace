@@ -4,10 +4,10 @@
 #
 # ruff: noqa
 """East's explicit rounding; python's round() on a python value."""
-from east import East, FloatType
+from east import East, FloatType, IntegerType
 
 
-@East.function([FloatType], FloatType)
+@East.function([FloatType], IntegerType)
 def rounds(b, x):
     a = b.let(East.Float.round_half(x))
     c = b.let(East.Float.round_floor(x))
