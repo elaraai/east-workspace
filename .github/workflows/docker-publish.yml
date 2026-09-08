@@ -45,6 +45,48 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
+      # `finalize` pushes the release tag only after every publish job has
+      # succeeded, but a registry serves a new version some time after it
+      # accepts one: v1.0.71's run built `latest` 60 s after `publish-npm`
+      # finished, npm had not caught up, the build failed inside the image
+      # (hidden by --quiet), and no image of that release ever shipped. So on a
+      # tag push, or a dispatch that names a version, wait for EVERY package the
+      # images install to be served — as the build jobs below do for one
+      # package each — and build exactly what they will build. A dispatch
+      # without a version keeps `latest`.
+      - name: Pin the test builds to the release, once npm and PyPI serve it
+        if: github.ref_type == 'tag' || inputs.version != ''
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          # wait_for <label> <probe command...>: poll the probe for up to 5 min.
+          wait_for() {
+            local label="$1"; shift
+            for i in $(seq 1 30); do
+              if "$@" >/dev/null 2>&1; then echo "  ready: ${label}"; return 0; fi
+              echo "Waiting for ${label}... ($i/30)"
+              sleep 10
+            done
+            echo "::error::${label} never appeared"
+            return 1
+          }
+          # The npm packages install-packages.sh installs across the images,
+          # plus the per-platform east-c prebuilt the launcher pulls on this
+          # runner's architecture.
+          for PKG in east east-node-std east-node-io east-node-cli east-ui \
+                     e3 e3-types e3-core e3-cli e3-api-client e3-api-server \
+                     east-c-cli east-c-cli-linux-x64; do
+            wait_for "@elaraai/${PKG}@${VERSION} on npm" npm view "@elaraai/${PKG}@${VERSION}" version
+          done
+          for PKG in elaraai-east-py elaraai-east-py-std elaraai-east-py-io \
+                     elaraai-east-py-cli elaraai-east-py-datascience; do
+            wait_for "${PKG}==${VERSION} on PyPI" curl -fsS "https://pypi.org/pypi/${PKG}/${VERSION}/json"
+          done
+          echo "EAST_RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
+
       - name: Run tests (quick)
         run: bash docker/tests/test-docker-builds.sh
 

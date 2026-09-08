@@ -8,15 +8,16 @@ import { PythonLspProxy } from "../src/python-lsp-proxy.js";
 // to push diagnostics on demand, so the proxy's lifecycle is testable without
 // a python toolchain.
 class FakeChild extends EventEmitter {
-  readonly stdin = new PassThrough();
+  readonly stdin: PassThrough;
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
   readonly received: any[] = [];
   killed = false;
   private buffer = Buffer.alloc(0);
 
-  constructor(private readonly autoInitialize = true) {
+  constructor(private readonly autoInitialize = true, stdin: PassThrough = new PassThrough()) {
     super();
+    this.stdin = stdin;
     this.stdin.on("data", (chunk: Buffer) => this.read(chunk));
   }
 
@@ -173,6 +174,38 @@ test("after a failed first start, the next successful start opens the document b
   const change = live.received.at(-1);
   assert.equal(change.method, "textDocument/didChange");
   assert.equal(change.params.textDocument.version, 3, "versions count up per document");
+  proxy.dispose();
+});
+
+// What a real pipe does once its reader has exited: the write fails with
+// EPIPE, and a stream reports a failed write as an `error` EVENT, never a
+// throw — so the proxy's try/catch around the write cannot see it.
+class ClosedPipe extends PassThrough {
+  override _write(_chunk: unknown, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+    callback(Object.assign(new Error("write EPIPE"), { code: "EPIPE", syscall: "write" }));
+  }
+}
+
+test("a child gone before the handshake reaches it is a failed start, not an uncaught EPIPE", async () => {
+  // v1.0.71's run on main: the stand-in `east-py lsp` had exited before
+  // `initialize` was written, and the EPIPE took the whole test process down.
+  const child = new FakeChild(false, new ClosedPipe());
+  const reasons: string[] = [];
+  const proxy = new PythonLspProxy({
+    onDiagnostics: () => {},
+    onUnavailable: (reason) => reasons.push(reason),
+    resolveCommand: () => "east-py",
+    spawnChild: () => child as never,
+    initializeTimeoutMs: 500,
+  });
+  const done = proxy.didOpen("/p/a.py", "file:///p/a.py", "import east\n");
+  child.stderr.write("east-py lsp needs pygls — install it with `pip install pygls`\n");
+  await settle();
+  child.die(1);
+  await done;
+  assert.equal(reasons.length, 1);
+  assert.match(reasons[0]!, /did not start/);
+  assert.match(reasons[0]!, /pygls/, "the child's last words are the reason, not the pipe error");
   proxy.dispose();
 });
 
