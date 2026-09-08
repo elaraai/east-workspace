@@ -246,6 +246,13 @@ export class FakeApi implements Api {
         return [...w.inputs.map(i => `.inputs.${i.name}`), ...w.tasks.map(t => this.outputPathOf(t))];
     }
 
+    /** A view of this fake bound to another repository. */
+    withRepo(repo: string): Api {
+        const bound = Object.create(this) as FakeApi;
+        bound.repo = repo;
+        return bound;
+    }
+
     async repoList(): Promise<string[]> {
         return this.call('repoList', () => Object.keys(this.repos));
     }

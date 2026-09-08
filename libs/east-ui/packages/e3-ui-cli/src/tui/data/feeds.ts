@@ -77,6 +77,28 @@ export function createFeeds(deps: FeedsDeps): Feeds {
     const executionCursor = new Map<string, { startedAt: string | null; events: DataflowEvent[] }>();
     const repoStatusRequested = new Set<string>();
 
+    /** A repository's counts and its latest deployment (the repositories view's lazy columns). */
+    const repoFacts = async (api: Api, name: string): Promise<void> => {
+        const status = await api.repoStatus(name);
+        store.dispatch({ type: 'data/repoStatus', repo: name, status });
+        const bound = api.withRepo(name);
+        let latest: { workspace: string; packageName: string; packageVersion: string; deployedAt: Date } | null = null;
+        try {
+            const workspaces = await bound.workspaceList();
+            for (const ws of workspaces) {
+                if (!ws.deployed) continue;
+                const wsState = await bound.workspaceGet(ws.name);
+                if (wsState === null) continue;
+                if (latest === null || wsState.deployedAt.getTime() > latest.deployedAt.getTime()) {
+                    latest = { workspace: ws.name, packageName: wsState.packageName, packageVersion: wsState.packageVersion, deployedAt: wsState.deployedAt };
+                }
+            }
+        } catch (err) {
+            deps.log?.(`repo ${name} facts failed: ${formatError(err)}`);
+        }
+        store.dispatch({ type: 'data/repoDeploy', repo: name, deploy: latest });
+    };
+
     const dispatchConnection = (): void => {
         store.dispatch({ type: 'connection', connection: connectionState([...running.values()]) });
     };
@@ -96,8 +118,7 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                     for (const name of names) {
                         if (repoStatusRequested.has(name)) continue;
                         repoStatusRequested.add(name);
-                        void api.repoStatus(name)
-                            .then(status => store.dispatch({ type: 'data/repoStatus', repo: name, status }))
+                        void repoFacts(api, name)
                             .catch(() => repoStatusRequested.delete(name));
                     }
                 },
@@ -117,8 +138,13 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                 key: 'workspaces:summaries',
                 intervalMs: 5_000,
                 run: async (signal) => {
-                    const names = (store.getState().data.workspaces ?? []).map(w => w.name);
-                    for (const ws of names) {
+                    let workspaces = store.getState().data.workspaces;
+                    if (workspaces === null) {
+                        workspaces = await api.workspaceList();
+                        if (signal.aborted) return;
+                        store.dispatch({ type: 'data/workspaces', workspaces });
+                    }
+                    for (const ws of workspaces.map(w => w.name)) {
                         if (signal.aborted) return;
                         try {
                             const [result, wsState] = await Promise.all([api.workspaceStatus(ws), api.workspaceGet(ws)]);
@@ -131,6 +157,16 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                                 continue;
                             }
                             throw err;
+                        }
+                        // The last run, for the LAST RUN column (never run is not an error).
+                        try {
+                            const execution = await api.dataflowExecutePoll(ws, 0);
+                            if (signal.aborted) return;
+                            executionCursor.set(ws, { startedAt: execution.startedAt, events: [...execution.events] });
+                            store.dispatch({ type: 'data/execution', ws, state: execution, events: [...execution.events], startedAt: execution.startedAt });
+                        } catch (err) {
+                            if (!isApiCode(err, 'execution_not_found')) throw err;
+                            store.dispatch({ type: 'data/execution', ws, state: null, events: [], startedAt: null });
                         }
                     }
                 },

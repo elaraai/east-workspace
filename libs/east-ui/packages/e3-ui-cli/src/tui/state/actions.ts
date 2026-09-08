@@ -276,10 +276,18 @@ export interface LogsData {
     error: string | null;
 }
 
+/** A repository's last deployment, for the repositories view. */
+export interface RepoDeploy {
+    workspace: string;
+    packageName: string;
+    packageVersion: string;
+    deployedAt: Date;
+}
+
 /** The data the pollers fill. */
 export interface DataState {
-    /** Repositories on a bare origin, with lazily fetched statuses. */
-    repos: { names: string[]; status: Record<string, RepositoryStatus> } | null;
+    /** Repositories on a bare origin, with lazily fetched statuses and last deployments. */
+    repos: { names: string[]; status: Record<string, RepositoryStatus>; deploy: Record<string, RepoDeploy | null> } | null;
     workspaces: WorkspaceInfo[] | null;
     /** Per workspace: the deployed state (deployedAt), null when not deployed. */
     workspaceState: Record<string, WorkspaceState | null>;
@@ -444,6 +452,7 @@ export type Action =
     // data
     | { type: 'data/repos'; names: string[] }
     | { type: 'data/repoStatus'; repo: string; status: RepositoryStatus }
+    | { type: 'data/repoDeploy'; repo: string; deploy: RepoDeploy | null }
     | { type: 'data/workspaces'; workspaces: WorkspaceInfo[] }
     | { type: 'data/workspaceState'; ws: string; state: WorkspaceState | null }
     | { type: 'data/status'; ws: string; result: WorkspaceStatusResult; at: number }

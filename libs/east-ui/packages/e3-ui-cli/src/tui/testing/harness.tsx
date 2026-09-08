@@ -25,7 +25,7 @@ import type { Size } from '../render/layout.js';
 import { initialState, type Action, type SessionInfo, type TuiState, type View } from '../state/actions.js';
 import { createStore, StoreContext, type Store } from '../state/store.js';
 import { realClock, type PollClock } from '../state/poll.js';
-import '../ui/views/dashboard.js';
+import '../ui/views/all.js';
 
 /** ANSI SGR / cursor sequences, stripped from frames before assertions. */
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;

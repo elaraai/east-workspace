@@ -245,10 +245,14 @@ export function reduce(state: TuiState, action: Action): TuiState {
 
         // -- data ----------------------------------------------------------
         case 'data/repos':
-            return { ...state, data: { ...state.data, repos: { names: action.names, status: state.data.repos?.status ?? {} } } };
+            return { ...state, data: { ...state.data, repos: { names: action.names, status: state.data.repos?.status ?? {}, deploy: state.data.repos?.deploy ?? {} } } };
         case 'data/repoStatus': {
-            const repos = state.data.repos ?? { names: [], status: {} };
+            const repos = state.data.repos ?? { names: [], status: {}, deploy: {} };
             return { ...state, data: { ...state.data, repos: { ...repos, status: { ...repos.status, [action.repo]: action.status } } } };
+        }
+        case 'data/repoDeploy': {
+            const repos = state.data.repos ?? { names: [], status: {}, deploy: {} };
+            return { ...state, data: { ...state.data, repos: { ...repos, deploy: { ...repos.deploy, [action.repo]: action.deploy } } } };
         }
         case 'data/workspaces':
             return { ...state, data: { ...state.data, workspaces: action.workspaces } };

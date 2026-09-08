@@ -32,7 +32,7 @@ import { createStore, StoreContext } from './state/store.js';
 import { openSession, SessionRefusal, type Session } from './session.js';
 import { suspendTerminal } from './suspend.js';
 import type { RepoFacts } from './ui/views/about.js';
-import './ui/views/dashboard.js';
+import './ui/views/all.js';
 
 const require = createRequire(import.meta.url);
 const packageJson = require('../../package.json') as { version: string };
