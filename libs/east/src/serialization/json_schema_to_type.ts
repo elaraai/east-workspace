@@ -79,6 +79,22 @@ function asSchema(v: JsonSchemaValue | undefined, path: string[], what: string):
   return v as JsonSchema;
 }
 
+/** Whether a document object carries `key` itself — `in` would also find `Object.prototype`'s. */
+function has(node: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(node, key);
+}
+
+/**
+ * A schema scalar as a message spells it — JSON's `null`, `true` and `false`,
+ * anything else as itself — so the two language twins word a refusal the same.
+ */
+function spell(value: JsonSchemaValue | undefined): string {
+  if (value === null) return "null";
+  if (value === true) return "true";
+  if (value === false) return "false";
+  return String(value);
+}
+
 /** The `$schema` values this converter recognises, normalised, and the release each names. */
 const SCHEMA_URI_DRAFTS: Record<string, JsonSchemaDraft> = {
   "https://json-schema.org/draft/2020-12/schema": "2020-12",
@@ -140,14 +156,27 @@ function refTarget(ref: string, keyword: string): string | null {
   return ref.slice(prefix.length).replace(/~1/g, "/").replace(/~0/g, "~");
 }
 
+/** A cyclic group of definitions, and the one definition every cycle in it passes through. */
+interface CycleGroup {
+  members: string[];
+  binder: string;
+}
+
+/** A binder under construction: its self marker, and the group members built beneath it. */
+interface Scope {
+  marker: RecursiveTypeMarker;
+  /** Members built inside this scope capture the marker, so they are shared only within it. */
+  built: Map<string, EastType>;
+}
+
 interface Context {
   defsKeyword: string;
   defs: Record<string, JsonSchema>;
-  /** Definitions that reference themselves, so must become a RecursiveType. */
-  cyclic: Set<string>;
-  /** Self markers for definitions currently under construction. */
-  building: Map<string, RecursiveTypeMarker>;
-  /** Completed non-cyclic definitions, so a shared def is built once. */
+  /** Every definition on a cycle, mapped to its group. */
+  groups: Map<string, CycleGroup>;
+  /** Binders currently under construction. */
+  building: Map<string, Scope>;
+  /** Completed definitions that capture no marker, so a shared definition is built once. */
   done: Map<string, EastType>;
 }
 
@@ -180,10 +209,18 @@ interface Context {
  * | a closed object with `required` covering every property | `Struct` |
  * | `oneOf` of objects tagged by a constant `type` | `Variant` |
  *
+ * OpenAPI 3.0's `nullable: true` beside a type is refused rather than dropped:
+ * East JSON has no bare null for any type but `Null`, so the only reading
+ * would silently admit a schema whose nulls the reader then rejects — model
+ * the value as an Option instead.
+ *
  * Definitions are resolved through `$defs` or `definitions`, whichever the
- * document uses. A self-referential definition becomes a `RecursiveType`;
- * mutually recursive definitions are refused, because East supports only
- * self-recursion.
+ * document uses. Cycles among definitions become `RecursiveType`s, one per
+ * cycle group: `Node → NodeList → Node`, the ordinary way a recursive schema is
+ * written, is the single type `RecursiveType(self => Struct({ children:
+ * Array(self) }))` with the alias inlined. A group whose cycles do not all pass
+ * through one definition would need two binders, which East does not support,
+ * and is refused naming the group.
  *
  * A `$schema` is honoured when present, and a release this cannot read — a
  * draft-04 document, say — is refused by name instead of being structurally
@@ -200,10 +237,10 @@ export function typeFromJsonSchema(schema: JsonSchema): EastType {
   // A declared release is honoured; its absence is not an error, because an
   // OpenAPI 3.0 schema object is a fragment of a larger document and carries no
   // $schema of its own — refusing that would refuse what jsonSchemaFor writes
-  // for `draft: "openapi-3.0"`.
-  const declared = schema["$schema"];
+  // for `draft: "openapi-3.0"`. An explicit null is present, not absent.
   let draft: JsonSchemaDraft | undefined;
-  if (declared !== undefined) {
+  if (has(schema, "$schema")) {
+    const declared = schema["$schema"];
     if (typeof declared !== "string") {
       fail("typeFromJsonSchema expected \"$schema\" to be a string", ["$schema"]);
     }
@@ -214,7 +251,7 @@ export function typeFromJsonSchema(schema: JsonSchema): EastType {
   const ctx: Context = {
     defsKeyword: keyword,
     defs,
-    cyclic: findSelfReferential(defs, keyword),
+    groups: cycleGroups(defs, keyword),
     building: new Map(),
     done: new Map(),
   };
@@ -222,46 +259,73 @@ export function typeFromJsonSchema(schema: JsonSchema): EastType {
 }
 
 /**
- * Definition names that reach themselves.
+ * The cyclic groups among the definitions, each with the one definition its
+ * cycles all pass through.
  *
- * @throws {JsonSchemaUnsupportedError} On a cycle spanning more than one
- * definition — East supports self-recursion only.
+ * @throws {JsonSchemaUnsupportedError} On a group whose cycles do not all
+ * pass through one definition — East binds one `RecursiveType` per group, so
+ * such a group would need two
+ *
+ * @remarks
+ * East's rule is one recursive binder per strongly connected group of
+ * definitions, not one definition per cycle. The binder is the first
+ * definition, in document order, whose removal leaves the rest of its group
+ * acyclic; document order alone decides it, so the two language twins choose
+ * the same one. Reachability is a closure, never a walk that stops at its
+ * first hit, so nothing here depends on the order `$ref`s appear in.
  */
-function findSelfReferential(defs: Record<string, JsonSchema>, keyword: string): Set<string> {
-  const edges = new Map<string, Set<string>>();
-  for (const [name, def] of Object.entries(defs)) {
+function cycleGroups(defs: Record<string, JsonSchema>, keyword: string): Map<string, CycleGroup> {
+  const names = Object.keys(defs);
+  const edges = new Map<string, string[]>();
+  for (const name of names) {
     const seen = new Set<string>();
-    collectRefs(def, keyword, seen);
-    edges.set(name, seen);
+    collectRefs(defs[name]!, keyword, seen);
+    edges.set(name, [...seen].filter(target => has(defs, target)));
   }
 
-  const selfReferential = new Set<string>();
-  for (const name of edges.keys()) {
-    // Reachability from `name` back to `name`.
-    const stack = [...(edges.get(name) ?? [])];
-    const visited = new Set<string>();
-    const route: string[] = [];
+  /** Every definition reachable from `from` through definitions `allowed` admits. */
+  const reach = (from: string, allowed: (name: string) => boolean): Set<string> => {
+    const out = new Set<string>();
+    const stack = [from];
     while (stack.length > 0) {
-      const next = stack.pop()!;
-      if (next === name) { selfReferential.add(name); break; }
-      if (visited.has(next)) continue;
-      visited.add(next);
-      route.push(next);
-      for (const onward of edges.get(next) ?? []) stack.push(onward);
-    }
-    // A definition that reaches itself only by way of another definition is a
-    // cycle East cannot represent.
-    if (selfReferential.has(name)) {
-      for (const via of route) {
-        if ((edges.get(via) ?? new Set()).has(name)) {
-          throw new JsonSchemaUnsupportedError(
-            `definitions "${name}" and "${via}" are mutually recursive; East supports self-recursion only`,
-            `/${keyword}/${name}`);
-        }
+      const at = stack.pop()!;
+      for (const next of edges.get(at) ?? []) {
+        if (!allowed(next) || out.has(next)) continue;
+        out.add(next);
+        stack.push(next);
       }
     }
+    return out;
+  };
+  const closure = new Map<string, Set<string>>();
+  for (const name of names) closure.set(name, reach(name, () => true));
+
+  const groups = new Map<string, CycleGroup>();
+  for (const name of names) {
+    if (groups.has(name) || !closure.get(name)!.has(name)) continue;
+    const members = names.filter(
+      other => other === name || (closure.get(name)!.has(other) && closure.get(other)!.has(name)));
+    const inGroup = new Set(members);
+    let binder: string | null = null;
+    for (const candidate of members) {
+      const allowed = (other: string) => inGroup.has(other) && other !== candidate;
+      if (members.every(member => member === candidate || !reach(member, allowed).has(member))) {
+        binder = candidate;
+        break;
+      }
+    }
+    if (binder === null) {
+      const quoted = members.map(member => `"${member}"`);
+      const list = `${quoted.slice(0, -1).join(", ")} and ${quoted[quoted.length - 1]}`;
+      throw new JsonSchemaUnsupportedError(
+        `definitions ${list} are mutually recursive in a way East cannot express — every cycle ` +
+        "among them must pass through one definition, and East binds one RecursiveType per group",
+        pointerOf([keyword, name]));
+    }
+    const group: CycleGroup = { members, binder };
+    for (const member of members) groups.set(member, group);
   }
-  return selfReferential;
+  return groups;
 }
 
 /** Every local definition name referenced anywhere inside a schema node. */
@@ -283,9 +347,21 @@ function collectRefs(node: JsonSchemaValue, keyword: string, out: Set<string>): 
 
 function build(node: JsonSchema, ctx: Context, path: string[]): EastType {
   for (const [keyword, reason] of Object.entries(UNSUPPORTED)) {
-    if (node[keyword] !== undefined) {
+    if (has(node, keyword)) {
       fail(`typeFromJsonSchema cannot express "${keyword}" — ${reason}`, [...path, keyword]);
     }
+  }
+
+  // OpenAPI 3.0 spells "this or null" as `nullable: true`. East JSON has no
+  // bare null for any type but Null itself — an Option is a tagged object — so
+  // the only reading is the Null spelling: `nullable` with no type, $ref, oneOf
+  // or annotation. Beside anything else it would be dropped silently, and the
+  // reader would then refuse the nulls the partner's contract permits.
+  if (node["nullable"] === true
+      && (has(node, "type") || has(node, "$ref") || has(node, "oneOf") || has(node, "x-east-type"))) {
+    fail(
+      "typeFromJsonSchema cannot express \"nullable\" beside a type — East JSON has no bare null " +
+      "for it; model the value as an Option (a oneOf tagged none and some)", [...path, "nullable"]);
   }
 
   const ref = node["$ref"];
@@ -295,16 +371,15 @@ function build(node: JsonSchema, ctx: Context, path: string[]): EastType {
   const annotation = node["x-east-type"];
   if (typeof annotation === "string") return buildAnnotated(annotation, node, ctx, path);
 
-  if (node["oneOf"] !== undefined) return buildVariant(node, ctx, path);
-
-  const type = node["type"];
+  if (has(node, "oneOf")) return buildVariant(node, ctx, path);
 
   // OpenAPI 3.0 has no "null" type and spells it with `nullable`.
-  if (type === undefined && node["nullable"] === true) return NullType;
+  if (!has(node, "type") && node["nullable"] === true) return NullType;
 
+  const type = node["type"];
   if (Array.isArray(type)) {
     fail(
-      `typeFromJsonSchema cannot express a union of primitive types [${type.join(", ")}] — ` +
+      `typeFromJsonSchema cannot express a union of primitive types [${type.map(spell).join(", ")}] — ` +
       "East unions are discriminated variants", [...path, "type"]);
   }
 
@@ -322,7 +397,7 @@ function build(node: JsonSchema, ctx: Context, path: string[]): EastType {
         "an unconstrained schema has no East type", path);
       break;
     default:
-      fail(`typeFromJsonSchema does not recognise the type "${String(type)}"`, [...path, "type"]);
+      fail(`typeFromJsonSchema does not recognise the type "${spell(type)}"`, [...path, "type"]);
   }
 }
 
@@ -333,21 +408,29 @@ function buildRef(ref: string, ctx: Context, path: string[]): EastType {
       `typeFromJsonSchema cannot resolve "${ref}" — only local #/${ctx.defsKeyword}/… references are supported`,
       path);
   }
-  const marker = ctx.building.get(name);
-  if (marker !== undefined) return marker as unknown as EastType;
-
-  const cached = ctx.done.get(name);
-  if (cached !== undefined) return cached;
-
-  const def = ctx.defs[name];
-  if (def === undefined) {
+  if (!has(ctx.defs, name)) {
     fail(`typeFromJsonSchema cannot resolve "${ref}" — no such definition`, path);
   }
-
   const defPath = [ctx.defsKeyword, name];
-  if (ctx.cyclic.has(name)) {
+  const def = asSchema(ctx.defs[name], defPath, `definition "${name}"`);
+
+  const group = ctx.groups.get(name);
+  if (group === undefined) {
+    // On no cycle: nothing it builds captures a marker, so build once and share.
+    const cached = ctx.done.get(name);
+    if (cached !== undefined) return cached;
+    const built = build(def, ctx, defPath);
+    ctx.done.set(name, built);
+    return built;
+  }
+
+  const scope = ctx.building.get(group.binder);
+  if (name === group.binder) {
+    if (scope !== undefined) return scope.marker as unknown as EastType;
+    const cached = ctx.done.get(name);
+    if (cached !== undefined) return cached;
     const built = RecursiveType(self => {
-      ctx.building.set(name, self);
+      ctx.building.set(name, { marker: self, built: new Map() });
       try {
         return build(def, ctx, defPath);
       } finally {
@@ -358,17 +441,30 @@ function buildRef(ref: string, ctx: Context, path: string[]): EastType {
     return built;
   }
 
+  if (scope !== undefined) {
+    // Inside its binder: the member captures the marker, so it is built inline
+    // and shared only within this scope.
+    const cached = scope.built.get(name);
+    if (cached !== undefined) return cached;
+    const built = build(def, ctx, defPath);
+    scope.built.set(name, built);
+    return built;
+  }
+
+  // Outside its binder: references to the binder resolve to the completed
+  // RecursiveType, so the member captures nothing and can be shared.
+  const cached = ctx.done.get(name);
+  if (cached !== undefined) return cached;
   const built = build(def, ctx, defPath);
   ctx.done.set(name, built);
   return built;
 }
 
 function buildItems(node: JsonSchema, ctx: Context, path: string[]): EastType {
-  const items = node["items"];
-  if (items === undefined) {
+  if (!has(node, "items")) {
     fail("typeFromJsonSchema needs \"items\" on an array — East arrays are homogeneous", path);
   }
-  return build(asSchema(items, [...path, "items"], "items"), ctx, [...path, "items"]);
+  return build(asSchema(node["items"], [...path, "items"], "items"), ctx, [...path, "items"]);
 }
 
 function buildStruct(node: JsonSchema, ctx: Context, path: string[]): EastType {
@@ -379,11 +475,10 @@ function buildStruct(node: JsonSchema, ctx: Context, path: string[]): EastType {
       "East structs are closed, so an open record has no East type", path);
   }
 
-  const properties = node["properties"];
-  if (properties === undefined) {
+  if (!has(node, "properties")) {
     fail("typeFromJsonSchema needs \"properties\" on an object", path);
   }
-  const props = asSchema(properties, [...path, "properties"], "properties");
+  const props = asSchema(node["properties"], [...path, "properties"], "properties");
 
   const required = node["required"];
   const requiredNames = new Set<string>(
@@ -443,15 +538,14 @@ function buildVariant(node: JsonSchema, ctx: Context, path: string[]): EastType 
         "an untagged union is not an East variant", altPath);
     }
     const properties = asSchema(alternative["properties"], [...altPath, "properties"], "properties");
-    const payload = properties["value"];
-    if (payload === undefined) {
+    if (!has(properties, "value")) {
       fail("typeFromJsonSchema needs a \"value\" property on each variant case", [...altPath, "properties"]);
     }
     if (cases[tag] !== undefined) {
       fail(`typeFromJsonSchema found the variant case "${tag}" twice`, altPath);
     }
     cases[tag] = build(
-      asSchema(payload, [...altPath, "properties", "value"], "value"),
+      asSchema(properties["value"], [...altPath, "properties", "value"], "value"),
       ctx, [...altPath, "properties", "value"]);
   }
   return VariantType(cases);
@@ -473,14 +567,12 @@ function buildAnnotated(annotation: string, node: JsonSchema, ctx: Context, path
       const entry = asSchema(node["items"], [...path, "items"], "items");
       const entryPath = [...path, "items"];
       const properties = asSchema(entry["properties"], [...entryPath, "properties"], "properties");
-      const key = properties["key"];
-      const value = properties["value"];
-      if (key === undefined || value === undefined) {
+      if (!has(properties, "key") || !has(properties, "value")) {
         fail("typeFromJsonSchema needs \"key\" and \"value\" on a Dict entry", [...entryPath, "properties"]);
       }
       return DictType(
-        build(asSchema(key, [...entryPath, "properties", "key"], "key"), ctx, [...entryPath, "properties", "key"]),
-        build(asSchema(value, [...entryPath, "properties", "value"], "value"), ctx, [...entryPath, "properties", "value"]));
+        build(asSchema(properties["key"], [...entryPath, "properties", "key"], "key"), ctx, [...entryPath, "properties", "key"]),
+        build(asSchema(properties["value"], [...entryPath, "properties", "value"], "value"), ctx, [...entryPath, "properties", "value"]));
     }
     case "Ref":
       return RefType(buildItems(node, ctx, path));

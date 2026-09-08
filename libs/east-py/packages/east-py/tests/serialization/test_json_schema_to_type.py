@@ -213,27 +213,201 @@ def test_resolves_draft_07_definitions_it_declares():
     assert built == StringType
 
 
-def test_refuses_mutually_recursive_definitions():
-    with pytest.raises(JsonSchemaUnsupportedError, match="mutually recursive"):
+def test_binds_a_two_definition_cycle_on_one_definition():
+    """A -> B -> A needs one RecursiveType: B is inlined under A's binder."""
+    built = type_from_json_schema(
+        {
+            "$ref": "#/$defs/A",
+            "$defs": {
+                "A": {
+                    "type": "object",
+                    "properties": {"b": {"$ref": "#/$defs/B"}},
+                    "required": ["b"],
+                    "additionalProperties": False,
+                },
+                "B": {
+                    "type": "object",
+                    "properties": {"a": {"$ref": "#/$defs/A"}},
+                    "required": ["a"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+    )
+    want = RecursiveType(lambda self: StructType([("b", StructType([("a", self)]))]))
+    assert built == want
+
+
+NODE_DEFS = {
+    "Node": {
+        "type": "object",
+        "properties": {"children": {"$ref": "#/$defs/NodeList"}},
+        "required": ["children"],
+        "additionalProperties": False,
+    },
+    "NodeList": {"type": "array", "items": {"$ref": "#/$defs/Node"}},
+}
+
+
+def test_binds_a_cycle_through_an_array_alias():
+    """Node -> NodeList -> Node is the ordinary recursive shape, and one East type."""
+    node = RecursiveType(lambda self: StructType([("children", ArrayType(self))]))
+    assert type_from_json_schema({"$ref": "#/$defs/Node", "$defs": NODE_DEFS}) == node
+    # Entered at the alias, the same node is read as an array of it.
+    assert type_from_json_schema({"$ref": "#/$defs/NodeList", "$defs": NODE_DEFS}) == ArrayType(
+        node
+    )
+
+
+def test_shares_a_cyclic_alias_referenced_from_outside_its_cycle():
+    built = type_from_json_schema(
+        {
+            "$ref": "#/$defs/Root",
+            "$defs": {
+                "Root": {
+                    "type": "object",
+                    "properties": {"a": {"$ref": "#/$defs/NodeList"}, "b": {"$ref": "#/$defs/Node"}},
+                    "required": ["a", "b"],
+                    "additionalProperties": False,
+                },
+                **NODE_DEFS,
+            },
+        }
+    )
+    node = RecursiveType(lambda self: StructType([("children", ArrayType(self))]))
+    assert built == StructType([("a", ArrayType(node)), ("b", node)])
+
+
+def _two_binder_group(a_self_first: bool, b_self_first: bool) -> dict:
+    """Both definitions loop on themselves and on each other -- no one binder covers it."""
+
+    def props(self_first: bool, self: str, other: str) -> dict:
+        mine = {"self": {"$ref": f"#/$defs/{self}"}}
+        theirs = {"other": {"$ref": f"#/$defs/{other}"}}
+        return {**mine, **theirs} if self_first else {**theirs, **mine}
+
+    return {
+        "$ref": "#/$defs/A",
+        "$defs": {
+            "A": {
+                "type": "object",
+                "properties": props(a_self_first, "A", "B"),
+                "required": ["self", "other"],
+                "additionalProperties": False,
+            },
+            "B": {
+                "type": "object",
+                "properties": props(b_self_first, "B", "A"),
+                "required": ["self", "other"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def test_refuses_a_cycle_group_that_needs_two_binders_naming_its_members():
+    with pytest.raises(
+        JsonSchemaUnsupportedError,
+        match='definitions "A" and "B" are mutually recursive in a way East cannot express',
+    ) as excinfo:
+        type_from_json_schema(_two_binder_group(True, True))
+    assert excinfo.value.pointer == "/$defs/A"
+
+
+@pytest.mark.parametrize("a_self_first", [True, False])
+@pytest.mark.parametrize("b_self_first", [True, False])
+def test_decides_recursion_by_reachability_not_reference_order(a_self_first, b_self_first):
+    """Every ordering of the references is refused the same way, at the same pointer."""
+    with pytest.raises(JsonSchemaUnsupportedError, match="mutually recursive") as excinfo:
+        type_from_json_schema(_two_binder_group(a_self_first, b_self_first))
+    assert excinfo.value.pointer == "/$defs/A"
+
+
+def test_refuses_a_definition_that_is_not_a_schema_object_at_its_pointer():
+    with pytest.raises(
+        JsonSchemaUnsupportedError, match='expected definition "L" to be a schema object'
+    ) as excinfo:
+        type_from_json_schema({"$ref": "#/$defs/L", "$defs": {"L": None}})
+    assert excinfo.value.pointer == "/$defs/L"
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"type": "string", "nullable": True},
+        {"$ref": "#/$defs/L", "nullable": True, "$defs": {"L": {"type": "string"}}},
+        {
+            "nullable": True,
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {"type": {"const": "ok"}, "value": {"type": "integer"}},
+                    "required": ["type", "value"],
+                    "additionalProperties": False,
+                }
+            ],
+        },
+        {"type": None, "nullable": True},
+    ],
+)
+def test_refuses_nullable_beside_a_type_rather_than_dropping_it(schema):
+    """East JSON has no bare null for a String, so the nulls would be refused on read."""
+    with pytest.raises(
+        JsonSchemaUnsupportedError, match='cannot express "nullable" beside a type'
+    ) as excinfo:
+        type_from_json_schema(schema)
+    assert excinfo.value.pointer == "/nullable"
+
+
+def test_nullable_false_asserts_nothing():
+    assert type_from_json_schema({"type": "string", "nullable": False}) == StringType
+
+
+@pytest.mark.parametrize(
+    ("schema", "message", "pointer"),
+    [
+        ({"type": "array", "items": None}, "expected items to be a schema object", "/items"),
+        ({"$schema": None, "type": "string"}, 'expected "\\$schema" to be a string', "/$schema"),
+        ({"type": None}, 'does not recognise the type "null"', "/type"),
+        (
+            {"type": "object", "properties": None, "additionalProperties": False},
+            "expected properties to be a schema object",
+            "/properties",
+        ),
+        (
+            {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {"type": {"const": "ok"}, "value": None},
+                        "required": ["type", "value"],
+                        "additionalProperties": False,
+                    }
+                ]
+            },
+            "expected value to be a schema object",
+            "/oneOf/0/properties/value",
+        ),
+    ],
+)
+def test_treats_an_explicit_null_as_present_never_as_absent(schema, message, pointer):
+    """A null is a value the document carries; refusing it at its pointer matches the TS twin."""
+    with pytest.raises(JsonSchemaUnsupportedError, match=message) as excinfo:
+        type_from_json_schema(schema)
+    assert excinfo.value.pointer == pointer
+
+
+def test_ignores_entries_of_required_that_are_not_names():
+    with pytest.raises(JsonSchemaUnsupportedError, match='"a" is optional') as excinfo:
         type_from_json_schema(
             {
-                "$ref": "#/$defs/A",
-                "$defs": {
-                    "A": {
-                        "type": "object",
-                        "properties": {"b": {"$ref": "#/$defs/B"}},
-                        "required": ["b"],
-                        "additionalProperties": False,
-                    },
-                    "B": {
-                        "type": "object",
-                        "properties": {"a": {"$ref": "#/$defs/A"}},
-                        "required": ["a"],
-                        "additionalProperties": False,
-                    },
-                },
+                "type": "object",
+                "properties": {"a": {"type": "string"}},
+                "required": [["a"], 7, None],
+                "additionalProperties": False,
             }
         )
+    assert excinfo.value.pointer == "/properties/a"
 
 
 @pytest.mark.parametrize(

@@ -84,6 +84,20 @@ def _as_schema(value: Any, path: list[str], what: str) -> JsonSchema:
     return value
 
 
+def _spell(value: Any) -> str:
+    """A schema scalar as a message spells it -- JSON's null/true/false, else itself.
+
+    The TypeScript twin words the same refusals the same way.
+    """
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    return str(value)
+
+
 # The ``$schema`` values this converter recognises, normalised, and the release each names.
 _SCHEMA_URI_DRAFTS: dict[str, str] = {
     "https://json-schema.org/draft/2020-12/schema": "2020-12",
@@ -157,51 +171,107 @@ def _collect_refs(node: Any, keyword: str, out: set[str]) -> None:
         _collect_refs(value, keyword, out)
 
 
-def _self_referential(defs: dict[str, JsonSchema], keyword: str) -> set[str]:
-    """Definition names that reach themselves.
+class _CycleGroup:
+    """A cyclic group of definitions, and the one definition every cycle passes through."""
+
+    def __init__(self, members: list[str], binder: str) -> None:
+        self.members = members
+        self.binder = binder
+
+
+class _Scope:
+    """A binder under construction: its self marker, and the members built beneath it.
+
+    Members built inside the scope capture the marker, so they are shared only
+    within it.
+    """
+
+    def __init__(self, marker: Any) -> None:
+        self.marker = marker
+        self.built: dict[str, EastType] = {}
+
+
+def _cycle_groups(defs: dict[str, JsonSchema], keyword: str) -> dict[str, _CycleGroup]:
+    """The cyclic groups among the definitions, each with its binder.
+
+    East's rule is one recursive binder per strongly connected group of
+    definitions, not one definition per cycle: ``Node -> NodeList -> Node``, the
+    ordinary way a recursive schema is written, is one ``RecursiveType`` with
+    the alias inlined. The binder is the first definition, in document order,
+    whose removal leaves the rest of its group acyclic; document order alone
+    decides it, so the TypeScript twin chooses the same one. Reachability is a
+    closure, never a walk that stops at its first hit, so nothing here depends
+    on the order ``$ref``s appear in -- nor on a ``set``'s iteration order.
 
     Raises:
-        JsonSchemaUnsupportedError: On a cycle spanning more than one
-            definition — East supports self-recursion only.
+        JsonSchemaUnsupportedError: On a group whose cycles do not all pass
+            through one definition -- East binds one ``RecursiveType`` per
+            group, so such a group would need two.
     """
-    edges: dict[str, set[str]] = {}
-    for name, definition in defs.items():
+    names = list(defs)
+    edges: dict[str, list[str]] = {}
+    for name in names:
         seen: set[str] = set()
-        _collect_refs(definition, keyword, seen)
-        edges[name] = seen
+        _collect_refs(defs[name], keyword, seen)
+        edges[name] = [target for target in names if target in seen]
 
-    cyclic: set[str] = set()
-    for name in edges:
-        stack = list(edges.get(name, set()))
-        visited: set[str] = set()
-        route: list[str] = []
+    def reach(start: str, allowed: set[str]) -> set[str]:
+        """Every definition reachable from ``start`` through the ``allowed`` ones."""
+        out: set[str] = set()
+        stack = [start]
         while stack:
-            nxt = stack.pop()
-            if nxt == name:
-                cyclic.add(name)
+            at = stack.pop()
+            for nxt in edges.get(at, []):
+                if nxt not in allowed or nxt in out:
+                    continue
+                out.add(nxt)
+                stack.append(nxt)
+        return out
+
+    everything = set(names)
+    closure = {name: reach(name, everything) for name in names}
+
+    groups: dict[str, _CycleGroup] = {}
+    for name in names:
+        if name in groups or name not in closure[name]:
+            continue
+        members = [
+            other
+            for other in names
+            if other == name or (other in closure[name] and name in closure[other])
+        ]
+        binder: str | None = None
+        for candidate in members:
+            allowed = {member for member in members if member != candidate}
+            if all(
+                member == candidate or member not in reach(member, allowed) for member in members
+            ):
+                binder = candidate
                 break
-            if nxt in visited:
-                continue
-            visited.add(nxt)
-            route.append(nxt)
-            stack.extend(edges.get(nxt, set()))
-        if name in cyclic:
-            for via in route:
-                if name in edges.get(via, set()):
-                    raise JsonSchemaUnsupportedError(
-                        f'definitions "{name}" and "{via}" are mutually recursive; '
-                        "East supports self-recursion only",
-                        f"/{keyword}/{name}",
-                    )
-    return cyclic
+        if binder is None:
+            quoted = [f'"{member}"' for member in members]
+            listed = f"{', '.join(quoted[:-1])} and {quoted[-1]}"
+            raise JsonSchemaUnsupportedError(
+                f"definitions {listed} are mutually recursive in a way East cannot express — "
+                "every cycle among them must pass through one definition, and East binds one "
+                "RecursiveType per group",
+                _pointer_of([keyword, name]),
+            )
+        group = _CycleGroup(members, binder)
+        for member in members:
+            groups[member] = group
+    return groups
 
 
 class _Context:
     def __init__(self, defs: dict[str, JsonSchema], keyword: str) -> None:
         self.defs = defs
         self.keyword = keyword
-        self.cyclic = _self_referential(defs, keyword)
-        self.building: dict[str, Any] = {}
+        # Every definition on a cycle, mapped to its group.
+        self.groups = _cycle_groups(defs, keyword)
+        # Binders currently under construction.
+        self.building: dict[str, _Scope] = {}
+        # Completed definitions that capture no marker, so a shared one is built once.
         self.done: dict[str, EastType] = {}
 
 
@@ -225,15 +295,27 @@ def type_from_json_schema(schema: JsonSchema) -> EastType:
     those annotations still converts, under a documented structural mapping,
     but does not promise to round-trip.
 
+    OpenAPI 3.0's ``nullable: true`` beside a type is refused rather than
+    dropped: East JSON has no bare null for any type but ``Null``, so the only
+    reading would silently admit a schema whose nulls the reader then rejects
+    — model the value as an Option instead.
+
+    Cycles among definitions become ``RecursiveType``s, one per cycle group:
+    ``Node -> NodeList -> Node`` is one type with the alias inlined. A group
+    whose cycles do not all pass through one definition would need two
+    binders, which East does not support, and is refused naming the group.
+
     A ``$schema`` is honoured when present, and a release this cannot read — a
     draft-04 document, say — is refused by name instead of being structurally
     guessed at. It is not required: an OpenAPI 3.0 schema object is a fragment
     of a larger document and carries none, so demanding one would reject what
     ``json_schema_for(T, draft="openapi-3.0")`` emits.
     """
-    declared = schema.get("$schema")
+    # An explicit null is present, not absent -- exactly as the TypeScript twin
+    # reads it -- so it is refused as a non-string rather than ignored.
     draft: str | None = None
-    if declared is not None:
+    if "$schema" in schema:
+        declared = schema["$schema"]
         if not isinstance(declared, str):
             _fail('type_from_json_schema expected "$schema" to be a string', ["$schema"])
         draft = _draft_of_schema_uri(declared, ["$schema"])
@@ -250,6 +332,20 @@ def _build(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:  # noq
                 [*path, keyword],
             )
 
+    # OpenAPI 3.0 spells "this or null" as `nullable: true`. East JSON has no
+    # bare null for any type but Null itself -- an Option is a tagged object --
+    # so the only reading is the Null spelling: `nullable` with no type, $ref,
+    # oneOf or annotation. Beside anything else it would be dropped silently,
+    # and the reader would then refuse the nulls the partner's contract permits.
+    if node.get("nullable") is True and any(
+        key in node for key in ("type", "$ref", "oneOf", "x-east-type")
+    ):
+        _fail(
+            'type_from_json_schema cannot express "nullable" beside a type — East JSON has no '
+            "bare null for it; model the value as an Option (a oneOf tagged none and some)",
+            [*path, "nullable"],
+        )
+
     ref = node.get("$ref")
     if isinstance(ref, str):
         return _build_ref(ref, ctx, [*path, "$ref"])
@@ -262,16 +358,16 @@ def _build(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:  # noq
     if "oneOf" in node:
         return _build_variant(node, ctx, path)
 
-    kind = node.get("type")
-
     # OpenAPI 3.0 has no "null" type and spells it with `nullable`.
-    if kind is None and node.get("nullable") is True:
+    if "type" not in node and node.get("nullable") is True:
         return NullType
+
+    kind = node.get("type")
 
     if isinstance(kind, list):
         _fail(
             f"type_from_json_schema cannot express a union of primitive types "
-            f"[{', '.join(str(k) for k in kind)}] — East unions are discriminated variants",
+            f"[{', '.join(_spell(k) for k in kind)}] — East unions are discriminated variants",
             [*path, "type"],
         )
 
@@ -289,13 +385,15 @@ def _build(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:  # noq
         return ArrayType(_build_items(node, ctx, path))
     if kind == "object":
         return _build_struct(node, ctx, path)
-    if kind is None:
+    if "type" not in node:
         _fail(
             'type_from_json_schema needs a "type" (or a $ref, oneOf, or x-east-type '
             "annotation) — an unconstrained schema has no East type",
             path,
         )
-    return _fail(f'type_from_json_schema does not recognise the type "{kind}"', [*path, "type"])
+    return _fail(
+        f'type_from_json_schema does not recognise the type "{_spell(kind)}"', [*path, "type"]
+    )
 
 
 def _build_ref(ref: str, ctx: _Context, path: list[str]) -> EastType:
@@ -306,41 +404,63 @@ def _build_ref(ref: str, ctx: _Context, path: list[str]) -> EastType:
             f"#/{ctx.keyword}/… references are supported",
             path,
         )
-    marker = ctx.building.get(name)
-    if marker is not None:
-        return marker
-    cached = ctx.done.get(name)
-    if cached is not None:
-        return cached
-    definition = ctx.defs.get(name)
-    if definition is None:
+    if name not in ctx.defs:
         _fail(f'type_from_json_schema cannot resolve "{ref}" — no such definition', path)
-
     def_path = [ctx.keyword, name]
-    if name in ctx.cyclic:
+    definition = _as_schema(ctx.defs[name], def_path, f'definition "{name}"')
+
+    group = ctx.groups.get(name)
+    if group is None:
+        # On no cycle: nothing it builds captures a marker, so build once and share.
+        if name in ctx.done:
+            return ctx.done[name]
+        built = _build(definition, ctx, def_path)
+        ctx.done[name] = built
+        return built
+
+    scope = ctx.building.get(group.binder)
+    if name == group.binder:
+        if scope is not None:
+            return scope.marker
+        if name in ctx.done:
+            return ctx.done[name]
 
         def builder(self_ref: Any) -> EastType:
-            ctx.building[name] = self_ref
+            ctx.building[name] = _Scope(self_ref)
             try:
                 return _build(definition, ctx, def_path)
             finally:
                 del ctx.building[name]
 
-        built = RecursiveType(builder)
-    else:
+        bound = RecursiveType(builder)
+        ctx.done[name] = bound
+        return bound
+
+    if scope is not None:
+        # Inside its binder: the member captures the marker, so it is built
+        # inline and shared only within this scope.
+        if name in scope.built:
+            return scope.built[name]
         built = _build(definition, ctx, def_path)
+        scope.built[name] = built
+        return built
+
+    # Outside its binder: references to the binder resolve to the completed
+    # RecursiveType, so the member captures nothing and can be shared.
+    if name in ctx.done:
+        return ctx.done[name]
+    built = _build(definition, ctx, def_path)
     ctx.done[name] = built
     return built
 
 
 def _build_items(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:
-    items = node.get("items")
-    if items is None:
+    if "items" not in node:
         _fail(
             'type_from_json_schema needs "items" on an array — East arrays are homogeneous',
             path,
         )
-    return _build(_as_schema(items, [*path, "items"], "items"), ctx, [*path, "items"])
+    return _build(_as_schema(node["items"], [*path, "items"], "items"), ctx, [*path, "items"])
 
 
 def _build_struct(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:
@@ -350,13 +470,16 @@ def _build_struct(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:
             "East structs are closed, so an open record has no East type",
             path,
         )
-    properties = node.get("properties")
-    if properties is None:
+    if "properties" not in node:
         _fail('type_from_json_schema needs "properties" on an object', path)
-    props = _as_schema(properties, [*path, "properties"], "properties")
+    props = _as_schema(node["properties"], [*path, "properties"], "properties")
 
     required = node.get("required")
-    required_names = set(required) if isinstance(required, list) else set()
+    required_names = (
+        {entry for entry in required if isinstance(entry, str)}
+        if isinstance(required, list)
+        else set()
+    )
 
     fields: list[tuple[str, EastType]] = []
     for name, value in props.items():
@@ -418,8 +541,7 @@ def _build_variant(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType
         properties = _as_schema(
             alternative.get("properties"), [*alt_path, "properties"], "properties"
         )
-        payload = properties.get("value")
-        if payload is None:
+        if "value" not in properties:
             _fail(
                 'type_from_json_schema needs a "value" property on each variant case',
                 [*alt_path, "properties"],
@@ -431,7 +553,7 @@ def _build_variant(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType
             (
                 tag,
                 _build(
-                    _as_schema(payload, [*alt_path, "properties", "value"], "value"),
+                    _as_schema(properties["value"], [*alt_path, "properties", "value"], "value"),
                     ctx,
                     [*alt_path, "properties", "value"],
                 ),
@@ -464,21 +586,19 @@ def _build_annotated(  # noqa: PLR0911
         properties = _as_schema(
             entry.get("properties"), [*entry_path, "properties"], "properties"
         )
-        key = properties.get("key")
-        value = properties.get("value")
-        if key is None or value is None:
+        if "key" not in properties or "value" not in properties:
             _fail(
                 'type_from_json_schema needs "key" and "value" on a Dict entry',
                 [*entry_path, "properties"],
             )
         return DictType(
             _build(
-                _as_schema(key, [*entry_path, "properties", "key"], "key"),
+                _as_schema(properties["key"], [*entry_path, "properties", "key"], "key"),
                 ctx,
                 [*entry_path, "properties", "key"],
             ),
             _build(
-                _as_schema(value, [*entry_path, "properties", "value"], "value"),
+                _as_schema(properties["value"], [*entry_path, "properties", "value"], "value"),
                 ctx,
                 [*entry_path, "properties", "value"],
             ),

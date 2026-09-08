@@ -175,8 +175,9 @@ describe("typeFromJsonSchema", () => {
             assert.ok(isTypeEqual(legacy, StringType));
         });
 
-        test("refuses mutually recursive definitions", () => {
-            refuses({
+        test("binds a two-definition cycle on one definition", () => {
+            // A → B → A needs one RecursiveType: B is inlined under A's binder.
+            const T = typeFromJsonSchema({
                 $ref: "#/$defs/A",
                 $defs: {
                     A: {
@@ -188,7 +189,94 @@ describe("typeFromJsonSchema", () => {
                         required: ["a"], additionalProperties: false,
                     },
                 },
-            }, /mutually recursive; East supports self-recursion only/);
+            });
+            const want = RecursiveType((self: any) => StructType({ b: StructType({ a: self }) }));
+            assert.ok(isTypeEqual(T, want), `got ${printType(T)}`);
+        });
+
+        test("binds a cycle through an array alias, the ordinary recursive shape", () => {
+            // Node → NodeList → Node is how recursive schemas are usually
+            // written (the JSON Schema meta-schemas do it), and it is one East
+            // type with the alias inlined.
+            const $defs = {
+                Node: {
+                    type: "object", properties: { children: { $ref: "#/$defs/NodeList" } },
+                    required: ["children"], additionalProperties: false,
+                },
+                NodeList: { type: "array", items: { $ref: "#/$defs/Node" } },
+            };
+            const node = RecursiveType((self: any) => StructType({ children: ArrayType(self) }));
+            const T = typeFromJsonSchema({ $ref: "#/$defs/Node", $defs });
+            assert.ok(isTypeEqual(T, node), `got ${printType(T)}`);
+            // Entered at the alias, the same node is read as an array of it.
+            const list = typeFromJsonSchema({ $ref: "#/$defs/NodeList", $defs });
+            assert.ok(isTypeEqual(list, ArrayType(node)), `got ${printType(list)}`);
+        });
+
+        test("shares a cyclic alias referenced from outside its cycle", () => {
+            const T = typeFromJsonSchema({
+                $ref: "#/$defs/Root",
+                $defs: {
+                    Root: {
+                        type: "object",
+                        properties: { a: { $ref: "#/$defs/NodeList" }, b: { $ref: "#/$defs/Node" } },
+                        required: ["a", "b"], additionalProperties: false,
+                    },
+                    Node: {
+                        type: "object", properties: { children: { $ref: "#/$defs/NodeList" } },
+                        required: ["children"], additionalProperties: false,
+                    },
+                    NodeList: { type: "array", items: { $ref: "#/$defs/Node" } },
+                },
+            });
+            const node = RecursiveType((self: any) => StructType({ children: ArrayType(self) }));
+            assert.ok(isTypeEqual(T, StructType({ a: ArrayType(node), b: node })), `got ${printType(T)}`);
+        });
+
+        test("refuses a cycle group that needs two binders, naming its members", () => {
+            // Both definitions loop on themselves and on each other, so no one
+            // definition lies on every cycle — East cannot bind that.
+            refuses({
+                $ref: "#/$defs/A",
+                $defs: {
+                    A: {
+                        type: "object",
+                        properties: { a: { $ref: "#/$defs/A" }, b: { $ref: "#/$defs/B" } },
+                        required: ["a", "b"], additionalProperties: false,
+                    },
+                    B: {
+                        type: "object",
+                        properties: { a: { $ref: "#/$defs/A" }, b: { $ref: "#/$defs/B" } },
+                        required: ["a", "b"], additionalProperties: false,
+                    },
+                },
+            }, /definitions "A" and "B" are mutually recursive in a way East cannot express/, "/$defs/A");
+        });
+
+        test("decides recursion by reachability, never by the order references appear in", () => {
+            // Every ordering of the self and cross references is refused the
+            // same way, with the same pointer.
+            const props = (selfFirst: boolean, self: string, other: string): JsonSchema =>
+                selfFirst
+                    ? { self: { $ref: `#/$defs/${self}` }, other: { $ref: `#/$defs/${other}` } }
+                    : { other: { $ref: `#/$defs/${other}` }, self: { $ref: `#/$defs/${self}` } };
+            for (const aSelfFirst of [true, false]) {
+                for (const bSelfFirst of [true, false]) {
+                    refuses({
+                        $ref: "#/$defs/A",
+                        $defs: {
+                            A: { type: "object", properties: props(aSelfFirst, "A", "B"), required: ["self", "other"], additionalProperties: false },
+                            B: { type: "object", properties: props(bSelfFirst, "B", "A"), required: ["self", "other"], additionalProperties: false },
+                        },
+                    }, /mutually recursive in a way East cannot express/, "/$defs/A");
+                }
+            }
+        });
+
+        test("treats a definition that is not a schema object as an error at its pointer", () => {
+            refuses(
+                { $ref: "#/$defs/L", $defs: { L: null } },
+                /expected definition "L" to be a schema object/, "/$defs/L");
         });
 
         test("refuses a reference it cannot resolve", () => {
@@ -290,6 +378,50 @@ describe("typeFromJsonSchema", () => {
 
         test("refuses a union of primitive types", () => {
             refuses({ type: ["string", "null"] }, /East unions are discriminated variants/, "/type");
+        });
+
+        test("refuses nullable beside a type, rather than dropping it", () => {
+            // East JSON has no bare null for a String, so accepting this would
+            // admit a contract whose nulls the reader then refuses.
+            refuses({ type: "string", nullable: true }, /cannot express "nullable" beside a type/, "/nullable");
+            refuses({ $ref: "#/$defs/L", nullable: true, $defs: { L: { type: "string" } } },
+                /cannot express "nullable" beside a type/, "/nullable");
+            refuses({
+                nullable: true,
+                oneOf: [{
+                    type: "object", properties: { type: { const: "ok" }, value: { type: "integer" } },
+                    required: ["type", "value"], additionalProperties: false,
+                }],
+            }, /cannot express "nullable" beside a type/, "/nullable");
+            // `nullable: false` asserts nothing.
+            assert.ok(isTypeEqual(typeFromJsonSchema({ type: "string", nullable: false }), StringType));
+        });
+
+        test("treats an explicit null as present, never as absent", () => {
+            // A null is a value the document carries; refusing it at its own
+            // pointer is what keeps the two language twins reading alike.
+            refuses({ type: "array", items: null }, /expected items to be a schema object/, "/items");
+            refuses({ $schema: null, type: "string" }, /expected "\$schema" to be a string/, "/$schema");
+            refuses({ type: null }, /does not recognise the type "null"/, "/type");
+            refuses({ type: null, nullable: true }, /cannot express "nullable" beside a type/, "/nullable");
+            refuses(
+                { type: "object", properties: null, additionalProperties: false },
+                /expected properties to be a schema object/, "/properties");
+            refuses({
+                oneOf: [{
+                    type: "object", properties: { type: { const: "ok" }, value: null },
+                    required: ["type", "value"], additionalProperties: false,
+                }],
+            }, /expected value to be a schema object/, "/oneOf/0/properties/value");
+        });
+
+        test("ignores entries of required that are not names", () => {
+            refuses({
+                type: "object",
+                properties: { a: { type: "string" } },
+                required: [["a"], 7, null],
+                additionalProperties: false,
+            }, /"a" is optional/, "/properties/a");
         });
 
         test("refuses an unconstrained schema", () => {
