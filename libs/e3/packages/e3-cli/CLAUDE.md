@@ -2,6 +2,18 @@
 
 Command-line tool for managing e3 repositories: `e3 repo|package|workspace|list|get|set|run|start|watch|logs|convert|login`.
 
+## Internal entry (`@elaraai/e3-cli/internal`)
+
+`src/internal.ts` re-exports the surface another first-party binary must
+share exactly rather than re-implement — repo-location parsing
+(`parseRepoLocation`, `defaultRepoArg`), the credential store + device flow
+(`getValidToken`, `createAuthCommand`, …), the dataset path resolver, the
+progress reporter, and the formatters (`formatError`, `formatSize`,
+`formatTaskStatus`). `@elaraai/e3-ui-cli` mounts it so `e3-ui auth` and
+`e3 auth` are one code path and one `~/.e3/credentials.json`. It is **not**
+semver-stable API: keep it to what a workspace binary needs, and never let
+`e3`'s own behaviour depend on it (the CLI imports its modules directly).
+
 ## See also
 
 - [`../../CLAUDE.md`](../../CLAUDE.md) — e3 lib-level overview with the

@@ -559,7 +559,7 @@ function convertTaskStatus(status: any): WorkspaceStatusResult['tasks'][0]['stat
 /**
  * Format task status for display.
  */
-function formatTaskStatus(status: WorkspaceStatusResult['tasks'][0]['status']): string {
+export function formatTaskStatus(status: WorkspaceStatusResult['tasks'][0]['status']): string {
   switch (status.type) {
     case 'up-to-date':
       return status.cached ? 'up-to-date (cached)' : 'up-to-date';

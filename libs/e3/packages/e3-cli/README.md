@@ -143,6 +143,22 @@ e3 dataset get dev.greet
 e3 dataflow run dev
 ```
 
+## Internal entry
+
+`@elaraai/e3-cli/internal` re-exports the pieces of the `e3` binary that another
+first-party binary shares rather than re-implements: `parseRepoLocation` /
+`defaultRepoArg` (the `<repo>` argument grammar and `E3_REPO` precedence), the
+credential store and device-flow login behind `e3 auth` (`getValidToken`,
+`createAuthCommand`, …), the dataset path resolver, the progress reporter and the
+CLI formatters. `@elaraai/e3-ui-cli` mounts these so `e3-ui auth login` and
+`e3 auth login` are the same code and the same `~/.e3/credentials.json`.
+
+It is not a semver-stable API — it exists for the workspace's own binaries and a
+release may reshape it. Application code should use
+[`@elaraai/e3-api-client`](https://www.npmjs.com/package/@elaraai/e3-api-client)
+(remote) or [`@elaraai/e3-core`](https://www.npmjs.com/package/@elaraai/e3-core)
+(local) instead.
+
 ## Migration from earlier versions
 
 | Old                                              | New                                                   |
