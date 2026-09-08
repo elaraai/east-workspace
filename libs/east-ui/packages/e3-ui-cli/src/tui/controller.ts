@@ -30,6 +30,7 @@ import { dirtyCount } from './state/reducer.js';
 import type { Persister } from './state/persist.js';
 import { repoEntry } from './state/persist.js';
 import type { Store } from './state/store.js';
+import { restoreTree } from './ui/widgets/tree.js';
 
 /** What the controller acts through. */
 export interface ControllerDeps {
@@ -219,10 +220,12 @@ export function createController(deps: ControllerDeps): Controller {
                 return;
             }
             controller.navigate(taskView(ws, task, tab), v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input');
+            restoreTree(controller, ws, `.tasks.${task}.output`);
         },
         openInput(ws, name) {
             const v = state().view;
             controller.navigate(inputView(ws, name), v.kind === 'dashboard' || v.kind === 'task' || v.kind === 'input');
+            restoreTree(controller, ws, `.inputs.${name}`);
         },
         openWorkspace(ws) {
             dispatch({ type: 'view/root', view: { kind: 'dashboard', ws, list: { sel: 0, top: 0 } } });

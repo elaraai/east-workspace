@@ -25,6 +25,7 @@ import type { Size } from '../render/layout.js';
 import { initialState, type Action, type SessionInfo, type TuiState, type View } from '../state/actions.js';
 import { createStore, StoreContext, type Store } from '../state/store.js';
 import { realClock, type PollClock } from '../state/poll.js';
+import type { Persister } from '../state/persist.js';
 import '../ui/views/all.js';
 
 /** ANSI SGR / cursor sequences, stripped from frames before assertions. */
@@ -80,6 +81,8 @@ export interface Mounted {
     dispatch(action: Action): Promise<void>;
     /** Re-mounts at a new size. */
     resize(size: Size): Promise<void>;
+    /** Settles until `predicate` holds (at most `turns` turns), failing otherwise. */
+    waitFor(predicate: () => boolean, turns?: number): Promise<void>;
     unmount(): void;
 }
 
@@ -97,6 +100,8 @@ export interface MountOptions {
     clock?: PollClock | undefined;
     /** Whether the feeds start (default: no — specs pre-populate the store). */
     feeds?: boolean | undefined;
+    /** A state-file persister (default: none). */
+    persist?: Persister | undefined;
 }
 
 /** The fixed clock the specs render at. */
@@ -127,7 +132,7 @@ export async function mountApp(options: MountOptions = {}): Promise<Mounted> {
         glyphs: options.glyphs ?? UNICODE,
         api: () => api,
         feeds,
-        persist: null,
+        persist: options.persist ?? null,
         exit: (code) => { exits.push(code); },
         openTarget: async (target) => { opened.push(target); },
         login: async (url) => { logins.push(url); },
@@ -173,6 +178,14 @@ export async function mountApp(options: MountOptions = {}): Promise<Mounted> {
         async resize(next) {
             instance.rerender(element(next));
             await settle();
+        },
+        async waitFor(predicate, turns = 200) {
+            for (let i = 0; i < turns; i++) {
+                if (predicate()) { await settle(); return; }
+                await new Promise(resolve => setTimeout(resolve, 5));
+                await settle(1);
+            }
+            throw new Error(`waitFor: the condition did not hold within ${turns} turns\n${mounted.frame()}`);
         },
         unmount() {
             feeds.stop();

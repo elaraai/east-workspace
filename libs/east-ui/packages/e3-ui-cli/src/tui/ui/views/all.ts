@@ -14,3 +14,4 @@
 import './dashboard.js';
 import './repos.js';
 import './workspaces.js';
+import './task.js';

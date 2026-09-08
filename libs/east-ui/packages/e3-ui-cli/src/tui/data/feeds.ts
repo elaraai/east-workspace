@@ -20,6 +20,7 @@
 import type { DataflowEvent, DataflowExecutionState } from '@elaraai/e3-api-client';
 import type { Api } from '../api.js';
 import { describeError, isApiCode } from '../api.js';
+import { createDatasetLoader, viewDataset, type DatasetLoader } from './dataset.js';
 import type { TuiState } from '../state/actions.js';
 import { connectionState, createPoller, type PollClock, type Poller } from '../state/poll.js';
 import type { Store } from '../state/store.js';
@@ -45,6 +46,8 @@ export interface Feeds {
     pollers(): Poller[];
     /** Re-derives the feed set now (after a session change). */
     sync(): void;
+    /** The dataset loader behind the value tree (pages, key search, saves). */
+    datasets: DatasetLoader;
 }
 
 /** What {@link createFeeds} needs. */
@@ -77,6 +80,7 @@ export function createFeeds(deps: FeedsDeps): Feeds {
     let lastSignature = '';
     const executionCursor = new Map<string, { startedAt: string | null; events: DataflowEvent[] }>();
     const repoStatusRequested = new Set<string>();
+    const datasets = createDatasetLoader({ store, api: deps.api, log: deps.log });
 
     /** A repository's counts and its latest deployment (the repositories view's lazy columns). */
     const repoFacts = async (api: Api, name: string): Promise<void> => {
@@ -244,6 +248,14 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                 },
             });
         }
+        const shown = viewDataset(state);
+        if (shown !== null) {
+            out.push({
+                key: `dataset:${shown.ws}:${shown.path}`,
+                intervalMs: 5_000,
+                run: () => datasets.tick(shown.ws, shown.path),
+            });
+        }
         if (view.kind === 'task') {
             const { task } = view;
             out.push({
@@ -319,6 +331,7 @@ export function createFeeds(deps: FeedsDeps): Feeds {
             lastSignature = '';
             executionCursor.clear();
             repoStatusRequested.clear();
+            datasets.reset();
         },
         refresh() {
             for (const poller of running.values()) poller.fireNow();
@@ -328,5 +341,6 @@ export function createFeeds(deps: FeedsDeps): Feeds {
         },
         pollers: () => [...running.values()],
         sync,
+        datasets,
     };
 }
