@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sheet Behaviour</title>
+<!--
+  Sheet — behaviour contract of the interactive prototype.
+  Sanitised from the claude.ai/design prototype spec ("Smart Planning Grid - Spec", 8 Sep 2026):
+  the client domain was genericised to a batch-process plant (activities, tanks, farms, sites)
+  so nothing here names a customer, a product or an upstream system. Every rule below is
+  implemented in the companion prototype `Sheet Spec.html` unless marked HOST-SUPPLIED.
+  The east-ui component design that maps this contract onto the IR lives in `Sheet Spec.md`.
+  Self-contained: design-system tokens inline; fonts from Google Fonts (needs network).
+-->
+<style>
+/* East — typography tokens.
+ * Three families, three jobs:
+ *   --font-brand (DM Sans)      display: page/frame titles, hero numbers
+ *   --font-body  (Inter Tight)  running UI text
+ *   --font-mono  (JetBrains Mono) ALL numerals (tabular), labels/eyebrows,
+ *                               keys, statuses, kbd — the system's "data voice"
+ * DM Sans is a flagged substitution for the rounded geometric sans in the
+ * Elara lockup. */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --font-brand: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body:  'Inter Tight', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:  'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  --fs-xs: 12px; --fs-sm: 14px; --fs-md: 16px; --fs-lg: 18px; --fs-xl: 20px;
+  --fs-2xl: 24px; --fs-3xl: 30px; --fs-4xl: 36px; --fs-5xl: 48px; --fs-6xl: 60px;
+
+  --fw-light: 300; --fw-normal: 400; --fw-medium: 500;
+  --fw-semibold: 600; --fw-bold: 700; --fw-extra: 800;
+
+  --lh-tight: 1.25; --lh-snug: 1.375; --lh-normal: 1.5; --lh-relaxed: 1.625;
+}
+</style>
+<style>
+/* East — color tokens.
+ * Two layers:
+ *   1. Raw scales (--brand-*, --gray-*, accent hues) — NEVER use directly in components.
+ *   2. Semantic aliases (--ink-*, --paper-*, --rule*, --brand, --pos/--neg/--warn/--info,
+ *      --bg-*, --fg-*) — the ONLY colors components may reference.
+ * Both themes resolve through the same semantic names; a component written
+ * against semantics works in dark mode for free. */
+
+:root {
+  /* ===== RAW: brand deep-teal scale ===== */
+  --brand-50:  #f0fffe;
+  --brand-100: #c2fcfc;
+  --brand-200: #94f9f9;
+  --brand-300: #79f8f8;
+  --brand-400: #5ce5e5;
+  --brand-500: #488e97;
+  --brand-600: #3a7780;
+  --brand-700: #2b4b55;
+  --brand-800: #1f363d;
+  --brand-900: #111b22;
+
+  /* ===== RAW: cool green-gray neutrals ===== */
+  --gray-50:  #f8fafa;
+  --gray-100: #f1f5f5;
+  --gray-200: #e2e8e8;
+  --gray-300: #cbd5d5;
+  --gray-400: #9bb0b0;
+  --gray-500: #6b8080;
+  --gray-600: #4a5f5f;
+  --gray-700: #374848;
+  --gray-800: #253333;
+  --gray-900: #1a2626;
+
+  /* ===== RAW: chart-only accent hues (see chart conventions) ===== */
+  --teal-500:   #14b8a6;
+  --purple-500: #8b5cf6;
+  --blue-500:   #3b82f6;
+  --green-500:  #22c55e;
+  --orange-500: #f97316;
+  --red-500:    #ef4444;
+  --yellow-500: #eab308;
+
+  /* ===== SEMANTIC: ink (text) scale, darkest → lightest ===== */
+  --ink:   #111b22;   /* primary text, headings */
+  --ink-2: #2b4b55;   /* strong secondary text */
+  --ink-3: #4a5f5f;   /* secondary text, ledes */
+  --ink-4: #6b8080;   /* labels, captions, mono eyebrows */
+  --ink-5: #9bb0b0;   /* faintest annotation */
+
+  /* ===== SEMANTIC: paper (surface) scale ===== */
+  --paper:   #ffffff; /* card / component surface */
+  --paper-2: #f8fafa; /* page background, header bands */
+  --paper-3: #f1f5f5; /* wells, inactive fills */
+
+  /* ===== SEMANTIC: rules (borders are structural, never decorative) ===== */
+  --rule:        #e2e8e8;  /* 1px inside-card dividers */
+  --rule-strong: #cbd5d5;  /* page-card edges, input borders */
+
+  /* ===== SEMANTIC: brand ===== */
+  --brand:      #488e97;
+  --brand-d:    #3a7780;  /* interactive brand (buttons, links) */
+  --brand-dd:   #2b4b55;  /* hover / pressed brand */
+  --brand-l:    #94f9f9;
+  --brand-tint: #e8f6f7;  /* selected / dirty fills — the ONLY tinted bg allowed */
+
+  /* ===== SEMANTIC: valence (muted, never saturated) ===== */
+  --pos:  #2f7a5b;
+  --neg:  #b85a4a;
+  --warn: #b8862d;
+  --info: #3a7780;
+
+  /* ===== SEMANTIC: page-level ===== */
+  --bg-primary:   #ffffff;
+  --bg-secondary: var(--gray-50);
+  --bg-tertiary:  var(--gray-100);
+  --bg-inverse:   var(--brand-900);
+  --fg-primary:   var(--gray-900);
+  --fg-secondary: var(--gray-600);
+  --fg-muted:     var(--gray-500);
+  --fg-inverse:   #ffffff;
+  --border-subtle: var(--gray-200);
+  --border-strong: var(--gray-300);
+  --border-focus:  var(--brand-500);
+  --card-bg:      #ffffff;
+  --card-border:  var(--gray-200);
+  --link:         var(--brand-600);
+  --link-hover:   var(--brand-700);
+}
+
+/* ===== Dark theme — same semantic names, inverted values ===== */
+[data-theme="dark"], .dark {
+  --ink:   #f1f5f5;
+  --ink-2: #cbd5d5;
+  --ink-3: #9bb0b0;
+  --ink-4: #6b8080;
+  --ink-5: #4a5f5f;
+
+  --paper:   #1a2626;
+  --paper-2: #253333;
+  --paper-3: #374848;
+
+  --rule:        #374848;
+  --rule-strong: #4a5f5f;
+
+  --brand:      #488e97;
+  --brand-d:    #5ba9b3;   /* interactive brand lifts one step in dark */
+  --brand-dd:   #79c4cd;
+  --brand-tint: #1f363d;
+
+  --pos:  #4da583;
+  --neg:  #d98a7c;
+  --warn: #d4a74f;
+  --info: #6fb3bb;
+
+  --bg-primary:   var(--gray-900);
+  --bg-secondary: var(--gray-800);
+  --bg-tertiary:  var(--gray-700);
+  --bg-inverse:   #ffffff;
+  --fg-primary:   var(--gray-100);
+  --fg-secondary: var(--gray-400);
+  --fg-muted:     var(--gray-500);
+  --fg-inverse:   var(--brand-900);
+  --border-subtle: var(--gray-700);
+  --border-strong: var(--gray-600);
+  --card-bg:      var(--gray-800);
+  --card-border:  var(--gray-700);
+  --link:         var(--brand-300);
+  --link-hover:   var(--brand-200);
+}
+</style>
+<style>
+/* East — spacing, radii, shadow, and motion tokens. */
+:root {
+  /* spacing (4px base) */
+  --sp-0: 0; --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+  --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px; --sp-16: 64px; --sp-20: 80px;
+
+  /* radii — East is square-ish: chips/badges 2-4px, buttons 6px,
+     frames 10px. Never use --r-full on anything but avatars/dots. */
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 12px; --r-2xl: 16px; --r-full: 9999px;
+
+  /* shadows — reserved for overlays (menus, dialogs). Nothing inside a
+     frame is ever shadowed; structure comes from 1px rules. */
+  --shadow-xs: 0 1px 2px rgba(17, 27, 34, 0.05);
+  --shadow-sm: 0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08);
+  --shadow-md: 0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08);
+  --shadow-xl: 0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10);
+  --shadow-focus: 0 0 0 3px rgba(72, 142, 151, 0.35);
+
+  /* motion — fast and matter-of-fact; no bounces */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms; --dur-base: 200ms; --dur-slow: 360ms;
+}
+</style>
+<style>
+/* East — base semantic element styles. */
+html, body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--paper-2);
+  font-feature-settings: "tnum" 1;
+  margin: 0;
+}
+
+.h1, h1 { font-family: var(--font-brand); font-size: var(--fs-5xl); font-weight: var(--fw-bold);     line-height: var(--lh-tight); letter-spacing: -0.02em;  color: var(--ink); }
+.h2, h2 { font-family: var(--font-brand); font-size: var(--fs-4xl); font-weight: var(--fw-bold);     line-height: var(--lh-tight); letter-spacing: -0.015em; color: var(--ink); }
+.h3, h3 { font-family: var(--font-brand); font-size: var(--fs-3xl); font-weight: var(--fw-semibold); line-height: var(--lh-snug);  letter-spacing: -0.01em;  color: var(--ink); }
+.h4, h4 { font-family: var(--font-brand); font-size: var(--fs-2xl); font-weight: var(--fw-semibold); line-height: var(--lh-snug);  color: var(--ink); }
+.h5, h5 { font-family: var(--font-body);  font-size: var(--fs-xl);  font-weight: var(--fw-semibold); line-height: var(--lh-snug);  color: var(--ink); }
+.h6, h6 { font-family: var(--font-body);  font-size: var(--fs-lg);  font-weight: var(--fw-semibold); line-height: var(--lh-normal); color: var(--ink); }
+
+.p, p    { font-size: var(--fs-md); line-height: var(--lh-relaxed); color: var(--ink); }
+.lead    { font-size: var(--fs-lg); line-height: var(--lh-relaxed); color: var(--ink-3); }
+.small   { font-size: var(--fs-sm); line-height: var(--lh-normal);  color: var(--ink-3); }
+.caption { font-size: var(--fs-xs); line-height: var(--lh-normal);  color: var(--ink-4); letter-spacing: 0.02em; }
+.eyebrow { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: var(--fw-semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--brand-d); }
+.mono    { font-family: var(--font-mono); font-feature-settings: "tnum" 1; }
+.num     { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: var(--fw-medium); }
+.code, code { font-family: var(--font-mono); font-size: 0.92em; background: var(--paper-3); padding: 1px 5px; border-radius: var(--r-sm); color: var(--ink); }
+
+a       { color: var(--link); text-decoration: none; }
+a:hover { color: var(--link-hover); text-decoration: underline; text-underline-offset: 2px; }
+</style>
+<style>
+  body { margin:0; font-family:var(--font-body); color:var(--ink); background:var(--paper-2); }
+  a { color:var(--brand-d); } a:hover { color:var(--brand-dd); }
+  main.sheet { max-width:8.5in; margin:40px auto; padding:0.75in; background:var(--paper); border:1px solid var(--rule-strong); border-radius:7px; box-shadow:var(--shadow-sm); box-sizing:border-box; }
+  @media (max-width: 900px) { main.sheet { margin:0; padding:24px 18px; border-radius:0; border:none; max-width:none; } }
+  main h1 { font-family:var(--font-brand); font-size:30px; font-weight:600; letter-spacing:-0.02em; line-height:1.15; margin:0 0 8px; }
+  main h2 { font-family:var(--font-brand); font-size:20px; font-weight:600; letter-spacing:-0.01em; margin:34px 0 10px; padding-top:14px; border-top:1px solid var(--rule-strong); }
+  main h3 { font-family:var(--font-body); font-size:14.5px; font-weight:600; margin:22px 0 6px; }
+  main p, main li { font-size:14px; line-height:1.6; color:var(--ink-2); }
+  main p { margin:0 0 10px; }
+  main ul { margin:0 0 10px; padding-left:20px; }
+  main code { font-family:var(--font-mono); font-size:12px; background:var(--paper-3); padding:1px 5px; border-radius:var(--r-sm); color:var(--ink); }
+  main pre { font-family:var(--font-mono); font-size:11.5px; line-height:1.5; background:var(--paper-3); border:1px solid var(--rule); border-radius:var(--r-md); padding:12px 14px; overflow:auto; margin:8px 0 14px; color:var(--ink); }
+  main table { width:100%; border-collapse:collapse; font-size:13px; margin:8px 0 14px; }
+  main th { text-align:left; font-family:var(--font-mono); font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-4); padding:6px 8px; border-bottom:1px solid var(--rule-strong); font-weight:600; }
+  main td { padding:6px 8px; border-bottom:1px solid var(--rule); vertical-align:top; line-height:1.5; color:var(--ink-2); }
+  main td.k { color:var(--ink); white-space:nowrap; }
+  main td.m { font-family:var(--font-mono); font-size:12px; color:var(--ink); white-space:nowrap; }
+  .ex { font-family:var(--font-mono); font-size:9px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--brand-d); margin-right:6px; }
+  .ex.host { color:var(--warn); }
+  .eyebrow-line { font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-4); margin-bottom:10px; }
+  .lede { font-size:15px; color:var(--ink-3); }
+  .stamp { font-family:var(--font-mono); font-size:10.5px; color:var(--ink-4); margin:0 0 28px; font-feature-settings:'tnum' 1; }
+  .half-label { font-family:var(--font-mono); font-size:9px; letter-spacing:0.1em; color:var(--ink-5); }
+  .ghost { font-family:var(--font-mono); font-size:12px; color:var(--ink-4); }
+</style>
+</head>
+<body>
+<main class="sheet">
+  <div class="eyebrow-line">Component specification · East · @elaraai/east-ui</div>
+  <h1>Sheet — a declarative planning sheet</h1>
+  <p class="lede">A generalised spreadsheet component. The host supplies a <b>data source</b> (rows), a <b>declarative column schema</b>, and <b>registers</b> (lookup tables); the component supplies typed parsing, inline autocomplete, directed link cells, a copilot that fills and proposes rows, search with context bands, saved-view tabs, and Excel round-tripping. Nothing in the component knows about the plant. Every plant value in this document is an <span class="ex">example</span> of what the schema has to be able to express, taken from the BX2 · C26 configuration the prototype runs.</p>
+  <p class="stamp">Source of truth: Sheet Spec.html (the interactive prototype) · 8 Sep 2026 · every rule below is implemented there unless marked <span class="ex host">host-supplied</span> (still hard-coded in the prototype, to become configuration). The east-ui mapping — IR, factories, JSX, renderer — is Sheet Spec.md.</p>
+
+  <h2>1 · Contract</h2>
+  <p>The prototype is a controlled React component. It renders from <code>rows</code> and reports every mutation; persistence, sync and the upstream system (<span class="ex">example</span> the plant MES) are the host's.</p>
+  <table>
+    <thead><tr><th style="width:24%;">Prop</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td class="m">rows</td><td>Array of records keyed by column <code>key</code>, plus a stable <code>id</code>. Empty strings mean empty. The component pads the sheet with blank rows (§7) but reports only real rows back.</td></tr>
+      <tr><td class="m">columns</td><td>Ordered column declarations (§2). Each names a <code>type</code> from the type registry and parameterises it.</td></tr>
+      <tr><td class="m">types</td><td>Optional overrides/extensions of the built-in type registry (§3). A type declares how a cell parses, displays, ghosts, how long it waits before suggesting, and whether it can be edited.</td></tr>
+      <tr><td class="m">registers</td><td>Named lookup tables: <code>{ name: rows[] }</code>. A register row is an object with a display key and any extra fields declarations may point at. <span class="ex">example</span> activities, vessels, farms, groups, sites, statuses.</td></tr>
+      <tr><td class="m">driver</td><td>The <code>lookup</code> column whose register row parameterises the rest of the row — units, durations, direction. Other declarations reference it by path (<code>driver.days</code>, <code>driver.uom</code>, <code>driver.sides</code>). <span class="ex">example</span> Activity.</td></tr>
+      <tr><td class="m">suggest</td><td>Copilot configuration (§5): fill providers per column, row patterns, learning on/off, lookahead. <code>ghostEnabled</code> and <code>suggestAhead</code> are surfaced as tweaks.</td></tr>
+      <tr><td class="m">owned</td><td>Predicate marking rows the host system owns (no copilot, stamped columns read-only). <span class="ex">example</span> <code>row.orderCode || row.status === 'CANCELLED'</code>.</td></tr>
+      <tr><td class="m">onChange · onCommit</td><td><code>onChange(rows)</code> after every mutation; <code>onCommit(rowId, key, value, source)</code> per cell with <code>source ∈ typed · pasted · fill · row · pattern</code> so the host can measure copilot uptake.</td></tr>
+      <tr><td class="m">views · onViewsChange</td><td>Saved-view tabs (§8) as data, so they persist with the plan.</td></tr>
+      <tr><td class="m">autosave · onAutosaveToggle</td><td>Controlled state for the rail toggle; the component only shows it and stamps the last-saved time.</td></tr>
+      <tr><td class="m">chrome</td><td>Title, breadcrumb and sync status for the app bar — display strings only.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2 · Column declaration</h2>
+  <p>A column is <code>{ key, label, sub, type, …params }</code>. <code>sub</code> is the grey second header line that tells the planner what the cell accepts. Parameters are read by the type; unknown ones are ignored.</p>
+  <table>
+    <thead><tr><th style="width:22%;">Param</th><th style="width:16%;">Types</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td class="m">of</td><td>lookup · reference · enum · link</td><td>Register name the values come from.</td></tr>
+      <tr><td class="m">derive</td><td>date · quantity</td><td>Deterministic rule for the ghost: <code>{ from: key, plus: 'driver.days' }</code>. <span class="ex">example</span> End = Start + activity.days.</td></tr>
+      <tr><td class="m">uomFrom</td><td>quantity</td><td>Path to the unit label. <span class="ex">example</span> <code>driver.uom</code> → L, Tk, Drm.</td></tr>
+      <tr><td class="m">members</td><td>link · set</td><td>Member kinds the register exposes: <code>{ kind, identified, countable, resolvesTo }</code>. <i>Identified</i> names one thing; <i>countable</i> may carry a count (“4 × kind”) and resolves to an identified kind later. <span class="ex">example</span> tank (identified) · range (identified) · farm, group, capacity (countable → tank).</td></tr>
+      <tr><td class="m">multiple</td><td>link · set</td><td>Count grammar: <code>{ forms: ['N x kind','kind x N'], ops: ['x','X','*','×'], appliesTo: 'countable' }</code>.</td></tr>
+      <tr><td class="m">sides</td><td>link</td><td>Where direction is declared: <code>{ from: 'driver.sides', values: { both, from, to, in }, locks: { from: { to: 'external', in: 'in place' }, to: { from: 'external' } } }</code>. Lock labels are display strings the host chooses.</td></tr>
+      <tr><td class="m">arity</td><td>link</td><td>How many members a side should hold: <code>{ of: 'destination', from: 'vol', per: 'capacity' }</code> — read in the strip while that side is edited (§4.6).</td></tr>
+      <tr><td class="m">check</td><td>link</td><td>Validations to run on members: <code>['exists', 'capacity@destination', 'free-in-window', 'site-matches@fromSite,toSite']</code>. Only <code>exists</code> is evaluated in the prototype; the rest are declared for the host.</td></tr>
+      <tr><td class="m">store</td><td>link · set</td><td><code>as-typed</code> (default) keeps the planner's string; <code>canonical</code> would rewrite to register labels on commit.</td></tr>
+      <tr><td class="m">owner</td><td>stamped</td><td>Name of the system that writes the column; shown in the sub line. <span class="ex">example</span> Order code · MES.</td></tr>
+      <tr><td class="m">width</td><td>all</td><td>Track width in px. <span class="ex">example</span> 96 · 96 · 214 · 112 · 250 · 352 · 64 · 112 · 112 · 104 · 124, gutter 80.</td></tr>
+    </tbody>
+  </table>
+  <pre>// example — the prototype's schema, verbatim in shape
+{ key:'start',    label:'Start',           sub:'d/m · fri · +3d',        type:'date' },
+{ key:'end',      label:'End',             sub:'4d = start+4',           type:'date',     derive:{ from:'start', plus:'driver.days' } },
+{ key:'activity', label:'Activity',        sub:'activity register',      type:'lookup',   of:'activities' },        // driver
+{ key:'vol',      label:'Vol / Qty',       sub:'uom per activity',       type:'quantity', uomFrom:'driver.uom' },
+{ key:'notes',    label:'Notes',           sub:'free text',              type:'text' },
+{ key:'tanks',    label:'Tanks / vessels', sub:'from → to · 4 x 140kL · tank · farm', type:'link', of:'vessels',
+  members:[ {kind:'tank',identified:true}, {kind:'range',identified:true},
+            {kind:'farm',countable:true,resolvesTo:'tank'}, {kind:'group',countable:true,resolvesTo:'tank'},
+            {kind:'capacity',countable:true,resolvesTo:'tank'} ],
+  multiple:{ forms:['N x kind','kind x N'], ops:['x','X','*','×'], appliesTo:'countable' },
+  sides:{ from:'driver.sides', locks:{ from:{ to:'external', in:'in place' }, to:{ from:'external' } } },
+  arity:{ of:'destination', from:'vol', per:'capacity' }, store:'as-typed',
+  check:['exists','capacity@destination','free-in-window','site-matches@fromSite,toSite'] },
+{ key:'toClean',  label:'Clean',           sub:'n',                      type:'integer' },
+{ key:'fromSite', label:'From site',       sub:'site register',          type:'reference', of:'sites' },
+{ key:'toSite',   label:'To site',         sub:'site register',          type:'reference', of:'sites' },
+{ key:'orderCode',label:'Order code',      sub:'stamped on upload',      type:'stamped',  owner:'MES' },
+{ key:'status',   label:'Status',          sub:'mes',                    type:'enum',     of:'statuses' }</pre>
+
+  <h2>3 · Type registry</h2>
+  <p>Types are the unit of behaviour. Adding a column never adds code; adding a <i>type</i> does. Latency is how long after the last keystroke a suggestion is rebuilt: <b>instant</b> 150 ms for deterministic lookups, <b>idle</b> 1 100 ms for anything derived from history.</p>
+  <table>
+    <thead><tr><th>Type</th><th>Value</th><th>Ghost</th><th>Latency</th><th>Edit</th><th>Parse rule</th></tr></thead>
+    <tbody>
+      <tr><td class="m">text</td><td>string</td><td>phrase</td><td>idle</td><td>free</td><td>Anything. Ghost is a host phrase template (§5.1).</td></tr>
+      <tr><td class="m">date</td><td>ISO date</td><td>rule</td><td>instant</td><td>parsed</td><td>Base = today, or the <code>derive.from</code> column's value when set. Accepts <code>+3</code>/<code>+3d</code> (base+n) · <code>4d</code> (derive.from + n) · weekday prefix ≥3 letters (next occurrence, never today) · ISO · <code>d/m</code>, <code>d/m/yy</code>, <code>d-m-yyyy</code>, <code>d.m</code> · <code>17 nov</code>, <code>17 nov 25</code>. Missing year = base year, rolled forward if the date would precede the base. Display <code>17 Nov 25</code>; edit form <code>17/11/25</code>; strip preview <code>Mon 17 Nov 25</code> and the day span when derived.</td></tr>
+      <tr><td class="m">quantity</td><td>number + uom</td><td>history</td><td>idle</td><td>parsed</td><td>Digits, optional decimal, suffix <code>l · k · kl · ml</code> (×1, ×10³, ×10³, ×10⁶); commas/spaces ignored; stored as a rounded integer. Display locale-grouped, unit from <code>uomFrom</code> in 9.5px mono ink-5. Strip previews the parsed value and the implied run when the driver has a rate (<i>≈ 21.8 h run · 2 fte</i>).</td></tr>
+      <tr><td class="m">integer</td><td>number</td><td>none</td><td>instant</td><td>parsed</td><td>As quantity, no unit.</td></tr>
+      <tr><td class="m">lookup</td><td>one register row</td><td>prefix + alias + fuzzy</td><td>instant</td><td>constrained</td><td>Scored candidates (§3.1); commit takes the exact match, else the top candidate, else the typed text.</td></tr>
+      <tr><td class="m">reference</td><td>one register member</td><td>prefix</td><td>instant</td><td>constrained</td><td>As lookup, but the register is a flat list of labels.</td></tr>
+      <tr><td class="m">enum</td><td>one of a closed set</td><td>prefix</td><td>instant</td><td>constrained</td><td>Input upper-cased before matching; a non-match clears the cell. Display: valence dot + mono word.</td></tr>
+      <tr><td class="m">set</td><td>unordered members</td><td>token + set</td><td>idle</td><td>tokens</td><td>Comma-separated members from <code>members</code>; the link grammar without an arrow.</td></tr>
+      <tr><td class="m">link</td><td>set → set</td><td>token + set</td><td>idle</td><td>tokens</td><td>A directed pair of sets — §4.</td></tr>
+      <tr><td class="m">stamped</td><td>written elsewhere</td><td>never</td><td>—</td><td>read-only</td><td>Skipped by paste and clear; shows <code>—</code> on a non-blank row.</td></tr>
+    </tbody>
+  </table>
+  <h3>3.1 Candidate scoring (lookup · reference · enum)</h3>
+  <p>Whole-string prefix (0) → every typed word prefixes some word, or any word prefix (1) → initials in order, ≥2 chars (2) → substring (3); ties broken by how often the value already appears in this sheet. Only a <i>prefix</i> match ghosts inline as a grey suffix after the caret. A non-prefix match (alias, fuzzy, range) previews on the right of the editor as a replacement (<code>→ Transfer - Annex</code>) and is taken with Tab. With an empty buffer nothing is armed: the strip lists what the field <i>accepts</i> — for the driver column ranked by what usually follows the row above, then by sheet frequency — and Tab cannot write a value the planner never chose. ⌥] ⌥[ ⌥↓ ⌥↑ cycle the armed candidate.</p>
+
+  <h2>4 · Link type</h2>
+  <p>A link is a directed hyperedge: two sets with a direction. Each half is a set of members drawn from the column's register; the direction is optional because the driver may declare only one side. The cell always draws both halves once the row has a driver value, so direction is visible without opening anything.</p>
+  <h3>4.1 Member grammar</h3>
+  <table>
+    <thead><tr><th style="width:26%;">Typed <span class="ex">example</span></th><th>Kind · rule</th></tr></thead>
+    <tbody>
+      <tr><td class="m">T2140 · t2140 · 2140</td><td><b>identified</b> — register code, case-insensitive; bare digits try the register's prefix. Meta from the register (<i>140 kL</i>).</td></tr>
+      <tr><td class="m">T2140-45 · 2140-2145</td><td><b>range</b> — expands to every register member in the numeric span, short upper bound completed from the lower. A hyphen is a range only between two unspaced bare numbers; spaced, or beside a name, it is an arrow.</td></tr>
+      <tr><td class="m">2000s · the 2000s · annex</td><td><b>countable by name/alias</b> — leading “the” dropped. Meta <i>farm · 96</i>.</td></tr>
+      <tr><td class="m">140kL · 140 kl · 140000L</td><td><b>countable by attribute</b> — a size that exists in the register, not a member. Litres ≥1 000 read as kL.</td></tr>
+      <tr><td class="m">4 x 140kL · 2000s × 3 · 3*annex</td><td><b>counted member</b> — <code>N x kind</code> / <code>kind x N</code> with the declared ops, countable kinds only. Label <code>4 × 140 kL</code>, meta <i>unassigned</i>, carries <code>n</code> and <code>of</code>. A trailing qualifier (“… tanks south”) becomes its own text token. Multiplying an identified member is kept as text with the reason.</td></tr>
+      <tr><td class="m">TBC</td><td><b>placeholder</b> — dashed chip.</td></tr>
+      <tr><td class="m">anything else</td><td><b>text</b> — kept as typed, dashed. Entry is never blocked.</td></tr>
+      <tr><td class="m">, · &gt; -&gt; =&gt; → “ - ”</td><td>Comma separates members in a half; any arrow form separates From from To.</td></tr>
+    </tbody>
+  </table>
+  <h3>4.2 Sides, locks and storage</h3>
+  <ul>
+    <li>Storage is the typed string: <code>a &gt; b</code> both halves · <code>b</code> destination only · <code>a &gt;</code> source only. <b>A single set with no arrow is always the destination</b>, so existing single-set data migrates without edits.</li>
+    <li>The driver row's <code>sides</code> value selects the live halves: <b>both</b> · <b>from</b> (To locked) · <b>to</b> (From locked) · <b>in</b> (From locked, divider drawn as a minus). No driver, or a driver without <code>sides</code>: both live. Lock labels come from <code>sides.locks</code> — <span class="ex">example</span> “external”, “in place”.</li>
+    <li>A locked half is never predicted into and Tab skips it, but typing into it is <i>allowed</i>: the content is kept and the lock tag turns warn — a flag, not a block.</li>
+  </ul>
+  <h3>4.3 Display</h3>
+  <ul>
+    <li>Grid <code>minmax(0,1fr) 16px minmax(0,1fr)</code> inside the cell's 10px padding. Halves stretch to one height and top-align; the arrow sits on the first 20px line. Blank rows show nothing; rows with a driver value always show the structure.</li>
+    <li>Chips: mono 10.5px, paper-3 fill, 1px rule, radius 4, padding 1px 4px, 4px gaps, wrapping. Register meta appears only when a half holds a single chip. Dashed = text, placeholder, or a copilot proposal.</li>
+    <li>Empty live half: faint mono label <span class="half-label">FROM</span> / <span class="half-label">TO</span> (8.5px 600 ink-5), From right-aligned against the arrow. Locked half: the same label as a paper-3 tag, warn-tinted (8% wash) when it holds content.</li>
+    <li>Proposals render as dashed chips in the correct halves over the proposal hatch; hover shows the ✓ take button.</li>
+  </ul>
+  <h3>4.4 Editor</h3>
+  <p>The editor overlays the cell at the cell's height (grows if chips wrap), 2px brand ring, no fill. Both halves are drawn; the active half carries a 1.5px brand underline and the only input. The caret opens in the first live half that is still empty, else the destination. Existing content becomes chips; typing a first character from the grid replaces the content (spreadsheet convention).</p>
+  <table>
+    <thead><tr><th style="width:22%;">Key</th><th>Behaviour</th></tr></thead>
+    <tbody>
+      <tr><td class="m">,</td><td>Resolves the buffer to chips in the active half; keeps typing.</td></tr>
+      <tr><td class="m">&gt; (any arrow form)</td><td>In From: resolves the buffer and hops the caret to To (flagged in the footer if To is locked). In To: dropped.</td></tr>
+      <tr><td class="m">⇥</td><td>1) takes the inline ghost or armed candidate; 2) with an empty buffer takes one predicted chip; 3) hops From → To if To is live; 4) else commits right. ⇧⇥ hops To → From, else commits left.</td></tr>
+      <tr><td class="m">⏎</td><td>With text: resolves to chips, stays. Empty: commits, moves down. ⌘⏎ commits and takes the row's remaining fills.</td></tr>
+      <tr><td class="m">⌫</td><td>Empty buffer: pops the active half's last chip back into the buffer; if To is empty, crosses back to From.</td></tr>
+      <tr><td class="m">← →</td><td>At the edge of an empty buffer they cross the divider. → at end of text takes one ghost word; ⌘→ takes the whole ghost, or every predicted chip when empty.</td></tr>
+      <tr><td class="m">⇧← ⇧→</td><td>Select whole chips (the unit of the cell). Selected chips fill brand; ⌫ removes them; esc or a plain arrow drops the selection.</td></tr>
+      <tr><td class="m">esc · click</td><td>esc cancels. Clicking a half moves the caret there (buffer resolved first); clicking outside commits.</td></tr>
+    </tbody>
+  </table>
+  <h3>4.5 Autocomplete and prediction</h3>
+  <ul>
+    <li>Candidates: exact identified code → identified codes by prefix when the input looks like a code → countable names/aliases, each followed by an <i>enumerate</i> alternative listing its free identified members → identified codes by prefix otherwise → other countables → placeholder. Members already in the cell are never offered twice. A range shows one candidate: its expansion.</li>
+    <li>Inline ghost is the top prefix candidate's suffix (<code>t21</code><span class="ghost">40</span>). No candidates: the strip states the grammar and keeps the text.</li>
+    <li>Prediction runs only while the buffer is empty, per half, never into a locked half: the last row with the same driver value → its members normalised through the register; else the counted form <code>n × unit</code> where <code>n = ⌈arity.from ÷ per⌉</code> (<span class="ex">example</span> ⌈vol ÷ 140 000⌉ · Tk drivers n = vol · Drm none · cap 12). Dashed after the input; the strip lists them with an enumerate alternative naming that many free members. Once a half has named members the count proposal is withdrawn. For from-only drivers the proposal lands in From.</li>
+  </ul>
+  <h3>4.6 Arity</h3>
+  <p>While the <code>arity.of</code> half is being edited the strip meta reads <i>4 × 140 kL implied · 3 named so far</i> — never inside the cell. Named = each identified member once, a counted member by its count; text and placeholders do not count. Fewer than implied: <i>named so far</i>; more: <i>more than the volume needs</i>; equal: <i>named</i>.</p>
+
+  <h2>5 · Copilot</h2>
+  <p>Suggestions are rebuilt against the row <i>as it would be</i> if the open editor committed, after the type's latency. Rows matching <code>owned</code> are never touched; nothing is proposed into an occupied slot.</p>
+  <h3>5.1 Fill providers</h3>
+  <p>Each column may name a provider; the first that yields wins, and its provenance is shown in the strip. Fills render as grey ghosts over a brand hatch (135°, 7% brand, 6px period). Exactly one cell is the next Tab target (1.5px dotted brand underline). Hover shows an 18px ✓ take button; the anchor row's gutter shows → <i>fill this row</i> (⌘⏎).</p>
+  <table>
+    <thead><tr><th style="width:16%;">Provider</th><th>Rule</th><th style="width:34%;"><span class="ex">example</span> in the prototype</th></tr></thead>
+    <tbody>
+      <tr><td class="m">derive</td><td>The column's <code>derive</code> declaration.</td><td>End = Start + driver.days · <i>+4d · Transfer</i></td></tr>
+      <tr><td class="m">history</td><td>Same value as the last row with this driver value.</td><td>Vol <i>like BX226003</i>; Tanks <i>same vessels as row 3</i></td></tr>
+      <tr><td class="m">sequence</td><td>Nearest dated row above + a declared step; else a declared anchor.</td><td>Start = week after row n; else next Monday <span class="ex host">host-supplied</span></td></tr>
+      <tr><td class="m">default</td><td>Expression over the driver row.</td><td>Vol = rate × 8 h <span class="ex host">host-supplied</span></td></tr>
+      <tr><td class="m">phrase</td><td>Template per driver family, with row values interpolated.</td><td>Transfer → “Transfer 560kL of BX2” <span class="ex host">host-supplied</span></td></tr>
+      <tr><td class="m">capacity</td><td>The link count form (§4.5).</td><td><i>capacity · 560,000 L ÷ 140 kL</i></td></tr>
+    </tbody>
+  </table>
+  <h3>5.2 Suggested rows</h3>
+  <ul>
+    <li><b>Patterns</b> (<span class="ex host">host-supplied</span>): <code>{ when(row), rows(row) → [{ activity, start, end, vol, notes, … }] }</code>. <span class="ex">example</span> Bulk Blenders → media add + packdown at end +3…+7 d; Xflow with “annex” → transfer to the annex, then back a week later.</li>
+    <li><b>Learned followers</b> (built in): the driver value that most often followed this one in the sheet (rows sorted by start, gap 0–60 d), placed at the average gap with that follower's last quantity and notes · <i>Transfer followed Xflow 3× in this plan · +7d</i>. Used when no pattern matches.</li>
+    <li>At most <code>suggestAhead</code> rows (default 2), rendered as dashed-topped hatched rows under the anchor with real row numbers. Gutter: <b>✓</b> adds (⏎ when selected), <b>×</b> rejects (⌫) and remembers the pairing so it is not offered after that driver again. Click selects (3px brand bar); esc deselects, esc again dismisses all. Taking a row re-anchors and looks forward so the next is already waiting.</li>
+    <li>Rejected fills are remembered per row and key; ⌫ on the armed target rejects just that cell.</li>
+  </ul>
+
+  <h2>6 · Sheet interaction</h2>
+  <table>
+    <thead><tr><th style="width:26%;">Input</th><th>Result (sheet focused, no editor)</th></tr></thead>
+    <tbody>
+      <tr><td class="m">arrows · ⇧arrows</td><td>Move the 2px brand ring · extend a range (brand-tint 55%). ↓ on the last row appends a row (not while filtering).</td></tr>
+      <tr><td class="m">⇥ · ⇧⇥</td><td>Fills pending: first press jumps to and arms the next target, the next writes it and arms the following. Rows pending: takes the next. Else moves right / left.</td></tr>
+      <tr><td class="m">⏎ · F2 · character</td><td>⏎ takes the next suggestion if any, else edits with the value selected; F2 always edits; a printable character starts a fresh edit seeded with it.</td></tr>
+      <tr><td class="m">⌘⏎ · ⌘⇧⏎</td><td>Take the whole row fill (one undo step) · take everything pending.</td></tr>
+      <tr><td class="m">esc</td><td>Dismiss the row fill (rows stay), then everything; clears a range.</td></tr>
+      <tr><td class="m">⌫ · ⌘⌫</td><td>Clear selected cells (never stamped); whole rows selected → delete rows · ⌘⌫ deletes selected rows.</td></tr>
+      <tr><td class="m">click · ⇧click · drag · dblclick</td><td>Select · extend · range · edit. Row-number click selects the row (⇧ extends); a click on a suggested row selects the proposal.</td></tr>
+      <tr><td class="m">⌘/ · ⌘F</td><td>Focus search.</td></tr>
+    </tbody>
+  </table>
+  <p>Edits commit on Tab, Enter, ↓ (down) / ↑ (stay) and blur; esc cancels. An unparseable value keeps the editor open with a neg ring (blur discards). Committing any column named in <code>suggest.triggers</code> (<span class="ex">example</span> activity, start, end, vol, notes, tanks) rebuilds the copilot for that row.</p>
+
+  <h2>7 · Sheet model</h2>
+  <ul>
+    <li>Eighteen blank rows are always kept below the last real row (<code>blanks</code>, tweakable) and never removed from under the cursor. Blank rows are padding: not reported, not counted, not searchable.</li>
+    <li>Footer counts are host expressions over rows — <span class="ex">example</span> <i>planned</i> = non-blank, <i>ready</i> = driver + start + qty and not owned, <i>cancelled</i> = status.</li>
+    <li>Row numbers are real sheet positions, also under filters and for suggested rows.</li>
+  </ul>
+
+  <h2>8 · Search, context bands, tabs</h2>
+  <ul>
+    <li><b>Search</b>: case-insensitive substring over every column's display text. Hits keep their row number in brand; the count reads <i>4 matches · 6 context</i>.</li>
+    <li><b>Context</b> ±0 / ±1 / ±3 shows rows either side of each hit. Everything else collapses into a band: 22px, dashed rule, <i>n hidden</i> pill. Hover opens <code>⌃ +1 · n hidden · +1 ⌄ · all</code>; each click reaches further (1, 3, 10, all) from the top, bottom, or both. Reveals are a set of row indices, so overlapping bands merge and the counter keeps its anchor. Changing the query resets reveals.</li>
+    <li><b>Tabs</b> are lenses, never copies: a tab saves the search <i>definition</i> (query, context, reveals) and is evaluated live, so new matching rows join it and edits anywhere write to the sheet. The first tab is the whole sheet, pinned, with the planned count. <code>+ TAB</code> saves the current view (named from the query, 16 chars, or <i>view n</i> when empty — search inside it and ⏎ scopes it). Active tab: 2px ink underline; live mono match count on each. Editing the query in a tab marks it dirty (brand dot): ⏎ updates, esc reverts; esc on a clean tab returns to the sheet. × (hover neg) or middle-click closes; double-click renames; drag reorders; closing the active tab falls back to the sheet. Leaving a tab persists its context and reveals and discards an unsaved query.</li>
+  </ul>
+
+  <h2>9 · Docked strip and footer</h2>
+  <p>The strip is the only surface for candidates and provenance — nothing floats over the grid. Paper-2 band, brand mono label, chips, meta, key legend.</p>
+  <table>
+    <thead><tr><th style="width:30%;">State</th><th>Label · chips · meta · keys</th></tr></thead>
+    <tbody>
+      <tr><td class="k">Editing, empty, candidates</td><td><i>COLUMN · accepts</i> · up to 6 (link 12) flat chips, nothing armed · the type's value description · <i>type to filter · ⌥↓ to pick · click any</i>.</td></tr>
+      <tr><td class="k">Editing, typed, candidates</td><td><i>⌥] COLUMN</i> (link: <i>· from</i> / <i>· to</i>) · armed chip in brand-tint · meta of the armed one from the register row · <i>1 of n · ⇥ take</i>.</td></tr>
+      <tr><td class="k">Editing link, empty, prediction</td><td><i>COLUMN · predicted</i> · predicted chips + enumerate alternative · provenance · <i>⇥ one · ⌘→ all · or type</i>.</td></tr>
+      <tr><td class="k">Editing link, no candidates</td><td><i>COLUMN · to · accepts</i> · the grammar in one line, or <i>no register match — kept as typed</i> · arity meta · <i>, adds · &gt; hops to the To half · ⏎ done</i>.</td></tr>
+      <tr><td class="k">Editing date / quantity</td><td>Accepted forms while empty; the parsed preview once typed; <i>unrecognised</i> otherwise.</td></tr>
+      <tr><td class="k">Not editing, suggestions pending</td><td><i>suggested</i> · one chip per pending fill (next target armed) plus <i>+n rows</i> · provenance · <i>⇥ walk · ⌘⏎ row · ⌘⇧⏎ all · esc</i>. Clicking a chip takes it.</td></tr>
+    </tbody>
+  </table>
+  <p>Footer: counts · a state-sensitive key hint (selected suggestion, whole rows selected, greys pending, or the basics) · a right-aligned <code>aria-live</code> message for every action (<i>Took Transfer — next one suggested below</i>, <i>Pasted 3×5 from clipboard</i>).</p>
+
+  <h2>10 · Clipboard and autosave</h2>
+  <ul>
+    <li><b>Copy</b>: tab-separated; dates <code>d/m/yyyy</code>, numbers bare, a link cell as <b>two columns</b> (From, To) — destination-only leaves From empty.</li>
+    <li><b>Paste</b>: lands at the selection, appending rows as needed; each cell parsed by its type (unparseable kept as typed); stamped columns skipped; a link column consumes two clipboard cells and joins them (<code>a &gt; b</code> · <code>b</code> · <code>a &gt;</code>; a lone cell as typed). The block is left selected; suggestions cleared.</li>
+    <li><b>Autosave</b>: 30px icon toggle — on = pos cloud-arrow-up, every mutation stamps a save time; off = ink-5 cloud, changes held locally. Tooltip carries state; the footer confirms each toggle.</li>
+  </ul>
+
+  <h2>11 · Visual rules</h2>
+  <table>
+    <thead><tr><th style="width:20%;">Element</th><th>Tokens</th></tr></thead>
+    <tbody>
+      <tr><td class="k">Layout</td><td>App bar 46 · rail 30px controls at 8/20 · grid inset 14/20, paper card, 1px rule-strong, radius 10 · sticky two-line header · rows min 36 · 120px bottom padding · gutter 80 (row number right-aligned in 26px + 18px action buttons).</td></tr>
+      <tr><td class="k">Type</td><td>Brand (DM Sans) for the app title only. Body (Inter Tight) 12.5–13px for text cells and inputs. Mono (JetBrains Mono, <code>tnum</code>) for every numeral, date, code and status word, and all labels: header 10/600/0.16em, eyebrows 9–9.5/600/0.1em, half labels 8.5, chips 10.5, row numbers 10.</td></tr>
+      <tr><td class="k">Surfaces</td><td>paper-2 page, gutter, strip · paper cells, rail, footer · paper-3 chips, lock tags, hover. Structure from 1px rules; the only shadow is xs on the open band pill.</td></tr>
+      <tr><td class="k">Brand</td><td>brand-d: selection ring (2px inset), active-half underline, hit row numbers, gutter buttons, next-target dotted underline, proposal hatch, row-select bar, dirty dot. brand-tint: range fill, active context option, armed strip chip. brand-dd on hover.</td></tr>
+      <tr><td class="k">Valence</td><td>pos: sync dot, autosave on · warn: content in a locked half (8% wash), IN PROGRESS · neg: CANCELLED, parse-error ring, reject/close hover · ink-4/5 for everything secondary. Enum colours are declared on the register row.</td></tr>
+      <tr><td class="k">Dashed</td><td>Ephemeral or partial only: suggested-row top rule, band rule, proposed/text chips.</td></tr>
+      <tr><td class="k">Shape</td><td>r-sm chips, tags, gutter buttons, tab button · r-md search, autosave, context switch · 10px grid frame · r-full only dots. Nothing pill-shaped.</td></tr>
+      <tr><td class="k">Hover</td><td>Cells/gutter step to paper-2 / paper-3; buttons fill brand-d with a paper glyph; never lift or scale.</td></tr>
+      <tr><td class="k">Icons</td><td>FA6 solid: magnifying-glass, cloud-arrow-up, cloud, plus, xmark, check, arrow-right-long, minus, angle-up, angle-down.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>12 · Example configuration — batch plant plan</h2>
+  <p>The registers the prototype ships with, showing the shape each has to have. Driver rows carry <code>uom · rate · fte · days · sides</code>; link members carry code, attribute and parent; countables carry aliases.</p>
+  <pre>registers: {
+  activities: [   // driver
+    { name:'Transfer',                 uom:'L',   rate:20000, fte:2, days:4, sides:'both' },
+    { name:'Transfer - Bulk Blenders', uom:'L',   rate:40000, fte:2, days:4, sides:'both' },
+    { name:'Xflow',                    uom:'L',   rate:25000, fte:3, days:4, sides:'both' },
+    { name:'Drum Job',                 uom:'Drm', rate:100,   fte:2, days:3, sides:'in'   },
+    { name:'Media - Add to Tank',      uom:'Tk',  rate:2,     fte:2, days:4, sides:'in'   },
+    { name:'Receival',                 uom:'L',   rate:25000, fte:1, days:1, sides:'to'   },
+    { name:'Despatch',                 uom:'L',   rate:25000, fte:1, days:1, sides:'from' },
+    … ],
+  vessels: {
+    tank:  [ { code:'T2140', cap:'140 kL', farm:'2000s' }, … 22 ],           // identified
+    farm:  [ { code:'T20', name:'2000s', n:96, al:['2000','t2000s','the 2000s'] },
+             { code:'ANNX', name:'Annex store', n:9, al:['annex','the annex','anx','annexe'] }, … ],
+    group: [ { code:'G1042', meta:'drm grp · 48' }, { code:'V07', meta:'vat' }, … ],
+    capacity: derived from tank.cap },
+  sites:    [ 'NP-North plant', 'EP-East plant', … ],
+  statuses: [ { w:'PLANNED', c:'ink-4' }, { w:'SCHEDULED', c:'brand-d' }, { w:'IN PROGRESS', c:'warn' },
+              { w:'COMPLETE', c:'pos' }, { w:'CANCELLED', c:'neg' } ] }
+owned: row => !!row.orderCode || row.status === 'CANCELLED'
+suggest: { ahead:2, triggers:['activity','start','end','vol','notes','tanks'], learn:true,
+           fill:{ start:'sequence(7d | next monday)', end:'derive', vol:'history | default(rate*8)',
+                  notes:'phrase', tanks:'history | capacity' },
+           patterns:[ bulkBlenders, xflowAnnex, xflowPackdown, annexReturn ] }</pre>
+
+  <h2>13 · Still hard-coded in the prototype</h2>
+  <ul>
+    <li>Fill providers <code>sequence</code>, <code>default</code>, <code>phrase</code> and the four row patterns are functions in the component — to move behind <code>suggest</code>. (In the east-ui design these become East-function providers: see Sheet Spec.md §4.)</li>
+    <li>The count unit for capacity predictions (140 kL) and the per-uom arity rules (Tk = count, Drm = none, cap 12) — to become <code>arity.per</code> resolution against the register plus a per-uom map on the driver.</li>
+    <li>Register shapes are static arrays; <code>registers</code> should accept the same shapes from the data source. Footer counts and the sync status are strings the host will own.</li>
+    <li>Declared but not evaluated: <code>check</code> entries other than <code>exists</code>; <code>store:'canonical'</code>; <code>showRegisterMeta</code>.</li>
+  </ul>
+</main>
+</body>
+</html>
