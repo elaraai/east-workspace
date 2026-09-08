@@ -1,0 +1,36 @@
+ e3-ui  e3.example.com                                                                                     ● CONNECTED  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ REPOSITORIES · https://e3.example.com                                                signed in as cm@elara.ai · 3 of 3 
+                                                                                                                        
+ NAME                  WORKSPACES    PACKAGES    OBJECTS     LAST DEPLOY                                                
+ ▌demo                 3             2           12,408      3d ago · demand@1.4.2 → main                               
+  forecasting          1             1           3,102       12d ago                                                    
+  sandbox              0             0           0           —                                                          
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › _                                              / commands · type a name to jump · ? help                             
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ move   ⏎ open   /repo <name>   /login                                                                        q quit 

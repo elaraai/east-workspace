@@ -1,0 +1,36 @@
+ e3-ui  demo-repo › main › dashboard                                                                       ● CONNECTED  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ dashboard   ▌1 Output▐  2 Logs   3 Runs   4 Reads              UI TASK · ● UP-TO-DATE · manifest: 3 reads · 1 function 
+ .tasks.dashboard.output · UIComponentType · 41 KB · 3e91…                                                              
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+ ▾ Value                                     App                                                                        
+   · Title                                   "Demand planner"                                                           
+   ▸ Rail                                    NavList                                                                    
+▌  ▾ Body                                    ReactiveComponent                                                          
+     · Render                                [function]                                                                 
+   ▸ Bar end                                 2 items                                                                    
+   · Nav key                                 "planner"                                                                  
+                                                                                                                        
+ Reads: .inputs.sales · .inputs.params · .tasks.forecast.output                           ⏎ open · o render PNG (later) 
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › _                                              / commands · type a name to jump · ? help                             
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ move   → expand   1 2 3 4 tabs                                                                                      

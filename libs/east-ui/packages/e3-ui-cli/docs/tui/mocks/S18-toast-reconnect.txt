@@ -1,0 +1,36 @@
+ e3-ui  demo-repo › main                                                                            ◐ RECONNECTING 3/4  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ main                                                          ● DEPLOYED · demand@1.4.2 · deployed 3d ago · lock: none 
+ TASKS 6                                                   DATASETS 10                                                  
+ ● up-to-date         4   ◐ waiting        1               ● up-to-date         8   ◐ stale        1                    
+ ✗ failed             1   ○ ready          0               ○ unset              1                                       
+ ▁▃▅▇▇▇  6 of 6 accounted                                                                                               
+                                                                                                                        
+ LAST EXECUTION                        ✗ FAILED · started 2m ago · 38.4s · executed 4 · cached 1 · failed 1 · skipped 0 
+    1m  ✗ failed      report                                                                exit 2 · 0.8s     ⏎ logs    
+                                                                                                                        
+ TASKS                                                                                                                  
+  NAME        STATUS              DEPENDS ON          INPUTS            OUTPUT                    SIZE · LAST RUN       
+  ingest      ● up-to-date        —                   sales, calendar   Array<Struct>             12.1 MB · 3.1s        
+  features    ● up-to-date        ingest              params            Struct                    412.6 MB · 12.0s      
+ ▌forecast    ● up-to-date        features            —                 Dict<String, Struct>      84.2 MB · 38.4s       
+  optimise    ◐ waiting           forecast            overrides         Array<Struct>             — · waiting on forecas
+  report      ✗ failed · exit 2   forecast, optimise  —                 String                    — · 0.8s              
+  dashboard   ○ ready             —                   sales             UIComponentType           41 KB · never         
+                                                                                                                        
+ INPUTS                                                                                                                 
+  NAME          STATUS          TYPE                      SIZE      HASH                                                
+  sales         ● up-to-date    Array<Struct>             9.8 MB    9f3c1a7e2b41                                        
+  calendar      ● up-to-date    Array<Struct>             2.1 KB    5b0e88a1c3d7                                        
+  params        ◐ stale         Struct                    1.2 KB    0a44e1b7c9d2                                        
+  overrides     ○ unset         Dict<String, Float>       —         —                                                   
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ›  ● Dataflow started · main · 6 tasks queued                                                         (toast, 3s)      
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands                                          polled 0.4s ago 

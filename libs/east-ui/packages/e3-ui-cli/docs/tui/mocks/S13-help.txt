@@ -1,0 +1,36 @@
+ e3-ui  demo-repo › main                                                                                   ● CONNECTED  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ HELP                                                                                                          esc back 
+                                                                                                                        
+ COMMANDS                                KEYS · EVERYWHERE                       KEYS · VALUE TREE                      
+ /task <name>       open a task          ?  help          q  quit                ↑↓ j k  move        → l  expand        
+ /input <name>      open an input        esc  back        ⌫  back                ← h  collapse       ⏎  toggle          
+ /workspace <name>  switch workspace     tab ⇧tab  next/prev pane                ⇧←  collapse subtree                   
+ /run [--force] [--filter g]  run        1 2 3  tabs                             pgup pgdn ^u ^d  page                  
+ /stop              cancel the dataflow  r  run    x  stop                       gg G  top / bottom                     
+ /logs <task> [stderr]                   w  workspaces                           s  save .beast2                        
+ /runs <task>                            R  refresh now                                                                 
+ /find <key|prefix|f1|f2>  jump to key                                           KEYS · INPUTS                          
+ /goto <row|N%>                          MOUSE                                   e  edit   a  add   x  remove           
+ /save [file]       write .beast2        wheel  scroll     click  select         t  tag / set / clear                   
+ /repo <path|url>   open another repo    click ▸  toggle   drag ▮  scrollbar     ⏎  apply all   esc  discard            
+ /about             version · server · loclick tab / crumb / pill                                                       
+ /quit                                                                           KEYS · LOGS                            
+                                                                                 F  follow   o  stdout   e  stderr      
+ typing without / fuzzy-jumps anywhere                                           n N  next / prev match   c  copy       
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › _                                              / commands · type a name to jump · ? help                             
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                                        

@@ -1,0 +1,36 @@
+ e3-ui  demo-repo › main                                                                    ◔ RUNNING 3/6  ● CONNECTED  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ main                                                          ● DEPLOYED · demand@1.4.2 · deployed 3d ago · lock: none 
+ TASKS 6                                                   DATASETS 10                                                  
+ ● up-to-date         4   ◐ waiting        1               ● up-to-date         8   ◐ stale        1                    
+ ✗ failed             1   ○ ready          0               ○ unset              1                                       
+ ▁▃▅▇▇▇  6 of 6 accounted                                                                                               
+                                                                                                                        
+ EXECUTION                                                               ◔ RUNNING · started 12s ago · 3 of 6 tasks · ⠸ 
+   12s  ● cached      ingest                                                                                            
+   11s  ● complete    features                                                                                  4.2s    
+    9s  ◔ start       forecast                                                                                  ⠸ 9s    
+    9s  ◐ waiting     optimise                                                                   waiting on forecast    
+                                                                                                                        
+ TASKS                                                                                                                  
+  NAME        STATUS              DEPENDS ON          INPUTS            OUTPUT                    SIZE · LAST RUN       
+  ingest      ● up-to-date        —                   sales, calendar   Array<Struct>             12.1 MB · 3.1s        
+  features    ● up-to-date        ingest              params            Struct                    412.6 MB · 12.0s      
+ ▌forecast    ◔ in-progress       features            —                 Dict<String, Struct>      ⠸ 9s                  
+  optimise    ◐ waiting           forecast            overrides         Array<Struct>             — · waiting on forecas
+  report      ✗ failed · exit 2   forecast, optimise  —                 String                    — · 0.8s              
+  dashboard   ○ ready             —                   sales             UIComponentType           41 KB · never         
+                                                                                                                        
+ INPUTS                                                                                                                 
+  NAME          STATUS          TYPE                      SIZE      HASH                                                
+  sales         ● up-to-date    Array<Struct>             9.8 MB    9f3c1a7e2b41                                        
+  calendar      ● up-to-date    Array<Struct>             2.1 KB    5b0e88a1c3d7                                        
+  params        ◐ stale         Struct                    1.2 KB    0a44e1b7c9d2                                        
+  overrides     ○ unset         Dict<String, Float>       —         —                                                   
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › _                                              / commands · type a name to jump · ? help                             
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ↑↓ move   ⏎ open   x stop   / commands                                                                 polled 0.2s ago 
