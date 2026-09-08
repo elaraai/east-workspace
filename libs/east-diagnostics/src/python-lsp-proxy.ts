@@ -156,6 +156,17 @@ export class PythonLspProxy {
         (this.options.onStderr ?? ((l: string) => process.stderr.write(`[east-py lsp] ${l}\n`)))(line);
       }
     });
+    // A pipe reports a failed write as an `error` EVENT, never a throw — so a
+    // child that has exited before `initialize` reaches it (a real `east-py`
+    // that dies on import; the test stand-in under a loaded runner, v1.0.71's
+    // run on main) fails that write with EPIPE, the try/catch in `write` never
+    // sees it, and with no listener the event is an uncaught exception that
+    // takes the owner down. Nothing to do here: `exit` and `close` report the
+    // death, once stderr has said why, and the destroyed pipe refuses further
+    // writes in `write`.
+    for (const stream of [child.stdin, child.stdout, child.stderr]) {
+      stream.on("error", () => undefined);
+    }
     // A stray child must be physically unable to hold this process open. The
     // process handle AND its three stdio pipes are separate libuv handles, and
     // the `data` reader above keeps the loop alive on its own — unref every
