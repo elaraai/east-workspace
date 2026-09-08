@@ -200,6 +200,23 @@ describe("typeFromJsonSchema", () => {
             assert.ok(isTypeEqual(typeFromJsonSchema({ ...flat, nullable: true }), OptionType(StringType)));
         });
 
+        test("leaves nullable alone beside a definition or oneOf that already admits null", () => {
+            // Judged on the type that was built, not on the node's spelling —
+            // a second wrap would make the document's nulls a tagged none.
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ nullable: true, oneOf: [{ type: "null" }, { type: "string" }] }),
+                OptionType(StringType)));
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ nullable: true, $ref: "#/$defs/Maybe", $defs: { Maybe: { type: ["string", "null"] } } }),
+                OptionType(StringType)));
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ nullable: true, $ref: "#/$defs/Nothing", $defs: { Nothing: { type: "null" } } }),
+                NullType));
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ nullable: true, $ref: "#/$defs/Word", $defs: { Word: { type: "string" } } }),
+                OptionType(StringType)));
+        });
+
         test("reads one type beside null in a type union as an Option of it", () => {
             assert.ok(isTypeEqual(typeFromJsonSchema({ type: ["string", "null"] }), OptionType(StringType)));
             assert.ok(isTypeEqual(typeFromJsonSchema({ type: ["null", "integer"] }), OptionType(IntegerType)));

@@ -395,6 +395,32 @@ def test_leaves_nullable_alone_beside_a_spelling_that_admits_null():
     assert type_from_json_schema({**flat, "nullable": True}) == option(StringType)
 
 
+def test_leaves_nullable_alone_beside_a_definition_or_oneof_that_already_admits_null():
+    """Judged on the type that was built, not on the node's spelling.
+
+    A second wrap would make the document's nulls a tagged none.
+    """
+    assert type_from_json_schema(
+        {"nullable": True, "oneOf": [{"type": "null"}, {"type": "string"}]}
+    ) == option(StringType)
+    assert type_from_json_schema(
+        {
+            "nullable": True,
+            "$ref": "#/$defs/Maybe",
+            "$defs": {"Maybe": {"type": ["string", "null"]}},
+        }
+    ) == option(StringType)
+    assert (
+        type_from_json_schema(
+            {"nullable": True, "$ref": "#/$defs/Nothing", "$defs": {"Nothing": {"type": "null"}}}
+        )
+        == NullType
+    )
+    assert type_from_json_schema(
+        {"nullable": True, "$ref": "#/$defs/Word", "$defs": {"Word": {"type": "string"}}}
+    ) == option(StringType)
+
+
 def test_reads_one_type_beside_null_in_a_type_union_as_an_option():
     assert type_from_json_schema({"type": ["string", "null"]}) == option(StringType)
     assert type_from_json_schema({"type": ["null", "integer"]}) == option(IntegerType)

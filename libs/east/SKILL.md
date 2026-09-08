@@ -584,8 +584,8 @@ const T = typeFromJsonSchema(JSON.parse(readFileSync("partner.schema.json", "utf
   type, JSON Schema's own `{"type": ["string", "null"]}`, and a `oneOf` of
   null and one other schema, read as `Option<String>` — East JSON writes a
   `none` whose payload cannot be null as `null`, so the nulls such a
-  contract permits are exactly what the reader accepts (a node that already
-  admits null is left as it is).
+  contract permits are exactly what the reader accepts (a type that already
+  admits null is left as it is, however the document spells it).
 - **Recursion binds one `RecursiveType` per cycle group.** Definitions that
   reference each other — a `Node` whose children are a `NodeList` of `Node` —
   convert as long as every cycle in the group passes through one definition,

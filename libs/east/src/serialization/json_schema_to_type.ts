@@ -213,9 +213,9 @@ interface Context {
  *
  * The last row reads as an Option because East JSON writes a `none` whose
  * payload cannot itself be null as `null`, so the nulls such a contract
- * permits are exactly what the reader accepts. A node whose own spelling
- * already admits null — the null type, a union with null, an Option
- * annotation — is left as it is.
+ * permits are exactly what the reader accepts. A type that already admits
+ * null — `Null`, or an Option, however the document spells it — is left as
+ * it is.
  *
  * Definitions are resolved through `$defs` or `definitions`, whichever the
  * document uses. Cycles among definitions become `RecursiveType`s, one per
@@ -359,23 +359,35 @@ function build(node: JsonSchema, ctx: Context, path: string[]): EastType {
   // it is the Null spelling itself; beside a type it reads as an Option of that
   // type — East JSON writes a `none` whose payload cannot be null as `null`, so
   // the nulls the partner's contract permits are exactly what the reader
-  // accepts. A node that already admits null — the null type, a union with
-  // null, an Option annotation — is left as it is: wrapping it would make its
+  // accepts. A type that already admits null — Null, or an Option, however
+  // the document spells it — is left as it is: wrapping it would make its
   // nulls a tagged `none`, which is not what the document says.
   const nullable = node["nullable"] === true;
   if (nullable && !has(node, "type") && !has(node, "$ref") && !has(node, "oneOf") && !has(node, "x-east-type")) {
     return NullType;
   }
   const built = buildTyped(node, ctx, path);
-  return nullable && !admitsNull(node) ? OptionType(built) : built;
+  return nullable && !admitsNull(built) ? OptionType(built) : built;
 }
 
-/** Whether a node's own spelling already allows `null`, so `nullable` beside it adds nothing. */
-function admitsNull(node: JsonSchema): boolean {
-  const type = node["type"];
-  return type === "null"
-    || (Array.isArray(type) && type.includes("null"))
-    || node["x-east-type"] === "Option";
+/**
+ * Whether a type's encoding already admits `null`, so `nullable` beside its
+ * schema adds nothing — `Null`, an Option, or a `Recursive` wrapper of either.
+ * Judged on the type that was built rather than on the node's spelling, so a
+ * `$ref` to such a definition, or a `oneOf` of null and one other schema, is
+ * not wrapped a second time.
+ */
+function admitsNull(type: EastType): boolean {
+  let t: unknown = type;
+  while (typeof t === "object" && t !== null && (t as EastType).type === "Recursive") {
+    t = (t as RecursiveType).node;
+  }
+  if (typeof t !== "object" || t === null) return false;
+  const built = t as EastType;
+  if (built.type === "Null") return true;
+  if (built.type !== "Variant") return false;
+  const names = Object.keys(built.cases);
+  return names.length === 2 && names[0] === "none" && names[1] === "some" && built.cases["none"].type === "Null";
 }
 
 /** The node's type, `nullable` aside. */

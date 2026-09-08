@@ -31,6 +31,9 @@ from east.types.types import (
     StructType,
     VariantType,
     VectorType,
+    is_null_type,
+    is_option_type,
+    is_recursive_type,
 )
 
 JsonSchema = dict[str, Any]
@@ -301,8 +304,8 @@ def type_from_json_schema(schema: JsonSchema) -> EastType:
     schema, read as an ``Option`` of that type: East JSON writes a ``none``
     whose payload cannot itself be null as ``null``, so
     the nulls such a contract permits are exactly what the reader accepts. A
-    node whose own spelling already admits null — the null type, a union with
-    null, an Option annotation — is left as it is.
+    type that already admits null — ``Null``, or an Option, however the
+    document spells it — is left as it is.
 
     Cycles among definitions become ``RecursiveType``s, one per cycle group:
     ``Node -> NodeList -> Node`` is one type with the alias inlined. A group
@@ -340,24 +343,29 @@ def _build(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:
     # typed it is the Null spelling itself; beside a type it reads as an Option
     # of that type -- East JSON writes a `none` whose payload cannot be null as
     # `null`, so the nulls the partner's contract permits are exactly what the
-    # reader accepts. A node that already admits null -- the null type, a union
-    # with null, an Option annotation -- is left as it is: wrapping it would
+    # reader accepts. A type that already admits null -- Null, or an Option,
+    # however the document spells it -- is left as it is: wrapping it would
     # make its nulls a tagged `none`, which is not what the document says.
     nullable = node.get("nullable") is True
     if nullable and not any(key in node for key in ("type", "$ref", "oneOf", "x-east-type")):
         return NullType
     built = _build_typed(node, ctx, path)
-    return OptionType(built) if nullable and not _admits_null(node) else built
+    return OptionType(built) if nullable and not _admits_null(built) else built
 
 
-def _admits_null(node: JsonSchema) -> bool:
-    """Whether a node's own spelling already allows null, so ``nullable`` beside it adds nothing."""
-    kind = node.get("type")
-    return (
-        kind == "null"
-        or (isinstance(kind, list) and "null" in kind)
-        or node.get("x-east-type") == "Option"
-    )
+def _admits_null(typ: EastType) -> bool:
+    """Whether a type already admits null, so ``nullable`` beside its schema adds nothing.
+
+    ``Null``, an Option, or a ``Recursive`` wrapper of either -- judged on the
+    type that was built rather than on the node's spelling, so a ``$ref`` to
+    such a definition, or a ``oneOf`` of null and one other schema, is not
+    wrapped a second time.
+    """
+    while is_recursive_type(typ) and typ.value.type == "wrapper":
+        typ = typ.value.value["inner"]
+    if is_null_type(typ):
+        return True
+    return is_option_type(typ) and is_null_type(typ.value[0]["type"])
 
 
 def _build_typed(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType:  # noqa: PLR0911, PLR0912
