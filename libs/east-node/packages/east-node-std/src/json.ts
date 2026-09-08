@@ -36,6 +36,9 @@ function wrap<T>(fn: string, body: () => T): T {
     try {
         return body();
     } catch (err: any) {
+        // An East error is already worded for the caller — the handle lookup's
+        // is — so it passes through, as the Time and Fetch wrappers let theirs.
+        if (err instanceof EastError) throw err;
         throw new EastError(`${fn}: ${err.message}`, {
             location: [{ filename: fn, line: 0n, column: 0n }],
             cause: err,
@@ -105,8 +108,10 @@ export const json_more = East.platform("json_more", [StringType], BooleanType);
  * numeric offset; a blob's hex must be lowercase.
  *
  * When the container is a JSON object, `T` must be a `Struct` of exactly `key`
- * and `value`, and each member arrives as one of those — which is what a
- * `Dict` output needs.
+ * and `value`, in either order, and each member arrives as one of those —
+ * which is what a `Dict` output needs. An error inside an element is located
+ * by its index in an array and by its member name in an object, and reads
+ * word for word as it does on east-c and east-py.
  */
 export const json_next = East.genericPlatform("json_next", ["T"], [StringType], "T");
 
