@@ -18,6 +18,7 @@ import { render } from 'ink-testing-library';
 import { App } from '../ui/App.js';
 import { createController, type Controller } from '../controller.js';
 import { createFeeds, type Feeds } from '../data/feeds.js';
+import type { Api } from '../api.js';
 import { FakeApi, fakeRepo } from '../api.fake.js';
 import { UNICODE, type Glyphs } from '../render/glyphs.js';
 import { createTheme } from '../render/theme.js';
@@ -61,7 +62,8 @@ export function fakeSession(over: Partial<SessionInfo> = {}): SessionInfo {
 export interface Mounted {
     store: Store;
     controller: Controller;
-    api: FakeApi;
+    /** The API the app talks to (the fake unless the mount passed a real one). */
+    api: Api;
     feeds: Feeds;
     /** Everything the controller asked to exit with. */
     exits: number[];
@@ -85,13 +87,16 @@ export interface Mounted {
     resize(size: Size): Promise<void>;
     /** Settles until `predicate` holds (at most `turns` turns), failing otherwise. */
     waitFor(predicate: () => boolean, turns?: number): Promise<void>;
+    /** Drops the frames ink-testing-library kept so far (they are test memory, not the app's). */
+    dropFrames(): void;
     unmount(): void;
 }
 
 /** Options for {@link mountApp}. */
 export interface MountOptions {
     size?: Size | undefined;
-    api?: FakeApi | undefined;
+    /** The API (default: an empty fake repository; the integration smoke passes a real session's). */
+    api?: Api | undefined;
     /** The initial view (with a session set). */
     view?: View | undefined;
     session?: SessionInfo | null | undefined;
@@ -194,9 +199,12 @@ export async function mountApp(options: MountOptions = {}): Promise<Mounted> {
             }
             throw new Error(`waitFor: the condition did not hold within ${turns} turns\n${mounted.frame()}`);
         },
+        dropFrames() {
+            instance.frames.length = 0;
+        },
         unmount() {
             feeds.stop();
-            api.dispose();
+            if (api instanceof FakeApi) api.dispose();
             instance.unmount();
         },
     };
