@@ -113,6 +113,11 @@ export async function runTui(options: TuiOptions): Promise<number> {
         exit,
         openTarget,
         login,
+        copy: (text) => {
+            if (!process.stdout.isTTY) return false;
+            process.stdout.write(`\x1b]52;c;${Buffer.from(text, 'utf8').toString('base64')}\x07`);
+            return true;
+        },
         now: () => Date.now(),
         log,
     });

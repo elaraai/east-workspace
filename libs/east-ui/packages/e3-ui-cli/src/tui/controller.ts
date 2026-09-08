@@ -46,6 +46,8 @@ export interface ControllerDeps {
     openTarget: (target: string) => Promise<void>;
     /** Runs the device-flow login for an origin (`/login`). */
     login: (url: string) => Promise<void>;
+    /** Puts text on the clipboard (OSC 52); false when no terminal can take it. */
+    copy: (text: string) => boolean;
     now: () => number;
     /** The debug log. */
     log: (line: string) => void;

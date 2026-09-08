@@ -69,6 +69,8 @@ export interface Mounted {
     opened: string[];
     /** URLs `/login` asked for. */
     logins: string[];
+    /** Texts `c` copied. */
+    copied: string[];
     /** The last frame, ANSI stripped. */
     frame(): string;
     /** The last frame's lines. */
@@ -125,6 +127,7 @@ export async function mountApp(options: MountOptions = {}): Promise<Mounted> {
     const exits: number[] = [];
     const opened: string[] = [];
     const logins: string[] = [];
+    const copied: string[] = [];
     const now = options.now ?? (() => NOW);
     const feeds = createFeeds({ store, api: () => api, clock: options.clock ?? realClock });
     const controller = createController({
@@ -136,6 +139,7 @@ export async function mountApp(options: MountOptions = {}): Promise<Mounted> {
         exit: (code) => { exits.push(code); },
         openTarget: async (target) => { opened.push(target); },
         login: async (url) => { logins.push(url); },
+        copy: (text) => { copied.push(text); return true; },
         now,
         log: () => undefined,
     });
@@ -154,7 +158,7 @@ export async function mountApp(options: MountOptions = {}): Promise<Mounted> {
     const instance = render(element(size));
     await settle();
     const mounted: Mounted = {
-        store, controller, api, feeds, exits, opened, logins,
+        store, controller, api, feeds, exits, opened, logins, copied,
         frame: () => stripAnsi(instance.lastFrame() ?? ''),
         lines: () => mounted.frame().split('\n'),
         async press(input) {

@@ -21,6 +21,7 @@ import type { DataflowEvent, DataflowExecutionState } from '@elaraai/e3-api-clie
 import type { Api } from '../api.js';
 import { describeError, isApiCode } from '../api.js';
 import { createDatasetLoader, viewDataset, type DatasetLoader } from './dataset.js';
+import { createLogsLoader } from './logs.js';
 import type { TuiState } from '../state/actions.js';
 import { connectionState, createPoller, type PollClock, type Poller } from '../state/poll.js';
 import type { Store } from '../state/store.js';
@@ -81,6 +82,7 @@ export function createFeeds(deps: FeedsDeps): Feeds {
     const executionCursor = new Map<string, { startedAt: string | null; events: DataflowEvent[] }>();
     const repoStatusRequested = new Set<string>();
     const datasets = createDatasetLoader({ store, api: deps.api, log: deps.log });
+    const logs = createLogsLoader({ store, api: deps.api, log: deps.log });
 
     /** A repository's counts and its latest deployment (the repositories view's lazy columns). */
     const repoFacts = async (api: Api, name: string): Promise<void> => {
@@ -266,15 +268,20 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                     store.dispatch({ type: 'data/taskDetails', ws: view.ws, task, details });
                 },
             });
-            if (view.tab === 'runs') {
-                out.push({
-                    key: `executions:${ws}/${task}`,
-                    intervalMs: 5_000,
-                    run: async () => {
-                        const executions = await api.taskExecutionList(view.ws, task);
-                        store.dispatch({ type: 'data/executions', ws: view.ws, task, executions });
-                    },
-                });
+            // The runs tab lists them; the title line's inputs hash reads the newest on every tab.
+            out.push({
+                key: `executions:${ws}/${task}`,
+                intervalMs: view.tab === 'runs' ? 5_000 : 30_000,
+                run: async () => {
+                    const executions = await api.taskExecutionList(view.ws, task);
+                    store.dispatch({ type: 'data/executions', ws: view.ws, task, executions });
+                },
+            });
+            if (view.tab === 'logs') {
+                const stream = view.logs.stream;
+                const other = stream === 'stdout' ? 'stderr' : 'stdout';
+                out.push({ key: `logs:${ws}/${task}/${stream}`, intervalMs: 1_000, run: () => logs.tick(view.ws, task, stream) });
+                out.push({ key: `logs:${ws}/${task}/${other}`, intervalMs: 5_000, run: () => logs.tick(view.ws, task, other) });
             }
         }
         return out;
@@ -332,6 +339,7 @@ export function createFeeds(deps: FeedsDeps): Feeds {
             executionCursor.clear();
             repoStatusRequested.clear();
             datasets.reset();
+            logs.reset();
         },
         refresh() {
             for (const poller of running.values()) poller.fireNow();

@@ -4,10 +4,10 @@
  */
 
 /**
- * The task view — the tab strip and the title lines, then the tab's body.
- * The Output tab is the value tree widget over `.tasks.<task>.output` with
- * its states (no output yet, too large, not indexed, loading, error); the
- * Logs / Runs / Reads tabs follow in #726.
+ * The task view — the tab strip and the title lines, then the tab's body:
+ * Output (the value tree over `.tasks.<task>.output` with its states — no
+ * output yet, too large, not indexed, loading, error), Logs (the log view),
+ * Runs (the execution history) and, for a `ui` task, Reads (its manifest).
  *
  * @packageDocumentation
  */
@@ -17,11 +17,14 @@ import { eventCell, taskStatusCell } from '../../model/status.js';
 import { registerListModel } from '../../model/index.js';
 import { registerViewHooks } from '../../controller.js';
 import { latestPerTask } from './dashboard.js';
-import { formatDuration, formatInt, formatSize, hashMid, hashShort, hashTiny } from '../../render/text.js';
+import { agoShort, formatDuration, formatInt, formatSize, hashMid, hashShort, hashTiny } from '../../render/text.js';
 import type { DatasetData, TuiState } from '../../state/actions.js';
 import { blank, d, b, lrLine, rule, t, type Line, type RenderCtx } from '../lines.js';
 import { centredBlock, tabStrip } from '../shell/widgets.js';
 import { renderTreeRows, treeCommand, treeContext, treeFooter, treeKey, treeModel, treeOpen, TREE_CHROME_ROWS } from '../widgets/tree.js';
+import { logsCommand, logsContext, logsFooter, logsKey, renderLogLines, streamLine } from '../widgets/logs.js';
+import { RUNS_CHROME_ROWS, renderRuns, runsOf } from '../widgets/runs.js';
+import { manifestOf, manifestSummary, openRead, readRows, renderReads } from '../widgets/reads.js';
 import { registerView } from './index.js';
 
 /** The tab labels of a task (`Reads` only for a `ui` task). */
@@ -43,11 +46,16 @@ export function taskTitle(state: TuiState, ws: string, task: string, ctx: Render
     const cell = taskStatusCell(info.status, g);
     out.push(d(` ${g.sep} `), b(`${cell.glyph} ${cell.word.toUpperCase()}`, cell.tone));
     if (cell.detail !== '') out.push(d(` ${g.sep} ${cell.detail}`));
+    if (ui) {
+        const manifest = manifestOf(state.data.taskDetails[ws]?.[task]);
+        if (manifest !== null) out.push(d(` ${g.sep} ${manifestSummary(manifest, g)}`));
+        return out;
+    }
     const event = latestPerTask(state.data.execution[ws]?.events ?? []).find(e => e.value.task === task);
     if (event !== undefined && (event.type === 'complete' || event.type === 'failed')) out.push(d(` ${g.sep} ${formatDuration(event.value.duration * 1000)}`));
     else if (event !== undefined && event.type === 'cached' && cell.detail !== 'cached') out.push(d(` ${g.sep} ${eventCell(event, g).word}`));
-    const executions = state.data.executions[ws]?.[task];
-    if (executions !== undefined && executions.length > 0) out.push(d(` ${g.sep} inputs ${hashMid(executions[0]!.inputsHash)}`));
+    const newest = runsOf(state, ws, task)[0];
+    if (newest !== undefined) out.push(d(` ${g.sep} inputs ${hashMid(newest.inputsHash)}`));
     return out;
 }
 
@@ -117,6 +125,13 @@ export function renderOutput(state: TuiState, ws: string, task: string, ctx: Ren
 }
 
 registerListModel('task', (state, layout) => {
+    if (state.view.kind !== 'task') return { count: 0, visible: 0 };
+    const { ws, task, tab } = state.view;
+    if (tab === 'runs') return { count: runsOf(state, ws, task).length, visible: Math.max(1, layout.bodyRows - RUNS_CHROME_ROWS) };
+    if (tab === 'reads') {
+        const manifest = manifestOf(state.data.taskDetails[ws]?.[task]);
+        return { count: manifest === null ? 0 : readRows(manifest).length, visible: Math.max(1, layout.bodyRows - TREE_CHROME_ROWS + 1) };
+    }
     const tctx = treeContext(state);
     if (tctx === null) return { count: 0, visible: 0 };
     const model = treeModel(tctx.data, tctx.tree, tctx.editable);
@@ -149,21 +164,52 @@ registerView('task', (state, ctx) => {
             },
         };
     }
-    body.push(blank(width), [t(' '), d(`${tabs[active] ?? tab} — coming with the next change`)]);
-    return { body, hints: { left: tabs.map((label, i) => `${i + 1} ${label.toLowerCase()}`).join('   '), right: '' } };
+    const others = (except: number): string => tabs.map((label, i) => `${i + 1} ${label.toLowerCase()}`).filter((_, i) => i !== except).join('   ');
+    const polled = state.data.polledAt !== null ? `polled ${agoShort(state.data.polledAt, ctx.now)}` : '';
+    if (tab === 'logs') {
+        const lctx = logsContext(state);
+        if (lctx !== null) {
+            body.push(streamLine(lctx, state, width, g));
+            body.push(...renderLogLines(lctx, width, g));
+            body.push(logsFooter(lctx, width, g));
+            const follow = lctx.ui.follow ? `${g.dot} on` : `${g.empty} off`;
+            return { body, hints: { left: `${g.up}${g.down} scroll   G end   F follow ${follow}   o stdout  e stderr   s save   c copy   ${others(1)}`, right: polled } };
+        }
+    }
+    if (tab === 'runs') {
+        const runs = runsOf(state, ws, task);
+        body.push(...renderRuns(state, ws, task, Math.max(1, ctx.layout.bodyRows - RUNS_CHROME_ROWS), width, g));
+        return { body, hints: { left: `${g.up}${g.down} move   ${g.enter} inputs   ${others(2)}`, right: `${formatInt(runs.length)} execution${runs.length === 1 ? '' : 's'}` } };
+    }
+    if (tab === 'reads') {
+        const manifest = manifestOf(state.data.taskDetails[ws]?.[task]);
+        body.push(...renderReads(manifest, state.view.reads.sel, state.view.reads.top, Math.max(1, ctx.layout.bodyRows - TREE_CHROME_ROWS + 1), width, g));
+        return { body, hints: { left: `${g.up}${g.down} move   ${g.enter} open   ${others(3)}`, right: '' } };
+    }
+    body.push(blank(width));
+    return { body, hints: { left: others(-1), right: '' } };
 });
 
 registerViewHooks('task', {
     open: (state, controller) => {
-        if (state.view.kind !== 'task' || state.view.tab !== 'output') return;
-        treeOpen(state, controller);
+        if (state.view.kind !== 'task') return;
+        if (state.view.tab === 'output') treeOpen(state, controller);
+        else if (state.view.tab === 'runs') controller.dispatch({ type: 'runs/expand', expanded: !state.view.runs.expanded });
+        else if (state.view.tab === 'reads') openRead(state, controller);
     },
     tree: (action, state, controller) => (state.view.kind === 'task' && state.view.tab === 'output' ? treeKey(action, state, controller) : false),
     key: (action, state, controller) => {
-        if (state.view.kind !== 'task' || state.view.tab !== 'output') return false;
+        if (state.view.kind !== 'task') return false;
+        if (state.view.tab === 'logs') return logsKey(action, state, controller);
+        if (state.view.tab !== 'output') return false;
         if (action.kind === 'back' || action.kind === 'save' || action.kind === 'next' || action.kind === 'prev') return treeKey(action, state, controller);
         if (action.kind === 'toggle' && state.data.dataset[state.view.ws]?.[`.tasks.${state.view.task}.output`]?.mode.kind === 'not-indexed') return treeOpen(state, controller);
         return false;
     },
-    command: async (command, state, controller) => (state.view.kind === 'task' && state.view.tab === 'output' ? treeCommand(command, state, controller) : false),
+    command: async (command, state, controller) => {
+        if (state.view.kind !== 'task') return false;
+        if (state.view.tab === 'output') return treeCommand(command, state, controller);
+        if (state.view.tab === 'logs') return logsCommand(command, state, controller);
+        return false;
+    },
 });
