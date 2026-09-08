@@ -732,6 +732,12 @@ importers:
       '@elaraai/e3':
         specifier: workspace:*
         version: link:../../../e3/packages/e3
+      '@elaraai/e3-api-tests':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-api-tests
+      '@elaraai/e3-core':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-core
       '@elaraai/e3-ui-components':
         specifier: workspace:*
         version: link:../e3-ui-components

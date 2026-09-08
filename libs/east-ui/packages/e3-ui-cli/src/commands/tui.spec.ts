@@ -6,6 +6,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { parseTuiArgs, isInteractive, nonInteractiveMessage } from './tui.js';
@@ -67,20 +69,31 @@ describe('the TTY gate', () => {
     });
 
     test('`e3-ui | cat` prints the pointer to stderr, exits 1, and never loads Ink', () => {
-        // The built CLI, run with piped stdio (no TTY on either end). NODE_DEBUG=module
-        // lists every module load on stderr; `ink` must not be among them.
-        const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'cli.js');
-        const result = spawnSync(process.execPath, [cli], {
+        // The built CLI, run with piped stdio (no TTY on either end) under a
+        // loader spy that records every module it resolves; `ink` and the
+        // app module must not be among them.
+        const dist = join(dirname(fileURLToPath(import.meta.url)), '..');
+        const spy = join(mkdtempSync(join(tmpdir(), 'e3-ui-gate-')), 'loaded.txt');
+        const result = spawnSync(process.execPath, ['--import', join(dist, 'tui', 'testing', 'load-spy.js'), join(dist, 'cli.js')], {
             encoding: 'utf8',
-            env: { ...process.env, NODE_DEBUG: 'module', E3_REPO: '' },
+            env: { ...process.env, E3_UI_LOAD_SPY: spy, E3_REPO: '' },
             stdio: ['pipe', 'pipe', 'pipe'],
         });
-        assert.equal(result.status, 1);
+        assert.equal(result.error, undefined);
+        assert.equal(result.status, 1, `exit 1 (stderr: ${JSON.stringify(result.stderr)})`);
         assert.equal(result.stdout, '');
-        assert.match(result.stderr, /e3-ui: interactive terminal required \(stdout is not a TTY\)\./);
-        assert.match(result.stderr, /e3 workspace status <repo> <ws>/);
-        assert.doesNotMatch(result.stderr, /node_modules[\\/]ink[\\/]/);
-        assert.doesNotMatch(result.stderr, /[\\/]tui[\\/]app\.js/);
+        assert.equal(result.stderr, [
+            'e3-ui: interactive terminal required (stdout is not a TTY).',
+            '  scripts: e3 workspace status <repo> <ws> · e3 dataset get <repo> <ws.name> -f json',
+            '  help:    e3-ui --help',
+            '',
+        ].join('\n'));
+        const loaded = readFileSync(spy, 'utf8');
+        assert.match(loaded, /[\\/]cli\.js/);
+        assert.doesNotMatch(loaded, /[\\/]node_modules[\\/].*ink[\\/]/);
+        assert.doesNotMatch(loaded, /[\\/]tui[\\/]app\.js/);
+        assert.doesNotMatch(loaded, /[\\/]react[\\/]/);
+        rmSync(dirname(spy), { recursive: true, force: true });
     });
 
     test('`e3-ui --help` lists the root arguments, the auth group and the unchanged verbs', () => {

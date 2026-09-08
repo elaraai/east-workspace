@@ -11,6 +11,8 @@
     "bin",
     "dist",
     "!dist/**/*.spec.*",
+    "!dist/tui/testing/**",
+    "!dist/tui/api.fake.*",
     "README.md",
     "LICENSE.md",
     "CONTRIBUTING.md",
@@ -65,6 +67,8 @@
   "devDependencies": {
     "@chakra-ui/react": "^3.0.0",
     "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-api-tests": "workspace:*",
+    "@elaraai/e3-core": "workspace:*",
     "@elaraai/e3-ui-components": "workspace:*",
     "@elaraai/east-ui-components": "workspace:*",
     "@fontsource-variable/dm-sans": "^5.2.0",
