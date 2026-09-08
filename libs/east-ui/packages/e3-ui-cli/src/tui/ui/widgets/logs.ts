@@ -157,6 +157,19 @@ function scrollTo(controller: Controller, ctx: LogsContext, top: number): void {
     if (clamped >= max && !ctx.ui.follow) controller.dispatch({ type: 'logs/follow', follow: true });
 }
 
+/**
+ * Scrolls the log by lines (the wheel) or to a line (a thumb drag).
+ *
+ * @param state - The store state
+ * @param controller - The controller
+ * @param to - `{ delta }` lines, or `{ top }` absolute
+ */
+export function scrollLogs(state: TuiState, controller: Controller, to: { delta: number } | { top: number }): void {
+    const ctx = logsContext(state);
+    if (ctx === null) return;
+    scrollTo(controller, ctx, 'delta' in to ? logsTop(ctx) + to.delta : to.top);
+}
+
 /** Scrolls a match into view (two lines of context above). */
 function showMatch(controller: Controller, ctx: LogsContext, index: number): void {
     const matches = logsMatches(ctx);

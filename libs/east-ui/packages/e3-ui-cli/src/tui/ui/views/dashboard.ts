@@ -25,8 +25,10 @@ import { datasetEntries } from '../../model/catalogue.js';
 import { datasetStatusCell, eventCell, executionStatusCell, statusText, taskStatusCell } from '../../model/status.js';
 import { registerViewHooks, type Controller } from '../../controller.js';
 import { isRunLive, lockHolderText } from '../../data/dataflow.js';
+import type { Hit, Pane } from '../frame.js';
 import { b, blank, d, lineWidth, lrLine, t, type Line, type RenderCtx } from '../lines.js';
 import { centredBlock, renderTable, sectionLine, withScrollbar, type TableRow } from '../shell/widgets.js';
+import { registerView } from './index.js';
 
 type TaskInfo = WorkspaceStatusResult['tasks'][number];
 
@@ -457,14 +459,14 @@ export function dashboardColumn(state: TuiState, ws: string, dctx: DashboardCtx,
 
 /**
  * The dashboard body: the fixed title, then the column window with its
- * scrollbar.
+ * scrollbar — plus the window's clickable rows and pane for the mouse.
  *
  * @param state - The store state
  * @param ctx - The render context
- * @returns The body lines
+ * @returns The body lines, hits and pane
  */
-export function renderDashboard(state: TuiState, ctx: RenderCtx): Line[] {
-    if (state.view.kind !== 'dashboard') return [];
+export function renderDashboard(state: TuiState, ctx: RenderCtx): { body: Line[]; hits: Hit[]; pane: Pane | null } {
+    if (state.view.kind !== 'dashboard') return { body: [], hits: [], pane: null };
     const ws = state.view.ws;
     const width = ctx.layout.columns;
     const out: Line[] = [dashboardTitle(state, ws, ctx)];
@@ -475,8 +477,45 @@ export function renderDashboard(state: TuiState, ctx: RenderCtx): Line[] {
     const window = column.lines.slice(top, top + visible);
     while (window.length < visible) window.push(blank(width - 1));
     out.push(...withScrollbar(window, width, total, visible, top, ctx.g));
-    return out;
+    const hits: Hit[] = column.rows
+        .map((row, index) => ({ row, index }))
+        .filter(({ row }) => row.line >= top && row.line < top + visible)
+        .map(({ row, index }) => ({ row: 1 + (row.line - top), x0: 0, x1: width, target: { kind: 'dashboard' as const, index } }));
+    return { body: out, hits, pane: { top: 1, rows: visible, total, visible, scrollTop: top } };
 }
+
+/**
+ * Scrolls the column by lines (the wheel), or to a line (a thumb drag),
+ * keeping the selection inside the window.
+ *
+ * @param state - The store state
+ * @param controller - The controller
+ * @param to - `{ delta }` lines, or `{ top }` absolute
+ */
+export function scrollDashboard(state: TuiState, controller: Controller, to: { delta: number } | { top: number }): void {
+    const nav = navigation(state, controller);
+    if (nav === null || state.view.kind !== 'dashboard') return;
+    const { column, visible } = nav;
+    const total = column.lines.length;
+    const current = state.view.list.top;
+    const top = Math.max(0, Math.min('delta' in to ? current + to.delta : to.top, Math.max(0, total - visible)));
+    let sel = state.view.list.sel;
+    if (column.rows.length > 0) {
+        const line = column.rows[Math.max(0, Math.min(sel, column.rows.length - 1))]!.line;
+        if (line < top || line >= top + visible) {
+            // The selection follows the window: the first (or last) row inside it.
+            const inside = column.rows.map((r, i) => ({ r, i })).filter(({ r }) => r.line >= top && r.line < top + visible);
+            const pick = line < top ? inside[0] : inside[inside.length - 1];
+            if (pick !== undefined) sel = pick.i;
+        }
+    }
+    controller.dispatch({ type: 'view/set', view: { ...state.view, list: { sel, top } } });
+}
+
+registerView('dashboard', (state, ctx) => {
+    const { body, hits, pane } = renderDashboard(state, ctx);
+    return { body, hits, pane: pane ?? undefined, hints: dashboardHints(state, ctx) };
+});
 
 /** The dashboard hints. */
 export function dashboardHints(state: TuiState, ctx: RenderCtx): { left: string; right: string } {
@@ -575,6 +614,15 @@ export function moveDashboard(state: TuiState, controller: Controller, op: NavOp
 registerListModel('dashboard', () => ({ count: 0, visible: 0 }));
 
 registerViewHooks('dashboard', {
+    click: (target, _event, state, controller) => {
+        if (target.kind !== 'dashboard') return false;
+        selectDashboardRow(state, controller, target.index);
+        return true;
+    },
+    scroll: (to, state, controller) => {
+        scrollDashboard(state, controller, to);
+        return true;
+    },
     open: (state, controller) => {
         const nav = navigation(state, controller);
         if (nav === null || state.view.kind !== 'dashboard') return;

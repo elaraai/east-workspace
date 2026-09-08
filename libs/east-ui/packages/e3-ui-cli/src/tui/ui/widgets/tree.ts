@@ -285,6 +285,67 @@ async function jumpToEnd(controller: Controller, first: TreeContext, firstModel:
 }
 
 /**
+ * Scrolls the tree by rows (the wheel) or to a row (a thumb drag), keeping
+ * the selection inside the window.
+ *
+ * @param state - The store state
+ * @param controller - The controller
+ * @param to - `{ delta }` rows, or `{ top }` absolute
+ */
+export function scrollTree(state: TuiState, controller: Controller, to: { delta: number } | { top: number }): void {
+    const ctx = treeContext(state);
+    if (ctx === null) return;
+    const model = treeModel(ctx.data, ctx.tree, ctx.editable);
+    if (model === null) return;
+    const max = Math.max(0, model.total - ctx.visible);
+    if ('top' in to && to.top >= max && model.paged !== null) {
+        // The bottom of the track means the end of the collection, which is
+        // further than the placeholders suggest until the last page lands.
+        void jumpToEnd(controller, ctx, model);
+        return;
+    }
+    const top = Math.max(0, Math.min('delta' in to ? ctx.tree.top + to.delta : to.top, max));
+    const sel = Math.max(top, Math.min(ctx.tree.sel, top + ctx.visible - 1, Math.max(0, model.total - 1)));
+    commit(controller, ctx, model, { ...ctx.tree, sel, top });
+}
+
+/**
+ * A click on a tree row: selects it; on its twist, toggles it.
+ *
+ * @param state - The store state
+ * @param controller - The controller
+ * @param flat - The flat row clicked
+ * @param onTwist - Whether the twist cell was clicked
+ */
+export function clickTree(state: TuiState, controller: Controller, flat: number, onTwist: boolean): void {
+    const ctx = treeContext(state);
+    if (ctx === null) return;
+    const model = treeModel(ctx.data, ctx.tree, ctx.editable);
+    if (model === null) return;
+    const at = model.at(flat);
+    if (at === null) return;
+    commit(controller, ctx, model, { ...ctx.tree, sel: flat });
+    if (onTwist && at.kind === 'model' && at.row.expandable) {
+        controller.dispatch({ type: 'tree/toggle', id: at.row.id, expanded: !at.row.expanded });
+        afterToggle(controller, ctx);
+    }
+}
+
+/**
+ * The footer toolbar: expand all / collapse all.
+ *
+ * @param state - The store state
+ * @param controller - The controller
+ * @param action - Which word was clicked
+ */
+export function treeToolbar(state: TuiState, controller: Controller, action: 'expandAll' | 'collapseAll'): void {
+    const ctx = treeContext(state);
+    if (ctx === null) return;
+    controller.dispatch({ type: action === 'expandAll' ? 'tree/expandAll' : 'tree/collapseAll' });
+    afterToggle(controller, ctx);
+}
+
+/**
  * Handles a key action on the tree.
  *
  * @param action - The action

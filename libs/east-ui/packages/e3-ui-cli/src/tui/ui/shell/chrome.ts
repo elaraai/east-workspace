@@ -17,7 +17,8 @@ import type { TuiState, View } from '../../state/actions.js';
 import { dirtyCount } from '../../state/reducer.js';
 import { RUN_FLAGS, describe, parseCommand } from '../../input/commands.js';
 import { connectionCell } from '../../model/status.js';
-import { blank, fitLine, fitRows, lrLine, rule, t, b, d, type Line, type RenderCtx } from '../lines.js';
+import { blank, fitLine, fitRows, lineWidth, lrLine, rule, t, b, d, type Line, type RenderCtx } from '../lines.js';
+import type { Hit } from '../frame.js';
 import { launchStep } from '../views/launch.js';
 
 /** The breadcrumb of a view. */
@@ -67,6 +68,50 @@ export function renderHeader(state: TuiState, ctx: RenderCtx): Line {
     const crumb = breadcrumb(state, ctx);
     const left: Line = [t(' '), b('e3-ui', 'brand'), t(crumb === '' ? '' : `  ${crumb}`)];
     return lrLine(left, pills(state, ctx), ctx.layout.columns);
+}
+
+/**
+ * The clickable crumbs and pills of the header row (row 0).
+ *
+ * @param state - The store state
+ * @param ctx - The render context
+ * @returns The hits
+ */
+export function headerHits(state: TuiState, ctx: RenderCtx): Hit[] {
+    const g = ctx.g;
+    const hits: Hit[] = [];
+    const parts = breadcrumb(state, ctx).split(` ${g.crumb} `).filter(p => p !== '');
+    let x = 1 + displayWidth('e3-ui') + 2;
+    parts.forEach((part, i) => {
+        const w = displayWidth(part);
+        hits.push({ row: 0, x0: x, x1: x + w, target: { kind: 'crumb', index: i } });
+        x += w + displayWidth(` ${g.crumb} `);
+    });
+    const spans = pills(state, ctx);
+    let px = ctx.layout.columns - lineWidth(spans);
+    for (const span of spans) {
+        const w = displayWidth(span.text);
+        if (span.bold === true && span.text.trim() !== '') {
+            const pill = span.text.includes('DIRTY') ? 'dirty' : span.text.includes('RUNNING') || span.text.includes('STOPPING') ? 'running' : 'connection';
+            hits.push({ row: 0, x0: px, x1: px + w, target: { kind: 'pill', pill } });
+        }
+        px += w;
+    }
+    return hits;
+}
+
+/**
+ * The clickable completion rows (absolute rows above the command box).
+ *
+ * @param state - The store state
+ * @param ctx - The render context
+ * @returns The hits
+ */
+export function completionHits(state: TuiState, ctx: RenderCtx): Hit[] {
+    const completion = state.command.completion;
+    if (completion === null || ctx.layout.completionRows === 0) return [];
+    const first = ctx.layout.commandTop - ctx.layout.completionRows;
+    return completion.items.slice(0, ctx.layout.completionRows).map((_, i) => ({ row: first + i, x0: 0, x1: ctx.layout.columns, target: { kind: 'completion', index: i } }));
 }
 
 /** The toast line, if a toast is showing. */

@@ -22,7 +22,8 @@ import { toneColor, type Theme } from '../render/theme.js';
 import { useStore } from '../state/store.js';
 import type { TuiState } from '../state/actions.js';
 import { layoutOf } from '../model/index.js';
-import { renderFrame } from './shell/chrome.js';
+import { completionHits, headerHits, renderFrame } from './shell/chrome.js';
+import { setLastFrame, type Hit } from './frame.js';
 import { renderView } from './views/index.js';
 import type { RepoFacts } from './views/about.js';
 import { fitLine, type AboutInfo, type Line, type RenderCtx } from './lines.js';
@@ -117,6 +118,12 @@ export function App(props: AppProps): ReactElement {
         const layout = state.size.columns === size.columns && state.size.rows === size.rows ? layoutOf(state) : shellLayout(size, { commit: false, completion: 0 });
         const ctx: RenderCtx = { layout, g: glyphs, theme, now, version, spinner, about: props.about };
         const view = renderView(state, ctx, props.facts());
+        const hits: Hit[] = [
+            ...headerHits(state, ctx),
+            ...(view.hits ?? []).map(h => ({ ...h, row: h.row + layout.bodyTop })),
+            ...completionHits(state, ctx),
+        ];
+        setLastFrame({ layout, hits, pane: view.pane !== undefined ? { ...view.pane, top: view.pane.top + layout.bodyTop } : null });
         return renderFrame(state, ctx, view.body, view.hints);
     }, [state, size.columns, size.rows, glyphs, theme, now, version, spinner, props]);
 

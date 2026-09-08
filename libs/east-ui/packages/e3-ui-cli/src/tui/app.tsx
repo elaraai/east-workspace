@@ -20,6 +20,7 @@ import { render, type Instance } from 'ink';
 import { createElement } from 'react';
 import type { TuiOptions } from '../commands/tui.js';
 import { describeError } from './api.js';
+import { MOUSE_OFF, MOUSE_ON, mouseSupported } from './input/mouse.js';
 import { App } from './ui/App.js';
 import { createController, type Controller } from './controller.js';
 import { createFeeds } from './data/feeds.js';
@@ -71,10 +72,28 @@ export async function runTui(options: TuiOptions): Promise<number> {
 
     const feeds = createFeeds({ store, api: () => session?.api ?? null, log });
 
+    // Mouse reporting: on while the UI owns the screen, off on every exit
+    // path and around the login hand-over; never on for --no-mouse, a dumb
+    // terminal or a non-TTY.
+    const mouseWanted = options.mouse && mouseSupported(env, process.stdout);
+    let mouseActive = false;
+    const mouseOn = (): void => {
+        if (!mouseWanted || mouseActive) return;
+        process.stdout.write(MOUSE_ON);
+        mouseActive = true;
+        store.dispatch({ type: 'mouse', enabled: true });
+    };
+    const mouseOff = (): void => {
+        if (!mouseActive) return;
+        process.stdout.write(MOUSE_OFF);
+        mouseActive = false;
+    };
+
     const exit = (code: number): void => {
         if (exited) return;
         exited = true;
         exitCode = code;
+        mouseOff();
         feeds.stop();
         instance?.unmount();
     };
@@ -93,6 +112,7 @@ export async function runTui(options: TuiOptions): Promise<number> {
         // The device flow prints its code and URL and waits: hand the
         // terminal over, run `e3 auth login` in this process, take it back.
         const { createLoginCommand } = await import('@elaraai/e3-cli/internal');
+        mouseOff();
         await suspendTerminal(async () => {
             const command = createLoginCommand();
             command.exitOverride();
@@ -102,6 +122,7 @@ export async function runTui(options: TuiOptions): Promise<number> {
                 process.stderr.write(`${describeError(err)}\n`);
             }
         });
+        mouseOn();
         await openTarget(url === session?.info.origin ? session.info.target : url);
     };
     const controller = createController({
@@ -135,6 +156,7 @@ export async function runTui(options: TuiOptions): Promise<number> {
         },
         onFatal: (error) => {
             log(`fatal: ${fatalText(error)}`);
+            mouseOff();
             exit(EXIT_SOFTWARE);
             process.stderr.write(`e3-ui: ${fatalText(error)}\n`);
             if (debugFile !== null) process.stderr.write(`(debug log: ${debugFile})\n`);
@@ -196,7 +218,7 @@ export async function runTui(options: TuiOptions): Promise<number> {
 
     const about = {
         statePath: stateFile.replace(os.homedir(), '~'),
-        terminal: describeTerminal(env, size, level, options.mouse, glyphs),
+        terminal: describeTerminal(env, size, level, mouseWanted, glyphs),
     };
 
     instance = render(
@@ -210,6 +232,7 @@ export async function runTui(options: TuiOptions): Promise<number> {
             maxFps: 30,
         },
     );
+    mouseOn();
     feeds.start();
     void open(options.repo);
 
@@ -221,6 +244,7 @@ export async function runTui(options: TuiOptions): Promise<number> {
         process.stderr.write(`e3-ui: ${fatalText(err)}\n`);
     } finally {
         exited = true;
+        mouseOff();
         removeLifecycle();
         feeds.stop();
         persist.flush();

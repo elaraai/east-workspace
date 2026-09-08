@@ -78,14 +78,15 @@ const HEADINGS: Record<ReadRow['kind'], string> = { path: 'READS', page: 'READS 
  * @param g - The glyph set
  * @returns The lines
  */
-export function renderReads(manifest: DataManifest | null, sel: number, top: number, visible: number, width: number, g: Glyphs): Line[] {
+export function renderReads(manifest: DataManifest | null, sel: number, top: number, visible: number, width: number, g: Glyphs): { lines: Line[]; rowLines: number[]; top: number; total: number } {
     if (manifest === null) {
         const out: Line[] = [[t(' '), d('this task carries no data manifest — a ui() task declares its reads through Data.bind / Func.bind / Record.bind')]];
         while (out.length < visible) out.push([t(' '.repeat(width))]);
-        return out;
+        return { lines: out, rowLines: [], top: 0, total: 1 };
     }
     const rows = readRows(manifest);
     const lines: Line[] = [];
+    const rowLines: number[] = [];
     let lastKind: ReadRow['kind'] | null = null;
     rows.forEach((row, i) => {
         if (row.kind !== lastKind) {
@@ -95,13 +96,14 @@ export function renderReads(manifest: DataManifest | null, sel: number, top: num
         }
         const selected = i === sel;
         const opens = row.path !== null;
+        rowLines.push(lines.length);
         lines.push([t(' '), selected ? b(g.sel, 'brand') : t(' '), selected ? b(row.text) : t(row.text), d(opens ? `   ${g.enter} open` : '')]);
     });
     if (rows.length === 0) lines.push([t(' '), d('the manifest is empty')]);
     const clampedTop = Math.max(0, Math.min(top, Math.max(0, lines.length - visible)));
     const window = lines.slice(clampedTop, clampedTop + visible);
     while (window.length < visible) window.push([t(' '.repeat(width - 1))]);
-    return withScrollbar(window, width, lines.length, visible, clampedTop, g);
+    return { lines: withScrollbar(window, width, lines.length, visible, clampedTop, g), rowLines, top: clampedTop, total: lines.length };
 }
 
 /**

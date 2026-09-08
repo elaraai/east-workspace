@@ -12,7 +12,7 @@
  */
 
 import { fitPlan, scrollbar as scrollbarGeometry, type ColumnSpec } from '../../render/layout.js';
-import { center, padEnd, padStart } from '../../render/text.js';
+import { center, displayWidth, padEnd, padStart } from '../../render/text.js';
 import type { Tone } from '../../render/theme.js';
 import type { Glyphs } from '../../render/glyphs.js';
 import { b, d, fitLine, lrLine, t, type Line } from '../lines.js';
@@ -112,6 +112,25 @@ export function centredBlock(glyph: string, tone: Tone, title: string, body: str
     for (const line of body) out.push([t(center(line, width))]);
     out.push([t(' '.repeat(width))]);
     return out;
+}
+
+/**
+ * The cell ranges of a tab strip's tabs (the geometry {@link tabStrip} draws).
+ *
+ * @param name - The leading name
+ * @param tabs - The tab labels
+ * @param g - The glyph set
+ * @returns Each tab's `[x0, x1)` and index
+ */
+export function tabStripHits(name: string, tabs: string[], g: Glyphs): { index: number; x0: number; x1: number }[] {
+    void g;
+    let x = 1 + displayWidth(name) + 3;
+    return tabs.map((label, i) => {
+        const w = 2 + displayWidth(`${i + 1} ${label}`) + 2;
+        const hit = { index: i, x0: x, x1: x + w };
+        x += w + (i < tabs.length - 1 ? 1 : 0);
+        return hit;
+    });
 }
 
 /**

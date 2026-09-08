@@ -19,6 +19,8 @@ import { viewWorkspace, type Feeds } from './data/feeds.js';
 import { complete } from './input/completion.js';
 import { parseCommand, type ParsedCommand } from './input/commands.js';
 import { resolve as resolveKey, type KeyAction, type KeyContext } from './input/keymap.js';
+import { isMouseInput, parseSgr, type MouseEvent } from './input/mouse.js';
+import { hitAt, lastFrame, paneTopFromRow, type HitTarget } from './ui/frame.js';
 import { buildCatalogue } from './model/catalogue.js';
 import { helpTabFor } from './model/help.js';
 import { listModel } from './model/index.js';
@@ -65,6 +67,10 @@ export interface ViewHooks {
     command?: (command: ParsedCommand, state: TuiState, controller: Controller) => Promise<boolean>;
     /** Variant tags `/tag` offers on the selected row. */
     tags?: (state: TuiState) => string[] | undefined;
+    /** A click on one of the view's own hit targets (rows, twists, toolbars); true when handled. */
+    click?: (target: HitTarget, event: MouseEvent, state: TuiState, controller: Controller) => boolean;
+    /** The wheel (`delta` rows) or a thumb drag (`top`) over the view's pane; true when handled. */
+    scroll?: (to: { delta: number } | { top: number }, state: TuiState, controller: Controller) => boolean;
 }
 
 const hooks = new Map<string, ViewHooks>();
@@ -154,6 +160,11 @@ export function createController(deps: ControllerDeps): Controller {
         state,
         workspace,
         onKey(input, key) {
+            if (isMouseInput(input)) {
+                // Mouse reports never reach the keymap (they would read as a paste).
+                if (state().mouse) for (const event of parseSgr(input)) onMouse(event);
+                return;
+            }
             const s = state();
             const v = s.view;
             const viewHooks = hooks.get(v.kind);
@@ -370,6 +381,82 @@ export function createController(deps: ControllerDeps): Controller {
                     }
                 }
                 void controller.execute(s.command.text);
+                return;
+            }
+            default:
+                return;
+        }
+    };
+
+    // -- the mouse ------------------------------------------------------
+    let dragging = false;
+
+    /** The primary list's first visible row (for absolute scrolls). */
+    const listTop = (s: TuiState): number => {
+        const v = s.view;
+        if (v.kind === 'repos' || v.kind === 'workspaces' || v.kind === 'dashboard') return v.list.top;
+        if (v.kind === 'task') return v.tab === 'runs' ? v.runs.top : v.tab === 'reads' ? v.reads.top : v.tree.top;
+        if (v.kind === 'input') return v.tree.top;
+        return 0;
+    };
+
+    const scrollBy = (s: TuiState, to: { delta: number } | { top: number }): void => {
+        if (hooks.get(s.view.kind)?.scroll?.(to, s, controller) === true) return;
+        const model = listModel(s);
+        if (model.count === 0) return;
+        const delta = 'delta' in to ? to.delta : to.top - listTop(s);
+        dispatch({ type: 'list/scroll', delta, count: model.count, visible: model.visible });
+    };
+
+    const onMouse = (event: MouseEvent): void => {
+        const frame = lastFrame();
+        if (frame === null) return;
+        const s = state();
+        if (event.kind === 'wheelUp') { scrollBy(s, { delta: -3 }); return; }
+        if (event.kind === 'wheelDown') { scrollBy(s, { delta: 3 }); return; }
+        if (event.kind === 'release') { dragging = false; return; }
+        if (event.kind === 'drag') {
+            if (dragging && frame.pane !== null) scrollBy(s, { top: paneTopFromRow(frame.pane, event.y) });
+            return;
+        }
+        if (event.kind !== 'press' || event.button !== 'left') return;
+        const pane = frame.pane;
+        if (pane !== null && event.x === frame.layout.columns - 1 && event.y >= pane.top && event.y < pane.top + pane.rows && pane.total > pane.visible) {
+            dragging = true;
+            scrollBy(s, { top: paneTopFromRow(pane, event.y) });
+            return;
+        }
+        const target = hitAt(frame, event.x, event.y);
+        if (target === null) return;
+        deps.log(`click ${event.x},${event.y} → ${target.kind}`);
+        const viewHooks = hooks.get(s.view.kind);
+        if (viewHooks?.click?.(target, event, s, controller) === true) return;
+        switch (target.kind) {
+            case 'list': {
+                const model = listModel(s);
+                dispatch({ type: 'list/select', index: target.index, count: model.count, visible: model.visible });
+                return;
+            }
+            case 'tab': handleAction({ kind: 'tab', index: target.index }, s, viewHooks); return;
+            case 'crumb': {
+                if (target.index === 0) {
+                    if (s.session?.repo === null) controller.navigate({ kind: 'repos', list: { sel: 0, top: 0 } }, s.view.kind !== 'repos');
+                    else controller.navigate({ kind: 'workspaces', list: { sel: 0, top: 0 } }, s.view.kind !== 'workspaces');
+                } else if (target.index === 1) {
+                    const ws = workspace();
+                    if (ws !== null && s.view.kind !== 'dashboard') controller.openWorkspace(ws);
+                }
+                return;
+            }
+            case 'pill': {
+                if (target.pill === 'running') startTyping('/stop');
+                else if (target.pill === 'dirty') startTyping('/apply');
+                else void controller.execute('/refresh');
+                return;
+            }
+            case 'completion': {
+                const item = s.command.completion?.items[target.index];
+                if (item !== undefined) void controller.execute(item.insert);
                 return;
             }
             default:

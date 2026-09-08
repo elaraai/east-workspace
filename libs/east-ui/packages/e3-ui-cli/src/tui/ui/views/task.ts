@@ -20,9 +20,10 @@ import { latestPerTask } from './dashboard.js';
 import { agoShort, formatDuration, formatInt, formatSize, hashMid, hashShort, hashTiny } from '../../render/text.js';
 import type { DatasetData, TuiState } from '../../state/actions.js';
 import { blank, d, b, lrLine, rule, t, type Line, type RenderCtx } from '../lines.js';
-import { centredBlock, tabStrip } from '../shell/widgets.js';
-import { renderTreeRows, treeCommand, treeContext, treeFooter, treeKey, treeModel, treeOpen, TREE_CHROME_ROWS } from '../widgets/tree.js';
-import { logsCommand, logsContext, logsFooter, logsKey, renderLogLines, streamLine } from '../widgets/logs.js';
+import { centredBlock, tabStrip, tabStripHits } from '../shell/widgets.js';
+import type { Hit, Pane } from '../frame.js';
+import { clickTree, renderTreeRows, scrollTree, treeCommand, treeContext, treeFooter, treeKey, treeModel, treeOpen, treeToolbar, TREE_CHROME_ROWS } from '../widgets/tree.js';
+import { logsCommand, logsContext, logsFooter, logsKey, logsTop, renderLogLines, scrollLogs, streamLine } from '../widgets/logs.js';
 import { RUNS_CHROME_ROWS, renderRuns, runsOf } from '../widgets/runs.js';
 import { manifestOf, manifestSummary, openRead, readRows, renderReads } from '../widgets/reads.js';
 import { registerView } from './index.js';
@@ -151,21 +152,45 @@ registerView('task', (state, ctx) => {
         datasetLine(state.data.dataset[ws]?.[`.tasks.${task}.output`], `.tasks.${task}.output`, ui, ctx),
         rule(width, g.dashed),
     ];
+    const hits: Hit[] = tabStripHits(task, tabs, g).map(h => ({ row: 0, x0: h.x0, x1: h.x1, target: { kind: 'tab', index: h.index } }));
+    const others = (except: number): string => tabs.map((label, i) => `${i + 1} ${label.toLowerCase()}`).filter((_, i) => i !== except).join('   ');
+    const polled = state.data.polledAt !== null ? `polled ${agoShort(state.data.polledAt, ctx.now)}` : '';
     if (tab === 'output') {
         body.push(...renderOutput(state, ws, task, ctx));
         const data = state.data.dataset[ws]?.[`.tasks.${task}.output`];
         const shown = data?.mode.kind === 'inline' || data?.mode.kind === 'paged';
-        const other = tabs.map((label, i) => `${i + 1} ${label.toLowerCase()}`).filter((_, i) => i !== 0).join('   ');
+        const tctx = treeContext(state);
+        const model = tctx === null ? null : treeModel(tctx.data, tctx.tree, tctx.editable);
+        let pane: Pane | undefined;
+        if (tctx !== null && model !== null) {
+            const rows = Math.max(1, ctx.layout.bodyRows - TREE_CHROME_ROWS);
+            const top = Math.max(0, Math.min(tctx.tree.top, Math.max(0, model.total - rows)));
+            for (let i = top; i < Math.min(model.total, top + rows); i++) {
+                const at = model.at(i);
+                hits.push({ row: 3 + (i - top), x0: 0, x1: width - 1, target: { kind: 'tree', flat: i, twistX: at?.kind === 'model' ? 1 + 2 * at.row.depth : null } });
+            }
+            pane = { top: 3, rows, total: model.total, visible: rows, scrollTop: top };
+            const footer = 3 + rows;
+            const toolbar = `${g.expanded} expand all  ${g.collapsed} collapse all  s save .beast2 `;
+            const start = width - toolbar.length;
+            const word = (text: string, action: 'expandAll' | 'collapseAll' | 'save'): void => {
+                const at = toolbar.indexOf(text);
+                if (at >= 0) hits.push({ row: footer, x0: start + at, x1: start + at + text.length, target: { kind: 'toolbar', action } });
+            };
+            word(`${g.expanded} expand all`, 'expandAll');
+            word(`${g.collapsed} collapse all`, 'collapseAll');
+            word('s save .beast2', 'save');
+        }
         return {
             body,
+            hits,
+            pane,
             hints: {
-                left: shown ? `${g.up}${g.down} move   ${g.right} expand   ${g.left} collapse   pgup pgdn   /find <key>   /goto <row|%>   s save   ${other}` : `${other}   esc back`,
+                left: shown ? `${g.up}${g.down} move   ${g.right} expand   ${g.left} collapse   pgup pgdn   /find <key>   /goto <row|%>   s save   ${others(0)}` : `${others(0)}   esc back`,
                 right: state.mouse ? `wheel ${g.sep} drag ${g.thumb}` : '',
             },
         };
     }
-    const others = (except: number): string => tabs.map((label, i) => `${i + 1} ${label.toLowerCase()}`).filter((_, i) => i !== except).join('   ');
-    const polled = state.data.polledAt !== null ? `polled ${agoShort(state.data.polledAt, ctx.now)}` : '';
     if (tab === 'logs') {
         const lctx = logsContext(state);
         if (lctx !== null) {
@@ -173,24 +198,61 @@ registerView('task', (state, ctx) => {
             body.push(...renderLogLines(lctx, width, g));
             body.push(logsFooter(lctx, width, g));
             const follow = lctx.ui.follow ? `${g.dot} on` : `${g.empty} off`;
-            return { body, hints: { left: `${g.up}${g.down} scroll   G end   F follow ${follow}   o stdout  e stderr   s save   c copy   ${others(1)}`, right: polled } };
+            const active0 = 1 + lctx.ui.stream.length + 2;
+            const otherName = lctx.ui.stream === 'stdout' ? 'stderr' : 'stdout';
+            hits.push({ row: 3, x0: 1, x1: active0, target: { kind: 'stream', stream: lctx.ui.stream } });
+            hits.push({ row: 3, x0: active0 + 3, x1: active0 + 3 + otherName.length + 8, target: { kind: 'stream', stream: otherName } });
+            const pane: Pane = { top: 4, rows: lctx.visible, total: lctx.lines.length, visible: lctx.visible, scrollTop: logsTop(lctx) };
+            return { body, hits, pane, hints: { left: `${g.up}${g.down} scroll   G end   F follow ${follow}   o stdout  e stderr   s save   c copy   ${others(1)}`, right: polled } };
         }
     }
     if (tab === 'runs') {
         const runs = runsOf(state, ws, task);
-        body.push(...renderRuns(state, ws, task, Math.max(1, ctx.layout.bodyRows - RUNS_CHROME_ROWS), width, g));
-        return { body, hints: { left: `${g.up}${g.down} move   ${g.enter} inputs   ${others(2)}`, right: `${formatInt(runs.length)} execution${runs.length === 1 ? '' : 's'}` } };
+        const visible = Math.max(1, ctx.layout.bodyRows - RUNS_CHROME_ROWS);
+        body.push(...renderRuns(state, ws, task, visible, width, g));
+        const top = state.view.runs.top;
+        for (let i = top; i < Math.min(runs.length, top + visible); i++) hits.push({ row: 4 + (i - top), x0: 0, x1: width - 1, target: { kind: 'list', index: i } });
+        const pane: Pane = { top: 4, rows: visible, total: runs.length, visible, scrollTop: top };
+        return { body, hits, pane, hints: { left: `${g.up}${g.down} move   ${g.enter} inputs   ${others(2)}`, right: `${formatInt(runs.length)} execution${runs.length === 1 ? '' : 's'}` } };
     }
     if (tab === 'reads') {
         const manifest = manifestOf(state.data.taskDetails[ws]?.[task]);
-        body.push(...renderReads(manifest, state.view.reads.sel, state.view.reads.top, Math.max(1, ctx.layout.bodyRows - TREE_CHROME_ROWS + 1), width, g));
-        return { body, hints: { left: `${g.up}${g.down} move   ${g.enter} open   ${others(3)}`, right: '' } };
+        const visible = Math.max(1, ctx.layout.bodyRows - TREE_CHROME_ROWS + 1);
+        const reads = renderReads(manifest, state.view.reads.sel, state.view.reads.top, visible, width, g);
+        body.push(...reads.lines);
+        reads.rowLines.forEach((line, index) => {
+            if (line >= reads.top && line < reads.top + visible) hits.push({ row: 3 + (line - reads.top), x0: 0, x1: width - 1, target: { kind: 'list', index } });
+        });
+        const pane: Pane = { top: 3, rows: visible, total: reads.total, visible, scrollTop: reads.top };
+        return { body, hits, pane, hints: { left: `${g.up}${g.down} move   ${g.enter} open   ${others(3)}`, right: '' } };
     }
     body.push(blank(width));
-    return { body, hints: { left: others(-1), right: '' } };
+    return { body, hits, hints: { left: others(-1), right: '' } };
 });
 
 registerViewHooks('task', {
+    click: (target, event, state, controller) => {
+        if (state.view.kind !== 'task') return false;
+        if (state.view.tab === 'output') {
+            if (target.kind === 'tree') { clickTree(state, controller, target.flat, target.twistX !== null && event.x === target.twistX); return true; }
+            if (target.kind === 'toolbar') {
+                if (target.action === 'save') void controller.execute('/save');
+                else treeToolbar(state, controller, target.action);
+                return true;
+            }
+        }
+        if (state.view.tab === 'logs' && target.kind === 'stream') {
+            if (target.stream !== state.view.logs.stream) controller.dispatch({ type: 'logs/stream', stream: target.stream });
+            return true;
+        }
+        return false;
+    },
+    scroll: (to, state, controller) => {
+        if (state.view.kind !== 'task') return false;
+        if (state.view.tab === 'output') { scrollTree(state, controller, to); return true; }
+        if (state.view.tab === 'logs') { scrollLogs(state, controller, to); return true; }
+        return false;
+    },
     open: (state, controller) => {
         if (state.view.kind !== 'task') return;
         if (state.view.tab === 'output') treeOpen(state, controller);

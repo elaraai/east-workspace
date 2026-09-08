@@ -17,6 +17,7 @@ import type { TuiState } from '../../state/actions.js';
 import { registerListModel } from '../../model/index.js';
 import { executionStatusCell } from '../../model/status.js';
 import { registerViewHooks } from '../../controller.js';
+import type { Hit, Pane } from '../frame.js';
 import type { Line, RenderCtx } from '../lines.js';
 import { blank } from '../lines.js';
 import { renderTable, sectionLine, withScrollbar, type TableRow } from '../shell/widgets.js';
@@ -96,10 +97,15 @@ registerView('workspaces', (state, ctx) => {
     const dataRows = table.slice(1);
     while (dataRows.length < visible) dataRows.push(blank(width - 1));
     body.push(table[0]!, ...withScrollbar(dataRows, width, total, visible, top, ctx.g));
+    const hits: Hit[] = [];
+    for (let i = top; i < Math.min(total, top + visible); i++) hits.push({ row: 3 + (i - top), x0: 0, x1: width, target: { kind: 'list', index: i } });
+    const pane: Pane = { top: 3, rows: visible, total, visible, scrollTop: top };
     if (state.data.workspaces === null) body[3] = [{ text: '  loading workspaces…', dim: true }];
     else if (total === 0) body[3] = [{ text: '  no workspaces — e3 workspace create <repo> <name>', dim: true }];
     return {
         body,
+        hits,
+        pane,
         hints: { left: `${ctx.g.up}${ctx.g.down} move   ${ctx.g.enter} open   /workspace <name>`, right: 'q quit' },
     };
 });

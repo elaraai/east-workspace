@@ -104,6 +104,8 @@ export interface MountOptions {
     feeds?: boolean | undefined;
     /** A state-file persister (default: none). */
     persist?: Persister | undefined;
+    /** Whether mouse reporting counts as on (default: off). */
+    mouse?: boolean | undefined;
 }
 
 /** The fixed clock the specs render at. */
@@ -123,6 +125,7 @@ export async function mountApp(options: MountOptions = {}): Promise<Mounted> {
     if (session !== null) store.dispatch({ type: 'session', session });
     if (options.view !== undefined) store.dispatch({ type: 'view/root', view: options.view });
     if (session !== null && options.view !== undefined) store.dispatch({ type: 'connection', connection: { kind: 'connected' } });
+    if (options.mouse === true) store.dispatch({ type: 'mouse', enabled: true });
     for (const action of options.actions ?? []) store.dispatch(action);
     const exits: number[] = [];
     const opened: string[] = [];

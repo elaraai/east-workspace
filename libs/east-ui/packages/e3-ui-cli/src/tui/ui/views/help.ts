@@ -13,8 +13,15 @@
 import { padEnd } from '../../render/text.js';
 import type { TuiState } from '../../state/actions.js';
 import { HELP_TABS, helpColumns } from '../../model/help.js';
+import type { Hit } from '../frame.js';
 import { blank, b, d, t, type Line, type RenderCtx } from '../lines.js';
 import { lrLine } from '../lines.js';
+import { tabStripHits } from '../shell/widgets.js';
+
+/** The clickable tabs of the help strip (body row 0). */
+export function helpTabHits(ctx: RenderCtx): Hit[] {
+    return tabStripHits('HELP', HELP_TABS.map(x => x.label), ctx.g).map(h => ({ row: 0, x0: h.x0, x1: h.x1, target: { kind: 'tab', index: h.index } }));
+}
 
 /** The help body. */
 export function renderHelp(state: TuiState, ctx: RenderCtx): Line[] {
