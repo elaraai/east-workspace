@@ -28,6 +28,7 @@ from east.types.types import (
     NullType,
     OptionType,
     StructType,
+    TypeOrPlaceholder,
     VariantType,
 )
 from east.types.values import EastArray, EastStruct
@@ -145,7 +146,7 @@ randomness, default 42).
 """
 
 
-def ALNSResultType(solution_type: EastType) -> EastType:
+def ALNSResultType(solution_type: TypeOrPlaceholder) -> EastType:
     """Create ALNS result type for a given solution type.
 
     Fields: ``best_solution`` (``S`` best solution found),

@@ -10,6 +10,7 @@ This matches TypeScript's approach exactly while maintaining Python type safety.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Literal, TypeAlias, TypedDict, TypeGuard
 
 from east.types.values import EastVariant
@@ -198,6 +199,13 @@ class RecursiveTypeDef(TypedDict):
 #             Ref, Array, Set, Dict, Struct, Variant, Function, AsyncFunction, Recursive
 EastType: TypeAlias = EastVariant
 
+# A type-parameter placeholder: the NAME of a type parameter, standing where a
+# type does in a generic platform declaration (``ArrayType("T")``, as the
+# TypeScript ``East.genericPlatform`` signatures are written) until the call
+# substitutes it. The constructors accept one anywhere a type goes; the hash,
+# immutability and alpha-key walks below each pass it through by name.
+TypeOrPlaceholder: TypeAlias = EastVariant | str
+
 
 # =============================================================================
 # Type Constructors (return EastVariant)
@@ -330,7 +338,7 @@ def _intern_type(built: EastVariant) -> EastVariant:
     return built
 
 
-def ArrayType(element_type: EastType) -> EastVariant[EastType]:
+def ArrayType(element_type: TypeOrPlaceholder) -> EastVariant[EastType]:
     """Create an array type.
 
     Args:
@@ -345,7 +353,7 @@ def ArrayType(element_type: EastType) -> EastVariant[EastType]:
 _VECTOR_ELEMENT_TYPES = frozenset({"Float", "Integer", "Boolean"})
 
 
-def VectorType(element_type: EastType) -> EastVariant[EastType]:
+def VectorType(element_type: TypeOrPlaceholder) -> EastVariant[EastType]:
     """Create a vector type.
 
     Args:
@@ -366,7 +374,7 @@ def VectorType(element_type: EastType) -> EastVariant[EastType]:
     return _intern_type(EastVariant("Vector", element_type))
 
 
-def MatrixType(element_type: EastType) -> EastVariant[EastType]:
+def MatrixType(element_type: TypeOrPlaceholder) -> EastVariant[EastType]:
     """Create a matrix type.
 
     Args:
@@ -387,7 +395,7 @@ def MatrixType(element_type: EastType) -> EastVariant[EastType]:
     return _intern_type(EastVariant("Matrix", element_type))
 
 
-def SetType(element_type: EastType) -> EastVariant[EastType]:
+def SetType(element_type: TypeOrPlaceholder) -> EastVariant[EastType]:
     """Create a set type.
 
     Args:
@@ -408,7 +416,9 @@ def SetType(element_type: EastType) -> EastVariant[EastType]:
     return _intern_type(EastVariant("Set", element_type))
 
 
-def DictType(key_type: EastType, value_type: EastType) -> EastVariant[DictValueTypeDef]:
+def DictType(
+    key_type: TypeOrPlaceholder, value_type: TypeOrPlaceholder
+) -> EastVariant[DictValueTypeDef]:
     """Create a dictionary type.
 
     Args:
@@ -426,7 +436,7 @@ def DictType(key_type: EastType, value_type: EastType) -> EastVariant[DictValueT
     return _intern_type(EastVariant("Dict", {"key": key_type, "value": value_type}))
 
 
-def RefType(value_type: EastType) -> EastVariant[EastType]:
+def RefType(value_type: TypeOrPlaceholder) -> EastVariant[EastType]:
     """Create a reference type.
 
     Args:
@@ -438,7 +448,9 @@ def RefType(value_type: EastType) -> EastVariant[EastType]:
     return _intern_type(EastVariant("Ref", value_type))
 
 
-def StructType(fields: list[tuple[str, EastType]]) -> EastVariant[list[StructFieldDef]]:
+def StructType(
+    fields: Sequence[tuple[str, TypeOrPlaceholder]],
+) -> EastVariant[list[StructFieldDef]]:
     """Create a struct type.
 
     Args:
@@ -454,7 +466,9 @@ def StructType(fields: list[tuple[str, EastType]]) -> EastVariant[list[StructFie
     return _intern_type(EastVariant("Struct", field_defs))
 
 
-def VariantType(cases: list[tuple[str, EastType]]) -> EastVariant[list[VariantCaseDef]]:
+def VariantType(
+    cases: Sequence[tuple[str, TypeOrPlaceholder]],
+) -> EastVariant[list[VariantCaseDef]]:
     """Create a variant type.
 
     Args:
@@ -481,7 +495,9 @@ def VariantType(cases: list[tuple[str, EastType]]) -> EastVariant[list[VariantCa
     return _intern_type(EastVariant("Variant", case_defs))
 
 
-def FunctionType(inputs: list[EastType], output: EastType) -> EastVariant[FunctionTypeValue]:
+def FunctionType(
+    inputs: Sequence[TypeOrPlaceholder], output: TypeOrPlaceholder
+) -> EastVariant[FunctionTypeValue]:
     """Create a function type.
 
     Args:
@@ -491,11 +507,11 @@ def FunctionType(inputs: list[EastType], output: EastType) -> EastVariant[Functi
     Returns:
         Function type
     """
-    return _intern_type(EastVariant("Function", {"inputs": inputs, "output": output}))
+    return _intern_type(EastVariant("Function", {"inputs": list(inputs), "output": output}))
 
 
 def AsyncFunctionType(
-    inputs: list[EastType], output: EastType
+    inputs: Sequence[TypeOrPlaceholder], output: TypeOrPlaceholder
 ) -> EastVariant[AsyncFunctionTypeValue]:
     """Create an async function type.
 
@@ -506,7 +522,9 @@ def AsyncFunctionType(
     Returns:
         AsyncFunction type
     """
-    return _intern_type(EastVariant("AsyncFunction", {"inputs": inputs, "output": output}))
+    return _intern_type(
+        EastVariant("AsyncFunction", {"inputs": list(inputs), "output": output})
+    )
 
 
 def RecursiveTypeRef(marker: int) -> EastVariant[EastVariant]:
@@ -866,7 +884,7 @@ _MUTABLE_KINDS = ("Array", "Set", "Dict", "Ref", "Function", "AsyncFunction")
 
 
 def _find_mutable(
-    typ: EastType, recursive_type: EastType | None = None
+    typ: TypeOrPlaceholder, recursive_type: EastType | None = None
 ) -> tuple[list[tuple[str, str]], EastType] | None:
     """The single traversal behind both the predicate and the diagnostic.
 
@@ -924,7 +942,7 @@ def _find_mutable(
     return None
 
 
-def is_immutable_type(typ: EastType, recursive_type: EastType | None = None) -> bool:
+def is_immutable_type(typ: TypeOrPlaceholder, recursive_type: EastType | None = None) -> bool:
     """Check if a type is immutable.
 
     Immutable types exclude mutable collections (Array, Set, Dict), Refs and
@@ -995,7 +1013,7 @@ def first_mutable_path(
     return _render_path(segments), offender
 
 
-def _immutable_key_error(container: str, slot: str, typ: EastType) -> TypeError:
+def _immutable_key_error(container: str, slot: str, typ: TypeOrPlaceholder) -> TypeError:
     """The shared "must be immutable" error, naming the offending field (#522).
 
     Keeps the full printed type on a following line rather than inline: in a
@@ -1028,7 +1046,7 @@ def _immutable_key_error(container: str, slot: str, typ: EastType) -> TypeError:
 # =============================================================================
 
 
-def SomeType(value_type: EastType) -> EastVariant[list[VariantCaseDef]]:
+def SomeType(value_type: TypeOrPlaceholder) -> EastVariant[list[VariantCaseDef]]:
     """Create an Option.Some variant type (for optional values).
 
     Args:
@@ -1040,7 +1058,7 @@ def SomeType(value_type: EastType) -> EastVariant[list[VariantCaseDef]]:
     return VariantType([("some", value_type), ("none", NullType)])
 
 
-def OptionType(value_type: EastType) -> EastVariant[list[VariantCaseDef]]:
+def OptionType(value_type: TypeOrPlaceholder) -> EastVariant[list[VariantCaseDef]]:
     """Create an Option type (for optional values).
 
     Alias for SomeType.
@@ -2323,6 +2341,7 @@ def type_intersect(t1: EastType, t2: EastType) -> EastType:
 __all__ = [
     # Core type alias
     "EastType",
+    "TypeOrPlaceholder",
     # TypedDicts for type values
     "StructFieldDef",
     "VariantCaseDef",
