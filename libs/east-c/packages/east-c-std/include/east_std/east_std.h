@@ -8,6 +8,7 @@
 void east_std_register_console(PlatformRegistry *reg);
 void east_std_register_env(PlatformRegistry *reg);
 void east_std_register_fs(PlatformRegistry *reg);
+void east_std_register_json(PlatformRegistry *reg);
 void east_std_register_path(PlatformRegistry *reg);
 void east_std_register_crypto(PlatformRegistry *reg);
 void east_std_register_time(PlatformRegistry *reg);

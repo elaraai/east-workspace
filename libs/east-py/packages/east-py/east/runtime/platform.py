@@ -219,22 +219,30 @@ def platform_function(
         declared_async = awaitable if is_async is None else is_async
         declaration = PlatformDeclaration(pf_name, declared, output, is_async=declared_async)
 
+        # The two shapes have different types to mypy — an async def is a
+        # Callable returning a Coroutine — so each gets its own name and `run`
+        # is the one annotation both satisfy.
+        run: Callable[..., Any]
         if awaitable:
-            async def run(*args: Any) -> Any:
+            async def run_async(*args: Any) -> Any:
                 if validate_input:
                     _validate_inputs(args, declared)
                 result = await fn(*args)
                 if validate_output:
                     _validate_output(result, output, pf_name)
                 return result
+
+            run = run_async
         else:
-            def run(*args: Any) -> Any:
+            def run_sync(*args: Any) -> Any:
                 if validate_input:
                     _validate_inputs(args, declared)
                 result = fn(*args)
                 if validate_output:
                     _validate_output(result, output, pf_name)
                 return result
+
+            run = run_sync
 
         # One sync entry for both modes: the dispatch has to happen before a
         # coroutine exists, so an async implementation's coroutine is `run`'s

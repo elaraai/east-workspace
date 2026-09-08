@@ -105,10 +105,6 @@ disable_error_code = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["sortedcontainers", "sortedcontainers.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
 module = ["numpy", "numpy.*"]
 ignore_missing_imports = true
 
@@ -121,8 +117,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = [
     "east.types._values_cy",
-    "east.serialization._binary_utils_cy",
-    "east.serialization._csv_cy",
     "east.utils._ordering_cy",
     "east._eastc_bridge",
     "east._platform_bridge",

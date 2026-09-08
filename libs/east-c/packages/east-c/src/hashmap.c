@@ -65,6 +65,7 @@ static void hashmap_resize(Hashmap *map, size_t new_capacity)
     map->entries = east_calloc(new_capacity, sizeof(HashmapEntry));
     map->capacity = new_capacity;
     map->count = 0;
+    map->tombstones = 0; /* rebuilding drops them */
 
     for (size_t i = 0; i < old_capacity; i++) {
         HashmapEntry *e = &old_entries[i];
@@ -97,6 +98,7 @@ Hashmap *hashmap_new(void)
 
     map->capacity = HASHMAP_INITIAL_CAPACITY;
     map->count = 0;
+    map->tombstones = 0;
     return map;
 }
 
@@ -135,9 +137,15 @@ void hashmap_set(Hashmap *map, const char *key, void *value)
 {
     if (!map || !key) return;
 
-    /* Grow if load factor would be exceeded. */
-    if ((map->count + 1) > (size_t)(map->capacity * HASHMAP_LOAD_FACTOR)) {
-        hashmap_resize(map, map->capacity * 2);
+    /* Keep a truly empty slot available, counting tombstones: probing stops
+     * only at an empty slot, so a table with none loops forever. Live entries
+     * alone choose the capacity — a table churned by repeated insert/delete is
+     * mostly tombstones, and rehashing at the same size clears them without
+     * growing without bound. */
+    if ((map->count + map->tombstones + 1) > (size_t)(map->capacity * HASHMAP_LOAD_FACTOR)) {
+        size_t capacity = map->capacity;
+        if ((map->count + 1) > (size_t)(capacity * HASHMAP_LOAD_FACTOR)) capacity *= 2;
+        hashmap_resize(map, capacity);
     }
 
     size_t idx = find_index(map->entries, map->capacity, key, true);
@@ -150,6 +158,7 @@ void hashmap_set(Hashmap *map, const char *key, void *value)
     }
 
     /* New insertion (into empty slot or tombstone). */
+    if (e->key == TOMBSTONE_KEY) map->tombstones--;
     e->key = east_strdup(key);
     e->value = value;
     e->occupied = true;
@@ -188,6 +197,7 @@ void hashmap_delete(Hashmap *map, const char *key, void (*free_value)(void *))
     e->value = NULL;
     /* e->occupied remains true */
     map->count--;
+    map->tombstones++;
 }
 
 size_t hashmap_count(Hashmap *map)

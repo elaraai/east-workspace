@@ -9,6 +9,7 @@
 #include "btree.h" /* tidwall/btree.c — Set's ordered store */
 
 #include <inttypes.h>
+#include <locale.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -63,6 +64,56 @@ static void abort_value(EastValue *v)
     east_value_slab_free(v, east_value_alloc_size(v->kind));
 }
 
+/* Whether the host's LC_NUMERIC decimal point is anything but '.'. */
+static bool locale_point_differs(const char **point_out)
+{
+    const char *dp = localeconv()->decimal_point;
+    if (point_out) *point_out = dp;
+    return !(dp[0] == '.' && dp[1] == '\0');
+}
+
+double east_strtod_c(const char *text, char **end_out)
+{
+    const char *dp;
+    const char *dot = strchr(text, '.');
+    if (!dot || !locale_point_differs(&dp)) return strtod(text, end_out);
+
+    /* The host's point differs: convert a copy spelled the host's way, and map
+     * the end pointer back onto the caller's text. */
+    size_t head = (size_t)(dot - text);
+    size_t dplen = strlen(dp);
+    size_t tail = strlen(dot + 1);
+    char stackbuf[128];
+    size_t need = head + dplen + tail + 1;
+    char *buf = need <= sizeof stackbuf ? stackbuf : malloc(need);
+    if (!buf) return strtod(text, end_out);
+    memcpy(buf, text, head);
+    memcpy(buf + head, dp, dplen);
+    memcpy(buf + head + dplen, dot + 1, tail + 1);
+    char *end = NULL;
+    double v = strtod(buf, &end);
+    if (end_out) {
+        size_t consumed = (size_t)(end - buf);
+        if (consumed > head) consumed = consumed >= head + dplen ? consumed - (dplen - 1) : head;
+        *end_out = (char *)text + consumed;
+    }
+    if (buf != stackbuf) free(buf);
+    return v;
+}
+
+/* printf writes the host's decimal point; every reader of the buffer expects
+ * '.', so it is rewritten in place. A multi-byte point only ever shortens it. */
+static void fmt_normalize_point(char *buf)
+{
+    const char *dp;
+    if (!locale_point_differs(&dp)) return;
+    char *at = strstr(buf, dp);
+    if (!at) return;
+    size_t dplen = strlen(dp);
+    at[0] = '.';
+    memmove(at + 1, at + dplen, strlen(at + dplen) + 1);
+}
+
 /*
  * Format a double identically to ECMAScript Number::toString(x).
  * Implements the algorithm from ECMA-262 section 6.1.6.1.20 exactly:
@@ -89,7 +140,8 @@ int east_fmt_double(char *out, size_t out_size, double val)
     int prec;
     for (prec = 0; prec <= 20; prec++) {
         snprintf(ebuf, sizeof(ebuf), "%.*e", prec, val);
-        if (strtod(ebuf, NULL) == val) break;
+        fmt_normalize_point(ebuf);
+        if (east_strtod_c(ebuf, NULL) == val) break;
     }
 
     /* Parse significant digits and exponent from %e output (e.g. "3.14e+02") */

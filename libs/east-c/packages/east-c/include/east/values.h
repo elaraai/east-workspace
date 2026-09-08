@@ -483,8 +483,14 @@ int east_value_compare(EastValue *a, EastValue *b);
 int east_value_print(EastValue *v, char *buf, size_t buf_size);
 
 // Format a double using the shortest representation that round-trips,
-// matching JavaScript's Number.toString() behavior.
+// matching JavaScript's Number.toString() behavior — with '.' as the decimal
+// point whatever LC_NUMERIC the host process has set.
 int east_fmt_double(char *out, size_t out_size, double val);
+
+// strtod that reads '.' as the decimal point whatever LC_NUMERIC the host has
+// set. JSON, CSV and East text all spell it '.'; under a comma locale plain
+// strtod stops at the point and hands back the integer part, silently.
+double east_strtod_c(const char *text, char **end_out);
 
 // Type helpers
 const char *east_value_kind_name(EastValueKind kind);

@@ -14,6 +14,61 @@ EastValue *east_json_decode(const char *json, EastType *type);
 // JSON decode with detailed error message (caller frees *error_out on failure)
 EastValue *east_json_decode_with_error(const char *json, EastType *type, char **error_out);
 
+/* ------------------------------------------------------------------ */
+/*  Strict streaming JSON reader                                       */
+/* ------------------------------------------------------------------ */
+/*
+ * A pull reader over a document too large to decode whole. It constructs one
+ * value at a time against the East type and never materialises the document,
+ * so a caller that maps a file reads it at whatever residency the kernel
+ * chooses rather than on the heap.
+ *
+ * STRICT: it accepts exactly what `jsonSchemaFor(T)` describes — what the
+ * ENCODER emits — rather than what `east_json_decode` tolerates. An integer
+ * must be a quoted decimal in i64 range with no leading zeros and no sign on
+ * zero; a timestamp must carry an explicit `+00:00`, not `Z` and not a numeric
+ * offset, in years 0001..9999; a blob's hex must be lowercase; a string must
+ * be well-formed UTF-8 (a malformed sequence is refused, never repaired). A
+ * float parses the same under any LC_NUMERIC (east_strtod_c).
+ *
+ * Every refusal is "<pointer>: <message>" — an array element located by its
+ * index, an object member by its name, RFC 6901-escaped — and the message is
+ * word for word what east-node's reader produces: the shared compliance
+ * corpus pins the text on every runtime, which is what makes a published
+ * contract enforceable wherever it is read. What the reader skips past (the
+ * members before a pointer target, a field the type does not model) is still
+ * held to JSON's grammar and to the JSON_MAX_DEPTH nesting bound, though
+ * nothing after the container being iterated is examined.
+ *
+ * The reader BORROWS `data`: the caller keeps the bytes alive and unchanged
+ * until east_json_reader_free.
+ */
+typedef struct EastJsonReader EastJsonReader;
+
+/* Opens a document and descends to the RFC 6901 pointer ("" is the whole
+ * document). With `enter`, steps inside the array or object named there and
+ * prepares to iterate it; without, stops in front of the value so it can be
+ * read whole. NULL on failure, with an allocated message in *error_out. */
+EastJsonReader *east_json_reader_open(const char *data, size_t len, const char *pointer, bool enter,
+                                      char **error_out);
+
+/* Whether the container has another element. A predicate: it consumes the
+ * closing bracket once nothing is left and otherwise leaves the cursor alone,
+ * so it need not alternate with east_json_reader_next. */
+bool east_json_reader_more(EastJsonReader *r);
+
+/* Reads the next element as `type`. For an object container `type` must be a
+ * Struct of exactly `key` (a String) and `value`, in either declared order:
+ * the struct is built in the type's own order, and the type is checked before
+ * anything is consumed, so a refused call leaves the reader where it was.
+ * NULL on failure with *error_out set. */
+EastValue *east_json_reader_next(EastJsonReader *r, EastType *type, char **error_out);
+
+/* Reads one whole value as `type`, for a reader opened with enter=false. */
+EastValue *east_json_reader_read(EastJsonReader *r, EastType *type, char **error_out);
+
+void east_json_reader_free(EastJsonReader *r);
+
 // Byte buffer for binary serialization
 typedef struct {
     uint8_t *data;

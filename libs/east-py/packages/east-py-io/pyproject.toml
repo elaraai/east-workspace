@@ -134,17 +134,13 @@ module = [
     "motor",
     "motor.*",
     "defusedxml",
-    "defusedxml.*",
     "asyncpg",
-    "asyncpg.*",
     "aiomysql",
-    "aiomysql.*",
     "redis",
     "redis.*",
     "openpyxl",
     "openpyxl.*",
     "access_parser",
-    "access_parser.*",
 ]
 ignore_missing_imports = true
 

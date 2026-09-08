@@ -59,6 +59,15 @@ from east_py_std.fs import (
     fs_write_file,
     fs_write_file_bytes,
 )
+from east_py_std.json import (
+    json_close,
+    json_impl,
+    json_more,
+    json_next,
+    json_open,
+    json_open_text,
+    json_value,
+)
 from east_py_std.path import (
     path_basename,
     path_dirname,
@@ -111,6 +120,7 @@ platform = [
     *env_impl,
     *fetch_impl,
     *fs_impl,
+    *json_impl,
     *path_impl,
     *random_impl,
     *test_impl,
@@ -126,6 +136,7 @@ __all__ = [
     "env_impl",
     "fetch_impl",
     "fs_impl",
+    "json_impl",
     "path_impl",
     "random_impl",
     "test_impl",
@@ -159,6 +170,13 @@ __all__ = [
     "fs_read_file_bytes",
     "fs_write_file_bytes",
     "fs_open_beast",
+    # ---------- json ----------
+    "json_open",
+    "json_open_text",
+    "json_more",
+    "json_next",
+    "json_value",
+    "json_close",
     # ---------- path ----------
     "path_join",
     "path_resolve",
