@@ -22,6 +22,5 @@ semver-stable API: keep it to what a workspace binary needs, and never let
 - [`../../design/e3-cli.md`](../../design/e3-cli.md) — CLI design spec.
 - [`../../design/e3-watch.md`](../../design/e3-watch.md) — `e3 watch`
   workflow.
-- [`../../VIEWER.md`](../../VIEWER.md) — `e3 view` TUI design.
 - [`../../SKILL.md`](../../SKILL.md) — authoring cheat-sheet. **Matches
   the `east:e3` plugin skill — DO NOT EDIT casually.**

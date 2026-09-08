@@ -1,14 +1,15 @@
 # e3-ui CLI
 
-> Render east-ui / e3-ui components to PNG from the command line.
+> Browse an e3 repository in the terminal, and render east-ui / e3-ui components to PNG.
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0%20%2F%20Commercial-blue.svg)](LICENSE.md)
 [![Node Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org)
 
-**e3-ui CLI** renders [East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui) components — East functions returning a `UIComponentType` — to PNG images using headless Chromium, for automating UI/UX reviews and generating screenshots. The East→React renderer is pre-bundled into the package; the component is injected as data at runtime, so the only runtime dependency is the browser engine.
+**e3-ui CLI** is two things in one command. With no subcommand it is a full-screen **terminal UI** over an [e3](https://github.com/elaraai/east-workspace/tree/main/libs/e3) repository — local or remote — showing a workspace's task and dataset status, its dataflow runs (start and cancel them), every task's output as a lazily paged value tree, its logs and run history, and editable inputs. With `shot` / `shots` it renders [East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui) components — East functions returning a `UIComponentType` — to PNG images using headless Chromium, for automating UI/UX reviews and generating screenshots. The East→React renderer is pre-bundled into the package; the component is injected as data at runtime, so the only runtime dependency of the screenshots is the browser engine, and the terminal UI never needs one.
 
 ## Features
 
+- **Terminal UI** (`e3-ui [repo] [workspace]`): the workspace dashboard, `/run` and `/stop` with a live event feed, task views (a paged value tree with `/find` and `/goto`, logs with tail-follow, the run history, a `ui()` task's manifest), editable inputs with a commit bar and conflict detection, a command box with completion, vim-style keys and the mouse, remote repositories over the same credentials as `e3 auth`.
 - **Component screenshots**: render a `.ts`/`.tsx` source (`--from-source`) or serialized `.beast2`/`.json` IR (`--from-ir`) to a PNG.
 - **Live task screenshots**: render a deployed e3 UI task's output with real, already-computed workspace data (`--from-task`).
 - **Self-contained**: the renderer (React + Chakra UI v3 + the full component set) is pre-bundled; no app server or build step at use time.
@@ -18,7 +19,47 @@
 
 ```bash
 npm install -g @elaraai/e3-ui-cli   # small — downloads no browser
-e3-ui install-browser               # one-time: fetch the version-matched headless Chromium
+e3-ui ./my-repo                     # the terminal UI needs nothing else
+e3-ui install-browser               # for screenshots: fetch the version-matched headless Chromium once
+```
+
+## Terminal UI
+
+```bash
+e3-ui                                    # $E3_REPO, then the current directory
+e3-ui ./my-repo main                     # a workspace's dashboard
+e3-ui ./my-repo main --task forecast     # straight to a task (--input <name> for an input)
+e3-ui https://e3.example.com/repos/demo  # remote — after: e3-ui auth login https://e3.example.com
+e3-ui https://e3.example.com             # a bare origin: the repositories list
+e3-ui --no-mouse --ascii ./my-repo       # keyboard only, box-drawing off (also E3_UI_ASCII=1)
+```
+
+A local repository is served by an embedded `@elaraai/e3-api-server` for the session; a remote one is reached with the token `e3-ui auth login` saved (the same device flow and `~/.e3/credentials.json` store as `e3 auth`, so either login serves both). Everything is one screen at a time — repositories, workspaces, a workspace's dashboard, a task (`1 Output · 2 Logs · 3 Runs`, plus `4 Reads` for a `ui()` task), an input — with a **command box** along the bottom:
+
+| Type | Effect |
+|---|---|
+| `/task <name>` · `/input <name>` · `/workspace <name>` · `/repo <path\|url>` | open things; plain text without `/` fuzzy-jumps to any of them |
+| `/run [--force] [--filter <glob>] [--concurrency <n>]` · `/stop` | start / cancel the dataflow (`r` / `x` prefill them); the header pill and the execution panel follow it live |
+| `/find <key>` · `/goto <row\|N%>` · `/save [file]` | in a value tree: exact `"key"`, prefix, or struct-key fields `a\|b`; jump; write the `.beast2` bytes |
+| `e` `a` `x` `t` · `⏎ APPLY` · `esc DISCARD` | in an input: edit a leaf, add, remove, tag / set; the commit bar sums the pending changes |
+| `?` | help for the page you are on; `q` quits, `esc` goes back |
+
+Keys are vim-friendly (`j k h l`, `gg G`, `^u ^d`), the mouse scrolls, selects and drags the scrollbar, and the terminal is restored on every exit path. Without a TTY on both ends (`e3-ui | cat`, CI) the UI refuses with exit 1 and points at `e3 workspace status` / `e3 dataset get` instead. State (the last repository and workspace, each value tree's expand-set) lives in `$XDG_STATE_HOME/e3-ui/state.json` (`E3_UI_STATE` overrides; mode 0600); `E3_UI_DEBUG=1` writes a `debug.log` beside it. Below 60×16 the app refuses; narrower terminals get tighter tables. The design and its mocks are in [`docs/tui/DESIGN_TUI.md`](docs/tui/DESIGN_TUI.md).
+
+## Screenshots
+
+```bash
+# A .tsx exporting an East function returning a UIComponentType:
+e3-ui shot --from-source ./dashboard.tsx -o dashboard.png
+
+# Pick one export, set a viewport, also emit standalone HTML:
+e3-ui shot --from-source ./widgets.tsx --export statCard --viewport 800x600 --html
+
+# Serialized component IR (e.g. produced by an e3 export):
+e3-ui shot --from-ir ./component.beast2 -o component.png
+
+# A live e3 UI task's rendered output (dataflow must have already run):
+e3-ui shot --from-task main.dashboard --repo ./my-repo -o dashboard.png
 ```
 
 The CLI depends on `playwright-core` (no install-time browser download). `e3-ui install-browser` fetches the `chromium-headless-shell` build (~100 MB lighter than full Chromium, no X11/D-Bus libraries) into the shared playwright cache, version-matched to the CLI. On a **fresh Linux server**, add the OS libraries in the same step:
@@ -44,22 +85,6 @@ e3-ui doctor   # diagnoses the browser setup: env overrides, launch cascade, rem
 - Share one browser cache across users/agents with `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` (set it for both `install-browser` and `shot`).
 - Reinstalling/upgrading the CLI can move to a new browser revision — if `shot` reports a missing executable, re-run `e3-ui install-browser`.
 - Docker: `mcr.microsoft.com/playwright` images work out of the box, or add `e3-ui install-browser --with-deps` to your own image.
-
-## Quick Start
-
-```bash
-# A .tsx exporting an East function returning a UIComponentType:
-e3-ui shot --from-source ./dashboard.tsx -o dashboard.png
-
-# Pick one export, set a viewport, also emit standalone HTML:
-e3-ui shot --from-source ./widgets.tsx --export statCard --viewport 800x600 --html
-
-# Serialized component IR (e.g. produced by an e3 export):
-e3-ui shot --from-ir ./component.beast2 -o component.png
-
-# A live e3 UI task's rendered output (dataflow must have already run):
-e3-ui shot --from-task main.dashboard --repo ./my-repo -o dashboard.png
-```
 
 ## Sources
 
@@ -88,7 +113,7 @@ await renderToPng({
 
 ## Development
 
-`make build`, `make test`, `make lint` from this directory. See [`MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFILE_TARGETS.md) for the full target list. The browser app under `app/` is bundled into `dist/app` by `scripts/build-app.mjs` as the second half of `make build`.
+`make build`, `make test`, `make lint` from this directory. See [`MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFILE_TARGETS.md) for the full target list. The browser app under `app/` is bundled into `dist/app` by `scripts/build-app.mjs` as the second half of `make build`. The terminal UI lives under `src/tui/` (an Ink app over a reducer store; every view has a frame spec against an in-memory API fake); `E3_UI_INTEGRATION=1 make test` also runs the integration smoke over a real embedded server and a repository seeded at test time.
 
 ## Documentation
 
@@ -128,7 +153,7 @@ Dual-licensed under AGPL-3.0 and a commercial license. See [LICENSE.md](LICENSE.
   - [@elaraai/east-ui-components](https://www.npmjs.com/package/@elaraai/east-ui-components): React renderer with Chakra UI v3 styling
   - [@elaraai/e3-ui](https://www.npmjs.com/package/@elaraai/e3-ui): e3 + UI bridge — Data bindings, `e3.ui()` task, manifest
   - [@elaraai/e3-ui-components](https://www.npmjs.com/package/@elaraai/e3-ui-components): React Query hooks and preview components for the e3 API
-  - [@elaraai/e3-ui-cli](https://www.npmjs.com/package/@elaraai/e3-ui-cli): Render east-ui / e3-ui components to PNG from the command line (`e3-ui shot`)
+  - [@elaraai/e3-ui-cli](https://www.npmjs.com/package/@elaraai/e3-ui-cli): Browse an e3 repository in the terminal (`e3-ui [repo]`), and render east-ui / e3-ui components to PNG (`e3-ui shot`)
   - [east-ui-preview](https://marketplace.visualstudio.com/items?itemName=ElaraAI.east-ui-preview): VS Code extension for live East UI component preview
 
 - **[e3 — East Execution Engine](https://github.com/elaraai/east-workspace/tree/main/libs/e3)**: Durable execution engine for running East pipelines at scale. Git-like content-addressable storage, automatic memoization, reactive dataflow, real-time monitoring.
