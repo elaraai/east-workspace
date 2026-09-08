@@ -143,35 +143,35 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
     switch (table) {
         case 'tasks':
             return [
-                { key: 'name', title: 'NAME', width: narrow ? 14 : 12 },
-                { key: 'status', title: 'STATUS', width: narrow ? 18 : 20 },
-                ...(narrow ? [] : [{ key: 'dependsOn', title: 'DEPENDS ON', width: medium ? 16 : 20 }]),
+                { key: 'name', title: 'NAME', width: 12 },
+                { key: 'status', title: 'STATUS', width: narrow ? 16 : 20 },
+                ...(narrow ? [] : [{ key: 'dependsOn', title: 'DEPENDS ON', width: medium ? 14 : 20 }]),
                 ...(narrow || medium ? [] : [{ key: 'inputs', title: 'INPUTS', width: 18 }]),
-                { key: 'output', title: 'OUTPUT', width: narrow ? 18 : medium ? 20 : 26 },
+                { key: 'output', title: 'OUTPUT', width: narrow || medium ? 16 : 26 },
                 { key: 'size', title: 'SIZE · LAST RUN', width: 0 },
             ];
         case 'inputs':
             return [
                 { key: 'name', title: 'NAME', width: 14 },
                 { key: 'status', title: 'STATUS', width: 16 },
-                { key: 'type', title: 'TYPE', width: narrow ? 18 : 26 },
+                { key: 'type', title: 'TYPE', width: narrow ? 18 : medium ? 22 : 26 },
                 { key: 'size', title: 'SIZE', width: narrow ? 0 : 10 },
                 ...(narrow ? [] : [{ key: 'hash', title: 'HASH', width: 0 }]),
             ];
         case 'workspaces':
             return [
-                { key: 'name', title: 'NAME', width: 14 },
-                { key: 'state', title: 'STATE', width: 14 },
-                { key: 'package', title: 'PACKAGE', width: narrow ? 18 : 22 },
-                ...(narrow ? [] : [{ key: 'tasks', title: 'TASKS', width: medium ? 22 : 30 }]),
+                { key: 'name', title: 'NAME', width: narrow || medium ? 12 : 14 },
+                { key: 'state', title: 'STATE', width: narrow || medium ? 12 : 14 },
+                { key: 'package', title: 'PACKAGE', width: narrow || medium ? 16 : 22 },
+                ...(narrow ? [] : [{ key: 'tasks', title: 'TASKS', width: medium ? 16 : 30 }]),
                 { key: 'lastRun', title: 'LAST RUN', width: 0 },
             ];
         case 'repos':
             return [
-                { key: 'name', title: 'NAME', width: 22 },
-                { key: 'workspaces', title: 'WORKSPACES', width: 14 },
-                { key: 'packages', title: 'PACKAGES', width: 12 },
-                ...(narrow ? [] : [{ key: 'objects', title: 'OBJECTS', width: 12 }]),
+                { key: 'name', title: 'NAME', width: narrow || medium ? 18 : 22 },
+                { key: 'workspaces', title: 'WORKSPACES', width: narrow || medium ? 12 : 14 },
+                { key: 'packages', title: 'PACKAGES', width: narrow || medium ? 10 : 12 },
+                ...(narrow ? [] : [{ key: 'objects', title: 'OBJECTS', width: medium ? 10 : 12 }]),
                 { key: 'lastDeploy', title: 'LAST DEPLOY', width: 0 },
             ];
         case 'runs':
@@ -199,6 +199,32 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
                 { key: 'detail', title: '', width: 0 },
             ];
     }
+}
+
+/**
+ * Fits a plan to a row width: while the fixed columns plus the gutter leave
+ * the remainder column fewer than `minRemainder` cells, the widest fixed
+ * column after the first is narrowed (never below 8). At the design width
+ * every plan is untouched.
+ *
+ * @param plan - The column plan
+ * @param width - The row width
+ * @param minRemainder - Cells the remainder column keeps at least (default 12)
+ * @param gutter - Cells before the first column (default 2: the margin + selection bar)
+ * @returns The fitted plan (a copy)
+ */
+export function fitPlan(plan: ColumnSpec[], width: number, minRemainder = 12, gutter = 2): ColumnSpec[] {
+    const out = plan.map(c => ({ ...c }));
+    const fixed = (): number => out.reduce((n, c) => n + c.width, 0) + gutter;
+    for (let guard = 0; guard < 4096 && fixed() + minRemainder > width; guard++) {
+        let widest: ColumnSpec | null = null;
+        for (const c of out.slice(1)) {
+            if (c.width > 8 && (widest === null || c.width > widest.width)) widest = c;
+        }
+        if (widest === null) break;
+        widest.width--;
+    }
+    return out;
 }
 
 /**

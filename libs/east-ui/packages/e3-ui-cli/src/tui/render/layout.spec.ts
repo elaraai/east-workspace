@@ -5,7 +5,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { breakpoint, columnPlan, labelWidth, scrollIntoView, scrollbar, shellLayout } from './layout.js';
+import { breakpoint, columnPlan, fitPlan, labelWidth, scrollIntoView, scrollbar, shellLayout } from './layout.js';
 
 describe('layout', () => {
     test('breakpoints: ≥100 wide, 80–99 medium, 60–79 narrow, below 60×16 refuse', () => {
@@ -55,6 +55,29 @@ describe('layout', () => {
                 assert.equal(plan[plan.length - 1]!.width, 0, `${table}/${bp} remainder is last`);
             }
         }
+    });
+
+    test('fitPlan keeps the remainder column usable at every breakpoint\'s narrowest width', () => {
+        const narrowest = { wide: 100, medium: 80, narrow: 60 } as const;
+        for (const table of ['tasks', 'inputs', 'workspaces', 'repos', 'runs'] as const) {
+            for (const bp of ['wide', 'medium', 'narrow'] as const) {
+                const width = narrowest[bp] - 1; // the scrollbar column
+                const fitted = fitPlan(columnPlan(table, bp), width);
+                const fixed = fitted.reduce((n, c) => n + c.width, 0) + 2;
+                assert.ok(width - fixed >= 12, `${table}/${bp} at ${width}: remainder ${width - fixed}`);
+                assert.deepEqual(fitted.map(c => c.key), columnPlan(table, bp).map(c => c.key), 'no column is dropped');
+                const original = columnPlan(table, bp);
+                assert.ok(fitted.every((c, i) => c.width === 0 || c.width >= Math.min(8, original[i]!.width)), 'no column narrowed below 8');
+            }
+        }
+        // The design width leaves every wide plan untouched.
+        for (const table of ['tasks', 'inputs', 'workspaces', 'repos', 'runs'] as const) {
+            assert.deepEqual(fitPlan(columnPlan(table, 'wide'), 119), columnPlan(table, 'wide'));
+        }
+        // The first column is never narrowed.
+        const squeezed = fitPlan(columnPlan('tasks', 'wide'), 99);
+        assert.equal(squeezed[0]!.width, 12);
+        assert.equal(squeezed.reduce((n, c) => n + c.width, 0) + 2 + 12, 99);
     });
 
     test('labelWidth is the design width at 120 columns and bounded elsewhere', () => {

@@ -28,17 +28,17 @@ export function repoRows(state: TuiState, ctx: RenderCtx): TableRow[] {
     return repos.names.map(name => {
         const status = repos.status[name];
         const deploy = repos.deploy[name];
-        const lastDeploy = deploy === undefined ? (status === undefined ? '…' : '…')
+        const lastDeploy = deploy === undefined ? '…'
             : deploy === null ? '—'
             : `${timeAgo(deploy.deployedAt, ctx.now)} ${ctx.g.sep} ${deploy.packageName}@${deploy.packageVersion} ${ctx.g.right} ${deploy.workspace}`;
         return {
-            cells: [
+            cells: {
                 name,
-                status !== undefined ? String(status.workspaceCount) : '…',
-                status !== undefined ? String(status.packageCount) : '…',
-                status !== undefined ? formatInt(status.objectCount) : '…',
+                workspaces: status !== undefined ? String(status.workspaceCount) : '…',
+                packages: status !== undefined ? String(status.packageCount) : '…',
+                objects: status !== undefined ? formatInt(status.objectCount) : '…',
                 lastDeploy,
-            ],
+            },
         };
     });
 }

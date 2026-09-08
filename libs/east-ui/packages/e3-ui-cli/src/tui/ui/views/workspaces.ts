@@ -63,13 +63,13 @@ export function workspaceRows(state: TuiState, ctx: RenderCtx): TableRow[] {
         const pkg = w.packageName.type === 'some' ? `${w.packageName.value}${w.packageVersion.type === 'some' ? `@${w.packageVersion.value}` : ''}` : '—';
         const run = w.deployed ? lastRun(state, w.name, ctx) : { text: '—', tone: 'muted' as const };
         return {
-            cells: [
-                w.name,
-                w.deployed ? { text: `${g.dot} DEPLOYED`, tone: 'pos' as const } : { text: `${g.empty} EMPTY`, tone: 'muted' as const },
-                pkg,
-                w.deployed ? taskSummary(state, w.name, ctx) : '—',
-                { text: run.text, tone: run.tone },
-            ],
+            cells: {
+                name: w.name,
+                state: w.deployed ? { text: `${g.dot} DEPLOYED`, tone: 'pos' as const } : { text: `${g.empty} EMPTY`, tone: 'muted' as const },
+                package: pkg,
+                tasks: w.deployed ? taskSummary(state, w.name, ctx) : '—',
+                lastRun: { text: run.text, tone: run.tone },
+            },
         };
     });
 }

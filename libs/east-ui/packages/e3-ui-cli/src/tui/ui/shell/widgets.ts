@@ -11,7 +11,7 @@
  * @packageDocumentation
  */
 
-import { scrollbar as scrollbarGeometry, type ColumnSpec } from '../../render/layout.js';
+import { fitPlan, scrollbar as scrollbarGeometry, type ColumnSpec } from '../../render/layout.js';
 import { center, padEnd, padStart } from '../../render/text.js';
 import type { Tone } from '../../render/theme.js';
 import type { Glyphs } from '../../render/glyphs.js';
@@ -40,16 +40,18 @@ export function withScrollbar(lines: Line[], width: number, total: number, visib
     });
 }
 
-/** One table row's cells (text per column) and its tone / selection. */
+/** One table row's cells (text per column key) and its tone / selection. */
 export interface TableRow {
-    cells: (string | { text: string; tone?: Tone | undefined })[];
+    cells: Record<string, string | { text: string; tone?: Tone | undefined } | undefined>;
     /** A marker in the gutter instead of the selection bar (`┆` for a changed row). */
     marker?: string | undefined;
 }
 
 /**
  * A table: a header row, then the rows in `[top, top + visible)` with a
- * selection bar (`▌`) on `sel`.
+ * selection bar (`▌`) on `sel`. Cells are looked up by column key, so a
+ * plan that drops a column at a narrow width leaves the others aligned;
+ * the plan is fitted to the width first ({@link fitPlan}).
  *
  * @param plan - The column plan (the last column takes the remainder)
  * @param rows - Every row
@@ -63,11 +65,12 @@ export interface TableRow {
  */
 export function renderTable(plan: ColumnSpec[], rows: TableRow[], sel: number, top: number, visible: number, width: number, g: Glyphs, header = true): Line[] {
     const out: Line[] = [];
+    const fitted = fitPlan(plan, width);
     const cellsOf = (row: TableRow | null, isHeader: boolean, selected: boolean): Line => {
         const line: Line = [t(' '), selected ? b(g.sel, 'brand') : t(row?.marker ?? ' ')];
         let used = 2;
-        plan.forEach((col, i) => {
-            const raw = isHeader ? col.title : row?.cells[i] ?? '';
+        fitted.forEach((col) => {
+            const raw = isHeader ? col.title : row?.cells[col.key] ?? '';
             const cell = typeof raw === 'string' ? { text: raw, tone: undefined } : raw;
             const budget = col.width === 0 ? Math.max(0, width - used) : col.width;
             const text = col.align === 'right' ? padStart(cell.text, budget) : padEnd(cell.text, budget);
