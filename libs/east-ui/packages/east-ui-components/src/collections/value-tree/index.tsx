@@ -8,8 +8,10 @@
  * (#360).
  *
  * The factory materializes ANY East value into the fixed recursive node
- * IR (`ValueTree.Types.Node`); this renderer flattens the expanded nodes
- * into flat rows and virtualizes them through the shared
+ * IR (`ValueTree.Types.Node`); this renderer lists the expanded nodes as
+ * flat rows through the shared ROW MODEL (`ValueTree.flatten` /
+ * `ValueTree.flattenPaged` in `@elaraai/east-ui/internal`, #719 — the same
+ * rows the terminal shows) and virtualizes them through the shared
  * {@link VirtualRows} frame (bounded when `style.height` / `maxHeight`
  * is set), with the expand-set and top visible row persisted per
  * `storageKey` — the Table discipline (#143).
@@ -34,7 +36,21 @@ import { Box, Skeleton, chakra, useSlotRecipe, type SystemStyleObject } from "@c
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faChevronRight, faMinus, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
-import { ValueTree } from "@elaraai/east-ui/internal";
+import {
+    ValueTree,
+    flattenRows,
+    flattenPaged,
+    pageOfFlat,
+    pagedFlatIndexOfRoot,
+    flatIndexOfRoot,
+    pagedRowAt,
+    humanize,
+    fmtLeaf,
+    DEFAULT_OPEN_DEPTH,
+    type RowModel,
+    type ValueTreePagedRow,
+    type ValueTreePaging,
+} from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { VirtualRows } from "../virtual-rows.js";
@@ -47,6 +63,12 @@ import {
 } from "../../forms/input/index.js";
 import { EastChakraCheckbox } from "../../forms/checkbox/index.js";
 import { EastChakraSelect } from "../../forms/select/index.js";
+
+// The paging contract and its row shape live with the row model in
+// `@elaraai/east-ui` (#719); re-exported here so `e3-ui-components`
+// (`PagedDatasetPreview`, `DatasetPreview`) keeps importing them from the
+// renderer package unchanged.
+export type { ValueTreePagedRow, ValueTreePaging };
 
 const valueTreeEqual = equalFor(ValueTree.Types.Root);
 
@@ -61,43 +83,6 @@ export type ValueTreeStepValue = ValueTypeOf<typeof ValueTree.Types.Step>;
 
 /** East ValueTree leaf value type. */
 export type ValueTreeLeafValue = ValueTypeOf<typeof ValueTree.Types.Leaf>;
-
-/** One pageable root row supplied by a paging host: its materialized node,
- *  the row's own path step (global index / dict key), and optionally a
- *  display label (derived from content when omitted). */
-export interface ValueTreePagedRow {
-    node: ValueTreeNodeValue;
-    step: ValueTreeStepValue;
-    label?: string | undefined;
-}
-
-/**
- * Remote-paging contract for a collection-rooted tree.
- *
- * When set, the tree's root rows come from `pages` instead of the payload's
- * root node: the virtualizer spans all `totalRows` (the scrollbar covers the
- * whole collection), unloaded rows render as placeholders, and scrolling
- * requests the windows that come into view via `onNeedRows`. Loaded rows
- * expand and edit exactly like ordinary rows — their path steps are global,
- * so edit callbacks stay correct. The host owns fetching and deduping;
- * replace the `pages` map (new identity) as pages arrive.
- */
-export interface ValueTreePaging {
-    /** Total root rows in the full collection. */
-    totalRows: number;
-    /** Rows per page — keys of `pages` are `floor(row / pageSize)`. */
-    pageSize: number;
-    /** Loaded pages by page index (the final page may be shorter). */
-    pages: ReadonlyMap<number, readonly ValueTreePagedRow[]>;
-    /** Requests loading of the pages covering rows `[startRow, endRow)`. */
-    onNeedRows: (startRow: number, endRow: number) => void;
-    /** Controlled jump: on each change to a defined value, the tree scrolls
-     *  this global root row into view, highlights it, and requests the
-     *  destination window through {@link onNeedRows} — so an unloaded
-     *  target self-loads. The highlight holds until this clears back to
-     *  `undefined` (#520). */
-    scrollToRow?: number | undefined;
-}
 
 export interface EastChakraValueTreeProps {
     value: ValueTreeValue;
@@ -118,15 +103,10 @@ type SlotStyles = Record<string, SystemStyleObject>;
  *  `height`), so the virtualizer positions rows at exact multiples without
  *  per-row measurement (#533) and scroll math is exact. */
 const ROW_H = 32;
-/** Rows at depth < this start expanded when the payload sets no
- *  `style.openDepth` (per-row toggles and the toolbar override it). */
-const DEFAULT_OPEN_DEPTH = 1;
 /** Indent per depth level (px). */
 const INDENT = 18;
 /** Context rows kept above a jumped-to row. */
 const JUMP_CONTEXT_ROWS = 2;
-/** Leaf preview parts a struct row surfaces. */
-const PREVIEW_PARTS = 3;
 
 interface ValueTreePersisted {
     open: Record<string, boolean>;
@@ -144,364 +124,6 @@ interface TreeCallbacks {
     onTag?: ((path: ValueTreeStepValue[], tag: string) => unknown) | undefined;
 }
 
-interface RowModel {
-    id: string;
-    parentId: string | undefined;
-    depth: number;
-    label: string;
-    kind: "leaf" | "opaque" | "struct" | "array" | "dict" | "emptyOption" | "appendArray" | "appendDict";
-    leaf: ValueTreeLeafValue | undefined;
-    opaque: string | undefined;
-    /** Muted value-cell text for branches (preview / counts / "Not set"). */
-    summary: string | undefined;
-    /** Path to the resolved node — the edit / insert target. */
-    path: ValueTreeStepValue[];
-    /** Path of the row's own binding step — the remove target. */
-    ownPath: ValueTreeStepValue[];
-    variantCtl: { path: ValueTreeStepValue[]; tag: string; tags: string[] } | undefined;
-    optionCtl: { path: ValueTreeStepValue[]; isSome: boolean } | undefined;
-    removable: boolean;
-    expandable: boolean;
-    expanded: boolean;
-    /** 1-based position among rendered siblings (aria-posinset). */
-    posinset: number;
-    /** Rendered sibling count (aria-setsize). */
-    setsize: number;
-}
-
-function pathKey(steps: ValueTreeStepValue[]): string {
-    let out = "";
-    for (const s of steps) {
-        if (s.type === "field") out += `.${s.value}`;
-        else if (s.type === "index") out += `[${s.value}]`;
-        else if (s.type === "key") out += `{${s.value}}`;
-        else if (s.type === "some") out += "?";
-        else out += "!";
-    }
-    return out === "" ? "$" : out;
-}
-
-/** "flowRate" / "flow_rate" → "Flow rate" — end-user field labels.
- *  Dict keys are user data and stay verbatim. */
-function humanize(name: string): string {
-    const spaced = name
-        .replace(/[_-]+/g, " ")
-        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-        .trim();
-    if (spaced === "") return name;
-    return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
-}
-
-interface ResolvedNode {
-    kind: RowModel["kind"];
-    leaf: ValueTreeLeafValue | undefined;
-    opaque: string | undefined;
-    node: ValueTreeNodeValue;
-    path: ValueTreeStepValue[];
-    variantCtl: RowModel["variantCtl"];
-    optionCtl: RowModel["optionCtl"];
-}
-
-/** Collapses option / variant wrappers into row controls, leaving the
- *  content node the row displays (or `emptyOption` for a none). */
-function resolveNode(raw: ValueTreeNodeValue, rawPath: ValueTreeStepValue[]): ResolvedNode {
-    let node = raw;
-    let path = rawPath;
-    let variantCtl: RowModel["variantCtl"];
-    let optionCtl: RowModel["optionCtl"];
-    for (;;) {
-        if (node.type === "option") {
-            const inner = getSomeorUndefined(node.value.value);
-            if (optionCtl === undefined) optionCtl = { path, isSome: inner !== undefined };
-            if (inner === undefined) {
-                return { kind: "emptyOption", leaf: undefined, opaque: undefined, node, path, variantCtl, optionCtl };
-            }
-            path = [...path, variant("some", null)];
-            node = inner;
-            continue;
-        }
-        if (node.type === "variant") {
-            if (variantCtl === undefined) {
-                variantCtl = { path, tag: node.value.tag, tags: [...node.value.tags] };
-            }
-            path = [...path, variant("tag", null)];
-            node = node.value.value;
-            continue;
-        }
-        break;
-    }
-    const kind: RowModel["kind"] =
-        node.type === "leaf" ? "leaf"
-        : node.type === "opaque" ? "opaque"
-        : node.type === "struct" ? "struct"
-        : node.type === "array" ? "array"
-        : "dict";
-    return {
-        kind,
-        leaf: node.type === "leaf" ? node.value : undefined,
-        opaque: node.type === "opaque" ? node.value : undefined,
-        node, path, variantCtl, optionCtl,
-    };
-}
-
-/** Unwraps option/variant wrappers to the content node (display only). */
-function contentOf(node: ValueTreeNodeValue): ValueTreeNodeValue {
-    for (;;) {
-        if (node.type === "option") {
-            const inner = getSomeorUndefined(node.value.value);
-            if (inner === undefined) return node;
-            node = inner;
-            continue;
-        }
-        if (node.type === "variant") {
-            node = node.value.value;
-            continue;
-        }
-        return node;
-    }
-}
-
-function fmtLeaf(leaf: ValueTreeLeafValue): string {
-    switch (leaf.type) {
-        case "string": return leaf.value;
-        case "integer": return String(leaf.value);
-        case "float": return String(leaf.value);
-        case "boolean": return leaf.value ? "true" : "false";
-        case "datetime": return leaf.value.toISOString().replace("T", " ").slice(0, 19);
-        default: return "—";
-    }
-}
-
-/** One short preview token for a struct field's value, or undefined. */
-function previewPart(node: ValueTreeNodeValue): string | undefined {
-    for (;;) {
-        if (node.type === "option") {
-            const inner = getSomeorUndefined(node.value.value);
-            if (inner === undefined) return undefined;
-            node = inner;
-            continue;
-        }
-        break;
-    }
-    if (node.type === "variant") return humanize(node.value.tag);
-    if (node.type === "leaf") {
-        if (node.value.type === "null") return undefined;
-        const text = fmtLeaf(node.value);
-        return text === "" ? undefined : text;
-    }
-    return undefined;
-}
-
-/** The muted value-cell text for a resolved branch node. */
-function summaryOf(node: ValueTreeNodeValue): string {
-    if (node.type === "struct") {
-        const parts: string[] = [];
-        for (const f of node.value.fields) {
-            const part = previewPart(f.node);
-            if (part !== undefined) parts.push(part);
-            if (parts.length >= PREVIEW_PARTS) break;
-        }
-        if (parts.length > 0) return parts.join(" · ");
-        const n = node.value.fields.length;
-        return n === 0 ? "Empty" : n === 1 ? "1 field" : `${n} fields`;
-    }
-    if (node.type === "array") {
-        const n = node.value.items.length;
-        return n === 0 ? "Empty" : n === 1 ? "1 item" : `${n} items`;
-    }
-    if (node.type === "dict") {
-        const n = node.value.entries.length;
-        return n === 0 ? "Empty" : n === 1 ? "1 entry" : `${n} entries`;
-    }
-    return "";
-}
-
-/** A content-derived title for an array element — its first non-empty
- *  string leaf (fields searched in order), else "Item N". */
-function itemTitle(node: ValueTreeNodeValue, index: number): string {
-    const content = contentOf(node);
-    if (content.type === "struct") {
-        for (const f of content.value.fields) {
-            const c = contentOf(f.node);
-            if (c.type === "leaf" && c.value.type === "string" && c.value.value !== "") {
-                return c.value.value;
-            }
-        }
-    }
-    return `Item ${index + 1}`;
-}
-
-interface ChildEntry {
-    label: string;
-    node: ValueTreeNodeValue;
-    step: ValueTreeStepValue;
-}
-
-function childrenOf(node: ValueTreeNodeValue): ChildEntry[] {
-    if (node.type === "struct") {
-        return node.value.fields.map(f => ({ label: humanize(f.name), node: f.node, step: variant("field", f.name) }));
-    }
-    if (node.type === "array") {
-        return node.value.items.map((n, i) => ({ label: itemTitle(n, i), node: n, step: variant("index", BigInt(i)) }));
-    }
-    if (node.type === "dict") {
-        // `label` is display, `key` the round-trippable step text; the
-        // fallback covers host-constructed node shapes that predate `label`.
-        return node.value.entries.map(e => ({
-            label: (e as { label?: string }).label ?? e.key,
-            node: e.node,
-            step: variant("key", e.key),
-        }));
-    }
-    return [];
-}
-
-/** Shared flatten context: expansion state, edit capabilities, output. */
-interface FlattenCtx {
-    open: Record<string, boolean>;
-    /** Rows at depth < this start expanded (per-row `open` overrides). */
-    openDepth: number;
-    canRemove: boolean;
-    canInsert: boolean;
-    rows: RowModel[];
-}
-
-function appendRowModel(
-    parentId: string | undefined,
-    containerPath: ValueTreeStepValue[],
-    kind: "appendArray" | "appendDict",
-    depth: number,
-    posinset: number,
-    setsize: number,
-): RowModel {
-    return {
-        id: `${parentId ?? "$"}/$append`,
-        parentId, depth,
-        label: kind === "appendArray" ? "Add item" : "Add entry",
-        kind,
-        leaf: undefined, opaque: undefined, summary: undefined,
-        path: containerPath, ownPath: containerPath,
-        variantCtl: undefined, optionCtl: undefined,
-        removable: false, expandable: false, expanded: false,
-        posinset, setsize,
-    };
-}
-
-/** Flattens one node's visible subtree, depth-first, into `ctx.rows`. */
-function visitNode(
-    ctx: FlattenCtx,
-    label: string,
-    raw: ValueTreeNodeValue,
-    rawPath: ValueTreeStepValue[],
-    parentId: string | undefined,
-    depth: number,
-    removable: boolean,
-    posinset: number,
-    setsize: number,
-): void {
-    const r = resolveNode(raw, rawPath);
-    const id = pathKey(rawPath);
-    const kids = childrenOf(r.node);
-    const insertable = ctx.canInsert && (
-        r.kind === "array" ||
-        (r.kind === "dict" && r.node.type === "dict" && r.node.value.editable)
-    );
-    const expandable = kids.length > 0 || insertable;
-    const expanded = expandable && (ctx.open[id] ?? depth < ctx.openDepth);
-    let summary = r.kind === "emptyOption" ? "Not set"
-        : (r.kind === "struct" || r.kind === "array" || r.kind === "dict") ? summaryOf(r.node)
-        : undefined;
-    // A content-derived item title already IS the first preview part —
-    // don't repeat it beside itself.
-    if (summary !== undefined && summary !== label && summary.startsWith(`${label} · `)) {
-        summary = summary.slice(label.length + 3);
-    } else if (summary === label) {
-        summary = undefined;
-    }
-    ctx.rows.push({
-        id, parentId, depth, label,
-        kind: r.kind, leaf: r.leaf, opaque: r.opaque, summary,
-        path: r.path, ownPath: rawPath,
-        variantCtl: r.variantCtl, optionCtl: r.optionCtl,
-        removable, expandable, expanded,
-        posinset, setsize,
-    });
-    if (expanded) {
-        const kidsRemovable = ctx.canRemove && (
-            r.kind === "array" ||
-            (r.kind === "dict" && r.node.type === "dict" && r.node.value.editable)
-        );
-        const total = kids.length + (insertable ? 1 : 0);
-        kids.forEach((k, i) => {
-            visitNode(ctx, k.label, k.node, [...r.path, k.step], id, depth + 1, kidsRemovable, i + 1, total);
-        });
-        if (insertable) {
-            ctx.rows.push(appendRowModel(
-                id, r.path,
-                r.kind === "array" ? "appendArray" : "appendDict",
-                depth + 1, total, total,
-            ));
-        }
-    }
-}
-
-/** Flattens the visible (expanded) rows of the tree, depth-first.
- *  Expanded editable collections end in an append ghost row. */
-function flattenRows(
-    root: ValueTreeNodeValue,
-    open: Record<string, boolean>,
-    openDepth: number,
-    canRemove: boolean,
-    canInsert: boolean,
-): RowModel[] {
-    const ctx: FlattenCtx = { open, openDepth, canRemove, canInsert, rows: [] };
-    const visit = (
-        label: string,
-        raw: ValueTreeNodeValue,
-        rawPath: ValueTreeStepValue[],
-        parentId: string | undefined,
-        depth: number,
-        removable: boolean,
-        posinset: number,
-        setsize: number,
-    ): void => visitNode(ctx, label, raw, rawPath, parentId, depth, removable, posinset, setsize);
-    const rows = ctx.rows;
-    const appendRow = (
-        parentId: string | undefined,
-        containerPath: ValueTreeStepValue[],
-        kind: "appendArray" | "appendDict",
-        depth: number,
-        posinset: number,
-        setsize: number,
-    ): RowModel => appendRowModel(parentId, containerPath, kind, depth, posinset, setsize);
-    // A compound root lists its children directly (no synthetic top row);
-    // anything else is a single row. A root collection appends a trailing
-    // add ghost row.
-    if (root.type === "struct" || root.type === "array" || root.type === "dict") {
-        const rootInsertable = canInsert && (
-            root.type === "array" || (root.type === "dict" && root.value.editable)
-        );
-        const kidsRemovable = canRemove && (
-            root.type === "array" || (root.type === "dict" && root.value.editable)
-        );
-        const kids = childrenOf(root);
-        const total = kids.length + (rootInsertable ? 1 : 0);
-        kids.forEach((k, i) => {
-            visit(k.label, k.node, [k.step], undefined, 0, kidsRemovable, i + 1, total);
-        });
-        if (rootInsertable) {
-            rows.push(appendRow(
-                undefined, [],
-                root.type === "array" ? "appendArray" : "appendDict",
-                0, total, total,
-            ));
-        }
-    } else {
-        visit("Value", root, [], undefined, 0, false, 1, 1);
-    }
-    return rows;
-}
-
 /** Opt-in paged-mode debug logging (#497) — silent unless
  *  `localStorage['e3-paging-debug']` is set (and not 'off'). */
 function pagedDebug(...args: unknown[]): void {
@@ -513,115 +135,6 @@ function pagedDebug(...args: unknown[]): void {
         return;
     }
     console.info("[e3-paging:tree]", ...args);
-}
-
-/** Paged-mode flat structure: per-page flattened row models, prefix sums
- *  mapping virtual indexes to pages, and the loaded rows in order for
- *  keyboard traversal. Unloaded root rows contribute one placeholder row
- *  each, so the virtualizer's extent always spans the whole collection. */
-interface PagedFlat {
-    totalFlat: number;
-    /** `prefix[p]` = flat rows before page `p` (length `pageCount + 1`). */
-    prefix: number[];
-    pageModels: Map<number, RowModel[]>;
-    loadedRows: RowModel[];
-    pageCount: number;
-    /** Root rows page `p` covers (the final page may be shorter). */
-    rootRowsInPage: (p: number) => number;
-}
-
-function flattenPaged(
-    paging: ValueTreePaging,
-    open: Record<string, boolean>,
-    openDepth: number,
-): PagedFlat {
-    const { totalRows, pageSize, pages } = paging;
-    const pageCount = Math.max(0, Math.ceil(totalRows / pageSize));
-    const rootRowsInPage = (p: number): number =>
-        Math.max(0, Math.min(pageSize, totalRows - p * pageSize));
-    const pageModels = new Map<number, RowModel[]>();
-    const loadedRows: RowModel[] = [];
-    const prefix: number[] = new Array(pageCount + 1);
-    prefix[0] = 0;
-    for (let p = 0; p < pageCount; p++) {
-        const loaded = pages.get(p);
-        if (loaded === undefined) {
-            prefix[p + 1] = prefix[p]! + rootRowsInPage(p);
-            continue;
-        }
-        // Paged roots are read-only at the row level (no append ghost, no
-        // row removal) — leaf edits inside a loaded row still work through
-        // the ordinary callbacks, with global path steps.
-        const ctx: FlattenCtx = { open, openDepth, canRemove: false, canInsert: false, rows: [] };
-        loaded.forEach((r, i) => {
-            const globalRow = p * pageSize + i;
-            const label = r.label ?? itemTitle(r.node, globalRow);
-            visitNode(ctx, label, r.node, [r.step], undefined, 0, false, globalRow + 1, totalRows);
-        });
-        pageModels.set(p, ctx.rows);
-        loadedRows.push(...ctx.rows);
-        prefix[p + 1] = prefix[p]! + ctx.rows.length;
-    }
-    return { totalFlat: prefix[pageCount] ?? 0, prefix, pageModels, loadedRows, pageCount, rootRowsInPage };
-}
-
-/** Binary-searches the page whose flat range contains `flatIdx`. */
-function pageOfFlat(prefix: number[], flatIdx: number): number {
-    let lo = 0, hi = prefix.length - 2;
-    while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (prefix[mid + 1]! <= flatIdx) lo = mid + 1;
-        else hi = mid;
-    }
-    return lo;
-}
-
-/** Flat index of global root row `globalRow`: through the loaded page's
- *  flattened models when present (expanded children shift later rows),
- *  else the one-placeholder-per-root arithmetic. */
-function pagedFlatIndexOfRoot(flat: PagedFlat, paging: ValueTreePaging, globalRow: number): number | undefined {
-    if (paging.totalRows === 0) return undefined;
-    const clamped = Math.max(0, Math.min(paging.totalRows - 1, globalRow));
-    const p = Math.floor(clamped / paging.pageSize);
-    const base = flat.prefix[p];
-    if (base === undefined) return undefined;
-    const offsetInPage = clamped - p * paging.pageSize;
-    const models = flat.pageModels.get(p);
-    if (models === undefined) return base + offsetInPage;
-    let roots = 0;
-    for (let i = 0; i < models.length; i++) {
-        if (models[i]!.depth === 0) {
-            if (roots === offsetInPage) return base + i;
-            roots++;
-        }
-    }
-    return undefined;
-}
-
-/** Flat index of the `rootRow`-th depth-0 row of an inline tree. */
-function flatIndexOfRoot(rows: RowModel[], rootRow: number): number | undefined {
-    let roots = 0;
-    for (let i = 0; i < rows.length; i++) {
-        if (rows[i]!.depth === 0) {
-            if (roots === rootRow) return i;
-            roots++;
-        }
-    }
-    return undefined;
-}
-
-/** Resolves a paged virtual row: a loaded model, or the global root index
- *  of a placeholder. */
-function pagedRowAt(flat: PagedFlat, paging: ValueTreePaging, flatIdx: number):
-    | { kind: "model"; row: RowModel }
-    | { kind: "placeholder"; globalRow: number } {
-    const p = pageOfFlat(flat.prefix, flatIdx);
-    const offsetInPage = flatIdx - flat.prefix[p]!;
-    const models = flat.pageModels.get(p);
-    if (models !== undefined) {
-        return { kind: "model", row: models[offsetInPage]! };
-    }
-    return { kind: "placeholder", globalRow: p * paging.pageSize + offsetInPage };
 }
 
 // Editors are the compact `xs` size — tree rows are dense lines, not

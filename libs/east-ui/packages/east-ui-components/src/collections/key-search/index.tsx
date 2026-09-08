@@ -36,6 +36,10 @@
  * `onJump` drives the tree's `scrollToRow` contract, and `onClear` clears
  * it.
  *
+ * The query grammar (`parseKeyInput`) and the inline range predicates
+ * (`keyRangePredicates`) live in `@elaraai/east-ui/internal` (#719) — the
+ * terminal's `/find` shares them — and are re-exported from here unchanged.
+ *
  * @packageDocumentation
  */
 
@@ -43,35 +47,24 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Flex, IconButton, Text } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown, faChevronUp, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { compareFor, none, some, variant, parseFor, printFor, StringType, type EastTypeValue } from '@elaraai/east';
+import { none, some, variant, type EastTypeValue } from '@elaraai/east';
+import {
+    parseKeyInput,
+    keyRangePredicates,
+    structKeyFields,
+    type DatasetKeyMatchRange,
+    type DatasetKeyQuery,
+    type ParsedKeyInput,
+} from '@elaraai/east-ui/internal';
 import { EastChakraCombobox } from '../../forms/combobox/index.js';
+
+export { parseKeyInput, keyRangePredicates };
+export type { DatasetKeyMatchRange, DatasetKeyQuery, ParsedKeyInput };
 
 /** Debounce applied to type-ahead queries (ms). */
 const FIND_DEBOUNCE_MS = 250;
 /** Rows listed in the popup — the head of the match range. */
 const POPUP_LIMIT = 20;
-
-/** Where a query landed in the collection's canonical key order. */
-export interface DatasetKeyMatchRange {
-    /** Whether any row matched. */
-    found: boolean;
-    /** First matched row (for a miss, the query's insertion row). */
-    row: number;
-    /** Number of matched rows. */
-    count: number;
-}
-
-/**
- * A key query in wire form: a whole-key `.east` literal (`key`), a String
- * prefix (`prefix`), or — for struct keys — exact leading-field literals
- * (`fields`, declaration order) optionally followed by a `prefix` on the
- * next (String) field. Every form addresses one contiguous row range in
- * the canonical key order.
- */
-export type DatasetKeyQuery =
-    | { key: string }
-    | { prefix: string }
-    | { fields: string[]; prefix?: string };
 
 export interface DatasetKeySearchProps {
     /** The searched collection's Dict key / Set element type. */
@@ -86,188 +79,6 @@ export interface DatasetKeySearchProps {
     /** Clears the host's jump (and its held row highlight) when the query
      *  is cleared. */
     onClear?: (() => void) | undefined;
-}
-
-/** A struct key type's ordered field list, or null for non-struct keys. */
-function structFields(keyType: EastTypeValue): { name: string; type: EastTypeValue }[] | null {
-    if (keyType.type !== 'Struct') return null;
-    const fields = keyType.value as { name: string; type: EastTypeValue }[];
-    return fields.length > 0 ? fields : null;
-}
-
-/** Splits on commas at top level — outside `"…"` strings (with `\`
- *  escapes) and outside parentheses/brackets — so typed field values can
- *  themselves contain commas. */
-function splitTopLevel(text: string): string[] {
-    const parts: string[] = [];
-    let current = '';
-    let inString = false;
-    let depth = 0;
-    for (let i = 0; i < text.length; i++) {
-        const ch = text[i]!;
-        if (inString) {
-            current += ch;
-            if (ch === '\\' && i + 1 < text.length) {
-                current += text[i + 1]!;
-                i++;
-            } else if (ch === '"') {
-                inString = false;
-            }
-            continue;
-        }
-        if (ch === '"') {
-            inString = true;
-            current += ch;
-        } else if (ch === '(' || ch === '[' || ch === '{') {
-            depth++;
-            current += ch;
-        } else if (ch === ')' || ch === ']' || ch === '}') {
-            depth--;
-            current += ch;
-        } else if (ch === ',' && depth === 0) {
-            parts.push(current);
-            current = '';
-        } else {
-            current += ch;
-        }
-    }
-    parts.push(current);
-    return parts;
-}
-
-/** The human key signature for placeholders and parse hints. */
-function keySignature(keyType: EastTypeValue): string {
-    const fields = structFields(keyType);
-    if (fields === null) return keyType.type;
-    return `(${fields.map((f) => `${f.name}: ${f.type.type}`).join(', ')})`;
-}
-
-/** A parsed search input: a wire query, or the hint to show instead. */
-export type ParsedKeyInput =
-    | { kind: 'query'; query: DatasetKeyQuery }
-    | { kind: 'hint'; hint: string };
-
-/**
- * Turns typed search text into a wire query, or a hint when it cannot
- * parse. Struct keys: `(` opens a whole-key `.east` literal; otherwise
- * comma-separated leading field values — exact for all but the last
- * segment (unquoted String segments need no quotes), the last a prefix on
- * a String field or an exact value otherwise, and a trailing comma
- * narrows to the leading exact fields.
- *
- * @param keyType - the collection's Dict key / Set element type
- * @param text - the raw search input
- * @returns the query to send, or the hint to display
- */
-export function parseKeyInput(keyType: EastTypeValue, text: string): ParsedKeyInput {
-    const fields = structFields(keyType);
-    if (fields === null) {
-        if (keyType.type === 'String') return { kind: 'query', query: { prefix: text } };
-        const parsed = parseFor(keyType)(text);
-        if (!parsed.success) return { kind: 'hint', hint: `Key is ${keyType.type}` };
-        return { kind: 'query', query: { key: printFor(keyType)(parsed.value as never) } };
-    }
-    if (text.trimStart().startsWith('(')) {
-        const parsed = parseFor(keyType)(text);
-        if (!parsed.success) return { kind: 'hint', hint: `Key is ${keySignature(keyType)}` };
-        return { kind: 'query', query: { key: printFor(keyType)(parsed.value as never) } };
-    }
-    const segments = splitTopLevel(text);
-    if (segments.length > fields.length) {
-        return { kind: 'hint', hint: `Key is ${keySignature(keyType)}` };
-    }
-    const exact: string[] = [];
-    for (let i = 0; i < segments.length; i++) {
-        const field = fields[i]!;
-        const raw = segments[i]!.trim();
-        const isLast = i === segments.length - 1;
-        if (isLast && raw === '' && i > 0) {
-            // A trailing comma narrows to the leading exact fields.
-            return { kind: 'query', query: { fields: exact } };
-        }
-        if (field.type.type === 'String' && !raw.startsWith('"')) {
-            if (isLast) {
-                // Unquoted final String segment types ahead as a prefix.
-                return exact.length === 0
-                    ? { kind: 'query', query: { prefix: raw } }
-                    : { kind: 'query', query: { fields: exact, prefix: raw } };
-            }
-            exact.push(printFor(StringType)(raw));
-            continue;
-        }
-        const parsed = parseFor(field.type)(raw);
-        if (!parsed.success) {
-            return { kind: 'hint', hint: `${field.name} is ${field.type.type} — key is ${keySignature(keyType)}` };
-        }
-        exact.push(printFor(field.type)(parsed.value as never));
-    }
-    return { kind: 'query', query: { fields: exact } };
-}
-
-/** Predicates that match no key — a defensively-handled malformed query. */
-const MATCH_NOTHING = { lower: () => false, upper: () => false } as const;
-
-/**
- * Builds the monotone lower/upper row predicates of a RANGE query over
- * keys in canonical East order — the client-side mirror of the server's
- * fence-search predicates, for inline (already-decoded) previews. The
- * range is `[first row where lower holds, first row where upper holds)`.
- *
- * @param keyType - the collection's Dict key / Set element type
- * @param query - the wire query
- * @returns the predicate pair, or `null` for a whole-key literal query
- *   (an exact lookup, not a range)
- */
-export function keyRangePredicates(keyType: EastTypeValue, query: DatasetKeyQuery):
-    | { lower: (k: unknown) => boolean; upper: (k: unknown) => boolean }
-    | null {
-    if ('key' in query) return null;
-    if (keyType.type === 'Struct') {
-        const meta = keyType.value as { name: string; type: EastTypeValue }[];
-        const literals = 'fields' in query ? query.fields : [];
-        if (literals.length > meta.length) return MATCH_NOTHING;
-        const values: unknown[] = [];
-        for (let j = 0; j < literals.length; j++) {
-            const parsed = parseFor(meta[j]!.type)(literals[j]!);
-            if (!parsed.success) return MATCH_NOTHING;
-            values.push(parsed.value);
-        }
-        const cmps = meta.map((f) => compareFor(f.type));
-        const lead = (k: unknown): number => {
-            for (let j = 0; j < values.length; j++) {
-                const c = cmps[j]!((k as Record<string, unknown>)[meta[j]!.name], values[j]);
-                if (c !== 0) return c;
-            }
-            return 0;
-        };
-        const prefix = query.prefix;
-        if (prefix === undefined) {
-            return { lower: (k) => lead(k) >= 0, upper: (k) => lead(k) > 0 };
-        }
-        const prefixIdx = values.length;
-        if (prefixIdx >= meta.length || meta[prefixIdx]!.type.type !== 'String') return MATCH_NOTHING;
-        const prefixName = meta[prefixIdx]!.name;
-        const prefixCmp = cmps[prefixIdx]!;
-        return {
-            lower: (k) => {
-                const c = lead(k);
-                return c !== 0 ? c > 0 : prefixCmp((k as Record<string, unknown>)[prefixName], prefix) >= 0;
-            },
-            upper: (k) => {
-                const c = lead(k);
-                if (c !== 0) return c > 0;
-                const field = (k as Record<string, unknown>)[prefixName] as string;
-                return prefixCmp(field, prefix) > 0 && !field.startsWith(prefix);
-            },
-        };
-    }
-    if (!('prefix' in query) || query.prefix === undefined || keyType.type !== 'String') return MATCH_NOTHING;
-    const prefix = query.prefix;
-    const cmp = compareFor(keyType);
-    return {
-        lower: (k) => cmp(k, prefix) >= 0,
-        upper: (k) => cmp(k, prefix) > 0 && !(k as string).startsWith(prefix),
-    };
 }
 
 /**
@@ -368,7 +179,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     }, [range, activeIdx, commit]);
 
     const placeholder = useMemo(() => {
-        const fields = structFields(keyType);
+        const fields = structKeyFields(keyType);
         if (fields !== null) return `Search keys (${fields.map((f) => f.name).join(', ')})`;
         return keyType.type === 'String' ? 'Search keys' : `Find key (${keyType.type})`;
     }, [keyType]);

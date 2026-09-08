@@ -87,6 +87,39 @@ export {
     type ValueTreeEditOp,
 } from "./materialize.js";
 
+import {
+    flattenRows,
+    flattenPaged,
+    pageOfFlat,
+    pagedRowAt,
+    pagedFlatIndexOfRoot,
+    flatIndexOfRoot,
+    pruneRetainedPages,
+    humanize,
+    pathKey,
+    itemTitle,
+    summaryOf,
+    childrenOf,
+    fmtLeaf,
+    DEFAULT_OPEN_DEPTH,
+    type RowModel as FlattenRowModel,
+    type RowKind as FlattenRowKind,
+    type ChildEntry as FlattenChildEntry,
+    type FlattenCtx as FlattenContext,
+    type ValueTreePagedRow as FlattenPagedRow,
+    type ValueTreePaging as FlattenPaging,
+    type PagedFlat as FlattenPagedFlat,
+    type ResolvedNode as FlattenResolvedNode,
+} from "./flatten.js";
+import {
+    keyRangePredicates,
+    parseKeyInput,
+    findKeyInline,
+    type DatasetKeyQuery as KeySearchQuery,
+    type DatasetKeyMatchRange as KeySearchMatchRange,
+    type ParsedKeyInput as KeySearchParsedInput,
+} from "./key-search.js";
+
 /** Beyond this many unrollings of a RecursiveType the subtree prints as
  *  an `opaque` node (a lazy "expand further" is the #360 follow-up). */
 const MAX_RECURSION_DEPTH = 6;
@@ -980,6 +1013,57 @@ export const ValueTree = {
      * round-trippable text).
      */
     keyLabel: dictKeyLabel,
+    /**
+     * The ROW MODEL of an inline tree — the visible (expanded) rows of a
+     * materialized node, depth-first, with end-user labels, branch
+     * summaries and typed edit paths. Every renderer (browser, terminal)
+     * lists a value through this so it reads identically everywhere.
+     */
+    flatten: flattenRows,
+    /**
+     * The row model of a PAGED collection root — per-page flattened rows
+     * plus the prefix sums that place placeholder rows for unloaded pages,
+     * so the extent always spans the whole collection.
+     */
+    flattenPaged,
+    /** Binary-searches the page whose flat range contains a flat row index. */
+    pageOfFlat,
+    /** Resolves a paged flat row to a loaded model or a placeholder's global root row. */
+    pagedRowAt,
+    /** Flat index of a global root row of a paged tree (through loaded pages when present). */
+    pagedFlatIndexOfRoot,
+    /** Flat index of the N-th depth-0 row of an inline tree. */
+    flatIndexOfRoot,
+    /**
+     * Drops loaded pages far from the visible window, keeping the window
+     * and then the nearest pages up to a retention cap (the same map back
+     * while under the cap).
+     */
+    pruneRetainedPages,
+    /** "flowRate" / "flow_rate" → "Flow rate" — the end-user field label. */
+    humanize,
+    /** The stable text identity of a node path — the row id. */
+    pathKey,
+    /** A content-derived title for an array element, else "Item N". */
+    itemTitle,
+    /** The muted value-cell text of a branch node (preview / counts). */
+    summaryOf,
+    /** The children of a compound node with their labels and binding steps. */
+    childrenOf,
+    /** Formats a primitive leaf for display. */
+    fmtLeaf,
+    /** Rows at depth < this start expanded when the host sets no `openDepth`. */
+    DEFAULT_OPEN_DEPTH,
+    /**
+     * The monotone lower / upper row predicates of a RANGE key query over
+     * decoded keys in canonical order — the client-side mirror of the
+     * server's fence search, for inline values.
+     */
+    keyRangePredicates,
+    /** Turns typed key-search text into a wire query, or a hint when it cannot parse. */
+    parseKeyInput,
+    /** Locates a key query over decoded keys — the inline `datasetFindKey`. */
+    findKeyInline,
     Types: {
         /** The full ValueTree payload. */
         Root: ValueTreeRootType,
@@ -995,3 +1079,37 @@ export const ValueTree = {
         Style: ValueTreeStyleType,
     },
 } as const;
+
+/**
+ * Row-model types under the `ValueTree` namespace (declaration-merged onto
+ * the factory object; types only — nothing is emitted).
+ */
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export namespace ValueTree {
+    /** The types of the row model ({@link ValueTree.flatten} / {@link ValueTree.flattenPaged}). */
+    // eslint-disable-next-line @typescript-eslint/no-namespace
+    export namespace Rows {
+        /** One flattened row. */
+        export type RowModel = FlattenRowModel;
+        /** The kind of a flattened row. */
+        export type RowKind = FlattenRowKind;
+        /** One child of a compound node with its label and binding step. */
+        export type ChildEntry = FlattenChildEntry;
+        /** The shared flatten context. */
+        export type FlattenCtx = FlattenContext;
+        /** A node with its option / variant wrappers collapsed into controls. */
+        export type ResolvedNode = FlattenResolvedNode;
+        /** One pageable root row supplied by a paging host. */
+        export type PagedRow = FlattenPagedRow;
+        /** The remote-paging contract for a collection-rooted tree. */
+        export type Paging = FlattenPaging;
+        /** The paged-mode flat structure. */
+        export type PagedFlat = FlattenPagedFlat;
+        /** A key query in wire form. */
+        export type KeyQuery = KeySearchQuery;
+        /** Where a key query landed in the canonical key order. */
+        export type KeyMatchRange = KeySearchMatchRange;
+        /** A parsed key-search input: a query, or the hint to show instead. */
+        export type ParsedKeyInput = KeySearchParsedInput;
+    }
+}

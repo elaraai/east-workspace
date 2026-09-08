@@ -25,6 +25,7 @@ import { ApiError, datasetFindKey, datasetGetPage } from '@elaraai/e3-api-client
 import type { RequestOptions } from '@elaraai/e3-api-client';
 import { none, some, variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import { ValueTree } from '@elaraai/east-ui';
+import { pruneRetainedPages } from '@elaraai/east-ui/internal';
 import {
     EastChakraValueTree,
     type ValueTreeValue,
@@ -48,23 +49,9 @@ const PAGE_SIZE = 500;
  *  hash-pinned query cache, so a return pays decode + materialize only). */
 const MAX_RETAINED_PAGES = 8;
 
-/** Drops loaded pages far from the window `[firstPage, lastPage]`, keeping
- *  the window itself and then the nearest pages up to the retention cap. */
-export function pruneRetainedPages<T>(
-    pages: ReadonlyMap<number, T>,
-    firstPage: number,
-    lastPage: number,
-    max: number,
-): ReadonlyMap<number, T> {
-    if (pages.size <= max) return pages;
-    const distance = (p: number): number => (p < firstPage ? firstPage - p : p > lastPage ? p - lastPage : 0);
-    const keep = [...pages.keys()].sort((a, b) => distance(a) - distance(b) || a - b).slice(0, max);
-    const kept = new Map<number, T>();
-    for (const p of keep.sort((a, b) => a - b)) {
-        kept.set(p, pages.get(p)!);
-    }
-    return kept;
-}
+/** Page retention — the row model's `pruneRetainedPages` (moved to
+ *  `@elaraai/east-ui` in #719), re-exported here for its existing importers. */
+export { pruneRetainedPages };
 
 export interface PagedDatasetPreviewProps {
     apiUrl: string;
