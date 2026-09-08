@@ -237,19 +237,29 @@ East.compile(summed, platform=platform)('[{"id":"10"},{"id":"20"}]')   # 30
   any numeric offset — and a day its month does not have (`2026-02-30`) is
   refused rather than rolled forward. A `Blob`'s hex must be lowercase, where
   `parse_json` takes either case.
-- **Errors name the offending node** by RFC 6901 pointer:
+- **Errors name the offending node** by RFC 6901 pointer — an array element by
+  its index, an object member by its name (`~` and `/` escaped as `~0` / `~1`):
   `json_next: /1/id: "not-an-integer" is not a 64-bit integer in East JSON's form`
-  — the same text `east-node-std` and `east-c-std` produce.
+  — the same text `east-node-std` and `east-c-std` produce, pointer and
+  sentence alike; the shared compliance corpus pins it. A quoted value is
+  clipped at 200 characters, so a message never grows with the document.
 - **`json_more` is a predicate, `json_next` advances.** They need not
   alternate, and asking `json_more` twice is harmless.
 - **A JSON object iterates as entries**: pass a `Struct` of exactly `key` and
-  `value` (the key must be `String`), which is what a `Dict` output needs.
-- Handles are held until closed, as a database connection is.
+  `value` (the key must be `String`), in either declared order, which is what
+  a `Dict` output needs. The entry type is checked at the container before
+  anything is consumed, so a refused call leaves the reader where it was.
+- Handles are held until closed, as a database connection is. `json_open`
+  maps the file rather than reading it, on Windows too.
 - **The reader is east-c's**, reached through east-py's Cython bridge, as every
   other codec here is — so the accepted forms, the 2048 nesting bound, the
-  surrogate-pair joining and the error text are shared with `east-c-std` rather
-  than reimplemented. A document nested deeper than 2048 is refused on every
-  runtime.
+  UTF-8 validation (a malformed sequence is `invalid UTF-8 in string`, never
+  repaired), the surrogate-pair joining, the 0001–9999 `DateTime` years and
+  the error text are shared with `east-c-std` rather than reimplemented. What
+  is skipped is still JSON: a fault before the pointer target or inside an
+  unmodelled field is refused at open with the text a read would give, and
+  nesting past 2048 is refused on the value read and the junk skipped alike.
+  A `Float` reads the same under any locale.
 - **Three things the schema cannot say.** A `Ref` the encoder wrote as
   `{"$ref": ...}` for a repeated target is not readable, so a value with shared
   references does not validate against its own published schema. A `Dict` whose

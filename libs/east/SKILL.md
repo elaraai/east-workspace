@@ -564,6 +564,18 @@ const T = typeFromJsonSchema(JSON.parse(readFileSync("partner.schema.json", "utf
   date-time`, `Set` from `Array`, and `Dict` from an array of two-property
   objects. A foreign schema without them still converts, under a documented
   structural mapping that does not promise to round-trip.
+- **Recursion binds one `RecursiveType` per cycle group.** Definitions that
+  reference each other — a `Node` whose children are a `NodeList` of `Node` —
+  convert as long as every cycle in the group passes through one definition,
+  which becomes the binder; entered at any other member the group unrolls to
+  it. Three definitions that each reference the other two need two binders
+  and are refused, naming them. Reachability decides what recurses, never the
+  order the references appear in. `nullable: true` beside a type is refused
+  too — East JSON has no bare null for it; model the value as an `Option`.
+- **The patterns are portable.** `datetime` spans years 0001–9999, the range
+  every runtime represents, and every pattern spells digits as `[0-9]`, so a
+  python validator (where `\d` matches any Unicode digit) and a JavaScript one
+  accept the same strings.
 - To READ a document larger than memory under this contract, use `Json.open` /
   `Json.next` from **east-node-std** (and its `east-py-std` / `east-c-std`
   twins).

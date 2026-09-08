@@ -217,27 +217,40 @@ const total = East.function([StringType], IntegerType, ($, path) => {
   `DateTime` must carry an explicit `+00:00`, not `Z` and not a numeric offset,
   and a day its month does not have (`2026-02-30`) is refused rather than
   rolled forward. A `Blob`'s hex must be lowercase.
-- **Errors name the offending node** by RFC 6901 pointer:
-  `json_next: /1/id: "not-an-integer" is not a 64-bit integer in East JSON's form`.
+- **Errors name the offending node** by RFC 6901 pointer — an array element by
+  its index, an object member by its name (`~` and `/` escaped as `~0` / `~1`):
+  `json_next: /1/id: "not-an-integer" is not a 64-bit integer in East JSON's form`,
+  `json_next: /b~0~1c: "x" is not a 64-bit integer in East JSON's form`. A
+  quoted value is clipped at 200 characters, so a message never grows with
+  the document.
 - **`more` is a predicate, `next` advances.** They need not alternate, and
   asking `more` twice is harmless.
 - **A JSON object iterates as entries**: pass a `Struct` of exactly `key` and
-  `value` (the key must be `String`), which is what a `Dict` output needs.
+  `value` (the key must be `String`), in either declared order, which is what
+  a `Dict` output needs. The entry type is checked at the container before
+  anything is consumed, so a refused call leaves the reader where it was.
 - Handles are held until closed, as a database connection is. A body that can
   fail mid-document should close in a `.catch` that re-raises — a `$.try` whose
   `.catch` is left implicit swallows the error.
 - The same six functions (`json_open`, `json_open_text`, `json_more`,
   `json_next`, `json_value`, `json_close`) exist in `east-py-std` and
-  `east-c-std`, and **accept and reject exactly the same documents** — the
-  property the shared compliance corpus pins. `east-py-std` is east-c's reader
-  through a Cython bridge, so python and C agree by construction; this Node
-  implementation is the second one, and it words a few shape mismatches
-  differently (`expected "{", got "["` where the others say `expected an
-  object, got [1]`). Messages that carry a pointer are identical everywhere, so
-  match on the pointer rather than the sentence.
-- **A document nested deeper than 2048 is refused on every runtime** — JSON is
-  an untrusted-input boundary, and the bound is the same on all three, on the
-  value being read and on junk being skipped past alike.
+  `east-c-std`, and **accept and reject exactly the same documents with
+  exactly the same message** — pointer and sentence alike, the property the
+  shared compliance corpus pins. `east-py-std` is east-c's reader through a
+  Cython bridge, so python and C agree by construction; this Node
+  implementation is the second one, and words every refusal as the C one does.
+- **What is skipped is still JSON.** Navigating past a value — the members
+  before a pointer target, a field the type does not model — does not
+  construct it, but a fault inside it (`[1,,2]`, `trux`, `"a\q"`) is refused
+  at open with the text a read would give. A document nested deeper than 2048
+  is refused on every runtime, on the value being read and on junk being
+  skipped past alike — JSON is an untrusted-input boundary. Nothing after the
+  container being iterated is examined.
+- **Strings are validated UTF-8.** A malformed byte sequence (an overlong
+  encoding, an encoded surrogate, a byte past U+10FFFF) is `invalid UTF-8 in
+  string` — never repaired to U+FFFD, never passed through — and a
+  `\uD83D\uDE00` escape pair joins into one code point. A `DateTime` year
+  runs 0001–9999, the range every runtime represents.
 - **Three things the schema cannot say, so they are stated here.** A `Ref` that
   the encoder wrote as `{"$ref": …}` (a repeated target) is not readable — as
   with `Array`/`Set`/`Dict` aliasing, a value with shared references does not

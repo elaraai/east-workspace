@@ -1298,7 +1298,7 @@ T = type_from_json_schema(json.loads(Path("partner.schema.json").read_text()))
 | Signature | Notes |
 |-----------|-------|
 | `json_schema_for(typ, draft="2020-12") -> JsonSchema` | The schema describing `typ`'s East-JSON encoding. `draft` is `"2020-12"`, `"draft-07"` or `"openapi-3.0"` — a consumer's validator pins one. `Never`, `Function` and `AsyncFunction` raise `TypeError` naming what has no JSON form |
-| `type_from_json_schema(schema) -> EastType` ❗ | The East type a schema describes. Raises `JsonSchemaUnsupportedError` — whose `.pointer` is the RFC 6901 location, also quoted in the message — on a keyword East cannot express (`allOf`, `not`, `if`/`then`/`else`, `anyOf`, `patternProperties`, `prefixItems`, a type union, an open record, an optional property, an untagged `oneOf`, a non-local `$ref`, mutually recursive definitions) |
+| `type_from_json_schema(schema) -> EastType` ❗ | The East type a schema describes. Raises `JsonSchemaUnsupportedError` — whose `.pointer` is the RFC 6901 location, also quoted in the message — on a keyword East cannot express (`allOf`, `not`, `if`/`then`/`else`, `anyOf`, `patternProperties`, `prefixItems`, a type union, an open record, an optional property, an untagged `oneOf`, a non-local `$ref`, `nullable` beside a type, a cycle of definitions that no single definition breaks) |
 | `EAST_JSON_PATTERNS` | The exact lexical forms East JSON's scalars take — `.integer` `.datetime` `.blob` `.float_specials` — so a reader enforces precisely what the schema describes (the TypeScript twin spells the last one `floatSpecials`) |
 
 - **It describes what the ENCODER emits, not what the decoder tolerates.** The two
@@ -1314,6 +1314,16 @@ T = type_from_json_schema(json.loads(Path("partner.schema.json").read_text()))
   `type_from_json_schema` tell `DateTime` from a `String` with `format: date-time`, `Set`
   from `Array`, and `Dict` from an array of two-property objects. A foreign schema without
   them still converts, under a structural mapping that does not promise to round-trip.
+- **Recursion binds one `recursive_type` per cycle group.** Definitions that reference each
+  other — a `Node` whose children are a `NodeList` of `Node` — convert as long as every cycle
+  in the group passes through one definition, which becomes the binder; entered at any other
+  member the group unrolls to it. Three definitions that each reference the other two need two
+  binders and are refused, naming them. Reachability decides what recurses, never the order
+  the references appear in. `nullable: true` beside a type is refused too — East JSON has no
+  bare null for it; model the value as an `OptionType`.
+- **The patterns are portable.** `datetime` spans years 0001–9999, the range every runtime
+  represents, and every pattern spells digits as `[0-9]` — python's `\d` matches any Unicode
+  digit — so a validator here and one in JavaScript accept the same strings.
 - To READ a document larger than memory under this contract, use `json_open` / `json_next`
   from **east-py-std**.
 

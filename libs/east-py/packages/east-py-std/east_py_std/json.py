@@ -125,8 +125,10 @@ def json_next(_platform_list: Any, T: EastType) -> Callable[[str], Any]:  # noqa
     not ``Z`` and not a numeric offset; a blob's hex must be lowercase.
 
     When the container is a JSON object, ``T`` must be a ``Struct`` of exactly
-    ``key`` and ``value``, and each member arrives as one of those — which is
-    what a ``Dict`` output needs.
+    ``key`` and ``value``, in either order, and each member arrives as one of
+    those — which is what a ``Dict`` output needs. An error inside an element
+    is located by its index in an array and by its member name in an object,
+    and reads word for word as it does on east-node and east-c.
 
     Args:
         _platform_list: The platform list being registered (unused).

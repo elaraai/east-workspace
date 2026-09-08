@@ -27,9 +27,18 @@ EastValue *east_json_decode_with_error(const char *json, EastType *type, char **
  * ENCODER emits — rather than what `east_json_decode` tolerates. An integer
  * must be a quoted decimal in i64 range with no leading zeros and no sign on
  * zero; a timestamp must carry an explicit `+00:00`, not `Z` and not a numeric
- * offset; a blob's hex must be lowercase. Every runtime refuses the same
- * documents with the same message, which is what makes a published contract
- * enforceable wherever it is read.
+ * offset, in years 0001..9999; a blob's hex must be lowercase; a string must
+ * be well-formed UTF-8 (a malformed sequence is refused, never repaired). A
+ * float parses the same under any LC_NUMERIC (east_strtod_c).
+ *
+ * Every refusal is "<pointer>: <message>" — an array element located by its
+ * index, an object member by its name, RFC 6901-escaped — and the message is
+ * word for word what east-node's reader produces: the shared compliance
+ * corpus pins the text on every runtime, which is what makes a published
+ * contract enforceable wherever it is read. What the reader skips past (the
+ * members before a pointer target, a field the type does not model) is still
+ * held to JSON's grammar and to the JSON_MAX_DEPTH nesting bound, though
+ * nothing after the container being iterated is examined.
  *
  * The reader BORROWS `data`: the caller keeps the bytes alive and unchanged
  * until east_json_reader_free.
@@ -49,7 +58,10 @@ EastJsonReader *east_json_reader_open(const char *data, size_t len, const char *
 bool east_json_reader_more(EastJsonReader *r);
 
 /* Reads the next element as `type`. For an object container `type` must be a
- * Struct of exactly `key` and `value`. NULL on failure with *error_out set. */
+ * Struct of exactly `key` (a String) and `value`, in either declared order:
+ * the struct is built in the type's own order, and the type is checked before
+ * anything is consumed, so a refused call leaves the reader where it was.
+ * NULL on failure with *error_out set. */
 EastValue *east_json_reader_next(EastJsonReader *r, EastType *type, char **error_out);
 
 /* Reads one whole value as `type`, for a reader opened with enter=false. */
