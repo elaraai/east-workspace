@@ -19,7 +19,7 @@ import tracemalloc
 
 import pytest
 from east.serialization.json import encode_json_for
-from east.serialization.json_reader import JsonReader
+from east.serialization.json_reader import JsonReader, JsonReadError
 from east.types.types import (
     ArrayType,
     BlobType,
@@ -43,6 +43,7 @@ MAX_DEPTH = 2048
 INT_STRUCT = StructType([("v", IntegerType)])
 DATE_STRUCT = StructType([("v", DateTimeType)])
 BLOB_STRUCT = StructType([("v", BlobType)])
+STRING_STRUCT = StructType([("v", StringType)])
 
 
 def read(typ, text):
@@ -296,12 +297,181 @@ def test_rejects_json_the_grammar_forbids():
         assert not accepts(INT_STRUCT, text), text
 
 
-def test_error_text_carries_the_pointer_like_the_node_reader():
-    """The message shape is part of the cross-runtime contract."""
+def refusal(typ, text) -> str:
+    """The exact text the reader refuses ``text`` with."""
     try:
-        read(ArrayType(INT_STRUCT), '[{"v":"1"},{"v":"nope"}]')
-    except Exception as err:  # noqa: BLE001
-        assert str(err).startswith("/1/v: ")
-        assert json.dumps("nope") in str(err)
-    else:
-        pytest.fail("should have refused the document")
+        read(typ, text)
+    except JsonReadError as err:
+        return str(err)
+    pytest.fail(f"should have refused {text!r}")
+
+
+@pytest.mark.parametrize(
+    ("typ", "text", "message"),
+    [
+        (INT_STRUCT, '{"v":7}', "/v: expected Integer as a quoted decimal string, got a number"),
+        (INT_STRUCT, '{"v":"x"}', '/v: "x" is not a 64-bit integer in East JSON\'s form'),
+        (
+            DATE_STRUCT,
+            '{"v":"2026-02-30T00:00:00.000+00:00"}',
+            '/v: "2026-02-30T00:00:00.000+00:00" is not a real date',
+        ),
+        (
+            DATE_STRUCT,
+            '{"v":"2022-06-29T13:43:00.123Z"}',
+            '/v: "2022-06-29T13:43:00.123Z" is not East JSON\'s UTC date-time form',
+        ),
+        (STRING_STRUCT, '{"v":"a\\qb"}', '/v: invalid escape "\\q"'),
+        (STRING_STRUCT, '{"v":"a\x01b"}', "/v: unescaped control character U+0001 in string"),
+        (STRING_STRUCT, '{"v":"\\uzzzz"}', '/v: invalid \\u escape "\\uzzzz"'),
+        (STRING_STRUCT, '{"v":1}', "/v: expected a String, got a number"),
+        (INT_STRUCT, '{v:"1"}', 'expected a field name, got "v"'),
+        (INT_STRUCT, "{}", 'missing field "v"'),
+        (INT_STRUCT, "[1]", "expected an object, got an array"),
+        (INT_STRUCT, "", "expected an object, got end of document"),
+        (INT_STRUCT, "☃", 'expected an object, got "☃"'),
+    ],
+)
+def test_error_text_is_the_node_readers_word_for_word(typ, text, message):
+    """The message shape is part of the cross-runtime contract.
+
+    The shared corpus pins the whole table through the runners; this pins a
+    sample at the bridge, so a divergence is caught here before the replay.
+    """
+    assert refusal(typ, text) == message
+
+
+def test_error_text_carries_the_pointer_like_the_node_reader():
+    err = refusal(ArrayType(INT_STRUCT), '[{"v":"1"},{"v":"nope"}]')
+    assert err == '/1/v: "nope" is not a 64-bit integer in East JSON\'s form'
+    assert json.dumps("nope") in err
+
+
+def test_a_quoted_value_is_clipped_at_200_code_points():
+    long = "é" * 250
+    err = refusal(INT_STRUCT, json.dumps({"v": long}))
+    assert err == f'/v: "{"é" * 200}…" is not a 64-bit integer in East JSON\'s form'
+
+
+def test_refuses_invalid_utf8_rather_than_repairing_it(tmp_path):
+    """Node used to substitute U+FFFD, east-c to pass the bytes through."""
+    path = tmp_path / "invalid-utf8.json"
+    for raw in (b"\xff", b"\xc0\x80", b"\xed\xa0\x80", b"\xf4\x90\x80\x80"):
+        path.write_bytes(b'{"v":"a' + raw + b'b"}')
+        reader = JsonReader.open_value_file(str(path), "")
+        try:
+            with pytest.raises(JsonReadError) as excinfo:
+                reader.read_value(STRING_STRUCT)
+        finally:
+            reader.close()
+        assert str(excinfo.value) == "/v: invalid UTF-8 in string"
+    assert read(STRING_STRUCT, '{"v":"é😀"}')["v"] == "é😀"
+
+
+def test_reads_vector_matrix_ref_and_nested_arrays():
+    from east.types.types import MatrixType, RefType, VectorType
+
+    vec = read(StructType([("v", VectorType(FloatType))]), '{"v":[1.5,"NaN",-2e3]}')["v"]
+    assert list(vec.to_numpy())[0] == 1.5
+    assert list(vec.to_numpy())[2] == -2000.0
+    mat = read(StructType([("v", MatrixType(IntegerType))]), '{"v":[["1","2"],["3","4"]]}')["v"]
+    assert mat.rows() == 2
+    assert mat.cols() == 2
+    assert mat.get(1, 1) == 4
+    cell = read(StructType([("v", RefType(IntegerType))]), '{"v":["7"]}')["v"]
+    assert cell.get() == 7
+    grid = read(StructType([("v", ArrayType(ArrayType(IntegerType)))]), '{"v":[["1"],[]]}')["v"]
+    assert [list(row) for row in grid] == [[1], []]
+    assert refusal(StructType([("v", MatrixType(IntegerType))]), '{"v":[["1","2"],["3"]]}') == (
+        "/v: Matrix row 1 has 1 columns, expected 2"
+    )
+    assert refusal(StructType([("v", RefType(IntegerType))]), '{"v":["1","2"]}') == (
+        "/v: expected a Ref to hold exactly one element"
+    )
+
+
+def test_iterates_an_object_as_entries_in_either_field_order():
+    """The struct is built in the type's own order, so its fields pair with their values."""
+    for entry_type in (
+        StructType([("key", StringType), ("value", IntegerType)]),
+        StructType([("value", IntegerType), ("key", StringType)]),
+    ):
+        reader = JsonReader.open_text('{"a":"1","b":"2"}', "")
+        entries = []
+        while reader.more():
+            entries.append(reader.next(entry_type))
+        reader.close()
+        assert [(e["key"], e["value"]) for e in entries] == [("a", 1), ("b", 2)]
+
+
+def test_a_bad_member_is_located_by_its_name():
+    reader = JsonReader.open_text('{"a":"1","b~/c":"x"}', "")
+    entry_type = StructType([("key", StringType), ("value", IntegerType)])
+    try:
+        reader.next(entry_type)
+        with pytest.raises(JsonReadError) as excinfo:
+            reader.next(entry_type)
+    finally:
+        reader.close()
+    assert str(excinfo.value) == '/b~0~1c: "x" is not a 64-bit integer in East JSON\'s form'
+    assert excinfo.value.pointer == "/b~0~1c"
+
+
+def test_a_wrong_entry_type_is_refused_at_the_container():
+    reader = JsonReader.open_text('{"a":"1"}', "")
+    try:
+        with pytest.raises(JsonReadError, match="^iterating an object needs a Struct with exactly"):
+            reader.next(IntegerType)
+        with pytest.raises(JsonReadError, match="^iterating an object needs a String key$"):
+            reader.next(StructType([("key", IntegerType), ("value", IntegerType)]))
+    finally:
+        reader.close()
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ('{"junk":[1,,2],"data":[]}', 'unexpected character ","'),
+        ('{"junk":trux,"data":[]}', "expected true"),
+        ('{"junk":"a\\qb","data":[]}', 'invalid escape "\\q"'),
+        ('{"junk":{"a" 1},"data":[]}', 'expected ":" after a field name, got a number'),
+        ('{"junk":[1 2],"data":[]}', 'expected "," or "]" in array'),
+        ('{"junk":[1,2', "unexpected end of document"),
+        ('{"junk":' + '{"a":[' * 1500 + "1" + "]}" * 1500 + ',"data":[]}',
+         "document nests deeper than 2048"),
+    ],
+)
+def test_a_skipped_value_is_held_to_the_grammar(text, message):
+    """Navigating past a value is not reading it, but it is still JSON."""
+    with pytest.raises(JsonReadError) as excinfo:
+        JsonReader.open_text(text, "/data")
+    assert str(excinfo.value) == message
+
+
+def test_an_empty_file_is_refused_by_name(tmp_path):
+    path = tmp_path / "empty.json"
+    path.write_bytes(b"")
+    with pytest.raises(JsonReadError, match="^the document is empty$"):
+        JsonReader.open_file(str(path), "")
+
+
+def test_floats_read_the_same_under_a_comma_decimal_locale():
+    """A comma locale's strtod stops at the point; the reader must not."""
+    import locale
+
+    chosen = None
+    for name in ("de_DE.UTF-8", "de_DE.utf8", "de_DE", "fr_FR.UTF-8", "de-DE"):
+        try:
+            locale.setlocale(locale.LC_NUMERIC, name)
+        except locale.Error:
+            continue
+        chosen = name
+        break
+    if chosen is None or locale.localeconv()["decimal_point"] != ",":
+        pytest.skip("no comma-decimal locale on this host")
+    try:
+        values = read(ArrayType(FloatType), "[1.5,2.25,1.5e2,1e-3]")
+        assert list(values) == [1.5, 2.25, 150.0, 0.001]
+        assert encode_json_for(ArrayType(FloatType))(values) == b"[1.5,2.25,150,0.001]"
+    finally:
+        locale.setlocale(locale.LC_NUMERIC, "C")
