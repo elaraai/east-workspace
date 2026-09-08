@@ -17,7 +17,7 @@ import { describeError, type Api } from './api.js';
 import { cancelRun, startRun } from './data/dataflow.js';
 import { viewWorkspace, type Feeds } from './data/feeds.js';
 import { complete } from './input/completion.js';
-import { parseCommand, type ParsedCommand } from './input/commands.js';
+import { describe, parseCommand, type ParsedCommand } from './input/commands.js';
 import { resolve as resolveKey, type KeyAction, type KeyContext } from './input/keymap.js';
 import { isMouseInput, parseSgr, type MouseEvent } from './input/mouse.js';
 import { hitAt, lastFrame, paneTopFromRow, type HitTarget } from './ui/frame.js';
@@ -209,7 +209,7 @@ export function createController(deps: ControllerDeps): Controller {
             }
             dispatch({ type: 'command/clear' });
             try {
-                await runCommand(parsed.command);
+                await runCommand(parsed.command, trimmed);
             } catch (err) {
                 deps.log(`command ${trimmed} failed: ${describeError(err)}`);
                 controller.toast(describeError(err), 'neg');
@@ -473,10 +473,18 @@ export function createController(deps: ControllerDeps): Controller {
         return '.';
     };
 
-    const runCommand = async (command: ParsedCommand): Promise<void> => {
+    /** Commands that leave the current view (they ask first while edits are pending). */
+    const LEAVES = new Set(['task', 'input', 'dataset', 'workspace', 'workspaces', 'repos', 'repo', 'logs', 'runs']);
+
+    const runCommand = async (command: ParsedCommand, text: string): Promise<void> => {
         const s = state();
         const ws = workspace();
         const viewHooks = hooks.get(s.view.kind);
+        const dirty = dirtyCount(s);
+        if (dirty > 0 && LEAVES.has(command.name) && command.name !== 'repo') {
+            dispatch({ type: 'command/confirm', confirm: { question: `discard ${dirty} unsaved edit${dirty === 1 ? '' : 's'} and ${describe(command, { workspace: ws, taskCount: 0, running: false, concurrency: 4, dirty }).text}?`, command: `/discard --then "${text.replace(/"/g, '')}"` } });
+            return;
+        }
         if (viewHooks?.command !== undefined && await viewHooks.command(command, s, controller)) return;
         switch (command.name) {
             case 'task': {
@@ -551,6 +559,14 @@ export function createController(deps: ControllerDeps): Controller {
             case 'help': controller.navigate({ kind: 'help', tab: helpTabFor(s.view.kind) }, true); return;
             case 'about': controller.navigate({ kind: 'about' }, true); return;
             case 'quit': controller.quit(command.force); return;
+            case 'discard': {
+                if (state().edit !== null) {
+                    dispatch({ type: 'edit/set', edit: null });
+                    dispatch({ type: 'input/editing', editing: null });
+                }
+                if (command.then !== undefined) await controller.execute(command.then);
+                return;
+            }
             default:
                 controller.toast(`/${command.name} does nothing here`, 'warn');
                 return;

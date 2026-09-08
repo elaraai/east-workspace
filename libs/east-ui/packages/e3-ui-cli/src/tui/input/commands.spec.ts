@@ -71,7 +71,8 @@ describe('parseCommand', () => {
         assert.deepEqual(ok('/add region'), { name: 'add', key: 'region' });
         assert.deepEqual(ok('/remove --force'), { name: 'remove', force: true });
         assert.deepEqual(ok('/apply'), { name: 'apply' });
-        assert.deepEqual(ok('/discard'), { name: 'discard' });
+        assert.deepEqual(ok('/discard'), { name: 'discard', then: undefined });
+        assert.deepEqual(ok('/discard --then "/task forecast"'), { name: 'discard', then: '/task forecast' });
         assert.deepEqual(ok('/refresh'), { name: 'refresh' });
         assert.deepEqual(ok('/help'), { name: 'help' });
         assert.deepEqual(ok('/about'), { name: 'about' });

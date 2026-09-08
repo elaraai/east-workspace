@@ -15,6 +15,7 @@ import { columnPlan, breakpoint } from '../../render/layout.js';
 import { displayWidth, padEnd, lr } from '../../render/text.js';
 import type { TuiState, View } from '../../state/actions.js';
 import { dirtyCount } from '../../state/reducer.js';
+import { changedNames } from '../../data/edit-buffer.js';
 import { RUN_FLAGS, describe, parseCommand } from '../../input/commands.js';
 import { connectionCell } from '../../model/status.js';
 import { blank, fitLine, fitRows, lineWidth, lrLine, rule, t, b, d, type Line, type RenderCtx } from '../lines.js';
@@ -218,7 +219,7 @@ export function renderCommitBar(state: TuiState, ctx: RenderCtx): Line[] {
     const width = ctx.layout.columns;
     const g = ctx.g;
     const n = state.edit.ops.length;
-    const changed = state.edit.changed.map(id => id.replace(/^\./, '').split(/[.[{]/).pop() ?? id).join(' · ');
+    const changed = changedNames(state.edit).join(' · ');
     const left: Line = [t(' '), b(`${g.diamond} ${n} change${n === 1 ? '' : 's'} pending`, 'warn'), t('   '), d(changed)];
     const right: Line = state.edit.applying ? [d('applying…')] : [b(`${g.enter} APPLY`, 'pos'), t('     '), b('esc DISCARD', 'neg')];
     return [rule(width, g.dashed), lrLine(left, right, width)];

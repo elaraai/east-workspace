@@ -36,7 +36,7 @@ export type ParsedCommand =
     | { name: 'add'; key: string | undefined }
     | { name: 'remove'; force: boolean }
     | { name: 'apply' }
-    | { name: 'discard' }
+    | { name: 'discard'; then: string | undefined }
     | { name: 'reload' };
 
 export type CommandName = ParsedCommand['name'];
@@ -140,9 +140,10 @@ export function parseCommand(text: string): ParseResult {
         case 'help':
         case 'about':
         case 'apply':
-        case 'discard':
         case 'reload':
             return { ok: true, command: { name } };
+        case 'discard':
+            return { ok: true, command: { name, then: args[0] === '--then' ? args.slice(1).join(' ') : undefined } };
         case 'quit':
             return { ok: true, command: { name, force: args.includes('--force') } };
         case 'login': {
@@ -273,7 +274,7 @@ export function describe(command: ParsedCommand, ctx: DescribeContext): { text: 
         case 'add': return { text: command.key !== undefined ? `add entry ${command.key}` : 'add an item', keys: '⏎ add · esc' };
         case 'remove': return { text: 'remove the selected item', keys: '⏎ remove · esc' };
         case 'apply': return { text: `apply ${ctx.dirty} pending edit${ctx.dirty === 1 ? '' : 's'}`, keys: '⏎ apply · esc' };
-        case 'discard': return { text: `discard ${ctx.dirty} pending edit${ctx.dirty === 1 ? '' : 's'}`, keys: '⏎ discard · esc' };
+        case 'discard': return { text: `discard ${ctx.dirty} pending edit${ctx.dirty === 1 ? '' : 's'}${command.then !== undefined ? ` then ${command.then}` : ''}`, keys: '⏎ discard · esc' };
         case 'reload': return { text: 'reload the value and re-apply your edits', keys: '⏎ reload · esc' };
     }
 }

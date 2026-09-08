@@ -82,8 +82,10 @@ export interface DatasetLoaderDeps {
 
 /** The dataset loader. */
 export interface DatasetLoader {
-    /** Polls the status and (re)loads the content on a new hash. */
-    tick(ws: string, path: string): Promise<void>;
+    /** Polls the status and (re)loads the content on a new hash (`force` also past a pending edit's conflict). */
+    tick(ws: string, path: string, force?: boolean): Promise<void>;
+    /** Reloads the content now, past any conflict (`/reload`). */
+    reload(ws: string, path: string): Promise<void>;
     /** Requests the pages covering root rows `[startRow, endRow)` (with retention). */
     needRows(ws: string, path: string, startRow: number, endRow: number): void;
     /** `⏎ load whole value` on a not-indexed collection. */
@@ -203,7 +205,7 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
     };
 
     const loader: DatasetLoader = {
-        async tick(ws, path) {
+        async tick(ws, path, force = false) {
             const api = deps.api();
             if (api === null) return;
             const status = await api.datasetGetStatus(ws, treePathOf(path));
@@ -211,8 +213,15 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
             const size = status.size.type === 'some' ? Number(status.size.value) : 0;
             const type = status.type;
             const before = current(ws, path);
-            if (before !== undefined && before.status !== null && before.hash === hash && before.mode.kind !== 'error') {
+            if (!force && before !== undefined && before.status !== null && before.hash === hash && before.mode.kind !== 'error') {
                 if (before.size !== size) store.dispatch({ type: 'data/dataset', ws, path, data: { ...before, status, size } });
+                return;
+            }
+            // A value that changed on the server under a pending edit: keep the base
+            // the ops were made against and raise the conflict; `/reload` replays them.
+            const edit = store.getState().edit;
+            if (!force && edit !== null && edit.ws === ws && edit.path === path && edit.ops.length > 0 && hash !== edit.baseHash) {
+                if (edit.conflict !== hash) store.dispatch({ type: 'edit/set', edit: { ...edit, conflict: hash } });
                 return;
             }
             const base: DatasetData = { status, hash, type, size, mode: { kind: 'loading' }, forced: false };
@@ -247,6 +256,14 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
             const pruned = pruneRetainedPages(d.mode.pages, first, last, Math.max(1, MAX_RETAINED_PAGES - missing.length));
             if (pruned !== d.mode.pages) setMode(ws, path, d.hash, { ...d.mode, pages: pruned });
             for (const p of missing) void loadPage(api, ws, path, d.hash, d.type, p);
+        },
+        async reload(ws, path) {
+            const d = current(ws, path);
+            if (d !== undefined && d.hash !== null) {
+                // Drop the whole-value in-flight key so the reload fetches afresh.
+                inflight.delete(keyOf(ws, path, d.hash, 'whole'));
+            }
+            await loader.tick(ws, path, true);
         },
         async loadWhole(ws, path) {
             const api = deps.api();

@@ -23,6 +23,7 @@ import * as path from 'node:path';
 import { parseFor, printFor, StringType, type EastTypeValue } from '@elaraai/east';
 import {
     fmtLeaf,
+    humanize,
     keySignature,
     pageOfFlat,
     parseKeyInput,
@@ -59,13 +60,21 @@ export function leafText(leaf: NonNullable<RowModel['leaf']>): string {
 
 /** The value cell of a row. */
 export function valueText(row: RowModel): string {
-    if (row.leaf !== undefined) return leafText(row.leaf);
+    const tag = row.variantCtl !== undefined ? humanize(row.variantCtl.tag) : null;
+    if (row.leaf !== undefined) {
+        if (tag !== null && row.leaf.type === 'null') return tag;
+        const text = leafText(row.leaf);
+        return tag !== null ? `${tag} · ${text}` : text;
+    }
     if (row.opaque !== undefined) return row.opaque;
     if (row.kind === 'appendArray' || row.kind === 'appendDict') return '';
     const summary = row.summary ?? '';
-    if (row.variantCtl !== undefined && !summary.startsWith(row.variantCtl.tag)) return summary === '' ? row.variantCtl.tag : `${row.variantCtl.tag} · ${summary}`;
+    if (tag !== null && !summary.startsWith(tag)) return summary === '' ? tag : `${tag} · ${summary}`;
     return summary;
 }
+
+/** A row's decoration: a replacement value (the editor) and / or a hint flush right in the value column. */
+export type RowDecor = { value?: string | undefined; hint?: string | undefined; tone?: 'brand' | 'warn' | 'neg' | 'muted' | undefined } | null;
 
 /** Whether a root row is inside the held match. */
 function inMatch(row: RowModel, match: MatchUi | null): boolean {
@@ -86,7 +95,7 @@ function inMatch(row: RowModel, match: MatchUi | null): boolean {
  * @param changed - Row ids with pending edits (`┆` in the gutter)
  * @returns The lines
  */
-export function renderTreeRows(model: TreeModel, tree: TreeUi, loading: readonly number[], visible: number, width: number, g: Glyphs, changed?: ReadonlySet<string>): Line[] {
+export function renderTreeRows(model: TreeModel, tree: TreeUi, loading: readonly number[], visible: number, width: number, g: Glyphs, changed?: ReadonlySet<string>, decor?: (row: RowModel, selected: boolean) => RowDecor): Line[] {
     const lw = labelWidth(width);
     const vw = Math.max(1, width - lw - 2);
     const top = Math.max(0, Math.min(tree.top, Math.max(0, model.total - visible)));
@@ -118,13 +127,18 @@ export function renderTreeRows(model: TreeModel, tree: TreeUi, loading: readonly
             : row.expandable ? (row.expanded ? g.expanded : g.collapsed)
             : g.leaf;
         const label = padEnd(`${'  '.repeat(row.depth)}${twist} ${row.label}`, lw);
-        const value = padEnd(valueText(row), vw);
+        const deco = decor?.(row, selected) ?? null;
+        const hint = deco?.hint ?? '';
+        const valueWidth = hint === '' ? vw : Math.max(1, vw - hint.length - 4);
+        const value = padEnd(deco?.value ?? valueText(row), valueWidth);
         const matched = inMatch(row, tree.match);
         const marker = selected ? b(g.sel, 'brand') : changed?.has(row.id) === true ? b(g.edited, 'warn') : t(' ');
         const labelSpan = selected ? b(label, matched ? 'brand' : undefined) : matched ? b(label, 'brand') : t(label);
-        const isValue = row.leaf !== undefined;
+        const isValue = row.leaf !== undefined || deco?.value !== undefined;
         const valueSpan = isValue ? (selected ? b(value) : t(value)) : d(value);
-        lines.push([marker, labelSpan, valueSpan]);
+        const line: Line = [marker, labelSpan, valueSpan];
+        if (hint !== '') line.push(t(padEnd('', vw - valueWidth - hint.length)), deco?.tone === 'muted' || deco?.tone === undefined ? d(hint) : b(hint, deco.tone));
+        lines.push(line);
     }
     return withScrollbar(lines, width, model.total, visible, top, g);
 }
@@ -183,13 +197,19 @@ export function treeContext(state: TuiState): TreeContext | null {
     const shown = viewDataset(state);
     const v = state.view;
     if (shown === null || (v.kind !== 'task' && v.kind !== 'input')) return null;
-    const visible = Math.max(1, layoutOf(state).bodyRows - TREE_CHROME_ROWS);
+    let data = state.data.dataset[shown.ws]?.[shown.path];
+    const edit = state.edit;
+    const editingHere = edit !== null && edit.ws === shown.ws && edit.path === shown.path;
+    // While editing, the tree shows the draft (the base plus the pending ops).
+    if (editingHere && data !== undefined) data = { ...data, mode: { kind: 'inline', root: edit.root, value: edit.draft } };
+    const banner = editingHere && edit.conflict !== null ? 1 : 0;
+    const visible = Math.max(1, layoutOf(state).bodyRows - TREE_CHROME_ROWS - banner);
     return {
         ws: shown.ws,
         path: shown.path,
         editable: shown.editable,
         tree: v.tree,
-        data: state.data.dataset[shown.ws]?.[shown.path],
+        data,
         visible,
         setTree: (tree) => ({ ...v, tree }),
     };
