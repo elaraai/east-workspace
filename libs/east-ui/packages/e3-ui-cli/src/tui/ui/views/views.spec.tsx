@@ -78,6 +78,13 @@ describe('help', () => {
         const lines = mounted.lines();
         assert.match(lines[0]!, /^ e3-ui  demo-repo › main › forecast/);
         assert.match(lines[2]!, /^ HELP\s+1 Everywhere\s+2 Repos\s+3 Workspaces\s+4 Dashboard\s+▌5 Task▐\s+6 Input\s+esc back$/);
+        await mounted.press(KEY.right);
+        assert.match(mounted.lines()[2]!, /▌6 Input▐/);
+        await mounted.press(KEY.tab);
+        assert.match(mounted.lines()[2]!, /▌1 Everywhere▐/, 'wraps around');
+        await mounted.press(KEY.shiftTab);
+        assert.match(mounted.lines()[2]!, /▌6 Input▐/);
+        await mounted.press('5');
         assert.match(lines[4]!, /^ COMMANDS\s+KEYS · VALUE TREE\s+KEYS · STDOUT \/ STDERR/);
         assert.match(mounted.frame(), /\/find <"key">\s+exact key/);
         assert.match(mounted.frame(), /⇧←\s+collapse subtree/);

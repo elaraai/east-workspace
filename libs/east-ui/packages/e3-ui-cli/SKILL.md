@@ -102,10 +102,10 @@ concurrency 4`); a confirmation is the same command re-run with `--force`.
 
 | Where | Keys |
 |---|---|
-| everywhere | `?` help · `q` `^c` quit · `esc` `⌫` back · `/` a command · `1 2 3 …` tabs · `R` refresh · `tab` next pane |
+| everywhere | `?` help · `q` `^c` quit · `esc` `⌫` back · `/` a command · `1 2 3 …` tabs · `tab` `⇧tab` next / prev tab · `R` refresh |
 | lists | `↑↓ j k` move · `pgup pgdn ^u ^d` page · `gg G` top / bottom · `⏎ →` open · `r` `/run` · `x` `/stop` · `w` workspaces |
 | value tree | `→ l` expand or next · `← h` collapse or parent · `⏎ space` toggle · `⇧←` collapse deep · `n N` next / prev match · `s` save |
-| stdout / stderr | `↑↓` scroll (pauses follow) · `G` end · `F` follow · `2` `3` the other stream · `s` save · `c` copy (OSC 52) · `n N` matches |
+| stdout / stderr | `↑↓` scroll (pauses follow) · `G` end · `F` follow · `← →` `tab` the other tabs · `s` save · `c` copy (OSC 52) · `n N` matches |
 | inputs | `e` edit · `a` add · `x` remove · `t` tag / set · `⏎` apply all · `esc` discard · in an editor: `⏎` commit · `esc` cancel · `space` toggles a boolean |
 | mouse | wheel scrolls the pane under the cursor · click selects (on `▸` toggles) · drag the scrollbar thumb · click tabs, crumbs, pills, completion rows · `--no-mouse` |
 

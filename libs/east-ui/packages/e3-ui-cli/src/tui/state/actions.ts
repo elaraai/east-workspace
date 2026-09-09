@@ -115,6 +115,12 @@ export function isLogTab(tab: TaskTab): tab is 'stdout' | 'stderr' {
     return tab === 'stdout' || tab === 'stderr';
 }
 
+/** The tabs of a task, in strip order (`reads` only for a `ui` task). */
+export function taskTabsOf(state: TuiState, ws: string, task: string): TaskTab[] {
+    const ui = (state.data.taskList[ws] ?? []).some(x => x.name === task && x.kind.type === 'some' && x.kind.value === 'ui');
+    return ui ? ['output', 'stdout', 'stderr', 'runs', 'reads'] : ['output', 'stdout', 'stderr', 'runs'];
+}
+
 /** The help view's tabs — one per page, plus what works everywhere. */
 export type HelpTab = 'everywhere' | 'repos' | 'workspaces' | 'dashboard' | 'task' | 'input';
 

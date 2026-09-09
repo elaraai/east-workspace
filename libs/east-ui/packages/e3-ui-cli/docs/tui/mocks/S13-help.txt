@@ -5,7 +5,7 @@
  COMMANDS                                KEYS · EVERYWHERE                       KEYS · VALUE TREE                      
  /task <name>       open a task          ?  help          q  quit                ↑↓ j k  move        → l  expand        
  /input <name>      open an input        esc  back        ⌫  back                ← h  collapse       ⏎  toggle          
- /workspace <name>  switch workspace     tab ⇧tab  next/prev pane                ⇧←  collapse subtree                   
+ /workspace <name>  switch workspace     tab ⇧tab  next/prev tab                 ⇧←  collapse subtree                   
  /run [--force] [--filter g]  run        1 2 3  tabs                             pgup pgdn ^u ^d  page                  
  /stop              cancel the dataflow  r  run    x  stop                       gg G  top / bottom                     
  /logs <task> [stderr]                   w  workspaces                           s  save .beast2                        

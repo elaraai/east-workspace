@@ -26,8 +26,14 @@ describe('keymap: everywhere', () => {
         assert.deepEqual(resolve('', key({ escape: true }), ctx()), { kind: 'back' });
         assert.deepEqual(resolve('', key({ backspace: true }), ctx()), { kind: 'back' });
         assert.deepEqual(resolve('R', key(), ctx()), { kind: 'refresh' });
-        assert.deepEqual(resolve('', key({ tab: true }), ctx()), { kind: 'nextPane', reverse: false });
-        assert.deepEqual(resolve('', key({ tab: true, shift: true }), ctx()), { kind: 'nextPane', reverse: true });
+        assert.equal(resolve('', key({ tab: true }), ctx()), null, 'no tabs, nothing to cycle');
+        assert.deepEqual(resolve('', key({ tab: true }), ctx({ tabs: 3 })), { kind: 'tab.cycle', delta: 1 });
+        assert.deepEqual(resolve('', key({ tab: true, shift: true }), ctx({ tabs: 3 })), { kind: 'tab.cycle', delta: -1 });
+        // The arrows cycle tabs only where no content claims them.
+        assert.deepEqual(resolve('', key({ rightArrow: true }), ctx({ tabs: 6, scope: 'none' })), { kind: 'tab.cycle', delta: 1 });
+        assert.deepEqual(resolve('', key({ leftArrow: true }), ctx({ tabs: 4, scope: 'logs' })), { kind: 'tab.cycle', delta: -1 });
+        assert.deepEqual(resolve('', key({ rightArrow: true }), ctx({ tabs: 4, scope: 'tree' })), { kind: 'expand' });
+        assert.deepEqual(resolve('', key({ rightArrow: true }), ctx({ tabs: 4, scope: 'list' })), { kind: 'open' });
         assert.deepEqual(resolve('/', key(), ctx()), { kind: 'type', text: '/' });
         assert.deepEqual(resolve('2', key(), ctx({ tabs: 3 })), { kind: 'tab', index: 1 });
         assert.deepEqual(resolve('4', key(), ctx({ tabs: 3 })), { kind: 'type', text: '4' });

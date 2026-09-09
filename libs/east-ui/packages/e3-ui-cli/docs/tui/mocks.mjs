@@ -464,7 +464,7 @@ function taskShell({ tab = 'Output', body, command = CMD_IDLE, footer, running =
     col('COMMANDS', 'KEYS · EVERYWHERE', 'KEYS · VALUE TREE'),
     col('/task <name>       open a task', '?  help          q  quit', '↑↓ j k  move        → l  expand'),
     col('/input <name>      open an input', 'esc  back        ⌫  back', '← h  collapse       ⏎  toggle'),
-    col('/workspace <name>  switch workspace', 'tab ⇧tab  next/prev pane', '⇧←  collapse subtree'),
+    col('/workspace <name>  switch workspace', 'tab ⇧tab  next/prev tab', '⇧←  collapse subtree'),
     col('/run [--force] [--filter g]  run', '1 2 3  tabs', 'pgup pgdn ^u ^d  page'),
     col('/stop              cancel the dataflow', 'r  run    x  stop', 'gg G  top / bottom'),
     col('/logs <task> [stderr]', 'w  workspaces', 's  save .beast2'),

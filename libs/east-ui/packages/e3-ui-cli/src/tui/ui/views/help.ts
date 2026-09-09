@@ -63,4 +63,4 @@ export function renderHelp(state: TuiState, ctx: RenderCtx): Line[] {
 }
 
 /** The help hints. */
-export const helpHints = { left: '1-6 tabs   ← →   esc back', right: '' };
+export const helpHints = { left: '1-6 tabs   tab ⇧tab   ← →   esc back', right: '' };

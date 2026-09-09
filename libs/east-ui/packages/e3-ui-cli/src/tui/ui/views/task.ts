@@ -19,7 +19,7 @@ import { registerListModel } from '../../model/index.js';
 import { registerViewHooks } from '../../controller.js';
 import { latestPerTask } from './dashboard.js';
 import { agoShort, displayWidth, formatDuration, formatInt, formatSize, hashMid, hashShort, hashTiny } from '../../render/text.js';
-import { isLogTab, type DatasetData, type TaskTab, type TuiState } from '../../state/actions.js';
+import { isLogTab, taskTabsOf, type DatasetData, type TaskTab, type TuiState } from '../../state/actions.js';
 import { countLines } from '../../data/logs.js';
 import { blank, d, b, lrLine, rule, t, type Line, type RenderCtx } from '../lines.js';
 import { centredBlock, tabStrip, tabStripHits } from '../shell/widgets.js';
@@ -32,8 +32,7 @@ import { registerView } from './index.js';
 
 /** The tabs of a task (`reads` only for a `ui` task). */
 export function taskTabs(state: TuiState, ws: string, task: string): TaskTab[] {
-    const ui = (state.data.taskList[ws] ?? []).some(x => x.name === task && x.kind.type === 'some' && x.kind.value === 'ui');
-    return ui ? ['output', 'stdout', 'stderr', 'runs', 'reads'] : ['output', 'stdout', 'stderr', 'runs'];
+    return taskTabsOf(state, ws, task);
 }
 
 const TAB_LABELS: Record<TaskTab, string> = { output: 'Output', stdout: 'Stdout', stderr: 'Stderr', runs: 'Runs', reads: 'Reads' };

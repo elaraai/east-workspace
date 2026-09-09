@@ -43,7 +43,7 @@ export type KeyAction =
     | { kind: 'help' }
     | { kind: 'refresh' }
     | { kind: 'tab'; index: number }
-    | { kind: 'nextPane'; reverse: boolean }
+    | { kind: 'tab.cycle'; delta: 1 | -1 }
     | { kind: 'prefill'; text: string }
     | { kind: 'type'; text: string }
     | { kind: 'expand' }
@@ -163,9 +163,17 @@ export function resolve(input: string, key: Key, ctx: KeyContext): KeyAction | n
     if (input === '?') return { kind: 'help' };
     if (input === 'q') return { kind: 'quit' };
     if (input === 'R') return { kind: 'refresh' };
-    if (key.tab) return { kind: 'nextPane', reverse: key.shift };
     if (input === '/') return { kind: 'type', text: '/' };
-    if (ctx.tabs > 0 && /^[1-9]$/.test(input) && Number(input) <= ctx.tabs) return { kind: 'tab', index: Number(input) - 1 };
+    if (ctx.tabs > 0) {
+        if (/^[1-9]$/.test(input) && Number(input) <= ctx.tabs) return { kind: 'tab', index: Number(input) - 1 };
+        // `tab` / `⇧tab` cycle the tabs everywhere; `←` / `→` only where no content claims the
+        // arrows (the help view, a log stream) — a tree expands / collapses, a list opens on `→`.
+        if (key.tab) return { kind: 'tab.cycle', delta: key.shift ? -1 : 1 };
+        if (ctx.scope === 'none' || ctx.scope === 'logs') {
+            if (key.rightArrow) return { kind: 'tab.cycle', delta: 1 };
+            if (key.leftArrow) return { kind: 'tab.cycle', delta: -1 };
+        }
+    }
 
     // -- pending prefixes (`gg`) --------------------------------------------
     if (ctx.pendingKey === 'g') {

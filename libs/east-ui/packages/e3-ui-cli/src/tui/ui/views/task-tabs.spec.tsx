@@ -90,6 +90,17 @@ describe('the task view — Stdout / Stderr', () => {
         assert.match(lines[35]!, /F follow ○ off/);
         await mounted.press('G');
         assert.match(mounted.lines()[30]!, /^    40  \[info\] line 40/);
+        // tab / ⇧tab cycle the tabs; on a stream tab the arrows do too; on Output → expands instead.
+        await mounted.press(KEY.tab);
+        assert.match(mounted.lines()[2]!, /▌3 Stderr \(12\)▐/);
+        await mounted.press(KEY.left);
+        assert.match(mounted.lines()[2]!, /▌2 Stdout▐/);
+        await mounted.press(KEY.shiftTab);
+        assert.match(mounted.lines()[2]!, /▌1 Output▐/);
+        await mounted.press(KEY.right);
+        assert.match(mounted.lines()[2]!, /▌1 Output▐/);
+        await mounted.press(KEY.shiftTab);
+        assert.match(mounted.lines()[2]!, /▌4 Runs▐/, 'wraps around');
     });
 
     test('/find holds matches with n / N until esc; c copies; /save writes the stream', async () => {

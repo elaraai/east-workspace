@@ -22,12 +22,12 @@ import { resolve as resolveKey, type KeyAction, type KeyContext } from './input/
 import { isMouseInput, parseSgr, type MouseEvent } from './input/mouse.js';
 import { hitAt, lastFrame, paneTopFromRow, type HitTarget } from './ui/frame.js';
 import { buildCatalogue } from './model/catalogue.js';
-import { helpTabFor } from './model/help.js';
+import { HELP_TABS, helpTabFor } from './model/help.js';
 import { listModel } from './model/index.js';
 import type { Glyphs } from './render/glyphs.js';
 import type { Size } from './render/layout.js';
 import type { Tone } from './render/theme.js';
-import { inputView, isLogTab, taskView, type Action, type TaskTab, type TuiState, type View } from './state/actions.js';
+import { inputView, isLogTab, taskTabsOf, taskView, type Action, type TaskTab, type TuiState, type View } from './state/actions.js';
 import { dirtyCount } from './state/reducer.js';
 import type { Persister } from './state/persist.js';
 import { repoEntry } from './state/persist.js';
@@ -176,7 +176,7 @@ export function createController(deps: ControllerDeps): Controller {
                     : v.kind === 'input' ? 'tree'
                     : 'none',
                 editable: v.kind === 'input',
-                tabs: v.kind === 'task' ? (v.reads !== undefined && (s.data.taskList[v.ws] ?? []).some(t => t.name === v.task && t.kind.type === 'some' && t.kind.value === 'ui') ? 5 : 4) : v.kind === 'help' ? 6 : 0,
+                tabs: v.kind === 'task' ? taskTabsOf(s, v.ws, v.task).length : v.kind === 'help' ? HELP_TABS.length : 0,
                 pendingKey: s.pendingKey,
             };
             const action = resolveKey(input, key, ctx);
@@ -303,14 +303,23 @@ export function createController(deps: ControllerDeps): Controller {
                 if (action.submit) void controller.execute(state().command.text);
                 return;
             }
-            case 'nextPane': return;
             case 'tab': {
                 if (s.view.kind === 'help') {
-                    const tabs = ['everywhere', 'repos', 'workspaces', 'dashboard', 'task', 'input'] as const;
-                    dispatch({ type: 'help/tab', tab: tabs[action.index] ?? 'everywhere' });
+                    dispatch({ type: 'help/tab', tab: HELP_TABS[action.index]?.tab ?? 'everywhere' });
                 } else if (s.view.kind === 'task') {
-                    const tabs: TaskTab[] = ['output', 'stdout', 'stderr', 'runs', 'reads'];
-                    dispatch({ type: 'task/tab', tab: tabs[action.index] ?? 'output' });
+                    dispatch({ type: 'task/tab', tab: taskTabsOf(s, s.view.ws, s.view.task)[action.index] ?? 'output' });
+                }
+                return;
+            }
+            case 'tab.cycle': {
+                const wrap = (i: number, n: number): number => ((i + action.delta) % n + n) % n;
+                if (s.view.kind === 'help') {
+                    const tab = s.view.tab;
+                    const i = Math.max(0, HELP_TABS.findIndex(x => x.tab === tab));
+                    dispatch({ type: 'help/tab', tab: HELP_TABS[wrap(i, HELP_TABS.length)]!.tab });
+                } else if (s.view.kind === 'task') {
+                    const tabs = taskTabsOf(s, s.view.ws, s.view.task);
+                    dispatch({ type: 'task/tab', tab: tabs[wrap(Math.max(0, tabs.indexOf(s.view.tab)), tabs.length)]! });
                 }
                 return;
             }
