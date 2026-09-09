@@ -9,9 +9,13 @@
  * rather than the test runner's. Both mount a dashboard through Ink's real
  * `render()` and print one JSON line. Test-only.
  *
- *   node dist/tui/testing/perf-probe.js keypress <tasks> <inputs>
- *     → { mode, tasks, inputs, ms, env }
- *     the CPU one arrow-down keypress costs, keys 40 ms apart as a held key repeats
+ *   node dist/tui/testing/perf-probe.js keypress
+ *     → { mode, reference, fixtures: [{ tasks, inputs, ms }], env }
+ *     the CPU one arrow-down keypress costs on a six-task and a 250-task
+ *     dashboard, keys 40 ms apart as a held key repeats — and `reference`, the
+ *     CPU a fixed workload takes on this machine, so the spec can scale the
+ *     design's budget to the machine it runs on (a shared CI runner is about
+ *     half the speed of the box the budget was set on)
  *
  *   node --expose-gc dist/tui/testing/perf-probe.js idle <tasks> <inputs> <polls>
  *     → { mode, tasks, inputs, polls, growthKB, perPollKB, measures, marks, gc, env }
@@ -42,6 +46,49 @@ const POLL_GAP_MS = 20;
 const WARM_POLLS = 20;
 
 const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+/** The workspaces the keypress budget is measured on: the issue's six-task and 250-task fixtures. */
+const KEYPRESS_FIXTURES: readonly { tasks: number; inputs: number }[] = [{ tasks: 6, inputs: 4 }, { tasks: 250, inputs: 50 }];
+
+/**
+ * A fixed workload independent of the code under test — strings padded and
+ * joined into a 40-line frame, a map of 300 names read back and sorted, 150
+ * times — that calibrates the machine: `perf.spec.tsx` holds its CPU time on
+ * the box the design's budget was set on, and scales the budget by the ratio.
+ *
+ * @returns A checksum, so the work cannot be optimized away
+ */
+export function referenceWork(): number {
+    let acc = 0;
+    for (let round = 0; round < 150; round++) {
+        const lines: string[] = [];
+        for (let r = 0; r < 40; r++) {
+            const spans: string[] = [];
+            for (let s = 0; s < 8; s++) spans.push(`cell ${r}:${s} ${round}`.padEnd(15, ' '));
+            lines.push(spans.join(''));
+        }
+        acc += lines.join('\n').length;
+        const index = new Map<string, number>();
+        for (let i = 0; i < 300; i++) index.set(`task_${i}`, i * round);
+        for (const [key, value] of index) acc += key.length + (value & 7);
+        acc += [...index.keys()].sort()[0]!.length;
+    }
+    return acc;
+}
+
+/** Milliseconds of CPU {@link referenceWork} takes on this machine (the best of five runs). */
+export function referenceMs(): number {
+    let best = Number.POSITIVE_INFINITY;
+    let sink = 0;
+    for (let i = 0; i < 5; i++) {
+        const before = process.cpuUsage();
+        sink += referenceWork();
+        const used = process.cpuUsage(before);
+        best = Math.min(best, (used.user + used.system) / 1_000);
+    }
+    if (sink === 0) throw new Error('the reference workload produced nothing');
+    return best;
+}
 
 /**
  * Milliseconds of CPU one arrow-down keypress costs on a dashboard of
@@ -141,14 +188,21 @@ export async function idleHeap(tasks: number, inputs: number, polls: number): Pr
 }
 
 const mode = process.argv[2] ?? 'keypress';
-const tasks = Number(process.argv[3] ?? '6');
-const inputs = Number(process.argv[4] ?? '4');
 const env = process.env['NODE_ENV'] ?? '';
 if (mode === 'idle') {
+    const tasks = Number(process.argv[3] ?? '50');
+    const inputs = Number(process.argv[4] ?? '10');
     const polls = Number(process.argv[5] ?? '200');
     const result = await idleHeap(tasks, inputs, polls);
     process.stdout.write(`${JSON.stringify({ mode, tasks, inputs, polls, ...result, env })}\n`);
 } else {
-    const ms = await cpuPerKeypress(tasks, inputs);
-    process.stdout.write(`${JSON.stringify({ mode, tasks, inputs, ms, env })}\n`);
+    // The reference is taken around each fixture (the least contended moment wins),
+    // so the scale reflects the machine as it was while the keys were measured.
+    let reference = referenceMs();
+    const fixtures: { tasks: number; inputs: number; ms: number }[] = [];
+    for (const { tasks, inputs } of KEYPRESS_FIXTURES) {
+        fixtures.push({ tasks, inputs, ms: await cpuPerKeypress(tasks, inputs) });
+        reference = Math.min(reference, referenceMs());
+    }
+    process.stdout.write(`${JSON.stringify({ mode, reference, fixtures, env })}\n`);
 }
