@@ -6,21 +6,21 @@
 /**
  * The design's budgets (DESIGN_TUI.md §17), measured by
  * `testing/perf-probe.ts` in a child process under `NODE_ENV=production`
- * — the build the bin runs — through Ink's real `render()`: CPU per
- * arrow-down keypress at 120×40 on a six-task and a 250-task workspace,
- * and the heap an idle dashboard retains per poll (nothing: the
- * development build's per-render `performance.measure()` entries, which
- * Node never frees, are absent).
+ * — the build the bin runs — through Ink's real `render()`.
  *
- * The keypress budget is stated at a reference speed. The probe also times
- * a fixed workload independent of the code under test; the budget scales
- * by this machine's ratio to the box the budget was set on (a shared CI
- * runner is about half the speed), with a quarter allowed for measurement
- * noise. A second assertion pins what the dashboard fix guarantees
- * regardless of the machine: the 250-task keypress costs at most 2.5× the
- * six-task one — the cost follows the screen, not the workspace. A failure
- * prints the measured numbers. The tests are named `perf:` so
- * `--test-name-pattern` can select or skip them.
+ * Two kinds, deliberately apart. The **memory** gate is deterministic and
+ * runs everywhere: an idle dashboard must leave Node's user-timing buffer
+ * empty (the signature of the development build's leak — a
+ * `performance.measure()` per component render that Node never frees) and
+ * retain nothing per poll, with a bound far above the jitter of a forced
+ * collection and far below the leak. The **timing** gates — CPU per
+ * arrow-down keypress at 120×40 on a six-task and a 250-task workspace —
+ * are opt-in (`E3_UI_PERF=1`) and skipped otherwise: a shared CI runner
+ * does not measure time reliably, and a gate that fails on a slow moment
+ * is worse than none. They are stated at a reference speed and scaled by
+ * a fixed calibration workload, so a slower machine reads the same budget.
+ * Every failure prints the measured numbers. The tests are named `perf:`
+ * so `--test-name-pattern` can select them.
  */
 
 import { test, describe, before } from 'node:test';
@@ -29,6 +29,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { IdleHeap } from './testing/perf-probe.js';
+
+/** Whether the timing budgets run (`E3_UI_PERF=1`). */
+const timing = process.env['E3_UI_PERF'] === '1';
 
 /** CPU per keypress at most, in milliseconds, at the reference speed (§17: a frame in 16 ms). */
 const BUDGET_MS = 16;
@@ -40,8 +43,13 @@ const NOISE = 1.25;
 const SIZE_RATIO = 2.5;
 /** Idle polls measured. */
 const IDLE_POLLS = 200;
-/** Heap retained over those polls at most, in KiB (the development build retains ~135 KiB per poll). */
-const IDLE_GROWTH_KB = 2_048;
+/**
+ * Heap retained over those polls at most, in KiB. A forced collection leaves
+ * a heap that differs by a couple of MiB from one point to the next (−2.4 MiB
+ * measured on an unchanged frame); the development build's leak is 22 MiB
+ * over these polls.
+ */
+const IDLE_GROWTH_KB = 8_192;
 
 /** What the probe's keypress mode reports. */
 interface KeypressReport {
@@ -64,7 +72,17 @@ function probe<T>(args: string[], nodeFlags: string[] = []): T & { env: string }
     return parsed;
 }
 
-describe('perf budgets (DESIGN_TUI.md §17)', () => {
+describe('perf budgets — memory (DESIGN_TUI.md §17)', () => {
+    test('perf: an idle dashboard retains nothing per poll and logs no user-timing entries', () => {
+        const idle = probe<IdleHeap>(['idle', '50', '10', String(IDLE_POLLS)], ['--expose-gc']);
+        assert.equal(idle.gc, true, 'the growth is measured after a forced GC');
+        assert.equal(idle.measures, 0, `${idle.measures} performance.measure() entries after ${IDLE_POLLS} polls — the development build's per-render instrumentation is back`);
+        assert.equal(idle.marks, 0, `${idle.marks} performance.mark() entries after ${IDLE_POLLS} polls`);
+        assert.ok(idle.growthKB <= IDLE_GROWTH_KB, `${idle.growthKB.toFixed(0)} KiB retained over ${IDLE_POLLS} idle polls (${idle.perPollKB.toFixed(1)} KiB per poll), at most ${IDLE_GROWTH_KB} KiB`);
+    });
+});
+
+describe('perf budgets — timing (E3_UI_PERF=1; not a CI gate)', { skip: !timing }, () => {
     let report: KeypressReport | null = null;
     before(() => { report = probe<KeypressReport>(['keypress']); });
 
@@ -87,13 +105,5 @@ describe('perf budgets (DESIGN_TUI.md §17)', () => {
         const small = report!.fixtures.find(f => f.tasks === 6)!;
         const large = report!.fixtures.find(f => f.tasks === 250)!;
         assert.ok(large.ms <= SIZE_RATIO * small.ms, `250 tasks: ${large.ms.toFixed(1)} ms against ${small.ms.toFixed(1)} ms on six tasks (${(large.ms / small.ms).toFixed(2)}×)`);
-    });
-
-    test('perf: an idle dashboard retains nothing per poll and logs no user-timing entries', () => {
-        const idle = probe<IdleHeap>(['idle', '50', '10', String(IDLE_POLLS)], ['--expose-gc']);
-        assert.equal(idle.gc, true, 'the growth is measured after a forced GC');
-        assert.equal(idle.measures, 0, `${idle.measures} performance.measure() entries after ${IDLE_POLLS} polls — the development build's per-render instrumentation is back`);
-        assert.equal(idle.marks, 0, `${idle.marks} performance.mark() entries after ${IDLE_POLLS} polls`);
-        assert.ok(idle.growthKB <= IDLE_GROWTH_KB, `${idle.growthKB.toFixed(0)} KiB retained over ${IDLE_POLLS} idle polls (${idle.perPollKB.toFixed(1)} KiB per poll), at most ${IDLE_GROWTH_KB} KiB`);
     });
 });
