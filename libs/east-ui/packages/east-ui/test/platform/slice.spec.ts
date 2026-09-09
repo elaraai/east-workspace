@@ -21,7 +21,7 @@ import {
     ArrayType,
 } from "@elaraai/east";
 import { type ExprType } from "@elaraai/east";
-import { Slice, SliceApplyImpl, sliceBreakdown, sliceSeries } from "@elaraai/east-ui/internal";
+import { Slice, SliceApplyImpl, sliceBreakdown, sliceFields, sliceFieldText, sliceSeries } from "@elaraai/east-ui/internal";
 import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./slice.examples.js";
 
@@ -950,6 +950,42 @@ describeEast("Slice", (test) => {
         $(Assert.equal(Slice.apply.matches([RowType], state, cfg, r), false));
     });
 
+    test("config: a non-String field is a search-only `text` field — searched through its printed text by default, or through the `text` projection the declaration names", $ => {
+        const StationType = StructType({ code: StringType, n: IntegerType });
+        const RowType = StructType({ activity: StringType, station: StationType, plan: StationType });
+        // `station` has no primitive kind: it prints. `plan` names a projection.
+        const cfg = $.let(Slice.config(RowType, {
+            fields: {
+                activity: { label: "Activity" },
+                station:  { label: "Station" },
+                plan:     { label: "Plan", text: r => East.str`${r.plan.n} x ${r.plan.code}` },
+            },
+        }));
+        $(Assert.equal(cfg.fields.get("activity").getTag(), "string"));
+        $(Assert.equal(cfg.fields.get("station").getTag(), "text"));
+        $(Assert.equal(cfg.fields.get("plan").getTag(), "text"));
+        // Every string AND text field is searched by default.
+        $(Assert.equal(cfg.searchFieldIds.length(), 3n));
+        const row = $.const(East.value({ activity: "Machining", station: { code: "M2140", n: 1n }, plan: { code: "CNC lathe", n: 4n } }, RowType));
+        const printed = $.const(Slice.state({ search: some("m2140") }));           // the station's `.east` text
+        const projected = $.const(Slice.state({ search: some("4 x cnc lathe") }));  // the plan's display form
+        const value = $.const(Slice.state({ search: some("machining") }));
+        const nothing = $.const(Slice.state({ search: some("assembly") }));
+        $(Assert.equal(Slice.apply.matches([RowType], printed, cfg, row), true));
+        $(Assert.equal(Slice.apply.matches([RowType], projected, cfg, row), true));
+        $(Assert.equal(Slice.apply.matches([RowType], value, cfg, row), true));
+        $(Assert.equal(Slice.apply.matches([RowType], nothing, cfg, row), false));
+        // Only the projected field searched: the projection replaces the `.east`
+        // text, so a field NAME of the struct never matches.
+        const only = $.let(Slice.config(RowType, {
+            fields: { plan: { label: "Plan", text: r => East.str`${r.plan.n} x ${r.plan.code}` } },
+            searchFieldIds: ["plan"],
+        }));
+        const fieldName = $.const(Slice.state({ search: some("code") }));
+        $(Assert.equal(Slice.apply.matches([RowType], fieldName, only, row), false));
+        $(Assert.equal(Slice.apply.matches([RowType], projected, only, row), true));
+    });
+
     // =======================================================================
     // Combinations — every narrowing composes as a strict AND. The "search does
     // weird stuff" class of bugs lives in how search interacts with the rest.
@@ -1369,6 +1405,22 @@ const engineConfig: EngineConfig = {
     searchFieldIds: [],
     breakdownFieldIds: ["when", "region"],
 };
+
+pureTest("a text field is searched through its projection (fail-open) and never listed as a filterable field", () => {
+    const fields = new Map<string, unknown>([
+        ["activity", variant("string", { label: "Activity", accessor: (r: { activity: string }) => r.activity, format: none })],
+        ["stations", variant("text", { label: "Work centres", accessor: (r: { stations: string[] }) => r.stations.join(" > "), format: none })],
+        ["broken",   variant("text", { label: "Broken", accessor: () => { throw new Error("no"); }, format: none })],
+    ]);
+    const config = { ...engineConfig, fields: fields as EngineConfig["fields"], searchFieldIds: ["activity", "stations", "broken"] };
+    const row = { activity: "Machining", stations: ["M2140", "M2141"] };
+    nodeAssert.equal(sliceFieldText(config, "activity", row), "Machining");
+    nodeAssert.equal(sliceFieldText(config, "stations", row), "M2140 > M2141");
+    nodeAssert.equal(sliceFieldText(config, "broken", row), undefined);
+    nodeAssert.equal(sliceFieldText(config, "missing", row), undefined);
+    // The predicate builder's field list skips the text fields.
+    nodeAssert.deepEqual(sliceFields(config).map(f => f.fieldId), ["activity"]);
+});
 
 pureTest("sliceSeries keys Date groups by ISO — identical to sliceBreakdown — and the legend whitelist controls exactly one series", () => {
     const d1 = new Date("2026-01-02T00:00:00Z");

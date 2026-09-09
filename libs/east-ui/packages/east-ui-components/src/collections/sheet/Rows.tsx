@@ -10,17 +10,20 @@
  * range wash, a pending fill as a grey ghost over the brand hatch, the
  * next-target dotted underline, the ✓ take button on hover, and the overlay
  * editor. Blank padding rows draw empty cells. A paged source's unloaded run
- * draws as a band with its element count. A proposed row (B§5.2) draws
- * dashed-topped and hatched with real numbers, its gutter carrying ✓ and ×.
+ * draws as a band with its element count; a run the lens hides (B§8) as a
+ * band whose pill opens the rows a few at a time. A proposed row (B§5.2)
+ * draws dashed-topped and hatched with real numbers, its gutter carrying ✓
+ * and ×.
  */
 
 import { memo, type MouseEvent, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowRightLong, faCheck, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faAngleDown, faAngleUp, faArrowRightLong, faCheck, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { getSomeorUndefined } from "../../utils.js";
 import { cellIsBlank, driverKeyOf, resolveMember, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
 import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
+import type { LensGap } from "./lens.js";
 import type { PendingFill } from "./sheet-types.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
 
@@ -50,7 +53,7 @@ export interface SheetRowProps {
     range: { c0: number; c1: number } | undefined;
     /** The whole row is selected (the gutter bar). */
     picked: boolean;
-    /** A lens hit (brand row number) — P5. */
+    /** A lens hit — the brand row number (B§8). */
     hit: boolean;
     /** The editor, when it sits on this row: the column and the element. */
     editor: { c: number; node: ReactNode } | undefined;
@@ -96,7 +99,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 title={hasFills ? "Click the number to select the row · the button fills it" : "Select whole row — delete removes it"}
             >
                 {picked && <Box css={styles.gutterBar} />}
-                <Box as="span" css={styles.gutterNumber} data-hit={hit ? "" : undefined}>{number}</Box>
+                <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber" data-hit={hit ? "" : undefined}>{number}</Box>
                 {hasFills && (
                     <Box
                         as="span"
@@ -211,7 +214,7 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
         >
             <Box css={styles.gutter} data-slot="gutter" onMouseDown={pick} title="Suggested row — ✓ adds it, × rejects it">
                 {picked && <Box css={styles.gutterBar} />}
-                <Box as="span" css={styles.gutterNumber}>{number}</Box>
+                <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber">{number}</Box>
                 <Box
                     as="span"
                     css={styles.gutterButton}
@@ -290,6 +293,56 @@ export const SheetBandRow = memo(function SheetBandRow({ styles, band, loading }
             <Box css={styles.bandRule} aria-hidden="true" />
             <Box as="span" css={styles.bandPill} style={{ position: "sticky", top: "60px", alignSelf: "flex-start", marginTop: "0" }}>
                 {`${n.toLocaleString()} ${loading ? "loading" : "not loaded"}`}
+            </Box>
+        </Box>
+    );
+});
+
+export interface SheetGapRowProps {
+    styles: Styles;
+    gap: LensGap;
+    /** How far each control reaches on its next press (1 · 3 · 10 · all). */
+    reach: { top: number; bottom: number; both: number };
+    onReveal: (gap: LensGap, where: "top" | "bottom" | "both" | "all") => void;
+}
+
+/**
+ * A run the lens hides (B§8): 22 px, a dashed rule, the `n hidden` pill —
+ * hover opens `⌃ +1 · n hidden · +1 ⌄ · all`, each press reaching further
+ * from the top, the bottom, or both.
+ */
+export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onReveal }: SheetGapRowProps) {
+    const press = (where: "top" | "bottom" | "both" | "all") => (e: MouseEvent) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onReveal(gap, where);
+    };
+    const middle = gap.first ? "bottom" : gap.last ? "top" : "both";
+    return (
+        <Box css={styles.band} data-slot="band" data-band="lens" data-gap={gap.key} data-hidden={gap.hidden}>
+            <Box css={styles.bandRule} aria-hidden="true" />
+            <Box as="span" css={styles.bandPill} data-slot="bandPill" data-lens="">
+                {!gap.first && (
+                    <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="top" role="button"
+                        aria-label={`Show ${reach.top} more after row ${gap.from}`} title={`Show the rows just after row ${gap.from}`} onMouseDown={press("top")}>
+                        <FontAwesomeIcon icon={faAngleUp} />
+                        {`+${reach.top}`}
+                    </Box>
+                )}
+                <Box as="span" css={styles.bandCount} data-slot="bandCount" role="button" title="Expand — each click reaches further" onMouseDown={press(middle)}>
+                    {`${gap.hidden.toLocaleString()} hidden`}
+                </Box>
+                {!gap.last && (
+                    <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="bottom" role="button"
+                        aria-label={`Show ${reach.bottom} more before row ${gap.to + 2}`} title={`Show the rows just before row ${gap.to + 2}`} onMouseDown={press("bottom")}>
+                        {`+${reach.bottom}`}
+                        <FontAwesomeIcon icon={faAngleDown} />
+                    </Box>
+                )}
+                <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="all" role="button" aria-label="Show every hidden row" title="Show every hidden row" onMouseDown={press("all")}>
+                    all
+                </Box>
             </Box>
         </Box>
     );

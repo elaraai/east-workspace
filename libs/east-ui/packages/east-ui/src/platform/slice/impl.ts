@@ -33,7 +33,10 @@
  * the field from a row via plain JS property access (`row[fieldId]`). The
  * accessor function declared in `config.fields[fieldId]` is decorative
  * for the apply engine — it exists so East-side consumers (charts, axis
- * draws) can compose against typed accessors when needed.
+ * draws) can compose against typed accessors when needed — with ONE
+ * exception: a `text` field (a non-primitive field, or one with a `text`
+ * projection) is searched through what its accessor prints, because the
+ * raw value is not a String ({@link sliceFieldText}).
  *
  * # Comparison semantics
  *
@@ -246,6 +249,47 @@ interface StateLike {
 }
 
 // ---------------------------------------------------------------------------
+// Search text — what the typeahead reads at a field
+// ---------------------------------------------------------------------------
+
+/** The field kinds the typeahead searches. */
+function isSearchableKind(kind: string | undefined): boolean {
+    return kind === "string" || kind === "text";
+}
+
+/**
+ * A row's SEARCH text at a field: a `string` field's value; a `text` field's
+ * projection — the String its accessor prints (the field's `.east` text, or
+ * the author's `text` accessor); `undefined` for any other kind, an absent
+ * field, or a projection that throws (fail-open: a row the projection cannot
+ * print is simply not a match).
+ *
+ * @param config - The slice config (its `fields` specs)
+ * @param fieldId - The field to read
+ * @param row - The row
+ * @returns The text the search compares, or `undefined` when the field yields none
+ */
+export function sliceFieldText(config: Pick<ConfigLike, "fields">, fieldId: string, row: Record<string, unknown>): string | undefined {
+    const spec = config.fields.get(fieldId);
+    if (spec === undefined) return undefined;
+    if (spec.type === "string") {
+        const v = row[fieldId];
+        return typeof v === "string" ? v : undefined;
+    }
+    if (spec.type === "text") {
+        const accessor = (spec.value as { accessor?: unknown } | null)?.accessor;
+        if (typeof accessor !== "function") return undefined;
+        try {
+            const v = (accessor as (r: unknown) => unknown)(row);
+            return typeof v === "string" ? v : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+    return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // matches — composed AND of every active narrowing
 // ---------------------------------------------------------------------------
 
@@ -267,21 +311,23 @@ export function sliceMatches(state: StateLike, config: ConfigLike, row: Record<s
             if (!predicateMatches(f, row)) return false;
         }
     }
-    // Search — case-insensitive substring across the searchable string fields.
-    // Resolve them the SAME way the suggestion projection (autoDeriveMatches) does:
-    // the configured `searchFieldIds` that are string-typed, else fall back to
-    // every string field. Otherwise a `searchFieldIds` that names only non-string
-    // fields would make the search exclude every row while the dropdown still
-    // offers (fallback) suggestions — a silent dead filter (#129 bug-hunt).
+    // Search — case-insensitive substring across the searchable fields: string
+    // fields by value, `text` fields through their projection. Resolve them the
+    // SAME way the suggestion projection (autoDeriveMatches) does: the
+    // configured `searchFieldIds` that are searchable, else fall back to every
+    // searchable field. Otherwise a `searchFieldIds` that names only
+    // unsearchable fields would make the search exclude every row while the
+    // dropdown still offers (fallback) suggestions — a silent dead filter
+    // (#129 bug-hunt).
     if (state.search.type === "some") {
         const q = (state.search.value as string).toLowerCase();
-        const configured = config.searchFieldIds.filter(id => config.fields.get(id)?.type === "string");
+        const configured = config.searchFieldIds.filter(id => isSearchableKind(config.fields.get(id)?.type));
         const searchable = configured.length > 0
             ? configured
-            : [...config.fields].filter(([, spec]) => (spec as variant).type === "string").map(([id]) => id);
+            : [...config.fields].filter(([, spec]) => isSearchableKind((spec as variant).type)).map(([id]) => id);
         const any = searchable.some(id => {
-            const v = row[id];
-            return typeof v === "string" && v.toLowerCase().includes(q);
+            const text = sliceFieldText(config, id, row);
+            return text !== undefined && text.toLowerCase().includes(q);
         });
         if (!any) return false;
     }
@@ -496,7 +542,9 @@ export function sliceDimensions(config: ConfigLike): Array<{ fieldId: string; la
 // ---------------------------------------------------------------------------
 
 export function sliceFields(config: ConfigLike): Array<{ fieldId: string; label: string; kind: string; hints: string[]; format: variant }> {
-    return [...config.fields.entries()].map(([fieldId, spec]) => {
+    // A `text` field is search-only: it has no operator set, so the predicate
+    // builder never lists it.
+    return [...config.fields.entries()].filter(([, spec]) => (spec as variant).type !== "text").map(([fieldId, spec]) => {
         const kind = (spec as variant).type;
         const payload = (spec as variant).value as { label?: string; format?: variant } | undefined;
         const label = payload?.label ?? fieldId;

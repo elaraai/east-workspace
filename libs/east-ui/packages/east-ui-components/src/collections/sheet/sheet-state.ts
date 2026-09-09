@@ -14,14 +14,18 @@
  * runs.
  *
  * The vocabulary lives in `sheet-types.ts`; the link editor's transitions in
- * `sheet-link-state.ts`; the copilot's in `sheet-suggest-state.ts`; the lens
- * and tabs (P5) extend this file.
+ * `sheet-link-state.ts`; the copilot's in `sheet-suggest-state.ts`; the lens's
+ * and the view tabs' in `sheet-lens-state.ts`.
  *
  * Non-negotiable transition rules (unit-tested as a table in
  * `sheet-state.test.ts`):
  *
  * - **Esc ladder**, one rung per press: editor → chip selection → a selected
- *   proposal → the row fill (rows stay) → every suggestion → range.
+ *   proposal → the row fill (rows stay) → every suggestion → range → a dirty
+ *   tab reverts → a clean tab returns to the sheet.
+ * - **The slice owns the query**: the reducer never stores it; a narrowing
+ *   change resets the reveals; a tab switch is a `slice.write` effect; tabs
+ *   never own rows.
  * - **Tab ladder** (B§4.4 / B§6): the inline ghost or armed candidate → one
  *   predicted chip → hop From → To (a locked half is skipped) → commit right;
  *   with fills pending and no editor: arm the next target, then write it and
@@ -49,6 +53,10 @@ import { linkStartSide, withBuffer, linkChange, linkKey, switchSide } from "./sh
 import {
     suggestKey, escSuggest, fillRow, takeFill, takeProposals, rejectProposal, applyReady, applyLanded, rekeySuggest, clearSuggest, afterRowsChanged,
 } from "./sheet-suggest-state.js";
+import {
+    setContext, bandReveal, narrowed, switchTab, createTab, closeTab, updateTab, revertTab,
+    renameStart, renameChange, renameCommit, renameCancel, reorderTab, escTabs, searchKey,
+} from "./sheet-lens-state.js";
 import type { SheetCellValue } from "./values.js";
 
 export * from "./sheet-types.js";
@@ -175,6 +183,8 @@ function moveDown(s: SheetUiState, ctx: SheetMachineCtx, effects: SheetEffect[])
 
 /** The sheet's keyboard (B§6) — no editor open. */
 function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: SheetMachineCtx): Transition {
+    // ⌘/ and ⌘F focus the rail's search (B§6) — whatever the sheet holds.
+    if (e.meta && (e.key === "/" || e.key === "f")) return { state: s, effects: [{ t: "focus.search" }] };
     if (ctx.rowCount === 0 || ctx.colCount === 0) return { state: s, effects: [] };
     const effects: SheetEffect[] = [];
     const dropPick = (t: Transition): Transition => (t.state.gsel === null ? t : { ...t, state: { ...t.state, gsel: null } });
@@ -208,7 +218,9 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
         case "Escape": {
             const dropped = escSuggest(s);
             if (dropped !== null) return dropped;
-            return { state: s.selEnd === null ? s : { ...s, selEnd: null }, effects };
+            if (s.selEnd !== null) return { state: { ...s, selEnd: null }, effects };
+            const rung = escTabs(s, ctx);
+            return rung ?? { state: s, effects };
         }
         case "Backspace":
         case "Delete": {
@@ -405,6 +417,41 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return takeProposals(s, ctx, e.i);
         case "proposal.reject":
             return rejectProposal(s, ctx, e.i);
+        // ── The lens and the tabs (B§8) ────────────────────────────────────
+        case "lens.context":
+            return { state: setContext(s, e.context), effects: [] };
+        case "band.reveal":
+            return { state: bandReveal(s, e), effects: [] };
+        case "lens.narrowed":
+            return narrowed(s, ctx);
+        case "tab.switch":
+        case "tab.create":
+        case "tab.close": {
+            // A tab gesture commits an open editor in place first.
+            const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
+            const t = e.t === "tab.switch" ? switchTab(closed.state, ctx, e.id)
+                : e.t === "tab.create" ? createTab(closed.state, ctx)
+                    : closeTab(closed.state, ctx, e.id);
+            return { state: t.state, effects: [...closed.effects, ...t.effects] };
+        }
+        case "tab.open":
+            return switchTab(s, ctx, e.id, false);
+        case "tab.update":
+            return updateTab(s, ctx);
+        case "tab.revert":
+            return revertTab(s, ctx);
+        case "tab.rename.start":
+            return { state: renameStart(s, ctx, e.id), effects: [] };
+        case "tab.rename.change":
+            return { state: renameChange(s, e.val), effects: [] };
+        case "tab.rename.commit":
+            return renameCommit(s, ctx);
+        case "tab.rename.cancel":
+            return { state: renameCancel(s), effects: [] };
+        case "tab.reorder":
+            return reorderTab(s, ctx, e.id, e.to);
+        case "search.key":
+            return searchKey(s, ctx, e.key) ?? { state: s, effects: [] };
     }
 }
 
@@ -425,9 +472,9 @@ export type SheetAction =
     /** A direct UI patch from the component (the range after a paste, a message). */
     | { t: "patch"; patch: Partial<SheetUiState> };
 
-/** The initial store. */
-export function initialSheetStore(sel?: CellRef): SheetStore {
-    return { ui: initialSheetState(sel), fx: [], fxSeq: 0 };
+/** The initial store — `active` is the initial view tab, if the sheet opens on one. */
+export function initialSheetStore(sel?: CellRef, active: string | null = null): SheetStore {
+    return { ui: initialSheetState(sel, active), fx: [], fxSeq: 0 };
 }
 
 /**

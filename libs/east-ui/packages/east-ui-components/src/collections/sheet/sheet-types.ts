@@ -7,18 +7,49 @@
  * The state machine's vocabulary (`Sheet Spec.md` §6.1): the UI state, the
  * events the surface reports, the effects a transition returns as data, and
  * the context a transition may ask about the sheet. The transitions live in
- * `sheet-state.ts` (the core), `sheet-link-state.ts` (the link editor) and
- * `sheet-suggest-state.ts` (the copilot); every module imports its types from
- * here so none imports another's functions.
+ * `sheet-state.ts` (the core), `sheet-link-state.ts` (the link editor),
+ * `sheet-suggest-state.ts` (the copilot) and `sheet-lens-state.ts` (the lens
+ * and the view tabs); every module imports its types from here so none
+ * imports another's functions.
  *
  * @packageDocumentation
  */
 
+import type { ValueTypeOf } from "@elaraai/east";
+import type { Slice } from "@elaraai/east-ui/internal";
 import type { SheetKind } from "./model.js";
 import type { ParseOutcome } from "./parse/index.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { LinkHalves } from "./link/sides.js";
-import type { SheetCellValue, SheetMemberValue } from "./values.js";
+import type { SheetCellValue, SheetMemberValue, SheetViewValue } from "./values.js";
+
+/** The slice's narrowing — the decoded `Slice.Types.State` a view snapshots. */
+export type SliceStateValue = ValueTypeOf<typeof Slice.Types.State>;
+
+/** The lens's context band width (B§8): rows shown either side of every hit. */
+export type LensContext = 0 | 1 | 3;
+
+/** The lens over the slice's narrowing (§6.1) — the QUERY itself is slice state, never held here. */
+export interface LensState {
+    /** Rows shown either side of every hit. */
+    context: LensContext;
+    /** Revealed row POSITIONS — a set, so overlapping bands merge and a band keeps its anchor. */
+    reveals: ReadonlySet<number>;
+    /** How far each band control has reached (`${band}:${where}` → presses) — the 1 · 3 · 10 · all escalation. */
+    steps: ReadonlyMap<string, number>;
+}
+
+/** The view tabs' own state (B§8); whether the active tab is dirty is derived by the component from the slice. */
+export interface TabsState {
+    /** The active view's id; `null` = the pinned whole-sheet tab. */
+    active: string | null;
+    /** The next `view n` name's number. */
+    seq: number;
+    /** The tab being renamed, if any. */
+    renaming: string | null;
+    /** The rename buffer. */
+    renameVal: string;
+}
 
 /** The two halves' members. */
 export type LinkGroups = [SheetMemberValue[], SheetMemberValue[]];
@@ -114,6 +145,10 @@ export interface SheetUiState {
     gsel: number | null;
     /** The session's rejection memory. */
     rejected: Rejections;
+    /** The lens over the slice's narrowing. */
+    lens: LensState;
+    /** The view tabs. */
+    tabs: TabsState;
 }
 
 /** A commit direction — where the ring goes after a commit. */
@@ -156,7 +191,34 @@ export type SheetEvent =
     /** ✓ on a proposal row — takes the row fill and the proposals up to it. */
     | { t: "proposal.take"; i: number }
     /** × on a proposal row — rejects it and remembers the pairing. */
-    | { t: "proposal.reject"; i: number };
+    | { t: "proposal.reject"; i: number }
+    // ── The lens and the view tabs (B§8) ──
+    /** The context switch: ±0 / ±1 / ±3 — reveals reset. */
+    | { t: "lens.context"; context: LensContext }
+    /** A band control: reveal rows of the hidden run at positions `from`…`to` (inclusive) from its top, its bottom, both ends, or all of it — each press reaching further (1 · 3 · 10 · all). */
+    | { t: "band.reveal"; key: string; from: number; to: number; where: "top" | "bottom" | "both" | "all" }
+    /** The slice's narrowing changed underneath the lens: reveals reset, the ring returns to the top. */
+    | { t: "lens.narrowed" }
+    /** A tab is picked (`null` = the whole sheet): the leaving tab keeps its context and reveals, an unsaved query is discarded. */
+    | { t: "tab.switch"; id: string | null }
+    /** A tab opens WITHOUT persisting the one it leaves — the initial `activeView`. */
+    | { t: "tab.open"; id: string }
+    /** `+ TAB` — snapshot the current narrowing, context and reveals as a view. */
+    | { t: "tab.create" }
+    /** × or a middle click — the active tab falls back to the sheet. */
+    | { t: "tab.close"; id: string }
+    /** ⏎ with a dirty tab: the tab now saves the current narrowing. */
+    | { t: "tab.update" }
+    /** esc with a dirty tab: the slice returns to the tab's saved narrowing. */
+    | { t: "tab.revert" }
+    | { t: "tab.rename.start"; id: string }
+    | { t: "tab.rename.change"; val: string }
+    | { t: "tab.rename.commit" }
+    | { t: "tab.rename.cancel" }
+    /** A tab dropped before the tab at `to` (`to` = the count appends). */
+    | { t: "tab.reorder"; id: string; to: number }
+    /** A key in the rail's search box the tabs claim: ⏎ updates a dirty tab; esc reverts a dirty tab, returns a clean one to the sheet, or clears the search. */
+    | { t: "search.key"; key: string };
 
 /** Where an edit came from (the wire `SheetSourceType` tags). */
 export type EditSource = "typed" | "pasted" | "fill" | "row" | "pattern";
@@ -184,7 +246,13 @@ export type SheetEffect =
     /** Bring a row into view. */
     | { t: "scroll.to"; r: number }
     /** Re-ask the copilot for the edited row after the kind's latency (`instant` = 150 ms). */
-    | { t: "schedule.suggest"; latency: "instant" | "idle" };
+    | { t: "schedule.suggest"; latency: "instant" | "idle" }
+    /** The views changed — `onViewsChange`. */
+    | { t: "emit.views"; views: readonly SheetViewValue[] }
+    /** Write the slice's narrowing — a tab switch, a revert, the whole sheet. */
+    | { t: "slice.write"; state: SliceStateValue }
+    /** Focus the rail's search box (⌘/ · ⌘F). */
+    | { t: "focus.search" };
 
 /** What a transition may ask about the sheet — supplied with each event. */
 export interface SheetMachineCtx {
@@ -222,6 +290,14 @@ export interface SheetMachineCtx {
     driverColumn?: string | undefined;
     /** The 1-based row number at a row-space index (the footer's messages). */
     numberAt?: (r: number) => number;
+    /** The saved views, in order — the component's local layer over `views`. */
+    views?: readonly SheetViewValue[];
+    /** The slice's current narrowing (`undefined` without a bound slice). */
+    narrowing?: SliceStateValue | undefined;
+    /** The narrowing with nothing active — what the whole-sheet tab writes. */
+    emptyNarrowing?: SliceStateValue | undefined;
+    /** Whether the active tab's saved narrowing differs from the slice's — derived by the component. */
+    dirty?: boolean;
 }
 
 /** What the link editor asks about its cell — built by the component per render. */
@@ -253,9 +329,16 @@ export interface Transition {
 /** The empty rejection memory. */
 export const NO_REJECTIONS: Rejections = { fills: new Set(), follows: new Set() };
 
-/** The initial UI state. */
-export function initialSheetState(sel: CellRef = { r: 0, c: 0 }): SheetUiState {
-    return { sel, selEnd: null, edit: null, hover: null, msg: "", appended: 0, sugg: null, armed: null, gsel: null, rejected: NO_REJECTIONS };
+/** The lens with nothing revealed. */
+export const EMPTY_LENS: LensState = { context: 0, reveals: new Set(), steps: new Map() };
+
+/** The initial UI state — `active` is the initial view tab, if the sheet opens on one. */
+export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string | null = null): SheetUiState {
+    return {
+        sel, selEnd: null, edit: null, hover: null, msg: "", appended: 0, sugg: null, armed: null, gsel: null, rejected: NO_REJECTIONS,
+        lens: EMPTY_LENS,
+        tabs: { active, seq: 1, renaming: null, renameVal: "" },
+    };
 }
 
 /** Whether two cell refs name the same cell. */

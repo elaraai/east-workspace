@@ -22,6 +22,7 @@ import type {
     SheetCellValue, SheetColumnValue, SheetLinkValue, SheetMemberValue, SheetRegisterMemberValue,
     SheetRootValue, SheetRowValue,
 } from "./values.js";
+import type { LensGap } from "./lens.js";
 import { formatDateDisplay } from "./parse/date.js";
 
 // ── Columns ───────────────────────────────────────────────────────────────
@@ -304,7 +305,7 @@ export interface SheetBand {
     px: number;
 }
 
-/** One body item — a real row, a blank padding row, or a band. */
+/** One body item — a real row, a blank padding row, a paged band, a lens gap, or a proposal. */
 export type SheetBodyItem =
     | {
         kind: "real";
@@ -313,7 +314,11 @@ export type SheetBodyItem =
         /** Index among the RESIDENT real rows (the wire context's `rowIndex`). */
         residentIndex: number;
         row: SheetRowValue;
+        /** A lens hit — the brand row number (B§8). */
+        hit: boolean;
     }
+    /** A run of rows the lens hides (B§8) — 22 px, a dashed rule, the `n hidden` pill with its controls. */
+    | { kind: "gap"; gap: LensGap }
     | {
         kind: "blank";
         /** The sheet position the blank would take (0-based). */
@@ -348,17 +353,36 @@ export interface SheetBodyInput {
     total: number | undefined;
     head: SheetBand | undefined;
     tail: SheetBand | undefined;
+    /** The lens over the resident rows (B§8): which are hits, which show, and the hidden runs between them. Absent ⇒ the sheet is whole. */
+    lens?: { hits: readonly boolean[]; visible: readonly boolean[]; gaps: readonly LensGap[] } | undefined;
 }
 
-/** The body items, in order: head band · real rows · tail band · blanks. */
+/**
+ * The body items, in order: head band · real rows · tail band · blanks.
+ * Under a lens the real rows the narrowing hides collapse into gaps and
+ * the blank tail is not shown — a lens narrows the sheet, it never invites
+ * the next row (B§8).
+ */
 export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
     const out: SheetBodyItem[] = [];
     if (input.head !== undefined) out.push({ kind: "band", band: input.head });
+    const lens = input.lens;
+    let inGap = false;
     input.rows.forEach((row, i) => {
-        out.push({ kind: "real", position: input.rowsOffset + i, residentIndex: i, row });
+        const position = input.rowsOffset + i;
+        if (lens !== undefined && !lens.visible[i]) {
+            if (!inGap) {
+                const gap = lens.gaps.find((g) => g.from === position);
+                if (gap !== undefined) out.push({ kind: "gap", gap });
+                inGap = true;
+            }
+            return;
+        }
+        inGap = false;
+        out.push({ kind: "real", position, residentIndex: i, row, hit: lens !== undefined && lens.hits[i] === true });
     });
     if (input.tail !== undefined) out.push({ kind: "band", band: input.tail });
-    if (input.exhausted) {
+    if (input.exhausted && lens === undefined) {
         const last = input.total ?? input.rowsOffset + input.rows.length;
         for (let i = 0; i < input.blanks; i++) {
             out.push({ kind: "blank", position: last + i, blankIndex: i });
@@ -379,13 +403,18 @@ export function withProposals(
 ): SheetBodyItem[] {
     if (rows.length === 0 || anchorBodyIndex < 0 || anchorBodyIndex >= body.length) return body as SheetBodyItem[];
     const anchor = body[anchorBodyIndex]!;
-    if (anchor.kind === "band") return body as SheetBodyItem[];
+    if (anchor.kind === "band" || anchor.kind === "gap") return body as SheetBodyItem[];
     let r = 0;
-    for (let i = 0; i <= anchorBodyIndex; i++) if (body[i]!.kind !== "band") r++;
+    for (let i = 0; i <= anchorBodyIndex; i++) if (isRowSpace(body[i]!)) r++;
     const anchorR = r - 1;
     const out = body.slice(0, anchorBodyIndex + 1);
     rows.forEach((p, i) => out.push({ kind: "proposal", index: i, anchorR, position: anchor.position + 1 + i, cells: p.cells, meta: p.meta }));
     return out.concat(body.slice(anchorBodyIndex + 1));
+}
+
+/** Whether a body item occupies the ROW space (bands, gaps and proposals do not). */
+export function isRowSpace(item: SheetBodyItem): boolean {
+    return item.kind === "real" || item.kind === "blank";
 }
 
 /** The body index of the real row with `id`, if resident. */

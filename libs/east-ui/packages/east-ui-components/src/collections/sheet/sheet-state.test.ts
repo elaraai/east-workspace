@@ -528,3 +528,151 @@ describe("the copilot", () => {
         expect(run(armed, [{ t: "clipboard.paste", text: "a\tb" }], ctx).state.sugg).toBeNull();
     });
 });
+
+// ── The lens and the view tabs (B§8 — Sheet Spec §5 rows 16–17) ─────────────
+
+import { none, some } from "@elaraai/east";
+import type { SliceStateValue } from "./sheet-state.js";
+import type { SheetViewValue } from "./values.js";
+
+const narrowingOf = (search: string | undefined): SliceStateValue => ({
+    range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+    breakdown: none, search: search === undefined ? none : some(search), visible: none, selectedIndex: none, resolution: none,
+} as SliceStateValue);
+const EMPTY = narrowingOf(undefined);
+const PAINT = narrowingOf("paint");
+const LATHE = narrowingOf("lathe");
+const view = (id: string, name: string, narrowing: SliceStateValue, context = 0n, reveals: bigint[] = []): SheetViewValue => ({ id, name, narrowing, context, reveals });
+const VIEWS = [view("paint", "PAINT", PAINT, 1n, [4n]), view("lathe", "LATHE", LATHE)];
+
+/** A sheet on the PAINT tab, the slice at `narrowing`, the views as given. */
+function lensCtxOf(narrowing: SliceStateValue, views: readonly SheetViewValue[] = VIEWS, dirty = false, over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
+    return ctxOf({ rowCount: 6, lensActive: true, views, narrowing, emptyNarrowing: EMPTY, dirty, ...over });
+}
+const onPaint = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "paint"), lens: { context: 1, reveals: new Set([4, 5]), steps: new Map([["a_b:top", 2]]) } });
+const viewsOf = (t: { effects: SheetEffect[] }): SheetViewValue[] | undefined => (t.effects.find((e) => e.t === "emit.views") as { views: SheetViewValue[] } | undefined)?.views;
+const written = (t: { effects: SheetEffect[] }): SliceStateValue | undefined => (t.effects.find((e) => e.t === "slice.write") as { state: SliceStateValue } | undefined)?.state;
+
+describe("the lens", () => {
+    test("band controls reveal positions as a merged set and escalate; the context switch and a narrowing change reset them", () => {
+        const ctx = lensCtxOf(PAINT);
+        const one = run(initialSheetState(), [{ t: "band.reveal", key: "g", from: 10, to: 19, where: "top" }], ctx);
+        expect([...one.state.lens.reveals]).toEqual([10]);
+        expect(one.state.lens.steps.get("g:top")).toBe(1);
+        const three = run(one.state, [{ t: "band.reveal", key: "g", from: 11, to: 19, where: "top" }], ctx);
+        expect([...three.state.lens.reveals]).toEqual([10, 11, 12, 13]);
+        const other = run(three.state, [{ t: "band.reveal", key: "h", from: 30, to: 31, where: "all" }], ctx);
+        expect([...other.state.lens.reveals]).toEqual([10, 11, 12, 13, 30, 31]);
+        const switched = run(other.state, [{ t: "lens.context", context: 3 }], ctx);
+        expect(switched.state.lens).toEqual({ context: 3, reveals: new Set(), steps: new Map() });
+        const ranged = { ...other.state, sel: { r: 4, c: 2 }, selEnd: { r: 5, c: 2 } };
+        const narrowed = run(ranged, [{ t: "lens.narrowed" }], ctx);
+        expect(narrowed.state.lens.reveals.size).toBe(0);
+        expect(narrowed.state.lens.context).toBe(0);
+        expect(narrowed.state.sel).toEqual({ r: 0, c: 2 });
+        expect(narrowed.state.selEnd).toBeNull();
+        expect(narrowed.effects).toContainEqual({ t: "emit.select", r: 0, c: 2 });
+        // ⌘/ and ⌘F focus the rail's search whatever the sheet holds.
+        expect(run(initialSheetState(), [key("/", { meta: true })], ctx).effects).toEqual([{ t: "focus.search" }]);
+        expect(run(initialSheetState(), [key("f", { meta: true })], ctx).effects).toEqual([{ t: "focus.search" }]);
+    });
+});
+
+describe("the view tabs", () => {
+    test("switching persists the leaving tab's context and reveals (never an unsaved query), writes the target's narrowing and restores its lens; the whole sheet writes the empty narrowing", () => {
+        // On PAINT with an unsaved query (the slice holds LATHE) and a lens of ±1 with two reveals.
+        const ctx = lensCtxOf(LATHE, VIEWS, true);
+        const t = run(onPaint(), [{ t: "tab.switch", id: "lathe" }], ctx);
+        expect(t.state.tabs.active).toBe("lathe");
+        expect(t.state.lens).toEqual({ context: 0, reveals: new Set(), steps: new Map() });
+        expect(t.state.sel).toEqual({ r: 0, c: 1 });
+        const views = viewsOf(t)!;
+        expect(views[0]).toEqual(view("paint", "PAINT", PAINT, 1n, [4n, 5n]));   // context + reveals persisted; the narrowing kept
+        expect(written(t)).toBe(LATHE);
+        expect(t.effects.map((e) => e.t)).toEqual(["emit.views", "slice.write", "emit.select", "focus.sheet"]);
+        // Back to the whole sheet: the empty narrowing, no lens; nothing to persist when nothing moved.
+        const whole = run({ ...t.state, sel: { r: 0, c: 1 } }, [{ t: "tab.switch", id: null }], lensCtxOf(LATHE, views));
+        expect(whole.state.tabs.active).toBeNull();
+        expect(written(whole)).toBe(EMPTY);
+        expect(viewsOf(whole)).toBeUndefined();
+        // Opening a view (the initial `activeView`) never persists the tab it leaves.
+        const opened = run(initialSheetState({ r: 0, c: 0 }, "paint"), [{ t: "tab.open", id: "paint" }], lensCtxOf(EMPTY));
+        expect(viewsOf(opened)).toBeUndefined();
+        expect(opened.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map() });
+        expect(written(opened)).toBe(PAINT);
+        // An unknown tab is ignored.
+        expect(run(onPaint(), [{ t: "tab.switch", id: "zzz" }], ctx).state).toEqual(onPaint());
+    });
+
+    test("+ TAB snapshots the narrowing, the context and the reveals, named from the query or `view n`; the new tab is active", () => {
+        const t = run(onPaint(), [{ t: "tab.create" }], lensCtxOf(LATHE));
+        const views = viewsOf(t)!;
+        expect(views).toHaveLength(3);
+        expect(views[2]).toEqual(view("view-1", "lathe", LATHE, 1n, [4n, 5n]));
+        expect(t.state.tabs.active).toBe("view-1");
+        expect(t.state.tabs.seq).toBe(2);
+        expect(t.state.msg).toMatch(/Saved tab "lathe" — a live view/);
+        // No query: `view n`; an id already taken moves on.
+        const taken = [...VIEWS, view("view-1", "x", EMPTY)];
+        const blank = run(initialSheetState(), [{ t: "tab.create" }], lensCtxOf(EMPTY, taken));
+        expect(viewsOf(blank)!.at(-1)).toEqual(view("view-2", "view 2", EMPTY));
+        expect(blank.state.msg).toMatch(/no filter/);
+        // Without a slice there is nothing to snapshot.
+        expect(run(initialSheetState(), [{ t: "tab.create" }]).effects).toEqual([]);
+    });
+
+    test("closing the active tab falls back to the sheet with its narrowing cleared; closing another just drops it", () => {
+        const active = run(onPaint(), [{ t: "tab.close", id: "paint" }], lensCtxOf(PAINT));
+        expect(active.state.tabs.active).toBeNull();
+        expect(viewsOf(active)!.map((v) => v.id)).toEqual(["lathe"]);
+        expect(written(active)).toBe(EMPTY);
+        expect(active.state.msg).toBe('Closed "PAINT" — back to the whole sheet');
+        const other = run(onPaint(), [{ t: "tab.close", id: "lathe" }], lensCtxOf(PAINT));
+        expect(other.state.tabs.active).toBe("paint");
+        expect(viewsOf(other)!.map((v) => v.id)).toEqual(["paint"]);
+        expect(written(other)).toBeUndefined();
+    });
+
+    test("⏎ in the search updates a dirty tab; esc reverts it; esc on a clean tab returns to the sheet; esc on the sheet clears the search; the sheet's own esc reaches the tabs after the range", () => {
+        const dirty = lensCtxOf(LATHE, VIEWS, true);
+        const updated = run(onPaint(), [{ t: "search.key", key: "Enter" }], dirty);
+        expect(viewsOf(updated)![0]).toEqual(view("paint", "PAINT", LATHE, 1n, [4n, 5n]));
+        expect(updated.effects.map((e) => e.t)).toEqual(["emit.views", "focus.sheet"]);
+        expect(updated.state.msg).toBe('Tab "PAINT" now saves this search');
+        const reverted = run(onPaint(), [{ t: "search.key", key: "Escape" }], dirty);
+        expect(written(reverted)).toBe(PAINT);
+        expect(reverted.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map() });
+        expect(reverted.state.msg).toBe("Reverted to the tab's saved search");
+        const clean = run(onPaint(), [{ t: "search.key", key: "Escape" }], lensCtxOf(PAINT));
+        expect(clean.state.tabs.active).toBeNull();
+        expect(written(clean)).toBe(EMPTY);
+        const sheet = run(initialSheetState(), [{ t: "search.key", key: "Escape" }], lensCtxOf(LATHE));
+        expect(written(sheet)).toEqual({ ...LATHE, search: none });
+        expect(run(initialSheetState(), [{ t: "search.key", key: "Enter" }], lensCtxOf(EMPTY)).effects).toEqual([{ t: "focus.sheet" }]);
+        // The sheet's esc: the range first, then the dirty tab, then the clean tab.
+        const ranged = { ...onPaint(), selEnd: { r: 4, c: 1 } };
+        const one = run(ranged, [key("Escape")], dirty);
+        expect(one.state.selEnd).toBeNull();
+        expect(written(one)).toBeUndefined();
+        const two = run(one.state, [key("Escape")], dirty);
+        expect(written(two)).toBe(PAINT);
+        const three = run(two.state, [key("Escape")], lensCtxOf(PAINT));
+        expect(three.state.tabs.active).toBeNull();
+    });
+
+    test("a double click renames — ⏎ commits a non-empty name, esc cancels; a drop reorders", () => {
+        const ctx = lensCtxOf(PAINT);
+        const started = run(onPaint(), [{ t: "tab.rename.start", id: "lathe" }, { t: "tab.rename.change", val: "  turning  " }], ctx);
+        expect(started.state.tabs).toMatchObject({ renaming: "lathe", renameVal: "  turning  " });
+        const committed = run(started.state, [{ t: "tab.rename.commit" }], ctx);
+        expect(viewsOf(committed)![1]!.name).toBe("turning");
+        expect(committed.state.tabs.renaming).toBeNull();
+        const emptied = run(started.state, [{ t: "tab.rename.change", val: " " }, { t: "tab.rename.commit" }], ctx);
+        expect(viewsOf(emptied)).toBeUndefined();
+        const cancelled = run(started.state, [{ t: "tab.rename.cancel" }], ctx);
+        expect(cancelled.state.tabs.renaming).toBeNull();
+        expect(viewsOf(run(onPaint(), [{ t: "tab.reorder", id: "lathe", to: 0 }], ctx))!.map((v) => v.id)).toEqual(["lathe", "paint"]);
+        expect(viewsOf(run(onPaint(), [{ t: "tab.reorder", id: "paint", to: 2 }], ctx))!.map((v) => v.id)).toEqual(["lathe", "paint"]);
+        expect(run(onPaint(), [{ t: "tab.reorder", id: "paint", to: 0 }], ctx).effects).toEqual([]);
+    });
+});

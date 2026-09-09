@@ -24,9 +24,10 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Sheet, type Slice } from "@elaraai/east-ui/internal";
+import { ArrayType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Sheet, Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils.js";
+import { boundSliceConfig } from "../../platform/slice/index.js";
 import { parseCssSize } from "../../style/parse-size.js";
 import { DensityProvider } from "../../contracts/density.js";
 import { useDensityHeights } from "../shared/helpers.js";
@@ -35,10 +36,12 @@ import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { VirtualRows } from "../virtual-rows.js";
 import {
     BAND_MIN_PX, BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NULL_CELL,
-    bodyIndexOfId, buildBody, cellIsBlank, cellText, densityOf, driverKeyOf, indexColumns, indexRegisters, latencyOf, parseWidth, rowIsBlank, withProposals,
+    bodyIndexOfId, buildBody, cellIsBlank, cellText, densityOf, driverKeyOf, indexColumns, indexRegisters, isRowSpace, latencyOf, parseWidth, rowIsBlank, withProposals,
     type SheetBodyItem, type SheetColumnMeta,
 } from "./model.js";
 import { useSheetPaging, type SheetViewport } from "./paging.js";
+import { useSheetSeek } from "./use-seek.js";
+import { lensCount, lensGaps, lensHits, lensVisible, narrowingActive, nextReach, type LensGap } from "./lens.js";
 import { candidateAt, candidateList, ghostFor, resolveFor, type CandidateContext } from "./candidates.js";
 import { editText, parseCell, type ParseContext } from "./parse/index.js";
 import { usedKeys, resolveMember as resolveVocabMember } from "./link/grammar.js";
@@ -49,17 +52,18 @@ import { todayUtc } from "./parse/date.js";
 import { exportMatrix, layoutPaste, parseMatrix } from "./clipboard.js";
 import {
     initialSheetStore, sheetStoreReducer, selectionRect, wholeRows, provisionalCell, nextTargetOf, fillOrder, blankRowId, isBlankRowId,
-    type EditSource, type SheetEffect, type SheetEvent, type SheetMachineCtx, type Suggestions,
+    type EditSource, type LensContext, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SliceStateValue, type Suggestions,
 } from "./sheet-state.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn, type WireProvider } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
 import { SheetHeader } from "./Header.js";
-import { SheetRow, SheetBandRow, SheetProposalRow } from "./Rows.js";
+import { SheetRow, SheetBandRow, SheetGapRow, SheetProposalRow } from "./Rows.js";
+import { SheetTabs, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
 import { SheetFooter, type SheetTransport } from "./Footer.js";
 import { SheetToolbar } from "./Toolbar.js";
-import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetRootValue, SheetRowValue, SheetSelectionValue } from "./values.js";
+import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetViewValue } from "./values.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
 
@@ -68,6 +72,21 @@ type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
 const sheetRootEqual = equalFor(Sheet.Types.Root);
 const cellEqual = equalFor(Sheet.Types.Cell);
+const sliceStateEqual = equalFor(Slice.Types.State) as (a: SliceStateValue, b: SliceStateValue) => boolean;
+const viewsEqual = equalFor(ArrayType(Sheet.Types.View)) as (a: readonly SheetViewValue[], b: readonly SheetViewValue[]) => boolean;
+
+/** The narrowing with nothing active — what the whole-sheet tab writes; the presentation fields (cohort registry, breakdown, visibility, resolution) stay. */
+function clearNarrowing(state: SliceStateValue): SliceStateValue {
+    return { ...state, range: none, filters: [], activeCohorts: new Set<string>(), search: none } as SliceStateValue;
+}
+
+/** A view's hover title (B§8) — its query and context, and the gestures it takes. */
+function viewTitle(view: SheetViewValue): string {
+    const q = view.narrowing.search.type === "some" ? (view.narrowing.search.value as string).trim() : "";
+    const ctx = Number(view.context);
+    const what = q !== "" ? `"${q}"${ctx > 0 ? ` · ±${ctx}` : ""}` : view.narrowing.filters.length > 0 || view.narrowing.activeCohorts.size > 0 ? "a filter" : "no filter — the whole sheet";
+    return `${what} · live · double-click renames · middle-click closes`;
+}
 
 /** The local data layer — edits over the decoded rows until the host writes back. */
 interface LocalLayer {
@@ -158,8 +177,38 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     // Callbacks — taken from the latest value on every render (the equalFor rule).
     const onEditFn = useMemo(() => getSomeorUndefined(value.onEdit), [value.onEdit]);
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
+    const onViewsChangeFn = useMemo(() => getSomeorUndefined(value.onViewsChange), [value.onViewsChange]);
     const newRowIdFn = useMemo(() => getSomeorUndefined(value.newRowId), [value.newRowId]);
     const selection = useMemo(() => getSomeorUndefined(value.selection), [value.selection]);
+    const activeView = useMemo(() => getSomeorUndefined(value.activeView), [value.activeView]);
+
+    // ── Slice chrome — the lens reads the bound slice's narrowing (§3.8) ──
+    const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
+    const slice = chrome !== undefined ? (chrome.slice as SliceBindValue) : undefined;
+    const sliceVersion = useSliceReactivity(slice?.key);
+    // The narrowing and the config, live from the store: a slice write moves
+    // the version, and nothing else here does (#611).
+    const sliceState = useMemo<SliceStateValue | undefined>(() => (slice !== undefined ? (slice.read() as SliceStateValue) : undefined),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the dependency of `slice.read()`: the store moves, no prop does (#611)
+        [slice, sliceVersion]);
+    const sliceConfig = useMemo(() => (slice !== undefined ? boundSliceConfig(slice.key) : undefined),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the config is refreshed on every bind, which the version tracks
+        [slice, sliceVersion]);
+    const affordances = useMemo(() => {
+        if (chrome === undefined || slice === undefined || sliceState === undefined) return [] as string[];
+        const configured = chrome.affordances.map((a: { type: string }) => a.type);
+        return railAffordanceKinds(configured, sliceState as never).filter((k) => k !== "brush" && k !== "legend" && k !== "breakdown");
+    }, [chrome, slice, sliceState]);
+    const lensOn = slice !== undefined && sliceConfig !== undefined && narrowingActive(sliceState);
+
+    // ── The views — the local layer over `views` until the host writes back ──
+    // The layer sits over the host's views by VALUE, not identity: every host
+    // re-render decodes a fresh array, and a tab the host has not written back
+    // yet must survive a row write-back.
+    const [viewsState, setViewsState] = useState<{ over: readonly SheetViewValue[]; views: readonly SheetViewValue[] }>({ over: value.views, views: value.views });
+    const views = viewsState.over === value.views || viewsEqual(viewsState.over, value.views) ? viewsState.views : value.views;
+    const viewsRef = useRef(views);
+    viewsRef.current = views;
 
     // The copilot's declaration: the columns' fill providers and the proposers, as wire functions (§4.8).
     const suggestDecl = useMemo(() => getSomeorUndefined(value.suggest), [value.suggest]);
@@ -203,27 +252,36 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         // The ring opens on the first blank row's driver column (else its first
         // column) — the prototype's "type an activity on the empty row".
         const c = Math.max(0, driverColumn !== undefined ? columns.list.findIndex((col) => col.key === driverColumn) : 0);
-        return initialSheetStore({ r: decodedRows?.length ?? 0, c });
+        return initialSheetStore({ r: decodedRows?.length ?? 0, c }, activeView ?? null);
     });
     const ui = store.ui;
+
+    // ── The lens (B§8) — hits from the slice engine over the resident rows ──
+    const lens = useMemo(() => {
+        if (!lensOn || sliceState === undefined || sliceConfig === undefined) return undefined;
+        const positions = rows.map((_r, i) => rowsOffset + i);
+        const hits = lensHits(sliceState, sliceConfig, rows, columns.list);
+        const visible = lensVisible(hits, positions, ui.lens.context, ui.lens.reveals);
+        return { hits, visible, gaps: lensGaps(hits, visible, positions) };
+    }, [lensOn, sliceState, sliceConfig, rows, rowsOffset, columns, ui.lens.context, ui.lens.reveals]);
 
     // ── The body ──────────────────────────────────────────────────────────
     const bodyBase = useMemo<SheetBodyItem[]>(() => buildBody({
         rows, rowsOffset, blanks: blanks + ui.appended, exhausted,
-        total: paging.total, head: paging.head, tail: paging.tail,
-    }), [rows, rowsOffset, blanks, ui.appended, exhausted, paging.total, paging.head, paging.tail]);
+        total: paging.total, head: paging.head, tail: paging.tail, lens,
+    }), [rows, rowsOffset, blanks, ui.appended, exhausted, paging.total, paging.head, paging.tail, lens]);
     // The copilot's proposed rows sit under their anchor, outside the row space.
     const body = useMemo<SheetBodyItem[]>(() => {
         const sugg = ui.sugg;
         if (sugg === null || sugg.rows.length === 0) return bodyBase;
         return withProposals(bodyBase, anchorBodyIndex(bodyBase, sugg.anchorId), sugg.rows);
     }, [bodyBase, ui.sugg]);
-    // Row space — the body without its bands and proposals.
+    // Row space — the body without its bands, gaps and proposals.
     const rowSpace = useMemo(() => {
         const bodyIndexOf: number[] = [];
         const rowOf: number[] = new Array<number>(body.length).fill(-1);
         body.forEach((it, i) => {
-            if (it.kind === "band" || it.kind === "proposal") return;
+            if (!isRowSpace(it)) return;
             rowOf[i] = bodyIndexOf.length;
             bodyIndexOf.push(i);
         });
@@ -304,16 +362,21 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         };
     }, [rowAt, candidateCtxFor, today, wireContextFor, linkVocabularies]);
 
+    // The whole-sheet narrowing, and whether the active tab has drifted from its view (B§8).
+    const emptyNarrowing = useMemo(() => (sliceState !== undefined ? clearNarrowing(sliceState) : undefined), [sliceState]);
+    const activeViewValue = useMemo(() => (ui.tabs.active === null ? undefined : views.find((v) => v.id === ui.tabs.active)), [views, ui.tabs.active]);
+    const dirty = activeViewValue !== undefined && sliceState !== undefined && !sliceStateEqual(activeViewValue.narrowing, sliceState);
+
     const ctx = useMemo<SheetMachineCtx>(() => ({
         rowCount,
         colCount,
-        lensActive: false,
+        lensActive: lensOn,
         canAppend: exhausted && !readOnly,
         editableAt: (r, c) => {
             if (readOnly) return false;
             const meta = columns.list[c];
             const it = rowAt(r);
-            if (meta === undefined || it === undefined || it.kind === "band" || it.kind === "proposal") return false;
+            if (meta === undefined || it === undefined || !isRowSpace(it)) return false;
             if (!meta.editable || meta.kind === "stamped") return false;
             return true;
         },
@@ -341,8 +404,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         columnOf: (key) => { const c = columns.list.findIndex((m) => m.key === key); return c < 0 ? undefined : c; },
         driverKeyAt: (r) => { const it = rowAt(r); return driverKeyOf(it !== undefined && it.kind === "real" ? it.row : undefined, driverColumn); },
         driverColumn,
-        numberAt: (r) => { const it = rowAt(r); return it !== undefined && it.kind !== "band" ? it.position + 1 : r + 1; },
-    }), [rowCount, colCount, exhausted, readOnly, columns, rowAt, parseCtxFor, candidateCtxFor, cellAt, linkCtxFor, rowOf, idAt, driverColumn]);
+        numberAt: (r) => { const it = rowAt(r); return it !== undefined && isRowSpace(it) && it.kind !== "band" && it.kind !== "gap" ? it.position + 1 : r + 1; },
+        views,
+        narrowing: sliceState,
+        emptyNarrowing,
+        dirty,
+    }), [rowCount, colCount, lensOn, exhausted, readOnly, columns, rowAt, parseCtxFor, candidateCtxFor, cellAt, linkCtxFor, rowOf, idAt, driverColumn, views, sliceState, emptyNarrowing, dirty]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -351,6 +418,31 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
 
     // The rows changed underneath: clamp the ring, drop an editor whose row went, a suggestion whose anchor went.
     useEffect(() => { dispatch({ t: "rows.changed" }); }, [rows, rowCount, colCount, dispatch]);
+
+    // The slice's narrowing changed underneath the lens (a keystroke in the
+    // search, a filter): reveals reset and the ring returns to the top — unless
+    // the sheet wrote that narrowing itself (a tab switch, a revert), which
+    // carries its own lens.
+    const expectedNarrowing = useRef<SliceStateValue | undefined>(undefined);
+    const seenNarrowing = useRef<SliceStateValue | undefined>(sliceState);
+    useEffect(() => {
+        const prev = seenNarrowing.current;
+        seenNarrowing.current = sliceState;
+        if (sliceState === undefined || prev === undefined) return;
+        if (sliceStateEqual(prev, sliceState)) return;
+        const expected = expectedNarrowing.current;
+        expectedNarrowing.current = undefined;
+        if (expected !== undefined && sliceStateEqual(expected, sliceState)) return;
+        dispatch({ t: "lens.narrowed" });
+    }, [sliceState, dispatch]);
+
+    // The initial view opens on mount; a host that moves `activeView` later is followed.
+    const openedView = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        if (activeView === undefined || activeView === openedView.current) return;
+        openedView.current = activeView;
+        if (viewsRef.current.some((v) => v.id === activeView)) dispatch({ t: "tab.open", id: activeView });
+    }, [activeView, dispatch]);
 
     // ── Writes — the local layer, then the host ───────────────────────────
     const emitEdit = useCallback((edit: SheetEditValue) => {
@@ -397,7 +489,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 ids.push(row.id);
                 continue;
             }
-            if (it !== undefined && (it.kind === "band" || it.kind === "proposal")) continue;
+            if (it !== undefined && !isRowSpace(it)) continue;
             // A blank row (or a row past the padding): one inserted row.
             let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), columns.list);
             for (const w of byRow.get(r)!) {
@@ -523,6 +615,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
 
     // ── Effects ───────────────────────────────────────────────────────────
     const cardRef = useRef<HTMLDivElement | null>(null);
+    const rootRef = useRef<HTMLDivElement | null>(null);
     const [editorFocus, setEditorFocus] = useState<EditorFocusRequest>({ seq: 0, selectAll: true });
     const [scrollTarget, setScrollTarget] = useState<number | undefined>(undefined);
     const runEffects = useCallback((effects: readonly SheetEffect[]) => {
@@ -650,9 +743,30 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     requestRun(id, eff.latency === "instant" || latencyOf(kind) === "instant" ? LATENCY_MS.instant : LATENCY_MS.idle);
                     break;
                 }
+                case "emit.views": {
+                    // The views land locally at once (the interactive-state pattern) and reach the host in a microtask.
+                    const next = eff.views;
+                    setViewsState({ over: value.views, views: next });
+                    viewsRef.current = next;
+                    if (onViewsChangeFn !== undefined) queueMicrotask(() => onViewsChangeFn(next as SheetViewValue[]));
+                    break;
+                }
+                case "slice.write": {
+                    if (slice === undefined) break;
+                    // The sheet's own write carries its lens: the change detector must not reset it.
+                    expectedNarrowing.current = eff.state;
+                    slice.write(eff.state as never);
+                    break;
+                }
+                case "focus.search": {
+                    const input = rootRef.current?.querySelector<HTMLInputElement>('[data-slot="toolbar"] input');
+                    input?.focus();
+                    input?.select();
+                    break;
+                }
             }
         }
-    }, [writeCells, deleteRows, insertProposal, columns, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch]);
+    }, [writeCells, deleteRows, insertProposal, columns, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, value.views, onViewsChangeFn, slice]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
@@ -718,7 +832,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         if (meta && (e.key === "c" || e.key === "v" || e.key === "x" || e.key === "a")) return;
         const handled = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Tab", "Enter", "F2", "Escape", "Backspace", "Delete"];
         const printable = e.key.length === 1 && !meta && !e.altKey;
-        if (!handled.includes(e.key) && !printable) return;
+        const toSearch = meta && (e.key === "/" || e.key === "f");
+        if (!handled.includes(e.key) && !printable && !toSearch) return;
         e.preventDefault();
         dispatch({ t: "key", key: e.key, shift: e.shiftKey, meta, alt: e.altKey });
     }, [dispatch, store.ui.edit]);
@@ -736,6 +851,13 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         e.preventDefault();
         dispatch({ t: "clipboard.paste", text });
     }, [dispatch, store.ui.edit]);
+
+    // ── Recipe + layout ───────────────────────────────────────────────────
+    const recipe = useSlotRecipe({ key: "sheet" });
+    const styles = useMemo(() => recipe({ size } as Record<string, unknown>) as unknown as Styles, [recipe, size]);
+    const height = parseCssSize(style !== undefined ? getSomeorUndefined(style.height) : undefined);
+    const maxHeight = parseCssSize(style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined);
+    const frameFills = height !== undefined || maxHeight !== undefined;
 
     // ── The editor and the strip ──────────────────────────────────────────
     const edit = ui.edit;
@@ -801,28 +923,70 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         };
     }, [edit, linkEdit, linkEditCtx, editMeta, linkVocabularies]);
 
-    // ── Recipe + layout ───────────────────────────────────────────────────
-    const recipe = useSlotRecipe({ key: "sheet" });
-    const styles = useMemo(() => recipe({ size } as Record<string, unknown>) as unknown as Styles, [recipe, size]);
-    const height = parseCssSize(style !== undefined ? getSomeorUndefined(style.height) : undefined);
-    const maxHeight = parseCssSize(style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined);
-    const frameFills = height !== undefined || maxHeight !== undefined;
-
-    // ── Slice chrome ──────────────────────────────────────────────────────
-    const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
-    const slice = chrome !== undefined ? (chrome.slice as SliceBindValue) : undefined;
-    useSliceReactivity(slice?.key);
-    const affordances = useMemo(() => {
-        if (chrome === undefined || slice === undefined) return [] as string[];
-        const configured = chrome.affordances.map((a: { type: string }) => a.type);
-        return railAffordanceKinds(configured, slice.read()).filter((k) => k !== "brush" && k !== "legend" && k !== "breakdown");
-    }, [chrome, slice]);
-
     const transport = useMemo<SheetTransport | undefined>(() => (pagedSource === undefined ? undefined : {
         loaded: paging.rows.length,
         total: paging.total,
         loading: paging.loading,
     }), [pagedSource, paging.rows.length, paging.total, paging.loading]);
+
+    // ── The key search over a keyed paged source (§3.13) ──────────────────
+    const seek = useSheetSeek(pagedSource, paging.rows, paging.rowsOffset, paging.jumpToElement, paging.clearJump);
+    useEffect(() => {
+        // The sought row landed: the ring goes to it (no echo — the host hears the move through onSelect).
+        if (seek.target === undefined) return;
+        const bi = body.findIndex((it) => it.kind === "real" && it.position === seek.target);
+        if (bi < 0) return;
+        const r = rowSpace.rowOf[bi];
+        if (r === undefined || r < 0) return;
+        dispatch({ t: "select.set", r, c: uiRef.current.sel.c });
+        seek.clearTarget();
+    }, [seek, body, rowSpace, dispatch]);
+
+    // ── The view tabs and the lens's chrome (B§8) ─────────────────────────
+    const wholeCount = useMemo(() => rows.filter((row) => !rowIsBlank(row, columns)).length, [rows, columns]);
+    const tabViews = useMemo<SheetTabView[]>(() => {
+        if (slice === undefined) return [];
+        return views.map((v) => {
+            const hits = sliceConfig !== undefined ? lensHits(v.narrowing, sliceConfig, rows, columns.list) : [];
+            const count = rows.filter((row, i) => hits[i] === true && !rowIsBlank(row, columns)).length;
+            return { id: v.id, name: v.name, count, title: viewTitle(v) };
+        });
+    }, [slice, views, sliceConfig, rows, columns]);
+    const onTabSwitch = useCallback((id: string | null) => dispatch({ t: "tab.switch", id }), [dispatch]);
+    const onTabCreate = useCallback(() => dispatch({ t: "tab.create" }), [dispatch]);
+    const onTabClose = useCallback((id: string) => dispatch({ t: "tab.close", id }), [dispatch]);
+    const onTabRenameStart = useCallback((id: string) => dispatch({ t: "tab.rename.start", id }), [dispatch]);
+    const onTabRenameChange = useCallback((val: string) => dispatch({ t: "tab.rename.change", val }), [dispatch]);
+    const onTabRenameCommit = useCallback(() => dispatch({ t: "tab.rename.commit" }), [dispatch]);
+    const onTabRenameCancel = useCallback(() => dispatch({ t: "tab.rename.cancel" }), [dispatch]);
+    const onTabReorder = useCallback((id: string, to: number) => dispatch({ t: "tab.reorder", id, to }), [dispatch]);
+    const onContext = useCallback((context: LensContext) => dispatch({ t: "lens.context", context }), [dispatch]);
+    const onSearchKey = useCallback((key: string) => { dispatch({ t: "search.key", key }); return true; }, [dispatch]);
+    const onReveal = useCallback((gap: LensGap, where: "top" | "bottom" | "both" | "all") => dispatch({ t: "band.reveal", key: gap.key, from: gap.from, to: gap.to, where }), [dispatch]);
+    const hasQuery = sliceState !== undefined && sliceState.search.type === "some" && (sliceState.search.value as string).trim() !== "";
+    const tabsNode = slice !== undefined
+        ? (
+            <SheetTabs
+                styles={styles}
+                views={tabViews}
+                wholeCount={wholeCount}
+                active={ui.tabs.active}
+                dirty={dirty}
+                hasQuery={hasQuery}
+                renaming={ui.tabs.renaming}
+                renameVal={ui.tabs.renameVal}
+                onSwitch={onTabSwitch}
+                onCreate={onTabCreate}
+                onClose={onTabClose}
+                onRenameStart={onTabRenameStart}
+                onRenameChange={onTabRenameChange}
+                onRenameCommit={onTabRenameCommit}
+                onRenameCancel={onTabRenameCancel}
+                onReorder={onTabReorder}
+            />
+        )
+        : undefined;
+    const count = lens !== undefined ? lensCount(lens.hits, lens.visible) : "";
 
     // ── The copilot's surfaces: the anchor's fills, the next target, the proposal rows ──
     const anchorR = useMemo(() => (ui.sugg !== null ? rowOf(ui.sugg.anchorId) : undefined), [ui.sugg, rowOf]);
@@ -932,6 +1096,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         if (item === undefined) return;
         let at: SheetViewport;
         if (item.kind === "band") at = { kind: "band", at: item.band.at, px: center?.withinPx };
+        else if (item.kind === "gap") at = { kind: "row", offset: item.gap.from };
         else at = { kind: "row", offset: item.position };
         reportViewport(at, isScrolling);
     }, [body, reportViewport]);
@@ -961,6 +1126,18 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         const item = body[i];
         if (item === undefined) return null;
         if (item.kind === "band") return <SheetBandRow styles={styles} band={item.band} loading={paging.loading} />;
+        if (item.kind === "gap") {
+            const g = item.gap;
+            const steps = ui.lens.steps;
+            return (
+                <SheetGapRow
+                    styles={styles}
+                    gap={g}
+                    reach={{ top: nextReach(steps, g.key, "top", g.hidden), bottom: nextReach(steps, g.key, "bottom", g.hidden), both: nextReach(steps, g.key, "both", g.hidden) }}
+                    onReveal={onReveal}
+                />
+            );
+        }
         if (item.kind === "proposal") {
             return (
                 <SheetProposalRow
@@ -1000,7 +1177,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 selC={ui.sel.r === r ? ui.sel.c : undefined}
                 range={inRangeRow ? { c0: rect.c0, c1: rect.c1 } : undefined}
                 picked={wr !== null && r >= wr.r0 && r <= wr.r1}
-                hit={false}
+                hit={item.kind === "real" && item.hit}
                 editor={edit !== null && edit.r === r ? { c: edit.c, node: editorNode } : undefined}
                 fills={anchorR === r && ui.sugg !== null ? ui.sugg.fill : undefined}
                 nextTargetC={nextTarget !== null && nextTarget.r === r ? nextTarget.c : undefined}
@@ -1013,7 +1190,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 onFillRow={onFillRow}
             />
         );
-    }, [body, styles, paging.loading, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, rect, columns, registers, driverColumn, gridTemplate, rowPx, wr, edit, editorNode, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, linkCellCtx]);
+    }, [body, styles, paging.loading, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, columns, registers, driverColumn, gridTemplate, rowPx, wr, edit, editorNode, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, linkCellCtx]);
 
     if (paging.error !== undefined) {
         return (
@@ -1025,10 +1202,21 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
 
     const header = <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} />;
     const content = (
-        <Box css={styles.root} data-sheet data-sheet-partial={transport !== undefined && !exhausted ? "" : undefined} data-copilot={copilotOn ? "" : undefined}
+        <Box ref={rootRef} css={styles.root} data-sheet data-sheet-partial={transport !== undefined && !exhausted ? "" : undefined} data-copilot={copilotOn ? "" : undefined}
+            data-lens={lensOn ? "" : undefined} data-view={ui.tabs.active ?? undefined}
             {...(frameFills ? { style: { height, maxHeight } } : {})}>
             {(chrome !== undefined || transport !== undefined) && (
-                <SheetToolbar styles={styles} slice={slice} affordances={affordances} count="" partial={transport !== undefined && !exhausted} />
+                <SheetToolbar
+                    styles={styles}
+                    slice={slice}
+                    affordances={affordances}
+                    count={count}
+                    partial={transport !== undefined && !exhausted}
+                    tabs={tabsNode}
+                    context={lensOn ? { value: ui.lens.context, onChange: onContext } : undefined}
+                    search={seek.search}
+                    onSearchKey={onSearchKey}
+                />
             )}
             <Box
                 ref={cardRef}
@@ -1053,6 +1241,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     estimateSize={(i) => {
                         const item = body[i];
                         if (item === undefined) return rowPx;
+                        if (item.kind === "gap") return BAND_MIN_PX;
                         return item.kind === "band" ? Math.max(BAND_MIN_PX, item.band.px) : rowPx;
                     }}
                     renderRow={renderRow}

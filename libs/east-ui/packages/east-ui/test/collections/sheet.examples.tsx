@@ -216,7 +216,7 @@ export const sheetVariants = example({
  * saved views, a footer, and `onUpdate` write-back, on one sheet.
  */
 export const sheetPlan = example({
-    keywords: ["Sheet", "Root", "plan", "flagship", "driver", "register", "lookup", "reference", "enum", "link", "stamped", "quantity", "uom", "sides", "arity", "check", "fill", "propose", "suggest", "asyncFunction", "asyncPlatform", "slice", "search", "filter", "lens", "views", "footer", "owned", "onUpdate", "Reactive", "State"],
+    keywords: ["Sheet", "Root", "plan", "flagship", "driver", "register", "lookup", "reference", "enum", "link", "stamped", "quantity", "uom", "sides", "arity", "check", "fill", "propose", "suggest", "asyncFunction", "asyncPlatform", "slice", "search", "filter", "lens", "views", "text", "Sheet.link.print", "footer", "owned", "onUpdate", "Reactive", "State"],
     description: "The flagship production plan — every column kind over one raw source, registers and a driver, the copilot's fills and proposers as author functions (one async), the slice lens with saved views, a footer and whole-collection write-back",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -314,9 +314,11 @@ export const sheetPlan = example({
             const rows = $.let(plan.read());
 
             // The slice — search runs THROUGH it; the sheet draws the narrowing as a lens (§3.8).
+            // A Link is searched by its display form (`M2140 > 4 x CNC lathe`), never its `.east` text.
             const cfg = $.const(Slice.config(PlanRowType, {
-                fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, status: { label: "Status" } },
-                searchFieldIds: ["activity", "notes"],
+                fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, status: { label: "Status" },
+                          stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) } },
+                searchFieldIds: ["activity", "notes", "stations"],
             }));
             const slice = $.let(Slice.bind([PlanRowType], "sheet_plan_slice", cfg, Slice.state(), rows, none));
 
@@ -695,42 +697,69 @@ export const sheetCopilot = example({
 /**
  * The lens (§3.8) — search and filter run through the bound slice; the sheet
  * never narrows, it draws non-matching rows as collapsed context bands
- * while hits keep their row numbers; views are slice-state snapshots.
+ * while hits keep their row numbers; a Link column is searched through its
+ * display form (`text: r => Sheet.link.print(r.stations)`); views are
+ * slice-state snapshots evaluated live, with their context and reveals.
  */
 export const sheetLens = example({
-    keywords: ["Sheet", "Root", "slice", "search", "filter", "lens", "bands", "context", "reveal", "views", "onViewsChange", "activeView", "Slice", "config", "bind", "state", "Reactive", "State"],
-    description: "The lens — search and filter through the bound slice drawn as context bands (hits keep their row numbers), with saved views as slice-state snapshots",
+    keywords: ["Sheet", "Root", "slice", "search", "filter", "lens", "bands", "context", "reveal", "views", "onViewsChange", "activeView", "text", "Sheet.link.print", "set", "Slice", "config", "bind", "state", "Reactive", "State"],
+    description: "The lens — search and filter through the bound slice drawn as context bands (hits keep their row numbers), a Link column searched through its display text, and saved views as slice-state snapshots with their context and reveals",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), activity: StringType, notes: StringType, status: StringType, qty: OptionType(FloatType) });
+            const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), activity: StringType, notes: StringType, stations: Sheet.Types.Link, status: StringType, qty: OptionType(FloatType) });
+            const MachineType = StructType({ code: StringType, family: StringType });
             // Sixty rows derived East-side — enough for a narrowing to collapse into bands.
             const activities = $.const(["Machining", "Painting", "Packaging", "Changeover", "Maintenance"], ArrayType(StringType));
             const words = $.const(["PLANNED", "RELEASED", "COMPLETE"], ArrayType(StringType));
+            const machines = $.const([
+                { code: "M2140", family: "CNC lathe" }, { code: "M2141", family: "CNC lathe" }, { code: "M2145", family: "CNC lathe" },
+                { code: "M3210", family: "5-axis mill" }, { code: "M7301", family: "assembly bench" },
+            ], ArrayType(MachineType));
+            const noMembers = $.const([], ArrayType(Sheet.Types.Member));
             const rows = $.let(East.Array.generate(60n, JobType, (_$, i) => ({
                 id: East.str`j${i}`,
                 start: some(East.value(new Date("2026-02-02T00:00:00Z"), DateTimeType).addDays(i.multiply(3n))),
                 activity: activities.get(i.remainder(5n)),
                 notes: i.remainder(7n).equal(0n).ifElse((_$2) => "urgent — inspect before shipping", (_$2) => East.str`lot ${i.add(100n)}`),
+                // Machining runs name a count of lathes; the rest a machine by code.
+                stations: i.remainder(5n).equal(0n).ifElse(
+                    (_$2) => East.value({ from: noMembers, to: [variant("counted", { n: i.remainder(3n).add(2n), key: "CNC lathe" })] }, Sheet.Types.Link),
+                    (_$2) => East.value({ from: noMembers, to: [variant("identified", { key: machines.get(i.remainder(5n)).code })] }, Sheet.Types.Link)),
                 status: words.get(i.remainder(3n)),
                 qty: some(i.multiply(40n).toFloat().add(180.0)),
             })), ArrayType(JobType));
+            // The Link is searched through its display form — `3 x CNC lathe`, `M7301` — not its `.east` text.
             const cfg = $.const(Slice.config(JobType, {
-                fields: { activity: { label: "Activity", hints: ["Machining", "Painting", "Packaging", "Changeover", "Maintenance"] }, notes: { label: "Notes" }, status: { label: "Status" } },
-                searchFieldIds: ["activity", "notes"],
+                fields: {
+                    activity: { label: "Activity", hints: ["Machining", "Painting", "Packaging", "Changeover", "Maintenance"] },
+                    notes:    { label: "Notes" },
+                    stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) },
+                    status:   { label: "Status" },
+                },
+                searchFieldIds: ["activity", "notes", "stations"],
             }));
             const slice = $.let(Slice.bind([JobType], "sheet_lens_slice", cfg, Slice.state(), rows, none));
             const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet_lens_views", [
                 { id: "painting", name: "PAINTING", narrowing: Slice.state({ search: some("painting") }), context: 1n, reveals: [] },
+                { id: "lathes", name: "LATHES", narrowing: Slice.state({ search: some("lathe") }), context: 0n, reveals: [] },
                 { id: "urgent", name: "URGENT", narrowing: Slice.state({ search: some("urgent") }), context: 0n, reveals: [] },
             ]));
             return (
                 <Sheet
                     data={rows}
                     id="id"
+                    registers={{
+                        stations: Sheet.register.concat([
+                            Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code, meta: m => some(m.family) }),
+                            Sheet.register.members(machines, { kind: "family", key: m => m.family, label: m => m.family, meta: _m => some("family") }),
+                        ]),
+                    }}
                     columns={{
                         start:    Sheet.column.date(JobType, { header: "Start", width: "96px" }),
                         activity: Sheet.column.text(JobType, { header: "Activity", width: "160px" }),
-                        notes:    Sheet.column.text(JobType, { header: "Notes", sub: "free text", width: "260px" }),
+                        notes:    Sheet.column.text(JobType, { header: "Notes", sub: "free text", width: "240px" }),
+                        stations: Sheet.column.set(JobType, "stations", { header: "Work centres", sub: "3 x lathe · machine", width: "220px",
+                                      members: [{ kind: "machine", identified: true }, { kind: "family", countable: true, resolvesTo: "machine" }] }),
                         status:   Sheet.column.text(JobType, { header: "Status", width: "120px" }),
                         qty:      Sheet.column.quantity(JobType, { header: "Qty", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
                     }}

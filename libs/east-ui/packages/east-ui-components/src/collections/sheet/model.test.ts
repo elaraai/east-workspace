@@ -20,7 +20,7 @@ describe("the body", () => {
         const rows = [row("a", {}), row("b", {})];
         const body = buildBody({ rows, rowsOffset: 0, blanks: 3, exhausted: true, total: undefined, head: undefined, tail: undefined });
         expect(body.map((it) => it.kind)).toEqual(["real", "real", "blank", "blank", "blank"]);
-        expect(body.map((it) => (it.kind === "band" ? -1 : it.position))).toEqual([0, 1, 2, 3, 4]);
+        expect(body.map((it) => (it.kind === "band" || it.kind === "gap" ? -1 : it.position))).toEqual([0, 1, 2, 3, 4]);
         expect(lastRealId(body)).toBe("b");
     });
 
@@ -32,7 +32,7 @@ describe("the body", () => {
         expect(body.map((it) => it.kind)).toEqual(["band", "real", "band"]);
         expect(body[1]!.kind === "real" && body[1]!.position).toBe(200);
         const done = buildBody({ rows, rowsOffset: 0, blanks: 2, exhausted: true, total: 1, head: undefined, tail: undefined });
-        expect(done.map((it) => (it.kind === "band" ? -1 : it.position))).toEqual([0, 1, 2]);
+        expect(done.map((it) => (it.kind === "band" || it.kind === "gap" ? -1 : it.position))).toEqual([0, 1, 2]);
     });
 });
 

@@ -85,8 +85,9 @@ export interface PlanSeekState {
 }
 
 /** The `.east` literal of a String key is its quoted text; every other query
- *  shape carries its prefix plainly. `undefined` ⇒ nothing to position on. */
-function soughtKeyOf(query: DatasetKeyQuery): string | undefined {
+ *  shape carries its prefix plainly. `undefined` ⇒ nothing to position on.
+ *  Shared with the Sheet's key search (`sheet/use-seek.ts`). */
+export function soughtKeyOf(query: DatasetKeyQuery): string | undefined {
     if ("prefix" in query) return query.prefix;
     if ("key" in query) {
         const parsed = parseFor(StringType)(query.key);
@@ -96,8 +97,9 @@ function soughtKeyOf(query: DatasetKeyQuery): string | undefined {
 }
 
 /** The East `SeekQueryType` value for a control query — the inverse of the
- *  runtime's `toFindQuery`, so one vocabulary crosses the whole path. */
-function toSeekQuery(query: DatasetKeyQuery): unknown {
+ *  runtime's `toFindQuery`, so one vocabulary crosses the whole path.
+ *  Shared with the Sheet's key search (`sheet/use-seek.ts`). */
+export function toSeekQuery(query: DatasetKeyQuery): unknown {
     if ("key" in query) return variant("key", query.key);
     if ("prefix" in query) return variant("prefix", query.prefix);
     return variant("fields", {

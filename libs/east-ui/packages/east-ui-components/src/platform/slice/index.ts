@@ -51,7 +51,7 @@ import {
     type variant,
 } from "@elaraai/east";
 import { type PlatformFunction, type EastTypeValue } from "@elaraai/east/internal";
-import { Slice, SliceApplyImpl, SliceBindPrimitives, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries } from "@elaraai/east-ui/internal";
+import { Slice, SliceApplyImpl, SliceBindPrimitives, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries } from "@elaraai/east-ui/internal";
 import { getStore, trackKey } from "../state-runtime.js";
 import { registerPlatformImplementation, getRegisteredPlatformImplementations } from "../registry.js";
 
@@ -465,14 +465,15 @@ function bindImpl(key: unknown, config: unknown, initial: unknown, data: unknown
 
 /**
  * Auto-derive search dropdown options from the matching rows when the slice
- * declares no `toMatch`: project each row's first searchable string field to a
- * **distinct** `{ id, label, meta }`, using the clean field VALUE as both id and
- * label so selecting an option commits a valid query (#129). Pure + exported so
- * the projection can be tested directly without standing up the store.
+ * declares no `toMatch`: project each row's first searchable field — a string
+ * field's value, a `text` field's projection — to a **distinct**
+ * `{ id, label, meta }`, using the clean text as both id and label so
+ * selecting an option commits a valid query (#129). Pure + exported so the
+ * projection can be tested directly without standing up the store.
  *
  * @param hits - the rows already narrowed by the active search query
  * @param config - the slice config (its `searchFieldIds` + `fields` accessors)
- * @returns one option per distinct value (empty when no string field exists)
+ * @returns one option per distinct value (empty when no searchable field exists)
  */
 export function autoDeriveMatches(
     hits: ReadonlyArray<unknown>,
@@ -481,17 +482,18 @@ export function autoDeriveMatches(
         fields: Map<string, { type: string; value: { accessor: (r: unknown) => unknown } }>;
     },
 ): Array<{ id: string; label: string; meta: typeof none }> {
-    // First searchable string field, else the first string field at all.
-    const stringId = config.searchFieldIds.find(id => config.fields.get(id)?.type === "string")
-        ?? [...config.fields].find(([, f]) => f.type === "string")?.[0];
-    if (stringId === undefined) return [];   // no string field → genuinely un-derivable
-    const accessor = config.fields.get(stringId)!.value.accessor;
+    // First searchable field (string or text), else the first such field at all —
+    // the same resolution `sliceMatches` applies, so the dropdown offers what the
+    // search reads.
+    const searchable = (kind: string | undefined) => kind === "string" || kind === "text";
+    const fieldId = config.searchFieldIds.find(id => searchable(config.fields.get(id)?.type))
+        ?? [...config.fields].find(([, f]) => searchable(f.type))?.[0];
+    if (fieldId === undefined) return [];   // no searchable field → genuinely un-derivable
     const seen = new Set<string>();
     const out: Array<{ id: string; label: string; meta: typeof none }> = [];
     for (const r of hits) {
-        const v = accessor(r);
-        if (v === undefined || v === null) continue;   // never offer a "null"/"undefined" suggestion (cf. autoDeriveFieldHints)
-        const label = String(v);
+        const label = sliceFieldText(config as never, fieldId, r as Row);
+        if (label === undefined) continue;   // never offer a "null"/"undefined" suggestion (cf. autoDeriveFieldHints)
         if (seen.has(label)) continue;   // distinct values only
         seen.add(label);
         out.push({ id: label, label, meta: none });

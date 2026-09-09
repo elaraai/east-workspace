@@ -757,14 +757,29 @@ link, `(from=[.identified (key="M2140")], to=[.counted (n=4, key="CNC lathe")])`
 `M2140` and `CNC lathe` hit but the display form `4 x CNC lathe` misses and the `.east`
 field names match every row — which is why a field spec may name a `text`
 projection: `Sheet.link.print` renders the grammar's display form, `M2140 > 4 x CNC
-lathe`. Both are the Slice change scheduled in P5 (§8); until it lands, search covers
-the String columns.
+lathe`. Both landed with P5 as the Slice's `text` field kind: `Slice.config` makes any
+non-primitive field a search-only `text` field (its `.east` print, or the `text`
+accessor), `sliceMatches` searches it through the projection, and `slice.fields()`
+never lists it — a text field has no operator set, so it is searched, never filtered.
+
+**How the lens matches (as built).** The renderer never sees `R`, so it rebuilds a
+host-shaped record from each wire row — every column's cell decoded to its field's
+value by the column's static type: a bare primitive as is, an `Option` wrapped, a
+`Link` as the link value a `text` projection expects — and hands it to the slice
+engine's `sliceMatches` with the bound slice's live config. The rule that follows: **a
+field the slice narrows on must be a column of the sheet**; a field without a column
+reads as blank to the lens. On the paged arm the lens covers the resident rows (the
+*loaded rows only* badge) and the rail's search is the key search over `seek`.
 
 A **view** is a slice-state snapshot plus the lens's context and reveals — a tab
 that is evaluated live, so a new matching row joins it and an edit anywhere
 writes to the sheet (B§8). Views are data on the sheet's bind; switching a tab
 writes its narrowing into the slice, `+ TAB` snapshots the current one, ⏎ updates
-a dirty tab, esc reverts it.
+a dirty tab, esc reverts it. `activeView` names the tab the sheet opens on (and is
+followed when the host moves it); the tabs themselves are renderer state, and every
+change to the views — a snapshot, an update, a rename, a reorder, a close, a leaving
+tab's context and reveals — reaches the host through `onViewsChange` while landing
+locally at once (the interactive-state pattern).
 
 ```tsx
 const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "plan.views", [
@@ -1514,6 +1529,35 @@ arity half is edited, fail-open. Under `store: "canonical"` the BRIDGE prints
 the register's labels into a `String` field; the renderer never sees the
 storage form.
 
+**The lens and the views (P5).** `lens.ts` is pure: `narrowingActive` (the slice's
+`isActive` rule — a blank search is no narrowing), `matchRecord` (the host-shaped
+record above), `lensHits` through `sliceMatches`, `lensVisible` (hits ± the context,
+plus the revealed POSITIONS — positions, so reveals survive paging and persist into a
+view), `lensGaps` (the hidden runs, keyed by the hits that bound them so a band keeps
+its identity as it opens) and `revealStep` (1 · 3 · 10 · all from the top, the bottom
+or both ends). `buildBody` takes the lens: hidden rows collapse into `gap` items, hits
+carry `hit`, and the blank tail is not drawn — a lens narrows the sheet, it never
+invites the next row (`lensActive` also stops ↓ appending). The machine holds `lens`
+(context · reveals · steps) and `tabs` (active · seq · renaming); `dirty` is DERIVED by
+the component (`equalFor(Slice.Types.State)` between the active view's narrowing and
+the slice's) and arrives in the context. The transitions (`sheet-lens-state.ts`): a
+tab switch persists the leaving tab's context and reveals (never an unsaved query),
+writes the target's narrowing as a `slice.write` effect and restores its lens; `tab.open`
+does the same without persisting (the initial `activeView`); `+ TAB` snapshots the
+narrowing named from the query (16 characters) or `view n`; ⏎ in the search updates a
+dirty tab, esc reverts it, esc on a clean tab returns to the sheet, esc on the sheet
+clears the search (the rail's combobox takes the first esc to close its suggestions,
+so a revert is the second press while they are open); the sheet's own esc ladder
+reaches the tabs after the range; ⌘/ and ⌘F are a `focus.search` effect. One fix
+outside the sheet rode along: the rail's search now keeps free text across a blur
+(`allowCustomValue`) — clicking into the narrowed surface used to reset the box and
+drop the narrowing with it. The component detects a narrowing change by comparing
+the slice state across renders and dispatches `lens.narrowed` (reveals reset, the ring
+to the top) — except for a narrowing the sheet wrote itself, which carries its own
+lens. The key search on the paged arm (`use-seek.ts`) mounts whenever the source
+declares `seek`, replaces the rail's `search`, and lands the ring on the matched
+position once its window is resident; the k-th match IS the row at `range.row + k`.
+
 **Pointer and scroll (P4 follow-up).** A click never scrolls — the cell is under
 the pointer already, and centring it moved the sheet under a held button so the
 next row's `mouseenter` read as a drag (a click selected two cells, then three);
@@ -1617,7 +1661,8 @@ tab gesture (snapshot / dirty / revert), `views` / `onViewsChange`; the Slice
 change that makes a Link column searchable — a non-String field in
 `searchFieldIds` searches through its `printFor` text, and a field spec's `text`
 accessor overrides the projection (§3.8), with `Sheet.link.print` as its argument;
-dark pass.
+dark pass. Built as §6.3 describes (`lens.ts`, `sheet-lens-state.ts`, `Tabs.tsx`,
+`use-seek.ts`, the `text` field kind in `platform/slice`).
 
 **P6 — docs, skill, release** `east-ui` SKILL.md entry for `<Sheet>` (plugin skill
 — coordinate before editing) and the Table-vs-Sheet line in "Picking between
@@ -1675,5 +1720,5 @@ examples↔tests East-code contract, diagnostics clean, shot loop.
 | `check` validators | Author East functions (§3.4), evaluated at commit and on paste; the flag is the lock-warn treatment plus a strip line. Never a block. |
 | Narrow / mobile | Out of scope for the sheet; a phone review of a plan is a `<Plan>` or a `<Deck>`. |
 | Fields of `R` with no column | Resolved 2026-09-09: `ctx.row` is rebuilt over the real row (`rowById`, §4.8), so unmapped fields keep their values. Still open: when `data` is a plain array VALUE rather than a bind, the shared `rowById` captures the whole collection — fine for example-sized sheets; a large plain array should be bound (`State.bind`) so the capture is a handle. |
-| Searching a Link column | Resolved 2026-09-09: the slice searches a non-String field through its `printFor` text by default, and a field spec's `text` accessor (`Sheet.link.print`) overrides it with the display form — a Slice change, P5 (§3.8). |
+| Searching a Link column | Resolved 2026-09-09: the slice searches a non-String field through its `printFor` text by default, and a field spec's `text` accessor (`Sheet.link.print`) overrides it with the display form — the Slice's `text` field kind, landed in P5 (§3.8). |
 | A `types` registry override (B§1 `types`) | Covered by `Sheet.column.custom` per column; a reusable custom kind is an ordinary TS function returning the config. |

@@ -43,3 +43,5 @@ export type SheetProviderValue = ValueTypeOf<typeof Sheet.Types.Provider>;
 export type SheetProposerValue = ValueTypeOf<typeof Sheet.Types.Proposer>;
 /** The decoded `paged` arm — the source at the sheet's own row collection. */
 export type SheetPagedSourceValue = Extract<SheetRootValue["rows"], { type: "paged" }>["value"];
+/** One saved view — a slice-state snapshot plus the lens's context and reveals (B§8). */
+export type SheetViewValue = ValueTypeOf<typeof Sheet.Types.View>;
