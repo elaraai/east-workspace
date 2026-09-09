@@ -741,6 +741,9 @@ importers:
       '@elaraai/e3-ui-components':
         specifier: workspace:*
         version: link:../e3-ui-components
+      '@elaraai/east-node-cli':
+        specifier: workspace:*
+        version: link:../../../east-node/packages/east-node-cli
       '@elaraai/east-ui-components':
         specifier: workspace:*
         version: link:../east-ui-components

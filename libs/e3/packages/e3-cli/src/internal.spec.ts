@@ -14,7 +14,7 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { repoInit } from '@elaraai/e3-core';
@@ -89,7 +89,9 @@ describe('@elaraai/e3-cli/internal', () => {
     let previousEnv: string | undefined;
 
     before(() => {
-      tempDir = mkdtempSync(join(tmpdir(), 'e3-cli-internal-'));
+      // The canonical path: macOS's temp dir is a symlink (/var → /private/var)
+      // and the resolver returns what the OS reports for the cwd.
+      tempDir = realpathSync(mkdtempSync(join(tmpdir(), 'e3-cli-internal-')));
       repoPath = join(tempDir, 'repo');
       mkdirSync(repoPath);
       repoInit(repoPath);

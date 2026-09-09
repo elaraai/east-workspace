@@ -183,7 +183,7 @@ cat > "$PROJ/package.json" <<EOF
     "@elaraai/eslint-plugin-east": "$VERSION"
   },
   "scripts": {
-    "smoke": "east-c version && east-node version && e3 --version && e3-ui --version && e3-ui --help >/dev/null"
+    "smoke": "east-c version && east-node version && e3 --version && e3-ui --version && e3-ui --help"
   }
 }
 EOF
@@ -191,7 +191,8 @@ EOF
 # --version proves the whole module graph loads without launching one; the
 # skip env is belt-and-braces against any future dep regression. `--help`
 # proves the terminal UI's root command parses without a TTY (the UI itself
-# is never started here: stdout is a pipe).
+# is never started here: stdout is a pipe). No `>/dev/null` here: the smoke
+# runs under cmd.exe on Windows, where that redirect is a missing path.
 ( cd "$PROJ" && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-fund --no-audit >/dev/null )
 
 log "Smoke tests (each CLI via npm run, resolved from node_modules/.bin)"

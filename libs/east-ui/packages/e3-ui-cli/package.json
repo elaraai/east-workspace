@@ -69,6 +69,7 @@
     "@elaraai/e3": "workspace:*",
     "@elaraai/e3-api-tests": "workspace:*",
     "@elaraai/e3-core": "workspace:*",
+    "@elaraai/east-node-cli": "workspace:*",
     "@elaraai/e3-ui-components": "workspace:*",
     "@elaraai/east-ui-components": "workspace:*",
     "@fontsource-variable/dm-sans": "^5.2.0",
