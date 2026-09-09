@@ -168,14 +168,14 @@ export function buildStrip(input: StripInput): StripModel {
         case "quantity":
         case "integer": {
             if (empty) {
-                return { on: true, label: `${header} · accepts`, chips: flat(meta.kind === "quantity" ? "number + unit" : "number"), meta: "560000 · 560k · 1.2m3", keys: "type to parse" };
+                return { on: true, label: `${header} · accepts`, chips: flat(meta.kind === "quantity" ? "number + unit" : "number"), meta: "1200 · 1.2k · 1.2m", keys: "type to parse" };
             }
             const n = parseQuantity(edit.val);
             if (n === null || n === undefined) {
-                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: "560000 · 560k · 1.2m3" };
+                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: "1200 · 1.2k · 1.2m" };
             }
             const unit = meta.kind === "quantity" && input.unit !== undefined ? ` ${input.unit}` : "";
-            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined)}${unit}`), meta: "", keys: "560000 · 560k · 1.2m3" };
+            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined)}${unit}`), meta: "", keys: "1200 · 1.2k · 1.2m" };
         }
         case "custom": {
             if (empty) return { on: true, label: `${header} · accepts`, chips: flat(meta.accepts ?? "a value"), meta: "", keys: "type to parse" };

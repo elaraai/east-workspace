@@ -69,7 +69,7 @@ function SheetTag(
  *
  * const jobs = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const rows = $.let(State.bind([ArrayType(JobType)], "jobs", [{ id: "j1", start: none, task: "Transfer", qty: none }]));
+ *         const rows = $.let(State.bind([ArrayType(JobType)], "jobs", [{ id: "j1", start: none, task: "Machining", qty: none }]));
  *         return (
  *             <Sheet
  *                 data={rows.read()}

@@ -13,7 +13,7 @@ import { scoreLabel, scoreCandidates, entryCandidates, candidateList, ghostFor, 
 import { indexColumns, indexRegisters, type SheetColumnMeta } from "./model.js";
 import type { SheetRowValue } from "./values.js";
 
-const ACTS = ["Transfer", "Transfer - Bulk Blenders", "Transfer - Annex", "Filtration", "Drum Job", "Media - Add to Tank"];
+const ACTS = ["Machining", "Machining - Roughing", "Machining - Finishing", "Painting", "Inspection", "Heat treatment"];
 
 function member(key: string) {
     return { key, label: key, kind: "activity", aliases: [], meta: none, parent: none, tone: none };
@@ -33,34 +33,34 @@ function row(id: string, activity: string): SheetRowValue {
 
 describe("scoring", () => {
     test("the four tiers, then no match", () => {
-        expect(scoreLabel("Transfer - Annex", "tra")).toBe(0);
-        expect(scoreLabel("Transfer - Annex", "ann")).toBe(1);
-        expect(scoreLabel("Transfer - Annex", "tr an")).toBe(1);
-        expect(scoreLabel("Media - Add to Tank", "mat")).toBe(2);
-        expect(scoreLabel("Filtration", "rat")).toBe(3);
-        expect(scoreLabel("Filtration", "zzz")).toBe(-1);
-        expect(scoreLabel("Filtration", "")).toBe(-1);
+        expect(scoreLabel("Machining - Roughing", "mac")).toBe(0);
+        expect(scoreLabel("Machining - Roughing", "rou")).toBe(1);
+        expect(scoreLabel("Machining - Roughing", "ma ro")).toBe(1);
+        expect(scoreLabel("Heat treatment", "ht")).toBe(2);
+        expect(scoreLabel("Painting", "int")).toBe(3);
+        expect(scoreLabel("Painting", "zzz")).toBe(-1);
+        expect(scoreLabel("Painting", "")).toBe(-1);
     });
 
     test("best tier first, ties by frequency", () => {
-        const freq = new Map([["Transfer - Annex", 3], ["Transfer", 1]]);
-        expect(scoreCandidates(ACTS, "tr", freq).slice(0, 2)).toEqual(["Transfer - Annex", "Transfer"]);
-        expect(scoreCandidates(ACTS, "annex")).toEqual(["Transfer - Annex"]);
+        const freq = new Map([["Machining - Roughing", 3], ["Machining", 1]]);
+        expect(scoreCandidates(ACTS, "ma", freq).slice(0, 2)).toEqual(["Machining - Roughing", "Machining"]);
+        expect(scoreCandidates(ACTS, "roughing")).toEqual(["Machining - Roughing"]);
     });
 });
 
 describe("the entry menu", () => {
     test("the driver column ranks what usually follows the row above, then sheet frequency, then the rest", () => {
         const rows = [
-            row("1", "Filtration"), row("2", "Transfer"),
-            row("3", "Filtration"), row("4", "Transfer"),
-            row("5", "Drum Job"), row("6", "Filtration"),
+            row("1", "Painting"), row("2", "Machining"),
+            row("3", "Painting"), row("4", "Machining"),
+            row("5", "Inspection"), row("6", "Painting"),
         ];
-        // Editing row 7 (index 6): the row above is Filtration, which Transfer followed twice.
+        // Editing row 7 (index 6): the row above is Painting, which Machining followed twice.
         const ctx = { registers, rows, rowIndex: 6, driverColumn: "activity" };
         const menu = entryCandidates(lookupMeta, ctx);
-        expect(menu[0]).toBe("Transfer");
-        expect(menu.slice(0, 3)).toEqual(["Transfer", "Filtration", "Drum Job"]);
+        expect(menu[0]).toBe("Machining");
+        expect(menu.slice(0, 3)).toEqual(["Machining", "Painting", "Inspection"]);
         expect(menu).toHaveLength(6);
         // The empty buffer arms nothing.
         expect(candidateAt(lookupMeta, "", -1, ctx)).toBeUndefined();
@@ -70,12 +70,12 @@ describe("the entry menu", () => {
 
 describe("ghost and replacement", () => {
     test("only a prefix match ghosts; a non-prefix match previews as a replacement", () => {
-        expect(ghostFor("tra", "Transfer")).toBe("nsfer");
-        expect(ghostFor("annex", "Transfer - Annex")).toBe("");
-        expect(resolveFor("annex", "Transfer - Annex")).toBe("Transfer - Annex");
-        expect(resolveFor("tra", "Transfer")).toBe("");
-        expect(resolveFor("transfer", "Transfer")).toBe("");
-        expect(ghostWord("nsfer - Annex")).toBe("nsfer");
-        expect(ghostWord(" - Annex")).toBe(" - Annex");
+        expect(ghostFor("mac", "Machining")).toBe("hining");
+        expect(ghostFor("roughing", "Machining - Roughing")).toBe("");
+        expect(resolveFor("roughing", "Machining - Roughing")).toBe("Machining - Roughing");
+        expect(resolveFor("mac", "Machining")).toBe("");
+        expect(resolveFor("machining", "Machining")).toBe("");
+        expect(ghostWord("hining - Roughing")).toBe("hining");
+        expect(ghostWord(" - Roughing")).toBe(" - Roughing");
     });
 });

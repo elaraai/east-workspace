@@ -46,12 +46,12 @@ const StatusType = StructType({ word: StringType, tone: StatusValueType });
 /** Fixtures at MODULE scope: East bodies never call host helpers. */
 const FEB16 = new Date("2026-02-16T00:00:00Z");
 const ROWS = [
-    { id: "j1", start: some(FEB16), task: "Transfer", qty: some(560000), code: "BX226001", status: "SCHEDULED" },
-    { id: "j2", start: none, task: "Filtration", qty: none, code: "", status: "" },
+    { id: "j1", start: some(FEB16), task: "Machining", qty: some(1200), code: "WO-26001", status: "RELEASED" },
+    { id: "j2", start: none, task: "Painting", qty: none, code: "", status: "" },
 ];
 const STATUSES = [
     { word: "PLANNED", tone: variant("neutral", null) },
-    { word: "SCHEDULED", tone: variant("info", null) },
+    { word: "RELEASED", tone: variant("info", null) },
     { word: "CANCELLED", tone: variant("danger", null) },
 ];
 
@@ -66,7 +66,7 @@ function buildSheet(opts: Options = {}): SheetRootValue {
             start: Sheet.column.date(JobType, { header: "Start", sub: "d/m · fri · +3d" }),
             task: Sheet.column.text(JobType, { header: "Task" }),
             qty: Sheet.column.quantity(JobType, { header: "Qty" }),
-            code: Sheet.column.stamped(JobType, { header: "Code", owner: "MES" }),
+            code: Sheet.column.stamped(JobType, { header: "Code", owner: "ERP" }),
             status: Sheet.column.enum(JobType, "statuses", { header: "Status" }),
         }, {
             id: "id",
@@ -134,13 +134,15 @@ describe("the body", () => {
         expect(rows()).toHaveLength(5);
         expect(rows().filter((r) => !r.hasAttribute("data-blank"))).toHaveLength(2);
         expect(rows().map((r) => r.querySelector('[data-slot="gutter"]')!.textContent)).toEqual(["1", "2", "3", "4", "5"]);
+        // The row under the header is marked, so its ring stays inside the cell instead of under the sticky header.
+        expect(rows().map((r) => r.hasAttribute("data-first"))).toEqual([true, false, false, false, false]);
         const headers = [...container.querySelectorAll('[data-slot="headerCell"]')];
         expect(headers.map((h) => h.textContent)).toEqual(["Startd/m · fri · +3d", "Task", "Qty", "Code", "Status"]);
         // Cells by kind: a date prints `16 Feb 26`, a quantity groups, a stamped
         // code sits mono, an enum shows its dot and word, a blank row's stamped cell stays empty.
         expect(container.querySelector('[data-row-id="j1"] [data-key="start"]')!.textContent).toBe("16 Feb 26");
-        expect(container.querySelector('[data-row-id="j1"] [data-key="qty"]')!.textContent).toBe("560,000");
-        expect(container.querySelector('[data-row-id="j1"] [data-key="code"]')!.textContent).toBe("BX226001");
+        expect(container.querySelector('[data-row-id="j1"] [data-key="qty"]')!.textContent).toBe("1,200");
+        expect(container.querySelector('[data-row-id="j1"] [data-key="code"]')!.textContent).toBe("WO-26001");
         expect(container.querySelector('[data-row-id="j1"] [data-key="status"] [data-tone="info"]')).toBeTruthy();
         expect(container.querySelector('[data-row-id="j2"] [data-key="code"]')!.textContent).toBe("—");
         expect(rows()[3]!.querySelector('[data-key="code"]')!.textContent).toBe("");
@@ -166,6 +168,25 @@ describe("the ring and the range", () => {
         fireEvent.mouseDown(rows()[0]!.querySelector('[data-slot="gutter"]')!, { button: 0 });
         expect(container.querySelectorAll('[data-slot="rangeWash"]')).toHaveLength(5);
         expect(container.querySelector('[data-slot="footerHint"]')!.textContent).toMatch(/1 row selected/);
+    });
+
+    test("a range drag needs pointer movement: a cell entered under a held but stationary button never extends the range", () => {
+        const { container, cell } = mount(buildSheet());
+        // Press on a cell, then the sheet moves under the pointer (a window
+        // landing, a row growing): the next cell fires mouseenter with no
+        // movement — one cell stays selected.
+        fireEvent.mouseDown(cell(0, "task"), { button: 0 });
+        fireEvent.mouseEnter(cell(1, "task"));
+        expect(container.querySelectorAll('[data-slot="rangeWash"]')).toHaveLength(0);
+        expect(cell(0, "task").hasAttribute("data-selected")).toBe(true);
+        // The pointer actually moves with the button held: the range follows it.
+        fireEvent.mouseMove(window, { buttons: 1 });
+        fireEvent.mouseEnter(cell(1, "qty"));
+        expect(container.querySelectorAll('[data-slot="rangeWash"]')).toHaveLength(4);
+        fireEvent.mouseUp(window);
+        // Released: a later mouseenter is a hover, not a drag.
+        fireEvent.mouseEnter(cell(2, "qty"));
+        expect(container.querySelectorAll('[data-slot="rangeWash"]')).toHaveLength(4);
     });
 });
 
@@ -266,7 +287,7 @@ describe("editing", () => {
         expect(edits).toHaveLength(1);
         expect((edits[0]!.value as { key: string }).key).toBe("qty");
         expect(cell(0, "qty").textContent).toBe("");
-        expect(cell(0, "code").textContent).toBe("BX226001");
+        expect(cell(0, "code").textContent).toBe("WO-26001");
         fireEvent.mouseDown(rows()[1]!.querySelector('[data-slot="gutter"]')!, { button: 0 });
         key("Backspace");
         await flush();
@@ -304,7 +325,7 @@ describe("the clipboard", () => {
         fireEvent.mouseDown(cell(0, "qty"), { button: 0, shiftKey: true });
         const set = new Map<string, string>();
         fireEvent.copy(card, { clipboardData: { setData: (k: string, v: string) => set.set(k, v), getData: () => "" } });
-        expect(set.get("text/plain")).toBe("16/2/2026\tTransfer\t560000");
+        expect(set.get("text/plain")).toBe("16/2/2026\tMachining\t1200");
         expect(container.querySelector('[data-slot="footerMessage"]')!.textContent).toBe("Copied 1×3 to clipboard");
         fireEvent.mouseDown(cell(1, "start"), { button: 0 });
         fireEvent.paste(card, { clipboardData: { getData: () => "17/11/2026\tPasted\t18k" } });
@@ -356,79 +377,79 @@ describe("the paged arm (§3.13)", () => {
 // ── The link cell and its editor (P3 — Sheet Spec §5 rows 4–9) ─────────────
 
 const ActivityType = StructType({ name: StringType, uom: StringType, sides: Sheet.Types.Sides });
-const TankType = StructType({ code: StringType, litres: FloatType, farm: StringType });
-const FarmType = StructType({ code: StringType, name: StringType, tanks: IntegerType, aliases: ArrayType(StringType) });
-const PlanRowType = StructType({ id: StringType, activity: StringType, vol: OptionType(FloatType), tanks: Sheet.Types.Link, notes: StringType });
+const MachineType = StructType({ code: StringType, family: StringType, line: StringType });
+const LineType = StructType({ code: StringType, name: StringType, machines: IntegerType, aliases: ArrayType(StringType) });
+const PlanRowType = StructType({ id: StringType, activity: StringType, qty: OptionType(FloatType), stations: Sheet.Types.Link, notes: StringType });
 const ACTIVITIES = [
-    { name: "Transfer", uom: "L", sides: variant("both", null) },
-    { name: "Media - Add to Tank", uom: "Tk", sides: variant("in", null) },
-    { name: "Despatch", uom: "L", sides: variant("from", null) },
+    { name: "Machining", uom: "pcs", sides: variant("both", null) },
+    { name: "Inspection", uom: "lots", sides: variant("in", null) },
+    { name: "Shipping", uom: "pallets", sides: variant("from", null) },
 ];
-const TANKS = [
-    { code: "T2140", litres: 140000.0, farm: "2000s" }, { code: "T2141", litres: 140000.0, farm: "2000s" },
-    { code: "T2145", litres: 140000.0, farm: "2000s" }, { code: "T7301", litres: 80000.0, farm: "7000s" },
+const MACHINES = [
+    { code: "M2140", family: "CNC lathe", line: "Line 2" }, { code: "M2141", family: "CNC lathe", line: "Line 2" },
+    { code: "M2145", family: "CNC lathe", line: "Line 2" }, { code: "M7301", family: "assembly bench", line: "Line 7" },
 ];
-const FARMS = [
-    { code: "T20", name: "2000s", tanks: 96n, aliases: ["2000", "the 2000s"] },
-    { code: "T70", name: "7000s", tanks: 72n, aliases: ["7000"] },
+const LINES = [
+    { code: "L2", name: "Line 2", machines: 96n, aliases: ["line 2", "the 2 line"] },
+    { code: "L7", name: "Line 7", machines: 72n, aliases: ["l7"] },
 ];
 const PLAN = [
-    { id: "p1", activity: "Transfer", vol: some(400000.0), notes: "", tanks: { from: [variant("identified", { key: "T2140" })], to: [variant("counted", { n: 4n, key: "140 m³" })] } },
-    { id: "p2", activity: "Media - Add to Tank", vol: some(2.0), notes: "", tanks: { from: [], to: [variant("placeholder", null)] } },
-    { id: "p3", activity: "Despatch", vol: none, notes: "", tanks: { from: [], to: [variant("text", "kept")] } },
-    { id: "p4", activity: "Transfer", vol: some(300000.0), notes: "", tanks: { from: [], to: [] } },
+    { id: "p1", activity: "Machining", qty: some(1200.0), notes: "", stations: { from: [variant("identified", { key: "M2140" })], to: [variant("counted", { n: 4n, key: "CNC lathe" })] } },
+    { id: "p2", activity: "Inspection", qty: some(2.0), notes: "", stations: { from: [], to: [variant("placeholder", null)] } },
+    { id: "p3", activity: "Shipping", qty: none, notes: "", stations: { from: [], to: [variant("text", "kept")] } },
+    { id: "p4", activity: "Machining", qty: some(900.0), notes: "", stations: { from: [], to: [] } },
 ];
 
 function buildLinkSheet(): SheetRootValue {
     const program = East.function([], UIComponentType, ($) => {
         const rows = $.const(PLAN, ArrayType(PlanRowType));
         const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
-        const tanks = $.const(TANKS, ArrayType(TankType));
-        const farms = $.const(FARMS, ArrayType(FarmType));
+        const machines = $.const(MACHINES, ArrayType(MachineType));
+        const lines = $.const(LINES, ArrayType(LineType));
         const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);
-        const impliedTanks = $.const(East.function([Ctx], OptionType(Sheet.Types.Counted), ($2, ctx) => {
+        const impliedStations = $.const(East.function([Ctx], OptionType(Sheet.Types.Counted), ($2, ctx) => {
             const noCount = $2.const(none, OptionType(Sheet.Types.Counted));
-            return ctx.row.vol.match({
+            return ctx.row.qty.match({
                 none: (_$) => noCount,
-                some: ($3, v) => {
-                    // ⌈vol ÷ 140 000⌉ by hand — `toInteger` refuses a fraction.
-                    const share = $3.let(v.divide(140000.0));
+                some: ($3, q) => {
+                    // ⌈qty ÷ 300⌉ by hand — `toInteger` refuses a fraction.
+                    const share = $3.let(q.divide(300.0));
                     const frac = $3.let(share.remainder(1.0));
                     const n = $3.let(frac.equal(0.0).ifElse((_$) => share, (_$) => share.subtract(frac).add(1.0)).toInteger());
-                    return East.value(some({ n, key: "140 m³" }), OptionType(Sheet.Types.Counted));
+                    return East.value(some({ n, key: "CNC lathe" }), OptionType(Sheet.Types.Counted));
                 },
             });
         }));
         const CheckCtx = Sheet.Types.CheckContext(PlanRowType);
-        const northOnly = $.const(East.function([CheckCtx], OptionType(StringType), ($2, c) => {
+        const lathesOnly = $.const(East.function([CheckCtx], OptionType(StringType), ($2, c) => {
             const noFlag = $2.const(none, OptionType(StringType));
             return c.member.match({
-                identified: (_$, m) => m.key.startsWith("T7").ifElse((_$2) => East.value(some(East.str`${m.key} is a north tank`), OptionType(StringType)), (_$2) => noFlag),
+                identified: (_$, m) => m.key.startsWith("M7").ifElse((_$2) => East.value(some(East.str`${m.key} is not a lathe`), OptionType(StringType)), (_$2) => noFlag),
             }, (_$) => noFlag);
         }));
         return Sheet.Root(rows, {
             activity: Sheet.column.lookup(PlanRowType, { header: "Activity" }),
-            vol: Sheet.column.quantity(PlanRowType, ActivityType, { header: "Vol", uom: (d) => d.uom }),
-            tanks: Sheet.column.link(PlanRowType, ActivityType, "vessels", {
-                header: "Tanks",
+            qty: Sheet.column.quantity(PlanRowType, ActivityType, { header: "Qty", uom: (d) => d.uom }),
+            stations: Sheet.column.link(PlanRowType, ActivityType, "stations", {
+                header: "Work centres",
                 members: [
-                    { kind: "tank", identified: true }, { kind: "range", identified: true },
-                    { kind: "farm", countable: true, resolvesTo: "tank" }, { kind: "capacity", countable: true, resolvesTo: "tank" },
+                    { kind: "machine", identified: true }, { kind: "range", identified: true },
+                    { kind: "line", countable: true, resolvesTo: "machine" }, { kind: "family", countable: true, resolvesTo: "machine" },
                 ],
                 multiple: { forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" },
                 sides: { value: (d) => d.sides, locks: { from: { to: "external", in: "in place" }, to: { from: "external" } } },
-                arity: Sheet.link.arity("to", impliedTanks),
-                check: [Sheet.link.check.exists(), northOnly],
+                arity: Sheet.link.arity("to", impliedStations),
+                check: [Sheet.link.check.exists(), lathesOnly],
             }),
             notes: Sheet.column.text(PlanRowType, { header: "Notes" }),
         }, {
             id: "id",
             driver: Sheet.driver("activity", activities, { key: (a) => a.name, label: (a) => a.name }),
             registers: {
-                vessels: Sheet.register.concat([
-                    Sheet.register.members(tanks, { kind: "tank", key: (t) => t.code, label: (t) => t.code, meta: (t) => some(East.str`${t.litres.divide(1000.0).toInteger()} m³`), parent: (t) => some(t.farm) }),
-                    Sheet.register.members(farms, { kind: "farm", key: (f) => f.name, label: (f) => f.name, aliases: (f) => f.aliases, meta: (f) => some(East.str`farm · ${f.tanks}`) }),
-                    Sheet.register.members(tanks, { kind: "capacity", key: (t) => East.str`${t.litres.divide(1000.0).toInteger()} m³`, label: (t) => East.str`${t.litres.divide(1000.0).toInteger()} m³`, meta: (_t) => some("size") }),
+                stations: Sheet.register.concat([
+                    Sheet.register.members(machines, { kind: "machine", key: (m) => m.code, label: (m) => m.code, meta: (m) => some(m.family), parent: (m) => some(m.line) }),
+                    Sheet.register.members(lines, { kind: "line", key: (l) => l.name, label: (l) => l.name, aliases: (l) => l.aliases, meta: (l) => some(East.str`line · ${l.machines}`) }),
+                    Sheet.register.members(machines, { kind: "family", key: (m) => m.family, label: (m) => m.family, meta: (_m) => some("family") }),
                 ]),
             },
             blanks: 2,
@@ -442,12 +463,12 @@ function buildLinkSheet(): SheetRootValue {
 describe("the link cell (B§4.3)", () => {
     test("halves, chips with meta, locks per the driver's sides, the minus for in place, flags from the checks", () => {
         const { container } = mount(buildLinkSheet());
-        const cell = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-key="tanks"]`)!;
+        const cell = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-key="stations"]`)!;
         // Both halves live: a single chip per half carries its register meta.
         const p1 = cell("p1");
         expect(p1.querySelector('[data-slot="linkCell"]')!.getAttribute("data-sides")).toBe("both");
-        expect([...p1.querySelectorAll('[data-half="from"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["T2140140 m³"]);
-        expect([...p1.querySelectorAll('[data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["4 × 140 m³unassigned"]);
+        expect([...p1.querySelectorAll('[data-half="from"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["M2140CNC lathe"]);
+        expect([...p1.querySelectorAll('[data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["4 × CNC latheunassigned"]);
         // In place: From locked with its tag, the divider a minus, the placeholder dashed.
         const p2 = cell("p2");
         expect(p2.querySelector('[data-slot="linkCell"]')!.getAttribute("data-sides")).toBe("in");
@@ -469,60 +490,60 @@ describe("the link editor (B§4.4)", () => {
     test("typing resolves through the grammar — `,` chips, `>` hops, the armed candidate on ⇥ — and commits a typed Link", async () => {
         const { value, edits } = withSpies(buildLinkSheet());
         const { container, cell, key, type, editorKey, input, flush } = mount(value);
-        fireEvent.mouseDown(cell(3, "tanks"), { button: 0 });
-        key("t");
+        fireEvent.mouseDown(cell(3, "stations"), { button: 0 });
+        key("m");
         expect(container.querySelector('[data-slot="editor"][data-link]')).toBeTruthy();
         expect(input()!.getAttribute("data-side")).toBe("0");
-        type("t2140, the 2000s > 4 x 140m3, t73");
+        type("m2140, the 2 line > 4 x cnc lathe, m73");
         // From resolved to chips; the caret hopped to To; the buffer holds the tail.
-        expect([...container.querySelectorAll('[data-slot="editor"] [data-half="from"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["T2140", "2000s"]);
-        expect([...container.querySelectorAll('[data-slot="editor"] [data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["4 × 140 m³"]);
+        expect([...container.querySelectorAll('[data-slot="editor"] [data-half="from"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["M2140", "Line 2"]);
+        expect([...container.querySelectorAll('[data-slot="editor"] [data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["4 × CNC lathe"]);
         expect(input()!.getAttribute("data-side")).toBe("1");
-        expect(input()!.value).toBe("t73");
+        expect(input()!.value).toBe("m73");
         expect(container.querySelector('[data-slot="editorGhost"]')!.textContent).toBe("01");
         // The strip: the armed candidate with its meta, the To half named.
-        expect(container.querySelector('[data-slot="stripLabel"]')!.textContent).toBe("TANKS · to");
-        expect(container.querySelector('[data-slot="stripChip"][data-armed]')!.textContent).toBe("T7301");
+        expect(container.querySelector('[data-slot="stripLabel"]')!.textContent).toBe("WORK CENTRES · to");
+        expect(container.querySelector('[data-slot="stripChip"][data-armed]')!.textContent).toBe("M7301");
         editorKey("Tab");
-        expect(input()!.value).toBe("T7301");
+        expect(input()!.value).toBe("M7301");
         editorKey("Enter");   // resolves and stays
         expect(input()!.value).toBe("");
-        expect([...container.querySelectorAll('[data-slot="editor"] [data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["4 × 140 m³", "T7301"]);
-        // The arity meta reads in the strip while To is edited: vol 300,000 ⇒ 3 × 140 m³ implied · 5 named.
-        expect(container.querySelector('[data-slot="stripMeta"]')!.textContent).toBe("3 × 140 m³ implied · 5 named — more than the volume needs");
+        expect([...container.querySelectorAll('[data-slot="editor"] [data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["4 × CNC lathe", "M7301"]);
+        // The arity meta reads in the strip while To is edited: qty 900 ⇒ 3 × CNC lathe implied · 5 named.
+        expect(container.querySelector('[data-slot="stripMeta"]')!.textContent).toBe("3 × CNC lathe implied · 5 named — more than the quantity needs");
         editorKey("Enter");   // empty: commits down
         await flush();
         expect(edits).toHaveLength(1);
-        const link = (edits[0]!.value as { row: { cells: Map<string, { type: string; value: { from: unknown[]; to: unknown[] } }> } }).row.cells.get("tanks")!;
+        const link = (edits[0]!.value as { row: { cells: Map<string, { type: string; value: { from: unknown[]; to: unknown[] } }> } }).row.cells.get("stations")!;
         expect(link.type).toBe("Link");
-        expect(link.value.from).toEqual([{ type: "identified", value: { key: "T2140" } }, { type: "identified", value: { key: "2000s" } }]);
-        expect(link.value.to).toEqual([{ type: "counted", value: { n: 4n, key: "140 m³" } }, { type: "identified", value: { key: "T7301" } }]);
-        // The committed cell draws its chips; the custom check flags the north tank.
-        const committed = container.querySelector('[data-row-id="p4"] [data-key="tanks"]')!;
-        expect([...committed.querySelectorAll('[data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["4 × 140 m³", "T7301"]);
+        expect(link.value.from).toEqual([{ type: "identified", value: { key: "M2140" } }, { type: "identified", value: { key: "Line 2" } }]);
+        expect(link.value.to).toEqual([{ type: "counted", value: { n: 4n, key: "CNC lathe" } }, { type: "identified", value: { key: "M7301" } }]);
+        // The committed cell draws its chips; the custom check flags the bench.
+        const committed = container.querySelector('[data-row-id="p4"] [data-key="stations"]')!;
+        expect([...committed.querySelectorAll('[data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["4 × CNC lathe", "M7301"]);
         const flagged = committed.querySelector('[data-slot="chip"][data-flag]')!;
-        expect(flagged.textContent).toBe("T7301");
-        expect(flagged.getAttribute("title")).toBe("T7301 is a north tank");
+        expect(flagged.textContent).toBe("M7301");
+        expect(flagged.getAttribute("title")).toBe("M7301 is not a lathe");
     });
 
     test("a locked half is skipped by ⇥ and flagged when typed into; a click in a half moves the caret; ⌫ pops a chip", () => {
         const { container, cell, key, type, editorKey, input } = mount(buildLinkSheet());
-        // Despatch — from only: the editor opens in From, ⇥ commits right instead of hopping.
-        fireEvent.mouseDown(cell(2, "tanks"), { button: 0 });
+        // Shipping — from only: the editor opens in From, ⇥ commits right instead of hopping.
+        fireEvent.mouseDown(cell(2, "stations"), { button: 0 });
         key("Enter");
         expect(input()!.getAttribute("data-side")).toBe("0");
         expect(container.querySelector('[data-slot="editor"] [data-half="to"] [data-slot="lockWarn"]')).toBeTruthy();   // holds `kept`
         editorKey("Tab");
         expect(input()).toBeNull();
         expect(cell(2, "notes").hasAttribute("data-selected")).toBe(true);
-        // Transfer — both halves: click the To half, pop its chip back into the buffer.
-        fireEvent.mouseDown(cell(0, "tanks"), { button: 0 });
+        // Machining — both halves: click the To half, pop its chip back into the buffer.
+        fireEvent.mouseDown(cell(0, "stations"), { button: 0 });
         key("Enter");
         expect(input()!.getAttribute("data-side")).toBe("1");   // the first live EMPTY half is none ⇒ destination
         fireEvent.mouseDown(container.querySelector('[data-slot="editor"] [data-half="from"]')!, { button: 0 });
         expect(input()!.getAttribute("data-side")).toBe("0");
         editorKey("Backspace");
-        expect(input()!.value).toBe("T2140");
+        expect(input()!.value).toBe("M2140");
         expect(container.querySelectorAll('[data-slot="editor"] [data-half="from"] [data-slot="chip"]')).toHaveLength(0);
         type("");
         editorKey("Escape");
@@ -534,13 +555,13 @@ describe("the link editor (B§4.4)", () => {
     test("paste lays two clipboard columns over a link column and parses them through the grammar", async () => {
         const { value, edits } = withSpies(buildLinkSheet());
         const { card, cell, flush } = mount(value);
-        fireEvent.mouseDown(cell(3, "tanks"), { button: 0 });
-        fireEvent.paste(card, { clipboardData: { getData: () => "T2141\t2 x 2000s, tbc" } });
+        fireEvent.mouseDown(cell(3, "stations"), { button: 0 });
+        fireEvent.paste(card, { clipboardData: { getData: () => "M2141\t2 x line 2, tbc" } });
         await flush();
         expect(edits).toHaveLength(1);
-        const link = (edits[0]!.value as { row: { cells: Map<string, { value: { from: unknown[]; to: unknown[] } }> } }).row.cells.get("tanks")!.value;
-        expect(link.from).toEqual([{ type: "identified", value: { key: "T2141" } }]);
-        expect(link.to).toEqual([{ type: "counted", value: { n: 2n, key: "2000s" } }, { type: "placeholder", value: null }]);
-        expect(cell(3, "tanks").querySelectorAll('[data-slot="chip"]')).toHaveLength(3);
+        const link = (edits[0]!.value as { row: { cells: Map<string, { value: { from: unknown[]; to: unknown[] } }> } }).row.cells.get("stations")!.value;
+        expect(link.from).toEqual([{ type: "identified", value: { key: "M2141" } }]);
+        expect(link.to).toEqual([{ type: "counted", value: { n: 2n, key: "Line 2" } }, { type: "placeholder", value: null }]);
+        expect(cell(3, "stations").querySelectorAll('[data-slot="chip"]')).toHaveLength(3);
     });
 });

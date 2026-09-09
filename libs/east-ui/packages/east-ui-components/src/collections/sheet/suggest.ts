@@ -13,7 +13,7 @@
  * column, provider). Fills CHAIN in column order — a later column's providers
  * (and the proposers) see the earlier columns' fills as if taken, the
  * prototype's `row.start || fill.start`: the end derives from a predicted
- * start, the notes phrase and the tank count read the predicted volume. A synchronous provider answers inline; an asynchronous
+ * start, the notes phrase and the station count read the predicted quantity. A synchronous provider answers inline; an asynchronous
  * one is returned as work the component tracks (`suggest-async.ts`) — a
  * later synchronous provider answers meanwhile, and an earlier asynchronous
  * one that lands replaces it (first that yields wins, still by position).

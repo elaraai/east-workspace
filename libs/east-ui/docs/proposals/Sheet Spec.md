@@ -39,9 +39,10 @@
 > ```
 >
 > The prototype and its documents were genericised from a client design to a
-> batch-process plant with synthetic registers and rows. Keep every example in this
-> repository on that footing — no customer, site, product or upstream-system names,
-> no process jargon that would place the plant in an industry, and no operational
+> discrete manufacturing plant — work orders moving parts between machines on
+> lines — with synthetic registers and rows. Keep every example in this repository
+> on that footing — no customer, site, product or upstream-system names, no
+> process jargon that would place the plant in an industry, and no operational
 > numbers copied from a real plan.
 
 One sheet; typed columns; a copilot. `Sheet` is the planning spreadsheet: a sheet
@@ -91,7 +92,7 @@ and the wire format for a name.
 | Concern | Decision |
 |---|---|
 | **What the component owns** | The sheet card (two-line header, gutter, cells, editors, selection, keyboard, clipboard), the docked strip, the footer (counts, key hint, live message, the paged transport line), the lens (hits, ±n context bands, reveals) over the slice's narrowing, the view tabs, the copilot runner, register-driven cell kinds and the link grammar. |
-| **What the host owns** | The app bar (title, breadcrumb, sync status — `<App>`), persistence and its mode (autosave = `Data.bind` direct; held-locally = `Data.bind` staged + commit), the autosave toggle, the upload/stamping action, the `owned` predicate (data), registers (data), footer counts (expressions over the host's rows), **every copilot rule** (East functions), the slice binding. |
+| **What the host owns** | The app bar (title, breadcrumb, sync status — `<App>`), persistence and its mode (autosave = `Data.bind` direct; held-locally = `Data.bind` staged + commit), the autosave toggle, the release/stamping action, the `owned` predicate (data), registers (data), footer counts (expressions over the host's rows), **every copilot rule** (East functions), the slice binding. |
 | **Cells are the Table's primitive; links are typed** | A scalar cell is a bare `LiteralValueType` (`Null` is blank): `date` = `DateTime` (UTC midnight); `quantity` = `Float`; `integer` = `Integer`; everything else a `String`. A `set` / `link` cell is a **`Sheet.Types.Link` value** — two arrays of resolved members with a direction — never a string the host has to re-parse; the renderer's grammar (B§4.1) is the kind's parse / print pair (§3.4). The planner's as-typed string (B§4.2) is what the *editor* shows, and a host that wants it stored verbatim sits the column on a `String` field (§3.4). No per-cell UI in the IR (#206). |
 | **Rows are the host's structs — positional inline, keyed only when paged** | `data` inline is an `Array<R>`, or a `Data.bind` / `State.bind` handle of one (`data={jobs}` and `data={jobs.read()}` build the same IR), never a `Dict`: a dictionary decodes to a sorted map, so its rows would sit in key order (`j10` before `j2`) instead of the planner's. A **paged source** (`Data.bindPaged`, `Paged.of`) may be positional (`Array<R>` windows; `seek` when the source is sorted by a key) or keyed (`Dict<String, R>` windows in key order — the host designs keys that sort as the sheet should read, and the key is the row id). The factory projects `R` into sheet rows (`id` / `owned` + one cell per column) through the shared row-source contract (#567/#576). Blank padding rows are renderer state, never data. |
 | **Accessors and `SubtypeExprOrValue` — the Plan / Table rule** | `data` is the host's raw rows; every per-row fact is an **accessor** returning an expression of the IR field's type (`owned`, a column's `value`, a register's `key` / `label` / `meta` / `tone`, and — over the **driver's row type** — a quantity's `uom` and a link's `sides`); every static field of a declaration (`header`, `sub`, `width`, `accepts`) is `SubtypeExprOrValue` — a literal or an expression. Columns are **builders that take the row type first** — `Sheet.column.date(R, …)`, `Sheet.column.quantity(R, D, …)`, `Sheet.column.link(R, D, register, …)` — the `Plan.series.<kind>(OpsRow, …)` shape, so every accessor inside is typed by `R`, and by `D` (the driver's row type) where the kind reads the driver's row; the `columns` map is checked per key against the row's fields (`SheetColumnSpec<R>`, the `<Table columns>` mapped type). Nothing at the author's side is addressed by a string name — not a driver attribute, not a cell. The names that ARE strings are field KEYS of `R`, typed as such: the `columns` map's keys, `id` (the String field that identifies a row — a name, because the rebuild writes it on an insert), a date column's `base`, and a link column's `to` / `from` naming its other half's field (§3.4). |
@@ -188,7 +189,7 @@ const JobType = StructType({
 export const sheetBasic = East.function([], UIComponentType, (_$) => (
     <Reactive>{$ => {
         const jobs = $.let(State.bind([ArrayType(JobType)], "jobs", [
-            { id: "j1", start: none, task: "Transfer", qty: none },
+            { id: "j1", start: none, task: "Machining", qty: none },
         ]));
         return (
             <Sheet
@@ -244,17 +245,17 @@ columns={{
                    header: "End", sub: "4d = start+4", base: "start",                // `4d` means start + 4 (B§3)
                    fill: [endFromStart] }),                                          // an author function (§3.5)
     activity:  Sheet.column.lookup(PlanRowType, { header: "Activity", sub: "activity register" }),   // the driver column — its register is `driver`'s (§3.3)
-    vol:       Sheet.column.quantity(PlanRowType, ActivityType, {
-                   header: "Vol / Qty", sub: "uom per activity",
+    qty:       Sheet.column.quantity(PlanRowType, ActivityType, {
+                   header: "Qty", sub: "uom per activity",
                    uom: d => d.uom,                                                  // an accessor over the DRIVER's row — `d` is typed
                    format: Format.Number({ maximumFractionDigits: 0n }) }),
     notes:     Sheet.column.text(PlanRowType, { header: "Notes", sub: "free text" }),
-    tanks:     Sheet.column.link(PlanRowType, ActivityType, "vessels", { /* §3.4 */ }),
-    toClean:   Sheet.column.integer(PlanRowType, { header: "Clean", sub: "n" }),
+    stations:  Sheet.column.link(PlanRowType, ActivityType, "stations", { /* §3.4 */ }),
+    setups:    Sheet.column.integer(PlanRowType, { header: "Setups", sub: "n" }),
     fromSite:  Sheet.column.reference(PlanRowType, "sites", { header: "From site", sub: "site register" }),
     toSite:    Sheet.column.reference(PlanRowType, "sites", { header: "To site", sub: "site register" }),
-    orderCode: Sheet.column.stamped(PlanRowType, { header: "Order code", sub: "stamped on upload", owner: "MES" }),
-    status:    Sheet.column.enum(PlanRowType, "statuses", { header: "Status", sub: "mes" }),      // valence dot from the register's `tone` accessor
+    orderCode: Sheet.column.stamped(PlanRowType, { header: "Order code", sub: "stamped on release", owner: "ERP" }),
+    status:    Sheet.column.enum(PlanRowType, "statuses", { header: "Status", sub: "erp" }),      // valence dot from the register's `tone` accessor
 }}
 ```
 
@@ -262,7 +263,7 @@ columns={{
 |---|---|---|---|---|---|
 | `text` | `String` / `Option<String>` | `String` | `String` | free text | idle |
 | `date` | `DateTime` / `Option<DateTime>` | `DateTime` | `DateTime` | `+3d` · `4d` from `base` · weekday · ISO · `d/m[/yy]` · `17 nov` ; display `17 Nov 26` | instant |
-| `quantity` | `Float` / `Option<Float>` | `Float` | `Float` | digits + `l·k·m3` suffix, locale-grouped display, unit from the driver | idle |
+| `quantity` | `Float` / `Option<Float>` | `Float` | `Float` | digits + an optional `k` / `m` magnitude suffix (the unit is the column's, never typed), locale-grouped display, unit from the driver | idle |
 | `integer` | `Integer` / `Option<Integer>` | `Integer` | `Integer` | as quantity, no unit | instant |
 | `lookup` | `String` / `Option<String>` | `String` | `String` | scored register candidates (B§3.1); commit = exact → top → typed | instant |
 | `reference` | `String` / `Option<String>` | `String` | `String` | as lookup over a flat member list | instant |
@@ -279,7 +280,7 @@ for deterministic kinds, 1 100 ms for the rest; it is a property of the kind,
 not of the provider.
 
 A column with a `value` accessor (`Sheet.column.quantity(PlanRowType, ActivityType, {
-value: r => r.vol.multiply(r.factor) })`) is a **derived read**: it displays the
+value: r => r.qty.multiply(r.factor) })`) is a **derived read**: it displays the
 projection and is read-only — the sheet writes fields, never projections. Every
 other column sits on its field directly and edits it in place.
 
@@ -302,27 +303,29 @@ accessors take it as `d`, and providers receive it as `ctx.driver` (§3.5).
 ```tsx
 const ActivityType = StructType({ name: StringType, uom: StringType, rate: FloatType, fte: IntegerType, days: IntegerType,
                                   sides: Sheet.Types.Sides });                                  // both | from | to | in
-const TankType     = StructType({ code: StringType, litres: FloatType, farm: StringType, site: StringType });
-const FarmType     = StructType({ code: StringType, name: StringType, tanks: IntegerType, aliases: ArrayType(StringType) });
+const MachineType  = StructType({ code: StringType, family: StringType, line: StringType, site: StringType });
+const LineType     = StructType({ code: StringType, name: StringType, machines: IntegerType, aliases: ArrayType(StringType) });
+const FamilyType   = StructType({ name: StringType, aliases: ArrayType(StringType) });
 const StatusType   = StructType({ word: StringType, tone: StatusValueType });
 
 // inside the <Reactive> body
 const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
-const tanks      = $.const(TANKS, ArrayType(TankType));
-const farms      = $.const(FARMS, ArrayType(FarmType));
+const machines   = $.const(MACHINES, ArrayType(MachineType));
+const lines      = $.const(LINES, ArrayType(LineType));
+const families   = $.const(FAMILIES, ArrayType(FamilyType));
 const sites      = $.const(SITES, ArrayType(StringType));
 const statuses   = $.const(STATUSES, ArrayType(StatusType));
 
 driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name })}     // D = ActivityType; the tag checks each builder's D against it
 registers={{
-    vessels: Sheet.register.concat([
-        Sheet.register.members(tanks, { kind: "tank", key: t => t.code, label: t => t.code,
-            meta: t => some(East.str`${t.litres.divide(1000.0).toInteger()} m³`), parent: t => some(t.farm) }),
-        Sheet.register.members(farms, { kind: "farm", key: f => f.name, label: f => f.name,
-            aliases: f => f.aliases, meta: f => some(East.str`farm · ${f.tanks}`) }),
-        // A countable-by-attribute kind: every distinct size is a member ("140 m³"); duplicates fold by key.
-        Sheet.register.members(tanks, { kind: "capacity", key: t => East.str`${t.litres.divide(1000.0).toInteger()} m³`,
-            label: t => East.str`${t.litres.divide(1000.0).toInteger()} m³`, meta: _t => some("size") }),
+    stations: Sheet.register.concat([
+        Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code,
+            meta: m => some(m.family), parent: m => some(m.line) }),
+        Sheet.register.members(lines, { kind: "line", key: l => l.name, label: l => l.name,
+            aliases: l => l.aliases, meta: l => some(East.str`line · ${l.machines}`) }),
+        // A countable-by-attribute kind: every distinct family is a member ("CNC lathe"), with the spellings a planner types.
+        Sheet.register.members(families, { kind: "family", key: f => f.name, label: f => f.name,
+            aliases: f => f.aliases, meta: _f => some("family") }),
     ]),
     sites:    Sheet.register.members(sites, { kind: "site", key: s => s, label: s => s }),
     statuses: Sheet.register.members(statuses, { kind: "status", key: s => s.word, label: s => s.word, tone: s => some(s.tone) }),
@@ -345,9 +348,9 @@ on the host's row in one of three ways — chosen by the field's static types (t
 
 ```ts
 export const SheetMemberType = VariantType({
-    identified:  StructType({ key: StringType }),                    // "T2140" — a register code
-    range:       StructType({ from: StringType, to: StringType }),   // "T2140-45" — expands through the register
-    counted:     StructType({ n: IntegerType, key: StringType }),    // "4 × 140 m³" — a count of a countable member
+    identified:  StructType({ key: StringType }),                    // "M2140" — a register code
+    range:       StructType({ from: StringType, to: StringType }),   // "M2140-45" — expands through the register
+    counted:     StructType({ n: IntegerType, key: StringType }),    // "4 × CNC lathe" — a count of a countable member
     placeholder: NullType,                                           // "TBC" — dashed
     text:        StringType,                                         // anything else — kept as typed, never blocked
 });
@@ -355,65 +358,66 @@ export const SheetLinkType = StructType({ from: ArrayType(SheetMemberType), to: 
 // A destination-only link is `from: []`; a source-only link `to: []` — the single-set data of B§4.2 needs no migration.
 ```
 
-- **(a) a `Sheet.Types.Link` field** — `tanks: Sheet.Types.Link` on the row; the column sits on it and edits it in place (the flagship, §3.11).
-- **(b) two member-array fields** — the column sits on one (`fromTanks: Array<Sheet.Types.Member>`) and names the OTHER half's field (`to: "toTanks"`, or `from: "fromTanks"` when it sits on the to half); the factory composes the value on read and decomposes it on write. A field name, typed as a key of `R`, because the write needs the field.
+- **(a) a `Sheet.Types.Link` field** — `stations: Sheet.Types.Link` on the row; the column sits on it and edits it in place (the flagship, §3.11).
+- **(b) two member-array fields** — the column sits on one (`fromStations: Array<Sheet.Types.Member>`) and names the OTHER half's field (`to: "toStations"`, or `from: "fromStations"` when it sits on the to half); the factory composes the value on read and decomposes it on write. A field name, typed as a key of `R`, because the write needs the field.
 - **(c) a `String` field** — the planner's as-typed text (B§4.2: `a > b` · `b` · `a >`); the grammar parses it on read and the commit writes the text verbatim (`store: "asTyped"`) or the canonical labels (`"canonical"`).
 
 `Sheet.link.parse(text, members)` / `Sheet.link.print(link)` are exported East
 functions — the kind's parse / print pair (§3.9), resolved against a register's
 members (a token that names a key or alias is `identified`, `N x key` is
-`counted`, `T2140-45` a `range`, `TBC` the placeholder, anything else `text`) —
+`counted`, `M2140-45` a `range`, `TBC` the placeholder, anything else `text`) —
 so a task can round-trip a legacy string without the renderer.
 
 ```tsx
-tanks: Sheet.column.link(PlanRowType, ActivityType, "vessels", {                         // row type · driver row type · register · config
-    header: "Tanks / vessels", sub: "from → to · 4 x 140m³ · tank · farm", width: "352px",
-    // form (b) — the column sits on one member-array field and names the other: `to: "toTanks"`; omit for (a) or (c)
+stations: Sheet.column.link(PlanRowType, ActivityType, "stations", {                     // row type · driver row type · register · config
+    header: "Work centres", sub: "from → to · 4 x lathe · machine · line", width: "352px",
+    // form (b) — the column sits on one member-array field and names the other: `to: "toStations"`; omit for (a) or (c)
     members: [
-        { kind: "tank", identified: true },                    // a register code; bare digits try the code prefix
-        { kind: "range", identified: true },                   // T2140-45 expands to every member in the span
-        { kind: "farm", countable: true, resolvesTo: "tank" }, // "4 × 2000s" — a count of a kind, resolved later
-        { kind: "group", countable: true, resolvesTo: "tank" },
-        { kind: "capacity", countable: true, resolvesTo: "tank" },
+        { kind: "machine", identified: true },                    // a register code; bare digits try the code prefix
+        { kind: "range", identified: true },                      // M2140-45 expands to every member in the span
+        { kind: "line", countable: true, resolvesTo: "machine" }, // "2 × Line 2" — a count of a kind, resolved later
+        { kind: "family", countable: true, resolvesTo: "machine" },   // "4 × CNC lathe" — countable by attribute
     ],
     multiple: { forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" },
     sides: { value: d => d.sides,                                                 // the DRIVER's row: both | from | to | in
              locks: { from: { to: "external", in: "in place" }, to: { from: "external" } } },
-    arity: Sheet.link.arity("to", impliedTanks),                                       // how many the To half should hold — an East function, below
+    arity: Sheet.link.arity("to", impliedStations),                                    // how many the To half should hold — an East function, below
     check: [Sheet.link.check.exists(), siteMatches],                                   // `exists` is the grammar's own; the rest are author functions
-    fill: [lastTanks, countedByVolume],                                           // §3.5
+    fill: [lastStations, countedByQuantity],                                      // §3.5
 }),
 ```
 
 The arity rule is domain logic, so it is a function over the typed context
 (§3.5): given the row as it would be and the driver's row, how many members are
 implied and **which countable member** to propose when none are named (the
-`n × 140 m³` form of B§4.5). The prototype's per-unit switch reads naturally:
+`n × CNC lathe` form of B§4.5). The prototype's per-unit switch reads naturally:
 
 ```tsx
 const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);                       // the typed context — §3.5
-const impliedTanks = $.const(East.function([Ctx], OptionType(Sheet.Types.Counted), ($, ctx) => {
+const impliedStations = $.const(East.function([Ctx], OptionType(Sheet.Types.Counted), ($, ctx) => {
     const noCount = $.const(none, OptionType(Sheet.Types.Counted));
-    const vol = $.let(ctx.row.vol.match({ some: (_$, v) => v, none: _$ => 0.0 }));
-    const litresPerTank = $.const(140000.0);
-    // ⌈vol ÷ 140 000⌉ by hand — `toInteger` refuses a fraction.
-    const share = $.let(vol.divide(litresPerTank));
+    const qty = $.let(ctx.row.qty.match({ some: (_$, v) => v, none: _$ => 0.0 }));
+    const piecesPerMachine = $.const(300.0);
+    // ⌈qty ÷ 300⌉ and round(qty) by hand — `toInteger` refuses a fraction.
+    const share = $.let(qty.divide(piecesPerMachine));
     const frac = $.let(share.remainder(1.0));
-    const tanks = $.let(frac.equal(0.0).ifElse(_$ => share, _$ => share.subtract(frac).add(1.0)).toInteger());
+    const needed = $.let(frac.equal(0.0).ifElse(_$ => share, _$ => share.subtract(frac).add(1.0)).toInteger());
+    const half = $.let(qty.add(0.5));
+    const whole = $.let(half.subtract(half.remainder(1.0)).toInteger());
     return ctx.driver.match({
         none: _$ => noCount,
-        some: (_$, d) => d.uom.equal("Tk").ifElse(
-            _$ => some({ n: vol.toInteger(), key: "140 m³" }),                    // the quantity IS the count
-            _$ => d.uom.equal("Drm").ifElse(
-                _$ => noCount,                                                    // drum jobs name no vessels
-                _$ => vol.greater(0.0).ifElse(
-                    _$ => some({ n: tanks, key: "140 m³" }),
-                    _$ => noCount))),
+        some: (_$, d) => d.uom.equal("lots").ifElse(
+            _$ => some({ n: whole, key: "CNC lathe" }),                           // one lot per machine — the quantity IS the count
+            _$ => d.uom.equal("pcs").or(() => d.uom.equal("units")).ifElse(
+                _$ => qty.greater(0.0).ifElse(
+                    _$ => some({ n: needed, key: "CNC lathe" }),
+                    _$ => noCount),
+                _$ => noCount)),                                                  // hours, cartons, pallets name no machines
     });
 }));
 ```
 
-The strip reads the result while the To half is edited (*4 × 140 m³ implied · 3
+The strip reads the result while the To half is edited (*4 × CNC lathe implied · 3
 named so far*, B§4.6). A `check` returns `some(message)` to flag a member (B§2
 `check`); it sees the typed row, the half and the resolved member. `exists` is
 the grammar's, the rest are the author's — reading their own data through a
@@ -422,14 +426,14 @@ never a block binding):
 
 ```tsx
 const CheckCtx = Sheet.Types.CheckContext(PlanRowType);
-const tankSites = $.const(TANK_SITES, DictType(StringType, StringType));         // code → site
+const machineSites = $.const(MACHINE_SITES, DictType(StringType, StringType));   // code → site
 const siteMatches = $.const(East.function([CheckCtx], OptionType(StringType), ($, c) => {
     const noFlag = $.const(none, OptionType(StringType));
     const site = $.let(c.half.match({ from: (_$) => c.row.fromSite, to: (_$) => c.row.toSite }));
     return c.member.match({
         identified: (_$, m) => site.equal("").not()
-            .and(() => tankSites.has(m.key))
-            .and(() => tankSites.get(m.key).equal(site).not())
+            .and(() => machineSites.has(m.key))
+            .and(() => machineSites.get(m.key).equal(site).not())
             .ifElse(_$ => some(East.str`${m.key} is not at ${site}`), _$ => noFlag),
     }, _$ => noFlag);
 }));
@@ -495,19 +499,19 @@ const lastSimilar = $.const(East.function([Ctx], OptionType(PlanRowType), ($, ct
         _$ => East.value(none, OptionType(PlanRowType)),
         _$ => some(similar.get(similar.length().subtract(1n))));
 }));
-const lastVolume = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
+const lastQuantity = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
     const noFill = $.const(none, FloatFill);
     return lastSimilar(ctx).match({
         none: _$ => noFill,
-        some: (_$, r) => r.vol.match({ none: _$ => noFill, some: (_$, v) => some({ value: v, meta: East.str`like ${r.id}` }) }),
+        some: (_$, r) => r.qty.match({ none: _$ => noFill, some: (_$, q) => some({ value: q, meta: East.str`like ${r.id}` }) }),
     });
 }));
-const lastTanks = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
+const lastStations = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
     const noFill = $.const(none, LinkFill);
     return lastSimilar(ctx).match({
         none: _$ => noFill,
-        some: (_$, r) => r.tanks.from.length().add(r.tanks.to.length()).equal(0n).ifElse(
-            _$ => noFill, _$ => some({ value: r.tanks, meta: East.str`same vessels as ${r.id}` })),
+        some: (_$, r) => r.stations.from.length().add(r.stations.to.length()).equal(0n).ifElse(
+            _$ => noFill, _$ => some({ value: r.stations, meta: East.str`same stations as ${r.id}` })),
     });
 }));
 
@@ -526,8 +530,8 @@ const nextSlot = $.const(East.function([Ctx], DateFill, ($, ctx) => {
         });
 }));
 
-// Vol: eight hours at the driver's rate when nothing similar exists (the prototype's `default`).
-const shiftVolume = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
+// Qty: eight hours at the driver's rate when nothing similar exists (the prototype's `default`).
+const shiftQuantity = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
     const noFill = $.const(none, FloatFill);
     return ctx.driver.match({
         none: _$ => noFill,
@@ -538,39 +542,39 @@ const shiftVolume = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
 // Notes: a phrase per driver family (the prototype's `phrase`).
 const phrase = $.const(East.function([Ctx], TextFill, ($, ctx) => {
     const noFill = $.const(none, TextFill);
-    const m3 = $.let(ctx.row.vol.match({
-        some: ($2, v) => { const k = $2.let(v.divide(1000.0).add(0.5)); return k.subtract(k.remainder(1.0)).toInteger(); },   // round by hand — `toInteger` refuses a fraction
+    const n = $.let(ctx.row.qty.match({
+        some: ($2, v) => { const k = $2.let(v.add(0.5)); return k.subtract(k.remainder(1.0)).toInteger(); },   // round by hand — `toInteger` refuses a fraction
         none: _$ => 0n,
     }));
-    return ctx.row.activity.startsWith("Transfer").ifElse(
-        _$ => some({ value: East.str`Transfer ${m3}m³ of BX2`, meta: "phrasing from past transfers" }),
-        _$ => ctx.row.activity.startsWith("Filtration").ifElse(
-            _$ => some({ value: East.str`filter ${m3}m³ of BX2`, meta: "phrasing from past filtrations" }),
+    return ctx.row.activity.startsWith("Machining").ifElse(
+        _$ => some({ value: East.str`Machine ${n} P-40 blanks`, meta: "phrasing from past machining runs" }),
+        _$ => ctx.row.activity.startsWith("Painting").ifElse(
+            _$ => some({ value: East.str`Paint ${n} P-40 housings`, meta: "phrasing from past painting runs" }),
             _$ => noFill));
 }));
 
-// Tanks: the counted form from the arity rule (the prototype's `capacity`) — a typed Link value, not a string.
-const countedByVolume = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
+// Work centres: the counted form from the arity rule (the prototype's `capacity`) — a typed Link value, not a string.
+const countedByQuantity = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
     const noFill = $.const(none, LinkFill);
     const noMembers = $.const([], ArrayType(Sheet.Types.Member));
-    return impliedTanks(ctx).match({
+    return impliedStations(ctx).match({
         none: _$ => noFill,
         some: (_$, c) => some({ value: { from: noMembers, to: [variant("counted", { n: c.n, key: c.key })] },
-                                meta: "capacity · from the volume" }),
+                                meta: "capacity · from the quantity" }),
     });
 }));
 
 columns={{
-    start: Sheet.column.date(PlanRowType, { header: "Start", fill: [nextSlot] }),
-    end:   Sheet.column.date(PlanRowType, { header: "End", base: "start", fill: [endFromStart] }),
-    vol:   Sheet.column.quantity(PlanRowType, ActivityType, { header: "Vol / Qty", uom: d => d.uom, fill: [lastVolume, shiftVolume] }),   // first that yields wins
-    notes: Sheet.column.text(PlanRowType, { header: "Notes", fill: [phrase] }),
-    tanks: Sheet.column.link(PlanRowType, ActivityType, "vessels", { /* … */ fill: [lastTanks, countedByVolume] }),
+    start:    Sheet.column.date(PlanRowType, { header: "Start", fill: [nextSlot] }),
+    end:      Sheet.column.date(PlanRowType, { header: "End", base: "start", fill: [endFromStart] }),
+    qty:      Sheet.column.quantity(PlanRowType, ActivityType, { header: "Qty", uom: d => d.uom, fill: [lastQuantity, shiftQuantity] }),   // first that yields wins
+    notes:    Sheet.column.text(PlanRowType, { header: "Notes", fill: [phrase] }),
+    stations: Sheet.column.link(PlanRowType, ActivityType, "stations", { /* … */ fill: [lastStations, countedByQuantity] }),
 }}
 ```
 
 A provider's payload is checked against its column's kind at compile time: a
-`DateFill` function under `vol` is a type error (§3.12). An **async** fill is the
+`DateFill` function under `qty` is a type error (§3.12). An **async** fill is the
 same signature as an `East.asyncFunction`; the renderer shows a pending chip in
 the strip for that column and lands the result when it arrives (§6.2). Contract
 (B§5): providers run against the row *as it would be if the open editor
@@ -610,23 +614,23 @@ takes a literal or an expression and an omitted one is `none`.
 ```tsx
 const Proposals = ArrayType(Sheet.Types.Proposal(PlanRowType));
 
-// 1 · A domain pattern: a bulk-blender transfer is followed by a media add on the same days
-//     and a consolidation at end +3…+7 d.
-const bulkBlenderFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
+// 1 · A domain pattern: a roughing run is followed by an inspection of its lots on the same days
+//     and a finishing pass at end +3…+7 d.
+const roughingFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
     const empty = $.const([], Proposals);
-    const n = $.let(impliedTanks(ctx).match({ some: (_$, c) => c.n, none: _$ => 1n }));   // reuse the arity rule
-    return ctx.row.activity.equal("Transfer - Bulk Blenders").and(() => ctx.row.end.hasTag("some")).ifElse(
+    const n = $.let(impliedStations(ctx).match({ some: (_$, c) => c.n, none: _$ => 1n }));   // reuse the arity rule
+    return ctx.row.activity.equal("Machining - Roughing").and(() => ctx.row.end.hasTag("some")).ifElse(
         $ => {
             const endAt = $.let(ctx.row.end.unwrap("some"));
             return $.const([
                 { patch: Sheet.patch(PlanRowType, {
-                      activity: "Media - Add to Tank", start: ctx.row.start, end: ctx.row.end,
-                      vol: some(n.toFloat()), notes: East.str`Add media to ${n} tanks` }),
-                  meta: "media add · same days" },
+                      activity: "Inspection", start: ctx.row.start, end: ctx.row.end,
+                      qty: some(n.toFloat()), notes: East.str`Inspect ${n} roughing lots` }),
+                  meta: "inspection · same days" },
                 { patch: Sheet.patch(PlanRowType, {
-                      activity: "Transfer", start: some(endAt.addDays(3n)), end: some(endAt.addDays(7n)),
-                      vol: ctx.row.vol, notes: "Consolidate the blend" }),
-                  meta: "consolidation · end +3…+7 d" },
+                      activity: "Machining", start: some(endAt.addDays(3n)), end: some(endAt.addDays(7n)),
+                      qty: ctx.row.qty, notes: "Finish the roughed blanks" }),
+                  meta: "finishing pass · end +3…+7 d" },
             ], Proposals);
         },
         _$ => empty);
@@ -651,7 +655,7 @@ const lastFollower = $.const(East.function([Ctx], Proposals, ($, ctx) => {
                                 .subtract(from.start.unwrap("some").toEpochMilliseconds()));
             const at    = $.let(ctx.row.start.unwrap("some").addMilliseconds(gapMs));
             return $.const([{
-                patch: Sheet.patch(PlanRowType, { activity: next.activity, start: some(at), vol: next.vol, notes: next.notes }),
+                patch: Sheet.patch(PlanRowType, { activity: next.activity, start: some(at), qty: next.qty, notes: next.notes }),
                 meta: East.str`${next.activity} followed ${ctx.row.activity} last time · +${gapMs.divide(86400000n)}d`,
             }], Proposals);
         });
@@ -664,8 +668,8 @@ const modelProposals = $.const(East.asyncFunction([Ctx], Proposals, (_$, ctx) =>
 
 suggest={{
     ahead: 2n,                                                   // at most two proposed rows below the anchor (B§5.2)
-    triggers: ["activity", "start", "end", "vol", "notes", "tanks"],
-    propose: [bulkBlenderFollowUps, modelProposals, lastFollower],   // first that returns rows wins
+    triggers: ["activity", "start", "end", "qty", "notes", "stations"],
+    propose: [roughingFollowUps, modelProposals, lastFollower],      // first that returns rows wins
 }}
 ```
 
@@ -740,8 +744,8 @@ same way — a filtered-out row is a band, not a missing row.
 ```tsx
 const cfg = Slice.config(PlanRowType, {
     fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, status: { label: "Status" },
-              tanks: { label: "Tanks", text: r => Sheet.link.print(r.tanks) } },   // a Link, searched by its display text
-    searchFieldIds: ["activity", "notes", "tanks"],
+              stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) } },   // a Link, searched by its display text
+    searchFieldIds: ["activity", "notes", "stations"],
 });
 const slice = $.let(Slice.bind([PlanRowType], "plan.slice", cfg, Slice.state(), rows, none));
 
@@ -749,11 +753,11 @@ const slice = $.let(Slice.bind([PlanRowType], "plan.slice", cfg, Slice.state(), 
 ```
 
 Search over a non-String field goes through its `printFor` text by default — for a
-link, `(from=[.identified (key="T2140")], to=[.counted (n=4, key="140 m³")])`, so
-`T2140` and `140 m³` hit but the display form `4 x 140 m³` misses and the `.east`
+link, `(from=[.identified (key="M2140")], to=[.counted (n=4, key="CNC lathe")])`, so
+`M2140` and `CNC lathe` hit but the display form `4 x CNC lathe` misses and the `.east`
 field names match every row — which is why a field spec may name a `text`
-projection: `Sheet.link.print` renders the grammar's display form, `T2140 > 4 x 140
-m³`. Both are the Slice change scheduled in P5 (§8); until it lands, search covers
+projection: `Sheet.link.print` renders the grammar's display form, `M2140 > 4 x CNC
+lathe`. Both are the Slice change scheduled in P5 (§8); until it lands, search covers
 the String columns.
 
 A **view** is a slice-state snapshot plus the lens's context and reveals — a tab
@@ -764,9 +768,9 @@ a dirty tab, esc reverts it.
 
 ```tsx
 const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "plan.views", [
-    { id: "filtration", name: "FILTRATION", narrowing: Slice.state({ search: some("filtration") }), context: 1n, reveals: [] },
+    { id: "painting", name: "PAINTING", narrowing: Slice.state({ search: some("painting") }), context: 1n, reveals: [] },
 ]));
-<Sheet … slice={slice} affordances={["search"]} views={views.read()} onViewsChange={views.write} activeView={some("filtration")} />
+<Sheet … slice={slice} affordances={["search"]} views={views.read()} onViewsChange={views.write} activeView={some("painting")} />
 ```
 
 Without `slice` there is no search box, no lens and no tabs — the sheet is whole.
@@ -799,20 +803,20 @@ reads as unrecognised (the neg ring) and logs — fail-open, never a stuck edito
 ### 3.10 Host chrome — footer counts, sync status, stamping
 
 Footer counts are the host's expressions over the host's rows (B§7); the sync line
-and the upload action live in the app bar; a stamping upload is an ordinary bound
-function whose result is written back, after which the sheet shows the stamped
-codes read-only and the rows as owned:
+and the release action live in the app bar; a release (the stamping of order codes)
+is an ordinary bound function whose result is written back, after which the sheet
+shows the stamped codes read-only and the rows as owned:
 
 ```tsx
 const rows = $.let(plan.read());
 const planned   = $.let(rows.filter((_$, r) => r.activity.length().greater(0n)).length());
 const ready     = $.let(rows.filter((_$, r) => r.activity.length().greater(0n).and(() => r.start.hasTag("some"))
-                                       .and(() => r.vol.hasTag("some")).and(() => r.orderCode.length().equal(0n))).length());
+                                       .and(() => r.qty.hasTag("some")).and(() => r.orderCode.length().equal(0n))).length());
 const cancelled = $.let(rows.filter((_$, r) => r.status.equal("CANCELLED")).length());
 
 <Sheet …
     owned={r => r.orderCode.length().greater(0n).or(() => r.status.equal("CANCELLED"))}
-    footer={[{ text: East.str`${planned} planned · ${ready} ready to upload · ${cancelled} cancelled` }]}
+    footer={[{ text: East.str`${planned} planned · ${ready} ready to release · ${cancelled} cancelled` }]}
 />
 ```
 
@@ -825,11 +829,11 @@ import { Format, Reactive, Sheet, Slice, State, StatusValueType, UIComponentType
 
 const PlanRowType = StructType({
     id: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), activity: StringType,
-    vol: OptionType(FloatType), notes: StringType, tanks: Sheet.Types.Link, toClean: OptionType(IntegerType),
+    qty: OptionType(FloatType), notes: StringType, stations: Sheet.Types.Link, setups: OptionType(IntegerType),
     fromSite: StringType, toSite: StringType, orderCode: StringType, status: StringType,
 });
-// ActivityType / TankType / FarmType / StatusType as in §3.3; PLAN_ROWS / ACTIVITIES / TANKS / FARMS /
-// SITES / STATUSES / TANK_SITES are the synthetic fixtures the prototype ships with.
+// ActivityType / MachineType / LineType / FamilyType / StatusType as in §3.3; PLAN_ROWS / ACTIVITIES / MACHINES /
+// LINES / FAMILIES / SITES / STATUSES / MACHINE_SITES are the synthetic fixtures the prototype ships with.
 const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);
 const Proposals = ArrayType(Sheet.Types.Proposal(PlanRowType));
 const recommend = East.asyncPlatform("plan_recommend", [Ctx], Proposals);
@@ -840,18 +844,19 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
         const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "plan.views", []));
         const rows  = $.let(plan.read());
         const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
-        const tanks = $.const(TANKS, ArrayType(TankType));
-        const farms = $.const(FARMS, ArrayType(FarmType));
+        const machines = $.const(MACHINES, ArrayType(MachineType));
+        const lines = $.const(LINES, ArrayType(LineType));
+        const families = $.const(FAMILIES, ArrayType(FamilyType));
         const sites = $.const(SITES, ArrayType(StringType));
         const statuses = $.const(STATUSES, ArrayType(StatusType));
         const cfg = Slice.config(PlanRowType, {
             fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, status: { label: "Status" },
-                      tanks: { label: "Tanks", text: r => Sheet.link.print(r.tanks) } },
-            searchFieldIds: ["activity", "notes", "tanks"],
+                      stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) } },
+            searchFieldIds: ["activity", "notes", "stations"],
         });
         const slice = $.let(Slice.bind([PlanRowType], "plan.slice", cfg, Slice.state(), rows, none));
-        // impliedTanks, siteMatches (§3.4) · endFromStart, lastSimilar, lastVolume, lastTanks, nextSlot, shiftVolume,
-        // phrase, countedByVolume (§3.5) · bulkBlenderFollowUps, lastFollower, modelProposals (§3.6)
+        // impliedStations, siteMatches (§3.4) · endFromStart, lastSimilar, lastQuantity, lastStations, nextSlot, shiftQuantity,
+        // phrase, countedByQuantity (§3.5) · roughingFollowUps, lastFollower, modelProposals (§3.6)
         const planned = $.let(rows.filter((_$, r) => r.activity.length().greater(0n)).length());
 
         return (
@@ -860,34 +865,33 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
                 id="id"
                 owned={r => r.orderCode.length().greater(0n).or(() => r.status.equal("CANCELLED"))}
                 driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name })}
-                registers={{ /* vessels · sites · statuses — §3.3 */ }}
+                registers={{ /* stations · sites · statuses — §3.3 */ }}
                 columns={{
                     start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "d/m · fri · +3d", width: "96px", fill: [nextSlot] }),
                     end:       Sheet.column.date(PlanRowType, { header: "End", sub: "4d = start+4", width: "96px", base: "start", fill: [endFromStart] }),
                     activity:  Sheet.column.lookup(PlanRowType, { header: "Activity", sub: "activity register", width: "214px" }),
-                    vol:       Sheet.column.quantity(PlanRowType, ActivityType, {
-                                   header: "Vol / Qty", sub: "uom per activity", width: "112px", uom: d => d.uom,
-                                   format: Format.Number({ maximumFractionDigits: 0n }), fill: [lastVolume, shiftVolume] }),
+                    qty:       Sheet.column.quantity(PlanRowType, ActivityType, {
+                                   header: "Qty", sub: "uom per activity", width: "112px", uom: d => d.uom,
+                                   format: Format.Number({ maximumFractionDigits: 0n }), fill: [lastQuantity, shiftQuantity] }),
                     notes:     Sheet.column.text(PlanRowType, { header: "Notes", sub: "free text", width: "250px", fill: [phrase] }),
-                    tanks:     Sheet.column.link(PlanRowType, ActivityType, "vessels", {
-                                   header: "Tanks / vessels", sub: "from → to · 4 x 140m³ · tank · farm", width: "352px",
-                                   members: [{ kind: "tank", identified: true }, { kind: "range", identified: true },
-                                             { kind: "farm", countable: true, resolvesTo: "tank" },
-                                             { kind: "group", countable: true, resolvesTo: "tank" },
-                                             { kind: "capacity", countable: true, resolvesTo: "tank" }],
+                    stations:  Sheet.column.link(PlanRowType, ActivityType, "stations", {
+                                   header: "Work centres", sub: "from → to · 4 x lathe · machine · line", width: "352px",
+                                   members: [{ kind: "machine", identified: true }, { kind: "range", identified: true },
+                                             { kind: "line", countable: true, resolvesTo: "machine" },
+                                             { kind: "family", countable: true, resolvesTo: "machine" }],
                                    multiple: { forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" },
                                    sides: { value: d => d.sides, locks: { from: { to: "external", in: "in place" }, to: { from: "external" } } },
-                                   arity: Sheet.link.arity("to", impliedTanks),
+                                   arity: Sheet.link.arity("to", impliedStations),
                                    check: [Sheet.link.check.exists(), siteMatches],
-                                   fill: [lastTanks, countedByVolume] }),
-                    toClean:   Sheet.column.integer(PlanRowType, { header: "Clean", sub: "n", width: "64px" }),
+                                   fill: [lastStations, countedByQuantity] }),
+                    setups:    Sheet.column.integer(PlanRowType, { header: "Setups", sub: "n", width: "64px" }),
                     fromSite:  Sheet.column.reference(PlanRowType, "sites", { header: "From site", sub: "site register", width: "112px" }),
                     toSite:    Sheet.column.reference(PlanRowType, "sites", { header: "To site", sub: "site register", width: "112px" }),
-                    orderCode: Sheet.column.stamped(PlanRowType, { header: "Order code", sub: "stamped on upload", owner: "MES", width: "104px" }),
-                    status:    Sheet.column.enum(PlanRowType, "statuses", { header: "Status", sub: "mes", width: "124px" }),
+                    orderCode: Sheet.column.stamped(PlanRowType, { header: "Order code", sub: "stamped on release", owner: "ERP", width: "104px" }),
+                    status:    Sheet.column.enum(PlanRowType, "statuses", { header: "Status", sub: "erp", width: "124px" }),
                 }}
-                suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "vol", "notes", "tanks"],
-                           propose: [bulkBlenderFollowUps, modelProposals, lastFollower] }}
+                suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "qty", "notes", "stations"],
+                           propose: [roughingFollowUps, modelProposals, lastFollower] }}
                 slice={slice} affordances={["search", "filter"]}
                 views={views.read()} onViewsChange={views.write}
                 onUpdate={plan.write}
@@ -909,7 +913,7 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
 | A `uom` / `sides.value` accessor whose `d` is not the `driver`'s row type | build time — the column was built with an explicit `D`; the root refuses one that is not the driver's |
 | A `fill` / `propose` / `arity` / `check` / custom `parse` function over another sheet's context — another row type or driver type | build time — the function's East input type must be this sheet's `Sheet.Types.Context(R, D)` (interned type identity); the refusal names the column and the function |
 | A `lookup` column that is not the driver column | build time — "a lookup column is the driver column; declare `driver`, or use `Sheet.column.reference`" |
-| A `fill` whose payload is not the column's (a `DateFill` under `vol`), a `propose` entry that is not `Fn([Context(R, D)], Array<Proposal(R)>)`, a `parse` whose output is not `Option<payload>` | compile time (`SubtypeExprOrValue<FunctionType<…>>` / `AsyncFunctionType<…>` over the constructors' types), and again at build time by the function's East output type |
+| A `fill` whose payload is not the column's (a `DateFill` under `qty`), a `propose` entry that is not `Fn([Context(R, D)], Array<Proposal(R)>)`, a `parse` whose output is not `Option<payload>` | compile time (`SubtypeExprOrValue<FunctionType<…>>` / `AsyncFunctionType<…>` over the constructors' types), and again at build time by the function's East output type |
 | A `Sheet.patch(R, …)` naming a field that is not editable (stamped, a `value`-projected column, no column at all) | never an error — `Patch(R)` spans every field of `R`; the runner writes only the fields with editable columns and ignores the rest |
 | An `onUpdate` whose editable columns are not plain fields (or whose `id` is not a `String` field) | build time — the factory names every offending column |
 | `onUpdate` on a paged source | build time — "the whole-value rebuild needs the whole collection; use `onEdit`" |
@@ -1004,12 +1008,12 @@ to `none` on an `Option` field and to the type's default value on a bare one
 ```ts
 export const SheetMemberType = VariantType({ identified: …, range: …, counted: …, placeholder: NullType, text: StringType });   // §3.4
 export const SheetRegisterMemberType = StructType({
-    key:     StringType,                     // what the grammar resolves ("T2140", "2000s", "G1042", "140 m³")
+    key:     StringType,                     // what the grammar resolves ("M2140", "Line 2", "CNC lathe")
     label:   StringType,                     // what a chip prints
-    kind:    StringType,                     // "tank" | "farm" | "group" | "capacity" | "activity" | "site" | …
-    aliases: ArrayType(StringType),          // "the 2000s", "anx"
-    meta:    OptionType(StringType),         // chip meta ("140 m³", "farm · 96"); shown when a half holds one chip
-    parent:  OptionType(StringType),         // a tank's farm — countable → identified resolution and "enumerate"
+    kind:    StringType,                     // "machine" | "line" | "family" | "activity" | "site" | …
+    aliases: ArrayType(StringType),          // "the 2 line", "lathe", "120t"
+    meta:    OptionType(StringType),         // chip meta ("CNC lathe", "line · 96"); shown when a half holds one chip
+    parent:  OptionType(StringType),         // a machine's line — countable → identified resolution and "enumerate"
     tone:    OptionType(StatusValueType),    // an enum member's valence dot
 });
 export const SheetRegisterType = StructType({ members: ArrayType(SheetRegisterMemberType) });
@@ -1035,7 +1039,7 @@ export const SheetMultipleType   = StructType({ forms: ArrayType(StringType), op
 export const SheetSideLockType   = StructType({ half: SheetHalfType, when: SheetSidesValueType, label: StringType });
 export const SheetSidesType      = StructType({ byDriver: DictType(StringType, SheetSidesValueType),   // the `sides.value` accessor applied over the driver data
                                                 locks: ArrayType(SheetSideLockType) });
-export const SheetCountedType    = StructType({ n: IntegerType, key: StringType });                     // "4 × 140 m³"
+export const SheetCountedType    = StructType({ n: IntegerType, key: StringType });                     // "4 × CNC lathe"
 export const SheetArityType      = StructType({ half: SheetHalfType, implied: FunctionType([SheetContextType], OptionType(SheetCountedType)) });
 export const SheetCheckContextType = StructType({ rowIndex: IntegerType, row: DictType(StringType, SheetCellType), half: SheetHalfType, member: SheetMemberType });
 export const SheetCheckType      = VariantType({ exists: NullType, custom: FunctionType([SheetCheckContextType], OptionType(StringType)) });
@@ -1223,14 +1227,14 @@ behaviour lives and how it is tested.
 | # | Requirement (B§) | Lives in | Test |
 |---|---|---|---|
 | 1 | Date parsing: `+3`/`+3d`, `4d` from `base`, weekday prefix (next occurrence, never today), ISO, `d/m[/yy]`, `d.m`, `17 nov [26]`, year roll-forward; display `17 Nov 26`; edit form `17/11/26`; strip preview `Mon 17 Nov 26` + day span (B§3) | `parse/date.ts` | unit table |
-| 2 | Quantity parsing: digits, decimal, `l·k·m3` suffix, commas/spaces ignored, rounded integer; strip preview with the implied run when the driver has a rate (B§3) | `parse/quantity.ts` | unit table |
+| 2 | Quantity parsing: digits, decimal, an optional `k` / `m` magnitude suffix (the unit is the column's, never typed), commas/spaces ignored, rounded integer; strip preview with the implied run when the driver has a rate (B§3) | `parse/quantity.ts` | unit table |
 | 3 | Candidate scoring: prefix (0) → word prefix (1) → initials (2) → substring (3), ties by sheet frequency; only a prefix match ghosts inline; a non-prefix match previews `→ replacement`; empty buffer arms nothing (menu of what the field accepts, driver column ranked by what follows the row above); ⌥]/⌥[/⌥↓/⌥↑ cycle (B§3.1) | `candidates.ts` | unit + DOM |
-| 4 | Link grammar: identified codes (case-insensitive, bare digits try the prefix), ranges (`T2140-45`, short upper bound completed; hyphen = range only between unspaced bare numbers), countable by name/alias (leading "the" dropped), countable by attribute (`140m³`, litres ≥ 1 000 read as m³), counted members (`N x kind` / `kind x N`, declared ops, countable kinds only; trailing qualifier → text token; multiplying an identified member → text with reason), `TBC` placeholder, free text (never blocked), separators (B§4.1) — text ↔ `Sheet.Types.Link` value, the kind's parse / print pair; the renderer parses and prints with a register-aware TS twin of the East pair (`linkVocabulary`), the same rules | `link/grammar.ts` | unit table (round trips) |
+| 4 | Link grammar: identified codes (case-insensitive, bare digits try the prefix), ranges (`M2140-45`, short upper bound completed; hyphen = range only between unspaced bare numbers), countable by name/alias (leading "the" dropped), countable by attribute (`120t` / `120 T` — a number + unit the register knows, resolved by key or alias with the spacing normalised), counted members (`N x kind` / `kind x N`, declared ops, countable kinds only; trailing qualifier → text token; multiplying an identified member → text with reason), `TBC` placeholder, free text (never blocked), separators (B§4.1) — text ↔ `Sheet.Types.Link` value, the kind's parse / print pair; the renderer parses and prints with a register-aware TS twin of the East pair (`linkVocabulary`), the same rules | `link/grammar.ts` | unit table (round trips) |
 | 5 | Sides & locks: storage `a > b` / `b` / `a >`; single set = destination; the driver member's `sides` (the column's per-driver dictionary, §4.3) selects live halves (both/from/to/in; `in` draws a minus); locked half never predicted into, Tab skips it, typing allowed but flagged warn (B§4.2); a `set` column edits as a single To half | `link/sides.ts` + `cells/LinkCell.tsx` | unit + DOM |
 | 6 | Link display: `minmax(0,1fr) 16px minmax(0,1fr)`; chips mono 10.5 paper-3 r4; meta only for a single chip; dashed = text/placeholder/proposal; FROM/TO faint labels; lock tags warn-tinted when holding content; proposals as dashed chips over the hatch with a ✓ take on hover (B§4.3) | `cells/LinkCell.tsx` + recipe | DOM + shot |
-| 7 | Link editor keys: `,` resolves; `>` hops From → To (flag if locked); ⇥ ladder (ghost/armed → one predicted chip → hop → commit right); ⏎ resolves/commits; ⌫ pops last chip / crosses back; ←/→ cross the divider, → takes a ghost word, ⌘→ the whole ghost or every predicted chip; ⇧←/⇧→ select whole chips (brand fill, ⌫ removes); esc cancels, click a half moves the caret, click outside commits (B§4.4); `,` and the arrow resolve the buffer through the ARMED candidate (Tab's rule), so `t73,` lands `T7301` rather than a text chip | `Editor.tsx` + `sheet-state.ts` | DOM |
-| 8 | Link autocomplete & prediction: candidate order (exact → code prefixes → countables with an enumerate alternative → other prefixes → other countables → placeholder), members never offered twice, a range shows its expansion; prediction only with an empty buffer, per half, never into a locked half, from the column's fill providers, as `Link` values (the prototype's history-then-counted order is the author's `[lastTanks, countedByVolume]`); withdrawn once a half has named members; from-only drivers propose into From (B§4.5); P3 wires the hook (`predictedMembers`), P4 supplies the fills | `link/predict.ts` | unit + DOM |
-| 9 | Arity: strip meta *n × unit implied · k named so far / named / more than the volume needs* while the arity half is edited; named = identified once, counted by count; text/placeholders do not count (B§4.6); the bridged `implied` is called with the edited row's wire context, fail-open | `link/arity.ts` + `Strip.tsx` | unit + DOM |
+| 7 | Link editor keys: `,` resolves; `>` hops From → To (flag if locked); ⇥ ladder (ghost/armed → one predicted chip → hop → commit right); ⏎ resolves/commits; ⌫ pops last chip / crosses back; ←/→ cross the divider, → takes a ghost word, ⌘→ the whole ghost or every predicted chip; ⇧←/⇧→ select whole chips (brand fill, ⌫ removes); esc cancels, click a half moves the caret, click outside commits (B§4.4); `,` and the arrow resolve the buffer through the ARMED candidate (Tab's rule), so `m73,` lands `M7301` rather than a text chip | `Editor.tsx` + `sheet-state.ts` | DOM |
+| 8 | Link autocomplete & prediction: candidate order (exact → code prefixes → countables with an enumerate alternative → other prefixes → other countables → placeholder), members never offered twice, a range shows its expansion; prediction only with an empty buffer, per half, never into a locked half, from the column's fill providers, as `Link` values (the prototype's history-then-counted order is the author's `[lastStations, countedByQuantity]`); withdrawn once a half has named members; from-only drivers propose into From (B§4.5); P3 wires the hook (`predictedMembers`), P4 supplies the fills | `link/predict.ts` | unit + DOM |
+| 9 | Arity: strip meta *n × kind implied · k named so far / named / more than the quantity needs* while the arity half is edited; named = identified once, counted by count; text/placeholders do not count (B§4.6); the bridged `implied` is called with the edited row's wire context, fail-open | `link/arity.ts` + `Strip.tsx` | unit + DOM |
 | 10 | Copilot runner: rebuilt against the row as it would be, after the kind's latency (150 / 1 100 ms); owned rows untouched; nothing into an occupied slot; first yielding provider wins — providers are the bridged wire functions of §4.8, the runner never sees `R`; provenance in the strip; fills as grey ghosts over the hatch; exactly one next Tab target (dotted underline); ✓ take on hover; gutter → fills the row (⌘⏎); memoised per (row, provisional row, column) (B§5, B§5.1); fills CHAIN in column order — a later column's providers and the proposers see the earlier fills as if taken (the prototype's `row.start \|\| fill.start`) | `suggest.ts` + `sheet-suggest-state.ts` | unit + DOM |
 | 11 | Async providers: a pending chip in the strip per in-flight provider; results land reactively; a newer context cancels the wait (latest wins); a rejected or thrown provider is skipped with a console diagnostic naming the column; sync providers never wait on async ones ahead of them in the list beyond the latency window — a later sync provider answers meanwhile and an earlier async one that lands replaces it (first that yields wins, by position); an in-flight promise is memoised so a re-run re-attaches instead of restarting | `suggest-async.ts` | unit (fake timers) + DOM |
 | 12 | Proposals (patches encoded to cells, §4.4): at most `ahead` rows, dashed-topped hatched rows with real numbers; ✓/⏎ adds into the first blank slot, ×/⌫ rejects and remembers the pairing; click selects (3px brand bar); esc deselects then dismisses all; taking re-anchors and looks forward; rejected fills remembered per row and key (B§5.2); a proposal lands in the blank slot below the anchor, else appended (blanks are padding) | `suggest.ts` + `Rows.tsx` | DOM |
@@ -1374,7 +1378,7 @@ candidate, else the grammar's own reading — a text chip, never a refusal),
 `predicted` (the copilot's hook; P4 fills it) and `cell` (the groups as a `Link`
 cell, `null` when both halves are empty). The rules, unit-tested as a table:
 `,` and the arrow resolve the buffer through the ARMED candidate — Tab's rule,
-so `t73,` lands `T7301` and `t2140 >` hops with `T2140` named — where the
+so `m73,` lands `M7301` and `m2140 >` hops with `M2140` named — where the
 prototype re-read the raw token; an arrow in the From half hops to the To half
 (into a locked To it hops and warns), in the To half it is dropped; the ⇥
 ladder is armed candidate → one predicted chip → hop From → To skipping a
@@ -1490,11 +1494,13 @@ never written.
 
 **Links (P3).** Each `link` / `set` column gets a vocabulary once per value —
 the register's members indexed by key and lower-cased alias, the column's
-member kinds (identified vs countable; the capacity kind resolved by
+member kinds (identified vs countable; the family kind resolved by
 attribute), the declared multiple ops and the code prefixes bare digits try —
-the register-aware TS twin of `Sheet.link.parse` / `print` (B§4.1: `140m3` /
-`140 m³` / `140000L` all read as `140 m³`; `T2140-45` only unspaced, a short
-upper bound completed; a qualifier after a counted member is its own text chip;
+the register-aware TS twin of `Sheet.link.parse` / `print` (B§4.1: `120t` /
+`120 T` / `120  t` all read as the `120 t press` family — a number + unit is
+tried against the keys and aliases with its spacing normalised; a counted
+member's chip reads *unassigned*, a count naming no one in particular;
+`M2140-45` only unspaced, a short upper bound completed; a qualifier after a counted member is its own text chip;
 multiplying an identified member is text with the reason). A row's halves come
 from the column's per-driver `sides` dictionary and its lock rules
 (`halvesFor`): a locked half is never predicted into, Tab skips it, and content
@@ -1508,6 +1514,18 @@ arity half is edited, fail-open. Under `store: "canonical"` the BRIDGE prints
 the register's labels into a `String` field; the renderer never sees the
 storage form.
 
+**Pointer and scroll (P4 follow-up).** A click never scrolls — the cell is under
+the pointer already, and centring it moved the sheet under a held button so the
+next row's `mouseenter` read as a drag (a click selected two cells, then three);
+only keyboard moves emit `scroll.to`, and they scroll the least distance that
+shows the row (`scrollAlign="auto"` on `VirtualRows`; `"center"` stays the
+default for the collections that seek). A range drag needs pointer MOVEMENT
+under the held button: a `mouseenter` from a layout shift under a stationary
+pointer (a window landing, a row growing) never extends the range. The ring and
+the editor overlay reach 1 px outside their cell; on the row directly under the
+sticky header they stay inside it (`data-first`), so the header never covers
+the ring's top edge.
+
 ---
 
 ## 7 · Visual compliance sheet
@@ -1518,17 +1536,17 @@ semantic token; dark theme for free.
 
 | Surface | Value |
 |---|---|
-| Sheet card | `--paper`, 1px `--rule-strong`, radius 10; content `min-width` = gutter + Σ column widths; 120px bottom padding |
-| Toolbar row | 8/20 on `--paper`, 1px `--rule-strong` bottom: tabs (left, scrolls) · context switch · `n matches · m context` mono 10.5 `--ink-4` · the slice rail cluster (right; the search pill is the rail's) · scope badge *loaded rows only* (paged) |
+| Sheet card | `--paper`, **no border of its own** — a component is placed anywhere and the host frames it (the Plan rule; the prototype PAGE draws its 1px `--rule-strong` radius-10 frame around the sheet, the component does not); content `min-width` = gutter + Σ column widths; 120px bottom padding; one rule per seam — toolbar and header `--rule` / `--rule-strong` below, strip and footer `--rule` above |
+| Toolbar row | 8/20 on `--paper`, 1px `--rule` bottom: tabs (left, scrolls) · context switch · `n matches · m context` mono 10.5 `--ink-4` · the slice rail cluster (right; the search pill is the rail's, one height whether it shows the `/` hint or the ×) · scope badge *loaded rows only* (paged) |
 | Header | sticky, two lines: label mono 10/600/`.16em` uppercase `--ink-4`; sub mono 9 `--ink-5` ellipsised; 1px `--rule` column dividers; `--rule-strong` bottom |
-| Gutter | 80px `--paper-2`; row number mono 10 right-aligned in 26px (`--ink-5`, brand `--brand-d` 600 for hits); 18×18 r-sm action buttons (✓ brand / × rule-strong→neg / → brand); 3px brand-d bar when the row is selected; hover `--paper-3` |
+| Gutter | 80px `--paper-2`; row number mono 10 right-aligned in 26px (`--ink-5`, brand `--brand-d` 600 for hits) with 6px before the buttons; 18×18 r-sm action buttons 3px apart (✓ brand / × rule-strong→neg / → brand); 3px brand-d bar when the row is selected; hover `--paper-3` |
 | Rows / cells | min-height 36; padding 6/10; 1px `--rule` bottom and right; text 13 `--ink`; mono values 12 `--ink-2`; ghosts `--ink-4`; unit mono 9.5 `--ink-5`; enum = 6px dot (member tone) + mono 10/600/`.08em` uppercase word |
-| Selection | ring `inset 0 0 0 2px var(--brand-d)` at inset −1; range wash `--brand-tint` at .55; editor overlay inset −1, `--paper`, 2px brand-d ring, z 10; parse error ring `--neg` z 11 |
+| Selection | ring `inset 0 0 0 2px var(--brand-d)` at inset −1 (top 0 on the row under the header); range wash `--brand-tint` at .55; editor overlay inset −1, `--paper`, 2px brand-d ring, z 10; parse error ring `--neg` z 11 |
 | Proposal | hatch `repeating-linear-gradient(135°, transparent 0 5px, color-mix(brand-d 7%) 5px 6px)`; next-target 1.5px dotted `--brand-d` at bottom 3px; ✓ take 18×18 at right; proposal rows 1px dashed `--rule-strong` top rule |
 | Link cell | `minmax(0,1fr) 16px minmax(0,1fr)`; chips mono 10.5 `--ink-2` on `--paper-3`, 1px `--rule`, r-sm, padding 1/4, gap 4; chip meta 9 `--ink-5`; dashed chips 1px dashed `--ink-5` at .85; FROM/TO 8.5/600/`.1em` `--ink-5`; lock tag `--paper-3` r-sm, warn = `--warn` text on 8% warn wash; arrow/minus 10px `--ink-4` on the first 20px line; editor halves 34px min, active-half 1.5px `--brand-d` underline; picked chips `--paper` on `--brand-d` |
 | Bands | 22px; 1px dashed `--rule-strong` at 50%; pill mono 9 `--ink-5` on `--paper` 1px `--rule` r-sm; open pill `--shadow-xs`, brand controls with `--brand-tint` hover |
-| Strip | `--paper-2` band, 6/20 padding, 1px `--rule` bottom; label mono 9/600/`.13em` uppercase `--brand-d`; chips mono 11 (armed: 600 `--brand-dd` on `--brand-tint` + inset 1px ring at 40%); pending chip = dashed `--rule-strong` with a mono `⋯`; meta mono 10 `--ink-3`; keys mono 9.5 `--ink-5` |
-| Footer | 8/20 padding; counts mono 11 `--ink-3`; key hint mono 10 `--ink-5` `.04em`; message mono 10.5 `--ink-2`, `aria-live="polite"`, right-aligned; transport line mono 10 `--ink-4` (paged) |
+| Strip | `--paper-2` band, 6/20 padding, 1px `--rule` top; label mono 9/600/`.13em` uppercase `--brand-d`; chips mono 11 (armed: 600 `--brand-dd` on `--brand-tint` + inset 1px ring at 40%); pending chip = dashed `--rule-strong` with a mono `⋯`; meta mono 10 `--ink-3`; keys mono 9.5 `--ink-5` |
+| Footer | 8/20 padding, 1px `--rule` top; counts mono 11 `--ink-3`; key hint mono 10 `--ink-5` `.04em`; message mono 10.5 `--ink-2`, `aria-live="polite"`, right-aligned; transport line mono 10 `--ink-4` (paged) |
 | Tabs | 30px mono 10.5/600/`.12em` uppercase; active `inset 0 -2px 0 var(--ink)`; counts `--ink-4`; dirty dot 5px `--brand-d`; × 14px `--ink-5` → `--neg`; `+ TAB` 22px r-sm 1px `--rule-strong` mono 9.5/600 |
 | Context switch | r-md, options mono 10, active `--brand-tint` `--brand-dd` |
 | Icons | FA6 solid: plus, xmark, check, arrow-right-long, minus, angle-up, angle-down (the search glyph is the rail's; the app bar's cloud icons are host chrome) |

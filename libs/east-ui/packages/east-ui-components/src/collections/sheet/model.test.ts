@@ -39,7 +39,7 @@ describe("the body", () => {
 describe("cells", () => {
     const columns = indexColumns([
         { key: "start", header: "Start", sub: none, width: some("96px"), kind: { type: "date", value: { base: none, format: none } }, dataType: null, payloadType: null, editable: true, fill: [] },
-        { key: "vol", header: "Vol", sub: none, width: none, kind: { type: "quantity", value: { uom: none, format: none } }, dataType: null, payloadType: null, editable: true, fill: [] },
+        { key: "qty", header: "Qty", sub: none, width: none, kind: { type: "quantity", value: { uom: none, format: none } }, dataType: null, payloadType: null, editable: true, fill: [] },
         { key: "n", header: "N", sub: none, width: some("bogus"), kind: { type: "integer", value: null }, dataType: null, payloadType: null, editable: true, fill: [] },
     ] as never);
 
@@ -48,14 +48,14 @@ describe("cells", () => {
         expect(parseWidth("120")).toBe(120);
         expect(parseWidth("50%")).toBeUndefined();
         expect(cellText(cell("DateTime", utcDate(2026, 2, 16)), columns.list[0]!)).toBe("16 Feb 26");
-        expect(cellText(cell("Float", 560000), columns.list[1]!)).toBe("560,000");
+        expect(cellText(cell("Float", 1200), columns.list[1]!)).toBe("1,200");
         expect(cellText(cell("Integer", 4n), columns.list[2]!)).toBe("4");
         expect(cellIsBlank(cell("Null", null))).toBe(true);
         expect(cellIsBlank(cell("String", ""))).toBe(true);
         expect(cellIsBlank(cell("Link", { from: [], to: [] }))).toBe(true);
         expect(cellIsBlank(cell("Float", 0))).toBe(false);
         expect(rowIsBlank(row("x", { start: cell("Null", null) }), columns)).toBe(true);
-        expect(printLinkText({ from: [{ type: "identified", value: { key: "T1104" } }], to: [] } as never)).toBe("T1104 >");
-        expect(printLinkText({ from: [], to: [{ type: "range", value: { from: "T2140", to: "T2145" } }] } as never)).toBe("T2140-T2145");
+        expect(printLinkText({ from: [{ type: "identified", value: { key: "M1104" } }], to: [] } as never)).toBe("M1104 >");
+        expect(printLinkText({ from: [], to: [{ type: "range", value: { from: "M2140", to: "M2145" } }] } as never)).toBe("M2140-M2145");
     });
 });

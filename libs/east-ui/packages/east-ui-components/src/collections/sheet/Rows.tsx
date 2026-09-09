@@ -38,6 +38,8 @@ export interface SheetRowProps {
     r: number;
     /** The 1-based row number. */
     number: number;
+    /** The first body item — the row under the sticky header (its ring stays inside the cell). */
+    first?: boolean | undefined;
     /** The real row, or `undefined` for a blank padding row. */
     row: SheetRowValue | undefined;
     /** The link cell's halves, vocabulary and flags for a row (P3). */
@@ -70,7 +72,7 @@ export interface SheetRowProps {
 
 /** Renders one row. */
 export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
-    const { styles, columns, registers, driverColumn, gridTemplate, rowPx, r, number, row, linkCtx, selC, range, picked, hit, editor, fills, nextTargetC, hoverC } = props;
+    const { styles, columns, registers, driverColumn, gridTemplate, rowPx, r, number, row, linkCtx, selC, range, picked, hit, editor, fills, nextTargetC, hoverC, first } = props;
     const rowBlank = row === undefined;
     const driverKey = driverKeyOf(row, driverColumn);
     const hasFills = fills !== undefined && fills.size > 0;
@@ -84,6 +86,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
             data-blank={rowBlank ? "" : undefined}
             data-owned={row?.owned ? "" : undefined}
             data-anchor={hasFills ? "" : undefined}
+            data-first={first ? "" : undefined}
             role="row"
         >
             <Box

@@ -354,7 +354,7 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
  * const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType) });
  *
  * const example = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
- *     const jobs = $.let(State.bind([ArrayType(JobType)], "jobs", [{ id: "j1", start: none, task: "Transfer", qty: none }]));
+ *     const jobs = $.let(State.bind([ArrayType(JobType)], "jobs", [{ id: "j1", start: none, task: "Machining", qty: none }]));
  *     return Sheet.Root(jobs.read(), {
  *         start: Sheet.column.date(JobType, { header: "Start" }),
  *         task:  Sheet.column.text(JobType, { header: "Task" }),

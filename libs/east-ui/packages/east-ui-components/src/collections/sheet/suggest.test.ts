@@ -23,92 +23,92 @@ const later = (fn: (ctx: SheetContextValue) => Promise<unknown>): WireProvider =
 const col = (key: string, providers: WireProvider[], kind = "text", editable = true): FillColumn => ({ key, kind: kind as FillColumn["kind"], editable, providers });
 const proposal = (activity: string, meta: string) => ({ cells: new Map([["activity", cell("String", activity)]]), meta });
 
-const ANCHOR = row({ activity: cell("String", "Transfer"), vol: NULL, notes: NULL });
+const ANCHOR = row({ activity: cell("String", "Machining"), qty: NULL, notes: NULL });
 
 function run(over: Partial<SuggestInput> = {}) {
     return runSuggest({
         anchorId: "r1", row: ANCHOR, skipKey: undefined, columns: [], proposers: [], ahead: 2, nextBusy: false,
-        driverKey: "Transfer", driverColumn: "activity", rejected: NO_REJECTIONS, contextOf, memo: new SuggestMemo(), ...over,
+        driverKey: "Machining", driverColumn: "activity", rejected: NO_REJECTIONS, contextOf, memo: new SuggestMemo(), ...over,
     });
 }
 
 describe("fills", () => {
     test("the first provider that yields wins, by position; an occupied cell, the edited column, a dismissed fill and an owned row are never filled", () => {
         const columns = [
-            col("vol", [sync(() => NOTHING), sync(() => yields(cell("Float", 560000), "like r0")), sync(() => yields(cell("Float", 1), "never"))], "quantity"),
+            col("qty", [sync(() => NOTHING), sync(() => yields(cell("Float", 1200), "like r0")), sync(() => yields(cell("Float", 1), "never"))], "quantity"),
             col("notes", [sync(() => yields(cell("String", "phrase"), "phrasing"))]),
         ];
         const out = run({ columns });
-        expect(out.sugg?.fill.get("vol")).toEqual({ cell: cell("Float", 560000), meta: "like r0", index: 1 });
+        expect(out.sugg?.fill.get("qty")).toEqual({ cell: cell("Float", 1200), meta: "like r0", index: 1 });
         expect(out.sugg?.fill.get("notes")).toEqual({ cell: cell("String", "phrase"), meta: "phrasing", index: 0 });
         expect(out.async).toEqual([]);
         // Occupied: the notes cell holds text.
-        const busy = run({ columns, row: row({ activity: cell("String", "Transfer"), vol: NULL, notes: cell("String", "written") }) });
+        const busy = run({ columns, row: row({ activity: cell("String", "Machining"), qty: NULL, notes: cell("String", "written") }) });
         expect(busy.sugg?.fill.has("notes")).toBe(false);
         // The column being edited is not filled.
-        expect(run({ columns, skipKey: "vol" }).sugg?.fill.has("vol")).toBe(false);
+        expect(run({ columns, skipKey: "qty" }).sugg?.fill.has("qty")).toBe(false);
         // A dismissed fill is not asked for again on that row.
-        expect(run({ columns, rejected: { fills: new Set(["r1|vol"]), follows: new Set() } }).sugg?.fill.has("vol")).toBe(false);
+        expect(run({ columns, rejected: { fills: new Set(["r1|qty"]), follows: new Set() } }).sugg?.fill.has("qty")).toBe(false);
         // An owned row is never touched; a read-only column never filled.
-        expect(run({ columns, row: row({ activity: cell("String", "Transfer"), vol: NULL, notes: NULL }, true) }).sugg).toBeNull();
-        expect(run({ columns: [col("vol", [sync(() => yields(cell("Float", 1), ""))], "quantity", false)] }).sugg).toBeNull();
+        expect(run({ columns, row: row({ activity: cell("String", "Machining"), qty: NULL, notes: NULL }, true) }).sugg).toBeNull();
+        expect(run({ columns: [col("qty", [sync(() => yields(cell("Float", 1), ""))], "quantity", false)] }).sugg).toBeNull();
     });
 
     test("the edited link column is predicted into: its providers see the row with that cell blank", () => {
         const seen: unknown[] = [];
-        const predicted = cell("Link", { from: [], to: [{ type: "identified", value: { key: "T2141" } }] });
-        const columns = [col("tanks", [sync((ctx) => { seen.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("tanks")); return yields(predicted, "same vessels"); })], "link")];
-        const half = cell("Link", { from: [{ type: "identified", value: { key: "T2140" } }], to: [] });
-        const out = run({ columns, skipKey: "tanks", row: row({ activity: cell("String", "Transfer"), tanks: half }) });
-        expect(out.sugg?.fill.get("tanks")?.meta).toBe("same vessels");
+        const predicted = cell("Link", { from: [], to: [{ type: "identified", value: { key: "M2141" } }] });
+        const columns = [col("stations", [sync((ctx) => { seen.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("stations")); return yields(predicted, "same stations"); })], "link")];
+        const half = cell("Link", { from: [{ type: "identified", value: { key: "M2140" } }], to: [] });
+        const out = run({ columns, skipKey: "stations", row: row({ activity: cell("String", "Machining"), stations: half }) });
+        expect(out.sugg?.fill.get("stations")?.meta).toBe("same stations");
         expect(seen[0]).toEqual(NULL);
     });
 
     test("fills chain in column order: a later column's providers and the proposers see the earlier fills as if taken", () => {
-        const seenVol: unknown[] = [];
+        const seenQty: unknown[] = [];
         const seenByProposer: unknown[] = [];
         const columns = [
-            col("vol", [sync(() => yields(cell("Float", 560000), "like r0"))], "quantity"),
-            col("notes", [sync((ctx) => { seenVol.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("vol")); return yields(cell("String", "Transfer 560m³"), "phrase"); })]),
+            col("qty", [sync(() => yields(cell("Float", 1200), "like r0"))], "quantity"),
+            col("notes", [sync((ctx) => { seenQty.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("qty")); return yields(cell("String", "Machine 1,200 pcs"), "phrase"); })]),
         ];
-        const proposers = [sync((ctx) => { seenByProposer.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("notes")); return [proposal("Filtration", "follows")]; })];
+        const proposers = [sync((ctx) => { seenByProposer.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("notes")); return [proposal("Painting", "follows")]; })];
         const out = run({ columns, proposers });
-        expect(seenVol[0]).toEqual(cell("Float", 560000));
-        expect(seenByProposer[0]).toEqual(cell("String", "Transfer 560m³"));
+        expect(seenQty[0]).toEqual(cell("Float", 1200));
+        expect(seenByProposer[0]).toEqual(cell("String", "Machine 1,200 pcs"));
         expect(out.sugg?.fill.size).toBe(2);
         expect(out.sugg?.rows).toHaveLength(1);
     });
 
     test("results are memoised per provisional row: the same row asks a provider once, a changed row asks again", () => {
         const provider = vi.fn(() => yields(cell("Float", 1), "m"));
-        const columns = [col("vol", [sync(provider)], "quantity")];
+        const columns = [col("qty", [sync(provider)], "quantity")];
         const memo = new SuggestMemo();
         run({ columns, memo });
         run({ columns, memo });
         expect(provider).toHaveBeenCalledTimes(1);
-        run({ columns, memo, row: row({ activity: cell("String", "Filtration"), vol: NULL, notes: NULL }) });
+        run({ columns, memo, row: row({ activity: cell("String", "Painting"), qty: NULL, notes: NULL }) });
         expect(provider).toHaveBeenCalledTimes(2);
-        expect(hashRow(ANCHOR)).not.toBe(hashRow(row({ activity: cell("String", "Filtration"), vol: NULL, notes: NULL })));
+        expect(hashRow(ANCHOR)).not.toBe(hashRow(row({ activity: cell("String", "Painting"), qty: NULL, notes: NULL })));
     });
 
     test("a throwing provider yields nothing with a diagnostic, and the next one answers", () => {
         const error = vi.spyOn(console, "error").mockImplementation(() => {});
-        const columns = [col("vol", [sync(() => { throw new Error("boom"); }), sync(() => yields(cell("Float", 2), "fallback"))], "quantity")];
+        const columns = [col("qty", [sync(() => { throw new Error("boom"); }), sync(() => yields(cell("Float", 2), "fallback"))], "quantity")];
         const out = run({ columns });
-        expect(out.sugg?.fill.get("vol")?.meta).toBe("fallback");
-        expect(error).toHaveBeenCalledWith(expect.stringContaining('fill provider #1 on column "vol"'), expect.any(Error));
+        expect(out.sugg?.fill.get("qty")?.meta).toBe("fallback");
+        expect(error).toHaveBeenCalledWith(expect.stringContaining('fill provider #1 on column "qty"'), expect.any(Error));
         error.mockRestore();
     });
 
     test("an async provider is returned as work; a later sync provider answers meanwhile; the settlement lands with its position; a re-run re-attaches to the promise, and after it settles the memo answers", async () => {
         let resolve: (v: unknown) => void = () => {};
         const promise = new Promise<unknown>((r) => { resolve = r; });
-        const columns = [col("vol", [later(() => promise), sync(() => yields(cell("Float", 2), "meanwhile"))], "quantity")];
+        const columns = [col("qty", [later(() => promise), sync(() => yields(cell("Float", 2), "meanwhile"))], "quantity")];
         const memo = new SuggestMemo();
         const out = run({ columns, memo });
-        expect(out.sugg?.fill.get("vol")).toEqual({ cell: cell("Float", 2), meta: "meanwhile", index: 1 });
-        expect(out.sugg?.pending).toEqual(["vol"]);
-        expect(out.async.map((w) => [w.key, w.index])).toEqual([["vol", 0]]);
+        expect(out.sugg?.fill.get("qty")).toEqual({ cell: cell("Float", 2), meta: "meanwhile", index: 1 });
+        expect(out.sugg?.pending).toEqual(["qty"]);
+        expect(out.async.map((w) => [w.key, w.index])).toEqual([["qty", 0]]);
         // A re-run while in flight re-attaches instead of restarting.
         const again = run({ columns, memo });
         expect(again.async).toHaveLength(1);
@@ -117,17 +117,17 @@ describe("fills", () => {
         expect(landed).toEqual({ kind: "fill", fill: { cell: cell("Float", 1), meta: "the model", index: 0 } });
         // Settled: the memo answers synchronously, by position — the async result outranks the later sync one.
         const settled = run({ columns, memo });
-        expect(settled.sugg?.fill.get("vol")).toEqual({ cell: cell("Float", 1), meta: "the model", index: 0 });
+        expect(settled.sugg?.fill.get("qty")).toEqual({ cell: cell("Float", 1), meta: "the model", index: 0 });
         expect(settled.sugg?.pending).toEqual([]);
         expect(settled.async).toEqual([]);
     });
 
     test("a rejected async provider lands as nothing, with a diagnostic", async () => {
         const error = vi.spyOn(console, "error").mockImplementation(() => {});
-        const columns = [col("vol", [later(() => Promise.reject(new Error("nope")))], "quantity")];
+        const columns = [col("qty", [later(() => Promise.reject(new Error("nope")))], "quantity")];
         const out = run({ columns });
         expect(out.sugg?.fill.size).toBe(0);
-        expect(out.sugg?.pending).toEqual(["vol"]);
+        expect(out.sugg?.pending).toEqual(["qty"]);
         expect(await out.async[0]!.run()).toEqual({ kind: "fill", fill: null });
         expect(error).toHaveBeenCalled();
         error.mockRestore();
@@ -138,18 +138,18 @@ describe("proposals", () => {
     test("the first proposer that returns rows wins, capped at `ahead`; never into an occupied slot; minus the rejected pairings; an async proposer is pending under `rows`", async () => {
         const proposers = [
             sync(() => []),
-            sync(() => [proposal("Filtration", "a"), proposal("Media - Add to Tank", "b"), proposal("Transfer", "c")]),
-            sync(() => [proposal("Centrifuge", "never")]),
+            sync(() => [proposal("Painting", "a"), proposal("Inspection", "b"), proposal("Machining", "c")]),
+            sync(() => [proposal("Packaging", "never")]),
         ];
         const out = run({ proposers });
         expect(out.sugg?.rows.map((r) => r.meta)).toEqual(["a", "b"]);
         expect(run({ proposers, nextBusy: true }).sugg).toBeNull();
-        const rejected = run({ proposers, rejected: { fills: new Set(), follows: new Set(["Transfer>Filtration"]) } });
+        const rejected = run({ proposers, rejected: { fills: new Set(), follows: new Set(["Machining>Painting"]) } });
         expect(rejected.sugg?.rows.map((r) => r.meta)).toEqual(["b", "c"]);
         // Async: pending under `rows`, landing with the admitted rows.
-        const later1 = run({ proposers: [later(() => Promise.resolve([proposal("Filtration", "model")]))] });
+        const later1 = run({ proposers: [later(() => Promise.resolve([proposal("Painting", "model")]))] });
         expect(later1.sugg?.rows).toEqual([]);
         expect(later1.sugg?.pending).toEqual(["rows"]);
-        expect(await later1.async[0]!.run()).toEqual({ kind: "rows", rows: [proposal("Filtration", "model")] });
+        expect(await later1.async[0]!.run()).toEqual({ kind: "rows", rows: [proposal("Painting", "model")] });
     });
 });

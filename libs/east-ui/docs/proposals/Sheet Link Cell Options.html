@@ -7,7 +7,7 @@
 <!--
   Sheet — the three link-cell alternatives explored before the prototype settled on 1a (split cell).
   Sanitised from the claude.ai/design exploration ("Link Cell Options", 8 Sep 2026): the client domain
-  was genericised to a batch-process plant. Self-contained: design-system tokens inline; Font Awesome 6
+  was genericised to a discrete manufacturing plant. Self-contained: design-system tokens inline; Font Awesome 6
   and fonts from CDN (needs network).
 -->
 <style>
@@ -264,18 +264,18 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
       </div>
       <div style="padding:6px 0;">
         <div class="head-row"><span>Activity</span><span style="display:grid; grid-template-columns:1fr 18px 1fr;"><span>From</span><span></span><span>To</span></span></div>
-        <div class="row"><span>Transfer</span>
-          <span class="split"><span class="half mono">T12</span><span class="mid arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="half to mono">T14, T15</span></span></div>
-        <div class="row"><span>Fill</span>
-          <span class="split"><span class="half mono">Filter press 2</span><span class="mid arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="half to mono">4 x 140m³</span></span></div>
-        <div class="row"><span>React</span>
-          <span class="split"><span class="half mono">T04, T05</span><span class="mid" style="color:var(--ink-5); font-size:10px;"><i class="fa-solid fa-minus"></i></span><span class="lock" style="border-left:1px dashed var(--rule); border-radius:0 5px 5px 0;">in place</span></span></div>
-        <div class="row"><span>Receive feedstock</span>
-          <span class="split"><span class="lock" style="border-radius:5px 0 0 5px;">external</span><span class="mid arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="half to mono">Mill A</span></span></div>
-        <div class="row"><span>Transfer <span style="font-size:10px; color:var(--ink-5);">editing</span></span>
-          <span class="split editing"><span class="half mono">T12</span><span class="mid arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="half to mono" style="background:var(--brand-tint); height:100%; display:flex; align-items:center; border-radius:0 5px 5px 0;">T1<span class="caret"></span></span></span></div>
+        <div class="row"><span>Machining</span>
+          <span class="split"><span class="half mono">M12</span><span class="mid arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="half to mono">M14, M15</span></span></div>
+        <div class="row"><span>Sub-assembly</span>
+          <span class="split"><span class="half mono">Cell A</span><span class="mid arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="half to mono">4 x bench</span></span></div>
+        <div class="row"><span>Inspection</span>
+          <span class="split"><span class="half mono">M04, M05</span><span class="mid" style="color:var(--ink-5); font-size:10px;"><i class="fa-solid fa-minus"></i></span><span class="lock" style="border-left:1px dashed var(--rule); border-radius:0 5px 5px 0;">in place</span></span></div>
+        <div class="row"><span>Receiving</span>
+          <span class="split"><span class="lock" style="border-radius:5px 0 0 5px;">external</span><span class="mid arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="half to mono">Goods in</span></span></div>
+        <div class="row"><span>Machining <span style="font-size:10px; color:var(--ink-5);">editing</span></span>
+          <span class="split editing"><span class="half mono">M12</span><span class="mid arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="half to mono" style="background:var(--brand-tint); height:100%; display:flex; align-items:center; border-radius:0 5px 5px 0;">M1<span class="caret"></span></span></span></div>
       </div>
-      <div class="card-note">Tab jumps between halves; typing <span class="mono">&gt;</span> in the left half jumps right. Halves are two fields, so paste of <span class="mono">T12 &gt; T14</span> still splits on the arrow. One-sided activities grey out the unused half with its role label.</div>
+      <div class="card-note">Tab jumps between halves; typing <span class="mono">&gt;</span> in the left half jumps right. Halves are two fields, so paste of <span class="mono">M12 &gt; M14</span> still splits on the arrow. One-sided activities grey out the unused half with its role label.</div>
     </div>
 
     <!-- 1b -->
@@ -286,17 +286,17 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
         <span class="card-sub">one text field, arrow always shown</span>
       </div>
       <div style="padding:6px 0;">
-        <div class="head-row"><span>Activity</span><span>Tanks / vessels</span></div>
-        <div class="row"><span>Transfer</span>
-          <span style="display:flex; align-items:center; gap:6px; height:28px; padding:0 8px;" class="mono"><span class="role">from</span><span>T12</span><span class="arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="role">to</span><span>T14, T15</span></span></div>
-        <div class="row"><span>Fill</span>
-          <span style="display:flex; align-items:center; gap:6px; height:28px; padding:0 8px;" class="mono"><span class="role">from</span><span>Filter press 2</span><span class="arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="role">to</span><span>4 x 140m³</span></span></div>
-        <div class="row"><span>React</span>
-          <span style="display:flex; align-items:center; gap:6px; height:28px; padding:0 8px;" class="mono"><span class="role">in</span><span>T04, T05</span></span></div>
-        <div class="row"><span>Receive feedstock</span>
-          <span style="display:flex; align-items:center; gap:6px; height:28px; padding:0 8px;" class="mono"><span class="arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="role">to</span><span>Mill A</span></span></div>
-        <div class="row"><span>Transfer <span style="font-size:10px; color:var(--ink-5);">editing</span></span>
-          <span class="mono editing" style="display:flex; align-items:center; gap:6px; height:28px; padding:0 8px; border:1px solid var(--brand-d); border-radius:var(--r-md);"><span class="role">from</span><span>T12</span><span class="arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="role">to</span><span>T1</span><span class="caret"></span></span></div>
+        <div class="head-row"><span>Activity</span><span>Work centres</span></div>
+        <div class="row"><span>Machining</span>
+          <span style="display:flex; align-items:center; gap:6px; height:28px; padding:0 8px;" class="mono"><span class="role">from</span><span>M12</span><span class="arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="role">to</span><span>M14, M15</span></span></div>
+        <div class="row"><span>Sub-assembly</span>
+          <span style="display:flex; align-items:center; gap:6px; height:28px; padding:0 8px;" class="mono"><span class="role">from</span><span>Cell A</span><span class="arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="role">to</span><span>4 x bench</span></span></div>
+        <div class="row"><span>Inspection</span>
+          <span style="display:flex; align-items:center; gap:6px; height:28px; padding:0 8px;" class="mono"><span class="role">in</span><span>M04, M05</span></span></div>
+        <div class="row"><span>Receiving</span>
+          <span style="display:flex; align-items:center; gap:6px; height:28px; padding:0 8px;" class="mono"><span class="arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="role">to</span><span>Goods in</span></span></div>
+        <div class="row"><span>Machining <span style="font-size:10px; color:var(--ink-5);">editing</span></span>
+          <span class="mono editing" style="display:flex; align-items:center; gap:6px; height:28px; padding:0 8px; border:1px solid var(--brand-d); border-radius:var(--r-md);"><span class="role">from</span><span>M12</span><span class="arrow"><i class="fa-solid fa-arrow-right-long"></i></span><span class="role">to</span><span>M1</span><span class="caret"></span></span></div>
       </div>
       <div class="card-note">Storage stays the raw string; tags are painted from the parse and never selectable. Closest to today. One-sided activities simply drop a side, so the eye has to read the tag rather than see a fixed shape.</div>
     </div>
@@ -306,15 +306,15 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
       <div class="card-head">
         <a href="#1c" class="card-id">1c</a>
         <span class="card-title">Two columns</span>
-        <span class="card-sub">From tanks · To tanks, arrow lives in the header</span>
+        <span class="card-sub">From · To, arrow lives in the header</span>
       </div>
       <div style="padding:6px 0;">
-        <div class="head-row" style="grid-template-columns:118px 1fr 1fr;"><span>Activity</span><span>From tanks <i class="fa-solid fa-arrow-right-long" style="margin-left:6px; color:var(--ink-5);"></i></span><span>To tanks</span></div>
-        <div class="row3"><span>Transfer</span><span class="mono" style="padding:0 8px; height:28px; display:flex; align-items:center; border-right:1px solid var(--rule);">T12</span><span class="mono" style="padding:0 8px;">T14, T15</span></div>
-        <div class="row3"><span>Fill</span><span class="mono" style="padding:0 8px; height:28px; display:flex; align-items:center; border-right:1px solid var(--rule);">Filter press 2</span><span class="mono" style="padding:0 8px;">4 x 140m³</span></div>
-        <div class="row3"><span>React</span><span class="mono" style="padding:0 8px; height:28px; display:flex; align-items:center; border-right:1px solid var(--rule);">T04, T05</span><span class="lock" style="border-radius:var(--r-sm); height:28px;">in place</span></div>
-        <div class="row3"><span>Receive feedstock</span><span class="lock" style="border-radius:var(--r-sm); height:28px; border-right:1px solid var(--rule);">external</span><span class="mono" style="padding:0 8px;">Mill A</span></div>
-        <div class="row3"><span>Transfer <span style="font-size:10px; color:var(--ink-5);">editing</span></span><span class="mono" style="padding:0 8px; height:28px; display:flex; align-items:center; border-right:1px solid var(--rule);">T12</span><span class="mono editing" style="padding:0 8px; height:28px; display:flex; align-items:center; border:1px solid var(--brand-d); border-radius:var(--r-md);">T1<span class="caret"></span></span></div>
+        <div class="head-row" style="grid-template-columns:118px 1fr 1fr;"><span>Activity</span><span>From <i class="fa-solid fa-arrow-right-long" style="margin-left:6px; color:var(--ink-5);"></i></span><span>To</span></div>
+        <div class="row3"><span>Machining</span><span class="mono" style="padding:0 8px; height:28px; display:flex; align-items:center; border-right:1px solid var(--rule);">M12</span><span class="mono" style="padding:0 8px;">M14, M15</span></div>
+        <div class="row3"><span>Sub-assembly</span><span class="mono" style="padding:0 8px; height:28px; display:flex; align-items:center; border-right:1px solid var(--rule);">Cell A</span><span class="mono" style="padding:0 8px;">4 x bench</span></div>
+        <div class="row3"><span>Inspection</span><span class="mono" style="padding:0 8px; height:28px; display:flex; align-items:center; border-right:1px solid var(--rule);">M04, M05</span><span class="lock" style="border-radius:var(--r-sm); height:28px;">in place</span></div>
+        <div class="row3"><span>Receiving</span><span class="lock" style="border-radius:var(--r-sm); height:28px; border-right:1px solid var(--rule);">external</span><span class="mono" style="padding:0 8px;">Goods in</span></div>
+        <div class="row3"><span>Machining <span style="font-size:10px; color:var(--ink-5);">editing</span></span><span class="mono" style="padding:0 8px; height:28px; display:flex; align-items:center; border-right:1px solid var(--rule);">M12</span><span class="mono editing" style="padding:0 8px; height:28px; display:flex; align-items:center; border:1px solid var(--brand-d); border-radius:var(--r-md);">M1<span class="caret"></span></span></div>
       </div>
       <div class="card-note">Most spreadsheet-native: plain cells, ⌘C/⌘V round-trips as two Excel columns. Costs ~130px of width and loses the compact <span class="mono">a &gt; b</span> shorthand in one cell. Greyed cells are locked by the activity's declaration.</div>
     </div>
@@ -323,11 +323,11 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
   <div style="max-width:1220px; padding:14px 16px; background:var(--paper); border:1px solid var(--rule-strong); border-radius:10px; display:grid; grid-template-columns:1fr 1fr; gap:24px; font-size:12px; color:var(--ink-2); line-height:1.55;">
     <div>
       <div style="font-family:var(--font-mono); font-size:9.5px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-4); margin-bottom:6px;">Declared per activity</div>
-      Each activity in the register gets a <span class="mono">sides</span> field: <span class="mono">both</span> (transfer, fill, decant), <span class="mono">from</span> (empty, dump, despatch), <span class="mono">to</span> (receive, mill), <span class="mono">in</span> (react, cold-hold, dose). The unused side is locked and labelled with its role; typing into it is a soft error, not blocked.
+      Each activity in the register gets a <span class="mono">sides</span> field: <span class="mono">both</span> (machining, assembly, painting), <span class="mono">from</span> (shipping), <span class="mono">to</span> (receiving), <span class="mono">in</span> (inspection, rework, maintenance). The unused side is locked and labelled with its role; typing into it is a soft error, not blocked.
     </div>
     <div>
       <div style="font-family:var(--font-mono); font-size:9.5px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-4); margin-bottom:6px;">Typed entry retained</div>
-      In all three the grammar survives: <span class="mono">T12 &gt; T14, T15</span> pasted into any of them lands in the right places; <span class="mono">4 x 140m³</span> still means four unnamed tanks of that size; the arity and capacity checks run per side. Autofill suggestions fill both sides at once.
+      In all three the grammar survives: <span class="mono">M12 &gt; M14, M15</span> pasted into any of them lands in the right places; <span class="mono">4 x bench</span> still means four unnamed benches; the arity and capacity checks run per side. Autofill suggestions fill both sides at once.
     </div>
   </div>
 </section>

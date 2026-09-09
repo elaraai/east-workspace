@@ -60,11 +60,17 @@ function isRegisterKind(kind: SheetKind): boolean {
     return kind === "lookup" || kind === "reference" || kind === "enum";
 }
 
-/** Move the ring to `to`, dropping the range; reports the move. */
-function moveTo(s: SheetUiState, to: CellRef, ctx: SheetMachineCtx, effects: SheetEffect[]): SheetUiState {
+/**
+ * Move the ring to `to`, dropping the range; reports the move. A keyboard
+ * move scrolls the row into view; a pointer move never does — the cell is
+ * under the pointer already, and moving the sheet under a held button would
+ * read as a drag.
+ */
+function moveTo(s: SheetUiState, to: CellRef, ctx: SheetMachineCtx, effects: SheetEffect[], scroll = true): SheetUiState {
     const next = clamp(to, ctx);
     if (same(next, s.sel) && s.selEnd === null) return s;
-    effects.push({ t: "emit.select", r: next.r, c: next.c }, { t: "scroll.to", r: next.r });
+    effects.push({ t: "emit.select", r: next.r, c: next.c });
+    if (scroll) effects.push({ t: "scroll.to", r: next.r });
     return { ...s, sel: next, selEnd: null };
 }
 
@@ -293,7 +299,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             if (e.shift) {
                 return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: e.c }, ctx), gsel: null }, effects };
             }
-            const moved = moveTo(closed.state, { r: e.r, c: e.c }, ctx, effects);
+            const moved = moveTo(closed.state, { r: e.r, c: e.c }, ctx, effects, false);
             effects.push({ t: "focus.sheet" });
             return { state: moved.gsel === null ? moved : { ...moved, gsel: null }, effects };
         }

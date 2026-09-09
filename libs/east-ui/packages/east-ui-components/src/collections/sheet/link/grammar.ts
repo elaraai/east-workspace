@@ -9,10 +9,11 @@
  * kinds it declares.
  *
  * - **identified** — a register key or alias, case-insensitively; bare digits
- *   try the identified keys' letter prefixes (`2140` ⇒ `T2140`); a size that
- *   exists in the register (`140m3`, `140 m³`, `140000L` ⇒ `140 m³`) is a
- *   member too — countable by attribute.
- * - **range** — `T2140-45` expands through the register; a short upper bound
+ *   try the identified keys' letter prefixes (`2140` ⇒ `M2140`); a
+ *   `number + unit` attribute the register knows (`120t`, `120 T` ⇒ the
+ *   `120 t press` family) resolves with its spacing normalised — countable
+ *   by attribute.
+ * - **range** — `M2140-45` expands through the register; a short upper bound
  *   completes from the lower. A hyphen is a range only between two UNSPACED
  *   bare numbers — spaced, or beside a name, it is an arrow.
  * - **counted** — `N x kind` / `kind x N` with the declared ops, countable
@@ -59,7 +60,7 @@ export interface LinkVocabulary {
     ranges: boolean;
     /** The multiplication tokens (`x`, `X`, `*`, `×`). */
     ops: readonly string[];
-    /** The letter prefixes of the identified keys of the form `LETTERS+DIGITS` (`T` for `T2140`). */
+    /** The letter prefixes of the identified keys of the form `LETTERS+DIGITS` (`M` for `M2140`). */
     prefixes: readonly string[];
 }
 
@@ -108,17 +109,22 @@ export function isIdentified(vocab: LinkVocabulary, m: SheetRegisterMemberValue)
     return vocab.identifiedKinds.size === 0 ? !isCountable(vocab, m) : vocab.identifiedKinds.has(m.kind);
 }
 
-/** The register key a size names — `140m3` · `140 m³` · `140000L` ⇒ `140 m³` — when the register has it. */
-export function capacityKey(raw: string, vocab: LinkVocabulary): string | undefined {
-    const m = /^(\d{1,6})\s*(m3|m³|l)$/i.exec(raw.trim());
+/**
+ * The register key a `number + unit` attribute names — `120t` · `120 T` ·
+ * `120  t` ⇒ the `120 t press` family — by key or alias, with the spacing
+ * between the number and the unit normalised both ways.
+ */
+export function attributeKey(raw: string, vocab: LinkVocabulary): string | undefined {
+    const m = /^(\d+(?:[.,]\d+)?)\s*([^\d\s]{1,8})$/.exec(raw.trim().toLowerCase());
     if (m === null) return undefined;
-    const n = Number(m[1]);
-    const cap = m[2]!.toLowerCase() === "l" && n > 999 ? Math.round(n / 1000) : n;
-    const key = `${cap} m³`;
-    return vocab.byKey.has(key.toLowerCase()) ? vocab.byKey.get(key.toLowerCase())!.key : undefined;
+    for (const form of [`${m[1]}${m[2]}`, `${m[1]} ${m[2]}`]) {
+        const hit = vocab.byKey.get(form) ?? vocab.byAlias.get(form);
+        if (hit !== undefined) return hit.key;
+    }
+    return undefined;
 }
 
-/** The register member a token names — key, alias (a leading "the" dropped), size, or bare digits + a prefix. */
+/** The register member a token names — key, alias (a leading "the" dropped), a `number + unit` attribute, or bare digits + a prefix. */
 export function resolveMember(raw: string, vocab: LinkVocabulary): SheetRegisterMemberValue | undefined {
     const t = raw.trim().toLowerCase().replace(/\s+/g, " ");
     if (t === "") return undefined;
@@ -128,8 +134,8 @@ export function resolveMember(raw: string, vocab: LinkVocabulary): SheetRegister
     if (alias !== undefined) return alias;
     const named = vocab.byKey.get(t.replace(/^the\s+/, ""));
     if (named !== undefined) return named;
-    const cap = capacityKey(raw, vocab);
-    if (cap !== undefined) return vocab.byKey.get(cap.toLowerCase());
+    const attr = attributeKey(raw, vocab);
+    if (attr !== undefined) return vocab.byKey.get(attr.toLowerCase());
     if (/^\d{2,}$/.test(t)) {
         for (const p of vocab.prefixes) {
             const hit = vocab.byKey.get(`${p.toLowerCase()}${t}`);
@@ -144,7 +150,7 @@ function opsClass(vocab: LinkVocabulary): string {
     return `[${vocab.ops.map((o) => o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("")}]`;
 }
 
-/** The counted form — a count either side of an operator (`4 x 140m³`, `2000s × 3`). */
+/** The counted form — a count either side of an operator (`4 x lathe`, `Line 2 × 3`). */
 export function parseMultiple(raw: string, vocab: LinkVocabulary): { n: number; rest: string } | undefined {
     const ops = opsClass(vocab);
     const m = new RegExp(`^(?:(\\d{1,3})\\s*${ops}\\s*(.+)|(.+?)\\s*${ops}\\s*(\\d{1,3}))$`, "i").exec(raw.trim());
@@ -154,7 +160,7 @@ export function parseMultiple(raw: string, vocab: LinkVocabulary): { n: number; 
     return n > 0 && rest !== "" ? { n, rest } : undefined;
 }
 
-/** The identified members in a numeric span — `T2140` … `T2145` — with the letters of `from`. */
+/** The identified members in a numeric span — `M2140` … `M2145` — with the letters of `from`. */
 export function rangeMembers(from: string, to: string, vocab: LinkVocabulary): SheetRegisterMemberValue[] {
     const a = /^([A-Za-z]*)(\d+)$/.exec(from);
     const b = /^([A-Za-z]*)(\d+)$/.exec(to);
@@ -174,13 +180,13 @@ export function rangeMembers(from: string, to: string, vocab: LinkVocabulary): S
 }
 
 /**
- * A range token — `T2140-45` / `2140-2145` — to its normalised bounds, when
+ * A range token — `M2140-45` / `2140-2145` — to its normalised bounds, when
  * the register has members in the span. A short upper bound completes from
  * the lower; bare digits take an identified prefix that yields members.
  */
 export function parseRange(raw: string, vocab: LinkVocabulary): { from: string; to: string; members: SheetRegisterMemberValue[] } | undefined {
     if (!vocab.ranges) return undefined;
-    // Unspaced only: `T2140 - 45` is an arrow between two members, never a range.
+    // Unspaced only: `M2140 - 45` is an arrow between two members, never a range.
     const m = /^([A-Za-z]*)(\d{2,})[-–]([A-Za-z]*)(\d{1,})$/.exec(raw.trim());
     if (m === null) return undefined;
     let upper = m[4]!;
@@ -246,19 +252,15 @@ export function parseLinkText(textIn: string, vocab: LinkVocabulary): SheetLinkV
     return { from, to } as SheetLinkValue;
 }
 
-/** A member's chip meta — the register's line, `unassigned` for a counted size, the span of a range. */
+/** A member's chip meta — the register's line, `unassigned` for a counted member (a count names no one in particular), the span of a range. */
 export function memberMeta(m: SheetMemberValue, vocab: LinkVocabulary): string {
     switch (m.type) {
         case "identified": {
             const reg = vocab.byKey.get((m.value as { key: string }).key.toLowerCase());
             return reg !== undefined ? getSomeorUndefined(reg.meta) ?? "" : "";
         }
-        case "counted": {
-            const reg = vocab.byKey.get((m.value as { key: string }).key.toLowerCase());
-            if (reg === undefined) return "";
-            if (reg.kind === "capacity") return "unassigned";
-            return getSomeorUndefined(reg.meta) ?? "";
-        }
+        case "counted":
+            return vocab.byKey.has((m.value as { key: string }).key.toLowerCase()) ? "unassigned" : "";
         case "range": {
             const r = m.value as { from: string; to: string };
             const n = rangeMembers(r.from, r.to, vocab).length;

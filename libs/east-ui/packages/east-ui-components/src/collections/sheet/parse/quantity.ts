@@ -4,9 +4,10 @@
  */
 
 /**
- * The B§3 quantity grammar: digits, an optional decimal, a suffix `l` (×1),
- * `k` (×10³) or `m3` / `m³` (×10³); commas and spaces ignored; the result a
- * rounded integer. An integer column uses the same grammar without a unit.
+ * The B§3 quantity grammar: digits, an optional decimal, an optional
+ * magnitude suffix `k` (×10³) or `m` (×10⁶); commas and spaces ignored; the
+ * result a rounded integer. The unit is the column's, never typed — an
+ * integer column uses the same grammar.
  *
  * @packageDocumentation
  */
@@ -19,9 +20,9 @@
 export function parseQuantity(text: string): number | null | undefined {
     const t = text.replace(/[,\s]/g, "").toLowerCase();
     if (t === "") return undefined;
-    const m = /^(-?\d+(?:\.\d+)?)(m3|m³|k|l)?$/.exec(t);
+    const m = /^(-?\d+(?:\.\d+)?)(k|m)?$/.exec(t);
     if (m === null) return null;
-    const mult = m[2] === "m3" || m[2] === "m³" || m[2] === "k" ? 1e3 : 1;
+    const mult = m[2] === "k" ? 1e3 : m[2] === "m" ? 1e6 : 1;
     const n = Math.round(Number(m[1]) * mult);
     return Number.isFinite(n) ? n : null;
 }

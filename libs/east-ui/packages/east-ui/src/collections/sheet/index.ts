@@ -205,7 +205,7 @@ export { type SheetColumnMeta, describeColumn, optionPayload, cellTagOf } from "
  *
  * @example
  * ```ts
- * Sheet.patch(PlanRowType, { activity: "Transfer", start: some(endAt.addDays(3n)), vol: ctx.row.vol })
+ * Sheet.patch(PlanRowType, { activity: "Machining", start: some(endAt.addDays(3n)), qty: ctx.row.qty })
  * ```
  */
 export function createPatch<R extends StructType>(rowType: R, record: SheetPatchInput<R>): ExprType<SheetPatchOf<R>> {

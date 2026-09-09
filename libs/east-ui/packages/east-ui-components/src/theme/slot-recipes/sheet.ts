@@ -8,7 +8,9 @@
  * (`Sheet Spec.md` §7, B§11), every value a semantic token so the dark theme
  * comes for free.
  *
- *   - Card: `bg.surface`, 1 px `border.strong`, radius 10; 120 px bottom pad.
+ *   - Card: `bg.surface`, no border of its own (the host frames a component,
+ *     as with Plan); 120 px bottom pad. One rule per seam: toolbar and
+ *     header `border.strong` below, strip and footer `border.subtle` above.
  *   - Header: sticky, two lines — label mono 10/600/.16em uppercase
  *     `fg.subtle`; sub mono 9 `fg.subtle` ellipsised; 1 px `border.subtle`
  *     column dividers; `border.strong` bottom.
@@ -62,9 +64,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         card: {
             background: "bg.surface",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "10px",
             overflow: "hidden",
             outline: "none",
             position: "relative",
@@ -81,7 +80,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             paddingY: "8px",
             background: "bg.surface",
             borderBottomWidth: "1px",
-            borderBottomColor: "border.strong",
+            borderBottomColor: "border.subtle",
             minWidth: "0",
         },
         toolbarCount: {
@@ -187,6 +186,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             width: "26px",
             textAlign: "right",
             flex: "none",
+            // Breathing room before the ✓ × → buttons: the number is right-aligned, so without it a digit touches the first button.
+            marginRight: "3px",
             "&[data-hit]": { color: "brand.solid", fontWeight: "600" },
         },
         gutterButton: {
@@ -310,6 +311,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             boxShadow: "inset 0 0 0 2px var(--chakra-colors-brand-solid)",
             pointerEvents: "none",
             zIndex: "4",
+            // The row under the sticky header: the header would cover the ring's top pixel, so it stays inside the cell.
+            "[data-first] &": { top: "0" },
         },
         rangeWash: {
             position: "absolute",
@@ -361,6 +364,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             right: "-1px",
             top: "-1px",
             minHeight: "calc(100% + 2px)",
+            "[data-first] &": { top: "0", minHeight: "calc(100% + 1px)" },
             zIndex: "10",
             background: "bg.surface",
             boxShadow: "inset 0 0 0 2px var(--chakra-colors-brand-solid)",
@@ -425,6 +429,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             boxShadow: "inset 0 0 0 2px var(--chakra-colors-status-neg)",
             pointerEvents: "none",
             zIndex: "11",
+            "[data-first] &": { top: "0" },
         },
         linkGrid: {
             flex: "1",
@@ -587,8 +592,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             paddingX: "20px",
             paddingY: "6px",
             background: "bg.panel",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
+            borderTopWidth: "1px",
+            borderTopColor: "border.subtle",
             overflow: "hidden",
             minWidth: "0",
         },
@@ -678,7 +683,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             paddingY: "8px",
             background: "bg.surface",
             borderTopWidth: "1px",
-            borderTopColor: "border.strong",
+            borderTopColor: "border.subtle",
             minWidth: "0",
         },
         footerCounts: {

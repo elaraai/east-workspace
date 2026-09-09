@@ -41,7 +41,7 @@ const identified = (key: string): SheetMemberValue => ({ type: "identified", val
 
 /**
  * The free identified members under a countable: the ones naming it as their
- * `parent` (a farm's tanks), else the ones whose `meta` names it (a size's).
+ * `parent` (a line's machines), else the ones whose `meta` names it (a family's).
  */
 export function membersUnder(parent: SheetRegisterMemberValue, vocab: LinkVocabulary, used: ReadonlySet<string>): SheetRegisterMemberValue[] {
     const key = parent.key.toLowerCase();
@@ -74,8 +74,8 @@ export function linkCandidates(query: string, vocab: LinkVocabulary, used: Reado
     };
     const exact = resolveMember(query, vocab);
     if (exact !== undefined && free(exact) && !isCountable(vocab, exact)) push(exact);
-    // A code prefix ghosts a code before a name gets a look — `t21` is someone
-    // typing T2140, not asking for the 2000s.
+    // A code prefix ghosts a code before a name gets a look — `m21` is someone
+    // typing M2140, not asking for a mill.
     const codeLike = /^[a-z]?\d/.test(t);
     const bare = t.replace(/\s+/g, "");
     const codeHits = vocab.members.filter((m) => isIdentified(vocab, m) && free(m) && (
@@ -100,10 +100,10 @@ export function linkCandidates(query: string, vocab: LinkVocabulary, used: Reado
         }
     }
     if (!codeLike) for (const m of codeHits) push(m);
-    // Other countables by key prefix (groups by code, sizes by `140`).
+    // Other countables by key prefix, spacing ignored (`line2`, `120t`).
     for (const m of vocab.members) {
         if (!isCountable(vocab, m) || !free(m) || seen.has(m.key)) continue;
-        if (m.key.toLowerCase().startsWith(bare)) push(m);
+        if (m.key.toLowerCase().replace(/\s+/g, "").startsWith(bare)) push(m);
     }
     if ("tbc".startsWith(t)) out.push({ label: "TBC", meta: "to confirm", members: [{ type: "placeholder", value: null } as SheetMemberValue] });
     return out;
@@ -124,7 +124,7 @@ export function linkGhost(query: string, cand: LinkCandidate | undefined): strin
     return cand.label.toLowerCase().startsWith(t.toLowerCase()) ? cand.label.slice(t.length) : "";
 }
 
-/** The replacement preview — a real match that is not a prefix (an alias, a size, a range). */
+/** The replacement preview — a real match that is not a prefix (an alias, an attribute, a range). */
 export function linkResolve(query: string, cand: LinkCandidate | undefined): string {
     const t = query.trim();
     if (t === "" || cand === undefined) return "";

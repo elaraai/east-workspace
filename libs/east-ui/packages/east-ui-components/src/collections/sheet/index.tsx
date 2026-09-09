@@ -680,16 +680,23 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     }, [selection, controlledR, controlledC, dispatch]);
 
     // ── Input ─────────────────────────────────────────────────────────────
+    // A range drag is a press followed by pointer MOVEMENT; a mouseenter with
+    // no movement (the sheet moved under a stationary pointer — a paged
+    // window landing, a fill changing a row) never extends the range.
+    const pressed = useRef(false);
     const dragging = useRef(false);
     useEffect(() => {
-        const up = () => { dragging.current = false; };
+        const up = () => { pressed.current = false; dragging.current = false; };
+        const move = (e: globalThis.MouseEvent) => { if (pressed.current && (e.buttons & 1) !== 0) dragging.current = true; };
         window.addEventListener("mouseup", up);
-        return () => window.removeEventListener("mouseup", up);
+        window.addEventListener("mousemove", move);
+        return () => { window.removeEventListener("mouseup", up); window.removeEventListener("mousemove", move); };
     }, []);
     const onCellDown = useCallback((r: number, c: number, e: MouseEvent) => {
         if (e.button !== 0) return;
         e.preventDefault();
-        dragging.current = !e.shiftKey;
+        pressed.current = !e.shiftKey;
+        dragging.current = false;
         dispatch({ t: "cell.down", r, c, shift: e.shiftKey });
     }, [dispatch]);
     const onCellDouble = useCallback((r: number, c: number) => dispatch({ t: "cell.dbl", r, c }), [dispatch]);
@@ -987,6 +994,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 rowPx={rowPx}
                 r={r}
                 number={item.position + 1}
+                first={i === 0}
                 row={item.kind === "real" ? item.row : undefined}
                 linkCtx={linkCellCtx}
                 selC={ui.sel.r === r ? ui.sel.c : undefined}
@@ -1051,6 +1059,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     minWidth={`${minWidth}px`}
                     headerZIndex={6}
                     scrollToIndex={scrollTarget}
+                    scrollAlign="auto"
                     onRangeChange={pagedSource !== undefined ? reportRange : undefined}
                     sizeVersion={paging.sizeVersion}
                     rootCss={{ overflowX: "auto" }}

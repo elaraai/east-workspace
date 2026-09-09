@@ -162,7 +162,7 @@ export function ghostWord(ghost: string): string {
     return m ? m[0] : ghost;
 }
 
-/** A non-prefix match previews as a replacement (`→ Transfer - Annex`); `""` when the ghost covers it. */
+/** A non-prefix match previews as a replacement (`→ Machining - Roughing`); `""` when the ghost covers it. */
 export function resolveFor(text: string, candidate: string | undefined): string {
     const t = text.trim();
     if (t === "" || candidate === undefined) return "";

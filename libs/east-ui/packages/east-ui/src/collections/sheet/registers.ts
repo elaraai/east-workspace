@@ -41,7 +41,7 @@ export type SheetRegisterValue = ExprType<ArrayType<SheetRegisterMemberType>>;
  * over an `Array` the key is the index, printed).
  *
  * @typeParam T - The data's element type
- * @property kind - The member kind (`"tank"`, `"farm"`, `"capacity"`)
+ * @property kind - The member kind (`"machine"`, `"line"`, `"family"`)
  * @property key - What the grammar resolves — accessor
  * @property label - What a chip prints — accessor
  * @property aliases - Alternative spellings — accessor returning the field's array
@@ -85,8 +85,8 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  * @remarks
  * The accessors are reified ONCE into a describe function which the map
  * then CALLS (`shared/reify.ts`, `EAST_UI_PROP_PATTERNS.md`). Duplicate keys
- * fold, first occurrence wins — a countable-by-attribute kind (`"140 m³"`
- * from every tank of that size) declares one member per distinct value.
+ * fold, first occurrence wins — a countable-by-attribute kind (`"CNC lathe"`
+ * from every machine of that family) declares one member per distinct value.
  *
  * @typeParam T - The data's element type
  * @param data - The rows — an `Array<T>` or a `Dict<String, T>` value or expression
@@ -95,8 +95,8 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *
  * @example
  * ```ts
- * Sheet.register.members(tanks, { kind: "tank", key: t => t.code, label: t => t.code,
- *     meta: t => some(East.str`${t.litres.divide(1000.0).toInteger()} m³`), parent: t => some(t.farm) })
+ * Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code,
+ *     meta: m => some(m.family), parent: m => some(m.line) })
  * ```
  */
 export function createMembers<T extends EastType>(

@@ -18,7 +18,8 @@ import {
 // `sheetPaged` · `sheetStress`. Every example is self-contained — types,
 // fixtures and constructors inside the body, bulk data derived East-side —
 // and the fixtures are the prototype's synthetic registers and rows: a
-// batch-process plant, no customer, site or product names.
+// discrete manufacturing plant (machines on lines, work orders moving parts
+// between them), no customer, site or product names.
 // ============================================================================
 
 // The one thing at module scope: a platform declaration the async proposer
@@ -27,7 +28,7 @@ import {
 // re-declared inside the example bodies that use them (the examples rule).
 const PLAN_ROW_TYPE = StructType({
     id: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), activity: StringType,
-    vol: OptionType(FloatType), notes: StringType, tanks: Sheet.Types.Link, toClean: OptionType(IntegerType),
+    qty: OptionType(FloatType), notes: StringType, stations: Sheet.Types.Link, setups: OptionType(IntegerType),
     fromSite: StringType, toSite: StringType, orderCode: StringType, status: StringType,
 });
 const ACTIVITY_TYPE = StructType({
@@ -58,7 +59,7 @@ export const sheetBasic = example({
                 qty:   OptionType(FloatType),
             });
             const jobs = $.let(State.bind([ArrayType(JobType)], "sheet_basic_jobs", [
-                { id: "j1", start: none, task: "Transfer", qty: none },
+                { id: "j1", start: none, task: "Machining", qty: none },
             ]));
             return (
                 <Sheet
@@ -92,9 +93,9 @@ export const sheetVariants = example({
             const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType), notes: StringType });
             const Ctx = Sheet.Types.Context(JobType);
             const rows = $.let(State.bind([ArrayType(JobType)], "sheet_variants_rows", [
-                { id: "j1", start: some(new Date("2026-02-16T00:00:00Z")), task: "Transfer", qty: some(560000.0), notes: "Transfer BX2 for media add" },
-                { id: "j2", start: some(new Date("2026-03-09T00:00:00Z")), task: "Filtration", qty: some(250000.0), notes: "" },
-                { id: "j3", start: none, task: "Centrifuge", qty: none, notes: "" },
+                { id: "j1", start: some(new Date("2026-02-16T00:00:00Z")), task: "Machining", qty: some(1200.0), notes: "Rough the P-40 blanks" },
+                { id: "j2", start: some(new Date("2026-03-09T00:00:00Z")), task: "Painting", qty: some(250.0), notes: "" },
+                { id: "j3", start: none, task: "Packaging", qty: none, notes: "" },
             ]));
             const densities = $.const([
                 variant("condensed", null), variant("compact", null), variant("comfortable", null),
@@ -177,7 +178,7 @@ export const sheetVariants = example({
                                 columns={{
                                     start: Sheet.column.date(JobType, { header: "Start", sub: "d/m · fri · +3d", width: "96px" }),
                                     task:  Sheet.column.text(JobType, { header: "Task", width: "180px" }),
-                                    qty:   Sheet.column.quantity(JobType, { header: "Qty", sub: "l · k · m3", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                                    qty:   Sheet.column.quantity(JobType, { header: "Qty", sub: "1,200 · 1.2k · pcs", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
                                     notes: Sheet.column.text(JobType, { header: "Notes", sub: "free text", fill: [phrase] }),
                                 }}
                                 density={densitySel}
@@ -216,87 +217,98 @@ export const sheetVariants = example({
  */
 export const sheetPlan = example({
     keywords: ["Sheet", "Root", "plan", "flagship", "driver", "register", "lookup", "reference", "enum", "link", "stamped", "quantity", "uom", "sides", "arity", "check", "fill", "propose", "suggest", "asyncFunction", "asyncPlatform", "slice", "search", "filter", "lens", "views", "footer", "owned", "onUpdate", "Reactive", "State"],
-    description: "The flagship plan sheet — every column kind over one raw source, registers and a driver, the copilot's fills and proposers as author functions (one async), the slice lens with saved views, a footer and whole-collection write-back",
+    description: "The flagship production plan — every column kind over one raw source, registers and a driver, the copilot's fills and proposers as author functions (one async), the slice lens with saved views, a footer and whole-collection write-back",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const PlanRowType = StructType({
                 id: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), activity: StringType,
-                vol: OptionType(FloatType), notes: StringType, tanks: Sheet.Types.Link, toClean: OptionType(IntegerType),
+                qty: OptionType(FloatType), notes: StringType, stations: Sheet.Types.Link, setups: OptionType(IntegerType),
                 fromSite: StringType, toSite: StringType, orderCode: StringType, status: StringType,
             });
             const ActivityType = StructType({ name: StringType, uom: StringType, rate: FloatType, fte: IntegerType, days: IntegerType, sides: Sheet.Types.Sides });
-            const TankType     = StructType({ code: StringType, litres: FloatType, farm: StringType, site: StringType });
-            const FarmType     = StructType({ code: StringType, name: StringType, tanks: IntegerType, aliases: ArrayType(StringType) });
+            const MachineType  = StructType({ code: StringType, family: StringType, line: StringType, site: StringType });
+            const LineType     = StructType({ code: StringType, name: StringType, machines: IntegerType, aliases: ArrayType(StringType) });
+            const FamilyType   = StructType({ name: StringType, aliases: ArrayType(StringType) });
             const StatusType   = StructType({ word: StringType, tone: Status.Types.Value });
             const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);
             const Proposals = ArrayType(Sheet.Types.Proposal(PlanRowType));
 
-            // The synthetic registers — a batch-process plant.
+            // The synthetic registers — a discrete manufacturing plant: machines on
+            // lines, work orders moving parts between them.
             const activities = $.const([
-                { name: "Transfer", uom: "L", rate: 20000.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Transfer - Bulk Blenders", uom: "L", rate: 40000.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Transfer - North/South", uom: "L", rate: 20000.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Transfer - Annex", uom: "L", rate: 20000.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Filtration", uom: "L", rate: 25000.0, fte: 3n, days: 4n, sides: variant("both", null) },
-                { name: "Filtration - Coarse", uom: "L", rate: 5000.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Centrifuge", uom: "L", rate: 8000.0, fte: 1n, days: 3n, sides: variant("both", null) },
-                { name: "Polish Filter", uom: "L", rate: 6000.0, fte: 1n, days: 3n, sides: variant("both", null) },
-                { name: "RO Concentrate", uom: "L", rate: 5000.0, fte: 2n, days: 3n, sides: variant("both", null) },
-                { name: "Drum Job", uom: "Drm", rate: 100.0, fte: 2n, days: 3n, sides: variant("in", null) },
-                { name: "Media - Add to Tank", uom: "Tk", rate: 2.0, fte: 2n, days: 4n, sides: variant("in", null) },
-                { name: "Media - Remove from Tank", uom: "Tk", rate: 2.0, fte: 2n, days: 4n, sides: variant("in", null) },
-                { name: "Dosing", uom: "L", rate: 30000.0, fte: 1n, days: 1n, sides: variant("in", null) },
-                { name: "Receival", uom: "L", rate: 25000.0, fte: 1n, days: 1n, sides: variant("to", null) },
-                { name: "Despatch", uom: "L", rate: 25000.0, fte: 1n, days: 1n, sides: variant("from", null) },
-                { name: "Sample", uom: "Tk", rate: 8.0, fte: 1n, days: 1n, sides: variant("in", null) },
+                { name: "Machining", uom: "pcs", rate: 60.0, fte: 2n, days: 4n, sides: variant("both", null) },
+                { name: "Machining - Roughing", uom: "pcs", rate: 80.0, fte: 2n, days: 4n, sides: variant("both", null) },
+                { name: "Assembly", uom: "units", rate: 30.0, fte: 3n, days: 4n, sides: variant("both", null) },
+                { name: "Sub-assembly", uom: "units", rate: 45.0, fte: 2n, days: 4n, sides: variant("both", null) },
+                { name: "Painting", uom: "pcs", rate: 50.0, fte: 3n, days: 4n, sides: variant("both", null) },
+                { name: "Painting - Primer", uom: "pcs", rate: 70.0, fte: 2n, days: 4n, sides: variant("both", null) },
+                { name: "Packaging", uom: "cartons", rate: 120.0, fte: 1n, days: 3n, sides: variant("both", null) },
+                { name: "Deburring", uom: "pcs", rate: 90.0, fte: 1n, days: 3n, sides: variant("both", null) },
+                { name: "Heat treatment", uom: "pcs", rate: 40.0, fte: 2n, days: 3n, sides: variant("both", null) },
+                { name: "Rework", uom: "pcs", rate: 20.0, fte: 2n, days: 3n, sides: variant("in", null) },
+                { name: "Inspection", uom: "lots", rate: 4.0, fte: 2n, days: 4n, sides: variant("in", null) },
+                { name: "Calibration", uom: "machines", rate: 2.0, fte: 2n, days: 4n, sides: variant("in", null) },
+                { name: "Changeover", uom: "h", rate: 1.0, fte: 1n, days: 1n, sides: variant("in", null) },
+                { name: "Receiving", uom: "pallets", rate: 20.0, fte: 1n, days: 1n, sides: variant("to", null) },
+                { name: "Shipping", uom: "pallets", rate: 20.0, fte: 1n, days: 1n, sides: variant("from", null) },
+                { name: "Maintenance", uom: "h", rate: 1.0, fte: 1n, days: 1n, sides: variant("in", null) },
             ], ArrayType(ActivityType));
-            const tanks = $.const([
-                { code: "T1104", litres: 60000.0, farm: "1000s", site: "NP-North plant" }, { code: "T1120", litres: 60000.0, farm: "1000s", site: "NP-North plant" },
-                { code: "T2140", litres: 140000.0, farm: "2000s", site: "SP-South plant" }, { code: "T2141", litres: 140000.0, farm: "2000s", site: "SP-South plant" },
-                { code: "T2142", litres: 140000.0, farm: "2000s", site: "SP-South plant" }, { code: "T2145", litres: 140000.0, farm: "2000s", site: "SP-South plant" },
-                { code: "T2150", litres: 140000.0, farm: "2000s", site: "SP-South plant" }, { code: "T2151", litres: 140000.0, farm: "2000s", site: "SP-South plant" },
-                { code: "T2160", litres: 140000.0, farm: "2000s", site: "SP-South plant" }, { code: "T2162", litres: 140000.0, farm: "2000s", site: "SP-South plant" },
-                { code: "T3210", litres: 200000.0, farm: "3000s", site: "NP-North plant" }, { code: "T3215", litres: 200000.0, farm: "3000s", site: "NP-North plant" },
-                { code: "T5010", litres: 600000.0, farm: "5000s", site: "EP-East plant" }, { code: "T5011", litres: 600000.0, farm: "5000s", site: "EP-East plant" },
-                { code: "T7301", litres: 80000.0, farm: "7000s", site: "NP-North plant" }, { code: "T7302", litres: 80000.0, farm: "7000s", site: "NP-North plant" },
-                { code: "T7305", litres: 80000.0, farm: "7000s", site: "NP-North plant" }, { code: "T7310", litres: 80000.0, farm: "7000s", site: "WP-West plant" },
-                { code: "T7311", litres: 80000.0, farm: "7000s", site: "WP-West plant" }, { code: "T7320", litres: 80000.0, farm: "7000s", site: "WP-West plant" },
-                { code: "T7322", litres: 80000.0, farm: "7000s", site: "WP-West plant" }, { code: "T8001", litres: 900000.0, farm: "8000s", site: "EP-East plant" },
-            ], ArrayType(TankType));
-            const farms = $.const([
-                { code: "T20", name: "2000s", tanks: 96n, aliases: ["2000", "t2000s", "the 2000s"] },
-                { code: "T10", name: "1000s", tanks: 24n, aliases: ["1000"] },
-                { code: "T30", name: "3000s", tanks: 40n, aliases: ["3000"] },
-                { code: "T50", name: "5000s", tanks: 18n, aliases: ["5000"] },
-                { code: "T70", name: "7000s", tanks: 72n, aliases: ["7000"] },
-                { code: "T80", name: "8000s", tanks: 12n, aliases: ["8000"] },
-                { code: "RXA", name: "Reactor Area", tanks: 150n, aliases: ["rxa", "reactor area", "reactors"] },
-                { code: "INTK", name: "Intake", tanks: 36n, aliases: ["intake"] },
-                { code: "DH01", name: "Drum Hall 1", tanks: 64n, aliases: ["drum hall"] },
-                { code: "PKG", name: "Packaging", tanks: 20n, aliases: ["pack", "packaging"] },
-                { code: "ANNX", name: "Annex store", tanks: 9n, aliases: ["annex", "the annex", "anx", "annexe"] },
-            ], ArrayType(FarmType));
-            const sites = $.const(["NP-North plant", "SP-South plant", "EP-East plant", "WP-West plant", "CS-Central store", "RD-River depot", "HB-Harbour bay", "HL-Hill line"], ArrayType(StringType));
+            const machines = $.const([
+                { code: "M1104", family: "120 t press", line: "Line 1", site: "North plant" }, { code: "M1120", family: "120 t press", line: "Line 1", site: "North plant" },
+                { code: "M2140", family: "CNC lathe", line: "Line 2", site: "South plant" }, { code: "M2141", family: "CNC lathe", line: "Line 2", site: "South plant" },
+                { code: "M2142", family: "CNC lathe", line: "Line 2", site: "South plant" }, { code: "M2145", family: "CNC lathe", line: "Line 2", site: "South plant" },
+                { code: "M2150", family: "CNC lathe", line: "Line 2", site: "South plant" }, { code: "M2151", family: "CNC lathe", line: "Line 2", site: "South plant" },
+                { code: "M2160", family: "CNC lathe", line: "Line 2", site: "South plant" }, { code: "M2162", family: "CNC lathe", line: "Line 2", site: "South plant" },
+                { code: "M3210", family: "5-axis mill", line: "Line 3", site: "North plant" }, { code: "M3215", family: "5-axis mill", line: "Line 3", site: "North plant" },
+                { code: "M5010", family: "gantry mill", line: "Line 5", site: "East plant" }, { code: "M5011", family: "gantry mill", line: "Line 5", site: "East plant" },
+                { code: "M7301", family: "assembly bench", line: "Line 7", site: "North plant" }, { code: "M7302", family: "assembly bench", line: "Line 7", site: "North plant" },
+                { code: "M7305", family: "assembly bench", line: "Line 7", site: "North plant" }, { code: "M7310", family: "assembly bench", line: "Line 7", site: "West plant" },
+                { code: "M7311", family: "assembly bench", line: "Line 7", site: "West plant" }, { code: "M7320", family: "assembly bench", line: "Line 7", site: "West plant" },
+                { code: "M7322", family: "assembly bench", line: "Line 7", site: "West plant" }, { code: "M8001", family: "test rig", line: "Line 8", site: "East plant" },
+            ], ArrayType(MachineType));
+            const lines = $.const([
+                { code: "L2", name: "Line 2", machines: 96n, aliases: ["line 2", "l2", "the 2 line"] },
+                { code: "L1", name: "Line 1", machines: 24n, aliases: ["line 1", "l1"] },
+                { code: "L3", name: "Line 3", machines: 40n, aliases: ["line 3", "l3"] },
+                { code: "L5", name: "Line 5", machines: 18n, aliases: ["line 5", "l5"] },
+                { code: "L7", name: "Line 7", machines: 72n, aliases: ["line 7", "l7"] },
+                { code: "L8", name: "Line 8", machines: 12n, aliases: ["line 8", "l8"] },
+                { code: "CA", name: "Cell A", machines: 150n, aliases: ["cell a", "a cell", "the a cell"] },
+                { code: "GIN", name: "Goods in", machines: 36n, aliases: ["goods in", "inbound"] },
+                { code: "FH1", name: "Finishing hall", machines: 64n, aliases: ["finishing", "finishing hall"] },
+                { code: "PKL", name: "Pack line", machines: 20n, aliases: ["pack", "packing"] },
+                { code: "TB", name: "Test bay", machines: 9n, aliases: ["test bay", "the test bay", "bay"] },
+            ], ArrayType(LineType));
+            // A countable-by-attribute kind: the machine family — a count of a kind, resolved to machines later.
+            const families = $.const([
+                { name: "CNC lathe", aliases: ["lathe", "lathes", "cnc"] },
+                { name: "5-axis mill", aliases: ["mill", "mills", "5 axis", "5axis"] },
+                { name: "120 t press", aliases: ["press", "presses", "120t", "120 t"] },
+                { name: "assembly bench", aliases: ["bench", "benches"] },
+                { name: "gantry mill", aliases: ["gantry"] },
+                { name: "test rig", aliases: ["rig", "rigs"] },
+            ], ArrayType(FamilyType));
+            const sites = $.const(["North plant", "South plant", "East plant", "West plant", "Central store", "River depot", "Harbour bay", "Hill site"], ArrayType(StringType));
             const statuses = $.const([
-                { word: "PLANNED", tone: variant("neutral", null) }, { word: "SCHEDULED", tone: variant("info", null) },
+                { word: "PLANNED", tone: variant("neutral", null) }, { word: "RELEASED", tone: variant("info", null) },
                 { word: "IN PROGRESS", tone: variant("warning", null) }, { word: "COMPLETE", tone: variant("success", null) },
                 { word: "CANCELLED", tone: variant("danger", null) },
             ], ArrayType(StatusType));
-            const tankSites = $.const(tanks.toDict((_$, t) => t.code, (_$, t) => t.site), DictType(StringType, StringType));
+            const machineSites = $.const(machines.toDict((_$, m) => m.code, (_$, m) => m.site), DictType(StringType, StringType));
 
             // The plan rows — the prototype's seed, as typed data: a Link is a value, never a string.
             const plan = $.let(State.bind([ArrayType(PlanRowType)], "sheet_plan_rows", [
-                { id: "1", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Transfer - Bulk Blenders", vol: some(560000.0), notes: "Transfer BX2 into 4 x 140m³ tanks for media add", tanks: { from: [], to: [variant("identified", { key: "T2140" }), variant("identified", { key: "T2141" }), variant("identified", { key: "T2145" }), variant("identified", { key: "T2150" })] }, toClean: some(4n), fromSite: "", toSite: "SP-South plant", orderCode: "BX226001", status: "SCHEDULED" },
-                { id: "2", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Media - Add to Tank", vol: some(4.0), notes: "Add media to 4 BX2 tanks down south", tanks: { from: [], to: [variant("counted", { n: 4n, key: "140 m³" })] }, toClean: none, fromSite: "", toSite: "", orderCode: "BX226002", status: "SCHEDULED" },
-                { id: "3", start: some(new Date("2026-03-09T00:00:00Z")), end: some(new Date("2026-03-13T00:00:00Z")), activity: "Transfer - North/South", vol: some(280000.0), notes: "Move tanks north", tanks: { from: [variant("identified", { key: "T2151" }), variant("identified", { key: "T2160" })], to: [variant("identified", { key: "T7301" }), variant("identified", { key: "T7302" })] }, toClean: none, fromSite: "SP-South plant", toSite: "NP-North plant", orderCode: "BX226003", status: "SCHEDULED" },
-                { id: "4", start: some(new Date("2026-04-20T00:00:00Z")), end: some(new Date("2026-04-24T00:00:00Z")), activity: "Drum Job", vol: some(96.0), notes: "Prep 96 drums for despatch", tanks: { from: [], to: [variant("placeholder", null)] }, toClean: none, fromSite: "", toSite: "", orderCode: "BX226005", status: "SCHEDULED" },
-                { id: "5", start: some(new Date("2026-06-22T00:00:00Z")), end: some(new Date("2026-06-26T00:00:00Z")), activity: "Transfer - Annex", vol: some(18000.0), notes: "transfer to annex", tanks: { from: [], to: [] }, toClean: none, fromSite: "", toSite: "", orderCode: "", status: "SCHEDULED" },
-                { id: "6", start: some(new Date("2026-06-29T00:00:00Z")), end: some(new Date("2026-07-03T00:00:00Z")), activity: "Transfer - Annex", vol: some(18000.0), notes: "Transfer from annex", tanks: { from: [], to: [] }, toClean: none, fromSite: "", toSite: "", orderCode: "", status: "SCHEDULED" },
-                { id: "7", start: some(new Date("2026-07-06T00:00:00Z")), end: some(new Date("2026-07-10T00:00:00Z")), activity: "Transfer - Bulk Blenders", vol: some(980000.0), notes: "980m³ BX2 blend", tanks: { from: [], to: [] }, toClean: none, fromSite: "", toSite: "", orderCode: "", status: "SCHEDULED" },
-                { id: "8", start: some(new Date("2026-07-13T00:00:00Z")), end: some(new Date("2026-07-17T00:00:00Z")), activity: "Transfer", vol: some(980000.0), notes: "Consolidate 980m³ of BX2 blend", tanks: { from: [], to: [] }, toClean: none, fromSite: "", toSite: "", orderCode: "", status: "SCHEDULED" },
-                { id: "9", start: some(new Date("2026-07-13T00:00:00Z")), end: some(new Date("2026-07-17T00:00:00Z")), activity: "Filtration", vol: some(250000.0), notes: "filter 250m³ of BX2", tanks: { from: [], to: [] }, toClean: none, fromSite: "", toSite: "", orderCode: "", status: "CANCELLED" },
-                { id: "10", start: some(new Date("2026-09-07T00:00:00Z")), end: some(new Date("2026-09-11T00:00:00Z")), activity: "Filtration", vol: some(18000.0), notes: "filter for the annex following week", tanks: { from: [variant("identified", { key: "T1104" })], to: [variant("identified", { key: "Annex store" })] }, toClean: none, fromSite: "NP-North plant", toSite: "", orderCode: "BX226008", status: "SCHEDULED" },
-                { id: "11", start: some(new Date("2026-09-07T00:00:00Z")), end: some(new Date("2026-09-11T00:00:00Z")), activity: "Filtration", vol: some(140000.0), notes: "filter 140m³ of BX2", tanks: { from: [], to: [] }, toClean: none, fromSite: "", toSite: "", orderCode: "", status: "" },
+                { id: "1", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Machining - Roughing", qty: some(1200.0), notes: "Rough 1,200 P-40 blanks on 4 lathes for the Q3 build", stations: { from: [], to: [variant("identified", { key: "M2140" }), variant("identified", { key: "M2141" }), variant("identified", { key: "M2145" }), variant("identified", { key: "M2150" })] }, setups: some(4n), fromSite: "", toSite: "South plant", orderCode: "WO-26001", status: "RELEASED" },
+                { id: "2", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Inspection", qty: some(4.0), notes: "Inspect the 4 roughing lots at the south plant", stations: { from: [], to: [variant("counted", { n: 4n, key: "CNC lathe" })] }, setups: none, fromSite: "", toSite: "", orderCode: "WO-26002", status: "RELEASED" },
+                { id: "3", start: some(new Date("2026-03-09T00:00:00Z")), end: some(new Date("2026-03-13T00:00:00Z")), activity: "Assembly", qty: some(280.0), notes: "Assemble 280 units on line 7", stations: { from: [variant("identified", { key: "M2151" }), variant("identified", { key: "M2160" })], to: [variant("identified", { key: "M7301" }), variant("identified", { key: "M7302" })] }, setups: none, fromSite: "South plant", toSite: "North plant", orderCode: "WO-26003", status: "RELEASED" },
+                { id: "4", start: some(new Date("2026-04-20T00:00:00Z")), end: some(new Date("2026-04-24T00:00:00Z")), activity: "Rework", qty: some(96.0), notes: "Rework 96 rejected housings", stations: { from: [], to: [variant("placeholder", null)] }, setups: none, fromSite: "", toSite: "", orderCode: "WO-26005", status: "RELEASED" },
+                { id: "5", start: some(new Date("2026-06-22T00:00:00Z")), end: some(new Date("2026-06-26T00:00:00Z")), activity: "Sub-assembly", qty: some(180.0), notes: "sub-assemble at cell A", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "RELEASED" },
+                { id: "6", start: some(new Date("2026-06-29T00:00:00Z")), end: some(new Date("2026-07-03T00:00:00Z")), activity: "Sub-assembly", qty: some(180.0), notes: "Sub-assemble the second lot", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "RELEASED" },
+                { id: "7", start: some(new Date("2026-07-06T00:00:00Z")), end: some(new Date("2026-07-10T00:00:00Z")), activity: "Machining - Roughing", qty: some(1600.0), notes: "1,600 P-40 blanks", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "RELEASED" },
+                { id: "8", start: some(new Date("2026-07-13T00:00:00Z")), end: some(new Date("2026-07-17T00:00:00Z")), activity: "Machining", qty: some(1600.0), notes: "Finish 1,600 P-40 blanks", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "RELEASED" },
+                { id: "9", start: some(new Date("2026-07-13T00:00:00Z")), end: some(new Date("2026-07-17T00:00:00Z")), activity: "Painting", qty: some(250.0), notes: "paint 250 P-40 housings", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "CANCELLED" },
+                { id: "10", start: some(new Date("2026-09-07T00:00:00Z")), end: some(new Date("2026-09-11T00:00:00Z")), activity: "Painting", qty: some(180.0), notes: "paint the sub-assemblies next week", stations: { from: [variant("identified", { key: "M1104" })], to: [variant("identified", { key: "Test bay" })] }, setups: none, fromSite: "North plant", toSite: "", orderCode: "WO-26008", status: "RELEASED" },
+                { id: "11", start: some(new Date("2026-09-07T00:00:00Z")), end: some(new Date("2026-09-11T00:00:00Z")), activity: "Painting", qty: some(140.0), notes: "paint 140 housings", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "" },
             ]));
             const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet_plan_views", []));
             const rows = $.let(plan.read());
@@ -308,37 +320,37 @@ export const sheetPlan = example({
             }));
             const slice = $.let(Slice.bind([PlanRowType], "sheet_plan_slice", cfg, Slice.state(), rows, none));
 
-            // The arity rule (§3.4) — how many vessels the To half should hold, from the volume.
-            const impliedTanks = $.const(East.function([Ctx], OptionType(Sheet.Types.Counted), ($, ctx) => {
+            // The arity rule (§3.4) — how many machines the To half should hold, from the quantity.
+            const impliedStations = $.const(East.function([Ctx], OptionType(Sheet.Types.Counted), ($, ctx) => {
                 const noCount = $.const(none, OptionType(Sheet.Types.Counted));
-                const vol = $.let(ctx.row.vol.match({ some: (_$, v) => v, none: (_$) => 0.0 }));
-                const litresPerTank = $.const(140000.0);
-                // ⌈vol ÷ 140 000⌉ and round(vol) by hand — `toInteger` refuses a fraction.
-                const share = $.let(vol.divide(litresPerTank));
+                const qty = $.let(ctx.row.qty.match({ some: (_$, v) => v, none: (_$) => 0.0 }));
+                const piecesPerMachine = $.const(300.0);
+                // ⌈qty ÷ 300⌉ and round(qty) by hand — `toInteger` refuses a fraction.
+                const share = $.let(qty.divide(piecesPerMachine));
                 const frac = $.let(share.remainder(1.0));
-                const tanks = $.let(frac.equal(0.0).ifElse((_$) => share, (_$) => share.subtract(frac).add(1.0)).toInteger());
-                const half = $.let(vol.add(0.5));
+                const needed = $.let(frac.equal(0.0).ifElse((_$) => share, (_$) => share.subtract(frac).add(1.0)).toInteger());
+                const half = $.let(qty.add(0.5));
                 const whole = $.let(half.subtract(half.remainder(1.0)).toInteger());
                 return ctx.driver.match({
                     none: (_$) => noCount,
-                    some: (_$, d) => d.uom.equal("Tk").ifElse(
-                        (_$2) => East.value(some({ n: whole, key: "140 m³" }), OptionType(Sheet.Types.Counted)),
-                        (_$2) => d.uom.equal("Drm").ifElse(
-                            (_$3) => noCount,
-                            (_$3) => vol.greater(0.0).ifElse(
-                                (_$4) => East.value(some({ n: tanks, key: "140 m³" }), OptionType(Sheet.Types.Counted)),
-                                (_$4) => noCount))),
+                    some: (_$, d) => d.uom.equal("lots").ifElse(
+                        (_$2) => East.value(some({ n: whole, key: "CNC lathe" }), OptionType(Sheet.Types.Counted)),      // one lot per machine
+                        (_$2) => d.uom.equal("pcs").or(() => d.uom.equal("units")).ifElse(
+                            (_$3) => qty.greater(0.0).ifElse(
+                                (_$4) => East.value(some({ n: needed, key: "CNC lathe" }), OptionType(Sheet.Types.Counted)),
+                                (_$4) => noCount),
+                            (_$3) => noCount)),                                                                       // hours, cartons, pallets name no machines
                 });
             }));
-            // A member check — a tank named on a half must sit at that half's site.
+            // A member check — a machine named on a half must sit at that half's site.
             const CheckCtx = Sheet.Types.CheckContext(PlanRowType);
             const siteMatches = $.const(East.function([CheckCtx], OptionType(StringType), ($, c) => {
                 const noFlag = $.const(none, OptionType(StringType));
                 const site = $.let(c.half.match({ from: (_$) => c.row.fromSite, to: (_$) => c.row.toSite }));
                 return c.member.match({
                     identified: (_$, m) => site.equal("").not()
-                        .and(() => tankSites.has(m.key))
-                        .and(() => tankSites.get(m.key).equal(site).not())
+                        .and(() => machineSites.has(m.key))
+                        .and(() => machineSites.get(m.key).equal(site).not())
                         .ifElse((_$2) => East.value(some(East.str`${m.key} is not at ${site}`), OptionType(StringType)), (_$2) => noFlag),
                 }, (_$) => noFlag);
             }));
@@ -364,21 +376,21 @@ export const sheetPlan = example({
                     (_$) => East.value(none, OptionType(PlanRowType)),
                     (_$) => East.value(some(similar.get(similar.length().subtract(1n))), OptionType(PlanRowType)));
             }));
-            const lastVolume = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
+            const lastQuantity = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
                 const noFill = $.const(none, FloatFill);
                 const similar = $.const(lastSimilar);
                 return similar(ctx).match({
                     none: (_$) => noFill,
-                    some: (_$, r) => r.vol.match({ none: (_$2) => noFill, some: (_$2, v) => East.value(some({ value: v, meta: East.str`like ${r.id}` }), FloatFill) }),
+                    some: (_$, r) => r.qty.match({ none: (_$2) => noFill, some: (_$2, v) => East.value(some({ value: v, meta: East.str`like ${r.id}` }), FloatFill) }),
                 });
             }));
-            const lastTanks = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
+            const lastStations = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
                 const noFill = $.const(none, LinkFill);
                 const similar = $.const(lastSimilar);
                 return similar(ctx).match({
                     none: (_$) => noFill,
-                    some: (_$, r) => r.tanks.from.length().add(r.tanks.to.length()).equal(0n).ifElse(
-                        (_$2) => noFill, (_$2) => East.value(some({ value: r.tanks, meta: East.str`same vessels as ${r.id}` }), LinkFill)),
+                    some: (_$, r) => r.stations.from.length().add(r.stations.to.length()).equal(0n).ifElse(
+                        (_$2) => noFill, (_$2) => East.value(some({ value: r.stations, meta: East.str`same stations as ${r.id}` }), LinkFill)),
                 });
             }));
             const nextSlot = $.const(East.function([Ctx], DateFill, ($, ctx) => {
@@ -394,7 +406,7 @@ export const sheetPlan = example({
                         return East.value(some({ value: monday, meta: "next Monday" }), DateFill);
                     });
             }));
-            const shiftVolume = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
+            const shiftQuantity = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
                 const noFill = $.const(none, FloatFill);
                 return ctx.driver.match({
                     none: (_$) => noFill,
@@ -403,39 +415,39 @@ export const sheetPlan = example({
             }));
             const phrase = $.const(East.function([Ctx], TextFill, ($, ctx) => {
                 const noFill = $.const(none, TextFill);
-                const m3 = $.let(ctx.row.vol.match({
-                    some: ($2, v) => { const k = $2.let(v.divide(1000.0).add(0.5)); return k.subtract(k.remainder(1.0)).toInteger(); },
+                const n = $.let(ctx.row.qty.match({
+                    some: ($2, v) => { const k = $2.let(v.add(0.5)); return k.subtract(k.remainder(1.0)).toInteger(); },   // round by hand — `toInteger` refuses a fraction
                     none: (_$) => 0n,
                 }));
-                return ctx.row.activity.startsWith("Transfer").ifElse(
-                    (_$) => East.value(some({ value: East.str`Transfer ${m3}m³ of BX2`, meta: "phrasing from past transfers" }), TextFill),
-                    (_$) => ctx.row.activity.startsWith("Filtration").ifElse(
-                        (_$2) => East.value(some({ value: East.str`filter ${m3}m³ of BX2`, meta: "phrasing from past filtrations" }), TextFill),
+                return ctx.row.activity.startsWith("Machining").ifElse(
+                    (_$) => East.value(some({ value: East.str`Machine ${n} P-40 blanks`, meta: "phrasing from past machining runs" }), TextFill),
+                    (_$) => ctx.row.activity.startsWith("Painting").ifElse(
+                        (_$2) => East.value(some({ value: East.str`Paint ${n} P-40 housings`, meta: "phrasing from past painting runs" }), TextFill),
                         (_$2) => noFill));
             }));
-            const countedByVolume = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
+            const countedByQuantity = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
                 const noFill = $.const(none, LinkFill);
                 const noMembers = $.const([], ArrayType(Sheet.Types.Member));
-                const implied = $.const(impliedTanks);
+                const implied = $.const(impliedStations);
                 return implied(ctx).match({
                     none: (_$) => noFill,
-                    some: (_$, c) => East.value(some({ value: { from: noMembers, to: [variant("counted", { n: c.n, key: c.key })] }, meta: "capacity · from the volume" }), LinkFill),
+                    some: (_$, c) => East.value(some({ value: { from: noMembers, to: [variant("counted", { n: c.n, key: c.key })] }, meta: "capacity · from the quantity" }), LinkFill),
                 });
             }));
 
             // The proposers (§3.6) — a domain pattern, a learned follower, and an ASYNC model call.
-            const bulkBlenderFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
+            const roughingFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
                 const empty = $.const([], Proposals);
-                const implied = $.const(impliedTanks);
+                const implied = $.const(impliedStations);
                 const n = $.let(implied(ctx).match({ some: (_$, c) => c.n, none: (_$) => 1n }));
-                return ctx.row.activity.equal("Transfer - Bulk Blenders").and(() => ctx.row.end.hasTag("some")).ifElse(
+                return ctx.row.activity.equal("Machining - Roughing").and(() => ctx.row.end.hasTag("some")).ifElse(
                     ($2) => {
                         const endAt = $2.let(ctx.row.end.unwrap("some"));
                         return $2.const([
-                            { patch: Sheet.patch(PlanRowType, { activity: "Media - Add to Tank", start: ctx.row.start, end: ctx.row.end, vol: some(n.toFloat()), notes: East.str`Add media to ${n} tanks` }),
-                              meta: "media add · same days" },
-                            { patch: Sheet.patch(PlanRowType, { activity: "Transfer", start: some(endAt.addDays(3n)), end: some(endAt.addDays(7n)), vol: ctx.row.vol, notes: "Consolidate the blend" }),
-                              meta: "consolidation · end +3…+7 d" },
+                            { patch: Sheet.patch(PlanRowType, { activity: "Inspection", start: ctx.row.start, end: ctx.row.end, qty: some(n.toFloat()), notes: East.str`Inspect ${n} roughing lots` }),
+                              meta: "inspection · same days" },
+                            { patch: Sheet.patch(PlanRowType, { activity: "Machining", start: some(endAt.addDays(3n)), end: some(endAt.addDays(7n)), qty: ctx.row.qty, notes: "Finish the roughed blanks" }),
+                              meta: "finishing · end +3…+7 d" },
                         ], Proposals);
                     },
                     (_$2) => empty);
@@ -456,7 +468,7 @@ export const sheetPlan = example({
                         const gapMs = $2.let(next.start.unwrap("some").toEpochMilliseconds().subtract(from.start.unwrap("some").toEpochMilliseconds()));
                         const at = $2.let(ctx.row.start.unwrap("some").addMilliseconds(gapMs));
                         return $2.const([{
-                            patch: Sheet.patch(PlanRowType, { activity: next.activity, start: some(at), vol: next.vol, notes: next.notes }),
+                            patch: Sheet.patch(PlanRowType, { activity: next.activity, start: some(at), qty: next.qty, notes: next.notes }),
                             meta: East.str`${next.activity} followed ${ctx.row.activity} last time · +${gapMs.divide(86400000n)}d`,
                         }], Proposals);
                     });
@@ -472,14 +484,14 @@ export const sheetPlan = example({
                     owned={r => r.orderCode.length().greater(0n).or(() => r.status.equal("CANCELLED"))}
                     driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name })}
                     registers={{
-                        vessels: Sheet.register.concat([
-                            Sheet.register.members(tanks, { kind: "tank", key: t => t.code, label: t => t.code,
-                                meta: t => some(East.str`${t.litres.divide(1000.0).toInteger()} m³`), parent: t => some(t.farm) }),
-                            Sheet.register.members(farms, { kind: "farm", key: f => f.name, label: f => f.name,
-                                aliases: f => f.aliases, meta: f => some(East.str`farm · ${f.tanks}`) }),
-                            // A countable-by-attribute kind: every distinct size is a member; duplicates fold by key.
-                            Sheet.register.members(tanks, { kind: "capacity", key: t => East.str`${t.litres.divide(1000.0).toInteger()} m³`,
-                                label: t => East.str`${t.litres.divide(1000.0).toInteger()} m³`, meta: _t => some("size") }),
+                        stations: Sheet.register.concat([
+                            Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code,
+                                meta: m => some(m.family), parent: m => some(m.line) }),
+                            Sheet.register.members(lines, { kind: "line", key: l => l.name, label: l => l.name,
+                                aliases: l => l.aliases, meta: l => some(East.str`line · ${l.machines}`) }),
+                            // The countable-by-attribute kind: a family names a count of machines, resolved to codes later.
+                            Sheet.register.members(families, { kind: "family", key: f => f.name, label: f => f.name,
+                                aliases: f => f.aliases, meta: _f => some("family") }),
                         ]),
                         sites:    Sheet.register.members(sites, { kind: "site", key: s => s, label: s => s }),
                         statuses: Sheet.register.members(statuses, { kind: "status", key: s => s.word, label: s => s.word, tone: s => some(s.tone) }),
@@ -488,29 +500,28 @@ export const sheetPlan = example({
                         start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "d/m · fri · +3d", width: "96px", fill: [nextSlot] }),
                         end:       Sheet.column.date(PlanRowType, { header: "End", sub: "4d = start+4", width: "96px", base: "start", fill: [endFromStart] }),
                         activity:  Sheet.column.lookup(PlanRowType, { header: "Activity", sub: "activity register", width: "214px" }),
-                        vol:       Sheet.column.quantity(PlanRowType, ActivityType, {
-                                       header: "Vol / Qty", sub: "uom per activity", width: "112px", uom: d => d.uom,
-                                       format: Format.Number({ maximumFractionDigits: 0n }), fill: [lastVolume, shiftVolume] }),
+                        qty:       Sheet.column.quantity(PlanRowType, ActivityType, {
+                                       header: "Qty", sub: "uom per activity", width: "112px", uom: d => d.uom,
+                                       format: Format.Number({ maximumFractionDigits: 0n }), fill: [lastQuantity, shiftQuantity] }),
                         notes:     Sheet.column.text(PlanRowType, { header: "Notes", sub: "free text", width: "250px", fill: [phrase] }),
-                        tanks:     Sheet.column.link(PlanRowType, ActivityType, "vessels", {
-                                       header: "Tanks / vessels", sub: "from → to · 4 x 140m³ · tank · farm", width: "352px",
-                                       members: [{ kind: "tank", identified: true }, { kind: "range", identified: true },
-                                                 { kind: "farm", countable: true, resolvesTo: "tank" },
-                                                 { kind: "group", countable: true, resolvesTo: "tank" },
-                                                 { kind: "capacity", countable: true, resolvesTo: "tank" }],
+                        stations:  Sheet.column.link(PlanRowType, ActivityType, "stations", {
+                                       header: "Work centres", sub: "from → to · 4 x lathe · machine · line", width: "352px",
+                                       members: [{ kind: "machine", identified: true }, { kind: "range", identified: true },
+                                                 { kind: "line", countable: true, resolvesTo: "machine" },
+                                                 { kind: "family", countable: true, resolvesTo: "machine" }],
                                        multiple: { forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" },
                                        sides: { value: d => d.sides, locks: { from: { to: "external", in: "in place" }, to: { from: "external" } } },
-                                       arity: Sheet.link.arity("to", impliedTanks),
+                                       arity: Sheet.link.arity("to", impliedStations),
                                        check: [Sheet.link.check.exists(), siteMatches],
-                                       fill: [lastTanks, countedByVolume] }),
-                        toClean:   Sheet.column.integer(PlanRowType, { header: "Clean", sub: "n", width: "64px" }),
+                                       fill: [lastStations, countedByQuantity] }),
+                        setups:    Sheet.column.integer(PlanRowType, { header: "Setups", sub: "n", width: "64px" }),
                         fromSite:  Sheet.column.reference(PlanRowType, "sites", { header: "From site", sub: "site register", width: "112px" }),
                         toSite:    Sheet.column.reference(PlanRowType, "sites", { header: "To site", sub: "site register", width: "112px" }),
-                        orderCode: Sheet.column.stamped(PlanRowType, { header: "Order code", sub: "stamped on upload", owner: "MES", width: "104px" }),
-                        status:    Sheet.column.enum(PlanRowType, "statuses", { header: "Status", sub: "mes", width: "124px" }),
+                        orderCode: Sheet.column.stamped(PlanRowType, { header: "Order code", sub: "stamped on release", owner: "ERP", width: "104px" }),
+                        status:    Sheet.column.enum(PlanRowType, "statuses", { header: "Status", sub: "erp", width: "124px" }),
                     }}
-                    suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "vol", "notes", "tanks"],
-                               propose: [bulkBlenderFollowUps, modelProposals, lastFollower] }}
+                    suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "qty", "notes", "stations"],
+                               propose: [roughingFollowUps, modelProposals, lastFollower] }}
                     slice={slice} affordances={["search", "filter"]}
                     views={views.read()} onViewsChange={views.write}
                     onUpdate={plan.write}
@@ -526,7 +537,7 @@ export const sheetPlan = example({
 /**
  * The copilot in isolation (§3.5–§3.6) — the prototype's rules as author
  * functions: derive (End from Start + the driver's days), history (the last
- * similar row's volume), sequence (a week after the last dated row), default
+ * similar row's quantity), sequence (a week after the last dated row), default
  * (eight hours at the driver's rate), a domain pattern proposer, a learned
  * follower, and an ASYNC proposer behind a platform function; every take
  * logs its provenance through `onEdit`.
@@ -538,23 +549,23 @@ export const sheetCopilot = example({
         <Reactive>{$ => {
             const PlanRowType = StructType({
                 id: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), activity: StringType,
-                vol: OptionType(FloatType), notes: StringType, tanks: Sheet.Types.Link, toClean: OptionType(IntegerType),
+                qty: OptionType(FloatType), notes: StringType, stations: Sheet.Types.Link, setups: OptionType(IntegerType),
                 fromSite: StringType, toSite: StringType, orderCode: StringType, status: StringType,
             });
             const ActivityType = StructType({ name: StringType, uom: StringType, rate: FloatType, fte: IntegerType, days: IntegerType, sides: Sheet.Types.Sides });
             const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);
             const Proposals = ArrayType(Sheet.Types.Proposal(PlanRowType));
             const activities = $.const([
-                { name: "Transfer", uom: "L", rate: 20000.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Transfer - Bulk Blenders", uom: "L", rate: 40000.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Filtration", uom: "L", rate: 25000.0, fte: 3n, days: 4n, sides: variant("both", null) },
-                { name: "Media - Add to Tank", uom: "Tk", rate: 2.0, fte: 2n, days: 4n, sides: variant("in", null) },
-                { name: "Centrifuge", uom: "L", rate: 8000.0, fte: 1n, days: 3n, sides: variant("both", null) },
+                { name: "Machining", uom: "pcs", rate: 60.0, fte: 2n, days: 4n, sides: variant("both", null) },
+                { name: "Machining - Roughing", uom: "pcs", rate: 80.0, fte: 2n, days: 4n, sides: variant("both", null) },
+                { name: "Painting", uom: "pcs", rate: 50.0, fte: 3n, days: 4n, sides: variant("both", null) },
+                { name: "Inspection", uom: "lots", rate: 4.0, fte: 2n, days: 4n, sides: variant("in", null) },
+                { name: "Packaging", uom: "cartons", rate: 120.0, fte: 1n, days: 3n, sides: variant("both", null) },
             ], ArrayType(ActivityType));
             const plan = $.let(State.bind([ArrayType(PlanRowType)], "sheet_copilot_rows", [
-                { id: "1", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Transfer - Bulk Blenders", vol: some(560000.0), notes: "Transfer BX2 for media add", tanks: { from: [], to: [] }, toClean: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
-                { id: "2", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Media - Add to Tank", vol: some(4.0), notes: "Add media to 4 tanks", tanks: { from: [], to: [] }, toClean: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
-                { id: "3", start: some(new Date("2026-03-09T00:00:00Z")), end: none, activity: "Filtration", vol: some(250000.0), notes: "", tanks: { from: [], to: [] }, toClean: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
+                { id: "1", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Machining - Roughing", qty: some(1200.0), notes: "Rough the P-40 blanks", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
+                { id: "2", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Inspection", qty: some(4.0), notes: "Inspect the 4 lots", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
+                { id: "3", start: some(new Date("2026-03-09T00:00:00Z")), end: none, activity: "Painting", qty: some(250.0), notes: "", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
             ]));
             const log = $.let(State.bind([ArrayType(StringType)], "sheet_copilot_log", []));
 
@@ -572,14 +583,14 @@ export const sheetCopilot = example({
                 });
             }));
             // history — the last row above with this activity.
-            const lastVolume = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
+            const lastQuantity = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
                 const noFill = $.const(none, FloatFill);
                 const similar = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) => r.activity.equal(ctx.row.activity)));
                 return similar.length().equal(0n).ifElse(
                     (_$) => noFill,
                     ($2) => {
                         const r = $2.let(similar.get(similar.length().subtract(1n)));
-                        return r.vol.match({ none: (_$) => noFill, some: (_$, v) => East.value(some({ value: v, meta: East.str`like ${r.id}` }), FloatFill) });
+                        return r.qty.match({ none: (_$) => noFill, some: (_$, v) => East.value(some({ value: v, meta: East.str`like ${r.id}` }), FloatFill) });
                     });
             }));
             // sequence — a week after the nearest dated row above; else next Monday.
@@ -597,24 +608,24 @@ export const sheetCopilot = example({
                     });
             }));
             // default — eight hours at the driver's rate when nothing similar exists.
-            const shiftVolume = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
+            const shiftQuantity = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
                 const noFill = $.const(none, FloatFill);
                 return ctx.driver.match({
                     none: (_$) => noFill,
                     some: (_$, d) => East.value(some({ value: d.rate.multiply(8.0), meta: East.str`${d.rate}/h × 8 h` }), FloatFill),
                 });
             }));
-            // A domain pattern — a bulk-blender transfer is followed by a media add and a consolidation.
-            const bulkBlenderFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
+            // A domain pattern — a roughing run is followed by an inspection and a finishing run.
+            const roughingFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
                 const empty = $.const([], Proposals);
-                return ctx.row.activity.equal("Transfer - Bulk Blenders").and(() => ctx.row.end.hasTag("some")).ifElse(
+                return ctx.row.activity.equal("Machining - Roughing").and(() => ctx.row.end.hasTag("some")).ifElse(
                     ($2) => {
                         const endAt = $2.let(ctx.row.end.unwrap("some"));
                         return $2.const([
-                            { patch: Sheet.patch(PlanRowType, { activity: "Media - Add to Tank", start: ctx.row.start, end: ctx.row.end, vol: some(4.0), notes: "Add media to 4 tanks" }),
-                              meta: "media add · same days" },
-                            { patch: Sheet.patch(PlanRowType, { activity: "Transfer", start: some(endAt.addDays(3n)), end: some(endAt.addDays(7n)), vol: ctx.row.vol, notes: "Consolidate the blend" }),
-                              meta: "consolidation · end +3…+7 d" },
+                            { patch: Sheet.patch(PlanRowType, { activity: "Inspection", start: ctx.row.start, end: ctx.row.end, qty: some(4.0), notes: "Inspect 4 lots" }),
+                              meta: "inspection · same days" },
+                            { patch: Sheet.patch(PlanRowType, { activity: "Machining", start: some(endAt.addDays(3n)), end: some(endAt.addDays(7n)), qty: ctx.row.qty, notes: "Finish the roughed blanks" }),
+                              meta: "finishing · end +3…+7 d" },
                         ], Proposals);
                     },
                     (_$2) => empty);
@@ -636,7 +647,7 @@ export const sheetCopilot = example({
                         const gapMs = $2.let(next.start.unwrap("some").toEpochMilliseconds().subtract(from.start.unwrap("some").toEpochMilliseconds()));
                         const at = $2.let(ctx.row.start.unwrap("some").addMilliseconds(gapMs));
                         return $2.const([{
-                            patch: Sheet.patch(PlanRowType, { activity: next.activity, start: some(at), vol: next.vol, notes: next.notes }),
+                            patch: Sheet.patch(PlanRowType, { activity: next.activity, start: some(at), qty: next.qty, notes: next.notes }),
                             meta: East.str`${next.activity} followed ${ctx.row.activity} last time · +${gapMs.divide(86400000n)}d`,
                         }], Proposals);
                     });
@@ -665,10 +676,10 @@ export const sheetCopilot = example({
                             start:    Sheet.column.date(PlanRowType, { header: "Start", sub: "sequence", width: "96px", fill: [nextSlot] }),
                             end:      Sheet.column.date(PlanRowType, { header: "End", sub: "derive", width: "96px", base: "start", fill: [endFromStart] }),
                             activity: Sheet.column.lookup(PlanRowType, { header: "Activity", sub: "activity register", width: "214px" }),
-                            vol:      Sheet.column.quantity(PlanRowType, ActivityType, { header: "Vol / Qty", sub: "history · default", width: "112px", uom: d => d.uom, fill: [lastVolume, shiftVolume] }),
+                            qty:      Sheet.column.quantity(PlanRowType, ActivityType, { header: "Qty", sub: "history · default", width: "112px", uom: d => d.uom, fill: [lastQuantity, shiftQuantity] }),
                             notes:    Sheet.column.text(PlanRowType, { header: "Notes", width: "260px" }),
                         }}
-                        suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "vol"], propose: [bulkBlenderFollowUps, modelProposals, lastFollower] }}
+                        suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "qty"], propose: [roughingFollowUps, modelProposals, lastFollower] }}
                         onEdit={onEdit}
                         onUpdate={plan.write}
                         style={{ height: "420px" }}
@@ -691,25 +702,25 @@ export const sheetLens = example({
     description: "The lens — search and filter through the bound slice drawn as context bands (hits keep their row numbers), with saved views as slice-state snapshots",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), activity: StringType, notes: StringType, status: StringType, vol: OptionType(FloatType) });
+            const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), activity: StringType, notes: StringType, status: StringType, qty: OptionType(FloatType) });
             // Sixty rows derived East-side — enough for a narrowing to collapse into bands.
-            const activities = $.const(["Transfer", "Filtration", "Centrifuge", "Dosing", "Sample"], ArrayType(StringType));
-            const words = $.const(["PLANNED", "SCHEDULED", "COMPLETE"], ArrayType(StringType));
+            const activities = $.const(["Machining", "Painting", "Packaging", "Changeover", "Maintenance"], ArrayType(StringType));
+            const words = $.const(["PLANNED", "RELEASED", "COMPLETE"], ArrayType(StringType));
             const rows = $.let(East.Array.generate(60n, JobType, (_$, i) => ({
                 id: East.str`j${i}`,
                 start: some(East.value(new Date("2026-02-02T00:00:00Z"), DateTimeType).addDays(i.multiply(3n))),
                 activity: activities.get(i.remainder(5n)),
-                notes: i.remainder(7n).equal(0n).ifElse((_$2) => "urgent — filter for the annex", (_$2) => East.str`batch ${i.add(100n)}`),
+                notes: i.remainder(7n).equal(0n).ifElse((_$2) => "urgent — inspect before shipping", (_$2) => East.str`lot ${i.add(100n)}`),
                 status: words.get(i.remainder(3n)),
-                vol: some(i.multiply(4000n).toFloat().add(18000.0)),
+                qty: some(i.multiply(40n).toFloat().add(180.0)),
             })), ArrayType(JobType));
             const cfg = $.const(Slice.config(JobType, {
-                fields: { activity: { label: "Activity", hints: ["Transfer", "Filtration", "Centrifuge", "Dosing", "Sample"] }, notes: { label: "Notes" }, status: { label: "Status" } },
+                fields: { activity: { label: "Activity", hints: ["Machining", "Painting", "Packaging", "Changeover", "Maintenance"] }, notes: { label: "Notes" }, status: { label: "Status" } },
                 searchFieldIds: ["activity", "notes"],
             }));
             const slice = $.let(Slice.bind([JobType], "sheet_lens_slice", cfg, Slice.state(), rows, none));
             const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet_lens_views", [
-                { id: "filtration", name: "FILTRATION", narrowing: Slice.state({ search: some("filtration") }), context: 1n, reveals: [] },
+                { id: "painting", name: "PAINTING", narrowing: Slice.state({ search: some("painting") }), context: 1n, reveals: [] },
                 { id: "urgent", name: "URGENT", narrowing: Slice.state({ search: some("urgent") }), context: 0n, reveals: [] },
             ]));
             return (
@@ -721,10 +732,10 @@ export const sheetLens = example({
                         activity: Sheet.column.text(JobType, { header: "Activity", width: "160px" }),
                         notes:    Sheet.column.text(JobType, { header: "Notes", sub: "free text", width: "260px" }),
                         status:   Sheet.column.text(JobType, { header: "Status", width: "120px" }),
-                        vol:      Sheet.column.quantity(JobType, { header: "Vol", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                        qty:      Sheet.column.quantity(JobType, { header: "Qty", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
                     }}
                     slice={slice} affordances={["search", "filter"]}
-                    views={views.read()} onViewsChange={views.write} activeView={some("filtration")}
+                    views={views.read()} onViewsChange={views.write} activeView={some("painting")}
                     style={{ height: "420px" }}
                 />
             );
@@ -745,8 +756,8 @@ export const sheetWriteBack = example({
         <Reactive>{$ => {
             const JobType = StructType({ id: StringType, task: StringType, qty: OptionType(FloatType), createdBy: StringType });
             const jobs = $.let(State.bind([ArrayType(JobType)], "sheet_writeback_rows", [
-                { id: "j1", task: "Transfer", qty: some(120000.0), createdBy: "planner" },
-                { id: "j2", task: "Filtration", qty: none, createdBy: "planner" },
+                { id: "j1", task: "Machining", qty: some(1200.0), createdBy: "planner" },
+                { id: "j2", task: "Painting", qty: none, createdBy: "planner" },
             ]));
             const log = $.let(State.bind([ArrayType(StringType)], "sheet_writeback_log", []));
             const counter = $.let(State.bind([IntegerType], "sheet_writeback_counter", 3n));
@@ -807,8 +818,8 @@ export const sheetPaged = example({
             const rows = $.const(East.Array.generate(600n, JobType, (_$, i) => ({
                 id: East.str`J${i.add(1000n)}`,
                 start: some(East.value(new Date("2026-01-05T00:00:00Z"), DateTimeType).addDays(i)),
-                task: i.remainder(3n).equal(0n).ifElse((_$2) => "Transfer", (_$2) => i.remainder(3n).equal(1n).ifElse((_$3) => "Filtration", (_$3) => "Centrifuge")),
-                qty: some(i.multiply(1500n).toFloat().add(18000.0)),
+                task: i.remainder(3n).equal(0n).ifElse((_$2) => "Machining", (_$2) => i.remainder(3n).equal(1n).ifElse((_$3) => "Painting", (_$3) => "Packaging")),
+                qty: some(i.multiply(15n).toFloat().add(180.0)),
             })), ArrayType(JobType));
             const source = $.const(Paged.of("sheet_paged_jobs", rows, { key: r => r.id }));   // Data.bindPaged(planInput) in e3-ui
             const edits = $.let(State.bind([ArrayType(Sheet.Types.Edit(JobType))], "sheet_paged_edits", []));
@@ -848,12 +859,12 @@ export const sheetStress = example({
         <Reactive>{$ => {
             const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType), notes: StringType });
             const Ctx = Sheet.Types.Context(JobType);
-            const tasks = $.const(["Transfer", "Filtration", "Centrifuge", "Dosing", "Sample", "Receival", "Despatch"], ArrayType(StringType));
+            const tasks = $.const(["Machining", "Painting", "Packaging", "Changeover", "Maintenance", "Receiving", "Shipping"], ArrayType(StringType));
             const rows = $.let(State.bind([ArrayType(JobType)], "sheet_stress_rows", East.Array.generate(2000n, JobType, (_$, i) => ({
                 id: East.str`S${i}`,
                 start: some(East.value(new Date("2026-01-05T00:00:00Z"), DateTimeType).addDays(i.divide(4n))),
                 task: tasks.get(i.remainder(7n)),
-                qty: i.remainder(11n).equal(0n).ifElse((_$2) => East.value(none, OptionType(FloatType)), (_$2) => East.value(some(i.multiply(700n).toFloat().add(5000.0)), OptionType(FloatType))),
+                qty: i.remainder(11n).equal(0n).ifElse((_$2) => East.value(none, OptionType(FloatType)), (_$2) => East.value(some(i.multiply(7n).toFloat().add(50.0)), OptionType(FloatType))),
                 notes: "",
             }))));
             const FloatFill = OptionType(Sheet.Types.Fill(FloatType));
