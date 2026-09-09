@@ -12,10 +12,37 @@
 > - [`Sheet Link Cell Options.html`](./Sheet%20Link%20Cell%20Options.html) — the three
 >   link-cell alternatives that were explored; the prototype implements **1a (split cell)**.
 >
+> **Viewing them.** The three `.html` companions are static files — nothing to build
+> or run; open them in a browser. They fetch fonts (and the prototype its React and
+> Font Awesome) from CDNs, so they need network. On a dev box without a browser,
+> serve the folder and open it from a laptop (the `make design` idea):
+>
+> ```bash
+> cd libs/east-ui/docs/proposals
+> for ip in $(hostname -I); do echo "  http://$ip:8765/Sheet%20Behaviour.html"; done   # the LAN URLs to open
+> python3 -m http.server 8765                                                          # listens on every interface
+> ```
+>
+> A headless PNG — how `Sheet Spec.png` was captured — needs any Chromium: the one
+> `make setup-browser` installs under `~/.cache/ms-playwright` (`~/Library/Caches/`
+> on macOS), a system Chrome, or `E3_UI_CHROMIUM_PATH`. The virtual-time budget lets
+> the CDN loads finish before the shot; `--window-size` is the capture size, so the
+> long Behaviour page (~10 000 px) needs a tall one:
+>
+> ```bash
+> cd libs/east-ui/docs/proposals
+> CHROME="${E3_UI_CHROMIUM_PATH:-$(ls ~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell | tail -1)}"
+> "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=20000 \
+>     --window-size=1720,1000  --screenshot="Sheet Spec.png"      "file://$PWD/Sheet Spec.html"        # the prototype, resting
+> "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=20000 \
+>     --window-size=1000,10100 --screenshot="Sheet Behaviour.png" "file://$PWD/Sheet Behaviour.html"   # the whole contract
+> ```
+>
 > The prototype and its documents were genericised from a client design to a
 > batch-process plant with synthetic registers and rows. Keep every example in this
 > repository on that footing — no customer, site, product or upstream-system names,
-> and no operational numbers copied from a real plan.
+> no process jargon that would place the plant in an industry, and no operational
+> numbers copied from a real plan.
 
 One sheet; typed columns; a copilot. `Sheet` is the planning spreadsheet: a sheet
 whose rows are the host's records, whose columns are **typed** (a date, a quantity
@@ -174,7 +201,7 @@ columns={{
 |---|---|---|---|---|
 | `text` | `String` / `Option<String>` | `String` | free text | idle |
 | `date` | `DateTime` / `Option<DateTime>` | `DateTime` | `+3d` · `4d` from `base` · weekday · ISO · `d/m[/yy]` · `17 nov` ; display `17 Nov 26` | instant |
-| `quantity` | `Float` / `Option<Float>` | `Float` | digits + `l·k·kl·ml` suffix, locale-grouped display, unit from the driver | idle |
+| `quantity` | `Float` / `Option<Float>` | `Float` | digits + `l·k·m3` suffix, locale-grouped display, unit from the driver | idle |
 | `integer` | `Integer` / `Option<Integer>` | `Integer` | as quantity, no unit | instant |
 | `lookup` | `String` / `Option<String>` | `String` | scored register candidates (B§3.1); commit = exact → top → typed | instant |
 | `reference` | `String` / `Option<String>` | `String` | as lookup over a flat member list | instant |
@@ -214,13 +241,13 @@ registers={{
     }),
     vessels: Sheet.register([
         Sheet.members(tanks, { kind: "tank", key: t => t.code, label: t => t.code,
-            meta: t => East.str`${t.litres.divide(1000.0).toInteger()} kL`, parent: t => some(t.farm),
+            meta: t => East.str`${t.litres.divide(1000.0).toInteger()} m³`, parent: t => some(t.farm),
             attrs: { litres: t => t.litres } }),
         Sheet.members(farms, { kind: "farm", key: f => f.name, label: f => f.name,
             aliases: f => f.aliases, meta: f => East.str`farm · ${f.tanks}` }),
-        // A countable-by-attribute kind: every distinct size is a member ("140 kL"); duplicates fold by key.
-        Sheet.members(tanks, { kind: "capacity", key: t => East.str`${t.litres.divide(1000.0).toInteger()} kL`,
-            label: t => East.str`${t.litres.divide(1000.0).toInteger()} kL`, meta: t => "size",
+        // A countable-by-attribute kind: every distinct size is a member ("140 m³"); duplicates fold by key.
+        Sheet.members(tanks, { kind: "capacity", key: t => East.str`${t.litres.divide(1000.0).toInteger()} m³`,
+            label: t => East.str`${t.litres.divide(1000.0).toInteger()} m³`, meta: t => "size",
             attrs: { litres: t => t.litres } }),
     ]),
     sites:    Sheet.register.of(sites, { kind: "site", key: s => s, label: s => s }),
@@ -244,7 +271,7 @@ declares (B§4). The whole grammar is declared; the renderer implements it.
 
 ```tsx
 tanks: Sheet.link("vessels", {
-    label: "Tanks / vessels", sub: "from → to · 4 x 140kL · tank · farm", width: "352px",
+    label: "Tanks / vessels", sub: "from → to · 4 x 140m³ · tank · farm", width: "352px",
     members: [
         { kind: "tank", identified: true },                    // a register code; bare digits try the code prefix
         { kind: "range", identified: true },                   // T2140-45 expands to every member in the span
@@ -264,7 +291,7 @@ tanks: Sheet.link("vessels", {
 
 The arity rule is domain logic, so it is a function: given the row as it would be,
 how many members are implied and **which countable member** to propose when none
-are named (the `n × 140 kL` form of B§4.5). The prototype's per-unit switch reads
+are named (the `n × 140 m³` form of B§4.5). The prototype's per-unit switch reads
 naturally:
 
 ```tsx
@@ -273,16 +300,16 @@ const impliedTanks = $.const(East.function([Sheet.Types.Context], OptionType(She
     const uom = $.let(ctx.driver.match({ some: (_$, d) => d.attrs.get("uom").unwrap("String") }, _$ => ""));
     const litresPerTank = $.const(140000.0);
     return uom.equal("Tk").ifElse(
-        _$ => some({ n: vol.toInteger(), member: "140 kL" }),                // the quantity IS the count
+        _$ => some({ n: vol.toInteger(), member: "140 m³" }),                // the quantity IS the count
         _$ => uom.equal("Drm").ifElse(
             _$ => East.value(none, OptionType(Sheet.Types.Counted)),          // drum jobs name no vessels
             _$ => vol.greater(0.0).ifElse(
-                _$ => some({ n: vol.divide(litresPerTank).toInteger().add(1n), member: "140 kL" }),
+                _$ => some({ n: vol.divide(litresPerTank).toInteger().add(1n), member: "140 m³" }),
                 _$ => East.value(none, OptionType(Sheet.Types.Counted)))));
 }));
 ```
 
-The strip reads the result while the To half is edited (*4 × 140 kL implied · 3
+The strip reads the result while the To half is edited (*4 × 140 m³ implied · 3
 named so far*, B§4.6). A `check` returns `some(message)` to flag a member (B§2
 `check`); `exists` is the grammar's, the rest are the author's:
 
@@ -367,11 +394,11 @@ const shiftVolume = $.const(East.function([Sheet.Types.Context], OptionType(Shee
 // Notes: a phrase per driver family (the prototype's `phrase`).
 const phrase = $.const(East.function([Sheet.Types.Context], OptionType(Sheet.Types.Fill), ($, ctx) => {
     const activity = $.let(ctx.row.get("activity").match({ String: (_$, s) => s }, _$ => ""));
-    const kl = $.let(ctx.row.get("vol").match({ Float: (_$, v) => v.divide(1000.0).toInteger() }, _$ => 0n));
+    const m3 = $.let(ctx.row.get("vol").match({ Float: (_$, v) => v.divide(1000.0).toInteger() }, _$ => 0n));
     return activity.startsWith("Transfer").ifElse(
-        _$ => some({ value: variant("String", East.str`Transfer ${kl}kL of BX2`), meta: "phrasing from past transfers" }),
-        _$ => activity.startsWith("Xflow").ifElse(
-            _$ => some({ value: variant("String", East.str`xflow ${kl}kL of BX2`), meta: "phrasing from past xflows" }),
+        _$ => some({ value: variant("String", East.str`Transfer ${m3}m³ of BX2`), meta: "phrasing from past transfers" }),
+        _$ => activity.startsWith("Filtration").ifElse(
+            _$ => some({ value: variant("String", East.str`filter ${m3}m³ of BX2`), meta: "phrasing from past filtrations" }),
             _$ => East.value(none, OptionType(Sheet.Types.Fill))));
 }));
 
@@ -409,7 +436,7 @@ prototype and beyond: a domain pattern, a learned follower, and a model call.
 
 ```tsx
 // 1 · A domain pattern: a bulk-blender transfer is followed by a media add on the same days
-//     and a packdown at end +3…+7 d.
+//     and a consolidation at end +3…+7 d.
 const bulkBlenderFollowUps = $.const(East.function([Sheet.Types.Context], ArrayType(Sheet.Types.Proposal), ($, ctx) => {
     const activity = $.let(ctx.row.get("activity").match({ String: (_$, s) => s }, _$ => ""));
     const start = $.let(ctx.row.get("start"));
@@ -432,8 +459,8 @@ const bulkBlenderFollowUps = $.const(East.function([Sheet.Types.Context], ArrayT
                     ["start", variant("DateTime", endAt.addDays(3n))],
                     ["end", variant("DateTime", endAt.addDays(7n))],
                     ["vol", vol],
-                    ["notes", variant("String", "Packdown of the blend")],
-                  ]), meta: "packdown · end +3…+7 d" },
+                    ["notes", variant("String", "Consolidate the blend")],
+                  ]), meta: "consolidation · end +3…+7 d" },
             ], ArrayType(Sheet.Types.Proposal));
         },
         _$ => empty);
@@ -571,9 +598,9 @@ a dirty tab, esc reverts it.
 
 ```tsx
 const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "plan.views", [
-    { id: "xflow", name: "XFLOW", narrowing: Slice.state({ search: some("xflow") }), context: 1n, reveals: [] },
+    { id: "filtration", name: "FILTRATION", narrowing: Slice.state({ search: some("filtration") }), context: 1n, reveals: [] },
 ]));
-<Sheet … slice={slice} affordances={["search"]} views={views.read()} onViewsChange={views.write} activeView={some("xflow")} />
+<Sheet … slice={slice} affordances={["search"]} views={views.read()} onViewsChange={views.write} activeView={some("filtration")} />
 ```
 
 Without `slice` there is no search box, no lens and no tabs — the sheet is whole.
@@ -668,7 +695,7 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
                                                 fill: [lastVolume, shiftVolume] }),
                     notes:     Sheet.text({ label: "Notes", sub: "free text", width: "250px", fill: [phrase] }),
                     tanks:     Sheet.link("vessels", {
-                        label: "Tanks / vessels", sub: "from → to · 4 x 140kL · tank · farm", width: "352px",
+                        label: "Tanks / vessels", sub: "from → to · 4 x 140m³ · tank · farm", width: "352px",
                         members: [{ kind: "tank", identified: true }, { kind: "range", identified: true },
                                   { kind: "farm", countable: true, resolvesTo: "tank" },
                                   { kind: "group", countable: true, resolvesTo: "tank" },
@@ -763,11 +790,11 @@ factory's `make` projects a window exactly as it projects the whole collection
 
 ```ts
 export const SheetMemberType = StructType({
-    key:     StringType,                     // what the grammar resolves ("T2140", "2000s", "G1042", "140 kL")
+    key:     StringType,                     // what the grammar resolves ("T2140", "2000s", "G1042", "140 m³")
     label:   StringType,                     // what a chip prints
     kind:    StringType,                     // "tank" | "farm" | "group" | "capacity" | "activity" | "site" | …
     aliases: ArrayType(StringType),          // "the 2000s", "anx"
-    meta:    OptionType(StringType),         // chip meta ("140 kL", "farm · 96"); shown when a half holds one chip
+    meta:    OptionType(StringType),         // chip meta ("140 m³", "farm · 96"); shown when a half holds one chip
     parent:  OptionType(StringType),         // a tank's farm — countable → identified resolution and "enumerate"
     attrs:   DictType(StringType, SheetCellType),  // named values declarations and providers read: uom / rate / days / sides / tone / litres
 });
@@ -784,7 +811,7 @@ export const SheetMemberKindType = StructType({ kind: StringType, identified: Bo
 export const SheetMultipleType   = StructType({ forms: ArrayType(StringType), ops: ArrayType(StringType), appliesTo: StringType });
 export const SheetSideLockType   = StructType({ half: SheetHalfType, when: SheetSidesValueType, label: StringType });
 export const SheetSidesType      = StructType({ attr: StringType, locks: ArrayType(SheetSideLockType) });   // the nested TS shape flattens here
-export const SheetCountedType    = StructType({ n: IntegerType, member: StringType });                      // "4 × 140 kL"
+export const SheetCountedType    = StructType({ n: IntegerType, member: StringType });                      // "4 × 140 m³"
 export const SheetArityType      = StructType({ half: SheetHalfType, implied: FunctionType([SheetContextType], OptionType(SheetCountedType)) });
 export const SheetCheckContextType = StructType({ rowIndex: IntegerType, row: DictType(StringType, SheetCellType), half: SheetHalfType, member: SheetMemberType });
 export const SheetCheckType      = VariantType({ exists: NullType, custom: FunctionType([SheetCheckContextType], OptionType(StringType)) });
@@ -927,9 +954,9 @@ behaviour lives and how it is tested.
 | # | Requirement (B§) | Lives in | Test |
 |---|---|---|---|
 | 1 | Date parsing: `+3`/`+3d`, `4d` from `base`, weekday prefix (next occurrence, never today), ISO, `d/m[/yy]`, `d.m`, `17 nov [26]`, year roll-forward; display `17 Nov 26`; edit form `17/11/26`; strip preview `Mon 17 Nov 26` + day span (B§3) | `parse/date.ts` | unit table |
-| 2 | Quantity parsing: digits, decimal, `l·k·kl·ml` suffix, commas/spaces ignored, rounded integer; strip preview with the implied run when the driver has a rate (B§3) | `parse/quantity.ts` | unit table |
+| 2 | Quantity parsing: digits, decimal, `l·k·m3` suffix, commas/spaces ignored, rounded integer; strip preview with the implied run when the driver has a rate (B§3) | `parse/quantity.ts` | unit table |
 | 3 | Candidate scoring: prefix (0) → word prefix (1) → initials (2) → substring (3), ties by sheet frequency; only a prefix match ghosts inline; a non-prefix match previews `→ replacement`; empty buffer arms nothing (menu of what the field accepts, driver column ranked by what follows the row above); ⌥]/⌥[/⌥↓/⌥↑ cycle (B§3.1) | `candidates.ts` | unit + DOM |
-| 4 | Link grammar: identified codes (case-insensitive, bare digits try the prefix), ranges (`T2140-45`, short upper bound completed; hyphen = range only between unspaced bare numbers), countable by name/alias (leading "the" dropped), countable by attribute (`140kL`, litres ≥ 1 000 read as kL), counted members (`N x kind` / `kind x N`, declared ops, countable kinds only; trailing qualifier → text token; multiplying an identified member → text with reason), `TBC` placeholder, free text (never blocked), separators (B§4.1) | `link/grammar.ts` | unit table |
+| 4 | Link grammar: identified codes (case-insensitive, bare digits try the prefix), ranges (`T2140-45`, short upper bound completed; hyphen = range only between unspaced bare numbers), countable by name/alias (leading "the" dropped), countable by attribute (`140m³`, litres ≥ 1 000 read as m³), counted members (`N x kind` / `kind x N`, declared ops, countable kinds only; trailing qualifier → text token; multiplying an identified member → text with reason), `TBC` placeholder, free text (never blocked), separators (B§4.1) | `link/grammar.ts` | unit table |
 | 5 | Sides & locks: storage `a > b` / `b` / `a >`; single set = destination; driver `sides` selects live halves (both/from/to/in; `in` draws a minus); locked half never predicted into, Tab skips it, typing allowed but flagged warn (B§4.2) | `link/sides.ts` + `cells/LinkCell.tsx` | unit + DOM |
 | 6 | Link display: `minmax(0,1fr) 16px minmax(0,1fr)`; chips mono 10.5 paper-3 r4; meta only for a single chip; dashed = text/placeholder/proposal; FROM/TO faint labels; lock tags warn-tinted when holding content; proposals as dashed chips over the hatch with a ✓ take on hover (B§4.3) | `cells/LinkCell.tsx` + recipe | DOM + shot |
 | 7 | Link editor keys: `,` resolves; `>` hops From → To (flag if locked); ⇥ ladder (ghost/armed → one predicted chip → hop → commit right); ⏎ resolves/commits; ⌫ pops last chip / crosses back; ←/→ cross the divider, → takes a ghost word, ⌘→ the whole ghost or every predicted chip; ⇧←/⇧→ select whole chips (brand fill, ⌫ removes); esc cancels, click a half moves the caret, click outside commits (B§4.4) | `Editor.tsx` + `sheet-state.ts` | DOM |
