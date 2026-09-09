@@ -6,6 +6,35 @@ current storage model is and where it breaks, and the considered-and-deferred
 roadmap for large records. It is a decision record, not an implementation plan —
 nothing here is built beyond what `e3-records.md` already describes.
 
+> **Update (2026-09-09).** The trigger workload named under *Roadmap* now
+> exists (production planning records of 10k–100k's of rows with interactive
+> per-row edits), and the prolly tree this record decided on is specified
+> concretely in `e3-records-schema.md` §7, §8.7 and §8.8 — as a **manifest over
+> standalone beast2 v5 segment objects**. Four statements below are superseded
+> by that specification:
+>
+> - **No `layout: blob | tree` flag.** The one encoder door decides by root
+>   type: every collection dataset is manifest + segment objects at every size.
+> - **The `$chunk` envelope is `CollectionManifestType`** (kind `$segments`),
+>   with the GC recognizer and the `state` non-leaf flip landing in the same
+>   change, as this record demanded.
+> - **The per-blob string-interning obstacle is gone.** v5 segments scope
+>   aliasing per segment (`selfContained`, the writer default), so each segment
+>   is a standalone, byte-stable blob and no new chunk encoding is needed.
+>   Content-defined boundaries with pinned constants remain the rule.
+> - **"DynamoDB items cap at 400 KB, so a monolithic large record has no cloud
+>   mapping" was never the binding limit** — large objects have always mapped
+>   to S3 (`e3-records.md` §10), and every object now lives in S3 (schema doc
+>   §8.6). The binding cloud limit was the 6 MB Lambda invoke payload (#413),
+>   which the paged patch path removes. The "hard size cap" guardrail's
+>   400 KB-derived budget therefore has no basis; a cap, if kept, keys off the
+>   whole-value path's payload and latency budgets.
+>
+> Also changed: the O(n) runner-CPU term this record accepted is removed for the
+> generic patch door (`e3.mutateByPatch`, applied in-process per segment) while
+> authored reducers keep it; and the auto-compaction ↔ GC-cadence question
+> stands, at roughly 85× less storage pressure (schema doc §8.8).
+
 ## Why records retain history at all
 
 An `e3.input` is *sourced from outside* the solution — an integration writes raw
