@@ -15,8 +15,8 @@
 import { memo, type MouseEvent, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { getSomeorUndefined } from "../../utils.js";
-import { cellIsBlank, driverKeyOf, resolveMember, type SheetBand, type SheetColumnIndex, type SheetRegisterIndex } from "./model.js";
-import { SheetCellContent } from "./cells/Cell.js";
+import { cellIsBlank, driverKeyOf, resolveMember, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
+import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -35,8 +35,8 @@ export interface SheetRowProps {
     number: number;
     /** The real row, or `undefined` for a blank padding row. */
     row: SheetRowValue | undefined;
-    /** The row's driver `sides` value (link cells draw `in place` as a minus) — P3. */
-    linkIn: boolean;
+    /** The link cell's halves, vocabulary and flags for a row (P3). */
+    linkCtx: (row: SheetRowValue | undefined, meta: SheetColumnMeta) => LinkCellContext | undefined;
     /** The ring's column when it sits on this row. */
     selC: number | undefined;
     /** The range's columns when the row is inside it. */
@@ -55,7 +55,7 @@ export interface SheetRowProps {
 
 /** Renders one row. */
 export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
-    const { styles, columns, registers, driverColumn, gridTemplate, rowPx, r, number, row, linkIn, selC, range, picked, hit, editor } = props;
+    const { styles, columns, registers, driverColumn, gridTemplate, rowPx, r, number, row, linkCtx, selC, range, picked, hit, editor } = props;
     const rowBlank = row === undefined;
     const driverKey = driverKeyOf(row, driverColumn);
     return (
@@ -107,7 +107,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                             unit={unit}
                             member={member}
                             ghost={undefined}
-                            linkIn={linkIn}
+                            link={meta.kind === "link" ? linkCtx(row, meta) : undefined}
                         />
                         {selected && <Box css={styles.ring} data-slot="ring" />}
                         {editor !== undefined && editor.c === c && editor.node}

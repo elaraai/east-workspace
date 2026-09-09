@@ -75,7 +75,7 @@ import {
     SheetProposalTypeFor,
     type SheetColumnKindLiteral,
 } from "./types.js";
-import { SheetMembersType, SheetRegisterMembersType, parseLink, printLink, EMPTY_LINK } from "./link.js";
+import { SheetMembersType, SheetRegisterMembersType, parseLink, printLink, printLinkWith, EMPTY_LINK } from "./link.js";
 import type { SheetAnyColumnConfig, SheetColumn } from "./columns.js";
 import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
 
@@ -342,9 +342,22 @@ function fieldValueOfCell(meta: SheetColumnMeta, cell: ExprType<SheetCellType>, 
     ) as ExprType<EastType>;
 }
 
-/** The value of THIS column's field from its cell (the base field when the cell is absent or the column is read-only). */
-function decodeOwnField(meta: SheetColumnMeta, cellOpt: ExprType<OptionType<SheetCellType>>, base: ExprType<EastType>): ExprType<EastType> {
+/**
+ * The value of THIS column's field from its cell (the base field when the cell
+ * is absent or the column is read-only). `members` is the column's register,
+ * bound in the caller's block, for the String link form's canonical print.
+ */
+function decodeOwnField(
+    meta: SheetColumnMeta,
+    cellOpt: ExprType<OptionType<SheetCellType>>,
+    base: ExprType<EastType>,
+    members: ExprType<typeof SheetRegisterMembersType> | undefined,
+): ExprType<EastType> {
     if (!meta.editable) return base;
+    // The String form prints the link back through the grammar — the keys as
+    // typed, or the register's labels under `store: "canonical"` (B§4.2).
+    const print = (l: ExprType<SheetLinkType>): ExprType<StringType> =>
+        meta.config.store === "canonical" && members !== undefined ? printLinkWith(l, members) : printLink(l);
     return cellOpt.match({
         none: (_$) => base,
         some: (_$, cell) => {
@@ -356,15 +369,14 @@ function decodeOwnField(meta: SheetColumnMeta, cellOpt: ExprType<OptionType<Shee
                     (_$2: unknown) => East.value([], SheetMembersType),
                 ) as ExprType<EastType>;
             }
-            // The String form prints the link back through the grammar.
             if (meta.optional) {
                 return cell.match(
-                    { Link: (_$2: unknown, l: ExprType<SheetLinkType>) => East.value(some(printLink(l)), OptionType(StringType)) } as never,
+                    { Link: (_$2: unknown, l: ExprType<SheetLinkType>) => East.value(some(print(l)), OptionType(StringType)) } as never,
                     (_$2: unknown) => East.value(none, OptionType(StringType)),
                 ) as unknown as ExprType<EastType>;
             }
             return cell.match(
-                { Link: (_$2: unknown, l: ExprType<SheetLinkType>) => printLink(l) } as never,
+                { Link: (_$2: unknown, l: ExprType<SheetLinkType>) => print(l) } as never,
                 (_$2: unknown) => East.value("", StringType),
             ) as unknown as ExprType<EastType>;
         },
@@ -481,6 +493,11 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
             some: (_$, x) => x,
             none: (_$) => East.value(defaultValue(rowType) as SubtypeExprOrValue<StructType>, rowType),
         }), rowType) as unknown as Record<string, ExprType<EastType>>;
+        // The String link form's registers, bound once per body (the capture rule).
+        const bound = new Map<string, ExprType<typeof SheetRegisterMembersType>>();
+        for (const name of stringFormRegisters) {
+            bound.set(name, $.const(registers[name]!, SheetRegisterMembersType));
+        }
         const out: Record<string, ExprType<EastType>> = {};
         for (const f of Object.keys(fields)) {
             const baseField = $.let(b[f] as never, fields[f] as EastType);
@@ -490,7 +507,7 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
             }
             const own = byField.get(f);
             if (own !== undefined) {
-                out[f] = decodeOwnField(own, cells.tryGet(own.key), baseField);
+                out[f] = decodeOwnField(own, cells.tryGet(own.key), baseField, own.register !== undefined ? bound.get(own.register) : undefined);
                 continue;
             }
             const other = otherHalfBy.get(f);

@@ -16,6 +16,7 @@ import { parseDate, formatDateEdit } from "./date.js";
 import { parseQuantity, formatNumberBare } from "./quantity.js";
 import { candidateList, type CandidateContext } from "../candidates.js";
 import { cellText, memberLabel, printLinkText, type SheetColumnMeta } from "../model.js";
+import { parseLinkText, type LinkVocabulary } from "../link/grammar.js";
 import type { SheetCellValue, SheetLinkValue } from "../values.js";
 
 /** The outcome of parsing an editor buffer. */
@@ -35,6 +36,8 @@ export interface ParseContext extends CandidateContext {
     baseDate?: Date | undefined;
     /** The wire copilot context for a custom kind's `parse`. */
     wireContext?: unknown;
+    /** A link / set column's vocabulary — the grammar resolves against it. */
+    linkVocab?: LinkVocabulary | undefined;
 }
 
 /** A cell of a scalar tag. */
@@ -89,10 +92,17 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
         }
         case "set":
         case "link": {
-            // The link grammar lands in P3 — until then typed text is kept as a
-            // text member on the destination half (entry is never blocked).
             if (trimmed === "") return { kind: "blank" };
-            return { kind: "cell", cell: cellOf("Link", { from: [], to: [{ type: "text", value: trimmed }] } as unknown as SheetLinkValue) };
+            // The grammar against the column's register; entry is never blocked —
+            // without a vocabulary the text is kept as a text member.
+            const link = ctx.linkVocab !== undefined
+                ? parseLinkText(trimmed, ctx.linkVocab)
+                : ({ from: [], to: [{ type: "text", value: trimmed }] } as unknown as SheetLinkValue);
+            if (meta.kind === "set" && link.from.length > 0) {
+                return { kind: "cell", cell: cellOf("Link", { from: [], to: [...link.from, ...link.to] } as unknown as SheetLinkValue) };
+            }
+            if (link.from.length === 0 && link.to.length === 0) return { kind: "blank" };
+            return { kind: "cell", cell: cellOf("Link", link) };
         }
         case "custom": {
             if (trimmed === "") return { kind: "blank" };

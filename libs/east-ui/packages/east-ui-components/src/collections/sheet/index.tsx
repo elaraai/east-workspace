@@ -40,19 +40,25 @@ import {
 import { useSheetPaging, type SheetViewport } from "./paging.js";
 import { candidateAt, candidateList, ghostFor, resolveFor, type CandidateContext } from "./candidates.js";
 import { editText, parseCell, type ParseContext } from "./parse/index.js";
+import { linkVocabulary, usedKeys, type LinkVocabulary } from "./link/grammar.js";
+import { halvesFor, sidesDeclOf, type SidesDecl } from "./link/sides.js";
+import { linkCandidates, linkCandidateAt, resolveBuffer, predictedMembers, linkEntryCandidates, grammarLine } from "./link/predict.js";
+import { namedCount, arityMeta, type Counted } from "./link/arity.js";
+import { checksOf, checkLink, NO_FLAGS, type CheckDecl, type LinkFlags } from "./link/checks.js";
+import type { LinkCellContext } from "./cells/Cell.js";
 import { todayUtc } from "./parse/date.js";
 import { exportMatrix, layoutPaste, parseMatrix } from "./clipboard.js";
 import {
     initialSheetStore, sheetStoreReducer, selectionRect, wholeRows,
-    type SheetEffect, type SheetEvent, type SheetMachineCtx,
+    type LinkEditCtx, type LinkGroups, type SheetEffect, type SheetEvent, type SheetMachineCtx,
 } from "./sheet-state.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetBandRow } from "./Rows.js";
-import { SheetEditor, type EditorFocusRequest } from "./Editor.js";
-import { SheetStrip, buildStrip } from "./Strip.js";
+import { SheetEditor, type EditorFocusRequest, type LinkEditorView } from "./Editor.js";
+import { SheetStrip, buildStrip, type StripLinkInput } from "./Strip.js";
 import { SheetFooter, type SheetTransport } from "./Footer.js";
 import { SheetToolbar } from "./Toolbar.js";
-import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetRootValue, SheetRowValue, SheetSelectionValue } from "./values.js";
+import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetRootValue, SheetRowValue, SheetSelectionValue } from "./values.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
 
@@ -124,6 +130,14 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
     const driver = useMemo(() => getSomeorUndefined(value.driver), [value.driver]);
     const driverColumn = driver?.column;
+    const linkVocabularies = useMemo(() => {
+        const out = new Map<string, LinkVocabulary>();
+        for (const meta of columns.list) {
+            if (meta.kind !== "link" && meta.kind !== "set") continue;
+            out.set(meta.key, linkVocabulary(meta, meta.register !== undefined ? registers.byName.get(meta.register) ?? [] : []));
+        }
+        return out;
+    }, [columns, registers]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const size = densityOf(value);
     const rowPx = useDensityHeights(size).row;
@@ -234,8 +248,87 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             today,
             baseDate,
             wireContext: meta.kind === "custom" ? wireContextFor(r) : undefined,
+            linkVocab: meta.kind === "link" || meta.kind === "set" ? linkVocabularies.get(meta.key) : undefined,
         };
-    }, [rowAt, candidateCtxFor, today, wireContextFor]);
+    }, [rowAt, candidateCtxFor, today, wireContextFor, linkVocabularies]);
+    // ── Links (P3): vocabularies, sides, checks, arity ────────────────────
+    const linkColumns = useMemo(() => {
+        const out = new Map<string, { vocab: LinkVocabulary; sides: SidesDecl | undefined; checks: CheckDecl[]; arity: { half: "from" | "to"; implied: (ctx: unknown) => { type: string; value: unknown } } | undefined }>();
+        for (const meta of columns.list) {
+            if (meta.kind !== "link" && meta.kind !== "set") continue;
+            const members = meta.register !== undefined ? registers.byName.get(meta.register) ?? [] : [];
+            const kv = meta.raw.kind.value as { arity?: { type: string; value: { half: { type: "from" | "to" }; implied: (ctx: unknown) => { type: string; value: unknown } } | null } } | null;
+            const arityDecl = kv !== null && kv.arity !== undefined ? getSomeorUndefined(kv.arity as never) as { half: { type: "from" | "to" }; implied: (ctx: unknown) => { type: string; value: unknown } } | undefined : undefined;
+            out.set(meta.key, {
+                vocab: linkVocabularies.get(meta.key) ?? linkVocabulary(meta, members),
+                sides: sidesDeclOf(meta),
+                checks: checksOf(meta),
+                arity: arityDecl !== undefined ? { half: arityDecl.half.type, implied: arityDecl.implied } : undefined,
+            });
+        }
+        return out;
+    }, [columns, registers, linkVocabularies]);
+    const driverName = useCallback((row: SheetRowValue | undefined): string => {
+        const key = driverKeyOf(row, driverColumn);
+        if (key === undefined) return "This row";
+        const member = driver?.members.find((m) => m.key === key);
+        return member?.label ?? key;
+    }, [driverColumn, driver]);
+    // Checks run once per row value and column (rows are immutable values).
+    const flagCache = useRef(new WeakMap<SheetRowValue, Map<string, LinkFlags>>());
+    const flagsFor = useCallback((item: SheetBodyItem, meta: SheetColumnMeta): LinkFlags => {
+        if (item.kind !== "real") return NO_FLAGS;
+        const lc = linkColumns.get(meta.key);
+        const cell = item.row.cells.get(meta.key);
+        if (lc === undefined || lc.checks.length === 0 || cell === undefined || cell.type !== "Link") return NO_FLAGS;
+        let byKey = flagCache.current.get(item.row);
+        if (byKey === undefined) { byKey = new Map(); flagCache.current.set(item.row, byKey); }
+        const known = byKey.get(meta.key);
+        if (known !== undefined) return known;
+        const flags = checkLink(cell.value as SheetLinkValue, lc.checks, lc.vocab, (half, member) => ({
+            rowIndex: BigInt(item.residentIndex), rowId: item.row.id, offset: BigInt(item.position),
+            row: item.row.cells, half: variant(half, null), member,
+        }));
+        byKey.set(meta.key, flags);
+        return flags;
+    }, [linkColumns]);
+    const linkCellCtx = useCallback((row: SheetRowValue | undefined, meta: SheetColumnMeta): LinkCellContext | undefined => {
+        const lc = linkColumns.get(meta.key);
+        if (lc === undefined) return undefined;
+        const item = row !== undefined ? body.find((it) => it.kind === "real" && it.row === row) : undefined;
+        return {
+            halves: halvesFor(lc.sides, driverKeyOf(row, driverColumn)),
+            vocab: lc.vocab,
+            flags: item !== undefined ? flagsFor(item, meta) : NO_FLAGS,
+            driverName: driverName(row),
+        };
+    }, [linkColumns, body, driverColumn, flagsFor, driverName]);
+    const linkCtxFor = useCallback((r: number, c: number): LinkEditCtx | undefined => {
+        const meta = columns.list[c];
+        if (meta === undefined) return undefined;
+        const lc = linkColumns.get(meta.key);
+        if (lc === undefined) return undefined;
+        const it = rowAt(r);
+        const row = it !== undefined && it.kind === "real" ? it.row : undefined;
+        const cell = row?.cells.get(meta.key);
+        const current = cell !== undefined && cell.type === "Link" ? (cell.value as SheetLinkValue) : undefined;
+        const halves = meta.kind === "set"
+            ? { from: { live: false, lock: "" }, to: { live: true, lock: "" }, isIn: false, sides: "to" as const }
+            : halvesFor(lc.sides, driverKeyOf(row, driverColumn));
+        const vocab = lc.vocab;
+        const usedOf = (groups: LinkGroups) => usedKeys([...groups[0], ...groups[1]], vocab);
+        return {
+            halves,
+            initial: [current !== undefined ? [...current.from] : [], current !== undefined ? [...current.to] : []],
+            candidates: (text, groups) => linkCandidates(text, vocab, usedOf(groups)),
+            candidateAt: (text, hi, groups) => linkCandidateAt(text, hi, vocab, usedOf(groups)),
+            resolve: (text, cand) => resolveBuffer(text, cand, vocab),
+            predicted: (side, groups, typed) => predictedMembers(undefined, side, groups, side === 0 ? halves.from.live : halves.to.live, typed, vocab),
+            cell: (groups) => (groups[0].length === 0 && groups[1].length === 0 ? null : { type: "Link", value: { from: groups[0], to: groups[1] } } as SheetCellValue),
+            driverName: driverName(row),
+        };
+    }, [columns, linkColumns, rowAt, driverColumn, driverName]);
+
     const ctx = useMemo<SheetMachineCtx>(() => ({
         rowCount,
         colCount,
@@ -267,7 +360,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             const meta = columns.list[c];
             return meta === undefined ? "" : editText(cellAt(r, c), meta);
         },
-    }), [rowCount, colCount, exhausted, readOnly, columns, rowAt, parseCtxFor, candidateCtxFor, cellAt]);
+        linkAt: linkCtxFor,
+    }), [rowCount, colCount, exhausted, readOnly, columns, rowAt, parseCtxFor, candidateCtxFor, cellAt, linkCtxFor]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -520,27 +614,58 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const edit = ui.edit;
     const editMeta = edit !== null ? columns.list[edit.c] : undefined;
     const editCand = useMemo(() => {
-        if (edit === null || editMeta === undefined) return undefined;
+        if (edit === null || editMeta === undefined || edit.link !== undefined) return undefined;
         return candidateAt(editMeta, edit.val, edit.hi, candidateCtxFor(edit.r));
     }, [edit, editMeta, candidateCtxFor]);
     const editGhost = edit !== null ? ghostFor(edit.val, editCand) : "";
     const editResolve = edit !== null ? resolveFor(edit.val, editCand) : "";
     const editBadge = useMemo(() => {
-        if (edit === null || editMeta === undefined || edit.val.trim() === "") return "";
+        if (edit === null || editMeta === undefined || edit.val.trim() === "" || edit.link !== undefined) return "";
         const n = candidateList(editMeta, edit.val, candidateCtxFor(edit.r)).length;
         return n > 1 ? `${Math.min(Math.max(edit.hi, 0), n - 1) + 1}/${n}` : "";
     }, [edit, editMeta, candidateCtxFor]);
     const onEditorChange = useCallback((val: string) => dispatch({ t: "editor.change", val }), [dispatch]);
+    const linkEdit = edit?.link;
+    const linkEditCtx = useMemo(() => (edit !== null && linkEdit !== undefined ? linkCtxFor(edit.r, edit.c) : undefined), [edit, linkEdit, linkCtxFor]);
+    const linkArmed = useMemo(() => (edit !== null && linkEdit !== undefined && linkEditCtx !== undefined ? linkEditCtx.candidateAt(edit.val, edit.hi, linkEdit.groups) : undefined), [edit, linkEdit, linkEditCtx]);
+    const linkGhostText = edit !== null && linkArmed !== undefined && linkArmed.label.toLowerCase().startsWith(edit.val.trim().toLowerCase()) && edit.val.trim() !== ""
+        ? linkArmed.label.slice(edit.val.trim().length) : "";
     const onEditorKey = useCallback((k: { key: string; shift: boolean; meta: boolean; alt: boolean; atEnd: boolean }): boolean => {
-        const handled = ["Escape", "Enter", "Tab", "ArrowDown", "ArrowUp"];
+        const current = uiRef.current.edit;
         dispatch({ t: "editor.key", ...k });
-        if (handled.includes(k.key)) return true;
+        if (["Escape", "Enter", "Tab"].includes(k.key)) return true;
         if (k.alt && (k.key === "]" || k.key === "[")) return true;
+        if (current !== null && current.link !== undefined) {
+            const link = current.link;
+            const chips = link.groups[0].length + link.groups[1].length;
+            if (k.shift && (k.key === "ArrowLeft" || k.key === "ArrowRight") && chips > 0 && (link.chipSel !== null || current.val === "")) return true;
+            if ((k.key === "Backspace" || k.key === "Delete") && (link.chipSel !== null || current.val === "")) return true;
+            if (k.key === "ArrowRight" && k.atEnd && (linkGhostText !== "" || (current.val === "" && link.side === 0))) return true;
+            if (k.key === "ArrowLeft" && current.val === "" && link.side === 1) return true;
+            return false;
+        }
+        if (k.key === "ArrowDown" || k.key === "ArrowUp") return true;
         if (k.key === "ArrowRight" && k.atEnd && editGhost !== "") return true;
         return false;
-    }, [dispatch, editGhost]);
+    }, [dispatch, editGhost, linkGhostText]);
     const onEditorBlur = useCallback(() => dispatch({ t: "editor.blur" }), [dispatch]);
-    const onStripPick = useCallback((label: string, i: number) => dispatch({ t: "strip.pick", label, i }), [dispatch]);
+    const onStripPick = useCallback((label: string, i: number, members?: SheetMemberValue[]) => dispatch({ t: "strip.pick", label, i, ...(members !== undefined ? { members } : {}) }), [dispatch]);
+    const onHalfDown = useCallback((side: 0 | 1) => dispatch({ t: "half.down", side }), [dispatch]);
+    const linkView = useMemo<LinkEditorView | undefined>(() => {
+        if (edit === null || linkEdit === undefined || linkEditCtx === undefined || editMeta === undefined) return undefined;
+        const lo = linkEdit.chipSel === null ? -1 : Math.min(linkEdit.chipSel.anchor, linkEdit.chipSel.focus);
+        const hi = linkEdit.chipSel === null ? -2 : Math.max(linkEdit.chipSel.anchor, linkEdit.chipSel.focus);
+        return {
+            side: linkEdit.side,
+            halves: linkEditCtx.halves,
+            groups: linkEdit.groups,
+            chipSel: linkEdit.chipSel === null ? null : { lo, hi },
+            predicted: [linkEditCtx.predicted(0, linkEdit.groups, linkEdit.side === 0 ? edit.val : ""), linkEditCtx.predicted(1, linkEdit.groups, linkEdit.side === 1 ? edit.val : "")],
+            vocab: linkVocabularies.get(editMeta.key),
+            hop: linkEdit.hop,
+            single: editMeta.kind === "set",
+        };
+    }, [edit, linkEdit, linkEditCtx, editMeta, linkVocabularies]);
 
     // ── Recipe + layout ───────────────────────────────────────────────────
     const recipe = useSlotRecipe({ key: "sheet" });
@@ -575,13 +700,45 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             const out = parseCell(editMeta, edit.val, pctx);
             customPreview = out.kind === "cell" ? out.cell : null;
         }
+        let link: StripLinkInput | undefined;
+        if (linkEdit !== undefined && linkEditCtx !== undefined) {
+            const lc = linkColumns.get(editMeta.key);
+            const vocab = lc?.vocab;
+            const used = vocab !== undefined ? usedKeys([...linkEdit.groups[0], ...linkEdit.groups[1]], vocab) : new Set<string>();
+            let arity = "";
+            if (lc?.arity !== undefined && vocab !== undefined && (lc.arity.half === "from" ? 0 : 1) === linkEdit.side) {
+                let implied: Counted | undefined;
+                try {
+                    const out = lc.arity.implied(wireContextFor(edit.r));
+                    if (out.type === "some") {
+                        const v = out.value as { n: bigint; key: string };
+                        implied = { n: Number(v.n), key: v.key };
+                    }
+                } catch (err) {
+                    console.error(`[Sheet] arity rule failed on column "${editMeta.key}":`, err);
+                }
+                arity = arityMeta(implied, namedCount(linkEdit.groups[linkEdit.side], vocab));
+            }
+            link = {
+                side: linkEdit.side,
+                candidates: linkEditCtx.candidates(edit.val, linkEdit.groups),
+                armed: linkArmed,
+                entry: vocab !== undefined ? linkEntryCandidates(vocab, used) : [],
+                predicted: linkEditCtx.predicted(linkEdit.side, linkEdit.groups, edit.val),
+                enumerate: undefined,
+                predictedMeta: "",
+                arity,
+                grammar: vocab !== undefined ? grammarLine(vocab) : "",
+            };
+        }
         return buildStrip({
             edit, meta: editMeta, candidates: pctx, today,
             baseDate: pctx.baseDate,
             unit: driverKey !== undefined ? editMeta.uom?.get(driverKey) : undefined,
             customPreview,
+            link,
         });
-    }, [edit, editMeta, today, parseCtxFor, rowAt, driverColumn]);
+    }, [edit, editMeta, today, parseCtxFor, rowAt, driverColumn, linkEdit, linkEditCtx, linkArmed, linkColumns, wireContextFor]);
 
     const wr = wholeRows(ui, colCount);
     const hint = wr !== null
@@ -611,18 +768,20 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             <SheetEditor
                 styles={styles}
                 value={edit.val}
-                ghost={editGhost}
+                ghost={linkView !== undefined ? linkGhostText : editGhost}
                 resolve={editResolve}
                 badge={editBadge}
                 error={edit.err}
                 focus={editorFocus}
                 ariaLabel={editMeta.header}
+                link={linkView}
                 onChange={onEditorChange}
                 onKey={onEditorKey}
                 onBlur={onEditorBlur}
+                onHalfDown={onHalfDown}
             />
         )
-        : null, [edit, editMeta, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur]);
+        : null, [edit, editMeta, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur, linkView, linkGhostText, onHalfDown]);
     const renderRow = useCallback((i: number): ReactNode => {
         const item = body[i];
         if (item === undefined) return null;
@@ -640,7 +799,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 r={r}
                 number={item.position + 1}
                 row={item.kind === "real" ? item.row : undefined}
-                linkIn={false}
+                linkCtx={linkCellCtx}
                 selC={ui.sel.r === r ? ui.sel.c : undefined}
                 range={inRangeRow ? { c0: rect.c0, c1: rect.c1 } : undefined}
                 picked={wr !== null && r >= wr.r0 && r <= wr.r1}
@@ -652,7 +811,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 onRowPick={onRowPick}
             />
         );
-    }, [body, styles, paging.loading, rowSpace, ui.selEnd, ui.sel, rect, columns, registers, driverColumn, gridTemplate, rowPx, wr, edit, editorNode, onCellDown, onCellDouble, onCellEnter, onRowPick]);
+    }, [body, styles, paging.loading, rowSpace, ui.selEnd, ui.sel, rect, columns, registers, driverColumn, gridTemplate, rowPx, wr, edit, editorNode, onCellDown, onCellDouble, onCellEnter, onRowPick, linkCellCtx]);
 
     if (paging.error !== undefined) {
         return (

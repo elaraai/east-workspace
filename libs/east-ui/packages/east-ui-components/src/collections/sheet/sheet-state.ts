@@ -12,14 +12,17 @@
  * {@link SheetMachineCtx} with the event, and everything that touches data
  * or the host leaves as an effect the component runs.
  *
- * The suggestion lifecycle (P4), the link editor's halves and chip selection
- * (P3) and the lens / tabs (P5) extend this file; the rungs they add to the
- * esc and Tab ladders are marked where they slot in.
+ * The suggestion lifecycle (P4) and the lens / tabs (P5) extend this file;
+ * the rungs they add to the esc and Tab ladders are marked where they slot
+ * in. The link editor (B§4.4) lives here too: its two halves, the buffer
+ * that resolves to chips on `,` / ⏎ / a hop, the chip selection.
  *
  * Non-negotiable transition rules (unit-tested as a table in
  * `sheet-state.test.ts`):
  *
- * - **Esc ladder**, one rung per press: editor → range.
+ * - **Esc ladder**, one rung per press: editor → chip selection → range.
+ * - **Tab ladder** (B§4.4): the inline ghost or armed candidate → one
+ *   predicted chip → hop From → To (a locked half is skipped) → commit right.
  * - **Commit directions** — Tab right, ⇧Tab left, ⏎ / ↓ down (↓ on the last
  *   row appends unless a lens is active or the source is unexhausted), ↑ /
  *   blur stay; an unparseable value never commits — the editor stays open
@@ -33,9 +36,27 @@
  */
 
 import { ghostFor, ghostWord, resolveFor } from "./candidates.js";
-import type { SheetKind } from "./model.js";
+import { memberLabel, type SheetKind } from "./model.js";
 import type { ParseOutcome } from "./parse/index.js";
-import type { SheetCellValue } from "./values.js";
+import type { LinkCandidate } from "./link/predict.js";
+import type { LinkHalves } from "./link/sides.js";
+import { ARROW } from "./link/grammar.js";
+import type { SheetCellValue, SheetMemberValue } from "./values.js";
+
+/** The two halves' members. */
+export type LinkGroups = [SheetMemberValue[], SheetMemberValue[]];
+
+/** The link editor's own state — the two halves, the caret's half, the chip selection. */
+export interface LinkEdit {
+    /** Which half the caret is in: 0 = From, 1 = To. */
+    side: 0 | 1;
+    /** The resolved members of each half. */
+    groups: LinkGroups;
+    /** Whole-chip selection over the flat member list (From then To). */
+    chipSel: { anchor: number; focus: number } | null;
+    /** Bumps when the caret hops halves — the editor refocuses the active half. */
+    hop: number;
+}
 
 /** A cell position in the sheet's ROW space (bands are not rows). */
 export interface CellRef {
@@ -55,6 +76,8 @@ export interface EditBuffer {
     hi: number;
     /** Opened by a printable key — caret at the end, nothing selected. */
     seeded: boolean;
+    /** The link editor's state — present on a link / set column. */
+    link?: LinkEdit;
 }
 
 /** All ephemeral UI state — one object, one reducer. */
@@ -86,7 +109,9 @@ export type SheetEvent =
     | { t: "editor.change"; val: string }
     | { t: "editor.key"; key: string; shift: boolean; meta: boolean; alt: boolean; atEnd: boolean }
     | { t: "editor.blur" }
-    | { t: "strip.pick"; label: string; i: number }
+    | { t: "strip.pick"; label: string; i: number; members?: SheetMemberValue[] }
+    /** A click in a link editor's half moves the caret there (the buffer resolves first). */
+    | { t: "half.down"; side: 0 | 1 }
     /** The controlled `selection` prop moved the ring — no `emit.select` echo. */
     | { t: "select.set"; r: number; c: number }
     /** The rows changed underneath (a new value, a landed window): clamp. */
@@ -138,6 +163,28 @@ export interface SheetMachineCtx {
     candidateAt: (r: number, c: number, text: string, hi: number) => string | undefined;
     /** The cell's edit form. */
     editTextAt: (r: number, c: number) => string;
+    /** The link editor's context for a link / set column (`undefined` on every other kind). */
+    linkAt?: (r: number, c: number) => LinkEditCtx | undefined;
+}
+
+/** What the link editor asks about its cell — built by the component per render. */
+export interface LinkEditCtx {
+    /** The halves the row's driver makes live, and their lock tags. */
+    halves: LinkHalves;
+    /** The cell's current members. */
+    initial: LinkGroups;
+    /** The candidates for a buffer, members already in the cell excluded. */
+    candidates: (text: string, groups: LinkGroups) => LinkCandidate[];
+    /** The armed candidate. */
+    candidateAt: (text: string, hi: number, groups: LinkGroups) => LinkCandidate | undefined;
+    /** What a buffer resolves to — the armed candidate when it completes the text, else the grammar. */
+    resolve: (text: string, cand: LinkCandidate | undefined) => SheetMemberValue[];
+    /** The predicted members for a half (P4 — empty until the runner lands). */
+    predicted: (side: 0 | 1, groups: LinkGroups, typed: string) => SheetMemberValue[];
+    /** The cell for the halves — `null` when both are empty. */
+    cell: (groups: LinkGroups) => SheetCellValue | null;
+    /** The driver member's name, for the hop-into-a-locked-half message. */
+    driverName: string;
 }
 
 /** The register kinds — where ⌥ cycles candidates and Tab takes the ghost. */
@@ -198,9 +245,15 @@ function startEdit(s: SheetUiState, r: number, c: number, seed: string | undefin
     if (!ctx.editableAt(r, c)) return { state: s, effects: [] };
     const effects: SheetEffect[] = [];
     const moved = moveTo(s, { r, c }, ctx, effects);
-    const val = seed ?? ctx.editTextAt(r, c);
+    const linkCtx = ctx.linkAt?.(r, c);
+    const val = linkCtx !== undefined ? seed ?? "" : seed ?? ctx.editTextAt(r, c);
     const edit: EditBuffer = { r, c, val, err: false, hi: seed !== undefined && seed.trim() !== "" ? 0 : -1, seeded: seed !== undefined };
-    effects.push({ t: "focus.editor", selectAll: seed === undefined });
+    if (linkCtx !== undefined) {
+        // Existing content becomes chips; a seed replaces it (the spreadsheet convention).
+        const groups: LinkGroups = seed !== undefined ? [[], []] : [[...linkCtx.initial[0]], [...linkCtx.initial[1]]];
+        edit.link = { side: linkStartSide(linkCtx.halves, groups), groups, chipSel: null, hop: 0 };
+    }
+    effects.push({ t: "focus.editor", selectAll: seed === undefined && linkCtx === undefined });
     effects.push({ t: "schedule.suggest", latency: "idle" });
     return { state: { ...moved, edit, selEnd: null }, effects };
 }
@@ -219,6 +272,18 @@ function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Tran
     if (edit === null) return { state: s, effects: [] };
     if (dir === "cancel") return { state: { ...s, edit: null }, effects: [{ t: "focus.sheet" }] };
     if (edit.r >= ctx.rowCount) return { state: { ...s, edit: null }, effects: [] };
+    if (edit.link !== undefined) {
+        // The buffer resolves into the active half (the ghost taken); the cell is
+        // the two halves. Typed entry is never blocked, so a link always commits.
+        const linkCtx = ctx.linkAt?.(edit.r, edit.c);
+        if (linkCtx === undefined) return { state: { ...s, edit: null }, effects: [{ t: "focus.sheet" }] };
+        const groups = withBuffer(edit, linkCtx);
+        const effects: SheetEffect[] = [{ t: "write", r: edit.r, c: edit.c, cell: linkCtx.cell(groups), text: "" }];
+        let next: SheetUiState = { ...s, edit: null };
+        if (dir !== "blur") effects.push({ t: "focus.sheet" });
+        next = moveAfterCommit(next, dir, ctx, effects);
+        return { state: next, effects };
+    }
     const text = commitText(edit, ctx);
     const outcome = ctx.parse(edit.r, edit.c, text);
     if (outcome.kind === "unrecognised") {
@@ -306,10 +371,204 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
     }
 }
 
-/** The editor's keyboard — scalar cells (the link editor's keys land in P3). */
+// ── The link editor (B§4.4) ───────────────────────────────────────────────
+
+/** The half the caret opens in: the first live half still empty, else the destination. */
+function linkStartSide(halves: LinkHalves, groups: LinkGroups): 0 | 1 {
+    if (halves.from.live && groups[0].length === 0) return 0;
+    if (halves.to.live && groups[1].length === 0) return 1;
+    return halves.to.live ? 1 : 0;
+}
+
+/** The halves with the buffer resolved into the active one. */
+function withBuffer(edit: EditBuffer, linkCtx: LinkEditCtx): LinkGroups {
+    const link = edit.link!;
+    const groups: LinkGroups = [[...link.groups[0]], [...link.groups[1]]];
+    if (edit.val.trim() === "") return groups;
+    const cand = linkCtx.candidateAt(edit.val, edit.hi, link.groups);
+    groups[link.side] = groups[link.side].concat(linkCtx.resolve(edit.val, cand));
+    return groups;
+}
+
+/** Hop the caret to a half — the buffer resolves into the half it leaves. */
+function switchSide(s: SheetUiState, side: 0 | 1, ctx: SheetMachineCtx): Transition {
+    const edit = s.edit;
+    if (edit === null || edit.link === undefined || edit.link.side === side) return { state: s, effects: [] };
+    const linkCtx = ctx.linkAt?.(edit.r, edit.c);
+    if (linkCtx === undefined) return { state: s, effects: [] };
+    const groups = withBuffer(edit, linkCtx);
+    return {
+        state: { ...s, edit: { ...edit, val: "", hi: -1, err: false, link: { ...edit.link, side, groups, chipSel: null, hop: edit.link.hop + 1 } } },
+        effects: [{ t: "focus.editor", selectAll: false }, { t: "schedule.suggest", latency: "idle" }],
+    };
+}
+
+/** The flat chip list's range under the chip selection. */
+function chipRange(link: LinkEdit): { lo: number; hi: number } {
+    if (link.chipSel === null) return { lo: -1, hi: -2 };
+    return { lo: Math.min(link.chipSel.anchor, link.chipSel.focus), hi: Math.max(link.chipSel.anchor, link.chipSel.focus) };
+}
+
+/** The link editor's typing: `,` resolves the buffer, an arrow hops From → To (dropped in To). */
+function linkChange(s: SheetUiState, val: string, ctx: SheetMachineCtx): Transition {
+    const edit = s.edit!;
+    const link = edit.link!;
+    if (!val.includes(",") && !ARROW.test(val)) {
+        return { state: { ...s, edit: { ...edit, val, err: false, hi: val.trim() === "" ? -1 : 0, link: { ...link, chipSel: null } } }, effects: [{ t: "schedule.suggest", latency: "idle" }] };
+    }
+    const linkCtx = ctx.linkAt?.(edit.r, edit.c);
+    if (linkCtx === undefined) return { state: s, effects: [] };
+    const groups: LinkGroups = [[...link.groups[0]], [...link.groups[1]]];
+    let side = link.side;
+    let buf = "";
+    let warn = "";
+    const push = (b: string) => {
+        const t = b.trim().replace(/-+$/, "").trim();
+        if (t === "") return;
+        // The armed candidate completes the buffer (the ghost the planner saw); else the grammar.
+        groups[side] = groups[side].concat(linkCtx.resolve(t, linkCtx.candidateAt(t, -1, groups)));
+    };
+    // An arrow typed in the From half hops to the To half; in the To half it is
+    // dropped. Hopping into a locked half is allowed but flagged — the text is kept.
+    const route = () => {
+        push(buf);
+        buf = "";
+        if (side === 0) {
+            side = 1;
+            if (!linkCtx.halves.to.live) warn = `${linkCtx.driverName} has no destination — kept, but flagged`;
+        }
+    };
+    for (let i = 0; i < val.length; i++) {
+        const ch = val[i]!;
+        if (ch === ",") { push(buf); buf = ""; continue; }
+        if (ch === ">" || ch === "→") { route(); continue; }
+        if (ch === "-" && val[i + 1] === ">") continue;   // `->`: the hyphen buffered before the arrow
+        if ((ch === "-" || ch === "–") && /\s$/.test(buf) && /^\s/.test(val.slice(i + 1))) { route(); i++; continue; }
+        buf += ch;
+    }
+    const hopped = side !== link.side;
+    const effects: SheetEffect[] = [{ t: "schedule.suggest", latency: "idle" }];
+    if (hopped) effects.push({ t: "focus.editor", selectAll: false });
+    const rest = buf.replace(/^\s+/, "");
+    return {
+        state: {
+            ...s,
+            msg: warn !== "" ? warn : s.msg,
+            edit: { ...edit, val: rest, err: false, hi: rest.trim() === "" ? -1 : 0, link: { ...link, side, groups, chipSel: null, hop: hopped ? link.hop + 1 : link.hop } },
+        },
+        effects,
+    };
+}
+
+/** The link editor's keys (B§4.4). */
+function linkKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>, ctx: SheetMachineCtx): Transition {
+    const edit = s.edit!;
+    const link = edit.link!;
+    const linkCtx = ctx.linkAt?.(edit.r, edit.c);
+    if (linkCtx === undefined) return commitEdit(s, "cancel", ctx);
+    const setLink = (patch: Partial<LinkEdit>, more: Partial<EditBuffer> = {}, effects: SheetEffect[] = []): Transition =>
+        ({ state: { ...s, edit: { ...edit, ...more, link: { ...link, ...patch } } }, effects });
+    const flat = [...link.groups[0], ...link.groups[1]];
+    if (e.key === "Escape") {
+        if (link.chipSel !== null) return setLink({ chipSel: null });
+        return commitEdit(s, "cancel", ctx);
+    }
+    if (e.alt && (e.key === "]" || e.key === "[" || e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        const n = linkCtx.candidates(edit.val, link.groups).length;
+        if (n === 0) return { state: s, effects: [] };
+        const cur = edit.hi < 0 ? (edit.val.trim() === "" ? -1 : 0) : edit.hi;
+        const back = e.key === "[" || e.key === "ArrowUp";
+        return { state: { ...s, edit: { ...edit, hi: cur < 0 ? 0 : (cur + (back ? -1 : 1) + n) % n } }, effects: [{ t: "schedule.suggest", latency: "instant" }] };
+    }
+    if (e.key === "Enter") {
+        if (e.meta) return commitEdit(s, "stay", ctx);
+        if (edit.val.trim() !== "") {
+            // With text: resolve to chips, stay.
+            const groups = withBuffer(edit, linkCtx);
+            return setLink({ groups, chipSel: null }, { val: "", hi: -1, err: false }, [{ t: "schedule.suggest", latency: "idle" }]);
+        }
+        return commitEdit(s, "down", ctx);
+    }
+    if (e.key === "Tab") {
+        if (!e.shift && edit.val.trim() !== "") {
+            // 1 · the inline ghost or the armed candidate.
+            const cand = linkCtx.candidateAt(edit.val, edit.hi, link.groups);
+            if (cand !== undefined && cand.label.toLowerCase() !== edit.val.trim().toLowerCase()) {
+                return { state: { ...s, edit: { ...edit, val: cand.label, hi: 0 } }, effects: [{ t: "schedule.suggest", latency: "instant" }] };
+            }
+        }
+        if (!e.shift && edit.val.trim() === "") {
+            // 2 · one predicted chip.
+            const rest = linkCtx.predicted(link.side, link.groups, edit.val);
+            if (rest.length > 0) {
+                const groups: LinkGroups = [[...link.groups[0]], [...link.groups[1]]];
+                groups[link.side] = groups[link.side].concat([rest[0]!]);
+                return setLink({ groups });
+            }
+        }
+        // 3 · the divider, before the cell — a locked half is skipped.
+        if (!e.shift && link.side === 0 && linkCtx.halves.to.live) return switchSide(s, 1, ctx);
+        if (e.shift && link.side === 1 && linkCtx.halves.from.live) return switchSide(s, 0, ctx);
+        // 4 · commit.
+        return commitEdit(s, e.shift ? "left" : "right", ctx);
+    }
+    // ⇧← / ⇧→ select whole chips — the unit of a collection cell is the member.
+    if (e.shift && (e.key === "ArrowLeft" || e.key === "ArrowRight") && flat.length > 0) {
+        const cs = link.chipSel;
+        if (e.key === "ArrowLeft" && (cs !== null || edit.val === "")) {
+            const next = cs !== null ? { anchor: cs.anchor, focus: Math.max(0, cs.focus - 1) } : { anchor: flat.length - 1, focus: flat.length - 1 };
+            return setLink({ chipSel: next });
+        }
+        if (e.key === "ArrowRight" && cs !== null) {
+            const f = cs.focus + 1;
+            return setLink({ chipSel: f > flat.length - 1 ? null : { anchor: cs.anchor, focus: f } });
+        }
+    }
+    if (link.chipSel !== null && (e.key === "Backspace" || e.key === "Delete")) {
+        const { lo, hi } = chipRange(link);
+        let i = 0;
+        const groups = link.groups.map((g) => g.filter(() => { const n = i++; return n < lo || n > hi; })) as LinkGroups;
+        return { state: { ...s, msg: `${hi - lo + 1} member${hi - lo === 0 ? "" : "s"} removed`, edit: { ...edit, link: { ...link, groups, chipSel: null } } }, effects: [] };
+    }
+    if (link.chipSel !== null && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return setLink({ chipSel: null });
+    if (e.key === "Backspace" && edit.val === "") {
+        // Pop the active half's last chip back into the buffer; an empty To crosses back to From.
+        if (link.groups[link.side].length > 0) {
+            const groups: LinkGroups = [[...link.groups[0]], [...link.groups[1]]];
+            const tok = groups[link.side].pop()!;
+            return setLink({ groups, chipSel: null }, { val: memberLabel(tok), hi: 0 });
+        }
+        if (link.side === 1) return switchSide(s, 0, ctx);
+        return { state: s, effects: [] };
+    }
+    if (e.key === "ArrowRight" && e.atEnd && edit.val.trim() !== "") {
+        const cand = linkCtx.candidateAt(edit.val, edit.hi, link.groups);
+        const ghost = cand !== undefined && cand.label.toLowerCase().startsWith(edit.val.trim().toLowerCase()) ? cand.label.slice(edit.val.trim().length) : "";
+        if (ghost !== "") {
+            const take = e.meta ? ghost : ghostWord(ghost);
+            return { state: { ...s, edit: { ...edit, val: edit.val + take } }, effects: [] };
+        }
+    }
+    if (e.meta && e.key === "ArrowRight" && edit.val.trim() === "") {
+        // The whole predicted remainder of the half in one press.
+        const rest = linkCtx.predicted(link.side, link.groups, edit.val);
+        if (rest.length > 0) {
+            const groups: LinkGroups = [[...link.groups[0]], [...link.groups[1]]];
+            groups[link.side] = groups[link.side].concat(rest);
+            return { state: { ...s, msg: `Took ${rest.length} predicted member${rest.length === 1 ? "" : "s"}`, edit: { ...edit, link: { ...link, groups } } }, effects: [] };
+        }
+    }
+    // Plain arrows at the edge of an empty buffer cross the divider.
+    if (e.key === "ArrowRight" && edit.val === "" && !e.meta && link.side === 0 && linkCtx.halves.to.live) return switchSide(s, 1, ctx);
+    if (e.key === "ArrowLeft" && edit.val === "" && link.chipSel === null && link.side === 1) return switchSide(s, 0, ctx);
+    return { state: s, effects: [] };
+}
+
+/** The editor's keyboard — the link editor's keys first, then the scalar cells'. */
 function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>, ctx: SheetMachineCtx): Transition {
     const edit = s.edit;
     if (edit === null) return { state: s, effects: [] };
+    if (edit.link !== undefined) return linkKey(s, e, ctx);
     const kind = ctx.kindAt(edit.c);
     if (e.key === "Escape") return commitEdit(s, "cancel", ctx);
     if (isRegisterKind(kind) && e.alt && (e.key === "]" || e.key === "[" || e.key === "ArrowDown" || e.key === "ArrowUp")) {
@@ -394,6 +653,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return sheetKey(s, e, ctx);
         case "editor.change": {
             if (s.edit === null) return { state: s, effects: [] };
+            if (s.edit.link !== undefined) return linkChange(s, e.val, ctx);
             const hi = e.val.trim() === "" ? -1 : 0;
             return { state: { ...s, edit: { ...s.edit, val: e.val, err: false, hi } }, effects: [{ t: "schedule.suggest", latency: "idle" }] };
         }
@@ -403,10 +663,27 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return commitEdit(s, "blur", ctx);
         case "strip.pick": {
             if (s.edit === null) return { state: s, effects: [] };
+            if (s.edit.link !== undefined) {
+                // A link chip adds its members to the active half; the buffer clears.
+                const link = s.edit.link;
+                const members = e.members ?? [];
+                if (members.length === 0) return { state: s, effects: [] };
+                const groups: LinkGroups = [[...link.groups[0]], [...link.groups[1]]];
+                groups[link.side] = groups[link.side].concat(members);
+                return {
+                    state: { ...s, msg: `Added ${members.length} member${members.length === 1 ? "" : "s"}`, edit: { ...s.edit, val: "", hi: -1, err: false, link: { ...link, groups, chipSel: null } } },
+                    effects: [{ t: "focus.editor", selectAll: false }, { t: "schedule.suggest", latency: "instant" }],
+                };
+            }
             return {
                 state: { ...s, edit: { ...s.edit, val: e.label, hi: e.i, err: false } },
                 effects: [{ t: "focus.editor", selectAll: false }, { t: "schedule.suggest", latency: "instant" }],
             };
+        }
+        case "half.down": {
+            if (s.edit === null || s.edit.link === undefined) return { state: s, effects: [] };
+            if (s.edit.link.side === e.side) return { state: s, effects: [{ t: "focus.editor", selectAll: false }] };
+            return switchSide(s, e.side, ctx);
         }
         case "select.set": {
             // The host moved the ring: commit an open editor in place, follow, scroll — no echo.

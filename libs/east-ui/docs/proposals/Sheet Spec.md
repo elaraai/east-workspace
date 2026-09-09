@@ -396,6 +396,10 @@ const impliedTanks = $.const(East.function([Ctx], OptionType(Sheet.Types.Counted
     const noCount = $.const(none, OptionType(Sheet.Types.Counted));
     const vol = $.let(ctx.row.vol.match({ some: (_$, v) => v, none: _$ => 0.0 }));
     const litresPerTank = $.const(140000.0);
+    // ⌈vol ÷ 140 000⌉ by hand — `toInteger` refuses a fraction.
+    const share = $.let(vol.divide(litresPerTank));
+    const frac = $.let(share.remainder(1.0));
+    const tanks = $.let(frac.equal(0.0).ifElse(_$ => share, _$ => share.subtract(frac).add(1.0)).toInteger());
     return ctx.driver.match({
         none: _$ => noCount,
         some: (_$, d) => d.uom.equal("Tk").ifElse(
@@ -403,7 +407,7 @@ const impliedTanks = $.const(East.function([Ctx], OptionType(Sheet.Types.Counted
             _$ => d.uom.equal("Drm").ifElse(
                 _$ => noCount,                                                    // drum jobs name no vessels
                 _$ => vol.greater(0.0).ifElse(
-                    _$ => some({ n: vol.divide(litresPerTank).toInteger().add(1n), key: "140 m³" }),
+                    _$ => some({ n: tanks, key: "140 m³" }),
                     _$ => noCount))),
     });
 }));
@@ -534,7 +538,10 @@ const shiftVolume = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
 // Notes: a phrase per driver family (the prototype's `phrase`).
 const phrase = $.const(East.function([Ctx], TextFill, ($, ctx) => {
     const noFill = $.const(none, TextFill);
-    const m3 = $.let(ctx.row.vol.match({ some: (_$, v) => v.divide(1000.0).toInteger(), none: _$ => 0n }));
+    const m3 = $.let(ctx.row.vol.match({
+        some: ($2, v) => { const k = $2.let(v.divide(1000.0).add(0.5)); return k.subtract(k.remainder(1.0)).toInteger(); },   // round by hand — `toInteger` refuses a fraction
+        none: _$ => 0n,
+    }));
     return ctx.row.activity.startsWith("Transfer").ifElse(
         _$ => some({ value: East.str`Transfer ${m3}m³ of BX2`, meta: "phrasing from past transfers" }),
         _$ => ctx.row.activity.startsWith("Filtration").ifElse(
@@ -1218,12 +1225,12 @@ behaviour lives and how it is tested.
 | 1 | Date parsing: `+3`/`+3d`, `4d` from `base`, weekday prefix (next occurrence, never today), ISO, `d/m[/yy]`, `d.m`, `17 nov [26]`, year roll-forward; display `17 Nov 26`; edit form `17/11/26`; strip preview `Mon 17 Nov 26` + day span (B§3) | `parse/date.ts` | unit table |
 | 2 | Quantity parsing: digits, decimal, `l·k·m3` suffix, commas/spaces ignored, rounded integer; strip preview with the implied run when the driver has a rate (B§3) | `parse/quantity.ts` | unit table |
 | 3 | Candidate scoring: prefix (0) → word prefix (1) → initials (2) → substring (3), ties by sheet frequency; only a prefix match ghosts inline; a non-prefix match previews `→ replacement`; empty buffer arms nothing (menu of what the field accepts, driver column ranked by what follows the row above); ⌥]/⌥[/⌥↓/⌥↑ cycle (B§3.1) | `candidates.ts` | unit + DOM |
-| 4 | Link grammar: identified codes (case-insensitive, bare digits try the prefix), ranges (`T2140-45`, short upper bound completed; hyphen = range only between unspaced bare numbers), countable by name/alias (leading "the" dropped), countable by attribute (`140m³`, litres ≥ 1 000 read as m³), counted members (`N x kind` / `kind x N`, declared ops, countable kinds only; trailing qualifier → text token; multiplying an identified member → text with reason), `TBC` placeholder, free text (never blocked), separators (B§4.1) — text ↔ `Sheet.Types.Link` value, the kind's parse / print pair | `link/grammar.ts` | unit table (round trips) |
-| 5 | Sides & locks: storage `a > b` / `b` / `a >`; single set = destination; the driver member's `sides` (the column's per-driver dictionary, §4.3) selects live halves (both/from/to/in; `in` draws a minus); locked half never predicted into, Tab skips it, typing allowed but flagged warn (B§4.2) | `link/sides.ts` + `cells/LinkCell.tsx` | unit + DOM |
+| 4 | Link grammar: identified codes (case-insensitive, bare digits try the prefix), ranges (`T2140-45`, short upper bound completed; hyphen = range only between unspaced bare numbers), countable by name/alias (leading "the" dropped), countable by attribute (`140m³`, litres ≥ 1 000 read as m³), counted members (`N x kind` / `kind x N`, declared ops, countable kinds only; trailing qualifier → text token; multiplying an identified member → text with reason), `TBC` placeholder, free text (never blocked), separators (B§4.1) — text ↔ `Sheet.Types.Link` value, the kind's parse / print pair; the renderer parses and prints with a register-aware TS twin of the East pair (`linkVocabulary`), the same rules | `link/grammar.ts` | unit table (round trips) |
+| 5 | Sides & locks: storage `a > b` / `b` / `a >`; single set = destination; the driver member's `sides` (the column's per-driver dictionary, §4.3) selects live halves (both/from/to/in; `in` draws a minus); locked half never predicted into, Tab skips it, typing allowed but flagged warn (B§4.2); a `set` column edits as a single To half | `link/sides.ts` + `cells/LinkCell.tsx` | unit + DOM |
 | 6 | Link display: `minmax(0,1fr) 16px minmax(0,1fr)`; chips mono 10.5 paper-3 r4; meta only for a single chip; dashed = text/placeholder/proposal; FROM/TO faint labels; lock tags warn-tinted when holding content; proposals as dashed chips over the hatch with a ✓ take on hover (B§4.3) | `cells/LinkCell.tsx` + recipe | DOM + shot |
-| 7 | Link editor keys: `,` resolves; `>` hops From → To (flag if locked); ⇥ ladder (ghost/armed → one predicted chip → hop → commit right); ⏎ resolves/commits; ⌫ pops last chip / crosses back; ←/→ cross the divider, → takes a ghost word, ⌘→ the whole ghost or every predicted chip; ⇧←/⇧→ select whole chips (brand fill, ⌫ removes); esc cancels, click a half moves the caret, click outside commits (B§4.4) | `Editor.tsx` + `sheet-state.ts` | DOM |
-| 8 | Link autocomplete & prediction: candidate order (exact → code prefixes → countables with an enumerate alternative → other prefixes → other countables → placeholder), members never offered twice, a range shows its expansion; prediction only with an empty buffer, per half, never into a locked half, from the column's fill providers, as `Link` values (the prototype's history-then-counted order is the author's `[lastTanks, countedByVolume]`); withdrawn once a half has named members; from-only drivers propose into From (B§4.5) | `link/predict.ts` | unit + DOM |
-| 9 | Arity: strip meta *n × unit implied · k named so far / named / more than the volume needs* while the arity half is edited; named = identified once, counted by count; text/placeholders do not count (B§4.6) | `link/arity.ts` + `Strip.tsx` | unit + DOM |
+| 7 | Link editor keys: `,` resolves; `>` hops From → To (flag if locked); ⇥ ladder (ghost/armed → one predicted chip → hop → commit right); ⏎ resolves/commits; ⌫ pops last chip / crosses back; ←/→ cross the divider, → takes a ghost word, ⌘→ the whole ghost or every predicted chip; ⇧←/⇧→ select whole chips (brand fill, ⌫ removes); esc cancels, click a half moves the caret, click outside commits (B§4.4); `,` and the arrow resolve the buffer through the ARMED candidate (Tab's rule), so `t73,` lands `T7301` rather than a text chip | `Editor.tsx` + `sheet-state.ts` | DOM |
+| 8 | Link autocomplete & prediction: candidate order (exact → code prefixes → countables with an enumerate alternative → other prefixes → other countables → placeholder), members never offered twice, a range shows its expansion; prediction only with an empty buffer, per half, never into a locked half, from the column's fill providers, as `Link` values (the prototype's history-then-counted order is the author's `[lastTanks, countedByVolume]`); withdrawn once a half has named members; from-only drivers propose into From (B§4.5); P3 wires the hook (`predictedMembers`), P4 supplies the fills | `link/predict.ts` | unit + DOM |
+| 9 | Arity: strip meta *n × unit implied · k named so far / named / more than the volume needs* while the arity half is edited; named = identified once, counted by count; text/placeholders do not count (B§4.6); the bridged `implied` is called with the edited row's wire context, fail-open | `link/arity.ts` + `Strip.tsx` | unit + DOM |
 | 10 | Copilot runner: rebuilt against the row as it would be, after the kind's latency (150 / 1 100 ms); owned rows untouched; nothing into an occupied slot; first yielding provider wins — providers are the bridged wire functions of §4.8, the runner never sees `R`; provenance in the strip; fills as grey ghosts over the hatch; exactly one next Tab target (dotted underline); ✓ take on hover; gutter → fills the row (⌘⏎); memoised per (row, provisional row, column) (B§5, B§5.1) | `suggest.ts` + `sheet-state.ts` | unit + DOM |
 | 11 | Async providers: a pending chip in the strip per in-flight provider; results land reactively; a newer context cancels the wait (latest wins); a rejected or thrown provider is skipped with a console diagnostic naming the column; sync providers never wait on async ones ahead of them in the list beyond the latency window | `suggest-async.ts` | unit (fake timers) + DOM |
 | 12 | Proposals (patches encoded to cells, §4.4): at most `ahead` rows, dashed-topped hatched rows with real numbers; ✓/⏎ adds into the first blank slot, ×/⌫ rejects and remembers the pairing; click selects (3px brand bar); esc deselects then dismisses all; taking re-anchors and looks forward; rejected fills remembered per row and key (B§5.2) | `suggest.ts` + `Rows.tsx` | DOM |
@@ -1262,6 +1269,8 @@ sheet/
   parse/index.ts         ~80    parse / print dispatch by kind (custom kinds call the compiled East pair)
   candidates.ts          ~120   scored lookup/reference/enum candidates, frequency ties, driver "what follows" ranking
   link/grammar.ts        ~250   text ↔ Sheet.Types.Link: classify · ranges · counted members · parse · print · join (the kind's parse / print pair)
+  link/sides.ts           ~90   the per-driver halves and lock tags (B§4.2), the start side, the warn test
+  link/checks.ts          ~80   `exists` + the bridged custom checks per member, fail-open (B§2 `check`)
   link/predict.ts        ~120   candidate order + empty-buffer prediction per half (from the column's providers)
   link/arity.ts          ~60    implied vs named, the strip meta
   suggest.ts             ~250   the runner over the WIRE functions (§4.8): provisional cells, latency scheduler, first-yields, memo, rejection memory, proposals
@@ -1350,6 +1359,30 @@ message). A commit's write is the parsed cell; the register kinds take the armed
 candidate when a ghost applies or the planner cycled to it (the prototype's
 `commitVal`), and the parse resolves the case.
 
+**The link editor (P3).** A link edit carries a second buffer beside the text:
+`link: { side, groups: [from, to], chipSel, hop }` — the active half, the
+resolved members of each half, a whole-chip selection, and a hop counter the
+editor keys its focus on. What a transition needs to resolve text arrives inside
+the machine context as a `LinkEditCtx` (`linkAt(r, c)`): the row's halves and
+locks, the candidates over the column's vocabulary with the members already
+named excluded (a member is never offered twice), `resolve` (the armed
+candidate, else the grammar's own reading — a text chip, never a refusal),
+`predicted` (the copilot's hook; P4 fills it) and `cell` (the groups as a `Link`
+cell, `null` when both halves are empty). The rules, unit-tested as a table:
+`,` and the arrow resolve the buffer through the ARMED candidate — Tab's rule,
+so `t73,` lands `T7301` and `t2140 >` hops with `T2140` named — where the
+prototype re-read the raw token; an arrow in the From half hops to the To half
+(into a locked To it hops and warns), in the To half it is dropped; the ⇥
+ladder is armed candidate → one predicted chip → hop From → To skipping a
+locked half → commit right; ⏎ resolves a non-empty buffer and stays, else
+commits down; ⌫ on an empty buffer pops the last chip back into the buffer, or
+crosses back to the From half; ⇧← / ⇧→ grow a chip selection ⌫ removes; →
+takes the ghost word (⌘→ the whole ghost, or every predicted chip); plain arrows
+cross the divider from an empty buffer; esc drops the chip selection, then the
+editor. A `set` column edits as a single To half — no divider, the From half
+locked without a tag. The commit writes `cell(groups)`: a link editor never
+reports unrecognised, because the grammar keeps anything as text.
+
 ### 6.2 The provider runner
 
 The copilot runs *against the row as it would be*. `suggest.ts` builds the
@@ -1398,6 +1431,26 @@ is taught rows × the density row height, and the last column absorbs the frame'
 slack (the Table's stretch rule). A pasted cell a typed kind cannot carry is
 skipped and counted in the footer message; a stamped column is consumed and
 never written.
+
+**Links (P3).** Each `link` / `set` column gets a vocabulary once per value —
+the register's members indexed by key and lower-cased alias, the column's
+member kinds (identified vs countable; the capacity kind resolved by
+attribute), the declared multiple ops and the code prefixes bare digits try —
+the register-aware TS twin of `Sheet.link.parse` / `print` (B§4.1: `140m3` /
+`140 m³` / `140000L` all read as `140 m³`; `T2140-45` only unspaced, a short
+upper bound completed; a qualifier after a counted member is its own text chip;
+multiplying an identified member is text with the reason). A row's halves come
+from the column's per-driver `sides` dictionary and its lock rules
+(`halvesFor`): a locked half is never predicted into, Tab skips it, and content
+under a lock draws the tag in warn. Checks run at render, once per row value
+and column (a `WeakMap` over the immutable row): `exists` against the
+vocabulary, the bridged custom checks with the wire check context (`rowIndex`,
+`rowId`, `offset`, `row`, `half`, `member`), every one fail-open — a flagged
+member keeps its chip and carries the message as its title. The arity meta is
+the bridged `implied` called with the edited row's wire context while the
+arity half is edited, fail-open. Under `store: "canonical"` the BRIDGE prints
+the register's labels into a `String` field; the renderer never sees the
+storage form.
 
 ---
 
@@ -1544,7 +1597,7 @@ examples↔tests East-code contract, diagnostics clean, shot loop.
 | Views vs cohorts | A view snapshots the whole slice state (including active cohorts). If a host wants views shared across surfaces, cohorts already are; the two compose. |
 | Undo | The prototype has none beyond "row fill is one undo step". v1: none; the host's staged bind is the undo (`discard`). A per-sheet undo stack is renderer-local state and can arrive without an IR change. |
 | Column resize / reorder | Not in v1 (widths are config). The Table's header drag can be lifted later. |
-| `store: "canonical"` | Declared in the IR, evaluated in P3 (rewrite the committed string to register labels). |
+| `store: "canonical"` | Resolved 2026-09-09 (P3): the bridge prints the register's labels into a `String` field (identified members by label, the rest as the grammar prints them); `asTyped` writes the keys as typed. The renderer never sees the storage form. |
 | `check` validators | Author East functions (§3.4), evaluated at commit and on paste; the flag is the lock-warn treatment plus a strip line. Never a block. |
 | Narrow / mobile | Out of scope for the sheet; a phone review of a plan is a `<Plan>` or a `<Deck>`. |
 | Fields of `R` with no column | Resolved 2026-09-09: `ctx.row` is rebuilt over the real row (`rowById`, §4.8), so unmapped fields keep their values. Still open: when `data` is a plain array VALUE rather than a bind, the shared `rowById` captures the whole collection — fine for example-sized sheets; a large plain array should be bound (`State.bind`) so the capture is a handle. |

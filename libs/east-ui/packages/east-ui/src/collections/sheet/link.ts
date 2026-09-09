@@ -99,6 +99,42 @@ export const printLink = East.function([SheetLinkType], StringType, ($, link) =>
     );
 });
 
+/**
+ * Print one member with the register's LABELS — the `store: "canonical"`
+ * form (B§4.2): an identified member prints its member's label when the
+ * register has it, its key otherwise; every other member prints as
+ * {@link printMember}.
+ */
+export const printMemberWith = East.function([SheetMemberType, SheetRegisterMembersType], StringType, ($, m, members) => {
+    const pm = $.const(printMember);
+    return m.match({
+        identified: (_$2, v) => members.firstMap((_$3, r) => r.key.equal(v.key).ifElse(
+            (_$4) => East.value(some(r.label), OptionType(StringType)),
+            (_$4) => East.value(none, OptionType(StringType)),
+        )).match({
+            some: (_$3, label) => label,
+            none: (_$3) => v.key,
+        }),
+    }, (_$2) => pm(m));
+});
+
+/**
+ * `Sheet.link.print` with the register's labels — what a `String` field
+ * stores under `store: "canonical"` (B§4.2).
+ */
+export const printLinkWith = East.function([SheetLinkType, SheetRegisterMembersType], StringType, ($, link, members) => {
+    const pm = $.const(printMemberWith);
+    const from = $.let(link.from.map((_$, m) => pm(m, members)).stringJoin(", "), StringType);
+    const to   = $.let(link.to.map((_$, m) => pm(m, members)).stringJoin(", "), StringType);
+    return link.from.length().equal(0n).ifElse(
+        (_$) => to,
+        (_$) => link.to.length().equal(0n).ifElse(
+            (_$2) => East.str`${from} >`,
+            (_$2) => East.str`${from} > ${to}`,
+        ),
+    );
+});
+
 // ============================================================================
 // Parse — text to a link value, against a register
 // ============================================================================

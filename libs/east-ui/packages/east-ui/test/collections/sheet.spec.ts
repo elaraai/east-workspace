@@ -265,6 +265,32 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(parsed.to.get(3n).unwrap("text"), "mystery"));
     });
 
+    test("a String-backed link writes the keys as typed, or the register's labels under store canonical", $ => {
+        const labelled = $.const([
+            { key: "T2140", label: "Tank 2140", kind: "tank", aliases: [], meta: none, parent: none, tone: none },
+            { key: "140 m³", label: "140 m³", kind: "capacity", aliases: [], meta: none, parent: none, tone: none },
+        ], Sheet.Types.RegisterMembers);
+        const rows = $.const([{ id: "1", start: none, activity: "", vol: none, tanks: { from: [], to: [] }, fromTanks: [], toTanks: [], vessels: "", status: "", note: "" }], ArrayType(PlanRowType));
+        const seen = $.const(East.function([ArrayType(PlanRowType)], NullType, ($2, next) => {
+            $2(Assert.equal(next.get(0n).vessels, "Tank 2140 > 4 x 140 m³"));
+        }));
+        const seenTyped = $.const(East.function([ArrayType(PlanRowType)], NullType, ($2, next) => {
+            $2(Assert.equal(next.get(0n).vessels, "T2140 > 4 x 140 m³"));
+        }));
+        const canonical = $.let(Sheet.Root(rows, {
+            vessels: Sheet.column.set(PlanRowType, "vessels", { header: "Vessels", store: "canonical" }),
+        }, { id: "id", registers: { vessels: labelled }, onUpdate: seen }));
+        const asTyped = $.let(Sheet.Root(rows, {
+            vessels: Sheet.column.set(PlanRowType, "vessels", { header: "Vessels" }),
+        }, { id: "id", registers: { vessels: labelled }, onUpdate: seenTyped }));
+        const edit = $.const(East.value(variant("commit", {
+            rowId: "1", offset: 0n, key: "vessels", source: variant("typed", null),
+            row: { id: "1", owned: false, cells: (new Map<string, unknown>([["vessels", variant("Link", { from: [variant("identified", { key: "T2140" })], to: [variant("counted", { n: 4n, key: "140 m³" })] })]]) as never) },
+        }) as never, Sheet.Types.WireEdit));
+        $(canonical.unwrap().unwrap("Sheet").onEdit.unwrap("some")(edit));
+        $(asTyped.unwrap().unwrap("Sheet").onEdit.unwrap("some")(edit));
+    });
+
     test("Sheet.link.print and Sheet.link.parse round-trip the planner's text", $ => {
         const members = $.const(MEMBERS, Sheet.Types.RegisterMembers);
         const parse = $.const(Sheet.link.parse);

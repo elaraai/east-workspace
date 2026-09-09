@@ -5,21 +5,31 @@
 
 /**
  * One read-only cell by kind (B§11): text · mono (date, stamped) · num + unit
- * (quantity, integer) · enum dot + word · a link's chips (the split cell
- * proper lands in P3; here the halves print as chips around the arrow) · a
- * custom kind's `print`. A ghost (a pending fill, P4) draws in `fg.subtle`
- * over the brand hatch; the next Tab target carries the dotted underline.
+ * (quantity, integer) · enum dot + word · the split link cell (`LinkCell`)
+ * · a custom kind's `print`. A ghost (a pending fill, P4) draws in
+ * `fg.subtle` over the brand hatch; the next Tab target carries the dotted
+ * underline.
  */
 
 import { memo } from "react";
 import { Box } from "@chakra-ui/react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowRightLong, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { getSomeorUndefined } from "../../../utils.js";
 import { cellIsBlank, cellText, memberIsDashed, memberLabel, type SheetColumnMeta } from "../model.js";
-import type { SheetCellValue, SheetLinkValue, SheetMemberValue, SheetRegisterMemberValue } from "../values.js";
+import { LinkCell } from "./LinkCell.js";
+import type { LinkVocabulary } from "../link/grammar.js";
+import type { LinkHalves } from "../link/sides.js";
+import { NO_FLAGS, type LinkFlags } from "../link/checks.js";
+import type { SheetCellValue, SheetLinkValue, SheetRegisterMemberValue } from "../values.js";
 
 type Styles = Record<string, Record<string, unknown>>;
+
+/** What a link cell needs beyond its value. */
+export interface LinkCellContext {
+    halves: LinkHalves;
+    vocab: LinkVocabulary | undefined;
+    flags: LinkFlags;
+    driverName: string;
+}
 
 export interface SheetCellContentProps {
     styles: Styles;
@@ -33,26 +43,12 @@ export interface SheetCellContentProps {
     member: SheetRegisterMemberValue | undefined;
     /** A pending fill — drawn as a ghost when the cell is blank (P4). */
     ghost: SheetCellValue | undefined;
-    /** The driver's sides make the link cell draw `in place` (a minus). */
-    linkIn: boolean;
-}
-
-/** The chips of one link half. */
-function LinkHalf({ styles, members, half, empty }: { styles: Styles; members: readonly SheetMemberValue[]; half: "from" | "to"; empty: boolean }) {
-    return (
-        <Box css={styles.half} data-half={half}>
-            {empty && members.length === 0 && <Box as="span" css={styles.halfLabel}>{half}</Box>}
-            {members.map((m, i) => (
-                <Box key={i} as="span" css={memberIsDashed(m) ? styles.chipDashed : styles.chip} data-member={m.type}>
-                    {memberLabel(m)}
-                </Box>
-            ))}
-        </Box>
-    );
+    /** The link cell's halves, vocabulary and flags. */
+    link: LinkCellContext | undefined;
 }
 
 /** Renders a cell's content. */
-export const SheetCellContent = memo(function SheetCellContent({ styles, meta, cell, rowBlank, unit, member, ghost, linkIn }: SheetCellContentProps) {
+export const SheetCellContent = memo(function SheetCellContent({ styles, meta, cell, rowBlank, unit, member, ghost, link }: SheetCellContentProps) {
     const blank = cellIsBlank(cell);
     const shown = blank && ghost !== undefined ? ghost : cell;
     const isGhost = blank && ghost !== undefined;
@@ -85,30 +81,38 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
                 </>
             );
         }
-        case "set":
-        case "link": {
+        case "set": {
             if (shown === undefined || shown.type !== "Link") {
                 if (shown !== undefined && !cellIsBlank(shown)) return <Box as="span" css={styles.cellText}>{cellText(shown, meta)}</Box>;
                 return null;
             }
-            const link = shown.value as SheetLinkValue;
-            if (meta.kind === "set") {
-                return (
-                    <Box css={styles.half} data-half="to" style={{ justifyContent: "flex-start" }}>
-                        {link.to.map((m, i) => (
-                            <Box key={i} as="span" css={memberIsDashed(m) || isGhost ? styles.chipDashed : styles.chip} data-member={m.type}>{memberLabel(m)}</Box>
-                        ))}
-                    </Box>
-                );
-            }
+            const set = shown.value as SheetLinkValue;
             return (
-                <Box css={styles.linkGrid} data-ghost={isGhost ? "" : undefined}>
-                    <LinkHalf styles={styles} members={link.from} half="from" empty={!rowBlank} />
-                    <Box as="span" css={styles.arrow} aria-hidden="true">
-                        <FontAwesomeIcon icon={linkIn ? faMinus : faArrowRightLong} />
-                    </Box>
-                    <LinkHalf styles={styles} members={link.to} half="to" empty={!rowBlank} />
+                <Box css={styles.half} data-half="to" style={{ justifyContent: "flex-start" }}>
+                    {set.to.map((m, i) => (
+                        <Box key={i} as="span" css={memberIsDashed(m) || isGhost ? styles.chipDashed : styles.chip} data-slot="chip" data-member={m.type}>{memberLabel(m)}</Box>
+                    ))}
                 </Box>
+            );
+        }
+        case "link": {
+            // The two halves are always drawn once the row has content, so an
+            // empty cell still says what it wants; blank rows stay blank.
+            if (shown !== undefined && shown.type !== "Link" && !cellIsBlank(shown)) {
+                return <Box as="span" css={styles.cellText}>{cellText(shown, meta)}</Box>;
+            }
+            if (rowBlank || link === undefined) return null;
+            const value = shown !== undefined && shown.type === "Link" ? (shown.value as SheetLinkValue) : ({ from: [], to: [] } as unknown as SheetLinkValue);
+            return (
+                <LinkCell
+                    styles={styles}
+                    link={value}
+                    halves={link.halves}
+                    vocab={link.vocab}
+                    flags={isGhost ? NO_FLAGS : link.flags}
+                    ghost={isGhost}
+                    driverName={link.driverName}
+                />
             );
         }
         default: {

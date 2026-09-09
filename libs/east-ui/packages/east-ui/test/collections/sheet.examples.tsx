@@ -313,14 +313,20 @@ export const sheetPlan = example({
                 const noCount = $.const(none, OptionType(Sheet.Types.Counted));
                 const vol = $.let(ctx.row.vol.match({ some: (_$, v) => v, none: (_$) => 0.0 }));
                 const litresPerTank = $.const(140000.0);
+                // ⌈vol ÷ 140 000⌉ and round(vol) by hand — `toInteger` refuses a fraction.
+                const share = $.let(vol.divide(litresPerTank));
+                const frac = $.let(share.remainder(1.0));
+                const tanks = $.let(frac.equal(0.0).ifElse((_$) => share, (_$) => share.subtract(frac).add(1.0)).toInteger());
+                const half = $.let(vol.add(0.5));
+                const whole = $.let(half.subtract(half.remainder(1.0)).toInteger());
                 return ctx.driver.match({
                     none: (_$) => noCount,
                     some: (_$, d) => d.uom.equal("Tk").ifElse(
-                        (_$2) => East.value(some({ n: vol.toInteger(), key: "140 m³" }), OptionType(Sheet.Types.Counted)),
+                        (_$2) => East.value(some({ n: whole, key: "140 m³" }), OptionType(Sheet.Types.Counted)),
                         (_$2) => d.uom.equal("Drm").ifElse(
                             (_$3) => noCount,
                             (_$3) => vol.greater(0.0).ifElse(
-                                (_$4) => East.value(some({ n: vol.divide(litresPerTank).toInteger().add(1n), key: "140 m³" }), OptionType(Sheet.Types.Counted)),
+                                (_$4) => East.value(some({ n: tanks, key: "140 m³" }), OptionType(Sheet.Types.Counted)),
                                 (_$4) => noCount))),
                 });
             }));
@@ -397,7 +403,10 @@ export const sheetPlan = example({
             }));
             const phrase = $.const(East.function([Ctx], TextFill, ($, ctx) => {
                 const noFill = $.const(none, TextFill);
-                const m3 = $.let(ctx.row.vol.match({ some: (_$, v) => v.divide(1000.0).toInteger(), none: (_$) => 0n }));
+                const m3 = $.let(ctx.row.vol.match({
+                    some: ($2, v) => { const k = $2.let(v.divide(1000.0).add(0.5)); return k.subtract(k.remainder(1.0)).toInteger(); },
+                    none: (_$) => 0n,
+                }));
                 return ctx.row.activity.startsWith("Transfer").ifElse(
                     (_$) => East.value(some({ value: East.str`Transfer ${m3}m³ of BX2`, meta: "phrasing from past transfers" }), TextFill),
                     (_$) => ctx.row.activity.startsWith("Filtration").ifElse(
