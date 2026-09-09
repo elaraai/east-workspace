@@ -4,13 +4,24 @@
  */
 
 /**
- * The budget measurement behind `perf.spec.tsx`, as its own process so it
- * runs React's production build (`NODE_ENV=production`, as the bin sets
- * it) rather than the test runner's: mounts a dashboard of the given size
- * through Ink's real `render()`, presses arrow-down as a held key repeats,
- * and prints the CPU one keypress costs. Test-only.
+ * The measurements behind `perf.spec.tsx`, as their own process so they run
+ * React's production build (`NODE_ENV=production`, as the bin sets it)
+ * rather than the test runner's. Both mount a dashboard through Ink's real
+ * `render()` and print one JSON line. Test-only.
  *
- *   node dist/tui/testing/perf-probe.js <tasks> <inputs>   →   { "tasks", "inputs", "ms" }
+ *   node dist/tui/testing/perf-probe.js keypress <tasks> <inputs>
+ *     → { mode, tasks, inputs, ms, env }
+ *     the CPU one arrow-down keypress costs, keys 40 ms apart as a held key repeats
+ *
+ *   node --expose-gc dist/tui/testing/perf-probe.js idle <tasks> <inputs> <polls>
+ *     → { mode, tasks, inputs, polls, growthKB, perPollKB, measures, marks, gc, env }
+ *     the heap an idle dashboard retains over its polls (the status feed every
+ *     poll, the execution and dataset feeds every fifth) after a forced GC, and
+ *     the size of Node's user-timing buffer: React's development build logs a
+ *     `performance.measure()` per component render, and Node keeps every such
+ *     entry for the life of the process — the leak that took a session left
+ *     open overnight to `JavaScript heap out of memory` on the release before
+ *     the bin set NODE_ENV.
  *
  * @packageDocumentation
  */
@@ -25,6 +36,10 @@ const KEYS = 10;
 const BATCHES = 3;
 /** Milliseconds between keys — a held key at ~25 Hz. */
 const KEY_GAP_MS = 40;
+/** Milliseconds between idle polls (the real feed's second, compressed). */
+const POLL_GAP_MS = 20;
+/** Polls before the idle baseline, so lazily allocated caches exist by then. */
+const WARM_POLLS = 20;
 
 const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -60,7 +75,80 @@ export async function cpuPerKeypress(tasks: number, inputs: number): Promise<num
     }
 }
 
-const tasks = Number(process.argv[2] ?? '6');
-const inputs = Number(process.argv[3] ?? '4');
-const ms = await cpuPerKeypress(tasks, inputs);
-process.stdout.write(`${JSON.stringify({ tasks, inputs, ms, env: process.env['NODE_ENV'] ?? '' })}\n`);
+/** What {@link idleHeap} measures. */
+export interface IdleHeap {
+    /** Heap retained over the polls, after a forced GC, in KiB. */
+    growthKB: number;
+    /** The same per poll. */
+    perPollKB: number;
+    /** `performance.measure()` entries in Node's user-timing buffer at the end. */
+    measures: number;
+    /** `performance.mark()` entries at the end. */
+    marks: number;
+    /** Whether a GC could be forced (`--expose-gc`); without one the growth is noise. */
+    gc: boolean;
+}
+
+/**
+ * The heap an idle dashboard of `tasks` tasks retains over `polls` status
+ * polls with unchanged data — the server returns a fresh object each poll,
+ * as it does — plus the execution and dataset feeds every fifth poll.
+ *
+ * @param tasks - Tasks in the workspace
+ * @param inputs - Inputs in the workspace
+ * @param polls - Polls measured (after a warm-up)
+ * @returns The retained growth and the user-timing buffer's size
+ */
+export async function idleHeap(tasks: number, inputs: number, polls: number): Promise<IdleHeap> {
+    const probe = await mountInk({ view: dashboardView(), actions: dashboardFixture(tasks, inputs, NOW) });
+    try {
+        const state = probe.store.getState();
+        const status = state.data.status['main']!.result;
+        const execution = state.data.execution['main']!;
+        const datasets = state.data.datasets['main']!;
+        const gc = (globalThis as { gc?: () => void }).gc ?? null;
+        const poll = (i: number): void => {
+            probe.store.dispatch({ type: 'data/status', ws: 'main', result: { ...status, tasks: [...status.tasks], datasets: [...status.datasets] }, at: NOW + i * 1_000 });
+            if (i % 5 === 0) {
+                probe.store.dispatch({ type: 'data/execution', ws: 'main', state: execution.state, events: [...execution.events], startedAt: execution.startedAt });
+                probe.store.dispatch({ type: 'data/datasets', ws: 'main', entries: [...datasets] });
+            }
+        };
+        for (let i = 1; i <= WARM_POLLS; i++) {
+            poll(i);
+            await wait(POLL_GAP_MS);
+        }
+        await probe.flush();
+        gc?.();
+        const before = process.memoryUsage().heapUsed;
+        for (let i = WARM_POLLS + 1; i <= WARM_POLLS + polls; i++) {
+            poll(i);
+            await wait(POLL_GAP_MS);
+        }
+        await probe.flush();
+        gc?.();
+        const growthKB = (process.memoryUsage().heapUsed - before) / 1024;
+        return {
+            growthKB,
+            perPollKB: growthKB / polls,
+            measures: performance.getEntriesByType('measure').length,
+            marks: performance.getEntriesByType('mark').length,
+            gc: gc !== null,
+        };
+    } finally {
+        await probe.unmount();
+    }
+}
+
+const mode = process.argv[2] ?? 'keypress';
+const tasks = Number(process.argv[3] ?? '6');
+const inputs = Number(process.argv[4] ?? '4');
+const env = process.env['NODE_ENV'] ?? '';
+if (mode === 'idle') {
+    const polls = Number(process.argv[5] ?? '200');
+    const result = await idleHeap(tasks, inputs, polls);
+    process.stdout.write(`${JSON.stringify({ mode, tasks, inputs, polls, ...result, env })}\n`);
+} else {
+    const ms = await cpuPerKeypress(tasks, inputs);
+    process.stdout.write(`${JSON.stringify({ mode, tasks, inputs, ms, env })}\n`);
+}

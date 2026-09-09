@@ -24,10 +24,11 @@ over a real server and a repository seeded by `src/tui/testing/seed.ts`
 (test-only; the `testing/` tree and the fake are excluded from the
 tarball). Two specs go through Ink's real `render()` into a stub terminal
 (`testing/ink-probe.ts`): `ui/render.spec.tsx` (bytes a selection move
-writes; an idle poll writes nothing) and `perf.spec.tsx`, the §17 CPU
-budget per keypress, measured by `testing/perf-probe.ts` in a child
-process under `NODE_ENV=production` as the bin runs (tests named `perf:`
-for `--test-name-pattern`). A real-terminal smoke: `script -qfec "stty
+writes; an idle poll writes nothing) and `perf.spec.tsx`, the §17 budgets
+— CPU per keypress, and the heap an idle dashboard retains per poll
+(nothing; the development build's user-timing entries leak) — measured by
+`testing/perf-probe.ts` in a child process under `NODE_ENV=production` as
+the bin runs (tests named `perf:` for `--test-name-pattern`). A real-terminal smoke: `script -qfec "stty
 cols 120 rows 36; node dist/cli.js <repo>" /dev/null` with keys piped in.
 
 ## Plugin skill
