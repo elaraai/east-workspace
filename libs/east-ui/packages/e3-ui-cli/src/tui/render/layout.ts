@@ -118,12 +118,14 @@ export function scrollbar(track: number, total: number, visible: number, top: nu
  * @property title - The header text
  * @property width - The width in cells (`0` = the remaining width)
  * @property align - Text alignment
+ * @property grow - When set, the column widens to its longest cell plus a gap, up to this many cells
  */
 export interface ColumnSpec {
     key: string;
     title: string;
     width: number;
     align?: 'left' | 'right' | undefined;
+    grow?: number | undefined;
 }
 
 /** The tables with a per-breakpoint column plan. */
@@ -143,7 +145,7 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
     switch (table) {
         case 'tasks':
             return [
-                { key: 'name', title: 'NAME', width: 12 },
+                { key: 'name', title: 'NAME', width: 12, grow: 24 },
                 { key: 'status', title: 'STATUS', width: narrow ? 16 : 20 },
                 ...(narrow ? [] : [{ key: 'dependsOn', title: 'DEPENDS ON', width: medium ? 14 : 20 }]),
                 ...(narrow || medium ? [] : [{ key: 'inputs', title: 'INPUTS', width: 18 }]),
@@ -152,7 +154,7 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
             ];
         case 'inputs':
             return [
-                { key: 'name', title: 'NAME', width: 14 },
+                { key: 'name', title: 'NAME', width: 14, grow: 24 },
                 { key: 'status', title: 'STATUS', width: 16 },
                 { key: 'type', title: 'TYPE', width: narrow ? 18 : medium ? 22 : 26 },
                 { key: 'size', title: 'SIZE', width: narrow ? 0 : 10 },
@@ -160,7 +162,7 @@ export function columnPlan(table: TableKind, bp: Breakpoint): ColumnSpec[] {
             ];
         case 'workspaces':
             return [
-                { key: 'name', title: 'NAME', width: narrow || medium ? 12 : 14 },
+                { key: 'name', title: 'NAME', width: narrow || medium ? 12 : 14, grow: 24 },
                 { key: 'state', title: 'STATE', width: narrow || medium ? 12 : 14 },
                 { key: 'package', title: 'PACKAGE', width: narrow || medium ? 16 : 22 },
                 ...(narrow ? [] : [{ key: 'tasks', title: 'TASKS', width: medium ? 16 : 30 }]),

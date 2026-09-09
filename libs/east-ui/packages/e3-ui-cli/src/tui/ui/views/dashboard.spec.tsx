@@ -74,12 +74,14 @@ function fixture(options: { running?: boolean } = {}): Action[] {
         entry('inputs.calendar', rowsType, 2_150, '5b0e88a1c3d7beef'),
         entry('inputs.params', paramsType, 1_229, '0a44e1b7c9d2f00d'),
         entry('inputs.overrides', overridesType, null, null),
-        entry('tasks.ingest.output', rowsType, 12_687_000, 'out-ingest'),
-        entry('tasks.features.output', paramsType, 432_600_000, 'out-features'),
-        entry('tasks.forecast.output', forecastType, 88_300_000, 'out-forecast'),
-        entry('tasks.optimise.output', rowsType, null, null),
+        // The server lists a function task's subtree as one leaf at `.tasks.<name>`; a custom task's
+        // subtree is walked, so its output is listed at `.tasks.<name>.output` — both must resolve.
+        entry('tasks.ingest', rowsType, 12_687_000, 'out-ingest'),
+        entry('tasks.features', paramsType, 432_600_000, 'out-features'),
+        entry('tasks.forecast', forecastType, 88_300_000, 'out-forecast'),
+        entry('tasks.optimise', rowsType, null, null),
         entry('tasks.report.output', toEastTypeValue(StringType), null, null),
-        entry('tasks.dashboard.output', paramsType, 41_984, 'out-dashboard'),
+        entry('tasks.dashboard', paramsType, 41_984, 'out-dashboard'),
     ];
     const execution = running
         ? {
@@ -87,22 +89,22 @@ function fixture(options: { running?: boolean } = {}): Action[] {
             events: [
                 variant('cached', { task: 'ingest', timestamp: iso(12_000) }),
                 variant('start', { task: 'features', timestamp: iso(12_000) }),
-                variant('complete', { task: 'features', timestamp: iso(11_000), duration: 4.2 }),
+                variant('complete', { task: 'features', timestamp: iso(11_000), duration: 4_200 }),
                 variant('start', { task: 'forecast', timestamp: iso(9_000) }),
                 variant('input_unavailable', { task: 'optimise', timestamp: iso(9_000), reason: 'waiting on forecast' }),
             ],
             startedAt: iso(12_000),
         }
         : {
-            state: { status: variant('failed', null), startedAt: iso(120_000), completedAt: some(iso(81_600)), summary: some({ executed: 4n, cached: 1n, failed: 1n, skipped: 0n, duration: 38.4 }), events: [], totalEvents: 8n },
+            state: { status: variant('failed', null), startedAt: iso(120_000), completedAt: some(iso(81_600)), summary: some({ executed: 4n, cached: 1n, failed: 1n, skipped: 0n, duration: 38_400 }), events: [], totalEvents: 8n },
             events: [
                 variant('start', { task: 'ingest', timestamp: iso(120_000) }),
-                variant('complete', { task: 'ingest', timestamp: iso(116_900), duration: 3.1 }),
+                variant('complete', { task: 'ingest', timestamp: iso(116_900), duration: 3_100 }),
                 variant('start', { task: 'features', timestamp: iso(116_900) }),
-                variant('complete', { task: 'features', timestamp: iso(104_900), duration: 12.0 }),
+                variant('complete', { task: 'features', timestamp: iso(104_900), duration: 12_000 }),
                 variant('cached', { task: 'forecast', timestamp: iso(104_900) }),
                 variant('start', { task: 'report', timestamp: iso(61_000) }),
-                variant('failed', { task: 'report', timestamp: iso(60_000), duration: 0.8, exitCode: 2n }),
+                variant('failed', { task: 'report', timestamp: iso(60_000), duration: 800, exitCode: 2n }),
                 variant('input_unavailable', { task: 'optimise', timestamp: iso(60_000), reason: 'waiting on forecast' }),
             ],
             startedAt: iso(120_000),
@@ -264,7 +266,7 @@ describe('dashboard model', () => {
         const events = [
             variant('start', { task: 'a', timestamp: 't1' }),
             variant('start', { task: 'b', timestamp: 't2' }),
-            variant('complete', { task: 'a', timestamp: 't3', duration: 1 }),
+            variant('complete', { task: 'a', timestamp: 't3', duration: 1_000 }),
         ] as never[];
         assert.deepEqual(latestPerTask(events).map(e => `${e.value.task}:${e.type}`), ['a:complete', 'b:start']);
     });

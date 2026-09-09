@@ -15,7 +15,7 @@ import { breakpoint, columnPlan } from '../../render/layout.js';
 import { formatDuration, timeAgo } from '../../render/text.js';
 import type { TuiState } from '../../state/actions.js';
 import { registerListModel } from '../../model/index.js';
-import { executionStatusCell } from '../../model/status.js';
+import { executionDuration, executionStatusCell } from '../../model/status.js';
 import { registerViewHooks } from '../../controller.js';
 import type { Hit, Pane } from '../frame.js';
 import type { Line, RenderCtx } from '../lines.js';
@@ -53,7 +53,8 @@ export function lastRun(state: TuiState, ws: string, ctx: RenderCtx): { text: st
     if (execution === undefined) return { text: '…', tone: 'muted' };
     if (execution.state === null) return { text: `${g.empty} never run`, tone: 'muted' };
     const cell = executionStatusCell(execution.state.status.type, g);
-    const duration = execution.state.summary.type === 'some' ? ` ${g.sep} ${formatDuration(execution.state.summary.value.duration * 1000)}` : '';
+    const ms = executionDuration(execution.state);
+    const duration = ms !== null ? ` ${g.sep} ${formatDuration(ms)}` : '';
     return { text: `${cell.glyph} ${cell.word.toLowerCase()} ${g.sep} ${timeAgo(execution.state.startedAt, ctx.now)}${duration}`, tone: cell.tone as 'pos' | 'neg' | 'warn' | 'info' };
 }
 

@@ -70,7 +70,7 @@ describe('the workspaces view', () => {
             actions: [
                 { type: 'data/workspaces', workspaces },
                 { type: 'data/status', ws: 'main', result: summary(4, 1, 1, 0), at: NOW },
-                { type: 'data/execution', ws: 'main', state: { status: variant('failed', null), startedAt: new Date(NOW - 2 * 60_000).toISOString(), completedAt: none, summary: some({ executed: 4n, cached: 1n, failed: 1n, skipped: 0n, duration: 38.4 }), events: [], totalEvents: 0n } as never, events: [], startedAt: 'x' },
+                { type: 'data/execution', ws: 'main', state: { status: variant('failed', null), startedAt: new Date(NOW - 2 * 60_000).toISOString(), completedAt: none, summary: some({ executed: 4n, cached: 1n, failed: 1n, skipped: 0n, duration: 38_400 }), events: [], totalEvents: 0n } as never, events: [], startedAt: 'x' },
                 { type: 'data/status', ws: 'staging', result: summary(0, 0, 0, 6), at: NOW },
                 { type: 'data/execution', ws: 'staging', state: null, events: [], startedAt: null },
             ],

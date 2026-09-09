@@ -12,7 +12,7 @@
  * @packageDocumentation
  */
 
-import type { ExecutionHistoryStatus, ExecutionStatus, TaskStatus, DataflowEvent } from '@elaraai/e3-api-client';
+import type { DataflowExecutionState, ExecutionHistoryStatus, ExecutionStatus, TaskStatus, DataflowEvent } from '@elaraai/e3-api-client';
 import type { Glyphs } from '../render/glyphs.js';
 import type { Tone } from '../render/theme.js';
 import { formatDuration } from '../render/text.js';
@@ -121,6 +121,23 @@ export function connectionCell(connection: ConnectionState, g: Glyphs): StatusCe
 }
 
 /**
+ * An execution's wall-clock duration in milliseconds: the summary's, or
+ * `completedAt − startedAt` when the summary reports none (the server
+ * only times the runs it launched itself).
+ *
+ * @param state - The execution state
+ * @returns The duration, or `null` while it is still running
+ */
+export function executionDuration(state: DataflowExecutionState): number | null {
+    if (state.summary.type === 'some' && state.summary.value.duration > 0) return state.summary.value.duration;
+    if (state.completedAt.type === 'some') {
+        const ms = Date.parse(state.completedAt.value) - Date.parse(state.startedAt);
+        if (Number.isFinite(ms) && ms >= 0) return ms;
+    }
+    return state.summary.type === 'some' ? state.summary.value.duration : null;
+}
+
+/**
  * One dataflow event as the feed shows it — the cloud UI's
  * `formatEventMessage` cases: the dot + word, the task, and the detail
  * (duration, exit code, message, reason).
@@ -134,11 +151,11 @@ export function eventCell(event: DataflowEvent, g: Glyphs): StatusCell & { task:
         case 'start':
             return { glyph: g.quarter, tone: 'info', word: 'start', detail: '', task: event.value.task, timestamp: event.value.timestamp };
         case 'complete':
-            return { glyph: g.dot, tone: 'pos', word: 'complete', detail: formatDuration(event.value.duration * 1000), task: event.value.task, timestamp: event.value.timestamp };
+            return { glyph: g.dot, tone: 'pos', word: 'complete', detail: formatDuration(event.value.duration), task: event.value.task, timestamp: event.value.timestamp };
         case 'cached':
             return { glyph: g.dot, tone: 'pos', word: 'cached', detail: '', task: event.value.task, timestamp: event.value.timestamp };
         case 'failed':
-            return { glyph: g.cross, tone: 'neg', word: 'failed', detail: `exit ${event.value.exitCode} · ${formatDuration(event.value.duration * 1000)}`, task: event.value.task, timestamp: event.value.timestamp };
+            return { glyph: g.cross, tone: 'neg', word: 'failed', detail: `exit ${event.value.exitCode} · ${formatDuration(event.value.duration)}`, task: event.value.task, timestamp: event.value.timestamp };
         case 'error':
             return { glyph: g.cross, tone: 'neg', word: 'error', detail: event.value.message, task: event.value.task, timestamp: event.value.timestamp };
         case 'input_unavailable':

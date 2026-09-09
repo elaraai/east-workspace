@@ -359,10 +359,13 @@ export class FakeApi implements Api {
             const entries: ListEntry[] = [];
             for (const path of this.allPaths(w)) {
                 const stored = this.stored(w.name, path);
-                const declared = w.inputs.find(i => `.inputs.${i.name}` === path)?.type ?? w.tasks.find(t => this.outputPathOf(t) === path)?.output?.type;
+                const task = w.tasks.find(t => this.outputPathOf(t) === path);
+                const declared = w.inputs.find(i => `.inputs.${i.name}` === path)?.type ?? task?.output?.type;
                 const type = stored?.type ?? (declared !== undefined ? typeValueOf(declared) : toEastTypeValue({ type: 'Null' } as EastType));
+                // The real listing shows a task's subtree as one leaf at `.tasks.<name>` (the output's type / hash / size).
+                const listed = task !== undefined && path === `.tasks.${task.name}.output` ? `tasks.${task.name}` : path.replace(/^\./, '');
                 entries.push(variant('dataset', {
-                    path: path.replace(/^\./, ''),
+                    path: listed,
                     type,
                     hash: stored !== undefined ? some(stored.hash) : none,
                     size: stored !== undefined ? some(BigInt(stored.bytes.length)) : none,
@@ -543,7 +546,7 @@ export class FakeApi implements Api {
                     cached: BigInt(done.filter(e => e.type === 'cached').length),
                     failed: BigInt(done.filter(e => e.type === 'failed' || e.type === 'error').length),
                     skipped: BigInt(done.filter(e => e.type === 'input_unavailable').length),
-                    duration: done.length * 0.5,
+                    duration: state.completedAt !== null ? Date.parse(state.completedAt) - Date.parse(state.startedAt) : 0,
                 }),
                 events: done.slice(offset),
                 totalEvents: BigInt(done.length),

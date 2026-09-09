@@ -84,7 +84,7 @@ describe('/run and /stop', () => {
         await mounted.dispatch({ type: 'data/execution', ws: 'main', state: stopped, events: [...stopped.events], startedAt: stopped.startedAt });
         lines = mounted.lines();
         assert.match(lines[0]!, /^ e3-ui  demo-repo › main\s+● CONNECTED$/);
-        assert.match(lines[8]!, /^ LAST EXECUTION\s+■ ABORTED · started just now · 0\.0s · executed 0 · cached 0 · failed 0 · skipped 0$/);
+        assert.match(lines[8]!, /^ LAST EXECUTION\s+■ ABORTED · started just now · \d+\.\ds · executed 0 · cached 0 · failed 0 · skipped 0$/);
         assert.match(lines[35]!, /^ ↑↓ move   ⏎ open   r run   x stop   w workspaces/);
     });
 

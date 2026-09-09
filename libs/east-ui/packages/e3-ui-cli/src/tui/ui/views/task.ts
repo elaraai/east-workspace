@@ -53,7 +53,7 @@ export function taskTitle(state: TuiState, ws: string, task: string, ctx: Render
         return out;
     }
     const event = latestPerTask(state.data.execution[ws]?.events ?? []).find(e => e.value.task === task);
-    if (event !== undefined && (event.type === 'complete' || event.type === 'failed')) out.push(d(` ${g.sep} ${formatDuration(event.value.duration * 1000)}`));
+    if (event !== undefined && (event.type === 'complete' || event.type === 'failed')) out.push(d(` ${g.sep} ${formatDuration(event.value.duration)}`));
     else if (event !== undefined && event.type === 'cached' && cell.detail !== 'cached') out.push(d(` ${g.sep} ${eventCell(event, g).word}`));
     const newest = runsOf(state, ws, task)[0];
     if (newest !== undefined) out.push(d(` ${g.sep} inputs ${hashMid(newest.inputsHash)}`));

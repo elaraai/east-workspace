@@ -12,7 +12,7 @@
  */
 
 import { fitPlan, scrollbar as scrollbarGeometry, type ColumnSpec } from '../../render/layout.js';
-import { center, displayWidth, padEnd, padStart } from '../../render/text.js';
+import { center, displayWidth, padEnd, padStart, truncate } from '../../render/text.js';
 import type { Tone } from '../../render/theme.js';
 import type { Glyphs } from '../../render/glyphs.js';
 import { b, d, fitLine, lrLine, t, type Line } from '../lines.js';
@@ -51,7 +51,9 @@ export interface TableRow {
  * A table: a header row, then the rows in `[top, top + visible)` with a
  * selection bar (`▌`) on `sel`. Cells are looked up by column key, so a
  * plan that drops a column at a narrow width leaves the others aligned;
- * the plan is fitted to the width first ({@link fitPlan}).
+ * a `grow` column first widens to its longest cell (plus the gap), then
+ * the plan is fitted to the width ({@link fitPlan}). A fixed cell that
+ * overflows ends in an ellipsis and keeps one cell of gap.
  *
  * @param plan - The column plan (the last column takes the remainder)
  * @param rows - Every row
@@ -63,9 +65,18 @@ export interface TableRow {
  * @param header - Whether to draw the header row
  * @returns The lines
  */
+function cellText(cell: TableRow['cells'][string] | undefined): string {
+    return cell === undefined ? '' : typeof cell === 'string' ? cell : cell.text;
+}
+
 export function renderTable(plan: ColumnSpec[], rows: TableRow[], sel: number, top: number, visible: number, width: number, g: Glyphs, header = true): Line[] {
     const out: Line[] = [];
-    const fitted = fitPlan(plan, width);
+    const grown = plan.map(col => {
+        if (col.grow === undefined) return col;
+        const longest = rows.reduce((n, row) => Math.max(n, displayWidth(cellText(row.cells[col.key]))), displayWidth(col.title));
+        return { ...col, width: Math.min(col.grow, Math.max(col.width, longest + 1)) };
+    });
+    const fitted = fitPlan(grown, width);
     const cellsOf = (row: TableRow | null, isHeader: boolean, selected: boolean): Line => {
         const line: Line = [t(' '), selected ? b(g.sel, 'brand') : t(row?.marker ?? ' ')];
         let used = 2;
@@ -73,7 +84,10 @@ export function renderTable(plan: ColumnSpec[], rows: TableRow[], sel: number, t
             const raw = isHeader ? col.title : row?.cells[col.key] ?? '';
             const cell = typeof raw === 'string' ? { text: raw, tone: undefined } : raw;
             const budget = col.width === 0 ? Math.max(0, width - used) : col.width;
-            const text = col.align === 'right' ? padStart(cell.text, budget) : padEnd(cell.text, budget);
+            // A fixed column keeps one cell of gap before the next; overflow ends in an ellipsis.
+            const room = col.width === 0 ? budget : Math.max(1, budget - 1);
+            const clipped = truncate(cell.text, room);
+            const text = col.align === 'right' ? padStart(clipped, budget) : padEnd(clipped, budget);
             if (isHeader) line.push(d(text));
             else if (selected) line.push(b(text, cell.tone));
             else line.push(t(text, cell.tone));

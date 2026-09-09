@@ -90,7 +90,7 @@ describe('feeds', () => {
         const feeds = createFeeds({ store, api: () => api, clock });
         feeds.start();
         await settle();
-        api.run({ events: [variant('start', { task: 'a', timestamp: 't' }), variant('complete', { task: 'a', timestamp: 't', duration: 1.5 })], final: 'completed' });
+        api.run({ events: [variant('start', { task: 'a', timestamp: 't' }), variant('complete', { task: 'a', timestamp: 't', duration: 1_500 })], final: 'completed' });
         await api.dataflowExecuteLaunch('main');
         feeds.refresh();
         await settle();

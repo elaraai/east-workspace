@@ -22,7 +22,7 @@ import type { Tone } from '../../render/theme.js';
 import type { ExecutionData, NavOp, TuiState } from '../../state/actions.js';
 import { layoutOf, registerListModel } from '../../model/index.js';
 import { datasetEntries } from '../../model/catalogue.js';
-import { datasetStatusCell, eventCell, executionStatusCell, statusText, taskStatusCell } from '../../model/status.js';
+import { datasetStatusCell, eventCell, executionDuration, executionStatusCell, statusText, taskStatusCell } from '../../model/status.js';
 import { registerViewHooks, type Controller } from '../../controller.js';
 import { isRunLive, lockHolderText } from '../../data/dataflow.js';
 import type { Hit, Pane } from '../frame.js';
@@ -259,7 +259,7 @@ function executionLines(execution: ExecutionData | undefined, tasksTotal: number
         let detail = ` ${sep} started ${timeAgo(state.startedAt, dctx.now)}`;
         if (state.summary.type === 'some') {
             const s = state.summary.value;
-            detail += ` ${sep} ${formatDuration(s.duration * 1000)} ${sep} executed ${s.executed} ${sep} cached ${s.cached} ${sep} failed ${s.failed} ${sep} skipped ${s.skipped}`;
+            detail += ` ${sep} ${formatDuration(executionDuration(state) ?? s.duration)} ${sep} executed ${s.executed} ${sep} cached ${s.cached} ${sep} failed ${s.failed} ${sep} skipped ${s.skipped}`;
         }
         right = [b(`${cell.glyph} ${cell.word}`, cell.tone), d(detail)];
         events = latestPerTask(execution.events).filter(e => e.type === 'failed' || e.type === 'error');
@@ -311,7 +311,7 @@ function lastRunText(task: TaskInfo, event: DataflowEvent | undefined, size: str
             return `— ${g.sep} ${lowerFirst(task.status.value.reason)}`;
         default: {
             const run = event === undefined ? (task.status.type === 'ready' ? 'never' : '—')
-                : event.type === 'complete' || event.type === 'failed' ? formatDuration(event.value.duration * 1000)
+                : event.type === 'complete' || event.type === 'failed' ? formatDuration(event.value.duration)
                 : event.type === 'cached' ? 'cached'
                 : event.type === 'error' ? 'error'
                 : event.type === 'input_unavailable' ? 'skipped'

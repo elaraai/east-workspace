@@ -11,6 +11,7 @@
  * @packageDocumentation
  */
 
+import type { EastTypeValue } from '@elaraai/east';
 import type { Catalogue, CatalogueItem } from '../input/completion.js';
 import type { Glyphs } from '../render/glyphs.js';
 import { formatSize } from '../render/text.js';
@@ -18,19 +19,30 @@ import type { TuiState } from '../state/actions.js';
 import { compactType } from './types.js';
 import { datasetStatusCell, statusText, taskStatusCell } from './status.js';
 
-/** The entry of a dataset in the workspace's dataset list (type / size), by dotted path. */
+/**
+ * The entry of a dataset in the workspace's dataset list (type / size), by
+ * dotted path. The recursive listing shows a task's subtree as one leaf at
+ * `.tasks.<name>` carrying the output's type / hash / size, while the status
+ * names the output `.tasks.<name>.output` — both spellings resolve.
+ */
 export function datasetEntries(state: TuiState, ws: string): Map<string, { type: string; size: number | null; hash: string | null }> {
-    const out = new Map<string, { type: string; size: number | null; hash: string | null }>();
-    const uiTasks = new Set((state.data.taskList[ws] ?? []).filter(t => t.kind.type === 'some' && t.kind.value === 'ui').map(t => `.tasks.${t.name}.output`));
+    const raw = new Map<string, { type: EastTypeValue; size: number | null; hash: string | null }>();
     for (const entry of state.data.datasets[ws] ?? []) {
         if (entry.type !== 'dataset') continue;
-        const path = `.${entry.value.path.replace(/^\./, '')}`;
-        out.set(path, {
-            type: compactType(entry.value.type, uiTasks.has(path)),
+        raw.set(`.${entry.value.path.replace(/^\./, '')}`, {
+            type: entry.value.type,
             size: entry.value.size.type === 'some' ? Number(entry.value.size.value) : null,
             hash: entry.value.hash.type === 'some' ? entry.value.hash.value : null,
         });
     }
+    for (const task of state.data.status[ws]?.result.tasks ?? []) {
+        if (raw.has(task.output)) continue;
+        const leaf = raw.get(task.output.replace(/\.output$/, ''));
+        if (leaf !== undefined) raw.set(task.output, leaf);
+    }
+    const uiTasks = new Set((state.data.taskList[ws] ?? []).filter(t => t.kind.type === 'some' && t.kind.value === 'ui').map(t => `.tasks.${t.name}.output`));
+    const out = new Map<string, { type: string; size: number | null; hash: string | null }>();
+    for (const [path, entry] of raw) out.set(path, { type: compactType(entry.type, uiTasks.has(path)), size: entry.size, hash: entry.hash });
     return out;
 }
 
