@@ -11,15 +11,26 @@
  * failed task's logs. Status detail is inline (`✗ failed · exit 2`,
  * `◐ waiting`, `◔ in-progress`).
  *
+ * The column is built in two steps. {@link dashboardModel} derives what
+ * follows from the data and the width — the counts, the events the panel
+ * lists, the latest event per task, the dataset map, the fitted table
+ * plans, each row's cells and where each selectable row sits — once per
+ * data change: a single-entry cache keyed on the identity of the status,
+ * the execution, the dataset list, the task list, the width and the
+ * breakpoint. {@link dashboardLines} then renders only the lines on
+ * screen, restyling the selected row and stamping the clock and the
+ * spinner. A selection move costs the window, not the workspace.
+ *
  * @packageDocumentation
  */
 
 import type { DataflowEvent, WorkspaceStatusResult } from '@elaraai/e3-api-client';
+import type { WorkspaceState } from '@elaraai/e3-types';
 import type { Glyphs } from '../../render/glyphs.js';
-import { breakpoint, columnPlan, scrollIntoView, type Breakpoint } from '../../render/layout.js';
+import { breakpoint, columnPlan, scrollIntoView, type Breakpoint, type ColumnSpec } from '../../render/layout.js';
 import { agoShort, formatDuration, formatSize, hashShort, padEnd, padStart, timeAgo } from '../../render/text.js';
 import type { Tone } from '../../render/theme.js';
-import type { ExecutionData, NavOp, TuiState } from '../../state/actions.js';
+import type { DataState, ExecutionData, NavOp, TuiState } from '../../state/actions.js';
 import { layoutOf, registerListModel } from '../../model/index.js';
 import { datasetEntries } from '../../model/catalogue.js';
 import { datasetStatusCell, eventCell, executionDuration, executionStatusCell, statusText, taskStatusCell } from '../../model/status.js';
@@ -27,7 +38,7 @@ import { registerViewHooks, type Controller } from '../../controller.js';
 import { isRunLive, lockHolderText } from '../../data/dataflow.js';
 import type { Hit, Pane } from '../frame.js';
 import { b, blank, d, lineWidth, lrLine, t, type Line, type RenderCtx } from '../lines.js';
-import { centredBlock, renderTable, sectionLine, withScrollbar, type TableRow } from '../shell/widgets.js';
+import { centredBlock, sectionLine, tableLine, tablePlan, withScrollbar, type TableRow } from '../shell/widgets.js';
 import { registerView } from './index.js';
 
 type TaskInfo = WorkspaceStatusResult['tasks'][number];
@@ -46,12 +57,6 @@ export interface DashboardRow {
     kind: 'logs' | 'task' | 'input';
     name: string;
     line: number;
-}
-
-/** The column under the title: its lines and the selectable rows. */
-export interface DashboardColumn {
-    lines: Line[];
-    rows: DashboardRow[];
 }
 
 /** Event rows the execution panel shows at most. */
@@ -205,7 +210,7 @@ function countsLines(status: WorkspaceStatusResult, dctx: DashboardCtx): Line[] 
 }
 
 // ---------------------------------------------------------------------------
-// Execution
+// The model
 // ---------------------------------------------------------------------------
 
 /**
@@ -230,29 +235,230 @@ function isLive(execution: ExecutionData | undefined): boolean {
     return execution !== undefined && (execution.state?.status.type === 'running' || execution.settling || execution.stopping);
 }
 
-/** The execution panel: a header line, the event rows, and which rows open logs. */
-function executionLines(execution: ExecutionData | undefined, tasksTotal: number, sel: DashboardRow | undefined, dctx: DashboardCtx): { lines: Line[]; logs: { task: string; at: number }[] } {
+/** Whether an event's row opens the task's logs. */
+function opensLogs(event: DataflowEvent): boolean {
+    return event.type === 'failed' || event.type === 'error';
+}
+
+/** A task's row: the cells that follow from the data, and what the `SIZE · LAST RUN` cell is stamped from per frame. */
+export interface TaskRowModel {
+    task: TaskInfo;
+    /** The cells the data decides (`size` is stamped at render — it carries the clock and the spinner while the task runs). */
+    cells: TableRow['cells'];
+    /** The output's size text (`12.1 MB` / `—`). */
+    size: string;
+    /** The task's latest dataflow event, if any. */
+    event: DataflowEvent | undefined;
+}
+
+/**
+ * The data-derived column: everything that follows from the workspace's
+ * data and the terminal width. Built by {@link dashboardModel}, rendered
+ * by {@link dashboardLines}.
+ *
+ * @property status - The status the model follows (undefined → `placeholder` is the whole column)
+ * @property placeholder - The column while there is no status: nothing deployed, an error, or loading
+ * @property counts - The counts block (the two stat groups and the accounted bar)
+ * @property execution - The execution the panel shows
+ * @property live - Whether the panel shows the live feed
+ * @property done - Events past `start` (the live feed's `N of M tasks`)
+ * @property events - The events the panel lists: the latest per task — the last ones while live, the failures after
+ * @property latest - The latest event per task
+ * @property taskPlan - The tasks table's fitted column plan
+ * @property tasks - The task rows
+ * @property inputPlan - The inputs table's fitted column plan
+ * @property inputs - The input rows
+ * @property inputNames - The input names, in row order
+ * @property rows - The selectable rows in column order (failures, tasks, inputs) with their line indices
+ * @property total - Lines in the column
+ * @property panelAt - The execution panel's first line
+ * @property tasksAt - The TASKS section line (the header follows, then the rows)
+ * @property inputsAt - The INPUTS section line
+ */
+export interface DashboardModel {
+    status: WorkspaceStatusResult | undefined;
+    placeholder: Line[];
+    counts: Line[];
+    execution: ExecutionData | undefined;
+    live: boolean;
+    done: number;
+    events: DataflowEvent[];
+    latest: ReadonlyMap<string, DataflowEvent>;
+    taskPlan: ColumnSpec[];
+    tasks: TaskRowModel[];
+    inputPlan: ColumnSpec[];
+    inputs: TableRow[];
+    inputNames: string[];
+    rows: DashboardRow[];
+    total: number;
+    panelAt: number;
+    tasksAt: number;
+    inputsAt: number;
+}
+
+/** What the model is keyed on — identities, so a poll that replaces a value rebuilds and a selection move does not. */
+interface DashboardKey {
+    ws: string;
+    status: WorkspaceStatusResult | undefined;
+    statusError: string | undefined;
+    workspaceState: WorkspaceState | null | undefined;
+    execution: ExecutionData | undefined;
+    datasets: DataState['datasets'][string] | undefined;
+    taskList: DataState['taskList'][string] | undefined;
+    columns: number;
+    bp: Breakpoint;
+    g: Glyphs;
+}
+
+let cached: { key: DashboardKey; model: DashboardModel } | null = null;
+
+function sameKey(a: DashboardKey, b: DashboardKey): boolean {
+    return a.ws === b.ws && a.status === b.status && a.statusError === b.statusError && a.workspaceState === b.workspaceState
+        && a.execution === b.execution && a.datasets === b.datasets && a.taskList === b.taskList
+        && a.columns === b.columns && a.bp === b.bp && a.g === b.g;
+}
+
+/**
+ * The dashboard model for a workspace — built once per data change and
+ * returned as the same object until the status, the execution, the
+ * dataset list, the task list, the width or the breakpoint changes. The
+ * clock, the spinner and the selection are not inputs: they restyle lines
+ * at render ({@link dashboardLines}).
+ *
+ * @param state - The store state
+ * @param ws - The workspace
+ * @param dctx - The dashboard context (its width and breakpoint key the cache)
+ * @returns The model
+ */
+export function dashboardModel(state: TuiState, ws: string, dctx: DashboardCtx): DashboardModel {
+    const key: DashboardKey = {
+        ws,
+        status: state.data.status[ws]?.result,
+        statusError: state.data.statusError[ws],
+        workspaceState: state.data.workspaceState[ws],
+        execution: state.data.execution[ws],
+        datasets: state.data.datasets[ws],
+        taskList: state.data.taskList[ws],
+        columns: dctx.columns,
+        bp: dctx.bp,
+        g: dctx.g,
+    };
+    if (cached !== null && sameKey(cached.key, key)) return cached.model;
+    const model = buildModel(state, ws, dctx, key);
+    cached = { key, model };
+    return model;
+}
+
+/** Builds the model (the cache's miss path). */
+function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: DashboardKey): DashboardModel {
+    const g = dctx.g;
+    const width = dctx.columns - 1;
+    const status = key.status;
+    const execution = key.execution;
+    const empty: DashboardModel = {
+        status, placeholder: [], counts: [], execution, live: false, done: 0, events: [], latest: new Map(),
+        taskPlan: [], tasks: [], inputPlan: [], inputs: [], inputNames: [], rows: [], total: 0, panelAt: 0, tasksAt: 0, inputsAt: 0,
+    };
+    if (status === undefined) {
+        const placeholder: Line[] = [];
+        if (key.workspaceState === null) {
+            placeholder.push(...centredBlock(g.empty, 'muted', 'NOTHING DEPLOYED', [`${ws} has no package yet`, `e3 workspace deploy <repo> ${ws} <package>[@version]   deploy one`, '/workspaces   pick another workspace'], width));
+        } else if (key.statusError !== undefined) {
+            placeholder.push([t(' '), b(`${g.cross} ${key.statusError}`, 'neg')]);
+        } else {
+            placeholder.push([t(' '), d('loading…')]);
+        }
+        return { ...empty, placeholder, total: placeholder.length };
+    }
+    // The dataset map and the latest event per task: once per build, shared by every row.
+    const entries = datasetEntries(state, ws);
+    const latest = new Map(latestPerTask(execution?.events ?? []).map(e => [e.value.task, e] as const));
+    const live = isLive(execution);
+    const done = execution === undefined ? 0 : execution.events.filter(e => e.type !== 'start').length;
+    const events = execution === undefined || execution.state === null ? []
+        : live ? [...latest.values()].slice(-MAX_EVENT_ROWS)
+        : [...latest.values()].filter(opensLogs);
+    const tasks: TaskRowModel[] = status.tasks.map(task => {
+        const cell = taskStatusCell(task.status, g);
+        // The reason / pid / cached detail lives in the last column; only a failure's exit code / message stays inline.
+        const bare = task.status.type !== 'failed' && task.status.type !== 'error';
+        const inputs = task.inputs.filter(p => p.startsWith('.inputs.')).map(p => p.slice('.inputs.'.length));
+        const entry = entries.get(task.output);
+        return {
+            task,
+            event: latest.get(task.name),
+            size: entry?.size != null ? formatSize(entry.size) : '—',
+            cells: {
+                name: task.name,
+                status: { text: bare ? `${cell.glyph} ${cell.word}` : statusText(cell), tone: cell.tone },
+                dependsOn: task.dependsOn.length > 0 ? task.dependsOn.join(', ') : '—',
+                inputs: inputs.length > 0 ? inputs.join(', ') : '—',
+                output: entry?.type ?? '—',
+            },
+        };
+    });
+    const inputDatasets = status.datasets.filter(ds => !ds.isTaskOutput && ds.path.startsWith('.inputs.'));
+    const inputNames = inputDatasets.map(ds => ds.path.slice('.inputs.'.length));
+    const inputs: TableRow[] = inputDatasets.map((ds, i) => {
+        const cell = datasetStatusCell(ds.status.type, g);
+        const entry = entries.get(ds.path);
+        return {
+            cells: {
+                name: inputNames[i]!,
+                status: { text: statusText(cell), tone: cell.tone },
+                type: entry?.type ?? '—',
+                size: entry?.size != null ? formatSize(entry.size) : '—',
+                hash: ds.hash.type === 'some' ? hashShort(ds.hash.value) : '—',
+            },
+        };
+    });
+    const taskPlan = tablePlan(columnPlan('tasks', dctx.bp), tasks, width);
+    const inputPlan = tablePlan(columnPlan('inputs', dctx.bp), inputs, width);
+    const counts = countsLines(status, dctx);
+    // The geometry: every selectable row's line, numbered in column order — failures, tasks, inputs.
+    const rows: DashboardRow[] = [];
+    let line = counts.length + 1;
+    const panelAt = line;
+    const shown = events.slice(0, MAX_EVENT_ROWS);
+    shown.forEach((event, i) => {
+        if (opensLogs(event)) rows.push({ kind: 'logs', name: event.value.task, line: panelAt + 1 + i });
+    });
+    line += 1 + shown.length + (events.length > shown.length ? 1 : 0) + 1;
+    const tasksAt = line;
+    line += 2;
+    status.tasks.forEach((task, i) => rows.push({ kind: 'task', name: task.name, line: line + i }));
+    line += Math.max(1, tasks.length) + 1;
+    const inputsAt = line;
+    line += 2;
+    inputNames.forEach((name, i) => rows.push({ kind: 'input', name, line: line + i }));
+    line += Math.max(1, inputs.length);
+    return { ...empty, counts, live, done, events, latest, taskPlan, tasks, inputPlan, inputs, inputNames, rows, total: line, panelAt, tasksAt, inputsAt };
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+/** The execution panel: a header line, then the event rows (the header and the ages carry the clock and the spinner). */
+function executionLines(model: DashboardModel, sel: DashboardRow | undefined, dctx: DashboardCtx): Line[] {
     const g = dctx.g;
     const sep = g.sep;
     const width = dctx.columns - 1;
     const spin = g.spinner[dctx.spinner % g.spinner.length]!;
+    const execution = model.execution;
+    const tasksTotal = model.status?.tasks.length ?? 0;
     const lines: Line[] = [];
-    const logs: { task: string; at: number }[] = [];
     let title = 'LAST EXECUTION';
     let right: Line;
-    let events: DataflowEvent[] = [];
     if (execution === undefined) {
         right = [d('…')];
     } else if (execution.state === null) {
         right = execution.settling ? [b(`${g.quarter} STARTING`, 'info'), d(` ${sep} ${spin}`)] : [d(`${g.empty} never run ${sep} r run`)];
         if (execution.settling) title = 'EXECUTION';
-    } else if (isLive(execution)) {
+    } else if (model.live) {
         title = 'EXECUTION';
-        const state = execution.state;
-        const done = execution.events.filter(e => e.type !== 'start').length;
         const head = execution.stopping ? b(`${g.square} STOPPING`, 'warn') : b(`${g.quarter} RUNNING`, 'info');
-        right = [head, d(` ${sep} started ${timeAgo(state.startedAt, dctx.now)} ${sep} ${done} of ${tasksTotal} tasks ${sep} ${spin}`)];
-        events = latestPerTask(execution.events).slice(-MAX_EVENT_ROWS);
+        right = [head, d(` ${sep} started ${timeAgo(execution.state.startedAt, dctx.now)} ${sep} ${model.done} of ${tasksTotal} tasks ${sep} ${spin}`)];
     } else {
         const state = execution.state;
         const cell = executionStatusCell(state.status.type, g);
@@ -262,14 +468,13 @@ function executionLines(execution: ExecutionData | undefined, tasksTotal: number
             detail += ` ${sep} ${formatDuration(executionDuration(state) ?? s.duration)} ${sep} executed ${s.executed} ${sep} cached ${s.cached} ${sep} failed ${s.failed} ${sep} skipped ${s.skipped}`;
         }
         right = [b(`${cell.glyph} ${cell.word}`, cell.tone), d(detail)];
-        events = latestPerTask(execution.events).filter(e => e.type === 'failed' || e.type === 'error');
     }
     lines.push(lrLine([t(' '), b(title)], [...right, t(' ')], width));
-    const shown = events.slice(0, MAX_EVENT_ROWS);
+    const shown = model.events.slice(0, MAX_EVENT_ROWS);
     for (const event of shown) {
         const cell = eventCell(event, g);
-        const opensLogs = event.type === 'failed' || event.type === 'error';
-        const selected = opensLogs && sel?.kind === 'logs' && sel.name === cell.task;
+        const logs = opensLogs(event);
+        const selected = logs && sel?.kind === 'logs' && sel.name === cell.task;
         const left: Line = [
             t(' '),
             selected ? b(g.sel, 'brand') : t(' '),
@@ -282,21 +487,14 @@ function executionLines(execution: ExecutionData | undefined, tasksTotal: number
         const detail: Line = [];
         if (event.type === 'start') detail.push(d(`${spin} ${ageBare(cell.timestamp, dctx.now)}`));
         else if (cell.detail !== '') detail.push(d(cell.detail));
-        if (opensLogs) {
-            logs.push({ task: cell.task, at: lines.length });
-            detail.push(t('     '), b(`${g.enter} logs`, 'brand'));
-        }
+        if (logs) detail.push(t('     '), b(`${g.enter} logs`, 'brand'));
         lines.push(lrLine(left, [...detail, t(' ')], width));
     }
-    if (events.length > shown.length) {
-        lines.push([t('   '), d(`… ${events.length - shown.length} more failed ${sep} /logs <task>`)]);
+    if (model.events.length > shown.length) {
+        lines.push([t('   '), d(`… ${model.events.length - shown.length} more failed ${sep} /logs <task>`)]);
     }
-    return { lines, logs };
+    return lines;
 }
-
-// ---------------------------------------------------------------------------
-// Tables
-// ---------------------------------------------------------------------------
 
 /** The `SIZE · LAST RUN` cell of a task row. */
 function lastRunText(task: TaskInfo, event: DataflowEvent | undefined, size: string, dctx: DashboardCtx): string {
@@ -322,139 +520,52 @@ function lastRunText(task: TaskInfo, event: DataflowEvent | undefined, size: str
 }
 
 /**
- * The tasks table rows.
+ * The column's lines in `[top, top + visible)` — the window the screen
+ * shows, rendered from the model with the selected row restyled and the
+ * clock and the spinner stamped in.
  *
- * @param state - The store state
- * @param ws - The workspace
- * @param status - Its status
- * @param dctx - The dashboard context
- * @returns The rows, in the status order
- */
-export function taskRows(state: TuiState, ws: string, status: WorkspaceStatusResult, dctx: DashboardCtx): TableRow[] {
-    const g = dctx.g;
-    const entries = datasetEntries(state, ws);
-    const latest = new Map(latestPerTask(state.data.execution[ws]?.events ?? []).map(e => [e.value.task, e] as const));
-    return status.tasks.map(task => {
-        const cell = taskStatusCell(task.status, g);
-        // The reason / pid / cached detail lives in the last column; only a failure's exit code / message stays inline.
-        const bare = task.status.type !== 'failed' && task.status.type !== 'error';
-        const inputs = task.inputs.filter(p => p.startsWith('.inputs.')).map(p => p.slice('.inputs.'.length));
-        const entry = entries.get(task.output);
-        const size = entry?.size != null ? formatSize(entry.size) : '—';
-        return {
-            cells: {
-                name: task.name,
-                status: { text: bare ? `${cell.glyph} ${cell.word}` : statusText(cell), tone: cell.tone },
-                dependsOn: task.dependsOn.length > 0 ? task.dependsOn.join(', ') : '—',
-                inputs: inputs.length > 0 ? inputs.join(', ') : '—',
-                output: entry?.type ?? '—',
-                size: lastRunText(task, latest.get(task.name), size, dctx),
-            },
-        };
-    });
-}
-
-/**
- * The inputs table rows (`.inputs.*` datasets that no task produces).
- *
- * @param state - The store state
- * @param ws - The workspace
- * @param status - Its status
- * @param dctx - The dashboard context
- * @returns The rows, in the status order
- */
-export function inputRows(state: TuiState, ws: string, status: WorkspaceStatusResult, dctx: DashboardCtx): TableRow[] {
-    const entries = datasetEntries(state, ws);
-    return status.datasets.filter(ds => !ds.isTaskOutput && ds.path.startsWith('.inputs.')).map(ds => {
-        const cell = datasetStatusCell(ds.status.type, dctx.g);
-        const entry = entries.get(ds.path);
-        return {
-            cells: {
-                name: ds.path.slice('.inputs.'.length),
-                status: { text: statusText(cell), tone: cell.tone },
-                type: entry?.type ?? '—',
-                size: entry?.size != null ? formatSize(entry.size) : '—',
-                hash: ds.hash.type === 'some' ? hashShort(ds.hash.value) : '—',
-            },
-        };
-    });
-}
-
-// ---------------------------------------------------------------------------
-// The column
-// ---------------------------------------------------------------------------
-
-/**
- * Builds the column under the title.
- *
- * @param state - The store state
- * @param ws - The workspace
+ * @param model - The dashboard model
  * @param dctx - The dashboard context
  * @param sel - The selected row index
- * @returns The lines and the selectable rows
+ * @param top - The first line
+ * @param visible - Lines in the window
+ * @returns The lines (fewer when the column ends first)
  */
-export function dashboardColumn(state: TuiState, ws: string, dctx: DashboardCtx, sel: number): DashboardColumn {
+export function dashboardLines(model: DashboardModel, dctx: DashboardCtx, sel: number, top: number, visible: number): Line[] {
     const g = dctx.g;
     const width = dctx.columns - 1;
-    const lines: Line[] = [];
-    const rows: DashboardRow[] = [];
-    const status = state.data.status[ws]?.result;
-    if (status === undefined) {
-        const error = state.data.statusError[ws];
-        const wsState = state.data.workspaceState[ws];
-        if (wsState === null) {
-            lines.push(...centredBlock(g.empty, 'muted', 'NOTHING DEPLOYED', [`${ws} has no package yet`, `e3 workspace deploy <repo> ${ws} <package>[@version]   deploy one`, '/workspaces   pick another workspace'], width));
-        } else if (error !== undefined) {
-            lines.push([t(' '), b(`${g.cross} ${error}`, 'neg')]);
-        } else {
-            lines.push([t(' '), d('loading…')]);
+    const first = Math.max(0, top);
+    const end = Math.min(model.total, first + visible);
+    if (model.status === undefined) return model.placeholder.slice(first, end);
+    const selected = model.rows[Math.max(0, Math.min(sel, model.rows.length - 1))];
+    const panel = executionLines(model, selected, dctx);
+    const taskSel = selected?.kind === 'task' ? model.tasks.findIndex(row => row.task.name === selected.name) : -1;
+    const inputSel = selected?.kind === 'input' ? model.inputNames.indexOf(selected.name) : -1;
+    const tasksFirst = model.tasksAt + 2;
+    const inputsFirst = model.inputsAt + 2;
+    const out: Line[] = [];
+    for (let i = first; i < end; i++) {
+        if (i < model.counts.length) out.push(model.counts[i]!);
+        else if (i < model.panelAt) out.push(blank(width));
+        else if (i < model.panelAt + panel.length) out.push(panel[i - model.panelAt]!);
+        else if (i < model.tasksAt) out.push(blank(width));
+        else if (i === model.tasksAt) out.push(sectionLine('TASKS', '', width));
+        else if (i === model.tasksAt + 1) out.push(tableLine(model.taskPlan, null, false, width, g));
+        else if (i < model.inputsAt - 1) {
+            const row = model.tasks[i - tasksFirst];
+            if (row === undefined) out.push([t('  '), d('no tasks')]);
+            else out.push(tableLine(model.taskPlan, { cells: { ...row.cells, size: lastRunText(row.task, row.event, row.size, dctx) } }, i - tasksFirst === taskSel, width, g));
         }
-        return { lines, rows };
+        else if (i < model.inputsAt) out.push(blank(width));
+        else if (i === model.inputsAt) out.push(sectionLine('INPUTS', '', width));
+        else if (i === model.inputsAt + 1) out.push(tableLine(model.inputPlan, null, false, width, g));
+        else {
+            const row = model.inputs[i - inputsFirst];
+            if (row === undefined) out.push([t('  '), d('no inputs')]);
+            else out.push(tableLine(model.inputPlan, row, i - inputsFirst === inputSel, width, g));
+        }
     }
-    // The selectable rows are numbered in column order: failures, tasks, inputs — so the
-    // selected row is resolved from a first pass over the same data.
-    const tasks = taskRows(state, ws, status, dctx);
-    const inputs = inputRows(state, ws, status, dctx);
-    const execution = state.data.execution[ws];
-    const probe = executionLines(execution, status.tasks.length, undefined, dctx);
-    const order: { kind: DashboardRow['kind']; name: string }[] = [
-        ...probe.logs.map(l => ({ kind: 'logs' as const, name: l.task })),
-        ...status.tasks.map(task => ({ kind: 'task' as const, name: task.name })),
-        ...status.datasets.filter(ds => !ds.isTaskOutput && ds.path.startsWith('.inputs.')).map(ds => ({ kind: 'input' as const, name: ds.path.slice('.inputs.'.length) })),
-    ];
-    const selected = order[Math.max(0, Math.min(sel, order.length - 1))];
-    const selectedRow: DashboardRow | undefined = selected === undefined ? undefined : { ...selected, line: -1 };
-
-    lines.push(...countsLines(status, dctx));
-    lines.push(blank(width));
-    const panel = executionLines(execution, status.tasks.length, selectedRow, dctx);
-    const panelStart = lines.length;
-    for (const l of panel.logs) rows.push({ kind: 'logs', name: l.task, line: panelStart + l.at });
-    lines.push(...panel.lines);
-    lines.push(blank(width));
-
-    lines.push(sectionLine('TASKS', '', width));
-    const taskSel = selectedRow?.kind === 'task' ? status.tasks.findIndex(task => task.name === selectedRow.name) : -1;
-    const taskTable = renderTable(columnPlan('tasks', dctx.bp), tasks, taskSel, 0, tasks.length, width, g);
-    lines.push(taskTable[0]!);
-    status.tasks.forEach((task, i) => {
-        rows.push({ kind: 'task', name: task.name, line: lines.length });
-        lines.push(taskTable[i + 1]!);
-    });
-    if (tasks.length === 0) lines.push([t('  '), d('no tasks')]);
-    lines.push(blank(width));
-
-    lines.push(sectionLine('INPUTS', '', width));
-    const inputNames = order.filter(r => r.kind === 'input').map(r => r.name);
-    const inputSel = selectedRow?.kind === 'input' ? inputNames.indexOf(selectedRow.name) : -1;
-    const inputTable = renderTable(columnPlan('inputs', dctx.bp), inputs, inputSel, 0, inputs.length, width, g);
-    lines.push(inputTable[0]!);
-    inputNames.forEach((name, i) => {
-        rows.push({ kind: 'input', name, line: lines.length });
-        lines.push(inputTable[i + 1]!);
-    });
-    if (inputs.length === 0) lines.push([t('  '), d('no inputs')]);
-    return { lines, rows };
+    return out;
 }
 
 /**
@@ -470,14 +581,15 @@ export function renderDashboard(state: TuiState, ctx: RenderCtx): { body: Line[]
     const ws = state.view.ws;
     const width = ctx.layout.columns;
     const out: Line[] = [dashboardTitle(state, ws, ctx)];
-    const column = dashboardColumn(state, ws, dashboardCtx(state, ctx), state.view.list.sel);
+    const dctx = dashboardCtx(state, ctx);
+    const model = dashboardModel(state, ws, dctx);
     const visible = Math.max(1, ctx.layout.bodyRows - 1);
-    const total = column.lines.length;
+    const total = model.total;
     const top = Math.max(0, Math.min(state.view.list.top, Math.max(0, total - visible)));
-    const window = column.lines.slice(top, top + visible);
+    const window = dashboardLines(model, dctx, state.view.list.sel, top, visible);
     while (window.length < visible) window.push(blank(width - 1));
     out.push(...withScrollbar(window, width, total, visible, top, ctx.g));
-    const hits: Hit[] = column.rows
+    const hits: Hit[] = model.rows
         .map((row, index) => ({ row, index }))
         .filter(({ row }) => row.line >= top && row.line < top + visible)
         .map(({ row, index }) => ({ row: 1 + (row.line - top), x0: 0, x1: width, target: { kind: 'dashboard' as const, index } }));
@@ -495,16 +607,16 @@ export function renderDashboard(state: TuiState, ctx: RenderCtx): { body: Line[]
 export function scrollDashboard(state: TuiState, controller: Controller, to: { delta: number } | { top: number }): void {
     const nav = navigation(state, controller);
     if (nav === null || state.view.kind !== 'dashboard') return;
-    const { column, visible } = nav;
-    const total = column.lines.length;
+    const { model, visible } = nav;
+    const total = model.total;
     const current = state.view.list.top;
     const top = Math.max(0, Math.min('delta' in to ? current + to.delta : to.top, Math.max(0, total - visible)));
     let sel = state.view.list.sel;
-    if (column.rows.length > 0) {
-        const line = column.rows[Math.max(0, Math.min(sel, column.rows.length - 1))]!.line;
+    if (model.rows.length > 0) {
+        const line = model.rows[Math.max(0, Math.min(sel, model.rows.length - 1))]!.line;
         if (line < top || line >= top + visible) {
             // The selection follows the window: the first (or last) row inside it.
-            const inside = column.rows.map((r, i) => ({ r, i })).filter(({ r }) => r.line >= top && r.line < top + visible);
+            const inside = model.rows.map((r, i) => ({ r, i })).filter(({ r }) => r.line >= top && r.line < top + visible);
             const pick = line < top ? inside[0] : inside[inside.length - 1];
             if (pick !== undefined) sel = pick.i;
         }
@@ -532,12 +644,12 @@ export function dashboardHints(state: TuiState, ctx: RenderCtx): { left: string;
 // Navigation
 // ---------------------------------------------------------------------------
 
-/** The column and the window geometry for navigation (no theme needed). */
-function navigation(state: TuiState, controller: Controller): { column: DashboardColumn; visible: number } | null {
+/** The model and the window geometry for navigation (no theme needed; the model comes from the cache). */
+function navigation(state: TuiState, controller: Controller): { model: DashboardModel; visible: number } | null {
     if (state.view.kind !== 'dashboard') return null;
     const layout = layoutOf(state);
     const dctx: DashboardCtx = { g: controller.deps.glyphs, now: controller.deps.now(), columns: layout.columns, bp: breakpoint(state.size), spinner: 0 };
-    return { column: dashboardColumn(state, state.view.ws, dctx, state.view.list.sel), visible: Math.max(1, layout.bodyRows - 1) };
+    return { model: dashboardModel(state, state.view.ws, dctx), visible: Math.max(1, layout.bodyRows - 1) };
 }
 
 /**
@@ -550,10 +662,10 @@ function navigation(state: TuiState, controller: Controller): { column: Dashboar
 export function selectDashboardRow(state: TuiState, controller: Controller, index: number): void {
     const nav = navigation(state, controller);
     if (nav === null || state.view.kind !== 'dashboard') return;
-    const { column, visible } = nav;
-    if (column.rows.length === 0) return;
-    const sel = Math.max(0, Math.min(index, column.rows.length - 1));
-    const top = scrollIntoView(state.view.list.top, column.rows[sel]!.line, visible, column.lines.length);
+    const { model, visible } = nav;
+    if (model.rows.length === 0) return;
+    const sel = Math.max(0, Math.min(index, model.rows.length - 1));
+    const top = scrollIntoView(state.view.list.top, model.rows[sel]!.line, visible, model.total);
     controller.dispatch({ type: 'view/set', view: { ...state.view, list: { sel, top } } });
 }
 
@@ -568,9 +680,9 @@ export function selectDashboardRow(state: TuiState, controller: Controller, inde
 export function moveDashboard(state: TuiState, controller: Controller, op: NavOp): void {
     const nav = navigation(state, controller);
     if (nav === null || state.view.kind !== 'dashboard') return;
-    const { column, visible } = nav;
-    const total = column.lines.length;
-    const count = column.rows.length;
+    const { model, visible } = nav;
+    const total = model.total;
+    const count = model.rows.length;
     const page = Math.max(1, visible - 1);
     if (count === 0) {
         const delta = op === 'up' ? -1 : op === 'down' ? 1 : op === 'pageUp' ? -page : op === 'pageDown' ? page : op === 'home' ? -total : total;
@@ -580,7 +692,7 @@ export function moveDashboard(state: TuiState, controller: Controller, op: NavOp
     }
     const last = count - 1;
     const current = Math.max(0, Math.min(state.view.list.sel, last));
-    const line = column.rows[current]!.line;
+    const line = model.rows[current]!.line;
     let sel = current;
     switch (op) {
         case 'up': sel = Math.max(0, current - 1); break;
@@ -590,14 +702,14 @@ export function moveDashboard(state: TuiState, controller: Controller, op: NavOp
         case 'pageUp': {
             const target = line - page;
             let i = current;
-            while (i > 0 && column.rows[i - 1]!.line >= target) i--;
+            while (i > 0 && model.rows[i - 1]!.line >= target) i--;
             sel = i === current ? Math.max(0, current - 1) : i;
             break;
         }
         case 'pageDown': {
             const target = line + page;
             let i = current;
-            while (i < last && column.rows[i + 1]!.line <= target) i++;
+            while (i < last && model.rows[i + 1]!.line <= target) i++;
             sel = i === current ? Math.min(last, current + 1) : i;
             break;
         }
@@ -605,7 +717,7 @@ export function moveDashboard(state: TuiState, controller: Controller, op: NavOp
     // Home shows the column from its start and End from its end; the other moves scroll minimally.
     const top = op === 'home' ? 0
         : op === 'end' ? Math.max(0, total - visible)
-        : scrollIntoView(state.view.list.top, column.rows[sel]!.line, visible, total);
+        : scrollIntoView(state.view.list.top, model.rows[sel]!.line, visible, total);
     controller.dispatch({ type: 'view/set', view: { ...state.view, list: { sel, top } } });
 }
 
@@ -626,7 +738,7 @@ registerViewHooks('dashboard', {
     open: (state, controller) => {
         const nav = navigation(state, controller);
         if (nav === null || state.view.kind !== 'dashboard') return;
-        const row = nav.column.rows[Math.max(0, Math.min(state.view.list.sel, nav.column.rows.length - 1))];
+        const row = nav.model.rows[Math.max(0, Math.min(state.view.list.sel, nav.model.rows.length - 1))];
         if (row === undefined) return;
         const ws = state.view.ws;
         if (row.kind === 'logs') controller.openTask(ws, row.name, 'stdout');

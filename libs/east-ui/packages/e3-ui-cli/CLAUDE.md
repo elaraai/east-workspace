@@ -22,8 +22,17 @@ Tests: `make test` runs every `dist/**/*.spec.js` (pure modules + frame
 specs, no PTY); `E3_UI_INTEGRATION=1` adds `src/tui/integration.spec.ts`
 over a real server and a repository seeded by `src/tui/testing/seed.ts`
 (test-only; the `testing/` tree and the fake are excluded from the
-tarball). A real-terminal smoke: `script -qfec "stty cols 120 rows 36;
-node dist/cli.js <repo>" /dev/null` with keys piped in.
+tarball). Two specs go through Ink's real `render()` into a stub terminal
+(`testing/ink-probe.ts`): `ui/render.spec.tsx` (bytes a selection move
+writes; an idle poll writes nothing) and `perf.spec.tsx`, the §17 budgets
+measured by `testing/perf-probe.ts` in a child process under
+`NODE_ENV=production` as the bin runs: the heap an idle dashboard retains
+per poll (nothing; the development build's user-timing entries leak) runs
+everywhere, while the CPU-per-keypress budgets are opt-in with
+`E3_UI_PERF=1` (scaled to the machine by a fixed calibration workload) and
+deliberately not a CI gate — timing on a shared runner is a flaky test.
+Tests are named `perf:` for `--test-name-pattern`. A real-terminal smoke: `script -qfec "stty
+cols 120 rows 36; node dist/cli.js <repo>" /dev/null` with keys piped in.
 
 ## Plugin skill
 

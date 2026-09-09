@@ -205,11 +205,11 @@ function dashboard({ running = false, commit = [], completion = [], command = CM
   const context = 'main · demand@1.4.2 · deployed 3d ago · lock: none';
   return shell({
     crumb: 'demo-repo › main', pills, context, body, commit, completion, command,
-    footer: footer ?? FOOTER('↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands', 'polled 0.4s ago'),
+    footer: footer ?? FOOTER('↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands', 'polled just now'),
   });
 }
 write('S05-dashboard', dashboard({}));
-write('S06-dashboard-running', dashboard({ running: true, footer: FOOTER('↑↓ move   ⏎ open   x stop   / commands', 'polled 0.2s ago') }));
+write('S06-dashboard-running', dashboard({ running: true, footer: FOOTER('↑↓ move   ⏎ open   x stop   / commands', 'polled just now') }));
 
 // S06b — run confirmation lives IN the command bar (no dialog)
 write('S06b-run-confirm', dashboard({

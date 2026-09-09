@@ -16,7 +16,8 @@ import assert from 'node:assert/strict';
 import { IntegerType, variant } from '@elaraai/east';
 import { dictOf, fakeRepo, type FakeApi } from '../api.fake.js';
 import { taskView } from '../state/actions.js';
-import { dashboardView, mountApp, type Mounted } from '../testing/harness.js';
+import { dashboardFixture } from '../testing/fixtures.js';
+import { NOW, dashboardView, mountApp, type Mounted } from '../testing/harness.js';
 
 let mounted: Mounted | null = null;
 afterEach(() => { mounted?.unmount(); mounted = null; });
@@ -92,6 +93,25 @@ describe('mouse', () => {
         assert.equal(mounted.store.getState().view.kind, 'dashboard');
         await mounted.press(click(10, 1));
         assert.equal(mounted.store.getState().view.kind, 'workspaces');
+    });
+
+    test('wheel reports are coalesced: ten in one tick scroll once, with one dispatch', async () => {
+        // Terminals send several reports per notch; the store must see one scroll.
+        mounted = await mountApp({ view: dashboardView(), actions: dashboardFixture(40, 8, NOW), mouse: true });
+        const store = mounted.store;
+        const dispatch = store.dispatch;
+        let dispatches = 0;
+        store.dispatch = (action) => { dispatches += 1; dispatch(action); };
+        await mounted.press(wheelDown(5, 10).repeat(10));
+        assert.equal(dispatches, 1, 'one dispatch for the ten reports');
+        const view = store.getState().view;
+        assert.equal(view.kind === 'dashboard' && view.list.top, 30, 'thirty rows, applied once');
+        // A click after wheel reports in the same chunk lands after the scroll.
+        dispatches = 0;
+        await mounted.press(wheelUp(5, 10).repeat(2) + click(5, 4));
+        assert.equal(dispatches, 2);
+        const after = store.getState().view;
+        assert.equal(after.kind === 'dashboard' && after.list.top, 24);
     });
 
     test('with mouse reporting off, reports are dropped and never typed', async () => {

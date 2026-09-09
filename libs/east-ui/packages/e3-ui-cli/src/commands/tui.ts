@@ -129,7 +129,10 @@ export async function tuiCommand(repo: string | undefined, workspace: string | u
         process.exit(1);
     }
     // Loaded only here: Ink, React and the views never touch `--help`,
-    // `--version`, `shot`, or a non-TTY invocation.
+    // `--version`, `shot`, or a non-TTY invocation. React picks its build
+    // from NODE_ENV as it loads: the bin shim sets it for `e3-ui`; this
+    // covers `node dist/cli.js` (`npm run dev`) the same way.
+    process.env['NODE_ENV'] ??= 'production';
     const { runTui } = await import('../tui/app.js');
     const code = await runTui(resolved);
     process.exit(code);

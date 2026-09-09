@@ -19,6 +19,7 @@ import { randomBytes } from 'node:crypto';
 import { FloatType, IntegerType, StringType, StructType, variant } from '@elaraai/east';
 import { dictOf, fakeRepo, type FakeApi } from '../../api.fake.js';
 import { INLINE_LIMIT } from '../../data/dataset.js';
+import { treeModelBuilds } from '../../model/tree.js';
 import { createPersister, emptyState } from '../../state/persist.js';
 import { taskView } from '../../state/actions.js';
 import { KEY, mountApp, type Mounted } from '../../testing/harness.js';
@@ -179,6 +180,33 @@ describe('the task view — Output', () => {
         assert.match(mounted.lines()[5]!, /^▌· Horizon\s+14\s*$/);
         assert.match(mounted.lines()[6]!, /^ · Smoothing\s+0\.35\s*$/);
         assert.match(mounted.lines()[31]!, /^ rows 1–2 of 2/);
+    });
+
+    test('a move never re-flattens the value; a toggle flattens it once', async () => {
+        mounted = await mountApp({ api: repo(), feeds: true, view: taskView('main', 'ingest') });
+        await mounted.waitFor(() => /NOT INDEXED/.test(mounted!.frame()));
+        await mounted.press(KEY.enter);
+        await mounted.waitFor(treeShown(mounted, 'k0000'));
+        const before = treeModelBuilds();
+        await mounted.press('j');
+        await mounted.press('j');
+        await mounted.press(KEY.pageDown);
+        await mounted.press(KEY.pageUp);
+        await mounted.press('k');
+        await mounted.press('G');
+        await mounted.press('g');
+        await mounted.press('g');
+        assert.equal(treeModelBuilds(), before, 'moves reuse the flattened rows');
+        assert.match(mounted.lines()[5]!, /^▌▾ k0000/);
+        await mounted.press(KEY.left);
+        assert.match(mounted.lines()[5]!, /^▌▸ k0000/);
+        assert.equal(treeModelBuilds(), before + 1, 'a collapse flattens once');
+        await mounted.press('j');
+        assert.equal(treeModelBuilds(), before + 1);
+        await mounted.press('k');
+        await mounted.press(KEY.right);
+        assert.match(mounted.lines()[5]!, /^▌▾ k0000/);
+        assert.equal(treeModelBuilds(), before + 2, 'an expand flattens once');
     });
 
     test('the expand-set and top row are remembered per workspace and path', async () => {

@@ -11,7 +11,9 @@
  * paged tree's flat indices shift whenever a placeholder root becomes its
  * expanded rows (or the reverse), so the selection is remembered as a
  * global root row plus an offset into its subtree and re-applied after
- * every page change.
+ * every page change. The model is memoized on what the flatten reads, so
+ * a keypress that only moves the selection never re-flattens the value
+ * ({@link treeModel}).
  *
  * @packageDocumentation
  */
@@ -90,20 +92,53 @@ export interface TreeModel {
     keyType: EastTypeValue | null;
 }
 
+/** The content a tree model is built from (an inline root or the loaded pages). */
+type TreeContent = Extract<DatasetData['mode'], { kind: 'inline' | 'paged' }>;
+
 /**
- * Builds the tree model for a dataset's current content.
- *
- * @param data - The dataset data
- * @param tree - The tree UI (expand-set, base depth)
- * @param editable - Whether append / remove rows are offered
- * @returns The model, or null when the content is not a tree
+ * What the flatten reads: the parts of the data and the tree UI that decide
+ * the rows. Everything else in the state — the selection, the top row, the
+ * held match, the pages being loaded, the clock — leaves the rows as they
+ * are, so the model is memoized on this key alone.
  */
-export function treeModel(data: DatasetData | undefined, tree: TreeUi, editable: boolean): TreeModel | null {
-    if (data === undefined || data.type === null) return null;
+interface TreeModelKey {
+    type: EastTypeValue;
+    kind: TreeContent['kind'];
+    /** The materialized root (inline) — a new object whenever the value or the draft changes. */
+    root: unknown;
+    /** The loaded pages (paged) — a new map whenever a page arrives or leaves. */
+    pages: unknown;
+    totalRows: number;
+    open: TreeUi['open'];
+    baseDepth: number | undefined;
+    editable: boolean;
+}
+
+let memo: { key: TreeModelKey; model: TreeModel } | null = null;
+let builds = 0;
+
+function sameKey(a: TreeModelKey, b: TreeModelKey): boolean {
+    return a.type === b.type && a.kind === b.kind && a.root === b.root && a.pages === b.pages && a.totalRows === b.totalRows
+        && a.open === b.open && a.baseDepth === b.baseDepth && a.editable === b.editable;
+}
+
+/**
+ * How many times the tree model has been flattened — the memo's misses.
+ * A pure move (selection, scroll, page request) must not add to it; a
+ * toggle, a page arriving, or a new value adds one.
+ *
+ * @returns The build count since the module loaded
+ */
+export function treeModelBuilds(): number {
+    return builds;
+}
+
+/** Flattens the content into a model (the memo's miss path). */
+function buildTreeModel(type: EastTypeValue, mode: TreeContent, tree: TreeUi, editable: boolean): TreeModel {
     const openDepth = tree.baseDepth ?? DEFAULT_OPEN_DEPTH;
-    const keyType = keyTypeOf(data.type);
-    if (data.mode.kind === 'inline') {
-        const rows = flattenRows(data.mode.root, tree.open, openDepth, editable, editable);
+    const keyType = keyTypeOf(type);
+    if (mode.kind === 'inline') {
+        const rows = flattenRows(mode.root, tree.open, openDepth, editable, editable);
         const roots = rows.filter(r => r.depth === 0).length;
         return {
             total: rows.length,
@@ -116,27 +151,57 @@ export function treeModel(data: DatasetData | undefined, tree: TreeUi, editable:
             keyType,
         };
     }
-    if (data.mode.kind === 'paged') {
-        const paging: ValueTreePaging = { totalRows: data.mode.totalRows, pageSize: PAGE_SIZE, pages: data.mode.pages, onNeedRows: () => undefined };
-        const flat = flattenPaged(paging, tree.open, openDepth);
-        return {
-            total: flat.totalFlat,
-            rows: flat.loadedRows,
-            paged: { flat, paging },
-            rootCount: data.mode.totalRows,
-            at: (i) => (i >= 0 && i < flat.totalFlat ? pagedRowAt(flat, paging, i) : null),
-            flatOfRoot: (root) => pagedFlatIndexOfRoot(flat, paging, root),
-            flatOfId: (id) => {
-                for (const [p, models] of flat.pageModels) {
-                    const j = models.findIndex(r => r.id === id);
-                    if (j !== -1) return flat.prefix[p]! + j;
-                }
-                return undefined;
-            },
-            keyType,
-        };
-    }
-    return null;
+    const paging: ValueTreePaging = { totalRows: mode.totalRows, pageSize: PAGE_SIZE, pages: mode.pages, onNeedRows: () => undefined };
+    const flat = flattenPaged(paging, tree.open, openDepth);
+    return {
+        total: flat.totalFlat,
+        rows: flat.loadedRows,
+        paged: { flat, paging },
+        rootCount: mode.totalRows,
+        at: (i) => (i >= 0 && i < flat.totalFlat ? pagedRowAt(flat, paging, i) : null),
+        flatOfRoot: (root) => pagedFlatIndexOfRoot(flat, paging, root),
+        flatOfId: (id) => {
+            for (const [p, models] of flat.pageModels) {
+                const j = models.findIndex(r => r.id === id);
+                if (j !== -1) return flat.prefix[p]! + j;
+            }
+            return undefined;
+        },
+        keyType,
+    };
+}
+
+/**
+ * The tree model for a dataset's current content — flattened once per
+ * (content, expand-set, base depth, editable) and shared by everything
+ * that reads it in one keypress: the key handler, the list model, the
+ * rows renderer and the mouse pane. A single-entry memo suffices: the
+ * TUI shows one tree at a time, and every reader asks for the same one.
+ *
+ * @param data - The dataset data
+ * @param tree - The tree UI (expand-set, base depth)
+ * @param editable - Whether append / remove rows are offered
+ * @returns The model, or null when the content is not a tree
+ */
+export function treeModel(data: DatasetData | undefined, tree: TreeUi, editable: boolean): TreeModel | null {
+    if (data === undefined || data.type === null) return null;
+    const mode = data.mode;
+    if (mode.kind !== 'inline' && mode.kind !== 'paged') return null;
+    const key: TreeModelKey = {
+        type: data.type,
+        kind: mode.kind,
+        root: mode.kind === 'inline' ? mode.root : null,
+        pages: mode.kind === 'paged' ? mode.pages : null,
+        totalRows: mode.kind === 'paged' ? mode.totalRows : 0,
+        open: tree.open,
+        baseDepth: tree.baseDepth,
+        editable,
+    };
+    if (memo !== null && sameKey(memo.key, key)) return memo.model;
+    builds += 1;
+    const model = buildTreeModel(data.type, mode, tree, editable);
+    memo = { key, model };
+    return model;
 }
 
 /** The selection of a paged tree as a logical position. */
