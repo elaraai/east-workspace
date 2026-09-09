@@ -301,7 +301,7 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
 { key:'activity', label:'Activity',        sub:'activity register',      type:'lookup',   of:'activities' },        // driver
 { key:'vol',      label:'Vol / Qty',       sub:'uom per activity',       type:'quantity', uomFrom:'driver.uom' },
 { key:'notes',    label:'Notes',           sub:'free text',              type:'text' },
-{ key:'tanks',    label:'Tanks / vessels', sub:'from → to · 4 x 140kL · tank · farm', type:'link', of:'vessels',
+{ key:'tanks',    label:'Tanks / vessels', sub:'from → to · 4 x 140m³ · tank · farm', type:'link', of:'vessels',
   members:[ {kind:'tank',identified:true}, {kind:'range',identified:true},
             {kind:'farm',countable:true,resolvesTo:'tank'}, {kind:'group',countable:true,resolvesTo:'tank'},
             {kind:'capacity',countable:true,resolvesTo:'tank'} ],
@@ -322,7 +322,7 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
     <tbody>
       <tr><td class="m">text</td><td>string</td><td>phrase</td><td>idle</td><td>free</td><td>Anything. Ghost is a host phrase template (§5.1).</td></tr>
       <tr><td class="m">date</td><td>ISO date</td><td>rule</td><td>instant</td><td>parsed</td><td>Base = today, or the <code>derive.from</code> column's value when set. Accepts <code>+3</code>/<code>+3d</code> (base+n) · <code>4d</code> (derive.from + n) · weekday prefix ≥3 letters (next occurrence, never today) · ISO · <code>d/m</code>, <code>d/m/yy</code>, <code>d-m-yyyy</code>, <code>d.m</code> · <code>17 nov</code>, <code>17 nov 25</code>. Missing year = base year, rolled forward if the date would precede the base. Display <code>17 Nov 25</code>; edit form <code>17/11/25</code>; strip preview <code>Mon 17 Nov 25</code> and the day span when derived.</td></tr>
-      <tr><td class="m">quantity</td><td>number + uom</td><td>history</td><td>idle</td><td>parsed</td><td>Digits, optional decimal, suffix <code>l · k · kl · ml</code> (×1, ×10³, ×10³, ×10⁶); commas/spaces ignored; stored as a rounded integer. Display locale-grouped, unit from <code>uomFrom</code> in 9.5px mono ink-5. Strip previews the parsed value and the implied run when the driver has a rate (<i>≈ 21.8 h run · 2 fte</i>).</td></tr>
+      <tr><td class="m">quantity</td><td>number + uom</td><td>history</td><td>idle</td><td>parsed</td><td>Digits, optional decimal, suffix <code>l · k · m3</code> (×1, ×10³, ×10³); commas/spaces ignored; stored as a rounded integer. Display locale-grouped, unit from <code>uomFrom</code> in 9.5px mono ink-5. Strip previews the parsed value and the implied run when the driver has a rate (<i>≈ 21.8 h run · 2 fte</i>).</td></tr>
       <tr><td class="m">integer</td><td>number</td><td>none</td><td>instant</td><td>parsed</td><td>As quantity, no unit.</td></tr>
       <tr><td class="m">lookup</td><td>one register row</td><td>prefix + alias + fuzzy</td><td>instant</td><td>constrained</td><td>Scored candidates (§3.1); commit takes the exact match, else the top candidate, else the typed text.</td></tr>
       <tr><td class="m">reference</td><td>one register member</td><td>prefix</td><td>instant</td><td>constrained</td><td>As lookup, but the register is a flat list of labels.</td></tr>
@@ -341,11 +341,11 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
   <table>
     <thead><tr><th style="width:26%;">Typed <span class="ex">example</span></th><th>Kind · rule</th></tr></thead>
     <tbody>
-      <tr><td class="m">T2140 · t2140 · 2140</td><td><b>identified</b> — register code, case-insensitive; bare digits try the register's prefix. Meta from the register (<i>140 kL</i>).</td></tr>
+      <tr><td class="m">T2140 · t2140 · 2140</td><td><b>identified</b> — register code, case-insensitive; bare digits try the register's prefix. Meta from the register (<i>140 m³</i>).</td></tr>
       <tr><td class="m">T2140-45 · 2140-2145</td><td><b>range</b> — expands to every register member in the numeric span, short upper bound completed from the lower. A hyphen is a range only between two unspaced bare numbers; spaced, or beside a name, it is an arrow.</td></tr>
       <tr><td class="m">2000s · the 2000s · annex</td><td><b>countable by name/alias</b> — leading “the” dropped. Meta <i>farm · 96</i>.</td></tr>
-      <tr><td class="m">140kL · 140 kl · 140000L</td><td><b>countable by attribute</b> — a size that exists in the register, not a member. Litres ≥1 000 read as kL.</td></tr>
-      <tr><td class="m">4 x 140kL · 2000s × 3 · 3*annex</td><td><b>counted member</b> — <code>N x kind</code> / <code>kind x N</code> with the declared ops, countable kinds only. Label <code>4 × 140 kL</code>, meta <i>unassigned</i>, carries <code>n</code> and <code>of</code>. A trailing qualifier (“… tanks south”) becomes its own text token. Multiplying an identified member is kept as text with the reason.</td></tr>
+      <tr><td class="m">140m³ · 140 m3 · 140000L</td><td><b>countable by attribute</b> — a size that exists in the register, not a member. Litres ≥1 000 read as m³.</td></tr>
+      <tr><td class="m">4 x 140m³ · 2000s × 3 · 3*annex</td><td><b>counted member</b> — <code>N x kind</code> / <code>kind x N</code> with the declared ops, countable kinds only. Label <code>4 × 140 m³</code>, meta <i>unassigned</i>, carries <code>n</code> and <code>of</code>. A trailing qualifier (“… tanks south”) becomes its own text token. Multiplying an identified member is kept as text with the reason.</td></tr>
       <tr><td class="m">TBC</td><td><b>placeholder</b> — dashed chip.</td></tr>
       <tr><td class="m">anything else</td><td><b>text</b> — kept as typed, dashed. Entry is never blocked.</td></tr>
       <tr><td class="m">, · &gt; -&gt; =&gt; → “ - ”</td><td>Comma separates members in a half; any arrow form separates From from To.</td></tr>
@@ -386,7 +386,7 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
     <li>Prediction runs only while the buffer is empty, per half, never into a locked half: the last row with the same driver value → its members normalised through the register; else the counted form <code>n × unit</code> where <code>n = ⌈arity.from ÷ per⌉</code> (<span class="ex">example</span> ⌈vol ÷ 140 000⌉ · Tk drivers n = vol · Drm none · cap 12). Dashed after the input; the strip lists them with an enumerate alternative naming that many free members. Once a half has named members the count proposal is withdrawn. For from-only drivers the proposal lands in From.</li>
   </ul>
   <h3>4.6 Arity</h3>
-  <p>While the <code>arity.of</code> half is being edited the strip meta reads <i>4 × 140 kL implied · 3 named so far</i> — never inside the cell. Named = each identified member once, a counted member by its count; text and placeholders do not count. Fewer than implied: <i>named so far</i>; more: <i>more than the volume needs</i>; equal: <i>named</i>.</p>
+  <p>While the <code>arity.of</code> half is being edited the strip meta reads <i>4 × 140 m³ implied · 3 named so far</i> — never inside the cell. Named = each identified member once, a counted member by its count; text and placeholders do not count. Fewer than implied: <i>named so far</i>; more: <i>more than the volume needs</i>; equal: <i>named</i>.</p>
 
   <h2>5 · Copilot</h2>
   <p>Suggestions are rebuilt against the row <i>as it would be</i> if the open editor committed, after the type's latency. Rows matching <code>owned</code> are never touched; nothing is proposed into an occupied slot.</p>
@@ -399,14 +399,14 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
       <tr><td class="m">history</td><td>Same value as the last row with this driver value.</td><td>Vol <i>like BX226003</i>; Tanks <i>same vessels as row 3</i></td></tr>
       <tr><td class="m">sequence</td><td>Nearest dated row above + a declared step; else a declared anchor.</td><td>Start = week after row n; else next Monday <span class="ex host">host-supplied</span></td></tr>
       <tr><td class="m">default</td><td>Expression over the driver row.</td><td>Vol = rate × 8 h <span class="ex host">host-supplied</span></td></tr>
-      <tr><td class="m">phrase</td><td>Template per driver family, with row values interpolated.</td><td>Transfer → “Transfer 560kL of BX2” <span class="ex host">host-supplied</span></td></tr>
-      <tr><td class="m">capacity</td><td>The link count form (§4.5).</td><td><i>capacity · 560,000 L ÷ 140 kL</i></td></tr>
+      <tr><td class="m">phrase</td><td>Template per driver family, with row values interpolated.</td><td>Transfer → “Transfer 560m³ of BX2” <span class="ex host">host-supplied</span></td></tr>
+      <tr><td class="m">capacity</td><td>The link count form (§4.5).</td><td><i>capacity · 560,000 L ÷ 140 m³</i></td></tr>
     </tbody>
   </table>
   <h3>5.2 Suggested rows</h3>
   <ul>
-    <li><b>Patterns</b> (<span class="ex host">host-supplied</span>): <code>{ when(row), rows(row) → [{ activity, start, end, vol, notes, … }] }</code>. <span class="ex">example</span> Bulk Blenders → media add + packdown at end +3…+7 d; Xflow with “annex” → transfer to the annex, then back a week later.</li>
-    <li><b>Learned followers</b> (built in): the driver value that most often followed this one in the sheet (rows sorted by start, gap 0–60 d), placed at the average gap with that follower's last quantity and notes · <i>Transfer followed Xflow 3× in this plan · +7d</i>. Used when no pattern matches.</li>
+    <li><b>Patterns</b> (<span class="ex host">host-supplied</span>): <code>{ when(row), rows(row) → [{ activity, start, end, vol, notes, … }] }</code>. <span class="ex">example</span> Bulk Blenders → media add + consolidation at end +3…+7 d; Filtration with “annex” → transfer to the annex, then back a week later.</li>
+    <li><b>Learned followers</b> (built in): the driver value that most often followed this one in the sheet (rows sorted by start, gap 0–60 d), placed at the average gap with that follower's last quantity and notes · <i>Transfer followed Filtration 3× in this plan · +7d</i>. Used when no pattern matches.</li>
     <li>At most <code>suggestAhead</code> rows (default 2), rendered as dashed-topped hatched rows under the anchor with real row numbers. Gutter: <b>✓</b> adds (⏎ when selected), <b>×</b> rejects (⌫) and remembers the pairing so it is not offered after that driver again. Click selects (3px brand bar); esc deselects, esc again dismisses all. Taking a row re-anchors and looks forward so the next is already waiting.</li>
     <li>Rejected fills are remembered per row and key; ⌫ on the armed target rejects just that cell.</li>
   </ul>
@@ -485,17 +485,17 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
   activities: [   // driver
     { name:'Transfer',                 uom:'L',   rate:20000, fte:2, days:4, sides:'both' },
     { name:'Transfer - Bulk Blenders', uom:'L',   rate:40000, fte:2, days:4, sides:'both' },
-    { name:'Xflow',                    uom:'L',   rate:25000, fte:3, days:4, sides:'both' },
+    { name:'Filtration',                    uom:'L',   rate:25000, fte:3, days:4, sides:'both' },
     { name:'Drum Job',                 uom:'Drm', rate:100,   fte:2, days:3, sides:'in'   },
     { name:'Media - Add to Tank',      uom:'Tk',  rate:2,     fte:2, days:4, sides:'in'   },
     { name:'Receival',                 uom:'L',   rate:25000, fte:1, days:1, sides:'to'   },
     { name:'Despatch',                 uom:'L',   rate:25000, fte:1, days:1, sides:'from' },
     … ],
   vessels: {
-    tank:  [ { code:'T2140', cap:'140 kL', farm:'2000s' }, … 22 ],           // identified
+    tank:  [ { code:'T2140', cap:'140 m³', farm:'2000s' }, … 22 ],           // identified
     farm:  [ { code:'T20', name:'2000s', n:96, al:['2000','t2000s','the 2000s'] },
              { code:'ANNX', name:'Annex store', n:9, al:['annex','the annex','anx','annexe'] }, … ],
-    group: [ { code:'G1042', meta:'drm grp · 48' }, { code:'V07', meta:'vat' }, … ],
+    group: [ { code:'G1042', meta:'drm grp · 48' }, { code:'V07', meta:'mixer' }, … ],
     capacity: derived from tank.cap },
   sites:    [ 'NP-North plant', 'EP-East plant', … ],
   statuses: [ { w:'PLANNED', c:'ink-4' }, { w:'SCHEDULED', c:'brand-d' }, { w:'IN PROGRESS', c:'warn' },
@@ -504,12 +504,12 @@ owned: row => !!row.orderCode || row.status === 'CANCELLED'
 suggest: { ahead:2, triggers:['activity','start','end','vol','notes','tanks'], learn:true,
            fill:{ start:'sequence(7d | next monday)', end:'derive', vol:'history | default(rate*8)',
                   notes:'phrase', tanks:'history | capacity' },
-           patterns:[ bulkBlenders, xflowAnnex, xflowPackdown, annexReturn ] }</pre>
+           patterns:[ bulkBlenders, filtrationAnnex, filtrationConsolidate, annexReturn ] }</pre>
 
   <h2>13 · Still hard-coded in the prototype</h2>
   <ul>
     <li>Fill providers <code>sequence</code>, <code>default</code>, <code>phrase</code> and the four row patterns are functions in the component — to move behind <code>suggest</code>. (In the east-ui design these become East-function providers: see Sheet Spec.md §4.)</li>
-    <li>The count unit for capacity predictions (140 kL) and the per-uom arity rules (Tk = count, Drm = none, cap 12) — to become <code>arity.per</code> resolution against the register plus a per-uom map on the driver.</li>
+    <li>The count unit for capacity predictions (140 m³) and the per-uom arity rules (Tk = count, Drm = none, cap 12) — to become <code>arity.per</code> resolution against the register plus a per-uom map on the driver.</li>
     <li>Register shapes are static arrays; <code>registers</code> should accept the same shapes from the data source. Footer counts and the sync status are strings the host will own.</li>
     <li>Declared but not evaluated: <code>check</code> entries other than <code>exists</code>; <code>store:'canonical'</code>; <code>showRegisterMeta</code>.</li>
   </ul>

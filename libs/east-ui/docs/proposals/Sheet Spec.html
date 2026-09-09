@@ -2407,7 +2407,7 @@ class Component extends DCLogic {
     { key: 'activity',  label: 'Activity',        sub: 'activity register',                type: 'lookup',    of: 'activities' },
     { key: 'vol',       label: 'Vol / Qty',       sub: 'uom per activity',           type: 'quantity',  uomFrom: 'activity' },
     { key: 'notes',     label: 'Notes',           sub: 'free text',                  type: 'text' },
-    { key: 'tanks',     label: 'Tanks / vessels', sub: 'from → to · 4 x 140kL · tank · farm', type: 'link',      of: 'vessels',
+    { key: 'tanks',     label: 'Tanks / vessels', sub: 'from → to · 4 x 140m³ · tank · farm', type: 'link',      of: 'vessels',
       arity: { of: 'destination', from: 'vol', per: 'capacity' },
       // Which member kinds exist, and which of them may carry a count. An
       // IDENTIFIED member names a vessel; a COUNTED one names how many of a kind
@@ -2443,15 +2443,15 @@ class Component extends DCLogic {
     { name: 'Transfer - Bulk Blenders', uom: 'L', rate: 40000, fte: 2, days: 4, sides: 'both' },
     { name: 'Transfer - North/South', uom: 'L', rate: 20000, fte: 2, days: 4, sides: 'both' },
     { name: 'Transfer - Annex', uom: 'L', rate: 20000, fte: 2, days: 4, sides: 'both' },
-    { name: 'Xflow', uom: 'L', rate: 25000, fte: 3, days: 4, sides: 'both' },
-    { name: 'Xflow - High Solids', uom: 'L', rate: 5000, fte: 2, days: 4, sides: 'both' },
+    { name: 'Filtration', uom: 'L', rate: 25000, fte: 3, days: 4, sides: 'both' },
+    { name: 'Filtration - Coarse', uom: 'L', rate: 5000, fte: 2, days: 4, sides: 'both' },
     { name: 'Centrifuge', uom: 'L', rate: 8000, fte: 1, days: 3, sides: 'both' },
-    { name: 'Earth Filter', uom: 'L', rate: 6000, fte: 1, days: 3, sides: 'both' },
+    { name: 'Polish Filter', uom: 'L', rate: 6000, fte: 1, days: 3, sides: 'both' },
     { name: 'RO Concentrate', uom: 'L', rate: 5000, fte: 2, days: 3, sides: 'both' },
     { name: 'Drum Job', uom: 'Drm', rate: 100, fte: 2, days: 3, sides: 'in' },
     { name: 'Media - Add to Tank', uom: 'Tk', rate: 2, fte: 2, days: 4, sides: 'in' },
     { name: 'Media - Remove from Tank', uom: 'Tk', rate: 2, fte: 2, days: 4, sides: 'in' },
-    { name: 'Additions', uom: 'L', rate: 30000, fte: 1, days: 1, sides: 'in' },
+    { name: 'Dosing', uom: 'L', rate: 30000, fte: 1, days: 1, sides: 'in' },
     { name: 'Receival', uom: 'L', rate: 25000, fte: 1, days: 1, sides: 'to' },
     { name: 'Despatch', uom: 'L', rate: 25000, fte: 1, days: 1, sides: 'from' },
     { name: 'Sample', uom: 'Tk', rate: 8, fte: 1, days: 1, sides: 'in' },
@@ -2464,7 +2464,7 @@ class Component extends DCLogic {
     { w: 'COMPLETE', c: 'var(--pos)' },
     { w: 'CANCELLED', c: 'var(--neg)' },
   ];
-  static TANKS = ['T1104|60 kL|1000s', 'T1120|60 kL|1000s', 'T2140|140 kL|2000s', 'T2141|140 kL|2000s', 'T2142|140 kL|2000s', 'T2145|140 kL|2000s', 'T2150|140 kL|2000s', 'T2151|140 kL|2000s', 'T2160|140 kL|2000s', 'T2162|140 kL|2000s', 'T3210|200 kL|3000s', 'T3215|200 kL|3000s', 'T5010|600 kL|5000s', 'T5011|600 kL|5000s', 'T7301|80 kL|7000s', 'T7302|80 kL|7000s', 'T7305|80 kL|7000s', 'T7310|80 kL|7000s', 'T7311|80 kL|7000s', 'T7320|80 kL|7000s', 'T7322|80 kL|7000s', 'T8001|900 kL|8000s'].map(function (s) { const p = s.split('|'); return { code: p[0], cap: p[1], farm: p[2] }; });
+  static TANKS = ['T1104|60 m³|1000s', 'T1120|60 m³|1000s', 'T2140|140 m³|2000s', 'T2141|140 m³|2000s', 'T2142|140 m³|2000s', 'T2145|140 m³|2000s', 'T2150|140 m³|2000s', 'T2151|140 m³|2000s', 'T2160|140 m³|2000s', 'T2162|140 m³|2000s', 'T3210|200 m³|3000s', 'T3215|200 m³|3000s', 'T5010|600 m³|5000s', 'T5011|600 m³|5000s', 'T7301|80 m³|7000s', 'T7302|80 m³|7000s', 'T7305|80 m³|7000s', 'T7310|80 m³|7000s', 'T7311|80 m³|7000s', 'T7320|80 m³|7000s', 'T7322|80 m³|7000s', 'T8001|900 m³|8000s'].map(function (s) { const p = s.split('|'); return { code: p[0], cap: p[1], farm: p[2] }; });
   static FARMS = [
     { code: 'T20', name: '2000s', n: 96, al: ['2000', 't2000s', 'the 2000s'] },
     { code: 'T10', name: '1000s', n: 24, al: ['1000'] },
@@ -2481,7 +2481,7 @@ class Component extends DCLogic {
   static GROUPS = [
     { code: 'G1042', meta: 'drm grp · 48' },
     { code: 'G2210', meta: 'drm grp · 30' },
-    { code: 'V07', meta: 'vat' },
+    { code: 'V07', meta: 'mixer' },
     { code: 'M01', meta: 'mobile' },
     { code: 'M02', meta: 'mobile' },
   ];
@@ -2498,17 +2498,17 @@ class Component extends DCLogic {
       ({ id, start, end, activity, vol, notes, tanks, toClean, fromSite: '', toSite: '', orderCode, status });
     this.state = {
       rows: [
-        R('2026-02-16', '2026-02-20', 'Transfer - Bulk Blenders', 560000, 'Transfer BX2 into 4 x 140kL tanks onto media', 'T2140, T2141, T2145, T2150', 4, 'BX226001', 'SCHEDULED', 1),
-        R('2026-02-16', '2026-02-20', 'Media - Add to Tank', 4, 'Add media to 4 BX2 tanks down south', '4 x 140kL tanks south', '', 'BX226002', 'SCHEDULED', 2),
+        R('2026-02-16', '2026-02-20', 'Transfer - Bulk Blenders', 560000, 'Transfer BX2 into 4 x 140m³ tanks for media add', 'T2140, T2141, T2145, T2150', 4, 'BX226001', 'SCHEDULED', 1),
+        R('2026-02-16', '2026-02-20', 'Media - Add to Tank', 4, 'Add media to 4 BX2 tanks down south', '4 x 140m³ tanks south', '', 'BX226002', 'SCHEDULED', 2),
         R('2026-03-09', '2026-03-13', 'Transfer - North/South', 280000, 'Move tanks north', 'T2151, T2160, T7301, T7302', '', 'BX226003', 'SCHEDULED', 3),
         R('2026-04-20', '2026-04-24', 'Drum Job', 96, 'Prep 96 drums for despatch', 'TBC', '', 'BX226005', 'SCHEDULED', 4),
         R('2026-06-22', '2026-06-26', 'Transfer - Annex', 18000, 'transfer to annex', '', '', '', 'SCHEDULED', 5),
         R('2026-06-29', '2026-07-03', 'Transfer - Annex', 18000, 'Transfer from annex', '', '', '', 'SCHEDULED', 6),
-        R('2026-07-06', '2026-07-10', 'Transfer - Bulk Blenders', 980000, '980kL BX2 blend', '', '', '', 'SCHEDULED', 7),
-        R('2026-07-13', '2026-07-17', 'Transfer', 980000, 'Packdown 980kL of BX2 blend', '', '', '', 'SCHEDULED', 8),
-        R('2026-07-13', '2026-07-17', 'Xflow', 250000, 'xflow 250kL of BX2', '', '', '', 'CANCELLED', 9),
-        R('2026-09-07', '2026-09-11', 'Xflow', 18000, 'xflow for the annex following week', 't1104 > annex', '', 'BX226008', 'SCHEDULED', 10),
-        R('2026-09-07', '2026-09-11', 'Xflow', 140000, 'xflow 140kL of BX2', '', '', '', '', 11),
+        R('2026-07-06', '2026-07-10', 'Transfer - Bulk Blenders', 980000, '980m³ BX2 blend', '', '', '', 'SCHEDULED', 7),
+        R('2026-07-13', '2026-07-17', 'Transfer', 980000, 'Consolidate 980m³ of BX2 blend', '', '', '', 'SCHEDULED', 8),
+        R('2026-07-13', '2026-07-17', 'Filtration', 250000, 'filter 250m³ of BX2', '', '', '', 'CANCELLED', 9),
+        R('2026-09-07', '2026-09-11', 'Filtration', 18000, 'filter for the annex following week', 't1104 > annex', '', 'BX226008', 'SCHEDULED', 10),
+        R('2026-09-07', '2026-09-11', 'Filtration', 140000, 'filter 140m³ of BX2', '', '', '', '', 11),
         R('', '', '', '', '', '', '', '', '', 12),
       ],
       sel: { r: 11, c: 2 }, selEnd: null, edit: null, sugg: null, armed: null, hover: null, gsel: null,
@@ -2636,34 +2636,34 @@ class Component extends DCLogic {
 
   // ---------- misc format ----------
   fmtNum(n) { return (typeof n === 'number' && isFinite(n)) ? n.toLocaleString('en-AU') : String(n || ''); }
-  fmtK(v) { return v >= 1000 ? Math.round(v / 1000) + 'kL' : String(v); }
+  fmtK(v) { return v >= 1000 ? Math.round(v / 1000) + 'm³' : String(v); }
   parseQty(s) {
     const t = String(s).replace(/[,\s]/g, '').toLowerCase(); if (!t) return '';
-    const m = t.match(/^(\d+(?:\.\d+)?)(ml|kl|k|l)?$/); if (!m) return NaN;
-    const mult = m[2] === 'ml' ? 1e6 : (m[2] === 'kl' || m[2] === 'k') ? 1e3 : 1;
+    const m = t.match(/^(\d+(?:\.\d+)?)(m3|m³|k|l)?$/); if (!m) return NaN;
+    const mult = (m[2] === 'm3' || m[2] === 'm³' || m[2] === 'k') ? 1e3 : 1;
     return Math.round(+m[1] * mult);
   }
   actOf(name) { return Component.ACTS.find(a => a.name.toLowerCase() === String(name || '').toLowerCase()); }
 
   // ---------- vessel vocabulary ----------
   static COUNTABLE = { farm: 1, group: 1, capacity: 1 };
-  // "4 x 140kL", "3x2000", "140kL x 4", "2000s × 3" — a count either side of the operator.
+  // "4 x 140m³", "3x2000", "140m³ x 4", "2000s × 3" — a count either side of the operator.
   parseMult(raw) {
     const m = String(raw).trim().match(/^(?:(\d{1,3})\s*[x×*]\s*(.+)|(.+?)\s*[x×*]\s*(\d{1,3}))$/i);
     if (!m) return null;
     const n = +(m[1] || m[4]); const rest = (m[2] || m[3] || '').trim();
     return (n > 0 && rest) ? { n, rest } : null;
   }
-  // A bare capacity is itself a member kind — "140kL" names a size, not a vessel.
+  // A bare capacity is itself a member kind — "140m³" names a size, not a vessel.
   capKind(raw) {
-    const m = String(raw).trim().match(/^(\d{1,4})\s*(kl|l)$/i);
+    const m = String(raw).trim().match(/^(\d{1,4})\s*(m3|m³|l)$/i);
     if (!m) return null;
-    const kl = m[2].toLowerCase() === 'l' && +m[1] > 999 ? Math.round(+m[1] / 1000) : +m[1];
-    if (!Component.TANKS.some(t => t.cap === kl + ' kL')) return null;
-    return { kind: 'capacity', label: kl + ' kL', meta: 'size' };
+    const cap = m[2].toLowerCase() === 'l' && +m[1] > 999 ? Math.round(+m[1] / 1000) : +m[1];
+    if (!Component.TANKS.some(t => t.cap === cap + ' m³')) return null;
+    return { kind: 'capacity', label: cap + ' m³', meta: 'size' };
   }
   // A counted member may carry a trailing qualifier the planner wrote for
-  // themselves — "4 x 140kL tanks south". Take the longest leading run that is a
+  // themselves — "4 x 140m³ tanks south". Take the longest leading run that is a
   // countable kind and keep the rest as its own free-text token, rather than
   // failing the whole thing.
   classifyMulti(raw) {
@@ -2779,7 +2779,7 @@ class Component extends DCLogic {
     const n = this.arityFor(Object.assign({}, row, { vol })); if (!n) return null;
     const have = toToks.reduce((a, t) => (t.kind === 'tbc' || t.kind === 'text') ? a : a + (t.n || 1), 0);
     if (!have) return null;
-    return { need: act.uom === 'Tk' ? n + ' tk · ' : n + ' × 140 kL · ', have: String(have), state: have < n ? 'short' : (have > n ? 'over' : 'ok') };
+    return { need: act.uom === 'Tk' ? n + ' tk · ' : n + ' × 140 m³ · ', have: String(have), state: have < n ? 'short' : (have > n ? 'over' : 'ok') };
   }
   // The arity check reads in the strip while the To half is being edited — never in the cell.
   arityMeta(edit, row) {
@@ -3190,7 +3190,7 @@ class Component extends DCLogic {
     const vol = +row.vol; if (!vol || !isFinite(vol)) return 0;
     if (act.uom === 'Tk') return Math.min(24, Math.round(vol));
     if (act.uom === 'Drm') return 0;               // drum groups, not vessels
-    return Math.min(12, Math.ceil(vol / 140000));  // 140 kL is the workhorse tank
+    return Math.min(12, Math.ceil(vol / 140000));  // 140 m³ is the workhorse tank
   }
   // Predict a vessel set. History first (a planner repeating a known job), then a
   // capacity solve. Never pad a set with guesses to hit the arity — show the deficit.
@@ -3207,8 +3207,8 @@ class Component extends DCLogic {
     // A plan says how many of what size; a schedule says which tanks. Proposing
     // specific codes here would over-commit — the enumerated form is offered as
     // an alternative in the strip instead.
-    const counted = n + ' x 140kL';
-    return { value: this.sidesOf(row.activity) === 'from' ? counted + ' >' : counted, meta: 'capacity · ' + this.fmtNum(vol) + ' L ÷ 140 kL' };
+    const counted = n + ' x 140m³';
+    return { value: this.sidesOf(row.activity) === 'from' ? counted + ' >' : counted, meta: 'capacity · ' + this.fmtNum(vol) + ' L ÷ 140 m³' };
   }
   // Propose a start when the row has none — the case the old build could not reach,
   // because Start sits two columns *left* of Activity.
@@ -3246,7 +3246,7 @@ class Component extends DCLogic {
     const vol = row.vol || f.vol || 0;
     if (!row.notes) {
       if (/^Transfer/.test(row.activity)) put('notes', 'Transfer ' + this.fmtK(vol) + ' of BX2', 'phrasing from past ' + act.name.toLowerCase());
-      else if (/^Xflow/.test(row.activity)) put('notes', 'xflow ' + this.fmtK(vol) + ' of BX2', 'phrasing from past xflows');
+      else if (/^Filtration/.test(row.activity)) put('notes', 'filter ' + this.fmtK(vol) + ' of BX2', 'phrasing from past filtrations');
       else if (/^Media/.test(row.activity)) put('notes', 'Add media to ' + vol + ' tanks', 'phrasing from past media jobs');
     }
     if (!row.tanks && vol) { const t = this.predictTanks(rows, idx, row, vol); if (t) put('tanks', t.value, t.meta); }
@@ -3259,15 +3259,15 @@ class Component extends DCLogic {
       const n = Math.max(1, Math.round(vol / 140000));
       pat = [
         { activity: 'Media - Add to Tank', start: s, end: e, vol: n, notes: 'Add media to ' + n + ' tanks', tanks: '' },
-        { activity: 'Transfer', start: this.addDays(e, 3), end: this.addDays(e, 7), vol: vol, notes: 'Packdown ' + this.fmtK(vol) + ' of BX2 blend', tanks: '' },
+        { activity: 'Transfer', start: this.addDays(e, 3), end: this.addDays(e, 7), vol: vol, notes: 'Consolidate ' + this.fmtK(vol) + ' of BX2 blend', tanks: '' },
       ];
-    } else if (row.activity === 'Xflow' && /annex|anx/i.test(row.notes || '')) {
+    } else if (row.activity === 'Filtration' && /annex|anx/i.test(row.notes || '')) {
       pat = [
         { activity: 'Transfer - Annex', start: s, end: e, vol: vol, notes: 'transfer to annex', tanks: '' },
         { activity: 'Transfer - Annex', start: this.addDays(s, 7), end: this.addDays(e, 7), vol: vol, notes: 'Transfer from annex', tanks: '' },
       ];
-    } else if (row.activity === 'Xflow') {
-      pat = [{ activity: 'Transfer', start: this.addDays(e, 3), end: this.addDays(e, 7), vol: vol, notes: 'Packdown ' + this.fmtK(vol) + ' post xflow', tanks: '' }];
+    } else if (row.activity === 'Filtration') {
+      pat = [{ activity: 'Transfer', start: this.addDays(e, 3), end: this.addDays(e, 7), vol: vol, notes: 'Consolidate ' + this.fmtK(vol) + ' after filtration', tanks: '' }];
     } else if (row.activity === 'Transfer - Annex' && /to annex/i.test(row.notes || '')) {
       pat = [{ activity: 'Transfer - Annex', start: this.addDays(s, 7), end: this.addDays(e, 7), vol: vol, notes: 'Transfer from annex', tanks: '' }];
     }
@@ -4089,7 +4089,7 @@ class Component extends DCLogic {
         const side = this.vessSide(edit).side ? 'to' : 'from';
         return {
           stripOn: true, stripLabel: col.label + ' · ' + side + ' · accepts',
-          alts: flat(edit.val.trim() ? 'no register match — kept as typed' : 'tank code · farm · group · 4 x 140kL · T2140-45 range · TBC'),
+          alts: flat(edit.val.trim() ? 'no register match — kept as typed' : 'tank code · farm · group · 4 x 140m³ · T2140-45 range · TBC'),
           stripMeta: this.arityMeta(edit, row) || '', stripKeys: ', adds · > hops to the To half · ⏎ done',
         };
       }
