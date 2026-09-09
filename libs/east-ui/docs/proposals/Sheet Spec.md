@@ -1229,13 +1229,13 @@ behaviour lives and how it is tested.
 | 12 | Proposals (patches encoded to cells, §4.4): at most `ahead` rows, dashed-topped hatched rows with real numbers; ✓/⏎ adds into the first blank slot, ×/⌫ rejects and remembers the pairing; click selects (3px brand bar); esc deselects then dismisses all; taking re-anchors and looks forward; rejected fills remembered per row and key (B§5.2) | `suggest.ts` + `Rows.tsx` | DOM |
 | 13 | Sheet keys: arrows/⇧arrows (↓ on the last row appends, not while a lens is active or a paged source is unexhausted); ⇥/⇧⇥ walk fills → take rows → move; ⏎ takes next suggestion else edits with the value selected; F2; printable char seeds a fresh edit; ⌘⏎ row fill (one undo step); ⌘⇧⏎ everything; esc ladder; ⌫ clears (never stamped) / deletes whole selected rows; ⌘⌫ deletes; click/⇧click/drag/dblclick; ⌘/ and ⌘F focus the rail's search (B§6) | `sheet-state.ts` | transition table + DOM |
 | 14 | Commit semantics: Tab, Enter, ↓ (down) / ↑ (stay), blur commit; esc cancels; unparseable keeps the editor open with the neg ring (blur discards); committing a `triggers` column rebuilds the copilot for that row (B§6) | `sheet-state.ts` | DOM |
-| 15 | Sheet model: `blanks` padding rows always below the last real row (paged: once the source is exhausted), never removed from under the cursor, not reported/counted/searchable; real row numbers under a lens and for proposals (B§7) | `model.ts` | unit |
+| 15 | Sheet model: `blanks` padding rows always below the last real row (paged: once the source is exhausted), never removed from under the cursor, not reported/counted/searchable; real row numbers under a lens and for proposals (B§7). Blank rows are padding, not rows: typing into any blank row inserts one row AFTER the last real one (source order is the only order) and the ring follows it; the initial ring sits on the first blank row's driver column | `model.ts` | unit |
 | 16 | The lens over the slice: hit = the slice narrowing matches the row (`sliceMatches` over filters / cohorts / search — String fields directly, other fields through their `printFor` text or the field's `text` projection); hits keep brand row numbers; count `n matches · m context`; ±0/±1/±3 context; collapsed bands (22px, dashed rule, *n hidden* pill) with hover controls `⌃ +1 · n hidden · +1 ⌄ · all` stepping 1, 3, 10, all from top/bottom/both; reveals are a set of indices so bands merge; a narrowing change resets reveals; no narrowing ⇒ no bands (B§8) | `lens.ts` + `Bands.tsx` | unit + DOM |
 | 17 | Views: lenses evaluated live; pinned whole-sheet tab (an empty narrowing) with the planned count; `+ TAB` snapshots the slice state, names from the query (16 chars) or *view n*; active = 2px ink underline; live match counts per view; dirty dot when the slice state differs from the view's, ⏎ updates / esc reverts (writes the snapshot back) / esc on a clean tab returns to the sheet; × (hover neg) or middle-click closes; double-click renames; drag reorders; closing the active tab falls back; leaving persists context + reveals (B§8) | `Tabs.tsx` + `sheet-state.ts` | DOM |
 | 18 | Strip states (six) with their label · chips · meta · keys, plus the pending chip; nothing ever floats over the sheet (B§9) | `Strip.tsx` | DOM |
 | 19 | Footer: counts · state-sensitive key hint · right-aligned `aria-live` message for every action · the paged transport line (B§9) | `Footer.tsx` | DOM |
 | 20 | Clipboard: copy tab-separated, dates `d/m/yyyy`, numbers bare, a link cell (a `Link` value) as TWO columns printed through the grammar; paste lands at the selection appending rows, each cell parsed by its kind (unparseable kept as typed), stamped skipped, a link consumes two cells and joins them; block left selected; suggestions cleared (B§10) | `clipboard.ts` | unit + DOM |
-| 21 | Paged arm: windows land on scroll through the Plan's ledger (residency, in-flight `none`, exhaustion on an empty window); the transport line counts source elements; the lens is scope-badged *loaded rows only*; the rail's search is a key search over `seek` when the source is keyed (jump rebases residency); appending needs exhaustion; `onEdit` only | `paging.ts` (adapter over the Plan stack) | DOM (Paged.of fixtures) |
+| 21 | Paged arm: windows land on scroll through the Plan's ledger (residency, in-flight `none`, exhaustion from `total()` — every element resident; the resident run is the contiguous landed prefix, a positional row space carries no hole); the transport line counts source elements; the lens is scope-badged *loaded rows only*; the rail's search is a key search over `seek` when the source is keyed (jump rebases residency); appending needs exhaustion; `onEdit` only | `paging.ts` (adapter over the Plan stack) | DOM (Paged.of fixtures) |
 | 22 | Visual rules (B§11) | recipe `sheet.ts` | shot loop |
 | 23 | Controlled selection: with `selection` present the ring follows it and the row scrolls into view; every move reports `onSelect`; on the paged arm a non-resident `rowId` seeks when the source can (§3.14) | `sheet-state.ts` + `index.tsx` | DOM |
 
@@ -1253,8 +1253,10 @@ sheet/
   index.tsx              ~300   EastChakraSheet: decode, providers, effect runner, layout (toolbar · header · rows · strip · footer)
   sheet-state.ts         ~500   THE state machine — pure: selection, edit buffer, suggestions, lens, tabs
   sheet-state.test.ts           transition table (esc ladder, Tab ladder, commit directions, tab dirty/revert)
-  model.ts               ~200   decoded value → sheet model: real rows + blank padding (exhaustion-aware), column index, driver lookup
-  paging.ts              ~150   the paged arm over the Plan stack: paged-window-store · window ledger / residency / reader · use-seek
+  values.ts               ~40   the decoded value types, named once (`SheetRootValue`, `SheetRowValue`, `SheetCellValue`, …)
+  model.ts               ~200   decoded value → sheet model: real rows + blank padding (exhaustion-aware), column index, driver lookup, cell display
+  paging.ts              ~250   the paged arm over the Plan stack: window ledger / residency, a positional read-once reader, the contiguous landed run, `total()`-driven exhaustion, `jumpToElement` for the key search
+  paging.dom.test.tsx           the driver harness: first paint, the tail band, exhaustion, a held window, a jump, an unreadable source
   parse/date.ts          ~150   B§3 date grammar (UTC, East date tokens for display)
   parse/quantity.ts      ~60
   parse/index.ts         ~80    parse / print dispatch by kind (custom kinds call the compiled East pair)
@@ -1266,6 +1268,7 @@ sheet/
   suggest-async.ts       ~120   in-flight registry, latest-wins cancellation, pending state
   lens.ts                ~150   hits from the slice narrowing (the slice engine's `sliceMatches`), context bands, reveals, step escalation
   clipboard.ts           ~120   export / paste matrix
+  *.test.ts                     the pure modules' input → output tables (date · quantity · candidates · clipboard · model)
   Toolbar.tsx            ~150   tabs · context switch · match count · the slice rail cluster (search / filter / cohort) · scope badge
   Header.tsx             ~100   two-line sticky header
   Rows.tsx               ~250   virtualised rows, gutter (numbers, ✓ × → buttons), bands, proposal rows
@@ -1332,6 +1335,21 @@ Non-negotiable transition rules (unit-tested as a table):
 - **Tabs never own rows**: switching a tab persists its lens (context + reveals),
   discards an unsaved narrowing, and clears the range and proposal selection.
 
+**How the machine stays pure (P2).** What a transition may ask about the sheet —
+row and column counts, whether a cell is editable, how a buffer parses for its
+kind, the candidates, a cell's edit form — arrives WITH the event as a
+`SheetMachineCtx` the component builds per render (`dispatch({ t: "event", e,
+ctx })`), so the reducer holds no closure over the model and the transition
+table is testable with a stub context. Data and host effects leave as data —
+`write` (one cell, `null` = blank), `clear`, `delete.rows`, `paste`, `copy`,
+`emit.select`, `scroll.to`, `focus.sheet` / `focus.editor`, `schedule.suggest` —
+and the component drains each batch exactly once (the Plan's seq-gated layout
+effect). The store reducer (`sheetStoreReducer`) adds the batch and a `patch`
+action for the component's own UI writes (the range after a paste, the footer
+message). A commit's write is the parsed cell; the register kinds take the armed
+candidate when a ghost applies or the planner cycled to it (the prototype's
+`commitVal`), and the parse resolves the case.
+
 ### 6.2 The provider runner
 
 The copilot runs *against the row as it would be*. `suggest.ts` builds the
@@ -1363,6 +1381,23 @@ cell (position: absolute, z 10) and grows with wrapping chips. The whole sheet i
 one focusable region (`tabIndex=0`) that owns the keyboard; the editor stops
 propagation. Effects run in one place (`runEffects`); `useSliceReactivity(slice.key)`
 re-renders on slice writes.
+
+**The local data layer (P2).** The renderer keeps a layer of edits over the
+decoded rows — rows edited in place by id, rows appended after the source's last
+one, ids removed — so every edit lands at once (the interactive-state pattern:
+the sheet is never inert without a bound callback) and reaches the host through
+`onEdit` in a microtask. A new decoded value (the host wrote back through
+`onUpdate`) or a new paged source resets the layer, so the host's own rows come
+around with the edit applied and nothing is applied twice. A real row's commit
+is one `commit` event per changed cell, each carrying the row after it; typing
+into a blank row (or a paste past the padding) makes ONE inserted row — appended
+after the last real row, its id minted by `newRowId` or the renderer, its
+`insert` event naming the row it lands after — and the ring follows it, keeping
+whatever move the commit made. Rows are measured (a link cell wraps), the ledger
+is taught rows × the density row height, and the last column absorbs the frame's
+slack (the Table's stretch rule). A pasted cell a typed kind cannot carry is
+skipped and counted in the footer message; a stamped column is consumed and
+never written.
 
 ---
 

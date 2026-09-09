@@ -97,6 +97,14 @@ export {
 } from "./map";
 
 export {
+    EastChakraSheet,
+    type SheetRootValue,
+    type SheetRowValue,
+    type SheetCellValue,
+    type EastChakraSheetProps,
+} from "./sheet";
+
+export {
     EastChakraBlend,
     type BlendValue,
     type BlendTargetValue,
