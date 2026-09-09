@@ -426,7 +426,7 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  › _                                              / commands · type a name to jump · ? help                             
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands                                          polled 0.4s ago
+ ↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands                                          polled just now
 ```
 
 ```text
@@ -465,7 +465,7 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  › _                                              / commands · type a name to jump · ? help                             
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ↑↓ move   ⏎ open   x stop   / commands                                                                 polled 0.2s ago
+ ↑↓ move   ⏎ open   x stop   / commands                                                                 polled just now
 ```
 
 ```text
@@ -963,7 +963,7 @@ The same tree, editable (§9), with the commit bar above the command box while d
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  ›  ● Dataflow started · main · 6 tasks queued                                                         (toast, 3s)      
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands                                          polled 0.4s ago
+ ↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands                                          polled just now
 ```
 
 ## 8. Value tree
@@ -993,7 +993,8 @@ One `Poller` per feed with an interval, an `AbortController`, and exponential ba
 - **Colour**: `process.stdout.getColorDepth()` selects truecolor / 256 / 16; `NO_COLOR` → monochrome (bold/dim/inverse only), `FORCE_COLOR` honoured. Semantic tokens map the design system: ink → default fg, ink-4 → dim, brand (`#488e97`) → selection bar `▌` and active tab, pos `#2f7a5b`, neg `#b85a4a`, warn `#b8862d`, info `#3a7780`; the only filled background is the selected row (brand tint) — "status is a dot + word, never a tinted badge".
 - **Glyphs**: unicode set (`▾ ▸ · ● ◐ ◔ ○ ✗ ◆ ▌ ─ ┄ │ ╭╮╰╯ ▲ █ ▼ ░ ▒ ⠸`) or ASCII set (`v > - * o . - x + > - . | +--+ ^ # v : ;`), chosen by `--ascii`, `E3_UI_ASCII=1`, a non-UTF-8 locale or `TERM=linux`.
 - **Layout**: ≥ 100 cols full tables; 80–99 tighter columns; 60–79 secondary columns hidden; below 60×16 refuse. `useWindowSize` drives re-layout; every row is one line (no wrapping) so scroll math is exact.
-- **Ink options**: `alternateScreen: true`, `exitOnCtrlC: false` (we confirm when dirty), `patchConsole: true` (stray logs never corrupt the frame), `kittyKeyboard: { mode: 'auto' }`, `maxFps: 30`.
+- **Ink options**: `alternateScreen: true`, `exitOnCtrlC: false` (we confirm when dirty), `patchConsole: true` (stray logs never corrupt the frame), `kittyKeyboard: { mode: 'auto' }`, `maxFps: 30`, `incrementalRendering: true` — Ink diffs the frame line by line and rewrites only the lines that changed; without it every render erased and rewrote all 40 lines, and that full-screen redraw is what made a scroll lag over tmux, SSH and the VS Code terminal (#735: a selection move went from the whole 1.2 KiB frame to a few hundred bytes, an idle status poll from 0.7 KiB to nothing). The bin shim sets `NODE_ENV=production` before loading the CLI, so React and Ink's reconciler run their production builds in every user's terminal (the development builds' checks and profiling were a third of the CPU per frame).
+- **The clock**: the frame's `now` is state advanced by a one-second tick, never a `Date.now()` sampled while rendering, and the `polled … ago` hint reads whole seconds rounded down (`polled just now`, then `polled 3s ago`). Two renders between ticks are byte-identical, so an idle status poll — the same data, a newer `polledAt` — writes nothing: Ink skips an unchanged frame.
 
 ## 13. Mouse
 
@@ -1016,11 +1017,23 @@ An SGR mouse hook on Ink's `useInput` (verified: Ink 7 delivers an unknown CSI s
 - Pure modules — reducer, keymap, command parser, completion ranking, window/scrollbar math, page cache, poller backoff, theme, glyphs, text, persist, mouse parser, hit-testing, edit buffer — `node:test` under `src/**/*.spec.ts`, run from `dist/` as the package already does.
 - Views — `ink-testing-library` frames (`lastFrame()`) against an in-memory `Api` fake that implements the subset of e3-api-client functions the TUI uses (workspaces, status, execution, dataset status/page/find/get/set, logs, executions). Golden frames are the mocks' shapes, not pixel captures.
 - Integration — `E3_UI_INTEGRATION=1` starts `createServer({ singleRepoPath })` over a fixture repo seeded at test time and drives the store through a real session (no PTY). Runs in `test-east-ui` (it already builds e3).
+- Frame writer and budgets — `src/tui/ui/render.spec.tsx` mounts the App through Ink's real `render()` into a byte-counting stub terminal (`testing/ink-probe.ts`, 120×40): a selection move writes under 1 KiB against a 5 KiB frame, an idle poll writes nothing. `src/tui/perf.spec.tsx` spawns `testing/perf-probe.ts` under `NODE_ENV=production` (the build the bin runs) and asserts the §17 keypress budget on a six-task and a 250-task fixture (`testing/fixtures.ts`), failing with the measured number; the tests are named `perf:` for `--test-name-pattern`. Two per-keypress counters back the memo gates: `dashboardModel` returns the same object across a selection move, and `treeModelBuilds()` does not advance on one. The frame harness gives ink-testing-library's stdout stub a `rows` after mount: without one Ink falls back to `terminal-size`, a `tput` spawn on every commit (7 ms per keypress in the frame specs, one process per commit in CI).
 - Gates: `make build && make test && make lint` in `libs/east-ui`; `make check-version`; `plugin-artifacts` after the SKILL/static-index change; release verdaccio smoke.
 
 ## 17. Performance budgets
 
 Frame render ≤ 16 ms at 120×40; beast2 decode and materialise off the render path (`setImmediate` slices, ≤ 8 ms each); ≤ 8 retained pages × 500 rows; polls paused for unmounted views; a 1,000,000-row dataset scrolls end to end with < 50 MB heap growth.
+
+Measured (#735): CPU per arrow-down keypress on the dashboard, through Ink's real `render()` into a stub terminal at 120×40, keys 40 ms apart — a held key repeats at ~30 Hz, so above ~33 ms the scroll falls behind and above ~16 ms the frame rate halves. "Before" is `main` at 8c206c02 as the issue measured it (measured again on the box the "after" numbers come from, before the change: 25.3 / 77.9 ms); "after" is `perf-probe.ts` on this branch.
+
+| Workspace | Before | Before, production React | After (production, as the bin runs) | After, development build |
+|---|---|---|---|---|
+| 6 tasks / 4 inputs | 24.5 ms | 16.9 ms | 8.6 ms | 13.8 ms |
+| 250 tasks / 50 inputs | 75.5 ms | 68.3 ms | 13.9 ms | 19.5 ms |
+
+Bytes to the terminal on six tasks: 30 selection moves 65 KiB → 4 KiB; 10 idle status polls with nothing visible changed 7.3 KiB → 0.
+
+Six local causes, each fixed on its own: React and Ink's reconciler ran their development builds (`NODE_ENV` in the bin shim); every render rewrote the whole frame (`incrementalRendering`); every frame was forced to differ (the one-second clock, the whole-second `polled` hint); `displayWidth` ran `Intl.Segmenter` on every cell (an ASCII fast path — the segmenter is kept for wide, combining, ZWJ and control text — and `truncate` / `padEnd` measuring once); the dashboard built every row of both tables twice per keypress (`dashboardModel`, cached on the identity of the status, execution, dataset list, task list, width and breakpoint, with the dataset map and the latest event per task computed once per build, rendered only for the visible window); the value tree flattened the value three times per keypress (`treeModel` memoized on the content, the expand-set, the base depth and `editable`, shared by the key handler, the list model and both render sites); and wheel reports scrolled once per report (coalesced to one scroll per tick). What remains on a small workspace is React reconciling a few hundred spans and Ink's per-character output grid; the ceiling would be one pre-styled string per row, or a line-diffing writer beneath Ink's output layer — not measured.
 
 ## 18. File-level plan
 
@@ -1106,4 +1119,5 @@ Where the implementation differs from the mocks above (each was a deliberate cal
 - **Repositories** — LAST DEPLOY is fetched lazily per repository (its workspace list + deployed state), not from a single endpoint.
 - **Mouse** — completion rows are clickable too; the connection pill runs `/refresh`, the running pill prefills `/stop`, the dirty pill `/apply`.
 - **Terminal notes (§13)** — tmux needs `set -g mouse on`; without reporting most terminals turn the wheel into arrow keys on the alternate screen, so wheel scrolling works anyway; `TERM=dumb` and a non-TTY stdout keep the enable sequence unwritten.
-- **Files** — the fixture seeder lives at `src/tui/testing/seed.ts` (with the harness and the fake, excluded from the tarball) rather than `test/fixtures/tui/seed.ts`, which the package tsconfig does not compile; views are `.ts` line renderers (`ui/views/*.ts`, `ui/widgets/*.ts`) rather than `.tsx` components — only `ui/App.tsx` is React.
+- **The clock and the `polled` hint** — the frame's `now` advances once a second (state, not a render-time `Date.now()`), and `polled … ago` reads whole seconds rounded down: `polled just now` for the first second, then `polled 3s ago` (S05, S06 and S18 showed `polled 0.4s ago` / `0.2s ago`; regenerated). The other ages (`deployed 3d ago`, `started 2m ago`, event ages) are unchanged: whole units, rounded to nearest (#735).
+- **Files** — the fixture seeder lives at `src/tui/testing/seed.ts` (with the harness and the fake, excluded from the tarball) rather than `test/fixtures/tui/seed.ts`, which the package tsconfig does not compile — as do the real-Ink probe, the budget probe and the synthetic fixtures (#735); views are `.ts` line renderers (`ui/views/*.ts`, `ui/widgets/*.ts`) rather than `.tsx` components — only `ui/App.tsx` is React.

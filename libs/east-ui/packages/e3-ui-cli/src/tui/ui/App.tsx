@@ -6,8 +6,11 @@
 /**
  * The Ink root — one column of exactly `rows` lines, each exactly
  * `columns` cells, rendered from the store through the view router and the
- * shell chrome. Keys go to the controller; the terminal size and the
- * spinner drive re-renders.
+ * shell chrome. Keys go to the controller; the terminal size, the spinner
+ * and a one-second clock drive re-renders. The clock is state, not a
+ * `Date.now()` sampled while rendering: two frames between ticks see the
+ * same `now`, so an idle frame comes out byte-identical and Ink writes
+ * nothing.
  *
  * @packageDocumentation
  */
@@ -39,9 +42,12 @@ export interface AppProps {
     facts: () => RepoFacts | null;
     /** Overrides the terminal size (frame specs). */
     size?: Size | undefined;
-    /** The clock (frame specs). */
+    /** The clock the one-second tick samples (frame specs; default `Date.now`). */
     now?: (() => number) | undefined;
 }
+
+/** How often the frame's clock advances. */
+const CLOCK_TICK_MS = 1_000;
 
 /** One rendered row. */
 function Row({ line, theme }: { line: Line; theme: Theme }): ReactElement {
@@ -95,6 +101,16 @@ export function App(props: AppProps): ReactElement {
         return () => clearInterval(timer);
     }, [spinning]);
 
+    // The frame's clock: sampled once a second (ages read in whole seconds),
+    // never during a render. A fixed clock (the specs) sets the same value
+    // and React skips the render.
+    const sample = props.now ?? Date.now;
+    const [now, setNow] = useState(() => sample());
+    useEffect(() => {
+        const timer = setInterval(() => setNow(sample()), CLOCK_TICK_MS);
+        return () => clearInterval(timer);
+    }, [sample]);
+
     useInput((input, key) => {
         controller.onKey(input, key);
     });
@@ -109,7 +125,6 @@ export function App(props: AppProps): ReactElement {
         return () => registerSuspend(null);
     }, [suspendTerminal]);
 
-    const now = props.now !== undefined ? props.now() : Date.now();
     const lines = useMemo((): Line[] => {
         const bp = breakpoint(size);
         if (bp === 'refuse') {

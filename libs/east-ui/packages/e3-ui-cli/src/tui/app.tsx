@@ -230,6 +230,9 @@ export async function runTui(options: TuiOptions): Promise<number> {
             patchConsole: true,
             kittyKeyboard: { mode: 'auto' },
             maxFps: 30,
+            // Only the lines that changed are rewritten — a selection move is
+            // two lines, not the whole screen (design §12).
+            incrementalRendering: true,
         },
     );
     mouseOn();

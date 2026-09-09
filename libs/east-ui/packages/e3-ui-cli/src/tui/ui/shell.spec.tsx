@@ -119,6 +119,8 @@ describe('the command box', () => {
         await mounted.type('/');
         assert.match(mounted.lines()[35]!, /^ ● Dataflow started/);
         now += 4_000;
+        // The frame's clock is sampled once a second, not per render: wait for its tick.
+        await new Promise(resolve => setTimeout(resolve, 1_100));
         await mounted.dispatch({ type: 'pendingKey', key: 'g' });
         await mounted.dispatch({ type: 'pendingKey', key: null });
         assert.doesNotMatch(mounted.lines()[35]!, /Dataflow started/);

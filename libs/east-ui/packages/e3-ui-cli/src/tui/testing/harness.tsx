@@ -164,6 +164,11 @@ export async function mountApp(options: MountOptions = {}): Promise<Mounted> {
             now,
         }));
     const instance = render(element(size));
+    // ink-testing-library's stdout stub has `columns` but no `rows`, and Ink
+    // falls back to `terminal-size` — a `tput` spawn — on every commit that
+    // asks for the window size. A real terminal always has both.
+    const stub = instance.stdout as { rows?: number };
+    stub.rows = size.rows;
     await settle();
     const mounted: Mounted = {
         store, controller, api, feeds, exits, opened, logins, copied,
@@ -188,6 +193,7 @@ export async function mountApp(options: MountOptions = {}): Promise<Mounted> {
             await settle();
         },
         async resize(next) {
+            stub.rows = next.rows;
             instance.rerender(element(next));
             await settle();
         },

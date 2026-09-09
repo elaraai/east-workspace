@@ -14,8 +14,12 @@ import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { ArrayType, DictType, FloatType, StringType, StructType, none, some, toEastTypeValue, variant } from '@elaraai/east';
 import type { Action } from '../../state/actions.js';
+import { breakpoint } from '../../render/layout.js';
+import { initialState, type TuiState } from '../../state/actions.js';
+import { createStore } from '../../state/store.js';
+import { dashboardFixture } from '../../testing/fixtures.js';
 import { KEY, NOW, dashboardView, mountApp, type Mounted } from '../../testing/harness.js';
-import { accountedBar, latestPerTask } from './dashboard.js';
+import { accountedBar, dashboardLines, dashboardModel, latestPerTask, type DashboardCtx } from './dashboard.js';
 import { UNICODE } from '../../render/glyphs.js';
 
 let mounted: Mounted | null = null;
@@ -149,7 +153,7 @@ describe('the dashboard', () => {
         assert.match(lines[24]!, /^  params\s+◐ stale\s+Struct\s+1\.2 KB\s+0a44e1b7c9d2$/);
         assert.match(lines[25]!, /^  overrides\s+○ unset\s+Dict<String, Float>\s+—\s+—$/);
         assert.match(lines[33]!, /^ › _\s+\/ commands · type a name to jump · \? help$/);
-        assert.match(lines[35]!, /^ ↑↓ move   ⏎ open   r run   x stop   w workspaces   \/ commands\s+polled 0\.4s ago$/);
+        assert.match(lines[35]!, /^ ↑↓ move   ⏎ open   r run   x stop   w workspaces   \/ commands\s+polled just now$/);
     });
 
     test('⏎ opens the failed task\'s logs, a task, or an input; gg / G / page keys walk the rows', async () => {
@@ -200,7 +204,7 @@ describe('the dashboard', () => {
         assert.equal(lines[14], '');
         assert.match(lines[15]!, /^ TASKS$/);
         assert.match(lines[19]!, /^  forecast\s+◔ in-progress\s+features\s+—\s+Dict<String, Struct>\s+[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] 9s$/);
-        assert.match(lines[35]!, /^ ↑↓ move   ⏎ open   x stop   \/ commands\s+polled 0\.4s ago$/);
+        assert.match(lines[35]!, /^ ↑↓ move   ⏎ open   x stop   \/ commands\s+polled just now$/);
         // No failure rows while running: the first selectable row is the first task.
         assert.match(lines[17]!, /^ ▌ingest/);
     });
@@ -269,6 +273,62 @@ describe('dashboard model', () => {
             variant('complete', { task: 'a', timestamp: 't3', duration: 1_000 }),
         ] as never[];
         assert.deepEqual(latestPerTask(events).map(e => `${e.value.task}:${e.type}`), ['a:complete', 'b:start']);
+    });
+
+    const dctxOf = (state: TuiState): DashboardCtx => ({ g: UNICODE, now: NOW, columns: state.size.columns, bp: breakpoint(state.size), spinner: 0 });
+
+    test('the model is cached on the data, the size and the breakpoint — not the selection, the clock or the spinner', () => {
+        const store = createStore(initialState({ columns: 120, rows: 36 }, './demo-repo'));
+        store.dispatch({ type: 'view/root', view: dashboardView() });
+        for (const action of fixture()) store.dispatch(action);
+        const s1 = store.getState();
+        const m1 = dashboardModel(s1, 'main', dctxOf(s1));
+        assert.equal(dashboardModel(s1, 'main', dctxOf(s1)), m1, 'the same state hits');
+        assert.equal(dashboardModel(s1, 'main', { ...dctxOf(s1), now: NOW + 5_000, spinner: 7 }), m1, 'the clock and the spinner restyle lines, they do not rebuild');
+        store.dispatch({ type: 'view/set', view: { kind: 'dashboard', ws: 'main', list: { sel: 4, top: 3 } } });
+        const s2 = store.getState();
+        assert.equal(dashboardModel(s2, 'main', dctxOf(s2)), m1, 'a selection move hits');
+        // Each data feed rebuilds once.
+        const status = s2.data.status['main']!.result;
+        store.dispatch({ type: 'data/status', ws: 'main', result: { ...status }, at: NOW + 1_000 });
+        const m2 = dashboardModel(store.getState(), 'main', dctxOf(store.getState()));
+        assert.notEqual(m2, m1, 'a new status rebuilds');
+        assert.equal(dashboardModel(store.getState(), 'main', dctxOf(store.getState())), m2);
+        const execution = store.getState().data.execution['main']!;
+        store.dispatch({ type: 'data/execution', ws: 'main', state: execution.state, events: [...execution.events], startedAt: execution.startedAt });
+        const m3 = dashboardModel(store.getState(), 'main', dctxOf(store.getState()));
+        assert.notEqual(m3, m2, 'a new execution rebuilds');
+        store.dispatch({ type: 'data/datasets', ws: 'main', entries: [...store.getState().data.datasets['main']!] });
+        const m4 = dashboardModel(store.getState(), 'main', dctxOf(store.getState()));
+        assert.notEqual(m4, m3, 'a new dataset list rebuilds');
+        store.dispatch({ type: 'data/taskList', ws: 'main', tasks: [...store.getState().data.taskList['main']!] });
+        const m5 = dashboardModel(store.getState(), 'main', dctxOf(store.getState()));
+        assert.notEqual(m5, m4, 'a new task list rebuilds');
+        store.dispatch({ type: 'size', size: { columns: 80, rows: 30 } });
+        const s6 = store.getState();
+        const m6 = dashboardModel(s6, 'main', dctxOf(s6));
+        assert.notEqual(m6, m5, 'a new size and breakpoint rebuild');
+        assert.ok(m6.taskPlan.every(c => c.key !== 'inputs'), 'the medium plan drops INPUTS');
+        assert.deepEqual(m6.rows.map(r => `${r.kind}:${r.name}`), m1.rows.map(r => `${r.kind}:${r.name}`), 'the rows are the same');
+    });
+
+    test('the window renders only the lines on screen of a large workspace', () => {
+        const store = createStore(initialState({ columns: 120, rows: 40 }, './demo-repo'));
+        store.dispatch({ type: 'view/root', view: dashboardView() });
+        for (const action of dashboardFixture(250, 50, NOW)) store.dispatch(action);
+        const state = store.getState();
+        const model = dashboardModel(state, 'main', dctxOf(state));
+        assert.equal(model.rows.filter(r => r.kind === 'task').length, 250);
+        assert.equal(model.rows.filter(r => r.kind === 'input').length, 50);
+        assert.equal(model.rows.filter(r => r.kind === 'logs').length, 6, 'the panel lists at most six failures');
+        assert.ok(model.total > 300);
+        const window = dashboardLines(model, dctxOf(state), 100, 120, 30);
+        assert.equal(window.length, 30);
+        assert.equal(dashboardLines(model, dctxOf(state), 0, model.total - 5, 30).length, 5, 'the column ends first');
+        const selectedLine = model.rows[100]!.line;
+        const shown = dashboardLines(model, dctxOf(state), 100, selectedLine, 1)[0]!;
+        assert.equal(shown[1]!.text, '▌', 'the selected row carries the bar');
+        assert.match(shown.map(s => s.text).join(''), /task_9[0-9]|task_1\d\d/);
     });
 
     test('accountedBar sorts low to high, marks failures, samples past 40 tasks', () => {

@@ -33,4 +33,4 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  ›  ● Dataflow started · main · 6 tasks queued                                                         (toast, 3s)      
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands                                          polled 0.4s ago 
+ ↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands                                          polled just now 

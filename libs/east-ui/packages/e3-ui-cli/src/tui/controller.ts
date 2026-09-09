@@ -123,6 +123,9 @@ export interface Controller {
 
 let toastSeq = 0;
 
+/** Rows one wheel report scrolls (design §13). */
+const WHEEL_ROWS = 3;
+
 /**
  * Creates the controller.
  *
@@ -417,12 +420,33 @@ export function createController(deps: ControllerDeps): Controller {
         dispatch({ type: 'list/scroll', delta, count: model.count, visible: model.visible });
     };
 
+    // Terminals send several wheel reports per notch. The rows they add up
+    // to are applied once per tick — one scroll, one dispatch — instead of
+    // a scroll per report.
+    let wheelRows = 0;
+    let wheelFlush: NodeJS.Immediate | null = null;
+    const flushWheel = (): void => {
+        if (wheelFlush !== null) {
+            clearImmediate(wheelFlush);
+            wheelFlush = null;
+        }
+        const delta = wheelRows;
+        wheelRows = 0;
+        if (delta !== 0) scrollBy(state(), { delta });
+    };
+    const wheel = (rows: number): void => {
+        wheelRows += rows;
+        if (wheelFlush === null) wheelFlush = setImmediate(flushWheel);
+    };
+
     const onMouse = (event: MouseEvent): void => {
         const frame = lastFrame();
         if (frame === null) return;
+        if (event.kind === 'wheelUp') { wheel(-WHEEL_ROWS); return; }
+        if (event.kind === 'wheelDown') { wheel(WHEEL_ROWS); return; }
+        // A click or a drag lands after the wheel rows before it.
+        flushWheel();
         const s = state();
-        if (event.kind === 'wheelUp') { scrollBy(s, { delta: -3 }); return; }
-        if (event.kind === 'wheelDown') { scrollBy(s, { delta: 3 }); return; }
         if (event.kind === 'release') { dragging = false; return; }
         if (event.kind === 'drag') {
             if (dragging && frame.pane !== null) scrollBy(s, { top: paneTopFromRow(frame.pane, event.y) });

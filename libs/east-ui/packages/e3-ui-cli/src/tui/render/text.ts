@@ -20,6 +20,14 @@ export { formatSize } from '@elaraai/e3-cli/internal';
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
+/**
+ * Printable ASCII only — every character is one cell, so the width is the
+ * length and a cut is a `slice`. Almost every cell the TUI measures is
+ * ASCII (names, paths, numbers, hashes); the segmenter is kept for the
+ * rest (wide, combining, ZWJ sequences, controls).
+ */
+const ASCII = /^[\x20-\x7e]*$/;
+
 /** Whether a code point renders two cells wide (East Asian Wide / Fullwidth, emoji presentation). */
 function isWide(cp: number): boolean {
     return (
@@ -52,6 +60,13 @@ function isZeroWidth(cp: number): boolean {
     );
 }
 
+/** The cells one grapheme cluster takes: its first code point decides. */
+function graphemeWidth(segment: string): number {
+    const cp = segment.codePointAt(0);
+    if (cp === undefined || isZeroWidth(cp)) return 0;
+    return isWide(cp) ? 2 : 1;
+}
+
 /**
  * The number of terminal cells `text` occupies.
  *
@@ -59,17 +74,15 @@ function isZeroWidth(cp: number): boolean {
  * @returns Its cell width
  */
 export function displayWidth(text: string): number {
+    if (ASCII.test(text)) return text.length;
     let width = 0;
-    for (const { segment } of segmenter.segment(text)) {
-        const cp = segment.codePointAt(0);
-        if (cp === undefined || isZeroWidth(cp)) continue;
-        width += isWide(cp) ? 2 : 1;
-    }
+    for (const { segment } of segmenter.segment(text)) width += graphemeWidth(segment);
     return width;
 }
 
 /**
- * Truncates `text` to at most `width` cells, ending in `ellipsis` when cut.
+ * Truncates `text` to at most `width` cells, ending in `ellipsis` when cut —
+ * one pass over the graphemes (one `length` check for ASCII).
  *
  * @param text - The text
  * @param width - The cell budget
@@ -78,19 +91,25 @@ export function displayWidth(text: string): number {
  */
 export function truncate(text: string, width: number, ellipsis = '…'): string {
     if (width <= 0) return '';
-    if (displayWidth(text) <= width) return text;
-    const ellipsisWidth = displayWidth(ellipsis);
-    const budget = width - ellipsisWidth;
-    if (budget <= 0) return ellipsis.slice(0, width);
+    if (ASCII.test(text)) {
+        if (text.length <= width) return text;
+        const budget = width - displayWidth(ellipsis);
+        return budget <= 0 ? ellipsis.slice(0, width) : text.slice(0, budget) + ellipsis;
+    }
+    const budget = width - displayWidth(ellipsis);
     let out = '';
     let used = 0;
+    // The prefix within the budget is remembered as the walk passes it, so a
+    // cut needs no second measurement.
+    let kept: string | null = null;
     for (const { segment } of segmenter.segment(text)) {
-        const w = displayWidth(segment);
-        if (used + w > budget) break;
+        const w = graphemeWidth(segment);
+        if (kept === null && used + w > budget) kept = out;
+        if (used + w > width) return budget <= 0 ? ellipsis.slice(0, width) : `${kept ?? out}${ellipsis}`;
         out += segment;
         used += w;
     }
-    return out + ellipsis;
+    return text;
 }
 
 /**
@@ -101,9 +120,12 @@ export function truncate(text: string, width: number, ellipsis = '…'): string 
  * @returns The fitted text
  */
 export function padEnd(text: string, width: number): string {
+    if (ASCII.test(text)) return text.length > width ? text.slice(0, Math.max(0, width)) : text + ' '.repeat(width - text.length);
     const w = displayWidth(text);
-    if (w > width) return truncate(text, width, '');
-    return text + ' '.repeat(width - w);
+    if (w <= width) return text + ' '.repeat(width - w);
+    // A wide cluster that straddles the cut is dropped; the cell it leaves is padded.
+    const cut = truncate(text, width, '');
+    return cut + ' '.repeat(Math.max(0, width - displayWidth(cut)));
 }
 
 /**
@@ -114,9 +136,11 @@ export function padEnd(text: string, width: number): string {
  * @returns The fitted text
  */
 export function padStart(text: string, width: number): string {
+    if (ASCII.test(text)) return text.length > width ? text.slice(0, Math.max(0, width)) : ' '.repeat(width - text.length) + text;
     const w = displayWidth(text);
-    if (w > width) return truncate(text, width, '');
-    return ' '.repeat(width - w) + text;
+    if (w <= width) return ' '.repeat(width - w) + text;
+    const cut = truncate(text, width, '');
+    return ' '.repeat(Math.max(0, width - displayWidth(cut))) + cut;
 }
 
 /**
@@ -128,10 +152,11 @@ export function padStart(text: string, width: number): string {
  * @returns The centred, fitted text
  */
 export function center(text: string, width: number): string {
-    const w = displayWidth(text);
-    if (w >= width) return truncate(text, width, '');
+    if (width <= 0) return '';
+    const fitted = displayWidth(text) > width ? truncate(text, width, '') : text;
+    const w = displayWidth(fitted);
     const left = Math.floor((width - w) / 2);
-    return ' '.repeat(left) + text + ' '.repeat(width - w - left);
+    return ' '.repeat(left) + fitted + ' '.repeat(width - w - left);
 }
 
 /**
@@ -218,16 +243,20 @@ export function timeAgo(then: Date | string | number, now: number): string {
 }
 
 /**
- * How long ago `then` was, with one decimal under ten seconds (`0.4s ago`,
- * `7.1s ago`, `12s ago`, `2m ago`) — the "polled … ago" hint.
+ * How long ago `then` was, at whole seconds rounded down (`just now`,
+ * `7s ago`, `12s ago`, `2m ago`) — the "polled … ago" hint. Rounding down
+ * keeps the text stable between the clock's ticks: a poll that landed
+ * within the second reads `just now` at every render until the second
+ * turns, so an idle frame stays byte-identical and Ink writes nothing.
  *
  * @param then - The instant in epoch milliseconds
  * @param now - The current epoch milliseconds
  * @returns The relative text
  */
 export function agoShort(then: number, now: number): string {
-    const seconds = Math.max(0, (now - then) / 1000);
-    if (seconds < 10) return `${seconds.toFixed(1)}s ago`;
+    const seconds = Math.max(0, Math.floor((now - then) / 1000));
+    if (seconds < 1) return 'just now';
+    if (seconds < 60) return `${seconds}s ago`;
     return timeAgo(then, now);
 }
 

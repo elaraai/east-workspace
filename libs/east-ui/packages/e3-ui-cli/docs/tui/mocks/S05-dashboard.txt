@@ -33,4 +33,4 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  › _                                              / commands · type a name to jump · ? help                             
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands                                          polled 0.4s ago 
+ ↑↓ move   ⏎ open   r run   x stop   w workspaces   / commands                                          polled just now 

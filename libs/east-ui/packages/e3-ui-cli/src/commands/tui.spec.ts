@@ -96,6 +96,27 @@ describe('the TTY gate', () => {
         rmSync(dirname(spy), { recursive: true, force: true });
     });
 
+    test('`e3-ui` (the bin) runs React\'s production build', () => {
+        // The bin shim sets NODE_ENV before the CLI loads; a preload checks, as the
+        // process exits, which build `react` resolves to under that environment.
+        const dist = join(dirname(fileURLToPath(import.meta.url)), '..');
+        const report = join(mkdtempSync(join(tmpdir(), 'e3-ui-react-')), 'react.txt');
+        const env: NodeJS.ProcessEnv = { ...process.env, E3_UI_REACT_PROBE: report };
+        delete env['NODE_ENV'];
+        const result = spawnSync(process.execPath, ['--import', join(dist, 'tui', 'testing', 'react-build-probe.js'), join(dist, '..', 'bin', 'e3-ui.mjs'), '--version'], {
+            encoding: 'utf8',
+            env,
+        });
+        assert.equal(result.error, undefined);
+        assert.equal(result.status, 0, `exit 0 (stderr: ${JSON.stringify(result.stderr)})`);
+        assert.match(result.stdout, /^\d+\.\d+\.\d+/);
+        const probed = readFileSync(report, 'utf8');
+        assert.match(probed, /^NODE_ENV=production$/m);
+        assert.match(probed, /^react\.production\.js$/m);
+        assert.doesNotMatch(probed, /react\.development\.js/);
+        rmSync(dirname(report), { recursive: true, force: true });
+    });
+
     test('`e3-ui --help` lists the root arguments, the auth group and the unchanged verbs', () => {
         const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'cli.js');
         const result = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
