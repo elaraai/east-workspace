@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/e3-ui-cli",
-  "version": "1.0.72",
+  "version": "1.0.73",
   "description": "Browse an e3 repository in the terminal, and render east-ui components to PNG",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
