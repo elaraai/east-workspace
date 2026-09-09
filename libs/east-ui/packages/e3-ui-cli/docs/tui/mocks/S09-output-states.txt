@@ -1,0 +1,36 @@
+ e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ forecast   ▌1 Output▐  2 Stdout   3 Stderr (12)   4 Runs    DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9 
+ .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10                             
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+                                                                                                                        
+                                                    ○  NO OUTPUT YET                                                    
+                                           dashboard has not produced a value                                           
+                                                  r  run the dataflow                                                   
+                                                                                                                        
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+                                                                                                                        
+                                              ◐  TOO LARGE TO SHOW INLINE                                               
+                         features · Struct · 412.6 MB — not a collection, so it cannot be paged                         
+                             s  save to features.beast2        e3 dataset get main.features                             
+                                                                                                                        
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+                                                                                                                        
+                                                     ◐  NOT INDEXED                                                     
+                            ingest · this value predates paged storage (dataset_not_indexed)                            
+                   re-run the producing task to re-write it    s save    ⏎ load whole value (18.2 MB)                   
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › _                                              / commands · type a name to jump · ? help                             
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ three states stacked for review — each fills the body                                                                  

@@ -30,13 +30,15 @@ export function createTaskRoutes(
     return getTask(storage, repoPath, ws, taskName);
   });
 
-  // GET /api/repos/:repo/workspaces/:ws/tasks/:task/executions - List execution history
+  // GET /api/repos/:repo/workspaces/:ws/tasks/:task/executions[?all=true] - List execution history
+  // (the latest attempt per inputs hash; `all=true` lists every attempt)
   app.get('/:task/executions', async (c) => {
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
     const taskName = c.req.param('task')!;
-    return listExecutions(storage, repoPath, ws, taskName);
+    const all = c.req.query('all') === 'true';
+    return listExecutions(storage, repoPath, ws, taskName, all);
   });
 
   return app;

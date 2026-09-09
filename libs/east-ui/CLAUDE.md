@@ -22,7 +22,7 @@ UI) plus a VS Code extension.
 | `packages/e3-ui` | First-class UI in e3 — `e3.ui()`, Data / State platform functions, task-kind metadata. |
 | `packages/e3-ui-components` | React renderers for e3-specific previews (DataTaskPreview, TaskPreview, EastValueViewer, etc.). |
 | `packages/e3-ui-showcase` | Showcase for e3-specific components. |
-| `packages/e3-ui-cli` | Published CLI (`e3-ui shot`): renders east-ui / e3-ui components (incl. `ui()` tasks) to PNG/HTML via managed headless Chromium. Backs the `east:e3-ui-cli` plugin skill. |
+| `packages/e3-ui-cli` | Published CLI: `e3-ui [repo]` is the terminal UI over an e3 repository (dashboard, dataflow runs, paged value trees, logs, editable inputs — `src/tui/`, design in `docs/tui/`); `e3-ui shot` renders east-ui / e3-ui components (incl. `ui()` tasks) to PNG/HTML via managed headless Chromium. Backs the `east:e3-ui-cli` plugin skill. |
 
 ## Commands
 

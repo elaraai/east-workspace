@@ -68,4 +68,8 @@ jobs:
 
       - name: Run tests
         working-directory: libs/east-ui
+        env:
+          # e3-ui-cli's terminal-UI integration spec: a real embedded e3 API
+          # server over a repository seeded at test time (e3 is built above).
+          E3_UI_INTEGRATION: "1"
         run: make test

@@ -5,6 +5,16 @@
   "description": "East Execution Engine CLI - Command-line tool for managing e3 repositories and tasks",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./internal": {
+      "types": "./dist/src/internal.d.ts",
+      "default": "./dist/src/internal.js"
+    }
+  },
   "bin": {
     "e3": "./bin/e3.mjs"
   },

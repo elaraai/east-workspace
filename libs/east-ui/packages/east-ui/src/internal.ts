@@ -157,6 +157,8 @@ export * from "./display/tag/types.js";
 export * from "./display/trace/types.js";
 export * from "./container/card/types.js";
 export * from "./collections/data-list/types.js";
+export * from "./collections/value-tree/flatten.js";
+export * from "./collections/value-tree/key-search.js";
 export * from "./collections/table/types.js";
 export * from "./collections/tree-view/types.js";
 export * from "./format/types.js";

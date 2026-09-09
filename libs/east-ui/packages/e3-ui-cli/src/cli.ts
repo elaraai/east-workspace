@@ -4,10 +4,21 @@
  */
 
 /**
- * e3-ui CLI — render east-ui / e3-ui components to PNG.
+ * e3-ui CLI — browse an e3 repository in the terminal, and render east-ui /
+ * e3-ui components to PNG.
  *
- * One screenshot verb, three `--from-*` sources (mirroring e3-cli's
- * `--from-zip` / `--from-source`):
+ * With no subcommand, `e3-ui [repo] [workspace]` opens the full-screen
+ * terminal UI over a local repository (an embedded `@elaraai/e3-api-server`)
+ * or a remote one (`https://host/repos/<repo>` with the token `e3 auth login`
+ * saved; a bare `https://host` opens the repository list):
+ *
+ *   e3-ui                                         $E3_REPO or ".", the last-used workspace
+ *   e3-ui ./repo main -t forecast                 open a task on start
+ *   e3-ui https://host/repos/demo                 a remote repository
+ *   e3-ui auth login https://host                 the same device flow + store as `e3 auth`
+ *
+ * The screenshot verbs are unchanged — one `shot` verb, three `--from-*`
+ * sources (mirroring e3-cli's `--from-zip` / `--from-source`):
  *   e3-ui shot --from-source <file.tsx>           a TS/TSX component
  *   e3-ui shot --from-ir <file.beast2|.json>      serialized component IR
  *   e3-ui shot --from-task <ws.task> --repo <r>   a live e3 task's output (dataflow must have run)
@@ -16,13 +27,19 @@
  *   e3-ui install-browser [--with-deps]           download the managed headless Chromium
  *   e3-ui doctor                                  diagnose the browser setup
  *
+ * `--help` / `--version` and the non-TTY refusal never load the terminal UI
+ * (Ink is imported lazily by `commands/tui.ts`), so scripts and the release
+ * smoke keep an instant, browser-free `e3-ui --version`.
+ *
  * @packageDocumentation
  */
 
 import { createRequire } from 'node:module';
 import { Command } from 'commander';
+import { createAuthCommand } from '@elaraai/e3-cli/internal';
 import { shotCommand } from './commands/shot.js';
 import { shotsCommand } from './commands/shots.js';
+import { tuiCommand } from './commands/tui.js';
 import { installBrowser, doctor } from './browser.js';
 import { CAPTURE_DEFAULTS as D } from './capture.js';
 
@@ -33,8 +50,25 @@ const program = new Command();
 
 program
     .name('e3-ui')
-    .description('Render east-ui / e3-ui components to PNG')
-    .version(packageJson.version);
+    .description('Browse an e3 repository in the terminal: workspaces, dataflow, task outputs, logs and editable inputs.')
+    .version(packageJson.version)
+    // The root action — the terminal UI. Subcommand names win over a
+    // positional repo (commander semantics): a repository literally named
+    // `shot` is opened as `./shot`.
+    .argument('[repo]', 'local path · https://host/repos/<repo> · https://host (repo list)  (default: $E3_REPO or ".")')
+    .argument('[workspace]', 'workspace to open (default: last used, else the only one, else the list)')
+    .option('-t, --task <name>', 'open a task on start')
+    .option('-i, --input <name>', 'open an input on start')
+    .option('--no-mouse', 'disable mouse reporting')
+    .option('--ascii', 'box-drawing off (also E3_UI_ASCII=1) · colour honours NO_COLOR / FORCE_COLOR')
+    .action(tuiCommand);
+
+// `auth` is e3-cli's own command group, mounted unchanged, so the credential
+// store, refresh margin and device flow cannot drift between the two binaries.
+program.addCommand(
+    createAuthCommand()
+        .description('login / logout / status / token / whoami — same store as `e3 auth` (~/.e3/credentials.json)'),
+);
 
 program
     .command('shot')

@@ -387,5 +387,5 @@ PR 1 is the bulk of the agent-friction win.
 ## Out of scope
 
 - A `.e3config` config file (analogous to `.gitconfig`). Worth considering once `--repo` and `E3_REPO` land, to see whether real users want it.
-- Interactive REPL / TUI mode. The existing `e3 view` TUI design (see `VIEWER.md`) is the right vehicle; the CLI itself should stay non-interactive.
+- Interactive REPL / TUI mode. `e3-ui [repo]` (libs/east-ui/packages/e3-ui-cli, design in its `docs/tui/DESIGN_TUI.md`) is that vehicle; the CLI itself stays non-interactive.
 - A package registry. `e3 package add` in §4 is named to leave room for registry-fetch later, but the immediate behaviour is identical to `package import`.

@@ -11,6 +11,8 @@ import {
   workspaceGetTaskHash,
   executionListForTask,
   executionGetLatest,
+  executionListIds,
+  executionGet,
 } from '@elaraai/e3-core';
 import type { StorageBackend } from '@elaraai/e3-core';
 import { sendSuccess, sendError } from '../beast2.js';
@@ -94,13 +96,65 @@ function calculateDuration(startedAt: Date, completedAt: Date): bigint {
 }
 
 /**
- * List execution history for a task.
+ * One execution as the history lists it.
+ */
+function toExecutionListItem(inputsHash: string, status: ExecutionStatus): ExecutionListItem {
+  if (status.type === 'success') {
+    return {
+      inputsHash,
+      inputHashes: status.value.inputHashes,
+      status: statusToApiStatus(status),
+      startedAt: status.value.startedAt.toISOString(),
+      completedAt: some(status.value.completedAt.toISOString()),
+      duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
+      exitCode: none,
+    };
+  }
+  if (status.type === 'failed') {
+    return {
+      inputsHash,
+      inputHashes: status.value.inputHashes,
+      status: statusToApiStatus(status),
+      startedAt: status.value.startedAt.toISOString(),
+      completedAt: some(status.value.completedAt.toISOString()),
+      duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
+      exitCode: some(status.value.exitCode),
+    };
+  }
+  if (status.type === 'error') {
+    return {
+      inputsHash,
+      inputHashes: status.value.inputHashes,
+      status: statusToApiStatus(status),
+      startedAt: status.value.startedAt.toISOString(),
+      completedAt: some(status.value.completedAt.toISOString()),
+      duration: none,
+      exitCode: none,
+    };
+  }
+  // running
+  return {
+    inputsHash,
+    inputHashes: status.value.inputHashes,
+    status: statusToApiStatus(status),
+    startedAt: status.value.startedAt.toISOString(),
+    completedAt: none,
+    duration: none,
+    exitCode: none,
+  };
+}
+
+/**
+ * List execution history for a task: the latest attempt per distinct
+ * inputs hash, or — with `all` — every attempt (a forced re-run or a retry
+ * after a failure adds one under the same inputs hash).
  */
 export async function listExecutions(
   storage: StorageBackend,
   repoPath: string,
   workspace: string,
-  taskName: string
+  taskName: string,
+  all = false
 ): Promise<Response> {
   try {
     const taskHash = await workspaceGetTaskHash(storage, repoPath, workspace, taskName);
@@ -109,55 +163,13 @@ export async function listExecutions(
     const result: ExecutionListItem[] = [];
 
     for (const inputsHash of inputsHashes) {
-      const status = await executionGetLatest(storage, repoPath, taskHash, inputsHash);
-      if (!status) continue;
-
-      // Build the complete item based on status type
-      let item: ExecutionListItem;
-      if (status.type === 'success') {
-        item = {
-          inputsHash,
-          inputHashes: status.value.inputHashes,
-          status: statusToApiStatus(status),
-          startedAt: status.value.startedAt.toISOString(),
-          completedAt: some(status.value.completedAt.toISOString()),
-          duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
-          exitCode: none,
-        };
-      } else if (status.type === 'failed') {
-        item = {
-          inputsHash,
-          inputHashes: status.value.inputHashes,
-          status: statusToApiStatus(status),
-          startedAt: status.value.startedAt.toISOString(),
-          completedAt: some(status.value.completedAt.toISOString()),
-          duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
-          exitCode: some(status.value.exitCode),
-        };
-      } else if (status.type === 'error') {
-        item = {
-          inputsHash,
-          inputHashes: status.value.inputHashes,
-          status: statusToApiStatus(status),
-          startedAt: status.value.startedAt.toISOString(),
-          completedAt: some(status.value.completedAt.toISOString()),
-          duration: none,
-          exitCode: none,
-        };
-      } else {
-        // running status
-        item = {
-          inputsHash,
-          inputHashes: status.value.inputHashes,
-          status: statusToApiStatus(status),
-          startedAt: status.value.startedAt.toISOString(),
-          completedAt: none,
-          duration: none,
-          exitCode: none,
-        };
+      const statuses: (ExecutionStatus | null)[] = all
+        ? await Promise.all((await executionListIds(storage, repoPath, taskHash, inputsHash))
+          .map(executionId => executionGet(storage, repoPath, taskHash, inputsHash, executionId)))
+        : [await executionGetLatest(storage, repoPath, taskHash, inputsHash)];
+      for (const status of statuses) {
+        if (status) result.push(toExecutionListItem(inputsHash, status));
       }
-
-      result.push(item);
     }
 
     return sendSuccess(ArrayType(ExecutionListItemType), result);

@@ -1,0 +1,36 @@
+ e3-ui  demo-repo › main › params                                                               ◆ 2 DIRTY  ● CONNECTED  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ params   ▌Value▐                                                          INPUT · ◐ STALE · read by features, forecast 
+ .inputs.params · Struct · 1.2 KB · 0a44e1b7c9d2                                                                        
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+ · Horizon days                              14                                                                         
+ · Seasonality                               Weekly                                                        t tag ▾      
+┆· Smoothing                                 0.35                                                          edited       
+▌· Min confidence                            0.5_                                              ⏎ apply · esc cancel     
+ ▾ Stores                                    3 items                                                                    
+   · Item 1                                  "Bakery"                                                                   
+   · Item 2                                  "Deli"                                                                     
+   · Item 3                                  "Produce"                                                                  
+   + Add item                                                                                                           
+ ▸ Holidays                                  12 entries                                                                 
+ · Notes                                     Not set                                                       t set        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+ ◆ 2 changes pending   smoothing · min_confidence                                               ⏎ APPLY     esc DISCARD
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › _                                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ e edit   a add   x remove   t tag/set   ↑↓ move   → ←   ⏎ apply all   esc discard                                dirty 

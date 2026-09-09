@@ -1,0 +1,40 @@
+ e3-ui                                                                                                         v1.0.70  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                                        
+                                                ✗  NOT AN E3 REPOSITORY                                                 
+                                                                                                                        
+                             ./demo-repo has no objects/ packages/ executions/ workspaces/                              
+                                                                                                                        
+                                  e3 repo create ./demo-repo          create one here                                   
+                            /repo <path>                        open a different repository                             
+                                 E3_REPO=<path>                      or set the default                                 
+                                                                                                                        
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+                                                                                                                        
+                                                    ✗  NOT LOGGED IN                                                    
+                                                                                                                        
+                                     https://e3.example.com has no saved credential                                     
+                                                                                                                        
+                         e3-ui auth login https://e3.example.com        (same store as e3 auth)                         
+                                     then   e3-ui https://e3.example.com/repos/demo                                     
+                                                                                                                        
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+                                                                                                                        
+                                                 ✗  SERVER UNREACHABLE                                                  
+                                                                                                                        
+                          GET https://e3.example.com/api/repos — ECONNREFUSED after 4 attempts                          
+                                                                                                                        
+                                  r  retry now         waits 15s and retries by itself                                  
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ › /login https://e3.example.com_                              ⏎ run the device-flow login · esc                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ q quit   /repo <path|url>   /login <url>                    three states stacked for review; the bar pre-fills the fix 

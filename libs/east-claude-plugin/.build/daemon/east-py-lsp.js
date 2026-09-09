@@ -207,6 +207,9 @@ var PythonLspProxy = class {
 `)))(line);
       }
     });
+    for (const stream of [child.stdin, child.stdout, child.stderr]) {
+      stream.on("error", () => void 0);
+    }
     for (const handle of [child, child.stdout, child.stderr, child.stdin]) {
       const unref = handle.unref;
       if (typeof unref === "function")

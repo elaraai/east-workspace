@@ -63,7 +63,7 @@ Instructions in STANDARDS.md must be followed at all times.
 
 See USAGE.md for how to use e3 as an end user.
 See SKILL.md for the authoring cheat-sheet (matches the `east:e3` skill).
-See VIEWER.md for the `e3 view` TUI design.
+The interactive terminal UI over a repository is `e3-ui` (libs/east-ui/packages/e3-ui-cli, design in its docs/tui/); the e3 CLI stays non-interactive.
 See design/e3-mvp*.md for the current design spec.
 See design/e3-core.md, design/e3-api.md, design/e3-cli.md for per-package design notes.
 See design/e3-execution.md and design/e3-execution-history.md for execution and provenance tracking.

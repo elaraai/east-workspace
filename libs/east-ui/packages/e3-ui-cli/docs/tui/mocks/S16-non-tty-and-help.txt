@@ -1,0 +1,29 @@
+$ e3-ui | cat
+e3-ui: interactive terminal required (stdout is not a TTY).
+  scripts: e3 workspace status <repo> <ws> · e3 dataset get <repo> <ws.name> -f json
+  help:    e3-ui --help
+(exit 1)
+
+$ e3-ui --help
+Usage: e3-ui [options] [command] [repo] [workspace]
+
+Browse an e3 repository in the terminal: workspaces, dataflow, task outputs, logs and editable inputs.
+
+Arguments:
+  repo                 local path · https://host/repos/<repo> · https://host (repo list)  (default: $E3_REPO or ".")
+  workspace            workspace to open (default: last used, else the only one, else the list)
+
+Options:
+  -V, --version        output the version number
+  -t, --task <name>    open a task on start
+  -i, --input <name>   open an input on start
+  --no-mouse           disable mouse reporting
+  --ascii              box-drawing off (also E3_UI_ASCII=1) · colour honours NO_COLOR / FORCE_COLOR
+  -h, --help           display help for command
+
+Commands:
+  auth                 login / logout / status / token / whoami — same store as `e3 auth` (~/.e3/credentials.json)
+  shot [options]       Render an east-ui / e3-ui component to a PNG (unchanged)
+  shots [options] [paths...]
+  install-browser [options]
+  doctor
