@@ -69,7 +69,11 @@ And on 2026-09-09: the Sheet follows the **Plan / Table accessor rule** — raw
 host rows, an accessor for every per-row fact, `SubtypeExprOrValue` for every
 static field, a **typed link value** instead of a string the host would have to
 re-parse, and a copilot context typed over the host's row — nothing at the
-author's side is addressed by a string name (§1, §3.2–§3.6, §4.8).
+author's side is addressed by a string name (§1, §3.2–§3.6, §4.8). And from the
+review of 2026-09-09: the inline arm is **positional** (keyed sources only when
+paged); a column header is **`header`** + `sub`; a Link column is searched through
+the slice's **`printFor` text or a `text` projection**; `ctx.row` is rebuilt over
+the **real row**; and **`selection`** may be controlled (§3.14).
 
 ---
 
@@ -89,14 +93,15 @@ and the wire format for a name.
 | **What the component owns** | The sheet card (two-line header, gutter, cells, editors, selection, keyboard, clipboard), the docked strip, the footer (counts, key hint, live message, the paged transport line), the lens (hits, ±n context bands, reveals) over the slice's narrowing, the view tabs, the copilot runner, register-driven cell kinds and the link grammar. |
 | **What the host owns** | The app bar (title, breadcrumb, sync status — `<App>`), persistence and its mode (autosave = `Data.bind` direct; held-locally = `Data.bind` staged + commit), the autosave toggle, the upload/stamping action, the `owned` predicate (data), registers (data), footer counts (expressions over the host's rows), **every copilot rule** (East functions), the slice binding. |
 | **Cells are the Table's primitive; links are typed** | A scalar cell is a bare `LiteralValueType` (`Null` is blank): `date` = `DateTime` (UTC midnight); `quantity` = `Float`; `integer` = `Integer`; everything else a `String`. A `set` / `link` cell is a **`Sheet.Types.Link` value** — two arrays of resolved members with a direction — never a string the host has to re-parse; the renderer's grammar (B§4.1) is the kind's parse / print pair (§3.4). The planner's as-typed string (B§4.2) is what the *editor* shows, and a host that wants it stored verbatim sits the column on a `String` field (§3.4). No per-cell UI in the IR (#206). |
-| **Rows are the host's structs, from either row-source arm** | `data` is the whole collection (`Array<R>`, `Dict<String, R>`, a `Data.bind` / `State.bind` handle) or a **paged source** of one (`Data.bindPaged`, `Paged.of`). The factory projects `R` into sheet rows (`id` / `owned` + one cell per column) through the shared row-source contract (#567/#576); the sheet order is the source order. Blank padding rows are renderer state, never data. |
-| **Accessors and `SubtypeExprOrValue` — the Plan / Table rule** | `data` is the host's raw rows; every per-row fact is an **accessor** returning an expression of the IR field's type (`id`, `owned`, a column's `value`, a link's `from` / `to`, a register's `key` / `label` / `meta` / `tone`, and — over the **driver's row type** — a quantity's `uom` and a link's `sides`); every static field of a declaration (`label`, `sub`, `width`, `accepts`) is `SubtypeExprOrValue` — a literal or an expression. Columns are **builders that take the row type first** — `Sheet.column.date(R, …)`, `Sheet.column.quantity(R, D, …)`, `Sheet.column.link(R, D, register, …)` — the `Plan.series.<kind>(OpsRow, …)` shape, so every accessor inside is typed by `R`, and by `D` (the driver's row type) where the kind reads the driver's row; the `columns` map is checked per key against the row's fields (`SheetColumnSpec<R>`, the `<Table columns>` mapped type). Nothing at the author's side is addressed by a string name — not a driver attribute, not a cell. |
-| **Search is the slice's; the lens is the Sheet's** | The Sheet takes `slice` chrome like Table / Deck. The rail mounts `search` (and `filter` / `cohort` if listed); the Sheet never narrows — it reads the slice state and draws every non-matching row as a collapsed context band, hits keep their row numbers (B§8). `brush` / `legend` / `breakdown` are refused (no axis, no series). Without `slice` there is no search and no lens. |
+| **Rows are the host's structs — positional inline, keyed only when paged** | `data` inline is an `Array<R>`, or a `Data.bind` / `State.bind` handle of one (`data={jobs}` and `data={jobs.read()}` build the same IR), never a `Dict`: a dictionary decodes to a sorted map, so its rows would sit in key order (`j10` before `j2`) instead of the planner's. A **paged source** (`Data.bindPaged`, `Paged.of`) may be positional (`Array<R>` windows; `seek` when the source is sorted by a key) or keyed (`Dict<String, R>` windows in key order — the host designs keys that sort as the sheet should read, and the key is the row id). The factory projects `R` into sheet rows (`id` / `owned` + one cell per column) through the shared row-source contract (#567/#576). Blank padding rows are renderer state, never data. |
+| **Accessors and `SubtypeExprOrValue` — the Plan / Table rule** | `data` is the host's raw rows; every per-row fact is an **accessor** returning an expression of the IR field's type (`id`, `owned`, a column's `value`, a link's `from` / `to`, a register's `key` / `label` / `meta` / `tone`, and — over the **driver's row type** — a quantity's `uom` and a link's `sides`); every static field of a declaration (`header`, `sub`, `width`, `accepts`) is `SubtypeExprOrValue` — a literal or an expression. Columns are **builders that take the row type first** — `Sheet.column.date(R, …)`, `Sheet.column.quantity(R, D, …)`, `Sheet.column.link(R, D, register, …)` — the `Plan.series.<kind>(OpsRow, …)` shape, so every accessor inside is typed by `R`, and by `D` (the driver's row type) where the kind reads the driver's row; the `columns` map is checked per key against the row's fields (`SheetColumnSpec<R>`, the `<Table columns>` mapped type). Nothing at the author's side is addressed by a string name — not a driver attribute, not a cell. |
+| **Search is the slice's; the lens is the Sheet's** | The Sheet takes `slice` chrome like Table / Deck. The rail mounts `search` (and `filter` / `cohort` if listed); the Sheet never narrows — it reads the slice state and draws every non-matching row as a collapsed context band, hits keep their row numbers (B§8). `brush` / `legend` / `breakdown` are refused (no axis, no series). A Link column is searchable like any other: a non-String field named in `searchFieldIds` searches through its `printFor` text, and a field spec may give a `text` accessor for the display form (`Sheet.link.print`) — the Slice change P5 delivers. Without `slice` there is no search and no lens. |
 | **Views are slice-state snapshots** | A view saves the slice **narrowing** it was made with (`SliceStateType`) plus the lens's context width and reveals — a lens definition evaluated live (B§8), never a copy of rows. Views persist as data (`views` / `onViewsChange`); switching a tab writes the snapshot into the slice. |
 | **Copilot providers are East functions, sync or async, typed over the row** | A column's `fill` is a list of functions from `Sheet.Types.Context(R, D)` — `row: R` as it would be if the open editor committed, `rows: Array<R>`, `driver: Option<D>` — to an optional `Sheet.Types.Fill(T)` of the column's payload; `suggest.propose` is a list of functions to `Sheet.Types.Proposal(R)` rows built with `Sheet.patch(R, …)`. Each may be an `East.function` (runs inline within the kind's latency) or an `East.asyncFunction` (the strip shows a pending chip; the result lands reactively; latest wins). Nothing is built in — "derive", "history", "capacity" and "learned followers" are examples in the corpus, written as author functions (§3.5–§3.6). |
 | **Write-back** | `onUpdate` (the whole collection `Array<R>` with the edit applied — the `ValueTree` idiom) on the inline arm; `onEdit` (raw commit / insert / remove events carrying the typed row, `Sheet.Types.Edit(R)`, with provenance) on either arm. `onUpdate` with a paged source is a build-time refusal. |
+| **Selection** | Observed through `onSelect`; controlled when `selection` is given (the Table model) — the ring follows the value and the row scrolls into view, so a host list or a deep link can put the planner on a row (§3.14). |
 | **No popovers, nothing floats** | B§9: the strip is the only surface for candidates and provenance. The IR embeds no UI (`node`) — `SheetRootType` is a closed struct referenced directly from `component.ts`, like `Calendar` / `Blend`. |
-| **Reuse** | the Table's keyed-column config (`SheetColumnSpec<R, D>` as its mapped type), `LiteralValueType` cells, `RowSourceType` + the Plan's paging stack (`paged-window-store`, window ledger / residency / reader, `use-seek`, `key-search`), `SliceChromeType` + the rail cluster + the pure `slice-impl` engine, `shared/reify.ts`, `DensityType`, the `#320` sizing strings, `VirtualRows`, `DensityProvider`, `TickFormatType` for quantity display, the FA icon set, the recipe vocabulary. Not reused: `Table`'s renderer (a sheet is not a `<table>`), `Combobox` / `TagsInput` (the strip replaces every dropdown). |
+| **Reuse** | the Table's keyed-column config (`SheetColumnSpec<R>` as its mapped type), `LiteralValueType` cells, `RowSourceType` + the Plan's paging stack (`paged-window-store`, window ledger / residency / reader, `use-seek`, `key-search`), `SliceChromeType` + the rail cluster + the slice engine (`sliceMatches` in east-ui's `platform/slice/impl.ts` — what `Slice.apply.matches` and `Slice.partition` run), `shared/reify.ts`, `DensityType`, the `#320` sizing strings, `VirtualRows`, `DensityProvider`, `TickFormatType` for quantity display, the FA icon set, the recipe vocabulary. Not reused: `Table`'s renderer (a sheet is not a `<table>`), `Combobox` / `TagsInput` (the strip replaces every dropdown). |
 
 ---
 
@@ -116,8 +121,11 @@ The established IR → renderer split with the repo's load-bearing rules
   functions, Chakra slot recipe `sheet`.
 - **JSX tag** (`east-ui/src/runtime/collections/sheet.ts`): `<Sheet …/>` desugaring
   to `Sheet.Root(data, columns, options)` exactly as `<Table>` does, with the column
-  map typed as `SheetColumnSpec<T>` so a key that is not a data field is a type error,
-  and a second overload for the paged arm (the `<Table>` precedent).
+  map typed as `SheetColumnSpec<R>` so a key that is not a data field is a type error,
+  and a second overload for the paged arm (the `<Table>` precedent); built as
+  `Object.assign(SheetTag, { column, register, link, driver, patch, Types })` so the
+  namespace shows on hover, with full TypeDoc and a JSX `@example` mirrored in the
+  examples file (`STANDARDS.md`).
 - **Namespace** — one object per category, the `Plan.series` / `Plan.at` /
   `Plan.Types` split, so categories never mix as they grow: `Sheet.column.<kind>`
   (the column builders — text · date · quantity · integer · lookup · reference ·
@@ -149,14 +157,21 @@ and `D` never cross the IR except inside function captures.
 
 `@jsxImportSource @elaraai/east-ui`. Every example below is complete enough to
 compile once the factories exist; the flagship (§3.11) is the first example in the
-corpus (`sheetPlan`). Fixtures are elided with `…` only where they repeat.
+corpus (`sheetPlan`). Fixtures are elided with `…` only where they repeat. The
+listings hoist types, fixtures and the typed constructors (`Ctx`, `Proposals`) to
+module scope and repeat them per section for reading; in the corpus every example
+function is self-contained — types, fixtures and constructors declared once inside
+the body, bulk data derived East-side with `East.Array.range` / `generate`, and only
+platform declarations (`East.asyncPlatform`) at module scope (the examples rule,
+`EXAMPLES_AUTHORING.md` §8).
 
 ### 3.1 The smallest sheet
 
 Three typed columns over the host's structs. `id` names the row identity;
 `onUpdate` receives the whole collection with the edit applied (the `ValueTree`
 idiom), so a `State.bind` — or an e3-ui `Data.bind` — is the entire persistence
-story.
+story. `data={jobs}` and `data={jobs.read()}` build the same IR: the row-source
+resolver reads a `{ read }` handle itself.
 
 ```tsx
 /** @jsxImportSource @elaraai/east-ui */
@@ -180,9 +195,9 @@ export const sheetBasic = East.function([], UIComponentType, (_$) => (
                 data={jobs.read()}
                 id={r => r.id}
                 columns={{
-                    start: Sheet.column.date(JobType, { label: "Start", sub: "d/m · fri · +3d" }),
-                    task:  Sheet.column.text(JobType, { label: "Task" }),
-                    qty:   Sheet.column.quantity(JobType, { label: "Qty" }),          // no driver on this sheet — the two-argument form
+                    start: Sheet.column.date(JobType, { header: "Start", sub: "d/m · fri · +3d" }),
+                    task:  Sheet.column.text(JobType, { header: "Task" }),
+                    qty:   Sheet.column.quantity(JobType, { header: "Qty" }),          // no driver on this sheet — the two-argument form
                 }}
                 onUpdate={jobs.write}
             />
@@ -211,31 +226,33 @@ reifies its accessors once against `R` (and `D`) — Plan's `derive` move — so
 `columns` map is then checked per key: `SheetColumnSpec<R>` is a mapped type over
 the row's fields (the `<Table columns>` idiom) and each builder's result carries
 the field types it may sit on, so a key that is not a field, or a `Sheet.date`
-under a `String` field, is a type error (§3.12). Static fields — `label`, `sub`
+under a `String` field, is a type error (§3.12). Static fields — `header`, `sub`
 (the grey second header line), `width` (CSS px), `accepts` — are
-`SubtypeExprOrValue<StringType>`: a literal or an expression. Per-row facts are
+`SubtypeExprOrValue<StringType>`: a literal or an expression. B§2 calls the
+header line `label`; the Sheet says `header`, the `<Table columns>` vocabulary,
+and keeps `sub` for the second line — `label` is what a register MEMBER prints. Per-row facts are
 accessors: a column's optional `value` (a derived read, the Table's), a link's
 `from` / `to` (§3.4), and anything read off the driver's row (`uom`, `sides`)
 takes `d`, the typed driver row.
 
 ```tsx
 columns={{
-    start:     Sheet.column.date(PlanRowType, { label: "Start", sub: "d/m · fri · +3d" }),
+    start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "d/m · fri · +3d" }),
     end:       Sheet.column.date(PlanRowType, {
-                   label: "End", sub: "4d = start+4", base: "start",                // `4d` means start + 4 (B§3)
+                   header: "End", sub: "4d = start+4", base: "start",                // `4d` means start + 4 (B§3)
                    fill: [endFromStart] }),                                          // an author function (§3.5)
-    activity:  Sheet.column.lookup(PlanRowType, { label: "Activity", sub: "activity register" }),   // the driver column — its register is `driver`'s (§3.3)
+    activity:  Sheet.column.lookup(PlanRowType, { header: "Activity", sub: "activity register" }),   // the driver column — its register is `driver`'s (§3.3)
     vol:       Sheet.column.quantity(PlanRowType, ActivityType, {
-                   label: "Vol / Qty", sub: "uom per activity",
+                   header: "Vol / Qty", sub: "uom per activity",
                    uom: d => d.uom,                                                  // an accessor over the DRIVER's row — `d` is typed
                    format: Format.Number({ maximumFractionDigits: 0n }) }),
-    notes:     Sheet.column.text(PlanRowType, { label: "Notes", sub: "free text" }),
+    notes:     Sheet.column.text(PlanRowType, { header: "Notes", sub: "free text" }),
     tanks:     Sheet.column.link(PlanRowType, ActivityType, "vessels", { /* §3.4 */ }),
-    toClean:   Sheet.column.integer(PlanRowType, { label: "Clean", sub: "n" }),
-    fromSite:  Sheet.column.reference(PlanRowType, "sites", { label: "From site", sub: "site register" }),
-    toSite:    Sheet.column.reference(PlanRowType, "sites", { label: "To site", sub: "site register" }),
-    orderCode: Sheet.column.stamped(PlanRowType, { label: "Order code", sub: "stamped on upload", owner: "MES" }),
-    status:    Sheet.column.enum(PlanRowType, "statuses", { label: "Status", sub: "mes" }),      // valence dot from the register's `tone` accessor
+    toClean:   Sheet.column.integer(PlanRowType, { header: "Clean", sub: "n" }),
+    fromSite:  Sheet.column.reference(PlanRowType, "sites", { header: "From site", sub: "site register" }),
+    toSite:    Sheet.column.reference(PlanRowType, "sites", { header: "To site", sub: "site register" }),
+    orderCode: Sheet.column.stamped(PlanRowType, { header: "Order code", sub: "stamped on upload", owner: "MES" }),
+    status:    Sheet.column.enum(PlanRowType, "statuses", { header: "Status", sub: "mes" }),      // valence dot from the register's `tone` accessor
 }}
 ```
 
@@ -272,6 +289,9 @@ vocabulary and nothing else. `Sheet.register.members` projects the host's rows t
 accessors, reified once (Plan's `derive` move); `Sheet.register.concat` joins
 member sets of different kinds into one register. There is no attribute bag: a
 value another declaration needs is read off a **typed row** by an accessor.
+Accessors take `(value, key)`, Plan's rule for keyed data — over a `Dict` register
+the key does not repeat inside the value, so `key: (_v, k) => k` is the normal
+spelling.
 
 The **driver** is declared once, with its data and therefore its row type `D`:
 the `lookup` column it names is parameterised by that row, `uom` and `sides`
@@ -291,7 +311,7 @@ const farms      = $.const(FARMS, ArrayType(FarmType));
 const sites      = $.const(SITES, ArrayType(StringType));
 const statuses   = $.const(STATUSES, ArrayType(StatusType));
 
-driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name })}     // D = ActivityType, inferred by the tag
+driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name })}     // D = ActivityType; the tag checks each builder's D against it
 registers={{
     vessels: Sheet.register.concat([
         Sheet.register.members(tanks, { kind: "tank", key: t => t.code, label: t => t.code,
@@ -343,7 +363,7 @@ renderer.
 
 ```tsx
 tanks: Sheet.column.link(PlanRowType, ActivityType, "vessels", {                         // row type · driver row type · register · config
-    label: "Tanks / vessels", sub: "from → to · 4 x 140m³ · tank · farm", width: "352px",
+    header: "Tanks / vessels", sub: "from → to · 4 x 140m³ · tank · farm", width: "352px",
     from: r => r.fromTanks, to: r => r.toTanks,                                   // form (b); omit both for (a) or (c)
     members: [
         { kind: "tank", identified: true },                    // a register code; bare digits try the code prefix
@@ -408,7 +428,9 @@ const siteMatches = $.const(East.function([CheckCtx], OptionType(StringType), ($
 ```
 
 Typed entry is never blocked (B§4.1 "anything else — text, dashed"); flags are
-shown, not enforced.
+shown, not enforced. A check that throws flags nothing and logs — the fail-open
+rule every author predicate follows (Schematic's `canConnect`): a broken rule can
+never block entry.
 
 ### 3.5 In-row autocomplete — fill providers are East functions
 
@@ -525,10 +547,10 @@ const countedByVolume = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
 }));
 
 columns={{
-    start: Sheet.column.date(PlanRowType, { label: "Start", fill: [nextSlot] }),
-    end:   Sheet.column.date(PlanRowType, { label: "End", base: "start", fill: [endFromStart] }),
-    vol:   Sheet.column.quantity(PlanRowType, ActivityType, { label: "Vol / Qty", uom: d => d.uom, fill: [lastVolume, shiftVolume] }),   // first that yields wins
-    notes: Sheet.column.text(PlanRowType, { label: "Notes", fill: [phrase] }),
+    start: Sheet.column.date(PlanRowType, { header: "Start", fill: [nextSlot] }),
+    end:   Sheet.column.date(PlanRowType, { header: "End", base: "start", fill: [endFromStart] }),
+    vol:   Sheet.column.quantity(PlanRowType, ActivityType, { header: "Vol / Qty", uom: d => d.uom, fill: [lastVolume, shiftVolume] }),   // first that yields wins
+    notes: Sheet.column.text(PlanRowType, { header: "Notes", fill: [phrase] }),
     tanks: Sheet.column.link(PlanRowType, ActivityType, "vessels", { /* … */ fill: [lastTanks, countedByVolume] }),
 }}
 ```
@@ -544,10 +566,13 @@ rejected fill is remembered per row and key. On a paged sheet `ctx.rows` is the
 **resident** prefix and `ctx.partial` is true — a provider that reasons over
 history should say so in its `meta`.
 
-`ctx.row` is rebuilt from the sheet's cells (§4.8): every field a provider reads
-must be a column of the sheet, and a field of `R` with no column holds its type's
-default there. `onUpdate` still preserves such fields — it maps the source
-collection, not the cells (§4.7).
+`ctx.row` is the **real row**: the bridge (§4.8) finds the source row by id —
+through the bound handle on the inline arm, through the source's `page` at the
+row's offset on the paged arm — and overlays the declared columns' cells (the open
+editor's value included), so a field of `R` that has no column (`createdBy`,
+`version`) reads its true value in every provider, check, `onEdit` event and
+patch. Only a row not yet in the source — a proposal being taken, a paste's new
+rows — starts from the row type's default value.
 
 ### 3.6 Multi-row autocomplete — proposers are East functions
 
@@ -564,6 +589,10 @@ Sheet.Types.Patch(R)    = StructType({ [each editable field f of R]: OptionType(
 Sheet.Types.Proposal(R) = StructType({ patch: Sheet.Types.Patch(R), meta: StringType });
 ```
 
+`Sheet.patch`'s input is the literal-record form of `R`'s editable fields —
+`{ [f]?: SubtypeExprOrValue<R[f]> }`, Plan's `PlanRecordInput` shape — so a field
+takes a literal or an expression and an omitted one is `none`.
+
 ```tsx
 const Proposals = ArrayType(Sheet.Types.Proposal(PlanRowType));
 
@@ -572,7 +601,7 @@ const Proposals = ArrayType(Sheet.Types.Proposal(PlanRowType));
 const bulkBlenderFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
     const empty = $.const([], Proposals);
     const n = $.let(impliedTanks(ctx).match({ some: (_$, c) => c.n, none: _$ => 1n }));   // reuse the arity rule
-    return ctx.row.activity.equal("Transfer - Bulk Blenders").and(ctx.row.end.hasTag("some")).ifElse(
+    return ctx.row.activity.equal("Transfer - Bulk Blenders").and(() => ctx.row.end.hasTag("some")).ifElse(
         $ => {
             const endAt = $.let(ctx.row.end.unwrap("some"));
             return $.const([
@@ -592,13 +621,13 @@ const bulkBlenderFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) =>
 // 2 · Learned from the sheet: what followed this activity last time, after how long (B§5.2).
 const lastFollower = $.const(East.function([Ctx], Proposals, ($, ctx) => {
     const empty = $.const([], Proposals);
-    const dated = $.let(ctx.rows.filter((_$, r) => r.start.hasTag("some").and(r.activity.equal("").not())));
+    const dated = $.let(ctx.rows.filter((_$, r) => r.start.hasTag("some").and(() => r.activity.equal("").not())));
     const n     = $.let(dated.length());
     const upper = $.let(n.greater(1n).ifElse(_$ => n.subtract(1n), _$ => 0n));
     // consecutive pairs (this activity → a different one), in sheet order
     const pairs = $.let(East.Array.range(0n, upper).filter((_$, i) =>
-        dated.get(i).activity.equal(ctx.row.activity).and(dated.get(i.add(1n)).activity.equal(ctx.row.activity).not())));
-    return pairs.length().equal(0n).or(ctx.row.activity.equal("")).or(ctx.row.start.hasTag("some").not()).ifElse(
+        dated.get(i).activity.equal(ctx.row.activity).and(() => dated.get(i.add(1n)).activity.equal(ctx.row.activity).not())));
+    return pairs.length().equal(0n).or(() => ctx.row.activity.equal("")).or(() => ctx.row.start.hasTag("some").not()).ifElse(
         _$ => empty,
         $ => {
             const i     = $.let(pairs.get(pairs.length().subtract(1n)));
@@ -696,13 +725,22 @@ same way — a filtered-out row is a band, not a missing row.
 
 ```tsx
 const cfg = Slice.config(PlanRowType, {
-    fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, tanks: { label: "Tanks" }, status: { label: "Status" } },
+    fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, status: { label: "Status" },
+              tanks: { label: "Tanks", text: r => Sheet.link.print(r.tanks) } },   // a Link, searched by its display text
     searchFieldIds: ["activity", "notes", "tanks"],
 });
 const slice = $.let(Slice.bind([PlanRowType], "plan.slice", cfg, Slice.state(), rows, none));
 
 <Sheet … slice={slice} affordances={["search", "filter"]} />
 ```
+
+Search over a non-String field goes through its `printFor` text by default — for a
+link, `(from=[.identified (key="T2140")], to=[.counted (n=4, key="140 m³")])`, so
+`T2140` and `140 m³` hit but the display form `4 x 140 m³` misses and the `.east`
+field names match every row — which is why a field spec may name a `text`
+projection: `Sheet.link.print` renders the grammar's display form, `T2140 > 4 x 140
+m³`. Both are the Slice change scheduled in P5 (§8); until it lands, search covers
+the String columns.
 
 A **view** is a slice-state snapshot plus the lens's context and reveals — a tab
 that is evaluated live, so a new matching row joins it and an edit anywhere
@@ -731,17 +769,18 @@ renderer's grammar behind them (`Sheet.link.parse` / `Sheet.link.print`, §3.4).
 // A shift code: "A", "B", "N" (night); the row field is `shift: OptionType(StringType)`, so the payload is String.
 const parseShift = $.const(East.function([StringType, Ctx], OptionType(StringType), ($, text, _ctx) => {
     const t = $.let(text.trim().upperCase());
-    return t.equal("A").or(t.equal("B")).or(t.equal("N")).ifElse(
+    return t.equal("A").or(() => t.equal("B")).or(() => t.equal("N")).ifElse(
         _$ => some(t), _$ => East.value(none, OptionType(StringType)));
 }));
 const printShift = $.const(East.function([StringType], StringType, (_$, s) => East.str`shift ${s}`));
 
-shift: Sheet.column.custom(PlanRowType, { label: "Shift", accepts: "A · B · N", parse: parseShift, print: printShift, fill: [lastShift] }),
+shift: Sheet.column.custom(PlanRowType, { header: "Shift", accepts: "A · B · N", parse: parseShift, print: printShift, fill: [lastShift] }),
 ```
 
 The payload type is read off the field (§3.12): a `parse` whose output is not
 `Option<payload>` is a compile error, and the factory inspects the function's
-East output type as a second gate (the Table `value` rule).
+East output type as a second gate (the Table `value` rule). A `parse` that throws
+reads as unrecognised (the neg ring) and logs — fail-open, never a stuck editor.
 
 ### 3.10 Host chrome — footer counts, sync status, stamping
 
@@ -753,12 +792,12 @@ codes read-only and the rows as owned:
 ```tsx
 const rows = $.let(plan.read());
 const planned   = $.let(rows.filter((_$, r) => r.activity.length().greater(0n)).length());
-const ready     = $.let(rows.filter((_$, r) => r.activity.length().greater(0n).and(r.start.hasTag("some"))
-                                       .and(r.vol.hasTag("some")).and(r.orderCode.length().equal(0n))).length());
+const ready     = $.let(rows.filter((_$, r) => r.activity.length().greater(0n).and(() => r.start.hasTag("some"))
+                                       .and(() => r.vol.hasTag("some")).and(() => r.orderCode.length().equal(0n))).length());
 const cancelled = $.let(rows.filter((_$, r) => r.status.equal("CANCELLED")).length());
 
 <Sheet …
-    owned={r => r.orderCode.length().greater(0n).or(r.status.equal("CANCELLED"))}
+    owned={r => r.orderCode.length().greater(0n).or(() => r.status.equal("CANCELLED"))}
     footer={[{ text: East.str`${planned} planned · ${ready} ready to upload · ${cancelled} cancelled` }]}
 />
 ```
@@ -792,8 +831,9 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
         const sites = $.const(SITES, ArrayType(StringType));
         const statuses = $.const(STATUSES, ArrayType(StatusType));
         const cfg = Slice.config(PlanRowType, {
-            fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, status: { label: "Status" } },
-            searchFieldIds: ["activity", "notes"],
+            fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, status: { label: "Status" },
+                      tanks: { label: "Tanks", text: r => Sheet.link.print(r.tanks) } },
+            searchFieldIds: ["activity", "notes", "tanks"],
         });
         const slice = $.let(Slice.bind([PlanRowType], "plan.slice", cfg, Slice.state(), rows, none));
         // impliedTanks, siteMatches (§3.4) · endFromStart, lastSimilar, lastVolume, lastTanks, nextSlot, shiftVolume,
@@ -804,19 +844,19 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
             <Sheet
                 data={rows}
                 id={r => r.id}
-                owned={r => r.orderCode.length().greater(0n).or(r.status.equal("CANCELLED"))}
+                owned={r => r.orderCode.length().greater(0n).or(() => r.status.equal("CANCELLED"))}
                 driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name })}
                 registers={{ /* vessels · sites · statuses — §3.3 */ }}
                 columns={{
-                    start:     Sheet.column.date(PlanRowType, { label: "Start", sub: "d/m · fri · +3d", width: "96px", fill: [nextSlot] }),
-                    end:       Sheet.column.date(PlanRowType, { label: "End", sub: "4d = start+4", width: "96px", base: "start", fill: [endFromStart] }),
-                    activity:  Sheet.column.lookup(PlanRowType, { label: "Activity", sub: "activity register", width: "214px" }),
+                    start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "d/m · fri · +3d", width: "96px", fill: [nextSlot] }),
+                    end:       Sheet.column.date(PlanRowType, { header: "End", sub: "4d = start+4", width: "96px", base: "start", fill: [endFromStart] }),
+                    activity:  Sheet.column.lookup(PlanRowType, { header: "Activity", sub: "activity register", width: "214px" }),
                     vol:       Sheet.column.quantity(PlanRowType, ActivityType, {
-                                   label: "Vol / Qty", sub: "uom per activity", width: "112px", uom: d => d.uom,
+                                   header: "Vol / Qty", sub: "uom per activity", width: "112px", uom: d => d.uom,
                                    format: Format.Number({ maximumFractionDigits: 0n }), fill: [lastVolume, shiftVolume] }),
-                    notes:     Sheet.column.text(PlanRowType, { label: "Notes", sub: "free text", width: "250px", fill: [phrase] }),
+                    notes:     Sheet.column.text(PlanRowType, { header: "Notes", sub: "free text", width: "250px", fill: [phrase] }),
                     tanks:     Sheet.column.link(PlanRowType, ActivityType, "vessels", {
-                                   label: "Tanks / vessels", sub: "from → to · 4 x 140m³ · tank · farm", width: "352px",
+                                   header: "Tanks / vessels", sub: "from → to · 4 x 140m³ · tank · farm", width: "352px",
                                    members: [{ kind: "tank", identified: true }, { kind: "range", identified: true },
                                              { kind: "farm", countable: true, resolvesTo: "tank" },
                                              { kind: "group", countable: true, resolvesTo: "tank" },
@@ -826,11 +866,11 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
                                    arity: Sheet.link.arity("to", impliedTanks),
                                    check: [Sheet.link.check.exists(), siteMatches],
                                    fill: [lastTanks, countedByVolume] }),
-                    toClean:   Sheet.column.integer(PlanRowType, { label: "Clean", sub: "n", width: "64px" }),
-                    fromSite:  Sheet.column.reference(PlanRowType, "sites", { label: "From site", sub: "site register", width: "112px" }),
-                    toSite:    Sheet.column.reference(PlanRowType, "sites", { label: "To site", sub: "site register", width: "112px" }),
-                    orderCode: Sheet.column.stamped(PlanRowType, { label: "Order code", sub: "stamped on upload", owner: "MES", width: "104px" }),
-                    status:    Sheet.column.enum(PlanRowType, "statuses", { label: "Status", sub: "mes", width: "124px" }),
+                    toClean:   Sheet.column.integer(PlanRowType, { header: "Clean", sub: "n", width: "64px" }),
+                    fromSite:  Sheet.column.reference(PlanRowType, "sites", { header: "From site", sub: "site register", width: "112px" }),
+                    toSite:    Sheet.column.reference(PlanRowType, "sites", { header: "To site", sub: "site register", width: "112px" }),
+                    orderCode: Sheet.column.stamped(PlanRowType, { header: "Order code", sub: "stamped on upload", owner: "MES", width: "104px" }),
+                    status:    Sheet.column.enum(PlanRowType, "statuses", { header: "Status", sub: "mes", width: "124px" }),
                 }}
                 suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "vol", "notes", "tanks"],
                            propose: [bulkBlenderFollowUps, modelProposals, lastFollower] }}
@@ -856,9 +896,14 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
 | A `Sheet.patch(R, …)` naming a field that is not editable (stamped, or a `value`-projected column) | compile time — `Patch(R)` is a mapped type over the editable fields |
 | An `onUpdate` whose editable columns are not plain fields (or whose `id` is not a `String` field) | build time — the factory names every offending column |
 | `onUpdate` on a paged source | build time — "the whole-value rebuild needs the whole collection; use `onEdit`" |
+| A keyed `Dict` collection on the inline arm | build time — "a dictionary's rows sit in key order, not the planner's — pass an `Array<R>`, or page a keyed source" |
 | The `driver` column is not a `lookup` on a `String` field; an unknown register name | build time |
 | A `custom` column whose `parse` output type does not match the field | build time (the function's East output type is inspected, the Table `value` rule) |
 | `brush` / `legend` / `breakdown` affordances | build time — refused with the reason |
+
+Every build-time refusal names the offending column and the remedy in its message
+— the Table precedent ("`groupBy` cannot be combined with a paged source … group
+upstream, or bind the whole value").
 
 ### 3.13 A paged sheet
 
@@ -877,6 +922,23 @@ const applyEdit = $.const(East.function([Sheet.Types.Edit(PlanRowType)], NullTyp
 }));
 <Sheet data={source} id={r => r.id} columns={…} registers={…} driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name })}
        slice={slice} affordances={["search"]} onEdit={applyEdit} style={{ height: "fill" }} />
+```
+
+### 3.14 Selection — observed, or controlled
+
+`onSelect` reports every move of the ring (`{ rowId, key }`). Give `selection` as
+well and the sheet is **controlled** (the Table model): the ring follows the value,
+the row scrolls into view, and every move still reports through `onSelect` — so a
+host list, a deep link or a "next exception" button can put the planner on a row.
+On the paged arm a controlled `rowId` outside the resident windows seeks it when
+the source can seek. Absent, selection is renderer state.
+
+```tsx
+const sel = $.let(State.bind([OptionType(Sheet.Types.Selection)], "plan.sel", none));
+const jumpTo = $.const(East.function([StringType], NullType, ($, id) => {
+    $(sel.write(some({ rowId: some(id), key: some("activity") })));
+}));
+<Sheet … selection={sel.read()} onSelect={(_$, s) => sel.write(some(s))} />
 ```
 
 ---
@@ -907,12 +969,16 @@ export const SheetRowsType = RowSourceType(SheetRowsCollectionType);   // inline
 The wire row is **closed**: the factory projects `R` into cells through the
 columns' reified accessors (a plain field, a `value` projection, a link's
 `from` / `to` composition, a `String` link parsed by `Sheet.link.parse`), exactly as the
-Table's `valueFn` move and Plan's `derive`. A keyed source (`Dict<String, R>`, or
-a paged source of one) is accepted as well: its key is the row id (the `id`
-accessor may be omitted) and its canonical key order is the sheet order, which
-is what makes `seek` address real rows. The factory's `make` projects a window
-exactly as it projects the whole collection (`buildRowSource`), so the renderer
-sees one row space. `R` itself never appears in the IR — see §4.8.
+Table's `valueFn` move and Plan's `derive`. The inline arm is **positional** —
+`Array<R>` only, the Table rule: a `Dict` inline is refused at build time ("a
+dictionary's rows sit in key order, not the planner's — pass the array, or page a
+keyed source"). The paged arm takes a positional source or a keyed one
+(`Dict<String, R>` windows): there the key is the row id (the `id` accessor may be
+omitted) and canonical key order is the sheet order, which is what makes `seek`
+address real rows. The factory's `make` projects a window exactly as it projects
+the whole collection (`buildRowSource`; no `idSuffix` — a sheet's `make` is fixed
+per build, unlike a Plan narrowed by a pick), so the renderer sees one row space.
+`R` itself never appears in the IR — see §4.8.
 
 ### 4.2 Registers and the driver
 
@@ -937,6 +1003,9 @@ that needs it (§4.3); what a provider needs (`ctx.driver`) is the typed row,
 looked up inside the bridge (§4.8).
 
 ### 4.3 Column kinds
+
+`types.ts` declares §4.4's context types before these — `SheetArityType` and the
+`custom` kind take them; the order here is for reading.
 
 ```ts
 export const SheetHalfType       = VariantType({ from: NullType, to: NullType });
@@ -971,13 +1040,20 @@ export const SheetColumnKindType = VariantType({
 });
 
 export const SheetColumnType = StructType({
-    key: StringType, label: StringType, sub: OptionType(StringType), width: OptionType(StringType),
+    key: StringType, header: StringType, sub: OptionType(StringType), width: OptionType(StringType),
     kind: SheetColumnKindType,
     dataType: EastTypeType,                                  // the row field's static type (Table precedent)
+    payloadType: EastTypeType,                               // the kind's payload (a custom kind's primitive) — the renderer parses / prints without the host types
     editable: BooleanType,                                   // false for stamped, for a `value` projection, or by option
     fill: ArrayType(SheetProviderType),                      // first provider that yields wins; sync or async
 });
 ```
+
+String-literal shorthands ride every variant field, the Plan / Table rule:
+`SheetHalfLiteral = "from" | "to"`, `SheetSidesLiteral = "both" | "from" | "to" |
+"in"`, `SheetStoreLiteral = "asTyped" | "canonical"`, `SheetSourceLiteral` for
+provenance; every TS face takes `SubtypeExprOrValue<T> | Literal`, and the
+factory resolves it with Plan's `resolveTag`.
 
 Every function stored here takes the **closed** context / cell types: the
 author's typed functions are bridged into these by the factory (§4.8). The
@@ -992,6 +1068,8 @@ time and the wire carries data.
 ```ts
 export const SheetContextType = StructType({                 // the WIRE context — the bridge rebuilds `R` / `D` from it
     rowIndex: IntegerType,                                   // sheet position among REAL (resident) rows
+    rowId:    StringType,                                    // the row's id — `rowById`'s argument (§4.8)
+    offset:   IntegerType,                                   // the row's source offset — the paged arm's `page` lookup
     row:      DictType(StringType, SheetCellType),           // the row as it would be if the open editor committed
     rows:     ArrayType(SheetRowType),                       // the resident sheet, real rows in sheet order
     partial:  BooleanType,                                   // true on a paged sheet whose source is not exhausted
@@ -1058,6 +1136,7 @@ export const SheetRootType = StructType({
     onViewsChange: OptionType(FunctionType([ArrayType(SheetViewType)], NullType)),
     onEdit:        OptionType(FunctionType([SheetEditType], NullType)),   // `onUpdate` compiles to this (§4.7); a typed `onEdit` is bridged to it (§4.8)
     onSelect:      OptionType(FunctionType([SheetSelectionType], NullType)),
+    selection:     OptionType(SheetSelectionType),           // controlled when some (§3.14) — the ring follows it, the row scrolls into view
     newRowId:      OptionType(FunctionType([], StringType)),
     readOnly:      OptionType(BooleanType),
     blanks:        OptionType(IntegerType),                  // padding rows below the last real one (default 18)
@@ -1098,10 +1177,11 @@ capture only data, bind handles and the author's functions:
 
 | Piece | Shape | Built from |
 |---|---|---|
-| `decode` | `Fn([Dict<String, Cell>], R)` | a struct literal over `R`'s fields: each column's field from its cell by the static tag (`Null` → `none` on an `Option` field); a `Link` cell to a `Link` field, or split into the `from` / `to` arrays, or printed to a `String` field; a field with **no column** is its type's default |
+| `rowById` | `Fn([String, Integer], Option<R>)` | the source row by id: on the inline arm the captured bind handle's `read()` (or the captured collection, when `data` is a plain value) searched by the `id` accessor; on the paged arm the source's `page` at the wire context's `offset`. Built ONCE per sheet and shared by every wrapper, so the collection is captured once |
+| `decode` | `Fn([Dict<String, Cell>, Option<R>], R)` | the source row as the base (the row type's default when absent — an insert, a proposal), then each column's field from its cell by the static tag (`Null` → `none` on an `Option` field); a `Link` cell to a `Link` field, or split into the `from` / `to` arrays, or printed to a `String` field. A field with no column keeps the base row's value |
 | `encode` | `Fn([R], Dict<String, Cell>)` | the columns' reified accessors — the same projection §4.1 uses to make wire rows |
 | `lookupDriver` | `Fn([String], Option<D>)` | the driver's data and `key` accessor, folded once into a `Dict<String, D>` |
-| a fill provider | `Fn([SheetContext], Option<SheetFill>)` | `ctx => author({ rowIndex, row: decode(ctx.row), rows: ctx.rows.map(decode), partial, driver: ctx.driver.map(lookupDriver), today }).map(f => ({ value: cellOf(f.value), meta: f.meta }))` — the async arm awaits the author's `East.asyncFunction` the same way |
+| a fill provider | `Fn([SheetContext], Option<SheetFill>)` | `ctx => author({ rowIndex, row: decode(ctx.row, rowById(ctx.rowId, ctx.offset)), rows: ctx.rows.map(r => decode(r.cells, rowById(r.id, …))), partial, driver: ctx.driver.map(lookupDriver), today }).map(f => ({ value: cellOf(f.value), meta: f.meta }))` — the async arm awaits the author's `East.asyncFunction` the same way |
 | a proposer | `Fn([SheetContext], Array<SheetProposal>)` | the same context bridge; each `Patch(R)`'s `some` fields encoded to cells |
 | arity `implied`, a `custom` check, a `custom` kind's `parse` / `print` | closed twins | the context bridge; the member passes through; payloads to and from cells |
 | `onEdit` | `Fn([SheetEdit], Null)` | `e => author(e with its rows decoded)` |
@@ -1137,13 +1217,14 @@ behaviour lives and how it is tested.
 | 13 | Sheet keys: arrows/⇧arrows (↓ on the last row appends, not while a lens is active or a paged source is unexhausted); ⇥/⇧⇥ walk fills → take rows → move; ⏎ takes next suggestion else edits with the value selected; F2; printable char seeds a fresh edit; ⌘⏎ row fill (one undo step); ⌘⇧⏎ everything; esc ladder; ⌫ clears (never stamped) / deletes whole selected rows; ⌘⌫ deletes; click/⇧click/drag/dblclick; ⌘/ and ⌘F focus the rail's search (B§6) | `sheet-state.ts` | transition table + DOM |
 | 14 | Commit semantics: Tab, Enter, ↓ (down) / ↑ (stay), blur commit; esc cancels; unparseable keeps the editor open with the neg ring (blur discards); committing a `triggers` column rebuilds the copilot for that row (B§6) | `sheet-state.ts` | DOM |
 | 15 | Sheet model: `blanks` padding rows always below the last real row (paged: once the source is exhausted), never removed from under the cursor, not reported/counted/searchable; real row numbers under a lens and for proposals (B§7) | `model.ts` | unit |
-| 16 | The lens over the slice: hit = the slice narrowing matches the row (the pure engine over `searchFieldIds` / filters / cohorts); hits keep brand row numbers; count `n matches · m context`; ±0/±1/±3 context; collapsed bands (22px, dashed rule, *n hidden* pill) with hover controls `⌃ +1 · n hidden · +1 ⌄ · all` stepping 1, 3, 10, all from top/bottom/both; reveals are a set of indices so bands merge; a narrowing change resets reveals; no narrowing ⇒ no bands (B§8) | `lens.ts` + `Bands.tsx` | unit + DOM |
+| 16 | The lens over the slice: hit = the slice narrowing matches the row (`sliceMatches` over filters / cohorts / search — String fields directly, other fields through their `printFor` text or the field's `text` projection); hits keep brand row numbers; count `n matches · m context`; ±0/±1/±3 context; collapsed bands (22px, dashed rule, *n hidden* pill) with hover controls `⌃ +1 · n hidden · +1 ⌄ · all` stepping 1, 3, 10, all from top/bottom/both; reveals are a set of indices so bands merge; a narrowing change resets reveals; no narrowing ⇒ no bands (B§8) | `lens.ts` + `Bands.tsx` | unit + DOM |
 | 17 | Views: lenses evaluated live; pinned whole-sheet tab (an empty narrowing) with the planned count; `+ TAB` snapshots the slice state, names from the query (16 chars) or *view n*; active = 2px ink underline; live match counts per view; dirty dot when the slice state differs from the view's, ⏎ updates / esc reverts (writes the snapshot back) / esc on a clean tab returns to the sheet; × (hover neg) or middle-click closes; double-click renames; drag reorders; closing the active tab falls back; leaving persists context + reveals (B§8) | `Tabs.tsx` + `sheet-state.ts` | DOM |
 | 18 | Strip states (six) with their label · chips · meta · keys, plus the pending chip; nothing ever floats over the sheet (B§9) | `Strip.tsx` | DOM |
 | 19 | Footer: counts · state-sensitive key hint · right-aligned `aria-live` message for every action · the paged transport line (B§9) | `Footer.tsx` | DOM |
 | 20 | Clipboard: copy tab-separated, dates `d/m/yyyy`, numbers bare, a link cell (a `Link` value) as TWO columns printed through the grammar; paste lands at the selection appending rows, each cell parsed by its kind (unparseable kept as typed), stamped skipped, a link consumes two cells and joins them; block left selected; suggestions cleared (B§10) | `clipboard.ts` | unit + DOM |
 | 21 | Paged arm: windows land on scroll through the Plan's ledger (residency, in-flight `none`, exhaustion on an empty window); the transport line counts source elements; the lens is scope-badged *loaded rows only*; the rail's search is a key search over `seek` when the source is keyed (jump rebases residency); appending needs exhaustion; `onEdit` only | `paging.ts` (adapter over the Plan stack) | DOM (Paged.of fixtures) |
 | 22 | Visual rules (B§11) | recipe `sheet.ts` | shot loop |
+| 23 | Controlled selection: with `selection` present the ring follows it and the row scrolls into view; every move reports `onSelect`; on the paged arm a non-resident `rowId` seeks when the source can (§3.14) | `sheet-state.ts` + `index.tsx` | DOM |
 
 ---
 
@@ -1170,7 +1251,7 @@ sheet/
   link/arity.ts          ~60    implied vs named, the strip meta
   suggest.ts             ~250   the runner over the WIRE functions (§4.8): provisional cells, latency scheduler, first-yields, memo, rejection memory, proposals
   suggest-async.ts       ~120   in-flight registry, latest-wins cancellation, pending state
-  lens.ts                ~150   hits from the slice narrowing (pure slice engine), context bands, reveals, step escalation
+  lens.ts                ~150   hits from the slice narrowing (the slice engine's `sliceMatches`), context bands, reveals, step escalation
   clipboard.ts           ~120   export / paste matrix
   Toolbar.tsx            ~150   tabs · context switch · match count · the slice rail cluster (search / filter / cohort) · scope badge
   Header.tsx             ~100   two-line sticky header
@@ -1188,7 +1269,7 @@ theme/slot-recipes/sheet.ts ~300 the B§11 vocabulary as recipe slots, light + d
 Reused, not rebuilt: `collections/virtual-rows.tsx` (mixed-height rows — link
 cells wrap), the Plan's `paged-window-store.ts` / `window-ledger` / `window-residency`
 / `window-reader` / `use-seek` and the `key-search` component, `slice/use-slice-reactivity`
-+ `SliceRailCluster` for the rail and the pure `slice-impl` engine for the lens,
++ `SliceRailCluster` for the rail and the slice engine (`sliceMatches` in east-ui's `platform/slice/impl.ts`) for the lens,
 `contracts/density`, `parseCssSize`, the FA solid set, `formatTick` for quantity
 display, `formatDatePattern` (East date tokens, UTC) for dates.
 
@@ -1198,7 +1279,7 @@ One pure reducer, no scattered `useState` (the Plan precedent):
 
 ```ts
 interface SheetUiState {
-    sel: Cell; selEnd: Cell | null;                 // 2px ring · range
+    sel: Cell; selEnd: Cell | null;                 // 2px ring · range (mirrors the controlled `selection` prop when given)
     edit: EditBuffer | null;                        // { r, c, val, err, hi, side?, groups?, chipSel? }
     sugg: Suggestions | null; armed: Cell | null; gsel: number | null;   // pending fills/rows · next target · selected proposal
     pending: ReadonlySet<ProviderKey>;              // async providers in flight (strip chip)
@@ -1253,6 +1334,12 @@ a newer context superseded it (latest wins, cancelled results dropped). Results
 are memoised per `(rowId, provisional-row hash, column)`; the scheduler bounds
 calls to one per latency window per row. Owned rows skip the runner entirely.
 
+One rule the Table and Plan renderers already live by: `equalFor` treats every
+function value as equal, so a memo guard on the root cannot see a swapped
+provider, check or `onEdit`. The renderer memoises on the data fields and takes
+every function value from the latest IR on each render; the runner's memo keys
+carry the column's provider POSITION, never a function identity.
+
 ### 6.3 Rendering pipeline
 
 `decode → paging.ts (resident rows, exhaustion) → model.ts (real rows + blanks,
@@ -1300,25 +1387,40 @@ and dark, compare side by side and iterate until they match.
 ## 8 · Implementation plan (epic + sub-issues, one branch, one commit / issue)
 
 **P1 — Sheet IR** `collections/sheet/{types,index}.ts`, the `Sheet` arm, the
-`<Sheet>` tag (both overloads), the column builders (`Sheet.<kind>(R, …)` /
-`(R, D, …)` / `(R, register, …)`, checked per key by `SheetColumnSpec<R>`), `Sheet.driver`, `Sheet.register.members` / `.concat`, `Sheet.link.arity` / `.check` /
-`.parse` / `.print`, `Sheet.patch`, the typed constructors (`Sheet.Types.Context` / `Fill` / `Patch` /
-`Proposal` / `Edit` / `CheckContext`), the bridge (§4.8: decode / encode / driver
-lookup, sync / async by the function's type), the `onUpdate` rebuild, the slice chrome
-option, build-time checks (§3.12), spec tests, and the examples corpus skeleton:
-**`sheetBasic`** (§3.1), **`sheetPlan`** (§3.11 — the flagship: every kind +
-registers + copilot + slice lens + views + footer), **`sheetVariants`** (THE
-configurator: density, blanks, read-only, height mode, copilot on/off on one live
-sheet), **`sheetCopilot`** (every prototype rule as an author function — derive,
-history, sequence, default, phrase, capacity, learned follower — plus an async
-proposer behind a test platform function, with a `State`-backed provenance log),
-**`sheetLens`** (slice search + filter drawn as bands, views), **`sheetWriteBack`**
-(raw `onEdit` event log beside `onUpdate`), **`sheetPaged`** (`Paged.of` source,
-transport line, key search, `onEdit`), **`sheetStress`** (2 000 rows). Fixtures are
-the prototype's synthetic registers and rows, derived East-side where bulk.
+`<Sheet>` tag (both overloads), the column builders (`Sheet.column.<kind>(R, …)` /
+`(R, D, …)` / `(R, register, …)`, checked per key by `SheetColumnSpec<R>`),
+`Sheet.driver`, `Sheet.register.members` / `.concat`, `Sheet.link.arity` / `.check` /
+`.parse` / `.print`, `Sheet.patch`, the typed constructors (`Sheet.Types.Context` /
+`Fill` / `Patch` / `Proposal` / `Edit` / `CheckContext`), the bridge (§4.8:
+`rowById`, decode over the source row, encode, driver lookup, sync / async by the
+function's type), the `onUpdate` rebuild, the slice chrome option, the controlled
+`selection` (§3.14), build-time checks (§3.12 — every refusal naming the column
+and the remedy), the `STANDARDS.md` gate (a JSX `@example` on the tag mirrored in
+the examples file; full `Types.*` blocks with a `@property` per field; `typeof`
+aliases and `*Literal` shorthands for every variant), spec tests, and the examples
+corpus in the five slots of `EXAMPLES_AUTHORING.md` §8: **`sheetBasic`** (§3.1);
+**`sheetVariants`** — THE configurator, one live sheet fed by expressions (density,
+blanks, read-only, height mode, copilot on / off), one `State.bind` per axis,
+`Configurator.Control` / `Slot` / `Spec` rows and an aside event log — the
+`tableVariants` / `planVariants` shape; **`sheetPlan`** (§3.11 — the flagship, the
+richest composition: every kind + registers + copilot + slice lens + views +
+footer); the behavioural isolates **`sheetCopilot`** (every prototype rule as an
+author function — derive, history, sequence, default, phrase, capacity, learned
+follower — plus an async proposer behind a test platform function registered
+beside `TestImpl`, with a `State`-backed provenance log), **`sheetLens`** (slice
+search + filter drawn as bands, a Link column searched through `text`, views),
+**`sheetWriteBack`** (raw `onEdit` event log beside `onUpdate`), **`sheetPaged`**
+(`$.const(Paged.of("plan", rows, { key: r => r.id }))` as in
+`paged-source.examples.tsx`; transport line, key search, `onEdit`); and
+**`sheetStress`** (2 000 rows). Every example function is self-contained — types,
+fixtures and constructors inside the body, bulk data derived with
+`East.Array.range` / `generate`, only `East.asyncPlatform` at module scope — and
+merged examples keep the union of keywords and a feature-enumerating description.
+Fixtures are the prototype's synthetic registers and rows.
 
 **P2 — renderer core** `model.ts`, `paging.ts` over the Plan stack, `parse/*`,
-`candidates.ts`, `sheet-state.ts` (+ tests), `Toolbar` (tabs placeholder + rail
+`candidates.ts`, `sheet-state.ts` (+ tests), the controlled `selection` with
+scroll-into-view (§3.14), `Toolbar` (tabs placeholder + rail
 cluster), `Header` / `Rows` / `Cell` / `Editor` (scalar), `Strip` (date, quantity and
 candidate states), `Footer` (+ transport), clipboard, the `sheet` recipe,
 virtualisation, DOM tests incl. paged windows and exhaustion, first shot loop
@@ -1336,7 +1438,11 @@ async settlement / supersession with fake timers.
 
 **P5 — the lens and the views** `lens.ts` over the slice state, bands and
 reveals, the scope badge, key search on the paged arm, the tabs strip with every
-tab gesture (snapshot / dirty / revert), `views` / `onViewsChange`; dark pass.
+tab gesture (snapshot / dirty / revert), `views` / `onViewsChange`; the Slice
+change that makes a Link column searchable — a non-String field in
+`searchFieldIds` searches through its `printFor` text, and a field spec's `text`
+accessor overrides the projection (§3.8), with `Sheet.link.print` as its argument;
+dark pass.
 
 **P6 — docs, skill, release** `east-ui` SKILL.md entry for `<Sheet>` (plugin skill
 — coordinate before editing) and the Table-vs-Sheet line in "Picking between
@@ -1373,7 +1479,9 @@ examples↔tests East-code contract, diagnostics clean, shot loop.
   (`data-selected`, `data-proposed`, `data-next-target`, `data-pending`,
   `data-half="from|to"`, `data-locked`, `data-band`), with the East providers
   compiled through the test platform (async ones behind a fake-timer platform fn),
-  and the paged rows through `Paged.of` fixtures (windows, exhaustion, seek).
+  and the paged rows through `Paged.of` fixtures (windows, exhaustion, seek); a
+  swapped provider function value re-runs the copilot (the `equalFor` rule, §6.2);
+  a controlled `selection` moves the ring and scrolls (§3.14).
 - **Shots** — prototype vs rendered example, same state, light + dark; goldens in
   the showcase.
 
@@ -1391,5 +1499,6 @@ examples↔tests East-code contract, diagnostics clean, shot loop.
 | `store: "canonical"` | Declared in the IR, evaluated in P3 (rewrite the committed string to register labels). |
 | `check` validators | Author East functions (§3.4), evaluated at commit and on paste; the flag is the lock-warn treatment plus a strip line. Never a block. |
 | Narrow / mobile | Out of scope for the sheet; a phone review of a plan is a `<Plan>` or a `<Deck>`. |
-| Fields of `R` with no column | `ctx.row` holds the type's default there (§3.5) and `onUpdate` preserves them from the source row. A provider that needs such a field declares it as a column; a `hidden: true` column option (projected, no track) can follow without an IR change beyond a flag. |
-| A `types` registry override (B§1 `types`) | Covered by `Sheet.custom` per column; a reusable custom kind is an ordinary TS function returning the config. |
+| Fields of `R` with no column | Resolved 2026-09-09: `ctx.row` is rebuilt over the real row (`rowById`, §4.8), so unmapped fields keep their values. Still open: when `data` is a plain array VALUE rather than a bind, the shared `rowById` captures the whole collection — fine for example-sized sheets; a large plain array should be bound (`State.bind`) so the capture is a handle. |
+| Searching a Link column | Resolved 2026-09-09: the slice searches a non-String field through its `printFor` text by default, and a field spec's `text` accessor (`Sheet.link.print`) overrides it with the display form — a Slice change, P5 (§3.8). |
+| A `types` registry override (B§1 `types`) | Covered by `Sheet.column.custom` per column; a reusable custom kind is an ordinary TS function returning the config. |
