@@ -35,5 +35,11 @@ export type SheetEditValue = ValueTypeOf<typeof Sheet.Types.WireEdit>;
 export type SheetSelectionValue = ValueTypeOf<typeof Sheet.Types.Selection>;
 /** The wire copilot context. */
 export type SheetContextValue = ValueTypeOf<typeof Sheet.Types.WireContext>;
+/** The copilot's row-proposal declaration. */
+export type SheetSuggestValue = ValueTypeOf<typeof Sheet.Types.Suggest>;
+/** One fill provider on the wire — `{ type: "sync" | "async", value }`. */
+export type SheetProviderValue = ValueTypeOf<typeof Sheet.Types.Provider>;
+/** One row proposer on the wire. */
+export type SheetProposerValue = ValueTypeOf<typeof Sheet.Types.Proposer>;
 /** The decoded `paged` arm — the source at the sheet's own row collection. */
 export type SheetPagedSourceValue = Extract<SheetRootValue["rows"], { type: "paged" }>["value"];

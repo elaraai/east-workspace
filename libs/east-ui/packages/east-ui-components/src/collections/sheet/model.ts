@@ -321,7 +321,18 @@ export type SheetBodyItem =
         /** Which blank this is (0-based). */
         blankIndex: number;
     }
-    | { kind: "band"; band: SheetBand };
+    | { kind: "band"; band: SheetBand }
+    | {
+        kind: "proposal";
+        /** The proposal's index under its anchor. */
+        index: number;
+        /** The row-space index of the anchor row. */
+        anchorR: number;
+        /** The sheet position the row would take (0-based) — its number minus one. */
+        position: number;
+        cells: ReadonlyMap<string, SheetCellValue>;
+        meta: string;
+    };
 
 /** What the body is built from. */
 export interface SheetBodyInput {
@@ -354,6 +365,27 @@ export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
         }
     }
     return out;
+}
+
+/**
+ * The body with the copilot's proposed rows spliced in under their anchor
+ * (B§5.2): dashed-topped hatched rows with real row numbers, excluded from
+ * the row space like bands.
+ */
+export function withProposals(
+    body: readonly SheetBodyItem[],
+    anchorBodyIndex: number,
+    rows: readonly { cells: ReadonlyMap<string, SheetCellValue>; meta: string }[],
+): SheetBodyItem[] {
+    if (rows.length === 0 || anchorBodyIndex < 0 || anchorBodyIndex >= body.length) return body as SheetBodyItem[];
+    const anchor = body[anchorBodyIndex]!;
+    if (anchor.kind === "band") return body as SheetBodyItem[];
+    let r = 0;
+    for (let i = 0; i <= anchorBodyIndex; i++) if (body[i]!.kind !== "band") r++;
+    const anchorR = r - 1;
+    const out = body.slice(0, anchorBodyIndex + 1);
+    rows.forEach((p, i) => out.push({ kind: "proposal", index: i, anchorR, position: anchor.position + 1 + i, cells: p.cells, meta: p.meta }));
+    return out.concat(body.slice(anchorBodyIndex + 1));
 }
 
 /** The body index of the real row with `id`, if resident. */

@@ -168,6 +168,9 @@ export function analyzeIR<T extends IR>(
 
   function visitNode(node: IR, ctx: VariableContext, expectedReturnType?: EastTypeValue): AnalyzedIR {
     let isAsync: boolean = false;
+    // The analysed children a case substitutes into the node it falls through with —
+    // a nested function literal keeps its async flags only through an analysed tree.
+    let patch: Record<string, unknown> = {};
 
     if (node.type === "Value") {
       // Validate that the type matches the value
@@ -338,6 +341,7 @@ export function analyzeIR<T extends IR>(
       }
 
       isAsync = valueInfo.value.isAsync;  // Async if the value expression is async
+      patch = { value: valueInfo };
     }
 
     else if (node.type === "Block") {
@@ -412,6 +416,7 @@ export function analyzeIR<T extends IR>(
       }
 
       isAsync = valueInfo.value.isAsync;  // Propagate async from child
+      patch = { value: valueInfo };
     }
 
     else if (node.type === "Platform") {
@@ -953,6 +958,7 @@ export function analyzeIR<T extends IR>(
       
       const valueInfo = visit(node.value.value, ctx, expectedReturnType);
       isAsync = valueInfo.value.isAsync;
+      patch = { value: valueInfo };
 
       // Validate element type exactly matches
       if (valueInfo.value.type.type !== "Never" && !isTypeValueEqual(valueInfo.value.type, elementType)) {
@@ -975,11 +981,13 @@ export function analyzeIR<T extends IR>(
 
       const elementType = node.value.type.value;
       isAsync = false;
+      const analyzedValues: AnalyzedIR[] = [];
 
       // Visit all element values and validate types
       for (let i = 0; i < node.value.values.length; i++) {
         const valueExpr = node.value.values[i]!;
         const valueInfo = visit(valueExpr, ctx, expectedReturnType);
+        analyzedValues.push(valueInfo);
 
         if (valueInfo.value.isAsync) {
           isAsync = true;
@@ -994,6 +1002,7 @@ export function analyzeIR<T extends IR>(
           );
         }
       }
+      patch = { values: analyzedValues };
     }
 
     else if (node.type === "NewSet") {
@@ -1007,11 +1016,13 @@ export function analyzeIR<T extends IR>(
 
       const keyType = node.value.type.value;
       isAsync = false;
+      const analyzedValues: AnalyzedIR[] = [];
 
       // Visit all element values and validate types
       for (let i = 0; i < node.value.values.length; i++) {
         const keyExpr = node.value.values[i]!;
         const keyInfo = visit(keyExpr, ctx, expectedReturnType);
+        analyzedValues.push(keyInfo);
 
         if (keyInfo.value.isAsync) {
           isAsync = true;
@@ -1026,6 +1037,7 @@ export function analyzeIR<T extends IR>(
           );
         }
       }
+      patch = { values: analyzedValues };
     }
 
     else if (node.type === "NewDict") {
@@ -1040,6 +1052,7 @@ export function analyzeIR<T extends IR>(
       const keyType = node.value.type.value.key;
       const valueType = node.value.type.value.value;
       isAsync = false;
+      const analyzedPairs: { key: AnalyzedIR, value: AnalyzedIR }[] = [];
 
       // Visit all key-value pairs and validate types
       for (let i = 0; i < node.value.values.length; i++) {
@@ -1051,6 +1064,7 @@ export function analyzeIR<T extends IR>(
         }
 
         const valInfo = visit(pair.value, ctx, expectedReturnType);
+        analyzedPairs.push({ key: keyInfo, value: valInfo });
         if (valInfo.value.isAsync) {
           isAsync = true;
         }
@@ -1073,6 +1087,7 @@ export function analyzeIR<T extends IR>(
           );
         }
       }
+      patch = { values: analyzedPairs };
     }
 
     else if (node.type === "ForArray") {
@@ -1186,6 +1201,7 @@ export function analyzeIR<T extends IR>(
       const bodyInfo = visit(node.value.body, loopCtx, expectedReturnType);
 
       isAsync = setInfo.value.isAsync || bodyInfo.value.isAsync;
+      patch = { set: setInfo, body: bodyInfo };
     }
 
     else if (node.type === "ForDict") {
@@ -1249,6 +1265,7 @@ export function analyzeIR<T extends IR>(
       const bodyInfo = visit(node.value.body, loopCtx, expectedReturnType);
 
       isAsync = dictInfo.value.isAsync || bodyInfo.value.isAsync;
+      patch = { dict: dictInfo, body: bodyInfo };
     }
 
     else if (node.type === "IfElse") {
@@ -1394,6 +1411,7 @@ export function analyzeIR<T extends IR>(
 
       // Error always has type Never (throws exception, diverges control flow)
       isAsync = messageInfo.value.isAsync;  // Error is async if message is async
+      patch = { message: messageInfo };
     }
 
     else if (node.type === "TryCatch") {
@@ -1500,6 +1518,7 @@ export function analyzeIR<T extends IR>(
 
       const structType = expandTypeValue(node.value.type) as StructTypeValue;
       isAsync = false;
+      const analyzedFields: { name: string, value: AnalyzedIR }[] = [];
 
       if (structType.value.length !== node.value.fields.length) {
         throw new Error(
@@ -1512,6 +1531,7 @@ export function analyzeIR<T extends IR>(
       // Visit all field values and validate types
       for (const [i, field] of node.value.fields.entries()) {
         const fieldInfo = visit(field.value, ctx, expectedReturnType);
+        analyzedFields.push({ name: field.name, value: fieldInfo });
 
         if (fieldInfo.value.isAsync) {
           isAsync = true;
@@ -1536,6 +1556,7 @@ export function analyzeIR<T extends IR>(
         }
       }
 
+      patch = { fields: analyzedFields };
     }
 
     else if (node.type === "GetField") {
@@ -1571,6 +1592,7 @@ export function analyzeIR<T extends IR>(
       }
 
       isAsync = structInfo.value.isAsync;
+      patch = { struct: structInfo };
     }
 
     else if (node.type === "Variant") {
@@ -1613,6 +1635,7 @@ export function analyzeIR<T extends IR>(
       }
 
       isAsync = valueInfo.value.isAsync;
+      patch = { value: valueInfo };
     }
 
     else if (node.type === "Match") {
@@ -1647,6 +1670,7 @@ export function analyzeIR<T extends IR>(
 
       isAsync = variantInfo.value.isAsync;
       let allCasesNever = true;
+      const analyzedCases: { case: string, variable: IR, body: AnalyzedIR }[] = [];
 
       // Visit all match cases
       for (const matchCase of node.value.cases) {
@@ -1684,6 +1708,7 @@ export function analyzeIR<T extends IR>(
 
         // Visit case body
         const bodyInfo = visit(matchCase.body, caseCtx, expectedReturnType);
+        analyzedCases.push({ case: matchCase.case, variable: matchCase.variable, body: bodyInfo });
         if (bodyInfo.value.isAsync) {
           isAsync = true;
         }
@@ -1713,6 +1738,7 @@ export function analyzeIR<T extends IR>(
       }
 
       // isAsync already set from loop above
+      patch = { variant: variantInfo, cases: analyzedCases };
     }
 
     else if (node.type === "UnwrapRecursive") {
@@ -1732,6 +1758,7 @@ export function analyzeIR<T extends IR>(
       }
 
       isAsync = valueInfo.value.isAsync;
+      patch = { value: valueInfo };
     }
 
     else if (node.type === "WrapRecursive") {
@@ -1751,6 +1778,7 @@ export function analyzeIR<T extends IR>(
       }
 
       isAsync = valueInfo.value.isAsync;
+      patch = { value: valueInfo };
     }
 
     else if (node.type === "NewVector") {
@@ -1764,11 +1792,13 @@ export function analyzeIR<T extends IR>(
 
       const elementType = node.value.type.value;
       isAsync = false;
+      const analyzedValues: AnalyzedIR[] = [];
 
       // Visit all element values and validate types
       for (let i = 0; i < node.value.values.length; i++) {
         const valueExpr = node.value.values[i]!;
         const valueInfo = visit(valueExpr, ctx, expectedReturnType);
+        analyzedValues.push(valueInfo);
 
         if (valueInfo.value.isAsync) {
           isAsync = true;
@@ -1783,6 +1813,7 @@ export function analyzeIR<T extends IR>(
           );
         }
       }
+      patch = { values: analyzedValues };
     }
 
     else if (node.type === "NewMatrix") {
@@ -1796,11 +1827,13 @@ export function analyzeIR<T extends IR>(
 
       const elementType = node.value.type.value;
       isAsync = false;
+      const analyzedValues: AnalyzedIR[] = [];
 
       // Visit all element values and validate types
       for (let i = 0; i < node.value.values.length; i++) {
         const valueExpr = node.value.values[i]!;
         const valueInfo = visit(valueExpr, ctx, expectedReturnType);
+        analyzedValues.push(valueInfo);
 
         if (valueInfo.value.isAsync) {
           isAsync = true;
@@ -1815,6 +1848,7 @@ export function analyzeIR<T extends IR>(
           );
         }
       }
+      patch = { values: analyzedValues };
     }
 
     else {
@@ -1825,6 +1859,7 @@ export function analyzeIR<T extends IR>(
       ...node,
       value: {
         ...node.value as any,
+        ...patch,
         isAsync,
       }
     }

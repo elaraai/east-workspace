@@ -59,7 +59,7 @@ describe("candidates", () => {
         expect(labels("2")).toEqual(["T2140", "T2141", "T2145", "2000s", "T2140, T2141, T2145"]);   // codes first: `2` looks like a code
         expect(labels("the 2")).toEqual(["2000s", "T2140, T2141, T2145"]);                           // a name, with its enumerate alternative
         expect(labels("g1")).toEqual(["G1042"]);
-        expect(labels("14")).toEqual(["140 m³"]);
+        expect(labels("14")).toEqual(["140 m³", "T2140, T2141, T2145"]);   // a size enumerates the free tanks of that size
         expect(labels("tb")).toEqual(["TBC"]);
         expect(labels("zzz")).toEqual([]);
         // A range shows one candidate: its expansion.

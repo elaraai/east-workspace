@@ -1231,9 +1231,9 @@ behaviour lives and how it is tested.
 | 7 | Link editor keys: `,` resolves; `>` hops From → To (flag if locked); ⇥ ladder (ghost/armed → one predicted chip → hop → commit right); ⏎ resolves/commits; ⌫ pops last chip / crosses back; ←/→ cross the divider, → takes a ghost word, ⌘→ the whole ghost or every predicted chip; ⇧←/⇧→ select whole chips (brand fill, ⌫ removes); esc cancels, click a half moves the caret, click outside commits (B§4.4); `,` and the arrow resolve the buffer through the ARMED candidate (Tab's rule), so `t73,` lands `T7301` rather than a text chip | `Editor.tsx` + `sheet-state.ts` | DOM |
 | 8 | Link autocomplete & prediction: candidate order (exact → code prefixes → countables with an enumerate alternative → other prefixes → other countables → placeholder), members never offered twice, a range shows its expansion; prediction only with an empty buffer, per half, never into a locked half, from the column's fill providers, as `Link` values (the prototype's history-then-counted order is the author's `[lastTanks, countedByVolume]`); withdrawn once a half has named members; from-only drivers propose into From (B§4.5); P3 wires the hook (`predictedMembers`), P4 supplies the fills | `link/predict.ts` | unit + DOM |
 | 9 | Arity: strip meta *n × unit implied · k named so far / named / more than the volume needs* while the arity half is edited; named = identified once, counted by count; text/placeholders do not count (B§4.6); the bridged `implied` is called with the edited row's wire context, fail-open | `link/arity.ts` + `Strip.tsx` | unit + DOM |
-| 10 | Copilot runner: rebuilt against the row as it would be, after the kind's latency (150 / 1 100 ms); owned rows untouched; nothing into an occupied slot; first yielding provider wins — providers are the bridged wire functions of §4.8, the runner never sees `R`; provenance in the strip; fills as grey ghosts over the hatch; exactly one next Tab target (dotted underline); ✓ take on hover; gutter → fills the row (⌘⏎); memoised per (row, provisional row, column) (B§5, B§5.1) | `suggest.ts` + `sheet-state.ts` | unit + DOM |
-| 11 | Async providers: a pending chip in the strip per in-flight provider; results land reactively; a newer context cancels the wait (latest wins); a rejected or thrown provider is skipped with a console diagnostic naming the column; sync providers never wait on async ones ahead of them in the list beyond the latency window | `suggest-async.ts` | unit (fake timers) + DOM |
-| 12 | Proposals (patches encoded to cells, §4.4): at most `ahead` rows, dashed-topped hatched rows with real numbers; ✓/⏎ adds into the first blank slot, ×/⌫ rejects and remembers the pairing; click selects (3px brand bar); esc deselects then dismisses all; taking re-anchors and looks forward; rejected fills remembered per row and key (B§5.2) | `suggest.ts` + `Rows.tsx` | DOM |
+| 10 | Copilot runner: rebuilt against the row as it would be, after the kind's latency (150 / 1 100 ms); owned rows untouched; nothing into an occupied slot; first yielding provider wins — providers are the bridged wire functions of §4.8, the runner never sees `R`; provenance in the strip; fills as grey ghosts over the hatch; exactly one next Tab target (dotted underline); ✓ take on hover; gutter → fills the row (⌘⏎); memoised per (row, provisional row, column) (B§5, B§5.1); fills CHAIN in column order — a later column's providers and the proposers see the earlier fills as if taken (the prototype's `row.start \|\| fill.start`) | `suggest.ts` + `sheet-suggest-state.ts` | unit + DOM |
+| 11 | Async providers: a pending chip in the strip per in-flight provider; results land reactively; a newer context cancels the wait (latest wins); a rejected or thrown provider is skipped with a console diagnostic naming the column; sync providers never wait on async ones ahead of them in the list beyond the latency window — a later sync provider answers meanwhile and an earlier async one that lands replaces it (first that yields wins, by position); an in-flight promise is memoised so a re-run re-attaches instead of restarting | `suggest-async.ts` | unit (fake timers) + DOM |
+| 12 | Proposals (patches encoded to cells, §4.4): at most `ahead` rows, dashed-topped hatched rows with real numbers; ✓/⏎ adds into the first blank slot, ×/⌫ rejects and remembers the pairing; click selects (3px brand bar); esc deselects then dismisses all; taking re-anchors and looks forward; rejected fills remembered per row and key (B§5.2); a proposal lands in the blank slot below the anchor, else appended (blanks are padding) | `suggest.ts` + `Rows.tsx` | DOM |
 | 13 | Sheet keys: arrows/⇧arrows (↓ on the last row appends, not while a lens is active or a paged source is unexhausted); ⇥/⇧⇥ walk fills → take rows → move; ⏎ takes next suggestion else edits with the value selected; F2; printable char seeds a fresh edit; ⌘⏎ row fill (one undo step); ⌘⇧⏎ everything; esc ladder; ⌫ clears (never stamped) / deletes whole selected rows; ⌘⌫ deletes; click/⇧click/drag/dblclick; ⌘/ and ⌘F focus the rail's search (B§6) | `sheet-state.ts` | transition table + DOM |
 | 14 | Commit semantics: Tab, Enter, ↓ (down) / ↑ (stay), blur commit; esc cancels; unparseable keeps the editor open with the neg ring (blur discards); committing a `triggers` column rebuilds the copilot for that row (B§6) | `sheet-state.ts` | DOM |
 | 15 | Sheet model: `blanks` padding rows always below the last real row (paged: once the source is exhausted), never removed from under the cursor, not reported/counted/searchable; real row numbers under a lens and for proposals (B§7). Blank rows are padding, not rows: typing into any blank row inserts one row AFTER the last real one (source order is the only order) and the ring follows it; the initial ring sits on the first blank row's driver column | `model.ts` | unit |
@@ -1258,8 +1258,12 @@ React second. Target layout (line budgets are ceilings):
 ```
 sheet/
   index.tsx              ~300   EastChakraSheet: decode, providers, effect runner, layout (toolbar · header · rows · strip · footer)
-  sheet-state.ts         ~500   THE state machine — pure: selection, edit buffer, suggestions, lens, tabs
-  sheet-state.test.ts           transition table (esc ladder, Tab ladder, commit directions, tab dirty/revert)
+  sheet-state.ts         ~450   THE state machine's core — pure: selection, edit buffer, the commit, the sheet and editor keys; re-exports the vocabulary
+  sheet-types.ts         ~280   the machine's vocabulary: the UI state, events, effects, the context a transition may ask (every state module imports from here — no cycles)
+  sheet-link-state.ts    ~200   the link editor's transitions (the commit injected)
+  sheet-suggest-state.ts ~250   the copilot's transitions: results landing, the ⇥ walk, take / dismiss, the esc rungs, the rejection memory
+  sheet-state.test.ts           transition table (esc ladder, Tab ladder, commit directions, the copilot's table; tab dirty/revert in P5)
+  use-links.ts           ~150   the link columns' wiring: vocabularies, halves and locks, checks per row value, the editor's context
   values.ts               ~40   the decoded value types, named once (`SheetRootValue`, `SheetRowValue`, `SheetCellValue`, …)
   model.ts               ~200   decoded value → sheet model: real rows + blank padding (exhaustion-aware), column index, driver lookup, cell display
   paging.ts              ~250   the paged arm over the Plan stack: window ledger / residency, a positional read-once reader, the contiguous landed run, `total()`-driven exhaustion, `jumpToElement` for the key search
@@ -1383,6 +1387,28 @@ editor. A `set` column edits as a single To half — no divider, the From half
 locked without a tag. The commit writes `cell(groups)`: a link editor never
 reports unrecognised, because the grammar keeps anything as text.
 
+**The copilot in the machine (P4).** The suggestions are state
+(`sugg: { anchorId, fill, rows, pending }`, the `armed` target, the selected
+proposal `gsel`, the session's `rejected` memory); the runner is the
+component's, and its results arrive as events — `suggest.ready` for an anchor
+still on the sheet (a blank padding row anchors by a synthetic id and is
+re-keyed to the real id its first write mints), `suggest.landed` for an async
+settlement merged by anchor and key (an earlier provider outranks by position;
+a dismissed fill stays dismissed). The rules, unit-tested as a table: ⇥ with
+fills pending arms the next target (the armed cell, else the first in column
+order; ⇧⇥ the last), and on the armed target writes it as a `fill` commit and
+arms the following; with rows pending and no fills ⇥ takes the next row; ⏎
+takes the row fill, then the first proposal, else edits; ⌘⏎ takes the row fill
+as one `row` write; ⌘⇧⏎ everything; a selected proposal's ⏎ takes the rows up
+to it; ⌫ on the armed target dismisses that fill and remembers `anchor|key`;
+⌫ on a selected proposal rejects it and remembers `driver>driver`; the esc
+rungs run selected proposal → the row fill (rows stay) → every suggestion →
+the range; a printable key keeps the suggestions and drops the armed target;
+a paste drops them; a commit of a `triggers` column re-asks the runner (the
+component decides — the reducer only writes). Taking proposals is one
+`insert.rows` effect: the rows to insert and the rest, which re-anchor on the
+last row inserted so the next one is already waiting.
+
 ### 6.2 The provider runner
 
 The copilot runs *against the row as it would be*. `suggest.ts` builds the
@@ -1403,6 +1429,36 @@ function value as equal, so a memo guard on the root cannot see a swapped
 provider, check or `onEdit`. The renderer memoises on the data fields and takes
 every function value from the latest IR on each render; the runner's memo keys
 carry the column's provider POSITION, never a function identity.
+
+**As built (P4).** `runSuggest` (`suggest.ts`) is pure over the wire
+functions: per column in declaration order it skips a read-only or occupied
+cell, the edited column (a link column excepted — it is predicted into, its
+providers seeing that cell blank), and a dismissed fill, then walks the
+providers — a sync one answers inline and stops the walk; an async one is
+started and returned as work while the walk goes on, so a later sync provider
+answers meanwhile and the async one replaces it when it lands (by position).
+Fills chain: each fill joins the provisional row the next column's providers
+and the proposers see. The memo (`SuggestMemo`) is keyed on the anchor, the
+provisional row's printed cells, the column and the provider position, holds
+settled results AND in-flight promises (a re-run re-attaches), and empties on
+a new value. The component schedules runs (`requestRun`): after the kind's
+latency while editing (150 / 1 100 ms), at once after a commit of a `triggers`
+column, a take, or an inserted proposal; the in-flight registry
+(`suggest-async.ts`) opens a generation per run and delivers a settlement
+only while its generation is current — latest wins, and a rejected or thrown
+provider lands as nothing with a diagnostic naming the column. A proposal is
+taken into the blank slot below the anchor (else appended) with the `pattern`
+provenance, the row fill with `row`, a single fill with `fill`.
+
+**A compiler fix shipped with P4.** The bridge's async wrappers put an author's
+async function inside a variant inside the root struct; the East analyser
+validated a `Struct` / `Variant` (and every other composite node that fell
+through to its generic return) but returned the ORIGINAL children, so a
+function literal nested there was compiled unanalysed and lost its awaits
+(`array.map is not a function` on the promise). `libs/east/src/analyze.ts` now
+substitutes the analysed children for every case, with a spec pinning a
+nested async function inside a struct, a variant, an array, a dict, a match
+arm and a cast.
 
 ### 6.3 Rendering pipeline
 
@@ -1592,7 +1648,7 @@ examples↔tests East-code contract, diagnostics clean, shot loop.
 
 | Question | Proposal |
 |---|---|
-| Async provider policy | Latest wins; no timeout (the strip shows pending indefinitely, and a newer keystroke cancels); a rejected promise is skipped with a diagnostic. A per-provider timeout can be a later `suggest` field. |
+| Async provider policy | Latest wins; no timeout (the strip shows pending indefinitely, and a newer keystroke cancels); a rejected promise is skipped with a diagnostic. A per-provider timeout can be a later `suggest` field. Built in P4 as proposed; an in-flight promise is memoised, so a re-run over the same provisional row re-attaches rather than calling the model again. |
 | Routing edits on a paged sheet | The host's problem by design (`onEdit` events); the corpus shows an edit journal. A `Data.bindPaged` write path is an e3-ui question, not a Sheet one. |
 | Views vs cohorts | A view snapshots the whole slice state (including active cohorts). If a host wants views shared across surfaces, cohorts already are; the two compose. |
 | Undo | The prototype has none beyond "row fill is one undo step". v1: none; the host's staged bind is the undo (`discard`). A per-sheet undo stack is renderer-local state and can arrive without an IR change. |

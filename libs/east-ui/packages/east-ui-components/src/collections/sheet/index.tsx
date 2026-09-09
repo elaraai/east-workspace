@@ -7,8 +7,8 @@
  * `EastChakraSheet` — the planning spreadsheet (`Sheet Spec.md` §6): decode,
  * the row source (both arms), the local data layer (edits over the decoded
  * rows until the host writes back), THE state machine, the effect runner,
- * and the shell — toolbar · sticky two-line header · virtualised rows ·
- * the docked strip · the footer.
+ * the copilot runner (§6.2) and the shell — toolbar · sticky two-line header
+ * · virtualised rows · the docked strip · the footer.
  *
  * The interactive-state pattern, at sheet scale: every edit lands in local
  * state immediately (the sheet is never inert without a bound callback) and
@@ -18,7 +18,8 @@
  *
  * `equalFor` treats every function value as equal, so the memo guard cannot
  * see a swapped provider or `onEdit`; every function is taken from the
- * latest value on each render (the Table / Plan rule, §6.2).
+ * latest value on each render (the Table / Plan rule, §6.2), and the
+ * copilot's memo is keyed on the value's identity.
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode } from "react";
@@ -34,28 +35,28 @@ import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { VirtualRows } from "../virtual-rows.js";
 import {
     BAND_MIN_PX, BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NULL_CELL,
-    buildBody, cellIsBlank, densityOf, driverKeyOf, indexColumns, indexRegisters, parseWidth,
+    bodyIndexOfId, buildBody, cellIsBlank, cellText, densityOf, driverKeyOf, indexColumns, indexRegisters, latencyOf, parseWidth, rowIsBlank, withProposals,
     type SheetBodyItem, type SheetColumnMeta,
 } from "./model.js";
 import { useSheetPaging, type SheetViewport } from "./paging.js";
 import { candidateAt, candidateList, ghostFor, resolveFor, type CandidateContext } from "./candidates.js";
 import { editText, parseCell, type ParseContext } from "./parse/index.js";
-import { linkVocabulary, usedKeys, type LinkVocabulary } from "./link/grammar.js";
-import { halvesFor, sidesDeclOf, type SidesDecl } from "./link/sides.js";
-import { linkCandidates, linkCandidateAt, resolveBuffer, predictedMembers, linkEntryCandidates, grammarLine } from "./link/predict.js";
+import { usedKeys, resolveMember as resolveVocabMember } from "./link/grammar.js";
+import { linkEntryCandidates, grammarLine, membersUnder, type LinkCandidate } from "./link/predict.js";
 import { namedCount, arityMeta, type Counted } from "./link/arity.js";
-import { checksOf, checkLink, NO_FLAGS, type CheckDecl, type LinkFlags } from "./link/checks.js";
-import type { LinkCellContext } from "./cells/Cell.js";
+import { useSheetLinks } from "./use-links.js";
 import { todayUtc } from "./parse/date.js";
 import { exportMatrix, layoutPaste, parseMatrix } from "./clipboard.js";
 import {
-    initialSheetStore, sheetStoreReducer, selectionRect, wholeRows,
-    type LinkEditCtx, type LinkGroups, type SheetEffect, type SheetEvent, type SheetMachineCtx,
+    initialSheetStore, sheetStoreReducer, selectionRect, wholeRows, provisionalCell, nextTargetOf, fillOrder, blankRowId, isBlankRowId,
+    type EditSource, type SheetEffect, type SheetEvent, type SheetMachineCtx, type Suggestions,
 } from "./sheet-state.js";
+import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn, type WireProvider } from "./suggest.js";
+import { InFlight, trackWork } from "./suggest-async.js";
 import { SheetHeader } from "./Header.js";
-import { SheetRow, SheetBandRow } from "./Rows.js";
+import { SheetRow, SheetBandRow, SheetProposalRow } from "./Rows.js";
 import { SheetEditor, type EditorFocusRequest, type LinkEditorView } from "./Editor.js";
-import { SheetStrip, buildStrip, type StripLinkInput } from "./Strip.js";
+import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
 import { SheetFooter, type SheetTransport } from "./Footer.js";
 import { SheetToolbar } from "./Toolbar.js";
 import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetRootValue, SheetRowValue, SheetSelectionValue } from "./values.js";
@@ -67,9 +68,6 @@ type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
 const sheetRootEqual = equalFor(Sheet.Types.Root);
 const cellEqual = equalFor(Sheet.Types.Cell);
-
-/** Where an edit came from (the wire `SheetSourceType` tags). */
-type EditSource = "typed" | "pasted" | "fill" | "row" | "pattern";
 
 /** The local data layer — edits over the decoded rows until the host writes back. */
 interface LocalLayer {
@@ -116,6 +114,21 @@ function mintId(taken: (id: string) => boolean): string {
     }
 }
 
+/** The body index of an anchor — a real row by id, a blank padding row by its synthetic id. */
+function anchorBodyIndex(body: readonly SheetBodyItem[], anchorId: string): number {
+    if (!isBlankRowId(anchorId)) return bodyIndexOfId(body, anchorId);
+    const position = Number(anchorId.slice(anchorId.indexOf(":") + 1));
+    return body.findIndex((it) => it.kind === "blank" && it.position === position);
+}
+
+/** One copilot request — a run after a delay, or a result to deliver once the rows have rendered. */
+interface SuggestRequest {
+    seq: number;
+    rowId: string;
+    ms: number;
+    ready?: Suggestions;
+}
+
 export interface EastChakraSheetProps {
     /** The Sheet root value. */
     value: SheetRootValue;
@@ -130,14 +143,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
     const driver = useMemo(() => getSomeorUndefined(value.driver), [value.driver]);
     const driverColumn = driver?.column;
-    const linkVocabularies = useMemo(() => {
-        const out = new Map<string, LinkVocabulary>();
-        for (const meta of columns.list) {
-            if (meta.kind !== "link" && meta.kind !== "set") continue;
-            out.set(meta.key, linkVocabulary(meta, meta.register !== undefined ? registers.byName.get(meta.register) ?? [] : []));
-        }
-        return out;
-    }, [columns, registers]);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const size = densityOf(value);
     const rowPx = useDensityHeights(size).row;
@@ -156,6 +161,20 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const newRowIdFn = useMemo(() => getSomeorUndefined(value.newRowId), [value.newRowId]);
     const selection = useMemo(() => getSomeorUndefined(value.selection), [value.selection]);
 
+    // The copilot's declaration: the columns' fill providers and the proposers, as wire functions (§4.8).
+    const suggestDecl = useMemo(() => getSomeorUndefined(value.suggest), [value.suggest]);
+    const fillColumns = useMemo<FillColumn[]>(() => columns.list.map((m) => ({
+        key: m.key, kind: m.kind, editable: m.editable && m.kind !== "stamped", providers: m.raw.fill as unknown as WireProvider[],
+    })), [columns]);
+    const proposers = useMemo<WireProvider[]>(() => (suggestDecl?.propose ?? []) as unknown as WireProvider[], [suggestDecl]);
+    const ahead = Number(suggestDecl?.ahead ?? 2n);
+    const triggers = useMemo(() => new Set(suggestDecl?.triggers ?? []), [suggestDecl]);
+    const copilotOn = !readOnly && (proposers.length > 0 || fillColumns.some((c) => c.providers.length > 0));
+    // The memo empties on a new value: it may carry new provider functions equalFor cannot see.
+    const suggestMemo = useRef(new SuggestMemo());
+    useEffect(() => { suggestMemo.current.clear(); }, [value]);
+    const inflight = useRef(new InFlight());
+
     // ── The row source: inline rows, or the paged driver ──────────────────
     const pagedSource = value.rows.type === "paged" ? value.rows.value : undefined;
     const decodedRows = useMemo<readonly SheetRowValue[] | undefined>(
@@ -171,6 +190,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const sourceIdentity = decodedRows ?? pagedSource?.id ?? "";
     const [layerState, setLayerState] = useState<{ over: unknown; layer: LocalLayer }>({ over: sourceIdentity, layer: EMPTY_LAYER });
     const layer = layerState.over === sourceIdentity ? layerState.layer : EMPTY_LAYER;
+    // The layer as of the last write — several writes in one effect batch build on each other.
+    const layerRef = useRef(layer);
+    layerRef.current = layer;
     const setLayer = useCallback((fn: (prev: LocalLayer) => LocalLayer) => {
         setLayerState((prev) => ({ over: sourceIdentity, layer: fn(prev.over === sourceIdentity ? prev.layer : EMPTY_LAYER) }));
     }, [sourceIdentity]);
@@ -186,16 +208,22 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const ui = store.ui;
 
     // ── The body ──────────────────────────────────────────────────────────
-    const body = useMemo<SheetBodyItem[]>(() => buildBody({
+    const bodyBase = useMemo<SheetBodyItem[]>(() => buildBody({
         rows, rowsOffset, blanks: blanks + ui.appended, exhausted,
         total: paging.total, head: paging.head, tail: paging.tail,
     }), [rows, rowsOffset, blanks, ui.appended, exhausted, paging.total, paging.head, paging.tail]);
-    // Row space — the body without its bands.
+    // The copilot's proposed rows sit under their anchor, outside the row space.
+    const body = useMemo<SheetBodyItem[]>(() => {
+        const sugg = ui.sugg;
+        if (sugg === null || sugg.rows.length === 0) return bodyBase;
+        return withProposals(bodyBase, anchorBodyIndex(bodyBase, sugg.anchorId), sugg.rows);
+    }, [bodyBase, ui.sugg]);
+    // Row space — the body without its bands and proposals.
     const rowSpace = useMemo(() => {
         const bodyIndexOf: number[] = [];
         const rowOf: number[] = new Array<number>(body.length).fill(-1);
         body.forEach((it, i) => {
-            if (it.kind === "band") return;
+            if (it.kind === "band" || it.kind === "proposal") return;
             rowOf[i] = bodyIndexOf.length;
             bodyIndexOf.push(i);
         });
@@ -213,29 +241,53 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         if (it === undefined || it.kind !== "real" || meta === undefined) return undefined;
         return it.row.cells.get(meta.key);
     }, [rowAt, columns]);
-    const realCount = rows.length;
+    const rowOf = useCallback((id: string): number | undefined => {
+        const bi = anchorBodyIndex(body, id);
+        if (bi < 0) return undefined;
+        const r = rowSpace.rowOf[bi];
+        return r === undefined || r < 0 ? undefined : r;
+    }, [body, rowSpace]);
+    const idAt = useCallback((r: number): string | undefined => {
+        const it = rowAt(r);
+        if (it === undefined) return undefined;
+        return it.kind === "real" ? it.row.id : it.kind === "blank" ? blankRowId(it.position) : undefined;
+    }, [rowAt]);
 
     // ── What a transition may ask ─────────────────────────────────────────
     const candidateCtxFor = useCallback((r: number): CandidateContext => {
         const it = rowAt(r);
         return { registers, rows, rowIndex: it !== undefined && it.kind === "real" ? it.residentIndex : -1, driverColumn };
     }, [rowAt, registers, rows, driverColumn]);
-    const wireContextFor = useCallback((r: number): SheetContextValue => {
-        const it = rowAt(r);
-        const row = it !== undefined && it.kind === "real" ? it.row : undefined;
+    /** The wire context over a row — the copilot's, a check's, a custom parse's (§4.4). */
+    const wireContextOf = useCallback((row: SheetRowValue | undefined, residentIndex: number, position: number, rowsNow: readonly SheetRowValue[]): SheetContextValue => {
         const driverKey = driverKeyOf(row, driverColumn);
         return {
-            rowIndex: BigInt(it !== undefined && it.kind === "real" ? it.residentIndex : rows.length),
+            rowIndex: BigInt(residentIndex),
             rowId: row?.id ?? "",
-            offset: BigInt(it !== undefined && it.kind !== "band" ? it.position : rowsOffset + rows.length),
+            offset: BigInt(position),
             row: row?.cells ?? new Map(columns.list.map((c) => [c.key, NULL_CELL])),
-            rows: rows as SheetRowValue[],
+            rows: rowsNow as SheetRowValue[],
             rowsOffset: BigInt(rowsOffset),
             partial: !exhausted,
             driver: driverKey !== undefined ? some(driverKey) : none,
             today,
         } as SheetContextValue;
-    }, [rowAt, driverColumn, rows, rowsOffset, columns, exhausted, today]);
+    }, [driverColumn, columns, rowsOffset, exhausted, today]);
+    const wireContextFor = useCallback((r: number): SheetContextValue => {
+        const it = rowAt(r);
+        const row = it !== undefined && it.kind === "real" ? it.row : undefined;
+        const position = it !== undefined && (it.kind === "real" || it.kind === "blank") ? it.position : rowsOffset + rows.length;
+        return wireContextOf(row, it !== undefined && it.kind === "real" ? it.residentIndex : rows.length, position, rows);
+    }, [rowAt, rows, rowsOffset, wireContextOf]);
+    // The link editor predicts from the column's pending fill (B§4.5).
+    const predictedLink = useCallback((r: number, key: string): SheetLinkValue | undefined => {
+        const sugg = ui.sugg;
+        if (sugg === null || sugg.anchorId !== idAt(r)) return undefined;
+        const f = sugg.fill.get(key);
+        return f !== undefined && f.cell.type === "Link" ? (f.cell.value as SheetLinkValue) : undefined;
+    }, [ui.sugg, idAt]);
+    const links = useSheetLinks({ columns, registers, driver, driverColumn, body, rowAt, predictedLink });
+    const { linkVocabularies, linkColumns, linkCellCtx, linkCtxFor } = links;
     const parseCtxFor = useCallback((r: number, meta: SheetColumnMeta): ParseContext => {
         let baseDate: Date | undefined;
         if (meta.kind === "date" && meta.base !== undefined) {
@@ -251,83 +303,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             linkVocab: meta.kind === "link" || meta.kind === "set" ? linkVocabularies.get(meta.key) : undefined,
         };
     }, [rowAt, candidateCtxFor, today, wireContextFor, linkVocabularies]);
-    // ── Links (P3): vocabularies, sides, checks, arity ────────────────────
-    const linkColumns = useMemo(() => {
-        const out = new Map<string, { vocab: LinkVocabulary; sides: SidesDecl | undefined; checks: CheckDecl[]; arity: { half: "from" | "to"; implied: (ctx: unknown) => { type: string; value: unknown } } | undefined }>();
-        for (const meta of columns.list) {
-            if (meta.kind !== "link" && meta.kind !== "set") continue;
-            const members = meta.register !== undefined ? registers.byName.get(meta.register) ?? [] : [];
-            const kv = meta.raw.kind.value as { arity?: { type: string; value: { half: { type: "from" | "to" }; implied: (ctx: unknown) => { type: string; value: unknown } } | null } } | null;
-            const arityDecl = kv !== null && kv.arity !== undefined ? getSomeorUndefined(kv.arity as never) as { half: { type: "from" | "to" }; implied: (ctx: unknown) => { type: string; value: unknown } } | undefined : undefined;
-            out.set(meta.key, {
-                vocab: linkVocabularies.get(meta.key) ?? linkVocabulary(meta, members),
-                sides: sidesDeclOf(meta),
-                checks: checksOf(meta),
-                arity: arityDecl !== undefined ? { half: arityDecl.half.type, implied: arityDecl.implied } : undefined,
-            });
-        }
-        return out;
-    }, [columns, registers, linkVocabularies]);
-    const driverName = useCallback((row: SheetRowValue | undefined): string => {
-        const key = driverKeyOf(row, driverColumn);
-        if (key === undefined) return "This row";
-        const member = driver?.members.find((m) => m.key === key);
-        return member?.label ?? key;
-    }, [driverColumn, driver]);
-    // Checks run once per row value and column (rows are immutable values).
-    const flagCache = useRef(new WeakMap<SheetRowValue, Map<string, LinkFlags>>());
-    const flagsFor = useCallback((item: SheetBodyItem, meta: SheetColumnMeta): LinkFlags => {
-        if (item.kind !== "real") return NO_FLAGS;
-        const lc = linkColumns.get(meta.key);
-        const cell = item.row.cells.get(meta.key);
-        if (lc === undefined || lc.checks.length === 0 || cell === undefined || cell.type !== "Link") return NO_FLAGS;
-        let byKey = flagCache.current.get(item.row);
-        if (byKey === undefined) { byKey = new Map(); flagCache.current.set(item.row, byKey); }
-        const known = byKey.get(meta.key);
-        if (known !== undefined) return known;
-        const flags = checkLink(cell.value as SheetLinkValue, lc.checks, lc.vocab, (half, member) => ({
-            rowIndex: BigInt(item.residentIndex), rowId: item.row.id, offset: BigInt(item.position),
-            row: item.row.cells, half: variant(half, null), member,
-        }));
-        byKey.set(meta.key, flags);
-        return flags;
-    }, [linkColumns]);
-    const linkCellCtx = useCallback((row: SheetRowValue | undefined, meta: SheetColumnMeta): LinkCellContext | undefined => {
-        const lc = linkColumns.get(meta.key);
-        if (lc === undefined) return undefined;
-        const item = row !== undefined ? body.find((it) => it.kind === "real" && it.row === row) : undefined;
-        return {
-            halves: halvesFor(lc.sides, driverKeyOf(row, driverColumn)),
-            vocab: lc.vocab,
-            flags: item !== undefined ? flagsFor(item, meta) : NO_FLAGS,
-            driverName: driverName(row),
-        };
-    }, [linkColumns, body, driverColumn, flagsFor, driverName]);
-    const linkCtxFor = useCallback((r: number, c: number): LinkEditCtx | undefined => {
-        const meta = columns.list[c];
-        if (meta === undefined) return undefined;
-        const lc = linkColumns.get(meta.key);
-        if (lc === undefined) return undefined;
-        const it = rowAt(r);
-        const row = it !== undefined && it.kind === "real" ? it.row : undefined;
-        const cell = row?.cells.get(meta.key);
-        const current = cell !== undefined && cell.type === "Link" ? (cell.value as SheetLinkValue) : undefined;
-        const halves = meta.kind === "set"
-            ? { from: { live: false, lock: "" }, to: { live: true, lock: "" }, isIn: false, sides: "to" as const }
-            : halvesFor(lc.sides, driverKeyOf(row, driverColumn));
-        const vocab = lc.vocab;
-        const usedOf = (groups: LinkGroups) => usedKeys([...groups[0], ...groups[1]], vocab);
-        return {
-            halves,
-            initial: [current !== undefined ? [...current.from] : [], current !== undefined ? [...current.to] : []],
-            candidates: (text, groups) => linkCandidates(text, vocab, usedOf(groups)),
-            candidateAt: (text, hi, groups) => linkCandidateAt(text, hi, vocab, usedOf(groups)),
-            resolve: (text, cand) => resolveBuffer(text, cand, vocab),
-            predicted: (side, groups, typed) => predictedMembers(undefined, side, groups, side === 0 ? halves.from.live : halves.to.live, typed, vocab),
-            cell: (groups) => (groups[0].length === 0 && groups[1].length === 0 ? null : { type: "Link", value: { from: groups[0], to: groups[1] } } as SheetCellValue),
-            driverName: driverName(row),
-        };
-    }, [columns, linkColumns, rowAt, driverColumn, driverName]);
 
     const ctx = useMemo<SheetMachineCtx>(() => ({
         rowCount,
@@ -338,7 +313,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             if (readOnly) return false;
             const meta = columns.list[c];
             const it = rowAt(r);
-            if (meta === undefined || it === undefined || it.kind === "band") return false;
+            if (meta === undefined || it === undefined || it.kind === "band" || it.kind === "proposal") return false;
             if (!meta.editable || meta.kind === "stamped") return false;
             return true;
         },
@@ -361,15 +336,21 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             return meta === undefined ? "" : editText(cellAt(r, c), meta);
         },
         linkAt: linkCtxFor,
-    }), [rowCount, colCount, exhausted, readOnly, columns, rowAt, parseCtxFor, candidateCtxFor, cellAt, linkCtxFor]);
+        rowOf,
+        idAt,
+        columnOf: (key) => { const c = columns.list.findIndex((m) => m.key === key); return c < 0 ? undefined : c; },
+        driverKeyAt: (r) => { const it = rowAt(r); return driverKeyOf(it !== undefined && it.kind === "real" ? it.row : undefined, driverColumn); },
+        driverColumn,
+        numberAt: (r) => { const it = rowAt(r); return it !== undefined && it.kind !== "band" ? it.position + 1 : r + 1; },
+    }), [rowCount, colCount, exhausted, readOnly, columns, rowAt, parseCtxFor, candidateCtxFor, cellAt, linkCtxFor, rowOf, idAt, driverColumn]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
     uiRef.current = ui;
     const dispatch = useCallback((e: SheetEvent) => dispatchStore({ t: "event", e, ctx: ctxRef.current }), []);
 
-    // The rows changed underneath: clamp the ring, drop an editor whose row went.
-    useEffect(() => { dispatch({ t: "rows.changed" }); }, [rowCount, colCount, dispatch]);
+    // The rows changed underneath: clamp the ring, drop an editor whose row went, a suggestion whose anchor went.
+    useEffect(() => { dispatch({ t: "rows.changed" }); }, [rows, rowCount, colCount, dispatch]);
 
     // ── Writes — the local layer, then the host ───────────────────────────
     const emitEdit = useCallback((edit: SheetEditValue) => {
@@ -380,27 +361,31 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
      * `commit` event per changed cell, each carrying the row AFTER it); a
      * blank row's cells become one inserted row (one `insert` event). Returns
      * the row-space index the FIRST inserted row landed on, so the ring can
-     * follow a blank row that just became real.
+     * follow a blank row that just became real, and the ids of the rows
+     * written, in order.
      */
-    const writeCells = useCallback((writes: readonly { r: number; c: number; cell: SheetCellValue }[], source: EditSource): number | undefined => {
+    const writeCells = useCallback((writes: readonly { r: number; c: number; cell: SheetCellValue }[], source: EditSource): { firstInserted: number | undefined; ids: string[] } => {
         const byRow = new Map<number, { c: number; cell: SheetCellValue }[]>();
         for (const w of writes) {
             const list = byRow.get(w.r) ?? [];
             list.push({ c: w.c, cell: w.cell });
             byRow.set(w.r, list);
         }
-        const edits = new Map(layer.edits);
-        const appended = [...layer.appended];
+        const base = layerRef.current;
+        const rowsNow = applyLayer(sourceRows, base);
+        const edits = new Map(base.edits);
+        const appended = [...base.appended];
         const events: SheetEditValue[] = [];
-        let lastId = rows.length > 0 ? rows[rows.length - 1]!.id : undefined;
+        const ids: string[] = [];
+        let lastId = rowsNow.length > 0 ? rowsNow[rowsNow.length - 1]!.id : undefined;
         let firstInserted: number | undefined;
         let inserted = 0;
         const src = variant(source, null) as SheetEditValue extends { value: { source: infer S } } ? S : never;
-        const taken = (id: string) => rows.some((x) => x.id === id) || appended.some((x) => x.id === id);
+        const taken = (id: string) => rowsNow.some((x) => x.id === id) || appended.some((x) => x.id === id);
         for (const r of [...byRow.keys()].sort((a, b) => a - b)) {
             const it = rowAt(r);
             if (it !== undefined && it.kind === "real") {
-                let row = it.row;
+                let row = edits.get(it.row.id) ?? it.row;
                 for (const w of byRow.get(r)!) {
                     const meta = columns.list[w.c];
                     if (meta === undefined) continue;
@@ -409,9 +394,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     events.push(variant("commit", { rowId: row.id, offset: BigInt(it.position), key: meta.key, row, source: src }) as SheetEditValue);
                 }
                 if (row !== it.row) edits.set(row.id, row);
+                ids.push(row.id);
                 continue;
             }
-            if (it !== undefined && it.kind === "band") continue;
+            if (it !== undefined && (it.kind === "band" || it.kind === "proposal")) continue;
             // A blank row (or a row past the padding): one inserted row.
             let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), columns.list);
             for (const w of byRow.get(r)!) {
@@ -422,14 +408,17 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             appended.push(row);
             events.push(variant("insert", { afterRowId: lastId !== undefined ? some(lastId) : none, row, source: src }) as SheetEditValue);
             lastId = row.id;
-            if (firstInserted === undefined) firstInserted = realCount + inserted;
+            ids.push(row.id);
+            if (firstInserted === undefined) firstInserted = rowsNow.length + inserted;
             inserted += 1;
         }
-        if (events.length === 0) return undefined;
-        setLayer((prev) => ({ edits: new Map([...prev.edits, ...edits]), appended: [...prev.appended, ...appended.slice(layer.appended.length)], removed: prev.removed }));
+        if (events.length === 0) return { firstInserted: undefined, ids };
+        const next: LocalLayer = { edits, appended, removed: base.removed };
+        layerRef.current = next;
+        setLayer(() => next);
         for (const e of events) emitEdit(e);
-        return firstInserted;
-    }, [layer, rows, rowAt, columns, newRowIdFn, realCount, setLayer, emitEdit]);
+        return { firstInserted, ids };
+    }, [sourceRows, rowAt, columns, newRowIdFn, setLayer, emitEdit]);
     const deleteRows = useCallback((r0: number, r1: number) => {
         const ids: string[] = [];
         for (let r = r0; r <= r1; r++) {
@@ -437,26 +426,146 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             if (it !== undefined && it.kind === "real") ids.push(it.row.id);
         }
         if (ids.length === 0) return 0;
-        setLayer((prev) => ({ ...prev, removed: new Set([...prev.removed, ...ids]) }));
+        const next: LocalLayer = { ...layerRef.current, removed: new Set([...layerRef.current.removed, ...ids]) };
+        layerRef.current = next;
+        setLayer(() => next);
         emitEdit(variant("remove", { rowIds: ids }) as SheetEditValue);
         return ids.length;
     }, [rowAt, setLayer, emitEdit]);
+    /** Insert one proposed row after a row: into the blank slot below it (B§5.2), else appended. */
+    const insertProposal = useCallback((afterR: number, cells: ReadonlyMap<string, SheetCellValue>): { id: string; r: number } | undefined => {
+        const writes: { c: number; cell: SheetCellValue }[] = [];
+        columns.list.forEach((meta, c) => {
+            if (!meta.editable || meta.kind === "stamped") return;
+            const cell = cells.get(meta.key);
+            if (cell !== undefined && !cellIsBlank(cell)) writes.push({ c, cell });
+        });
+        if (writes.length === 0) return undefined;
+        const next = rowAt(afterR + 1);
+        let target: number;
+        if (next !== undefined && next.kind === "blank") target = afterR + 1;
+        else if (next !== undefined && next.kind === "real" && rowIsBlank(next.row, columns)) target = afterR + 1;
+        else {
+            const firstBlank = rowSpace.bodyIndexOf.findIndex((bi) => body[bi]!.kind === "blank");
+            target = firstBlank < 0 ? rowCount : firstBlank;
+        }
+        const res = writeCells(writes.map((w) => ({ r: target, c: w.c, cell: w.cell })), "pattern");
+        const id = res.ids[0];
+        if (id === undefined) return undefined;
+        return { id, r: res.firstInserted ?? target };
+    }, [columns, rowAt, rowSpace, body, rowCount, writeCells]);
+
+    // ── The copilot runner (§6.2) ─────────────────────────────────────────
+    const [suggestReq, setSuggestReq] = useState<SuggestRequest | null>(null);
+    const requestRun = useCallback((rowId: string, ms: number) => {
+        setSuggestReq((p) => ({ seq: (p?.seq ?? 0) + 1, rowId, ms }));
+    }, []);
+    const requestReady = useCallback((rowId: string, ready: Suggestions) => {
+        setSuggestReq((p) => ({ seq: (p?.seq ?? 0) + 1, rowId, ms: 0, ready }));
+    }, []);
+    /** Run the providers for an anchor — against the row as it would be if the open editor committed. */
+    const runFor = (rowId: string) => {
+        if (!copilotOn) return;
+        const r = rowOf(rowId);
+        const item = r !== undefined ? rowAt(r) : undefined;
+        if (r === undefined || item === undefined || (item.kind !== "real" && item.kind !== "blank")) return;
+        const current = uiRef.current;
+        let row: SheetRowValue = item.kind === "real" ? item.row : blankRow("", columns.list);
+        let skipKey: string | undefined;
+        if (current.edit !== null && current.edit.r === r) {
+            const cell = provisionalCell(current.edit, ctxRef.current);
+            if (cell === undefined) return;   // unrecognised — nothing to run against
+            const meta = columns.list[current.edit.c];
+            if (meta !== undefined) {
+                row = withCell(row, meta.key, cell ?? NULL_CELL);
+                skipKey = meta.key;
+            }
+        }
+        if (rowIsBlank(row, columns)) {
+            dispatch({ t: "suggest.ready", anchorId: rowId, sugg: null });
+            return;
+        }
+        const residentIndex = item.kind === "real" ? item.residentIndex : rows.length;
+        const rowsNow = item.kind === "real" ? rows.map((x, i) => (i === residentIndex ? row : x)) : [...rows, row];
+        const below = rowAt(r + 1);
+        const nextBusy = below !== undefined && below.kind === "real" && !rowIsBlank(below.row, columns);
+        const outcome = runSuggest({
+            anchorId: rowId, row, skipKey, columns: fillColumns, proposers, ahead, nextBusy,
+            driverKey: driverKeyOf(row, driverColumn), driverColumn, rejected: current.rejected,
+            contextOf: (rw) => wireContextOf(rw, residentIndex, item.position, rowsNow),
+            memo: suggestMemo.current,
+        });
+        const gen = inflight.current.begin();
+        dispatch({ t: "suggest.ready", anchorId: rowId, sugg: outcome.sugg });
+        for (const work of outcome.async) {
+            trackWork(inflight.current, gen, work, (key, result) => {
+                dispatch(result.kind === "fill"
+                    ? { t: "suggest.landed", anchorId: rowId, key, fill: result.fill }
+                    : { t: "suggest.landed", anchorId: rowId, key, rows: result.rows });
+            });
+        }
+    };
+    const runForRef = useRef(runFor);
+    runForRef.current = runFor;
+    useEffect(() => {
+        if (suggestReq === null) return;
+        if (suggestReq.ready !== undefined) {
+            dispatch({ t: "suggest.ready", anchorId: suggestReq.rowId, sugg: suggestReq.ready });
+            return;
+        }
+        const timer = setTimeout(() => runForRef.current(suggestReq.rowId), suggestReq.ms);
+        return () => clearTimeout(timer);
+    }, [suggestReq, dispatch]);
+    useEffect(() => {
+        const registry = inflight.current;
+        return () => registry.cancel();
+    }, []);
 
     // ── Effects ───────────────────────────────────────────────────────────
     const cardRef = useRef<HTMLDivElement | null>(null);
     const [editorFocus, setEditorFocus] = useState<EditorFocusRequest>({ seq: 0, selectAll: true });
     const [scrollTarget, setScrollTarget] = useState<number | undefined>(undefined);
     const runEffects = useCallback((effects: readonly SheetEffect[]) => {
+        /** After a write: the ring follows an insert, a blank anchor's suggestions follow the new id, the copilot re-runs. */
+        const afterWrite = (r: number, res: { firstInserted: number | undefined; ids: string[] }, rerun: boolean) => {
+            const anchorBefore = idAt(r);
+            if (res.firstInserted !== undefined) {
+                // The blank row became real at the end of the sheet: the ring
+                // follows it, keeping whatever move the commit made.
+                const delta = store.ui.sel.r - r;
+                dispatchStore({ t: "patch", patch: { sel: { r: res.firstInserted + delta, c: store.ui.sel.c }, selEnd: null } });
+                if (anchorBefore !== undefined && isBlankRowId(anchorBefore) && res.ids[0] !== undefined) {
+                    dispatch({ t: "suggest.rekey", from: anchorBefore, to: res.ids[0] });
+                }
+            }
+            if (rerun && copilotOn && res.ids[0] !== undefined) requestRun(res.ids[0], 0);
+        };
         for (const eff of effects) {
             switch (eff.t) {
                 case "write": {
-                    const inserted = writeCells([{ r: eff.r, c: eff.c, cell: eff.cell ?? NULL_CELL }], "typed");
-                    if (inserted !== undefined) {
-                        // The blank row became real at the end of the sheet: the ring
-                        // follows it, keeping whatever move the commit made.
-                        const delta = store.ui.sel.r - eff.r;
-                        dispatchStore({ t: "patch", patch: { sel: { r: inserted + delta, c: store.ui.sel.c }, selEnd: null } });
+                    const meta = columns.list[eff.c];
+                    const res = writeCells([{ r: eff.r, c: eff.c, cell: eff.cell ?? NULL_CELL }], "typed");
+                    afterWrite(eff.r, res, meta !== undefined && (triggers.size === 0 || triggers.has(meta.key)));
+                    break;
+                }
+                case "write.many": {
+                    const res = writeCells(eff.writes.map((w) => ({ r: eff.r, c: w.c, cell: w.cell })), eff.source);
+                    afterWrite(eff.r, res, true);
+                    break;
+                }
+                case "insert.rows": {
+                    let afterR = eff.anchorR;
+                    let lastId: string | undefined;
+                    for (const p of eff.rows) {
+                        const landed = insertProposal(afterR, p.cells);
+                        if (landed === undefined) break;
+                        lastId = landed.id;
+                        afterR = landed.r;
                     }
+                    if (lastId === undefined) break;
+                    // Re-anchor on the row just taken: the rest are already waiting, else look forward again.
+                    if (eff.rest.length > 0) requestReady(lastId, { anchorId: lastId, fill: new Map(), rows: eff.rest, pending: [] });
+                    else if (copilotOn) requestRun(lastId, 0);
                     break;
                 }
                 case "clear": {
@@ -530,12 +639,20 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     if (bi !== undefined) setScrollTarget(bi);
                     break;
                 }
-                case "schedule.suggest":
-                    // The copilot runner (P4).
+                case "schedule.suggest": {
+                    // The copilot runs against the row as it would be, after the kind's latency (B§3).
+                    if (!copilotOn) break;
+                    const edit = store.ui.edit;
+                    if (edit === null) break;
+                    const id = idAt(edit.r);
+                    if (id === undefined) break;
+                    const kind = columns.list[edit.c]?.kind ?? "text";
+                    requestRun(id, eff.latency === "instant" || latencyOf(kind) === "instant" ? LATENCY_MS.instant : LATENCY_MS.idle);
                     break;
+                }
             }
         }
-    }, [writeCells, deleteRows, columns, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowSpace, store.ui.sel]);
+    }, [writeCells, deleteRows, insertProposal, columns, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
@@ -576,14 +693,17 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         dispatch({ t: "cell.down", r, c, shift: e.shiftKey });
     }, [dispatch]);
     const onCellDouble = useCallback((r: number, c: number) => dispatch({ t: "cell.dbl", r, c }), [dispatch]);
-    const onCellEnter = useCallback((r: number, c: number) => {
-        if (dragging.current) dispatch({ t: "cell.enter", r, c, dragging: true });
-    }, [dispatch]);
+    const onCellEnter = useCallback((r: number, c: number) => dispatch({ t: "cell.enter", r, c, dragging: dragging.current }), [dispatch]);
     const onRowPick = useCallback((r: number, e: MouseEvent) => {
         if (e.button !== 0) return;
         e.preventDefault();
         dispatch({ t: "row.pick", r, shift: e.shiftKey });
     }, [dispatch]);
+    const onTake = useCallback((key: string) => dispatch({ t: "fill.take", key }), [dispatch]);
+    const onFillRow = useCallback(() => dispatch({ t: "fill.row" }), [dispatch]);
+    const onProposalPick = useCallback((i: number) => dispatch({ t: "proposal.pick", i }), [dispatch]);
+    const onProposalAccept = useCallback((i: number) => dispatch({ t: "proposal.take", i }), [dispatch]);
+    const onProposalReject = useCallback((i: number) => dispatch({ t: "proposal.reject", i }), [dispatch]);
     const onKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
         if (store.ui.edit !== null) return;
         const meta = e.metaKey || e.ctrlKey;
@@ -649,7 +769,14 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         return false;
     }, [dispatch, editGhost, linkGhostText]);
     const onEditorBlur = useCallback(() => dispatch({ t: "editor.blur" }), [dispatch]);
-    const onStripPick = useCallback((label: string, i: number, members?: SheetMemberValue[]) => dispatch({ t: "strip.pick", label, i, ...(members !== undefined ? { members } : {}) }), [dispatch]);
+    const onStripAction = useCallback((a: StripAction) => {
+        switch (a.kind) {
+            case "candidate": dispatch({ t: "strip.pick", label: a.label, i: a.i }); break;
+            case "members": dispatch({ t: "strip.pick", label: a.label, i: -1, members: a.members }); break;
+            case "fill": dispatch({ t: "fill.take", key: a.key }); break;
+            case "rows": dispatch({ t: "proposal.take", i: (uiRef.current.sugg?.rows.length ?? 1) - 1 }); break;
+        }
+    }, [dispatch]);
     const onHalfDown = useCallback((side: 0 | 1) => dispatch({ t: "half.down", side }), [dispatch]);
     const linkView = useMemo<LinkEditorView | undefined>(() => {
         if (edit === null || linkEdit === undefined || linkEditCtx === undefined || editMeta === undefined) return undefined;
@@ -690,8 +817,23 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         loading: paging.loading,
     }), [pagedSource, paging.rows.length, paging.total, paging.loading]);
 
+    // ── The copilot's surfaces: the anchor's fills, the next target, the proposal rows ──
+    const anchorR = useMemo(() => (ui.sugg !== null ? rowOf(ui.sugg.anchorId) : undefined), [ui.sugg, rowOf]);
+    const nextTarget = useMemo(() => nextTargetOf(ui, ctx), [ui, ctx]);
+    const suggested = useMemo<StripSuggestInput | undefined>(() => {
+        if (edit !== null || ui.sugg === null) return undefined;
+        const sugg = ui.sugg;
+        const fills = fillOrder(sugg, ctx).map(({ key }) => {
+            const f = sugg.fill.get(key)!;
+            const meta = columns.byKey.get(key);
+            return { key, header: meta?.header ?? key, text: meta !== undefined ? cellText(f.cell, meta) : "", meta: f.meta, armed: nextTarget?.key === key };
+        });
+        const pending = sugg.pending.map((key) => ({ key, header: key === "rows" ? "rows" : columns.byKey.get(key)?.header ?? key }));
+        return { fills, rows: sugg.rows.length, rowsMeta: sugg.rows[0]?.meta ?? "", pending };
+    }, [edit, ui.sugg, ctx, columns, nextTarget]);
+
     const strip = useMemo(() => {
-        if (edit === null || editMeta === undefined) return buildStrip({ edit: null, meta: undefined, candidates: undefined, today, baseDate: undefined, unit: undefined, customPreview: undefined });
+        if (edit === null || editMeta === undefined) return buildStrip({ edit: null, meta: undefined, candidates: undefined, today, baseDate: undefined, unit: undefined, customPreview: undefined, suggested });
         const pctx = parseCtxFor(edit.r, editMeta);
         const it = rowAt(edit.r);
         const driverKey = driverKeyOf(it !== undefined && it.kind === "real" ? it.row : undefined, driverColumn);
@@ -719,14 +861,32 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 }
                 arity = arityMeta(implied, namedCount(linkEdit.groups[linkEdit.side], vocab));
             }
+            const predicted = linkEditCtx.predicted(linkEdit.side, linkEdit.groups, edit.val);
+            // A counted member is the plan-level answer; naming the members is the
+            // schedule-level one — offered as the alternative, never assumed (B§4.5).
+            let enumerate: LinkCandidate | undefined;
+            const counted = predicted.find((m) => m.type === "counted");
+            if (counted !== undefined && vocab !== undefined) {
+                const cnt = counted.value as { n: bigint; key: string };
+                const parent = resolveVocabMember(cnt.key, vocab);
+                const free = parent !== undefined ? membersUnder(parent, vocab, used).slice(0, Number(cnt.n)) : [];
+                if (free.length === Number(cnt.n) && free.length > 0) {
+                    enumerate = {
+                        label: free.map((m) => m.key).join(", "),
+                        meta: "name them now instead of leaving them to the scheduler",
+                        members: free.map((m) => ({ type: "identified", value: { key: m.key } }) as SheetMemberValue),
+                    };
+                }
+            }
+            const fill = ui.sugg !== null && ui.sugg.anchorId === idAt(edit.r) ? ui.sugg.fill.get(editMeta.key) : undefined;
             link = {
                 side: linkEdit.side,
                 candidates: linkEditCtx.candidates(edit.val, linkEdit.groups),
                 armed: linkArmed,
                 entry: vocab !== undefined ? linkEntryCandidates(vocab, used) : [],
-                predicted: linkEditCtx.predicted(linkEdit.side, linkEdit.groups, edit.val),
-                enumerate: undefined,
-                predictedMeta: "",
+                predicted,
+                enumerate,
+                predictedMeta: fill?.meta ?? "",
                 arity,
                 grammar: vocab !== undefined ? grammarLine(vocab) : "",
             };
@@ -738,12 +898,20 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             customPreview,
             link,
         });
-    }, [edit, editMeta, today, parseCtxFor, rowAt, driverColumn, linkEdit, linkEditCtx, linkArmed, linkColumns, wireContextFor]);
+    }, [edit, editMeta, today, parseCtxFor, rowAt, driverColumn, linkEdit, linkEditCtx, linkArmed, linkColumns, wireContextFor, suggested, ui.sugg, idAt]);
 
     const wr = wholeRows(ui, colCount);
-    const hint = wr !== null
-        ? `${wr.r1 - wr.r0 + 1} row${wr.r1 - wr.r0 === 0 ? "" : "s"} selected · ⌫ deletes them · ⌘C copies`
-        : "⏎ edit · esc cancel · click a row number to select it · ⌘C / ⌘V round-trips with Excel";
+    const hasFills = ui.sugg !== null && ui.sugg.fill.size > 0;
+    const hasRows = ui.sugg !== null && ui.sugg.rows.length > 0;
+    const hint = ui.gsel !== null
+        ? "⏎ adds the selected row · ⌫ rejects it · esc deselects"
+        : wr !== null
+            ? `${wr.r1 - wr.r0 + 1} row${wr.r1 - wr.r0 === 0 ? "" : "s"} selected · ⌫ deletes them · ⌘C copies`
+            : hasFills
+                ? "⇥ walks the fills · ⌘⏎ fills the row · ⌘⇧⏎ takes everything · esc dismisses"
+                : hasRows
+                    ? "⏎ adds the next suggested row · click a row to select it · esc dismisses"
+                    : "⏎ edit · esc cancel · click a row number to select it · ⌘C / ⌘V round-trips with Excel";
 
     // ── Viewport → the driver (paged) ─────────────────────────────────────
     const reportViewport = paging.reportViewport;
@@ -786,6 +954,27 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         const item = body[i];
         if (item === undefined) return null;
         if (item.kind === "band") return <SheetBandRow styles={styles} band={item.band} loading={paging.loading} />;
+        if (item.kind === "proposal") {
+            return (
+                <SheetProposalRow
+                    styles={styles}
+                    columns={columns}
+                    registers={registers}
+                    driverColumn={driverColumn}
+                    gridTemplate={gridTemplate}
+                    rowPx={rowPx}
+                    index={item.index}
+                    number={item.position + 1}
+                    cells={item.cells}
+                    meta={item.meta}
+                    picked={ui.gsel === item.index}
+                    linkCtx={linkCellCtx}
+                    onPick={onProposalPick}
+                    onAccept={onProposalAccept}
+                    onReject={onProposalReject}
+                />
+            );
+        }
         const r = rowSpace.rowOf[i] ?? -1;
         const inRangeRow = ui.selEnd !== null && r >= rect.r0 && r <= rect.r1;
         return (
@@ -805,13 +994,18 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 picked={wr !== null && r >= wr.r0 && r <= wr.r1}
                 hit={false}
                 editor={edit !== null && edit.r === r ? { c: edit.c, node: editorNode } : undefined}
+                fills={anchorR === r && ui.sugg !== null ? ui.sugg.fill : undefined}
+                nextTargetC={nextTarget !== null && nextTarget.r === r ? nextTarget.c : undefined}
+                hoverC={ui.hover !== null && ui.hover.r === r ? ui.hover.c : undefined}
                 onCellDown={onCellDown}
                 onCellDouble={onCellDouble}
                 onCellEnter={onCellEnter}
                 onRowPick={onRowPick}
+                onTake={onTake}
+                onFillRow={onFillRow}
             />
         );
-    }, [body, styles, paging.loading, rowSpace, ui.selEnd, ui.sel, rect, columns, registers, driverColumn, gridTemplate, rowPx, wr, edit, editorNode, onCellDown, onCellDouble, onCellEnter, onRowPick, linkCellCtx]);
+    }, [body, styles, paging.loading, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, rect, columns, registers, driverColumn, gridTemplate, rowPx, wr, edit, editorNode, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, linkCellCtx]);
 
     if (paging.error !== undefined) {
         return (
@@ -823,7 +1017,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
 
     const header = <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} />;
     const content = (
-        <Box css={styles.root} data-sheet data-sheet-partial={transport !== undefined && !exhausted ? "" : undefined}
+        <Box css={styles.root} data-sheet data-sheet-partial={transport !== undefined && !exhausted ? "" : undefined} data-copilot={copilotOn ? "" : undefined}
             {...(frameFills ? { style: { height, maxHeight } } : {})}>
             {(chrome !== undefined || transport !== undefined) && (
                 <SheetToolbar styles={styles} slice={slice} affordances={affordances} count="" partial={transport !== undefined && !exhausted} />
@@ -862,7 +1056,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     rootCss={{ overflowX: "auto" }}
                 />
             </Box>
-            <SheetStrip styles={styles} model={strip} onPick={onStripPick} />
+            <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
             <SheetFooter styles={styles} items={value.footer} hint={hint} message={ui.msg} transport={transport} />
         </Box>
     );

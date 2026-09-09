@@ -39,11 +39,16 @@ export interface LinkCandidate {
 
 const identified = (key: string): SheetMemberValue => ({ type: "identified", value: { key } }) as SheetMemberValue;
 
-/** The free identified members under a countable (its `parent`). */
+/**
+ * The free identified members under a countable: the ones naming it as their
+ * `parent` (a farm's tanks), else the ones whose `meta` names it (a size's).
+ */
 export function membersUnder(parent: SheetRegisterMemberValue, vocab: LinkVocabulary, used: ReadonlySet<string>): SheetRegisterMemberValue[] {
-    return vocab.members.filter((m) => isIdentified(vocab, m)
-        && getSomeorUndefined(m.parent)?.toLowerCase() === parent.key.toLowerCase()
-        && !used.has(m.key.toLowerCase()));
+    const key = parent.key.toLowerCase();
+    const free = (m: SheetRegisterMemberValue) => isIdentified(vocab, m) && !used.has(m.key.toLowerCase());
+    const byParent = vocab.members.filter((m) => free(m) && getSomeorUndefined(m.parent)?.toLowerCase() === key);
+    if (byParent.length > 0) return byParent;
+    return vocab.members.filter((m) => free(m) && getSomeorUndefined(m.meta)?.toLowerCase() === key);
 }
 
 /** The scored candidates for a typed buffer, in the B§4.5 order. */

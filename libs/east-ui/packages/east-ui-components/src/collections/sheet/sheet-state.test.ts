@@ -348,3 +348,177 @@ describe("the link editor", () => {
         expect(ghosted.state.edit!.val).toBe("t7301");
     });
 });
+
+// ── The copilot (B§5 / B§6 — Sheet Spec §5 rows 10–13) ────────────────────
+
+import type { PendingFill, PendingRow, Suggestions } from "./sheet-state.js";
+
+/** Three real rows a · b · c and a blank at position 3; columns activity (the driver) · start · vol. */
+function suggestCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
+    const ids: Record<string, number> = { a: 0, b: 1, c: 2, " blank:3": 3 };
+    const cols: Record<string, number> = { activity: 0, start: 1, vol: 2 };
+    return ctxOf({
+        colCount: 3,
+        kindAt: (c) => (c === 0 ? "lookup" : c === 1 ? "date" : "quantity"),
+        editableAt: () => true,
+        rowOf: (id) => ids[id],
+        idAt: (r) => ["a", "b", "c", " blank:3"][r],
+        columnOf: (k) => cols[k],
+        driverKeyAt: (r) => (r === 1 ? "Transfer" : undefined),
+        driverColumn: "activity",
+        numberAt: (r) => r + 1,
+        ...over,
+    });
+}
+const fillOf = (c: SheetCellValue, meta = "", index = 0): PendingFill => ({ cell: c, meta, index });
+const suggOn = (anchorId: string, fill: Record<string, PendingFill>, rows: PendingRow[] = [], pending: string[] = []): Suggestions =>
+    ({ anchorId, fill: new Map(Object.entries(fill)), rows, pending });
+const proposal = (activity: string, meta = "pattern"): PendingRow => ({ cells: new Map([["activity", cell("String", activity)]]), meta });
+const START = fillOf(cell("DateTime", new Date("2026-02-23T00:00:00Z")), "week after a");
+const VOL = fillOf(cell("Float", 560000), "like a", 1);
+
+describe("the copilot", () => {
+    test("the runner's result lands for an anchor on the sheet; ⇥ arms the next target, ⇥ again writes it and arms the following; ⇧⇥ walks back", () => {
+        const ctx = suggestCtxOf();
+        const at = initialSheetState({ r: 1, c: 0 });
+        const ready = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START, vol: VOL }) }], ctx);
+        expect(ready.state.sugg?.fill.size).toBe(2);
+        // A result for an anchor that left the sheet is ignored.
+        expect(run(at, [{ t: "suggest.ready", anchorId: "zzz", sugg: suggOn("zzz", { start: START }) }], ctx).state.sugg).toBeNull();
+        const armed = run(ready.state, [key("Tab")], ctx);
+        expect(armed.state.sel).toEqual({ r: 1, c: 1 });
+        expect(armed.state.armed).toEqual({ r: 1, c: 1 });
+        expect(armed.effects.some((e) => e.t === "write.many")).toBe(false);
+        const took = run(armed.state, [key("Tab")], ctx);
+        expect(took.effects).toContainEqual({ t: "write.many", r: 1, writes: [{ c: 1, cell: START.cell }], source: "fill" });
+        expect(took.state.msg).toBe("Took start — week after a");
+        expect(took.state.sel).toEqual({ r: 1, c: 2 });
+        expect(took.state.armed).toEqual({ r: 1, c: 2 });
+        expect(took.state.sugg?.fill.has("start")).toBe(false);
+        const last = run(took.state, [key("Tab")], ctx);
+        expect(last.effects).toContainEqual({ t: "write.many", r: 1, writes: [{ c: 2, cell: VOL.cell }], source: "fill" });
+        expect(last.state.sugg).toBeNull();
+        expect(last.state.armed).toBeNull();
+        // ⇧⇥ arms the last fill first.
+        expect(run(ready.state, [key("Tab", { shift: true })], ctx).state.armed).toEqual({ r: 1, c: 2 });
+        // A strip chip or the ✓ button takes a named fill.
+        const clicked = run(ready.state, [{ t: "fill.take", key: "vol" }], ctx);
+        expect(clicked.effects).toContainEqual({ t: "write.many", r: 1, writes: [{ c: 2, cell: VOL.cell }], source: "fill" });
+    });
+
+    test("⏎ takes the row fill, then the first proposal; ⌘⏎ fills the row; ⌘⇧⏎ takes everything; the gutter's → fills the row", () => {
+        const ctx = suggestCtxOf();
+        const at = initialSheetState({ r: 1, c: 0 });
+        const both = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START, vol: VOL }, [proposal("Filtration"), proposal("Centrifuge")]) }], ctx).state;
+        const filled = run(both, [key("Enter")], ctx);
+        expect(filled.effects).toContainEqual({ t: "write.many", r: 1, writes: [{ c: 1, cell: START.cell }, { c: 2, cell: VOL.cell }], source: "row" });
+        expect(filled.state.msg).toBe("Filled 2 cells on row 2");
+        expect(filled.state.sugg?.rows).toHaveLength(2);
+        expect(filled.state.edit).toBeNull();
+        const took = run(filled.state, [key("Enter")], ctx);
+        expect(took.effects).toContainEqual({ t: "insert.rows", anchorR: 1, rows: [proposal("Filtration")], rest: [proposal("Centrifuge")] });
+        expect(took.state.msg).toBe("Took Filtration — next one suggested below");
+        expect(took.state.sugg).toBeNull();
+        // With nothing pending ⏎ edits.
+        expect(run(took.state, [key("Enter")], ctx).state.edit).not.toBeNull();
+        expect(run(both, [key("Enter", { meta: true })], ctx).effects.map((e) => e.t)).toEqual(["write.many"]);
+        const all = run(both, [key("Enter", { meta: true, shift: true })], ctx);
+        expect(all.effects.map((e) => e.t)).toEqual(["write.many", "insert.rows"]);
+        expect((all.effects[1] as { rows: PendingRow[]; rest: PendingRow[] }).rows).toHaveLength(2);
+        expect((all.effects[1] as { rest: PendingRow[] }).rest).toEqual([]);
+        expect(run(both, [{ t: "fill.row" }], ctx).effects[0]).toMatchObject({ t: "write.many", source: "row" });
+        // Rows only: ⇥ takes the next one.
+        const rowsOnly = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", {}, [proposal("Filtration")]) }], ctx).state;
+        expect(run(rowsOnly, [key("Tab")], ctx).effects[0]).toMatchObject({ t: "insert.rows", rows: [proposal("Filtration")], rest: [] });
+    });
+
+    test("the esc ladder: a selected proposal → the row fill (rows stay) → every suggestion → the range", () => {
+        const ctx = suggestCtxOf();
+        const at = { ...initialSheetState({ r: 1, c: 0 }), selEnd: { r: 1, c: 2 } };
+        const both = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START }, [proposal("Filtration"), proposal("Centrifuge")]) }], ctx).state;
+        const picked = run(both, [{ t: "proposal.pick", i: 1 }], ctx);
+        expect(picked.state.gsel).toBe(1);
+        expect(picked.effects).toContainEqual({ t: "focus.sheet" });
+        const one = run(picked.state, [key("Escape")], ctx);
+        expect(one.state.gsel).toBeNull();
+        expect(one.state.msg).toBe("Deselected — esc again dismisses every suggestion");
+        const two = run(one.state, [key("Escape")], ctx);
+        expect(two.state.sugg?.fill.size).toBe(0);
+        expect(two.state.sugg?.rows).toHaveLength(2);
+        expect(two.state.msg).toBe("Row fill dismissed — esc again for the suggested rows");
+        const three = run(two.state, [key("Escape")], ctx);
+        expect(three.state.sugg).toBeNull();
+        expect(three.state.selEnd).toBeNull();
+        // Arrows drop the proposal selection; a click on a cell too.
+        expect(run(picked.state, [key("ArrowDown")], ctx).state.gsel).toBeNull();
+        expect(run(picked.state, [{ t: "cell.down", r: 0, c: 0, shift: false }], ctx).state.gsel).toBeNull();
+    });
+
+    test("⌫ rejects the armed fill and remembers it per row and key; ⌫ rejects the selected proposal and remembers the pairing", () => {
+        const ctx = suggestCtxOf();
+        const at = initialSheetState({ r: 1, c: 0 });
+        const both = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START, vol: VOL }, [proposal("Filtration")]) }], ctx).state;
+        const armed = run(both, [key("Tab")], ctx).state;
+        const dismissed = run(armed, [key("Backspace")], ctx);
+        expect(dismissed.effects.some((e) => e.t === "clear" || e.t === "write.many")).toBe(false);
+        expect(dismissed.state.rejected.fills.has("b|start")).toBe(true);
+        expect(dismissed.state.sugg?.fill.has("start")).toBe(false);
+        expect(dismissed.state.armed).toBeNull();
+        expect(dismissed.state.msg).toBe("Dismissed — start will not be suggested again on this row");
+        // ⌫ with nothing armed clears the cells as before.
+        expect(run(both, [key("Backspace")], ctx).effects).toContainEqual({ t: "clear", r0: 1, r1: 1, c0: 0, c1: 0 });
+        const picked = run(both, [{ t: "proposal.pick", i: 0 }], ctx).state;
+        const rejected = run(picked, [key("Delete")], ctx);
+        expect(rejected.state.rejected.follows.has("Transfer>Filtration")).toBe(true);
+        expect(rejected.state.sugg?.rows).toEqual([]);
+        expect(rejected.state.gsel).toBeNull();
+        expect(rejected.state.msg).toBe("Rejected — Filtration will not be suggested after Transfer again");
+        // The × button on a proposal row does the same without a selection.
+        expect(run(both, [{ t: "proposal.reject", i: 0 }], ctx).state.rejected.follows.has("Transfer>Filtration")).toBe(true);
+    });
+
+    test("an async settlement merges by anchor and key — an earlier provider outranks, a stale anchor is ignored, a dismissed fill stays dismissed; a rekey follows a blank anchor; a vanished anchor drops everything", () => {
+        const ctx = suggestCtxOf();
+        const at = initialSheetState({ r: 1, c: 0 });
+        const pending = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { vol: VOL }, [], ["vol", "rows"]) }], ctx).state;
+        const earlier = fillOf(cell("Float", 1), "the model", 0);
+        const landed = run(pending, [{ t: "suggest.landed", anchorId: "b", key: "vol", fill: earlier }], ctx);
+        expect(landed.state.sugg?.fill.get("vol")).toEqual(earlier);
+        expect(landed.state.sugg?.pending).toEqual(["rows"]);
+        const laterOne = run(pending, [{ t: "suggest.landed", anchorId: "b", key: "vol", fill: fillOf(cell("Float", 9), "late", 5) }], ctx);
+        expect(laterOne.state.sugg?.fill.get("vol")).toEqual(VOL);
+        expect(run(pending, [{ t: "suggest.landed", anchorId: "zzz", key: "vol", fill: earlier }], ctx).state).toBe(pending);
+        expect(run(pending, [{ t: "suggest.landed", anchorId: "b", key: "notes", fill: earlier }], ctx).state).toBe(pending);
+        const rows = run(landed.state, [{ t: "suggest.landed", anchorId: "b", key: "rows", rows: [proposal("Filtration", "model")] }], ctx);
+        expect(rows.state.sugg?.rows).toEqual([proposal("Filtration", "model")]);
+        expect(rows.state.sugg?.pending).toEqual([]);
+        // A settlement that yields nothing just clears the pending chip; everything gone ⇒ no suggestions.
+        const bare = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", {}, [], ["vol"]) }, { t: "suggest.landed", anchorId: "b", key: "vol", fill: null }], ctx);
+        expect(bare.state.sugg).toBeNull();
+        // Dismissed stays dismissed.
+        const dismissedFirst = { ...pending, rejected: { fills: new Set(["b|vol"]), follows: new Set<string>() } };
+        expect(run(dismissedFirst, [{ t: "suggest.landed", anchorId: "b", key: "vol", fill: earlier }], ctx).state.sugg?.fill.get("vol")).toEqual(VOL);
+        // A blank anchor becomes real: the suggestions follow its id.
+        const blank = run(initialSheetState({ r: 3, c: 0 }), [{ t: "suggest.ready", anchorId: " blank:3", sugg: suggOn(" blank:3", { start: START }) }], ctx).state;
+        expect(run(blank, [{ t: "suggest.rekey", from: " blank:3", to: "d" }], ctx).state.sugg?.anchorId).toBe("d");
+        // The anchor leaves the sheet: the suggestions go with it.
+        const gone = run(landed.state, [{ t: "rows.changed" }], suggestCtxOf({ rowOf: () => undefined }));
+        expect(gone.state.sugg).toBeNull();
+        expect(run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { vol: VOL }) }, { t: "suggest.clear" }], ctx).state.sugg).toBeNull();
+    });
+
+    test("typing keeps the suggestions but drops the armed target; a commit re-asks nothing itself (the component does); a paste drops them", () => {
+        const ctx = suggestCtxOf();
+        const at = initialSheetState({ r: 1, c: 0 });
+        const armed = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START }) }, key("Tab")], ctx).state;
+        const typing = run(armed, [key("x")], ctx);
+        expect(typing.state.sugg?.fill.size).toBe(1);
+        expect(typing.state.armed).toBeNull();
+        expect(typing.effects).toContainEqual({ t: "schedule.suggest", latency: "idle" });
+        // ⌘⏎ in the editor commits in place and takes the row fill.
+        const filled = run(typing.state, [ekey("Enter", { meta: true })], ctx);
+        expect(filled.effects.map((e) => e.t)).toEqual(["write", "focus.sheet", "write.many"]);
+        expect(filled.state.edit).toBeNull();
+        expect(run(armed, [{ t: "clipboard.paste", text: "a\tb" }], ctx).state.sugg).toBeNull();
+    });
+});

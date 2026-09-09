@@ -13,7 +13,14 @@ import {
     BooleanType,
     IntegerType,
     StringType,
+    ArrayType,
+    AsyncFunctionType,
+    DictType,
+    OptionType,
+    StructType,
+    VariantType,
 } from "./types.js";
+import { some, variant } from "./containers/variant.js";
 
 // Force node test to show full stack traces for easier debugging
 Error.stackTraceLimit = Infinity;
@@ -495,6 +502,61 @@ describe("analyzeIR - isAsync propagation", () => {
         const compiled = fn.toIR().compile(platform);
         const result = await compiled();
         assert.strictEqual(result, "url");
+    });
+});
+
+describe("analyzeIR - analysed children are substituted for every composite node", () => {
+    // A function literal placed straight into a struct, a variant, an array, a
+    // dict, a match arm or a cast is compiled from the ANALYSED tree — so the
+    // awaits inside an async body survive whichever node carries it. (Binding it
+    // with $.const first went through Let, which always substituted; the composite
+    // cases used to validate their children and return the originals.)
+    const Item = StructType({ n: IntegerType });
+    const fetchItems = East.asyncPlatform("fetchItems", [StringType], ArrayType(Item));
+    const platform = [fetchItems.implement(async (_s: string) => [{ n: 1n }, { n: 2n }])];
+    const Wire = AsyncFunctionType([StringType], ArrayType(IntegerType));
+    const author = East.asyncFunction([StringType], ArrayType(Item), (_$, s) => fetchItems(s));
+    // The body USES the awaited result inline — the shape that lost its await.
+    const wire = () => East.asyncFunction([StringType], ArrayType(IntegerType), (_$, s) => author(s).map((_$2, it) => it.n.add(10n)));
+
+    async function callsAwaited(fn: (...args: any[]) => any, name: string) {
+        const out = fn("x");
+        assert.ok(out instanceof Promise, `${name}: the compiled async function must return a promise`);
+        assert.deepStrictEqual(await out, [11n, 12n], `${name}: the awaited result flows through the builtin`);
+    }
+
+    test("inside a Struct field and a Variant payload", async () => {
+        const Out = StructType({ direct: Wire, tagged: VariantType({ sync: StringType, async: Wire }) });
+        const program = East.function([], Out, () => ({ direct: wire(), tagged: variant("async", wire()) }));
+        const analyzed = analyzeIR(program.toIR().ir, platform) as AnalyzedIR<FunctionIR>;
+        const struct = analyzed.value.body as AnalyzedIR;
+        assert.strictEqual(struct.type, "Struct");
+        const direct = (struct.value as { fields: { value: AnalyzedIR }[] }).fields[0]!.value as AnalyzedIR<AsyncFunctionIR>;
+        assert.strictEqual(direct.type, "AsyncFunction");
+        // A one-expression body IS the builtin; a block ends with it.
+        const body = direct.value.body as AnalyzedIR;
+        const builtin = (body.type === "Block" ? (body as BlockIR).value.statements.at(-1) : body) as AnalyzedIR;
+        assert.strictEqual(builtin.type, "Builtin");
+        assert.strictEqual(builtin.value.isAsync, true, "the map over an awaited call is analysed async");
+        const compiled = program.toIR().compile(platform)() as { direct: (s: string) => unknown; tagged: { value: (s: string) => unknown } };
+        await callsAwaited(compiled.direct, "struct field");
+        await callsAwaited(compiled.tagged.value, "variant payload");
+    });
+
+    test("inside an Array element, a Dict value, a Match arm and an As cast", async () => {
+        const Out = StructType({ list: ArrayType(Wire), dict: DictType(StringType, Wire), picked: Wire, widened: OptionType(Wire) });
+        const program = East.function([], Out, ($) => {
+            const flag = $.const(variant("yes", null), VariantType({ yes: NullType, no: NullType }));
+            const picked = flag.match({ yes: () => wire(), no: () => wire() });
+            return { list: [wire()], dict: new Map([["k", wire()]]), picked, widened: East.value(some(wire()), OptionType(Wire)) };
+        });
+        const compiled = program.toIR().compile(platform)() as {
+            list: ((s: string) => unknown)[]; dict: Map<string, (s: string) => unknown>; picked: (s: string) => unknown; widened: { value: (s: string) => unknown };
+        };
+        await callsAwaited(compiled.list[0]!, "array element");
+        await callsAwaited(compiled.dict.get("k")!, "dict value");
+        await callsAwaited(compiled.picked, "match arm");
+        await callsAwaited(compiled.widened.value, "option payload");
     });
 });
 
