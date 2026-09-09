@@ -144,7 +144,8 @@ export function createHttpApi(config: HttpApiConfig): Api {
         workspaceStatus: async (ws) => workspaceStatus(apiUrl, repo(), ws, await options()),
         taskList: async (ws) => taskList(apiUrl, repo(), ws, await options()),
         taskGet: async (ws, task) => taskGet(apiUrl, repo(), ws, task, await options()),
-        taskExecutionList: async (ws, task) => taskExecutionList(apiUrl, repo(), ws, task, await options()),
+        // Every attempt, not only the latest per inputs hash: the Runs tab is a history.
+        taskExecutionList: async (ws, task) => taskExecutionList(apiUrl, repo(), ws, task, await options(), { all: true }),
         datasetList: async (ws) => datasetListRecursive(apiUrl, repo(), ws, [], await options()),
         datasetGetStatus: async (ws, path) => datasetGetStatus(apiUrl, repo(), ws, path, await options()),
         datasetGet: async (ws, path) => datasetGet(apiUrl, repo(), ws, path, await options()),

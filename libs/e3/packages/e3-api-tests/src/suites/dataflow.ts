@@ -27,6 +27,7 @@ import {
   datasetSet,
   datasetGet,
   taskLogs,
+  taskExecutionList,
   ApiError,
 } from '@elaraai/e3-api-client';
 
@@ -165,6 +166,26 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const outputDataset = status.datasets.find(d => d.path === '.tasks.compute.output');
         assert.ok(outputDataset, 'Output dataset .tasks.compute.output should exist');
         assert.strictEqual(outputDataset.status.type, 'up-to-date');
+      });
+
+      it('taskExecutionList lists the latest attempt per inputs by default and every attempt with all', async (t) => {
+        const ctx = await withSimpleExec(t);
+        const opts = await ctx.opts();
+
+        // Two forced runs of the same inputs: two attempts under one inputs hash.
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'exec-ws', { force: true }, opts));
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'exec-ws', { force: true }, opts));
+
+        const latest = await taskExecutionList(ctx.config.baseUrl, ctx.repoName, 'exec-ws', 'compute', opts);
+        assert.strictEqual(latest.length, 1, 'one item per distinct inputs hash');
+        assert.strictEqual(latest[0].status.type, 'success');
+
+        const every = await taskExecutionList(ctx.config.baseUrl, ctx.repoName, 'exec-ws', 'compute', opts, { all: true });
+        assert.ok(every.length >= 2, `every attempt is listed, got ${every.length}`);
+        assert.ok(every.every(e => e.inputsHash === latest[0].inputsHash), 'all attempts share the inputs hash');
+        assert.strictEqual(new Set(every.map(e => e.startedAt)).size, every.length, 'attempts are distinct runs');
+        const newest = every.map(e => e.startedAt).sort().at(-1);
+        assert.strictEqual(latest[0].startedAt, newest, 'the default item is the newest attempt');
       });
 
       it('dataflowStart triggers execution (non-blocking)', async (t) => {

@@ -56,14 +56,17 @@ export async function taskGet(
 }
 
 /**
- * List execution history for a task.
+ * List execution history for a task: by default the latest attempt per
+ * distinct inputs hash; with `query.all`, every attempt (a forced re-run
+ * or a retry after a failure adds one under the same inputs hash).
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param workspace - Workspace name
  * @param taskName - Task name
  * @param options - Request options including auth token
- * @returns Array of execution history items
+ * @param query - `all: true` lists every attempt
+ * @returns Array of execution history items (unordered)
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
@@ -72,11 +75,13 @@ export async function taskExecutionList(
   repo: string,
   workspace: string,
   taskName: string,
-  options: RequestOptions
+  options: RequestOptions,
+  query: { all?: boolean } = {}
 ): Promise<ExecutionListItem[]> {
+  const suffix = query.all === true ? '?all=true' : '';
   return get(
     url,
-    `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/tasks/${encodeURIComponent(taskName)}/executions`,
+    `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/tasks/${encodeURIComponent(taskName)}/executions${suffix}`,
     ArrayType(ExecutionListItemType),
     options
   );

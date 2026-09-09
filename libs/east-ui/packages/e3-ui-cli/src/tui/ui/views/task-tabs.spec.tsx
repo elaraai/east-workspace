@@ -37,6 +37,8 @@ function repo(): FakeApi {
         name: 'forecast', status: up, inputs: ['.inputs.params', '.tasks.features.output'], dependsOn: ['features'], output: dictOf(10),
         logs: { stdout: STDOUT, stderr: STDERR },
         executions: [
+            // Two attempts under one inputs hash (a retry after a failure): both are rows.
+            { inputsHash: '1c07aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3f', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('success', null), startedAt: '2026-09-07T18:10:00Z', completedAt: some('2026-09-07T18:10:31Z'), duration: some(31_000n), exitCode: some(0n) },
             { inputsHash: '1c07aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3f', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('failed', null), startedAt: '2026-09-07T18:03:21Z', completedAt: some('2026-09-07T18:03:23Z'), duration: some(2_100n), exitCode: some(2n) },
             { inputsHash: '4be1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbba9', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('success', null), startedAt: '2026-09-08T11:42:10Z', completedAt: some('2026-09-08T11:42:48Z'), duration: some(38_400n), exitCode: some(0n) },
             { inputsHash: 'e0d2cccccccccccccccccccccccccccccccccccccccccccccccccccccccccc77', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('error', null), startedAt: '2026-09-06T08:00:00Z', completedAt: none, duration: none, exitCode: none },
@@ -138,14 +140,16 @@ describe('the task view — Runs', () => {
         assert.match(lines[2]!, /^ forecast    1 Output   2 Stdout   3 Stderr( \(12\))?  ▌4 Runs▐\s+DATA TASK · ● UP-TO-DATE · cached · inputs 4be1…a9$/);
         assert.match(lines[5]!, /^  STATUS\s+STARTED\s+DURATION\s+EXIT\s+INPUTS\s*$/);
         assert.match(lines[6]!, /^ ▌● success\s+2026-09-08 11:42:10\s+38\.4s\s+0\s+4be1…a9\s+← current\s*$/);
-        assert.match(lines[7]!, /^  ✗ failed\s+2026-09-07 18:03:21\s+2\.1s\s+2\s+1c07…3f\s*$/);
-        assert.match(lines[8]!, /^  ◐ error\s+2026-09-06 08:00:00\s+—\s+—\s+e0d2…77\s*$/);
-        assert.match(lines[35]!, /^ ↑↓ move   ⏎ inputs   1 output  2 stdout  3 stderr\s+3 executions$/);
+        assert.match(lines[7]!, /^  ● success\s+2026-09-07 18:10:00\s+31\.0s\s+0\s+1c07…3f\s*$/);
+        assert.match(lines[8]!, /^  ✗ failed\s+2026-09-07 18:03:21\s+2\.1s\s+2\s+1c07…3f\s*$/);
+        assert.match(lines[9]!, /^  ◐ error\s+2026-09-06 08:00:00\s+—\s+—\s+e0d2…77\s*$/);
+        assert.match(lines[35]!, /^ ↑↓ move   ⏎ inputs   1 output  2 stdout  3 stderr\s+4 executions$/);
         await mounted.press(KEY.enter);
         lines = mounted.lines();
-        assert.match(lines[10]!, /^ ▪ 4be1…a9 = sha256 of the inputs \(params 0a44…, \.tasks\.features\.output 7be2…\) · ⏎ collapses$/);
+        // Four rows, a blank, then the expansion line.
+        assert.match(lines[11]!, /^ ▪ 4be1…a9 = sha256 of the inputs \(params 0a44…, \.tasks\.features\.output 7be2…\) · ⏎ collapses$/);
         await mounted.press('j');
-        assert.match(mounted.lines()[10]!, /^ ▪ 1c07…3f = sha256 of the inputs/);
+        assert.match(mounted.lines()[11]!, /^ ▪ 1c07…3f = sha256 of the inputs/);
         await mounted.press(KEY.enter);
         assert.doesNotMatch(mounted.frame(), /sha256/);
     });
