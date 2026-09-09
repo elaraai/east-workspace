@@ -33,6 +33,13 @@
  *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
  *     `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; the lens band's
  *     pill opens on hover (`shadow.xs`) with brand controls.
+ *   - A phone (the adaptive contract, #346): the grid scrolls sideways under
+ *     a gutter that stays put (`position: sticky`), the toolbar keeps its one
+ *     row through its ladder, and on a coarse pointer the small controls grow
+ *     (gutter buttons, ✓ take, × close, the band's controls, the context
+ *     options, the strip's chips), the editor's type goes to 16 px so a
+ *     phone never zooms into it, and the band's controls — hover-revealed on
+ *     a desktop — stay open where nothing can hover (`_hoverNone`).
  *
  * @packageDocumentation
  */
@@ -43,8 +50,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
     className: "elara-sheet",
     slots: [
         "root", "frame", "card", "body",
-        "toolbar", "toolbarCount", "toolbarBadge",
-        "tabs", "tab", "tabCount", "tabDot", "tabClose", "tabAdd", "tabRename",
+        "toolbar", "toolbarRailGroup", "toolbarCluster", "toolbarCount", "toolbarBadge",
+        "tabs", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
         "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerCell", "headerLabel", "headerSub",
         "row", "rowBlank", "gutter", "gutterNumber", "gutterButton", "gutterBar",
@@ -81,8 +88,20 @@ export const sheetSlotRecipe = defineSlotRecipe({
         body: {
             paddingBottom: "120px",
         },
+        // ONE row, always: nothing wraps and nothing scrolls. The rail group
+        // takes whatever is left after the tabs, the context switch and the
+        // count, and folds its rail to fit — down to the icon, which is the
+        // group's floor. Only past that floor do the tabs shrink (and fold
+        // into their `+n` menu); at their own floor they report, and the
+        // toolbar climbs its ladder (`data-tight`): 1 drops the count, 2 the
+        // context label, 3 the `+ TAB` label and the whole-sheet count, 4
+        // caps the tab names, 5 drops the context switch, closes the strip
+        // up and drops every count.
+        // `clip`, not `hidden`: a scroll container's minimum height is 0,
+        // and in a fixed-height frame the column flex would squash the row.
         toolbar: {
             display: "flex",
+            flexWrap: "nowrap",
             alignItems: "center",
             gap: "{spacing.3}",
             paddingX: "20px",
@@ -90,13 +109,38 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-            minWidth: "0",
+            overflow: "clip",
+            flexShrink: "0",
+        },
+        // Basis 0 and a `min-content` floor: the group is the leftover's
+        // taker, never a claimant — the flex algorithm hands it the slack
+        // and takes from the tabs only once the group is at its floor.
+        toolbarRailGroup: {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: "{spacing.3}",
+            flex: "1 1 0",
+            minWidth: "min-content",
+        },
+        // Inline-size containment: the rail's content never inflates the
+        // group's floor (a nested `min-width: auto` would carry every chip
+        // up), so the floor is the icon's width. The rail fills the box and
+        // hugs its end; past 640px the box stops growing.
+        toolbarCluster: {
+            display: "flex",
+            flex: "1 1 0",
+            // The icon rung's trigger: the pill, its gap, the chevron.
+            minWidth: "52px",
+            maxWidth: "640px",
+            contain: "inline-size",
         },
         toolbarCount: {
             fontFamily: "mono",
             fontSize: "10.5px",
             color: "fg.subtle",
             whiteSpace: "nowrap",
+            flex: "none",
         },
         toolbarBadge: {
             fontFamily: "mono",
@@ -113,21 +157,24 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             whiteSpace: "nowrap",
         },
+        // The strip never scrolls: it folds its trailing tabs into a `+n` menu.
         tabs: {
             display: "flex",
             alignItems: "stretch",
             gap: "16px",
             minWidth: "0",
-            maxWidth: "56%",
             flex: "0 1 auto",
-            overflowX: "auto",
-            overflowY: "hidden",
+            overflow: "hidden",
+            // The toolbar's last rung: the strip closes up and its counts go.
+            "[data-tight='5'] &": { gap: "10px" },
         },
         tab: {
             display: "inline-flex",
             alignItems: "center",
+            lineHeight: "1",
             gap: "7px",
             height: "30px",
+            _coarse: { height: "40px" },
             paddingX: "2px",
             flex: "none",
             color: "fg.subtle",
@@ -142,9 +189,20 @@ export const sheetSlotRecipe = defineSlotRecipe({
             _hover: { color: "fg.muted" },
             "&[data-active]": { boxShadow: "inset 0 -2px 0 var(--chakra-colors-fg)", color: "fg", cursor: "default" },
         },
+        // The name ellipsises past 200px, and past 72px once the toolbar's
+        // ladder caps it — the count, the dot and the × always show whole.
+        tabLabel: {
+            minWidth: "0",
+            maxWidth: "200px",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            "[data-tight='4'] &, [data-tight='5'] &": { maxWidth: "72px" },
+        },
         tabCount: {
             color: "fg.subtle",
             fontWeight: "500",
+            // The whole-sheet tab's count is the first thing a tight toolbar drops from the strip; at the last rung every count goes.
+            "[data-tight='3'] [data-tab='all'] &, [data-tight='4'] [data-tab='all'] &, [data-tight='5'] &": { display: "none" },
         },
         tabDot: {
             width: "5px",
@@ -163,11 +221,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             fontSize: "9px",
             _hover: { color: "fg.danger" },
+            _coarse: { width: "24px", height: "24px", fontSize: "12px" },
         },
         tabAdd: {
             flex: "none",
             display: "inline-flex",
             alignItems: "center",
+            lineHeight: "1",
             gap: "4px",
             alignSelf: "center",
             height: "22px",
@@ -185,6 +245,28 @@ export const sheetSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             userSelect: "none",
             _hover: { borderColor: "brand.solid", color: "brand.solid" },
+            _coarse: { height: "32px", paddingX: "10px" },
+            // Icon-only from the toolbar's third rung; the title still says what it does.
+            "[data-tight='3'] &, [data-tight='4'] &, [data-tight='5'] &": { gap: "0", paddingX: "5px", "& > [data-slot=tabAddLabel]": { display: "none" } },
+        },
+        tabMore: {
+            display: "inline-flex",
+            alignItems: "center",
+            lineHeight: "1",
+            gap: "5px",
+            height: "30px",
+            _coarse: { height: "40px" },
+            paddingX: "2px",
+            flex: "none",
+            color: "fg.subtle",
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            fontWeight: "600",
+            letterSpacing: "0.12em",
+            whiteSpace: "nowrap",
+            cursor: "pointer",
+            userSelect: "none",
+            _hover: { color: "fg.muted" },
         },
         tabRename: {
             width: "120px",
@@ -200,6 +282,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             textTransform: "uppercase",
             color: "fg",
             padding: "0",
+            // A phone zooms into type under 16 px.
+            _coarse: { fontSize: "16px" },
         },
         contextSwitch: {
             display: "flex",
@@ -212,6 +296,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderColor: "border.strong",
             borderRadius: "{radii.md}",
             background: "bg.surface",
+            _coarse: { height: "40px" },
+            // The toolbar's last rung: the tabs keep the row.
+            "[data-tight='5'] &": { display: "none" },
         },
         contextLabel: {
             fontFamily: "mono",
@@ -224,6 +311,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         contextOption: {
             paddingX: "8px",
             paddingY: "2px",
+            _coarse: { paddingX: "10px", paddingY: "8px" },
             border: "none",
             background: "transparent",
             borderRadius: "{radii.sm}",
@@ -240,10 +328,14 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderBottomWidth: "1px",
             borderBottomColor: "border.strong",
         },
+        // The gutters stay put while the grid scrolls sideways (a phone).
         headerGutter: {
             background: "bg.panel",
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
+            position: "sticky",
+            left: "0",
+            zIndex: "1",
         },
         headerCell: {
             paddingX: "10px",
@@ -258,6 +350,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         headerLabel: {
             fontFamily: "mono",
             fontSize: "10px",
+            lineHeight: "1.3",
             fontWeight: "600",
             letterSpacing: "0.16em",
             textTransform: "uppercase",
@@ -269,6 +362,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         headerSub: {
             fontFamily: "mono",
             fontSize: "9px",
+            lineHeight: "1.3",
             letterSpacing: "0.04em",
             color: "fg.subtle",
             whiteSpace: "nowrap",
@@ -309,7 +403,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightColor: "border.subtle",
             cursor: "pointer",
             userSelect: "none",
-            position: "relative",
+            position: "sticky",
+            left: "0",
+            zIndex: "5",
             _hover: { background: "bg.muted", color: "fg.muted" },
         },
         gutterNumber: {
@@ -334,6 +430,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             cursor: "pointer",
             fontSize: "9px",
+            _coarse: { width: "26px", height: "26px", fontSize: "12px" },
             _hover: { background: "brand.solid", color: "brand.contrast" },
             "&[data-reject]": {
                 borderColor: "border.strong",
@@ -486,6 +583,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "brand.solid",
             cursor: "pointer",
             fontSize: "9px",
+            _coarse: { width: "26px", height: "26px", fontSize: "12px" },
             _hover: { background: "brand.solid", color: "brand.contrast" },
         },
         editor: {
@@ -522,6 +620,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             fontFamily: "mono",
             fontSize: "12.5px",
+            _coarse: { fontSize: "16px" },
         },
         editorGhost: {
             color: "fg.subtle",
@@ -536,6 +635,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "fg",
             padding: "0",
             minWidth: "0",
+            // A phone zooms into type under 16 px; the mirror follows, so the ghost keeps its place.
+            _coarse: { fontSize: "16px" },
         },
         editorResolve: {
             display: "inline-flex",
@@ -595,6 +696,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         chip: {
             display: "inline-flex",
             alignItems: "center",
+            lineHeight: "14px",
             gap: "4px",
             fontFamily: "mono",
             fontSize: "10.5px",
@@ -610,6 +712,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         chipDashed: {
             display: "inline-flex",
             alignItems: "center",
+            lineHeight: "14px",
             gap: "4px",
             fontFamily: "mono",
             fontSize: "10.5px",
@@ -627,6 +730,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         chipPicked: {
             display: "inline-flex",
             alignItems: "center",
+            lineHeight: "14px",
             fontFamily: "mono",
             fontSize: "10.5px",
             fontWeight: "600",
@@ -689,6 +793,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             justifyContent: "flex-start",
             paddingLeft: "84px",
+            _coarse: { height: "32px", paddingLeft: "100px" },
         },
         bandRule: {
             position: "absolute",
@@ -720,12 +825,16 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // The lens band's controls open on hover — the only shadow in the sheet (B§11).
             "& [data-slot=bandControl]": { display: "none" },
             "&[data-lens]:hover": { boxShadow: "xs", "& [data-slot=bandControl]": { display: "inline-flex" } },
+            // Where nothing can hover they stay open.
+            _hoverNone: { "&[data-lens] [data-slot=bandControl]": { display: "inline-flex" } },
+            _coarse: { paddingY: "4px", gap: "10px" },
         },
         bandControl: {
             display: "inline-flex",
             alignItems: "center",
             gap: "3px",
             paddingX: "4px",
+            _coarse: { paddingX: "8px", paddingY: "4px" },
             borderRadius: "{radii.sm}",
             color: "brand.solid",
             fontWeight: "600",
@@ -767,6 +876,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         stripChip: {
             fontFamily: "mono",
             fontSize: "11px",
+            _coarse: { paddingY: "6px" },
             color: "fg.subtle",
             paddingX: "7px",
             paddingY: "1px",
@@ -780,6 +890,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         stripChipOn: {
             fontFamily: "mono",
             fontSize: "11px",
+            _coarse: { paddingY: "6px" },
             fontWeight: "600",
             color: "brand.fg",
             background: "brandTint",

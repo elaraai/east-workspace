@@ -10,7 +10,7 @@
 
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
-import { lensCount, lensGaps, lensHits, lensVisible, matchRecord, narrowingActive, nextReach, revealStep, viewName, type LensConfig } from "./lens.js";
+import { foldTabs, lensCount, lensGaps, lensHits, lensVisible, matchRecord, narrowingActive, nextReach, revealStep, viewName, type LensConfig } from "./lens.js";
 import type { SliceStateValue } from "./sheet-types.js";
 import type { SheetColumnMeta } from "./model.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
@@ -135,5 +135,21 @@ describe("visibility, gaps and reveals", () => {
         expect(viewName("paint", 3)).toBe("paint");
         expect(viewName("   ", 3)).toBe("view 3");
         expect(viewName("a very long search query indeed", 1)).toBe("a very long sea…");
+    });
+});
+
+describe("the tab fold", () => {
+    const views = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+    const ids = (r: { visible: { id: string }[]; hidden: { id: string }[] }) => [r.visible.map((v) => v.id).join(""), r.hidden.map((v) => v.id).join("")];
+
+    test("the trailing tabs fold first; the active tab always stays, taking the last visible slot", () => {
+        expect(ids(foldTabs(views, null, 0))).toEqual(["abcd", ""]);
+        expect(ids(foldTabs(views, null, 2))).toEqual(["ab", "cd"]);
+        expect(ids(foldTabs(views, "b", 2))).toEqual(["ab", "cd"]);
+        expect(ids(foldTabs(views, "d", 2))).toEqual(["ad", "bc"]);
+        expect(ids(foldTabs(views, "c", 3))).toEqual(["c", "abd"]);
+        expect(ids(foldTabs(views, "c", 9))).toEqual(["c", "abd"]);
+        expect(ids(foldTabs(views, null, 9))).toEqual(["", "abcd"]);
+        expect(ids(foldTabs(views, "zzz", 1))).toEqual(["abc", "d"]);
     });
 });

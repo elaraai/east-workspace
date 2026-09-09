@@ -30,6 +30,7 @@ import { getSomeorUndefined } from "../../utils.js";
 import { boundSliceConfig } from "../../platform/slice/index.js";
 import { parseCssSize } from "../../style/parse-size.js";
 import { DensityProvider } from "../../contracts/density.js";
+import { useCoarsePointer } from "../../contracts/adaptive.js";
 import { useDensityHeights } from "../shared/helpers.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
@@ -69,6 +70,9 @@ export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js"
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
+
+/** The gutter's floor on a coarse pointer: the number, then two 26 px buttons (a proposal's ✓ ×) with room to tap. */
+const COARSE_GUTTER_PX = 96;
 
 const sheetRootEqual = equalFor(Sheet.Types.Root);
 const cellEqual = equalFor(Sheet.Types.Cell);
@@ -167,7 +171,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const rowPx = useDensityHeights(size).row;
     const readOnly = getSomeorUndefined(value.readOnly) ?? false;
     const blanks = Number(getSomeorUndefined(value.blanks) ?? BigInt(DEFAULT_BLANKS));
-    const gutterPx = parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX;
+    // On a coarse pointer the gutter's buttons grow to 26 px (the recipe's
+    // `_coarse` rungs), so the gutter keeps a floor wide enough for two.
+    const coarse = useCoarsePointer();
+    const gutterPx = Math.max(parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX, coarse ? COARSE_GUTTER_PX : 0);
     // The LAST column absorbs the frame's slack (the Table's #323 stretch rule): a
     // sheet narrower than its frame fills it instead of leaving a dead strip.
     const gridTemplate = useMemo(() => `${gutterPx}px ${columns.list.map((c, i) => (i === columns.list.length - 1 ? `minmax(${c.width}px, 1fr)` : `${c.width}px`)).join(" ")}`, [gutterPx, columns]);

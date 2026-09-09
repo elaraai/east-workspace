@@ -1342,12 +1342,15 @@ export const planSlotRecipe = defineSlotRecipe({
             // narrow layout stacks a horizontal split the way `vertical`
             // does; the row's `split` is a DESKTOP layout choice and the
             // mobile answer is one column.
-            "[data-plan-narrow] &": { paddingRight: "2px", fontSize: "9.5px" },
-            "[data-plan-narrow] &[data-split='horizontal']": {
-                flexDirection: "column",
-                alignItems: "flex-end",
-                gap: "1px",
-                lineHeight: "11px",
+            "[data-plan-narrow] &": {
+                paddingRight: "2px",
+                fontSize: "9.5px",
+                "&[data-split='horizontal']": {
+                    flexDirection: "column",
+                    alignItems: "flex-end",
+                    gap: "1px",
+                    lineHeight: "11px",
+                },
             },
             "[data-emphasis='footer'] &": { fontWeight: "semibold", color: "fg.default" },
             "[data-emphasis='header'] &": {

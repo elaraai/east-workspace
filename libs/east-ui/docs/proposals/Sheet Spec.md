@@ -1558,6 +1558,35 @@ lens. The key search on the paged arm (`use-seek.ts`) mounts whenever the source
 declares `seek`, replaces the rail's `search`, and lands the ring on the matched
 position once its window is resident; the k-th match IS the row at `range.row + k`.
 
+**The toolbar under width pressure (P6 review).** One row, always — nothing
+wraps and nothing scrolls. The rail gives way first: its ladder folds
+affordances into summary chips, then one chip naming its contents, then the
+icon alone (a new terminal rung; every rung opens the slice editor popover).
+The flex layout enforces that by construction: the rail group takes the
+leftover (`flex: 1 1 0`) over a `min-content` floor, the cluster's `contain:
+inline-size` keeps the rail's content out of that floor, and the tabs strip
+shrinks only past it. Then the tabs fold their trailing members into a `+n`
+menu (`foldTabs` — the active tab is always kept, taking the last visible
+slot). At the strip's floor (the whole-sheet tab · the active tab · `+n` ·
+`+ TAB`) it reports through `SheetTabsFoldContext`, and the toolbar climbs its
+own ladder one rung per report, moving the strip's measure key after each so
+the ladder settles before paint: `data-tight` 1 drops the count line, 2 the
+context label, 3 the `+ TAB` label and the whole-sheet count, 4 caps the tab
+names at 72 px, 5 drops the context switch. Growth resets both ladders once
+the width has settled (the rail's rule); the count or the context switch
+coming or going resets the toolbar's. The Plan's toolbar keeps its one row
+too: its cluster's floor is the icon rung.
+
+**A phone (P6 review).** The sheet is a spreadsheet on a phone, not a card
+list: the grid scrolls sideways under a gutter that stays put (`position:
+sticky`), the toolbar keeps its row through the ladder above, and on a coarse
+pointer (`_coarse`, the adaptive contract of #346) the small controls grow —
+gutter buttons and ✓ take 26 px, × close 24 px, the tabs 40 px, `+ TAB` 32 px,
+the band's controls and the strip's chips padded — the gutter widens to 96 px
+so two buttons fit, the editor's type goes to 16 px so the phone never zooms
+into it, and the lens band's hover-revealed controls stay open where nothing
+can hover (`_hoverNone`).
+
 **Pointer and scroll (P4 follow-up).** A click never scrolls — the cell is under
 the pointer already, and centring it moved the sheet under a held button so the
 next row's `mouseenter` read as a drag (a click selected two cells, then three);
@@ -1581,7 +1610,7 @@ semantic token; dark theme for free.
 | Surface | Value |
 |---|---|
 | Sheet card | `--paper`, **no border of its own** — a component is placed anywhere and the host frames it (the Plan rule; the prototype PAGE draws its 1px `--rule-strong` radius-10 frame around the sheet, the component does not); content `min-width` = gutter + Σ column widths; 120px bottom padding; one rule per seam — toolbar and header `--rule` / `--rule-strong` below, strip and footer `--rule` above |
-| Toolbar row | 8/20 on `--paper`, 1px `--rule` bottom: tabs (left, scrolls) · context switch · `n matches · m context` mono 10.5 `--ink-4` · the slice rail cluster (right; the search pill is the rail's, one height whether it shows the `/` hint or the ×) · scope badge *loaded rows only* (paged) |
+| Toolbar row | 8/20 on `--paper`, 1px `--rule` bottom: tabs (left) · context switch · `n matches · m context` mono 10.5 `--ink-4` · the slice rail cluster (right; the search pill is the rail's, one height whether it shows the `/` hint or the ×) · scope badge *loaded rows only* (paged). Under width pressure nothing squeezes, wraps or scrolls — one row, always: the rail folds (chips · one chip · the icon) before the tabs fold their trailing members — the active one always kept — into a `+n` menu, and only at the strip's floor does the toolbar drop the count, the context label, the `+ TAB` label, cap the tab names and drop the context switch, in that order (§6.3) |
 | Header | sticky, two lines: label mono 10/600/`.16em` uppercase `--ink-4`; sub mono 9 `--ink-5` ellipsised; 1px `--rule` column dividers; `--rule-strong` bottom |
 | Gutter | 80px `--paper-2`; row number mono 10 right-aligned in 26px (`--ink-5`, brand `--brand-d` 600 for hits) with 6px before the buttons; 18×18 r-sm action buttons 3px apart (✓ brand / × rule-strong→neg / → brand); 3px brand-d bar when the row is selected; hover `--paper-3` |
 | Rows / cells | min-height 36; padding 6/10; 1px `--rule` bottom and right; text 13 `--ink`; mono values 12 `--ink-2`; ghosts `--ink-4`; unit mono 9.5 `--ink-5`; enum = 6px dot (member tone) + mono 10/600/`.08em` uppercase word |

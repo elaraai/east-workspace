@@ -252,3 +252,22 @@ export function viewName(query: string, seq: number): string {
     if (q === "") return `view ${seq}`;
     return q.length > 16 ? `${q.slice(0, 15)}…` : q;
 }
+
+/**
+ * The tabs that stay visible when `folded` of them must hide under width
+ * pressure (B§8): the first ones in order, the active tab always kept — it
+ * takes the last visible slot when it would otherwise fold. The hidden tabs
+ * ride the `+n` menu, in order.
+ *
+ * @param views - Every view, in order
+ * @param active - The active view's id (`null` = the whole sheet)
+ * @param folded - How many tabs must hide
+ * @returns The visible and the hidden views
+ */
+export function foldTabs<T extends { id: string }>(views: readonly T[], active: string | null, folded: number): { visible: T[]; hidden: T[] } {
+    const keep = Math.max(0, views.length - Math.max(0, folded));
+    const activeIdx = active === null ? -1 : views.findIndex((v) => v.id === active);
+    if (activeIdx < 0 || activeIdx < keep) return { visible: views.slice(0, keep), hidden: views.slice(keep) };
+    const head = views.slice(0, Math.max(0, keep - 1));
+    return { visible: [...head, views[activeIdx]!], hidden: views.filter((_v, i) => i >= head.length && i !== activeIdx) };
+}
