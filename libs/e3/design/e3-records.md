@@ -163,7 +163,8 @@ this works at commit granularity (no ABA).
   `func-runtime` work in e3-ui is the natural client). (§9.4)
 - **Cloud storage** (e3-cloud repo, surveyed) — dataset refs are DynamoDB
   items (`DREF/{repo}` / `{ws}#{path}`, `dynamo-dataset-ref-store.ts`),
-  objects ≤4 KB are inlined in DynamoDB, larger in S3 (`s3-object-store.ts`);
+  objects ≤4 KB are inlined in DynamoDB, larger in S3 (`s3-object-store.ts`) —
+  the inline placement is since withdrawn, see the §10 note;
   `TransactWriteItems` already used for execution writes; a TTL'd
   `DynamoLockService` exists. Conditional ref writes are pre-approved future
   work (`design/presigned-transfer.md`). (§10)
@@ -300,6 +301,15 @@ records with **zero changes**. No new `DatasetRefType` variant (inserting a
 tag would reorder the sorted variant encoding — a breaking wire change, per
 the `e3-functions.md` ErrorType precedent).
 
+> **Superseded in part (2026-09-09) — collection roots.** Under the
+> segment-object layout (`e3-records-schema.md` §8.7) a collection record's
+> `hash` names a **manifest** object listing its segment objects, not one blob.
+> The ref shape is still unchanged on the wire; what changes is that every
+> reader of `value.hash` resolves it through one opener door beside
+> `encodeDatasetBlob` — dataset get, paging, task-input marshalling (which
+> splices the segments to one file), export, the UI read path. Scalar and
+> struct records keep pointing at a plain blob.
+
 ### 6.2 Commit objects
 
 ```ts
@@ -321,8 +331,9 @@ export const RecordCommitType = StructType({
 ```
 
 Commits are ordinary content-addressed objects. A typical commit is well
-under 300 bytes — in the cloud that is below the 4 KB DynamoDB-inline
-threshold, so the entire hot path of a small record never touches S3 (§10).
+under 300 bytes. In the cloud it is stored in S3 like every other object —
+the DynamoDB-inline placement this section originally relied on is withdrawn
+(§10 note; `e3-records-schema.md` §8.6).
 
 ### 6.3 The commit hash *is* the version
 
@@ -460,6 +471,14 @@ for attempt in 1..MAX (default 5, jittered backoff):
 return conflict(MAX)
 ```
 
+> **Under the segment-object layout** (`e3-records-schema.md` §8.7): for a
+> collection record `ref.value.hash` names a manifest, so `stateBytes` is
+> materialised by splicing the segment objects into one blob for the runner, and
+> `objects.write(result.value)` becomes "cut the result into segment objects and
+> write a manifest" through the one encoder door. This algorithm remains the
+> authored-reducer path and keeps its O(n) terms; the generic patch door
+> (`e3.mutateByPatch`, schema doc §7.2 and §8.7) bypasses them.
+
 Properties: a crash at any point leaves only unreferenced objects (GC
 reclaims them) — never a torn record. A reducer `$.error` aborts cleanly.
 Two concurrent mutations on one record serialize via the CAS; mutations on
@@ -488,6 +507,10 @@ hashes live in the `versions` *string map*, which `extractChildren`
   (non-leaf — walks the chain), `state` (leaf), `args` (leaf).
 - `PackageObject` branch: walk the new `records` map → `RecordObject` →
   per-mutation `MutationObject` → `bodyIr`, mirroring the functions fix.
+
+> **Amended (2026-09-09).** Under the segment-object layout `state` becomes
+> **non-leaf** — it names a manifest whose entries GC must walk
+> (`e3-records-schema.md` §8.7 rule 5). `args` stays a leaf.
 
 History is therefore retained in full until **compaction**: a
 `recordCompact` operation that writes a `$compact` commit with
@@ -606,6 +629,19 @@ Where records live — and explicitly **not** "in S3" in any database sense:
 | Reducer execution | Lambda (the cloud function-call kernel from `e3-functions-cloud.md`) | ms–s, body-dependent | runs where the data is |
 | Multi-record commit (v2) | DynamoDB `TransactWriteItems` | ~20 ms | ≤100 items; pattern proven by `executionWrite` |
 
+> **Superseded (2026-09-08) — placement.** The two "DynamoDB-inlined object"
+> rows above are withdrawn. Every content-addressed object — commits, small
+> states, args, everything `objects.write` produces — is stored in S3 at every
+> size; DynamoDB holds only dataset refs with their revision, the other mutable
+> pointers, lock leases, and the object catalogue GC scans. The policy, its
+> latency cost (a small-record mutation becomes ~80–150 ms plus reducer time; a
+> 50-commit history page ~1–2 s, cacheable), the GC retention/restore invariant,
+> and the e3-cloud change list are specified normatively in
+> `e3-records-schema.md` §8.6 and staged there as S0. The reason is one
+> data-at-rest surface for security scoping. The end-to-end cloud flow and the
+> per-operation costs under the segment-object layout are `e3-records-schema.md`
+> §8.7–§8.8.
+
 End-to-end mutation on a small record: **~30–60 ms** plus reducer time. On a
 large (multi-MB) state: dominated by one S3 GET + one S3 PUT + reduce, i.e.
 hundreds of ms — acceptable for human-driven writes; high-frequency writers
@@ -646,7 +682,9 @@ continuously and should land with (or before) the cloud PR:
    (`.records.orders@history` reserved path), declarative task→record sync
    rules (orchestrator-applied, idempotent by output hash, cycle-checked),
    per-record reactive debounce, retention/auto-compaction, chunked
-   (prolly-tree) state for partial read/write of large records.
+   (prolly-tree) state for partial read/write of large records — the last is
+   now specified as the segment-object layout, `e3-records-schema.md` §7 and
+   §8.7.
 
 ## 12. Test plan (PR-3 highlights)
 
@@ -675,8 +713,10 @@ continuously and should land with (or before) the cloud PR:
 
 - **Async/platform-IO mutation bodies** — v1 rejects (purity = safe retry).
   Allowing IO would require idempotency keys per attempt. Defer.
-- **Redeploy onto live record state** — keep-if-type-unchanged (proposed) vs
-  always-reset vs explicit migration mutations (`$migrate`).
+- ~~**Redeploy onto live record state** — keep-if-type-unchanged (proposed) vs
+  always-reset vs explicit migration mutations (`$migrate`).~~ — resolved:
+  explicit migrations (`e3.migration`, run by deploy as `$migrate` commits) with
+  `--schema=reset` as an audited opt-in; `e3-records-schema.md` §5–§6.
 - **Mutation return values** — v1: reducers return only the new state.
   A `(state, args) => {state, result}` shape would let a mutation answer the
   caller (e.g. the allocated order number) — probably wanted soon; decide
