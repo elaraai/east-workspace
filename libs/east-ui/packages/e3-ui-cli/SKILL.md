@@ -77,7 +77,7 @@ is never started and Ink is never loaded.
 | **Repositories** (bare origin) | NAME · WORKSPACES · PACKAGES · OBJECTS · LAST DEPLOY; `⏎` binds one |
 | **Workspaces** | NAME · STATE · PACKAGE · TASKS (`● 4  ◐ 1  ✗ 1`) · LAST RUN; `⏎` opens the dashboard |
 | **Dashboard** | TASKS / DATASETS counts + the accounted bar, the last execution (its failures) or the live event feed, the tasks and inputs tables; `⏎` opens the task / input / a failed task's logs |
-| **Task** `1 Output · 2 Logs · 3 Runs (· 4 Reads)` | the output as a value tree (paged in 500-row windows for collections, whole ≤ 200 KB otherwise, with the *no output* / *too large* / *not indexed* states), the logs with tail-follow, the run history, a `ui()` task's manifest |
+| **Task** `1 Output · 2 Stdout · 3 Stderr · 4 Runs (· 5 Reads)` | the output as a value tree (paged in 500-row windows for collections, whole ≤ 200 KB otherwise, with the *no output* / *too large* / *not indexed* states), each log stream with tail-follow (the Stderr tab shows its line count), the run history, a `ui()` task's manifest |
 | **Input** | the same tree, editable: `e` edit a leaf, `a` add, `x` remove, `t` tag / set; the commit bar sums the pending ops, `⏎ APPLY` writes them, `esc DISCARD`; a value changed on the server while editing raises a banner (`⏎` reloads and re-applies) |
 | **Help** `?` | a tab per page — only the commands and keys that work where you are |
 
@@ -93,7 +93,7 @@ concurrency 4`); a confirmation is the same command re-run with `--force`.
 | `/task <name>` · `/input <name>` · `/dataset <path>` | open a task / input / dataset (`.inputs.x`, `.tasks.x.output`) |
 | `/workspace <name>` · `/workspaces` · `/repos` · `/repo <path\|url>` | switch workspace · the lists · open another repository |
 | `/run [--force] [--filter <glob>] [--concurrency <n>]` · `/stop` | start / cancel the dataflow (`r` / `x` prefill them) |
-| `/logs <task> [stderr]` · `/runs <task>` | a task's logs / run history |
+| `/logs <task> [stderr]` · `/runs <task>` | a task's stdout (or stderr) / run history |
 | `/find <key>` · `/goto <row\|N%>` · `/save [file] [--force]` | in a value tree: exact `"key"`, prefix, or struct-key fields `a\|b`; jump by row or percent; write the `.beast2` bytes (`.log` for logs) |
 | `/tag <name>` · `/add [key]` · `/remove [--force]` · `/apply` · `/discard [--then "<cmd>"]` · `/reload` | editing an input |
 | `/login <url>` · `/refresh` · `/help` · `/about` · `/quit [--force]` | the device-flow login · poll every feed now · … |
@@ -105,7 +105,7 @@ concurrency 4`); a confirmation is the same command re-run with `--force`.
 | everywhere | `?` help · `q` `^c` quit · `esc` `⌫` back · `/` a command · `1 2 3 …` tabs · `R` refresh · `tab` next pane |
 | lists | `↑↓ j k` move · `pgup pgdn ^u ^d` page · `gg G` top / bottom · `⏎ →` open · `r` `/run` · `x` `/stop` · `w` workspaces |
 | value tree | `→ l` expand or next · `← h` collapse or parent · `⏎ space` toggle · `⇧←` collapse deep · `n N` next / prev match · `s` save |
-| logs | `↑↓` scroll (pauses follow) · `G` end · `F` follow · `o` `e` stdout / stderr · `s` save · `c` copy (OSC 52) · `n N` matches |
+| stdout / stderr | `↑↓` scroll (pauses follow) · `G` end · `F` follow · `2` `3` the other stream · `s` save · `c` copy (OSC 52) · `n N` matches |
 | inputs | `e` edit · `a` add · `x` remove · `t` tag / set · `⏎` apply all · `esc` discard · in an editor: `⏎` commit · `esc` cancel · `space` toggles a boolean |
 | mouse | wheel scrolls the pane under the cursor · click selects (on `▸` toggles) · drag the scrollbar thumb · click tabs, crumbs, pills, completion rows · `--no-mouse` |
 
@@ -275,7 +275,7 @@ owns the terminal. Scripts use `e3 workspace status`, `e3 dataset get` and
 # Watch a workspace while its dataflow runs — the pill counts events, the panel streams them:
 e3-ui ./repo main        # then r ⏎ (or /run --force ⏎); x ⏎ cancels
 # Look at a task's output, then its logs, then its runs:
-e3-ui ./repo main --task forecast     # 1 Output · 2 Logs · 3 Runs; /find k015 · /goto 50% · s save
+e3-ui ./repo main --task forecast     # 1 Output · 2 Stdout · 3 Stderr · 4 Runs; /find k015 · /goto 50% · s save
 # Fix an input value in place:
 e3-ui ./repo main --input params      # e → type → ⏎ → ⏎ APPLY (the commit bar) ; esc discards
 # A remote repository:

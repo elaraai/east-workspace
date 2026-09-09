@@ -1,6 +1,6 @@
  e3-ui  demo-repo › main › dashboard                                                                       ● CONNECTED  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- dashboard   ▌1 Output▐  2 Logs   3 Runs   4 Reads              UI TASK · ● UP-TO-DATE · manifest: 3 reads · 1 function 
+ dashboard   ▌1 Output▐  2 Stdout   3 Stderr   4 Runs   5 Reads           UI TASK · ● UP-TO-DATE · 3 reads · 1 function 
  .tasks.dashboard.output · UIComponentType · 41 KB · 3e91…                                                              
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
  ▾ Value                                     App                                                                        
@@ -33,4 +33,4 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  › _                                              / commands · type a name to jump · ? help                             
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ↑↓ move   → expand   1 2 3 4 tabs                                                                                      
+ ↑↓ move   → expand   1 2 3 4 5 tabs                                                                                    

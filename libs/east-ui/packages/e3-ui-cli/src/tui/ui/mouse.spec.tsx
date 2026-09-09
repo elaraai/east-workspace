@@ -85,7 +85,7 @@ describe('mouse', () => {
         mounted = await mountApp({ api: repo(), feeds: true, mouse: true, view: taskView('main', 'forecast') });
         await mounted.waitFor(() => /k0000/.test(mounted!.frame()));
         await mounted.press(click(27, 3));
-        assert.match(mounted.lines()[2]!, /▌2 Logs▐/);
+        assert.match(mounted.lines()[2]!, /▌2 Stdout▐/);
         await mounted.press(click(15, 3));
         assert.match(mounted.lines()[2]!, /▌1 Output▐/);
         await mounted.press(click(21, 1));

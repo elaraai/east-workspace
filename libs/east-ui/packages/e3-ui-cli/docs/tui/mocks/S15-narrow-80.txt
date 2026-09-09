@@ -1,6 +1,6 @@
  e3-ui  demo-repo › main › forecast                               ● CONNECTED  
 ────────────────────────────────────────────────────────────────────────────────
- forecast   ▌1 Output▐  2 Logs   3 Runs                            ● UP-TO-DATE
+ forecast   ▌1 Output▐  2 Stdout   3 Stderr   4 Runs               ● UP-TO-DATE
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
  ▾ k0148                     Bakery · 2025-09-01 · 1,204                       ▲
    · Store                   "Bakery"                                          █

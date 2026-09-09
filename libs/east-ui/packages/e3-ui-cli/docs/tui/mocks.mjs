@@ -250,7 +250,7 @@ write('S06b-run-confirm', dashboard({
 // S08 — task view · Output (paged value tree + scrollbar)
 // ---------------------------------------------------------------------------
 function taskShell({ tab = 'Output', body, command = CMD_IDLE, footer, running = false, commit = [] }) {
-  const tabs = ['Output', 'Logs', 'Runs'].map((t, i) => (t === tab ? `▌${i + 1} ${t}▐` : ` ${i + 1} ${t} `)).join(' ');
+  const tabs = ['Output', 'Stdout', 'Stderr (12)', 'Runs'].map((t, i) => (t === tab ? `▌${i + 1} ${t}▐` : ` ${i + 1} ${t} `)).join(' ');
   const head = [
     lr('forecast   ' + tabs, 'DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9'),
     lr('.tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10', ''),
@@ -300,7 +300,7 @@ function taskShell({ tab = 'Output', body, command = CMD_IDLE, footer, running =
   };
   write('S08-task-output', taskShell({
     body,
-    footer: FOOTER('↑↓ move   → expand   ← collapse   pgup pgdn   /find <key>   /goto <row|%>   s save   2 logs   3 runs', 'wheel · drag ▮'),
+    footer: FOOTER('↑↓ move   → expand   ← collapse   /find <key>   /goto <row|%>   s save   2 stdout  3 stderr  4 runs', 'wheel · drag ▮'),
   }));
 }
 
@@ -374,15 +374,15 @@ function taskShell({ tab = 'Output', body, command = CMD_IDLE, footer, running =
     const n = h - 2;
     const tail = logLines.slice(-n);
     return [
-      lr('stdout ▾   stderr (12)', '1,215 lines · 96 KB · ● live · following'),
+      lr('1,215 lines · 96 KB · ● live · following', ''),
       ...withScrollbar(tail, { total: 1215, top: 1215 - n }),
       lr(`lines ${(1216 - n).toLocaleString()}–1,215 of 1,215 · at end`, '↑ scroll up pauses follow · F resumes'),
     ];
   };
   write('S10-task-logs', taskShell({
-    tab: 'Logs', body,
+    tab: 'Stdout', body,
     command: ' > /find Deli_                                        2 of 2 · n N next/prev · ⏎ hold · esc',
-    footer: FOOTER('↑↓ scroll   G end   F follow ● on   o stdout  e stderr   s save   c copy   1 output   3 runs', 'polled 1s ago'),
+    footer: FOOTER('↑↓ scroll   G end   F follow ● on   s save   c copy   1 output  3 stderr  4 runs', 'polled 1s ago'),
   }));
 }
 
@@ -403,7 +403,7 @@ function taskShell({ tab = 'Output', body, command = CMD_IDLE, footer, running =
     '',
     ' ▪ 4be1…a9 = sha256 of the inputs (.tasks.features.output 0a44…, params 7be2…) · ⏎ expands the list',
   ];
-  write('S11-task-runs', taskShell({ tab: 'Runs', body, footer: FOOTER('↑↓ move   ⏎ inputs   1 output   2 logs', '7 executions') }));
+  write('S11-task-runs', taskShell({ tab: 'Runs', body, footer: FOOTER('↑↓ move   ⏎ inputs   1 output  2 stdout  3 stderr', '7 executions') }));
 }
 
 // ---------------------------------------------------------------------------
@@ -474,8 +474,8 @@ function taskShell({ tab = 'Output', body, command = CMD_IDLE, footer, running =
     col('/save [file]       write .beast2', 'wheel  scroll     click  select', 't  tag / set / clear'),
     col('/repo <path|url>   open another repo', 'click ▸  toggle   drag ▮  scrollbar', '⏎  apply all   esc  discard'),
     col('/about             version · server · logo', 'click tab / crumb / pill', ''),
-    col('/quit', '', 'KEYS · LOGS'),
-    col('', '', 'F  follow   o  stdout   e  stderr'),
+    col('/quit', '', 'KEYS · STDOUT / STDERR'),
+    col('', '', 'F  follow   2 3  stdout / stderr'),
     col('typing without / fuzzy-jumps anywhere', '', 'n N  next / prev match   c  copy'),
   ];
   write('S13-help', shell({ crumb: 'demo-repo › main', pills: PILLS_OK, context: 'help', body, command: CMD_IDLE, footer: FOOTER('', '') }));
@@ -510,7 +510,7 @@ function taskShell({ tab = 'Output', body, command = CMD_IDLE, footer, running =
   const lines = [
     ' ' + p('e3-ui  demo-repo › main › forecast', W80 - 15) + '● CONNECTED  ',
     rule(W80),
-    l80('forecast   ▌1 Output▐  2 Logs   3 Runs', '● UP-TO-DATE'),
+    l80('forecast   ▌1 Output▐  2 Stdout   3 Stderr   4 Runs', '● UP-TO-DATE'),
     rule(W80, '┄'),
     p(' ▾ k0148                     Bakery · 2025-09-01 · 1,204', W80 - 1) + '▲',
     p('   · Store                   "Bakery"', W80 - 1) + '█',
@@ -579,9 +579,9 @@ Commands:
     row(1, '▸', 'Bar end', '2 items'),
     row(1, '·', 'Nav key', '"planner"'),
   ];
-  const tabs = '▌1 Output▐  2 Logs   3 Runs   4 Reads ';
+  const tabs = '▌1 Output▐  2 Stdout   3 Stderr   4 Runs   5 Reads ';
   const body = [
-    lr('dashboard   ' + tabs, 'UI TASK · ● UP-TO-DATE · manifest: 3 reads · 1 function'),
+    lr('dashboard   ' + tabs, 'UI TASK · ● UP-TO-DATE · 3 reads · 1 function'),
     lr('.tasks.dashboard.output · UIComponentType · 41 KB · 3e91…', ''),
     rule(W, '┄'),
     ...rows.map(r => pad(r, W)),
@@ -591,7 +591,7 @@ Commands:
   write('S17-ui-task-output', shell({
     crumb: 'demo-repo › main › dashboard', pills: PILLS_OK,
     context: 'main · .tasks.dashboard.output · UIComponentType · 41 KB · 3e91…',
-    body, command: CMD_IDLE, footer: FOOTER('↑↓ move   → expand   1 2 3 4 tabs', ''),
+    body, command: CMD_IDLE, footer: FOOTER('↑↓ move   → expand   1 2 3 4 5 tabs', ''),
   }));
 }
 

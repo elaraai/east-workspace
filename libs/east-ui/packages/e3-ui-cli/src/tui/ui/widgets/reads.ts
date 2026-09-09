@@ -50,7 +50,7 @@ export function manifestSummary(manifest: DataManifest, g: Glyphs): string {
     if (manifest.pages.length > 0) parts.push(`${manifest.pages.length} paged`);
     if (manifest.functions.length > 0) parts.push(`${manifest.functions.length} function${manifest.functions.length === 1 ? '' : 's'}`);
     if (manifest.records.length > 0) parts.push(`${manifest.records.length} record${manifest.records.length === 1 ? '' : 's'}`);
-    return `manifest: ${parts.join(` ${g.sep} `)}`;
+    return parts.join(` ${g.sep} `);
 }
 
 /** The rows of the Reads tab (sections separated by their headings). */

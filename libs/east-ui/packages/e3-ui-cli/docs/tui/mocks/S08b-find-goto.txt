@@ -1,6 +1,6 @@
  e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- forecast   ▌1 Output▐  2 Logs   3 Runs                      DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9 
+ forecast   ▌1 Output▐  2 Stdout   3 Stderr (12)   4 Runs    DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9 
  .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10                             
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
  ▸ k0148                                     Bakery · 2025-09-01 · 1,204                                               ▲

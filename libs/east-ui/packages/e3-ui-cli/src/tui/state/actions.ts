@@ -76,9 +76,8 @@ export interface TreeUi extends ListUi {
     match: MatchUi | null;
 }
 
-/** A log pane's UI state. */
+/** A log pane's UI state (one per stream: the Stdout and Stderr tabs each keep their own). */
 export interface LogsUi {
-    stream: 'stdout' | 'stderr';
     /** The first visible line. */
     top: number;
     /** Whether the pane follows the tail. */
@@ -109,7 +108,12 @@ export interface LeafEditUi {
 }
 
 /** The task view's tabs. */
-export type TaskTab = 'output' | 'logs' | 'runs' | 'reads';
+export type TaskTab = 'output' | 'stdout' | 'stderr' | 'runs' | 'reads';
+
+/** Whether a task tab shows a log stream. */
+export function isLogTab(tab: TaskTab): tab is 'stdout' | 'stderr' {
+    return tab === 'stdout' || tab === 'stderr';
+}
 
 /** The help view's tabs — one per page, plus what works everywhere. */
 export type HelpTab = 'everywhere' | 'repos' | 'workspaces' | 'dashboard' | 'task' | 'input';
@@ -128,7 +132,7 @@ export type View =
     | { kind: 'repos'; list: ListUi }
     | { kind: 'workspaces'; list: ListUi }
     | { kind: 'dashboard'; ws: string; list: ListUi }
-    | { kind: 'task'; ws: string; task: string; tab: TaskTab; tree: TreeUi; logs: LogsUi; runs: RunsUi; reads: ListUi }
+    | { kind: 'task'; ws: string; task: string; tab: TaskTab; tree: TreeUi; logs: Record<'stdout' | 'stderr', LogsUi>; runs: RunsUi; reads: ListUi }
     | { kind: 'input'; ws: string; name: string; tree: TreeUi; editing: LeafEditUi | null }
     | { kind: 'help'; tab: HelpTab }
     | { kind: 'about' };
@@ -140,11 +144,11 @@ export const emptyList = (): ListUi => ({ sel: 0, top: 0 });
 /** An empty tree UI. */
 export const emptyTree = (): TreeUi => ({ sel: 0, top: 0, open: {}, baseDepth: undefined, match: null });
 /** An empty logs UI. */
-export const emptyLogs = (): LogsUi => ({ stream: 'stdout', top: 0, follow: true, match: null });
+export const emptyLogs = (): LogsUi => ({ top: 0, follow: true, match: null });
 
 /** A task view with fresh UI state. */
 export function taskView(ws: string, task: string, tab: TaskTab = 'output'): View {
-    return { kind: 'task', ws, task, tab, tree: emptyTree(), logs: emptyLogs(), runs: { sel: 0, top: 0, expanded: false }, reads: emptyList() };
+    return { kind: 'task', ws, task, tab, tree: emptyTree(), logs: { stdout: emptyLogs(), stderr: emptyLogs() }, runs: { sel: 0, top: 0, expanded: false }, reads: emptyList() };
 }
 
 /** An input view with fresh UI state. */
@@ -433,7 +437,6 @@ export type Action =
     | { type: 'tree/match'; match: MatchUi | null }
     | { type: 'task/tab'; tab: TaskTab }
     | { type: 'runs/expand'; expanded: boolean }
-    | { type: 'logs/stream'; stream: 'stdout' | 'stderr' }
     | { type: 'logs/follow'; follow: boolean }
     | { type: 'logs/scroll'; top: number }
     | { type: 'logs/match'; match: { text: string; index: number } | null }

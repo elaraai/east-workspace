@@ -108,13 +108,19 @@ describe('reducer: trees and tabs', () => {
         assert.equal(s.view.kind === 'task' && s.view.runs.expanded, true);
     });
 
-    test('logs state: stream switch resets scroll and follow, scroll and match update', () => {
-        let s = reduce(inTask(), { type: 'logs/scroll', top: 40 });
+    test('logs state: scroll, follow and match belong to the stream tab they were set on', () => {
+        let s = reduce(inTask(), { type: 'task/tab', tab: 'stdout' });
+        s = reduce(s, { type: 'logs/scroll', top: 40 });
         s = reduce(s, { type: 'logs/follow', follow: false });
         s = reduce(s, { type: 'logs/match', match: { text: 'Deli', index: 1 } });
-        assert.deepEqual(s.view.kind === 'task' && s.view.logs, { stream: 'stdout', top: 40, follow: false, match: { text: 'Deli', index: 1 } });
-        s = reduce(s, { type: 'logs/stream', stream: 'stderr' });
-        assert.deepEqual(s.view.kind === 'task' && s.view.logs, { stream: 'stderr', top: 0, follow: true, match: null });
+        assert.deepEqual(s.view.kind === 'task' && s.view.logs.stdout, { top: 40, follow: false, match: { text: 'Deli', index: 1 } });
+        s = reduce(s, { type: 'task/tab', tab: 'stderr' });
+        assert.deepEqual(s.view.kind === 'task' && s.view.logs.stderr, { top: 0, follow: true, match: null });
+        s = reduce(s, { type: 'logs/scroll', top: 3 });
+        assert.equal(s.view.kind === 'task' && s.view.logs.stdout.top, 40, 'stdout keeps its scroll while stderr scrolls');
+        assert.equal(s.view.kind === 'task' && s.view.logs.stderr.top, 3);
+        const output = reduce(s, { type: 'task/tab', tab: 'output' });
+        assert.equal(reduce(output, { type: 'logs/scroll', top: 9 }), output, 'no stream tab, no logs state to move');
     });
 
     test('help tabs', () => {

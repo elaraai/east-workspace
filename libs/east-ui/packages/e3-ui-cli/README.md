@@ -34,7 +34,7 @@ e3-ui https://e3.example.com             # a bare origin: the repositories list
 e3-ui --no-mouse --ascii ./my-repo       # keyboard only, box-drawing off (also E3_UI_ASCII=1)
 ```
 
-A local repository is served by an embedded `@elaraai/e3-api-server` for the session; a remote one is reached with the token `e3-ui auth login` saved (the same device flow and `~/.e3/credentials.json` store as `e3 auth`, so either login serves both). Everything is one screen at a time — repositories, workspaces, a workspace's dashboard, a task (`1 Output · 2 Logs · 3 Runs`, plus `4 Reads` for a `ui()` task), an input — with a **command box** along the bottom:
+A local repository is served by an embedded `@elaraai/e3-api-server` for the session; a remote one is reached with the token `e3-ui auth login` saved (the same device flow and `~/.e3/credentials.json` store as `e3 auth`, so either login serves both). Everything is one screen at a time — repositories, workspaces, a workspace's dashboard, a task (`1 Output · 2 Stdout · 3 Stderr · 4 Runs`, plus `5 Reads` for a `ui()` task), an input — with a **command box** along the bottom:
 
 | Type | Effect |
 |---|---|

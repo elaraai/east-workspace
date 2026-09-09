@@ -4,10 +4,11 @@
  */
 
 /**
- * Frame specs for the task view's Logs, Runs and Reads tabs (mocks S10,
- * S11, S17): follow-tail and its pause / resume, the stream switch,
- * `/find` with n / N / esc, save and copy; the runs table and the expanded
- * input hashes; a `ui` task's manifest title, its Reads tab and `⏎ open`.
+ * Frame specs for the task view's Stdout / Stderr, Runs and Reads tabs
+ * (mocks S10, S11, S17): follow-tail and its pause / resume, the Stderr
+ * tab's line count and each stream tab keeping its own place, `/find` with
+ * n / N / esc, save and copy; the runs table and the expanded input hashes;
+ * a `ui` task's manifest title, its Reads tab and `⏎ open`.
  */
 
 import { test, describe, afterEach } from 'node:test';
@@ -50,17 +51,17 @@ function repo(): FakeApi {
     return api;
 }
 
-describe('the task view — Logs', () => {
-    test('follows the tail, pauses on scroll-up, resumes on F; o / e switch streams (S10)', async () => {
-        mounted = await mountApp({ api: repo(), feeds: true, view: taskView('main', 'forecast', 'logs') });
-        await mounted.waitFor(() => /line 40/.test(mounted!.frame()));
+describe('the task view — Stdout / Stderr', () => {
+    test('follows the tail, pauses on scroll-up, resumes on F; the Stderr tab counts its lines and each tab keeps its place (S10)', async () => {
+        mounted = await mountApp({ api: repo(), feeds: true, view: taskView('main', 'forecast', 'stdout') });
+        await mounted.waitFor(() => /line 40/.test(mounted!.frame()) && /Stderr \(12\)/.test(mounted!.frame()));
         let lines = mounted.lines();
-        assert.match(lines[2]!, /^ forecast    1 Output  ▌2 Logs▐  3 Runs\s+DATA TASK · ● UP-TO-DATE · cached · inputs 4be1…a9$/);
-        assert.match(lines[5]!, /^ stdout ▾   stderr \(12\)\s+40 lines · [\d.]+ (B|KB) · following$/);
+        assert.match(lines[2]!, /^ forecast    1 Output  ▌2 Stdout▐  3 Stderr \(12\)   4 Runs\s+DATA TASK · ● UP-TO-DATE · cached · inputs 4be1…a9$/);
+        assert.match(lines[5]!, /^ 40 lines · [\d.]+ (B|KB) · following$/);
         assert.match(lines[6]!, /^    16  \[info\] line 16\s+▲$/);
         assert.match(lines[30]!, /^    40  \[info\] line 40\s+▼$/);
         assert.match(lines[31]!, /^ lines 16–40 of 40 · at end\s+↑ scroll up pauses follow · F resumes$/);
-        assert.match(lines[35]!, /^ ↑↓ scroll   G end   F follow ● on   o stdout  e stderr   s save   c copy   1 output   3 runs\s+polled/);
+        assert.match(lines[35]!, /^ ↑↓ scroll   G end   F follow ● on   s save   c copy   1 output  3 stderr  4 runs\s+polled/);
         await mounted.press('k');
         lines = mounted.lines();
         assert.match(lines[6]!, /^    15  \[info\] line 15/);
@@ -71,22 +72,28 @@ describe('the task view — Logs', () => {
         await mounted.press('g');
         await mounted.press('g');
         assert.match(mounted.lines()[6]!, /^     1  \[info\] line 1\s/);
-        await mounted.press('G');
-        assert.match(mounted.lines()[30]!, /^    40  \[info\] line 40/);
-        await mounted.press('e');
+        // The Stderr tab: its own stream, following from the start.
+        await mounted.press('3');
         await mounted.waitFor(() => /err 12/.test(mounted!.frame()));
         lines = mounted.lines();
-        assert.match(lines[5]!, /^ stderr ▾   stdout \(40\)\s+12 lines/);
+        assert.match(lines[2]!, /^ forecast    1 Output   2 Stdout  ▌3 Stderr \(12\)▐  4 Runs\s+DATA TASK/);
+        assert.match(lines[5]!, /^ 12 lines · [\d.]+ B · following$/);
         assert.match(lines[6]!, /^     1  \[warn\] err 1\s*$/);
         assert.match(lines[31]!, /^ lines 1–12 of 12 · at end/);
-        await mounted.press('o');
-        await mounted.waitFor(() => /line 40/.test(mounted!.frame()));
+        assert.match(lines[35]!, /^ ↑↓ scroll   G end   F follow ● on   s save   c copy   1 output  2 stdout  4 runs\s+polled/);
+        // Back on Stdout, the paused place is where it was left.
+        await mounted.press('2');
+        lines = mounted.lines();
+        assert.match(lines[6]!, /^     1  \[info\] line 1\s/);
+        assert.match(lines[35]!, /F follow ○ off/);
+        await mounted.press('G');
+        assert.match(mounted.lines()[30]!, /^    40  \[info\] line 40/);
     });
 
     test('/find holds matches with n / N until esc; c copies; /save writes the stream', async () => {
         const scratch = fs.mkdtempSync(path.join(tmpdir(), 'e3-ui-logs-'));
         try {
-            mounted = await mountApp({ api: repo(), feeds: true, view: taskView('main', 'forecast', 'logs') });
+            mounted = await mountApp({ api: repo(), feeds: true, view: taskView('main', 'forecast', 'stdout') });
             await mounted.waitFor(() => /line 40/.test(mounted!.frame()));
             await mounted.type('/find deli');
             await mounted.press(KEY.enter);
@@ -128,12 +135,12 @@ describe('the task view — Runs', () => {
         await mounted.waitFor(() => /4be1…a9/.test(mounted!.lines()[6] ?? ''));
         await mounted.waitFor(() => mounted!.store.getState().data.taskDetails['main']?.['forecast'] !== undefined);
         let lines = mounted.lines();
-        assert.match(lines[2]!, /^ forecast    1 Output   2 Logs  ▌3 Runs▐\s+DATA TASK · ● UP-TO-DATE · cached · inputs 4be1…a9$/);
+        assert.match(lines[2]!, /^ forecast    1 Output   2 Stdout   3 Stderr( \(12\))?  ▌4 Runs▐\s+DATA TASK · ● UP-TO-DATE · cached · inputs 4be1…a9$/);
         assert.match(lines[5]!, /^  STATUS\s+STARTED\s+DURATION\s+EXIT\s+INPUTS\s*$/);
         assert.match(lines[6]!, /^ ▌● success\s+2026-09-08 11:42:10\s+38\.4s\s+0\s+4be1…a9\s+← current\s*$/);
         assert.match(lines[7]!, /^  ✗ failed\s+2026-09-07 18:03:21\s+2\.1s\s+2\s+1c07…3f\s*$/);
         assert.match(lines[8]!, /^  ◐ error\s+2026-09-06 08:00:00\s+—\s+—\s+e0d2…77\s*$/);
-        assert.match(lines[35]!, /^ ↑↓ move   ⏎ inputs   1 output   2 logs\s+3 executions$/);
+        assert.match(lines[35]!, /^ ↑↓ move   ⏎ inputs   1 output  2 stdout  3 stderr\s+3 executions$/);
         await mounted.press(KEY.enter);
         lines = mounted.lines();
         assert.match(lines[10]!, /^ ▪ 4be1…a9 = sha256 of the inputs \(params 0a44…, \.tasks\.features\.output 7be2…\) · ⏎ collapses$/);
@@ -147,22 +154,22 @@ describe('the task view — Runs', () => {
 describe('the task view — a ui task', () => {
     test('shows the manifest in the title, a Reads tab whose rows open as datasets (S17)', async () => {
         mounted = await mountApp({ api: repo(), feeds: true, view: taskView('main', 'dashboard') });
-        await mounted.waitFor(() => /manifest: 3 reads/.test(mounted!.frame()) && /4 Reads/.test(mounted!.frame()));
+        await mounted.waitFor(() => /3 reads · 1 function/.test(mounted!.frame()) && /5 Reads/.test(mounted!.frame()));
         let lines = mounted.lines();
-        assert.match(lines[2]!, /^ dashboard   ▌1 Output▐  2 Logs   3 Runs   4 Reads\s+UI TASK · ● UP-TO-DATE · cached · manifest: 3 reads · 1 function$/);
+        assert.match(lines[2]!, /^ dashboard   ▌1 Output▐  2 Stdout   3 Stderr   4 Runs   5 Reads\s+UI TASK · ● UP-TO-DATE · cached · 3 reads · 1 function$/);
         assert.match(lines[3]!, /^ \.tasks\.dashboard\.output · UIComponentType · \d+ B · [0-9a-f]{4}…$/);
         await mounted.waitFor(() => /Demand planner/.test(mounted!.frame()));
         assert.match(mounted.lines()[5]!, /^▌· Title\s+"Demand planner"/);
-        await mounted.press('4');
+        await mounted.press('5');
         lines = mounted.lines();
-        assert.match(lines[2]!, /▌4 Reads▐/);
+        assert.match(lines[2]!, /▌5 Reads▐/);
         assert.match(lines[5]!, /^ READS\s*$/);
         assert.match(lines[6]!, /^ ▌\.inputs\.sales   ⏎ open/);
         assert.match(lines[7]!, /^  \.inputs\.params   ⏎ open/);
         assert.match(lines[8]!, /^  \.tasks\.forecast\.output   ⏎ open/);
         assert.match(lines[10]!, /^ FUNCTIONS/);
         assert.match(lines[11]!, /^  refresh\s*$/);
-        assert.match(lines[35]!, /^ ↑↓ move   ⏎ open   1 output   2 logs   3 runs/);
+        assert.match(lines[35]!, /^ ↑↓ move   ⏎ open   1 output  2 stdout  3 stderr  4 runs/);
         await mounted.press('j');
         await mounted.press('j');
         await mounted.press('j');

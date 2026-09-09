@@ -47,7 +47,7 @@ describe('the task view — Output', () => {
         await mounted.waitFor(treeShown(mounted, 'k0000'));
         const lines = mounted.lines();
         assert.match(lines[0]!, /^ e3-ui  demo-repo › main › forecast\s+● CONNECTED$/);
-        assert.match(lines[2]!, /^ forecast   ▌1 Output▐  2 Logs   3 Runs\s+DATA TASK · ● UP-TO-DATE · cached$/);
+        assert.match(lines[2]!, /^ forecast   ▌1 Output▐  2 Stdout   3 Stderr   4 Runs\s+DATA TASK · ● UP-TO-DATE · cached$/);
         assert.match(lines[3]!, /^ \.tasks\.forecast\.output · Dict<String, Struct> · 1,200 entries · [\d.]+ KB · [0-9a-f]{12}$/);
         assert.match(lines[4]!, /^┄+$/);
         assert.match(lines[5]!, /^▌▾ k0000\s+Bakery · 2025-09-01 00:00:00 · 1000\s+▲$/);
@@ -56,7 +56,7 @@ describe('the task view — Output', () => {
         assert.match(lines[8]!, /^   · Units\s+1000\s+[█│]$/);
         assert.match(lines[9]!, /^ ▾ k0001\s+Deli · 2025-09-02 00:00:00 · 1037/);
         assert.match(lines[31]!, /^ rows 1–26 of [\d,]+ · 0\.\d\d%.*▾ expand all  ▸ collapse all  s save \.beast2$/);
-        assert.match(lines[35]!, /^ ↑↓ move   → expand   ← collapse   pgup pgdn   \/find <key>   \/goto <row\|%>   s save   2 logs   3 runs$/);
+        assert.match(lines[35]!, /^ ↑↓ move   → expand   ← collapse   \/find <key>   \/goto <row\|%>   s save   2 stdout  3 stderr  4 runs$/);
         // Unloaded pages show as placeholders past the loaded window.
         await mounted.press('G');
         await mounted.waitFor(() => /k1199/.test(mounted!.frame()));
@@ -160,7 +160,7 @@ describe('the task view — Output', () => {
         assert.match(mounted.frame(), /dashboard has not produced a value/);
         assert.match(mounted.frame(), /r  run the dataflow/);
         assert.match(mounted.lines()[2]!, /DATA TASK · ○ READY$/);
-        assert.match(mounted.lines()[35]!, /^ 2 logs   3 runs   esc back/);
+        assert.match(mounted.lines()[35]!, /^ 2 stdout  3 stderr  4 runs   esc back/);
         mounted.controller.openTask('main', 'features');
         await mounted.waitFor(() => /TOO LARGE TO SHOW INLINE/.test(mounted!.frame()));
         assert.match(mounted.frame(), /features · String · [\d.]+ KB — not a collection, so it cannot be paged/);

@@ -10,7 +10,9 @@
  * the open workspace, `workspaceList` 5 s once a repository is bound,
  * `repoList` 5 s on a bare origin, dataset types 5 s, task kinds and the
  * deployed state 30 s, per-workspace summaries 5 s in the workspaces view,
- * task details once, executions 5 s on the runs tab. Each result becomes a
+ * task details once, executions 5 s on the runs tab, the shown log stream
+ * 1 s and stderr 5 s on every task tab (the Stderr tab's line count). Each
+ * result becomes a
  * `data/*` action; the connection pill is derived from the pollers after
  * every result and failure.
  *
@@ -22,7 +24,7 @@ import type { Api } from '../api.js';
 import { describeError, isApiCode } from '../api.js';
 import { createDatasetLoader, viewDataset, type DatasetLoader } from './dataset.js';
 import { createLogsLoader } from './logs.js';
-import type { TuiState } from '../state/actions.js';
+import { isLogTab, type TuiState } from '../state/actions.js';
 import { connectionState, createPoller, type PollClock, type Poller } from '../state/poll.js';
 import type { Store } from '../state/store.js';
 
@@ -277,11 +279,12 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                     store.dispatch({ type: 'data/executions', ws: view.ws, task, executions });
                 },
             });
-            if (view.tab === 'logs') {
-                const stream = view.logs.stream;
-                const other = stream === 'stdout' ? 'stderr' : 'stdout';
-                out.push({ key: `logs:${ws}/${task}/${stream}`, intervalMs: 1_000, run: () => logs.tick(view.ws, task, stream) });
-                out.push({ key: `logs:${ws}/${task}/${other}`, intervalMs: 5_000, run: () => logs.tick(view.ws, task, other) });
+            // The shown stream every second; stderr every five seconds on every tab, so the
+            // Stderr tab's line count is there before the tab is visited.
+            const logTab = isLogTab(view.tab) ? view.tab : null;
+            for (const stream of ['stdout', 'stderr'] as const) {
+                if (stream !== logTab && stream === 'stdout') continue;
+                out.push({ key: `logs:${ws}/${task}/${stream}`, intervalMs: stream === logTab ? 1_000 : 5_000, run: () => logs.tick(view.ws, task, stream) });
             }
         }
         return out;

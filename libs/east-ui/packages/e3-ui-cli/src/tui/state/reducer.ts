@@ -21,6 +21,7 @@ import {
     type TuiState,
     type View,
     emptyCommand,
+    isLogTab,
 } from './actions.js';
 
 /** A nested record with one inner entry replaced. */
@@ -210,16 +211,18 @@ export function reduce(state: TuiState, action: Action): TuiState {
             return state.view.kind === 'task' ? { ...state, view: { ...state.view, tab: action.tab } } : state;
         case 'runs/expand':
             return state.view.kind === 'task' ? { ...state, view: { ...state.view, runs: { ...state.view.runs, expanded: action.expanded } } } : state;
-        case 'logs/stream':
-            return state.view.kind === 'task'
-                ? { ...state, view: { ...state.view, logs: { ...state.view.logs, stream: action.stream, top: 0, follow: true, match: null } } }
-                : state;
         case 'logs/follow':
-            return state.view.kind === 'task' ? { ...state, view: { ...state.view, logs: { ...state.view.logs, follow: action.follow } } } : state;
         case 'logs/scroll':
-            return state.view.kind === 'task' ? { ...state, view: { ...state.view, logs: { ...state.view.logs, top: Math.max(0, action.top) } } } : state;
-        case 'logs/match':
-            return state.view.kind === 'task' ? { ...state, view: { ...state.view, logs: { ...state.view.logs, match: action.match } } } : state;
+        case 'logs/match': {
+            // Each stream tab keeps its own scroll / follow / match.
+            const view = state.view;
+            if (view.kind !== 'task' || !isLogTab(view.tab)) return state;
+            const current = view.logs[view.tab];
+            const next = action.type === 'logs/follow' ? { ...current, follow: action.follow }
+                : action.type === 'logs/scroll' ? { ...current, top: Math.max(0, action.top) }
+                : { ...current, match: action.match };
+            return { ...state, view: { ...view, logs: { ...view.logs, [view.tab]: next } } };
+        }
         case 'help/tab':
             return state.view.kind === 'help' ? { ...state, view: { ...state.view, tab: action.tab } } : state;
         case 'input/editing':

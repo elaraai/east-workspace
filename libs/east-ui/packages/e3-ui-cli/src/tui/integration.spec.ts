@@ -77,8 +77,10 @@ describe('integration (E3_UI_INTEGRATION=1)', { skip: !enabled }, () => {
         await m.waitFor(() => /DATA TASK/.test(m.lines()[2] ?? '') && (/^▌· Value\s+65/.test(m.lines()[5] ?? '') || /NO OUTPUT YET/.test(m.frame())), 600);
         if (seeded.ran) assert.match(m.lines()[5]!, /^▌· Value\s+65\s*$/);
         await m.press('2');
-        await m.waitFor(() => /^ stdout ▾   stderr \(\d+\)/.test(m.lines()[5] ?? ''), 600);
+        await m.waitFor(() => /▌2 Stdout▐/.test(m.lines()[2] ?? '') && /^ [\d,]+ lines? · /.test(m.lines()[5] ?? ''), 600);
         await m.press('3');
+        await m.waitFor(() => /▌3 Stderr/.test(m.lines()[2] ?? '') && /^ [\d,]+ lines? · /.test(m.lines()[5] ?? ''), 600);
+        await m.press('4');
         await m.waitFor(() => /^  STATUS\s+STARTED/.test(m.lines()[5] ?? ''), 600);
         if (seeded.ran) await m.waitFor(() => /1 execution$/.test(m.lines()[35] ?? ''), 600);
     });
@@ -129,7 +131,12 @@ describe('integration (E3_UI_INTEGRATION=1)', { skip: !enabled }, () => {
             const execution = m.store.getState().data.execution['inputs'];
             return execution !== undefined && execution.state !== null && execution.state.status.type !== 'running' && !execution.settling;
         }, RUN_TURNS);
-        assert.equal(m.store.getState().data.execution['inputs']?.state?.status.type, 'completed');
+        const outcome = m.store.getState().data.execution['inputs']?.state?.status.type;
+        if (outcome !== 'completed') {
+            // The runner's own words, so a CI failure says why (a missing `east-node`, most likely).
+            const stderr = await session.api.taskLogs('inputs', 'add', { stream: 'stderr' }).then(l => l.data, (err: unknown) => String(err));
+            assert.fail(`the run ended ${outcome ?? 'unknown'} rather than completed; add's stderr:\n${stderr}`);
+        }
         await m.type('/task add');
         await m.press(KEY.enter);
         await m.waitFor(() => /^▌· Value\s+42\s*$/.test(m.lines()[5] ?? ''), 1_200);

@@ -1,9 +1,9 @@
  e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED  
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- forecast    1 Output  ▌2 Logs▐  3 Runs                      DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9 
+ forecast    1 Output  ▌2 Stdout▐  3 Stderr (12)   4 Runs    DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9 
  .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10                             
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
- stdout ▾   stderr (12)                                                        1,215 lines · 96 KB · ● live · following 
+ 1,215 lines · 96 KB · ● live · following                                                                               
   1191  [info] runner: east-c · concurrency 4 · timeout 600s                                                           ▲
   1192  [info] e3 runner east-c 1.0.70 · task forecast · inputs 4be1…a9                                                │
   1193  [info] reading .inputs.params (hash 0a44…) · 1.2 KB                                                            │
@@ -33,4 +33,4 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  › /find Deli_                                        2 of 2 · n N next/prev · ⏎ hold · esc                             
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ↑↓ scroll   G end   F follow ● on   o stdout  e stderr   s save   c copy   1 output   3 runs             polled 1s ago 
+ ↑↓ scroll   G end   F follow ● on   s save   c copy   1 output  3 stderr  4 runs                         polled 1s ago 

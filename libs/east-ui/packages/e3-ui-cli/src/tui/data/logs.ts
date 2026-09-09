@@ -6,7 +6,7 @@
 /**
  * Task logs — `taskLogs` in 64 KB chunks (`offset += size`) up to a 10 MB
  * cap, polled every second for the stream on screen (and every five for
- * the other stream, for its line count in the header). A stream that has
+ * stderr on every task tab, for the Stderr tab's line count). A stream that has
  * no run yet reads as empty with `execution_not_found` noted; a chunk
  * failure keeps what was fetched and notes the error.
  *
@@ -115,6 +115,20 @@ export function logLines(text: string): string[] {
     const lines = text.split('\n');
     if (lines[lines.length - 1] === '') lines.pop();
     return lines;
+}
+
+/**
+ * The number of lines in a stream's text, as {@link logLines} counts them,
+ * without splitting it (the Stderr tab's badge, every frame).
+ *
+ * @param text - The text
+ * @returns The line count
+ */
+export function countLines(text: string): number {
+    if (text === '') return 0;
+    let n = 0;
+    for (let i = text.indexOf('\n'); i !== -1; i = text.indexOf('\n', i + 1)) n++;
+    return text.endsWith('\n') ? n : n + 1;
 }
 
 /**

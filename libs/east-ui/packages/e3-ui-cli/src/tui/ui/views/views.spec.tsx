@@ -11,6 +11,7 @@
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { KEY, mountApp, type Mounted } from '../../testing/harness.js';
+import { taskView } from '../../state/actions.js';
 import { ASCII } from '../../render/glyphs.js';
 
 let mounted: Mounted | null = null;
@@ -72,12 +73,12 @@ describe('refusals', () => {
 
 describe('help', () => {
     test('has a tab per page, opens on the page it was pressed from, and lists that page\'s commands and keys', async () => {
-        mounted = await mountApp({ view: { kind: 'task', ws: 'main', task: 'forecast', tab: 'output', tree: { sel: 0, top: 0, open: {}, baseDepth: undefined, match: null }, logs: { stream: 'stdout', top: 0, follow: true, match: null }, runs: { sel: 0, top: 0, expanded: false }, reads: { sel: 0, top: 0 } } });
+        mounted = await mountApp({ view: taskView('main', 'forecast') });
         await mounted.press('?');
         const lines = mounted.lines();
         assert.match(lines[0]!, /^ e3-ui  demo-repo › main › forecast/);
         assert.match(lines[2]!, /^ HELP\s+1 Everywhere\s+2 Repos\s+3 Workspaces\s+4 Dashboard\s+▌5 Task▐\s+6 Input\s+esc back$/);
-        assert.match(lines[4]!, /^ COMMANDS\s+KEYS · VALUE TREE\s+KEYS · LOGS/);
+        assert.match(lines[4]!, /^ COMMANDS\s+KEYS · VALUE TREE\s+KEYS · STDOUT \/ STDERR/);
         assert.match(mounted.frame(), /\/find <"key">\s+exact key/);
         assert.match(mounted.frame(), /⇧←\s+collapse subtree/);
         assert.match(mounted.frame(), /F\s+follow the tail/);

@@ -27,7 +27,7 @@ import { createFeeds } from './data/feeds.js';
 import { createDebugLogger, describeTerminal, EXIT_SOFTWARE, fatalText, installLifecycle } from './lifecycle.js';
 import { selectGlyphs } from './render/glyphs.js';
 import { createTheme, detectColorLevel } from './render/theme.js';
-import { initialState, type View } from './state/actions.js';
+import { initialState, taskView, type View } from './state/actions.js';
 import { createPersister, loadState, repoEntry, statePath, type Persister } from './state/persist.js';
 import { createStore, StoreContext } from './state/store.js';
 import { openSession, SessionRefusal, type Session } from './session.js';
@@ -178,7 +178,7 @@ export async function runTui(options: TuiOptions): Promise<number> {
             if (options.workspace !== undefined) controller.toast(`no workspace ${options.workspace}`, 'warn');
             return { kind: 'workspaces', list: { sel: 0, top: 0 } };
         }
-        if (options.task !== undefined) return { kind: 'task', ws, task: options.task, tab: 'output', tree: { sel: 0, top: 0, open: {}, baseDepth: undefined, match: null }, logs: { stream: 'stdout', top: 0, follow: true, match: null }, runs: { sel: 0, top: 0, expanded: false }, reads: { sel: 0, top: 0 } };
+        if (options.task !== undefined) return taskView(ws, options.task);
         if (options.input !== undefined) return { kind: 'input', ws, name: options.input, tree: { sel: 0, top: 0, open: {}, baseDepth: undefined, match: null }, editing: null };
         return { kind: 'dashboard', ws, list: { sel: 0, top: 0 } };
     };

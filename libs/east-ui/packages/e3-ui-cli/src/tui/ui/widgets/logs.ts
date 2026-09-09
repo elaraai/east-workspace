@@ -4,9 +4,10 @@
  */
 
 /**
- * The log view — a stream's lines with numbers, the stream header
- * (`stdout ▾   stderr (12)`), the scrollbar and the footer; follow-tail
- * that pauses on scroll-up and resumes on `F`; `o` / `e` switch streams;
+ * The log view — one stream's lines with numbers under a status line
+ * (`1,215 lines · 96 KB · ● live · following`), the scrollbar and the
+ * footer; follow-tail that pauses on scroll-up and resumes on `F`; the
+ * Stdout and Stderr tabs each keep their own scroll, follow and match;
  * `/find` substring matches with `n` / `N` and a held highlight; `s` saves
  * `<ws>.<task>.<stream>.log`; `c` copies through OSC 52.
  *
@@ -23,7 +24,7 @@ import type { KeyAction } from '../../input/keymap.js';
 import { layoutOf } from '../../model/index.js';
 import type { Glyphs } from '../../render/glyphs.js';
 import { formatInt, formatSize, padEnd, padStart } from '../../render/text.js';
-import type { LogsData, LogsUi, TuiState } from '../../state/actions.js';
+import { isLogTab, type LogsData, type LogsUi, type TuiState } from '../../state/actions.js';
 import { b, d, t, lrLine, type Line } from '../lines.js';
 import { withScrollbar } from '../shell/widgets.js';
 
@@ -36,26 +37,26 @@ export const COPY_LIMIT = 100 * 1024;
 export interface LogsContext {
     ws: string;
     task: string;
+    /** The stream the tab shows. */
+    stream: LogStream;
     ui: LogsUi;
     data: LogsData;
-    other: LogsData;
     lines: string[];
     visible: number;
 }
 
 /**
- * The logs context of the current view (a task view on its Logs tab).
+ * The logs context of the current view (a task view on its Stdout or Stderr tab).
  *
  * @param state - The store state
  * @returns The context, or null
  */
 export function logsContext(state: TuiState): LogsContext | null {
     const v = state.view;
-    if (v.kind !== 'task' || v.tab !== 'logs') return null;
-    const streams = state.data.logs[v.ws]?.[v.task] ?? {};
-    const data = streams[v.logs.stream] ?? emptyLogs();
-    const other = streams[v.logs.stream === 'stdout' ? 'stderr' : 'stdout'] ?? emptyLogs();
-    return { ws: v.ws, task: v.task, ui: v.logs, data, other, lines: logLines(data.text), visible: Math.max(1, layoutOf(state).bodyRows - LOGS_CHROME_ROWS) };
+    if (v.kind !== 'task' || !isLogTab(v.tab)) return null;
+    const stream = v.tab;
+    const data = state.data.logs[v.ws]?.[v.task]?.[stream] ?? emptyLogs();
+    return { ws: v.ws, task: v.task, stream, ui: v.logs[stream], data, lines: logLines(data.text), visible: Math.max(1, layoutOf(state).bodyRows - LOGS_CHROME_ROWS) };
 }
 
 /** The window's top: the tail while following, else the scrolled top (clamped). */
@@ -70,7 +71,8 @@ export function logsMatches(ctx: LogsContext): number[] {
 }
 
 /**
- * The stream line: ` stdout ▾   stderr (12)` with the totals flush right.
+ * The status line: ` 1,215 lines · 96 KB · ● live · following` (then
+ * `capped at 10 MB` and the last fetch error, when there is one).
  *
  * @param ctx - The logs context
  * @param state - The store state
@@ -79,18 +81,14 @@ export function logsMatches(ctx: LogsContext): number[] {
  * @returns The line
  */
 export function streamLine(ctx: LogsContext, state: TuiState, width: number, g: Glyphs): Line {
-    const otherName: LogStream = ctx.ui.stream === 'stdout' ? 'stderr' : 'stdout';
-    const otherCount = logLines(ctx.other.text).length;
-    const left: Line = [t(' '), b(ctx.ui.stream), b(` ${g.expanded}`, 'brand'), t('   '), d(`${otherName} (${formatInt(otherCount)})`)];
     const live = isRunLive(state, ctx.ws) || state.data.status[ctx.ws]?.result.tasks.find(x => x.name === ctx.task)?.status.type === 'in-progress';
     const parts: string[] = [`${formatInt(ctx.lines.length)} line${ctx.lines.length === 1 ? '' : 's'}`, formatSize(ctx.data.totalSize)];
-    const right: Line = [d(parts.join(` ${g.sep} `))];
-    if (live) right.push(d(` ${g.sep} `), b(`${g.dot} live`, 'pos'));
-    if (ctx.ui.follow) right.push(d(` ${g.sep} following`));
-    if (ctx.data.capped) right.push(d(` ${g.sep} `), b('capped at 10 MB', 'warn'));
-    if (ctx.data.error !== null && ctx.data.error !== 'no run yet') right.push(d(` ${g.sep} `), b(ctx.data.error, 'neg'));
-    right.push(t(' '));
-    return lrLine(left, right, width);
+    const line: Line = [t(' '), d(parts.join(` ${g.sep} `))];
+    if (live) line.push(d(` ${g.sep} `), b(`${g.dot} live`, 'pos'));
+    if (ctx.ui.follow) line.push(d(` ${g.sep} following`));
+    if (ctx.data.capped) line.push(d(` ${g.sep} `), b('capped at 10 MB', 'warn'));
+    if (ctx.data.error !== null && ctx.data.error !== 'no run yet') line.push(d(` ${g.sep} `), b(ctx.data.error, 'neg'));
+    return lrLine(line, [t(' ')], width);
 }
 
 /**
@@ -120,7 +118,7 @@ export function renderLogLines(ctx: LogsContext, width: number, g: Glyphs): Line
         else out.push([d(number), t('  '), t(body)]);
     }
     if (ctx.lines.length === 0) {
-        out[0] = [t('  '), d(ctx.data.error === 'no run yet' ? `no ${ctx.ui.stream} yet — the task has not run` : ctx.data.error ?? (ctx.data.complete ? `${ctx.ui.stream} is empty` : 'loading…'))];
+        out[0] = [t('  '), d(ctx.data.error === 'no run yet' ? `no ${ctx.stream} yet — the task has not run` : ctx.data.error ?? (ctx.data.complete ? `${ctx.stream} is empty` : 'loading…'))];
     }
     return withScrollbar(out, width, ctx.lines.length, ctx.visible, top, g);
 }
@@ -209,9 +207,6 @@ export function logsKey(action: KeyAction, state: TuiState, controller: Controll
         case 'follow':
             controller.dispatch({ type: 'logs/follow', follow: !ctx.ui.follow });
             return true;
-        case 'stream':
-            if (action.stream !== ctx.ui.stream) controller.dispatch({ type: 'logs/stream', stream: action.stream });
-            return true;
         case 'save':
             void controller.execute('/save');
             return true;
@@ -246,7 +241,7 @@ export function logsKey(action: KeyAction, state: TuiState, controller: Controll
 
 /** The `/save` target: `<ws>.<task>.<stream>.log` in the working directory unless a file is given. */
 export function logsSaveTarget(ctx: LogsContext, file: string | undefined): string {
-    return path.resolve(file ?? `${ctx.ws}.${ctx.task}.${ctx.ui.stream}.log`);
+    return path.resolve(file ?? `${ctx.ws}.${ctx.task}.${ctx.stream}.log`);
 }
 
 /**
@@ -265,7 +260,7 @@ export async function logsCommand(command: ParsedCommand, state: TuiState, contr
             const matches = findInLines(ctx.lines, command.query);
             controller.dispatch({ type: 'logs/match', match: { text: command.query, index: 0 } });
             if (matches.length === 0) {
-                controller.toast(`no match for ${command.query} in ${ctx.ui.stream}`, 'warn');
+                controller.toast(`no match for ${command.query} in ${ctx.stream}`, 'warn');
                 return true;
             }
             const after = logsContext(controller.state());
@@ -280,7 +275,7 @@ export async function logsCommand(command: ParsedCommand, state: TuiState, contr
                 return true;
             }
             if (ctx.data.text === '') {
-                controller.toast(`nothing to save — ${ctx.ui.stream} is empty`, 'warn');
+                controller.toast(`nothing to save — ${ctx.stream} is empty`, 'warn');
                 return true;
             }
             fs.mkdirSync(path.dirname(target), { recursive: true });

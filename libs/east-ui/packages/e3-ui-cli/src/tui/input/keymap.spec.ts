@@ -79,11 +79,10 @@ describe('keymap: lists, trees, logs', () => {
         assert.deepEqual(resolve('', key({ return: true }), input), { kind: 'apply' });
     });
 
-    test('logs follow, switch streams, save, copy, step matches', () => {
+    test('logs follow, save, copy, step matches (the streams are tabs, so `o` / `e` type a jump)', () => {
         const logs = ctx({ scope: 'logs' });
         assert.deepEqual(resolve('F', key(), logs), { kind: 'follow' });
-        assert.deepEqual(resolve('o', key(), logs), { kind: 'stream', stream: 'stdout' });
-        assert.deepEqual(resolve('e', key(), logs), { kind: 'stream', stream: 'stderr' });
+        assert.deepEqual(resolve('e', key(), logs), { kind: 'type', text: 'e' });
         assert.deepEqual(resolve('s', key(), logs), { kind: 'save' });
         assert.deepEqual(resolve('c', key(), logs), { kind: 'copy' });
         assert.deepEqual(resolve('', key({ downArrow: true }), logs), { kind: 'move', op: 'down' });

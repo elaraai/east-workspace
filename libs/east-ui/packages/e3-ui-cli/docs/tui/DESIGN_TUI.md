@@ -11,7 +11,7 @@ What it does:
 
 - **Workspace dashboard** — task/dataset status counts, the last (or live) execution with its event feed, every task and input as tables. (cloud `WorkspaceViewPage` + extension `WorkspaceTree`)
 - **Dataflow** — `/run [--force] [--filter] [--concurrency]`, `/stop`, live progress in the header pill and the execution panel. (cloud; the extension had it written but never wired)
-- **Task view** — Output as a lazily-paged **value tree** with a real scrollbar, key search and go-to-row; Logs with tail-follow and search; Runs (execution history); Reads (a `ui()` task's manifest). (extension `DataTaskPreview` / cloud `TaskViewPage`)
+- **Task view** — Output as a lazily-paged **value tree** with a real scrollbar, key search and go-to-row; Stdout and Stderr with tail-follow and search; Runs (execution history); Reads (a `ui()` task's manifest). (extension `DataTaskPreview` / cloud `TaskViewPage`)
 - **Editable inputs** — leaf edit / add / remove / variant tag with a dirty commit bar; conflict detection. (extension `InputPreview editable`)
 - **Repositories / workspaces** views, `e3-ui auth …` (the same device flow and credential store as `e3 auth`).
 
@@ -33,7 +33,7 @@ Non-goals (this epic): rendering `UIComponentType` in the terminal; creating wor
 | Last execution + live events | `DataflowControl` written, **not wired** | execution panel + progress feed | execution panel + feed; `◔ RUNNING 3/6` header pill |
 | Run / cancel dataflow | — | Start / Cancel buttons | `/run …` and `/stop` in the command box (r / x prefill) |
 | Task output | `DatasetPreview` → inline / paged `ValueTree` / download | same component | value tree widget with scrollbar, `/find`, `/goto`, `/save` |
-| Logs | virtualised viewer, search, stdout/stderr, "new logs" | — | log view, `/find`, `F` follow, `o`/`e` streams, `s` save, `c` copy |
+| Logs | virtualised viewer, search, stdout/stderr, "new logs" | — | a Stdout and a Stderr tab, `/find`, `F` follow, `s` save, `c` copy |
 | Execution history | — | — (API exists) | Runs tab |
 | Editable inputs | `ValueTree` editing + `datasetSet` | same | inline editors + commit bar + conflict banner |
 | Connection state | hard-coded green dot | — | live pill from the poller (`● CONNECTED` / `◐ RECONNECTING n/4` / `✗ OFFLINE`) |
@@ -509,15 +509,15 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
 
 ### 7.4 Task view
 
-Tabs `1 Output · 2 Logs · 3 Runs` (+ `4 Reads` for `kind:'ui'`). Title line: kind, status word with detail, duration, inputs hash. Second line: output path, type, entry count, size, content hash.
+Tabs `1 Output · 2 Stdout · 3 Stderr · 4 Runs` (+ `5 Reads` for `kind:'ui'`). Title line: kind, status word with detail, duration, inputs hash (a `ui` task: `3 reads · 1 function`). Second line: output path, type, entry count, size, content hash.
 
-**Output** — the value tree (§8). **Logs** — `taskLogs` in 64 KB chunks (`offset += size`, 10 MB cap), 1 s poll while the tab is open, follow-tail with a `↑ pauses follow` rule, `/find` with n/N, `o`/`e` stream switch, `s` save, `c` copy (OSC 52, with a fallback note). **Runs** — `taskExecutionList`, `⏎` expands the inputs hashes. **Reads** — the manifest's `paths` (each `⏎`-openable as a dataset), `functions`, `records`.
+**Output** — the value tree (§8). **Stdout / Stderr** — one tab per stream: `taskLogs` in 64 KB chunks (`offset += size`, 10 MB cap), 1 s poll for the shown stream (stderr every 5 s on every task tab, so the Stderr tab carries its line count — `3 Stderr (12)` — before it is visited), follow-tail with a `↑ pauses follow` rule, `/find` with n/N, `s` save, `c` copy (OSC 52, with a fallback note); each tab keeps its own scroll, follow and match. **Runs** — `taskExecutionList`, `⏎` expands the inputs hashes. **Reads** — the manifest's `paths` (each `⏎`-openable as a dataset), `functions`, `records`.
 
 ```text
- e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED  
+ e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- forecast   ▌1 Output▐  2 Logs   3 Runs                      DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9 
- .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10                             
+ forecast   ▌1 Output▐  2 Stdout   3 Stderr (12)   4 Runs    DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9
+ .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
  ▾ k0148                                     Bakery · 2025-09-01 · 1,204                                               ▲
    · Store                                   "Bakery"                                                                  █
@@ -545,18 +545,18 @@ Tabs `1 Output · 2 Logs · 3 Runs` (+ `4 Reads` for `kind:'ui'`). Title line: k
  ░ ░░░░░░░░░░░░░░░░░░░░░░░░░░                ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                                      │
  ░ ░░░░░░░░░░░░░░░░░░░░░░░░░░                ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                                      │
  ░ ░░░░░░░░░░░░░░░░░░░░░░░░░░                ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                                      ▼
- rows 12,001–12,026 of 1,240,000 · 0.97% · p24 ▒ loading                   ▾ expand all  ▸ collapse all  s save .beast2 
+ rows 12,001–12,026 of 1,240,000 · 0.97% · p24 ▒ loading                   ▾ expand all  ▸ collapse all  s save .beast2
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- › _                                              / commands · type a name to jump · ? help                             
+ › _                                              / commands · type a name to jump · ? help
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ↑↓ move   → expand   ← collapse   pgup pgdn   /find <key>   /goto <row|%>   s save   2 logs   3 runs    wheel · drag ▮
+ ↑↓ move   → expand   ← collapse   /find <key>   /goto <row|%>   s save   2 stdout  3 stderr  4 runs     wheel · drag ▮
 ```
 
 ```text
- e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED  
+ e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- forecast   ▌1 Output▐  2 Logs   3 Runs                      DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9 
- .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10                             
+ forecast   ▌1 Output▐  2 Stdout   3 Stderr (12)   4 Runs    DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9
+ .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
  ▸ k0148                                     Bakery · 2025-09-01 · 1,204                                               ▲
  ▸ k0149                                     Bakery · 2025-09-02 · 1,190                                               █
@@ -584,59 +584,59 @@ Tabs `1 Output · 2 Logs · 3 Runs` (+ `4 Reads` for `kind:'ui'`). Title line: k
                                                                                                                        │
                                                                                                                        │
                                                                                                                        ▼
- rows 12,003–12,006 of 1,240,000 · match held until esc                                                                 
+ rows 12,003–12,006 of 1,240,000 · match held until esc
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- › /find k015_                          prefix · 4 matches from row 12,003 · ⏎ jump · n N next/prev · esc               
+ › /find k015_                          prefix · 4 matches from row 12,003 · ⏎ jump · n N next/prev · esc
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  /find "k0150"  exact    /find k015  prefix    /find Bakery|2025-09  struct-key fields    /goto 620000  /goto 50%
 ```
 
 ```text
- e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED  
+ e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- forecast   ▌1 Output▐  2 Logs   3 Runs                      DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9 
- .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10                             
+ forecast   ▌1 Output▐  2 Stdout   3 Stderr (12)   4 Runs    DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9
+ .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
-                                                                                                                        
-                                                    ○  NO OUTPUT YET                                                    
-                                           dashboard has not produced a value                                           
-                                                  r  run the dataflow                                                   
-                                                                                                                        
+
+                                                    ○  NO OUTPUT YET
+                                           dashboard has not produced a value
+                                                  r  run the dataflow
+
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
-                                                                                                                        
-                                              ◐  TOO LARGE TO SHOW INLINE                                               
-                         features · Struct · 412.6 MB — not a collection, so it cannot be paged                         
-                             s  save to features.beast2        e3 dataset get main.features                             
-                                                                                                                        
+
+                                              ◐  TOO LARGE TO SHOW INLINE
+                         features · Struct · 412.6 MB — not a collection, so it cannot be paged
+                             s  save to features.beast2        e3 dataset get main.features
+
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
-                                                                                                                        
-                                                     ◐  NOT INDEXED                                                     
-                            ingest · this value predates paged storage (dataset_not_indexed)                            
-                   re-run the producing task to re-write it    s save    ⏎ load whole value (18.2 MB)                   
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
+
+                                                     ◐  NOT INDEXED
+                            ingest · this value predates paged storage (dataset_not_indexed)
+                   re-run the producing task to re-write it    s save    ⏎ load whole value (18.2 MB)
+
+
+
+
+
+
+
+
+
+
+
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- › _                                              / commands · type a name to jump · ? help                             
+ › _                                              / commands · type a name to jump · ? help
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  three states stacked for review — each fills the body
 ```
 
 ```text
- e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED  
+ e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- forecast    1 Output  ▌2 Logs▐  3 Runs                      DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9 
- .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10                             
+ forecast    1 Output  ▌2 Stdout▐  3 Stderr (12)   4 Runs    DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9
+ .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
- stdout ▾   stderr (12)                                                        1,215 lines · 96 KB · ● live · following 
+ 1,215 lines · 96 KB · ● live · following
   1191  [info] runner: east-c · concurrency 4 · timeout 600s                                                           ▲
   1192  [info] e3 runner east-c 1.0.70 · task forecast · inputs 4be1…a9                                                │
   1193  [info] reading .inputs.params (hash 0a44…) · 1.2 KB                                                            │
@@ -662,89 +662,89 @@ Tabs `1 Output · 2 Logs · 3 Runs` (+ `4 Reads` for `kind:'ui'`). Title line: k
   1213  [info] epoch 5/5  loss 0.259                                                                                   │
   1214  [info] writing .tasks.forecast.output                                                                          █
   1215  [info] done in 38.4s                                                                                           ▼
- lines 1,191–1,215 of 1,215 · at end                                              ↑ scroll up pauses follow · F resumes 
+ lines 1,191–1,215 of 1,215 · at end                                              ↑ scroll up pauses follow · F resumes
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- › /find Deli_                                        2 of 2 · n N next/prev · ⏎ hold · esc                             
+ › /find Deli_                                        2 of 2 · n N next/prev · ⏎ hold · esc
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ↑↓ scroll   G end   F follow ● on   o stdout  e stderr   s save   c copy   1 output   3 runs             polled 1s ago
+ ↑↓ scroll   G end   F follow ● on   s save   c copy   1 output  3 stderr  4 runs                         polled 1s ago
 ```
 
 ```text
- e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED  
+ e3-ui  demo-repo › main › forecast                                                                        ● CONNECTED
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- forecast    1 Output   2 Logs  ▌3 Runs▐                     DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9 
- .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10                             
+ forecast    1 Output   2 Stdout   3 Stderr (12)  ▌4 Runs▐   DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9
+ .tasks.forecast.output · Dict<String, Struct> · 1,240,000 entries · 84.2 MB · c71e0d92aa10
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
-  STATUS      STARTED               DURATION  EXIT  INPUTS                                                              
- ▌● success   2026-09-08 11:42:10   38.4s     0     4be1…a9       ← current                                             
-  ● success   2026-09-08 09:12:44   37.9s     0     4be1…a9                                                             
-  ✗ failed    2026-09-07 18:03:21   2.1s      2     1c07…3f                                                             
-  ● success   2026-09-07 17:55:02   39.0s     0     1c07…3f                                                             
-  ◐ error     2026-09-06 08:00:00   —         —     e0d2…77       runner exited early                                   
-  ● success   2026-09-05 08:00:00   41.2s     0     e0d2…77                                                             
-  ● success   2026-09-04 08:00:00   40.7s     0     90aa…c1                                                             
-                                                                                                                        
- ▪ 4be1…a9 = sha256 of the inputs (.tasks.features.output 0a44…, params 7be2…) · ⏎ expands the list                     
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
+  STATUS      STARTED               DURATION  EXIT  INPUTS
+ ▌● success   2026-09-08 11:42:10   38.4s     0     4be1…a9       ← current
+  ● success   2026-09-08 09:12:44   37.9s     0     4be1…a9
+  ✗ failed    2026-09-07 18:03:21   2.1s      2     1c07…3f
+  ● success   2026-09-07 17:55:02   39.0s     0     1c07…3f
+  ◐ error     2026-09-06 08:00:00   —         —     e0d2…77       runner exited early
+  ● success   2026-09-05 08:00:00   41.2s     0     e0d2…77
+  ● success   2026-09-04 08:00:00   40.7s     0     90aa…c1
+
+ ▪ 4be1…a9 = sha256 of the inputs (.tasks.features.output 0a44…, params 7be2…) · ⏎ expands the list
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- › _                                              / commands · type a name to jump · ? help                             
+ › _                                              / commands · type a name to jump · ? help
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ↑↓ move   ⏎ inputs   1 output   2 logs                                                                    7 executions
+ ↑↓ move   ⏎ inputs   1 output  2 stdout  3 stderr                                                         7 executions
 ```
 
 ```text
- e3-ui  demo-repo › main › dashboard                                                                       ● CONNECTED  
+ e3-ui  demo-repo › main › dashboard                                                                       ● CONNECTED
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- dashboard   ▌1 Output▐  2 Logs   3 Runs   4 Reads              UI TASK · ● UP-TO-DATE · manifest: 3 reads · 1 function 
- .tasks.dashboard.output · UIComponentType · 41 KB · 3e91…                                                              
+ dashboard   ▌1 Output▐  2 Stdout   3 Stderr   4 Runs   5 Reads           UI TASK · ● UP-TO-DATE · 3 reads · 1 function
+ .tasks.dashboard.output · UIComponentType · 41 KB · 3e91…
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
- ▾ Value                                     App                                                                        
-   · Title                                   "Demand planner"                                                           
-   ▸ Rail                                    NavList                                                                    
-▌  ▾ Body                                    ReactiveComponent                                                          
-     · Render                                [function]                                                                 
-   ▸ Bar end                                 2 items                                                                    
-   · Nav key                                 "planner"                                                                  
-                                                                                                                        
- Reads: .inputs.sales · .inputs.params · .tasks.forecast.output                           ⏎ open · o render PNG (later) 
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
+ ▾ Value                                     App
+   · Title                                   "Demand planner"
+   ▸ Rail                                    NavList
+▌  ▾ Body                                    ReactiveComponent
+     · Render                                [function]
+   ▸ Bar end                                 2 items
+   · Nav key                                 "planner"
+
+ Reads: .inputs.sales · .inputs.params · .tasks.forecast.output                           ⏎ open · o render PNG (later)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- › _                                              / commands · type a name to jump · ? help                             
+ › _                                              / commands · type a name to jump · ? help
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ↑↓ move   → expand   1 2 3 4 tabs
+ ↑↓ move   → expand   1 2 3 4 5 tabs
 ```
 
 ### 7.5 Input view
@@ -849,8 +849,8 @@ The same tree, editable (§9), with the commit bar above the command box while d
  /save [file]       write .beast2        wheel  scroll     click  select         t  tag / set / clear                   
  /repo <path|url>   open another repo    click ▸  toggle   drag ▮  scrollbar     ⏎  apply all   esc  discard            
  /about             version · server · loclick tab / crumb / pill                                                       
- /quit                                                                           KEYS · LOGS                            
-                                                                                 F  follow   o  stdout   e  stderr      
+ /quit                                                                           KEYS · STDOUT / STDERR                            
+                                                                                 F  follow   2 3  stdout / stderr      
  typing without / fuzzy-jumps anywhere                                           n N  next / prev match   c  copy       
                                                                                                                         
                                                                                                                         
@@ -909,9 +909,9 @@ The same tree, editable (§9), with the commit bar above the command box while d
 ```
 
 ```text
- e3-ui  demo-repo › main › forecast                               ● CONNECTED  
+ e3-ui  demo-repo › main › forecast                               ● CONNECTED
 ────────────────────────────────────────────────────────────────────────────────
- forecast   ▌1 Output▐  2 Logs   3 Runs                            ● UP-TO-DATE
+ forecast   ▌1 Output▐  2 Stdout   3 Stderr   4 Runs               ● UP-TO-DATE
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
  ▾ k0148                     Bakery · 2025-09-01 · 1,204                       ▲
    · Store                   "Bakery"                                          █
@@ -920,9 +920,9 @@ The same tree, editable (§9), with the commit bar above the command box while d
    · Store                   "Bakery"                                          ▼
  rows 12,001–12,005 of 1,240,000                                         s save
 ────────────────────────────────────────────────────────────────────────────────
- › _                       / commands · ? help                                  
+ › _                       / commands · ? help
 ────────────────────────────────────────────────────────────────────────────────
- ↑↓ → ←   pgup pgdn   /find   /goto                                            
+ ↑↓ → ←   pgup pgdn   /find   /goto
 
      below 60×16 the app refuses: "terminal too small (58×14) — need 60×16"
 ```
@@ -1096,6 +1096,7 @@ Where the implementation differs from the mocks above (each was a deliberate cal
 - **Selection** is `▌` plus bold, never a tinted background row.
 - **Dashboard** — the tasks table's STATUS cell keeps the glyph and word only (a failure's exit code / message stays inline; `cached`, a pid or a waiting reason move to `SIZE · LAST RUN`); the accounted bar is defined: one cell per task, lowest first (`✗` failed, `▁` ready, `▃` waiting, `▅` in progress, `▇` up-to-date), sampled past 40, `N of M accounted` = tasks the dataflow has touched; the count grids gain in-progress / stale-running rows when non-zero and stack below 90 columns; `gg` / `G` show the column's ends.
 - **Value tree** — leaf strings are quoted; labels and summaries are exactly the web row model's (no thousands grouping, datetimes as `YYYY-MM-DD HH:MM:SS`); the selection is anchored to a root row + offset so it stays put while pages arrive and leave; `G` and a thumb dragged to the bottom wait for the last page; the footer appears in the input view too; `/find` reports its result as a toast after `⏎` (no type-ahead count in the box); a `ui()` task's reads are the Reads tab (no line under its tree).
+- **Task tabs** — the Logs tab became two, `2 Stdout` and `3 Stderr` (Runs and Reads move to `4` and `5`); the Stderr tab carries its line count once the stream has any, each stream tab keeps its own scroll / follow / match, and the status line under the rule shows the shown stream's totals; `o` / `e` are retired (the digits switch), `/logs <task> [stderr]` opens the tab. To keep 120 columns: a `ui` task's title reads `3 reads · 1 function` (no `manifest:`), the hint bar's tab list is two-spaced and the Output tab's hints drop `pgup pgdn`, and the mouse hint yields when the line is full (a user request while testing, 2026-09-09).
 - **Runs** — no per-run note text beyond `← current` (the newest run of an up-to-date task); durations are the API's milliseconds.
 - **Inputs** — `⏎` with nothing pending toggles a branch or edits a leaf; `esc` with pending edits confirms a discard; commands that leave the view confirm through `/discard --then "<command>"`; the conflict banner's `esc` keeps editing on the old base (an apply then overwrites).
 - **Layout** — the medium (80–99) and narrow (60–79) column plans are tighter than the 120-column design, and `fitPlan` narrows the widest fixed columns until the last column keeps 12 cells (untouched at 120); a table's NAME column grows to its longest name (up to 24 cells) so real task names such as `forecast_count` are never clipped, and a fixed cell that still overflows ends in `…` with one cell of gap before the next column.

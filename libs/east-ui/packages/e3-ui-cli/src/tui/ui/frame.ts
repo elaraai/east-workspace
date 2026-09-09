@@ -21,7 +21,6 @@ export type HitTarget =
     | { kind: 'dashboard'; index: number }
     | { kind: 'tree'; flat: number; twistX: number | null }
     | { kind: 'tab'; index: number }
-    | { kind: 'stream'; stream: 'stdout' | 'stderr' }
     | { kind: 'toolbar'; action: 'expandAll' | 'collapseAll' | 'save' }
     | { kind: 'crumb'; index: number }
     | { kind: 'pill'; pill: 'running' | 'dirty' | 'connection' }

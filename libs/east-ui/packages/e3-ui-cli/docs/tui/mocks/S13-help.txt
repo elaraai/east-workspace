@@ -15,8 +15,8 @@
  /save [file]       write .beast2        wheel  scroll     click  select         t  tag / set / clear                   
  /repo <path|url>   open another repo    click ▸  toggle   drag ▮  scrollbar     ⏎  apply all   esc  discard            
  /about             version · server · loclick tab / crumb / pill                                                       
- /quit                                                                           KEYS · LOGS                            
-                                                                                 F  follow   o  stdout   e  stderr      
+ /quit                                                                           KEYS · STDOUT / STDERR                 
+                                                                                 F  follow   2 3  stdout / stderr       
  typing without / fuzzy-jumps anywhere                                           n N  next / prev match   c  copy       
                                                                                                                         
                                                                                                                         

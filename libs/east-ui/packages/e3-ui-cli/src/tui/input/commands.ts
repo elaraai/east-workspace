@@ -61,7 +61,7 @@ export const COMMANDS: readonly { name: CommandName; usage: string; effect: stri
     { name: 'login', usage: '/login <url>', effect: 'device-flow login' },
     { name: 'run', usage: '/run [--force] [--filter g]', effect: 'run the dataflow' },
     { name: 'stop', usage: '/stop', effect: 'cancel the dataflow' },
-    { name: 'logs', usage: '/logs <task> [stderr]', effect: 'open a task\'s logs' },
+    { name: 'logs', usage: '/logs <task> [stderr]', effect: 'open a task\'s stdout / stderr' },
     { name: 'runs', usage: '/runs <task>', effect: 'open a task\'s runs' },
     { name: 'find', usage: '/find <key|prefix|f1|f2>', effect: 'jump to key' },
     { name: 'goto', usage: '/goto <row|N%>', effect: 'jump to row' },
@@ -261,7 +261,7 @@ export function describe(command: ParsedCommand, ctx: DescribeContext): { text: 
         case 'repos': return { text: 'list the repositories', keys: '⏎ · esc' };
         case 'repo': return { text: `open ${command.target}${ctx.dirty > 0 ? ` · ${ctx.dirty} unsaved edits are discarded` : ''}`, keys: '⏎ open · esc' };
         case 'login': return { text: 'run the device-flow login', keys: '⏎ login · esc' };
-        case 'logs': return { text: `open ${command.task} logs${command.stream !== undefined ? ` (${command.stream})` : ''}`, keys: '⏎ open · esc' };
+        case 'logs': return { text: `open ${command.task} ${command.stream ?? 'stdout'}`, keys: '⏎ open · esc' };
         case 'runs': return { text: `open ${command.task} runs`, keys: '⏎ open · esc' };
         case 'find': return { text: `find ${command.query}`, keys: '⏎ jump · esc' };
         case 'goto': return { text: command.target.kind === 'row' ? `go to row ${command.target.row.toLocaleString()}` : `go to ${command.target.percent}%`, keys: '⏎ jump · esc' };

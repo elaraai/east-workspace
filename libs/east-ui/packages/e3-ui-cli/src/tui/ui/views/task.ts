@@ -6,7 +6,8 @@
 /**
  * The task view — the tab strip and the title lines, then the tab's body:
  * Output (the value tree over `.tasks.<task>.output` with its states — no
- * output yet, too large, not indexed, loading, error), Logs (the log view),
+ * output yet, too large, not indexed, loading, error), Stdout and Stderr
+ * (the log view over one stream; the Stderr tab carries its line count),
  * Runs (the execution history) and, for a `ui` task, Reads (its manifest).
  *
  * @packageDocumentation
@@ -17,8 +18,9 @@ import { eventCell, taskStatusCell } from '../../model/status.js';
 import { registerListModel } from '../../model/index.js';
 import { registerViewHooks } from '../../controller.js';
 import { latestPerTask } from './dashboard.js';
-import { agoShort, formatDuration, formatInt, formatSize, hashMid, hashShort, hashTiny } from '../../render/text.js';
-import type { DatasetData, TuiState } from '../../state/actions.js';
+import { agoShort, displayWidth, formatDuration, formatInt, formatSize, hashMid, hashShort, hashTiny } from '../../render/text.js';
+import { isLogTab, type DatasetData, type TaskTab, type TuiState } from '../../state/actions.js';
+import { countLines } from '../../data/logs.js';
 import { blank, d, b, lrLine, rule, t, type Line, type RenderCtx } from '../lines.js';
 import { centredBlock, tabStrip, tabStripHits } from '../shell/widgets.js';
 import type { Hit, Pane } from '../frame.js';
@@ -28,16 +30,27 @@ import { RUNS_CHROME_ROWS, renderRuns, runsOf } from '../widgets/runs.js';
 import { manifestOf, manifestSummary, openRead, readRows, renderReads } from '../widgets/reads.js';
 import { registerView } from './index.js';
 
-/** The tab labels of a task (`Reads` only for a `ui` task). */
-export function taskTabs(state: TuiState, ws: string, task: string): string[] {
+/** The tabs of a task (`reads` only for a `ui` task). */
+export function taskTabs(state: TuiState, ws: string, task: string): TaskTab[] {
     const ui = (state.data.taskList[ws] ?? []).some(x => x.name === task && x.kind.type === 'some' && x.kind.value === 'ui');
-    return ui ? ['Output', 'Logs', 'Runs', 'Reads'] : ['Output', 'Logs', 'Runs'];
+    return ui ? ['output', 'stdout', 'stderr', 'runs', 'reads'] : ['output', 'stdout', 'stderr', 'runs'];
+}
+
+const TAB_LABELS: Record<TaskTab, string> = { output: 'Output', stdout: 'Stdout', stderr: 'Stderr', runs: 'Runs', reads: 'Reads' };
+
+/** The tab strip's labels — `Stderr` carries its line count once the stream has any (`Stderr (12)`). */
+export function taskTabLabels(state: TuiState, ws: string, task: string, tabs: TaskTab[]): string[] {
+    return tabs.map(tab => {
+        if (tab !== 'stderr') return TAB_LABELS[tab];
+        const n = countLines(state.data.logs[ws]?.[task]?.stderr?.text ?? '');
+        return n > 0 ? `Stderr (${formatInt(n)})` : 'Stderr';
+    });
 }
 
 /** The title line's right side: `DATA TASK · ● UP-TO-DATE · cached · 38.4s · inputs 4be1…a9`. */
 export function taskTitle(state: TuiState, ws: string, task: string, ctx: RenderCtx): Line {
     const g = ctx.g;
-    const ui = taskTabs(state, ws, task).length === 4;
+    const ui = taskTabs(state, ws, task).includes('reads');
     const info = state.data.status[ws]?.result.tasks.find(x => x.name === task);
     const out: Line = [d(`${ui ? 'UI' : 'DATA'} TASK`)];
     if (info === undefined) {
@@ -145,15 +158,18 @@ registerView('task', (state, ctx) => {
     const g = ctx.g;
     const width = ctx.layout.columns;
     const tabs = taskTabs(state, ws, task);
-    const ui = tabs.length === 4;
-    const active = ['output', 'logs', 'runs', 'reads'].indexOf(tab);
+    const labels = taskTabLabels(state, ws, task, tabs);
+    const ui = tabs.includes('reads');
+    const active = tabs.indexOf(tab);
     const body: Line[] = [
-        lrLine(tabStrip(task, tabs, active, g), [...taskTitle(state, ws, task, ctx), t(' ')], width),
+        lrLine(tabStrip(task, labels, active, g), [...taskTitle(state, ws, task, ctx), t(' ')], width),
         datasetLine(state.data.dataset[ws]?.[`.tasks.${task}.output`], `.tasks.${task}.output`, ui, ctx),
         rule(width, g.dashed),
     ];
-    const hits: Hit[] = tabStripHits(task, tabs, g).map(h => ({ row: 0, x0: h.x0, x1: h.x1, target: { kind: 'tab', index: h.index } }));
-    const others = (except: number): string => tabs.map((label, i) => `${i + 1} ${label.toLowerCase()}`).filter((_, i) => i !== except).join('   ');
+    const hits: Hit[] = tabStripHits(task, labels, g).map(h => ({ row: 0, x0: h.x0, x1: h.x1, target: { kind: 'tab', index: h.index } }));
+    const others = (except: TaskTab | null): string => tabs.map((name, i) => (name === except ? null : `${i + 1} ${name}`)).filter(x => x !== null).join('  ');
+    // The mouse hint yields when the line is full (a `ui` task's five tabs at 120 columns).
+    const mouseHint = (left: string): string => (state.mouse && displayWidth(left) + 20 <= width ? `wheel ${g.sep} drag ${g.thumb}` : '');
     const polled = state.data.polledAt !== null ? `polled ${agoShort(state.data.polledAt, ctx.now)}` : '';
     if (tab === 'output') {
         body.push(...renderOutput(state, ws, task, ctx));
@@ -181,29 +197,18 @@ registerView('task', (state, ctx) => {
             word(`${g.collapsed} collapse all`, 'collapseAll');
             word('s save .beast2', 'save');
         }
-        return {
-            body,
-            hits,
-            pane,
-            hints: {
-                left: shown ? `${g.up}${g.down} move   ${g.right} expand   ${g.left} collapse   pgup pgdn   /find <key>   /goto <row|%>   s save   ${others(0)}` : `${others(0)}   esc back`,
-                right: state.mouse ? `wheel ${g.sep} drag ${g.thumb}` : '',
-            },
-        };
+        const left = shown ? `${g.up}${g.down} move   ${g.right} expand   ${g.left} collapse   /find <key>   /goto <row|%>   s save   ${others('output')}` : `${others('output')}   esc back`;
+        return { body, hits, pane, hints: { left, right: mouseHint(left) } };
     }
-    if (tab === 'logs') {
+    if (isLogTab(tab)) {
         const lctx = logsContext(state);
         if (lctx !== null) {
             body.push(streamLine(lctx, state, width, g));
             body.push(...renderLogLines(lctx, width, g));
             body.push(logsFooter(lctx, width, g));
             const follow = lctx.ui.follow ? `${g.dot} on` : `${g.empty} off`;
-            const active0 = 1 + lctx.ui.stream.length + 2;
-            const otherName = lctx.ui.stream === 'stdout' ? 'stderr' : 'stdout';
-            hits.push({ row: 3, x0: 1, x1: active0, target: { kind: 'stream', stream: lctx.ui.stream } });
-            hits.push({ row: 3, x0: active0 + 3, x1: active0 + 3 + otherName.length + 8, target: { kind: 'stream', stream: otherName } });
             const pane: Pane = { top: 4, rows: lctx.visible, total: lctx.lines.length, visible: lctx.visible, scrollTop: logsTop(lctx) };
-            return { body, hits, pane, hints: { left: `${g.up}${g.down} scroll   G end   F follow ${follow}   o stdout  e stderr   s save   c copy   ${others(1)}`, right: polled } };
+            return { body, hits, pane, hints: { left: `${g.up}${g.down} scroll   G end   F follow ${follow}   s save   c copy   ${others(tab)}`, right: polled } };
         }
     }
     if (tab === 'runs') {
@@ -213,7 +218,7 @@ registerView('task', (state, ctx) => {
         const top = state.view.runs.top;
         for (let i = top; i < Math.min(runs.length, top + visible); i++) hits.push({ row: 4 + (i - top), x0: 0, x1: width - 1, target: { kind: 'list', index: i } });
         const pane: Pane = { top: 4, rows: visible, total: runs.length, visible, scrollTop: top };
-        return { body, hits, pane, hints: { left: `${g.up}${g.down} move   ${g.enter} inputs   ${others(2)}`, right: `${formatInt(runs.length)} execution${runs.length === 1 ? '' : 's'}` } };
+        return { body, hits, pane, hints: { left: `${g.up}${g.down} move   ${g.enter} inputs   ${others('runs')}`, right: `${formatInt(runs.length)} execution${runs.length === 1 ? '' : 's'}` } };
     }
     if (tab === 'reads') {
         const manifest = manifestOf(state.data.taskDetails[ws]?.[task]);
@@ -224,10 +229,10 @@ registerView('task', (state, ctx) => {
             if (line >= reads.top && line < reads.top + visible) hits.push({ row: 3 + (line - reads.top), x0: 0, x1: width - 1, target: { kind: 'list', index } });
         });
         const pane: Pane = { top: 3, rows: visible, total: reads.total, visible, scrollTop: reads.top };
-        return { body, hits, pane, hints: { left: `${g.up}${g.down} move   ${g.enter} open   ${others(3)}`, right: '' } };
+        return { body, hits, pane, hints: { left: `${g.up}${g.down} move   ${g.enter} open   ${others('reads')}`, right: '' } };
     }
     body.push(blank(width));
-    return { body, hits, hints: { left: others(-1), right: '' } };
+    return { body, hits, hints: { left: others(null), right: '' } };
 });
 
 registerViewHooks('task', {
@@ -241,16 +246,12 @@ registerViewHooks('task', {
                 return true;
             }
         }
-        if (state.view.tab === 'logs' && target.kind === 'stream') {
-            if (target.stream !== state.view.logs.stream) controller.dispatch({ type: 'logs/stream', stream: target.stream });
-            return true;
-        }
         return false;
     },
     scroll: (to, state, controller) => {
         if (state.view.kind !== 'task') return false;
         if (state.view.tab === 'output') { scrollTree(state, controller, to); return true; }
-        if (state.view.tab === 'logs') { scrollLogs(state, controller, to); return true; }
+        if (isLogTab(state.view.tab)) { scrollLogs(state, controller, to); return true; }
         return false;
     },
     open: (state, controller) => {
@@ -262,7 +263,7 @@ registerViewHooks('task', {
     tree: (action, state, controller) => (state.view.kind === 'task' && state.view.tab === 'output' ? treeKey(action, state, controller) : false),
     key: (action, state, controller) => {
         if (state.view.kind !== 'task') return false;
-        if (state.view.tab === 'logs') return logsKey(action, state, controller);
+        if (isLogTab(state.view.tab)) return logsKey(action, state, controller);
         if (state.view.tab !== 'output') return false;
         if (action.kind === 'back' || action.kind === 'save' || action.kind === 'next' || action.kind === 'prev') return treeKey(action, state, controller);
         if (action.kind === 'toggle' && state.data.dataset[state.view.ws]?.[`.tasks.${state.view.task}.output`]?.mode.kind === 'not-indexed') return treeOpen(state, controller);
@@ -271,7 +272,7 @@ registerViewHooks('task', {
     command: async (command, state, controller) => {
         if (state.view.kind !== 'task') return false;
         if (state.view.tab === 'output') return treeCommand(command, state, controller);
-        if (state.view.tab === 'logs') return logsCommand(command, state, controller);
+        if (isLogTab(state.view.tab)) return logsCommand(command, state, controller);
         return false;
     },
 });

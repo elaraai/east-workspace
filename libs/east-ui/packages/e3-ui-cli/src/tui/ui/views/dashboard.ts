@@ -629,7 +629,7 @@ registerViewHooks('dashboard', {
         const row = nav.column.rows[Math.max(0, Math.min(state.view.list.sel, nav.column.rows.length - 1))];
         if (row === undefined) return;
         const ws = state.view.ws;
-        if (row.kind === 'logs') controller.openTask(ws, row.name, 'logs');
+        if (row.kind === 'logs') controller.openTask(ws, row.name, 'stdout');
         else if (row.kind === 'task') controller.openTask(ws, row.name);
         else controller.openInput(ws, row.name);
     },

@@ -158,7 +158,7 @@ describe('the dashboard', () => {
         let view = mounted.store.getState().view;
         assert.equal(view.kind, 'task');
         assert.equal(view.kind === 'task' && view.task, 'report');
-        assert.equal(view.kind === 'task' && view.tab, 'logs');
+        assert.equal(view.kind === 'task' && view.tab, 'stdout');
         await mounted.press(KEY.escape);
         assert.equal(mounted.store.getState().view.kind, 'dashboard');
         await mounted.press('j');

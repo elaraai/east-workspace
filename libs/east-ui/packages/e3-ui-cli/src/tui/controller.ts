@@ -27,7 +27,7 @@ import { listModel } from './model/index.js';
 import type { Glyphs } from './render/glyphs.js';
 import type { Size } from './render/layout.js';
 import type { Tone } from './render/theme.js';
-import { inputView, taskView, type Action, type TaskTab, type TuiState, type View } from './state/actions.js';
+import { inputView, isLogTab, taskView, type Action, type TaskTab, type TuiState, type View } from './state/actions.js';
 import { dirtyCount } from './state/reducer.js';
 import type { Persister } from './state/persist.js';
 import { repoEntry } from './state/persist.js';
@@ -172,11 +172,11 @@ export function createController(deps: ControllerDeps): Controller {
                 commandMode: s.command.mode,
                 editingLeaf: v.kind === 'input' && v.editing !== null,
                 scope: v.kind === 'repos' || v.kind === 'workspaces' || v.kind === 'dashboard' ? 'list'
-                    : v.kind === 'task' ? (v.tab === 'output' ? 'tree' : v.tab === 'logs' ? 'logs' : 'list')
+                    : v.kind === 'task' ? (v.tab === 'output' ? 'tree' : isLogTab(v.tab) ? 'logs' : 'list')
                     : v.kind === 'input' ? 'tree'
                     : 'none',
                 editable: v.kind === 'input',
-                tabs: v.kind === 'task' ? (v.reads !== undefined && (s.data.taskList[v.ws] ?? []).some(t => t.name === v.task && t.kind.type === 'some' && t.kind.value === 'ui') ? 4 : 3) : v.kind === 'help' ? 6 : 0,
+                tabs: v.kind === 'task' ? (v.reads !== undefined && (s.data.taskList[v.ws] ?? []).some(t => t.name === v.task && t.kind.type === 'some' && t.kind.value === 'ui') ? 5 : 4) : v.kind === 'help' ? 6 : 0,
                 pendingKey: s.pendingKey,
             };
             const action = resolveKey(input, key, ctx);
@@ -309,7 +309,7 @@ export function createController(deps: ControllerDeps): Controller {
                     const tabs = ['everywhere', 'repos', 'workspaces', 'dashboard', 'task', 'input'] as const;
                     dispatch({ type: 'help/tab', tab: tabs[action.index] ?? 'everywhere' });
                 } else if (s.view.kind === 'task') {
-                    const tabs: TaskTab[] = ['output', 'logs', 'runs', 'reads'];
+                    const tabs: TaskTab[] = ['output', 'stdout', 'stderr', 'runs', 'reads'];
                     dispatch({ type: 'task/tab', tab: tabs[action.index] ?? 'output' });
                 }
                 return;
@@ -546,8 +546,7 @@ export function createController(deps: ControllerDeps): Controller {
             }
             case 'logs': {
                 if (ws === null) { controller.toast('open a workspace first', 'warn'); return; }
-                controller.openTask(ws, command.task, 'logs');
-                if (command.stream !== undefined) dispatch({ type: 'logs/stream', stream: command.stream });
+                controller.openTask(ws, command.task, command.stream ?? 'stdout');
                 return;
             }
             case 'runs': {

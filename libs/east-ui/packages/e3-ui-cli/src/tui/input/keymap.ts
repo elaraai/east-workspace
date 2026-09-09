@@ -52,7 +52,6 @@ export type KeyAction =
     | { kind: 'collapseDeep' }
     | { kind: 'save' }
     | { kind: 'follow' }
-    | { kind: 'stream'; stream: 'stdout' | 'stderr' }
     | { kind: 'next' }
     | { kind: 'prev' }
     | { kind: 'copy' }
@@ -201,8 +200,6 @@ export function resolve(input: string, key: Key, ctx: KeyContext): KeyAction | n
     }
     if (ctx.scope === 'logs') {
         if (input === 'F') return { kind: 'follow' };
-        if (input === 'o') return { kind: 'stream', stream: 'stdout' };
-        if (input === 'e') return { kind: 'stream', stream: 'stderr' };
         if (input === 's') return { kind: 'save' };
         if (input === 'c') return { kind: 'copy' };
         if (input === 'n') return { kind: 'next' };
