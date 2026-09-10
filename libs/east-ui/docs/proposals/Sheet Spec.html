@@ -7,8 +7,8 @@
 <!--
   Sheet — the interactive prototype (the visual AND behavioural ground truth for the east-ui Sheet component).
   Sanitised from the claude.ai/design prototype "Smart Planning Grid.dc.html" (project 6135ef4f, 8 Sep 2026):
-  the client domain was genericised to a batch-process plant (activities, tanks, farms, sites, an MES) and
-  the registers and plan rows were regenerated as synthetic fixtures.
+  the client domain was genericised to a discrete manufacturing plant (activities, machines, lines, families,
+  sites, an ERP) and the registers and plan rows were regenerated as synthetic fixtures.
   Companions: Sheet Behaviour.html (the rule-by-rule contract, §1–§13), Sheet Link Cell Options.html
   (the link-cell alternatives), Sheet Spec.md (the east-ui code design + DX).
 
@@ -2155,11 +2155,11 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
     input::selection { background: var(--brand-tint); }
   </style>
 </helmet>
-<div data-screen-label="Batch planning grid" style="height:100vh; display:flex; flex-direction:column; font-family:var(--font-body); color:var(--ink); background:var(--paper-2); overflow:hidden;">
+<div data-screen-label="Production planning sheet" style="height:100vh; display:flex; flex-direction:column; font-family:var(--font-body); color:var(--ink); background:var(--paper-2); overflow:hidden;">
   <div style="height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 20px; background:var(--paper); border-bottom:1px solid var(--rule-strong);">
-    <span style="font-family:var(--font-brand); font-weight:600; font-size:14px; letter-spacing:-0.01em;">Plant planning</span>
-    <span style="font-family:var(--font-mono); font-size:11px; letter-spacing:0.06em; color:var(--ink-4);">PLANNING <span style="color:var(--ink-5);">/</span> BATCH PLANS <span style="color:var(--ink-5);">/</span> <span style="color:var(--ink); font-weight:600;">BX2 · C26</span></span>
-    <span style="margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.08em; color:var(--ink-4); text-transform:uppercase;"><span style="width:6px; height:6px; border-radius:var(--r-full); background:var(--pos);"></span>MES sync · 4 m ago</span>
+    <span style="font-family:var(--font-brand); font-weight:600; font-size:14px; letter-spacing:-0.01em;">Production planning</span>
+    <span style="font-family:var(--font-mono); font-size:11px; letter-spacing:0.06em; color:var(--ink-4);">PLANNING <span style="color:var(--ink-5);">/</span> WORK ORDERS <span style="color:var(--ink-5);">/</span> <span style="color:var(--ink); font-weight:600;">P-40 · Q3</span></span>
+    <span style="margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.08em; color:var(--ink-4); text-transform:uppercase;"><span style="width:6px; height:6px; border-radius:var(--r-full); background:var(--pos);"></span>ERP sync · 4 m ago</span>
   </div>
   <div style="flex:none; display:flex; align-items:center; gap:12px; padding:8px 20px; background:var(--paper); border-bottom:1px solid var(--rule-strong);">
     <div style="display:flex; align-items:stretch; gap:16px; min-width:0; max-width:56%; overflow-x:auto;">
@@ -2188,7 +2188,7 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
     <span style="font-family:var(--font-mono); font-size:10.5px; color:var(--ink-4); font-feature-settings:'tnum' 1;">{{ qCount }}</span>
     <div style="margin-left:auto; flex:none; display:flex; align-items:center; gap:8px; width:340px; height:30px; padding:0 10px; border:1px solid var(--rule-strong); border-radius:var(--r-md); background:var(--paper);">
       <span aria-label="Search" style="color:var(--ink-4); font-size:12px;"><i class="fa-solid fa-magnifying-glass"></i></span>
-      <input ref="{{ searchRef }}" value="{{ q }}" onChange="{{ onSearch }}" onKeyDown="{{ onSearchKey }}" placeholder="Search rows — activity, tanks, notes" style="flex:1; min-width:0; border:none; outline:none; background:transparent; font-family:var(--font-body); font-size:12.5px; color:var(--ink);"></input>
+      <input ref="{{ searchRef }}" value="{{ q }}" onChange="{{ onSearch }}" onKeyDown="{{ onSearchKey }}" placeholder="Search rows — activity, work centres, notes" style="flex:1; min-width:0; border:none; outline:none; background:transparent; font-family:var(--font-body); font-size:12.5px; color:var(--ink);"></input>
       <span style="font-family:var(--font-mono); font-size:9.5px; color:var(--ink-5); letter-spacing:0.06em;">⌘ /</span>
     </div>
     <button onClick="{{ onAutosave }}" aria-label="{{ autoTitle }}" title="{{ autoTitle }}" style="flex:none; width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--rule-strong); border-radius:var(--r-md); background:var(--paper); cursor:pointer; font-size:12px; color:var(--ink-4);" style-hover="background:var(--paper-3);">
@@ -2280,7 +2280,7 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
                 <sc-if value="{{ cell.selected }}" hint-placeholder-val="{{ false }}"><div style="position:absolute; inset:-1px; box-shadow:inset 0 0 0 2px var(--brand-d); pointer-events:none; z-index:4;"></div></sc-if>
                 <sc-if value="{{ cell.editing }}" hint-placeholder-val="{{ false }}">
                   <div onMouseDown="{{ eStop }}" style="position:absolute; left:-1px; right:-1px; top:-1px; min-height:calc(100% + 2px); z-index:10; background:var(--paper); box-shadow:inset 0 0 0 2px var(--brand-d); display:flex; align-items:center; gap:4px; padding:0 10px; overflow:hidden;">
-                    <sc-if value="{{ eIsVessel }}" hint-placeholder-val="{{ false }}">
+                    <sc-if value="{{ eIsLink }}" hint-placeholder-val="{{ false }}">
                       <div style="flex:1; min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 16px minmax(0,1fr); align-items:stretch;">
                         <div onMouseDown="{{ eFromDown }}" style="position:relative; min-width:0; min-height:34px; display:flex; flex-wrap:wrap; gap:4px; align-items:center; align-content:flex-start; padding:7px 3px 7px 0;">
                           <sc-if value="{{ eFromOn }}" hint-placeholder-val="{{ false }}"><div aria-hidden="true" style="position:absolute; left:0; right:3px; bottom:4px; height:1.5px; background:var(--brand-d); pointer-events:none;"></div></sc-if>
@@ -2295,7 +2295,7 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
                           <sc-if value="{{ eFromOn }}" hint-placeholder-val="{{ false }}">
                           <div style="position:relative; flex:1; min-width:24px; height:22px; display:flex; align-items:center;">
                             <div style="position:absolute; inset:0; display:flex; align-items:center; pointer-events:none; white-space:pre; overflow:hidden; font-family:var(--font-mono); font-size:12.5px;"><span style="visibility:hidden;">{{ eFromVal }}</span><span style="color:var(--ink-4);">{{ eFromGhost }}</span></div>
-                            <input ref="{{ eFromRef }}" data-side="0" value="{{ eFromVal }}" onFocus="{{ eFromFocus }}" onChange="{{ onEditChange }}" onKeyDown="{{ onEditKey }}" onBlur="{{ onEditBlur }}" aria-label="From vessels" aria-autocomplete="inline" style="width:100%; min-width:0; border:none; outline:none; background:transparent; font-family:var(--font-mono); font-size:12.5px; color:var(--ink); padding:0;"></input>
+                            <input ref="{{ eFromRef }}" data-side="0" value="{{ eFromVal }}" onFocus="{{ eFromFocus }}" onChange="{{ onEditChange }}" onKeyDown="{{ onEditKey }}" onBlur="{{ onEditBlur }}" aria-label="From stations" aria-autocomplete="inline" style="width:100%; min-width:0; border:none; outline:none; background:transparent; font-family:var(--font-mono); font-size:12.5px; color:var(--ink); padding:0;"></input>
                           </div>
                           </sc-if>
                           <sc-for list="{{ eFromGhostToks }}" as="gk"><span style="font-family:var(--font-mono); font-size:10.5px; color:var(--ink-5); border:1px dashed var(--rule-strong); border-radius:var(--r-sm); padding:1px 6px; white-space:nowrap;">{{ gk.label }}</span></sc-for>
@@ -2317,14 +2317,14 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
                           <sc-if value="{{ eToOn }}" hint-placeholder-val="{{ false }}">
                           <div style="position:relative; flex:1; min-width:24px; height:22px; display:flex; align-items:center;">
                             <div style="position:absolute; inset:0; display:flex; align-items:center; pointer-events:none; white-space:pre; overflow:hidden; font-family:var(--font-mono); font-size:12.5px;"><span style="visibility:hidden;">{{ eToVal }}</span><span style="color:var(--ink-4);">{{ eToGhost }}</span></div>
-                            <input ref="{{ eToRef }}" data-side="1" value="{{ eToVal }}" onFocus="{{ eToFocus }}" onChange="{{ onEditChange }}" onKeyDown="{{ onEditKey }}" onBlur="{{ onEditBlur }}" aria-label="To vessels" aria-autocomplete="inline" style="width:100%; min-width:0; border:none; outline:none; background:transparent; font-family:var(--font-mono); font-size:12.5px; color:var(--ink); padding:0;"></input>
+                            <input ref="{{ eToRef }}" data-side="1" value="{{ eToVal }}" onFocus="{{ eToFocus }}" onChange="{{ onEditChange }}" onKeyDown="{{ onEditKey }}" onBlur="{{ onEditBlur }}" aria-label="To stations" aria-autocomplete="inline" style="width:100%; min-width:0; border:none; outline:none; background:transparent; font-family:var(--font-mono); font-size:12.5px; color:var(--ink); padding:0;"></input>
                           </div>
                           </sc-if>
                           <sc-for list="{{ eToGhostToks }}" as="gk"><span style="font-family:var(--font-mono); font-size:10.5px; color:var(--ink-5); border:1px dashed var(--rule-strong); border-radius:var(--r-sm); padding:1px 6px; white-space:nowrap;">{{ gk.label }}</span></sc-for>
                         </div>
                       </div>
                     </sc-if>
-                    <sc-if value="{{ eNotVessel }}" hint-placeholder-val="{{ false }}">
+                    <sc-if value="{{ eNotLink }}" hint-placeholder-val="{{ false }}">
                     <div style="position:relative; flex:1; min-width:36px; height:100%; display:flex; align-items:center;">
                       <div style="position:absolute; inset:0; display:flex; align-items:center; pointer-events:none; white-space:pre; overflow:hidden; font-family:var(--font-mono); font-size:12.5px;"><span style="visibility:hidden;">{{ eVal }}</span><span style="color:var(--ink-4);">{{ eGhost }}</span></div>
                       <input ref="{{ editorRef }}" value="{{ eVal }}" onChange="{{ onEditChange }}" onKeyDown="{{ onEditKey }}" onBlur="{{ onEditBlur }}" aria-autocomplete="inline" style="width:100%; border:none; outline:none; background:transparent; font-family:var(--font-mono); font-size:12.5px; color:var(--ink); padding:0;"></input>
@@ -2398,35 +2398,34 @@ class Component extends DCLogic {
     link:      { value: 'set → set',         ghost: 'token+set',   latency: 'idle',    edit: 'tokens',
                  member: 'set', abstraction: true, directed: 'optional',
                  sides: ['source', 'destination'], arrows: ['>', '->', '=>', '→', ' - '] },
-    stamped:   { value: 'written elsewhere', ghost: 'never',       latency: 'never',   edit: 'readonly', owner: 'MES' },
+    stamped:   { value: 'written elsewhere', ghost: 'never',       latency: 'never',   edit: 'readonly', owner: 'ERP' },
   };
   static COLS = [
     { key: 'start',     label: 'Start',           sub: 'd/m · fri · +3d',            type: 'date' },
     { key: 'end',       label: 'End',             sub: '4d = start+4',               type: 'date',
       derive: { from: 'start', plus: 'activity.days' } },
     { key: 'activity',  label: 'Activity',        sub: 'activity register',                type: 'lookup',    of: 'activities' },
-    { key: 'vol',       label: 'Vol / Qty',       sub: 'uom per activity',           type: 'quantity',  uomFrom: 'activity' },
+    { key: 'qty',       label: 'Qty',             sub: 'uom per activity',           type: 'quantity',  uomFrom: 'activity' },
     { key: 'notes',     label: 'Notes',           sub: 'free text',                  type: 'text' },
-    { key: 'tanks',     label: 'Tanks / vessels', sub: 'from → to · 4 x 140m³ · tank · farm', type: 'link',      of: 'vessels',
-      arity: { of: 'destination', from: 'vol', per: 'capacity' },
+    { key: 'stations',  label: 'Work centres',    sub: 'from → to · 4 x lathe · machine · line', type: 'link', of: 'stations',
+      arity: { of: 'destination', from: 'qty', per: 'family' },
       // Which member kinds exist, and which of them may carry a count. An
-      // IDENTIFIED member names a vessel; a COUNTED one names how many of a kind
-      // without saying which — the plan-level form, before a scheduler assigns tanks.
+      // IDENTIFIED member names a machine; a COUNTED one names how many of a kind
+      // without saying which — the plan-level form, before a scheduler assigns machines.
       members: [
-        { kind: 'tank',     identified: true,  countable: false },
+        { kind: 'machine',  identified: true,  countable: false },
         { kind: 'range',    identified: true,  countable: false },
-        { kind: 'farm',     identified: false, countable: true, resolvesTo: 'tank' },
-        { kind: 'group',    identified: false, countable: true, resolvesTo: 'tank' },
-        { kind: 'capacity', identified: false, countable: true, resolvesTo: 'tank' },
+        { kind: 'line',     identified: false, countable: true, resolvesTo: 'machine' },
+        { kind: 'family',   identified: false, countable: true, resolvesTo: 'machine' },
       ],
       multiple: { forms: ['N x kind', 'kind x N'], ops: ['x', 'X', '*', '×'], appliesTo: 'countable' },
       store: 'as-typed',
       check: ['exists', 'capacity@destination', 'free-in-window', 'site-matches@fromSite,toSite'] },
-    { key: 'toClean',   label: 'Clean',           sub: 'n',                          type: 'integer' },
+    { key: 'setups',    label: 'Setups',          sub: 'n',                          type: 'integer' },
     { key: 'fromSite',  label: 'From site',       sub: 'site register',              type: 'reference', of: 'sites' },
     { key: 'toSite',    label: 'To site',         sub: 'site register',              type: 'reference', of: 'sites' },
-    { key: 'orderCode', label: 'Order code',      sub: 'stamped on upload',          type: 'stamped' },
-    { key: 'status',    label: 'Status',          sub: 'mes',                     type: 'enum',      of: 'statuses' },
+    { key: 'orderCode', label: 'Order code',      sub: 'stamped on release',         type: 'stamped' },
+    { key: 'status',    label: 'Status',          sub: 'erp',                        type: 'enum',      of: 'statuses' },
   ];
   static spec(col) { return Component.TYPES[col.type] || {}; }
   static register(name) {
@@ -2435,80 +2434,83 @@ class Component extends DCLogic {
     if (name === 'activities') return Component.ACTS.map(x => x.name);
     return [];
   }
-  // `sides` declares which halves of the vessel link an activity has: both (a move),
-  // from (product leaves the site), to (product arrives), in (work done in place). It is
+  // `sides` declares which halves of the work-centre link an activity has: both (parts move),
+  // from (parts leave the site), to (parts arrive), in (work done in place). It is
   // register data — planners never set it, the cell just locks the half that does not apply.
   static ACTS = [
-    { name: 'Transfer', uom: 'L', rate: 20000, fte: 2, days: 4, sides: 'both' },
-    { name: 'Transfer - Bulk Blenders', uom: 'L', rate: 40000, fte: 2, days: 4, sides: 'both' },
-    { name: 'Transfer - North/South', uom: 'L', rate: 20000, fte: 2, days: 4, sides: 'both' },
-    { name: 'Transfer - Annex', uom: 'L', rate: 20000, fte: 2, days: 4, sides: 'both' },
-    { name: 'Filtration', uom: 'L', rate: 25000, fte: 3, days: 4, sides: 'both' },
-    { name: 'Filtration - Coarse', uom: 'L', rate: 5000, fte: 2, days: 4, sides: 'both' },
-    { name: 'Centrifuge', uom: 'L', rate: 8000, fte: 1, days: 3, sides: 'both' },
-    { name: 'Polish Filter', uom: 'L', rate: 6000, fte: 1, days: 3, sides: 'both' },
-    { name: 'RO Concentrate', uom: 'L', rate: 5000, fte: 2, days: 3, sides: 'both' },
-    { name: 'Drum Job', uom: 'Drm', rate: 100, fte: 2, days: 3, sides: 'in' },
-    { name: 'Media - Add to Tank', uom: 'Tk', rate: 2, fte: 2, days: 4, sides: 'in' },
-    { name: 'Media - Remove from Tank', uom: 'Tk', rate: 2, fte: 2, days: 4, sides: 'in' },
-    { name: 'Dosing', uom: 'L', rate: 30000, fte: 1, days: 1, sides: 'in' },
-    { name: 'Receival', uom: 'L', rate: 25000, fte: 1, days: 1, sides: 'to' },
-    { name: 'Despatch', uom: 'L', rate: 25000, fte: 1, days: 1, sides: 'from' },
-    { name: 'Sample', uom: 'Tk', rate: 8, fte: 1, days: 1, sides: 'in' },
+    { name: 'Machining', uom: 'pcs', rate: 60, fte: 2, days: 4, sides: 'both' },
+    { name: 'Machining - Roughing', uom: 'pcs', rate: 80, fte: 2, days: 4, sides: 'both' },
+    { name: 'Assembly', uom: 'units', rate: 30, fte: 3, days: 4, sides: 'both' },
+    { name: 'Sub-assembly', uom: 'units', rate: 45, fte: 2, days: 4, sides: 'both' },
+    { name: 'Painting', uom: 'pcs', rate: 50, fte: 3, days: 4, sides: 'both' },
+    { name: 'Painting - Primer', uom: 'pcs', rate: 70, fte: 2, days: 4, sides: 'both' },
+    { name: 'Packaging', uom: 'cartons', rate: 120, fte: 1, days: 3, sides: 'both' },
+    { name: 'Deburring', uom: 'pcs', rate: 90, fte: 1, days: 3, sides: 'both' },
+    { name: 'Heat treatment', uom: 'pcs', rate: 40, fte: 2, days: 3, sides: 'both' },
+    { name: 'Rework', uom: 'pcs', rate: 20, fte: 2, days: 3, sides: 'in' },
+    { name: 'Inspection', uom: 'lots', rate: 4, fte: 2, days: 4, sides: 'in' },
+    { name: 'Calibration', uom: 'machines', rate: 2, fte: 2, days: 4, sides: 'in' },
+    { name: 'Changeover', uom: 'h', rate: 1, fte: 1, days: 1, sides: 'in' },
+    { name: 'Receiving', uom: 'pallets', rate: 20, fte: 1, days: 1, sides: 'to' },
+    { name: 'Shipping', uom: 'pallets', rate: 20, fte: 1, days: 1, sides: 'from' },
+    { name: 'Maintenance', uom: 'h', rate: 1, fte: 1, days: 1, sides: 'in' },
   ];
-  static SITES = ['NP-North plant', 'SP-South plant', 'EP-East plant', 'WP-West plant', 'CS-Central store', 'RD-River depot', 'HB-Harbour bay', 'HL-Hill line'];
+  static SITES = ['NP-North plant', 'SP-South plant', 'EP-East plant', 'WP-West plant', 'CS-Central store', 'RD-River depot', 'HB-Harbour bay', 'HS-Hill site'];
   static STATUSES = [
     { w: 'PLANNED', c: 'var(--ink-4)' },
-    { w: 'SCHEDULED', c: 'var(--brand-d)' },
+    { w: 'RELEASED', c: 'var(--brand-d)' },
     { w: 'IN PROGRESS', c: 'var(--warn)' },
     { w: 'COMPLETE', c: 'var(--pos)' },
     { w: 'CANCELLED', c: 'var(--neg)' },
   ];
-  static TANKS = ['T1104|60 m³|1000s', 'T1120|60 m³|1000s', 'T2140|140 m³|2000s', 'T2141|140 m³|2000s', 'T2142|140 m³|2000s', 'T2145|140 m³|2000s', 'T2150|140 m³|2000s', 'T2151|140 m³|2000s', 'T2160|140 m³|2000s', 'T2162|140 m³|2000s', 'T3210|200 m³|3000s', 'T3215|200 m³|3000s', 'T5010|600 m³|5000s', 'T5011|600 m³|5000s', 'T7301|80 m³|7000s', 'T7302|80 m³|7000s', 'T7305|80 m³|7000s', 'T7310|80 m³|7000s', 'T7311|80 m³|7000s', 'T7320|80 m³|7000s', 'T7322|80 m³|7000s', 'T8001|900 m³|8000s'].map(function (s) { const p = s.split('|'); return { code: p[0], cap: p[1], farm: p[2] }; });
-  static FARMS = [
-    { code: 'T20', name: '2000s', n: 96, al: ['2000', 't2000s', 'the 2000s'] },
-    { code: 'T10', name: '1000s', n: 24, al: ['1000'] },
-    { code: 'T30', name: '3000s', n: 40, al: ['3000'] },
-    { code: 'T50', name: '5000s', n: 18, al: ['5000'] },
-    { code: 'T70', name: '7000s', n: 72, al: ['7000'] },
-    { code: 'T80', name: '8000s', n: 12, al: ['8000'] },
-    { code: 'RXA', name: 'Reactor Area', n: 150, al: ['rxa', 'reactor area', 'reactors'] },
-    { code: 'INTK', name: 'Intake', n: 36, al: ['intake'] },
-    { code: 'DH01', name: 'Drum Hall 1', n: 64, al: ['drum hall'] },
-    { code: 'PKG', name: 'Packaging', n: 20, al: ['pack', 'packaging'] },
-    { code: 'ANNX', name: 'Annex store', n: 9, al: ['annex', 'the annex', 'anx', 'annexe'] },
+  static MACHINES = ['M1104|120 t press|Line 1', 'M1120|120 t press|Line 1', 'M2140|CNC lathe|Line 2', 'M2141|CNC lathe|Line 2', 'M2142|CNC lathe|Line 2', 'M2145|CNC lathe|Line 2', 'M2150|CNC lathe|Line 2', 'M2151|CNC lathe|Line 2', 'M2160|CNC lathe|Line 2', 'M2162|CNC lathe|Line 2', 'M3210|5-axis mill|Line 3', 'M3215|5-axis mill|Line 3', 'M5010|gantry mill|Line 5', 'M5011|gantry mill|Line 5', 'M7301|assembly bench|Line 7', 'M7302|assembly bench|Line 7', 'M7305|assembly bench|Line 7', 'M7310|assembly bench|Line 7', 'M7311|assembly bench|Line 7', 'M7320|assembly bench|Line 7', 'M7322|assembly bench|Line 7', 'M8001|test rig|Line 8'].map(function (s) { const p = s.split('|'); return { code: p[0], family: p[1], line: p[2] }; });
+  static LINES = [
+    { code: 'L2', name: 'Line 2', n: 96, al: ['line 2', 'l2', 'the 2 line'] },
+    { code: 'L1', name: 'Line 1', n: 24, al: ['line 1', 'l1'] },
+    { code: 'L3', name: 'Line 3', n: 40, al: ['line 3', 'l3'] },
+    { code: 'L5', name: 'Line 5', n: 18, al: ['line 5', 'l5'] },
+    { code: 'L7', name: 'Line 7', n: 72, al: ['line 7', 'l7'] },
+    { code: 'L8', name: 'Line 8', n: 12, al: ['line 8', 'l8'] },
+    { code: 'CA', name: 'Cell A', n: 150, al: ['cell a', 'a cell', 'the a cell'] },
+    { code: 'GIN', name: 'Goods in', n: 36, al: ['goods in', 'inbound'] },
+    { code: 'FH1', name: 'Finishing hall', n: 64, al: ['finishing', 'finishing hall'] },
+    { code: 'PKL', name: 'Pack line', n: 20, al: ['pack', 'packing'] },
+    { code: 'TB', name: 'Test bay', n: 9, al: ['test bay', 'the test bay', 'bay'] },
   ];
-  static GROUPS = [
-    { code: 'G1042', meta: 'drm grp · 48' },
-    { code: 'G2210', meta: 'drm grp · 30' },
-    { code: 'V07', meta: 'mixer' },
-    { code: 'M01', meta: 'mobile' },
-    { code: 'M02', meta: 'mobile' },
+  // A family is a countable-by-attribute kind: one member per distinct machine family,
+  // with the spellings a planner types ("lathe", "120t").
+  static FAMILIES = [
+    { name: 'CNC lathe', al: ['lathe', 'lathes', 'cnc'] },
+    { name: '5-axis mill', al: ['mill', 'mills', '5 axis', '5axis'] },
+    { name: '120 t press', al: ['press', 'presses', '120t', '120 t'] },
+    { name: 'assembly bench', al: ['bench', 'benches'] },
+    { name: 'gantry mill', al: ['gantry'] },
+    { name: 'test rig', al: ['rig', 'rigs'] },
   ];
   static BLANKS = 18;   // always this many empty rows below the last real one
   // Every arrow a planner might type for "into". A bare hyphen counts only when
-  // spaced or attached to a name — an unspaced numeric hyphen is a tank range.
+  // spaced or attached to a name — an unspaced numeric hyphen is a machine range.
   static ARROW = /\s*(?:->|-->|=>|→|>)\s*|\s+[-–]\s+/;
   static MONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   static DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   constructor(props) {
     super(props);
-    const R = (start, end, activity, vol, notes, tanks, toClean, orderCode, status, id) =>
-      ({ id, start, end, activity, vol, notes, tanks, toClean, fromSite: '', toSite: '', orderCode, status });
+    const R = (start, end, activity, qty, notes, stations, setups, orderCode, status, id) =>
+      ({ id, start, end, activity, qty, notes, stations, setups, fromSite: '', toSite: '', orderCode, status });
     this.state = {
       rows: [
-        R('2026-02-16', '2026-02-20', 'Transfer - Bulk Blenders', 560000, 'Transfer BX2 into 4 x 140m³ tanks for media add', 'T2140, T2141, T2145, T2150', 4, 'BX226001', 'SCHEDULED', 1),
-        R('2026-02-16', '2026-02-20', 'Media - Add to Tank', 4, 'Add media to 4 BX2 tanks down south', '4 x 140m³ tanks south', '', 'BX226002', 'SCHEDULED', 2),
-        R('2026-03-09', '2026-03-13', 'Transfer - North/South', 280000, 'Move tanks north', 'T2151, T2160, T7301, T7302', '', 'BX226003', 'SCHEDULED', 3),
-        R('2026-04-20', '2026-04-24', 'Drum Job', 96, 'Prep 96 drums for despatch', 'TBC', '', 'BX226005', 'SCHEDULED', 4),
-        R('2026-06-22', '2026-06-26', 'Transfer - Annex', 18000, 'transfer to annex', '', '', '', 'SCHEDULED', 5),
-        R('2026-06-29', '2026-07-03', 'Transfer - Annex', 18000, 'Transfer from annex', '', '', '', 'SCHEDULED', 6),
-        R('2026-07-06', '2026-07-10', 'Transfer - Bulk Blenders', 980000, '980m³ BX2 blend', '', '', '', 'SCHEDULED', 7),
-        R('2026-07-13', '2026-07-17', 'Transfer', 980000, 'Consolidate 980m³ of BX2 blend', '', '', '', 'SCHEDULED', 8),
-        R('2026-07-13', '2026-07-17', 'Filtration', 250000, 'filter 250m³ of BX2', '', '', '', 'CANCELLED', 9),
-        R('2026-09-07', '2026-09-11', 'Filtration', 18000, 'filter for the annex following week', 't1104 > annex', '', 'BX226008', 'SCHEDULED', 10),
-        R('2026-09-07', '2026-09-11', 'Filtration', 140000, 'filter 140m³ of BX2', '', '', '', '', 11),
+        R('2026-02-16', '2026-02-20', 'Machining - Roughing', 1200, 'Rough 1,200 P-40 blanks on 4 lathes for the Q3 build', 'M2140, M2141, M2145, M2150', 4, 'WO-26001', 'RELEASED', 1),
+        R('2026-02-16', '2026-02-20', 'Inspection', 4, 'Inspect the 4 roughing lots at the south plant', '4 x lathe', '', 'WO-26002', 'RELEASED', 2),
+        R('2026-03-09', '2026-03-13', 'Assembly', 280, 'Assemble 280 units on line 7', 'M2151, M2160 > M7301, M7302', '', 'WO-26003', 'RELEASED', 3),
+        R('2026-04-20', '2026-04-24', 'Rework', 96, 'Rework 96 rejected housings', 'TBC', '', 'WO-26005', 'RELEASED', 4),
+        R('2026-06-22', '2026-06-26', 'Sub-assembly', 180, 'sub-assemble at cell A', '', '', '', 'RELEASED', 5),
+        R('2026-06-29', '2026-07-03', 'Sub-assembly', 180, 'Sub-assemble the second lot', '', '', '', 'RELEASED', 6),
+        R('2026-07-06', '2026-07-10', 'Machining - Roughing', 1600, '1,600 P-40 blanks', '', '', '', 'RELEASED', 7),
+        R('2026-07-13', '2026-07-17', 'Machining', 1600, 'Finish 1,600 P-40 blanks', '', '', '', 'RELEASED', 8),
+        R('2026-07-13', '2026-07-17', 'Painting', 250, 'paint 250 P-40 housings', '', '', '', 'CANCELLED', 9),
+        R('2026-09-07', '2026-09-11', 'Painting', 180, 'paint the sub-assemblies next week', 'm1104 > test bay', '', 'WO-26008', 'RELEASED', 10),
+        R('2026-09-07', '2026-09-11', 'Painting', 140, 'paint 140 housings', '', '', '', '', 11),
         R('', '', '', '', '', '', '', '', '', 12),
       ],
       sel: { r: 11, c: 2 }, selEnd: null, edit: null, sugg: null, armed: null, hover: null, gsel: null,
@@ -2541,7 +2543,7 @@ class Component extends DCLogic {
     const v = this.vis(); const ent = v[edit.r]; if (!ent) return;
     const col = Component.COLS[edit.c];
     const over = {};
-    if (col.type === 'link') over.tanks = this.serializeSides(edit.groups, edit.val, edit.side);
+    if (col.type === 'link') over.stations = this.serializeSides(edit.groups, edit.val, edit.side);
     else {
       const cand = this.candAt(edit);
       const raw = (cand && this.ghostFor(edit)) ? cand : edit.val;
@@ -2554,11 +2556,11 @@ class Component extends DCLogic {
   }
 
   blankRow(id) {
-    return { id, start: '', end: '', activity: '', vol: '', notes: '', tanks: '', toClean: '', fromSite: '', toSite: '', orderCode: '', status: '' };
+    return { id, start: '', end: '', activity: '', qty: '', notes: '', stations: '', setups: '', fromSite: '', toSite: '', orderCode: '', status: '' };
   }
   isBlank(r) {
-    return !r.activity && !r.start && !r.end && (r.vol === '' || r.vol == null) &&
-           !r.notes && !r.tanks && !r.orderCode && !r.status && (r.toClean === '' || r.toClean == null);
+    return !r.activity && !r.start && !r.end && (r.qty === '' || r.qty == null) &&
+           !r.notes && !r.stations && !r.orderCode && !r.status && (r.setups === '' || r.setups == null);
   }
   // Keep a standing run of empty rows under the plan so it feels like a sheet, not a
   // list you have to grow. Only ever pads — never removes a row you might be sitting in.
@@ -2636,69 +2638,67 @@ class Component extends DCLogic {
 
   // ---------- misc format ----------
   fmtNum(n) { return (typeof n === 'number' && isFinite(n)) ? n.toLocaleString('en-AU') : String(n || ''); }
-  fmtK(v) { return v >= 1000 ? Math.round(v / 1000) + 'm³' : String(v); }
   parseQty(s) {
     const t = String(s).replace(/[,\s]/g, '').toLowerCase(); if (!t) return '';
-    const m = t.match(/^(\d+(?:\.\d+)?)(m3|m³|k|l)?$/); if (!m) return NaN;
-    const mult = (m[2] === 'm3' || m[2] === 'm³' || m[2] === 'k') ? 1e3 : 1;
+    const m = t.match(/^(\d+(?:\.\d+)?)(k|m)?$/); if (!m) return NaN;
+    const mult = m[2] === 'k' ? 1e3 : (m[2] === 'm' ? 1e6 : 1);
     return Math.round(+m[1] * mult);
   }
   actOf(name) { return Component.ACTS.find(a => a.name.toLowerCase() === String(name || '').toLowerCase()); }
 
-  // ---------- vessel vocabulary ----------
-  static COUNTABLE = { farm: 1, group: 1, capacity: 1 };
-  // "4 x 140m³", "3x2000", "140m³ x 4", "2000s × 3" — a count either side of the operator.
+  // ---------- work-centre vocabulary ----------
+  static COUNTABLE = { line: 1, family: 1 };
+  // "4 x lathe", "3xline 2", "lathe x 4", "Line 2 × 3" — a count either side of the operator.
   parseMult(raw) {
     const m = String(raw).trim().match(/^(?:(\d{1,3})\s*[x×*]\s*(.+)|(.+?)\s*[x×*]\s*(\d{1,3}))$/i);
     if (!m) return null;
     const n = +(m[1] || m[4]); const rest = (m[2] || m[3] || '').trim();
     return (n > 0 && rest) ? { n, rest } : null;
   }
-  // A bare capacity is itself a member kind — "140m³" names a size, not a vessel.
-  capKind(raw) {
-    const m = String(raw).trim().match(/^(\d{1,4})\s*(m3|m³|l)$/i);
-    if (!m) return null;
-    const cap = m[2].toLowerCase() === 'l' && +m[1] > 999 ? Math.round(+m[1] / 1000) : +m[1];
-    if (!Component.TANKS.some(t => t.cap === cap + ' m³')) return null;
-    return { kind: 'capacity', label: cap + ' m³', meta: 'size' };
+  // A family is itself a member kind — "lathe" or "120t" names a kind of machine, not one
+  // machine. A name or alias resolves; a number + unit is tried with its spacing normalised.
+  famKind(raw) {
+    const lo = String(raw).trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!lo) return null;
+    const forms = [lo, lo.replace(/^(\d+) (?=[a-z])/, '$1'), lo.replace(/^(\d+)(?=[a-z])/, '$1 ')];
+    const f = Component.FAMILIES.find(x => forms.some(s => x.name.toLowerCase() === s || x.al.indexOf(s) >= 0));
+    return f ? { kind: 'family', label: f.name, meta: 'family' } : null;
   }
   // A counted member may carry a trailing qualifier the planner wrote for
-  // themselves — "4 x 140m³ tanks south". Take the longest leading run that is a
+  // themselves — "4 x lathe north hall". Take the longest leading run that is a
   // countable kind and keep the rest as its own free-text token, rather than
   // failing the whole thing.
   classifyMulti(raw) {
     const s = String(raw).trim(); if (!s) return [];
     const mult = this.parseMult(s);
-    if (!mult) { const c = this.classifyVess(s); return c ? [c] : []; }
+    if (!mult) { const c = this.classifyStation(s); return c ? [c] : []; }
     const words = mult.rest.split(/\s+/);
     for (let k = words.length; k >= 1; k--) {
       const head = words.slice(0, k).join(' ');
-      const base = this.capKind(head) || this.classifyVess(head);
+      const base = this.famKind(head) || this.classifyStation(head);
       if (!base || base.kind === 'text') continue;
       if (!Component.COUNTABLE[base.kind])
-        return [{ kind: 'text', label: s, meta: 'a named vessel cannot be multiplied' }];
-      const tok = { kind: base.kind, label: mult.n + ' × ' + base.label, n: mult.n,
-                    of: base.label, meta: base.kind === 'capacity' ? 'unassigned' : (base.meta || '') };
+        return [{ kind: 'text', label: s, meta: 'a named machine cannot be multiplied' }];
+      // A count names no one in particular, so every counted member reads unassigned.
+      const tok = { kind: base.kind, label: mult.n + ' × ' + base.label, n: mult.n, of: base.label, meta: 'unassigned' };
       const tail = words.slice(k).join(' ').trim();
       return tail ? [tok, { kind: 'text', label: tail, meta: '' }] : [tok];
     }
-    const c = this.classifyVess(s); return c ? [c] : [];
+    const c = this.classifyStation(s); return c ? [c] : [];
   }
-  classifyVess(raw) {
+  classifyStation(raw) {
     const s = raw.trim().replace(/-+$/, '').trim(); if (!s) return null;
-    const cap = this.capKind(s); if (cap) return cap;
     if (/^tbc$/i.test(s)) return { kind: 'tbc', label: 'TBC', meta: '' };
     const up = s.toUpperCase().replace(/\s+/g, '');
-    let t = Component.TANKS.find(x => x.code === up) || (/^\d{3,4}$/.test(up) ? Component.TANKS.find(x => x.code === 'T' + up) : null);
-    if (t) return { kind: 'tank', label: t.code, meta: t.cap };
-    const g = Component.GROUPS.find(x => x.code === up);
-    if (g) return { kind: 'group', label: g.code, meta: g.meta };
+    let t = Component.MACHINES.find(x => x.code === up) || (/^\d{3,4}$/.test(up) ? Component.MACHINES.find(x => x.code === 'M' + up) : null);
+    if (t) return { kind: 'machine', label: t.code, meta: t.family };
     const lo = s.toLowerCase().replace(/^the\s+/, '');
-    const f = Component.FARMS.find(x => x.name.toLowerCase() === lo || x.al.indexOf(lo) >= 0);
-    if (f) return { kind: 'farm', label: f.name, meta: 'farm · ' + f.n };
+    const f = Component.LINES.find(x => x.name.toLowerCase() === lo || x.al.indexOf(lo) >= 0);
+    if (f) return { kind: 'line', label: f.name, meta: 'line · ' + f.n };
+    const fam = this.famKind(s); if (fam) return fam;
     return { kind: 'text', label: s, meta: '' };
   }
-  parseVessStr(raw) {
+  parseStationStr(raw) {
     if (!raw || !raw.trim()) return [];
     return raw.split(Component.ARROW).map(side =>
       side.split(',').flatMap(x => {
@@ -2707,11 +2707,11 @@ class Component extends DCLogic {
       })
     ).filter(g => g.length);
   }
-  serializeVess(groups, leftover) {
+  serializeStations(groups, leftover) {
     const gs = groups.map(g => g.slice());
     if (leftover && leftover.trim()) {
       const toks = this.expandRange(leftover)
-        || (leftover.indexOf(',') >= 0 ? (this.parseVessStr(leftover)[0] || []) : null)
+        || (leftover.indexOf(',') >= 0 ? (this.parseStationStr(leftover)[0] || []) : null)
         || this.classifyMulti(leftover);
       if (toks.length) { if (!gs.length) gs.push([]); gs[gs.length - 1] = gs[gs.length - 1].concat(toks); }
     }
@@ -2719,7 +2719,7 @@ class Component extends DCLogic {
   }
   // Which side of the arrow the caret is in. 0 = source, 1+ = destination.
   // A cell with no arrow is single-sided and behaves as a destination.
-  vessSide(edit) {
+  stationSide(edit) {
     const side = edit.side == null ? 1 : edit.side;
     return { side, dest: side === 1, used: this.flatToks(edit).map(t => t.label) };
   }
@@ -2737,7 +2737,7 @@ class Component extends DCLogic {
     const gs = [sides[0].slice(), sides[1].slice()];
     if (leftover && leftover.trim()) {
       const toks = this.expandRange(leftover)
-        || (leftover.indexOf(',') >= 0 ? (this.parseVessStr(leftover)[0] || []) : null)
+        || (leftover.indexOf(',') >= 0 ? (this.parseStationStr(leftover)[0] || []) : null)
         || this.classifyMulti(leftover);
       const s = side == null ? 1 : side;
       gs[s] = gs[s].concat(toks);
@@ -2767,27 +2767,27 @@ class Component extends DCLogic {
   switchSide(s) {
     const ed = this.state.edit; if (!ed || ed.side === s) return;
     const groups = ed.groups.map(g => g.slice());
-    if (ed.val.trim()) groups[ed.side] = groups[ed.side].concat(this.resolveVessTokensGhost(ed));
+    if (ed.val.trim()) groups[ed.side] = groups[ed.side].concat(this.resolveStationTokensGhost(ed));
     this._focusEditor = true; this._selectAll = false; this._hopAt = Date.now();
     this.setState({ edit: Object.assign({}, ed, { groups, side: s, val: '', hi: 0, chipSel: null }) });
     this.scheduleSugg();
   }
-  // Destination arity, read in the cell: what the volume implies, then what is named.
-  arityView(row, toToks, volFallback) {
+  // Destination arity, read in the cell: what the quantity implies, then what is named.
+  arityView(row, toToks, qtyFallback) {
     const act = this.actOf(row.activity); if (!act) return null;
-    const vol = (row.vol !== '' && row.vol != null) ? row.vol : (volFallback || 0);
-    const n = this.arityFor(Object.assign({}, row, { vol })); if (!n) return null;
+    const qty = (row.qty !== '' && row.qty != null) ? row.qty : (qtyFallback || 0);
+    const n = this.arityFor(Object.assign({}, row, { qty })); if (!n) return null;
     const have = toToks.reduce((a, t) => (t.kind === 'tbc' || t.kind === 'text') ? a : a + (t.n || 1), 0);
     if (!have) return null;
-    return { need: act.uom === 'Tk' ? n + ' tk · ' : n + ' × 140 m³ · ', have: String(have), state: have < n ? 'short' : (have > n ? 'over' : 'ok') };
+    return { need: act.uom === 'lots' ? n + ' lots · ' : n + ' × CNC lathe · ', have: String(have), state: have < n ? 'short' : (have > n ? 'over' : 'ok') };
   }
   // The arity check reads in the strip while the To half is being edited — never in the cell.
   arityMeta(edit, row) {
     if (!row || !edit || edit.side !== 1) return '';
     const sugg = this.state.sugg;
-    const ar = this.arityView(row, edit.groups[1], sugg && sugg.anchorId === row.id && sugg.fill ? sugg.fill.vol : 0);
+    const ar = this.arityView(row, edit.groups[1], sugg && sugg.anchorId === row.id && sugg.fill ? sugg.fill.qty : 0);
     if (!ar) return '';
-    const word = ar.state === 'ok' ? 'named' : (ar.state === 'short' ? 'named so far' : 'named — more than the volume needs');
+    const word = ar.state === 'ok' ? 'named' : (ar.state === 'short' ? 'named so far' : 'named — more than the quantity needs');
     return ar.need.replace(/ · $/, '') + ' implied · ' + ar.have + ' ' + word;
   }
   chipViewsSide(sides, gi, range) {
@@ -2808,42 +2808,48 @@ class Component extends DCLogic {
     if (!B) return Component.ARROW.test(A) ? A : A + ' >';
     return A + ' > ' + B;
   }
-  suggVessel(q, opts) {
+  suggStation(q, opts) {
     const t = q.trim().toLowerCase(); if (!t) return [];
     const used = (opts && opts.used) || [];
     const rng = this.expandRange(t);
     if (rng) {
       const names = rng.map(x => x.label).join(', ');
-      return [{ label: q.trim().toUpperCase().replace(/\s+/g, ''), meta: '→ ' + rng.length + ' tanks: ' + (names.length > 34 ? names.slice(0, 34) + '…' : names) }];
+      return [{ label: q.trim().toUpperCase().replace(/\s+/g, ''), meta: '→ ' + rng.length + ' machines: ' + (names.length > 34 ? names.slice(0, 34) + '…' : names) }];
     }
     const res = [];
-    const free = (code) => used.indexOf(code) < 0;   // never offer a vessel twice in one edge
-    const exact = Component.TANKS.find(x => x.code.toLowerCase() === t || x.code.slice(1).toLowerCase() === t);
-    if (exact && free(exact.code)) res.push({ label: exact.code, meta: exact.cap + ' · ' + exact.farm });
-    // A code prefix ghosts a tank inline before a farm alias gets a look — "t21" is
-    // someone typing T2140, not asking for the 2000s.
-    const codeLike = /^t?\d/.test(t);
-    const tankHits = Component.TANKS.filter(x => x !== exact && free(x.code) &&
+    const free = (code) => used.indexOf(code) < 0;   // never offer a machine twice in one edge
+    const exact = Component.MACHINES.find(x => x.code.toLowerCase() === t || x.code.slice(1).toLowerCase() === t);
+    if (exact && free(exact.code)) res.push({ label: exact.code, meta: exact.family + ' · ' + exact.line });
+    // A code prefix ghosts a machine inline before a line alias gets a look — "m21" is
+    // someone typing M2140, not asking for a mill.
+    const codeLike = /^m?\d/.test(t);
+    const machineHits = Component.MACHINES.filter(x => x !== exact && free(x.code) &&
       (x.code.toLowerCase().startsWith(t) || (/^\d/.test(t) && x.code.slice(1).startsWith(t))));
-    if (codeLike) tankHits.forEach(x => res.push({ label: x.code, meta: x.cap + ' · ' + x.farm }));
-    Component.FARMS.forEach(f => {
+    if (codeLike) machineHits.forEach(x => res.push({ label: x.code, meta: x.family + ' · ' + x.line }));
+    Component.LINES.forEach(f => {
       const names = [f.name.toLowerCase()].concat(f.al);
       if (!names.some(n => n.startsWith(t))) return;
-      res.push({ label: f.name, meta: 'farm · ' + f.n + ' tanks' });
-      const mem = Component.TANKS.filter(x => x.farm === f.name && free(x.code));
-      if (mem.length) res.push({ label: mem.map(x => x.code).join(', '), meta: 'enumerate · ' + mem.length + ' vessels' });
+      res.push({ label: f.name, meta: 'line · ' + f.n + ' machines' });
+      const mem = Component.MACHINES.filter(x => x.line === f.name && free(x.code));
+      if (mem.length) res.push({ label: mem.map(x => x.code).join(', '), meta: 'enumerate · ' + mem.length + ' machines' });
     });
-    if (!codeLike) tankHits.forEach(x => res.push({ label: x.code, meta: x.cap + ' · ' + x.farm }));
-    Component.GROUPS.forEach(g => { if (g.code.toLowerCase().startsWith(t)) res.push({ label: g.code, meta: g.meta }); });
+    Component.FAMILIES.forEach(f => {
+      const names = [f.name.toLowerCase()].concat(f.al);
+      if (!names.some(n => n.startsWith(t)) && !(this.famKind(t) && this.famKind(t).label === f.name)) return;
+      res.push({ label: f.name, meta: 'family' });
+      const mem = Component.MACHINES.filter(x => x.family === f.name && free(x.code));
+      if (mem.length) res.push({ label: mem.map(x => x.code).join(', '), meta: 'enumerate · ' + mem.length + ' machines' });
+    });
+    if (!codeLike) machineHits.forEach(x => res.push({ label: x.code, meta: x.family + ' · ' + x.line }));
     if ('tbc'.startsWith(t)) res.push({ label: 'TBC', meta: 'to confirm' });
     return res;
   }
-  resolveVessToken(raw) {
-    const c = this.classifyVess(raw);
+  resolveStationToken(raw) {
+    const c = this.classifyStation(raw);
     if (!c) return null;
     if (c.kind !== 'text') return c;
-    const s = this.suggVessel(raw);
-    if (s.length && s[0].label.toLowerCase().startsWith(raw.trim().toLowerCase())) return this.classifyVess(s[0].label);
+    const s = this.suggStation(raw);
+    if (s.length && s[0].label.toLowerCase().startsWith(raw.trim().toLowerCase())) return this.classifyStation(s[0].label);
     return c;
   }
 
@@ -2879,22 +2885,22 @@ class Component extends DCLogic {
   }
   suggActs(q) { return this.suggLookup(Component.ACTS.map(a => a.name), q, this.actFreq()); }
   // A hyphen means a RANGE only when it joins two bare numbers with no spaces
-  // (T2140-45). Spaced, or with a name on either side, it is a route arrow.
+  // (M2140-45). Spaced, or with a name on either side, it is a route arrow.
   expandRange(t) {
-    const m = String(t).trim().toLowerCase().match(/^t?(\d{3,4})[-–]t?(\d{1,4})$/);
+    const m = String(t).trim().toLowerCase().match(/^m?(\d{3,4})[-–]m?(\d{1,4})$/);
     if (!m) return null;
     let a = m[1], b = m[2];
     if (b.length < a.length) b = a.slice(0, a.length - b.length) + b;
     const lo = Math.min(+a, +b), hi = Math.max(+a, +b);
-    const list = Component.TANKS.filter(x => { const n = +x.code.replace(/^\D+/, ''); return n >= lo && n <= hi; });
-    return list.length ? list.map(x => ({ kind: 'tank', label: x.code, meta: x.cap })) : null;
+    const list = Component.MACHINES.filter(x => { const n = +x.code.replace(/^\D+/, ''); return n >= lo && n <= hi; });
+    return list.length ? list.map(x => ({ kind: 'machine', label: x.code, meta: x.family })) : null;
   }
 
   // ---------- visible rows / selection ----------
   static STEPS = [1, 3, 10];   // a click escalates: one neighbour, then a few, then a slab
   matchesQ(row, q) {
-    const hay = [row.activity, row.notes, row.tanks, row.orderCode, row.status, row.fromSite,
-                 row.toSite, this.fmtDate(row.start), this.fmtDate(row.end), String(row.vol)]
+    const hay = [row.activity, row.notes, row.stations, row.orderCode, row.status, row.fromSite,
+                 row.toSite, this.fmtDate(row.start), this.fmtDate(row.end), String(row.qty)]
                 .join(' ').toLowerCase();
     return hay.indexOf(q) >= 0;
   }
@@ -2982,7 +2988,7 @@ class Component extends DCLogic {
     const row = v[r].row;
     let edit = { r, c, val: '', err: false, hi: -1 };
     if (col.type === 'link') {
-      edit.groups = seed != null ? [[], []] : this.parseSides(row.tanks);
+      edit.groups = seed != null ? [[], []] : this.parseSides(row.stations);
       edit.val = seed != null ? seed : '';
       edit.side = this.startSide(row, edit.groups);
     } else if (seed != null) {
@@ -3022,10 +3028,10 @@ class Component extends DCLogic {
       return seen.concat(rest).slice(0, 8);
     }
     if (col.type === 'link' || col.type === 'set') {
-      // the abstractions are the useful entry points — nobody guesses a tank code
+      // the abstractions are the useful entry points — nobody guesses a machine code
       const used = this.flatToks(edit).map(x => x.label);
-      return Component.FARMS.map(f => f.name)
-        .concat(Component.GROUPS.map(g => g.code))
+      return Component.LINES.map(f => f.name)
+        .concat(Component.FAMILIES.map(f => f.name))
         .filter(x => used.indexOf(x) < 0).slice(0, 8);
     }
     return [];
@@ -3033,7 +3039,7 @@ class Component extends DCLogic {
   candList(edit) {
     const col = Component.COLS[edit.c]; const t = edit.val.trim();
     if (!t) return this.entryCands(edit);
-    if (col.type === 'link') return this.suggVessel(t, this.vessSide(edit)).map(s => s.label);
+    if (col.type === 'link') return this.suggStation(t, this.stationSide(edit)).map(s => s.label);
     if (col.type === 'lookup') return this.suggActs(t);
     if (col.type === 'reference') return this.suggLookup(Component.register(col.of), t);
     if (col.type === 'enum') return this.suggLookup(Component.register(col.of), t.toUpperCase());
@@ -3072,8 +3078,8 @@ class Component extends DCLogic {
     const col = Component.COLS[edit.c];
     if (col.type === 'link') {
       const rng = this.expandRange(t);
-      if (rng) return rng.length + ' tanks · ' + rng.map(x => x.label).join(', ').slice(0, 40);
-      const s = this.suggVessel(t);
+      if (rng) return rng.length + ' machines · ' + rng.map(x => x.label).join(', ').slice(0, 40);
+      const s = this.suggStation(t);
       return s.length && s[0].label.toLowerCase() !== t.toLowerCase() ? s[0].label + (s[0].meta ? '  ' + s[0].meta : '') : '';
     }
     const cand = this.candAt(edit);
@@ -3091,8 +3097,8 @@ class Component extends DCLogic {
     const row = this.state.rows[ent.idx];
     const h = this.halves(row); if (!(side === 0 ? h.from.live : h.to.live)) return [];
     const sf = this.state.sugg && this.state.sugg.anchorId === row.id && this.state.sugg.fill ? this.state.sugg.fill : {};
-    const vol = row.vol || sf.vol || 0; if (!vol) return [];
-    const p = this.predictTanks(this.state.rows, ent.idx, row, vol); if (!p) return [];
+    const qty = row.qty || sf.qty || 0; if (!qty) return [];
+    const p = this.predictStations(this.state.rows, ent.idx, row, qty); if (!p) return [];
     const have = {}; edit.groups.forEach(g => g.forEach(t => { have[t.label] = true; }));
     const typed = side === edit.side ? edit.val.trim().toUpperCase().replace(/\s+/g, '') : '';
     if (typed) return [];                // while typing, the inline ghost is the only prediction in that half
@@ -3100,7 +3106,7 @@ class Component extends DCLogic {
     const out = [];
     this.parseSides(p.value)[side].forEach(t => {
       if (have[t.label]) return;
-      if (t.n && named) return;          // a count is no help once vessels are named
+      if (t.n && named) return;          // a count is no help once machines are named
       if (typed && t.label.toUpperCase().indexOf(typed) === 0) return;
       if (typed && t.label.toUpperCase().indexOf(typed) === 0) return;
       out.push(t);
@@ -3140,7 +3146,7 @@ class Component extends DCLogic {
     if (col.type === 'link') {
       let val = edit.val;
       if (this.ghostFor(edit) && dir !== 'cancel') val = val + this.ghostFor(edit);
-      row.tanks = this.serializeSides(edit.groups, val, edit.side);
+      row.stations = this.serializeSides(edit.groups, val, edit.side);
     } else {
       let val = edit.val;
       if (col.type === 'lookup' || col.type === 'reference' || col.type === 'enum') {
@@ -3158,7 +3164,7 @@ class Component extends DCLogic {
     let st = { edit: null };
     // copilot: recompute suggestions after a meaningful commit
     this.cancelSugg();
-    if (['activity', 'start', 'end', 'vol', 'notes', 'tanks'].indexOf(col.key) >= 0) {
+    if (['activity', 'start', 'end', 'qty', 'notes', 'stations'].indexOf(col.key) >= 0) {
       st.sugg = this.buildSugg(rows, ent.idx);
       st.armed = null;
     }
@@ -3184,31 +3190,31 @@ class Component extends DCLogic {
   }
 
   // ---------- copilot ----------
-  // How many vessels this row implies, from the activity's uom and the volume.
+  // How many machines this row implies, from the activity's uom and the quantity.
   arityFor(row) {
     const act = this.actOf(row.activity); if (!act) return 0;
-    const vol = +row.vol; if (!vol || !isFinite(vol)) return 0;
-    if (act.uom === 'Tk') return Math.min(24, Math.round(vol));
-    if (act.uom === 'Drm') return 0;               // drum groups, not vessels
-    return Math.min(12, Math.ceil(vol / 140000));  // 140 m³ is the workhorse tank
+    const qty = +row.qty; if (!qty || !isFinite(qty)) return 0;
+    if (act.uom === 'lots') return Math.min(24, Math.round(qty));   // one lot per machine
+    if (act.uom !== 'pcs' && act.uom !== 'units') return 0;        // hours, cartons, pallets name no machines
+    return Math.min(12, Math.ceil(qty / 300));                      // 300 pieces per machine per run
   }
-  // Predict a vessel set. History first (a planner repeating a known job), then a
+  // Predict a work-centre set. History first (a planner repeating a known job), then a
   // capacity solve. Never pad a set with guesses to hit the arity — show the deficit.
-  predictTanks(rows, idx, row, vol) {
-    const hist = rows.filter((x, i) => i !== idx && x.activity === row.activity && x.tanks && !/^TBC$/i.test(x.tanks));
+  predictStations(rows, idx, row, qty) {
+    const hist = rows.filter((x, i) => i !== idx && x.activity === row.activity && x.stations && !/^TBC$/i.test(x.stations));
     if (hist.length) {
       const h = hist[hist.length - 1];
       // normalise through the register so ghost chips render as canonical labels
-      const norm = this.serializeSides(this.parseSides(h.tanks)) || h.tanks;
-      return { value: norm, meta: 'same vessels as ' + (h.orderCode || 'row ' + (rows.indexOf(h) + 1)) };
+      const norm = this.serializeSides(this.parseSides(h.stations)) || h.stations;
+      return { value: norm, meta: 'same stations as ' + (h.orderCode || 'row ' + (rows.indexOf(h) + 1)) };
     }
-    const n = this.arityFor(Object.assign({}, row, { vol }));
+    const n = this.arityFor(Object.assign({}, row, { qty }));
     if (!n || n > 12) return null;
-    // A plan says how many of what size; a schedule says which tanks. Proposing
+    // A plan says how many of what kind; a schedule says which machines. Proposing
     // specific codes here would over-commit — the enumerated form is offered as
     // an alternative in the strip instead.
-    const counted = n + ' x 140m³';
-    return { value: this.sidesOf(row.activity) === 'from' ? counted + ' >' : counted, meta: 'capacity · ' + this.fmtNum(vol) + ' L ÷ 140 m³' };
+    const counted = n + ' x lathe';
+    return { value: this.sidesOf(row.activity) === 'from' ? counted + ' >' : counted, meta: 'capacity · ' + this.fmtNum(qty) + ' pcs ÷ 300 per lathe' };
   }
   // Propose a start when the row has none — the case the old build could not reach,
   // because Start sits two columns *left* of Activity.
@@ -3223,9 +3229,9 @@ class Component extends DCLogic {
     const row = Object.assign({}, rows[idx], override || {});
     const act = this.actOf(row.activity);
     if (!act) return null;
-    if (row.orderCode || row.status === 'CANCELLED') return null;   // MES owns it
+    if (row.orderCode || row.status === 'CANCELLED') return null;   // the ERP owns it
     const next = rows[idx + 1];
-    const nextBusy = next && (next.activity || next.notes || next.vol);
+    const nextBusy = next && (next.activity || next.notes || next.qty);
     const skipKey = skipCol != null ? Component.COLS[skipCol].key : null;
     const blocked = (this._noFill && this._noFill[rows[idx].id]) || {};
     // fill for the row itself
@@ -3238,43 +3244,43 @@ class Component extends DCLogic {
     if (!row.start) { const p = this.predictStart(rows, idx); put('start', p.value, p.meta); }
     const start = row.start || f.start;
     if (!row.end && start) put('end', this.addDays(start, act.days), '+' + act.days + 'd · ' + act.name);
-    if (row.vol === '' || row.vol == null) {
-      const hist = rows.filter((x, i) => i !== idx && x.activity === row.activity && x.vol);
+    if (row.qty === '' || row.qty == null) {
+      const hist = rows.filter((x, i) => i !== idx && x.activity === row.activity && x.qty);
       const h = hist.length ? hist[hist.length - 1] : null;
-      put('vol', h ? h.vol : act.rate * 8, h ? ('like ' + (h.orderCode || 'row ' + (rows.indexOf(h) + 1))) : (this.fmtNum(act.rate) + '/h × 8 h'));
+      put('qty', h ? h.qty : act.rate * 8, h ? ('like ' + (h.orderCode || 'row ' + (rows.indexOf(h) + 1))) : (this.fmtNum(act.rate) + '/h × 8 h'));
     }
-    const vol = row.vol || f.vol || 0;
+    const qty = row.qty || f.qty || 0;
     if (!row.notes) {
-      if (/^Transfer/.test(row.activity)) put('notes', 'Transfer ' + this.fmtK(vol) + ' of BX2', 'phrasing from past ' + act.name.toLowerCase());
-      else if (/^Filtration/.test(row.activity)) put('notes', 'filter ' + this.fmtK(vol) + ' of BX2', 'phrasing from past filtrations');
-      else if (/^Media/.test(row.activity)) put('notes', 'Add media to ' + vol + ' tanks', 'phrasing from past media jobs');
+      if (/^Machining/.test(row.activity)) put('notes', 'Machine ' + this.fmtNum(qty) + ' P-40 blanks', 'phrasing from past machining runs');
+      else if (/^Painting/.test(row.activity)) put('notes', 'Paint ' + this.fmtNum(qty) + ' P-40 housings', 'phrasing from past painting runs');
+      else if (/^Inspection/.test(row.activity)) put('notes', 'Inspect ' + qty + ' lots', 'phrasing from past inspections');
     }
-    if (!row.tanks && vol) { const t = this.predictTanks(rows, idx, row, vol); if (t) put('tanks', t.value, t.meta); }
+    if (!row.stations && qty) { const t = this.predictStations(rows, idx, row, qty); if (t) put('stations', t.value, t.meta); }
     if (Object.keys(f).length) fill = f;
     // pattern rows
     let pat = [], patMeta = '';
     const s = start, e = row.end || f.end || (s ? this.addDays(s, act.days) : null);
     if (!s) return fill ? { anchorId: rows[idx].id, fill, meta, rows: [], patMeta: '' } : null;
-    if (row.activity === 'Transfer - Bulk Blenders') {
-      const n = Math.max(1, Math.round(vol / 140000));
+    if (row.activity === 'Machining - Roughing') {
+      const n = Math.max(1, Math.round(qty / 300));
       pat = [
-        { activity: 'Media - Add to Tank', start: s, end: e, vol: n, notes: 'Add media to ' + n + ' tanks', tanks: '' },
-        { activity: 'Transfer', start: this.addDays(e, 3), end: this.addDays(e, 7), vol: vol, notes: 'Consolidate ' + this.fmtK(vol) + ' of BX2 blend', tanks: '' },
+        { activity: 'Inspection', start: s, end: e, qty: n, notes: 'Inspect ' + n + ' roughing lots', stations: '' },
+        { activity: 'Machining', start: this.addDays(e, 3), end: this.addDays(e, 7), qty: qty, notes: 'Finish ' + this.fmtNum(qty) + ' roughed blanks', stations: '' },
       ];
-    } else if (row.activity === 'Filtration' && /annex|anx/i.test(row.notes || '')) {
+    } else if (row.activity === 'Painting' && /rework/i.test(row.notes || '')) {
       pat = [
-        { activity: 'Transfer - Annex', start: s, end: e, vol: vol, notes: 'transfer to annex', tanks: '' },
-        { activity: 'Transfer - Annex', start: this.addDays(s, 7), end: this.addDays(e, 7), vol: vol, notes: 'Transfer from annex', tanks: '' },
+        { activity: 'Rework', start: s, end: e, qty: qty, notes: 'rework the rejects', stations: '' },
+        { activity: 'Inspection', start: this.addDays(s, 7), end: this.addDays(e, 7), qty: Math.max(1, Math.round(qty / 300)), notes: 'Re-inspect after rework', stations: '' },
       ];
-    } else if (row.activity === 'Filtration') {
-      pat = [{ activity: 'Transfer', start: this.addDays(e, 3), end: this.addDays(e, 7), vol: vol, notes: 'Consolidate ' + this.fmtK(vol) + ' after filtration', tanks: '' }];
-    } else if (row.activity === 'Transfer - Annex' && /to annex/i.test(row.notes || '')) {
-      pat = [{ activity: 'Transfer - Annex', start: this.addDays(s, 7), end: this.addDays(e, 7), vol: vol, notes: 'Transfer from annex', tanks: '' }];
+    } else if (row.activity === 'Painting') {
+      pat = [{ activity: 'Packaging', start: this.addDays(e, 3), end: this.addDays(e, 7), qty: qty, notes: 'Pack ' + this.fmtNum(qty) + ' painted parts', stations: '' }];
+    } else if (row.activity === 'Rework' && /rework/i.test(row.notes || '')) {
+      pat = [{ activity: 'Inspection', start: this.addDays(s, 7), end: this.addDays(e, 7), qty: Math.max(1, Math.round(qty / 300)), notes: 'Re-inspect after rework', stations: '' }];
     }
     // Hardcoded patterns cover the jobs with domain logic behind them. Everything else
     // is learned from the plan itself — what actually followed this activity, and after
     // how long — so the grid stays proactive for activities nobody wrote a rule for.
-    if (!pat.length) { const L = this.learnFollowers(rows, idx, row, vol, s); pat = L.pat; patMeta = L.meta; }
+    if (!pat.length) { const L = this.learnFollowers(rows, idx, row, qty, s); pat = L.pat; patMeta = L.meta; }
     else patMeta = pat.length + ' of 3 past ' + act.name.toLowerCase() + ' jobs ran this way';
     if (this._noFollow) {
       const n0 = pat.length;
@@ -3287,7 +3293,7 @@ class Component extends DCLogic {
     return { anchorId: rows[idx].id, fill, meta, rows: pat, patMeta };
   }
   // What has actually followed this activity in this plan, and after how long.
-  learnFollowers(rows, idx, row, vol, s) {
+  learnFollowers(rows, idx, row, qty, s) {
     const real = rows.filter((x, i) => i !== idx && !this.isBlank(x) && x.activity && x.start)
                      .sort((a, b) => a.start < b.start ? -1 : (a.start > b.start ? 1 : 0));
     const seen = {};
@@ -3298,9 +3304,9 @@ class Component extends DCLogic {
       const gap = Math.round((this.pd(nx.start) - this.pd(real[i].start)) / 864e5);
       if (gap < 0 || gap > 60) continue;
       const k = nx.activity;
-      seen[k] = seen[k] || { act: k, n: 0, gap: 0, vol: '', notes: '' };
+      seen[k] = seen[k] || { act: k, n: 0, gap: 0, qty: '', notes: '' };
       seen[k].n++; seen[k].gap += gap;
-      if (nx.vol !== '' && nx.vol != null) seen[k].vol = nx.vol;
+      if (nx.qty !== '' && nx.qty != null) seen[k].qty = nx.qty;
       if (nx.notes) seen[k].notes = nx.notes;
     }
     const ranked = Object.keys(seen).map(k => seen[k]).sort((a, b) => b.n - a.n);
@@ -3311,7 +3317,7 @@ class Component extends DCLogic {
     const a2 = this.actOf(best.act);
     return {
       pat: [{ activity: best.act, start: st, end: this.addDays(st, a2 ? a2.days : 4),
-              vol: best.vol !== '' ? best.vol : vol, notes: best.notes, tanks: '' }],
+              qty: best.qty !== '' ? best.qty : qty, notes: best.notes, stations: '' }],
       meta: best.act + ' followed ' + row.activity + ' ' + best.n + '\u00d7 in this plan · +' + gap + 'd',
     };
   }
@@ -3401,7 +3407,7 @@ class Component extends DCLogic {
     if (sugg.rows.length) {
       const rows = this.state.rows.slice();
       const i = rows.findIndex(x => x.id === sugg.anchorId); if (i < 0) return this.setState({ sugg: null });
-      const nr = Object.assign({ id: this.state.nextId, toClean: '', fromSite: '', toSite: '', orderCode: '', status: '' }, sugg.rows[0]);
+      const nr = Object.assign({ id: this.state.nextId, setups: '', fromSite: '', toSite: '', orderCode: '', status: '' }, sugg.rows[0]);
       // a suggested row lands in the first blank slot rather than pushing the sheet down
       if (i + 1 < rows.length && this.isBlank(rows[i + 1])) rows[i + 1] = nr;
       else rows.splice(i + 1, 0, nr);
@@ -3554,7 +3560,7 @@ class Component extends DCLogic {
       if (e.key === 'Enter') {
         e.preventDefault(); this._skipBlur = true;
         if (edit.val.trim()) {
-          const toks = this.resolveVessTokensGhost(edit);
+          const toks = this.resolveStationTokensGhost(edit);
           const groups = edit.groups.map(g => g.slice());
           groups[edit.side] = groups[edit.side].concat(toks);
           this._skipBlur = false;
@@ -3609,7 +3615,7 @@ class Component extends DCLogic {
         const { lo, hi } = this.chipRange(edit);
         let i = 0;
         const groups = edit.groups.map(g => g.filter(() => { const n = i++; return n < lo || n > hi; }));
-        this.setState({ edit: Object.assign({}, edit, { groups, chipSel: null }), msg: (hi - lo + 1) + ' vessel(s) removed' });
+        this.setState({ edit: Object.assign({}, edit, { groups, chipSel: null }), msg: (hi - lo + 1) + ' member(s) removed' });
         return;
       }
       if (edit.chipSel && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Escape')) {
@@ -3640,7 +3646,7 @@ class Component extends DCLogic {
           e.preventDefault();
           const groups = edit.groups.map(g => g.slice());
           groups[edit.side] = groups[edit.side].concat(rest);
-          this.setState({ edit: Object.assign({}, edit, { groups, val: '' }), msg: 'Took ' + rest.length + ' predicted vessels' });
+          this.setState({ edit: Object.assign({}, edit, { groups, val: '' }), msg: 'Took ' + rest.length + ' predicted stations' });
           return;
         }
       }
@@ -3673,12 +3679,12 @@ class Component extends DCLogic {
     const cs = edit.chipSel; if (!cs) return { lo: -1, hi: -2 };
     return { lo: Math.min(cs.anchor, cs.focus), hi: Math.max(cs.anchor, cs.focus) };
   }
-  resolveVessTokensGhost(edit) {
+  resolveStationTokensGhost(edit) {
     const raw = edit.val.trim();
     const rng = this.expandRange(raw); if (rng) return rng;
     const cand = this.candAt(edit);
     const full = cand || raw;
-    if (full.indexOf(',') >= 0) return this.parseVessStr(full)[0] || [];
+    if (full.indexOf(',') >= 0) return this.parseStationStr(full)[0] || [];
     return this.classifyMulti(full);
   }
   onEditChangeI(e) {
@@ -3791,20 +3797,20 @@ class Component extends DCLogic {
     });
   }
 
-  // ---------- upload ----------
-  upload() {
+  // ---------- release ----------
+  release() {
     const rows = this.state.rows.slice();
     let seq = this.state.seq; const stamped = [];
     rows.forEach((row, i) => {
-      if (row.activity && row.start && row.vol !== '' && !row.orderCode && row.status !== 'CANCELLED') {
-        const code = 'BX226' + String(seq++).padStart(3, '0');
-        rows[i] = Object.assign({}, row, { orderCode: code, status: 'SCHEDULED' });
+      if (row.activity && row.start && row.qty !== '' && !row.orderCode && row.status !== 'CANCELLED') {
+        const code = 'WO-26' + String(seq++).padStart(3, '0');
+        rows[i] = Object.assign({}, row, { orderCode: code, status: 'RELEASED' });
         stamped.push(code);
       }
     });
     this.setRows(rows, {
       seq,
-      msg: stamped.length ? ('Stamped ' + stamped[0] + (stamped.length > 1 ? '–' + stamped[stamped.length - 1] : '') + ' · ' + stamped.length + ' row(s) scheduled') : 'Nothing to upload — rows need activity, start and vol',
+      msg: stamped.length ? ('Stamped ' + stamped[0] + (stamped.length > 1 ? '–' + stamped[stamped.length - 1] : '') + ' · ' + stamped.length + ' row(s) released') : 'Nothing to release — rows need activity, start and qty',
     });
   }
 
@@ -3965,12 +3971,12 @@ class Component extends DCLogic {
       const a = this.actOf(row.activity);
       if (val !== '' && val != null) { if (slotG) cell.ghostNum = this.fmtNum(val); else cell.num = this.fmtNum(val); }
       else if (fill && fill[col.key] != null) cell.ghostNum = this.fmtNum(fill[col.key]);
-      if (col.key === 'vol' && a && (val !== '' || (fill && fill.vol != null) || slotG)) cell.unit = a.uom;
+      if (col.key === 'qty' && a && (val !== '' || (fill && fill.qty != null) || slotG)) cell.unit = a.uom;
     } else if (col.type === 'link') {
       // The two halves are always drawn once the row has an activity, so an empty
       // cell still says what it wants. Blank rows stay blank.
       const raw = val == null ? '' : String(val);
-      const fillT = !raw && fill && fill.tanks ? String(fill.tanks) : '';
+      const fillT = !raw && fill && fill.stations ? String(fill.stations) : '';
       if (row.activity || raw || fillT) {
         const h = this.halves(row);
         const sides = this.parseSides(fillT || raw);
@@ -4024,17 +4030,17 @@ class Component extends DCLogic {
             title: 'Add ' + t.label + (t.meta ? ' · ' + t.meta : ''),
             click: (e) => this.pickChip(t),
           }));
-          // a counted member is the plan-level answer; naming the vessels is the
+          // a counted member is the plan-level answer; naming the machines is the
           // schedule-level one, so offer it as the alternative rather than assuming
           const counted = rest.find(t => t.n);
           if (counted) {
             const used = this.flatToks(edit).map(x => x.label);
-            const free = Component.TANKS.filter(x => x.cap === counted.of && used.indexOf(x.code) < 0).slice(0, counted.n);
+            const free = Component.MACHINES.filter(x => (x.family === counted.of || x.line === counted.of) && used.indexOf(x.code) < 0).slice(0, counted.n);
             if (free.length === counted.n) alts.push({
               key: 'enum', label: free.map(x => x.code).join(', '),
               on: false, off: true, flat: false,
-              title: 'Name the vessels now instead of leaving them to the scheduler',
-              click: (e) => { free.forEach(x => this.pickChip({ kind: 'tank', label: x.code, meta: x.cap })); },
+              title: 'Name the machines now instead of leaving them to the scheduler',
+              click: (e) => { free.forEach(x => this.pickChip({ kind: 'machine', label: x.code, meta: x.family })); },
             });
           }
           return {
@@ -4057,11 +4063,11 @@ class Component extends DCLogic {
         }));
         let meta = '';
         if (hi >= 0 && col.type === 'lookup') { const a = this.actOf(list[hi]); if (a) meta = a.uom + ' · ' + this.fmtNum(a.rate) + '/h · ' + a.fte + ' fte'; }
-        if (hi >= 0 && col.type === 'link') { const sv = this.suggVessel(edit.val.trim(), this.vessSide(edit)); if (sv[hi]) meta = sv[hi].meta; }
+        if (hi >= 0 && col.type === 'link') { const sv = this.suggStation(edit.val.trim(), this.stationSide(edit)); if (sv[hi]) meta = sv[hi].meta; }
         if (hi < 0) meta = col.type === 'link' ? (this.arityMeta(edit, row) || Component.spec(col).value) : Component.spec(col).value;
         const keys = col.type === 'link' ? '⇥ take · , next · > hops to the To half · ⌘→ rest' : '⇥ take';
         const label = col.type === 'link'
-          ? col.label + ' · ' + (this.vessSide(edit).side ? 'to' : 'from')
+          ? col.label + ' · ' + (this.stationSide(edit).side ? 'to' : 'from')
           : col.label;
         // Entry state: a menu of what the field accepts, nothing armed, so Tab
         // cannot write a value the planner never chose.
@@ -4086,17 +4092,17 @@ class Component extends DCLogic {
           stripMeta: this._setMeta || '', stripKeys: '⇥ one · ⌘→ all',
         };
         // Nothing to offer is still worth a line: the grammar, and the arity check.
-        const side = this.vessSide(edit).side ? 'to' : 'from';
+        const side = this.stationSide(edit).side ? 'to' : 'from';
         return {
           stripOn: true, stripLabel: col.label + ' · ' + side + ' · accepts',
-          alts: flat(edit.val.trim() ? 'no register match — kept as typed' : 'tank code · farm · group · 4 x 140m³ · T2140-45 range · TBC'),
+          alts: flat(edit.val.trim() ? 'no register match — kept as typed' : 'machine code · line · family · 4 x lathe · M2140-45 range · TBC'),
           stripMeta: this.arityMeta(edit, row) || '', stripKeys: ', adds · > hops to the To half · ⏎ done',
         };
       }
       if (col.type === 'date' && empty) return { stripOn: true, stripLabel: col.label + ' · accepts',
         alts: flat('a date'), stripMeta: 'd/m · weekday · +3d' + (col.key === 'end' ? ' · 4d from start' : ''), stripKeys: 'type to parse' };
       if ((col.type === 'quantity' || col.type === 'integer') && empty) return { stripOn: true, stripLabel: col.label + ' · accepts',
-        alts: flat(Component.spec(col).value), stripMeta: '560000 · 560k · 1.2ML', stripKeys: 'type to parse' };
+        alts: flat(Component.spec(col).value), stripMeta: '1200 · 1.2k · 1.2m', stripKeys: 'type to parse' };
       if (col.type === 'date' && row) {
         const d = this.parseDateSmart(edit.val, row, col.key);
         if (d) return { stripOn: true, stripLabel: col.label, alts: flat(this.fmtDateLong(d)), stripMeta: col.key === 'end' && row.start ? Math.round((this.pd(d) - this.pd(row.start)) / 864e5) + ' days' : '', stripKeys: '12/4 · fri · +3d' };
@@ -4104,8 +4110,8 @@ class Component extends DCLogic {
       }
       if ((col.type === 'quantity' || col.type === 'integer') && edit.val.trim() && row) {
         const n = this.parseQty(edit.val);
-        if (!isNaN(n)) { const a = this.actOf(row.activity); return { stripOn: true, stripLabel: col.label, alts: flat(this.fmtNum(n) + (a && col.key === 'vol' ? ' ' + a.uom : '')), stripMeta: a && col.key === 'vol' ? '≈ ' + (n / a.rate).toFixed(1) + ' h run · ' + a.fte + ' fte' : '', stripKeys: '560000 · 560k · 1.2ML' }; }
-        return { stripOn: true, stripLabel: col.label, alts: flat('unrecognised'), stripMeta: '', stripKeys: '560000 · 560k · 1.2ML' };
+        if (!isNaN(n)) { const a = this.actOf(row.activity); return { stripOn: true, stripLabel: col.label, alts: flat(this.fmtNum(n) + (a && col.key === 'qty' ? ' ' + a.uom : '')), stripMeta: a && col.key === 'qty' ? '≈ ' + (n / a.rate).toFixed(1) + ' h run · ' + a.fte + ' fte' : '', stripKeys: '1200 · 1.2k · 1.2m' }; }
+        return { stripOn: true, stripLabel: col.label, alts: flat('unrecognised'), stripMeta: '', stripKeys: '1200 · 1.2k · 1.2m' };
       }
       return off;
     }
@@ -4140,11 +4146,11 @@ class Component extends DCLogic {
     this._focusEditor = true; this._selectAll = false;
     if (col.type === 'link') {
       const toks = this.expandRange(label)
-        || (label.indexOf(',') >= 0 ? (this.parseVessStr(label)[0] || []) : null)
+        || (label.indexOf(',') >= 0 ? (this.parseStationStr(label)[0] || []) : null)
         || this.classifyMulti(label);
       const groups = ed.groups.map(g => g.slice());
       groups[ed.side] = groups[ed.side].concat(toks);
-      this.setState({ edit: Object.assign({}, ed, { groups, val: '', hi: 0 }), msg: 'Added ' + toks.length + ' vessel' + (toks.length === 1 ? '' : 's') });
+      this.setState({ edit: Object.assign({}, ed, { groups, val: '', hi: 0 }), msg: 'Added ' + toks.length + ' member' + (toks.length === 1 ? '' : 's') });
     } else {
       this.setState({ edit: Object.assign({}, ed, { val: label, hi: i }) });
     }
@@ -4229,7 +4235,7 @@ class Component extends DCLogic {
             accept: (e) => { e.preventDefault(); e.stopPropagation(); this.setState({ gsel: null }); this.acceptUpTo(gi + 1 + (this.state.sugg && this.state.sugg.fill ? 1 : 0)); },
             reject: (e) => { e.preventDefault(); e.stopPropagation(); this.rejectGhostRow(gi); },
             cells: Component.COLS.map((c, ci) => {
-              const cv = this.cellView(Object.assign({ toClean: '', fromSite: '', toSite: '', orderCode: '', status: '' }, gr), ci, -1, true, null);
+              const cv = this.cellView(Object.assign({ setups: '', fromSite: '', toSite: '', orderCode: '', status: '' }, gr), ci, -1, true, null);
               cv.down = gpick; cv.inRange = gOn;
               return cv;
             }),
@@ -4239,7 +4245,7 @@ class Component extends DCLogic {
     });
     if (filtering && v.length && v[v.length - 1].idx < lastReal) band(v[v.length - 1].idx, lastReal + 1);
     const nSugg = sugg ? (sugg.rows.length + (sugg.fill ? Object.keys(sugg.fill).length : 0)) : 0;
-    const ready = this.state.rows.filter(x => x.activity && x.start && x.vol !== '' && !x.orderCode && x.status !== 'CANCELLED').length;
+    const ready = this.state.rows.filter(x => x.activity && x.start && x.qty !== '' && !x.orderCode && x.status !== 'CANCELLED').length;
     const cancelled = this.state.rows.filter(x => x.status === 'CANCELLED').length;
     const planned = this.state.rows.filter(x => !this.isBlank(x)).length;
     const isLink = !!edit && Component.COLS[edit.c].type === 'link';
@@ -4312,7 +4318,7 @@ class Component extends DCLogic {
       eResolve: edit && !isLink ? this.resolveFor(edit) : '',   // a link cell's resolution lives in the strip, so the halves keep their width
       eBadge,
       eErr: edit ? !!edit.err : false,
-      eIsVessel: isLink, eNotVessel: !!edit && !isLink,
+      eIsLink: isLink, eNotLink: !!edit && !isLink,
       eIsIn: !!(eH && eH.isIn), eNotIn: !!(eH && !eH.isIn),
       eFromOn: isLink && edit.side === 0, eToOn: isLink && edit.side === 1,
       eFromChips: isLink ? this.chipViewsSide(edit.groups, 0, eRange) : [],
@@ -4340,7 +4346,7 @@ class Component extends DCLogic {
       onEditChange: (e) => this.onEditChangeI(e),
       onEditKey: (e) => this.onEditKeyI(e),
       onEditBlur: (e) => this.onEditBlurI(e),
-      counts: planned + ' planned · ' + ready + ' ready to upload · ' + cancelled + ' cancelled',
+      counts: planned + ' planned · ' + ready + ' ready to release · ' + cancelled + ' cancelled',
       autoOn: this.state.autosave !== false,
       autoOff: this.state.autosave === false,
       autoMeta: this.relSave(),

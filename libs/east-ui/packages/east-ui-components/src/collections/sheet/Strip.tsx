@@ -1,0 +1,284 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * The docked strip (B§9) — the only surface for candidates, previews and
+ * provenance; nothing ever floats over the sheet. Six states: editing with
+ * an empty buffer (what the field ACCEPTS, nothing armed), editing with
+ * candidates (the armed chip in brand tint), the link's prediction and
+ * no-candidate lines, the date / quantity preview, and — not editing — the
+ * pending suggestions: one chip per pending fill (the next target armed),
+ * `+n rows`, a dashed pending chip per provider still in flight, the
+ * provenance line. `buildStrip` is pure; `SheetStrip` draws it.
+ */
+
+import { memo } from "react";
+import { Box } from "@chakra-ui/react";
+import { getSomeorUndefined } from "../../utils.js";
+import { candidateList, candidateAt, type CandidateContext } from "./candidates.js";
+import { cellText, formatQuantity, memberLabel, type SheetColumnMeta } from "./model.js";
+import type { LinkCandidate } from "./link/predict.js";
+import { parseDate, formatDateLong, daysBetween } from "./parse/date.js";
+import { parseQuantity } from "./parse/quantity.js";
+import type { EditBuffer } from "./sheet-types.js";
+import type { SheetCellValue, SheetMemberValue } from "./values.js";
+
+type Styles = Record<string, Record<string, unknown>>;
+
+/** What a strip chip does when clicked. */
+export type StripAction =
+    /** A candidate — replaces the buffer. */
+    | { kind: "candidate"; label: string; i: number }
+    /** A link chip — adds members to the active half. */
+    | { kind: "members"; label: string; members: SheetMemberValue[] }
+    /** A pending fill — takes it. */
+    | { kind: "fill"; key: string }
+    /** The `+n rows` chip — takes every suggestion. */
+    | { kind: "rows" };
+
+/** One strip chip. */
+export interface StripChip {
+    key: string;
+    label: string;
+    /** Armed (brand tint). */
+    on: boolean;
+    /** A preview-only entry — not an action. */
+    flat: boolean;
+    /** Pending — an async provider in flight. */
+    pending?: boolean;
+    title: string;
+    /** What a click does. */
+    action?: StripAction | undefined;
+}
+
+/** The strip model. */
+export interface StripModel {
+    on: boolean;
+    label: string;
+    chips: StripChip[];
+    meta: string;
+    keys: string;
+}
+
+const OFF: StripModel = { on: false, label: "", chips: [], meta: "", keys: "" };
+
+/** What the strip reads beside the edit buffer. */
+export interface StripInput {
+    edit: EditBuffer | null;
+    meta: SheetColumnMeta | undefined;
+    candidates: CandidateContext | undefined;
+    today: Date;
+    /** The base column's date for a date column with `base`. */
+    baseDate: Date | undefined;
+    /** The unit for a quantity column (from the driver). */
+    unit: string | undefined;
+    /** A custom kind's parse of the buffer, for its preview. */
+    customPreview: SheetCellValue | null | undefined;
+    /** The link editor's facts, on a link / set column. */
+    link?: StripLinkInput | undefined;
+    /** The pending suggestions, when no editor is open (B§9's sixth state). */
+    suggested?: StripSuggestInput | undefined;
+}
+
+/** What the link strip states read (B§9). */
+export interface StripLinkInput {
+    side: 0 | 1;
+    /** The candidates for the buffer, members already in the cell excluded. */
+    candidates: LinkCandidate[];
+    /** The armed candidate. */
+    armed: LinkCandidate | undefined;
+    /** The entry menu — the countable abstractions. */
+    entry: LinkCandidate[];
+    /** The predicted members of the active half, with an enumerate alternative and their provenance. */
+    predicted: readonly SheetMemberValue[];
+    enumerate: LinkCandidate | undefined;
+    predictedMeta: string;
+    /** The arity meta while the arity half is edited. */
+    arity: string;
+    /** The grammar in one line. */
+    grammar: string;
+}
+
+/** The pending suggestions the strip states when no editor is open. */
+export interface StripSuggestInput {
+    /** The pending fills in column order — the header, the value's text, the provenance; the next target armed. */
+    fills: readonly { key: string; header: string; text: string; meta: string; armed: boolean }[];
+    /** Proposed rows pending. */
+    rows: number;
+    /** The first proposal's provenance. */
+    rowsMeta: string;
+    /** Providers still in flight, by header. */
+    pending: readonly { key: string; header: string }[];
+}
+
+const flat = (label: string): StripChip[] => [{ key: "v", label, on: false, flat: true, title: "" }];
+
+/** The strip for the current state (pure). */
+export function buildStrip(input: StripInput): StripModel {
+    const { edit, meta } = input;
+    if (edit === null || meta === undefined) return input.suggested !== undefined ? buildSuggestStrip(input.suggested) : OFF;
+    const empty = edit.val.trim() === "";
+    const header = meta.header.toUpperCase();
+    if ((meta.kind === "link" || meta.kind === "set") && input.link !== undefined) return buildLinkStrip(header, edit.val, input.link, meta.kind === "set");
+    switch (meta.kind) {
+        case "lookup":
+        case "reference":
+        case "enum": {
+            if (input.candidates === undefined) return OFF;
+            const list = candidateList(meta, edit.val, input.candidates);
+            if (list.length === 0) {
+                return empty ? OFF : { on: true, label: header, chips: flat("no register match — kept as typed"), meta: "", keys: "⏎ commit as typed" };
+            }
+            const armed = candidateAt(meta, edit.val, edit.hi, input.candidates);
+            const hi = armed === undefined ? -1 : Math.max(0, list.indexOf(armed));
+            const chips: StripChip[] = list.slice(0, 6).map((label, i) => ({
+                key: `a${i}`,
+                label: label.length > 34 ? `${label.slice(0, 33)}…` : label,
+                on: i === hi,
+                flat: false,
+                title: label,
+                action: { kind: "candidate", label, i },
+            }));
+            const member = hi >= 0 ? input.candidates.registers.byName.get(meta.register ?? "")?.find((m) => m.key === list[hi]) : undefined;
+            const memberMeta = member !== undefined ? getSomeorUndefined(member.meta) ?? "" : "";
+            if (hi < 0) {
+                return { on: true, label: `${header} · accepts`, chips, meta: memberMeta, keys: "type to filter · ⌥↓ to pick · click any" };
+            }
+            return {
+                on: true,
+                label: `${list.length > 1 ? "⌥] " : ""}${header}`,
+                chips,
+                meta: memberMeta,
+                keys: `${list.length > 1 ? `${hi + 1} of ${list.length} · ` : ""}⇥ take`,
+            };
+        }
+        case "date": {
+            if (empty) {
+                return { on: true, label: `${header} · accepts`, chips: flat("a date"), meta: `d/m · weekday · +3d${meta.base !== undefined ? ` · 4d from ${meta.base}` : ""}`, keys: "type to parse" };
+            }
+            const d = parseDate(edit.val, { today: input.today, base: input.baseDate });
+            if (d === null || d === undefined) {
+                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: "12/4 · fri · +3d · 17 nov" };
+            }
+            const span = input.baseDate !== undefined ? `${daysBetween(input.baseDate, d)} days` : "";
+            return { on: true, label: header, chips: flat(formatDateLong(d)), meta: span, keys: "12/4 · fri · +3d" };
+        }
+        case "quantity":
+        case "integer": {
+            if (empty) {
+                return { on: true, label: `${header} · accepts`, chips: flat(meta.kind === "quantity" ? "number + unit" : "number"), meta: "1200 · 1.2k · 1.2m", keys: "type to parse" };
+            }
+            const n = parseQuantity(edit.val);
+            if (n === null || n === undefined) {
+                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: "1200 · 1.2k · 1.2m" };
+            }
+            const unit = meta.kind === "quantity" && input.unit !== undefined ? ` ${input.unit}` : "";
+            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined)}${unit}`), meta: "", keys: "1200 · 1.2k · 1.2m" };
+        }
+        case "custom": {
+            if (empty) return { on: true, label: `${header} · accepts`, chips: flat(meta.accepts ?? "a value"), meta: "", keys: "type to parse" };
+            const p = input.customPreview;
+            if (p === undefined || p === null) return { on: true, label: header, chips: flat("unrecognised"), meta: meta.accepts ?? "", keys: "" };
+            return { on: true, label: header, chips: flat(cellText(p, meta)), meta: meta.accepts ?? "", keys: "" };
+        }
+        default:
+            return OFF;
+    }
+}
+
+/** The link strip states (B§9): predicted · candidates · the entry menu · the grammar line. */
+function buildLinkStrip(header: string, val: string, link: StripLinkInput, single: boolean): StripModel {
+    const empty = val.trim() === "";
+    const halfName = single ? "" : link.side === 1 ? " · to" : " · from";
+    const chipOf = (c: LinkCandidate, i: number, on: boolean): StripChip => ({
+        key: `a${i}`, label: c.label.length > 34 ? `${c.label.slice(0, 33)}…` : c.label, on, flat: false, title: c.label,
+        action: { kind: "members", label: c.label, members: c.members },
+    });
+    // A prediction is more specific than the register's entry menu.
+    if (empty && link.predicted.length > 0) {
+        const chips: StripChip[] = link.predicted.map((m, i) => ({
+            key: `p${i}`, label: memberLabel(m), on: i === 0, flat: false, title: `Add ${memberLabel(m)}`,
+            action: { kind: "members", label: memberLabel(m), members: [m] },
+        }));
+        if (link.enumerate !== undefined) chips.push(chipOf(link.enumerate, 99, false));
+        return { on: true, label: `${header} · predicted`, chips, meta: link.predictedMeta, keys: "⇥ one · ⌘→ all · or type" };
+    }
+    const list = empty ? link.entry : link.candidates;
+    if (list.length > 0) {
+        const armed = empty ? undefined : link.armed;
+        const hi = armed === undefined ? -1 : Math.max(0, list.indexOf(armed));
+        const chips = list.slice(0, 12).map((c, i) => chipOf(c, i, i === hi));
+        if (hi < 0) {
+            return { on: true, label: `${header}${halfName} · accepts`, chips, meta: link.arity, keys: "type to filter · ⌥↓ to pick · click any" };
+        }
+        return {
+            on: true,
+            label: `${list.length > 1 ? "⌥] " : ""}${header}${halfName}`,
+            chips,
+            meta: armed?.meta ?? "",
+            keys: `${list.length > 1 ? `${hi + 1} of ${list.length} · ` : ""}⇥ take · , next${single ? "" : " · > hops to the To half"} · ⌘→ rest`,
+        };
+    }
+    // Nothing to offer is still worth a line: the grammar, and the arity check.
+    return {
+        on: true,
+        label: `${header}${halfName} · accepts`,
+        chips: flat(empty ? link.grammar : "no register match — kept as typed"),
+        meta: link.arity,
+        keys: `, adds${single ? "" : " · > hops to the To half"} · ⏎ done`,
+    };
+}
+
+/** The suggestions state (B§9): one chip per pending fill, `+n rows`, the pending providers, the provenance. */
+function buildSuggestStrip(s: StripSuggestInput): StripModel {
+    const chips: StripChip[] = s.fills.map((f) => ({
+        key: `f${f.key}`, label: f.header, on: f.armed, flat: false,
+        title: `${f.text}${f.meta !== "" ? ` — ${f.meta}` : ""}`,
+        action: { kind: "fill", key: f.key },
+    }));
+    if (s.rows > 0) chips.push({ key: "rows", label: `+${s.rows} row${s.rows === 1 ? "" : "s"}`, on: false, flat: false, title: s.rowsMeta, action: { kind: "rows" } });
+    for (const p of s.pending) chips.push({ key: `p${p.key}`, label: `${p.header} ⋯`, on: false, flat: false, pending: true, title: `${p.header} — thinking` });
+    if (chips.length === 0) return OFF;
+    const armed = s.fills.find((f) => f.armed);
+    const meta = armed !== undefined && armed.meta !== "" ? armed.meta : s.fills[0]?.meta !== undefined && s.fills[0].meta !== "" ? s.fills[0].meta : s.rowsMeta;
+    return { on: true, label: "suggested", chips, meta, keys: "⇥ walk · ⌘⏎ row · ⌘⇧⏎ all · esc" };
+}
+
+export interface SheetStripProps {
+    styles: Styles;
+    model: StripModel;
+    onAction: (action: StripAction) => void;
+}
+
+/** Renders the docked strip. */
+export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: SheetStripProps) {
+    if (!model.on) return null;
+    return (
+        <Box css={styles.strip} data-slot="strip">
+            <Box as="span" css={styles.stripLabel} data-slot="stripLabel">{model.label}</Box>
+            <Box css={styles.stripChips}>
+                {model.chips.map((ch) => ch.flat
+                    ? <Box key={ch.key} as="span" css={styles.stripChipFlat} data-slot="stripChip" data-flat="">{ch.label}</Box>
+                    : (
+                        <Box
+                            key={ch.key}
+                            as="span"
+                            css={ch.on ? styles.stripChipOn : styles.stripChip}
+                            data-slot="stripChip"
+                            data-armed={ch.on ? "" : undefined}
+                            data-pending={ch.pending ? "" : undefined}
+                            title={ch.title}
+                            // mousedown, not click: preventDefault keeps focus in the editor so the cell stays open.
+                            onMouseDown={(e) => { e.preventDefault(); if (ch.action !== undefined) onAction(ch.action); }}
+                        >
+                            {ch.label}
+                        </Box>
+                    ))}
+            </Box>
+            <Box as="span" css={styles.stripMeta} data-slot="stripMeta">{model.meta}</Box>
+            <Box as="span" css={styles.stripKeys}>{model.keys}</Box>
+        </Box>
+    );
+});

@@ -86,6 +86,13 @@ export interface VirtualRowsProps {
      */
     scrollToIndex?: number | undefined;
     /**
+     * How `scrollToIndex` brings its row into view (default `"center"` — a
+     * jump to a sought row). `"auto"` scrolls the least distance that makes the
+     * row visible and leaves an already-visible row where it is — what a
+     * keyboard-walked selection ring wants.
+     */
+    scrollAlign?: "auto" | "start" | "center" | "end" | undefined;
+    /**
      * Reports the mounted row range whenever it moves — the signal a paged
      * collection needs to shape its demand around the viewport (#577).
      *
@@ -140,7 +147,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
         header, footer, count, estimateSize, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
-        scrollToIndex, onRangeChange, sizeVersion,
+        scrollToIndex, scrollAlign = "center", onRangeChange, sizeVersion,
     } = props;
     const h = parseCssSize(props.height);
     const mh = parseCssSize(props.maxHeight);
@@ -172,7 +179,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // re-scroll on every frame.
     useEffect(() => {
         if (scrollToIndex === undefined || !bounded) return;
-        virtualizer.scrollToIndex(scrollToIndex, { align: "center" });
+        virtualizer.scrollToIndex(scrollToIndex, { align: scrollAlign });
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index is the trigger
     }, [scrollToIndex]);
 

@@ -18,7 +18,9 @@
  *   single summary chip in a trailing cluster, the rest stay live;
  * rung N+1 — terminal: all fold into one chip that *names its contents*
  *   (`Filter · Search +1`, or `3 filters · EU +1` when narrowing) — never the
- *   bare verb "narrow".
+ *   bare verb "narrow";
+ * rung N+2 — the icon alone, when the row cannot hold even the terminal chip
+ *   (a toolbar whose tabs need the room): its tooltip names the contents.
  * Every folded chip and the terminal chip open the sectioned `Slice.Edit`
  * popover (every affordance flat, in `editor` density, under its family
  * caption), floating over whatever sits below — the host never changes height.
@@ -140,6 +142,12 @@ export interface SliceRailClusterProps {
     slice: ValueTypeOf<typeof Slice.Types.Bind>;
     /** Affordance kinds to mount, in order (`"filter"`, `"search"`, …). */
     affordanceKinds: ReadonlyArray<string>;
+    /** Where the chips sit in a row wider than they are: at its start (the
+     *  default), or hugging its end — a toolbar's trailing cluster. A
+     *  leading spacer takes the slack, so the row still overflows towards
+     *  its end and the ladder's measure holds (`justify-content: flex-end`
+     *  would overflow towards the start, where `scrollWidth` cannot see). */
+    align?: "start" | "end" | undefined;
 }
 
 /**
@@ -147,7 +155,7 @@ export interface SliceRailClusterProps {
  * measured ladder + sectioned editor inline; the host provides the row
  * container (and meta zone) around it.
  */
-export function SliceRailCluster({ slice, affordanceKinds }: SliceRailClusterProps) {
+export function SliceRailCluster({ slice, affordanceKinds, align = "start" }: SliceRailClusterProps) {
     const styles = useSlotRecipe({ key: "sliceFrame" })();
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
@@ -169,12 +177,14 @@ export function SliceRailCluster({ slice, affordanceKinds }: SliceRailClusterPro
 
     // Fold order (mount indices, lowest COLLAPSE_RANK first) and the ladder
     // ceiling: rung 0 all live, rungs 1..N fold that many affordances into the
-    // trailing cluster, rung N+1 merges into one terminal chip.
+    // trailing cluster, rung N+1 merges into one terminal chip, rung N+2 keeps
+    // the icon alone.
     const foldOrder = affordanceKinds
         .map((kind, i) => ({ i, rank: COLLAPSE_RANK[kind] ?? 3 }))
         .sort((a, b) => a.rank - b.rank || a.i - b.i)
         .map(o => o.i);
-    const maxRung = affordanceKinds.length + 1;
+    const terminalRung = affordanceKinds.length + 1;
+    const maxRung = affordanceKinds.length + 2;
 
     // Ladder measurement: render the current rung, and if the row overflows,
     // escalate by one (fold the next-ranked affordance). The affordances run
@@ -256,19 +266,28 @@ export function SliceRailCluster({ slice, affordanceKinds }: SliceRailClusterPro
 
     // The trailing collapsed cluster's trigger content: at the terminal rung a
     // single chip that *names the rail's contents* (active families first, so
-    // an engaged narrowing leads); below that, one summary chip per folded
-    // family in fold order.
-    const clusterTrigger: ReactNode = rung >= maxRung ? (() => {
+    // an engaged narrowing leads); past it the icon alone, its tooltip naming
+    // them; below that, one summary chip per folded family in fold order.
+    const clusterTrigger: ReactNode = rung >= terminalRung ? (() => {
         const descriptors = affordanceKinds
             .map(kind => affordanceDescriptor(kind, state, dimensions))
             .map((d, idx) => ({ d, idx }))
             .sort((a, b) => (b.d.active ? 1 : 0) - (a.d.active ? 1 : 0) || a.idx - b.idx)
             .map(o => o.d);
         const labels = descriptors.map(d => d.text);
+        const anyActive = descriptors.some(d => d.active);
+        const icon = descriptors[0]?.icon ?? faFilter;
+        if (rung >= maxRung) {
+            return (
+                <Box key="icon" as="span" css={chip({ tone: anyActive ? "brand" : "neutral", numeric: true, shape: "pill" })} cursor="pointer" flexShrink={0}
+                    title={labels.length > 0 ? labels.join(" · ") : "Slice"} data-rail-rung="icon">
+                    <FontAwesomeIcon icon={icon} style={{ fontSize: "9px" }} />
+                </Box>
+            );
+        }
         const head = labels.slice(0, 2).join(" · ");
         const extra = labels.length > 2 ? ` +${labels.length - 2}` : "";
-        const anyActive = descriptors.some(d => d.active);
-        return countChip("all", descriptors[0]?.icon ?? faFilter, labels.length > 0 ? head + extra : "Slice", anyActive);
+        return countChip("all", icon, labels.length > 0 ? head + extra : "Slice", anyActive);
     })() : (
         foldOrder.slice(0, rung).map(i => {
             const d = affordanceDescriptor(affordanceKinds[i]!, state, dimensions);
@@ -313,6 +332,10 @@ export function SliceRailCluster({ slice, affordanceKinds }: SliceRailClusterPro
 
     const ladderContent = (
         <>
+            {/* The slack, at the start: the chips end at the row's end, and
+                the spacer's negative margin swallows the gap after it, so a
+                full row measures exactly as it would at the start. */}
+            {align === "end" && <Box aria-hidden="true" flex="1 0 0" minWidth="0" marginRight="-3" />}
             {liveKinds.map(({ kind, i }) => {
                 const m = AFFORDANCE_META[kind];
                 return (

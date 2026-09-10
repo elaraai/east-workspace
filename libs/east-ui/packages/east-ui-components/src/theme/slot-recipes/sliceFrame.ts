@@ -216,9 +216,14 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
                 _focusVisible: { boxShadow: "none", outline: "none" },
             },
         },
+        // The `/` hint and the × clear button share one 16 px box, so the pill
+        // keeps its height whether the box is empty or carries a value.
         searchKbd: {
+            display: "inline-flex",
+            alignItems: "center",
+            height: "16px",
+            boxSizing: "border-box",
             paddingX: "5px",
-            paddingY: "1px",
             background: "bg.canvas",
             borderWidth: "1px",
             borderColor: "border.subtle",

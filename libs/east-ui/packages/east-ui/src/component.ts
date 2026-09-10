@@ -158,6 +158,7 @@ import {
     MapLabelType,
 } from "./collections/map/types.js";
 import { BlendRootType } from "./collections/blend/types.js";
+import { SheetRootType } from "./collections/sheet/types.js";
 import {
     FlowchartStateType,
     FlowchartLinkType,
@@ -1207,6 +1208,12 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     // Blend — assembly surface for blending / batching decisions
     Blend: BlendRootType,
+
+    // Sheet — the planning spreadsheet (docs/proposals/Sheet Spec.md). Rows
+    // are the host's structs projected into CLOSED wire rows by the factory
+    // and every author function is bridged into a closed twin, so the arm
+    // references the named root type directly (the Calendar / Blend rule).
+    Sheet: SheetRootType,
 
     // Disclosure
     /**

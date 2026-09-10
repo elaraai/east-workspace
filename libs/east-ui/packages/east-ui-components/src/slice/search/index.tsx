@@ -28,7 +28,9 @@ export interface EastChakraSliceSearchProps {
  * `⌘K · N matches` eyebrow and the keyboard-hint footer. Typing drives
  * `state.search` via `slice.setSearch`; the host-computed `matches` populate the
  * dropdown as-is (the Combobox does not re-filter); selecting one commits via
- * `slice.setSearch(some(id))`.
+ * `slice.setSearch(some(id))`. Free text is the search (`allowCustomValue`):
+ * a blur keeps what was typed rather than resetting the box to a picked item
+ * — without it, clicking into the narrowed surface cleared the narrowing.
  */
 export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value }: EastChakraSliceSearchProps) {
     const styles = useSlotRecipe({ key: "sliceFrame" })();
@@ -114,6 +116,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
                 onInputValueChange={handleInput}
                 onValueChange={handleSelect}
                 openOnClick
+                allowCustomValue
                 flex="1 1 240px"
                 minWidth="200px"
                 maxWidth="480px"
@@ -141,6 +144,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
                     onInputValueChange={handleInput}
                     onValueChange={handleSelect}
                     openOnClick
+                    allowCustomValue
                     width="full"
                 >
                     <ChakraCombobox.Control>

@@ -182,6 +182,12 @@ export type SliceCompareType = typeof SliceCompareType;
  * field's value type; payload carries the human label and an East
  * accessor function `T → V`.
  *
+ * `text` is the SEARCH-ONLY projection of a field the primitive kinds
+ * cannot carry — an Option, a Struct, a Link, an Array: its accessor prints
+ * the field as a String (its `.east` text, or the `text` projection the
+ * author gives `Slice.config`), the typeahead searches that text, and the
+ * field is never filtered, ranged or broken down (`slice.fields()` omits it).
+ *
  * The module-scope value uses the `"T"` placeholder string so it can be
  * embedded directly in the `slice_bind` generic-platform declaration.
  * Consumer code never touches this — `Slice.config({...})` builds the
@@ -193,6 +199,7 @@ const SliceFieldSpecType = VariantType({
     float:    StructType({ label: StringType, accessor: FunctionType(["T"], FloatType), format: OptionType(ValueFormatType) }),
     datetime: StructType({ label: StringType, accessor: FunctionType(["T"], DateTimeType), format: OptionType(ValueFormatType) }),
     boolean:  StructType({ label: StringType, accessor: FunctionType(["T"], BooleanType), format: OptionType(ValueFormatType) }),
+    text:     StructType({ label: StringType, accessor: FunctionType(["T"], StringType), format: OptionType(ValueFormatType) }),
 });
 
 // Internal: materialise a concrete `SliceFieldSpec` East type for the
@@ -205,6 +212,7 @@ function sliceFieldSpecFor<T>(rowType: T) {
         float:    StructType({ label: StringType, accessor: FunctionType([rowType], FloatType), format: OptionType(ValueFormatType) }),
         datetime: StructType({ label: StringType, accessor: FunctionType([rowType], DateTimeType), format: OptionType(ValueFormatType) }),
         boolean:  StructType({ label: StringType, accessor: FunctionType([rowType], BooleanType), format: OptionType(ValueFormatType) }),
+        text:     StructType({ label: StringType, accessor: FunctionType([rowType], StringType), format: OptionType(ValueFormatType) }),
     });
 }
 
@@ -267,7 +275,9 @@ function sliceConfigFor<T>(rowType: T) {
 }
 
 // Map from a primitive East type's runtime tag to the SliceFieldSpec
-// variant tag. Anything outside this table is rejected by the factory.
+// variant tag. Anything outside this table becomes a `text` field — searched
+// through its printed text (or the author's `text` projection), never
+// filtered.
 const FIELD_KIND_BY_TYPE_TAG: Record<string, "string" | "integer" | "float" | "datetime" | "boolean"> = {
     String:   "string",
     Integer:  "integer",
@@ -299,7 +309,12 @@ function toValueFormat(f: SliceFieldFormat): unknown {
  * One field declaration in `Slice.config`. Only the label is required —
  * the accessor is auto-derived as `r => r[fieldId]` and the field's kind
  * (string / integer / float / datetime / boolean) is inferred from the
- * row's struct field type.
+ * row's struct field type. A field of any OTHER type (an Option, a Struct,
+ * a `Sheet.Types.Link`, an Array) is a search-only `text` field: the
+ * typeahead searches its printed `.east` text, or — when `text` is given —
+ * the String the projection returns, and the field is never filtered.
+ *
+ * @typeParam RowType - The row type the `text` projection reads
  *
  * @property label  - Human-readable label shown in filter / breakdown UI
  * @property hints  - Optional candidate values surfaced as autocomplete in the filter's `in` / `notIn` / `eq` / `neq` controls
@@ -307,11 +322,18 @@ function toValueFormat(f: SliceFieldFormat): unknown {
  *                    `Chart.format.*` vocabulary) — formats this field's
  *                    values everywhere the chrome renders them: the rail
  *                    brush axis, the Range pill, predicate chips (#190)
+ * @property text   - The field's search projection — an accessor over the
+ *                    row returning the String the search reads, e.g.
+ *                    `r => Sheet.link.print(r.stations)` for a link column's
+ *                    display form. Makes the field a `text` field whatever
+ *                    its type; a non-primitive field without one is searched
+ *                    through its `.east` print
  */
-export interface SliceFieldUserConfig {
+export interface SliceFieldUserConfig<RowType extends EastType = EastType> {
     label: string;
     hints?: ReadonlyArray<string>;
     format?: SliceFieldFormat;
+    text?: (row: ExprType<RowType>) => SubtypeExprOrValue<StringType>;
 }
 
 /**
@@ -322,15 +344,17 @@ export interface SliceFieldUserConfig {
  * keys of that literal via `NoInfer` so they cannot widen the inferred
  * field set.
  *
- * @typeParam Fields - Map of field id to declaration (inferred from `fields`)
+ * @typeParam Fields  - Map of field id to declaration (inferred from `fields`)
+ * @typeParam RowType - The row type a field's `text` projection reads
  *
  * @property fields            - Declared dimensions, keyed by field id
  * @property rangeFieldId      - Optional field id `Slice.Range` narrows on; must reference a datetime / integer / float field
- * @property searchFieldIds    - Field ids the typeahead applies to
+ * @property searchFieldIds    - Field ids the typeahead applies to (string and `text` fields; the rest are ignored)
  * @property breakdownFieldIds - Field ids available as breakdown dimensions
  */
 export interface SliceUserConfig<
-    Fields extends Record<string, SliceFieldUserConfig>,
+    Fields extends Record<string, SliceFieldUserConfig<RowType>>,
+    RowType extends EastType = EastType,
 > {
     fields: Fields;
     rangeFieldId?:      NoInfer<Extract<keyof Fields, string>>;
@@ -344,7 +368,9 @@ export interface SliceUserConfig<
  * The factory inspects each `rowType` field, dispatches to the right
  * `SliceFieldSpec` variant tag (string / integer / float / datetime /
  * boolean), wraps `r => r[fieldId]` as a typed East accessor, and emits a
- * `SliceConfig` East value sized to the row.
+ * `SliceConfig` East value sized to the row. A field of any other type is a
+ * search-only `text` field: searched through its printed `.east` text, or
+ * the `text` projection the declaration names; never filtered.
  *
  * ```ts
  * const cfg = $.let(Slice.config(UserEventType, {
@@ -352,9 +378,10 @@ export interface SliceUserConfig<
  *         timestamp: { label: "Time"     },
  *         country:   { label: "Country"  },
  *         sessions:  { label: "Sessions" },
+ *         stations:  { label: "Work centres", text: r => Sheet.link.print(r.stations) },   // a Link, searched by its display form
  *     },
  *     rangeFieldId:      "timestamp",
- *     searchFieldIds:    ["country"],
+ *     searchFieldIds:    ["country", "stations"],
  *     breakdownFieldIds: ["country"],
  * }));
  *
@@ -369,10 +396,10 @@ export interface SliceUserConfig<
  */
 function createSliceConfig<
     RowType extends EastType,
-    Fields extends Record<string, SliceFieldUserConfig>,
+    Fields extends Record<string, SliceFieldUserConfig<RowType>>,
 >(
     rowType: RowType,
-    userConfig: SliceUserConfig<Fields>,
+    userConfig: SliceUserConfig<Fields, RowType>,
 ) {
     // Inspect the row's struct fields. East StructType values shape:
     //   { type: "Struct", fields: { fieldName: <EastType>, ... } }
@@ -381,33 +408,42 @@ function createSliceConfig<
     // Explicit per-field autocomplete hints for the filter `in`/`notIn`/`eq`/`neq`
     // controls (#131); omitted ⇒ no entry.
     const fieldHints = new Map<string, string[]>();
-    for (const [fieldId, fieldConfig] of Object.entries(userConfig.fields) as Array<[string, SliceFieldUserConfig]>) {
+    for (const [fieldId, fieldConfig] of Object.entries(userConfig.fields) as Array<[string, SliceFieldUserConfig<RowType>]>) {
         const fieldType = rowFields[fieldId];
         if (!fieldType) {
             throw new Error(`Slice.config: field "${fieldId}" not declared on rowType`);
         }
         const kind = FIELD_KIND_BY_TYPE_TAG[(fieldType as { type: string }).type];
-        if (!kind) {
-            throw new Error(`Slice.config: field "${fieldId}" has type "${(fieldType as { type: string }).type}", which is not supported (need String / Integer / Float / DateTime / Boolean)`);
+        const format = fieldConfig.format !== undefined ? some(toValueFormat(fieldConfig.format)) : none;
+        const project = fieldConfig.text;
+        if (project !== undefined || kind === undefined) {
+            // The search-only projection: the author's `text`, else the field's
+            // printed `.east` text — so a Link, an Option or a Struct is searched
+            // rather than refused.
+            const accessor = East.function(
+                [rowType] as [RowType],
+                StringType,
+                (_$, row) => (project !== undefined
+                    ? project(row)
+                    : East.print((row as unknown as Record<string, ExprType<EastType>>)[fieldId] as never)) as never,
+            );
+            fieldEntries.push([fieldId, variant("text", { label: fieldConfig.label, accessor, format })]);
+        } else {
+            // Auto-derive accessor `r => r[fieldId]`. East struct field access
+            // works via property syntax on the typed expression.
+            const accessor = East.function(
+                [rowType] as [RowType],
+                fieldType,
+                (_$, row) => (row as unknown as Record<string, ExprType<EastType>>)[fieldId] as never,
+            );
+            fieldEntries.push([fieldId, variant(kind, { label: fieldConfig.label, accessor, format })]);
         }
-        // Auto-derive accessor `r => r[fieldId]`. East struct field access
-        // works via property syntax on the typed expression.
-        const accessor = East.function(
-            [rowType] as [RowType],
-            fieldType,
-            (_$, row) => (row as unknown as Record<string, ExprType<EastType>>)[fieldId] as never,
-        );
-        fieldEntries.push([fieldId, variant(kind, {
-            label: fieldConfig.label,
-            accessor,
-            format: fieldConfig.format !== undefined ? some(toValueFormat(fieldConfig.format)) : none,
-        })]);
         if (fieldConfig.hints !== undefined) fieldHints.set(fieldId, [...fieldConfig.hints]);
     }
-    // Default `searchFieldIds` to every string field when not given, so the
-    // search affordance works out of the box (#129). Explicit ids still win.
+    // Default `searchFieldIds` to every string and text field when not given,
+    // so the search affordance works out of the box (#129). Explicit ids still win.
     const stringFieldIds = fieldEntries
-        .filter(([, spec]) => (spec as { type: string }).type === "string")
+        .filter(([, spec]) => { const t = (spec as { type: string }).type; return t === "string" || t === "text"; })
         .map(([id]) => id);
     return East.value({
         fields: new Map(fieldEntries) as unknown as Map<string, never>,
@@ -690,7 +726,8 @@ export type SliceDimensionArrayType = typeof SliceDimensionArrayType;
  * One filterable field — `fieldId` + display `label` + primitive `kind`,
  * derived from `config.fields`. Drives the built-in predicate builder in
  * `Slice.Filter` / `Slice.Cohort`: the `kind` selects the operator set and
- * value input.
+ * value input. A search-only `text` field is never listed — it has no
+ * operator set.
  *
  * @property fieldId - Field id (key into `config.fields`)
  * @property label   - Human label

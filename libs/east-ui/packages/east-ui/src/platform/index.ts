@@ -18,7 +18,7 @@
 
 export { State, StateBindPrimitives } from "./state.js";
 export { Slice } from "./slice/index.js";
-export { SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE } from "./slice/impl.js";
+export { SliceApplyImpl, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE } from "./slice/impl.js";
 export { Clipboard } from "./clipboard/index.js";
 export { Download } from "./download/index.js";
 export { Share } from "./share/index.js";

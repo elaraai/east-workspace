@@ -129,8 +129,12 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
 
     return (
         <Box css={styles.toolbar} data-slot="toolbar">
+            {/* The cluster folds all the way to its icon; this floor is that
+                icon's width, so the fixed groups beside it never crush it. */}
             {slice !== undefined && clusterKinds.length > 0 && (
-                <SliceRailCluster slice={slice} affordanceKinds={clusterKinds} />
+                <Box display="flex" flex="1 1 0" minWidth="min(100%, 52px)" data-slot="toolbarCluster">
+                    <SliceRailCluster slice={slice} affordanceKinds={clusterKinds} />
+                </Box>
             )}
             {scoped && (
                 <Box css={styles.footerItem} data-slot="scopeBadge">loaded rows only</Box>

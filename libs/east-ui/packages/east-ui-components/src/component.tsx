@@ -87,6 +87,7 @@ import { EastChakraSchematic } from "./collections/schematic";
 import { EastChakraFlowchart } from "./collections/flowchart";
 import { EastChakraMap } from "./collections/map";
 import { EastChakraBlend } from "./collections/blend";
+import { EastChakraSheet } from "./collections/sheet";
 import { EastChakraAvatarGroup } from "./display/avatar-group";
 import {
     EastChakraStringInput,
@@ -272,6 +273,7 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Flowchart: (v) => <EastChakraFlowchart value={v} storageKey={childKey(storageKey, "Flowchart")} />,
             Map: (v) => <EastChakraMap value={v} storageKey={childKey(storageKey, "Map")} />,
             Blend: (v) => <EastChakraBlend value={v} storageKey={childKey(storageKey, "Blend")} />,
+            Sheet: (v) => <EastChakraSheet value={v} storageKey={childKey(storageKey, "Sheet")} />,
 
             // Charts
             Sparkline: (v) => <EastChakraSparkline value={v} />,

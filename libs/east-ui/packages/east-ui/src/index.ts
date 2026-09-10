@@ -150,7 +150,7 @@ export type { IconPayload } from "./buttons/button/types.js";
 export { Card } from "./runtime/container/index.js";
 
 // Collections
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Plan, Sheet, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
 
 // Charts
 export { Chart, Sparkline } from "./runtime/charts/index.js";
@@ -181,7 +181,7 @@ export {
 
 // Platform (state management - signatures only)
 // For e3 dataset bindings, use Data.bind from @elaraai/e3-ui
-export { State, SliceApplyImpl, sliceDimensions, sliceFields, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
+export { State, SliceApplyImpl, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
 export { Slice } from "./runtime/slice.js";
 export {
     SliceSummaryType, SliceRangePickerType, SliceFilterType,
