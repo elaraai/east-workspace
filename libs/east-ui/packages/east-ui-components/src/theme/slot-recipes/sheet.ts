@@ -21,7 +21,10 @@
  *     right; text 13 `fg`; mono values 12; ghosts `fg.subtle`; unit mono 9.5.
  *   - Selection: 2 px inset brand ring at inset −1; range wash brandTint at
  *     .55; the editor overlays at inset −1 with a 2 px ring (z 10); a parse
- *     error ring in the neg hue (z 11).
+ *     error ring in the neg hue (z 11). The ring IS the field chrome: the
+ *     common fields it holds (the date field's segments, the number field
+ *     and its stepper column, the text input) drop their own border and
+ *     focus ring inside it.
  *   - Strip: `bg.panel` band, 6/20 padding; label mono 9/600/.13em uppercase
  *     brand; chips mono 11 (armed: 600 on brandTint + inset ring).
  *   - Footer: 8/20; counts mono 11; key hint mono 10; message mono 10.5
@@ -58,6 +61,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "cell", "cellText", "cellMono", "cellWord", "cellNum", "cellUnit", "cellGhost", "cellDot",
         "ring", "rangeWash", "hatch", "nextTarget", "takeButton",
         "editor", "editorField", "editorMirror", "editorGhost", "editorInput", "editorResolve", "editorBadge", "editorError",
+        "editorNumber", "editorNumberInput", "editorStepper", "editorDate",
         "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "lockTag", "lockWarn", "arrow",
         "band", "bandRule", "bandPill", "bandControl", "bandCount",
         "strip", "stripLabel", "stripChips", "stripChip", "stripChipOn", "stripChipFlat", "stripMeta", "stripKeys",
@@ -636,6 +640,44 @@ export const sheetSlotRecipe = defineSlotRecipe({
             padding: "0",
             minWidth: "0",
             // A phone zooms into type under 16 px; the mirror follows, so the ghost keeps its place.
+            _coarse: { fontSize: "16px" },
+        },
+        // The common number field inside the ring: no border, no focus ring
+        // of its own, the stepper column kept on its right edge.
+        editorNumber: {
+            flex: "1",
+            minWidth: "0",
+            alignSelf: "stretch",
+            minHeight: "0",
+            borderWidth: "0",
+            borderRadius: "0",
+            boxShadow: "none",
+            background: "transparent",
+            _focusWithin: { boxShadow: "none", borderColor: "transparent" },
+            _hover: { borderColor: "transparent" },
+        },
+        editorNumberInput: {
+            fontFamily: "mono",
+            fontSize: "12.5px",
+            fontWeight: "400",
+            color: "fg",
+            paddingInline: "0",
+            paddingBlock: "0",
+            minHeight: "0",
+            _coarse: { fontSize: "16px", minHeight: "0" },
+        },
+        editorStepper: {
+            marginLeft: "6px",
+        },
+        // The common date field inside the ring: the segments in the sheet's mono.
+        editorDate: {
+            flex: "1",
+            minWidth: "0",
+            display: "flex",
+            alignItems: "center",
+            fontFamily: "mono",
+            fontSize: "12.5px",
+            color: "fg",
             _coarse: { fontSize: "16px" },
         },
         editorResolve: {

@@ -19,6 +19,7 @@ import {
     same,
     type CellRef, type PendingFill, type PendingRow, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SheetUiState, type Suggestions, type Transition,
 } from "./sheet-types.js";
+import type { SheetCellValue } from "./values.js";
 
 const none = (s: SheetUiState): Transition => ({ state: s, effects: [] });
 
@@ -61,9 +62,9 @@ function withoutFill(sugg: Suggestions, key: string): Suggestions | null {
 }
 
 /** The text a proposal's driver cell carries (its activity), for the messages. */
-function driverText(cells: ReadonlyMap<string, { type: string; value: unknown }>, ctx: SheetMachineCtx): string {
+function driverText(cells: ReadonlyMap<string, SheetCellValue>, ctx: SheetMachineCtx): string {
     const cell = ctx.driverColumn !== undefined ? cells.get(ctx.driverColumn) : undefined;
-    return cell !== undefined && cell.type === "String" ? (cell.value as string) : "";
+    return cell !== undefined && cell.type === "String" ? cell.value : "";
 }
 
 /** Take one fill: write it, then arm the following target so the next ⇥ writes that one. */

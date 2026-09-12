@@ -8,19 +8,24 @@
  */
 
 import { describe, test, expect, vi } from "vitest";
-import { runSuggest, SuggestMemo, hashRow, type WireProvider, type FillColumn, type SuggestInput } from "./suggest.js";
+import { none, some, variant } from "@elaraai/east";
+import { runSuggest, SuggestMemo, hashRow, type FillColumn, type SuggestInput } from "./suggest.js";
 import { NO_REJECTIONS } from "./sheet-types.js";
-import type { SheetCellValue, SheetContextValue, SheetRowValue } from "./values.js";
+import type { SheetCellValue, SheetContextValue, SheetProviderValue, SheetRowValue } from "./values.js";
 
-const cell = (type: string, value: unknown): SheetCellValue => ({ type, value } as SheetCellValue);
+/** What a synchronous fill provider returns — `Option<Fill>`. */
+type FillOut = ReturnType<Extract<SheetProviderValue, { type: "sync" }>["value"]>;
+
+const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
 const NULL = cell("Null", null);
-const yields = (value: SheetCellValue, meta: string) => ({ type: "some", value: { value, meta } });
-const NOTHING = { type: "none", value: null };
+const yields = (value: SheetCellValue, meta: string): FillOut => some({ value, meta });
+const NOTHING: FillOut = none;
 const row = (cells: Record<string, SheetCellValue>, owned = false): SheetRowValue => ({ id: "r1", owned, cells: new Map(Object.entries(cells)) });
 const contextOf = (r: SheetRowValue): SheetContextValue => ({ row: r.cells } as unknown as SheetContextValue);
-const sync = (fn: (ctx: SheetContextValue) => unknown): WireProvider => ({ type: "sync", value: fn });
-const later = (fn: (ctx: SheetContextValue) => Promise<unknown>): WireProvider => ({ type: "async", value: fn as (ctx: SheetContextValue) => unknown });
-const col = (key: string, providers: WireProvider[], kind = "text", editable = true): FillColumn => ({ key, kind: kind as FillColumn["kind"], editable, providers });
+/** Stub wire functions — sync and async arms, built through `variant()` like the bridge's. */
+const sync = <T,>(fn: (ctx: SheetContextValue) => T) => variant("sync", fn);
+const later = <T,>(fn: (ctx: SheetContextValue) => Promise<T>) => variant("async", fn);
+const col = (key: string, providers: SheetProviderValue[], kind = "text", editable = true): FillColumn => ({ key, kind: kind as FillColumn["kind"], editable, providers });
 const proposal = (activity: string, meta: string) => ({ cells: new Map([["activity", cell("String", activity)]]), meta });
 
 const ANCHOR = row({ activity: cell("String", "Machining"), qty: NULL, notes: NULL });
@@ -56,9 +61,9 @@ describe("fills", () => {
 
     test("the edited link column is predicted into: its providers see the row with that cell blank", () => {
         const seen: unknown[] = [];
-        const predicted = cell("Link", { from: [], to: [{ type: "identified", value: { key: "M2141" } }] });
+        const predicted = cell("Link", { from: [], to: [variant("identified", { key: "M2141" })] });
         const columns = [col("stations", [sync((ctx) => { seen.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("stations")); return yields(predicted, "same stations"); })], "link")];
-        const half = cell("Link", { from: [{ type: "identified", value: { key: "M2140" } }], to: [] });
+        const half = cell("Link", { from: [variant("identified", { key: "M2140" })], to: [] });
         const out = run({ columns, skipKey: "stations", row: row({ activity: cell("String", "Machining"), stations: half }) });
         expect(out.sugg?.fill.get("stations")?.meta).toBe("same stations");
         expect(seen[0]).toEqual(NULL);
@@ -101,8 +106,8 @@ describe("fills", () => {
     });
 
     test("an async provider is returned as work; a later sync provider answers meanwhile; the settlement lands with its position; a re-run re-attaches to the promise, and after it settles the memo answers", async () => {
-        let resolve: (v: unknown) => void = () => {};
-        const promise = new Promise<unknown>((r) => { resolve = r; });
+        let resolve: (v: FillOut) => void = () => {};
+        const promise = new Promise<FillOut>((r) => { resolve = r; });
         const columns = [col("qty", [later(() => promise), sync(() => yields(cell("Float", 2), "meanwhile"))], "quantity")];
         const memo = new SuggestMemo();
         const out = run({ columns, memo });

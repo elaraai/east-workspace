@@ -16,23 +16,23 @@ import { formatDateClipboard } from "./parse/date.js";
 import { formatNumberBare } from "./parse/quantity.js";
 import { linkHalvesText } from "./parse/index.js";
 import type { SheetColumnMeta } from "./model.js";
-import type { SheetCellValue, SheetLinkValue } from "./values.js";
+import type { SheetCellValue } from "./values.js";
 
 /** A cell's clipboard text — one column, or two for a link. */
 export function exportCell(cell: SheetCellValue | undefined, meta: SheetColumnMeta): string[] {
     if (meta.kind === "link" || meta.kind === "set") {
         if (cell === undefined || cell.type !== "Link") return meta.kind === "link" ? ["", ""] : [""];
-        const [from, to] = linkHalvesText(cell.value as SheetLinkValue);
+        const [from, to] = linkHalvesText(cell.value);
         return meta.kind === "link" ? [from, to] : [to];
     }
     if (cell === undefined || cell.type === "Null") return [""];
     switch (cell.type) {
-        case "DateTime": return [formatDateClipboard(cell.value as Date)];
-        case "Float": return [formatNumberBare(cell.value as number)];
+        case "DateTime": return [formatDateClipboard(cell.value)];
+        case "Float": return [formatNumberBare(cell.value)];
         case "Integer": return [String(cell.value)];
-        case "String": return [cell.value as string];
+        case "String": return [cell.value];
         case "Boolean": return [String(cell.value)];
-        case "Link": return [linkHalvesText(cell.value as SheetLinkValue).join(" > ")];
+        case "Link": return [linkHalvesText(cell.value).join(" > ")];
     }
     return [""];
 }

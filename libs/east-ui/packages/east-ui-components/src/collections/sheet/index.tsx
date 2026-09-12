@@ -45,6 +45,7 @@ import { useSheetSeek } from "./use-seek.js";
 import { lensCount, lensGaps, lensHits, lensVisible, narrowingActive, nextReach, type LensGap } from "./lens.js";
 import { candidateAt, candidateList, ghostFor, resolveFor, type CandidateContext } from "./candidates.js";
 import { editText, parseCell, type ParseContext } from "./parse/index.js";
+import { parseDate } from "./parse/date.js";
 import { usedKeys, resolveMember as resolveVocabMember } from "./link/grammar.js";
 import { linkEntryCandidates, grammarLine, membersUnder, type LinkCandidate } from "./link/predict.js";
 import { namedCount, arityMeta, type Counted } from "./link/arity.js";
@@ -55,7 +56,7 @@ import {
     initialSheetStore, sheetStoreReducer, selectionRect, wholeRows, provisionalCell, nextTargetOf, fillOrder, blankRowId, isBlankRowId,
     type EditSource, type LensContext, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SliceStateValue, type Suggestions,
 } from "./sheet-state.js";
-import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn, type WireProvider } from "./suggest.js";
+import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetBandRow, SheetGapRow, SheetProposalRow } from "./Rows.js";
@@ -64,7 +65,7 @@ import { SheetEditor, type EditorFocusRequest, type LinkEditorView } from "./Edi
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
 import { SheetFooter, type SheetTransport } from "./Footer.js";
 import { SheetToolbar } from "./Toolbar.js";
-import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetViewValue } from "./values.js";
+import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetViewValue } from "./values.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
 
@@ -86,7 +87,7 @@ function clearNarrowing(state: SliceStateValue): SliceStateValue {
 
 /** A view's hover title (B§8) — its query and context, and the gestures it takes. */
 function viewTitle(view: SheetViewValue): string {
-    const q = view.narrowing.search.type === "some" ? (view.narrowing.search.value as string).trim() : "";
+    const q = view.narrowing.search.type === "some" ? view.narrowing.search.value.trim() : "";
     const ctx = Number(view.context);
     const what = q !== "" ? `"${q}"${ctx > 0 ? ` · ±${ctx}` : ""}` : view.narrowing.filters.length > 0 || view.narrowing.activeCohorts.size > 0 ? "a filter" : "no filter — the whole sheet";
     return `${what} · live · double-click renames · middle-click closes`;
@@ -220,9 +221,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     // The copilot's declaration: the columns' fill providers and the proposers, as wire functions (§4.8).
     const suggestDecl = useMemo(() => getSomeorUndefined(value.suggest), [value.suggest]);
     const fillColumns = useMemo<FillColumn[]>(() => columns.list.map((m) => ({
-        key: m.key, kind: m.kind, editable: m.editable && m.kind !== "stamped", providers: m.raw.fill as unknown as WireProvider[],
+        key: m.key, kind: m.kind, editable: m.editable && m.kind !== "stamped", providers: m.raw.fill,
     })), [columns]);
-    const proposers = useMemo<WireProvider[]>(() => (suggestDecl?.propose ?? []) as unknown as WireProvider[], [suggestDecl]);
+    const proposers = useMemo<SheetProposerValue[]>(() => suggestDecl?.propose ?? [], [suggestDecl]);
     const ahead = Number(suggestDecl?.ahead ?? 2n);
     const triggers = useMemo(() => new Set(suggestDecl?.triggers ?? []), [suggestDecl]);
     const copilotOn = !readOnly && (proposers.length > 0 || fillColumns.some((c) => c.providers.length > 0));
@@ -324,19 +325,19 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         return { registers, rows, rowIndex: it !== undefined && it.kind === "real" ? it.residentIndex : -1, driverColumn };
     }, [rowAt, registers, rows, driverColumn]);
     /** The wire context over a row — the copilot's, a check's, a custom parse's (§4.4). */
-    const wireContextOf = useCallback((row: SheetRowValue | undefined, residentIndex: number, position: number, rowsNow: readonly SheetRowValue[]): SheetContextValue => {
+    const wireContextOf = useCallback((row: SheetRowValue | undefined, residentIndex: number, position: number, rowsNow: SheetRowValue[]): SheetContextValue => {
         const driverKey = driverKeyOf(row, driverColumn);
         return {
             rowIndex: BigInt(residentIndex),
             rowId: row?.id ?? "",
             offset: BigInt(position),
             row: row?.cells ?? new Map(columns.list.map((c) => [c.key, NULL_CELL])),
-            rows: rowsNow as SheetRowValue[],
+            rows: rowsNow,
             rowsOffset: BigInt(rowsOffset),
             partial: !exhausted,
             driver: driverKey !== undefined ? some(driverKey) : none,
             today,
-        } as SheetContextValue;
+        };
     }, [driverColumn, columns, rowsOffset, exhausted, today]);
     const wireContextFor = useCallback((r: number): SheetContextValue => {
         const it = rowAt(r);
@@ -349,7 +350,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         const sugg = ui.sugg;
         if (sugg === null || sugg.anchorId !== idAt(r)) return undefined;
         const f = sugg.fill.get(key);
-        return f !== undefined && f.cell.type === "Link" ? (f.cell.value as SheetLinkValue) : undefined;
+        return f !== undefined && f.cell.type === "Link" ? f.cell.value : undefined;
     }, [ui.sugg, idAt]);
     const links = useSheetLinks({ columns, registers, driver, driverColumn, body, rowAt, predictedLink });
     const { linkVocabularies, linkColumns, linkCellCtx, linkCtxFor } = links;
@@ -358,7 +359,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         if (meta.kind === "date" && meta.base !== undefined) {
             const it = rowAt(r);
             const b = it !== undefined && it.kind === "real" ? it.row.cells.get(meta.base) : undefined;
-            if (b !== undefined && b.type === "DateTime") baseDate = b.value as Date;
+            if (b !== undefined && b.type === "DateTime") baseDate = b.value;
         }
         return {
             ...candidateCtxFor(r),
@@ -479,7 +480,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         let lastId = rowsNow.length > 0 ? rowsNow[rowsNow.length - 1]!.id : undefined;
         let firstInserted: number | undefined;
         let inserted = 0;
-        const src = variant(source, null) as SheetEditValue extends { value: { source: infer S } } ? S : never;
+        const src = variant(source, null);
         const taken = (id: string) => rowsNow.some((x) => x.id === id) || appended.some((x) => x.id === id);
         for (const r of [...byRow.keys()].sort((a, b) => a - b)) {
             const it = rowAt(r);
@@ -490,7 +491,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     if (meta === undefined) continue;
                     if (cellEqual(row.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
                     row = withCell(row, meta.key, w.cell);
-                    events.push(variant("commit", { rowId: row.id, offset: BigInt(it.position), key: meta.key, row, source: src }) as SheetEditValue);
+                    events.push(variant("commit", { rowId: row.id, offset: BigInt(it.position), key: meta.key, row, source: src }));
                 }
                 if (row !== it.row) edits.set(row.id, row);
                 ids.push(row.id);
@@ -505,7 +506,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             }
             if (columns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
             appended.push(row);
-            events.push(variant("insert", { afterRowId: lastId !== undefined ? some(lastId) : none, row, source: src }) as SheetEditValue);
+            events.push(variant("insert", { afterRowId: lastId !== undefined ? some(lastId) : none, row, source: src }));
             lastId = row.id;
             ids.push(row.id);
             if (firstInserted === undefined) firstInserted = rowsNow.length + inserted;
@@ -528,7 +529,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         const next: LocalLayer = { ...layerRef.current, removed: new Set([...layerRef.current.removed, ...ids]) };
         layerRef.current = next;
         setLayer(() => next);
-        emitEdit(variant("remove", { rowIds: ids }) as SheetEditValue);
+        emitEdit(variant("remove", { rowIds: ids }));
         return ids.length;
     }, [rowAt, setLayer, emitEdit]);
     /** Insert one proposed row after a row: into the blank slot below it (B§5.2), else appended. */
@@ -730,7 +731,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     const sel: SheetSelectionValue = {
                         rowId: it !== undefined && it.kind === "real" ? some(it.row.id) : none,
                         key: meta !== undefined ? some(meta.key) : none,
-                    } as SheetSelectionValue;
+                    };
                     queueMicrotask(() => onSelectFn(sel));
                     break;
                 }
@@ -881,6 +882,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         return n > 1 ? `${Math.min(Math.max(edit.hi, 0), n - 1) + 1}/${n}` : "";
     }, [edit, editMeta, candidateCtxFor]);
     const onEditorChange = useCallback((val: string) => dispatch({ t: "editor.change", val }), [dispatch]);
+    // A date column's buffer is its edit form; the date field shows the date it names.
+    const editDate = useMemo(() => {
+        if (edit === null || editMeta === undefined || editMeta.kind !== "date") return undefined;
+        return parseDate(edit.val, { today, base: parseCtxFor(edit.r, editMeta).baseDate }) ?? undefined;
+    }, [edit, editMeta, today, parseCtxFor]);
     const linkEdit = edit?.link;
     const linkEditCtx = useMemo(() => (edit !== null && linkEdit !== undefined ? linkCtxFor(edit.r, edit.c) : undefined), [edit, linkEdit, linkCtxFor]);
     const linkArmed = useMemo(() => (edit !== null && linkEdit !== undefined && linkEditCtx !== undefined ? linkEditCtx.candidateAt(edit.val, edit.hi, linkEdit.groups) : undefined), [edit, linkEdit, linkEditCtx]);
@@ -970,7 +976,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const onContext = useCallback((context: LensContext) => dispatch({ t: "lens.context", context }), [dispatch]);
     const onSearchKey = useCallback((key: string) => { dispatch({ t: "search.key", key }); return true; }, [dispatch]);
     const onReveal = useCallback((gap: LensGap, where: "top" | "bottom" | "both" | "all") => dispatch({ t: "band.reveal", key: gap.key, from: gap.from, to: gap.to, where }), [dispatch]);
-    const hasQuery = sliceState !== undefined && sliceState.search.type === "some" && (sliceState.search.value as string).trim() !== "";
+    const hasQuery = sliceState !== undefined && sliceState.search.type === "some" && sliceState.search.value.trim() !== "";
     const tabsNode = slice !== undefined
         ? (
             <SheetTabs
@@ -1026,14 +1032,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             const vocab = lc?.vocab;
             const used = vocab !== undefined ? usedKeys([...linkEdit.groups[0], ...linkEdit.groups[1]], vocab) : new Set<string>();
             let arity = "";
-            if (lc?.arity !== undefined && vocab !== undefined && (lc.arity.half === "from" ? 0 : 1) === linkEdit.side) {
+            if (lc?.arity !== undefined && vocab !== undefined && (lc.arity.half.type === "from" ? 0 : 1) === linkEdit.side) {
                 let implied: Counted | undefined;
                 try {
                     const out = lc.arity.implied(wireContextFor(edit.r));
-                    if (out.type === "some") {
-                        const v = out.value as { n: bigint; key: string };
-                        implied = { n: Number(v.n), key: v.key };
-                    }
+                    if (out.type === "some") implied = { n: Number(out.value.n), key: out.value.key };
                 } catch (err) {
                     console.error(`[Sheet] arity rule failed on column "${editMeta.key}":`, err);
                 }
@@ -1043,16 +1046,16 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             // A counted member is the plan-level answer; naming the members is the
             // schedule-level one — offered as the alternative, never assumed (B§4.5).
             let enumerate: LinkCandidate | undefined;
-            const counted = predicted.find((m) => m.type === "counted");
+            const counted = predicted.find((m): m is Extract<SheetMemberValue, { type: "counted" }> => m.type === "counted");
             if (counted !== undefined && vocab !== undefined) {
-                const cnt = counted.value as { n: bigint; key: string };
-                const parent = resolveVocabMember(cnt.key, vocab);
-                const free = parent !== undefined ? membersUnder(parent, vocab, used).slice(0, Number(cnt.n)) : [];
-                if (free.length === Number(cnt.n) && free.length > 0) {
+                const n = Number(counted.value.n);
+                const parent = resolveVocabMember(counted.value.key, vocab);
+                const free = parent !== undefined ? membersUnder(parent, vocab, used).slice(0, n) : [];
+                if (free.length === n && free.length > 0) {
                     enumerate = {
                         label: free.map((m) => m.key).join(", "),
                         meta: "name them now instead of leaving them to the scheduler",
-                        members: free.map((m) => ({ type: "identified", value: { key: m.key } }) as SheetMemberValue),
+                        members: free.map((m) => variant("identified", { key: m.key })),
                     };
                 }
             }
@@ -1114,7 +1117,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         ? (
             <SheetEditor
                 styles={styles}
+                kind={editMeta.kind}
                 value={edit.val}
+                date={editDate}
+                seed={edit.seeded && edit.val.length === 1 ? edit.val : undefined}
                 ghost={linkView !== undefined ? linkGhostText : editGhost}
                 resolve={editResolve}
                 badge={editBadge}
@@ -1128,7 +1134,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 onHalfDown={onHalfDown}
             />
         )
-        : null, [edit, editMeta, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur, linkView, linkGhostText, onHalfDown]);
+        : null, [edit, editMeta, editDate, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur, linkView, linkGhostText, onHalfDown]);
     const renderRow = useCallback((i: number): ReactNode => {
         const item = body[i];
         if (item === undefined) return null;

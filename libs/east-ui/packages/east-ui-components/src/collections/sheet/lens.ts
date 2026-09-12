@@ -25,10 +25,11 @@
  * @packageDocumentation
  */
 
+import { none, some } from "@elaraai/east";
 import { sliceMatches } from "@elaraai/east-ui/internal";
 import { printLinkText, type SheetColumnMeta } from "./model.js";
 import type { LensContext, SliceStateValue } from "./sheet-types.js";
-import type { SheetCellValue, SheetLinkValue, SheetRowValue } from "./values.js";
+import type { SheetCellValue, SheetRowValue } from "./values.js";
 
 /** The slice engine's config — the bound slice's, live (`boundSliceConfig`). */
 export type LensConfig = Parameters<typeof sliceMatches>[1];
@@ -48,7 +49,7 @@ export function narrowingActive(state: SliceStateValue | undefined): boolean {
     if (state.range.type === "some") return true;
     if (state.filters.length > 0) return true;
     if (state.activeCohorts.size > 0) return true;
-    return state.search.type === "some" && (state.search.value as string).trim() !== "";
+    return state.search.type === "some" && state.search.value.trim() !== "";
 }
 
 /** The `.east` type value's tag, or `undefined` for an untyped test column. */
@@ -72,15 +73,15 @@ function isOptionType(t: unknown): boolean {
 function fieldValue(cell: SheetCellValue | undefined, dataType: unknown): unknown {
     const option = isOptionType(dataType);
     const inner = option ? (dataType as { value: { name: string; type: unknown }[] }).value.find((c) => c.name === "some")?.type : dataType;
-    if (cell === undefined || cell.type === "Null") return option ? { type: "none", value: null } : undefined;
+    if (cell === undefined || cell.type === "Null") return option ? none : undefined;
     let v: unknown = cell.value;
     if (cell.type === "Link") {
         const tag = typeTag(inner);
-        const link = cell.value as SheetLinkValue;
+        const link = cell.value;
         if (tag === "String") v = printLinkText(link);
         else if (tag === "Array") v = link.from.length > 0 ? link.from : link.to;
     }
-    return option ? { type: "some", value: v } : v;
+    return option ? some(v) : v;
 }
 
 /**

@@ -66,7 +66,7 @@ export const sheetBasic = example({
                     data={jobs.read()}
                     id="id"
                     columns={{
-                        start: Sheet.column.date(JobType, { header: "Start", sub: "d/m · fri · +3d" }),
+                        start: Sheet.column.date(JobType, { header: "Start", sub: "dd / mm / yyyy" }),
                         task:  Sheet.column.text(JobType, { header: "Task" }),
                         qty:   Sheet.column.quantity(JobType, { header: "Qty" }),   // no driver on this sheet — the two-argument form
                     }}
@@ -176,9 +176,9 @@ export const sheetVariants = example({
                                 data={rows.read()}
                                 id="id"
                                 columns={{
-                                    start: Sheet.column.date(JobType, { header: "Start", sub: "d/m · fri · +3d", width: "96px" }),
+                                    start: Sheet.column.date(JobType, { header: "Start", sub: "dd / mm / yyyy", width: "96px" }),
                                     task:  Sheet.column.text(JobType, { header: "Task", width: "180px" }),
-                                    qty:   Sheet.column.quantity(JobType, { header: "Qty", sub: "1,200 · 1.2k · pcs", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                                    qty:   Sheet.column.quantity(JobType, { header: "Qty", sub: "1,200 · pcs", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
                                     notes: Sheet.column.text(JobType, { header: "Notes", sub: "free text", fill: [phrase] }),
                                 }}
                                 density={densitySel}
@@ -499,7 +499,7 @@ export const sheetPlan = example({
                         statuses: Sheet.register.members(statuses, { kind: "status", key: s => s.word, label: s => s.word, tone: s => some(s.tone) }),
                     }}
                     columns={{
-                        start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "d/m · fri · +3d", width: "96px", fill: [nextSlot] }),
+                        start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "dd / mm / yyyy", width: "96px", fill: [nextSlot] }),
                         end:       Sheet.column.date(PlanRowType, { header: "End", sub: "4d = start+4", width: "96px", base: "start", fill: [endFromStart] }),
                         activity:  Sheet.column.lookup(PlanRowType, { header: "Activity", sub: "activity register", width: "214px" }),
                         qty:       Sheet.column.quantity(PlanRowType, ActivityType, {

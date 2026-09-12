@@ -12,12 +12,13 @@
  * @packageDocumentation
  */
 
+import { variant } from "@elaraai/east";
 import { parseDate, formatDateEdit } from "./date.js";
 import { parseQuantity, formatNumberBare } from "./quantity.js";
 import { candidateList, type CandidateContext } from "../candidates.js";
 import { cellText, memberLabel, printLinkText, type SheetColumnMeta } from "../model.js";
 import { parseLinkText, type LinkVocabulary } from "../link/grammar.js";
-import type { SheetCellValue, SheetLinkValue } from "../values.js";
+import type { SheetCellValue, SheetContextValue, SheetLinkValue } from "../values.js";
 
 /** The outcome of parsing an editor buffer. */
 export type ParseOutcome =
@@ -35,19 +36,21 @@ export interface ParseContext extends CandidateContext {
     /** The base column's date for a date column with `base`, when the row holds one. */
     baseDate?: Date | undefined;
     /** The wire copilot context for a custom kind's `parse`. */
-    wireContext?: unknown;
+    wireContext?: SheetContextValue | undefined;
     /** A link / set column's vocabulary — the grammar resolves against it. */
     linkVocab?: LinkVocabulary | undefined;
 }
 
-/** A cell of a scalar tag. */
+/** A cell of one arm — built through `variant()`, so it carries the brand the encoder needs. */
+export function cellOf(tag: "Null", value: null): SheetCellValue;
+export function cellOf(tag: "Boolean", value: boolean): SheetCellValue;
 export function cellOf(tag: "String", value: string): SheetCellValue;
 export function cellOf(tag: "Float", value: number): SheetCellValue;
 export function cellOf(tag: "Integer", value: bigint): SheetCellValue;
 export function cellOf(tag: "DateTime", value: Date): SheetCellValue;
 export function cellOf(tag: "Link", value: SheetLinkValue): SheetCellValue;
 export function cellOf(tag: string, value: unknown): SheetCellValue {
-    return { type: tag, value } as SheetCellValue;
+    return variant(tag, value) as SheetCellValue;
 }
 
 /** Parse the editor buffer for a column. */
@@ -95,22 +98,22 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
             if (trimmed === "") return { kind: "blank" };
             // The grammar against the column's register; entry is never blocked —
             // without a vocabulary the text is kept as a text member.
-            const link = ctx.linkVocab !== undefined
+            const link: SheetLinkValue = ctx.linkVocab !== undefined
                 ? parseLinkText(trimmed, ctx.linkVocab)
-                : ({ from: [], to: [{ type: "text", value: trimmed }] } as unknown as SheetLinkValue);
+                : { from: [], to: [variant("text", trimmed)] };
             if (meta.kind === "set" && link.from.length > 0) {
-                return { kind: "cell", cell: cellOf("Link", { from: [], to: [...link.from, ...link.to] } as unknown as SheetLinkValue) };
+                return { kind: "cell", cell: cellOf("Link", { from: [], to: [...link.from, ...link.to] }) };
             }
             if (link.from.length === 0 && link.to.length === 0) return { kind: "blank" };
             return { kind: "cell", cell: cellOf("Link", link) };
         }
         case "custom": {
             if (trimmed === "") return { kind: "blank" };
-            if (meta.customParse === undefined) return { kind: "unrecognised" };
+            if (meta.customParse === undefined || ctx.wireContext === undefined) return { kind: "unrecognised" };
             try {
                 const out = meta.customParse(text, ctx.wireContext);
                 if (out.type !== "some") return { kind: "unrecognised" };
-                return { kind: "cell", cell: out.value as SheetCellValue };
+                return { kind: "cell", cell: out.value };
             } catch (err) {
                 // Fail-open: a throwing parse reads as unrecognised, never a stuck editor.
                 console.error(`[Sheet] custom parse failed on column "${meta.key}":`, err);
@@ -125,12 +128,12 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
 export function editText(cell: SheetCellValue | undefined, meta: SheetColumnMeta): string {
     if (cell === undefined || cell.type === "Null") return "";
     switch (cell.type) {
-        case "DateTime": return formatDateEdit(cell.value as Date);
-        case "Float": return formatNumberBare(cell.value as number);
+        case "DateTime": return formatDateEdit(cell.value);
+        case "Float": return formatNumberBare(cell.value);
         case "Integer": return String(cell.value);
-        case "String": return cell.value as string;
+        case "String": return cell.value;
         case "Boolean": return String(cell.value);
-        case "Link": return printLinkText(cell.value as SheetLinkValue);
+        case "Link": return printLinkText(cell.value);
     }
     return cellText(cell, meta);
 }

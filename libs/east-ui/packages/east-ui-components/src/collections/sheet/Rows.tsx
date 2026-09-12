@@ -120,7 +120,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 const selected = selC === c && !editing;
                 const inRange = range !== undefined && c >= range.c0 && c <= range.c1;
                 const unit = meta.kind === "quantity" && driverKey !== undefined ? meta.uom?.get(driverKey) : undefined;
-                const member = meta.kind === "enum" && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value as string) : undefined;
+                const member = meta.kind === "enum" && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
                 const fill = !editing && cellIsBlank(cell) ? fills?.get(meta.key) : undefined;
                 const isTarget = !editing && nextTargetC === c && fill !== undefined;
                 return (
@@ -242,7 +242,7 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
             {columns.list.map((colMeta) => {
                 const cell = cells.get(colMeta.key);
                 const unit = colMeta.kind === "quantity" && driverKey !== undefined ? colMeta.uom?.get(driverKey) : undefined;
-                const member = colMeta.kind === "enum" && cell?.type === "String" ? resolveMember(registers, colMeta.register, cell.value as string) : undefined;
+                const member = colMeta.kind === "enum" && cell?.type === "String" ? resolveMember(registers, colMeta.register, cell.value) : undefined;
                 return (
                     <Box
                         key={colMeta.key}

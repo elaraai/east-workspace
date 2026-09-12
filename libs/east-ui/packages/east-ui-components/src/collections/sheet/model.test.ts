@@ -7,12 +7,12 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { none, some } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import { buildBody, indexColumns, cellText, printLinkText, cellIsBlank, rowIsBlank, lastRealId, parseWidth } from "./model.js";
 import { utcDate } from "./parse/date.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
 
-const cell = (type: string, value: unknown): SheetCellValue => ({ type, value } as SheetCellValue);
+const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
 const row = (id: string, cells: Record<string, SheetCellValue>): SheetRowValue => ({ id, owned: false, cells: new Map(Object.entries(cells)) });
 
 describe("the body", () => {
@@ -55,7 +55,7 @@ describe("cells", () => {
         expect(cellIsBlank(cell("Link", { from: [], to: [] }))).toBe(true);
         expect(cellIsBlank(cell("Float", 0))).toBe(false);
         expect(rowIsBlank(row("x", { start: cell("Null", null) }), columns)).toBe(true);
-        expect(printLinkText({ from: [{ type: "identified", value: { key: "M1104" } }], to: [] } as never)).toBe("M1104 >");
-        expect(printLinkText({ from: [], to: [{ type: "range", value: { from: "M2140", to: "M2145" } }] } as never)).toBe("M2140-M2145");
+        expect(printLinkText({ from: [variant("identified", { key: "M1104" })], to: [] })).toBe("M1104 >");
+        expect(printLinkText({ from: [], to: [variant("range", { from: "M2140", to: "M2145" })] })).toBe("M2140-M2145");
     });
 });
