@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useMemo, useRef } from "react";
-import { none, variant } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils.js";
 import { driverKeyOf, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
 import { linkVocabulary, usedKeys, type LinkVocabulary } from "./link/grammar.js";
@@ -92,8 +92,12 @@ export function useSheetLinks({ columns, registers, driver, driverColumn, body, 
         if (byKey === undefined) { byKey = new Map(); flagCache.current.set(item.row, byKey); }
         const known = byKey.get(meta.key);
         if (known !== undefined) return known;
+        // A line's check context names its GROUP and its line key (#740).
         const flags = checkLink(cell.value, lc.checks, lc.vocab, (half, member) => ({
-            rowIndex: BigInt(item.residentIndex), rowId: item.row.id, offset: BigInt(item.position), line: none,
+            rowIndex: BigInt(item.group !== undefined ? item.group.index : item.residentIndex),
+            rowId: item.group !== undefined ? item.group.row.id : item.row.id,
+            offset: BigInt(item.position),
+            line: item.group !== undefined ? some(item.group.key) : none,
             row: item.row.cells, half: variant(half, null), member,
         }));
         byKey.set(meta.key, flags);

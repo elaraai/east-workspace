@@ -36,6 +36,14 @@
  *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
  *     `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; the lens band's
  *     pill opens on hover (`shadow.xs`) with brand controls.
+ *   - A group's band (#740, G1): 40 px `bg.panel`, 1 px `border.strong`
+ *     above, `border.subtle` below (`border.strong` when folded); chevron
+ *     18 px `fg.muted`, count mono 10; title body 13/600 `fg` over the
+ *     eyebrow mono 9.5 uppercase .08em `fg.subtle`; band cells mono 11
+ *     `fg.muted`. The extent rule (G2): 2 px `border.strong` down the right
+ *     edge from the band to the group's last line. The `+ plan` ghost band
+ *     (G6): 40 px, dashed `border.strong` top, mono 10/600 `fg.subtle`,
+ *     brand on hover.
  *   - A phone (the adaptive contract, #346): the grid scrolls sideways under
  *     a gutter that stays put (`position: sticky`), the toolbar keeps its one
  *     row through its ladder, and on a coarse pointer the small controls grow
@@ -64,6 +72,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "editorNumber", "editorNumberInput", "editorStepper", "editorDate",
         "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "lockTag", "lockWarn", "arrow",
         "band", "bandRule", "bandPill", "bandControl", "bandCount",
+        "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell", "edge", "ghostBand", "ghostCell", "ghostLabel",
         "strip", "stripLabel", "stripChips", "stripChip", "stripChipOn", "stripChipFlat", "stripMeta", "stripKeys",
         "footer", "footerCounts", "footerHint", "footerMessage", "footerTransport",
         "diagnostic",
@@ -885,6 +894,129 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         bandCount: {
             cursor: "pointer",
+        },
+        // A group's band (#740): one grid row on the line columns' template.
+        groupRow: {
+            display: "grid",
+            position: "relative",
+            background: "bg.panel",
+            borderTopWidth: "1px",
+            borderTopColor: "border.strong",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
+            "&[data-folded]": { borderBottomColor: "border.strong" },
+            // The copy under the header while the group's lines scroll (G1).
+            "&[data-slot=stickyBand]": { borderTopColor: "transparent", borderBottomColor: "border.strong" },
+        },
+        groupChevron: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "18px",
+            height: "18px",
+            flex: "none",
+            borderRadius: "{radii.sm}",
+            color: "fg.muted",
+            cursor: "pointer",
+            fontSize: "11px",
+            _hover: { background: "bg.muted", color: "fg" },
+            _coarse: { width: "26px", height: "26px", fontSize: "14px" },
+        },
+        groupCount: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            color: "fg.subtle",
+            whiteSpace: "nowrap",
+            marginLeft: "2px",
+            "&[data-quiet]": { opacity: "0.6" },
+        },
+        groupTitle: {
+            position: "relative",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            gap: "1px",
+            paddingX: "10px",
+            paddingY: "4px",
+            minWidth: "0",
+            borderRightWidth: "1px",
+            borderRightColor: "border.subtle",
+            cursor: "default",
+            overflow: "visible",
+        },
+        groupTitleText: {
+            fontSize: "13px",
+            fontWeight: "600",
+            color: "fg",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            position: "relative",
+            zIndex: "1",
+        },
+        groupSub: {
+            fontFamily: "mono",
+            fontSize: "9.5px",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            position: "relative",
+            zIndex: "1",
+        },
+        groupCell: {
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            paddingX: "10px",
+            paddingY: "4px",
+            minWidth: "0",
+            borderRightWidth: "1px",
+            borderRightColor: "border.subtle",
+            cursor: "default",
+            overflow: "visible",
+            // Band cells read smaller and quieter than line cells.
+            "& > span": { fontSize: "11px", fontFamily: "mono", color: "fg.muted" },
+            "&[data-editable]": { cursor: "text" },
+        },
+        // The group's extent (G2): a 2 px rule down the right edge of the band and every line.
+        edge: {
+            position: "absolute",
+            right: "0",
+            top: "0",
+            bottom: "-1px",
+            width: "2px",
+            background: "border.strong",
+            pointerEvents: "none",
+            zIndex: "3",
+        },
+        ghostBand: {
+            display: "grid",
+            position: "relative",
+            borderTopWidth: "1px",
+            borderTopStyle: "dashed",
+            borderTopColor: "border.strong",
+            cursor: "pointer",
+            _hover: { "& [data-slot=ghostLabel]": { color: "brand.solid" } },
+        },
+        ghostCell: {
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            paddingX: "10px",
+            minWidth: "0",
+        },
+        ghostLabel: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "600",
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+            position: "relative",
+            zIndex: "1",
         },
         strip: {
             display: "flex",

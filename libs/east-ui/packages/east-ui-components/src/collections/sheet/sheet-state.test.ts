@@ -22,7 +22,7 @@ function ctxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
         lensActive: false,
         canAppend: true,
         editableAt: (_r, c) => c !== 2,
-        kindAt: (c) => (c === 0 ? "lookup" : c === 1 ? "date" : "stamped"),
+        kindAt: (_r, c) => (c === 0 ? "lookup" : c === 1 ? "date" : "stamped"),
         parse: (_r, _c, text) => text.trim() === "" ? { kind: "blank" } : text === "bad" ? { kind: "unrecognised" } : { kind: "cell", cell: cell("String", text) },
         candidates: (_r, _c, text) => (text.startsWith("ma") ? ["Machining", "Machining - Roughing"] : []),
         candidateAt: (_r, _c, text, hi) => (text.startsWith("ma") ? (hi > 0 ? "Machining - Roughing" : "Machining") : undefined),
@@ -228,7 +228,7 @@ function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [
     };
     return ctxOf({
         colCount: 2,
-        kindAt: (c) => (c === 0 ? "link" : "text"),
+        kindAt: (_r, c) => (c === 0 ? "link" : "text"),
         linkAt: (_r, c) => (c === 0 ? link : undefined),
     });
 }
@@ -366,7 +366,7 @@ function suggestCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
     const cols: Record<string, number> = { activity: 0, start: 1, qty: 2 };
     return ctxOf({
         colCount: 3,
-        kindAt: (c) => (c === 0 ? "lookup" : c === 1 ? "date" : "quantity"),
+        kindAt: (_r, c) => (c === 0 ? "lookup" : c === 1 ? "date" : "quantity"),
         editableAt: () => true,
         rowOf: (id) => ids[id],
         idAt: (r) => ["a", "b", "c", " blank:3"][r],
@@ -543,14 +543,14 @@ const narrowingOf = (search: string | undefined): SliceStateValue => ({
 const EMPTY = narrowingOf(undefined);
 const PAINT = narrowingOf("paint");
 const LATHE = narrowingOf("lathe");
-const view = (id: string, name: string, narrowing: SliceStateValue, context = 0n, reveals: bigint[] = []): SheetViewValue => ({ id, name, narrowing, context, reveals });
+const view = (id: string, name: string, narrowing: SliceStateValue, context = 0n, reveals: bigint[] = []): SheetViewValue => ({ id, name, narrowing, context, reveals, folds: new Map() });
 const VIEWS = [view("paint", "PAINT", PAINT, 1n, [4n]), view("lathe", "LATHE", LATHE)];
 
 /** A sheet on the PAINT tab, the slice at `narrowing`, the views as given. */
 function lensCtxOf(narrowing: SliceStateValue, views: readonly SheetViewValue[] = VIEWS, dirty = false, over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
     return ctxOf({ rowCount: 6, lensActive: true, views, narrowing, emptyNarrowing: EMPTY, dirty, ...over });
 }
-const onPaint = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "paint"), lens: { context: 1, reveals: new Set([4, 5]), steps: new Map([["a_b:top", 2]]) } });
+const onPaint = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "paint"), lens: { context: 1, reveals: new Set([4, 5]), steps: new Map([["a_b:top", 2]]), folds: new Map() } });
 const viewsOf = (t: { effects: SheetEffect[] }): SheetViewValue[] | undefined => (t.effects.find((e) => e.t === "emit.views") as { views: SheetViewValue[] } | undefined)?.views;
 const written = (t: { effects: SheetEffect[] }): SliceStateValue | undefined => (t.effects.find((e) => e.t === "slice.write") as { state: SliceStateValue } | undefined)?.state;
 
@@ -565,7 +565,7 @@ describe("the lens", () => {
         const other = run(three.state, [{ t: "band.reveal", key: "h", from: 30, to: 31, where: "all" }], ctx);
         expect([...other.state.lens.reveals]).toEqual([10, 11, 12, 13, 30, 31]);
         const switched = run(other.state, [{ t: "lens.context", context: 3 }], ctx);
-        expect(switched.state.lens).toEqual({ context: 3, reveals: new Set(), steps: new Map() });
+        expect(switched.state.lens).toEqual({ context: 3, reveals: new Set(), steps: new Map(), folds: new Map() });
         const ranged = { ...other.state, sel: { r: 4, c: 2 }, selEnd: { r: 5, c: 2 } };
         const narrowed = run(ranged, [{ t: "lens.narrowed" }], ctx);
         expect(narrowed.state.lens.reveals.size).toBe(0);
@@ -585,7 +585,7 @@ describe("the view tabs", () => {
         const ctx = lensCtxOf(LATHE, VIEWS, true);
         const t = run(onPaint(), [{ t: "tab.switch", id: "lathe" }], ctx);
         expect(t.state.tabs.active).toBe("lathe");
-        expect(t.state.lens).toEqual({ context: 0, reveals: new Set(), steps: new Map() });
+        expect(t.state.lens).toEqual({ context: 0, reveals: new Set(), steps: new Map(), folds: new Map() });
         expect(t.state.sel).toEqual({ r: 0, c: 1 });
         const views = viewsOf(t)!;
         expect(views[0]).toEqual(view("paint", "PAINT", PAINT, 1n, [4n, 5n]));   // context + reveals persisted; the narrowing kept
@@ -599,7 +599,7 @@ describe("the view tabs", () => {
         // Opening a view (the initial `activeView`) never persists the tab it leaves.
         const opened = run(initialSheetState({ r: 0, c: 0 }, "paint"), [{ t: "tab.open", id: "paint" }], lensCtxOf(EMPTY));
         expect(viewsOf(opened)).toBeUndefined();
-        expect(opened.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map() });
+        expect(opened.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map(), folds: new Map() });
         expect(written(opened)).toBe(PAINT);
         // An unknown tab is ignored.
         expect(run(onPaint(), [{ t: "tab.switch", id: "zzz" }], ctx).state).toEqual(onPaint());
@@ -642,7 +642,7 @@ describe("the view tabs", () => {
         expect(updated.state.msg).toBe('Tab "PAINT" now saves this search');
         const reverted = run(onPaint(), [{ t: "search.key", key: "Escape" }], dirty);
         expect(written(reverted)).toBe(PAINT);
-        expect(reverted.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map() });
+        expect(reverted.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map(), folds: new Map() });
         expect(reverted.state.msg).toBe("Reverted to the tab's saved search");
         const clean = run(onPaint(), [{ t: "search.key", key: "Escape" }], lensCtxOf(PAINT));
         expect(clean.state.tabs.active).toBeNull();
@@ -675,5 +675,70 @@ describe("the view tabs", () => {
         expect(viewsOf(run(onPaint(), [{ t: "tab.reorder", id: "lathe", to: 0 }], ctx))!.map((v) => v.id)).toEqual(["lathe", "paint"]);
         expect(viewsOf(run(onPaint(), [{ t: "tab.reorder", id: "paint", to: 2 }], ctx))!.map((v) => v.id)).toEqual(["lathe", "paint"]);
         expect(run(onPaint(), [{ t: "tab.reorder", id: "paint", to: 0 }], ctx).effects).toEqual([]);
+    });
+});
+
+// ── Grouped rows (#740 — G4, G6, G7, G8) ───────────────────────────────────
+
+/** Two plans: p1's band at 0, its lines 1–2, its blank line 3; p2 folded at 4; the ghost band at 5. The title spans columns 0–1. */
+function groupedCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
+    const kinds = ["group", "row", "row", "blank", "group", "groupBlank"] as const;
+    return ctxOf({
+        rowCount: 6,
+        colCount: 3,
+        canAppend: false,
+        editableAt: (r, c) => (kinds[r] === "groupBlank" ? c < 2 : c !== 2 || kinds[r] !== "group"),
+        rowKindAt: (r) => kinds[r],
+        groupAt: (r) => (r === 0 ? { id: "p1", folded: false, lines: { r0: 1, r1: 2 } } : r === 4 ? { id: "p2", folded: true, lines: undefined } : undefined),
+        spanAt: (r, c) => (kinds[r] === "groupBlank" ? { c0: 0, c1: 2 } : kinds[r] === "group" && c < 2 ? { c0: 0, c1: 1 } : undefined),
+        ...over,
+    });
+}
+
+describe("grouped rows", () => {
+    test("Space on a band folds and opens it; the chevron too; the folds are lens state", () => {
+        const ctx = groupedCtxOf();
+        const folded = run(initialSheetState({ r: 0, c: 0 }), [key(" ")], ctx);
+        expect(folded.state.lens.folds.get("p1")).toBe(true);
+        expect(folded.state.edit).toBeNull();
+        const opened = run(initialSheetState({ r: 1, c: 0 }), [{ t: "fold.toggle", r: 4 }], ctx);
+        expect(opened.state.lens.folds.get("p2")).toBe(false);
+        expect(opened.state.sel).toEqual({ r: 4, c: 0 });
+        // Space on a line still starts an edit.
+        expect(run(initialSheetState({ r: 1, c: 0 }), [key(" ")], ctx).state.edit).not.toBeNull();
+    });
+
+    test("the band's gutter selects its lines; an empty or folded plan selects the band", () => {
+        const ctx = groupedCtxOf();
+        const lines = run(initialSheetState(), [{ t: "row.pick", r: 0, shift: false }], ctx);
+        expect(lines.state.sel).toEqual({ r: 1, c: 0 });
+        expect(lines.state.selEnd).toEqual({ r: 2, c: 2 });
+        const band = run(initialSheetState(), [{ t: "row.pick", r: 4, shift: false }], ctx);
+        expect(band.state.sel).toEqual({ r: 4, c: 0 });
+        expect(band.state.selEnd).toEqual({ r: 4, c: 2 });
+        expect(run(band.state, [key("Backspace")], ctx).effects).toContainEqual({ t: "delete.rows", r0: 4, r1: 4 });
+    });
+
+    test("folds are lens state: a tab switch persists them into the view it leaves, and a view brings its folds back", () => {
+        const folded = run(onPaint(), [{ t: "fold.toggle", r: 4 }], groupedCtxOf({ views: VIEWS, emptyNarrowing: EMPTY }));
+        expect(folded.state.lens.folds).toEqual(new Map([["p2", false]]));
+        const left = run(folded.state, [{ t: "tab.switch", id: "lathe" }], groupedCtxOf({ views: VIEWS, narrowing: PAINT, emptyNarrowing: EMPTY }));
+        expect(viewsOf(left)![0]!.folds).toEqual(new Map([["p2", false]]));
+        expect(left.state.lens.folds.size).toBe(0);
+        const back = run(left.state, [{ t: "tab.switch", id: "paint" }], groupedCtxOf({ views: viewsOf(left)!, narrowing: LATHE, emptyNarrowing: EMPTY }));
+        expect(back.state.lens.folds).toEqual(new Map([["p2", false]]));
+    });
+
+    test("the ghost band opens its title on a click, ⏎ or a printable key; arrows step over a spanned title", () => {
+        const ctx = groupedCtxOf();
+        const clicked = run(initialSheetState(), [{ t: "cell.down", r: 5, c: 2, shift: false }], ctx);
+        expect(clicked.state.edit).toMatchObject({ r: 5, c: 0 });
+        expect(run(initialSheetState({ r: 5, c: 1 }), [key("Enter")], ctx).state.edit).toMatchObject({ r: 5, c: 0 });
+        expect(run(initialSheetState({ r: 5, c: 1 }), [key("W")], ctx).state.edit).toMatchObject({ r: 5, c: 0, val: "W", seeded: true });
+        // → from the title (columns 0–1) lands on column 2; ← from column 2 lands back on the title.
+        expect(run(initialSheetState({ r: 0, c: 0 }), [key("ArrowRight")], ctx).state.sel).toEqual({ r: 0, c: 2 });
+        expect(run(initialSheetState({ r: 0, c: 2 }), [key("ArrowLeft")], ctx).state.sel).toEqual({ r: 0, c: 1 });
+        // A line's columns step one at a time.
+        expect(run(initialSheetState({ r: 1, c: 0 }), [key("ArrowRight")], ctx).state.sel).toEqual({ r: 1, c: 1 });
     });
 });

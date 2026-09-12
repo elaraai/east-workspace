@@ -709,6 +709,7 @@ export type SheetGroupType = typeof SheetGroupType;
  * @property narrowing - The slice state the view was made with
  * @property context - The lens's band width (`0` · `1` · `3`)
  * @property reveals - Revealed row indices
+ * @property folds - A grouped sheet's fold overrides (#740): group id → folded; a group not listed opens as its `folded` accessor says
  */
 export const SheetViewType = StructType({
     id:        StringType,
@@ -716,6 +717,7 @@ export const SheetViewType = StructType({
     narrowing: SliceStateType,
     context:   IntegerType,
     reveals:   ArrayType(IntegerType),
+    folds:     DictType(StringType, BooleanType),
 });
 /** Type alias for {@link SheetViewType}. */
 export type SheetViewType = typeof SheetViewType;
@@ -771,11 +773,13 @@ export type SheetEditType = typeof SheetEditType;
 /**
  * The selection ring's position — `Sheet.Types.Selection`.
  *
- * @property rowId - The selected row (`none` ⇒ a blank padding row or nothing)
- * @property key - The selected column
+ * @property rowId - The selected row (`none` ⇒ a blank padding row or nothing); a grouped sheet: the GROUP's id
+ * @property line - A grouped sheet: the selected line's key within its group (`none` on the band, a blank line, or a flat sheet)
+ * @property key - The selected column (a band: the line column the cell sits under, or `$title`)
  */
 export const SheetSelectionType = StructType({
     rowId: OptionType(StringType),
+    line:  OptionType(StringType),
     key:   OptionType(StringType),
 });
 /** Type alias for {@link SheetSelectionType}. */

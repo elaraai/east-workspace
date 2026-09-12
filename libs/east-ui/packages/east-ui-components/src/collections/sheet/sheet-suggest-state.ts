@@ -96,7 +96,7 @@ export function fillRow(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const rest: Suggestions | null = sugg.rows.length > 0 || sugg.pending.length > 0 ? { ...sugg, fill: new Map() } : null;
     const n = writes.length;
     return {
-        state: { ...s, sugg: rest, armed: null, gsel: null, msg: `Filled ${n} cell${n === 1 ? "" : "s"} on row ${ctx.numberAt?.(r) ?? r + 1}` },
+        state: { ...s, sugg: rest, armed: null, gsel: null, msg: `Filled ${n} cell${n === 1 ? "" : "s"} on ${ctx.rowNameAt?.(r) ?? `row ${ctx.numberAt?.(r) ?? r + 1}`}` },
         effects: [{ t: "write.many", r, writes, source: "row" }],
     };
 }

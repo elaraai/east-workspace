@@ -37,14 +37,16 @@ export function exportCell(cell: SheetCellValue | undefined, meta: SheetColumnMe
     return [""];
 }
 
-/** A block of cells as tab-separated lines. */
+/** A block of cells as tab-separated lines; `skipRow` leaves rows out (a group's band, #740 G9). */
 export function exportMatrix(
     cellAt: (r: number, c: number) => SheetCellValue | undefined,
     columns: readonly SheetColumnMeta[],
     rect: { r0: number; r1: number; c0: number; c1: number },
+    skipRow?: (r: number) => boolean,
 ): string {
     const lines: string[] = [];
     for (let r = rect.r0; r <= rect.r1; r++) {
+        if (skipRow?.(r) === true) continue;
         const cells: string[] = [];
         for (let c = rect.c0; c <= rect.c1; c++) {
             const meta = columns[c];

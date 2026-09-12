@@ -404,3 +404,76 @@ describe("the equalFor rule (§6.2)", () => {
         expect(cell(1, "qty").textContent).toBe("240cartons");
     });
 });
+
+// ── Grouped rows (#740, G11) ──────────────────────────────────────────────
+
+const LineType = StructType({ activity: StringType, qty: OptionType(FloatType), notes: StringType });
+const PlanType = StructType({ id: StringType, name: StringType, lines: ArrayType(LineType) });
+const GroupCtx = Sheet.Types.Context(PlanType, "lines");
+const LineProposals = ArrayType(Sheet.Types.Proposal(LineType));
+const NotesFill = OptionType(Sheet.Types.Fill(StringType));
+const PLANS = [
+    { id: "p1", name: "Line 2 week 8", lines: [{ activity: "Machining", qty: some(120.0), notes: "first" }] },
+    { id: "p2", name: "Line 3 week 8", lines: [] },
+];
+
+/** A grouped sheet whose fill reads the plan and whose proposer follows machining with painting — both over `Sheet.Types.Context(PlanType, "lines")`. */
+function buildGroupedCopilot(): SheetRootValue {
+    const program = East.function([], UIComponentType, ($) => {
+        const plans = $.const(PLANS, ArrayType(PlanType));
+        const inPlan = $.const(East.function([GroupCtx], NotesFill, (_$2, ctx) =>
+            East.value(some({ value: East.str`${ctx.group.name} · line ${ctx.rowIndex.add(1n)} of ${ctx.rows.length()} · ${ctx.groups.length()} plans`, meta: "the plan" }), NotesFill)));
+        const followUps = $.const(East.function([GroupCtx], LineProposals, ($2, ctx) => ctx.row.activity.equal("Machining").ifElse(
+            ($3) => $3.const([{ patch: Sheet.patch(LineType, { activity: "Painting", notes: "paint the machined parts" }), meta: "painting follows machining" }], LineProposals),
+            (_$3) => East.value([], LineProposals),
+        )));
+        return Sheet.Root(plans, {
+            activity: Sheet.column.text(LineType, { header: "Activity" }),
+            qty: Sheet.column.quantity(LineType, { header: "Qty" }),
+            notes: Sheet.column.text(LineType, { header: "Notes", fill: [inPlan] }),
+        }, {
+            id: "id",
+            group: Sheet.group(PlanType, "lines", { title: "name" }),
+            suggest: { ahead: 1n, triggers: ["activity", "qty"], propose: [followUps] },
+        });
+    });
+    const value = East.compile(program, getRegisteredPlatformImplementations())() as
+        ValueTypeOf<typeof UIComponentType> & { value: SheetRootValue };
+    return value.value;
+}
+
+describe("the copilot on grouped rows (#740, G11)", () => {
+    test("a line's providers see its plan — its lines, the plan, the resident plans; the row fill names the line within its plan; a taken proposal lands in the anchor's plan", async () => {
+        const { value, edits } = withSpies(buildGroupedCopilot());
+        const { container, key, type, editorKey, settle, proposals, message } = mount(value);
+        const lines = (id: string) => [...container.querySelectorAll(`[data-slot="row"][data-group-id="${id}"]`)] as HTMLElement[];
+        // The ring opens on the first plan's blank line.
+        key("M");
+        type("Machining");
+        editorKey("Enter");
+        await settle();
+        expect(edits.map((e) => e.type)).toEqual(["lineInsert"]);
+        const created = lines("p1")[1]!;
+        expect(created.querySelector('[data-key="notes"]')!.hasAttribute("data-proposed")).toBe(true);
+        expect(created.querySelector('[data-key="notes"]')!.textContent).toBe("Line 2 week 8 · line 2 of 2 · 2 plans");
+        // The proposed line sits under its anchor, numbered on within the plan, inside the plan's extent rule.
+        expect(proposals()).toHaveLength(1);
+        expect(proposals()[0]!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("3");
+        expect(proposals()[0]!.querySelector('[data-slot="edge"]')).toBeTruthy();
+        // The gutter's → fills the line.
+        fireEvent.mouseDown(created.querySelector('[data-slot="fillRow"]')!, { button: 0 });
+        await settle();
+        expect(message()).toBe("Filled 1 cell on line 2 of Line 2 week 8");
+        expect(edits.at(-1)!.type).toBe("lineCommit");
+        expect(source(edits.at(-1)!)).toBe("row");
+        // ✓ takes the proposal: a `pattern` insert into p1, never p2.
+        fireEvent.mouseDown(proposals()[0]!.querySelector('[data-slot="accept"]')!, { button: 0 });
+        await settle();
+        const inserted = edits.filter((e) => e.type === "lineInsert");
+        expect(inserted).toHaveLength(2);
+        expect(source(inserted[1]!)).toBe("pattern");
+        expect((inserted[1]!.value as { rowId: string }).rowId).toBe("p1");
+        expect(lines("p1").map((r) => r.querySelector('[data-key="activity"]')!.textContent)).toEqual(["Machining", "Machining", "Painting", ""]);
+        expect(lines("p2").map((r) => r.querySelector('[data-key="activity"]')!.textContent)).toEqual([""]);
+    });
+});

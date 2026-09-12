@@ -59,8 +59,8 @@ const NARROW = (search: string) => ({
     breakdown: none, search: some(search), visible: none, selectedIndex: none, resolution: none,
 });
 const VIEWS = [
-    { id: "paint", name: "PAINT", narrowing: NARROW("paint"), context: 0n, reveals: [] },
-    { id: "lathe", name: "LATHE", narrowing: NARROW("lathe"), context: 0n, reveals: [] },
+    { id: "paint", name: "PAINT", narrowing: NARROW("paint"), context: 0n, reveals: [], folds: new Map<string, boolean>() },
+    { id: "lathe", name: "LATHE", narrowing: NARROW("lathe"), context: 0n, reveals: [], folds: new Map<string, boolean>() },
 ];
 
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;

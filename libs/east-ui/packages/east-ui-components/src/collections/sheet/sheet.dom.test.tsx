@@ -72,7 +72,7 @@ function buildSheet(opts: Options = {}): SheetRootValue {
             registers: { statuses: Sheet.register.members(statuses, { kind: "status", key: (s) => s.word, label: (s) => s.word, tone: (s) => some(s.tone) }) },
             blanks: opts.blanks ?? 3,
             ...(opts.readOnly ? { readOnly: true } : {}),
-            ...(opts.selection ? { selection: some({ rowId: some("j2"), key: some("task") }) } : {}),
+            ...(opts.selection ? { selection: some({ rowId: some("j2"), line: none, key: some("task") }) } : {}),
             footer: [{ text: "2 planned" }],
         });
     });
@@ -164,7 +164,7 @@ describe("the ring and the range", () => {
         fireEvent.mouseDown(cell(1, "task"), { button: 0 });
         expect(cell(1, "task").hasAttribute("data-selected")).toBe(true);
         await flush();
-        expect(selects.at(-1)).toEqual({ rowId: some("j2"), key: some("task") });
+        expect(selects.at(-1)).toEqual({ rowId: some("j2"), line: none, key: some("task") });
         key("ArrowRight");
         expect(cell(1, "qty").hasAttribute("data-selected")).toBe(true);
         fireEvent.mouseDown(cell(2, "code"), { button: 0, shiftKey: true });
@@ -354,7 +354,7 @@ describe("the controlled selection (§3.14)", () => {
         expect(cell(1, "task").hasAttribute("data-selected")).toBe(true);
         key("ArrowUp");
         await flush();
-        expect(selects.at(-1)).toEqual({ rowId: some("j1"), key: some("task") });
+        expect(selects.at(-1)).toEqual({ rowId: some("j1"), line: none, key: some("task") });
     });
 });
 
