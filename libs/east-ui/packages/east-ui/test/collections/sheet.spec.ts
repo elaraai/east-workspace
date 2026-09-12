@@ -476,8 +476,8 @@ describeEast("Sheet", (test) => {
         }, {
             id: "id",
             onSelect,
-            selection: some({ rowId: some("a"), key: some("task") }),
-            views: [{ id: "v1", name: "ALL", narrowing: { range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(), breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none }, context: 1n, reveals: [] }],
+            selection: some({ rowId: some("a"), line: none, key: some("task") }),
+            views: [{ id: "v1", name: "ALL", narrowing: { range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(), breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none }, context: 1n, reveals: [], folds: new Map() }],
             activeView: some("v1"),
             footer: [{ text: "2 planned", tone: "info" }],
             blanks: 6,
@@ -511,7 +511,7 @@ describeEast("Sheet", (test) => {
     test("Sheet.Types are accessible", $ => {
         const link = $.const({ from: [], to: [variant("placeholder", null)] }, Sheet.Types.Link);
         $(Assert.equal(link.to.size(), 1n));
-        const sel = $.const({ rowId: none, key: none }, Sheet.Types.Selection);
+        const sel = $.const({ rowId: none, line: none, key: none }, Sheet.Types.Selection);
         $(Assert.equal(sel.rowId.hasTag("none"), true));
         const patch = $.const(Sheet.patch(JobType, { task: "x" }));
         $(Assert.equal(patch.task.unwrap("some"), "x"));

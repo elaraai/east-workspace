@@ -740,9 +740,9 @@ export const sheetLens = example({
             }));
             const slice = $.let(Slice.bind([JobType], "sheet_lens_slice", cfg, Slice.state(), rows, none));
             const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet_lens_views", [
-                { id: "painting", name: "PAINTING", narrowing: Slice.state({ search: some("painting") }), context: 1n, reveals: [] },
-                { id: "lathes", name: "LATHES", narrowing: Slice.state({ search: some("lathe") }), context: 0n, reveals: [] },
-                { id: "urgent", name: "URGENT", narrowing: Slice.state({ search: some("urgent") }), context: 0n, reveals: [] },
+                { id: "painting", name: "PAINTING", narrowing: Slice.state({ search: some("painting") }), context: 1n, reveals: [], folds: new Map() },
+                { id: "lathes", name: "LATHES", narrowing: Slice.state({ search: some("lathe") }), context: 0n, reveals: [], folds: new Map() },
+                { id: "urgent", name: "URGENT", narrowing: Slice.state({ search: some("urgent") }), context: 0n, reveals: [], folds: new Map() },
             ]));
             return (
                 <Sheet

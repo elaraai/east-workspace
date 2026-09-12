@@ -36,11 +36,23 @@ function sameReveals(a: readonly bigint[], b: readonly bigint[]): boolean {
     return a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
-/** A view's lens — its context clamped to the switch's stops, its reveals as positions, no presses yet. */
+/** The fold overrides as the wire carries them (#740). */
+function wireFolds(folds: ReadonlyMap<string, boolean>): Map<string, boolean> {
+    return new Map([...folds].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+/** Whether two fold maps are the same. */
+function sameFolds(a: ReadonlyMap<string, boolean>, b: ReadonlyMap<string, boolean>): boolean {
+    if (a.size !== b.size) return false;
+    for (const [k, v] of a) if (b.get(k) !== v) return false;
+    return true;
+}
+
+/** A view's lens — its context clamped to the switch's stops, its reveals as positions, its folds, no presses yet. */
 function lensOf(view: SheetViewValue): LensState {
     const n = Number(view.context);
     const context: LensContext = n >= 3 ? 3 : n >= 1 ? 1 : 0;
-    return { context, reveals: new Set(view.reveals.map((p) => Number(p))), steps: new Map() };
+    return { context, reveals: new Set(view.reveals.map((p) => Number(p))), steps: new Map(), folds: new Map(view.folds) };
 }
 
 /** The active view, if any. */
@@ -60,19 +72,19 @@ export function persistLens(s: SheetUiState, views: readonly SheetViewValue[]): 
     const context = BigInt(s.lens.context);
     const reveals = wireReveals(s.lens.reveals);
     const out = views.map((v) => {
-        if (v.id !== a || (v.context === context && sameReveals(v.reveals, reveals))) return v;
+        if (v.id !== a || (v.context === context && sameReveals(v.reveals, reveals) && sameFolds(v.folds, s.lens.folds))) return v;
         changed = true;
-        return { ...v, context, reveals };
+        return { ...v, context, reveals, folds: wireFolds(s.lens.folds) };
     });
     return changed ? out : views;
 }
 
 // ── The lens ──────────────────────────────────────────────────────────────
 
-/** The context switch — reveals and presses reset. */
+/** The context switch — reveals and presses reset; the folds stay. */
 export function setContext(s: SheetUiState, context: LensContext): SheetUiState {
     if (s.lens.context === context && s.lens.reveals.size === 0) return s;
-    return { ...s, lens: { context, reveals: new Set(), steps: new Map() } };
+    return { ...s, lens: { context, reveals: new Set(), steps: new Map(), folds: s.lens.folds } };
 }
 
 /** A band control pressed — the run opens a little further (1 · 3 · 10 · all). */
@@ -139,7 +151,7 @@ export function createTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     let id = `view-${seq}`;
     while (kept.some((v) => v.id === id)) { seq += 1; id = `view-${seq}`; }
     const name = viewName(query, seq);
-    const view: SheetViewValue = { id, name, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens.reveals) };
+    const view: SheetViewValue = { id, name, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens.reveals), folds: wireFolds(s.lens.folds) };
     const msg = query.trim() !== ""
         ? `Saved tab "${name}" — a live view: rows that match join it as the sheet changes`
         : `Saved tab "${name}" — no filter; type a search and ⏎ to scope it`;
@@ -169,11 +181,11 @@ export function updateTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const t = activeView(s, ctx);
     const narrowing = ctx.narrowing;
     if (t === undefined || narrowing === undefined) return noop(s);
-    const views = (ctx.views ?? []).map((v) => (v.id === t.id ? { ...v, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens.reveals) } : v));
+    const views = (ctx.views ?? []).map((v) => (v.id === t.id ? { ...v, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens.reveals), folds: wireFolds(s.lens.folds) } : v));
     return { state: { ...s, msg: `Tab "${t.name}" now saves this search` }, effects: [{ t: "emit.views", views }] };
 }
 
-/** esc with a dirty tab: the slice returns to the tab's saved narrowing, the lens to its saved context and reveals. */
+/** esc with a dirty tab: the slice returns to the tab's saved narrowing, the lens to its saved context, reveals and folds. */
 export function revertTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const t = activeView(s, ctx);
     if (t === undefined) return noop(s);

@@ -90,12 +90,14 @@ type WindowCache = Map<number, readonly SheetRowValue[]>;
  *
  * @param source - The decoded `paged` arm (undefined ⇒ inline sheet; idles)
  * @param rowPx - The fixed pixel height of one row (the ledger's geometry)
+ * @param bandPx - A group's band height (#740) — a group row measures its band, its lines and its blank line
  * @param policy - Residency policy (defaults to the Plan's)
  * @returns The resident rows, the bands, and the callbacks the renderer feeds
  */
 export function useSheetPaging(
     source: SheetPagedSourceValue | undefined,
     rowPx: number,
+    bandPx: number = rowPx,
     policy: ResidencyOptions = DEFAULT_RESIDENCY,
 ): SheetPaging {
     const [ledger, setLedger] = useState<WindowLedger>(() => createLedger(0, SHEET_PAGE_SIZE));
@@ -155,16 +157,20 @@ export function useSheetPaging(
         setSizeVersion((v) => v + 1);
     }, [total, ledger.total, source]);
 
-    // Landed windows teach the ledger — rows are fixed-height, so the geometry is exact.
+    // Landed windows teach the ledger — rows are fixed-height, so the geometry
+    // is exact; a group row (#740) is its band, its lines and its blank line.
     const landed = value?.landed;
     useEffect(() => {
         if (landed === undefined || landed.length === 0) return;
         let next = ledger;
-        for (const { w, rows } of landed) next = observeWindow(next, w, { px: rows.length * rowPx, rows: rows.length });
+        for (const { w, rows } of landed) {
+            const px = rows.reduce((sum, r) => sum + (r.band.type === "some" ? (r.band.value.folded ? bandPx : bandPx + (r.lines.length + 1) * rowPx) : rowPx), 0);
+            next = observeWindow(next, w, { px, rows: rows.length });
+        }
         if (next === ledger) return;
         setLedger(next);
         setSizeVersion((v) => v + 1);
-    }, [landed, ledger, rowPx]);
+    }, [landed, ledger, rowPx, bandPx]);
 
     // Demand follows the viewport, at idle only.
     useEffect(() => {
