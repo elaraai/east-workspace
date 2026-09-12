@@ -9,21 +9,29 @@
  * the paged arm's unloaded bands, the blank padding rows), the driver lookup
  * and the cell display helpers.
  *
+ * On a GROUPED sheet (#740) the body is the groups' BANDS with their lines
+ * under them: a line is a `real` item whose row is a pseudo wire row over
+ * the line's cells (so every cell helper reads it as a row) tagged with its
+ * group ({@link LineGroup}); each open group ends with one blank line; the
+ * body ends with the `+ plan` ghost band.
+ *
  * Pure: no React, no DOM. The interaction state lives in `sheet-state.ts`;
  * the data lives in the component (local rows over the decoded value).
  *
  * @packageDocumentation
  */
 
+import { none, variant } from "@elaraai/east";
 import { formatDatePattern } from "../../charts/spec/index.js";
 import { formatTick, type TickFormatOpt } from "../../typography/numeric/format-tick.js";
 import { getSomeorUndefined } from "../../utils.js";
 import type {
-    SheetCellValue, SheetColumnValue, SheetLinkValue, SheetMemberValue, SheetRegisterMemberValue,
-    SheetRootValue, SheetRowValue,
+    SheetCellValue, SheetColumnValue, SheetCustomKindValue, SheetGroupValue, SheetLineValue, SheetLinkValue, SheetMemberValue,
+    SheetRegisterMemberValue, SheetRootValue, SheetRowValue,
 } from "./values.js";
 import type { LensGap } from "./lens.js";
-import { formatDateDisplay } from "./parse/date.js";
+import { blankRowId } from "./sheet-types.js";
+import { DATE_DISPLAY_PATTERN } from "./parse/date.js";
 
 // ── Columns ───────────────────────────────────────────────────────────────
 
@@ -75,9 +83,9 @@ export interface SheetColumnMeta {
     /** A custom kind's "accepts" line. */
     accepts: string | undefined;
     /** A custom kind's compiled parse — typed text + the wire context → an optional cell. */
-    customParse: ((text: string, ctx: unknown) => { type: string; value: unknown }) | undefined;
+    customParse: SheetCustomKindValue["parse"] | undefined;
     /** A custom kind's compiled print. */
-    customPrint: ((cell: SheetCellValue) => string) | undefined;
+    customPrint: SheetCustomKindValue["print"] | undefined;
     /** The raw decoded column (the link kind's declaration rides here for P3). */
     raw: SheetColumnValue;
 }
@@ -93,18 +101,15 @@ export interface SheetColumnIndex {
 /** Flatten the decoded columns. */
 export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnIndex {
     const list = columns.map((col): SheetColumnMeta => {
-        const kind = col.kind.type as SheetKind;
-        const kv = col.kind.value as Record<string, unknown> | null;
-        const width = parseWidth(getSomeorUndefined(col.width)) ?? DEFAULT_WIDTH[kind];
-        const register = kv !== null && typeof kv === "object" && "register" in kv ? (kv["register"] as string) : undefined;
+        const kind = col.kind;
         const meta: SheetColumnMeta = {
             key: col.key,
             header: col.header,
             sub: getSomeorUndefined(col.sub),
-            width,
-            kind,
+            width: parseWidth(getSomeorUndefined(col.width)) ?? DEFAULT_WIDTH[kind.type],
+            kind: kind.type,
             editable: col.editable,
-            register,
+            register: undefined,
             base: undefined,
             dateFormat: undefined,
             uom: undefined,
@@ -115,18 +120,33 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
             customPrint: undefined,
             raw: col,
         };
-        if (kind === "date" && kv !== null) {
-            meta.base = getSomeorUndefined(kv["base"] as never);
-            meta.dateFormat = getSomeorUndefined(kv["format"] as never);
-        } else if (kind === "quantity" && kv !== null) {
-            meta.uom = getSomeorUndefined(kv["uom"] as never) as ReadonlyMap<string, string> | undefined;
-            meta.format = getSomeorUndefined(kv["format"] as never) as TickFormatOpt;
-        } else if (kind === "stamped" && kv !== null) {
-            meta.owner = getSomeorUndefined(kv["owner"] as never);
-        } else if (kind === "custom" && kv !== null) {
-            meta.accepts = kv["accepts"] as string;
-            meta.customParse = kv["parse"] as SheetColumnMeta["customParse"];
-            meta.customPrint = kv["print"] as SheetColumnMeta["customPrint"];
+        // The kind's payload, by its arm — the decoded variant narrows on `type`.
+        switch (kind.type) {
+            case "date":
+                meta.base = getSomeorUndefined(kind.value.base);
+                meta.dateFormat = getSomeorUndefined(kind.value.format);
+                break;
+            case "quantity":
+                meta.uom = getSomeorUndefined(kind.value.uom);
+                meta.format = getSomeorUndefined(kind.value.format);
+                break;
+            case "lookup":
+            case "reference":
+            case "enum":
+            case "set":
+            case "link":
+                meta.register = kind.value.register;
+                break;
+            case "stamped":
+                meta.owner = getSomeorUndefined(kind.value.owner);
+                break;
+            case "custom":
+                meta.accepts = kind.value.accepts;
+                meta.customParse = kind.value.parse;
+                meta.customPrint = kind.value.print;
+                break;
+            default:
+                break;
         }
         return meta;
     });
@@ -142,6 +162,130 @@ export function parseWidth(raw: string | undefined): number | undefined {
     if (raw === undefined) return undefined;
     const m = /^\s*(\d+(?:\.\d+)?)\s*(px)?\s*$/.exec(raw);
     return m ? Math.round(Number(m[1])) : undefined;
+}
+
+// ── Grouped rows (#740) ───────────────────────────────────────────────────
+
+/** The cell key a group's title rides under — the wire's `SHEET_TITLE_CELL`. */
+export const TITLE_KEY = "$title";
+
+/** The separator inside a line's synthetic id — the group's id, then the line's wire key. */
+export const LINE_ID_SEP = "\u001f";
+
+/** A line's synthetic id — its group's id and its wire key. */
+export function lineId(groupId: string, key: string): string {
+    return `${groupId}${LINE_ID_SEP}${key}`;
+}
+
+/** The group id and line key a synthetic line id names, or `undefined` for a plain row id. */
+export function parseLineId(id: string): { groupId: string; key: string } | undefined {
+    const at = id.indexOf(LINE_ID_SEP);
+    if (at < 0) return undefined;
+    return { groupId: id.slice(0, at), key: id.slice(at + 1) };
+}
+
+/** The synthetic id of a group's blank line — the copilot's anchor before the line is real. */
+export function blankLineId(groupId: string): string {
+    return ` blank:g:${groupId}`;
+}
+
+/** The synthetic id of the `+ plan` ghost band. */
+export const GHOST_BAND_ID = " blank:+";
+
+/** The wire key a line that the source does not hold yet carries — never a source index. */
+export const NEW_LINE_KEY = "+";
+
+/** How a line item knows its group: the group's wire row, the line's wire key, its index among the group's wire lines, its 1-based number. */
+export interface LineGroup {
+    row: SheetRowValue;
+    key: string;
+    index: number;
+    number: number;
+}
+
+/**
+ * The band's cells and the title span, decoded from the wire group
+ * declaration against the line columns.
+ */
+export interface SheetGroupIndex {
+    /** The field holding the lines. */
+    linesField: string;
+    /** `Dict` lines — a line's address is its key, not its position. */
+    keyed: boolean;
+    /** The band's cells by the line column key they sit under (the title under {@link TITLE_KEY}). */
+    cells: ReadonlyMap<string, SheetColumnMeta>;
+    /** How many leading columns the title spans — up to three, stopping before the first column with a band cell. */
+    titleSpan: number;
+}
+
+/** Decode the wire group declaration. */
+export function indexGroup(group: SheetGroupValue, columns: SheetColumnIndex): SheetGroupIndex {
+    const cells = new Map<string, SheetColumnMeta>();
+    for (const cell of group.cells) {
+        const meta = indexColumns([{
+            key: cell.key, header: cell.key === TITLE_KEY ? "Title" : columns.byKey.get(cell.key)?.header ?? cell.key,
+            sub: none, width: none, kind: cell.kind, dataType: cell.dataType, payloadType: cell.payloadType, editable: cell.editable, fill: [],
+        }]).list[0]!;
+        cells.set(cell.key, meta);
+    }
+    let firstCell = columns.list.length;
+    columns.list.forEach((c, i) => { if (i < firstCell && cells.has(c.key)) firstCell = i; });
+    return { linesField: group.lines, keyed: group.keyed, cells, titleSpan: Math.max(1, Math.min(3, columns.list.length, firstCell)) };
+}
+
+// A line's pseudo row is built once per group row and wire key, so its
+// identity is stable across body builds (the check cache, the row memo).
+const lineRows = new WeakMap<SheetRowValue, Map<string, SheetRowValue>>();
+
+/** A line as a wire row — its group's id and key in the id, the group's `owned`, the line's cells. */
+export function lineRowOf(group: SheetRowValue, line: SheetLineValue): SheetRowValue {
+    let byKey = lineRows.get(group);
+    if (byKey === undefined) { byKey = new Map(); lineRows.set(group, byKey); }
+    const known = byKey.get(line.key);
+    if (known !== undefined && known.cells === line.cells) return known;
+    const row: SheetRowValue = { id: lineId(group.id, line.key), owned: group.owned, cells: line.cells, lines: [], band: none };
+    byKey.set(line.key, row);
+    return row;
+}
+
+/** The pseudo rows of a group's lines, in order. */
+export function lineRowsOf(group: SheetRowValue): SheetRowValue[] {
+    return group.lines.map((l) => lineRowOf(group, l));
+}
+
+/** A group row with one line's cells replaced (by wire key), or appended when the key is not among its lines. */
+export function withLine(group: SheetRowValue, key: string, cells: ReadonlyMap<string, SheetCellValue>): SheetRowValue {
+    const lines = group.lines.map((l) => (l.key === key ? { key, cells: cells as Map<string, SheetCellValue> } : l));
+    if (!group.lines.some((l) => l.key === key)) lines.push({ key, cells: cells as Map<string, SheetCellValue> });
+    return { ...group, lines };
+}
+
+/** A group row without the lines at the given wire keys. */
+export function withoutLines(group: SheetRowValue, keys: ReadonlySet<string>): SheetRowValue {
+    return { ...group, lines: group.lines.filter((l) => !keys.has(l.key)) };
+}
+
+/** A line's ADDRESS in an edit event — its position on `Array` lines, its key on `Dict` lines. */
+export function lineAddress(keyed: boolean, key: string, index: number): string {
+    return keyed ? key : String(index);
+}
+
+/** The positions a group's lines take in the lens — one stride per group, so reveals and gap keys stay per line. */
+export const LINE_POSITION_STRIDE = 1 << 20;
+
+/** A line's lens position. */
+export function linePosition(groupPosition: number, index: number): number {
+    return groupPosition * LINE_POSITION_STRIDE + index;
+}
+
+/** The line index a lens position names. */
+export function lineIndexOfPosition(position: number): number {
+    return position % LINE_POSITION_STRIDE;
+}
+
+/** The band's height per density (px). */
+export function groupBandPx(size: "sm" | "md" | "lg"): number {
+    return size === "sm" ? 32 : size === "lg" ? 46 : 40;
 }
 
 // ── Registers and the driver ───────────────────────────────────────────────
@@ -184,25 +328,24 @@ export function driverKeyOf(row: SheetRowValue | undefined, driverColumn: string
     if (row === undefined || driverColumn === undefined) return undefined;
     const cell = row.cells.get(driverColumn);
     if (cell === undefined || cell.type !== "String") return undefined;
-    const s = cell.value as string;
-    return s === "" ? undefined : s;
+    return cell.value === "" ? undefined : cell.value;
 }
 
 // ── Cells ─────────────────────────────────────────────────────────────────
 
 /** The blank cell. */
-export const NULL_CELL: SheetCellValue = { type: "Null", value: null } as SheetCellValue;
+export const NULL_CELL: SheetCellValue = variant("Null", null);
+
+/** The empty link — both halves empty. */
+export const EMPTY_LINK: SheetLinkValue = { from: [], to: [] };
 
 /** Whether a cell is blank (`Null`, an empty string, or an empty link). */
 export function cellIsBlank(cell: SheetCellValue | undefined): boolean {
     if (cell === undefined) return true;
     switch (cell.type) {
         case "Null": return true;
-        case "String": return (cell.value as string) === "";
-        case "Link": {
-            const l = cell.value as SheetLinkValue;
-            return l.from.length === 0 && l.to.length === 0;
-        }
+        case "String": return cell.value === "";
+        case "Link": return cell.value.from.length === 0 && cell.value.to.length === 0;
         default: return false;
     }
 }
@@ -218,11 +361,11 @@ export function rowIsBlank(row: SheetRowValue, columns: SheetColumnIndex): boole
 /** A link member's display label (the grammar's print form, B§4.1). */
 export function memberLabel(m: SheetMemberValue): string {
     switch (m.type) {
-        case "identified": return (m.value as { key: string }).key;
-        case "range": { const r = m.value as { from: string; to: string }; return `${r.from}-${r.to}`; }
-        case "counted": { const c = m.value as { n: bigint; key: string }; return `${c.n} × ${c.key}`; }
+        case "identified": return m.value.key;
+        case "range": return `${m.value.from}-${m.value.to}`;
+        case "counted": return `${m.value.n} × ${m.value.key}`;
         case "placeholder": return "TBC";
-        case "text": return m.value as string;
+        case "text": return m.value;
     }
     return "";
 }
@@ -247,10 +390,9 @@ export function formatQuantity(n: number, format: TickFormatOpt): string {
     return formatTick(n, format);
 }
 
-/** A date's display text — the author's pattern, else `17 Nov 26`. */
+/** A date's display text — the author's pattern, else `17 Nov 26`; East's own printer either way. */
 export function formatDateCell(d: Date, pattern: string | undefined): string {
-    if (pattern !== undefined && pattern !== "") return formatDatePattern(pattern, d);
-    return formatDateDisplay(d);
+    return formatDatePattern(pattern !== undefined && pattern !== "" ? pattern : DATE_DISPLAY_PATTERN, d);
 }
 
 /**
@@ -266,13 +408,13 @@ export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
             }
             return rawCellText(cell);
         case "date":
-            return cell.type === "DateTime" ? formatDateCell(cell.value as Date, meta.dateFormat) : rawCellText(cell);
+            return cell.type === "DateTime" ? formatDateCell(cell.value, meta.dateFormat) : rawCellText(cell);
         case "quantity":
-            return cell.type === "Float" ? formatQuantity(cell.value as number, meta.format)
-                : cell.type === "Integer" ? formatQuantity(Number(cell.value as bigint), meta.format) : rawCellText(cell);
+            return cell.type === "Float" ? formatQuantity(cell.value, meta.format)
+                : cell.type === "Integer" ? formatQuantity(Number(cell.value), meta.format) : rawCellText(cell);
         case "integer":
-            return cell.type === "Integer" ? formatQuantity(Number(cell.value as bigint), undefined)
-                : cell.type === "Float" ? formatQuantity(cell.value as number, undefined) : rawCellText(cell);
+            return cell.type === "Integer" ? formatQuantity(Number(cell.value), undefined)
+                : cell.type === "Float" ? formatQuantity(cell.value, undefined) : rawCellText(cell);
         default:
             return rawCellText(cell);
     }
@@ -285,9 +427,9 @@ export function rawCellText(cell: SheetCellValue): string {
         case "Boolean": return String(cell.value);
         case "Integer": return String(cell.value);
         case "Float": return String(cell.value);
-        case "String": return cell.value as string;
-        case "DateTime": return formatDateDisplay(cell.value as Date);
-        case "Link": return printLinkText(cell.value as SheetLinkValue);
+        case "String": return cell.value;
+        case "DateTime": return formatDatePattern(DATE_DISPLAY_PATTERN, cell.value);
+        case "Link": return printLinkText(cell.value);
     }
     return "";
 }
@@ -305,27 +447,63 @@ export interface SheetBand {
     px: number;
 }
 
-/** One body item — a real row, a blank padding row, a paged band, a lens gap, or a proposal. */
+/** The lens over one run of rows (B§8): which are hits, which show, and the hidden runs between them. */
+export interface LensSlice {
+    hits: readonly boolean[];
+    visible: readonly boolean[];
+    gaps: readonly LensGap[];
+}
+
+/** A grouped sheet's lens (#740) — one slice per resident group, over its lines. */
+export interface GroupedLens {
+    groups: readonly LensSlice[];
+}
+
+/** Whether a lens is a grouped sheet's. */
+function isGroupedLens(lens: LensSlice | GroupedLens): lens is GroupedLens {
+    return (lens as Partial<GroupedLens>).groups !== undefined;
+}
+
+/** One body item — a real row (a line, when tagged with its group), a blank padding row (a group's blank line, when tagged), a group's band, the `+ plan` ghost band, a paged band, a lens gap, or a proposal. */
 export type SheetBodyItem =
     | {
         kind: "real";
-        /** The row's source position (0-based) — its row number minus one. */
+        /** The row's source position (0-based) — its row number minus one; a line: its GROUP's position. */
         position: number;
-        /** Index among the RESIDENT real rows (the wire context's `rowIndex`). */
+        /** Index among the RESIDENT real rows (the wire context's `rowIndex`); a line: its group's. */
         residentIndex: number;
+        /** The wire row; a line: the pseudo row over the line's cells ({@link lineRowOf}). */
         row: SheetRowValue;
         /** A lens hit — the brand row number (B§8). */
         hit: boolean;
+        /** A line's group (#740). */
+        group?: LineGroup | undefined;
     }
     /** A run of rows the lens hides (B§8) — 22 px, a dashed rule, the `n hidden` pill with its controls. */
     | { kind: "gap"; gap: LensGap }
     | {
         kind: "blank";
-        /** The sheet position the blank would take (0-based). */
+        /** The sheet position the blank would take (0-based); a group's blank line: the group's position. */
         position: number;
         /** Which blank this is (0-based). */
         blankIndex: number;
+        /** A group's blank line (#740) — `key` empty, `index` the line it would take. */
+        group?: LineGroup | undefined;
     }
+    /** A group's band (#740): the title, the eyebrow, the band cells, the fold. */
+    | {
+        kind: "group";
+        position: number;
+        residentIndex: number;
+        row: SheetRowValue;
+        folded: boolean;
+        /** The group's line count. */
+        count: number;
+        /** Under a lens: how many of its lines are hits. */
+        hits: number | undefined;
+    }
+    /** The `+ plan` ghost band (#740). */
+    | { kind: "groupBlank"; position: number }
     | { kind: "band"; band: SheetBand }
     | {
         kind: "proposal";
@@ -335,17 +513,21 @@ export type SheetBodyItem =
         anchorR: number;
         /** The sheet position the row would take (0-based) — its number minus one. */
         position: number;
+        /** The 1-based number it would take (a line: within its group). */
+        number: number;
+        /** Proposed under a line (#740) — it carries the group's extent rule. */
+        grouped: boolean;
         cells: ReadonlyMap<string, SheetCellValue>;
         meta: string;
     };
 
 /** What the body is built from. */
 export interface SheetBodyInput {
-    /** The resident real rows, in sheet order. */
+    /** The resident real rows, in sheet order (a grouped sheet: the groups). */
     rows: readonly SheetRowValue[];
     /** The source offset of `rows[0]` (`0` on the inline arm). */
     rowsOffset: number;
-    /** Padding rows below the last real one. */
+    /** Padding rows below the last real one (a grouped sheet: `> 0` ⇒ each open group ends with a blank line and the sheet with the ghost band). */
     blanks: number;
     /** Whether blanks may show — the inline arm, or a paged source that is exhausted. */
     exhausted: boolean;
@@ -353,20 +535,24 @@ export interface SheetBodyInput {
     total: number | undefined;
     head: SheetBand | undefined;
     tail: SheetBand | undefined;
-    /** The lens over the resident rows (B§8): which are hits, which show, and the hidden runs between them. Absent ⇒ the sheet is whole. */
-    lens?: { hits: readonly boolean[]; visible: readonly boolean[]; gaps: readonly LensGap[] } | undefined;
+    /** The lens over the resident rows (B§8); a grouped sheet: one slice per resident group, over its lines. Absent ⇒ the sheet is whole. */
+    lens?: LensSlice | GroupedLens | undefined;
+    /** Grouped rows (#740): whether each group is folded, and whether the `+ plan` ghost band shows (the source is writable). */
+    grouped?: { foldedOf: (row: SheetRowValue) => boolean; ghost: boolean } | undefined;
 }
 
 /**
  * The body items, in order: head band · real rows · tail band · blanks.
  * Under a lens the real rows the narrowing hides collapse into gaps and
  * the blank tail is not shown — a lens narrows the sheet, it never invites
- * the next row (B§8).
+ * the next row (B§8). A grouped sheet builds bands with their lines
+ * ({@link buildGroupedBody}).
  */
 export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
+    if (input.grouped !== undefined) return buildGroupedBody(input, input.grouped);
     const out: SheetBodyItem[] = [];
     if (input.head !== undefined) out.push({ kind: "band", band: input.head });
-    const lens = input.lens;
+    const lens = input.lens !== undefined && !isGroupedLens(input.lens) ? input.lens : undefined;
     let inGap = false;
     input.rows.forEach((row, i) => {
         const position = input.rowsOffset + i;
@@ -392,9 +578,56 @@ export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
 }
 
 /**
+ * A grouped sheet's body (#740): for each resident group its band, then —
+ * unless folded — its lines (under a lens: the hits and their context, the
+ * rest as gaps inside the group) and one blank line; a group with no hits
+ * folds to its band. The `+ plan` ghost band ends an exhausted sheet.
+ */
+function buildGroupedBody(input: SheetBodyInput, grouped: NonNullable<SheetBodyInput["grouped"]>): SheetBodyItem[] {
+    const out: SheetBodyItem[] = [];
+    if (input.head !== undefined) out.push({ kind: "band", band: input.head });
+    const lens = input.lens !== undefined && isGroupedLens(input.lens) ? input.lens.groups : undefined;
+    input.rows.forEach((row, i) => {
+        const position = input.rowsOffset + i;
+        const slice = lens?.[i];
+        const hits = slice !== undefined ? slice.hits.filter(Boolean).length : undefined;
+        const folded = grouped.foldedOf(row) || (slice !== undefined && hits === 0);
+        out.push({ kind: "group", position, residentIndex: i, row, folded, count: row.lines.length, hits });
+        if (folded) return;
+        let inGap = false;
+        row.lines.forEach((line, j) => {
+            if (slice !== undefined && !slice.visible[j]) {
+                if (!inGap) {
+                    const at = linePosition(position, j);
+                    const gap = slice.gaps.find((g) => g.from === at);
+                    if (gap !== undefined) out.push({ kind: "gap", gap });
+                    inGap = true;
+                }
+                return;
+            }
+            inGap = false;
+            out.push({
+                kind: "real", position, residentIndex: i, row: lineRowOf(row, line),
+                hit: slice !== undefined && slice.hits[j] === true,
+                group: { row, key: line.key, index: j, number: j + 1 },
+            });
+        });
+        if (input.blanks > 0 && lens === undefined) {
+            out.push({ kind: "blank", position, blankIndex: 0, group: { row, key: "", index: row.lines.length, number: row.lines.length + 1 } });
+        }
+    });
+    if (input.tail !== undefined) out.push({ kind: "band", band: input.tail });
+    if (input.exhausted && lens === undefined && input.blanks > 0 && grouped.ghost) {
+        out.push({ kind: "groupBlank", position: input.total ?? input.rowsOffset + input.rows.length });
+    }
+    return out;
+}
+
+/**
  * The body with the copilot's proposed rows spliced in under their anchor
  * (B§5.2): dashed-topped hatched rows with real row numbers, excluded from
- * the row space like bands.
+ * the row space like bands. Under a line anchor they number on within the
+ * group.
  */
 export function withProposals(
     body: readonly SheetBodyItem[],
@@ -403,23 +636,29 @@ export function withProposals(
 ): SheetBodyItem[] {
     if (rows.length === 0 || anchorBodyIndex < 0 || anchorBodyIndex >= body.length) return body as SheetBodyItem[];
     const anchor = body[anchorBodyIndex]!;
-    if (anchor.kind === "band" || anchor.kind === "gap") return body as SheetBodyItem[];
+    if (anchor.kind !== "real" && anchor.kind !== "blank") return body as SheetBodyItem[];
     let r = 0;
     for (let i = 0; i <= anchorBodyIndex; i++) if (isRowSpace(body[i]!)) r++;
     const anchorR = r - 1;
+    const anchorNumber = anchor.group !== undefined ? anchor.group.number : anchor.position + 1;
     const out = body.slice(0, anchorBodyIndex + 1);
-    rows.forEach((p, i) => out.push({ kind: "proposal", index: i, anchorR, position: anchor.position + 1 + i, cells: p.cells, meta: p.meta }));
+    rows.forEach((p, i) => out.push({ kind: "proposal", index: i, anchorR, position: anchor.position + 1 + i, number: anchorNumber + 1 + i, grouped: anchor.group !== undefined, cells: p.cells, meta: p.meta }));
     return out.concat(body.slice(anchorBodyIndex + 1));
 }
 
-/** Whether a body item occupies the ROW space (bands, gaps and proposals do not). */
+/** Whether a body item occupies the ROW space (paged bands, gaps and proposals do not; a group's band and the ghost band do). */
 export function isRowSpace(item: SheetBodyItem): boolean {
-    return item.kind === "real" || item.kind === "blank";
+    return item.kind === "real" || item.kind === "blank" || item.kind === "group" || item.kind === "groupBlank";
 }
 
-/** The body index of the real row with `id`, if resident. */
+/** The body index of the real row (or the group band) with `id`, if resident. */
 export function bodyIndexOfId(body: readonly SheetBodyItem[], id: string): number {
-    return body.findIndex((it) => it.kind === "real" && it.row.id === id);
+    return body.findIndex((it) => (it.kind === "real" || it.kind === "group") && it.row.id === id);
+}
+
+/** The synthetic id of a blank item — a padding row's by position, a group's blank line's by group. */
+export function blankIdOf(item: Extract<SheetBodyItem, { kind: "blank" }>): string {
+    return item.group !== undefined ? blankLineId(item.group.row.id) : blankRowId(item.position);
 }
 
 /** The last REAL row's id, if any — what an insert at the end lands after. */
@@ -427,6 +666,46 @@ export function lastRealId(body: readonly SheetBodyItem[]): string | undefined {
     for (let i = body.length - 1; i >= 0; i--) {
         const it = body[i]!;
         if (it.kind === "real") return it.row.id;
+    }
+    return undefined;
+}
+
+/** Each body item's top offset (px) from the first item's top, and the total height as the last entry. */
+export function bodyOffsets(body: readonly SheetBodyItem[], sizeOf: (i: number) => number): number[] {
+    const out = new Array<number>(body.length + 1);
+    let y = 0;
+    for (let i = 0; i < body.length; i++) {
+        out[i] = y;
+        y += sizeOf(i);
+    }
+    out[body.length] = y;
+    return out;
+}
+
+/**
+ * The band that sticks under the column header at a scroll offset (#740,
+ * G1): the band of the group the item under the header belongs to, once
+ * that band has started to scroll under the header; `undefined` when the
+ * item under the header belongs to no group or its band is still in view.
+ *
+ * @param body - The body items
+ * @param offsets - {@link bodyOffsets} over the same body
+ * @param scrollTop - How far the rows have scrolled under the header (px)
+ * @returns The body index of the sticking band
+ */
+export function stickyBandIndex(body: readonly SheetBodyItem[], offsets: readonly number[], scrollTop: number): number | undefined {
+    if (scrollTop <= 0 || body.length === 0) return undefined;
+    // The last item whose top is at or above the header's bottom edge.
+    let lo = 0;
+    let hi = body.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (offsets[mid]! <= scrollTop) lo = mid; else hi = mid - 1;
+    }
+    for (let i = lo; i >= 0; i--) {
+        const it = body[i]!;
+        if (it.kind === "group") return i === lo && offsets[i]! >= scrollTop ? undefined : i;
+        if (it.kind === "band" || it.kind === "groupBlank") return undefined;
     }
     return undefined;
 }

@@ -37,7 +37,12 @@ export interface LensState {
     reveals: ReadonlySet<number>;
     /** How far each band control has reached (`${band}:${where}` → presses) — the 1 · 3 · 10 · all escalation. */
     steps: ReadonlyMap<string, number>;
+    /** A grouped sheet's fold overrides (#740): group id → folded. Persist into views like the reveals. */
+    folds: ReadonlyMap<string, boolean>;
 }
+
+/** What a row-space index holds (#740): a row, a blank padding row (or blank line), a group's band, the ghost band. */
+export type SheetRowKind = "row" | "blank" | "group" | "groupBlank";
 
 /** The view tabs' own state (B§8); whether the active tab is dirty is derived by the component from the slice. */
 export interface TabsState {
@@ -218,7 +223,10 @@ export type SheetEvent =
     /** A tab dropped before the tab at `to` (`to` = the count appends). */
     | { t: "tab.reorder"; id: string; to: number }
     /** A key in the rail's search box the tabs claim: ⏎ updates a dirty tab; esc reverts a dirty tab, returns a clean one to the sheet, or clears the search. */
-    | { t: "search.key"; key: string };
+    | { t: "search.key"; key: string }
+    // ── Grouped rows (#740) ──
+    /** The chevron, or Space with the ring on a band: the group folds or opens. */
+    | { t: "fold.toggle"; r: number };
 
 /** Where an edit came from (the wire `SheetSourceType` tags). */
 export type EditSource = "typed" | "pasted" | "fill" | "row" | "pattern";
@@ -266,8 +274,8 @@ export interface SheetMachineCtx {
     canAppend: boolean;
     /** Whether the cell may be edited (column editable, not stamped, sheet not read-only, row not owned where that matters). */
     editableAt: (r: number, c: number) => boolean;
-    /** The column kind. */
-    kindAt: (c: number) => SheetKind;
+    /** The kind of the cell at a row and column — a band's cell under the column, else the column's. */
+    kindAt: (r: number, c: number) => SheetKind;
     /** Parse a buffer for a cell. */
     parse: (r: number, c: number, text: string) => ParseOutcome;
     /** The candidates for a buffer (the entry menu when empty). */
@@ -290,6 +298,8 @@ export interface SheetMachineCtx {
     driverColumn?: string | undefined;
     /** The 1-based row number at a row-space index (the footer's messages). */
     numberAt?: (r: number) => number;
+    /** How the footer's messages name a row: `row 4`, or on a grouped sheet `line 3 of Line 2 week 8` (#740, G3). */
+    rowNameAt?: (r: number) => string;
     /** The saved views, in order — the component's local layer over `views`. */
     views?: readonly SheetViewValue[];
     /** The slice's current narrowing (`undefined` without a bound slice). */
@@ -298,6 +308,12 @@ export interface SheetMachineCtx {
     emptyNarrowing?: SliceStateValue | undefined;
     /** Whether the active tab's saved narrowing differs from the slice's — derived by the component. */
     dirty?: boolean;
+    /** What the row-space index holds (#740); absent ⇒ every index is a row or a blank. */
+    rowKindAt?: (r: number) => SheetRowKind | undefined;
+    /** A group's band at a row-space index (#740): its id, its fold, and the row-space range of its lines (`undefined` when it has none or is folded). */
+    groupAt?: (r: number) => { id: string; folded: boolean; lines: { r0: number; r1: number } | undefined } | undefined;
+    /** The columns one cell spans (#740): a band's title spans its first columns, the ghost band the whole row; `undefined` ⇒ one column. */
+    spanAt?: (r: number, c: number) => { c0: number; c1: number } | undefined;
 }
 
 /** What the link editor asks about its cell — built by the component per render. */
@@ -329,8 +345,8 @@ export interface Transition {
 /** The empty rejection memory. */
 export const NO_REJECTIONS: Rejections = { fills: new Set(), follows: new Set() };
 
-/** The lens with nothing revealed. */
-export const EMPTY_LENS: LensState = { context: 0, reveals: new Set(), steps: new Map() };
+/** The lens with nothing revealed and no fold overridden. */
+export const EMPTY_LENS: LensState = { context: 0, reveals: new Set(), steps: new Map(), folds: new Map() };
 
 /** The initial UI state — `active` is the initial view tab, if the sheet opens on one. */
 export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string | null = null): SheetUiState {

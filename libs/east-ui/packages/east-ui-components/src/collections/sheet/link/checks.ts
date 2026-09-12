@@ -14,20 +14,14 @@
 
 import type { LinkVocabulary } from "./grammar.js";
 import type { SheetColumnMeta } from "../model.js";
-import type { SheetLinkValue, SheetMemberValue } from "../values.js";
+import type { SheetCheckContextValue, SheetCheckValue, SheetLinkValue, SheetMemberValue } from "../values.js";
 
-/** The decoded check list of a link column. */
-export type CheckDecl =
-    | { type: "exists" }
-    | { type: "custom"; fn: (ctx: unknown) => { type: string; value: unknown } };
+/** One check of a link column — the decoded wire check: `exists`, or the author's bridged rule. */
+export type CheckDecl = SheetCheckValue;
 
 /** Read a link column's checks off the decoded kind. */
-export function checksOf(meta: SheetColumnMeta): CheckDecl[] {
-    if (meta.kind !== "link") return [];
-    const kv = meta.raw.kind.value as { check?: readonly { type: string; value: unknown }[] } | null;
-    return (kv?.check ?? []).map((c) => (c.type === "exists"
-        ? { type: "exists" } as CheckDecl
-        : { type: "custom", fn: c.value as CheckDecl extends { fn: infer F } ? F : never } as CheckDecl));
+export function checksOf(meta: SheetColumnMeta): readonly CheckDecl[] {
+    return meta.raw.kind.type === "link" ? meta.raw.kind.value.check : [];
 }
 
 /** The flags on the members of a link — per half, per member index. */
@@ -47,18 +41,11 @@ export function hasFlags(flags: LinkFlags): boolean {
 /** The `exists` check on one member. */
 export function existsFlag(m: SheetMemberValue, vocab: LinkVocabulary): string | undefined {
     switch (m.type) {
-        case "identified": {
-            const key = (m.value as { key: string }).key;
-            return vocab.byKey.has(key.toLowerCase()) ? undefined : `${key} is not in the register`;
-        }
-        case "counted": {
-            const key = (m.value as { key: string }).key;
-            return vocab.byKey.has(key.toLowerCase()) ? undefined : `${key} is not in the register`;
-        }
-        case "range": {
-            const from = (m.value as { from: string }).from;
-            return vocab.byKey.has(from.toLowerCase()) ? undefined : `${from} is not in the register`;
-        }
+        case "identified":
+        case "counted":
+            return vocab.byKey.has(m.value.key.toLowerCase()) ? undefined : `${m.value.key} is not in the register`;
+        case "range":
+            return vocab.byKey.has(m.value.from.toLowerCase()) ? undefined : `${m.value.from} is not in the register`;
         default:
             return undefined;
     }
@@ -76,7 +63,7 @@ export function checkLink(
     link: SheetLinkValue,
     checks: readonly CheckDecl[],
     vocab: LinkVocabulary,
-    contextFor: (half: "from" | "to", member: SheetMemberValue) => unknown,
+    contextFor: (half: "from" | "to", member: SheetMemberValue) => SheetCheckContextValue,
 ): LinkFlags {
     if (checks.length === 0) return NO_FLAGS;
     const run = (half: "from" | "to", members: readonly SheetMemberValue[]): string[][] => members.map((m) => {
@@ -88,8 +75,8 @@ export function checkLink(
                 continue;
             }
             try {
-                const out = c.fn(contextFor(half, m));
-                if (out.type === "some") flags.push(String(out.value));
+                const out = c.value(contextFor(half, m));
+                if (out.type === "some") flags.push(out.value);
             } catch (err) {
                 // Fail-open: a broken rule can never block entry.
                 console.error("[Sheet] link check failed:", err);

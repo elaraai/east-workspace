@@ -30,6 +30,7 @@ import {
     type EastType,
     type SubtypeExprOrValue,
     ArrayType,
+    type ArrayType as ArrayTypeOf,
     AsyncFunctionType,
     BooleanType,
     DateTimeType,
@@ -131,6 +132,42 @@ export const SheetCellType = VariantType({
 export type SheetCellType = typeof SheetCellType;
 
 /**
+ * One LINE of a group row on the wire (#740) — its cells, addressed within
+ * its group by `key`.
+ *
+ * @remarks
+ * A line has no id of its own: on `Array` lines `key` is the line's index
+ * printed, on `Dict` lines the dictionary key. The line's cells are the line
+ * columns' projection, exactly a flat row's `cells`.
+ *
+ * @property key - The line's address within its group
+ * @property cells - Column key → cell, one entry per declared line column
+ */
+export const SheetLineType = StructType({
+    key:   StringType,
+    cells: DictType(StringType, SheetCellType),
+});
+/** Type alias for {@link SheetLineType}. */
+export type SheetLineType = typeof SheetLineType;
+
+/**
+ * The band a group row draws above its lines (#740) — what the band shows
+ * beside its cells.
+ *
+ * @property sub - The eyebrow under the title (display only; `""` for none)
+ * @property folded - Whether the plan opens folded
+ */
+export const SheetBandType = StructType({
+    sub:    StringType,
+    folded: BooleanType,
+});
+/** Type alias for {@link SheetBandType}. */
+export type SheetBandType = typeof SheetBandType;
+
+/** The cell key a group row's title rides under (#740) — never a line column's key. */
+export const SHEET_TITLE_CELL = "$title";
+
+/**
  * One wire row — the closed projection of a host row.
  *
  * @remarks
@@ -139,14 +176,23 @@ export type SheetCellType = typeof SheetCellType;
  * the wire — the bridge (§4.8) reads it off the real row instead. Blank
  * padding rows are renderer state, never rows.
  *
+ * On a GROUPED sheet (#740) every row is a group: `cells` holds the band's
+ * cells (the group's fields under line columns, the title under
+ * {@link SHEET_TITLE_CELL}), `lines` its lines and `band` is `some`. On a
+ * flat sheet `lines` is empty and `band` is `none`.
+ *
  * @property id - The row identity (the `id` field, or a keyed source's key)
  * @property owned - `true` ⇒ the row belongs to the upstream system: no copilot, stamped columns read-only
  * @property cells - Column key → cell, one entry per declared column
+ * @property lines - A group row's lines, in order (empty on a flat sheet)
+ * @property band - A group row's band (`none` on a flat sheet)
  */
 export const SheetRowType = StructType({
     id:    StringType,
     owned: BooleanType,
     cells: DictType(StringType, SheetCellType),
+    lines: ArrayType(SheetLineType),
+    band:  OptionType(SheetBandType),
 });
 /** Type alias for {@link SheetRowType}. */
 export type SheetRowType = typeof SheetRowType;
@@ -364,11 +410,12 @@ export type SheetCountedType = typeof SheetCountedType;
  * driver lookup — so a field of the host's row that has no column keeps its
  * value in every provider, check, edit event and patch.
  *
- * @property rowIndex - Sheet position among REAL (resident) rows
- * @property rowId - The row's id — the source lookup's argument
+ * @property rowIndex - Sheet position among REAL (resident) rows (a grouped sheet: the line's index within its group)
+ * @property rowId - The row's id — the source lookup's argument (a grouped sheet: the GROUP's id)
  * @property offset - The row's source offset — the paged arm's `page` lookup
- * @property row - The row as it would be if the open editor committed
- * @property rows - The resident sheet, real rows in sheet order
+ * @property line - A grouped sheet: the line's address within its group; `none` on a flat sheet
+ * @property row - The row as it would be if the open editor committed (a grouped sheet: the LINE's cells)
+ * @property rows - The resident sheet, real rows in sheet order (a grouped sheet: the resident GROUP rows)
  * @property rowsOffset - The source offset of `rows[0]` (`0` on the inline arm)
  * @property partial - `true` on a paged sheet whose source is not exhausted
  * @property driver - The resolved driver member's key
@@ -378,6 +425,7 @@ export const SheetContextType = StructType({
     rowIndex:   IntegerType,
     rowId:      StringType,
     offset:     IntegerType,
+    line:       OptionType(StringType),
     row:        DictType(StringType, SheetCellType),
     rows:       ArrayType(SheetRowType),
     rowsOffset: IntegerType,
@@ -461,10 +509,11 @@ export type SheetSuggestType = typeof SheetSuggestType;
 /**
  * The WIRE check context — what a bridged member check receives (B§2).
  *
- * @property rowIndex - Sheet position among real rows
- * @property rowId - The row's id (the source lookup's argument)
+ * @property rowIndex - Sheet position among real rows (a grouped sheet: the line's index within its group)
+ * @property rowId - The row's id (the source lookup's argument; a grouped sheet: the GROUP's id)
  * @property offset - The row's source offset
- * @property row - The row as it would be if the editor committed
+ * @property line - A grouped sheet: the line's address within its group; `none` on a flat sheet
+ * @property row - The row as it would be if the editor committed (a grouped sheet: the LINE's cells)
  * @property half - The half being edited
  * @property member - The resolved member under check
  */
@@ -472,6 +521,7 @@ export const SheetCheckContextType = StructType({
     rowIndex: IntegerType,
     rowId:    StringType,
     offset:   IntegerType,
+    line:     OptionType(StringType),
     row:      DictType(StringType, SheetCellType),
     half:     SheetHalfType,
     member:   SheetMemberType,
@@ -605,6 +655,48 @@ export const SheetColumnType = StructType({
 export type SheetColumnType = typeof SheetColumnType;
 
 // ============================================================================
+// Grouped rows (#740) — the band's cells and the group declaration
+// ============================================================================
+
+/**
+ * One cell of a group row's band (#740) — a group field drawn under a line
+ * column (or the title), exactly a column declared over the group's row.
+ *
+ * @property key - The cell key: a line column's key, or {@link SHEET_TITLE_CELL}
+ * @property field - The group row's field the cell reads and writes
+ * @property kind - The cell's kind (the §3.2 table; no `lookup`, `set`, `link` or `custom` in a band)
+ * @property dataType - The group field's static type
+ * @property payloadType - The kind's payload type
+ * @property editable - Whether the band writes the field
+ */
+export const SheetGroupCellType = StructType({
+    key:         StringType,
+    field:       StringType,
+    kind:        SheetColumnKindType,
+    dataType:    EastTypeType,
+    payloadType: EastTypeType,
+    editable:    BooleanType,
+});
+/** Type alias for {@link SheetGroupCellType}. */
+export type SheetGroupCellType = typeof SheetGroupCellType;
+
+/**
+ * The group declaration (#740) — how a grouped sheet's rows carry their
+ * lines, and what the band draws.
+ *
+ * @property lines - The group row's field that holds the lines
+ * @property keyed - `true` ⇒ `Dict<String, L>` lines (keys are stable), `false` ⇒ `Array<L>` lines (a line's key is its position)
+ * @property cells - The band's cells, the title first under {@link SHEET_TITLE_CELL}
+ */
+export const SheetGroupType = StructType({
+    lines: StringType,
+    keyed: BooleanType,
+    cells: ArrayType(SheetGroupCellType),
+});
+/** Type alias for {@link SheetGroupType}. */
+export type SheetGroupType = typeof SheetGroupType;
+
+// ============================================================================
 // Views, edits, selection, footer, style
 // ============================================================================
 
@@ -617,6 +709,7 @@ export type SheetColumnType = typeof SheetColumnType;
  * @property narrowing - The slice state the view was made with
  * @property context - The lens's band width (`0` · `1` · `3`)
  * @property reveals - Revealed row indices
+ * @property folds - A grouped sheet's fold overrides (#740): group id → folded; a group not listed opens as its `folded` accessor says
  */
 export const SheetViewType = StructType({
     id:        StringType,
@@ -624,6 +717,7 @@ export const SheetViewType = StructType({
     narrowing: SliceStateType,
     context:   IntegerType,
     reveals:   ArrayType(IntegerType),
+    folds:     DictType(StringType, BooleanType),
 });
 /** Type alias for {@link SheetViewType}. */
 export type SheetViewType = typeof SheetViewType;
@@ -654,14 +748,24 @@ export type SheetSourceLiteral = "typed" | "pasted" | "fill" | "row" | "pattern"
  * (§3.7). The author sees the typed twin, `Sheet.Types.Edit(R)`, through the
  * bridge.
  *
+ * On a grouped sheet (#740) the three row arms are the GROUP's — a band
+ * cell committed, a group created, groups removed — and the line arms carry
+ * a line's address within its group; `row` is always the whole group row.
+ *
  * @property commit - One cell committed: the row AFTER the commit, and its source offset
  * @property insert - A row appended after `afterRowId` (`none` ⇒ at the end)
  * @property remove - Rows removed by id
+ * @property lineCommit - A line's cell committed: the GROUP row after the commit, the line's key, the column
+ * @property lineInsert - A line inserted into a group after `after` (`none` ⇒ first), at `line`
+ * @property lineRemove - Lines removed from a group, by key
  */
 export const SheetEditType = VariantType({
-    commit: StructType({ rowId: StringType, offset: IntegerType, key: StringType, row: SheetRowType, source: SheetSourceType }),
-    insert: StructType({ afterRowId: OptionType(StringType), row: SheetRowType, source: SheetSourceType }),
-    remove: StructType({ rowIds: ArrayType(StringType) }),
+    commit:     StructType({ rowId: StringType, offset: IntegerType, key: StringType, row: SheetRowType, source: SheetSourceType }),
+    insert:     StructType({ afterRowId: OptionType(StringType), row: SheetRowType, source: SheetSourceType }),
+    remove:     StructType({ rowIds: ArrayType(StringType) }),
+    lineCommit: StructType({ rowId: StringType, offset: IntegerType, line: StringType, key: StringType, row: SheetRowType, source: SheetSourceType }),
+    lineInsert: StructType({ rowId: StringType, offset: IntegerType, after: OptionType(StringType), line: StringType, row: SheetRowType, source: SheetSourceType }),
+    lineRemove: StructType({ rowId: StringType, offset: IntegerType, lines: ArrayType(StringType), row: SheetRowType }),
 });
 /** Type alias for {@link SheetEditType}. */
 export type SheetEditType = typeof SheetEditType;
@@ -669,11 +773,13 @@ export type SheetEditType = typeof SheetEditType;
 /**
  * The selection ring's position — `Sheet.Types.Selection`.
  *
- * @property rowId - The selected row (`none` ⇒ a blank padding row or nothing)
- * @property key - The selected column
+ * @property rowId - The selected row (`none` ⇒ a blank padding row or nothing); a grouped sheet: the GROUP's id
+ * @property line - A grouped sheet: the selected line's key within its group (`none` on the band, a blank line, or a flat sheet)
+ * @property key - The selected column (a band: the line column the cell sits under, or `$title`)
  */
 export const SheetSelectionType = StructType({
     rowId: OptionType(StringType),
+    line:  OptionType(StringType),
     key:   OptionType(StringType),
 });
 /** Type alias for {@link SheetSelectionType}. */
@@ -733,6 +839,8 @@ export type SheetStyleType = typeof SheetStyleType;
  * @property onSelect - The ring moved
  * @property selection - Controlled selection when `some`
  * @property newRowId - Overrides the renderer's id minting for inserted rows
+ * @property group - The group declaration (#740); `none` on a flat sheet
+ * @property newLineKey - Overrides the renderer's key minting for lines inserted into `Dict` lines
  * @property readOnly - The whole sheet is read-only
  * @property blanks - Padding rows below the last real one (default 18)
  * @property density - Row rhythm
@@ -753,6 +861,8 @@ export const SheetRootType = StructType({
     onSelect:      OptionType(FunctionType([SheetSelectionType], NullType)),
     selection:     OptionType(SheetSelectionType),
     newRowId:      OptionType(FunctionType([], StringType)),
+    group:         OptionType(SheetGroupType),
+    newLineKey:    OptionType(FunctionType([], StringType)),
     readOnly:      OptionType(BooleanType),
     blanks:        OptionType(IntegerType),
     density:       OptionType(DensityType),
@@ -903,6 +1013,158 @@ export function SheetCheckContextTypeFor<R extends StructType>(rowType: R) {
 }
 
 // ============================================================================
+// Grouped rows (#740) — the lines field and the grouped typed constructors
+// ============================================================================
+
+/**
+ * The keys of a group row whose field can hold the lines — an `Array<L>` or a
+ * `Dict<String, L>` of structs.
+ *
+ * @typeParam P - The group's row type
+ */
+export type SheetLinesField<P extends StructType> = {
+    [K in Extract<keyof P["fields"], string>]:
+        P["fields"][K] extends ArrayTypeOf<StructType> ? K
+        : P["fields"][K] extends DictType<StringType, StructType> ? K
+        : never
+}[Extract<keyof P["fields"], string>];
+
+/**
+ * The LINE type a group row's lines field holds.
+ *
+ * @typeParam P - The group's row type
+ * @typeParam F - The lines field
+ */
+export type SheetLineOf<P extends StructType, F extends SheetLinesField<P>> =
+    P["fields"][F] extends ArrayTypeOf<infer L extends StructType> ? L
+    : P["fields"][F] extends DictType<StringType, infer L extends StructType> ? L
+    : never;
+
+/**
+ * A line's address within its group — the index of `Array` lines, the key of
+ * `Dict` lines.
+ *
+ * @typeParam P - The group's row type
+ * @typeParam F - The lines field
+ */
+export type SheetLineAddress<P extends StructType, F extends SheetLinesField<P>> =
+    P["fields"][F] extends ArrayTypeOf<StructType> ? IntegerType : StringType;
+
+/**
+ * The line type and shape a group row's lines field holds, checked at build time.
+ *
+ * @param groupType - The group's row type value
+ * @param field - The lines field
+ * @returns The line type and whether the lines are keyed
+ * @throws Error naming the field when it is not an `Array<Struct>` or `Dict<String, Struct>`
+ */
+export function sheetLinesOf(groupType: StructType, field: string): { lineType: StructType; keyed: boolean } {
+    const fields = groupType.fields as Record<string, EastType>;
+    const t = fields[field] as { type?: string; key?: EastType; value?: EastType } | undefined;
+    if (t === undefined) {
+        throw new Error(`Sheet: \`group\` names "${field}", which is not a field of the row type (${Object.keys(fields).join(", ")})`);
+    }
+    if (t.type === "Array" && (t.value as { type?: string } | undefined)?.type === "Struct") {
+        return { lineType: t.value as StructType, keyed: false };
+    }
+    if (t.type === "Dict" && (t.key as { type?: string } | undefined)?.type === "String" && (t.value as { type?: string } | undefined)?.type === "Struct") {
+        return { lineType: t.value as StructType, keyed: true };
+    }
+    throw new Error(`Sheet: the lines field "${field}" must be an Array<Line> or a Dict<String, Line> of structs — got ${t.type ?? "an unknown type"}`);
+}
+
+/**
+ * `Sheet.Types.Context(P, "lines", D)` — the copilot context of a GROUPED
+ * sheet: the line as it would be, its group's lines, the group, the resident
+ * groups and the driver's row, all typed.
+ *
+ * @typeParam P - The group's row type
+ * @typeParam F - The lines field
+ * @typeParam D - The driver's row type
+ * @param groupType - The group's row type value
+ * @param lines - The lines field
+ * @param driverType - The driver's row type value (default `NullType`)
+ * @returns The concrete context `StructType`
+ *
+ * @property rowIndex - The line's index WITHIN its group
+ * @property row - The line as it would be if the open editor committed
+ * @property rows - The group's lines, in order
+ * @property group - The group row
+ * @property groups - The resident groups, in sheet order
+ * @property partial - `true` on a paged sheet whose source is not exhausted
+ * @property driver - The driver's row for `row`
+ * @property today - UTC midnight
+ */
+export function SheetGroupContextTypeFor<P extends StructType, F extends SheetLinesField<P>, D extends EastType = NullType>(
+    groupType: P, lines: F, driverType?: D,
+): SheetGroupContextOf<P, SheetLineOf<P, F>, D> {
+    const { lineType } = sheetLinesOf(groupType, lines);
+    return StructType({
+        rowIndex: IntegerType,
+        row:      lineType,
+        rows:     ArrayType(lineType),
+        group:    groupType,
+        groups:   ArrayType(groupType),
+        partial:  BooleanType,
+        driver:   OptionType((driverType ?? NullType) as D),
+        today:    DateTimeType,
+    }) as unknown as SheetGroupContextOf<P, SheetLineOf<P, F>, D>;
+}
+
+/**
+ * `Sheet.Types.Edit(P, "lines")` — the raw edit event of a GROUPED sheet,
+ * typed over the group's row: the three line arms address a line by its
+ * group's id and its index (`Array` lines) or key (`Dict` lines); the three
+ * group arms are the band's.
+ *
+ * @typeParam P - The group's row type
+ * @typeParam F - The lines field
+ * @param groupType - The group's row type value
+ * @param lines - The lines field
+ * @returns The concrete edit `VariantType`
+ *
+ * @property commit - A line's cell committed: `{ rowId, line, key, row, source }` — `row` is the GROUP after the commit
+ * @property insert - A line inserted into a group after `after` (`none` ⇒ first), at `line`
+ * @property remove - Lines removed from a group
+ * @property groupCommit - A band cell committed: `{ rowId, key, row, source }`
+ * @property groupInsert - A group created after `afterRowId` (`none` ⇒ at the end)
+ * @property groupRemove - Groups removed
+ */
+export function SheetGroupEditTypeFor<P extends StructType, F extends SheetLinesField<P>>(groupType: P, lines: F) {
+    const { keyed } = sheetLinesOf(groupType, lines);
+    const address = (keyed ? StringType : IntegerType) as SheetLineAddress<P, F>;
+    return VariantType({
+        commit:      StructType({ rowId: StringType, line: address, key: StringType, row: groupType, source: SheetSourceType }),
+        insert:      StructType({ rowId: StringType, after: OptionType(address), line: address, row: groupType, source: SheetSourceType }),
+        remove:      StructType({ rowId: StringType, lines: ArrayType(address) }),
+        groupCommit: StructType({ rowId: StringType, key: StringType, row: groupType, source: SheetSourceType }),
+        groupInsert: StructType({ afterRowId: OptionType(StringType), row: groupType }),
+        groupRemove: StructType({ rowIds: ArrayType(StringType) }),
+    });
+}
+
+/**
+ * `Sheet.Types.CheckContext(P, "lines")` — what an author's member check
+ * sees on a GROUPED sheet: the typed line, its group, the half and the member.
+ *
+ * @typeParam P - The group's row type
+ * @typeParam F - The lines field
+ * @param groupType - The group's row type value
+ * @param lines - The lines field
+ * @returns The concrete check-context `StructType`
+ */
+export function SheetGroupCheckContextTypeFor<P extends StructType, F extends SheetLinesField<P>>(groupType: P, lines: F) {
+    const { lineType } = sheetLinesOf(groupType, lines);
+    return StructType({
+        rowIndex: IntegerType,
+        row:      lineType,
+        group:    groupType,
+        half:     SheetHalfType,
+        member:   SheetMemberType,
+    });
+}
+
+// ============================================================================
 // TypeScript faces of the typed constructors
 // ============================================================================
 
@@ -918,6 +1180,52 @@ export type SheetProposalOf<R extends StructType> = ReturnType<typeof SheetPropo
 export type SheetEditOf<R extends StructType> = ReturnType<typeof SheetEditTypeFor<R>>;
 /** The TS type of `Sheet.Types.CheckContext(R)`. */
 export type SheetCheckContextOf<R extends StructType> = ReturnType<typeof SheetCheckContextTypeFor<R>>;
+/** The TS type of `Sheet.Types.Context(P, "lines", D)` — parameterised by the LINE type the context carries. */
+export type SheetGroupContextOf<P extends StructType, L extends StructType, D extends EastType = NullType> = StructType<{
+    rowIndex: IntegerType;
+    row:      L;
+    rows:     ArrayTypeOf<L>;
+    group:    P;
+    groups:   ArrayTypeOf<P>;
+    partial:  BooleanType;
+    driver:   OptionType<D>;
+    today:    DateTimeType;
+}>;
+/** The TS type of `Sheet.Types.Edit(P, "lines")`. */
+export type SheetGroupEditOf<P extends StructType, F extends SheetLinesField<P>> = ReturnType<typeof SheetGroupEditTypeFor<P, F>>;
+/** The TS type of `Sheet.Types.CheckContext(P, "lines")`. */
+export type SheetGroupCheckContextOf<P extends StructType, F extends SheetLinesField<P>> = ReturnType<typeof SheetGroupCheckContextTypeFor<P, F>>;
+/** Either context an author function may take — a flat sheet's over `R`, or a grouped sheet's over the line `R`. */
+export type SheetAnyContextOf<R extends StructType, D extends EastType = any> = SheetContextOf<R, D> | SheetGroupContextOf<StructType, R, D>;
+/** Either check context an author check may take — a flat sheet's over `R`, or a grouped sheet's over the line `R`. */
+export type SheetAnyCheckContextOf<R extends StructType> = SheetCheckContextOf<R> | StructType<{ rowIndex: IntegerType; row: R; group: StructType; half: SheetHalfType; member: SheetMemberType }>;
+
+/**
+ * `Sheet.Types.Context` — the copilot context: `Context(R, D?)` on a flat
+ * sheet, `Context(P, "lines", D?)` on a grouped one.
+ */
+export function sheetContextType<R extends StructType, D extends EastType = NullType>(rowType: R, driverType?: D): SheetContextOf<R, D>;
+export function sheetContextType<P extends StructType, F extends SheetLinesField<P>, D extends EastType = NullType>(groupType: P, lines: F, driverType?: D): SheetGroupContextOf<P, SheetLineOf<P, F>, D>;
+export function sheetContextType(first: StructType, second?: unknown, third?: unknown): unknown {
+    if (typeof second === "string") return SheetGroupContextTypeFor(first, second as never, third as EastType | undefined);
+    return SheetContextTypeFor(first, second as EastType | undefined);
+}
+
+/** `Sheet.Types.Edit` — the raw edit event: `Edit(R)` on a flat sheet, `Edit(P, "lines")` on a grouped one. */
+export function sheetEditType<R extends StructType>(rowType: R): SheetEditOf<R>;
+export function sheetEditType<P extends StructType, F extends SheetLinesField<P>>(groupType: P, lines: F): SheetGroupEditOf<P, F>;
+export function sheetEditType(first: StructType, second?: unknown): unknown {
+    if (typeof second === "string") return SheetGroupEditTypeFor(first, second as never);
+    return SheetEditTypeFor(first);
+}
+
+/** `Sheet.Types.CheckContext` — a member check's context: `CheckContext(R)` on a flat sheet, `CheckContext(P, "lines")` on a grouped one. */
+export function sheetCheckContextType<R extends StructType>(rowType: R): SheetCheckContextOf<R>;
+export function sheetCheckContextType<P extends StructType, F extends SheetLinesField<P>>(groupType: P, lines: F): SheetGroupCheckContextOf<P, F>;
+export function sheetCheckContextType(first: StructType, second?: unknown): unknown {
+    if (typeof second === "string") return SheetGroupCheckContextTypeFor(first, second as never);
+    return SheetCheckContextTypeFor(first);
+}
 
 /**
  * The literal-record input of `Sheet.patch(R, …)` — every field of `R`

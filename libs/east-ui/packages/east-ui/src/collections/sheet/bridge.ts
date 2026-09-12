@@ -24,6 +24,16 @@
  *   check, a custom kind's parse / print, `onEdit` — each the author's typed
  *   function inside its closed wire twin.
  *
+ * On a GROUPED sheet (#740) the source row is the group `P` and the columns
+ * are declared over the line `L` its lines field holds: `projectRow` /
+ * `decode` / the patch run over `L`, `rowById` returns the group, and the
+ * group half of the bridge ({@link SheetGroupBridge}) projects a group's
+ * band cells and lines and decodes a wire group row back to `P`. A wire
+ * line's `key` is its identity for the bridge — the source index (`Array`
+ * lines) or the dictionary key (`Dict` lines) at projection, or a minted
+ * key for a line the source does not hold yet — while a line ADDRESS in an
+ * edit event is its position (`Array`) or key (`Dict`).
+ *
  * The bridge is the one place a string ever names a field: inside the
  * factory, against the column list it has already validated.
  *
@@ -58,6 +68,8 @@ import {
 import {
     SheetCellType,
     SheetLinkType,
+    SheetRowType,
+    SheetLineType,
     SheetContextType,
     SheetFillType,
     SheetProposalType,
@@ -73,10 +85,15 @@ import {
     SheetEditTypeFor,
     SheetPatchTypeFor,
     SheetProposalTypeFor,
+    SheetGroupContextTypeFor,
+    SheetGroupEditTypeFor,
+    SheetGroupCheckContextTypeFor,
+    sheetLinesOf,
     type SheetColumnKindLiteral,
 } from "./types.js";
 import { SheetMembersType, SheetRegisterMembersType, parseLink, printLink, printLinkWith, EMPTY_LINK } from "./link.js";
 import type { SheetAnyColumnConfig, SheetColumn } from "./columns.js";
+import type { SheetGroupCell } from "./group.js";
 import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
 
 /** The wire cells dictionary type. */
@@ -101,8 +118,10 @@ export type SheetLinkForm = "link" | "array" | "string";
  * @internal
  */
 export interface SheetColumnMeta {
-    /** The column key — the row field it sits on. */
+    /** The column key — the row field it sits on (a band cell: the line column it sits under, or `$title`). */
     key: string;
+    /** The row field the cell reads and writes — the key for a column, a band cell's `field`. */
+    field: string;
     /** The column kind. */
     kind: SheetColumnKindLiteral;
     /** The author's config. */
@@ -194,7 +213,7 @@ export function describeColumn(key: string, col: SheetColumn<StructType, EastTyp
             throw new Error(`Sheet: column "${key}" is a ${kind} column whose \`value\` projection returns ${(outUnwrapped as { type: string }).type} — a ${kind} column's projection must return ${(payloadType as { type: string }).type} or its Option`);
         }
         return {
-            key, kind, config: cfg, fieldType, optional, payloadType,
+            key, field: key, kind, config: cfg, fieldType, optional, payloadType,
             cellTag: cellTagOf(payloadType)!, editable: false,
             derived, derivedOptional: outPayload !== undefined,
             ...(col.register !== undefined ? { register: col.register } : {}),
@@ -228,7 +247,7 @@ export function describeColumn(key: string, col: SheetColumn<StructType, EastTyp
             throw new Error(`Sheet: ${kind} column "${key}" must sit on a Sheet.Types.Link, Array<Sheet.Types.Member> or String field — got ${(fieldType as { type: string }).type}`);
         }
         return {
-            key, kind, config: cfg, fieldType, optional: form === "link" ? unwrapped === SheetLinkType && optional : optional,
+            key, field: key, kind, config: cfg, fieldType, optional: form === "link" ? unwrapped === SheetLinkType && optional : optional,
             payloadType: SheetLinkType, cellTag: "Link", editable: cfg.editable !== false,
             form,
             ...(ownHalf !== undefined ? { ownHalf } : {}),
@@ -252,7 +271,7 @@ export function describeColumn(key: string, col: SheetColumn<StructType, EastTyp
         if (tag === undefined) {
             throw new Error(`Sheet: custom column "${key}" has payload ${(parsed as { type: string }).type}, which no cell holds — use String, Integer, Float, DateTime, Boolean or Sheet.Types.Link`);
         }
-        return { key, kind, config: cfg, fieldType, optional, payloadType: parsed, cellTag: tag, editable: cfg.editable !== false };
+        return { key, field: key, kind, config: cfg, fieldType, optional, payloadType: parsed, cellTag: tag, editable: cfg.editable !== false };
     }
 
     const payloadType = SCALAR_PAYLOAD[kind] as EastType;
@@ -260,12 +279,35 @@ export function describeColumn(key: string, col: SheetColumn<StructType, EastTyp
         throw new Error(`Sheet: ${kind} column "${key}" must sit on a ${(payloadType as { type: string }).type} or Option<${(payloadType as { type: string }).type}> field — got ${(fieldType as { type: string }).type}`);
     }
     return {
-        key, kind, config: cfg, fieldType, optional, payloadType,
+        key, field: key, kind, config: cfg, fieldType, optional, payloadType,
         cellTag: cellTagOf(payloadType)!,
         editable: kind !== "stamped" && cfg.editable !== false,
         ...(col.register !== undefined ? { register: col.register } : {}),
         ...(col.driverType !== undefined ? { driverType: col.driverType } : {}),
     };
+}
+
+/**
+ * Describe one band cell against the GROUP's row type (#740) — a column
+ * declared over the group's field, keyed by the line column it sits under.
+ *
+ * @param cellKey - The line column the cell sits under, or `$title`
+ * @param cell - The built band cell
+ * @param groupType - The group's row type
+ * @returns The cell's metadata
+ * @throws Error naming the band cell when the kind cannot sit on the field, or is not a band kind
+ */
+export function describeGroupCell(cellKey: string, cell: SheetGroupCell<StructType>, groupType: StructType): SheetColumnMeta {
+    if (cell.kind === "lookup" || cell.kind === "set" || cell.kind === "link" || cell.kind === "custom") {
+        throw new Error(`Sheet: band cell "${cellKey}" is a ${cell.kind} cell — a band draws text, date, quantity, integer, reference, enum and stamped cells only`);
+    }
+    let meta: SheetColumnMeta;
+    try {
+        meta = describeColumn(cell.field, { kind: cell.kind, config: cell.config, ...(cell.register !== undefined ? { register: cell.register } : {}) }, groupType);
+    } catch (e) {
+        throw new Error(`Sheet: band cell "${cellKey}" — ${(e as Error).message.replace(/^Sheet: /, "")}`);
+    }
+    return { ...meta, key: cellKey, field: cell.field };
 }
 
 // ============================================================================
@@ -303,7 +345,7 @@ function projectCell(
     if (meta.derived !== undefined) {
         return cellOfFieldValue(meta, meta.derived(r), meta.derivedOptional === true);
     }
-    const fv = row[meta.key] as ExprType<EastType>;
+    const fv = row[meta.field] as ExprType<EastType>;
     if (meta.form === undefined) return cellOfFieldValue(meta, fv, meta.optional);
     if (meta.form === "link") return cellOfFieldValue(meta, fv, meta.optional);
     if (meta.form === "array") {
@@ -405,36 +447,80 @@ export type SheetBridgeSource =
     | { kind: "paged"; source: ExprType<StructType>; keyed: boolean };
 
 /**
+ * The group half of a bridge (#740) — the group's band cells and lines on
+ * the wire, and a wire group row back to the group.
+ *
+ * @internal
+ */
+export interface SheetGroupBridge {
+    /** The field holding the lines. */
+    linesField: string;
+    /** `true` ⇒ `Dict<String, L>` lines; `false` ⇒ `Array<L>` lines. */
+    keyed: boolean;
+    /** The band's cells, the title first. */
+    cellMetas: SheetColumnMeta[];
+    /** `P` → the band's cells. */
+    projectGroupCells: ExprType<FunctionType<[StructType], typeof SheetCellsType>>;
+    /** `P` → its wire lines, in order, keyed by source identity. */
+    projectLines: ExprType<FunctionType<[StructType], ArrayType<SheetLineType>>>;
+    /** `(wireRow, base)` → `P`: the band cells into the group's fields, every wire line decoded over the base's line of the same key. */
+    decodeGroup: ExprType<FunctionType<[SheetRowType, OptionType<StructType>], StructType>>;
+    /** `(P, key)` → the line at the key — the index of `Array` lines, the key of `Dict` lines. */
+    lineOf: ExprType<FunctionType<[StructType, StringType], OptionType<StructType>>>;
+    /** `P` → its lines in order. */
+    linesOf: ExprType<FunctionType<[StructType], ArrayType<StructType>>>;
+}
+
+/**
  * The compiled bridge of one sheet — every wire function the root stores is
  * built from these.
+ *
+ * @remarks
+ * `rowType` is the SOURCE row's type — the host's row on a flat sheet, the
+ * group's on a grouped one — and `lineType` the type the columns are
+ * declared over: the same type on a flat sheet, the line type on a grouped
+ * one. The patch, the proposal, `projectRow` and `decode` run over
+ * `lineType`; `rowById` and the edit type over `rowType`.
  *
  * @internal
  */
 export interface SheetBridge {
-    /** The host's row type. */
+    /** The source row's type — the host's row, or the group's. */
     rowType: StructType;
+    /** The type the columns are declared over — the row, or the line. */
+    lineType: StructType;
     /** The driver's row type (`NullType` without a driver). */
     driverType: EastType;
-    /** `Sheet.Types.Context(R, D)`. */
+    /** `Sheet.Types.Context(R, D)` — or `Context(P, "lines", D)` on a grouped sheet. */
     ctxType: StructType;
-    /** `Sheet.Types.CheckContext(R)`. */
+    /** `Sheet.Types.CheckContext(R)` — or `CheckContext(P, "lines")`. */
     checkCtxType: StructType;
-    /** `Sheet.Types.Edit(R)`. */
+    /** `Sheet.Types.Edit(R)` — or `Edit(P, "lines")`. */
     editType: EastType;
-    /** `Sheet.Types.Patch(R)`. */
+    /** `Sheet.Types.Patch(L)`. */
     patchType: StructType;
-    /** `Sheet.Types.Proposal(R)`. */
+    /** `Sheet.Types.Proposal(L)`. */
     proposalType: StructType;
-    /** `R` → the wire cells. */
+    /** `L` → the wire cells. */
     projectRow: ExprType<FunctionType<[StructType], typeof SheetCellsType>>;
-    /** `(id, cells, base)` → `R`. */
+    /** `(id, cells, base)` → `L`. */
     decode: ExprType<FunctionType<[StringType, typeof SheetCellsType, OptionType<StructType>], StructType>>;
     /** `(id, offset)` → the real source row. */
     rowById: ExprType<FunctionType<[StringType, IntegerType], OptionType<StructType>>>;
-    /** The wire context → `Sheet.Types.Context(R, D)`. */
+    /** The wire context → the typed context. */
     bridgeCtx: ExprType<FunctionType<[SheetContextType], StructType>>;
-    /** `Sheet.Types.Patch(R)` → the set fields as cells. */
+    /** `Sheet.Types.Patch(L)` → the set fields as cells. */
     encodePatch: ExprType<FunctionType<[StructType], typeof SheetCellsType>>;
+    /** The group half — present on a grouped sheet. */
+    group?: SheetGroupBridge;
+}
+
+/** The group declaration the bridge needs from the root (#740). */
+export interface SheetBridgeGroupInput {
+    /** The field holding the lines. */
+    linesField: string;
+    /** The band's cells, the title first. */
+    cellMetas: SheetColumnMeta[];
 }
 
 /** What the bridge needs from the root. */
@@ -445,6 +531,7 @@ export interface SheetBridgeInput {
     registers: Record<string, SheetRegisterValue>;
     driver: SheetDriverValue | undefined;
     source: SheetBridgeSource;
+    group?: SheetBridgeGroupInput;
 }
 
 /** The id of a row — the id field, or the key of a keyed window. */
@@ -460,21 +547,32 @@ function idOf(r: ExprType<StructType>, idField: string | undefined): ExprType<St
  * @returns The bridge
  */
 export function buildBridge(input: SheetBridgeInput): SheetBridge {
-    const { rowType, idField, metas, registers, driver, source } = input;
+    const { rowType, idField, metas, registers, driver, source, group: groupInput } = input;
     const driverType: EastType = driver !== undefined ? driver.rowType : NullType;
-    const ctxType = SheetContextTypeFor(rowType, driverType) as unknown as StructType;
-    const checkCtxType = SheetCheckContextTypeFor(rowType) as unknown as StructType;
-    const editType = SheetEditTypeFor(rowType) as unknown as EastType;
-    const patchType = SheetPatchTypeFor(rowType) as unknown as StructType;
-    const proposalType = SheetProposalTypeFor(rowType) as unknown as StructType;
-    const fields = rowType.fields as Record<string, EastType>;
+    // A grouped sheet's columns are declared over the LINE type; its source
+    // rows are groups. A flat sheet's line type is its row type.
+    const shape = groupInput !== undefined ? sheetLinesOf(rowType, groupInput.linesField) : undefined;
+    const lineType = shape?.lineType ?? rowType;
+    const lineIdField = shape === undefined ? idField : undefined;
+    const ctxType = (groupInput !== undefined
+        ? SheetGroupContextTypeFor(rowType, groupInput.linesField as never, driverType)
+        : SheetContextTypeFor(lineType, driverType)) as unknown as StructType;
+    const checkCtxType = (groupInput !== undefined
+        ? SheetGroupCheckContextTypeFor(rowType, groupInput.linesField as never)
+        : SheetCheckContextTypeFor(lineType)) as unknown as StructType;
+    const editType = (groupInput !== undefined
+        ? SheetGroupEditTypeFor(rowType, groupInput.linesField as never)
+        : SheetEditTypeFor(rowType)) as unknown as EastType;
+    const patchType = SheetPatchTypeFor(lineType) as unknown as StructType;
+    const proposalType = SheetProposalTypeFor(lineType) as unknown as StructType;
+    const fields = lineType.fields as Record<string, EastType>;
     const byField = new Map(metas.map((m) => [m.key, m]));
     const otherHalfBy = new Map<string, SheetColumnMeta>();
     for (const m of metas) if (m.otherField !== undefined) otherHalfBy.set(m.otherField, m);
-    // R → the wire cells. Registers are bound ONCE per body for the String
+    // L → the wire cells. Registers are bound ONCE per body for the String
     // link form (the capture rule: data, never a spliced expression).
     const stringFormRegisters = [...new Set(metas.filter((m) => m.form === "string" && m.register !== undefined).map((m) => m.register!))];
-    const projectRow = East.function([rowType], SheetCellsType, ($, r) => {
+    const projectRow = East.function([lineType], SheetCellsType, ($, r) => {
         const cells = $.let(new Map<string, never>(), SheetCellsType);
         const bound = new Map<string, ExprType<typeof SheetRegisterMembersType>>();
         for (const name of stringFormRegisters) {
@@ -486,13 +584,14 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
         return cells;
     }) as unknown as SheetBridge["projectRow"];
 
-    // (id, cells, base) → R: the base row (the type's default when absent),
-    // every column's field from its cell, the id field from the wire id.
-    const decode = East.function([StringType, SheetCellsType, OptionType(rowType)], rowType, ($, id, cells, base) => {
+    // (id, cells, base) → L: the base row (the type's default when absent),
+    // every column's field from its cell, the id field from the wire id (a
+    // line has no id field).
+    const decode = East.function([StringType, SheetCellsType, OptionType(lineType)], lineType, ($, id, cells, base) => {
         const b = $.let(base.match({
             some: (_$, x) => x,
-            none: (_$) => East.value(defaultValue(rowType) as SubtypeExprOrValue<StructType>, rowType),
-        }), rowType) as unknown as Record<string, ExprType<EastType>>;
+            none: (_$) => East.value(defaultValue(lineType) as SubtypeExprOrValue<StructType>, lineType),
+        }), lineType) as unknown as Record<string, ExprType<EastType>>;
         // The String link form's registers, bound once per body (the capture rule).
         const bound = new Map<string, ExprType<typeof SheetRegisterMembersType>>();
         for (const name of stringFormRegisters) {
@@ -501,7 +600,7 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
         const out: Record<string, ExprType<EastType>> = {};
         for (const f of Object.keys(fields)) {
             const baseField = $.let(b[f] as never, fields[f] as EastType);
-            if (f === idField) {
+            if (f === lineIdField) {
                 out[f] = id;
                 continue;
             }
@@ -517,7 +616,7 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
             }
             out[f] = baseField;
         }
-        return East.value(out as unknown as SubtypeExprOrValue<StructType>, rowType);
+        return East.value(out as unknown as SubtypeExprOrValue<StructType>, lineType);
     }) as unknown as SheetBridge["decode"];
 
     // (id, offset) → the real source row.
@@ -555,26 +654,99 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
         })
         : East.function([StringType], OptionType(driverType), ($, _k) => $.const(none, OptionType(driverType)));
 
-    // The wire context → Sheet.Types.Context(R, D).
-    const bridgeCtx = East.function([SheetContextType], ctxType, ($, ctx) => {
-        const byId = $.const(rowById);
-        const dec = $.const(decode);
-        const row = $.let(dec(ctx.rowId, ctx.row, byId(ctx.rowId, ctx.offset)), rowType);
-        const rows = $.let(ctx.rows.map((_$, r, i) => dec(r.id, r.cells, byId(r.id, ctx.rowsOffset.add(i)))), ArrayType(rowType));
-        const lookup = $.const(lookupDriver);
-        const driverRow = $.let(ctx.driver.match({
-            none: (_$) => East.value(none, OptionType(driverType)),
-            some: (_$, k) => lookup(k),
-        }), OptionType(driverType));
-        return East.value({
-            rowIndex: ctx.rowIndex,
-            row,
-            rows,
-            partial: ctx.partial,
-            driver: driverRow,
-            today: ctx.today,
-        } as unknown as SubtypeExprOrValue<StructType>, ctxType);
-    }) as unknown as SheetBridge["bridgeCtx"];
+    // The group half (#740) — built before the context bridge, which decodes groups.
+    const group = groupInput !== undefined && shape !== undefined
+        ? buildGroupBridge(rowType, lineType, idField, groupInput, shape.keyed, projectRow, decode)
+        : undefined;
+
+    // The wire context → Sheet.Types.Context(R, D) — or, grouped, to
+    // Context(P, "lines", D): the line decoded over the group's line of the
+    // same key, the group as it would be with the edited line in place, its
+    // lines, and the resident groups.
+    const bridgeCtx = group === undefined
+        ? East.function([SheetContextType], ctxType, ($, ctx) => {
+            const byId = $.const(rowById);
+            const dec = $.const(decode);
+            const row = $.let(dec(ctx.rowId, ctx.row, byId(ctx.rowId, ctx.offset)), rowType);
+            const rows = $.let(ctx.rows.map((_$, r, i) => dec(r.id, r.cells, byId(r.id, ctx.rowsOffset.add(i)))), ArrayType(rowType));
+            const lookup = $.const(lookupDriver);
+            const driverRow = $.let(ctx.driver.match({
+                none: (_$) => East.value(none, OptionType(driverType)),
+                some: (_$, k) => lookup(k),
+            }), OptionType(driverType));
+            return East.value({
+                rowIndex: ctx.rowIndex,
+                row,
+                rows,
+                partial: ctx.partial,
+                driver: driverRow,
+                today: ctx.today,
+            } as unknown as SubtypeExprOrValue<StructType>, ctxType);
+        })
+        : East.function([SheetContextType], ctxType, ($, ctx) => {
+            const byId = $.const(rowById);
+            const dec = $.const(decode);
+            const decG = $.const(group.decodeGroup);
+            const lineAt = $.const(group.lineOf);
+            const linesOf = $.const(group.linesOf);
+            const noLine = $.const(none, OptionType(lineType));
+            const noWireRow = $.const(none, OptionType(SheetRowType));
+            const base = $.let(byId(ctx.rowId, ctx.offset), OptionType(rowType));
+            const wireGroup = $.let(ctx.rows.firstMap((_$, r) => r.id.equal(ctx.rowId).ifElse(
+                (_$2) => East.value(some(r), OptionType(SheetRowType)),
+                (_$2) => noWireRow,
+            )), OptionType(SheetRowType));
+            // The group as stored — the resident wire row decoded over the source, else the source itself.
+            const stored = $.let(wireGroup.match({
+                some: (_$, r) => decG(r, base),
+                none: (_$) => base.match({
+                    some: (_$2, p) => p,
+                    none: (_$2) => East.value(defaultValue(rowType) as SubtypeExprOrValue<StructType>, rowType),
+                }),
+            }), rowType);
+            const lineBase = $.let(ctx.line.match({
+                some: (_$, k) => lineAt(stored, k),
+                none: (_$) => noLine,
+            }), OptionType(lineType));
+            const row = $.let(dec("", ctx.row, lineBase), lineType);
+            // The group as it would be — the wire row with the edited line's
+            // cells in place, appended when the line is not among them yet.
+            const edited = $.let(ctx.line.match({
+                some: ($2, k) => wireGroup.match({
+                    some: ($3, r) => {
+                        const replaced = $3.let(r.lines.map((_$, wl) => wl.key.equal(k).ifElse(
+                            (_$2) => East.value({ key: k, cells: ctx.row }, SheetLineType),
+                            (_$2) => wl,
+                        )), ArrayType(SheetLineType));
+                        const present = $3.let(r.lines.filter((_$, wl) => wl.key.equal(k)).length().greater(0n), BooleanType);
+                        const lines = $3.let(present.ifElse(
+                            (_$) => replaced,
+                            (_$) => replaced.concat(East.value([{ key: k, cells: ctx.row }], ArrayType(SheetLineType))),
+                        ), ArrayType(SheetLineType));
+                        return decG(East.value({ id: r.id, owned: r.owned, cells: r.cells, lines, band: r.band }, SheetRowType), base);
+                    },
+                    none: (_$3) => stored,
+                }),
+                none: (_$2) => stored,
+            }), rowType);
+            const rows = $.let(linesOf(edited), ArrayType(lineType));
+            const groups = $.let(ctx.rows.map((_$, r, i) => decG(r, byId(r.id, ctx.rowsOffset.add(i)))), ArrayType(rowType));
+            const lookup = $.const(lookupDriver);
+            const driverRow = $.let(ctx.driver.match({
+                none: (_$) => East.value(none, OptionType(driverType)),
+                some: (_$, k) => lookup(k),
+            }), OptionType(driverType));
+            return East.value({
+                rowIndex: ctx.rowIndex,
+                row,
+                rows,
+                group: edited,
+                groups,
+                partial: ctx.partial,
+                driver: driverRow,
+                today: ctx.today,
+            } as unknown as SubtypeExprOrValue<StructType>, ctxType);
+        });
 
     // Sheet.Types.Patch(R) → the set fields as cells.
     const encodePatch = East.function([patchType], SheetCellsType, ($, patch) => {
@@ -613,11 +785,129 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
     }) as unknown as SheetBridge["encodePatch"];
 
     return {
-        rowType, driverType, ctxType, checkCtxType, editType, patchType, proposalType,
+        rowType, lineType, driverType, ctxType, checkCtxType, editType, patchType, proposalType,
         projectRow, decode,
         rowById: rowById as unknown as SheetBridge["rowById"],
-        bridgeCtx, encodePatch,
+        bridgeCtx: bridgeCtx as unknown as SheetBridge["bridgeCtx"],
+        encodePatch,
+        ...(group !== undefined ? { group } : {}),
     };
+}
+
+// ============================================================================
+// The group half (#740)
+// ============================================================================
+
+/**
+ * Compile the group half of a bridge — the group's band cells and lines to
+ * the wire, and a wire group row back to the group.
+ *
+ * @param rowType - The group's row type `P`
+ * @param lineType - The line type `L`
+ * @param idField - The group's id field
+ * @param input - The lines field and the band's cell metas
+ * @param keyed - `Dict` lines
+ * @param projectRow - `L` → the wire cells
+ * @param decode - `(id, cells, base)` → `L`
+ * @returns The group half
+ */
+function buildGroupBridge(
+    rowType: StructType,
+    lineType: StructType,
+    idField: string | undefined,
+    input: SheetBridgeGroupInput,
+    keyed: boolean,
+    projectRow: SheetBridge["projectRow"],
+    decode: SheetBridge["decode"],
+): SheetGroupBridge {
+    const { linesField, cellMetas } = input;
+    const fields = rowType.fields as Record<string, EastType>;
+    const linesType = fields[linesField] as EastType;
+    const cellByField = new Map(cellMetas.map((m) => [m.field, m]));
+    const linesOfRow = (p: ExprType<StructType>) => (p as unknown as Record<string, ExprType<EastType>>)[linesField] as ExprType<EastType>;
+
+    // P → the band's cells.
+    const projectGroupCells = East.function([rowType], SheetCellsType, ($, p) => {
+        const cells = $.let(new Map<string, never>(), SheetCellsType);
+        for (const m of cellMetas) {
+            $(cells.insert(m.key, projectCell(m, p, undefined)));
+        }
+        return cells;
+    }) as unknown as SheetGroupBridge["projectGroupCells"];
+
+    // P → its wire lines: `Array` lines keyed by index, `Dict` lines by key.
+    const projectLines = East.function([rowType], ArrayType(SheetLineType), ($, p) => {
+        const project = $.const(projectRow);
+        const lines = $.let(linesOfRow(p) as never, linesType);
+        if (keyed) {
+            return (lines as unknown as ExprType<DictType<StringType, StructType>>).toArray((_$, l, k) =>
+                East.value({ key: k, cells: project(l) }, SheetLineType));
+        }
+        return (lines as unknown as ExprType<ArrayType<StructType>>).map((_$, l, i) =>
+            East.value({ key: East.print(i), cells: project(l) }, SheetLineType));
+    }) as unknown as SheetGroupBridge["projectLines"];
+
+    // (P, key) → the line at the key.
+    const lineOf = East.function([rowType, StringType], OptionType(lineType), ($, p, key) => {
+        const lines = $.let(linesOfRow(p) as never, linesType);
+        if (keyed) return (lines as unknown as ExprType<DictType<StringType, StructType>>).tryGet(key);
+        const noLine = $.const(none, OptionType(lineType));
+        const arr = lines as unknown as ExprType<ArrayType<StructType>>;
+        return key.contains(new RegExp("^\\d+$")).ifElse(
+            ($2) => {
+                const i = $2.let(key.parse(IntegerType), IntegerType);
+                return i.less(arr.length()).ifElse(
+                    (_$3) => East.value(some(arr.get(i)), OptionType(lineType)),
+                    (_$3) => noLine,
+                );
+            },
+            (_$2) => noLine,
+        );
+    }) as unknown as SheetGroupBridge["lineOf"];
+
+    // P → its lines in order.
+    const linesOf = East.function([rowType], ArrayType(lineType), ($, p) => {
+        const lines = $.let(linesOfRow(p) as never, linesType);
+        if (keyed) return (lines as unknown as ExprType<DictType<StringType, StructType>>).toArray((_$, l, _k) => l);
+        return lines as unknown as ExprType<ArrayType<StructType>>;
+    }) as unknown as SheetGroupBridge["linesOf"];
+
+    // (wireRow, base) → P: the base group (the type's default when absent),
+    // each band cell's field from its cell, the id from the wire id, and the
+    // lines rebuilt from the wire — every wire line decoded over the base's
+    // line of the same key, so a line field with no column keeps its value.
+    const decodeGroup = East.function([SheetRowType, OptionType(rowType)], rowType, ($, wr, base) => {
+        const bRow = $.let(base.match({
+            some: (_$, x) => x,
+            none: (_$) => East.value(defaultValue(rowType) as SubtypeExprOrValue<StructType>, rowType),
+        }), rowType);
+        const b = bRow as unknown as Record<string, ExprType<EastType>>;
+        const dec = $.const(decode);
+        const lineAt = $.const(lineOf);
+        const out: Record<string, ExprType<EastType>> = {};
+        for (const f of Object.keys(fields)) {
+            const baseField = $.let(b[f] as never, fields[f] as EastType);
+            if (f === idField) {
+                out[f] = wr.id;
+                continue;
+            }
+            if (f === linesField) {
+                out[f] = (keyed
+                    ? wr.lines.toDict((_$, wl) => wl.key, (_$, wl) => dec("", wl.cells, lineAt(bRow, wl.key)))
+                    : wr.lines.map((_$, wl) => dec("", wl.cells, lineAt(bRow, wl.key)))) as unknown as ExprType<EastType>;
+                continue;
+            }
+            const own = cellByField.get(f);
+            if (own !== undefined) {
+                out[f] = decodeOwnField(own, wr.cells.tryGet(own.key), baseField, undefined);
+                continue;
+            }
+            out[f] = baseField;
+        }
+        return East.value(out as unknown as SubtypeExprOrValue<StructType>, rowType);
+    }) as unknown as SheetGroupBridge["decodeGroup"];
+
+    return { linesField, keyed, cellMetas, projectGroupCells, projectLines, decodeGroup, lineOf, linesOf };
 }
 
 // ============================================================================
@@ -643,12 +933,20 @@ function pinProvider(
     }
     const inputs = t.inputs ?? [];
     if (inputs.length !== 1 || inputs[0] !== bridge.ctxType) {
-        throw new Error(`Sheet: ${where} must take exactly this sheet's context — Sheet.Types.Context(RowType${bridge.driverType === NullType ? "" : ", DriverType"}) — as its one argument; a function written over another row or driver type cannot run here`);
+        throw new Error(`Sheet: ${where} must take exactly this sheet's context — ${contextName(bridge)} — as its one argument; a function written over another row or driver type cannot run here`);
     }
     if (t.output !== expectedOutput) {
         throw new Error(`Sheet: ${where} returns the wrong type — it must return ${describeType(expectedOutput)}`);
     }
     return { fn: expr, async: t.type === "AsyncFunction" };
+}
+
+/** How this sheet's context is spelt, for a refusal message. */
+function contextName(bridge: SheetBridge): string {
+    const driver = bridge.driverType === NullType ? "" : ", DriverType";
+    return bridge.group !== undefined
+        ? `Sheet.Types.Context(GroupType, "${bridge.group.linesField}"${driver})`
+        : `Sheet.Types.Context(RowType${driver})`;
 }
 
 /** A short description of an East type for a refusal message. */
@@ -717,15 +1015,35 @@ export function wrapCheck(bridge: SheetBridge, meta: SheetColumnMeta, fn: unknow
     const expr = East.value(fn as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
     const t = typeOf(expr) as { type: string; inputs?: EastType[]; output?: EastType };
     if (t.type !== "Function" || (t.inputs ?? []).length !== 1 || t.inputs![0] !== bridge.checkCtxType || t.output !== OptionType(StringType)) {
-        throw new Error(`Sheet: column "${meta.key}" check #${index + 1} must be an East.function over Sheet.Types.CheckContext(RowType) returning Option<String>`);
+        const spelt = bridge.group !== undefined ? `Sheet.Types.CheckContext(GroupType, "${bridge.group.linesField}")` : "Sheet.Types.CheckContext(RowType)";
+        throw new Error(`Sheet: column "${meta.key}" check #${index + 1} must be an East.function over ${spelt} returning Option<String>`);
     }
-    const wire = East.function([SheetCheckContextType], OptionType(StringType), ($, c) => {
-        const a = $.const(expr as unknown as ExprType<FunctionType<[StructType], OptionType<StringType>>>);
-        const byId = $.const(bridge.rowById);
-        const dec = $.const(bridge.decode);
-        const row = $.let(dec(c.rowId, c.row, byId(c.rowId, c.offset)), bridge.rowType);
-        return a(East.value({ rowIndex: c.rowIndex, row, half: c.half, member: c.member } as unknown as SubtypeExprOrValue<StructType>, bridge.checkCtxType));
-    });
+    const group = bridge.group;
+    const wire = group === undefined
+        ? East.function([SheetCheckContextType], OptionType(StringType), ($, c) => {
+            const a = $.const(expr as unknown as ExprType<FunctionType<[StructType], OptionType<StringType>>>);
+            const byId = $.const(bridge.rowById);
+            const dec = $.const(bridge.decode);
+            const row = $.let(dec(c.rowId, c.row, byId(c.rowId, c.offset)), bridge.rowType);
+            return a(East.value({ rowIndex: c.rowIndex, row, half: c.half, member: c.member } as unknown as SubtypeExprOrValue<StructType>, bridge.checkCtxType));
+        })
+        : East.function([SheetCheckContextType], OptionType(StringType), ($, c) => {
+            const a = $.const(expr as unknown as ExprType<FunctionType<[StructType], OptionType<StringType>>>);
+            const byId = $.const(bridge.rowById);
+            const dec = $.const(bridge.decode);
+            const lineAt = $.const(group.lineOf);
+            const noLine = $.const(none, OptionType(bridge.lineType));
+            const groupRow = $.let(byId(c.rowId, c.offset).match({
+                some: (_$, p) => p,
+                none: (_$) => East.value(defaultValue(bridge.rowType) as SubtypeExprOrValue<StructType>, bridge.rowType),
+            }), bridge.rowType);
+            const lineBase = $.let(c.line.match({
+                some: (_$, k) => lineAt(groupRow, k),
+                none: (_$) => noLine,
+            }), OptionType(bridge.lineType));
+            const row = $.let(dec("", c.row, lineBase), bridge.lineType);
+            return a(East.value({ rowIndex: c.rowIndex, row, group: groupRow, half: c.half, member: c.member } as unknown as SubtypeExprOrValue<StructType>, bridge.checkCtxType));
+        });
     return East.value(variant("custom", wire) as unknown as SubtypeExprOrValue<SheetCheckType>, SheetCheckType);
 }
 
@@ -735,7 +1053,7 @@ export function wrapCustomParse(bridge: SheetBridge, meta: SheetColumnMeta, fn: 
     const t = typeOf(expr) as { type: string; inputs?: EastType[]; output?: EastType };
     const inputs = t.inputs ?? [];
     if (t.type !== "Function" || inputs.length !== 2 || inputs[0] !== StringType || inputs[1] !== bridge.ctxType) {
-        throw new Error(`Sheet: custom column "${meta.key}" \`parse\` must be an East.function over (String, Sheet.Types.Context(RowType, DriverType)) returning Option<payload>`);
+        throw new Error(`Sheet: custom column "${meta.key}" \`parse\` must be an East.function over (String, ${contextName(bridge)}) returning Option<payload>`);
     }
     return East.function([StringType, SheetContextType], OptionType(SheetCellType), ($, text, ctx) => {
         const a = $.const(expr as unknown as ExprType<FunctionType<[StringType, StructType], OptionType<EastType>>>);
@@ -764,23 +1082,71 @@ export function wrapCustomPrint(meta: SheetColumnMeta, fn: unknown): ExprType<Fu
     });
 }
 
-/** Wrap a typed `onEdit` — `Sheet.Types.Edit(R)` → `Null` — into the wire edit handler. */
+/**
+ * Wrap a typed `onEdit` — `Sheet.Types.Edit(R)` → `Null`, or grouped
+ * `Edit(P, "lines")` → `Null` — into the wire edit handler.
+ *
+ * @remarks
+ * On a grouped sheet the wire's row arms are the group's (`groupCommit` /
+ * `groupInsert` / `groupRemove`) and its line arms the typed `commit` /
+ * `insert` / `remove`, a line address parsed to its index on `Array` lines.
+ * The wire row is always the whole group after the edit, decoded over the
+ * source group. A flat sheet never receives a line arm.
+ */
 export function wrapOnEdit(bridge: SheetBridge, fn: unknown): ExprType<FunctionType<[SheetEditType], NullType>> {
     const expr = East.value(fn as SubtypeExprOrValue<FunctionType<[EastType], NullType>>, FunctionType([bridge.editType], NullType)) as ExprType<FunctionType<[EastType], NullType>>;
+    const group = bridge.group;
+    if (group === undefined) {
+        return East.function([SheetEditType], NullType, ($, e) => {
+            const a = $.const(expr);
+            const byId = $.const(bridge.rowById);
+            const dec = $.const(bridge.decode);
+            const noRow = $.const(none, OptionType(bridge.rowType));
+            const et = bridge.editType;
+            $(e.match({
+                commit: (_$, c) => a(East.value(variant("commit", {
+                    rowId: c.rowId, key: c.key, row: dec(c.rowId, c.row.cells, byId(c.rowId, c.offset)), source: c.source,
+                }) as unknown as SubtypeExprOrValue<EastType>, et)),
+                insert: (_$, i) => a(East.value(variant("insert", {
+                    afterRowId: i.afterRowId, row: dec(i.row.id, i.row.cells, noRow), source: i.source,
+                }) as unknown as SubtypeExprOrValue<EastType>, et)),
+                remove: (_$, r) => a(East.value(variant("remove", { rowIds: r.rowIds }) as unknown as SubtypeExprOrValue<EastType>, et)),
+            }, (_$) => East.value(null, NullType)));
+        });
+    }
+    const addressType = group.keyed ? StringType : IntegerType;
+    const addr = (k: ExprType<StringType>): ExprType<EastType> => (group.keyed ? k : k.parse(IntegerType)) as unknown as ExprType<EastType>;
     return East.function([SheetEditType], NullType, ($, e) => {
         const a = $.const(expr);
         const byId = $.const(bridge.rowById);
-        const dec = $.const(bridge.decode);
+        const decG = $.const(group.decodeGroup);
         const noRow = $.const(none, OptionType(bridge.rowType));
+        const noAddress = $.const(none, OptionType(addressType));
         const et = bridge.editType;
         $(e.match({
-            commit: (_$, c) => a(East.value(variant("commit", {
-                rowId: c.rowId, key: c.key, row: dec(c.rowId, c.row.cells, byId(c.rowId, c.offset)), source: c.source,
+            commit: (_$, c) => a(East.value(variant("groupCommit", {
+                rowId: c.rowId, key: c.key, row: decG(c.row, byId(c.rowId, c.offset)), source: c.source,
             }) as unknown as SubtypeExprOrValue<EastType>, et)),
-            insert: (_$, i) => a(East.value(variant("insert", {
-                afterRowId: i.afterRowId, row: dec(i.row.id, i.row.cells, noRow), source: i.source,
+            insert: (_$, i) => a(East.value(variant("groupInsert", {
+                afterRowId: i.afterRowId, row: decG(i.row, noRow),
             }) as unknown as SubtypeExprOrValue<EastType>, et)),
-            remove: (_$, r) => a(East.value(variant("remove", { rowIds: r.rowIds }) as unknown as SubtypeExprOrValue<EastType>, et)),
+            remove: (_$, r) => a(East.value(variant("groupRemove", { rowIds: r.rowIds }) as unknown as SubtypeExprOrValue<EastType>, et)),
+            lineCommit: (_$, c) => a(East.value(variant("commit", {
+                rowId: c.rowId, line: addr(c.line), key: c.key, row: decG(c.row, byId(c.rowId, c.offset)), source: c.source,
+            }) as unknown as SubtypeExprOrValue<EastType>, et)),
+            lineInsert: (_$, i) => a(East.value(variant("insert", {
+                rowId: i.rowId,
+                after: i.after.match({
+                    some: (_$2, k) => East.value(some(addr(k)) as unknown as SubtypeExprOrValue<OptionType<EastType>>, OptionType(addressType)),
+                    none: (_$2) => noAddress,
+                }),
+                line: addr(i.line),
+                row: decG(i.row, byId(i.rowId, i.offset)),
+                source: i.source,
+            }) as unknown as SubtypeExprOrValue<EastType>, et)),
+            lineRemove: (_$, r) => a(East.value(variant("remove", {
+                rowId: r.rowId, lines: r.lines.map((_$2, k) => addr(k)),
+            }) as unknown as SubtypeExprOrValue<EastType>, et)),
         }));
     });
 }
@@ -799,18 +1165,26 @@ export function compileOnUpdate(
 ): ExprType<FunctionType<[SheetEditType], NullType>> {
     const rowsType = ArrayType(bridge.rowType);
     const expr = East.value(fn as SubtypeExprOrValue<FunctionType<[ArrayType<StructType>], NullType>>, FunctionType([rowsType], NullType)) as ExprType<FunctionType<[ArrayType<StructType>], NullType>>;
+    const group = bridge.group;
     return East.function([SheetEditType], NullType, ($, ev) => {
         const current = $.let(rows, rowsType);
         const upd = $.const(expr);
-        const dec = $.const(bridge.decode);
         const noRow = $.const(none, OptionType(bridge.rowType));
-        const next = $.let(ev.match({
-            commit: (_$, c) => current.map((_$2, r) => idOf(r, idField).equal(c.rowId).ifElse(
-                (_$3) => dec(c.rowId, c.row.cells, East.value(some(r), OptionType(bridge.rowType))),
+        // The decoder of a wire row over its source row — the line decoder on
+        // a flat sheet, the group decoder on a grouped one.
+        const dec = $.const(bridge.decode);
+        const decG = group !== undefined ? $.const(group.decodeGroup) : undefined;
+        const decodeRow = (wr: ExprType<SheetRowType>, base: ExprType<OptionType<StructType>>): ExprType<StructType> =>
+            decG !== undefined ? decG(wr, base) : dec(wr.id, wr.cells, base);
+        const rewrite = (rowId: ExprType<StringType>, wr: ExprType<SheetRowType>) =>
+            current.map((_$2, r) => idOf(r, idField).equal(rowId).ifElse(
+                (_$3) => decodeRow(wr, East.value(some(r), OptionType(bridge.rowType))),
                 (_$3) => r,
-            )),
+            ));
+        const next = $.let(ev.match({
+            commit: (_$, c) => rewrite(c.rowId, c.row),
             insert: ($2, i) => {
-                const fresh = $2.let(dec(i.row.id, i.row.cells, noRow), bridge.rowType);
+                const fresh = $2.let(decodeRow(i.row, noRow), bridge.rowType);
                 return i.afterRowId.match({
                     none: (_$3) => current.concat(East.value([fresh], rowsType)),
                     some: (_$3, after) => current.flatMap((_$4, r) => idOf(r, idField).equal(after).ifElse(
@@ -823,6 +1197,10 @@ export function compileOnUpdate(
                 const ids = $2.let(rm.rowIds.toSet());
                 return current.filter((_$3, r) => ids.has(idOf(r, idField)).not());
             },
+            // The line arms carry the whole group after the edit — one rewrite each.
+            lineCommit: (_$, c) => rewrite(c.rowId, c.row),
+            lineInsert: (_$, i) => rewrite(i.rowId, i.row),
+            lineRemove: (_$, r) => rewrite(r.rowId, r.row),
         }), rowsType);
         $(upd(next));
     });

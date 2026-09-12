@@ -336,9 +336,10 @@ export type DateTimeInputValue = ValueTypeOf<typeof Input.Types.DateTime>;
 
 /**
  * Converts a JS Date (UTC) to a CalendarDate for the date field components.
- * East dates are UTC, so we use UTC methods.
+ * East dates are UTC, so we use UTC methods. Shared with every renderer that
+ * mounts the date field over an East date (the Sheet's date cells).
  */
-function dateToCalendarDate(date: Date): CalendarDate {
+export function dateToCalendarDate(date: Date): CalendarDate {
     return new CalendarDate(
         date.getUTCFullYear(),
         date.getUTCMonth() + 1, // CalendarDate months are 1-indexed
@@ -362,7 +363,7 @@ function dateToTime(date: Date): Time {
  * Converts a DateValue and optional Time back to a JS Date (UTC).
  * East dates are UTC, so we create a UTC date.
  */
-function dateValueToDate(dateValue: DateValue, time?: Time): Date {
+export function dateValueToDate(dateValue: DateValue, time?: Time): Date {
     return new Date(Date.UTC(
         dateValue.year,
         dateValue.month - 1, // JS Date months are 0-indexed

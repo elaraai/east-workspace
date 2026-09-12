@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { none } from "@elaraai/east";
+import { none, variant } from "@elaraai/east";
 import { scoreLabel, scoreCandidates, entryCandidates, candidateList, ghostFor, ghostWord, resolveFor, candidateAt } from "./candidates.js";
 import { indexColumns, indexRegisters, type SheetColumnMeta } from "./model.js";
 import type { SheetRowValue } from "./values.js";
@@ -28,7 +28,7 @@ const lookupMeta: SheetColumnMeta = indexColumns([{
 } as never]).list[0]!;
 
 function row(id: string, activity: string): SheetRowValue {
-    return { id, owned: false, cells: new Map([["activity", { type: "String", value: activity }]]) } as SheetRowValue;
+    return { id, owned: false, cells: new Map([["activity", variant("String", activity)]]), lines: [], band: none };
 }
 
 describe("scoring", () => {

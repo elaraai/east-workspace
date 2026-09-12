@@ -15,8 +15,14 @@ import type { Sheet } from "@elaraai/east-ui/internal";
 
 /** The decoded Sheet root. */
 export type SheetRootValue = ValueTypeOf<typeof Sheet.Types.Root>;
-/** One decoded wire row — `{ id, owned, cells }`. */
+/** One decoded wire row — `{ id, owned, cells, lines, band }`. */
 export type SheetRowValue = ValueTypeOf<typeof Sheet.Types.Row>;
+/** One line of a group row on the wire (#740) — `{ key, cells }`. */
+export type SheetLineValue = ValueTypeOf<typeof Sheet.Types.Line>;
+/** The band a group row draws (#740) — `{ sub, folded }`. */
+export type SheetBandValue = ValueTypeOf<typeof Sheet.Types.Band>;
+/** The group declaration on the wire (#740) — the lines field, `keyed`, the band's cells. */
+export type SheetGroupValue = ValueTypeOf<typeof Sheet.Types.Group>;
 /** One decoded cell — a `LiteralValue`-style variant, or a `Link`. */
 export type SheetCellValue = ValueTypeOf<typeof Sheet.Types.Cell>;
 /** The typed link value. */
@@ -25,6 +31,22 @@ export type SheetLinkValue = ValueTypeOf<typeof Sheet.Types.Link>;
 export type SheetMemberValue = ValueTypeOf<typeof Sheet.Types.Member>;
 /** One decoded column. */
 export type SheetColumnValue = ValueTypeOf<typeof Sheet.Types.Column>;
+/** The decoded column kind — the arms narrow on `type`. */
+export type SheetColumnKindValue = SheetColumnValue["kind"];
+/** A custom kind's payload — the compiled parse / print pair. */
+export type SheetCustomKindValue = Extract<SheetColumnKindValue, { type: "custom" }>["value"];
+/** A link column's applied sides declaration. */
+export type SheetSidesDeclValue = ValueTypeOf<typeof Sheet.Types.SidesDeclaration>;
+/** A link column's arity rule on the wire. */
+export type SheetArityValue = ValueTypeOf<typeof Sheet.Types.Arity>;
+/** One member check on the wire. */
+export type SheetCheckValue = ValueTypeOf<typeof Sheet.Types.Check>;
+/** The wire check context. */
+export type SheetCheckContextValue = ValueTypeOf<typeof Sheet.Types.WireCheckContext>;
+/** The wire fill — a proposed cell with its provenance. */
+export type SheetFillValue = ValueTypeOf<typeof Sheet.Types.WireFill>;
+/** The wire proposal — the cells a patch set, with its provenance. */
+export type SheetProposalValue = ValueTypeOf<typeof Sheet.Types.WireProposal>;
 /** One register member. */
 export type SheetRegisterMemberValue = ValueTypeOf<typeof Sheet.Types.RegisterMember>;
 /** The decoded driver. */

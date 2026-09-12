@@ -7,7 +7,7 @@ import { memo, useId, useMemo, useCallback, createContext, useContext, type CSSP
 import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
-import { tokenizeDateTimeFormat, formatDateTime } from "@elaraai/east/internal";
+import { tokenizeDateTimeFormat, formatDateTime, parseDateTimeFormatted } from "@elaraai/east/internal";
 import { Chart, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
@@ -182,12 +182,26 @@ const DATE_PATTERN_TOKENS = new Map<string, ReturnType<typeof tokenizeDateTimeFo
  *  of the viewer's timezone. */
 export function formatDatePattern(pattern: string, d: Date): string {
     if (isNaN(d.getTime())) return "";
+    return formatDateTime(d, dateTokens(pattern));
+}
+
+/** The tokens of a pattern, cached — shared by the printer and the parser. */
+function dateTokens(pattern: string): ReturnType<typeof tokenizeDateTimeFormat> {
     let tokens = DATE_PATTERN_TOKENS.get(pattern);
     if (tokens === undefined) {
         tokens = tokenizeDateTimeFormat(pattern);
         DATE_PATTERN_TOKENS.set(pattern, tokens);
     }
-    return formatDateTime(d, tokens);
+    return tokens;
+}
+
+/** Parse text against an East datetime format pattern via East's OWN parser
+ *  — the twin of {@link formatDatePattern}, so a calendar entry form is a
+ *  pattern the language already knows, never a second grammar. `undefined`
+ *  when the text is not that pattern. UTC, like the printer. */
+export function parseDatePattern(pattern: string, text: string): Date | undefined {
+    const result = parseDateTimeFormatted(text, dateTokens(pattern));
+    return result.success ? result.value : undefined;
 }
 
 /** Build a tick formatter for an axis from its optional {@link TickFormat} + scale kind. Shared with the `Slice.Rail` brush axis (#190). */

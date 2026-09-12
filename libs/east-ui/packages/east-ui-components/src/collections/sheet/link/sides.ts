@@ -47,12 +47,8 @@ export interface SidesDecl {
 
 /** Read a link column's sides declaration off the decoded kind (`undefined` when it declares none). */
 export function sidesDeclOf(meta: SheetColumnMeta): SidesDecl | undefined {
-    if (meta.kind !== "link") return undefined;
-    const kv = meta.raw.kind.value as { sides?: { type: string; value: unknown } } | null;
-    const decl = kv !== null && kv.sides !== undefined ? getSomeorUndefined(kv.sides as never) as {
-        byDriver: ReadonlyMap<string, { type: SidesValue }>;
-        locks: readonly { half: { type: "from" | "to" }; when: { type: SidesValue }; label: string }[];
-    } | undefined : undefined;
+    if (meta.raw.kind.type !== "link") return undefined;
+    const decl = getSomeorUndefined(meta.raw.kind.value.sides);
     if (decl === undefined) return undefined;
     return {
         byDriver: new Map([...decl.byDriver].map(([k, v]) => [k, v.type])),

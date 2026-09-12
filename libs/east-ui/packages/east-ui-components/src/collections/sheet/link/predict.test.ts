@@ -7,12 +7,12 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { none, some } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import { linkVocabulary } from "./grammar.js";
 import { linkCandidates, linkCandidateAt, linkGhost, linkResolve, resolveBuffer, predictedMembers, linkEntryCandidates, grammarLine } from "./predict.js";
 import { namedCount, arityMeta } from "./arity.js";
 import { indexColumns } from "../model.js";
-import type { SheetMemberValue, SheetRegisterMemberValue } from "../values.js";
+import type { SheetLinkValue, SheetMemberValue, SheetRegisterMemberValue } from "../values.js";
 
 const member = (key: string, kind: string, extra: Partial<{ aliases: string[]; meta: string; parent: string }> = {}): SheetRegisterMemberValue => ({
     key, label: key, kind, aliases: extra.aliases ?? [],
@@ -47,7 +47,7 @@ const column = indexColumns([{
     dataType: null, payloadType: null, editable: true, fill: [],
 }] as never).list[0]!;
 const vocab = linkVocabulary(column, MEMBERS);
-const m = (type: string, value: unknown): SheetMemberValue => ({ type, value }) as SheetMemberValue;
+const m = (type: string, value: unknown): SheetMemberValue => variant(type, value) as SheetMemberValue;
 const NONE = new Set<string>();
 
 describe("candidates", () => {
@@ -96,7 +96,7 @@ describe("candidates", () => {
 });
 
 describe("prediction", () => {
-    const predicted = { from: [], to: [m("identified", { key: "M2140" }), m("identified", { key: "M2141" }), m("counted", { n: 2n, key: "CNC lathe" })] } as never;
+    const predicted: SheetLinkValue = { from: [], to: [m("identified", { key: "M2140" }), m("identified", { key: "M2141" }), m("counted", { n: 2n, key: "CNC lathe" })] };
     test("the predicted members not yet in the cell, per half, never into a locked half, nothing while typing", () => {
         expect(predictedMembers(predicted, 1, [[], []], true, "", vocab).map((x) => x.type)).toEqual(["identified", "identified", "counted"]);
         // Named members withdraw the count and are never doubled.
