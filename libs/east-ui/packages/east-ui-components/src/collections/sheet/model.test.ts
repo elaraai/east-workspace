@@ -13,7 +13,7 @@ import { utcDate } from "./parse/date.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
 
 const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
-const row = (id: string, cells: Record<string, SheetCellValue>): SheetRowValue => ({ id, owned: false, cells: new Map(Object.entries(cells)) });
+const row = (id: string, cells: Record<string, SheetCellValue>): SheetRowValue => ({ id, owned: false, cells: new Map(Object.entries(cells)), lines: [], band: none });
 
 describe("the body", () => {
     test("inline: real rows then the padding, numbered on", () => {

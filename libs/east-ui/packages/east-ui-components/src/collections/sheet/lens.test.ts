@@ -16,7 +16,7 @@ import type { SheetColumnMeta } from "./model.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
 
 const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
-const row = (id: string, cells: Record<string, SheetCellValue>): SheetRowValue => ({ id, owned: false, cells: new Map(Object.entries(cells)) });
+const row = (id: string, cells: Record<string, SheetCellValue>): SheetRowValue => ({ id, owned: false, cells: new Map(Object.entries(cells)), lines: [], band: none });
 const stateOf = (patch: Partial<SliceStateValue>): SliceStateValue => ({
     range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
     breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none, ...patch,

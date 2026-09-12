@@ -20,6 +20,7 @@ import { memo, type MouseEvent, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faAngleDown, faAngleUp, faArrowRightLong, faCheck, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { none } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils.js";
 import { cellIsBlank, driverKeyOf, resolveMember, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
 import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
@@ -198,7 +199,7 @@ export interface SheetProposalRowProps {
 /** A proposed row (B§5.2): dashed-topped, hatched, real numbers; ✓ adds it, × rejects it. */
 export const SheetProposalRow = memo(function SheetProposalRow(props: SheetProposalRowProps) {
     const { styles, columns, registers, driverColumn, gridTemplate, rowPx, index, number, cells, meta, picked, linkCtx } = props;
-    const pseudo: SheetRowValue = { id: "", owned: false, cells: cells as Map<string, SheetCellValue> };
+    const pseudo: SheetRowValue = { id: "", owned: false, cells: cells as Map<string, SheetCellValue>, lines: [], band: none };
     const driverKey = driverKeyOf(pseudo, driverColumn);
     const pick = (e: MouseEvent) => { if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); props.onPick(index); };
     return (

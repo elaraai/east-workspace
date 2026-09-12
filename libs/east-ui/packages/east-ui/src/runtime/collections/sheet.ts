@@ -13,12 +13,31 @@ import {
     Sheet as SheetFactory,
     type SheetColumnSpec,
     type SheetOptions,
+    type SheetGroupedOptions,
     type SheetBindHandle,
+    type SheetLinesField,
+    type SheetLineOf,
 } from "../../collections/sheet/index.js";
 import type { DataRowType } from "../../collections/table/index.js";
 import { hasKeys } from "../combinators.js";
 import type { UIElement } from "../runtime.js";
 
+/**
+ * `<Sheet data={plans} id="id" group={Sheet.group(P, "lines", …)} columns={{ … }} />`
+ * — GROUPED rows (#740): the rows are groups, `columns` are declared over
+ * the line type the group's lines field holds.
+ */
+function SheetTag<T extends SubtypeExprOrValue<ArrayType<StructType>>, F extends SheetLinesField<DataRowType<T>>>(
+    props: { data: T; columns: SheetColumnSpec<SheetLineOf<DataRowType<T>, F>> } & SheetGroupedOptions<DataRowType<T>, F>,
+): UIElement;
+/** GROUPED rows over a whole-value bind handle of groups. */
+function SheetTag<P extends StructType, F extends SheetLinesField<P>>(
+    props: { data: SheetBindHandle<P>; columns: SheetColumnSpec<SheetLineOf<P, F>> } & SheetGroupedOptions<P, F>,
+): UIElement;
+/** GROUPED rows over a paged source of groups. */
+function SheetTag<P extends StructType, F extends SheetLinesField<P>>(
+    props: { data: PagedSource<ArrayType<P>> | PagedSource<DictType<StringType, P>>; columns: SheetColumnSpec<SheetLineOf<P, F>> } & SheetGroupedOptions<P, F>,
+): UIElement;
 /**
  * `<Sheet data={rows} id="id" columns={{ … }} />` — the planning spreadsheet.
  * Maps to `Sheet.Root`. `columns` is typed as `SheetColumnSpec<R>` (a mapped
@@ -89,7 +108,8 @@ function SheetTag(
  * @remarks
  * Carries the whole authoring namespace — `Sheet.column.*` (the builders),
  * `Sheet.register.members` / `.concat`, `Sheet.driver`, `Sheet.link.arity` /
- * `.check` / `.parse` / `.print`, `Sheet.patch`, and `Sheet.Types.*` (the
+ * `.check` / `.parse` / `.print`, `Sheet.patch`, `Sheet.group` /
+ * `Sheet.group.cell.*` (grouped rows, #740), and `Sheet.Types.*` (the
  * closed wire types plus the typed constructors `Context(R, D)` / `Fill(T)` /
  * `Patch(R)` / `Proposal(R)` / `Edit(R)` / `CheckContext(R)`). Desugars to
  * `Sheet.Root(data, columns, options)`.
@@ -100,6 +120,7 @@ export const Sheet: typeof SheetTag & {
     driver: typeof SheetFactory.driver;
     link: typeof SheetFactory.link;
     patch: typeof SheetFactory.patch;
+    group: typeof SheetFactory.group;
     Types: typeof SheetFactory.Types;
 } = Object.assign(SheetTag, {
     column: SheetFactory.column,
@@ -107,5 +128,6 @@ export const Sheet: typeof SheetTag & {
     driver: SheetFactory.driver,
     link: SheetFactory.link,
     patch: SheetFactory.patch,
+    group: SheetFactory.group,
     Types: SheetFactory.Types,
 });
