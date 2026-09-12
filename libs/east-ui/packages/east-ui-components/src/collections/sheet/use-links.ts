@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useMemo, useRef } from "react";
-import { variant } from "@elaraai/east";
+import { none, variant } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils.js";
 import { driverKeyOf, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
 import { linkVocabulary, usedKeys, type LinkVocabulary } from "./link/grammar.js";
@@ -93,7 +93,7 @@ export function useSheetLinks({ columns, registers, driver, driverColumn, body, 
         const known = byKey.get(meta.key);
         if (known !== undefined) return known;
         const flags = checkLink(cell.value, lc.checks, lc.vocab, (half, member) => ({
-            rowIndex: BigInt(item.residentIndex), rowId: item.row.id, offset: BigInt(item.position),
+            rowIndex: BigInt(item.residentIndex), rowId: item.row.id, offset: BigInt(item.position), line: none,
             row: item.row.cells, half: variant(half, null), member,
         }));
         byKey.set(meta.key, flags);
