@@ -14,7 +14,7 @@
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
-import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, StringType, StructType,
@@ -28,7 +28,6 @@ import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { EastChakraSheet } from "./index.js";
 import type { SheetEditValue, SheetRootValue, SheetSelectionValue } from "./values.js";
-import { todayUtc, addDays } from "./parse/date.js";
 
 afterEach(cleanup);
 beforeEach(() => { initializeStore(new UIStore()); });
@@ -123,8 +122,15 @@ function mount(value: SheetRootValue) {
     const input = () => utils.container.querySelector('[data-slot="editorInput"]') as HTMLInputElement | null;
     const key = (k: string, init: Partial<KeyboardEventInit> = {}) => fireEvent.keyDown(card, { key: k, ...init });
     const editorKey = (k: string, init: Partial<KeyboardEventInit> = {}) => fireEvent.keyDown(input()!, { key: k, ...init });
-    const type = (text: string) => fireEvent.change(input()!, { target: { value: text } });
-    const flush = () => new Promise<void>((r) => queueMicrotask(r));
+    // A native `input` event — the common number field listens to it, the text inputs too.
+    const type = (text: string) => fireEvent.input(input()!, { target: { value: text } });
+    // Two microtask turns and a frame, inside `act`: the common fields'
+    // machines start and take their events on microtasks, the number field
+    // writes its input on the next frame, and the renders they cause are
+    // React work `act` flushes on the way out.
+    const tick = () => new Promise<void>((r) => queueMicrotask(r));
+    const frame = () => new Promise<void>((r) => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(() => r()) : setTimeout(r, 20)));
+    const flush = () => act(async () => { await tick(); await tick(); await frame(); });
     return { ...utils, card, rows, cell, input, key, editorKey, type, flush };
 }
 
@@ -210,28 +216,42 @@ describe("editing", () => {
         expect(c.rowId).toBe("j2");
         expect(c.offset).toBe(1n);
         expect(c.key).toBe("task");
-        expect(c.row.cells.get("task")).toEqual({ type: "String", value: "xy" });
+        expect(c.row.cells.get("task")).toEqual(variant("String", "xy"));
         expect(c.source.type).toBe("typed");
     });
 
-    test("the date grammar runs through the editor; an unrecognised value keeps the editor open with the neg ring", async () => {
+    test("the date field: a seed lands in the day segment, digits fill the rest, ⇥ on the last segment commits right; an unrecognised number keeps the editor open with the neg ring", async () => {
         const { value, edits } = withSpies(buildSheet());
         const { container, cell, key, type, editorKey, input, flush } = mount(value);
         fireEvent.mouseDown(cell(1, "start"), { button: 0 });
-        key("+");
-        type("+3");
+        key("1");   // the printable key that opened the editor is typed into the day segment
+        const field = () => container.querySelector('[data-slot="editorDate"]') as HTMLElement;
+        const segments = () => [...field().querySelectorAll<HTMLElement>('[role="spinbutton"]')];
+        const typeInto = (seg: HTMLElement, digits: string) => act(() => {
+            for (const ch of digits) seg.dispatchEvent(new InputEvent("beforeinput", { data: ch, inputType: "insertText", bubbles: true, cancelable: true }));
+        });
+        expect(field()).toBeTruthy();
+        expect(input()).toBeNull();   // no typed buffer: the segments are the field
         expect(container.querySelector('[data-slot="stripLabel"]')!.textContent).toBe("START");
-        editorKey("Tab");
+        expect(container.querySelector('[data-slot="stripChip"]')!.textContent).toBe("incomplete");
+        typeInto(segments()[0]!, "7");
+        typeInto(segments()[1]!, "11");
+        typeInto(segments()[2]!, "2026");
+        expect(container.querySelector('[data-slot="stripChip"]')!.textContent).toBe("Tue 17 Nov 26");
+        fireEvent.keyDown(segments()[2]!, { key: "Tab" });
         await flush();
         const c = edits[0]!.value as { row: { cells: Map<string, { type: string; value: Date }> } };
         expect(c.row.cells.get("start")!.type).toBe("DateTime");
-        expect(c.row.cells.get("start")!.value.getTime()).toBe(addDays(todayUtc(), 3).getTime());
-        // Tab moved right, onto the task column.
+        expect(c.row.cells.get("start")!.value.toISOString()).toBe("2026-11-17T00:00:00.000Z");
+        expect(cell(1, "start").textContent).toBe("17 Nov 26");
+        // Tab on the last segment moved right, onto the task column.
         expect(cell(1, "task").hasAttribute("data-selected")).toBe(true);
         // An unparseable quantity never commits.
         fireEvent.mouseDown(cell(1, "qty"), { button: 0 });
         key("z");
+        await flush();
         type("zz");
+        await flush();
         editorKey("Enter");
         expect(input()).not.toBeNull();
         expect(container.querySelector('[data-slot="editorError"]')).toBeTruthy();
@@ -240,6 +260,27 @@ describe("editing", () => {
         expect(input()).toBeNull();
         await flush();
         expect(edits).toHaveLength(1);
+    });
+
+    test("the number field opens on the value, ↑ steps it through the field's own handler, ⏎ commits", async () => {
+        const { value, edits } = withSpies(buildSheet());
+        const { container, cell, key, editorKey, input, flush } = mount(value);
+        fireEvent.mouseDown(cell(0, "qty"), { button: 0 });
+        key("Enter");
+        await flush();
+        expect(container.querySelector('[data-slot="editorNumber"]')).toBeTruthy();
+        expect(container.querySelector('[data-slot="editorStepper"]')).toBeTruthy();
+        expect(input()!.value).toBe("1200");
+        fireEvent.keyDown(input()!, { key: "ArrowUp" });
+        await flush();
+        // The field's own step reached the buffer (the strip previews it); the
+        // input's text follows on Zag's next frame, which jsdom never paints.
+        expect(container.querySelector('[data-slot="stripChip"]')!.textContent).toBe("1,201");
+        editorKey("Enter");
+        await flush();
+        expect(edits).toHaveLength(1);
+        expect(cell(0, "qty").textContent).toBe("1,201");
+        expect(cell(1, "qty").hasAttribute("data-selected")).toBe(true);
     });
 
     test("an enum resolves to the register's word through the strip's armed candidate", async () => {
@@ -273,8 +314,8 @@ describe("editing", () => {
         expect(edits[0]!.type).toBe("insert");
         expect(e.afterRowId).toEqual(some("j2"));
         expect(e.row.id).toMatch(/^sheet-/);
-        expect(e.row.cells.get("task")).toEqual({ type: "String", value: "New job" });
-        expect(e.row.cells.get("qty")).toEqual({ type: "Null", value: null });
+        expect(e.row.cells.get("task")).toEqual(variant("String", "New job"));
+        expect(e.row.cells.get("qty")).toEqual(variant("Null", null));
     });
 
     test("⌫ clears the selected cells but never a stamped one; whole rows selected ⌫ removes them", async () => {
@@ -363,7 +404,9 @@ describe("the paged arm (§3.13)", () => {
         expect(container.querySelector('[data-slot="toolbarBadge"]')).toBeNull();
         fireEvent.mouseDown(cell(449, "qty"), { button: 0 });
         key("4");
+        await flush();
         type("42");
+        await flush();
         editorKey("Enter");
         await flush();
         expect(edits).toHaveLength(1);
@@ -516,8 +559,8 @@ describe("the link editor (B§4.4)", () => {
         expect(edits).toHaveLength(1);
         const link = (edits[0]!.value as { row: { cells: Map<string, { type: string; value: { from: unknown[]; to: unknown[] } }> } }).row.cells.get("stations")!;
         expect(link.type).toBe("Link");
-        expect(link.value.from).toEqual([{ type: "identified", value: { key: "M2140" } }, { type: "identified", value: { key: "Line 2" } }]);
-        expect(link.value.to).toEqual([{ type: "counted", value: { n: 4n, key: "CNC lathe" } }, { type: "identified", value: { key: "M7301" } }]);
+        expect(link.value.from).toEqual([variant("identified", { key: "M2140" }), variant("identified", { key: "Line 2" })]);
+        expect(link.value.to).toEqual([variant("counted", { n: 4n, key: "CNC lathe" }), variant("identified", { key: "M7301" })]);
         // The committed cell draws its chips; the custom check flags the bench.
         const committed = container.querySelector('[data-row-id="p4"] [data-key="stations"]')!;
         expect([...committed.querySelectorAll('[data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["4 × CNC lathe", "M7301"]);
@@ -560,8 +603,8 @@ describe("the link editor (B§4.4)", () => {
         await flush();
         expect(edits).toHaveLength(1);
         const link = (edits[0]!.value as { row: { cells: Map<string, { value: { from: unknown[]; to: unknown[] } }> } }).row.cells.get("stations")!.value;
-        expect(link.from).toEqual([{ type: "identified", value: { key: "M2141" } }]);
-        expect(link.to).toEqual([{ type: "counted", value: { n: 2n, key: "Line 2" } }, { type: "placeholder", value: null }]);
+        expect(link.from).toEqual([variant("identified", { key: "M2141" })]);
+        expect(link.to).toEqual([variant("counted", { n: 2n, key: "Line 2" }), variant("placeholder", null)]);
         expect(cell(3, "stations").querySelectorAll('[data-slot="chip"]')).toHaveLength(3);
     });
 });

@@ -14,12 +14,12 @@
 import { memo } from "react";
 import { Box } from "@chakra-ui/react";
 import { getSomeorUndefined } from "../../../utils.js";
-import { cellIsBlank, cellText, memberIsDashed, memberLabel, type SheetColumnMeta } from "../model.js";
+import { EMPTY_LINK, cellIsBlank, cellText, memberIsDashed, memberLabel, type SheetColumnMeta } from "../model.js";
 import { LinkCell } from "./LinkCell.js";
 import type { LinkVocabulary } from "../link/grammar.js";
 import type { LinkHalves } from "../link/sides.js";
 import { NO_FLAGS, type LinkFlags } from "../link/checks.js";
-import type { SheetCellValue, SheetLinkValue, SheetRegisterMemberValue } from "../values.js";
+import type { SheetCellValue, SheetRegisterMemberValue } from "../values.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -86,7 +86,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
                 if (shown !== undefined && !cellIsBlank(shown)) return <Box as="span" css={styles.cellText}>{cellText(shown, meta)}</Box>;
                 return null;
             }
-            const set = shown.value as SheetLinkValue;
+            const set = shown.value;
             return (
                 <Box css={styles.half} data-half="to" style={{ justifyContent: "flex-start" }}>
                     {set.to.map((m, i) => (
@@ -102,7 +102,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
                 return <Box as="span" css={styles.cellText}>{cellText(shown, meta)}</Box>;
             }
             if (rowBlank || link === undefined) return null;
-            const value = shown !== undefined && shown.type === "Link" ? (shown.value as SheetLinkValue) : ({ from: [], to: [] } as unknown as SheetLinkValue);
+            const value = shown !== undefined && shown.type === "Link" ? shown.value : EMPTY_LINK;
             return (
                 <LinkCell
                     styles={styles}

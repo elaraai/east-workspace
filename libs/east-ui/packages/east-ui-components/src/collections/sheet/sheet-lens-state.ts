@@ -134,7 +134,7 @@ export function createTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const narrowing = ctx.narrowing;
     if (narrowing === undefined) return noop(s);
     const kept = persistLens(s, ctx.views ?? []);
-    const query = narrowing.search.type === "some" ? (narrowing.search.value as string) : "";
+    const query = narrowing.search.type === "some" ? narrowing.search.value : "";
     let seq = s.tabs.seq;
     let id = `view-${seq}`;
     while (kept.some((v) => v.id === id)) { seq += 1; id = `view-${seq}`; }

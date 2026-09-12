@@ -8,10 +8,11 @@
  */
 
 import { describe, test, expect } from "vitest";
+import { variant } from "@elaraai/east";
 import { sheetReducer, initialSheetState, sheetStoreReducer, initialSheetStore, type SheetMachineCtx, type SheetUiState, type SheetEvent, type SheetEffect } from "./sheet-state.js";
 import type { SheetCellValue } from "./values.js";
 
-const cell = (type: string, value: unknown): SheetCellValue => ({ type, value } as SheetCellValue);
+const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
 
 /** A 4 × 3 sheet: text · date · stamped; `bad` never parses; row 3 is blank. */
 function ctxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
@@ -193,8 +194,8 @@ import type { LinkEditCtx, LinkGroups } from "./sheet-state.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { SheetMemberValue } from "./values.js";
 
-const id = (key: string): SheetMemberValue => ({ type: "identified", value: { key } }) as SheetMemberValue;
-const txt = (s: string): SheetMemberValue => ({ type: "text", value: s }) as SheetMemberValue;
+const id = (key: string): SheetMemberValue => variant("identified", { key });
+const txt = (s: string): SheetMemberValue => variant("text", s);
 const KEYS = ["M2140", "M2141", "M2145", "M7301"];
 
 /** A link column at c = 0 over four machine codes, with the driver's sides. */
@@ -206,7 +207,7 @@ function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [
         sides,
     };
     const candidates = (text: string, groups: LinkGroups): LinkCandidate[] => {
-        const used = new Set([...groups[0], ...groups[1]].map((m) => (m.type === "identified" ? (m.value as { key: string }).key : "")));
+        const used = new Set([...groups[0], ...groups[1]].map((m) => (m.type === "identified" ? m.value.key : "")));
         const t = text.trim().toLowerCase();
         if (t === "") return [];
         return KEYS.filter((k) => !used.has(k) && k.toLowerCase().startsWith(t)).map((k) => ({ label: k, meta: "", members: [id(k)] }));
@@ -232,7 +233,7 @@ function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [
     });
 }
 
-const labels = (g: readonly SheetMemberValue[]) => g.map((m) => (m.type === "identified" ? (m.value as { key: string }).key : m.type === "text" ? `~${m.value as string}` : m.type));
+const labels = (g: readonly SheetMemberValue[]) => g.map((m) => (m.type === "identified" ? m.value.key : m.type === "text" ? `~${m.value}` : m.type));
 
 describe("the link editor", () => {
     test("opens with the cell's chips, the caret in the first live empty half; a seed replaces the content", () => {

@@ -19,6 +19,7 @@
  * in the cell, a counted member withdrawn once the half has named members.
  */
 
+import { variant } from "@elaraai/east";
 import { getSomeorUndefined } from "../../../utils.js";
 import { memberLabel } from "../model.js";
 import {
@@ -37,7 +38,7 @@ export interface LinkCandidate {
     members: SheetMemberValue[];
 }
 
-const identified = (key: string): SheetMemberValue => ({ type: "identified", value: { key } }) as SheetMemberValue;
+const identified = (key: string): SheetMemberValue => variant("identified", { key });
 
 /**
  * The free identified members under a countable: the ones naming it as their
@@ -62,7 +63,7 @@ export function linkCandidates(query: string, vocab: LinkVocabulary, used: Reado
         return [{
             label: `${rng.from}-${rng.to}`,
             meta: `→ ${rng.members.length} members: ${names.length > 34 ? `${names.slice(0, 34)}…` : names}`,
-            members: [{ type: "range", value: { from: rng.from, to: rng.to } } as SheetMemberValue],
+            members: [variant("range", { from: rng.from, to: rng.to })],
         }];
     }
     const out: LinkCandidate[] = [];
@@ -105,7 +106,7 @@ export function linkCandidates(query: string, vocab: LinkVocabulary, used: Reado
         if (!isCountable(vocab, m) || !free(m) || seen.has(m.key)) continue;
         if (m.key.toLowerCase().replace(/\s+/g, "").startsWith(bare)) push(m);
     }
-    if ("tbc".startsWith(t)) out.push({ label: "TBC", meta: "to confirm", members: [{ type: "placeholder", value: null } as SheetMemberValue] });
+    if ("tbc".startsWith(t)) out.push({ label: "TBC", meta: "to confirm", members: [variant("placeholder", null)] });
     return out;
 }
 
@@ -165,7 +166,7 @@ export function predictedMembers(
     const out: SheetMemberValue[] = [];
     for (const m of side === 0 ? predicted.from : predicted.to) {
         if (have.has(memberLabel(m).toLowerCase())) continue;
-        if (m.type === "identified" && used.has((m.value as { key: string }).key.toLowerCase())) continue;
+        if (m.type === "identified" && used.has(m.value.key.toLowerCase())) continue;
         if (m.type === "counted" && named) continue;
         out.push(m);
     }
