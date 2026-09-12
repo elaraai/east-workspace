@@ -38,6 +38,10 @@ import {
     SheetLinkType,
     SheetCellType,
     SheetRowType,
+    SheetLineType,
+    SheetBandType,
+    SheetGroupCellType,
+    SheetGroupType,
     SheetRowsCollectionType,
     SheetRowsType,
     SheetRegisterMemberType,
@@ -69,12 +73,12 @@ import {
     SheetFooterItemType,
     SheetStyleType,
     SheetRootType,
-    SheetContextTypeFor,
     SheetFillTypeFor,
     SheetPatchTypeFor,
     SheetProposalTypeFor,
-    SheetEditTypeFor,
-    SheetCheckContextTypeFor,
+    sheetContextType,
+    sheetEditType,
+    sheetCheckContextType,
     type SheetPatchInput,
     type SheetPatchOf,
 } from "./types.js";
@@ -82,6 +86,16 @@ import { text, date, quantity, integer, lookup, reference, enumColumn, set, link
 import { createMembers, concatMembers, createDriver } from "./registers.js";
 import { createArity, check, parseLink, printLink, SheetMembersType, SheetRegisterMembersType } from "./link.js";
 import { createSheet } from "./root.js";
+import {
+    createGroup,
+    text as groupText,
+    date as groupDate,
+    quantity as groupQuantity,
+    integer as groupInteger,
+    reference as groupReference,
+    enumCell as groupEnum,
+    stamped as groupStamped,
+} from "./group.js";
 
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
 export {
@@ -89,6 +103,11 @@ export {
     SheetLinkType,
     SheetCellType,
     SheetRowType,
+    SheetLineType,
+    SheetBandType,
+    SHEET_TITLE_CELL,
+    SheetGroupCellType,
+    SheetGroupType,
     SheetRowsCollectionType,
     SheetRowsType,
     SheetRegisterMemberType,
@@ -131,12 +150,27 @@ export {
     SheetProposalTypeFor,
     SheetEditTypeFor,
     SheetCheckContextTypeFor,
+    SheetGroupContextTypeFor,
+    SheetGroupEditTypeFor,
+    SheetGroupCheckContextTypeFor,
+    sheetContextType,
+    sheetEditType,
+    sheetCheckContextType,
+    sheetLinesOf,
     type SheetContextOf,
     type SheetFillOf,
     type SheetPatchOf,
     type SheetProposalOf,
     type SheetEditOf,
     type SheetCheckContextOf,
+    type SheetGroupContextOf,
+    type SheetGroupEditOf,
+    type SheetGroupCheckContextOf,
+    type SheetAnyContextOf,
+    type SheetAnyCheckContextOf,
+    type SheetLinesField,
+    type SheetLineOf,
+    type SheetLineAddress,
     type SheetPatchInput,
     type SheetFieldsOf,
 } from "./types.js";
@@ -181,13 +215,26 @@ export {
 } from "./link.js";
 export {
     type SheetOptions,
+    type SheetGroupedOptions,
     type SheetSuggestInput,
     type SheetProposerInput,
     type SheetStringField,
     type SheetBindHandle,
     createSheet,
 } from "./root.js";
-export { type SheetColumnMeta, describeColumn, optionPayload, cellTagOf } from "./bridge.js";
+export {
+    type SheetGroupCell,
+    type SheetGroupConfig,
+    type SheetGroupValue,
+    type SheetGroupCellBaseConfig,
+    type SheetGroupValueConfig,
+    type SheetGroupDateConfig,
+    type SheetGroupQuantityConfig,
+    type SheetGroupStampedConfig,
+    type SheetFieldOf,
+    createGroup,
+} from "./group.js";
+export { type SheetColumnMeta, describeColumn, describeGroupCell, optionPayload, cellTagOf } from "./bridge.js";
 
 // ============================================================================
 // Sheet.patch
@@ -277,12 +324,44 @@ export interface SheetNamespace {
     };
     /** A row patch — the fields a proposal sets (§3.6). */
     patch: typeof createPatch;
+    /**
+     * Grouped rows (#740) — `Sheet.group(P, "lines", { title, sub?, cells?, folded? })`
+     * declares the group's lines field and its band; `Sheet.group.cell.*`
+     * builds the band's cells over the group's fields.
+     */
+    group: typeof createGroup & {
+        /** The band cell builders — each takes the group's row type first. */
+        cell: {
+            /** Free text. */
+            text: typeof groupText;
+            /** A UTC-midnight date. */
+            date: typeof groupDate;
+            /** A float — no unit on a band. */
+            quantity: typeof groupQuantity;
+            /** A whole number. */
+            integer: typeof groupInteger;
+            /** A lookup over a flat member list. */
+            reference: typeof groupReference;
+            /** An upper-cased register word with a valence dot. */
+            enum: typeof groupEnum;
+            /** A read-only code an upstream system owns. */
+            stamped: typeof groupStamped;
+        };
+    };
     /** The Sheet East types — the closed wire types and the typed constructors. */
     Types: {
         /** The Sheet root IR ({@link SheetRootType}). */
         Root: typeof SheetRootType;
-        /** One wire row — id, `owned`, one cell per declared column ({@link SheetRowType}). */
+        /** One wire row — id, `owned`, one cell per declared column, and on a grouped sheet its lines and band ({@link SheetRowType}). */
         Row: typeof SheetRowType;
+        /** One line of a group row on the wire ({@link SheetLineType}). */
+        Line: typeof SheetLineType;
+        /** The band a group row draws ({@link SheetBandType}). */
+        Band: typeof SheetBandType;
+        /** The group declaration on the wire ({@link SheetGroupType}). */
+        Group: typeof SheetGroupType;
+        /** One band cell on the wire ({@link SheetGroupCellType}). */
+        GroupCell: typeof SheetGroupCellType;
         /** The sheet's row collection ({@link SheetRowsCollectionType}). */
         Rows: typeof SheetRowsCollectionType;
         /** How the rows arrive — inline or paged ({@link SheetRowsType}). */
@@ -353,18 +432,18 @@ export interface SheetNamespace {
         FooterItem: typeof SheetFooterItemType;
         /** The Sheet style ({@link SheetStyleType}). */
         Style: typeof SheetStyleType;
-        /** `Context(R, D)` — the copilot context typed over the host's row and the driver's ({@link SheetContextTypeFor}). */
-        Context: typeof SheetContextTypeFor;
+        /** `Context(R, D)` — the copilot context typed over the host's row and the driver's; `Context(P, "lines", D)` on a grouped sheet ({@link SheetContextTypeFor}, {@link SheetGroupContextTypeFor}). */
+        Context: typeof sheetContextType;
         /** `Fill(T)` — a proposed value of a column's payload ({@link SheetFillTypeFor}). */
         Fill: typeof SheetFillTypeFor;
         /** `Patch(R)` — a row patch, every field an `Option` ({@link SheetPatchTypeFor}). */
         Patch: typeof SheetPatchTypeFor;
         /** `Proposal(R)` — a patch plus its provenance ({@link SheetProposalTypeFor}). */
         Proposal: typeof SheetProposalTypeFor;
-        /** `Edit(R)` — the raw edit event typed over the row ({@link SheetEditTypeFor}). */
-        Edit: typeof SheetEditTypeFor;
-        /** `CheckContext(R)` — what an author's member check sees ({@link SheetCheckContextTypeFor}). */
-        CheckContext: typeof SheetCheckContextTypeFor;
+        /** `Edit(R)` — the raw edit event typed over the row; `Edit(P, "lines")` on a grouped sheet ({@link SheetEditTypeFor}, {@link SheetGroupEditTypeFor}). */
+        Edit: typeof sheetEditType;
+        /** `CheckContext(R)` — what an author's member check sees; `CheckContext(P, "lines")` on a grouped sheet ({@link SheetCheckContextTypeFor}, {@link SheetGroupCheckContextTypeFor}). */
+        CheckContext: typeof sheetCheckContextType;
     };
 }
 
@@ -373,9 +452,10 @@ export interface SheetNamespace {
  * `Sheet.Root` (the `<Sheet>` tag), declare columns with `Sheet.column.*`
  * (row type first), registers with `Sheet.register.members` / `.concat` and
  * the driver with `Sheet.driver`, link rules with `Sheet.link.*`, proposed
- * rows with `Sheet.patch`, and reach every East type — the closed wire types
- * and the typed constructors `Context(R, D)` / `Fill(T)` / `Patch(R)` /
- * `Proposal(R)` / `Edit(R)` / `CheckContext(R)` — via `Sheet.Types.*`.
+ * rows with `Sheet.patch`, grouped rows with `Sheet.group` (#740), and reach
+ * every East type — the closed wire types and the typed constructors
+ * `Context(R, D)` / `Fill(T)` / `Patch(R)` / `Proposal(R)` / `Edit(R)` /
+ * `CheckContext(R)` — via `Sheet.Types.*`.
  */
 export const Sheet: SheetNamespace = {
     Root: createSheet,
@@ -384,9 +464,16 @@ export const Sheet: SheetNamespace = {
     driver: createDriver,
     link: { arity: createArity, check, parse: parseLink, print: printLink },
     patch: createPatch,
+    group: Object.assign(createGroup, {
+        cell: { text: groupText, date: groupDate, quantity: groupQuantity, integer: groupInteger, reference: groupReference, enum: groupEnum, stamped: groupStamped },
+    }),
     Types: {
         Root: SheetRootType,
         Row: SheetRowType,
+        Line: SheetLineType,
+        Band: SheetBandType,
+        Group: SheetGroupType,
+        GroupCell: SheetGroupCellType,
         Rows: SheetRowsCollectionType,
         RowSource: SheetRowsType,
         Cell: SheetCellType,
@@ -422,11 +509,11 @@ export const Sheet: SheetNamespace = {
         Selection: SheetSelectionType,
         FooterItem: SheetFooterItemType,
         Style: SheetStyleType,
-        Context: SheetContextTypeFor,
+        Context: sheetContextType,
         Fill: SheetFillTypeFor,
         Patch: SheetPatchTypeFor,
         Proposal: SheetProposalTypeFor,
-        Edit: SheetEditTypeFor,
-        CheckContext: SheetCheckContextTypeFor,
+        Edit: sheetEditType,
+        CheckContext: sheetCheckContextType,
     },
 };

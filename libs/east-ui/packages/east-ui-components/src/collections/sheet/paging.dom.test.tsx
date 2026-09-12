@@ -28,7 +28,7 @@ function source(total: number, opts: { holdWindow?: number } = {}) {
             if (opts.holdWindow === w) return none;
             const rows: SheetRowValue[] = [];
             for (let i = Number(offset); i < Math.min(total, Number(offset) + Number(limit)); i++) {
-                rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map() });
+                rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map(), lines: [], band: none });
             }
             return some(rows);
         },

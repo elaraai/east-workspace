@@ -42,8 +42,8 @@ import {
     SheetRegisterMemberType,
     SheetCountedType,
     type SheetHalfLiteral,
-    type SheetContextOf,
-    type SheetCheckContextOf,
+    type SheetAnyContextOf,
+    type SheetAnyCheckContextOf,
 } from "./types.js";
 
 /** A list of link members. */
@@ -288,7 +288,7 @@ export interface SheetArityInput<R extends StructType = StructType, D extends Ea
     /** The half the rule counts. */
     readonly half: SheetHalfLiteral;
     /** The rule — how many, and which countable member, given the row as it would be. */
-    readonly implied: SubtypeExprOrValue<FunctionType<[SheetContextOf<R, D>], OptionType<SheetCountedType>>>;
+    readonly implied: SubtypeExprOrValue<FunctionType<[SheetAnyContextOf<R, D>], OptionType<SheetCountedType>>>;
 }
 
 /**
@@ -302,7 +302,7 @@ export interface SheetArityInput<R extends StructType = StructType, D extends Ea
  */
 export function createArity<R extends StructType, D extends EastType>(
     half: SheetHalfLiteral,
-    implied: SubtypeExprOrValue<FunctionType<[SheetContextOf<R, D>], OptionType<SheetCountedType>>>,
+    implied: SubtypeExprOrValue<FunctionType<[SheetAnyContextOf<R, D>], OptionType<SheetCountedType>>>,
 ): SheetArityInput<R, D> {
     return { half, implied };
 }
@@ -322,7 +322,7 @@ export interface SheetExistsCheck {
  */
 export type SheetCheckInput<R extends StructType = StructType> =
     | SheetExistsCheck
-    | SubtypeExprOrValue<FunctionType<[SheetCheckContextOf<R>], OptionType<StringType>>>;
+    | SubtypeExprOrValue<FunctionType<[SheetAnyCheckContextOf<R>], OptionType<StringType>>>;
 
 /** `Sheet.link.check` — the built-in checks. */
 export const check = {

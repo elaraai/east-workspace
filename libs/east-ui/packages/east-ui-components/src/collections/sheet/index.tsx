@@ -124,9 +124,9 @@ function withCell(row: SheetRowValue, key: string, cell: SheetCellValue): SheetR
     return { ...row, cells };
 }
 
-/** A fresh row — every declared cell blank. */
+/** A fresh row — every declared cell blank; no lines and no band (P7a: a flat row). */
 function blankRow(id: string, columns: readonly SheetColumnMeta[]): SheetRowValue {
-    return { id, owned: false, cells: new Map(columns.map((c) => [c.key, NULL_CELL])) };
+    return { id, owned: false, cells: new Map(columns.map((c) => [c.key, NULL_CELL])), lines: [], band: none };
 }
 
 let mintCounter = 0;
@@ -331,6 +331,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             rowIndex: BigInt(residentIndex),
             rowId: row?.id ?? "",
             offset: BigInt(position),
+            line: none,
             row: row?.cells ?? new Map(columns.list.map((c) => [c.key, NULL_CELL])),
             rows: rowsNow,
             rowsOffset: BigInt(rowsOffset),
