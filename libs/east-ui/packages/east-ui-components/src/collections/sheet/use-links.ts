@@ -21,14 +21,15 @@ import { linkCandidates, linkCandidateAt, resolveBuffer, predictedMembers } from
 import { checksOf, checkLink, NO_FLAGS, type CheckDecl, type LinkFlags } from "./link/checks.js";
 import type { LinkCellContext } from "./cells/Cell.js";
 import type { LinkEditCtx, LinkGroups } from "./sheet-types.js";
-import type { SheetCellValue, SheetDriverValue, SheetLinkValue, SheetRowValue } from "./values.js";
+import type { SheetArityValue, SheetCellValue, SheetDriverValue, SheetLinkValue, SheetRowValue } from "./values.js";
 
 /** One link column's decoded declaration. */
 export interface LinkColumn {
     vocab: LinkVocabulary;
     sides: SidesDecl | undefined;
-    checks: CheckDecl[];
-    arity: { half: "from" | "to"; implied: (ctx: unknown) => { type: string; value: unknown } } | undefined;
+    checks: readonly CheckDecl[];
+    /** The arity rule on the wire — the half it counts and the bridged rule. */
+    arity: SheetArityValue | undefined;
 }
 
 export interface UseSheetLinksArgs {
@@ -65,15 +66,11 @@ export function useSheetLinks({ columns, registers, driver, driverColumn, body, 
         for (const meta of columns.list) {
             if (meta.kind !== "link" && meta.kind !== "set") continue;
             const members = meta.register !== undefined ? registers.byName.get(meta.register) ?? [] : [];
-            const kv = meta.raw.kind.value as { arity?: { type: string; value: unknown } } | null;
-            const arityDecl = kv !== null && kv.arity !== undefined
-                ? getSomeorUndefined(kv.arity as never) as { half: { type: "from" | "to" }; implied: (ctx: unknown) => { type: string; value: unknown } } | undefined
-                : undefined;
             out.set(meta.key, {
                 vocab: linkVocabularies.get(meta.key) ?? linkVocabulary(meta, members),
                 sides: sidesDeclOf(meta),
                 checks: checksOf(meta),
-                arity: arityDecl !== undefined ? { half: arityDecl.half.type, implied: arityDecl.implied } : undefined,
+                arity: meta.raw.kind.type === "link" ? getSomeorUndefined(meta.raw.kind.value.arity) : undefined,
             });
         }
         return out;
@@ -95,7 +92,7 @@ export function useSheetLinks({ columns, registers, driver, driverColumn, body, 
         if (byKey === undefined) { byKey = new Map(); flagCache.current.set(item.row, byKey); }
         const known = byKey.get(meta.key);
         if (known !== undefined) return known;
-        const flags = checkLink(cell.value as SheetLinkValue, lc.checks, lc.vocab, (half, member) => ({
+        const flags = checkLink(cell.value, lc.checks, lc.vocab, (half, member) => ({
             rowIndex: BigInt(item.residentIndex), rowId: item.row.id, offset: BigInt(item.position),
             row: item.row.cells, half: variant(half, null), member,
         }));
@@ -121,7 +118,7 @@ export function useSheetLinks({ columns, registers, driver, driverColumn, body, 
         const it = rowAt(r);
         const row = it !== undefined && it.kind === "real" ? it.row : undefined;
         const cell = row?.cells.get(meta.key);
-        const current = cell !== undefined && cell.type === "Link" ? (cell.value as SheetLinkValue) : undefined;
+        const current = cell !== undefined && cell.type === "Link" ? cell.value : undefined;
         const halves = meta.kind === "set"
             ? { from: { live: false, lock: "" }, to: { live: true, lock: "" }, isIn: false, sides: "to" as const }
             : halvesFor(lc.sides, driverKeyOf(row, driverColumn));
@@ -134,7 +131,7 @@ export function useSheetLinks({ columns, registers, driver, driverColumn, body, 
             candidateAt: (text, hi, groups) => linkCandidateAt(text, hi, vocab, usedOf(groups)),
             resolve: (text, cand) => resolveBuffer(text, cand, vocab),
             predicted: (side, groups, typed) => predictedMembers(predictedLink(r, meta.key), side, groups, side === 0 ? halves.from.live : halves.to.live, typed, vocab),
-            cell: (groups) => (groups[0].length === 0 && groups[1].length === 0 ? null : { type: "Link", value: { from: groups[0], to: groups[1] } } as SheetCellValue),
+            cell: (groups): SheetCellValue | null => (groups[0].length === 0 && groups[1].length === 0 ? null : variant("Link", { from: groups[0], to: groups[1] })),
             driverName: driverName(row),
         };
     }, [columns, linkColumns, rowAt, driverColumn, driverName, predictedLink]);

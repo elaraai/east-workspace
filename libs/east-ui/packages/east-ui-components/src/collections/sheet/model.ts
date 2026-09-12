@@ -15,15 +15,16 @@
  * @packageDocumentation
  */
 
+import { variant } from "@elaraai/east";
 import { formatDatePattern } from "../../charts/spec/index.js";
 import { formatTick, type TickFormatOpt } from "../../typography/numeric/format-tick.js";
 import { getSomeorUndefined } from "../../utils.js";
 import type {
-    SheetCellValue, SheetColumnValue, SheetLinkValue, SheetMemberValue, SheetRegisterMemberValue,
+    SheetCellValue, SheetColumnValue, SheetCustomKindValue, SheetLinkValue, SheetMemberValue, SheetRegisterMemberValue,
     SheetRootValue, SheetRowValue,
 } from "./values.js";
 import type { LensGap } from "./lens.js";
-import { formatDateDisplay } from "./parse/date.js";
+import { DATE_DISPLAY_PATTERN } from "./parse/date.js";
 
 // ── Columns ───────────────────────────────────────────────────────────────
 
@@ -75,9 +76,9 @@ export interface SheetColumnMeta {
     /** A custom kind's "accepts" line. */
     accepts: string | undefined;
     /** A custom kind's compiled parse — typed text + the wire context → an optional cell. */
-    customParse: ((text: string, ctx: unknown) => { type: string; value: unknown }) | undefined;
+    customParse: SheetCustomKindValue["parse"] | undefined;
     /** A custom kind's compiled print. */
-    customPrint: ((cell: SheetCellValue) => string) | undefined;
+    customPrint: SheetCustomKindValue["print"] | undefined;
     /** The raw decoded column (the link kind's declaration rides here for P3). */
     raw: SheetColumnValue;
 }
@@ -93,18 +94,15 @@ export interface SheetColumnIndex {
 /** Flatten the decoded columns. */
 export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnIndex {
     const list = columns.map((col): SheetColumnMeta => {
-        const kind = col.kind.type as SheetKind;
-        const kv = col.kind.value as Record<string, unknown> | null;
-        const width = parseWidth(getSomeorUndefined(col.width)) ?? DEFAULT_WIDTH[kind];
-        const register = kv !== null && typeof kv === "object" && "register" in kv ? (kv["register"] as string) : undefined;
+        const kind = col.kind;
         const meta: SheetColumnMeta = {
             key: col.key,
             header: col.header,
             sub: getSomeorUndefined(col.sub),
-            width,
-            kind,
+            width: parseWidth(getSomeorUndefined(col.width)) ?? DEFAULT_WIDTH[kind.type],
+            kind: kind.type,
             editable: col.editable,
-            register,
+            register: undefined,
             base: undefined,
             dateFormat: undefined,
             uom: undefined,
@@ -115,18 +113,33 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
             customPrint: undefined,
             raw: col,
         };
-        if (kind === "date" && kv !== null) {
-            meta.base = getSomeorUndefined(kv["base"] as never);
-            meta.dateFormat = getSomeorUndefined(kv["format"] as never);
-        } else if (kind === "quantity" && kv !== null) {
-            meta.uom = getSomeorUndefined(kv["uom"] as never) as ReadonlyMap<string, string> | undefined;
-            meta.format = getSomeorUndefined(kv["format"] as never) as TickFormatOpt;
-        } else if (kind === "stamped" && kv !== null) {
-            meta.owner = getSomeorUndefined(kv["owner"] as never);
-        } else if (kind === "custom" && kv !== null) {
-            meta.accepts = kv["accepts"] as string;
-            meta.customParse = kv["parse"] as SheetColumnMeta["customParse"];
-            meta.customPrint = kv["print"] as SheetColumnMeta["customPrint"];
+        // The kind's payload, by its arm — the decoded variant narrows on `type`.
+        switch (kind.type) {
+            case "date":
+                meta.base = getSomeorUndefined(kind.value.base);
+                meta.dateFormat = getSomeorUndefined(kind.value.format);
+                break;
+            case "quantity":
+                meta.uom = getSomeorUndefined(kind.value.uom);
+                meta.format = getSomeorUndefined(kind.value.format);
+                break;
+            case "lookup":
+            case "reference":
+            case "enum":
+            case "set":
+            case "link":
+                meta.register = kind.value.register;
+                break;
+            case "stamped":
+                meta.owner = getSomeorUndefined(kind.value.owner);
+                break;
+            case "custom":
+                meta.accepts = kind.value.accepts;
+                meta.customParse = kind.value.parse;
+                meta.customPrint = kind.value.print;
+                break;
+            default:
+                break;
         }
         return meta;
     });
@@ -184,25 +197,24 @@ export function driverKeyOf(row: SheetRowValue | undefined, driverColumn: string
     if (row === undefined || driverColumn === undefined) return undefined;
     const cell = row.cells.get(driverColumn);
     if (cell === undefined || cell.type !== "String") return undefined;
-    const s = cell.value as string;
-    return s === "" ? undefined : s;
+    return cell.value === "" ? undefined : cell.value;
 }
 
 // ── Cells ─────────────────────────────────────────────────────────────────
 
 /** The blank cell. */
-export const NULL_CELL: SheetCellValue = { type: "Null", value: null } as SheetCellValue;
+export const NULL_CELL: SheetCellValue = variant("Null", null);
+
+/** The empty link — both halves empty. */
+export const EMPTY_LINK: SheetLinkValue = { from: [], to: [] };
 
 /** Whether a cell is blank (`Null`, an empty string, or an empty link). */
 export function cellIsBlank(cell: SheetCellValue | undefined): boolean {
     if (cell === undefined) return true;
     switch (cell.type) {
         case "Null": return true;
-        case "String": return (cell.value as string) === "";
-        case "Link": {
-            const l = cell.value as SheetLinkValue;
-            return l.from.length === 0 && l.to.length === 0;
-        }
+        case "String": return cell.value === "";
+        case "Link": return cell.value.from.length === 0 && cell.value.to.length === 0;
         default: return false;
     }
 }
@@ -218,11 +230,11 @@ export function rowIsBlank(row: SheetRowValue, columns: SheetColumnIndex): boole
 /** A link member's display label (the grammar's print form, B§4.1). */
 export function memberLabel(m: SheetMemberValue): string {
     switch (m.type) {
-        case "identified": return (m.value as { key: string }).key;
-        case "range": { const r = m.value as { from: string; to: string }; return `${r.from}-${r.to}`; }
-        case "counted": { const c = m.value as { n: bigint; key: string }; return `${c.n} × ${c.key}`; }
+        case "identified": return m.value.key;
+        case "range": return `${m.value.from}-${m.value.to}`;
+        case "counted": return `${m.value.n} × ${m.value.key}`;
         case "placeholder": return "TBC";
-        case "text": return m.value as string;
+        case "text": return m.value;
     }
     return "";
 }
@@ -247,10 +259,9 @@ export function formatQuantity(n: number, format: TickFormatOpt): string {
     return formatTick(n, format);
 }
 
-/** A date's display text — the author's pattern, else `17 Nov 26`. */
+/** A date's display text — the author's pattern, else `17 Nov 26`; East's own printer either way. */
 export function formatDateCell(d: Date, pattern: string | undefined): string {
-    if (pattern !== undefined && pattern !== "") return formatDatePattern(pattern, d);
-    return formatDateDisplay(d);
+    return formatDatePattern(pattern !== undefined && pattern !== "" ? pattern : DATE_DISPLAY_PATTERN, d);
 }
 
 /**
@@ -266,13 +277,13 @@ export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
             }
             return rawCellText(cell);
         case "date":
-            return cell.type === "DateTime" ? formatDateCell(cell.value as Date, meta.dateFormat) : rawCellText(cell);
+            return cell.type === "DateTime" ? formatDateCell(cell.value, meta.dateFormat) : rawCellText(cell);
         case "quantity":
-            return cell.type === "Float" ? formatQuantity(cell.value as number, meta.format)
-                : cell.type === "Integer" ? formatQuantity(Number(cell.value as bigint), meta.format) : rawCellText(cell);
+            return cell.type === "Float" ? formatQuantity(cell.value, meta.format)
+                : cell.type === "Integer" ? formatQuantity(Number(cell.value), meta.format) : rawCellText(cell);
         case "integer":
-            return cell.type === "Integer" ? formatQuantity(Number(cell.value as bigint), undefined)
-                : cell.type === "Float" ? formatQuantity(cell.value as number, undefined) : rawCellText(cell);
+            return cell.type === "Integer" ? formatQuantity(Number(cell.value), undefined)
+                : cell.type === "Float" ? formatQuantity(cell.value, undefined) : rawCellText(cell);
         default:
             return rawCellText(cell);
     }
@@ -285,9 +296,9 @@ export function rawCellText(cell: SheetCellValue): string {
         case "Boolean": return String(cell.value);
         case "Integer": return String(cell.value);
         case "Float": return String(cell.value);
-        case "String": return cell.value as string;
-        case "DateTime": return formatDateDisplay(cell.value as Date);
-        case "Link": return printLinkText(cell.value as SheetLinkValue);
+        case "String": return cell.value;
+        case "DateTime": return formatDatePattern(DATE_DISPLAY_PATTERN, cell.value);
+        case "Link": return printLinkText(cell.value);
     }
     return "";
 }

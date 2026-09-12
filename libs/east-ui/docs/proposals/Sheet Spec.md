@@ -196,7 +196,7 @@ export const sheetBasic = East.function([], UIComponentType, (_$) => (
                 data={jobs.read()}
                 id="id"
                 columns={{
-                    start: Sheet.column.date(JobType, { header: "Start", sub: "d/m · fri · +3d" }),
+                    start: Sheet.column.date(JobType, { header: "Start", sub: "dd / mm / yyyy" }),
                     task:  Sheet.column.text(JobType, { header: "Task" }),
                     qty:   Sheet.column.quantity(JobType, { header: "Qty" }),          // no driver on this sheet — the two-argument form
                 }}
@@ -240,7 +240,7 @@ takes `d`, the typed driver row.
 
 ```tsx
 columns={{
-    start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "d/m · fri · +3d" }),
+    start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "dd / mm / yyyy" }),
     end:       Sheet.column.date(PlanRowType, {
                    header: "End", sub: "4d = start+4", base: "start",                // `4d` means start + 4 (B§3)
                    fill: [endFromStart] }),                                          // an author function (§3.5)
@@ -262,7 +262,7 @@ columns={{
 | Kind | Row field | Cell | Payload `T` (fills, parse) | Parse / display (B§3) | Latency |
 |---|---|---|---|---|---|
 | `text` | `String` / `Option<String>` | `String` | `String` | free text | idle |
-| `date` | `DateTime` / `Option<DateTime>` | `DateTime` | `DateTime` | `+3d` · `4d` from `base` · weekday · ISO · `d/m[/yy]` · `17 nov` ; display `17 Nov 26` | instant |
+| `date` | `DateTime` / `Option<DateTime>` | `DateTime` | `DateTime` | the common date field (`dd / mm / yyyy` segments); pasted text takes `+3d` · `4d` from `base` · weekday · ISO · `d/m[/yy]` · `17 nov` ; display `17 Nov 26` | instant |
 | `quantity` | `Float` / `Option<Float>` | `Float` | `Float` | digits + an optional `k` / `m` magnitude suffix (the unit is the column's, never typed), locale-grouped display, unit from the driver | idle |
 | `integer` | `Integer` / `Option<Integer>` | `Integer` | `Integer` | as quantity, no unit | instant |
 | `lookup` | `String` / `Option<String>` | `String` | `String` | scored register candidates (B§3.1); commit = exact → top → typed | instant |
@@ -882,7 +882,7 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
                 driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name })}
                 registers={{ /* stations · sites · statuses — §3.3 */ }}
                 columns={{
-                    start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "d/m · fri · +3d", width: "96px", fill: [nextSlot] }),
+                    start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "dd / mm / yyyy", width: "96px", fill: [nextSlot] }),
                     end:       Sheet.column.date(PlanRowType, { header: "End", sub: "4d = start+4", width: "96px", base: "start", fill: [endFromStart] }),
                     activity:  Sheet.column.lookup(PlanRowType, { header: "Activity", sub: "activity register", width: "214px" }),
                     qty:       Sheet.column.quantity(PlanRowType, ActivityType, {
@@ -1241,8 +1241,8 @@ behaviour lives and how it is tested.
 
 | # | Requirement (B§) | Lives in | Test |
 |---|---|---|---|
-| 1 | Date parsing: `+3`/`+3d`, `4d` from `base`, weekday prefix (next occurrence, never today), ISO, `d/m[/yy]`, `d.m`, `17 nov [26]`, year roll-forward; display `17 Nov 26`; edit form `17/11/26`; strip preview `Mon 17 Nov 26` + day span (B§3) | `parse/date.ts` | unit table |
-| 2 | Quantity parsing: digits, decimal, an optional `k` / `m` magnitude suffix (the unit is the column's, never typed), commas/spaces ignored, rounded integer; strip preview with the implied run when the driver has a rate (B§3) | `parse/quantity.ts` | unit table |
+| 1 | Dates: typed entry is the common date field — the segmented `dd / mm / yyyy` control the `Input` renderer uses; digits fill a segment, ↑ / ↓ step it, ⇥ leaves the last segment for the next cell, a printable key that opened the editor lands in the day segment. The B§3 grammar parses PASTED text — `+3`/`+3d`, `4d` from `base`, weekday prefix (next occurrence, never today), ISO, `d/m[/yy]`, `d.m`, `17 nov [26]`, year roll-forward — and every calendar form and printed form (display `17 Nov 26`; edit form `17/11/26`; strip preview `Mon 17 Nov 26` + day span; clipboard `17/11/2026`) is an East datetime pattern through East's own printer and parser | `parse/date.ts` + `Editor.tsx` | unit table + DOM |
+| 2 | Quantities: typed entry is the common number field — digits, a decimal point, a leading minus; ↑ / ↓ and the stepper column step by one; the unit is the column's, never typed. The B§3 grammar parses PASTED text — an optional `k` / `m` magnitude suffix, commas/spaces ignored, rounded integer; strip preview with the implied run when the driver has a rate | `parse/quantity.ts` + `Editor.tsx` | unit table + DOM |
 | 3 | Candidate scoring: prefix (0) → word prefix (1) → initials (2) → substring (3), ties by sheet frequency; only a prefix match ghosts inline; a non-prefix match previews `→ replacement`; empty buffer arms nothing (menu of what the field accepts, driver column ranked by what follows the row above); ⌥]/⌥[/⌥↓/⌥↑ cycle (B§3.1) | `candidates.ts` | unit + DOM |
 | 4 | Link grammar: identified codes (case-insensitive, bare digits try the prefix), ranges (`M2140-45`, short upper bound completed; hyphen = range only between unspaced bare numbers), countable by name/alias (leading "the" dropped), countable by attribute (`120t` / `120 T` — a number + unit the register knows, resolved by key or alias with the spacing normalised), counted members (`N x kind` / `kind x N`, declared ops, countable kinds only; trailing qualifier → text token; multiplying an identified member → text with reason), `TBC` placeholder, free text (never blocked), separators (B§4.1) — text ↔ `Sheet.Types.Link` value, the kind's parse / print pair; the renderer parses and prints with a register-aware TS twin of the East pair (`linkVocabulary`), the same rules | `link/grammar.ts` | unit table (round trips) |
 | 5 | Sides & locks: storage `a > b` / `b` / `a >`; single set = destination; the driver member's `sides` (the column's per-driver dictionary, §4.3) selects live halves (both/from/to/in; `in` draws a minus); locked half never predicted into, Tab skips it, typing allowed but flagged warn (B§4.2); a `set` column edits as a single To half | `link/sides.ts` + `cells/LinkCell.tsx` | unit + DOM |
@@ -1254,7 +1254,7 @@ behaviour lives and how it is tested.
 | 11 | Async providers: a pending chip in the strip per in-flight provider; results land reactively; a newer context cancels the wait (latest wins); a rejected or thrown provider is skipped with a console diagnostic naming the column; sync providers never wait on async ones ahead of them in the list beyond the latency window — a later sync provider answers meanwhile and an earlier async one that lands replaces it (first that yields wins, by position); an in-flight promise is memoised so a re-run re-attaches instead of restarting | `suggest-async.ts` | unit (fake timers) + DOM |
 | 12 | Proposals (patches encoded to cells, §4.4): at most `ahead` rows, dashed-topped hatched rows with real numbers; ✓/⏎ adds into the first blank slot, ×/⌫ rejects and remembers the pairing; click selects (3px brand bar); esc deselects then dismisses all; taking re-anchors and looks forward; rejected fills remembered per row and key (B§5.2); a proposal lands in the blank slot below the anchor, else appended (blanks are padding) | `suggest.ts` + `Rows.tsx` | DOM |
 | 13 | Sheet keys: arrows/⇧arrows (↓ on the last row appends, not while a lens is active or a paged source is unexhausted); ⇥/⇧⇥ walk fills → take rows → move; ⏎ takes next suggestion else edits with the value selected; F2; printable char seeds a fresh edit; ⌘⏎ row fill (one undo step); ⌘⇧⏎ everything; esc ladder; ⌫ clears (never stamped) / deletes whole selected rows; ⌘⌫ deletes; click/⇧click/drag/dblclick; ⌘/ and ⌘F focus the rail's search (B§6) | `sheet-state.ts` | transition table + DOM |
-| 14 | Commit semantics: Tab, Enter, ↓ (down) / ↑ (stay), blur commit; esc cancels; unparseable keeps the editor open with the neg ring (blur discards); committing a `triggers` column rebuilds the copilot for that row (B§6) | `sheet-state.ts` | DOM |
+| 14 | Commit semantics: Tab, Enter, ↓ (down) / ↑ (stay), blur commit; esc cancels; unparseable keeps the editor open with the neg ring (blur discards); committing a `triggers` column rebuilds the copilot for that row (B§6). A date or number cell's ↑ / ↓ belong to its field (they step), so from those fields only ⏎, ⇥ and esc reach the machine | `sheet-state.ts` + `Editor.tsx` | DOM |
 | 15 | Sheet model: `blanks` padding rows always below the last real row (paged: once the source is exhausted), never removed from under the cursor, not reported/counted/searchable; real row numbers under a lens and for proposals (B§7). Blank rows are padding, not rows: typing into any blank row inserts one row AFTER the last real one (source order is the only order) and the ring follows it; the initial ring sits on the first blank row's driver column | `model.ts` | unit |
 | 16 | The lens over the slice: hit = the slice narrowing matches the row (`sliceMatches` over filters / cohorts / search — String fields directly, other fields through their `printFor` text or the field's `text` projection); hits keep brand row numbers; count `n matches · m context`; ±0/±1/±3 context; collapsed bands (22px, dashed rule, *n hidden* pill) with hover controls `⌃ +1 · n hidden · +1 ⌄ · all` stepping 1, 3, 10, all from top/bottom/both; reveals are a set of indices so bands merge; a narrowing change resets reveals; no narrowing ⇒ no bands (B§8) | `lens.ts` + `Bands.tsx` | unit + DOM |
 | 17 | Views: lenses evaluated live; pinned whole-sheet tab (an empty narrowing) with the planned count; `+ TAB` snapshots the slice state, names from the query (16 chars) or *view n*; active = 2px ink underline; live match counts per view; dirty dot when the slice state differs from the view's, ⏎ updates / esc reverts (writes the snapshot back) / esc on a clean tab returns to the sheet; × (hover neg) or middle-click closes; double-click renames; drag reorders; closing the active tab falls back; leaving persists context + reveals (B§8) | `Tabs.tsx` + `sheet-state.ts` | DOM |
@@ -1598,6 +1598,30 @@ pointer (a window landing, a row growing) never extends the range. The ring and
 the editor overlay reach 1 px outside their cell; on the row directly under the
 sticky header they stay inside it (`data-first`), so the header never covers
 the ring's top edge.
+
+**The fields (review, 2026-09-12).** The ring is the field chrome; what sits
+inside it is the COMMON control for the column's kind, never a bespoke input:
+a `date` column mounts the segmented date field the `Input` renderer uses
+(react-aria segments, `dd / mm / yyyy`), a `quantity` / `integer` column the
+number field with its stepper column (Zag), a `text` / `custom` column the
+text input — each borderless under the ring. The machine still holds a STRING
+buffer: the date field reports its date in the edit form, the number field its
+text, so the commit parses exactly what the field shows and `parse/*` stays the
+one parser for typing, paste and the strip. The register kinds keep the typed
+buffer with the ghost mirror, a special case: their candidates live in the
+docked strip (B§9) and no popover ever opens. Two mechanics matter. The common
+fields start their machines and attach their listeners in PASSIVE effects, so
+the editor focuses — and types a seed into the day segment — from a passive
+effect after them; a layout-effect focus reaches a machine that has not
+started and is dropped. And the fields own their arrows (↑ / ↓ step a segment
+or the number), so only ⏎, ⇥ (at the date field's edge segments) and esc reach
+the machine from them. Every printed date and every calendar entry form is an
+East datetime pattern through East's own tokenizer, printer and parser
+(`formatDatePattern` / `parseDatePattern`, the chart axis pair); only the
+relative forms — `+3d`, `4d`, a weekday — are the grammar's, and they apply to
+pasted text. Cells and link members are built with `variant()` everywhere the
+renderer makes one (the brand the encoder needs), and the renderer narrows on
+the decoded `Sheet.Types.*` values rather than re-declaring their shapes.
 
 ---
 

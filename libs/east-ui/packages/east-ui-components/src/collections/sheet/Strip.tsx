@@ -155,27 +155,29 @@ export function buildStrip(input: StripInput): StripModel {
             };
         }
         case "date": {
+            // The date field: digits fill the segments; the strip previews the date it holds.
             if (empty) {
-                return { on: true, label: `${header} · accepts`, chips: flat("a date"), meta: `d/m · weekday · +3d${meta.base !== undefined ? ` · 4d from ${meta.base}` : ""}`, keys: "type to parse" };
+                return { on: true, label: `${header} · accepts`, chips: flat("a date"), meta: "dd / mm / yyyy", keys: "digits fill a segment · ↑↓ step it · ⇥ next" };
             }
             const d = parseDate(edit.val, { today: input.today, base: input.baseDate });
             if (d === null || d === undefined) {
-                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: "12/4 · fri · +3d · 17 nov" };
+                return { on: true, label: header, chips: flat("incomplete"), meta: "dd / mm / yyyy", keys: "digits fill a segment · ⇥ next" };
             }
             const span = input.baseDate !== undefined ? `${daysBetween(input.baseDate, d)} days` : "";
-            return { on: true, label: header, chips: flat(formatDateLong(d)), meta: span, keys: "12/4 · fri · +3d" };
+            return { on: true, label: header, chips: flat(formatDateLong(d)), meta: span, keys: "⏎ commit · esc cancel" };
         }
         case "quantity":
         case "integer": {
+            // The number field: digits and a decimal point; a pasted `1.2k` still parses through the grammar.
             if (empty) {
-                return { on: true, label: `${header} · accepts`, chips: flat(meta.kind === "quantity" ? "number + unit" : "number"), meta: "1200 · 1.2k · 1.2m", keys: "type to parse" };
+                return { on: true, label: `${header} · accepts`, chips: flat(meta.kind === "quantity" ? "number + unit" : "number"), meta: meta.kind === "quantity" ? "1200 · 1200.5" : "1200", keys: "↑↓ step · ⏎ commit" };
             }
             const n = parseQuantity(edit.val);
             if (n === null || n === undefined) {
-                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: "1200 · 1.2k · 1.2m" };
+                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: meta.kind === "quantity" ? "1200 · 1200.5" : "1200" };
             }
             const unit = meta.kind === "quantity" && input.unit !== undefined ? ` ${input.unit}` : "";
-            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined)}${unit}`), meta: "", keys: "1200 · 1.2k · 1.2m" };
+            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined)}${unit}`), meta: "", keys: "↑↓ step · ⏎ commit" };
         }
         case "custom": {
             if (empty) return { on: true, label: `${header} · accepts`, chips: flat(meta.accepts ?? "a value"), meta: "", keys: "type to parse" };
