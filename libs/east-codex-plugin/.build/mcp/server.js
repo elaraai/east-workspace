@@ -23489,6 +23489,7 @@ server.tool("east_lsp_diagnostics", "Run the bundled real TypeScript/TSX or Pyth
   }
 });
 server.server.onclose = () => lsp.close();
+process.stdin.once("end", () => lsp.close());
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(signal, () => {
     lsp.close();

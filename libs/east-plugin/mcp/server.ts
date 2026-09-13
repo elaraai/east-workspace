@@ -137,6 +137,9 @@ server.tool(
   },
 );
 server.server.onclose = () => lsp.close();
+// The stdio transport never reports end of input: a client that closes stdin
+// has gone, and the language servers' pipes must not keep this process alive.
+process.stdin.once("end", () => lsp.close());
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => { lsp.close(); process.exit(0); });
 
 const transport = new StdioServerTransport();
