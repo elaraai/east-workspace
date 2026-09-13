@@ -9,6 +9,8 @@ on:
       - "libs/eslint-plugin-east/**"
       - "libs/tsserver-plugin-east/**"
       - "libs/east-claude-plugin/**"
+      - "libs/east-codex-plugin/**"
+      - "libs/east-plugin/**"
       - ".github/workflows/test-diagnostics.yml"
   pull_request:
     branches: [main]
@@ -18,6 +20,8 @@ on:
       - "libs/eslint-plugin-east/**"
       - "libs/tsserver-plugin-east/**"
       - "libs/east-claude-plugin/**"
+      - "libs/east-codex-plugin/**"
+      - "libs/east-plugin/**"
       - ".github/workflows/test-diagnostics.yml"
 
 concurrency:
@@ -61,3 +65,11 @@ jobs:
       - name: Build and test east-claude-plugin
         working-directory: libs/east-claude-plugin
         run: make build && make test
+
+      - name: Test shared plugin runtime
+        working-directory: libs/east-plugin
+        run: pnpm test
+
+      - name: Build and test east-codex-plugin
+        working-directory: libs/east-codex-plugin
+        run: pnpm test

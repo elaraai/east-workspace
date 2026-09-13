@@ -1,0 +1,177 @@
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import { buildSearchIndex } from "./search.js";
+import { getEastProjectInfo } from "./east-project.js";
+import { execFile } from "node:child_process";
+import { findEastPy } from "@elaraai/east-diagnostics";
+
+export interface FeatureCheck {
+  name: string;
+  status: "ok" | "warn" | "fail";
+  detail: string;
+}
+
+const ICON: Record<FeatureCheck["status"], string> = { ok: "✓", warn: "⚠", fail: "✗" };
+
+function check(name: string, fn: () => FeatureCheck | Promise<FeatureCheck>): Promise<FeatureCheck> {
+  return Promise.resolve()
+    .then(fn)
+    .catch((e) => ({ name, status: "fail" as const, detail: `check errored: ${String(e).slice(0, 100)}` }));
+}
+
+function resolves(fromDir: string, spec: string): string | undefined {
+  try {
+    // Absolute base so module resolution works even when given a relative cwd.
+    return createRequire(resolve(fromDir, "_.js")).resolve(spec);
+  } catch {
+    return undefined;
+  }
+}
+
+function nearestTsconfig(fromDir: string): string | undefined {
+  let dir = resolve(fromDir);
+  for (;;) {
+    const candidate = join(dir, "tsconfig.json");
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+const BUNDLED = [
+  ".build/hooks/session-start.js",
+  ".build/hooks/subagent-start.js",
+  ".build/hooks/pre-write.js",
+  ".build/hooks/pre-read.js",
+  ".build/hooks/diagnose.js",
+  ".build/hooks/diagnose-bash.js",
+  ".build/daemon/server.js",
+  ".build/daemon/lsp.js",
+  ".build/daemon/east-py-lsp.js",
+  ".build/mcp/server.js",
+];
+
+/** Inspect the installed plugin + the current project; never throws. */
+export async function checkPluginStatus(pluginRoot: string, cwd: string): Promise<FeatureCheck[]> {
+  const checks: FeatureCheck[] = [];
+
+  checks.push(await check("Plugin", () => {
+    const pkg = JSON.parse(readFileSync(join(pluginRoot, existsSync(join(pluginRoot, ".codex-plugin")) ? ".codex-plugin" : ".claude-plugin", "plugin.json"), "utf8")) as { version?: string };
+    return { name: "Plugin", status: "ok", detail: `version ${pkg.version ?? "?"} (${pluginRoot})` };
+  }));
+
+  checks.push(await check("Bundled artifacts", () => {
+    const artifacts = existsSync(join(pluginRoot, ".codex-plugin")) ? [...BUNDLED, ".build/hooks/codex-tools.js"] : BUNDLED;
+    const missing = artifacts.filter((a) => !existsSync(join(pluginRoot, a)));
+    return missing.length === 0
+      ? { name: "Bundled artifacts", status: "ok", detail: `all ${artifacts.length} hook/daemon/MCP bundles present` }
+      : { name: "Bundled artifacts", status: "fail", detail: `missing ${missing.length}: ${missing.join(", ")}` };
+  }));
+
+  checks.push(await check("Hook configuration", () => {
+    const json = JSON.parse(readFileSync(join(pluginRoot, "hooks", "hooks.json"), "utf8")) as { hooks?: Record<string, unknown> };
+    const events = Object.keys(json.hooks ?? {});
+    const diagnoseWired = /diagnose\.js|codex-tools\.js/.test(JSON.stringify(json.hooks ?? {}));
+    return {
+      name: "Hook configuration",
+      status: diagnoseWired ? "ok" : "warn",
+      detail: diagnoseWired
+        ? `${events.length} events: ${events.join(", ")}`
+        : `${events.join(", ")} — PostToolUse is NOT wired to diagnose.js (stale install?)`,
+    };
+  }));
+
+  checks.push(await check("Example search", async () => {
+    const indexPath = join(pluginRoot, "index.json");
+    const data = JSON.parse(readFileSync(indexPath, "utf8")) as { entries?: Array<{ ir?: string; python?: string | null }> };
+    const entries = data.entries ?? [];
+    const programs = entries.filter((e) => e.ir !== undefined);
+    const python = programs.filter((e) => typeof e.python === "string").length;
+    const index = await buildSearchIndex(indexPath);
+    const hits = index.search("array map", { limit: 3 } as Parameters<typeof index.search>[1]);
+    const ok = entries.length > 0 && hits.length > 0 && programs.length > 0 && python === programs.length;
+    return {
+      name: "Example search (index + MCP)",
+      status: ok ? "ok" : "warn",
+      detail: `${entries.length} examples indexed, ${programs.length} as IR (${python} with a python rendering); sample query → ${hits.length} hits`,
+    };
+  }));
+
+  checks.push(await check("Skills", () => {
+    const dirs = readdirSync(join(pluginRoot, "skills"), { withFileTypes: true })
+      .filter((d) => d.isDirectory() && existsSync(join(pluginRoot, "skills", d.name, "SKILL.md")))
+      .map((d) => d.name);
+    return { name: "Skills", status: dirs.length > 0 ? "ok" : "warn", detail: `${dirs.length}: ${dirs.join(", ")}` };
+  }));
+
+  checks.push(await check("East project (cwd)", async () => {
+    const { isEast, skills } = await getEastProjectInfo(cwd);
+    return {
+      name: "East project (cwd)",
+      status: isEast ? "ok" : "warn",
+      detail: isEast ? `detected: ${skills.join(", ")}` : `${cwd} is not an East project — hooks stay idle here (expected outside East projects)`,
+    };
+  }));
+
+  checks.push(await check("Diagnostics (python / east-py)", async () => {
+    // Without this check a missing east-py is INVISIBLE: runEastPyLint returns
+    // null, every python file silently gets no review, and the rest of this
+    // report stays green. Two questions: do the rules answer, and can the warm
+    // server (`east-py lsp`, the build tier's home) start.
+    const command = findEastPy(cwd);
+    const run = (args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> => new Promise((done) => {
+      execFile(command, args, { timeout: 8000, encoding: "utf-8" }, (error, stdout, stderr) => {
+        done({ ok: error === null, stdout: String(stdout), stderr: String(stderr) });
+      });
+    });
+    const listed = await run(["lint", "--list-rules"]);
+    if (!listed.ok) {
+      return {
+        name: "Diagnostics (python / east-py)",
+        status: "warn" as const,
+        detail: `\`${command}\` did not answer — python East files get NO review until east-py resolves (a project .venv above the file, east-py on PATH, or EAST_PY_LINT)`,
+      };
+    }
+    const rules = listed.stdout.split("\n").filter((l) => l.startsWith("EAS")).length;
+    const probe = await run(["lsp", "--probe"]);
+    return probe.ok
+      ? { name: "Diagnostics (python / east-py)", status: "ok" as const, detail: `${command} — ${rules} rules; ${probe.stdout.trim()} (warm server + build tier)` }
+      : {
+          name: "Diagnostics (python / east-py)",
+          status: "warn" as const,
+          detail: `${command} — ${rules} rules, but \`east-py lsp\` cannot start (${probe.stderr.trim().split("\n")[0] ?? "no reason given"}): the rules still run per change, the build tier is off`,
+        };
+  }));
+
+  checks.push(await check("Diagnostics (PostToolUse daemon)", () => {
+    const parts: string[] = [];
+    let status: FeatureCheck["status"] = "ok";
+    const tsOk = resolves(cwd, "typescript") !== undefined;
+    parts.push(tsOk ? "typescript resolvable" : "typescript NOT resolvable");
+    if (!tsOk) status = "warn";
+    const tsconfig = nearestTsconfig(cwd) !== undefined;
+    parts.push(tsconfig ? "tsconfig found" : "no tsconfig near cwd");
+    if (!tsconfig) status = "warn";
+    const eastOk = resolves(cwd, "@elaraai/east") !== undefined;
+    parts.push(eastOk ? "@elaraai/east resolvable (built)" : "@elaraai/east not resolvable/built");
+    const daemonOk = existsSync(join(pluginRoot, ".build/daemon/server.js"));
+    if (!daemonOk) { parts.push("daemon bundle MISSING"); status = "fail"; }
+    return {
+      name: "Diagnostics (PostToolUse daemon)",
+      status,
+      detail: `${parts.join("; ")} — ${status === "ok" ? "ready" : status === "fail" ? "broken" : "limited (prereqs missing)"}`,
+    };
+  }));
+
+  return checks;
+}
+
+export function formatStatus(checks: FeatureCheck[]): string {
+  const anyFail = checks.some((c) => c.status === "fail");
+  const anyWarn = checks.some((c) => c.status === "warn");
+  const header = anyFail ? "East plugin status — ISSUES" : anyWarn ? "East plugin status — OK (with notes)" : "East plugin status — OK";
+  const lines = checks.map((c) => `- ${ICON[c.status]} **${c.name}**: ${c.detail}`);
+  return [`## ${header}`, "", ...lines].join("\n");
+}

@@ -43,3 +43,9 @@ packages:
   # tsserver-plugin-east — TypeScript language service surface for the
   # east-diagnostics rules (editor squiggles via tsconfig plugins / VS Code)
   - "libs/tsserver-plugin-east"
+
+  # east-codex-plugin — Codex skills, hooks, MCP and LSP bridge
+  - "libs/east-codex-plugin"
+
+  # Shared agent plugin runtime and canonical skill/index sources
+  - "libs/east-plugin"

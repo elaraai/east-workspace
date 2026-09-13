@@ -418,6 +418,40 @@ importers:
       '@elaraai/east-diagnostics':
         specifier: workspace:*
         version: link:../east-diagnostics
+      '@elaraai/east-plugin':
+        specifier: workspace:*
+        version: link:../east-plugin
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.12.1
+        version: 1.29.0(zod@3.25.76)
+      minisearch:
+        specifier: ^7.1.2
+        version: 7.2.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.1
+        version: 22.19.15
+      esbuild:
+        specifier: ^0.27.3
+        version: 0.27.7
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
+      zod:
+        specifier: ^3.0.0
+        version: 3.25.76
+
+  libs/east-codex-plugin:
+    dependencies:
+      '@elaraai/east':
+        specifier: workspace:*
+        version: link:../east
+      '@elaraai/east-diagnostics':
+        specifier: workspace:*
+        version: link:../east-diagnostics
+      '@elaraai/east-plugin':
+        specifier: workspace:*
+        version: link:../east-plugin
       '@modelcontextprotocol/sdk':
         specifier: ^1.12.1
         version: 1.29.0(zod@3.25.76)
@@ -602,6 +636,34 @@ importers:
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
+
+  libs/east-plugin:
+    dependencies:
+      '@elaraai/east':
+        specifier: workspace:*
+        version: link:../east
+      '@elaraai/east-diagnostics':
+        specifier: workspace:*
+        version: link:../east-diagnostics
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.12.1
+        version: 1.29.0(zod@3.25.76)
+      minisearch:
+        specifier: ^7.1.2
+        version: 7.2.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.1
+        version: 22.19.15
+      esbuild:
+        specifier: ^0.27.3
+        version: 0.27.7
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
+      zod:
+        specifier: ^3.0.0
+        version: 3.25.76
 
   libs/east-py/packages/east-py-datascience:
     dependencies:

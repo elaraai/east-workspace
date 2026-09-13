@@ -149,6 +149,7 @@ jobs:
             libs/east-c/VERSION
             .claude-plugin/marketplace.json
             libs/east-claude-plugin/.claude-plugin/plugin.json
+            libs/east-codex-plugin/.codex-plugin/plugin.json
           # uv.lock is re-locked by `Compute target version`; it MUST ride along
           # in this artifact or `finalize`'s drift check sees the stale lock and
           # the release fails after everything has already published (v1.0.21).

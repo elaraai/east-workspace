@@ -108,15 +108,16 @@ install: check-deps
 
 ## Build everything: east-c native, east-py (incl. native Cython
 ## extensions built by scikit-build-core during install), all TS packages,
-## then regenerate the Claude plugin search index + hook/MCP bundle (the
+## then regenerate the shared plugin search index + both hook/MCP bundles (the
 ## committed artifacts CI verifies — keeps local search in sync with
 ## *.examples.ts).
 build: check-deps
 	$(MAKE) -C $(CURDIR)/libs/east-c build
 	$(MAKE) -C $(CURDIR)/libs/east-py install
 	pnpm build
-	pnpm --filter '@elaraai/east-claude-plugin' run generate-index
+	pnpm --filter '@elaraai/east-plugin' run generate-index
 	pnpm --filter '@elaraai/east-claude-plugin' run bundle
+	pnpm --filter '@elaraai/east-codex-plugin' run bundle
 
 ## Link all CLIs globally (e3, e3-api-server, east-node, east-py, east-c)
 link:

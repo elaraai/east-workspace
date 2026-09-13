@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Set the Claude Code plugin version to the unified monorepo release version.
+// Set both agent plugin versions to the unified monorepo release version.
 // Writes into both the plugin manifest and the marketplace entry so the
 // marketplace serves the same version (and plugin.json wins per the spec).
 //
@@ -48,3 +48,9 @@ const oldMarket = setJsonVersion(MARKETPLACE_JSON, (j, op) => {
 
 console.log(`east (plugin):      ${oldPlugin} → ${NEW_VERSION}`);
 console.log(`east (marketplace): ${oldMarket} → ${NEW_VERSION}`);
+
+const oldCodex = setJsonVersion('libs/east-codex-plugin/.codex-plugin/plugin.json', (j, op) => {
+  if (op === 'read') return j.version;
+  j.version = NEW_VERSION;
+});
+console.log(`east-codex-plugin:  ${oldCodex} → ${NEW_VERSION}`);

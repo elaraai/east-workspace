@@ -121,6 +121,12 @@ if (pluginVersion !== canonical) {
   errors.push(`${PLUGIN_JSON}: ${pluginVersion} ≠ ${canonical}`);
 }
 
+const codexPluginPath = 'libs/east-codex-plugin/.codex-plugin/plugin.json';
+const codexPluginVersion = readJsonVersion(codexPluginPath);
+if (codexPluginVersion !== canonical) {
+  errors.push(`${codexPluginPath}: ${codexPluginVersion} ≠ ${canonical}`);
+}
+
 const marketplace = JSON.parse(fs.readFileSync(path.join(repoRoot, MARKETPLACE_JSON), 'utf8'));
 const marketEntry = marketplace.plugins?.find((p) => p.name === 'east') ?? marketplace.plugins?.[0];
 if (marketEntry && marketEntry.version !== canonical) {

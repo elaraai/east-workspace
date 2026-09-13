@@ -12,6 +12,9 @@ on:
       - 'libs/**/SKILL.md'
       - 'libs/**/*.examples.ts'
       - 'libs/**/*.examples.tsx'
+      - 'libs/east-plugin/**'
+      - 'libs/east-codex-plugin/**'
+      - 'libs/east-claude-plugin/daemon/**'
       - 'libs/east-claude-plugin/hooks/**'
       - 'libs/east-claude-plugin/lib/**'
       - 'libs/east-claude-plugin/mcp/**'
@@ -27,6 +30,9 @@ on:
       - 'libs/**/SKILL.md'
       - 'libs/**/*.examples.ts'
       - 'libs/**/*.examples.tsx'
+      - 'libs/east-plugin/**'
+      - 'libs/east-codex-plugin/**'
+      - 'libs/east-claude-plugin/daemon/**'
       - 'libs/east-claude-plugin/hooks/**'
       - 'libs/east-claude-plugin/lib/**'
       - 'libs/east-claude-plugin/mcp/**'
@@ -93,13 +99,17 @@ jobs:
         working-directory: libs/east-claude-plugin
         run: make build
 
+      - name: Regenerate Codex artifacts and materialized skills
+        working-directory: libs/east-codex-plugin
+        run: make build
+
       - name: Fail if artifacts are stale
         run: |
-          if ! git diff --quiet -- libs/east-claude-plugin/index.json libs/east-claude-plugin/.build; then
+          if ! git diff --quiet -- libs/east-plugin/index.json libs/east-claude-plugin/index.json libs/east-claude-plugin/.build libs/east-codex-plugin/index.json libs/east-codex-plugin/.build libs/east-codex-plugin/skills; then
             echo "::error::Plugin artifacts are out of date. Run:"
-            echo "  cd libs/east-claude-plugin && make index && make build"
-            echo "and commit libs/east-claude-plugin/index.json + .build/."
-            git --no-pager diff --stat -- libs/east-claude-plugin/index.json libs/east-claude-plugin/.build
+            echo "  make -C libs/east-plugin index && make -C libs/east-claude-plugin build"
+            echo "Also run make -C libs/east-codex-plugin build; commit both host bundles, indexes and Codex skills."
+            git --no-pager diff --stat -- libs/east-plugin/index.json libs/east-claude-plugin/index.json libs/east-claude-plugin/.build libs/east-codex-plugin/index.json libs/east-codex-plugin/.build libs/east-codex-plugin/skills
             exit 1
           fi
           echo "Plugin artifacts are current."
