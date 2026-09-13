@@ -49,6 +49,7 @@ import {
 import type {
     DatasetKeyMatchRange, DatasetKeyQuery,
 } from "../key-search/index.js";
+import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "../paged-snapshot.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import type { PlanPagedSourceValue } from "./use-plan-paging.js";
 import type { PlanRowValue } from "./model.js";
@@ -166,9 +167,10 @@ export function usePlanSeek(
     const { result } = useTrackedEvaluation(read);
     const revision = result.ok && result.value.revision?.type === "some"
         ? result.value.revision.value : undefined;
-    const resetKey = JSON.stringify([source?.id, revision]);
-    const previousSnapshot = useRef(resetKey);
-    const snapshotChanged = previousSnapshot.current !== resetKey;
+    const snapshot = useMemo(() => pagedSnapshot(source?.id, revision), [source?.id, revision]);
+    const resetKey = pagedSnapshotKey(snapshot);
+    const previousSnapshot = useRef(snapshot);
+    const snapshotChanged = !pagedSnapshotEqual(previousSnapshot.current, snapshot);
 
     useEffect(() => {
         const waiting = pending.current;
@@ -242,10 +244,10 @@ export function usePlanSeek(
     // previous snapshot. A query can be repeated against the new source, but
     // its old element index cannot be reused there.
     useLayoutEffect(() => {
-        if (previousSnapshot.current === resetKey) return;
-        previousSnapshot.current = resetKey;
+        if (pagedSnapshotEqual(previousSnapshot.current, snapshot)) return;
+        previousSnapshot.current = snapshot;
         clear();
-    }, [resetKey, clear]);
+    }, [snapshot, clear]);
     const clearJumpRef = useRef(clearJump);
     useLayoutEffect(() => { clearJumpRef.current = clearJump; });
     useEffect(() => () => {
