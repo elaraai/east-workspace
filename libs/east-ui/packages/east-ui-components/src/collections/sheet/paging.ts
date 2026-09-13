@@ -23,6 +23,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { pagedSnapshot, pagedSnapshotEqual, pagedSourceEqual, type PagedSnapshot } from "../paged-snapshot.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import {
     createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow,
@@ -105,15 +106,16 @@ export function useSheetPaging(
     const [viewportWindow, setViewportWindow] = useState(0);
     const [isScrolling, setIsScrolling] = useState(false);
     const [sizeVersion, setSizeVersion] = useState(0);
-    const cacheRef = useRef<{ id: string; revision: string | undefined; total: number | undefined; cache: WindowCache }>({ id: "", revision: undefined, total: undefined, cache: new Map() });
-    const geometryRef = useRef<{ id: string | undefined; revision: string | undefined }>({ id: undefined, revision: undefined });
+    const cacheRef = useRef<{ snapshot: PagedSnapshot; total: number | undefined; cache: WindowCache }>({ snapshot: pagedSnapshot(undefined, undefined), total: undefined, cache: new Map() });
+    const geometryRef = useRef(pagedSnapshot(undefined, undefined));
 
     const read = useCallback(() => {
         if (source === undefined) return undefined;
         const currentRevision = source.revision?.();
         const revision = currentRevision?.type === "some" ? currentRevision.value : undefined;
-        if (cacheRef.current.id !== source.id || cacheRef.current.revision !== revision) {
-            cacheRef.current = { id: source.id, revision, total: undefined, cache: new Map() };
+        const snapshot = pagedSnapshot(source.id, revision);
+        if (!pagedSnapshotEqual(cacheRef.current.snapshot, snapshot)) {
+            cacheRef.current = { snapshot, total: undefined, cache: new Map() };
         }
         let total: number | undefined;
         let error: string | undefined;
@@ -158,9 +160,10 @@ export function useSheetPaging(
     const revision = value?.revision;
     const landed = value?.landed;
     useEffect(() => {
-        const sourceChanged = geometryRef.current.id !== source?.id;
-        const snapshotChanged = sourceChanged || geometryRef.current.revision !== revision;
-        geometryRef.current = { id: source?.id, revision };
+        const snapshot = pagedSnapshot(source?.id, revision);
+        const sourceChanged = !pagedSourceEqual(geometryRef.current.source, snapshot.source);
+        const snapshotChanged = !pagedSnapshotEqual(geometryRef.current, snapshot);
+        geometryRef.current = snapshot;
         let next = snapshotChanged || (total !== undefined && total !== ledger.total)
             ? createLedger(total ?? (sourceChanged ? 0 : ledger.total), SHEET_PAGE_SIZE) : ledger;
         for (const { w, rows } of landed ?? []) {

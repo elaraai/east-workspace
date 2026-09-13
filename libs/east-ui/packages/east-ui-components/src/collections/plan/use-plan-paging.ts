@@ -50,6 +50,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { pagedSnapshot, pagedSnapshotEqual, pagedSourceEqual, type PagedSnapshot } from "../paged-snapshot.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import type { PlanBand, PlanRootValue, PlanRowValue } from "./model.js";
 
@@ -167,16 +168,17 @@ export function usePlanPaging(
 
     // Read-once cache, per source identity. Reset here rather than in an effect
     // so a swapped source cannot serve the previous one's rows for a frame.
-    const cacheRef = useRef<{ id: string; revision: string | undefined; total: number | undefined; cache: WindowCache }>({ id: "", revision: undefined, total: undefined, cache: new Map() });
-    const geometryRef = useRef<{ id: string | undefined; revision: string | undefined }>({ id: undefined, revision: undefined });
+    const cacheRef = useRef<{ snapshot: PagedSnapshot; total: number | undefined; cache: WindowCache }>({ snapshot: pagedSnapshot(undefined, undefined), total: undefined, cache: new Map() });
+    const geometryRef = useRef(pagedSnapshot(undefined, undefined));
     const originRef = useRef<ReadonlyMap<string, number>>(new Map());
 
     const read = useCallback(() => {
         if (source === undefined) return undefined;
         const currentRevision = source.revision?.();
         const revision = currentRevision?.type === "some" ? currentRevision.value : undefined;
-        if (cacheRef.current.id !== source.id || cacheRef.current.revision !== revision) {
-            cacheRef.current = { id: source.id, revision, total: undefined, cache: new Map() };
+        const snapshot = pagedSnapshot(source.id, revision);
+        if (!pagedSnapshotEqual(cacheRef.current.snapshot, snapshot)) {
+            cacheRef.current = { snapshot, total: undefined, cache: new Map() };
         }
         let total: number | undefined;
         let error: string | undefined;
@@ -211,9 +213,10 @@ export function usePlanPaging(
     const revision = value?.revision;
     const landed = value?.resident;
     useEffect(() => {
-        const sourceChanged = geometryRef.current.id !== source?.id;
-        const snapshotChanged = sourceChanged || geometryRef.current.revision !== revision;
-        geometryRef.current = { id: source?.id, revision };
+        const snapshot = pagedSnapshot(source?.id, revision);
+        const sourceChanged = !pagedSourceEqual(geometryRef.current.source, snapshot.source);
+        const snapshotChanged = !pagedSnapshotEqual(geometryRef.current, snapshot);
+        geometryRef.current = snapshot;
         let next = snapshotChanged || (total !== undefined && total !== ledger.total)
             ? createLedger(total ?? (sourceChanged ? 0 : ledger.total), PLAN_PAGE_SIZE) : ledger;
         for (const { w, rows } of landed ?? []) {
