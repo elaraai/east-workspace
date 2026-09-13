@@ -364,3 +364,36 @@ describe("paging driver — a derived source whose rows change (#590)", () => {
         expect(text("rows")).not.toContain("before-w0");
     });
 });
+
+
+describe("paging driver — content revisions", () => {
+    test("same-id same-total revision changes replace cached rows and their geometry", async () => {
+        const base = source(8);
+        const before = { ...base.value, revision: () => some("A") };
+        const { rerender } = render(<Harness src={before} />);
+        await waitFor(() => expect(text("rows")).toContain("w0000r000"));
+        const oldVersion = latest!.sizeVersion;
+        const after = {
+            ...base.value,
+            revision: () => some("B"),
+            page: (offset: bigint) => some(new Map([[`new-${offset}`, { key: `new-${offset}`, parent: none } as PlanRowValue]])),
+        };
+        rerender(<Harness src={after} />);
+        await waitFor(() => expect(text("rows")).toContain("new-0"));
+        expect(text("rows")).not.toContain("w0000r000");
+        expect(latest!.total).toBe(8 * PLAN_PAGE_SIZE);
+        expect(latest!.sizeVersion).toBeGreaterThan(oldVersion);
+    });
+
+    test("a revision change keeps the viewport's resident demand after a far jump", async () => {
+        const base = source(250);
+        const { rerender } = render(<Harness src={{ ...base.value, revision: () => some("A") }} />);
+        await waitFor(() => expect(latest?.resident).toBeDefined());
+        act(() => { latest!.jumpToElement(40_000); });
+        await waitFor(() => expect(latest!.resident!.from).toBeGreaterThanOrEqual(39_800));
+        const start = latest!.resident!.from;
+        rerender(<Harness src={{ ...base.value, revision: () => some("B") }} />);
+        await waitFor(() => expect(latest!.resident!.from).toBe(start));
+        expect(latest!.resident!.to).toBeGreaterThan(40_000);
+    });
+});

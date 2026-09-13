@@ -12,6 +12,7 @@
     "test": "pnpm -r --filter='./packages/*' --filter='./packages/east-ui-extension/webview' run test",
     "lint": "pnpm -r --filter='./packages/*' --filter='./packages/east-ui-extension/webview' run lint",
     "dev": "pnpm --filter @elaraai/east-ui-showcase run dev",
+    "showcase": "make showcase",
     "version:extension:patch": "pnpm --filter east-ui-preview version patch --no-git-tag-version",
     "version:extension:minor": "pnpm --filter east-ui-preview version minor --no-git-tag-version",
     "version:extension:major": "pnpm --filter east-ui-preview version major --no-git-tag-version"

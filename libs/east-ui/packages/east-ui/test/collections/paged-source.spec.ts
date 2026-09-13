@@ -24,6 +24,7 @@ describeEast("Row-source contract (#567)", (test) => {
         pagedSourceCanvas: ex.pagedSourceCanvas,
         pagedTableSource: ex.pagedTableSource,
         pagedSourceWindows: ex.pagedSourceWindows,
+        pagedSnapshotRevision: ex.pagedSnapshotRevision,
     });
 
     test("Paged.of windows a collection, reports the total and exhausts on an EMPTY window", $ => {

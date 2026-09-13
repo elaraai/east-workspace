@@ -152,7 +152,7 @@ export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordan
             {hasCount && tight < 1 && <Box as="span" css={styles.toolbarCount} data-slot="toolbarCount">{count}</Box>}
             <Box css={styles.toolbarRailGroup} data-slot="toolbarRailGroup">
                 {search !== undefined && (
-                    <DatasetKeySearch keyType={search.keyType} onFind={search.find} onListRange={search.listRange} onJump={search.jump} onClear={search.clear} />
+                    <DatasetKeySearch key={search.resetKey} keyType={search.keyType} onFind={search.find} onListRange={search.listRange} onJump={search.jump} onClear={search.clear} />
                 )}
                 {slice !== undefined && kinds.length > 0 && (
                     <Box css={styles.toolbarCluster} onKeyDownCapture={onKeyDownCapture} data-slot="toolbarRail">

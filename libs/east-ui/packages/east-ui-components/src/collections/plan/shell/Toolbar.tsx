@@ -140,7 +140,7 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
                 <Box css={styles.footerItem} data-slot="scopeBadge">loaded rows only</Box>
             )}
             {search !== undefined && (
-                <DatasetKeySearch keyType={search.keyType} onFind={search.find}
+                <DatasetKeySearch key={search.resetKey} keyType={search.keyType} onFind={search.find}
                     onListRange={search.listRange} onJump={search.jump} onClear={search.clear} />
             )}
             <Box css={styles.toolbarGroup}>

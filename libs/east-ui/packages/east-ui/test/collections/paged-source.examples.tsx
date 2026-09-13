@@ -15,9 +15,10 @@ import {
     StructType,
     example,
     some,
+    none,
 } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Paged, Plan, Table } from "@elaraai/east-ui";
+import { Paged, Plan, Table, Text } from "@elaraai/east-ui";
 
 // The row-source contract (#567/#574). A component's `data` takes the whole
 // collection or a WINDOWED source of it, and `Paged.of` is the in-memory
@@ -148,6 +149,20 @@ export const pagedSourceWindows = example({
         // Bounded, so the canvas virtualizes: an unbounded paged canvas would
         // mount every resident row at once and page purely on demand.
         return <Plan axis={axis} data={source} series={series} style={{ maxHeight: "420px" }} />;
+    }),
+    inputs: [],
+});
+
+/** The immutable fixture lifecycle, matching mutable producers' method shape. */
+export const pagedSnapshotRevision = example({
+    keywords: ["Paged", "of", "revision", "refresh", "snapshot", "immutable"],
+    description: "Read a fixture snapshot revision and refresh it at the same token. Mutable sources use refresh(none) to discover current content or refresh(some(hash)) to install an acknowledged write; a Paged.of fixture retains its immutable snapshot.",
+    fn: East.function([], UIComponentType, $ => {
+        const rows = $.const([{ id: "r1", quantity: 2.0 }], ArrayType(StructType({ id: StringType, quantity: FloatType })));
+        const source = $.let(Paged.of("orders:fixture-1", rows));
+        $(source.refresh(none));
+        $(source.refresh(some("orders:fixture-1")));
+        return <Text>{East.str`Snapshot: ${source.revision().unwrap("some")}`}</Text>;
     }),
     inputs: [],
 });
