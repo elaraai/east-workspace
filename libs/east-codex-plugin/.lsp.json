@@ -1,0 +1,21 @@
+{
+  "east": {
+    "command": "node",
+    "args": [
+      "${PLUGIN_ROOT}/.build/daemon/lsp.js"
+    ],
+    "extensionToLanguage": {
+      ".ts": "typescript",
+      ".tsx": "typescriptreact"
+    }
+  },
+  "east-py": {
+    "command": "node",
+    "args": [
+      "${PLUGIN_ROOT}/.build/daemon/east-py-lsp.js"
+    ],
+    "extensionToLanguage": {
+      ".py": "python"
+    }
+  }
+}

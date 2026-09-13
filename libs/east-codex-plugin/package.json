@@ -1,0 +1,30 @@
+{
+  "name": "@elaraai/east-codex-plugin",
+  "version": "0.0.1",
+  "license": "AGPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter @elaraai/east-plugin run build && tsc",
+    "bundle": "esbuild hooks/codex-tools.ts hooks/session-start.ts hooks/subagent-start.ts hooks/pre-write.ts hooks/pre-read.ts hooks/diagnose.ts hooks/diagnose-bash.ts daemon/server.ts daemon/lsp.ts daemon/east-py-lsp.ts status/report.ts mcp/server.ts --bundle --format=esm --platform=node --outdir=.build  && node scripts/sync-skills.mjs && node ../east-plugin/scripts/sync-assets.mjs",
+    "generate-index": "pnpm --filter @elaraai/east-plugin run generate-index",
+    "test": "npm run build && npm run bundle && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
+    "sync-skills": "node scripts/sync-skills.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-diagnostics": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "minisearch": "^7.1.2",
+    "@elaraai/east-plugin": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "esbuild": "^0.27.3",
+    "typescript": "~5.9.2",
+    "zod": "^3.0.0"
+  }
+}

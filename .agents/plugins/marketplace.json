@@ -1,0 +1,20 @@
+{
+  "name": "elaraai-codex",
+  "interface": {
+    "displayName": "Elara AI"
+  },
+  "plugins": [
+    {
+      "name": "east-codex-plugin",
+      "source": {
+        "source": "local",
+        "path": "./libs/east-codex-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

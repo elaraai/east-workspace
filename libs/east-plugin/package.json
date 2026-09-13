@@ -1,0 +1,34 @@
+{
+  "name": "@elaraai/east-plugin",
+  "version": "0.0.1",
+  "license": "AGPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "generate-index": "npm run build && node dist/scripts/generate-index.js --base-dir .. && uv run --project ../east-py python scripts/render-python.py index.json && node scripts/sync-assets.mjs",
+    "test": "npm run build && node --enable-source-maps --test dist/test/*.spec.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@elaraai/east": "workspace:*",
+    "@elaraai/east-diagnostics": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "minisearch": "^7.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "esbuild": "^0.27.3",
+    "typescript": "~5.9.2",
+    "zod": "^3.0.0"
+  },
+  "exports": {
+    "./lib/*": "./dist/lib/*.js",
+    "./hooks/*": "./dist/hooks/*.js",
+    "./daemon/*": "./dist/daemon/*.js",
+    "./mcp/*": "./dist/mcp/*.js",
+    "./status/*": "./dist/status/*.js"
+  }
+}

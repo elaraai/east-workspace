@@ -1,0 +1,1 @@
+../../../east-py/packages/east-py-datascience/SKILL.md

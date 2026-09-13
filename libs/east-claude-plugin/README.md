@@ -2,6 +2,8 @@
 
 A Claude Code plugin for the East programming language ecosystem.
 
+Runtime code, native skill sources, index generation and CLI installers are shared with the Codex plugin in [`../east-plugin`](../east-plugin). This plugin ships self-contained bundles and a generated index; users do not need the shared library or a local checkout.
+
 ## Skills
 
 | Skill | Package | Description |
@@ -77,6 +79,7 @@ Point the marketplace at your local monorepo instead of GitHub. Build the plugin
 ```bash
 # 1. Refresh the committed artifacts the plugin ships (hooks bundle + search index)
 cd ~/src/east-workspace
+pnpm --filter '@elaraai/east-claude-plugin' run build           # shared runtime + host entry points
 pnpm --filter '@elaraai/east-claude-plugin' run bundle          # -> .build/*.js
 pnpm --filter '@elaraai/east-claude-plugin' run generate-index  # -> index.json
 ```
@@ -147,10 +150,10 @@ curl -fsSL https://raw.githubusercontent.com/elaraai/east-workspace/main/libs/ea
 
 | Script | What it does | Requirements |
 |--------|--------------|--------------|
-| `scripts/global/install.sh` | Installs CLIs globally from npm/PyPI, builds east-c from source | `curl`, `git`, `cmake`, `gcc` |
-| `scripts/global/install-dev.sh` | Clones all repos to `~/east`, builds and tests them | `curl`, `git`, `make`, `cmake`, `gcc` |
-| `scripts/global/update.sh` | Updates CLIs to latest versions | `npm` |
-| `scripts/global/update-dev.sh` | Pulls latest and rebuilds all repos | `git`, `make` |
+| `scripts/install.sh` | Installs CLIs globally from npm/PyPI, builds east-c from source | `curl`, `git`, `cmake`, `gcc` |
+| `scripts/install-dev.sh` | Clones all repos to `~/east`, builds and tests them | `curl`, `git`, `make`, `cmake`, `gcc` |
+| `scripts/update.sh` | Updates CLIs to latest versions | `npm` |
+| `scripts/update-dev.sh` | Pulls latest and rebuilds all repos | `git`, `make` |
 
 **Update CLIs** (fetches latest versions from npm/PyPI):
 ```bash

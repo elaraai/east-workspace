@@ -12,7 +12,7 @@ test("plugin status reports plugin-global features OK and never throws", async (
 
   assert.equal(byName.get("Plugin")?.status, "ok");
   assert.equal(byName.get("Bundled artifacts")?.status, "ok");
-  assert.equal(byName.get("Hooks registered")?.status, "ok");
+  assert.equal(byName.get("Hook configuration")?.status, "ok");
   assert.equal(byName.get("Example search (index + MCP)")?.status, "ok");
   assert.equal(byName.get("Skills")?.status, "ok");
 

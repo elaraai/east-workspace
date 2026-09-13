@@ -2,3 +2,7 @@
 # install-time build) but generated — keep them out of diffs and language stats.
 libs/east-claude-plugin/.build/**     linguist-generated=true -diff
 libs/east-claude-plugin/index.json    linguist-generated=true -diff
+libs/east-codex-plugin/.build/**     linguist-generated=true -diff
+libs/east-codex-plugin/index.json    linguist-generated=true -diff
+libs/east-codex-plugin/skills/**     linguist-generated=true
+libs/east-plugin/index.json          linguist-generated=true -diff

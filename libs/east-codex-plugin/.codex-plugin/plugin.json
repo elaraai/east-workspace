@@ -1,0 +1,36 @@
+{
+  "name": "east-codex-plugin",
+  "version": "1.0.75",
+  "description": "East programming language ecosystem - a statically typed, expression-based language for business logic, data processing, UI definitions, and durable execution",
+  "author": {
+    "name": "Elara AI",
+    "email": "support@elara.ai",
+    "url": "https://elaraai.com"
+  },
+  "homepage": "https://github.com/elaraai/east",
+  "repository": "https://github.com/elaraai/east-workspace",
+  "license": "AGPL-3.0",
+  "keywords": [
+    "east",
+    "elara",
+    "typescript",
+    "python",
+    "dsl",
+    "e3",
+    "durable-execution"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "East",
+    "shortDescription": "East skills, example search, hooks and language servers.",
+    "longDescription": "East programming language ecosystem - a statically typed, expression-based language for business logic, data processing, UI definitions, and durable execution",
+    "developerName": "Elara AI",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": "Help me build an East project."
+  }
+}

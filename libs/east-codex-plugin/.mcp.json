@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "east": {
+      "command": "node",
+      "cwd": ".",
+      "args": [
+        "./.build/mcp/server.js"
+      ]
+    }
+  }
+}

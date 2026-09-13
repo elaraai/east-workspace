@@ -1,0 +1,279 @@
+---
+name: east-node-std
+description: "Node.js platform functions for the East language. Use when writing East programs that need Console I/O, Environment variables, FileSystem operations, HTTP Fetch requests, Cryptography, Time operations, Path manipulation, Random number generation, reading large JSON documents, or Testing. Triggers for: (1) Writing East programs with @elaraai/east-node-std, (2) Using platform functions like Console.log, Env.get, FileSystem.readFile, Fetch.get, Crypto.uuid, Time.now, Path.join, Random.normal, (3) Testing East code with describeEast and Assert, (4) Passing credentials/secrets to East tasks without putting them in source, (5) Opening a beast2 collection file too big for memory lazily with FileSystem.openBeast (paged reads inside an East function, on every runtime), (6) Reading a JSON document too large to decode whole — ingesting a multi-gigabyte payload from another system — with Json.open / Json.more / Json.next, strictly against a published contract."
+---
+
+# East Node Standard Library
+
+Node.js platform functions for the East language. Enables East programs to interact with the filesystem, network, console, and other I/O operations.
+
+## Before writing code — search the example index
+
+Every East API has a tested example in the plugin's index — the index IS the
+API reference, printed from each example's IR in TypeScript or python. Before
+writing or changing East code:
+
+1. Call `search_east_examples` for each capability you
+   are about to use — `language: "python"` for east-py, `"typescript"`
+   otherwise. Summaries come back first: id, signature, the inputs and the
+   expected result, a few hundred bytes each.
+2. Fetch the one or two that match with `get_east_example`
+   and pattern your code on them.
+3. Do not read `node_modules/@elaraai/**` or `*.examples.ts` files wholesale,
+   and do not reason from `.d.ts` signatures: the index holds the same
+   programs, exact and far cheaper, and the signatures omit the runtime rules
+   that make East code correct.
+
+Nothing is injected for you; the search is the step.
+
+## Quick Start
+
+```typescript
+import { East, StringType, NullType } from "@elaraai/east";
+import { NodePlatform, Console, FileSystem } from "@elaraai/east-node-std";
+
+const processFile = East.function(
+    [StringType],
+    NullType,
+    ($, path) => {
+        const content = $.let(FileSystem.readFile(path));
+        $(Console.log(content));
+    }
+);
+
+// Compile with NodePlatform (includes all platform functions)
+const compiled = East.compile(processFile.toIR(), NodePlatform);
+await compiled("input.txt");
+```
+
+## Decision Tree: Which Module to Use
+
+```
+Task → What do you need?
+    │
+    ├─ Console (stdout/stderr output)
+    │   └─ .log(), .error(), .write()
+    │
+    ├─ Env (environment variables — credentials/config supplied at runtime)
+    │   └─ .get() → Option<String> (some when set, none when not; never
+    │       write a credential literal — IR is content-addressed and replicated)
+    │
+    ├─ FileSystem (read/write files and directories)
+    │   ├─ Text → .readFile(), .writeFile(), .appendFile()
+    │   ├─ Binary → .readFileBytes(), .writeFileBytes()
+    │   ├─ Huge beast2 collection file → .openBeast(T, path) — T is an ArrayType/SetType/DictType, passed FIRST; a frozen,
+    │   │   lazily paged value: size / get / has / $.for decode one segment (mapped on east-c and east-py, positioned reads on Node)
+    │   ├─ Query → .exists(), .isFile(), .isDirectory()
+    │   ├─ Directory → .createDirectory(), .readDirectory()
+    │   └─ Delete → .deleteFile()
+    │
+    ├─ Json (read a JSON document too large to decode whole)
+    │   ├─ Open → .open(path, pointer) / .openText(text, pointer) → an opaque handle;
+    │   │   pointer is RFC 6901 ("" for the whole document, "/data" for an envelope's array)
+    │   ├─ Iterate → .more(handle) then .next(T, handle) — T FIRST, one element in flight
+    │   ├─ One subtree → .value(T, path, pointer) — for the small members beside a huge array
+    │   └─ Release → .close(handle)
+    │
+    ├─ Fetch (HTTP requests)
+    │   └─ .get(), .getBytes(), .post(), .request()
+    │
+    ├─ Crypto (hashing, UUIDs, random bytes)
+    │   └─ .uuid(), .randomBytes(), .hashSha256(), .hashSha256Bytes()
+    │
+    ├─ Time (timestamps and delays)
+    │   └─ .now(), .sleep()
+    │
+    ├─ Path (path manipulation)
+    │   └─ .join(), .resolve(), .dirname(), .basename(), .extname()
+    │
+    ├─ Random (statistical distributions)
+    │   ├─ Basic → .uniform(), .normal(), .range()
+    │   ├─ Continuous → .exponential(), .weibull(), .pareto(), .logNormal()
+    │   ├─ Discrete → .bernoulli(), .binomial(), .geometric(), .poisson()
+    │   ├─ Composite → .irwinHall(), .bates()
+    │   └─ Control → .seed()
+    │
+    └─ Assert (testing with describeEast)
+        └─ .is(), .equal(), .notEqual(), .less(), .lessEqual(), .greater(), .greaterEqual(), .between(), .throws(), .fail()
+```
+
+## Compiling East Programs
+
+**Option 1: Use NodePlatform (all modules)**
+```typescript
+const compiled = East.compile(myFunction.toIR(), NodePlatform);
+```
+
+**Option 2: Use specific module implementations**
+```typescript
+const compiled = East.compile(myFunction.toIR(), [...Console.Implementation, ...FileSystem.Implementation]);
+```
+
+## Available Modules
+
+| Module | Import | Purpose |
+|--------|--------|---------|
+| Console | `import { Console } from "@elaraai/east-node-std"` | stdout/stderr output |
+| Env | `import { Env } from "@elaraai/east-node-std"` | Environment variables (runtime credentials/config; name in IR, value from the environment) |
+| FileSystem | `import { FileSystem } from "@elaraai/east-node-std"` | Read/write files and directories |
+| Json | `import { Json } from "@elaraai/east-node-std"` | Read a JSON document too large to decode whole, strictly |
+| Fetch | `import { Fetch } from "@elaraai/east-node-std"` | HTTP requests |
+| Crypto | `import { Crypto } from "@elaraai/east-node-std"` | Hashing, UUIDs, random bytes |
+| Time | `import { Time } from "@elaraai/east-node-std"` | Timestamps and sleep |
+| Path | `import { Path } from "@elaraai/east-node-std"` | Path manipulation |
+| Random | `import { Random } from "@elaraai/east-node-std"` | Statistical distributions |
+| Assert | `import { Assert, describeEast } from "@elaraai/east-node-std"` | Testing utilities |
+
+## Accessing Types
+
+```typescript
+import { Fetch } from "@elaraai/east-node-std";
+
+// Access types via Module.Types.TypeName
+const method = Fetch.Types.Method;
+const config = Fetch.Types.RequestConfig;
+const response = Fetch.Types.Response;
+```
+
+## Key Patterns
+
+### Open a huge beast2 collection file lazily
+
+`FileSystem.openBeast(T, path)` is the file-backed twin of `blob.openBeast(T)`
+(the **east** skill): the type comes first, the value is frozen, and only the
+segments a program touches are ever decoded. It is a generic platform call
+(`fs_open_beast<T>`) provided by the std family on every runtime, so an East
+function using it runs unchanged on the east-node, east-c and east-py
+runners — a python-authored function that calls it links into an east-c task.
+
+```typescript
+import { East, DictType, IntegerType, StringType, StructType } from "@elaraai/east";
+import { FileSystem } from "@elaraai/east-node-std";
+
+const TableType = DictType(IntegerType, StructType({ id: IntegerType, name: StringType }));
+
+const total = East.function([StringType], IntegerType, ($, path) => {
+    const table = $.let(FileSystem.openBeast(TableType, path));   // reads the index, not the file
+    const sum = $.let(table.get(7n).id);                          // one segment decoded
+    $.for(table, ($, row) => {                                    // one segment at a time
+        $.assign(sum, sum.add(row.id));
+    });
+    return sum;
+});
+```
+
+- The file's header must carry exactly `T` — a mismatch is
+  `Failed to open beast file <path>: beast2: cannot open a blob of type <wire> as <T>`,
+  the same text on every runtime; a missing file is `Failed to open beast file <path>: ...`.
+- The value is frozen: `insert` / `update` raise `cannot mutate a frozen value`;
+  `.copy()` gives a mutable copy (decoding the whole file).
+- A file without a paging index — what `East.Blob.encodeBeast` writes — or an
+  element shape holding `Ref` or function values decodes whole, frozen, with
+  the same value. Paged files come from `encodeBeast2PagedFor`, `Beast2Writer`
+  and every runner's collection output.
+- The value keeps its file open for as long as it lives (a descriptor on
+  Node, a read-only mapping on east-c and east-py): don't hold thousands of
+  opened files at once, and don't truncate or rewrite a file while a value
+  over it is alive — read it into a fresh value first.
+- For bytes already in hand (a `BlobType` dataset, a `Fetch.getBytes` result)
+  use `blob.openBeast(T)` instead; for an e3 task input, do nothing — large
+  inputs already open lazily.
+
+### Read a JSON document too large to decode whole
+
+`Json.open` positions a reader on the array or object an RFC 6901 pointer
+names; `Json.next(T, handle)` reads ONE element against `T`. The type comes
+first, as it does for `FileSystem.openBeast`. One element is in flight at a
+time whatever the document's size, so the natural home is an `e3.streamTask`
+producer that emits as it reads.
+
+```typescript
+import { East, ArrayType, IntegerType, StringType, StructType } from "@elaraai/east";
+import { Json } from "@elaraai/east-node-std";
+
+const RowType = StructType({ id: IntegerType, name: StringType });
+
+const total = East.function([StringType], IntegerType, ($, path) => {
+    const handle = $.let(Json.open(path, "/data"));   // skips to the array; parses nothing before it
+    const sum = $.let(0n);
+    $.while(Json.more(handle), $ => {
+        $.assign(sum, sum.add(Json.next(RowType, handle).id));
+    });
+    $(Json.close(handle));
+    return sum;
+});
+```
+
+- **`{"meta": {…}, "data": [10M rows]}` is the ordinary shape.** Never type the
+  whole document as one value — `StructType({ meta: …, data: ArrayType(RowType) })`
+  materialises the array however good the reader is. Point at the array, and
+  read the envelope separately with `Json.value(MetaType, path, "/meta")`;
+  a member AFTER the array costs a scan, not a parse.
+- **It is strict, and deliberately stricter than `parseJson`.** It accepts
+  exactly what `jsonSchemaFor(T)` describes — what the ENCODER emits — so a
+  producer validating against the published schema cannot send something that
+  is then rejected. An `Integer` must be a quoted decimal in i64 range: not
+  `"0x10"`, `"0b101"`, `" 7 "`, `"007"`, `"-0"`, nor a bare JSON number. A
+  `DateTime` must carry an explicit `+00:00`, not `Z` and not a numeric offset,
+  and a day its month does not have (`2026-02-30`) is refused rather than
+  rolled forward. A `Blob`'s hex must be lowercase.
+- **An `Option<T>` is `null` or `T`'s own encoding** wherever `T` can never
+  itself encode as `null`: a row's `note: Option<String>` reads `none` from
+  `"note": null` and `some` from `"note": "x"`, and the tagged
+  `{"type": "some", "value": "x"}` object there is refused as the payload it
+  is not (`expected a String, got an object`). Only `Option<Null>` and
+  `Option<Option<T>>` keep the tagged object — what keeps `some(none)`
+  distinct from `none` — so a bare `null` there is refused
+  (`expected an object, got null`). The rule is the same on every runtime,
+  with nothing to configure, and `jsonSchemaFor` describes a flat Option as
+  `oneOf [null, T]`.
+- **Errors name the offending node** by RFC 6901 pointer — an array element by
+  its index, an object member by its name (`~` and `/` escaped as `~0` / `~1`):
+  `json_next: /1/id: "not-an-integer" is not a 64-bit integer in East JSON's form`,
+  `json_next: /b~0~1c: "x" is not a 64-bit integer in East JSON's form`. A
+  quoted value is clipped at 200 characters, so a message never grows with
+  the document.
+- **`more` is a predicate, `next` advances.** They need not alternate, and
+  asking `more` twice is harmless.
+- **A JSON object iterates as entries**: pass a `Struct` of exactly `key` and
+  `value` (the key must be `String`), in either declared order, which is what
+  a `Dict` output needs. The entry type is checked at the container before
+  anything is consumed, so a refused call leaves the reader where it was.
+- Handles are held until closed, as a database connection is. A body that can
+  fail mid-document should close in a `.catch` that re-raises — a `$.try` whose
+  `.catch` is left implicit swallows the error.
+- The same six functions (`json_open`, `json_open_text`, `json_more`,
+  `json_next`, `json_value`, `json_close`) exist in `east-py-std` and
+  `east-c-std`, and **accept and reject exactly the same documents with
+  exactly the same message** — pointer and sentence alike, the property the
+  shared compliance corpus pins. `east-py-std` is east-c's reader through a
+  Cython bridge, so python and C agree by construction; this Node
+  implementation is the second one, and words every refusal as the C one does.
+- **What is skipped is still JSON.** Navigating past a value — the members
+  before a pointer target, a field the type does not model — does not
+  construct it, but a fault inside it (`[1,,2]`, `trux`, `"a\q"`) is refused
+  at open with the text a read would give. A document nested deeper than 2048
+  is refused on every runtime, on the value being read and on junk being
+  skipped past alike — JSON is an untrusted-input boundary. Nothing after the
+  container being iterated is examined.
+- **Strings are validated UTF-8.** A malformed byte sequence (an overlong
+  encoding, an encoded surrogate, a byte past U+10FFFF) is `invalid UTF-8 in
+  string` — never repaired to U+FFFD, never passed through — and a
+  `\uD83D\uDE00` escape pair joins into one code point. A `DateTime` year
+  runs 0001–9999, the range every runtime represents.
+- **Three things the schema cannot say, so they are stated here.** A `Ref` that
+  the encoder wrote as `{"$ref": …}` (a repeated target) is not readable — as
+  with `Array`/`Set`/`Dict` aliasing, a value with shared references does not
+  validate against its own published schema. A `Dict` with two entries carrying
+  the same key satisfies `uniqueItems` (the entry objects differ) and is still
+  refused. A `Variant` must carry `"type"` before `"value"`, because the
+  payload cannot be typed before the case is known — the only place member
+  order matters; struct fields may arrive in any order.
+
+## Related skills
+
+- **east** — the language these platform functions plug into; compile with `NodePlatform`. `jsonSchemaFor(T)` there publishes the contract this reader enforces.
+- **east-node-io** — the heavier I/O layer (SQL / NoSQL, S3, FTP / SFTP, XLSX / XML, compression) when `FileSystem` / `Fetch` aren't enough.
+- **e3** — run these effects as durable, cached tasks instead of one-off scripts.
+- **east-project** — to author your OWN custom platform function (not just use these stock ones): `East.platform(...).implement(...)` default-exported from your package's `./platform`, called from an e3 task via `{ runtime: 'east-node', platforms: [{ custom: '@elaraai/<project>' }] }`.
+- **e3-create** — scaffold that custom platform: `--platform` for one project-owned module, or `--node-packages=<name>` for a dedicated npm workspace member with its own auto-derived e3 environment.
