@@ -105,11 +105,16 @@ export function useSheetPaging(
     const [viewportWindow, setViewportWindow] = useState(0);
     const [isScrolling, setIsScrolling] = useState(false);
     const [sizeVersion, setSizeVersion] = useState(0);
-    const cacheRef = useRef<{ id: string; cache: WindowCache }>({ id: "", cache: new Map() });
+    const cacheRef = useRef<{ id: string; revision: string | undefined; total: number | undefined; cache: WindowCache }>({ id: "", revision: undefined, total: undefined, cache: new Map() });
+    const geometryRef = useRef<{ id: string | undefined; revision: string | undefined }>({ id: undefined, revision: undefined });
 
     const read = useCallback(() => {
         if (source === undefined) return undefined;
-        if (cacheRef.current.id !== source.id) cacheRef.current = { id: source.id, cache: new Map() };
+        const currentRevision = source.revision?.();
+        const revision = currentRevision?.type === "some" ? currentRevision.value : undefined;
+        if (cacheRef.current.id !== source.id || cacheRef.current.revision !== revision) {
+            cacheRef.current = { id: source.id, revision, total: undefined, cache: new Map() };
+        }
         let total: number | undefined;
         let error: string | undefined;
         try {
@@ -119,6 +124,11 @@ export function useSheetPaging(
             console.error("[Sheet] paged source total failed:", err);
             error = readFailure(err);
         }
+        if (total !== undefined && cacheRef.current.total !== undefined && total !== cacheRef.current.total) {
+            console.warn(`[Sheet] paged source "${source.id}" changed total() without a revision change; dropping cached windows.`);
+            cacheRef.current.cache.clear();
+        }
+        cacheRef.current.total = total;
         const landed: { w: number; rows: readonly SheetRowValue[] }[] = [];
         let loading = false;
         for (const w of residentWindows(residency)) {
@@ -137,40 +147,34 @@ export function useSheetPaging(
             cacheRef.current.cache.set(w, rows);
             landed.push({ w, rows });
         }
-        return { total, landed, loading, error };
+        return { revision, total, landed, loading, error };
     }, [source, residency]);
 
     const { result } = useTrackedEvaluation(read);
     const value = result.ok ? result.value : undefined;
     const readError = result.ok ? value?.error : readFailure(result.error);
 
-    // The source's size defines the geometry.
     const total = value?.total;
-    useEffect(() => {
-        if (total === undefined || total === ledger.total) return;
-        if (ledger.total > 0) {
-            console.warn(`[Sheet] paged source ${source !== undefined ? `"${source.id}" ` : ""}changed total() ${ledger.total} → ${total} under one id — same id must serve same rows; dropping cached windows.`);
-            cacheRef.current = { id: cacheRef.current.id, cache: new Map() };
-        }
-        setLedger(createLedger(total, SHEET_PAGE_SIZE));
-        setResidency(NO_RESIDENCY);
-        setSizeVersion((v) => v + 1);
-    }, [total, ledger.total, source]);
-
-    // Landed windows teach the ledger — rows are fixed-height, so the geometry
-    // is exact; a group row (#740) is its band, its lines and its blank line.
+    const revision = value?.revision;
     const landed = value?.landed;
     useEffect(() => {
-        if (landed === undefined || landed.length === 0) return;
-        let next = ledger;
-        for (const { w, rows } of landed) {
+        const sourceChanged = geometryRef.current.id !== source?.id;
+        const snapshotChanged = sourceChanged || geometryRef.current.revision !== revision;
+        geometryRef.current = { id: source?.id, revision };
+        let next = snapshotChanged || (total !== undefined && total !== ledger.total)
+            ? createLedger(total ?? (sourceChanged ? 0 : ledger.total), SHEET_PAGE_SIZE) : ledger;
+        for (const { w, rows } of landed ?? []) {
             const px = rows.reduce((sum, r) => sum + (r.band.type === "some" ? (r.band.value.folded ? bandPx : bandPx + (r.lines.length + 1) * rowPx) : rowPx), 0);
             next = observeWindow(next, w, { px, rows: rows.length });
         }
+        if (sourceChanged) {
+            setResidency(NO_RESIDENCY);
+            setViewportWindow(0);
+        }
         if (next === ledger) return;
         setLedger(next);
-        setSizeVersion((v) => v + 1);
-    }, [landed, ledger, rowPx, bandPx]);
+        setSizeVersion(v => v + 1);
+    }, [source?.id, revision, total, landed, ledger, rowPx, bandPx]);
 
     // Demand follows the viewport, at idle only.
     useEffect(() => {
@@ -203,7 +207,7 @@ export function useSheetPaging(
     }, [value, residency]);
 
     const bands = useMemo(() => {
-        if (isEmpty(residency) || ledger.windows === 0 || total === undefined) return { head: undefined, tail: undefined };
+        if (isEmpty(residency) || ledger.windows === 0) return { head: undefined, tail: undefined };
         const head: SheetBand | undefined = residency.lo > 0
             ? { at: "head", from: 0, to: residency.lo * SHEET_PAGE_SIZE - 1, px: offsetOfWindow(ledger, residency.lo) }
             : undefined;
@@ -212,7 +216,7 @@ export function useSheetPaging(
             ? {
                 at: "tail",
                 from: (run.to + 1) * SHEET_PAGE_SIZE,
-                to: total - 1,
+                to: (total ?? ledger.total) - 1,
                 px: documentHeight(ledger) - offsetOfWindow(ledger, run.to + 1),
             }
             : undefined;

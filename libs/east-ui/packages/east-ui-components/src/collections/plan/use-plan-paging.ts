@@ -167,13 +167,16 @@ export function usePlanPaging(
 
     // Read-once cache, per source identity. Reset here rather than in an effect
     // so a swapped source cannot serve the previous one's rows for a frame.
-    const cacheRef = useRef<{ id: string; cache: WindowCache }>({ id: "", cache: new Map() });
+    const cacheRef = useRef<{ id: string; revision: string | undefined; total: number | undefined; cache: WindowCache }>({ id: "", revision: undefined, total: undefined, cache: new Map() });
+    const geometryRef = useRef<{ id: string | undefined; revision: string | undefined }>({ id: undefined, revision: undefined });
     const originRef = useRef<ReadonlyMap<string, number>>(new Map());
 
     const read = useCallback(() => {
         if (source === undefined) return undefined;
-        if (cacheRef.current.id !== source.id) {
-            cacheRef.current = { id: source.id, cache: new Map() };
+        const currentRevision = source.revision?.();
+        const revision = currentRevision?.type === "some" ? currentRevision.value : undefined;
+        if (cacheRef.current.id !== source.id || cacheRef.current.revision !== revision) {
+            cacheRef.current = { id: source.id, revision, total: undefined, cache: new Map() };
         }
         let total: number | undefined;
         let error: string | undefined;
@@ -184,9 +187,15 @@ export function usePlanPaging(
             console.error("[Plan] paged source total failed:", err);
             error = readFailure(err);
         }
+        if (total !== undefined && cacheRef.current.total !== undefined && total !== cacheRef.current.total) {
+            console.warn(`[Plan] paged source "${source.id}" changed total() without a revision change; dropping cached windows.`);
+            cacheRef.current.cache.clear();
+        }
+        cacheRef.current.total = total;
         const wanted = residentWindows(residency);
         const result = readWindows(source, wanted, cacheRef.current.cache, PLAN_PAGE_SIZE);
         return {
+            revision,
             total,
             resident: result.resident,
             loading: result.loading,
@@ -198,38 +207,26 @@ export function usePlanPaging(
     const value = result.ok ? result.value : undefined;
     const readError = result.ok ? value?.error : readFailure(result.error);
 
-    // ── The source's size defines the geometry ────────────────────────────
     const total = value?.total;
-    useEffect(() => {
-        if (total === undefined || total === ledger.total) return;
-        // Same id ⇒ same rows is the source contract, so a total that MOVES
-        // under one id has violated it. The geometry rebuilds either way —
-        // and the read-once cache must go with it, or the canvas silently
-        // serves the OLD rows against the new geometry (#614). Loud, because
-        // the author's derived source is what needs fixing (sign the id).
-        if (ledger.total > 0) {
-            console.warn(`[Plan] paged source ${source !== undefined ? `"${source.id}" ` : ""}changed total() ${ledger.total} → ${total} under one id — same id must serve same rows; dropping cached windows.`);
-            cacheRef.current = { id: cacheRef.current.id, cache: new Map() };
-        }
-        setLedger(createLedger(total, PLAN_PAGE_SIZE));
-        setResidency(NO_RESIDENCY);
-        setSizeVersion((v) => v + 1);
-    }, [total, ledger.total, source]);
-
-    // ── Landed windows teach the ledger ───────────────────────────────────
+    const revision = value?.revision;
     const landed = value?.resident;
     useEffect(() => {
-        if (landed === undefined || landed.length === 0) return;
-        let next = ledger;
-        for (const { w, rows } of landed) {
+        const sourceChanged = geometryRef.current.id !== source?.id;
+        const snapshotChanged = sourceChanged || geometryRef.current.revision !== revision;
+        geometryRef.current = { id: source?.id, revision };
+        let next = snapshotChanged || (total !== undefined && total !== ledger.total)
+            ? createLedger(total ?? (sourceChanged ? 0 : ledger.total), PLAN_PAGE_SIZE) : ledger;
+        for (const { w, rows } of landed ?? []) {
             next = observeWindow(next, w, { px: heightOf([...rows.values()]), rows: rows.size });
+        }
+        if (sourceChanged) {
+            setResidency(NO_RESIDENCY);
+            setViewportWindow(0);
         }
         if (next === ledger) return;
         setLedger(next);
-        // Heights changed while the body-item count barely moved — TanStack's
-        // measurement memo does not watch `estimateSize`, so say so explicitly.
-        setSizeVersion((v) => v + 1);
-    }, [landed, ledger, heightOf]);
+        setSizeVersion(v => v + 1);
+    }, [source?.id, revision, total, landed, ledger, heightOf]);
 
     // ── Demand follows the viewport, at idle only ─────────────────────────
     useEffect(() => {
@@ -266,7 +263,7 @@ export function usePlanPaging(
     originRef.current = origin;
 
     const bands = useMemo(() => {
-        if (isEmpty(residency) || ledger.windows === 0 || total === undefined) {
+        if (isEmpty(residency) || ledger.windows === 0) {
             return { head: undefined, tail: undefined };
         }
         const head: PlanBand | undefined = residency.lo > 0
@@ -282,7 +279,7 @@ export function usePlanPaging(
             ? {
                 at: "tail",
                 from: (residency.hi + 1) * PLAN_PAGE_SIZE,
-                to: total - 1,
+                to: (total ?? ledger.total) - 1,
                 px: documentHeight(ledger) - offsetOfWindow(ledger, residency.hi + 1),
             }
             : undefined;

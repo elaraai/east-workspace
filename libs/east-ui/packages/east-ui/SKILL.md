@@ -1127,6 +1127,23 @@ Task → Which tag?
        read() tracks the dependency so <Reactive> re-renders when the value changes
 ```
 
+## Paged source snapshots
+
+`Paged.of(id, collection)` is an immutable fixture snapshot: give changed
+content a new id. Its `revision()` returns `some(id)`; `refresh(none)` and
+`refresh(some(id))` keep that snapshot, and another target is refused.
+
+Mutable producers such as `Data.bindPaged` expose the same six fields:
+`id`, `page`, `total`, `seek`, `revision`, `refresh`. `id` names the logical
+source; `revision()` returns its content equality token, or `none` while
+resolving it. Pages, total and seek positions belong to that one snapshot.
+Call `refresh(some(committedHash))` after a confirmed write to install that
+exact snapshot, or `refresh(none)` to discover current content. Refresh
+invalidates all consumers, including same-size rows and cached key searches.
+Read methods inside tracked evaluation; call refresh in an event handler.
+Legacy producers without the lifecycle fields remain usable for read-only
+views, but cannot promise mutable editing or a fabricated revision.
+
 ## Key Patterns
 
 ### Configurator — one array per axis, no parallel tables
