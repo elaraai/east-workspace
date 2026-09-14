@@ -36,8 +36,8 @@
  *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
  *     `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; the lens band's
  *     pill opens on hover (`shadow.xs`) with brand controls.
- *   - A group's band (#740, G1): 40 px `bg.panel`, 1 px `border.strong`
- *     above, `border.subtle` below (`border.strong` when folded); chevron
+ *   - A group's band (#740, G1): 40 px `bg.panel`, no extra top rule,
+ *     `border.subtle` below (`border.strong` when folded); chevron
  *     18 px `fg.muted`, count mono 10; title body 13/600 `fg` over the
  *     eyebrow mono 9.5 uppercase .08em `fg.subtle`; band cells mono 11
  *     `fg.muted`. The extent rule (G2): 2 px `border.strong` down the right
@@ -706,6 +706,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "4px",
             paddingX: "10px",
+            "&[data-kind=date], &[data-kind=quantity], &[data-kind=integer]": { paddingX: "4px" },
             overflow: "hidden",
         },
         editorField: {
@@ -749,8 +750,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         editorNumber: {
             flex: "1",
             minWidth: "0",
-            alignSelf: "stretch",
-            minHeight: "0",
+            alignSelf: "center",
             borderWidth: "0",
             borderRadius: "0",
             boxShadow: "none",
@@ -760,13 +760,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         editorNumberInput: {
             fontFamily: "mono",
-            fontSize: "12.5px",
             fontWeight: "400",
             color: "fg",
             paddingInline: "0",
-            paddingBlock: "0",
-            minHeight: "0",
-            _coarse: { fontSize: "16px", minHeight: "0" },
         },
         editorStepper: {
             marginLeft: "6px",
@@ -778,9 +774,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "center",
             fontFamily: "mono",
-            fontSize: "12.5px",
             color: "fg",
-            _coarse: { fontSize: "16px" },
         },
         editorResolve: {
             display: "inline-flex",
