@@ -5,10 +5,10 @@
  * @vitest-environment jsdom
  *
  * Grouped rows (#740 — G1–G12): a band per plan over its lines, numbered
- * from 1 per plan, one blank line per open plan, the `+ plan` ghost band;
+ * from 1 per plan, legacy blank children during the insertion migration;
  * folds; a line's commit, a blank line's insert, a band cell's commit and
- * the title rename; the ghost band creating a plan; the two-step delete;
- * paste into a plan and a copy that skips bands; the lens over lines. Every
+ * the title rename; explicit group insertion; the two-step delete;
+ * paste into a plan and a copy that skips summaries; source key search. Every
  * value built by the east-ui factory and COMPILED.
  */
 
@@ -330,20 +330,25 @@ describe("the clipboard (G9)", () => {
     });
 });
 
-describe("the lens (G10)", () => {
-    test("hits are lines: a plan with hits counts `n of m` and keeps its context inside it; a plan with none folds to its band", async () => {
-        const { container, band, lines } = mount(buildGrouped({ lens: true }));
-        await waitFor(() => expect(container.querySelector("[data-sheet]")!.hasAttribute("data-lens")).toBe(true));
-        expect(band("p1")!.querySelector('[data-slot="groupCount"]')!.textContent).toBe("1 of 2");
-        expect(lines("p1").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Painting"]);
-        expect(lines("p1")[0]!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("2");
-        expect(lines("p1")[0]!.querySelector('[data-slot="gutterNumber"]')!.hasAttribute("data-hit")).toBe(true);
-        expect(container.querySelectorAll('[data-slot="band"][data-band="lens"]')).toHaveLength(1);
+describe("grouped search", () => {
+    test("legacy slice and view props never hide children, activate tabs or change folds", async () => {
+        const value = buildGrouped({ lens: true });
+        const { container, band, lines, flush } = mount(value);
+        await flush();
+        expect(container.querySelector("[data-sheet]")!.hasAttribute("data-lens")).toBe(false);
+        expect(container.querySelector("[data-sheet]")!.hasAttribute("data-view")).toBe(false);
+        expect(container.querySelector('[data-slot="tabs"]')).toBeNull();
+        expect(container.querySelector('[data-slot="toolbar"]')).toBeNull();
+        expect(container.querySelector('[data-band="lens"]')).toBeNull();
+        expect(band("p1")!.querySelector('[data-slot="groupCount"]')!.textContent).toBe("2");
+        expect(lines("p1").map(row => row.querySelector('[data-key="task"]')!.textContent)).toEqual(["Machining", "Painting"]);
         expect(band("p2")!.hasAttribute("data-folded")).toBe(true);
-        expect(band("p2")!.querySelector('[data-slot="groupCount"]')!.textContent).toBe("0 of 1");
-        expect(container.querySelector('[data-slot="toolbarCount"]')!.textContent).toBe("1 match");
-        // No blank lines and no ghost band under a lens.
-        expect(container.querySelector('[data-slot="row"][data-blank]')).toBeNull();
+        fireEvent.mouseDown(band("p2")!.querySelector('[data-slot="fold"]')!, { button: 0 });
+        await flush();
+        expect(lines("p2")).toHaveLength(1);
+        // The unused slice is not even read/written by the renderer.
+        expect(value.slice.type).toBe("some");
+        if (value.slice.type === "some") expect(value.slice.value.slice.read().search).toEqual(none);
     });
 });
 
@@ -408,4 +413,34 @@ test("child insertion uses the current local slot, preserves siblings and unfold
     expect(ui.band("p2")!.hasAttribute("data-folded")).toBe(false);
     expect(ui.lines("p2")[0]!.querySelector('[data-slot="editor"]')).toBeTruthy();
     expect(draft("p2", Sheet.Types.DraftGroup(PlanType, "lines")).lines).toHaveLength(2);
+});
+
+test("grouped key search jumps and steps between summaries without filtering children or changing folds", async () => {
+    const ui = mount(buildPagedPlans(10));
+    await waitFor(() => expect(ui.band("P1002")).not.toBeNull());
+    fireEvent.mouseDown(ui.band("P1002")!.querySelector('[data-slot="fold"]')!, { button: 0 });
+    expect(ui.lines("P1002")).toHaveLength(0);
+    const count = ui.rows().length;
+    const search = ui.getByPlaceholderText("Search keys");
+    ui.key("f", { ctrlKey: true });
+    expect(document.activeElement).toBe(search);
+    fireEvent.change(search, { target: { value: "P100" } });
+    await waitFor(() => expect(ui.getByText("10 matches")).toBeTruthy());
+    fireEvent.keyDown(search, { key: "Enter" });
+    await waitFor(() => expect(ui.band("P1000")!.querySelector('[data-key="$title"][data-selected]')).not.toBeNull());
+    fireEvent.click(ui.getByRole("button", { name: "Next match" }));
+    await waitFor(() => expect(ui.band("P1001")!.querySelector('[data-key="$title"][data-selected]')).not.toBeNull());
+    fireEvent.click(ui.getByRole("button", { name: "Next match" }));
+    await waitFor(() => expect(ui.band("P1002")!.querySelector('[data-key="$title"][data-selected]')).not.toBeNull());
+    expect(ui.band("P1002")!.hasAttribute("data-folded")).toBe(true);
+    expect(ui.rows()).toHaveLength(count);
+    expect(ui.lines("P1000")).toHaveLength(1);
+    expect(ui.container.querySelector('[data-slot="tabs"]')).toBeNull();
+    expect(ui.container.querySelector('[data-band="lens"]')).toBeNull();
+    fireEvent.click(ui.getByRole("button", { name: "Previous match" }));
+    await waitFor(() => expect(ui.band("P1001")!.querySelector('[data-key="$title"][data-selected]')).not.toBeNull());
+    fireEvent.click(ui.getByRole("button", { name: "Clear search" }));
+    expect((ui.getByPlaceholderText("Search keys") as HTMLInputElement).value).toBe("");
+    expect(ui.band("P1002")!.hasAttribute("data-folded")).toBe(true);
+    expect(ui.rows()).toHaveLength(count);
 });

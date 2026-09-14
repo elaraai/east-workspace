@@ -364,8 +364,6 @@ export interface SheetGapRowProps {
     /** How far each control reaches on its next press (1 · 3 · 10 · all). */
     reach: { top: number; bottom: number; both: number };
     onReveal: (gap: LensGap, where: "top" | "bottom" | "both" | "all") => void;
-    /** The 1-based number a lens position prints as (a line's within its group, #740). */
-    numberOf?: ((position: number) => number) | undefined;
 }
 
 /**
@@ -373,7 +371,7 @@ export interface SheetGapRowProps {
  * hover opens `⌃ +1 · n hidden · +1 ⌄ · all`, each press reaching further
  * from the top, the bottom, or both.
  */
-export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onReveal, numberOf }: SheetGapRowProps) {
+export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onReveal }: SheetGapRowProps) {
     const press = (where: "top" | "bottom" | "both" | "all") => (e: MouseEvent) => {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -381,8 +379,8 @@ export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onRev
         onReveal(gap, where);
     };
     const middle = gap.first ? "bottom" : gap.last ? "top" : "both";
-    const above = numberOf !== undefined ? numberOf(gap.from) - 1 : gap.from;
-    const below = numberOf !== undefined ? numberOf(gap.to) + 1 : gap.to + 2;
+    const above = gap.from;
+    const below = gap.to + 2;
     return (
         <Box css={styles.band} data-slot="band" data-band="lens" data-gap={gap.key} data-hidden={gap.hidden}>
             <Box css={styles.bandRule} aria-hidden="true" />
@@ -434,8 +432,6 @@ export interface SheetGroupRowProps {
     folded: boolean;
     /** The group's line count. */
     count: number;
-    /** Under a lens: how many of its lines are hits. */
-    hits: number | undefined;
     /** The first body item — the row under the sticky header. */
     first?: boolean | undefined;
     /** The copy that sticks under the column header while the group's lines scroll (G1). */
@@ -461,7 +457,7 @@ export interface SheetGroupRowProps {
 
 /** Renders one full-width summary with a fold control and independent metadata. */
 export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowProps) {
-    const { styles, columns, registers, gridTemplate, bandPx, r, row, group, folded, count, hits, first, sticky, selC, range, picked, editor } = props;
+    const { styles, columns, registers, gridTemplate, bandPx, r, row, group, folded, count, first, sticky, selC, range, picked, editor } = props;
     const titleCell = row.cells.get(TITLE_KEY);
     const title = titleCell !== undefined && titleCell.type === "String" ? titleCell.value : "";
     const sub = getSomeorUndefined(row.band)?.sub ?? "";
@@ -469,7 +465,6 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
     const titleMeta = group.cells.get(TITLE_KEY);
     const titleSelected = selC !== undefined && selC < span && editor === undefined;
     const titleEditing = editor !== undefined && editor.c < span;
-    const countText = hits !== undefined ? `${hits} of ${count}` : String(count);
     return (
         <Box
             css={styles.groupRow}
@@ -527,7 +522,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     {titleEditing && editor.node}
                 </Box>
                 {sub !== "" && <Box as="span" css={styles.groupSub} data-slot="groupSub">{sub}</Box>}
-                <Box as="span" css={styles.groupCount} data-slot="groupCount" data-quiet={hits === 0 ? "" : undefined}>{countText}</Box>
+                <Box as="span" css={styles.groupCount} data-slot="groupCount">{count}</Box>
                 {columns.list.map((colMeta, c) => {
                     if (c < span) return null;
                     const meta = group.cells.get(colMeta.key);
@@ -562,52 +557,6 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                         </Box>
                     );
                 })}
-            </Box>
-        </Box>
-    );
-});
-
-export interface SheetGhostBandRowProps {
-    styles: Styles;
-    gridTemplate: string;
-    /** The band's height (px). */
-    bandPx: number;
-    /** The row-space index. */
-    r: number;
-    /** How many columns the label spans. */
-    colCount: number;
-    /** The ring sits on the ghost band. */
-    selected: boolean;
-    /** The title editor, when a plan is being named. */
-    editor: ReactNode | undefined;
-    onCellDown: (r: number, c: number, e: MouseEvent) => void;
-}
-
-/** The `+ plan` ghost band (#740, G6): a click, ⏎ or a printable key opens its title; the commit creates the plan. */
-export const SheetGhostBandRow = memo(function SheetGhostBandRow({ styles, gridTemplate, bandPx, r, colCount, selected, editor, onCellDown }: SheetGhostBandRowProps) {
-    return (
-        <Box
-            css={styles.ghostBand}
-            style={{ gridTemplateColumns: gridTemplate, minHeight: `${bandPx}px` }}
-            data-slot="row"
-            data-ghost-band=""
-            data-row={r}
-            role="row"
-        >
-            <Box css={styles.gutter} data-slot="gutter" />
-            <Box
-                css={styles.ghostCell}
-                style={{ gridColumn: `span ${Math.max(1, colCount)}` }}
-                data-slot="cell"
-                data-key={TITLE_KEY}
-                data-selected={selected && editor === undefined ? "" : undefined}
-                role="gridcell"
-                title="Add a plan — ⏎ or click, then name it"
-                onMouseDown={(e) => onCellDown(r, 0, e)}
-            >
-                <Box as="span" css={styles.ghostLabel} data-slot="ghostLabel">+ plan</Box>
-                {selected && editor === undefined && <Box css={styles.ring} data-slot="ring" />}
-                {editor}
             </Box>
         </Box>
     );

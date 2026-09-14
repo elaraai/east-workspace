@@ -40,10 +40,7 @@
  *     `border.subtle` below (`border.strong` when folded); chevron
  *     18 px `fg.muted`, count mono 10; title body 13/600 `fg` over the
  *     eyebrow mono 9.5 uppercase .08em `fg.subtle`; band cells mono 11
- *     `fg.muted`. The extent rule (G2): 2 px `border.strong` down the right
- *     edge from the band to the group's last line. The `+ plan` ghost band
- *     (G6): 40 px, dashed `border.strong` top, mono 10/600 `fg.subtle`,
- *     brand on hover.
+ *     `fg.muted`. Membership is shown by markers and rails in the gutter.
  *   - A phone (the adaptive contract, #346): the grid scrolls sideways under
  *     a gutter that stays put (`position: sticky`), the toolbar keeps its one
  *     row through its ladder, and on a coarse pointer the small controls grow
@@ -75,7 +72,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "lockTag", "lockWarn", "arrow",
         "band", "bandRule", "bandPill", "bandControl", "bandCount",
         "membershipLane", "membershipRail", "membershipButton", "membershipGlyph", "gutterAction", "groupSummary",
-        "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell", "ghostBand", "ghostCell", "ghostLabel",
+        "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell",
         "strip", "stripLabel", "stripChips", "stripChip", "stripChipOn", "stripChipFlat", "stripMeta", "stripKeys",
         "footer", "footerCounts", "footerHint", "footerMessage", "footerTransport",
         "diagnostic",
@@ -1088,32 +1085,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             '& > span': { fontSize: "10px", fontFamily: "mono", color: "fg.muted" },
             '&[data-editable]': { cursor: "text" },
             '&:last-child': { marginLeft: "auto" },
-        },
-        ghostBand: {
-            display: "grid",
-            position: "relative",
-            borderTopWidth: "1px",
-            borderTopStyle: "dashed",
-            borderTopColor: "border.strong",
-            cursor: "pointer",
-            _hover: { "& [data-slot=ghostLabel]": { color: "brand.solid" } },
-        },
-        ghostCell: {
-            position: "relative",
-            display: "flex",
-            alignItems: "center",
-            paddingX: "10px",
-            minWidth: "0",
-        },
-        ghostLabel: {
-            fontFamily: "mono",
-            fontSize: "10px",
-            fontWeight: "600",
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-            position: "relative",
-            zIndex: "1",
         },
         strip: {
             display: "flex",
