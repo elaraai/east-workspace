@@ -52,6 +52,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
     const blank = cellIsBlank(cell);
     const shown = blank && ghost !== undefined ? ghost : cell;
     const isGhost = blank && ghost !== undefined;
+    if (shown?.type === "Invalid") return <Box as="span" css={styles.cellText} data-slot="cellText">{shown.value}</Box>;
     switch (meta.kind) {
         case "date":
         case "stamped": {

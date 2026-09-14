@@ -49,6 +49,7 @@ import {
 import type {
     DatasetKeyMatchRange, DatasetKeyQuery,
 } from "../key-search/index.js";
+import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "../paged-snapshot.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import type { PlanPagedSourceValue } from "./use-plan-paging.js";
 import type { PlanRowValue } from "./model.js";
@@ -63,6 +64,8 @@ const KEY_ORDER = compareFor(StringType);
 
 /** What the toolbar needs to mount `<DatasetKeySearch>`. */
 export interface PlanSearch {
+    /** Source snapshot identity; remounts cached positional search results. */
+    resetKey: string;
     /** The key type the control parses typed input against. */
     keyType: EastTypeValue;
     /** Locate a query — resolves when the tracked search lands. */
@@ -156,10 +159,18 @@ export function usePlanSeek(
     // registered and the settle notifies — the same rule the window reads live
     // by. Outside one it would register nothing and never re-fire.
     const read = useCallback(() => {
-        if (seekFn === undefined || query === null) return undefined;
-        return seekFn(query as never) as { type: string; value?: { found: boolean; row: bigint; count: bigint } };
-    }, [seekFn, query]);
+        const revision = source?.revision?.();
+        const answer = seekFn === undefined || query === null ? undefined
+            : seekFn(query as never);
+        return { revision, answer };
+    }, [source, seekFn, query]);
     const { result } = useTrackedEvaluation(read);
+    const revision = result.ok && result.value.revision?.type === "some"
+        ? result.value.revision.value : undefined;
+    const snapshot = useMemo(() => pagedSnapshot(source?.id, revision), [source?.id, revision]);
+    const resetKey = pagedSnapshotKey(snapshot);
+    const previousSnapshot = useRef(snapshot);
+    const snapshotChanged = !pagedSnapshotEqual(previousSnapshot.current, snapshot);
 
     useEffect(() => {
         const waiting = pending.current;
@@ -169,7 +180,7 @@ export function usePlanSeek(
             waiting.reject(result.error);
             return;
         }
-        const answer = result.value;
+        const answer = result.value.answer;
         // `undefined` = no query; `none` = still searching. Neither settles.
         if (answer === undefined || answer.type !== "some" || answer.value === undefined) return;
         const range = answer.value;
@@ -229,9 +240,25 @@ export function usePlanSeek(
         clearJump();
     }, [clearJump]);
 
+    // Clear positions before passive effects can settle an answer from the
+    // previous snapshot. A query can be repeated against the new source, but
+    // its old element index cannot be reused there.
+    useLayoutEffect(() => {
+        if (pagedSnapshotEqual(previousSnapshot.current, snapshot)) return;
+        previousSnapshot.current = snapshot;
+        clear();
+    }, [snapshot, clear]);
+    const clearJumpRef = useRef(clearJump);
+    useLayoutEffect(() => { clearJumpRef.current = clearJump; });
+    useEffect(() => () => {
+        pending.current?.reject(new Error("search source unmounted"));
+        pending.current = null;
+        clearJumpRef.current();
+    }, []);
+
     const search = useMemo<PlanSearch | undefined>(
-        () => (seekFn === undefined ? undefined : { keyType: CANVAS_KEY_TYPE, find, listRange, jump, clear }),
-        [seekFn, find, listRange, jump, clear],
+        () => (seekFn === undefined ? undefined : { resetKey, keyType: CANVAS_KEY_TYPE, find, listRange, jump, clear }),
+        [resetKey, seekFn, find, listRange, jump, clear],
     );
 
     return {
@@ -239,6 +266,6 @@ export function usePlanSeek(
         // The first canvas row at-or-after the sought key. See the note above:
         // positioning on the k-th match needs the element→window origin map
         // that #577 introduces.
-        targetKey: run[0]?.key,
+        targetKey: snapshotChanged ? undefined : run[0]?.key,
     };
 }

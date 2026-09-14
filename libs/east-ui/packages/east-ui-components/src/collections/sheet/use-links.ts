@@ -11,7 +11,7 @@
  * prediction from the column's pending fill, the cell for the halves.
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 import { none, some, variant } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils.js";
 import { driverKeyOf, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
@@ -33,6 +33,7 @@ export interface LinkColumn {
 }
 
 export interface UseSheetLinksArgs {
+    drafts: Map<string, Uint8Array>;
     columns: SheetColumnIndex;
     registers: SheetRegisterIndex;
     driver: SheetDriverValue | undefined;
@@ -52,7 +53,7 @@ export interface SheetLinks {
 }
 
 /** The link columns' vocabularies, halves, checks and editor contexts. */
-export function useSheetLinks({ columns, registers, driver, driverColumn, body, rowAt, predictedLink }: UseSheetLinksArgs): SheetLinks {
+export function useSheetLinks({ drafts, columns, registers, driver, driverColumn, body, rowAt, predictedLink }: UseSheetLinksArgs): SheetLinks {
     const linkVocabularies = useMemo(() => {
         const out = new Map<string, LinkVocabulary>();
         for (const meta of columns.list) {
@@ -81,19 +82,24 @@ export function useSheetLinks({ columns, registers, driver, driverColumn, body, 
         const member = driver?.members.find((m) => m.key === key);
         return member?.label ?? key;
     }, [driverColumn, driver]);
-    // Checks run once per row value and column (rows are immutable values).
-    const flagCache = useRef(new WeakMap<SheetRowValue, Map<string, LinkFlags>>());
+    // A provider may inspect hidden drafts or group fields while the visible
+    // child row stays identical. Reset the memoized results for either input.
+    const flagCache = useMemo(() => new WeakMap<SheetRowValue, Map<string, LinkFlags>>(),
+        // These inputs invalidate the cache consumed by flagsFor below.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [drafts, linkColumns]);
     const flagsFor = useCallback((item: SheetBodyItem, meta: SheetColumnMeta): LinkFlags => {
         if (item.kind !== "real") return NO_FLAGS;
         const lc = linkColumns.get(meta.key);
         const cell = item.row.cells.get(meta.key);
         if (lc === undefined || lc.checks.length === 0 || cell === undefined || cell.type !== "Link") return NO_FLAGS;
-        let byKey = flagCache.current.get(item.row);
-        if (byKey === undefined) { byKey = new Map(); flagCache.current.set(item.row, byKey); }
+        let byKey = flagCache.get(item.row);
+        if (byKey === undefined) { byKey = new Map(); flagCache.set(item.row, byKey); }
         const known = byKey.get(meta.key);
         if (known !== undefined) return known;
         // A line's check context names its GROUP and its line key (#740).
         const flags = checkLink(cell.value, lc.checks, lc.vocab, (half, member) => ({
+            drafts, group: item.group !== undefined ? some(item.group.row) : none,
             rowIndex: BigInt(item.group !== undefined ? item.group.index : item.residentIndex),
             rowId: item.group !== undefined ? item.group.row.id : item.row.id,
             offset: BigInt(item.position),
@@ -102,7 +108,7 @@ export function useSheetLinks({ columns, registers, driver, driverColumn, body, 
         }));
         byKey.set(meta.key, flags);
         return flags;
-    }, [linkColumns]);
+    }, [linkColumns, drafts, flagCache]);
     const linkCellCtx = useCallback((row: SheetRowValue | undefined, meta: SheetColumnMeta): LinkCellContext | undefined => {
         const lc = linkColumns.get(meta.key);
         if (lc === undefined) return undefined;

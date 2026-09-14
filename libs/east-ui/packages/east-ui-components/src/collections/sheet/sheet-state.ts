@@ -32,21 +32,21 @@
  *   arm the following; rows pending: take the next.
  * - **Commit directions** — Tab right, ⇧Tab left, ⏎ / ↓ down (↓ on the last
  *   row appends unless a lens is active or the source is unexhausted), ↑ /
- *   blur stay; an unparseable value never commits — the editor stays open
- *   with the neg ring, and a blur discards it.
+ *   blur stay; an unparseable value becomes an invalid draft carrying the
+ *   original input, so it remains visible and undoable after leaving the cell.
  * - **A printable key seeds a fresh edit**; ⏎ / F2 edit with the value
  *   selected (⏎ takes a pending suggestion first); esc cancels.
  * - **Whole rows selected + ⌫ deletes the records**; ⌫ on cells clears them
  *   (never a stamped column — the component skips those); ⌫ on the armed
  *   fill or the selected proposal rejects it and remembers.
  * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
- *   chevron folds it; the band's gutter selects the group's lines; a click,
- *   ⏎ or a printable key on the `+ plan` ghost band opens its title — the
- *   commit creates the group.
+ *   chevron folds it; the summary gutter selects its children. Insertion
+ *   uses explicit controls. Grouped sheets have no local lens or view tabs.
  *
  * @packageDocumentation
  */
 
+import { variant } from "@elaraai/east";
 import { ghostFor, ghostWord, resolveFor } from "./candidates.js";
 import type { SheetKind } from "./model.js";
 import {
@@ -131,7 +131,7 @@ export function provisionalCell(edit: EditBuffer, ctx: SheetMachineCtx): SheetCe
         return linkCtx.cell(withBuffer(edit, linkCtx));
     }
     const out = ctx.parse(edit.r, edit.c, commitText(edit, ctx));
-    if (out.kind === "unrecognised") return undefined;
+    if (out.kind === "unrecognised") return variant("Invalid", edit.val);
     return out.kind === "cell" ? out.cell : null;
 }
 
@@ -155,18 +155,33 @@ function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Tran
     }
     const text = commitText(edit, ctx);
     const outcome = ctx.parse(edit.r, edit.c, text);
-    if (outcome.kind === "unrecognised") {
-        // A blur discards; anything else keeps the editor open with the neg ring.
-        if (dir === "blur") return { state: { ...s, edit: null }, effects: [] };
-        return { state: { ...s, edit: { ...edit, err: true } }, effects: [{ t: "focus.editor", selectAll: false }] };
-    }
     const effects: SheetEffect[] = [
-        { t: "write", r: edit.r, c: edit.c, cell: outcome.kind === "cell" ? outcome.cell : null, text },
+        { t: "write", r: edit.r, c: edit.c, cell: outcome.kind === "cell" ? outcome.cell : outcome.kind === "unrecognised" ? variant("Invalid", text) : null, text },
     ];
     let next: SheetUiState = { ...s, edit: null, armed: null };
     if (dir !== "blur") effects.push({ t: "focus.sheet" });
     next = moveAfterCommit(next, dir, ctx, effects);
     return { state: next, effects };
+}
+
+/** Commit the active editor and an accepted suggestion through one write per row. */
+function acceptSuggestion(s: SheetUiState, ctx: SheetMachineCtx, take: (state: SheetUiState) => Transition): Transition {
+    const committed = commitEdit(s, "stay", ctx);
+    const accepted = take(committed.state);
+    const pending = [...committed.effects, ...accepted.effects];
+    const combinedRows = new Set(pending.filter(effect => effect.t === "write.many").map(effect => effect.r));
+    const effects: SheetEffect[] = [];
+    for (const effect of pending) {
+        if (effect.t === "write" && combinedRows.has(effect.r)) continue;
+        if (effect.t !== "write.many") { effects.push(effect); continue; }
+        const writes = new Map<number, SheetCellValue>();
+        for (const previous of committed.effects) {
+            if (previous.t === "write" && previous.r === effect.r) writes.set(previous.c, previous.cell ?? variant("Null", null));
+        }
+        for (const write of effect.writes) writes.set(write.c, write.cell);
+        effects.push({ ...effect, writes: [...writes].map(([c, cell]) => ({ c, cell })) });
+    }
+    return { state: accepted.state, effects };
 }
 
 /** Where the ring goes after a commit. */
@@ -209,12 +224,9 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
     if (e.meta && (e.key === "/" || e.key === "f")) return { state: s, effects: [{ t: "focus.search" }] };
     if (ctx.rowCount === 0 || ctx.colCount === 0) return { state: s, effects: [] };
     const effects: SheetEffect[] = [];
-    // A band folds on Space; the ghost band opens its title on ⏎ or a printable key (#740).
+    // A summary folds on Space.
     const rowKind = ctx.rowKindAt?.(s.sel.r);
     if (rowKind === "group" && e.key === " " && !e.meta && !e.alt) return toggleFold(s, s.sel.r, ctx);
-    if (rowKind === "groupBlank" && (e.key === "Enter" || e.key === "F2" || (e.key.length === 1 && !e.meta && !e.alt))) {
-        return startEdit(s, s.sel.r, 0, e.key.length === 1 ? e.key : undefined, ctx);
-    }
     const dropPick = (t: Transition): Transition => (t.state.gsel === null ? t : { ...t, state: { ...t.state, gsel: null } });
     const move = (dr: number, dc: number): Transition => {
         const base = e.shift && s.selEnd !== null ? s.selEnd : s.sel;
@@ -277,10 +289,8 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
     if (edit === null) return { state: s, effects: [] };
     if (e.key === "Enter" && e.meta) {
         // ⌘⏎ — commit in place, then take the row fill (B§6).
-        const committed = commitEdit(s, "stay", ctx);
-        if (committed.state.edit !== null) return committed;
-        const filled = fillRow(committed.state, ctx);
-        return { state: filled.state, effects: [...committed.effects, ...filled.effects] };
+        return acceptSuggestion(s, ctx, state => e.shift && state.sugg !== null
+            ? takeProposals(state, ctx, state.sugg.rows.length - 1) : fillRow(state, ctx));
     }
     if (edit.link !== undefined) return linkKey(s, e, ctx, commitEdit);
     const kind = ctx.kindAt(edit.r, edit.c);
@@ -332,6 +342,10 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
  * @returns The next state plus the effects the component must run
  */
 export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCtx): Transition {
+    // Queued chrome events must not alter a grouped sheet after a mode change.
+    if (ctx.grouped === true && (e.t.startsWith("tab.") || e.t.startsWith("lens.") || e.t === "band.reveal" || e.t === "search.key")) {
+        return { state: s, effects: [] };
+    }
     switch (e.t) {
         case "cell.down": {
             // A click commits an open editor in place first.
@@ -339,11 +353,6 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const effects = closed.effects;
             if (e.shift) {
                 return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: e.c }, ctx), gsel: null }, effects };
-            }
-            // A click on the `+ plan` ghost band opens its title — the commit creates the group (#740, G6).
-            if (ctx.rowKindAt?.(e.r) === "groupBlank") {
-                const opened = startEdit(closed.state, e.r, 0, undefined, ctx);
-                return { state: opened.state.gsel === null ? opened.state : { ...opened.state, gsel: null }, effects: [...effects, ...opened.effects] };
             }
             const moved = moveTo(closed.state, { r: e.r, c: e.c }, ctx, effects, false);
             effects.push({ t: "focus.sheet" });
@@ -365,6 +374,11 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const group = ctx.rowKindAt?.(e.r) === "group" ? ctx.groupAt?.(e.r) : undefined;
             const r0 = group?.lines !== undefined ? group.lines.r0 : e.r;
             const r1 = group?.lines !== undefined ? group.lines.r1 : e.r;
+            const selected = wholeRows(closed.state, ctx.colCount);
+            if (selected !== null && selected.r0 === r0 && selected.r1 === r1) {
+                effects.push({ t: "focus.sheet" });
+                return { state: { ...closed.state, selEnd: null, gsel: null }, effects };
+            }
             effects.push({ t: "emit.select", r: r0, c: 0 }, { t: "focus.sheet" });
             return { state: { ...closed.state, sel: clamp({ r: r0, c: 0 }, ctx), selEnd: clamp({ r: r1, c: last }, ctx), gsel: null }, effects };
         }
@@ -442,9 +456,9 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
         case "suggest.clear":
             return { state: clearSuggest(s), effects: [] };
         case "fill.take":
-            return takeFill(s, ctx, e.key);
+            return acceptSuggestion(s, ctx, state => takeFill(state, ctx, e.key));
         case "fill.row":
-            return fillRow(s, ctx);
+            return acceptSuggestion(s, ctx, state => fillRow(state, ctx));
         case "proposal.pick": {
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
             if (closed.state.sugg === null || e.i < 0 || e.i >= closed.state.sugg.rows.length) return closed;
@@ -452,7 +466,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return { state: { ...closed.state, gsel: e.i, selEnd: null, armed: null }, effects: closed.effects };
         }
         case "proposal.take":
-            return takeProposals(s, ctx, e.i);
+            return acceptSuggestion(s, ctx, state => takeProposals(state, ctx, e.i));
         case "proposal.reject":
             return rejectProposal(s, ctx, e.i);
         // ── The lens and the tabs (B§8) ────────────────────────────────────

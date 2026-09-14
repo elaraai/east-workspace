@@ -178,6 +178,7 @@ export {
     Sheet,
     type SheetNamespace,
     type SheetOptions,
+    type SheetReadyInput,
     type SheetSuggestInput,
     type SheetProposerInput,
     type SheetStringField,
@@ -215,7 +216,6 @@ export {
     type SheetFillOf,
     type SheetPatchOf,
     type SheetProposalOf,
-    type SheetEditOf,
     type SheetCheckContextOf,
     type SheetPatchInput,
 } from "./sheet/index.js";

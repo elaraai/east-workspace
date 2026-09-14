@@ -15,15 +15,17 @@
 /**
  * Parse typed text to a number.
  *
- * @returns the rounded value; `undefined` for an empty buffer; `null` when unrecognised
+ * @param round - Apply the quantity column's display rounding; integer validation passes false
+ * @returns the parsed value; `undefined` for an empty buffer; `null` when unrecognised
  */
-export function parseQuantity(text: string): number | null | undefined {
+export function parseQuantity(text: string, round = true): number | null | undefined {
     const t = text.replace(/[,\s]/g, "").toLowerCase();
     if (t === "") return undefined;
     const m = /^(-?\d+(?:\.\d+)?)(k|m)?$/.exec(t);
     if (m === null) return null;
     const mult = m[2] === "k" ? 1e3 : m[2] === "m" ? 1e6 : 1;
-    const n = Math.round(Number(m[1]) * mult);
+    const parsed = Number(m[1]) * mult;
+    const n = round ? Math.round(parsed) : parsed;
     return Number.isFinite(n) ? n : null;
 }
 

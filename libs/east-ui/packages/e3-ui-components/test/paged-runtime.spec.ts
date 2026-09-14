@@ -56,6 +56,7 @@ function gatedApi() {
     const finds: DatasetFindQuery[] = [];
     const pendingFinds: Array<{ resolve: (r: DatasetFindResult) => void; reject: (e: unknown) => void }> = [];
     const api: PagedApi = {
+        async getRevision() { return "rev1"; },
         getPage(_workspace, _path, window) {
             calls.push(window);
             return new Promise<DatasetPage>((resolve, reject) => {
@@ -73,7 +74,7 @@ function gatedApi() {
         const data = encodeRows(elements);
         return {
             data, totalElements: total, totalBytes: data.length, totalExact: true,
-            segmentCount: 0, offset: window.offset, count: elements.length, hash: "",
+            segmentCount: 0, offset: window.offset, count: elements.length, hash: window.hash ?? "rev1",
         };
     };
     return {
@@ -96,7 +97,7 @@ function gatedApi() {
         releaseFind(found: boolean, row: number, count: number) {
             const next = pendingFinds.shift();
             assert.ok(next, "expected an in-flight key search");
-            next.resolve({ found, row, count, hash: "" });
+            next.resolve({ found, row, count, hash: "rev1" });
         },
         /** Fail the oldest in-flight key search. */
         failFind(err: unknown) {
@@ -118,6 +119,8 @@ const settle = () => new Promise<void>(res => setTimeout(res, 0));
 
 /** The handle's compiled methods — the real call path a UI takes. */
 interface PagedHandle {
+    revision: () => unknown;
+    refresh: (target: unknown) => unknown;
     page: (offset: bigint, limit: bigint) => unknown;
     total: () => unknown;
     seek: { type: string; value?: (query: unknown) => unknown };
@@ -138,12 +141,14 @@ describe("PagedRuntime", () => {
         const g = gatedApi();
         const runtime = new PagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         // First read starts the fetch and reports "not yet".
         const first = callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
         assert.equal((first as { type: string }).type, "none");
         assert.equal(g.calls.length, 1);
-        assert.deepEqual(g.calls[0], { offset: 0, limit: 2 });
+        assert.deepEqual(g.calls[0], { offset: 0, limit: 2, hash: "rev1" });
 
         // A re-read while in flight must NOT start a second fetch.
         callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
@@ -166,6 +171,8 @@ describe("PagedRuntime", () => {
         const g = gatedApi();
         const runtime = new PagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         callPage(runtime, rowsTypeValue, opsPath, 100n, 10n);
         g.release([], 5);
@@ -180,6 +187,8 @@ describe("PagedRuntime", () => {
         const g = gatedApi();
         const runtime = new PagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         assert.equal((callTotal(runtime, rowsTypeValue, opsPath) as { type: string }).type, "none");
 
@@ -196,6 +205,8 @@ describe("PagedRuntime", () => {
         const g = gatedApi();
         const runtime = new PagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         const windowKey = pagedWindowKey(ws, opsPath, 0, 2);
         const totalKey = pagedTotalKey(ws, opsPath);
@@ -220,6 +231,8 @@ describe("PagedRuntime", () => {
         const g = gatedApi();
         const runtime = new PagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         runtime.enableTracking();
         callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
@@ -234,6 +247,8 @@ describe("PagedRuntime", () => {
         const g = gatedApi();
         const runtime = new TestPagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
         g.fail(new Error("network"));
@@ -261,6 +276,8 @@ describe("PagedRuntime", () => {
         const g = gatedApi();
         const runtime = new TestPagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
         g.fail(Object.assign(new Error("not pageable"), { code: "dataset_not_pageable" }));
@@ -275,11 +292,13 @@ describe("PagedRuntime", () => {
         const g = gatedApi();
         const runtime = new PagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
         callPage(runtime, rowsTypeValue, opsPath, 2n, 2n);
         assert.equal(g.calls.length, 2);
-        assert.deepEqual(g.calls[1], { offset: 2, limit: 2 });
+        assert.deepEqual(g.calls[1], { offset: 2, limit: 2, hash: "rev1" });
 
         g.release([{ id: "a", v: 1.0 }], 4);   // window 0
         g.release([{ id: "c", v: 3.0 }], 4);   // window 1
@@ -291,13 +310,15 @@ describe("PagedRuntime", () => {
         assert.equal(w1.value[0]!.id, "c");
     });
 
-    test("the compiled-handle cache keys on TYPE as well as path", () => {
+    test("the compiled-handle cache keys on TYPE as well as path", async () => {
         // The window decoder is baked from the source type, so a path re-bound
         // at a different type (a redeployed dataset) must not be handed the
         // handle compiled against the old one.
         const g = gatedApi();
         const runtime = new PagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         const a = runtime.buildHandle(rowsTypeValue, opsPath);
         const again = runtime.buildHandle(rowsTypeValue, opsPath);
@@ -308,7 +329,7 @@ describe("PagedRuntime", () => {
         assert.notEqual(a, b, "a different source type must not reuse the handle");
     });
 
-    test("no paging service is a named, ACTIONABLE error — not a silent none", () => {
+    test("no paging service is a named, ACTIONABLE error — not a silent none", async () => {
         // With the offline stand-in deleted (#573) this IS the offline path: a
         // paged bind rendered outside a workspace must say so and say what to
         // do, rather than hand back `none` and spin behind an empty canvas.
@@ -323,6 +344,8 @@ describe("PagedRuntime", () => {
         const g = gatedApi();
         const runtime = new PagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
         callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
         g.release([{ id: "a", v: 1.0 }], 1);
         await settle();
@@ -341,7 +364,7 @@ describe("PagedRuntime — key search (#574)", () => {
         return seek.value!(query);
     };
 
-    test("the capability follows the DATASET's type — keyed seeks, an Array cannot", () => {
+    test("the capability follows the DATASET's type — keyed seeks, an Array cannot", async () => {
         // `datasetFindKey` binary-searches a stored blob's segment fences with
         // the key comparator; an Array blob has no key order to search, so the
         // handle must not advertise an affordance that can never answer.
@@ -355,11 +378,13 @@ describe("PagedRuntime — key search (#574)", () => {
         const g = gatedApi();
         const runtime = new PagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         const first = callSeek(runtime, KeyedType, variant("prefix", "ka"));
         assert.equal((first as { type: string }).type, "none", "in flight is `none`, never a wrong answer");
         assert.equal(g.finds.length, 1);
-        assert.deepEqual(g.finds[0], { prefix: "ka" });
+        assert.deepEqual(g.finds[0], { prefix: "ka", hash: "rev1" });
 
         // A re-read while in flight must not start a second search.
         callSeek(runtime, KeyedType, variant("prefix", "ka"));
@@ -383,6 +408,8 @@ describe("PagedRuntime — key search (#574)", () => {
         const g = gatedApi();
         const runtime = new PagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         callSeek(runtime, KeyedType, variant("prefix", "ka"));
         callSeek(runtime, KeyedType, variant("prefix", "kb"));
@@ -401,7 +428,7 @@ describe("PagedRuntime — key search (#574)", () => {
         assert.equal(miss.value.row, 7n);
     });
 
-    test("the East query re-tags to e3's wire query — all three shapes", () => {
+    test("the East query re-tags to e3's wire query — all three shapes", async () => {
         // Deliberately the same three shapes, so this is a re-tagging rather
         // than a translation. The `fields` arm's East option becomes an ABSENT
         // property, which is what `exactOptionalPropertyTypes` requires.
@@ -423,6 +450,8 @@ describe("PagedRuntime — key search (#574)", () => {
         const g = gatedApi();
         const runtime = new TestPagedRuntime();
         runtime.initialize(g.api, ws);
+        handleOf(runtime, rowsTypeValue, opsPath).revision();
+        await settle();
 
         callSeek(runtime, KeyedType, variant("prefix", "ka"));
         g.failFind(new Error("network"));

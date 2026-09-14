@@ -10,28 +10,23 @@
  * the copilot runner (§6.2) and the shell — toolbar · sticky two-line header
  * · virtualised rows · the docked strip · the footer.
  *
- * The interactive-state pattern, at sheet scale: every edit lands in local
- * state immediately (the sheet is never inert without a bound callback) and
- * reaches the host through `onEdit` in a microtask; a new decoded value
- * resets the local layer, so a host that writes back through `onUpdate` sees
- * its own rows come around with the edit applied.
- *
- * `equalFor` treats every function value as equal, so the memo guard cannot
- * see a swapped provider or `onEdit`; every function is taken from the
- * latest value on each render (the Table / Plan rule, §6.2), and the
- * copilot's memo is keyed on the value's identity.
+ * A source-bound transaction session retains draft gestures and history.
+ * onPatch observes each completed gesture; onApply submits a checked batch.
+ * Overlays retire only after the source acknowledges the committed result.
+ * Function values come from the latest render; submitted callbacks remain
+ * captured until their request resolves.
  *
  * Grouped rows (#740): the source rows are GROUPS; the body draws each
  * group's band over its lines (pseudo rows tagged with their group), one
- * blank line per open group and the `+ plan` ghost band. A write on a line
+ * blank line per open group during the insertion migration. A write on a line
  * rewrites its group (`lineCommit` / `lineInsert` / `lineRemove` carry the
  * whole group after the edit, a line's address as its position or key); a
- * band cell commits the group; the ghost band's title inserts a group.
+ * summary field commits the group. Explicit insertion controls create groups.
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { ArrayType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, StringType, compareFor, equalFor, fromEastTypeValue, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils.js";
 import { boundSliceConfig } from "../../platform/slice/index.js";
@@ -43,9 +38,9 @@ import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { VirtualRows } from "../virtual-rows.js";
 import {
-    BAND_MIN_PX, BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, GHOST_BAND_ID, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
+    BAND_MIN_PX, BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
     blankIdOf, bodyIndexOfId, buildBody, cellIsBlank, cellText, densityOf, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isRowSpace,
-    bodyOffsets, latencyOf, lineAddress, lineId, lineIndexOfPosition, linePosition, lineRowsOf, parseWidth, rowIsBlank, stickyBandIndex, withLine, withProposals, withoutLines,
+    bodyOffsets, latencyOf, lineAddress, lineId, lineRowsOf, parseWidth, rowIsBlank, stickyBandIndex, withLine, withProposals, withoutLines,
     type LineGroup, type SheetBodyItem, type SheetColumnMeta,
 } from "./model.js";
 import { useSheetPaging, type SheetViewport } from "./paging.js";
@@ -66,24 +61,33 @@ import {
 } from "./sheet-state.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
+import { SheetInsertPoint, SheetInsertStrip } from "./Insertion.js";
+import { insertionGesture, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion.js";
+import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
-import { SheetRow, SheetBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetGhostBandRow } from "./Rows.js";
+import { SheetRow, SheetBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow } from "./Rows.js";
 import { SheetTabs, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
 import { SheetFooter, type SheetTransport } from "./Footer.js";
+import { useSheetEditing, type LocalLayer } from "./use-editing.js";
+import { SheetHistory, type HistoryAction } from "./History.js";
+import { draftPresentation, discardDraft } from "./draft-state.js";
 import { SheetToolbar } from "./Toolbar.js";
 import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetViewValue } from "./values.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
 
 type Styles = Record<string, Record<string, unknown>>;
+type SheetTransactionsIssue = import("./transactions.js").SheetTransactions["issues"][number];
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
-/** The gutter's floor on a coarse pointer: the number, then two 26 px buttons (a proposal's ✓ ×) with room to tap. */
-const COARSE_GUTTER_PX = 96;
+/** Keeps the marker, number and two 44 px actions in separate touch targets. */
+const COARSE_GUTTER_PX = 254;
 
 const sheetRootEqual = equalFor(Sheet.Types.Root);
+const stringEqual = equalFor(StringType);
+const stringCompare = compareFor(StringType);
 const cellEqual = equalFor(Sheet.Types.Cell);
 const sliceStateEqual = equalFor(Slice.Types.State) as (a: SliceStateValue, b: SliceStateValue) => boolean;
 const viewsEqual = equalFor(ArrayType(Sheet.Types.View)) as (a: readonly SheetViewValue[], b: readonly SheetViewValue[]) => boolean;
@@ -101,27 +105,27 @@ function viewTitle(view: SheetViewValue): string {
     return `${what} · live · double-click renames · middle-click closes`;
 }
 
-/** The local data layer — edits over the decoded rows until the host writes back. */
-interface LocalLayer {
-    /** Rows edited in place, by id. */
-    edits: ReadonlyMap<string, SheetRowValue>;
-    /** Rows inserted after the source's last one. */
-    appended: readonly SheetRowValue[];
-    /** Rows removed, by id. */
-    removed: ReadonlySet<string>;
-}
-
-const EMPTY_LAYER: LocalLayer = { edits: new Map(), appended: [], removed: new Set() };
-
 /** The decoded rows with the local layer applied. */
-function applyLayer(source: readonly SheetRowValue[], layer: LocalLayer): SheetRowValue[] {
-    if (layer.edits.size === 0 && layer.appended.length === 0 && layer.removed.size === 0) return source as SheetRowValue[];
+function applyLayer(source: readonly SheetRowValue[], layer: LocalLayer, keyed = false): SheetRowValue[] {
+    if (layer.edits.size === 0 && layer.appended.length === 0 && layer.removed.size === 0 && layer.placements.size === 0) return source as SheetRowValue[];
     const out: SheetRowValue[] = [];
     for (const r of source) {
         if (layer.removed.has(r.id)) continue;
         out.push(layer.edits.get(r.id) ?? r);
     }
     for (const r of layer.appended) if (!layer.removed.has(r.id)) out.push(layer.edits.get(r.id) ?? r);
+    for (const [id, placement] of layer.placements) {
+        if (placement.type !== "some" || placement.value.type !== "ordered") continue;
+        const at = out.findIndex(row => stringEqual(row.id, id));
+        if (at < 0) continue;
+        const position = placement.value.value;
+        const anchor = position.type === "before" || position.type === "after" ? out.findIndex(row => stringEqual(row.id, position.value)) : -1;
+        if ((position.type === "before" || position.type === "after") && anchor < 0) continue;
+        const [row] = out.splice(at, 1);
+        const target = position.type === "start" ? 0 : position.type === "end" ? out.length : out.findIndex(row => stringEqual(row.id, position.value)) + (position.type === "after" ? 1 : 0);
+        out.splice(target, 0, row!);
+    }
+    if (keyed) out.sort((a, b) => stringCompare(a.id, b.id));
     return out;
 }
 
@@ -154,9 +158,8 @@ function mintLineKey(group: SheetRowValue): string {
     }
 }
 
-/** The body index of an anchor — a real row (or a group's band) by id, a blank row or blank line by its synthetic id, the ghost band by its own. */
+/** The body index of an anchor — a real row (or a group's band) by id, a blank row or blank line by its synthetic id. */
 function anchorBodyIndex(body: readonly SheetBodyItem[], anchorId: string): number {
-    if (anchorId === GHOST_BAND_ID) return body.findIndex((it) => it.kind === "groupBlank");
     if (!isBlankRowId(anchorId)) return bodyIndexOfId(body, anchorId);
     return body.findIndex((it) => it.kind === "blank" && blankIdOf(it) === anchorId);
 }
@@ -185,7 +188,7 @@ export interface EastChakraSheetProps {
 }
 
 /** Renders an East Sheet value — the planning spreadsheet. */
-export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChakraSheetProps) {
+export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey }: EastChakraSheetProps) {
     // ── Decode ────────────────────────────────────────────────────────────
     const columns = useMemo(() => indexColumns(value.columns), [value.columns]);
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
@@ -199,15 +202,17 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const titleMeta = group?.cells.get(TITLE_KEY);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const size = densityOf(value);
-    const rowPx = useDensityHeights(size).row;
-    const bandPx = groupBandPx(size);
-    const readOnly = getSomeorUndefined(value.readOnly) ?? false;
-    // A grouped sheet pads each open group with ONE blank line and ends with the ghost band; neither on a read-only sheet.
-    const blanks = group !== undefined ? (readOnly ? 0 : 1) : Number(getSomeorUndefined(value.blanks) ?? BigInt(DEFAULT_BLANKS));
-    // On a coarse pointer the gutter's buttons grow to 26 px (the recipe's
-    // `_coarse` rungs), so the gutter keeps a floor wide enough for two.
     const coarse = useCoarsePointer();
-    const gutterPx = Math.max(parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX, coarse ? COARSE_GUTTER_PX : 0);
+    const rowPx = Math.max(useDensityHeights(size).row, coarse ? 45 : 0);
+    const bandPx = Math.max(groupBandPx(size), coarse ? 46 : 42);
+    const readOnly = (getSomeorUndefined(value.readOnly) ?? false) || value.editing.onApply.type === "none";
+    const capabilities = value.editing.edits;
+    const canInsertRows = !readOnly && capabilities.insertRows;
+    const canInsertGroups = !readOnly && capabilities.insertGroups && group !== undefined;
+    // The grouped blank-tail path remains until all insertions use explicit destinations.
+    const blanks = !capabilities.insertRows ? 0 : group !== undefined ? (readOnly ? 0 : 1) : Number(getSomeorUndefined(value.blanks) ?? BigInt(DEFAULT_BLANKS));
+    // Touch targets fit in separate lanes; row heights include their seam borders.
+    const gutterPx = Math.max(parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX, 104, coarse ? COARSE_GUTTER_PX : 0);
     // The LAST column absorbs the frame's slack (the Table's #323 stretch rule): a
     // sheet narrower than its frame fills it instead of leaving a dead strip.
     const gridTemplate = useMemo(() => `${gutterPx}px ${columns.list.map((c, i) => (i === columns.list.length - 1 ? `minmax(${c.width}px, 1fr)` : `${c.width}px`)).join(" ")}`, [gutterPx, columns]);
@@ -215,16 +220,15 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const today = useMemo(() => todayUtc(), []);
 
     // Callbacks — taken from the latest value on every render (the equalFor rule).
-    const onEditFn = useMemo(() => getSomeorUndefined(value.onEdit), [value.onEdit]);
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onViewsChangeFn = useMemo(() => getSomeorUndefined(value.onViewsChange), [value.onViewsChange]);
     const newRowIdFn = useMemo(() => getSomeorUndefined(value.newRowId), [value.newRowId]);
     const newLineKeyFn = useMemo(() => getSomeorUndefined(value.newLineKey), [value.newLineKey]);
     const selection = useMemo(() => getSomeorUndefined(value.selection), [value.selection]);
-    const activeView = useMemo(() => getSomeorUndefined(value.activeView), [value.activeView]);
+    const activeView = useMemo(() => group === undefined ? getSomeorUndefined(value.activeView) : undefined, [value.activeView, group]);
 
     // ── Slice chrome — the lens reads the bound slice's narrowing (§3.8) ──
-    const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
+    const chrome = useMemo(() => group === undefined ? getSomeorUndefined(value.slice) : undefined, [value.slice, group]);
     const slice = chrome !== undefined ? (chrome.slice as SliceBindValue) : undefined;
     const sliceVersion = useSliceReactivity(slice?.key);
     // The narrowing and the config, live from the store: a slice write moves
@@ -247,7 +251,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     // re-render decodes a fresh array, and a tab the host has not written back
     // yet must survive a row write-back.
     const [viewsState, setViewsState] = useState<{ over: readonly SheetViewValue[]; views: readonly SheetViewValue[] }>({ over: value.views, views: value.views });
-    const views = viewsState.over === value.views || viewsEqual(viewsState.over, value.views) ? viewsState.views : value.views;
+    const views = useMemo(() => group !== undefined ? [] : viewsState.over === value.views || viewsEqual(viewsState.over, value.views) ? viewsState.views : value.views, [group, viewsState, value.views]);
     const viewsRef = useRef(views);
     viewsRef.current = views;
 
@@ -275,18 +279,21 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const sourceRows: readonly SheetRowValue[] = decodedRows ?? paging.rows;
     const rowsOffset = decodedRows !== undefined ? 0 : paging.rowsOffset;
     const exhausted = decodedRows !== undefined || paging.exhausted;
-    // The identity of the source the local layer sits over: a new decoded
-    // value, or a new paged source, resets the layer.
-    const sourceIdentity = decodedRows ?? pagedSource?.id ?? "";
-    const [layerState, setLayerState] = useState<{ over: unknown; layer: LocalLayer }>({ over: sourceIdentity, layer: EMPTY_LAYER });
-    const layer = layerState.over === sourceIdentity ? layerState.layer : EMPTY_LAYER;
-    // The layer as of the last write — several writes in one effect batch build on each other.
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, rowsOffset, storageKey);
+    const session = editingState.session;
+    const readiness = session.readiness;
+    const draftType = useMemo(() => fromEastTypeValue(value.editing.draftType), [value.editing.draftType]);
+    const childField = getSomeorUndefined(value.editing.children);
+    const draftVersion = editingState.version;
+    const recordGesture = editingState.record;
+    const drafts = editingState.drafts;
+    const layer = editingState.layer;
+    // Temporary writes within one reducer effect batch; the transaction session
+    // publishes the completed gesture and owns the rendered layer thereafter.
     const layerRef = useRef(layer);
     layerRef.current = layer;
-    const setLayer = useCallback((fn: (prev: LocalLayer) => LocalLayer) => {
-        setLayerState((prev) => ({ over: sourceIdentity, layer: fn(prev.over === sourceIdentity ? prev.layer : EMPTY_LAYER) }));
-    }, [sourceIdentity]);
-    const rows = useMemo(() => applyLayer(sourceRows, layer), [sourceRows, layer]);
+    const setLayer = useCallback((fn: (prev: LocalLayer) => LocalLayer) => { layerRef.current = fn(layerRef.current); }, []);
+    const rows = useMemo(() => applyLayer(sourceRows, layer, value.editing.keyed), [sourceRows, layer, value.editing.keyed]);
 
     // ── The state machine ─────────────────────────────────────────────────
     const [store, dispatchStore] = useReducer(sheetStoreReducer, undefined, () => {
@@ -302,26 +309,14 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const ui = store.ui;
 
     // ── The lens (B§8) — hits from the slice engine over the resident rows ──
-    // A grouped sheet's hits are LINES: one slice per resident group, its
-    // gaps inside the group, a group with no hits folding to its band (G10).
+    // Grouped sheets use source-backed key search; only flat sheets have a local lens.
     const lens = useMemo(() => {
         if (!lensOn || sliceState === undefined || sliceConfig === undefined) return undefined;
-        if (group !== undefined) {
-            const groups = rows.map((g, i) => {
-                const lineRows = lineRowsOf(g);
-                const position = rowsOffset + i;
-                const hits = lensHits(sliceState, sliceConfig, lineRows, columns.list);
-                const positions = lineRows.map((_r, j) => linePosition(position, j));
-                const visible = lensVisible(hits, positions, ui.lens.context, ui.lens.reveals);
-                return { hits, visible, gaps: lensGaps(hits, visible, positions) };
-            });
-            return { hits: groups.flatMap((s) => s.hits), visible: groups.flatMap((s) => s.visible), gaps: [], groups };
-        }
         const positions = rows.map((_r, i) => rowsOffset + i);
         const hits = lensHits(sliceState, sliceConfig, rows, columns.list);
         const visible = lensVisible(hits, positions, ui.lens.context, ui.lens.reveals);
-        return { hits, visible, gaps: lensGaps(hits, visible, positions), groups: undefined };
-    }, [lensOn, sliceState, sliceConfig, rows, rowsOffset, columns, group, ui.lens.context, ui.lens.reveals]);
+        return { hits, visible, gaps: lensGaps(hits, visible, positions) };
+    }, [lensOn, sliceState, sliceConfig, rows, rowsOffset, columns, ui.lens.context, ui.lens.reveals]);
 
     // ── The body ──────────────────────────────────────────────────────────
     const folds = ui.lens.folds;
@@ -329,10 +324,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const bodyBase = useMemo<SheetBodyItem[]>(() => buildBody({
         rows, rowsOffset, blanks: group !== undefined ? blanks : blanks + ui.appended, exhausted,
         total: paging.total, head: paging.head, tail: paging.tail,
-        lens: lens === undefined ? undefined : lens.groups !== undefined ? { groups: lens.groups } : { hits: lens.hits, visible: lens.visible, gaps: lens.gaps },
-        // The `+ plan` ghost band shows only where a new plan can land — a bound edit channel (G6).
-        grouped: group !== undefined ? { foldedOf, ghost: onEditFn !== undefined && !readOnly } : undefined,
-    }), [rows, rowsOffset, blanks, ui.appended, exhausted, paging.total, paging.head, paging.tail, lens, group, foldedOf, onEditFn, readOnly]);
+        lens,
+        grouped: group !== undefined ? { foldedOf } : undefined,
+    }), [rows, rowsOffset, blanks, ui.appended, exhausted, paging.total, paging.head, paging.tail, lens, group, foldedOf]);
     // The copilot's proposed rows sit under their anchor, outside the row space.
     const body = useMemo<SheetBodyItem[]>(() => {
         const sugg = ui.sugg;
@@ -363,7 +357,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         const it = rowAt(r);
         if (it === undefined) return col;
         if (it.kind === "group") return c < group.titleSpan ? titleMeta : col !== undefined ? group.cells.get(col.key) : undefined;
-        if (it.kind === "groupBlank") return c < group.titleSpan ? titleMeta : undefined;
         return col;
     }, [columns, group, titleMeta, rowAt]);
     const cellAt = useCallback((r: number, c: number): SheetCellValue | undefined => {
@@ -385,7 +378,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         switch (it.kind) {
             case "real": case "group": return it.row.id;
             case "blank": return blankIdOf(it);
-            case "groupBlank": return GHOST_BAND_ID;
             default: return undefined;
         }
     }, [rowAt]);
@@ -407,6 +399,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const wireContextOf = useCallback((row: SheetRowValue | undefined, residentIndex: number, position: number, rowsNow: SheetRowValue[], lg?: LineGroup): SheetContextValue => {
         const driverKey = driverKeyOf(row, driverColumn);
         return {
+            drafts,
             rowIndex: BigInt(lg !== undefined ? lg.index : residentIndex),
             rowId: lg !== undefined ? lg.row.id : row?.id ?? "",
             offset: BigInt(position),
@@ -418,7 +411,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             driver: driverKey !== undefined ? some(driverKey) : none,
             today,
         };
-    }, [driverColumn, columns, rowsOffset, exhausted, today]);
+    }, [driverColumn, columns, rowsOffset, exhausted, today, drafts]);
     const wireContextFor = useCallback((r: number): SheetContextValue => {
         const it = rowAt(r);
         const row = it !== undefined && (it.kind === "real" || it.kind === "group") ? it.row : undefined;
@@ -433,7 +426,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         const f = sugg.fill.get(key);
         return f !== undefined && f.cell.type === "Link" ? f.cell.value : undefined;
     }, [ui.sugg, idAt]);
-    const links = useSheetLinks({ columns, registers, driver, driverColumn, body, rowAt, predictedLink });
+    const links = useSheetLinks({ drafts, columns, registers, driver, driverColumn, body, rowAt, predictedLink });
     const { linkVocabularies, linkColumns, linkCellCtx, linkCtxFor } = links;
     const parseCtxFor = useCallback((r: number, meta: SheetColumnMeta): ParseContext => {
         let baseDate: Date | undefined;
@@ -460,15 +453,16 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         rowCount,
         colCount,
         lensActive: lensOn,
-        // A grouped sheet never appends past its ghost band — each group has its own blank line.
-        canAppend: exhausted && !readOnly && group === undefined,
+        grouped: group !== undefined,
+        // Group insertion uses explicit controls; keyboard padding is flat-only.
+        canAppend: exhausted && canInsertRows && editingState.available && group === undefined,
         editableAt: (r, c) => {
-            if (readOnly) return false;
+            if (readOnly || !editingState.available) return false;
             const it = rowAt(r);
             if (it === undefined || !isRowSpace(it)) return false;
             const meta = metaAt(r, c);
             if (meta === undefined) return false;
-            if (it.kind === "groupBlank") return group !== undefined && c < group.titleSpan;
+            if (it.kind === "blank" && !canInsertRows) return false;
             if (!meta.editable || meta.kind === "stamped") return false;
             return true;
         },
@@ -491,7 +485,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             return meta === undefined ? "" : editText(cellAt(r, c), meta);
         },
         // A band's cells are never link cells, whatever column they sit under.
-        linkAt: (r, c) => { const k = rowAt(r)?.kind; return k === "group" || k === "groupBlank" ? undefined : linkCtxFor(r, c); },
+        linkAt: (r, c) => { const k = rowAt(r)?.kind; return k === "group" ? undefined : linkCtxFor(r, c); },
         rowOf,
         idAt,
         columnOf: (key) => { const c = columns.list.findIndex((m) => m.key === key); return c < 0 ? undefined : c; },
@@ -521,7 +515,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 case "real": return "row";
                 case "blank": return "blank";
                 case "group": return "group";
-                case "groupBlank": return "groupBlank";
                 default: return undefined;
             }
         },
@@ -541,10 +534,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         spanAt: (r, c) => {
             if (group === undefined) return undefined;
             const k = rowAt(r)?.kind;
-            if (k === "groupBlank") return { c0: 0, c1: Math.max(0, colCount - 1) };
             return k === "group" && c < group.titleSpan ? { c0: 0, c1: group.titleSpan - 1 } : undefined;
         },
-    }), [rowCount, colCount, lensOn, exhausted, readOnly, group, columns, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, linkCtxFor, rowOf, idAt, driverColumn, views, sliceState, emptyNarrowing, dirty]);
+    }), [rowCount, colCount, lensOn, exhausted, readOnly, canInsertRows, editingState.available, group, columns, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, linkCtxFor, rowOf, idAt, driverColumn, views, sliceState, emptyNarrowing, dirty]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -580,9 +572,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     }, [activeView, dispatch]);
 
     // ── Writes — the local layer, then the host ───────────────────────────
-    const emitEdit = useCallback((edit: SheetEditValue) => {
-        if (onEditFn !== undefined) queueMicrotask(() => onEditFn(edit));
-    }, [onEditFn]);
+    const gestureEvents = useRef<SheetEditValue[]>([]);
+    const emitEdit = useCallback((edit: SheetEditValue) => { gestureEvents.current.push(edit); }, []);
     /**
      * Write cells: a real row's commits land in the layer's edits (one
      * `commit` event per changed cell, each carrying the row AFTER it); a
@@ -592,6 +583,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
      * written, in order.
      */
     const writeCells = useCallback((writes: readonly CellWrite[], source: EditSource): { firstInserted: number | undefined; ids: string[] } => {
+        if (readOnly || !editingState.available) return { firstInserted: undefined, ids: [] };
         // Writes group by row, and by the extra new line they land on past a group's blank line.
         const byRow = new Map<string, { r: number; extra: number; list: { c: number; cell: SheetCellValue }[] }>();
         for (const w of writes) {
@@ -602,7 +594,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             byRow.set(k, entry);
         }
         const base = layerRef.current;
-        const rowsNow = applyLayer(sourceRows, base);
+        const rowsNow = applyLayer(sourceRows, base, value.editing.keyed);
         const edits = new Map(base.edits);
         const appended = [...base.appended];
         const events: SheetEditValue[] = [];
@@ -645,6 +637,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 }
                 // A group's blank line (or the k-th line past it): one line inserted at the end of the group.
                 if (it.kind === "blank" && it.group !== undefined) {
+                    if (!canInsertRows) continue;
                     const g0 = currentGroup(it.group.row);
                     const cells = new Map<string, SheetCellValue>(columns.list.map((c) => [c.key, NULL_CELL]));
                     for (const w of list) {
@@ -683,23 +676,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     ids.push(g.id);
                     continue;
                 }
-                // The ghost band: a new group after the last one; the ring lands on its blank line.
-                if (it.kind === "groupBlank") {
-                    const cells = new Map<string, SheetCellValue>([...group.cells.keys()].map((k) => [k, NULL_CELL]));
-                    for (const w of list) {
-                        const meta = metaAt(r, w.c);
-                        if (meta !== undefined) cells.set(meta.key, w.cell);
-                    }
-                    if ([...cells.values()].every(cellIsBlank)) continue;
-                    const g: SheetRowValue = { id: newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), owned: false, cells, lines: [], band: some({ sub: "", folded: false }) };
-                    appended.push(g);
-                    events.push(variant("insert", { afterRowId: lastId !== undefined ? some(lastId) : none, row: g, source: src }));
-                    lastId = g.id;
-                    ids.push(g.id);
-                    if (firstInserted === undefined) firstInserted = r + 1;
-                    inserted += 1;
-                    continue;
-                }
             }
             if (it !== undefined && it.kind === "real") {
                 let row = edits.get(it.row.id) ?? it.row;
@@ -715,7 +691,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 continue;
             }
             if (it !== undefined && !isRowSpace(it)) continue;
-            if (group !== undefined) continue;
+            if (group !== undefined || !canInsertRows) continue;
             // A blank row (or a row past the padding): one inserted row.
             let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), columns.list);
             for (const w of list) {
@@ -731,12 +707,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             inserted += 1;
         }
         if (events.length === 0) return { firstInserted: undefined, ids };
-        const next: LocalLayer = { edits, appended, removed: base.removed };
+        const next: LocalLayer = { edits, appended, removed: base.removed, placements: base.placements };
         layerRef.current = next;
         setLayer(() => next);
         for (const e of events) emitEdit(e);
         return { firstInserted, ids };
-    }, [sourceRows, rowAt, columns, group, metaAt, newRowIdFn, newLineKeyFn, setLayer, emitEdit]);
+    }, [sourceRows, rowAt, columns, group, metaAt, newRowIdFn, newLineKeyFn, setLayer, emitEdit, readOnly, canInsertRows, value.editing.keyed, editingState.available]);
     /**
      * Delete whole rows. On a grouped sheet (#740, G7) lines in the range
      * leave their groups (`lineRemove`); with no line in the range, the
@@ -744,6 +720,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
      * two-step ladder: the lines, then the plan.
      */
     const deleteRows = useCallback((r0: number, r1: number): { n: number; what: "rows" | "lines" | "plans"; emptiedBandR: number | undefined } => {
+        if (readOnly || !editingState.available) return { n: 0, what: "rows", emptiedBandR: undefined };
         const base = layerRef.current;
         if (group !== undefined) {
             const currentGroup = (g: SheetRowValue): SheetRowValue => base.edits.get(g.id) ?? base.appended.find((x) => x.id === g.id) ?? g;
@@ -762,6 +739,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 }
             }
             if (byGroup.size > 0) {
+                if (!capabilities.removeRows) return { n: 0, what: "lines", emptiedBandR: undefined };
                 const edits = new Map(base.edits);
                 const appended = [...base.appended];
                 let n = 0;
@@ -779,11 +757,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                         if (bandR !== undefined && bandR >= 0) emptiedBandR = bandR;
                     }
                 }
-                const next: LocalLayer = { edits, appended, removed: base.removed };
+                const next: LocalLayer = { edits, appended, removed: base.removed, placements: base.placements };
                 layerRef.current = next;
                 setLayer(() => next);
                 return { n, what: "lines", emptiedBandR };
             }
+            if (!capabilities.removeGroups) return { n: 0, what: "plans", emptiedBandR: undefined };
             const ids = bands.filter((b) => currentGroup(b.row).lines.length === 0).map((b) => b.row.id);
             if (ids.length === 0) return { n: 0, what: "plans", emptiedBandR: undefined };
             const next: LocalLayer = { ...base, removed: new Set([...base.removed, ...ids]) };
@@ -792,6 +771,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
             emitEdit(variant("remove", { rowIds: ids }));
             return { n: ids.length, what: "plans", emptiedBandR: undefined };
         }
+        if (!capabilities.removeRows) return { n: 0, what: "rows", emptiedBandR: undefined };
         const ids: string[] = [];
         for (let r = r0; r <= r1; r++) {
             const it = rowAt(r);
@@ -803,9 +783,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         setLayer(() => next);
         emitEdit(variant("remove", { rowIds: ids }));
         return { n: ids.length, what: "rows", emptiedBandR: undefined };
-    }, [group, rowAt, body, rowSpace, setLayer, emitEdit]);
+    }, [group, rowAt, body, rowSpace, setLayer, emitEdit, readOnly, capabilities, editingState.available]);
     /** Insert one proposed row after a row: into the blank slot below it (B§5.2), else appended; on a grouped sheet into the anchor's group (#740, G11). */
     const insertProposal = useCallback((afterR: number, cells: ReadonlyMap<string, SheetCellValue>, extra = 0): { id: string; r: number } | undefined => {
+        if (!canInsertRows) return undefined;
         const writes: { c: number; cell: SheetCellValue }[] = [];
         columns.list.forEach((meta, c) => {
             if (!meta.editable || meta.kind === "stamped") return;
@@ -834,7 +815,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         const id = res.ids[0];
         if (id === undefined) return undefined;
         return { id, r: res.firstInserted ?? target };
-    }, [columns, group, rowAt, blankLineRowOf, rowSpace, body, rowCount, writeCells]);
+    }, [columns, group, rowAt, blankLineRowOf, rowSpace, body, rowCount, writeCells, canInsertRows]);
 
     // ── The copilot runner (§6.2) ─────────────────────────────────────────
     const [suggestReq, setSuggestReq] = useState<SuggestRequest | null>(null);
@@ -910,6 +891,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const [editorFocus, setEditorFocus] = useState<EditorFocusRequest>({ seq: 0, selectAll: true });
     const [scrollTarget, setScrollTarget] = useState<number | undefined>(undefined);
     const runEffects = useCallback((effects: readonly SheetEffect[]) => {
+        gestureEvents.current = [];
         /** After a write: the ring follows an insert, a blank anchor's suggestions follow the new id, the copilot re-runs. */
         const afterWrite = (r: number, res: { firstInserted: number | undefined; ids: string[] }, rerun: boolean) => {
             const anchorBefore = idAt(r);
@@ -955,7 +937,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 case "clear": {
                     const writes: CellWrite[] = [];
                     for (let r = eff.r0; r <= eff.r1; r++) {
-                        if (rowAt(r)?.kind === "groupBlank") continue;
                         for (let c = eff.c0; c <= eff.c1; c++) {
                             const meta = metaAt(r, c);
                             if (meta === undefined || meta.kind === "stamped" || !meta.editable || readOnly) continue;
@@ -984,7 +965,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 }
                 case "copy": {
                     // A band never copies (G9): a whole-plan selection copies its lines.
-                    const text = exportMatrix(cellAt, columns.list, eff, (r) => { const k = rowAt(r)?.kind; return k === "group" || k === "groupBlank"; });
+                    const text = exportMatrix(cellAt, columns.list, eff, (r) => { const k = rowAt(r)?.kind; return k === "group"; });
                     if (typeof navigator !== "undefined" && navigator.clipboard !== undefined) {
                         void navigator.clipboard.writeText(text).catch(() => {});
                     }
@@ -1007,8 +988,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                         if (meta === undefined) continue;
                         const r = eff.r + p.dr;
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
-                        if (outcome.kind === "unrecognised") { skipped += 1; continue; }
-                        const cell = outcome.kind === "cell" ? outcome.cell : NULL_CELL;
+                        const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
                         if (gid !== undefined) {
                             const target = rowAt(r);
                             const inPlan = target !== undefined && (target.kind === "real" || target.kind === "blank") && target.group?.row.id === gid;
@@ -1085,13 +1065,119 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 }
             }
         }
-    }, [writeCells, deleteRows, insertProposal, columns, group, metaAt, blankLineRowOf, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, value.views, onViewsChangeFn, slice]);
+        try { recordGesture(gestureEvents.current); }
+        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: error instanceof Error ? error.message : String(error) } }); }
+        finally { gestureEvents.current = []; }
+    }, [recordGesture, writeCells, deleteRows, insertProposal, columns, group, metaAt, blankLineRowOf, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, value.views, onViewsChangeFn, slice]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
         drainedFx.current = store.fxSeq;
         runEffects(store.fx);
     }, [store.fxSeq, store.fx, runEffects]);
+
+    const pendingHistoryAction = useRef<HistoryAction | undefined>(undefined);
+    const executeHistory = useCallback((action: HistoryAction) => {
+        if (action === "apply") void session.apply();
+        else if (action === "refresh") session.refresh();
+        else session[action]();
+    }, [session]);
+    const onHistoryAction = useCallback((action: HistoryAction) => {
+        if (uiRef.current.edit !== null && action !== "refresh") {
+            pendingHistoryAction.current = action;
+            dispatch({ t: "editor.blur" });
+        } else executeHistory(action);
+    }, [dispatch, executeHistory]);
+    useLayoutEffect(() => {
+        const action = pendingHistoryAction.current;
+        if (action === undefined) return;
+        pendingHistoryAction.current = undefined;
+        if (ui.edit === null) executeHistory(action);
+    }, [ui.edit, store.fxSeq, executeHistory]);
+
+    const pendingDiscard = useRef<{ id: string; child: string | undefined } | undefined>(undefined);
+    const executeDiscard = useCallback((id: string, child?: string) => {
+        if (discardDraft(session, childField, id, child)) {
+            dispatchStore({ t: "patch", patch: { sugg: null, msg: "Discarded new row" } });
+            cardRef.current?.focus({ preventScroll: true });
+        }
+    }, [session, childField]);
+    const onDiscardDraft = useCallback((id: string, child?: string) => {
+        const open = uiRef.current.edit;
+        if (open !== null) {
+            const item = rowAt(open.r);
+            const target = item?.kind === "group" ? child === undefined && item.row.id === id
+                : item?.kind === "real" && (item.group !== undefined
+                    ? item.group.row.id === id && (child === undefined || item.group.key === child)
+                    : child === undefined && item.row.id === id);
+            if (!target) {
+                // Finish another row's editor before changing the row space.
+                pendingDiscard.current = { id, child };
+                dispatch({ t: "editor.blur" });
+                return;
+            }
+            // A discarded draft includes its uncommitted editor buffer.
+            dispatch({ t: "editor.key", key: "Escape", shift: false, meta: false, alt: false, atEnd: true });
+        }
+        executeDiscard(id, child);
+    }, [rowAt, dispatch, executeDiscard]);
+    useLayoutEffect(() => {
+        const target = pendingDiscard.current;
+        if (target === undefined || ui.edit !== null) return;
+        pendingDiscard.current = undefined;
+        executeDiscard(target.id, target.child);
+    }, [ui.edit, store.fxSeq, executeDiscard]);
+
+    // Insertion retains identities while an open editor commits, then resolves
+    // the destination against the latest local collection.
+    const pendingInsertion = useRef<InsertRequest | undefined>(undefined);
+    const pendingInsertFocus = useRef<{ id: string; child?: string } | undefined>(undefined);
+    const anchorFor = useCallback((r: number, side: "before" | "after"): InsertionAnchor => {
+        const item = rowAt(r);
+        if (item?.kind === "real" && item.group !== undefined) return { entry: item.group.row.id, child: item.group.key, side };
+        if (item?.kind === "blank" && item.group !== undefined) return { entry: item.group.row.id, tail: true, side };
+        return { entry: item?.kind === "real" || item?.kind === "group" ? item.row.id : undefined, side };
+    }, [rowAt]);
+    const executeInsertion = useCallback((request: InsertRequest) => {
+        if (!editingState.available || (request.kind === "row" ? !canInsertRows : !canInsertGroups)) return;
+        const gesture = insertionGesture(request, rows, rowsOffset, group !== undefined, value.editing.keyed,
+            () => newRowIdFn?.() ?? mintId(id => rows.some(row => row.id === id)), mintLineKey);
+        if (gesture === undefined) return;
+        recordGesture([gesture.event], gesture.placement === undefined ? undefined : new Map([[gesture.id, gesture.placement]]), "insert");
+        pendingInsertFocus.current = { id: gesture.id, ...(gesture.child === undefined ? {} : { child: gesture.child }) };
+        dispatchStore({ t: "patch", patch: { sugg: null, selEnd: null, msg: request.kind === "group" ? "New group" : "New row" } });
+    }, [editingState.available, canInsertRows, canInsertGroups, rows, rowsOffset, group, value.editing.keyed, newRowIdFn, recordGesture]);
+    const onInsert = useCallback((kind: "row" | "group", r: number, side: "before" | "after") => {
+        const request: InsertRequest = { kind, anchor: anchorFor(r, side) };
+        if (uiRef.current.edit !== null) { pendingInsertion.current = request; dispatch({ t: "editor.blur" }); }
+        else executeInsertion(request);
+    }, [anchorFor, dispatch, executeInsertion]);
+    useLayoutEffect(() => {
+        if (ui.edit !== null || pendingInsertion.current === undefined) return;
+        const request = pendingInsertion.current;
+        pendingInsertion.current = undefined;
+        executeInsertion(request);
+    }, [ui.edit, store.fxSeq, executeInsertion]);
+    useLayoutEffect(() => {
+        const target = pendingInsertFocus.current;
+        if (target === undefined) return;
+        const id = target.child === undefined ? target.id : lineId(target.id, target.child);
+        const r = rowOf(id);
+        if (r === undefined) {
+            const parentR = rowOf(target.id);
+            if (target.child !== undefined && parentR !== undefined && rowAt(parentR)?.kind === "group") {
+                const parent = rowAt(parentR);
+                if (parent?.kind === "group" && parent.folded) dispatch({ t: "fold.toggle", r: parentR });
+            }
+            return;
+        }
+        pendingInsertFocus.current = undefined;
+        const item = rowAt(r);
+        if (item?.kind === "group" && item.folded) dispatch({ t: "fold.toggle", r });
+        const driverC = columns.list.findIndex(col => col.editable && col.key === driverColumn);
+        const c = item?.kind === "group" ? 0 : driverC >= 0 ? driverC : Math.max(0, columns.list.findIndex(col => col.editable));
+        dispatch({ t: "cell.dbl", r, c });
+    }, [rows, rowOf, rowAt, columns, driverColumn, dispatch]);
 
     // ── Controlled selection (§3.14) ──────────────────────────────────────
     const controlledRowId = selection !== undefined ? getSomeorUndefined(selection.rowId) : undefined;
@@ -1150,7 +1236,15 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const onProposalReject = useCallback((i: number) => dispatch({ t: "proposal.reject", i }), [dispatch]);
     const onKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
         if (store.ui.edit !== null) return;
+        if (e.altKey && e.key === "Insert") {
+            e.preventDefault(); onInsert("row", store.ui.sel.r, e.shiftKey ? "before" : "after"); return;
+        }
         const meta = e.metaKey || e.ctrlKey;
+        if (meta && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
+            e.preventDefault();
+            onHistoryAction(e.shiftKey || e.key.toLowerCase() === "y" ? "redo" : "undo");
+            return;
+        }
         // The browser's own clipboard keys become copy / paste events.
         if (meta && (e.key === "c" || e.key === "v" || e.key === "x" || e.key === "a")) return;
         const handled = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Tab", "Enter", "F2", "Escape", "Backspace", "Delete"];
@@ -1159,9 +1253,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         if (!handled.includes(e.key) && !printable && !toSearch) return;
         e.preventDefault();
         dispatch({ t: "key", key: e.key, shift: e.shiftKey, meta, alt: e.altKey });
-    }, [dispatch, store.ui.edit]);
+    }, [dispatch, store.ui.edit, store.ui.sel.r, onHistoryAction, onInsert]);
     // A band never copies (G9): a whole-plan selection copies its lines.
-    const isBandRow = useCallback((r: number) => { const k = rowAt(r)?.kind; return k === "group" || k === "groupBlank"; }, [rowAt]);
+    const isBandRow = useCallback((r: number) => { const k = rowAt(r)?.kind; return k === "group"; }, [rowAt]);
     const onCopy = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
         if (store.ui.edit !== null) return;
         e.preventDefault();
@@ -1278,6 +1372,33 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         seek.clearTarget();
     }, [seek, body, rowSpace, group, dispatch]);
 
+    const [pendingIssue, setPendingIssue] = useState<SheetTransactionsIssue | undefined>(undefined);
+    const onIssue = useCallback((issue: SheetTransactionsIssue) => {
+        dispatch({ t: "editor.blur" });
+        setPendingIssue(issue);
+    }, [dispatch]);
+    useEffect(() => {
+        const issue = pendingIssue;
+        if (issue === undefined) return;
+        const groupIndex = body.findIndex(item => item.kind === "group" && stringEqual(item.row.id, issue.entry));
+        const groupItem = body[groupIndex];
+        if (issue.row.type === "some" && groupItem?.kind === "group" && groupItem.folded) {
+            dispatch({ t: "fold.toggle", r: rowSpace.rowOf[groupIndex]! });
+            return;
+        }
+        const index = issue.row.type === "none" ? body.findIndex(item => (item.kind === "real" || item.kind === "group") && stringEqual(item.row.id, issue.entry))
+            : body.findIndex(item => item.kind === "real" && item.group !== undefined && stringEqual(item.group.row.id, issue.entry) && item.group.index === Number(issue.row.value));
+        if (index < 0) return;
+        const r = rowSpace.rowOf[index]!;
+        const field = issue.field.type === "some" ? issue.field.value : undefined;
+        const column = field === undefined ? -1 : columns.list.findIndex(col => stringEqual(col.key, field));
+        dispatch({ t: "select.set", r, c: Math.max(0, column) });
+        setScrollTarget(index);
+        dispatchStore({ t: "patch", patch: { msg: `${field ?? issue.entry}: ${issue.message}` } });
+        cardRef.current?.focus({ preventScroll: true });
+        setPendingIssue(undefined);
+    }, [pendingIssue, body, rowSpace, columns, dispatch]);
+
     // ── The view tabs and the lens's chrome (B§8) ─────────────────────────
     // A grouped sheet counts LINES (#740).
     const countedRows = useMemo(() => (group !== undefined ? rows.flatMap((g) => lineRowsOf(g)) : rows), [group, rows]);
@@ -1307,7 +1428,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const onSearchKey = useCallback((key: string) => { dispatch({ t: "search.key", key }); return true; }, [dispatch]);
     const onReveal = useCallback((gap: LensGap, where: "top" | "bottom" | "both" | "all") => dispatch({ t: "band.reveal", key: gap.key, from: gap.from, to: gap.to, where }), [dispatch]);
     const onFold = useCallback((r: number) => dispatch({ t: "fold.toggle", r }), [dispatch]);
-    const lineNumberOf = useCallback((position: number) => lineIndexOfPosition(position) + 1, []);
     const hasQuery = sliceState !== undefined && sliceState.search.type === "some" && sliceState.search.value.trim() !== "";
     const tabsNode = slice !== undefined
         ? (
@@ -1421,8 +1541,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         ? "⏎ adds the selected row · ⌫ rejects it · esc deselects"
         : ringKind === "group" && wr === null
             ? "⏎ renames the plan · Space folds it · click its number to select its lines"
-        : ringKind === "groupBlank"
-            ? "⏎ or click adds a plan"
         : wr !== null
             ? `${wr.r1 - wr.r0 + 1} row${wr.r1 - wr.r0 === 0 ? "" : "s"} selected · ⌫ deletes them · ⌘C copies`
             : hasFills
@@ -1477,7 +1595,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         const item = body[i];
         if (item === undefined) return rowPx;
         if (item.kind === "gap") return BAND_MIN_PX;
-        if (item.kind === "group" || item.kind === "groupBlank") return bandPx;
+        if (item.kind === "group") return bandPx;
         return item.kind === "band" ? Math.max(BAND_MIN_PX, item.band.px) : rowPx;
     }, [body, rowPx, bandPx]);
     const offsets = useMemo(() => (group !== undefined ? bodyOffsets(body, sizeOf) : undefined), [group, body, sizeOf]);
@@ -1500,6 +1618,28 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         };
     }, [body, offsets]);
 
+    const [insertPreview, setInsertPreview] = useState<{ r: number; kind: "row" | "group" } | undefined>(undefined);
+    const insertionFor = useCallback((r: number): ReactNode => {
+        if (!editingState.available || (!canInsertRows && !canInsertGroups)) return undefined;
+        const anchor = anchorFor(r, "before");
+        const ordered = anchor.child !== undefined || anchor.tail === true || !value.editing.keyed;
+        return <SheetInsertPoint styles={styles} actions={{
+            ordered, groupOrdered: !value.editing.keyed,
+            row: canInsertRows && (group === undefined || anchor.entry !== undefined) ? () => onInsert("row", r, "before") : undefined,
+            group: canInsertGroups ? () => onInsert("group", r, "before") : undefined,
+            preview: kind => {
+                if (kind === undefined || (kind === "row" ? !ordered : value.editing.keyed)) { setInsertPreview(undefined); return; }
+                if (kind === "row") { setInsertPreview({ r, kind }); return; }
+                const parent = rows.find(row => row.id === anchor.entry);
+                if (parent === undefined) { setInsertPreview(undefined); return; }
+                const side = groupInsertionSide(parent, anchor);
+                const next = rows[rows.indexOf(parent) + 1];
+                const target = side === "before" ? rowOf(parent.id) : next === undefined ? blankLineRowOf(parent.id) : rowOf(next.id);
+                setInsertPreview(target === undefined ? undefined : { r: target, kind });
+            },
+        }} />;
+    }, [editingState.available, canInsertRows, canInsertGroups, anchorFor, value.editing.keyed, styles, group, onInsert, rows, rowOf, blankLineRowOf]);
+
     const renderRow = useCallback((i: number): ReactNode => {
         const item = body[i];
         if (item === undefined) return null;
@@ -1513,7 +1653,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     gap={g}
                     reach={{ top: nextReach(steps, g.key, "top", g.hidden), bottom: nextReach(steps, g.key, "bottom", g.hidden), both: nextReach(steps, g.key, "both", g.hidden) }}
                     onReveal={onReveal}
-                    numberOf={group !== undefined ? lineNumberOf : undefined}
                 />
             );
         }
@@ -1550,12 +1689,17 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     registers={registers}
                     gridTemplate={gridTemplate}
                     bandPx={bandPx}
+                    insertion={insertionFor(r)}
+                    insertPreview={insertPreview?.r === r ? insertPreview.kind : undefined}
                     r={r}
                     row={item.row}
+                    number={item.position + 1}
+                    membership={membershipAt(body, i)}
+                    draft={draftPresentation(session, draftType, childField, item.row.id, undefined, readiness)}
+                    onDiscard={() => onDiscardDraft(item.row.id)}
                     group={group}
                     folded={item.folded}
                     count={item.count}
-                    hits={item.hits}
                     first={i === 0}
                     selC={ui.sel.r === r ? ui.sel.c : undefined}
                     range={inRangeRow ? { c0: rect.c0, c1: rect.c1 } : undefined}
@@ -1569,20 +1713,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 />
             );
         }
-        if (item.kind === "groupBlank") {
-            return (
-                <SheetGhostBandRow
-                    styles={styles}
-                    gridTemplate={gridTemplate}
-                    bandPx={bandPx}
-                    r={r}
-                    colCount={colCount}
-                    selected={ui.sel.r === r}
-                    editor={edit !== null && edit.r === r ? editorNode : undefined}
-                    onCellDown={onCellDown}
-                />
-            );
-        }
         const lg = item.group;
         return (
             <SheetRow
@@ -1592,11 +1722,16 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 driverColumn={driverColumn}
                 gridTemplate={gridTemplate}
                 rowPx={rowPx}
+                insertion={insertionFor(r)}
+                insertPreview={insertPreview?.r === r ? insertPreview.kind : undefined}
                 r={r}
                 number={lg !== undefined ? lg.number : item.position + 1}
                 first={i === 0}
                 row={item.kind === "real" ? item.row : undefined}
                 group={lg}
+                membership={membershipAt(body, i)}
+                draft={item.kind === "real" ? draftPresentation(session, draftType, childField, lg?.row.id ?? item.row.id, lg?.key, readiness) : undefined}
+                onDiscard={item.kind === "real" ? () => onDiscardDraft(lg?.row.id ?? item.row.id, lg?.key) : undefined}
                 linkCtx={linkCellCtx}
                 selC={ui.sel.r === r ? ui.sel.c : undefined}
                 range={inRangeRow ? { c0: rect.c0, c1: rect.c1 } : undefined}
@@ -1614,7 +1749,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                 onFillRow={onFillRow}
             />
         );
-    }, [body, styles, paging.loading, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, group, colCount, wr, edit, editorNode, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, lineNumberOf, linkCellCtx]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
+    }, [session, draftType, childField, draftVersion, readiness, insertionFor, insertPreview, onDiscardDraft, body, styles, paging.loading, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, group, colCount, wr, edit, editorNode, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, linkCellCtx]);
 
     if (paging.error !== undefined) {
         return (
@@ -1639,10 +1775,13 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                         bandPx={bandPx}
                         r={rowSpace.rowOf[stickyAt] ?? -1}
                         row={stickyItem.row}
+                        number={stickyItem.position + 1}
+                        membership={membershipAt(body, stickyAt)}
+                        draft={draftPresentation(session, draftType, childField, stickyItem.row.id, undefined, readiness)}
+                        onDiscard={() => onDiscardDraft(stickyItem.row.id)}
                         group={group}
                         folded={stickyItem.folded}
                         count={stickyItem.count}
-                        hits={stickyItem.hits}
                         sticky
                         selC={undefined}
                         range={undefined}
@@ -1662,6 +1801,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
         <Box ref={rootRef} css={styles.root} data-sheet data-sheet-partial={transport !== undefined && !exhausted ? "" : undefined} data-copilot={copilotOn ? "" : undefined}
             data-lens={lensOn ? "" : undefined} data-view={ui.tabs.active ?? undefined}
             {...(frameFills ? { style: { height, maxHeight } } : {})}>
+            {!readOnly && <SheetHistory session={session} styles={styles} editing={ui.edit !== null} onAction={onHistoryAction} onIssue={onIssue} />}
             {(chrome !== undefined || transport !== undefined) && (
                 <SheetToolbar
                     styles={styles}
@@ -1707,6 +1847,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
                     rootCss={{ overflowX: "auto" }}
                 />
             </Box>
+            {(wr !== null && edit === null || rows.length === 0) && editingState.available && <SheetInsertStrip styles={styles}
+                ordered={!value.editing.keyed || anchorFor(ui.sel.r, "before").child !== undefined}
+                above={canInsertRows ? () => onInsert("row", wr?.r0 ?? ui.sel.r, "before") : undefined}
+                below={canInsertRows && (group === undefined || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}
+                group={canInsertGroups ? () => onInsert("group", wr?.r1 ?? ui.sel.r, "after") : undefined} />}
             <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
             <SheetFooter styles={styles} items={value.footer} summary={summary} hint={hint} message={ui.msg} transport={transport} />
         </Box>

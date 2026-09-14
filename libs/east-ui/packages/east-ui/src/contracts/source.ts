@@ -41,6 +41,7 @@ import {
     DictType,
     FunctionType,
     IntegerType,
+    NullType,
     OptionType,
     StringType,
     StructType,
@@ -155,6 +156,11 @@ export type SeekQueryType = typeof SeekQueryType;
  * source is exhausted at that offset — a reader that walks offsets terminates
  * on an empty window, never on `none`.
  *
+ * @property revision - Coherent snapshot shared by pages, total and seek; none
+ *   while discovering it, or on a legacy immutable-id source.
+ * @property refresh - Install an exact revision (some(hash)), or discover the
+ *   current snapshot (none), invalidating windows, total and seek together.
+ *
  * @typeParam C - The collection type one window carries.
  * @param c - The collection type value.
  * @returns The concrete `StructType` of a paged source over `c`.
@@ -163,7 +169,7 @@ export type SeekQueryType = typeof SeekQueryType;
  *   compares every function as EQUAL, so a struct of nothing but closures is
  *   indistinguishable from any other — without this field a memoized component
  *   never re-renders when the source is swapped, and a window cache cannot key
- *   itself. Two sources with the same `id` must serve the same rows.
+ *   itself. The id names the logical source; revision names its snapshot.
  * @property page - `(offset, limit)` → that window's elements as a value of the
  *   collection type; `none` while in flight, an EMPTY collection at exhaustion.
  * @property total - The source's total element count, once known; `none` until then.
@@ -176,6 +182,8 @@ export const PagedSourceType = <C extends EastType>(c: C) => StructType({
     page:  FunctionType([IntegerType, IntegerType], OptionType(c)),
     total: FunctionType([], OptionType(IntegerType)),
     seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+    revision: FunctionType([], OptionType(StringType)),
+    refresh: FunctionType([OptionType(StringType)], NullType),
 });
 
 /**
@@ -261,7 +269,7 @@ export type RowSourceInput<C extends EastType> =
  * unkeyed source is refused rather than silently re-keyed (#568).
  */
 export type ResolvedRowSource =
-    | { kind: "inline"; rows: ExprType<EastType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined }
+    | { kind: "inline"; rows: ExprType<EastType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined; live?: ExprType<StructType> }
     | { kind: "paged"; source: ExprType<StructType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined };
 
 /** A struct expression's field types, or undefined when it isn't a struct. */
@@ -310,7 +318,7 @@ function keyTypeOf(t: EastType | undefined): EastType | undefined {
  *
  * @param data - The rows prop as the author passed it
  * @param label - Component name for the error message (`"Plan"`, `"Table"`)
- * @returns The resolved arm — see {@link ResolvedRowSource}
+ * @returns The resolved arm, retaining a live handle for invocation-time reads — see {@link ResolvedRowSource}
  * @throws Error when the expression is none of the accepted shapes
  */
 export function resolveRowSource(data: unknown, label: string): ResolvedRowSource {
@@ -343,7 +351,8 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
         // A whole-value bind handle (`Data.bind`) — read it here, in the
         // surrounding East expression, and resolve the result.
         const handle = expr as unknown as ExprType<StructType<{ read: FunctionType<[], ArrayType<EastType>> }>>;
-        return resolveRowSource(handle.read(), label);
+        const resolved = resolveRowSource(handle.read(), label);
+        return resolved.kind === "inline" ? { ...resolved, live: expr as unknown as ExprType<StructType> } : resolved;
     }
     throw new Error(
         `${label}: rows must be a collection, a paged source (\`{ id, page, total }\` — e.g. Data.bindPaged), ` +
@@ -403,6 +412,8 @@ export function buildRowSource<Out extends EastType>(
         page: FunctionType<[IntegerType, IntegerType], OptionType<EastType>>;
         total: FunctionType<[], OptionType<IntegerType>>;
         seek: OptionType<FunctionType<[SeekQueryType], OptionType<SeekRangeType>>>;
+        revision: FunctionType<[], OptionType<StringType>>;
+        refresh: FunctionType<[OptionType<StringType>], NullType>;
     }>>;
     // Erased locally: the window type is `Out`, but TS cannot see through the
     // generic to unify `Option<Out>`'s arms — the East type is what types it.
@@ -428,8 +439,16 @@ export function buildRowSource<Out extends EastType>(
     const seek = fields["seek"] !== undefined
         ? handle.seek
         : East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))));
+    const revision = fields["revision"] !== undefined
+        ? handle.revision
+        : East.function([], OptionType(StringType), () => none);
+    const refresh = fields["refresh"] !== undefined
+        ? handle.refresh
+        : East.function([OptionType(StringType)], NullType, $ => {
+            $.error("Paged: this legacy source cannot refresh — provide revision and refresh methods for mutable editing");
+        });
     return East.value(
-        variant("paged", { id, page, total: handle.total, seek }) as never,
+        variant("paged", { id, page, total: handle.total, seek, revision, refresh }) as never,
         sourceType,
     ) as RowSource<Out>;
 }
@@ -469,7 +488,11 @@ export interface PagedOfOptions<R extends EastType> {
  * is what a keyed component (the Plan) requires of its source (#568).
  *
  * @typeParam R - The row type (array form) / the value type (dict form).
- * @param id - Comparable identity for this source (see {@link PagedSourceType}).
+ * `Paged.of` captures an immutable copy at creation. Give changed content a
+ * new id: this fixture's revision is `some(id)`. Refreshing with `none` or
+ * that same token keeps the snapshot; another target throws.
+ *
+ * @param id - Unique snapshot identity (see {@link PagedSourceType}).
  * @param collection - The whole collection — an `Array<R>` or a `Dict<String, R>`.
  * @param options - {@link PagedOfOptions} — array form only; supply `key` to enable `seek`.
  * @returns A `PagedSourceType` at the collection it was given.
@@ -480,6 +503,9 @@ export interface PagedOfOptions<R extends EastType> {
  * // real rows and a window's key range is a canvas key range.
  * const units = $.const(new Map([["UNIT-001", { … }]]), DictType(StringType, UnitRow));
  * const source = $.const(Paged.of("units", units));
+ * // The lifecycle is shared with mutable sources; fixtures retain this token.
+ * $(source.refresh(some("units")));
+ * const revision = $.let(source.revision()); // some("units")
  * // A paged canvas declares its window — fitting the axis to a partial
  * // prefix would re-fit it on every landed window (#567 D8).
  * const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }));
@@ -504,10 +530,17 @@ function createPagedOf(
     // overloads above are what callers see.
 ): any {
     const collectionExpr = East.value(collection as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
-    if ((Expr.type(collectionExpr) as { type: string }).type === "Dict") {
-        return keyedPagedOf(id, collectionExpr as unknown as ExprType<EastType>);
-    }
-    return arrayPagedOf(id, collectionExpr, options);
+    const collectionType = Expr.type(collectionExpr) as EastType;
+    const keyed = collectionType.type === "Dict";
+    // Evaluate the input once when creating the source, then detach nested
+    // mutable values. Page and seek closures share that captured snapshot;
+    // passing a live read expression cannot make later pages drift.
+    const capture = East.function([StringType, collectionType], PagedSourceType(collectionType), ($, snapshotId, input) => {
+        const snapshot = $.const(East.Blob.encodeBeast(input).decodeBeast(collectionType), collectionType);
+        return keyed ? keyedPagedOf(snapshotId, snapshot)
+            : arrayPagedOf(snapshotId, snapshot as ExprType<ArrayType<EastType>>, options);
+    });
+    return East.value(capture)(id, collectionExpr);
 }
 
 /**
@@ -592,7 +625,19 @@ function keyedPagedOf(
         });
     });
     const seek = some(find);
-    return East.value({ id, page, total, seek }, PagedSourceType(dictType)) as unknown as PagedSource<EastType>;
+    const revision = East.function([], OptionType(StringType), $ => some($.const(id, StringType)));
+    const refresh = East.function([OptionType(StringType)], NullType, ($, target) => {
+        $.match(target, {
+            some: ($2, hash) => {
+                $2.if(hash.notEqual($2.const(id, StringType)), $3 => {
+                    $3.error("Paged.of: immutable snapshot — create a source with the requested snapshot id");
+                });
+            },
+            none: () => {},
+        });
+        return null;
+    });
+    return East.value({ id, page, total, seek, revision, refresh }, PagedSourceType(dictType)) as unknown as PagedSource<EastType>;
 }
 
 /** The POSITIONAL in-memory source — array windows in stream order. */
@@ -673,7 +718,19 @@ function arrayPagedOf(
     // against the row type recovered from the expression, which TS sees as the
     // erased `EastType` rather than the caller's `R`. The East-side type —
     // `PagedSourceType(rowsType)` — is what actually types the value.
-    return East.value({ id, page, total, seek }, PagedSourceType(rowsType)) as unknown as PagedSource<EastType>;
+    const revision = East.function([], OptionType(StringType), $ => some($.const(id, StringType)));
+    const refresh = East.function([OptionType(StringType)], NullType, ($, target) => {
+        $.match(target, {
+            some: ($2, hash) => {
+                $2.if(hash.notEqual($2.const(id, StringType)), $3 => {
+                    $3.error("Paged.of: immutable snapshot — create a source with the requested snapshot id");
+                });
+            },
+            none: () => {},
+        });
+        return null;
+    });
+    return East.value({ id, page, total, seek, revision, refresh }, PagedSourceType(rowsType)) as unknown as PagedSource<EastType>;
 }
 
 /**

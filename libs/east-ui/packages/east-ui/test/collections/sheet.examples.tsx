@@ -37,7 +37,7 @@ const ACTIVITY_TYPE = StructType({
 /** The model behind an async proposer — an e3 function, a service, a notebook; the Sheet only needs the types. */
 const planRecommend = East.asyncPlatform(
     "sheet_plan_recommend",
-    [Sheet.Types.Context(PLAN_ROW_TYPE, ACTIVITY_TYPE)],
+    [Sheet.Types.DraftContext(PLAN_ROW_TYPE, ACTIVITY_TYPE)],
     ArrayType(Sheet.Types.Proposal(PLAN_ROW_TYPE)),
     { optional: true },
 );
@@ -49,7 +49,7 @@ const planRecommend = East.asyncPlatform(
  */
 export const sheetBasic = example({
     keywords: ["Sheet", "Root", "basic", "column", "date", "text", "quantity", "onUpdate", "State", "Reactive", "id"],
-    description: "The smallest sheet — three typed columns over the host's structs, the whole collection written back on every edit",
+    description: "The smallest sheet — three typed columns over the host's structs, draft changes reviewed together and the whole collection written once on Apply",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const JobType = StructType({
@@ -63,7 +63,7 @@ export const sheetBasic = example({
             ]));
             return (
                 <Sheet
-                    data={jobs.read()}
+                    data={jobs}
                     id="id"
                     columns={{
                         start: Sheet.column.date(JobType, { header: "Start", sub: "dd / mm / yyyy" }),
@@ -86,12 +86,12 @@ export const sheetBasic = example({
  * log to the reactive aside.
  */
 export const sheetVariants = example({
-    keywords: ["Sheet", "Root", "configurator", "density", "blanks", "readOnly", "height", "fill", "scroll", "#320", "copilot", "fill", "provider", "onSelect", "onEdit", "Configurator", "SegmentGroup", "Switch", "Input", "Reactive", "State"],
+    keywords: ["Sheet", "Root", "configurator", "density", "blanks", "readOnly", "height", "fill", "scroll", "#320", "copilot", "fill", "provider", "onSelect", "onPatch", "Configurator", "SegmentGroup", "Switch", "Input", "Reactive", "State"],
     description: "Sheet configurator — density, the blank tail, read-only, size mode (auto / scroll / fill) and the copilot switch all expression-fed into one live sheet; selection and edits log to the aside",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType), notes: StringType });
-            const Ctx = Sheet.Types.Context(JobType);
+            const Ctx = Sheet.Types.DraftContext(JobType);
             const rows = $.let(State.bind([ArrayType(JobType)], "sheet_variants_rows", [
                 { id: "j1", start: some(new Date("2026-02-16T00:00:00Z")), task: "Machining", qty: some(1200.0), notes: "Rough the P-40 blanks" },
                 { id: "j2", start: some(new Date("2026-03-09T00:00:00Z")), task: "Painting", qty: some(250.0), notes: "" },
@@ -127,21 +127,16 @@ export const sheetVariants = example({
             const NoteFill = OptionType(Sheet.Types.Fill(StringType));
             const phrase = $.const(East.function([Ctx], NoteFill, ($, ctx) => {
                 const noFill = $.const(none, NoteFill);
-                return copilotBind.read().and(() => ctx.row.task.length().greater(0n)).ifElse(
-                    (_$) => East.value(some({ value: East.str`${ctx.row.task} as planned`, meta: "phrasing from the task" }), NoteFill),
-                    (_$) => noFill,
-                );
+                return ctx.row.task.match({ value: (_$, task) => copilotBind.read().and(() => task.length().greater(0n)).ifElse(
+                    () => some({ value: East.str`${task} as planned`, meta: "phrasing from the supplied task" }), () => noFill),
+                }, () => noFill);
             }));
 
             const onSelect = $.const(East.function([Sheet.Types.Selection], NullType, ($, sel) => {
                 $(lastEventBind.write(East.str`onSelect: row ${sel.rowId.match({ some: (_$, id) => id, none: (_$) => "—" })} · ${sel.key.match({ some: (_$, k) => k, none: (_$) => "—" })}`));
             }));
-            const onEdit = $.const(East.function([Sheet.Types.Edit(JobType)], NullType, ($, e) => {
-                $(lastEventBind.write(e.match({
-                    commit: (_$, c) => East.str`commit: ${c.rowId} · ${c.key} · ${c.source.getTag()}`,
-                    insert: (_$, i) => East.str`insert: ${i.row.id}`,
-                    remove: (_$, r) => East.str`remove: ${r.rowIds.length()} rows`,
-                })));
+            const onPatch = $.const(East.function([Sheet.Types.PatchEvent(JobType)], NullType, ($, e) => {
+                $(lastEventBind.write(East.str`${e.origin.getTag()} · ${e.draftChanges.length()} entries · ${e.readiness.getTag()}`));
             }));
 
             const densitySel = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));
@@ -173,7 +168,7 @@ export const sheetVariants = example({
                     preview={
                         <Box width="100%" height={boxHeight} overflow="hidden">
                             <Sheet
-                                data={rows.read()}
+                                data={rows}
                                 id="id"
                                 columns={{
                                     start: Sheet.column.date(JobType, { header: "Start", sub: "dd / mm / yyyy", width: "96px" }),
@@ -185,7 +180,8 @@ export const sheetVariants = example({
                                 blanks={blanks}
                                 readOnly={readOnly}
                                 onSelect={onSelect}
-                                onEdit={onEdit}
+                                onPatch={onPatch}
+                                newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { notes: "" }))}
                                 onUpdate={rows.write}
                                 style={{ height: sheetHeight }}
                             />
@@ -230,7 +226,7 @@ export const sheetPlan = example({
             const LineType     = StructType({ code: StringType, name: StringType, machines: IntegerType, aliases: ArrayType(StringType) });
             const FamilyType   = StructType({ name: StringType, aliases: ArrayType(StringType) });
             const StatusType   = StructType({ word: StringType, tone: Status.Types.Value });
-            const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);
+            const Ctx = Sheet.Types.DraftContext(PlanRowType, ActivityType);
             const Proposals = ArrayType(Sheet.Types.Proposal(PlanRowType));
 
             // The synthetic registers — a discrete manufacturing plant: machines on
@@ -325,7 +321,10 @@ export const sheetPlan = example({
             // The arity rule (§3.4) — how many machines the To half should hold, from the quantity.
             const impliedStations = $.const(East.function([Ctx], OptionType(Sheet.Types.Counted), ($, ctx) => {
                 const noCount = $.const(none, OptionType(Sheet.Types.Counted));
-                const qty = $.let(ctx.row.qty.match({ some: (_$, v) => v, none: (_$) => 0.0 }));
+                $.if(ctx.row.qty.hasTag("value").not(), ($) => { $.return(noCount); });
+                const supplied = $.const(ctx.row.qty.unwrap("value"));
+                $.if(supplied.hasTag("some").not(), ($) => { $.return(noCount); });
+                const qty = $.const(supplied.unwrap("some"));
                 const piecesPerMachine = $.const(300.0);
                 // ⌈qty ÷ 300⌉ and round(qty) by hand — `toInteger` refuses a fraction.
                 const share = $.let(qty.divide(piecesPerMachine));
@@ -349,12 +348,12 @@ export const sheetPlan = example({
             const siteMatches = $.const(East.function([CheckCtx], OptionType(StringType), ($, c) => {
                 const noFlag = $.const(none, OptionType(StringType));
                 const site = $.let(c.half.match({ from: (_$) => c.row.fromSite, to: (_$) => c.row.toSite }));
-                return c.member.match({
-                    identified: (_$, m) => site.equal("").not()
+                return site.hasTag("value").ifElse(() => c.member.match({
+                    identified: (_$, m) => site.unwrap("value").equal("").not()
                         .and(() => machineSites.has(m.key))
-                        .and(() => machineSites.get(m.key).equal(site).not())
-                        .ifElse((_$2) => East.value(some(East.str`${m.key} is not at ${site}`), OptionType(StringType)), (_$2) => noFlag),
-                }, (_$) => noFlag);
+                        .and(() => machineSites.get(m.key).equal(site.unwrap("value")).not())
+                        .ifElse((_$2) => East.value(some(East.str`${m.key} is not at ${site.unwrap("value")}`), OptionType(StringType)), (_$2) => noFlag),
+                }, (_$) => noFlag), () => noFlag);
             }));
 
             // The fills (§3.5) — derive, history, sequence, default, phrase, capacity — as author functions.
@@ -365,42 +364,56 @@ export const sheetPlan = example({
             const endFromStart = $.const(East.function([Ctx], DateFill, ($, ctx) => {
                 const noFill = $.const(none, DateFill);
                 return ctx.row.start.match({
-                    none: (_$) => noFill,
-                    some: (_$, start) => ctx.driver.match({
-                        none: (_$2) => noFill,
-                        some: (_$2, d) => East.value(some({ value: start.addDays(d.days), meta: East.str`+${d.days}d · ${d.name}` }), DateFill),
+                    value: (_$, supplied) => supplied.match({
+                        none: () => noFill,
+                        some: (_$, start) => ctx.driver.match({
+                            none: () => noFill,
+                            some: (_$, d) => some({ value: start.addDays(d.days), meta: East.str`+${d.days}d · ${d.name}` }),
+                        }),
                     }),
-                });
+                }, () => noFill);
             }));
-            const lastSimilar = $.const(East.function([Ctx], OptionType(PlanRowType), ($, ctx) => {
-                const similar = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) => r.activity.equal(ctx.row.activity)));
-                return similar.length().equal(0n).ifElse(
-                    (_$) => East.value(none, OptionType(PlanRowType)),
-                    (_$) => East.value(some(similar.get(similar.length().subtract(1n))), OptionType(PlanRowType)));
+            const lastSimilar = $.const(East.function([Ctx], OptionType(Sheet.Types.Draft(PlanRowType)), ($, ctx) => {
+                const noRow = $.const(none, OptionType(Sheet.Types.Draft(PlanRowType)));
+                return ctx.row.activity.match({
+                    value: ($, activity) => {
+                        const similar = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) =>
+                            r.activity.hasTag("value").and(() => r.activity.unwrap("value").equal(activity))));
+                        return similar.size().equal(0n).ifElse(() => noRow, () => some(similar.get(similar.size().subtract(1n))));
+                    },
+                }, () => noRow);
             }));
             const lastQuantity = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
                 const noFill = $.const(none, FloatFill);
-                const similar = $.const(lastSimilar);
-                return similar(ctx).match({
-                    none: (_$) => noFill,
-                    some: (_$, r) => r.qty.match({ none: (_$2) => noFill, some: (_$2, v) => East.value(some({ value: v, meta: East.str`like ${r.id}` }), FloatFill) }),
-                });
+                return ctx.row.activity.match({
+                    value: ($, activity) => {
+                        const similar = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) =>
+                            r.activity.hasTag("value").and(() => r.activity.unwrap("value").equal(activity))
+                                .and(() => r.qty.hasTag("value")).and(() => r.qty.unwrap("value").hasTag("some"))));
+                        return similar.size().equal(0n).ifElse(() => noFill, ($) => {
+                            const row = $.let(similar.get(similar.size().subtract(1n)));
+                            return some({ value: row.qty.unwrap("value").unwrap("some"), meta: "last supplied quantity for this activity" });
+                        });
+                    },
+                }, () => noFill);
             }));
             const lastStations = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
                 const noFill = $.const(none, LinkFill);
                 const similar = $.const(lastSimilar);
                 return similar(ctx).match({
-                    none: (_$) => noFill,
-                    some: (_$, r) => r.stations.from.length().add(r.stations.to.length()).equal(0n).ifElse(
-                        (_$2) => noFill, (_$2) => East.value(some({ value: r.stations, meta: East.str`same stations as ${r.id}` }), LinkFill)),
+                    none: () => noFill,
+                    some: (_$, r) => r.stations.match({
+                        value: (_$, stations) => stations.from.size().add(stations.to.size()).equal(0n).ifElse(
+                            () => noFill, () => some({ value: stations, meta: "same stations as the last similar row" })),
+                    }, () => noFill),
                 });
             }));
             const nextSlot = $.const(East.function([Ctx], DateFill, ($, ctx) => {
-                const dated = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) => r.start.hasTag("some")));
+                const dated = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) => r.start.hasTag("value").and(() => r.start.unwrap("value").hasTag("some"))));
                 return dated.length().greater(0n).ifElse(
                     ($2) => {
                         const last = $2.let(dated.get(dated.length().subtract(1n)));
-                        return East.value(some({ value: last.start.unwrap("some").addDays(7n), meta: East.str`week after ${last.id}` }), DateFill);
+                        return East.value(some({ value: last.start.unwrap("value").unwrap("some").addDays(7n), meta: East.str`week after ${last.id.match({ value: (_$, id) => id }, () => "previous row")}` }), DateFill);
                     },
                     ($2) => {
                         const daysToMonday = $2.let(East.value(8n, IntegerType).subtract(ctx.today.getDayOfWeek()).remainder(7n));
@@ -417,15 +430,15 @@ export const sheetPlan = example({
             }));
             const phrase = $.const(East.function([Ctx], TextFill, ($, ctx) => {
                 const noFill = $.const(none, TextFill);
-                const n = $.let(ctx.row.qty.match({
-                    some: ($2, v) => { const k = $2.let(v.add(0.5)); return k.subtract(k.remainder(1.0)).toInteger(); },   // round by hand — `toInteger` refuses a fraction
-                    none: (_$) => 0n,
-                }));
-                return ctx.row.activity.startsWith("Machining").ifElse(
-                    (_$) => East.value(some({ value: East.str`Machine ${n} P-40 blanks`, meta: "phrasing from past machining runs" }), TextFill),
-                    (_$) => ctx.row.activity.startsWith("Painting").ifElse(
-                        (_$2) => East.value(some({ value: East.str`Paint ${n} P-40 housings`, meta: "phrasing from past painting runs" }), TextFill),
-                        (_$2) => noFill));
+                return ctx.row.activity.hasTag("value").and(() => ctx.row.qty.hasTag("value"))
+                    .and(() => ctx.row.qty.unwrap("value").hasTag("some")).ifElse(($) => {
+                        const activity = $.const(ctx.row.activity.unwrap("value"));
+                        const qty = $.const(ctx.row.qty.unwrap("value").unwrap("some"));
+                        return activity.startsWith("Machining").ifElse(
+                            () => some({ value: East.str`Machine ${qty} P-40 blanks`, meta: "phrasing from supplied activity and quantity" }),
+                            () => activity.startsWith("Painting").ifElse(
+                                () => some({ value: East.str`Paint ${qty} P-40 housings`, meta: "phrasing from supplied activity and quantity" }), () => noFill));
+                    }, () => noFill);
             }));
             const countedByQuantity = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
                 const noFill = $.const(none, LinkFill);
@@ -440,48 +453,57 @@ export const sheetPlan = example({
             // The proposers (§3.6) — a domain pattern, a learned follower, and an ASYNC model call.
             const roughingFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
                 const empty = $.const([], Proposals);
-                const implied = $.const(impliedStations);
-                const n = $.let(implied(ctx).match({ some: (_$, c) => c.n, none: (_$) => 1n }));
-                return ctx.row.activity.equal("Machining - Roughing").and(() => ctx.row.end.hasTag("some")).ifElse(
-                    ($2) => {
-                        const endAt = $2.let(ctx.row.end.unwrap("some"));
-                        return $2.const([
-                            { patch: Sheet.patch(PlanRowType, { activity: "Inspection", start: ctx.row.start, end: ctx.row.end, qty: some(n.toFloat()), notes: East.str`Inspect ${n} roughing lots` }),
-                              meta: "inspection · same days" },
-                            { patch: Sheet.patch(PlanRowType, { activity: "Machining", start: some(endAt.addDays(3n)), end: some(endAt.addDays(7n)), qty: ctx.row.qty, notes: "Finish the roughed blanks" }),
-                              meta: "finishing · end +3…+7 d" },
+                return ctx.row.activity.hasTag("value")
+                    .and(() => ctx.row.activity.unwrap("value").equal("Machining - Roughing"))
+                    .and(() => ctx.row.end.hasTag("value"))
+                    .and(() => ctx.row.end.unwrap("value").hasTag("some")).ifElse(($) => {
+                        const end = $.const(ctx.row.end.unwrap("value").unwrap("some"));
+                        return $.const([
+                            { patch: Sheet.patch(PlanRowType, { activity: "Inspection", start: some(end), end: some(end), qty: some(4.0), notes: "Inspect 4 lots" }), meta: "inspection at the supplied end" },
+                            { patch: Sheet.patch(PlanRowType, { activity: "Machining", start: some(end.addDays(3n)), end: some(end.addDays(7n)), notes: "Finish the roughed blanks" }), meta: "finishing · end +3…+7 d" },
                         ], Proposals);
-                    },
-                    (_$2) => empty);
+                    }, () => empty);
             }));
             const lastFollower = $.const(East.function([Ctx], Proposals, ($, ctx) => {
                 const empty = $.const([], Proposals);
-                const dated = $.let(ctx.rows.filter((_$, r) => r.start.hasTag("some").and(() => r.activity.equal("").not())));
-                const n = $.let(dated.length());
-                const upper = $.let(n.greater(1n).ifElse((_$) => n.subtract(1n), (_$) => 0n));
-                const pairs = $.let(East.Array.range(0n, upper).filter((_$, i) =>
-                    dated.get(i).activity.equal(ctx.row.activity).and(() => dated.get(i.add(1n)).activity.equal(ctx.row.activity).not())));
-                return pairs.length().equal(0n).or(() => ctx.row.activity.equal("")).or(() => ctx.row.start.hasTag("some").not()).ifElse(
-                    (_$) => empty,
-                    ($2) => {
-                        const i = $2.let(pairs.get(pairs.length().subtract(1n)));
-                        const from = $2.let(dated.get(i));
-                        const next = $2.let(dated.get(i.add(1n)));
-                        const gapMs = $2.let(next.start.unwrap("some").toEpochMilliseconds().subtract(from.start.unwrap("some").toEpochMilliseconds()));
-                        const at = $2.let(ctx.row.start.unwrap("some").addMilliseconds(gapMs));
-                        return $2.const([{
-                            patch: Sheet.patch(PlanRowType, { activity: next.activity, start: some(at), qty: next.qty, notes: next.notes }),
-                            meta: East.str`${next.activity} followed ${ctx.row.activity} last time · +${gapMs.divide(86400000n)}d`,
-                        }], Proposals);
-                    });
+                return ctx.row.activity.hasTag("value")
+                    .and(() => ctx.row.start.hasTag("value"))
+                    .and(() => ctx.row.start.unwrap("value").hasTag("some")).ifElse(($) => {
+                        const activity = $.const(ctx.row.activity.unwrap("value"));
+                        const start = $.const(ctx.row.start.unwrap("value").unwrap("some"));
+                        const dated = $.const(ctx.rows.filter((_$, r) => r.start.hasTag("value")
+                            .and(() => r.start.unwrap("value").hasTag("some"))
+                            .and(() => r.activity.hasTag("value"))));
+                        const upper = $.const(dated.size().greater(1n).ifElse(() => dated.size().subtract(1n), () => 0n));
+                        const pairs = $.const(East.Array.range(0n, upper).filter((_$, i) =>
+                            dated.get(i).activity.unwrap("value").equal(activity)
+                                .and(() => dated.get(i.add(1n)).activity.unwrap("value").equal(activity).not())));
+                        return pairs.size().equal(0n).ifElse(() => empty, ($) => {
+                            const index = $.const(pairs.get(pairs.size().subtract(1n)));
+                            const from = $.const(dated.get(index));
+                            const next = $.const(dated.get(index.add(1n)));
+                            const gap = $.const(next.start.unwrap("value").unwrap("some").toEpochMilliseconds()
+                                .subtract(from.start.unwrap("value").unwrap("some").toEpochMilliseconds()));
+                            return $.const([{ patch: Sheet.patch(PlanRowType, { activity: next.activity.unwrap("value"), start: some(start.addMilliseconds(gap)) }),
+                                meta: "follower learned from supplied activities and dates" }], Proposals);
+                        });
+                    }, () => empty);
             }));
-            const modelProposals = $.const(East.asyncFunction([Ctx], Proposals, (_$, ctx) => planRecommend(ctx)));
+            const modelProposals = $.const(East.asyncFunction([Ctx], Proposals, ($, ctx) => {
+                const result = $.let([], Proposals);
+                $.try(($) => { $.assign(result, planRecommend(ctx)); }).catch(($, message) => {
+                    // The standalone showcase has no model backend. Other failures
+                    // still reach the Sheet's provider diagnostic.
+                    $.if(message.notEqual("Platform function 'sheet_plan_recommend' is not available"), ($) => { $.error(message); });
+                });
+                return result;
+            }));
 
             const planned = $.let(rows.filter((_$, r) => r.activity.length().greater(0n)).length());
 
             return (
                 <Sheet
-                    data={rows}
+                    data={plan}
                     id="id"
                     owned={r => r.orderCode.length().greater(0n).or(() => r.status.equal("CANCELLED"))}
                     driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name })}
@@ -526,6 +548,9 @@ export const sheetPlan = example({
                                propose: [roughingFollowUps, modelProposals, lastFollower] }}
                     slice={slice} affordances={["search", "filter"]}
                     views={views.read()} onViewsChange={views.write}
+                    newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(PlanRowType), () => Sheet.patch(PlanRowType, {
+                        notes: "", stations: { from: [], to: [] }, fromSite: "", toSite: "", orderCode: "", status: "PLANNED",
+                    }))}
                     onUpdate={plan.write}
                     footer={[{ text: East.str`${planned} planned` }]}
                     style={{ height: "fill" }}
@@ -542,10 +567,10 @@ export const sheetPlan = example({
  * similar row's quantity), sequence (a week after the last dated row), default
  * (eight hours at the driver's rate), a domain pattern proposer, a learned
  * follower, and an ASYNC proposer behind a platform function; every take
- * logs its provenance through `onEdit`.
+ * logs its provenance through `onPatch`.
  */
 export const sheetCopilot = example({
-    keywords: ["Sheet", "Root", "copilot", "fill", "provider", "propose", "proposer", "suggest", "derive", "history", "sequence", "default", "learned", "follower", "asyncFunction", "asyncPlatform", "pending", "latest wins", "provenance", "onEdit", "source", "Context", "Fill", "Patch", "Proposal", "Reactive", "State"],
+    keywords: ["Sheet", "Root", "copilot", "fill", "provider", "propose", "proposer", "suggest", "derive", "history", "sequence", "default", "learned", "follower", "asyncFunction", "asyncPlatform", "pending", "latest wins", "provenance", "onPatch", "source", "Context", "Fill", "Patch", "Proposal", "Reactive", "State"],
     description: "The copilot in isolation — derive, history, sequence and default fills, a pattern proposer, a learned follower and an async model proposer, all author East functions over the typed context; takes log their provenance",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -555,7 +580,7 @@ export const sheetCopilot = example({
                 fromSite: StringType, toSite: StringType, orderCode: StringType, status: StringType,
             });
             const ActivityType = StructType({ name: StringType, uom: StringType, rate: FloatType, fte: IntegerType, days: IntegerType, sides: Sheet.Types.Sides });
-            const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);
+            const Ctx = Sheet.Types.DraftContext(PlanRowType, ActivityType);
             const Proposals = ArrayType(Sheet.Types.Proposal(PlanRowType));
             const activities = $.const([
                 { name: "Machining", uom: "pcs", rate: 60.0, fte: 2n, days: 4n, sides: variant("both", null) },
@@ -577,31 +602,37 @@ export const sheetCopilot = example({
             const endFromStart = $.const(East.function([Ctx], DateFill, ($, ctx) => {
                 const noFill = $.const(none, DateFill);
                 return ctx.row.start.match({
-                    none: (_$) => noFill,
-                    some: (_$, start) => ctx.driver.match({
-                        none: (_$2) => noFill,
-                        some: (_$2, d) => East.value(some({ value: start.addDays(d.days), meta: East.str`+${d.days}d · ${d.name}` }), DateFill),
+                    value: (_$, supplied) => supplied.match({
+                        none: () => noFill,
+                        some: (_$, start) => ctx.driver.match({
+                            none: () => noFill,
+                            some: (_$, d) => some({ value: start.addDays(d.days), meta: East.str`+${d.days}d · ${d.name}` }),
+                        }),
                     }),
-                });
+                }, () => noFill);
             }));
             // history — the last row above with this activity.
             const lastQuantity = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
                 const noFill = $.const(none, FloatFill);
-                const similar = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) => r.activity.equal(ctx.row.activity)));
-                return similar.length().equal(0n).ifElse(
-                    (_$) => noFill,
-                    ($2) => {
-                        const r = $2.let(similar.get(similar.length().subtract(1n)));
-                        return r.qty.match({ none: (_$) => noFill, some: (_$, v) => East.value(some({ value: v, meta: East.str`like ${r.id}` }), FloatFill) });
-                    });
+                return ctx.row.activity.match({
+                    value: ($, activity) => {
+                        const similar = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) =>
+                            r.activity.hasTag("value").and(() => r.activity.unwrap("value").equal(activity))
+                                .and(() => r.qty.hasTag("value")).and(() => r.qty.unwrap("value").hasTag("some"))));
+                        return similar.size().equal(0n).ifElse(() => noFill, ($) => {
+                            const row = $.let(similar.get(similar.size().subtract(1n)));
+                            return some({ value: row.qty.unwrap("value").unwrap("some"), meta: "last supplied quantity for this activity" });
+                        });
+                    },
+                }, () => noFill);
             }));
             // sequence — a week after the nearest dated row above; else next Monday.
             const nextSlot = $.const(East.function([Ctx], DateFill, ($, ctx) => {
-                const dated = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) => r.start.hasTag("some")));
+                const dated = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) => r.start.hasTag("value").and(() => r.start.unwrap("value").hasTag("some"))));
                 return dated.length().greater(0n).ifElse(
                     ($2) => {
                         const last = $2.let(dated.get(dated.length().subtract(1n)));
-                        return East.value(some({ value: last.start.unwrap("some").addDays(7n), meta: East.str`week after ${last.id}` }), DateFill);
+                        return East.value(some({ value: last.start.unwrap("value").unwrap("some").addDays(7n), meta: East.str`week after ${last.id.match({ value: (_$, id) => id }, () => "previous row")}` }), DateFill);
                     },
                     ($2) => {
                         const daysToMonday = $2.let(East.value(8n, IntegerType).subtract(ctx.today.getDayOfWeek()).remainder(7n));
@@ -620,58 +651,64 @@ export const sheetCopilot = example({
             // A domain pattern — a roughing run is followed by an inspection and a finishing run.
             const roughingFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
                 const empty = $.const([], Proposals);
-                return ctx.row.activity.equal("Machining - Roughing").and(() => ctx.row.end.hasTag("some")).ifElse(
-                    ($2) => {
-                        const endAt = $2.let(ctx.row.end.unwrap("some"));
-                        return $2.const([
-                            { patch: Sheet.patch(PlanRowType, { activity: "Inspection", start: ctx.row.start, end: ctx.row.end, qty: some(4.0), notes: "Inspect 4 lots" }),
-                              meta: "inspection · same days" },
-                            { patch: Sheet.patch(PlanRowType, { activity: "Machining", start: some(endAt.addDays(3n)), end: some(endAt.addDays(7n)), qty: ctx.row.qty, notes: "Finish the roughed blanks" }),
-                              meta: "finishing · end +3…+7 d" },
+                return ctx.row.activity.hasTag("value")
+                    .and(() => ctx.row.activity.unwrap("value").equal("Machining - Roughing"))
+                    .and(() => ctx.row.end.hasTag("value"))
+                    .and(() => ctx.row.end.unwrap("value").hasTag("some")).ifElse(($) => {
+                        const end = $.const(ctx.row.end.unwrap("value").unwrap("some"));
+                        return $.const([
+                            { patch: Sheet.patch(PlanRowType, { activity: "Inspection", start: some(end), end: some(end), qty: some(4.0), notes: "Inspect 4 lots" }), meta: "inspection at the supplied end" },
+                            { patch: Sheet.patch(PlanRowType, { activity: "Machining", start: some(end.addDays(3n)), end: some(end.addDays(7n)), notes: "Finish the roughed blanks" }), meta: "finishing · end +3…+7 d" },
                         ], Proposals);
-                    },
-                    (_$2) => empty);
+                    }, () => empty);
             }));
             // Learned from the sheet — what followed this activity last time, after how long.
             const lastFollower = $.const(East.function([Ctx], Proposals, ($, ctx) => {
                 const empty = $.const([], Proposals);
-                const dated = $.let(ctx.rows.filter((_$, r) => r.start.hasTag("some").and(() => r.activity.equal("").not())));
-                const n = $.let(dated.length());
-                const upper = $.let(n.greater(1n).ifElse((_$) => n.subtract(1n), (_$) => 0n));
-                const pairs = $.let(East.Array.range(0n, upper).filter((_$, i) =>
-                    dated.get(i).activity.equal(ctx.row.activity).and(() => dated.get(i.add(1n)).activity.equal(ctx.row.activity).not())));
-                return pairs.length().equal(0n).or(() => ctx.row.activity.equal("")).or(() => ctx.row.start.hasTag("some").not()).ifElse(
-                    (_$) => empty,
-                    ($2) => {
-                        const i = $2.let(pairs.get(pairs.length().subtract(1n)));
-                        const from = $2.let(dated.get(i));
-                        const next = $2.let(dated.get(i.add(1n)));
-                        const gapMs = $2.let(next.start.unwrap("some").toEpochMilliseconds().subtract(from.start.unwrap("some").toEpochMilliseconds()));
-                        const at = $2.let(ctx.row.start.unwrap("some").addMilliseconds(gapMs));
-                        return $2.const([{
-                            patch: Sheet.patch(PlanRowType, { activity: next.activity, start: some(at), qty: next.qty, notes: next.notes }),
-                            meta: East.str`${next.activity} followed ${ctx.row.activity} last time · +${gapMs.divide(86400000n)}d`,
-                        }], Proposals);
-                    });
+                return ctx.row.activity.hasTag("value")
+                    .and(() => ctx.row.start.hasTag("value"))
+                    .and(() => ctx.row.start.unwrap("value").hasTag("some")).ifElse(($) => {
+                        const activity = $.const(ctx.row.activity.unwrap("value"));
+                        const start = $.const(ctx.row.start.unwrap("value").unwrap("some"));
+                        const dated = $.const(ctx.rows.filter((_$, r) => r.start.hasTag("value")
+                            .and(() => r.start.unwrap("value").hasTag("some"))
+                            .and(() => r.activity.hasTag("value"))));
+                        const upper = $.const(dated.size().greater(1n).ifElse(() => dated.size().subtract(1n), () => 0n));
+                        const pairs = $.const(East.Array.range(0n, upper).filter((_$, i) =>
+                            dated.get(i).activity.unwrap("value").equal(activity)
+                                .and(() => dated.get(i.add(1n)).activity.unwrap("value").equal(activity).not())));
+                        return pairs.size().equal(0n).ifElse(() => empty, ($) => {
+                            const index = $.const(pairs.get(pairs.size().subtract(1n)));
+                            const from = $.const(dated.get(index));
+                            const next = $.const(dated.get(index.add(1n)));
+                            const gap = $.const(next.start.unwrap("value").unwrap("some").toEpochMilliseconds()
+                                .subtract(from.start.unwrap("value").unwrap("some").toEpochMilliseconds()));
+                            return $.const([{ patch: Sheet.patch(PlanRowType, { activity: next.activity.unwrap("value"), start: some(start.addMilliseconds(gap)) }),
+                                meta: "follower learned from supplied activities and dates" }], Proposals);
+                        });
+                    }, () => empty);
             }));
             // A model — an ASYNC proposer; the strip shows a pending chip and a newer context cancels the wait.
-            const modelProposals = $.const(East.asyncFunction([Ctx], Proposals, (_$, ctx) => planRecommend(ctx)));
+            const modelProposals = $.const(East.asyncFunction([Ctx], Proposals, ($, ctx) => {
+                const result = $.let([], Proposals);
+                $.try(($) => { $.assign(result, planRecommend(ctx)); }).catch(($, message) => {
+                    // The standalone showcase has no model backend. Other failures
+                    // still reach the Sheet's provider diagnostic.
+                    $.if(message.notEqual("Platform function 'sheet_plan_recommend' is not available"), ($) => { $.error(message); });
+                });
+                return result;
+            }));
 
-            // Every take carries its provenance through `onEdit` — the log measures copilot uptake.
-            const onEdit = $.const(East.function([Sheet.Types.Edit(PlanRowType)], NullType, ($, e) => {
-                const line = $.let(e.match({
-                    commit: (_$, c) => East.str`${c.source.getTag()} · ${c.rowId} · ${c.key}`,
-                    insert: (_$, i) => East.str`${i.source.getTag()} · new row ${i.row.id}`,
-                    remove: (_$, r) => East.str`removed ${r.rowIds.length()}`,
-                }));
-                $(log.write(log.read().concat([line])));
+            // Every gesture logs once, including incomplete drafts and undo.
+            const onPatch = $.const(East.function([Sheet.Types.PatchEvent(PlanRowType)], NullType, ($, e) => {
+                $(log.write(log.read().concat([East.str`${e.origin.getTag()} · ${e.label} · ${e.draftChanges.length()} entries`])));
             }));
             const entries = $.let(log.read());
 
             return (
                 <VStack gap="3" align="stretch">
                     <Sheet
-                        data={plan.read()}
+                        data={plan}
                         id="id"
                         driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name })}
                         columns={{
@@ -682,8 +719,11 @@ export const sheetCopilot = example({
                             notes:    Sheet.column.text(PlanRowType, { header: "Notes", width: "260px" }),
                         }}
                         suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "qty"], propose: [roughingFollowUps, modelProposals, lastFollower] }}
-                        onEdit={onEdit}
-                        onUpdate={plan.write}
+                        onPatch={onPatch}
+                        newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(PlanRowType), () => Sheet.patch(PlanRowType, {
+                        notes: "", stations: { from: [], to: [] }, fromSite: "", toSite: "", orderCode: "", status: "PLANNED",
+                    }))}
+                    onUpdate={plan.write}
                         style={{ height: "420px" }}
                     />
                     <Text.MonoLabel>{East.str`COPILOT LOG · ${entries.length()} edits · ${entries.filter((_$, l) => l.startsWith("typed").not()).length()} from the copilot`}</Text.MonoLabel>
@@ -774,13 +814,13 @@ export const sheetLens = example({
 });
 
 /**
- * Write-back (§3.7) — the raw `onEdit` channel observing every commit,
- * insert and remove with its provenance, beside `onUpdate` writing the whole
- * collection; a staged bind holds changes until they are applied.
+ * Write-back (§3.7) — onPatch journals one complete gesture, while the
+ * live onUpdate adapter checks and applies the composed batch once. The
+ * Sheet holds local drafts until Apply changes is pressed.
  */
 export const sheetWriteBack = example({
-    keywords: ["Sheet", "Root", "onEdit", "onUpdate", "write-back", "commit", "insert", "remove", "source", "provenance", "Edit", "staged", "newRowId", "Reactive", "State"],
-    description: "Write-back — the raw onEdit event channel logging commit / insert / remove with provenance, beside onUpdate writing the whole collection, and a host-minted row id",
+    keywords: ["Sheet", "Root", "onPatch", "onUpdate", "write-back", "commit", "insert", "remove", "source", "provenance", "PatchEvent", "staged", "newRowId", "Reactive", "State"],
+    description: "Write-back — one onPatch event per gesture with provenance and readiness, beside onUpdate applying a checked batch to the live collection",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const JobType = StructType({ id: StringType, task: StringType, qty: OptionType(FloatType), createdBy: StringType });
@@ -790,15 +830,10 @@ export const sheetWriteBack = example({
             ]));
             const log = $.let(State.bind([ArrayType(StringType)], "sheet_writeback_log", []));
             const counter = $.let(State.bind([IntegerType], "sheet_writeback_counter", 3n));
-            // The raw channel — the row AFTER the commit, typed over the host's
-            // struct: `createdBy` has no column, and still reads its real value.
-            const onEdit = $.const(East.function([Sheet.Types.Edit(JobType)], NullType, ($, e) => {
-                const line = $.let(e.match({
-                    commit: (_$, c) => East.str`commit ${c.rowId}.${c.key} (${c.source.getTag()}) · ${c.row.task} · by ${c.row.createdBy}`,
-                    insert: (_$, i) => East.str`insert ${i.row.id} after ${i.afterRowId.match({ some: (_$2, a) => a, none: (_$2) => "end" })}`,
-                    remove: (_$, r) => East.str`remove ${r.rowIds.stringJoin(", ")}`,
-                }));
-                $(log.write(log.read().concat([line])));
+            // Draft patches include hidden fields without inventing their values.
+            // This observer journals gestures; the live adapter applies ready batches.
+            const onPatch = $.const(East.function([Sheet.Types.PatchEvent(JobType)], NullType, ($, e) => {
+                $(log.write(log.read().concat([East.str`${e.origin.getTag()} · ${e.label} · ${e.readiness.getTag()}`])));
             }));
             // The host mints ids for inserted rows.
             const newRowId = $.const(East.function([], StringType, ($) => {
@@ -810,14 +845,15 @@ export const sheetWriteBack = example({
             return (
                 <VStack gap="3" align="stretch">
                     <Sheet
-                        data={jobs.read()}
+                        data={jobs}
                         id="id"
                         columns={{
                             task: Sheet.column.text(JobType, { header: "Task", width: "200px" }),
                             qty:  Sheet.column.quantity(JobType, { header: "Qty", width: "112px" }),
                         }}
-                        onEdit={onEdit}
+                        onPatch={onPatch}
                         onUpdate={jobs.write}
+                        newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { createdBy: "planner" }))}
                         newRowId={newRowId}
                         blanks={6n}
                     />
@@ -831,14 +867,71 @@ export const sheetWriteBack = example({
 });
 
 /**
+ * Grouped editing — named work packages with ordered child rows. Explicit
+ * constructors supply hidden metadata; the schema determines completeness.
+ */
+export const sheetGrouped = example({
+    keywords: ["Sheet", "group", "grouped", "children", "newGroup", "newRow", "Patch", "defaults", "completeness", "fold", "undo", "redo", "onUpdate", "Reactive", "State"],
+    description: "Grouped work packages — edit names and child rows, fold groups, create drafts with explicit defaults, then apply or undo the batch",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const JobType = StructType({ task: StringType, qty: OptionType(FloatType), notes: StringType, createdBy: StringType });
+            const PackageType = StructType({ id: StringType, name: StringType, owner: StringType, jobs: ArrayType(JobType) });
+            const packages = $.let(State.bind([ArrayType(PackageType)], "sheet_grouped_packages", [
+                { id: "roughing", name: "P-40 · Roughing", owner: "planner", jobs: [
+                    { task: "Machine blanks", qty: some(1200.0), notes: "Four CNC lathes", createdBy: "planner" },
+                    { task: "Inspect lots", qty: some(4.0), notes: "Check before finishing", createdBy: "planner" },
+                ] },
+                { id: "finishing", name: "P-40 · Finishing", owner: "planner", jobs: [
+                    { task: "Finish housings", qty: some(1200.0), notes: "After inspection", createdBy: "planner" },
+                    { task: "Pack for assembly", qty: some(100.0), notes: "Twelve per carton", createdBy: "planner" },
+                ] },
+            ]));
+            const applied = $.let(packages.read());
+            return (
+                <VStack gap="3" align="stretch">
+                    <Text textStyle="caption" color="fg.muted">Edit a package name or task. Use the gutter + to insert a task, or the stacked-rows + button to create a package at a group boundary. Apply changes saves the batch; Undo and Redo retain each gesture.</Text>
+                    <Sheet
+                        data={packages}
+                        id="id"
+                        group={Sheet.group(PackageType, "jobs", { title: "name" })}
+                        ready={{ group: East.function([Sheet.Types.DraftGroup(PackageType, "jobs")], Sheet.Types.Readiness, ($, group) => {
+                            $.if(group.name.hasTag("value").and(() => group.name.unwrap("value").length().equal(0n)), $ => {
+                                $.return(East.value(variant("incomplete", [{ field: "name", message: "Name the work package" }]), Sheet.Types.Readiness));
+                            });
+                            return East.value(variant("ready", null), Sheet.Types.Readiness);
+                        }) }}
+                        columns={{
+                            task: Sheet.column.text(JobType, { header: "Task", width: "240px" }),
+                            qty: Sheet.column.quantity(JobType, { header: "Qty", width: "112px" }),
+                            notes: Sheet.column.text(JobType, { header: "Notes", width: "300px" }),
+                        }}
+                        newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, {
+                            notes: "", createdBy: "planner",
+                        }))}
+                        newGroup={East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(PackageType), () => Sheet.patch(PackageType, {
+                            owner: "planner", jobs: [],
+                        }))}
+                        onUpdate={packages.write}
+                        style={{ height: "440px" }}
+                    />
+                    <Text.MonoLabel>{East.str`SAVED · ${applied.length()} packages · ${applied.map((_$, p) => p.jobs.length()).sum()} tasks`}</Text.MonoLabel>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
  * The paged arm (§3.13) — the same tag over a windowed source: windows land
  * as the planner scrolls, the footer carries the transport line, the blank
  * tail appears once the source is exhausted, search is a key search over
- * `seek`, and edits go through `onEdit` to the host's journal.
+ * `seek`, and the immutable snapshot is read-only. A mutable source needs an authoritative onApply callback.
  */
 export const sheetPaged = example({
-    keywords: ["Sheet", "Root", "paged", "Paged", "of", "window", "page", "seek", "key search", "transport", "partial", "exhausted", "onEdit", "journal", "row-source", "Reactive", "State"],
-    description: "A paged sheet — the same tag over a Paged.of source keyed by id: windows land on scroll, the footer counts elements, key search seeks the source, and edits go to the host's journal through onEdit",
+    keywords: ["Sheet", "Root", "paged", "Paged", "of", "window", "page", "seek", "key search", "transport", "partial", "exhausted", "onPatch", "journal", "row-source", "Reactive", "State"],
+    description: "A paged sheet — the same tag over a Paged.of source keyed by id: windows land on scroll, the footer counts elements, key search seeks the source, and its immutable snapshot stays read-only",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType) });
@@ -851,11 +944,6 @@ export const sheetPaged = example({
                 qty: some(i.multiply(15n).toFloat().add(180.0)),
             })), ArrayType(JobType));
             const source = $.const(Paged.of("sheet_paged_jobs", rows, { key: r => r.id }));   // Data.bindPaged(planInput) in e3-ui
-            const edits = $.let(State.bind([ArrayType(Sheet.Types.Edit(JobType))], "sheet_paged_edits", []));
-            const applyEdit = $.const(East.function([Sheet.Types.Edit(JobType)], NullType, ($, e) => {
-                $(edits.write(edits.read().concat([e])));   // the host's edit journal, replayed server-side
-            }));
-            const journal = $.let(edits.read());
             return (
                 <VStack gap="3" align="stretch">
                     <Sheet
@@ -866,10 +954,9 @@ export const sheetPaged = example({
                             task:  Sheet.column.text(JobType, { header: "Task", width: "180px" }),
                             qty:   Sheet.column.quantity(JobType, { header: "Qty", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
                         }}
-                        onEdit={applyEdit}
                         style={{ height: "420px" }}
                     />
-                    <Text.MonoLabel>{East.str`JOURNAL · ${journal.length()} edits`}</Text.MonoLabel>
+                    <Text.MonoLabel>Immutable snapshot · key search and paging</Text.MonoLabel>
                 </VStack>
             );
         }}</Reactive>
@@ -887,7 +974,7 @@ export const sheetStress = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType), notes: StringType });
-            const Ctx = Sheet.Types.Context(JobType);
+            const Ctx = Sheet.Types.DraftContext(JobType);
             const tasks = $.const(["Machining", "Painting", "Packaging", "Changeover", "Maintenance", "Receiving", "Shipping"], ArrayType(StringType));
             const rows = $.let(State.bind([ArrayType(JobType)], "sheet_stress_rows", East.Array.generate(2000n, JobType, (_$, i) => ({
                 id: East.str`S${i}`,
@@ -899,17 +986,17 @@ export const sheetStress = example({
             const FloatFill = OptionType(Sheet.Types.Fill(FloatType));
             const lastQty = $.const(East.function([Ctx], FloatFill, ($, ctx) => {
                 const noFill = $.const(none, FloatFill);
-                const similar = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) => r.task.equal(ctx.row.task).and(() => r.qty.hasTag("some"))));
+                const similar = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) => r.task.hasTag("value").and(() => ctx.row.task.hasTag("value")).and(() => r.task.unwrap("value").equal(ctx.row.task.unwrap("value"))).and(() => r.qty.hasTag("value")).and(() => r.qty.unwrap("value").hasTag("some"))));
                 return similar.length().equal(0n).ifElse(
                     (_$) => noFill,
                     ($2) => {
                         const r = $2.let(similar.get(similar.length().subtract(1n)));
-                        return East.value(some({ value: r.qty.unwrap("some"), meta: East.str`like ${r.id}` }), FloatFill);
+                        return East.value(some({ value: r.qty.unwrap("value").unwrap("some"), meta: East.str`like ${r.id.match({ value: (_$, id) => id }, () => "previous row")}` }), FloatFill);
                     });
             }));
             return (
                 <Sheet
-                    data={rows.read()}
+                    data={rows}
                     id="id"
                     columns={{
                         start: Sheet.column.date(JobType, { header: "Start", width: "96px" }),
@@ -917,11 +1004,75 @@ export const sheetStress = example({
                         qty:   Sheet.column.quantity(JobType, { header: "Qty", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }), fill: [lastQty] }),
                         notes: Sheet.column.text(JobType, { header: "Notes", width: "240px" }),
                     }}
+                    newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { notes: "" }))}
                     onUpdate={rows.write}
                     footer={[{ text: "2000 rows · virtualised" }]}
                     style={{ height: "480px" }}
                 />
             );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** Schema completeness plus an optional business rule, evaluated on typed drafts. */
+export const sheetReadiness = example({
+    keywords: ["Sheet", "ready", "row", "Readiness", "Draft", "DraftContext", "completeness", "validation", "Apply", "onUpdate", "Reactive", "State"],
+    description: "Draft readiness — quantities must be positive before Apply; missing required values and invalid text are checked automatically",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const JobType = StructType({ id: StringType, task: StringType, qty: IntegerType, note: OptionType(StringType), createdBy: StringType });
+            const jobs = $.const(State.bind([ArrayType(JobType)], "sheet_readiness_jobs", [
+                { id: "inspection", task: "Inspect lots", qty: 4n, note: none, createdBy: "planner" },
+            ]));
+            const readyRow = $.const(East.function([Sheet.Types.Draft(JobType), Sheet.Types.DraftContext(JobType)], Sheet.Types.Readiness, ($, row) => {
+                $.if(row.qty.hasTag("value").and(() => row.qty.unwrap("value").lessEqual(0n)), $ => {
+                    $.return(East.value(variant("incomplete", [{ field: "qty", message: "Quantity must be positive" }]), Sheet.Types.Readiness));
+                });
+                return East.value(variant("ready", null), Sheet.Types.Readiness);
+            }));
+            const saved = $.const(jobs.read());
+            return (
+                <VStack gap="3" align="stretch">
+                    <Text textStyle="caption" color="fg.muted">Set Qty to 0: Apply stays disabled. Enter a positive quantity to save. Required fields are checked automatically; Notes may stay blank.</Text>
+                    <Sheet
+                        data={jobs}
+                        id="id"
+                        columns={{ task: Sheet.column.text(JobType), qty: Sheet.column.integer(JobType), note: Sheet.column.text(JobType) }}
+                        ready={{ row: readyRow }}
+                        newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { createdBy: "planner" }))}
+                        onUpdate={jobs.write}
+                        blanks={2n}
+                    />
+                    <Text.MonoLabel>{East.str`SAVED · ${saved.length()} rows · ${saved.map((_$, row) => row.qty).sum()} total quantity`}</Text.MonoLabel>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** Row insertion and capability limits over a live collection. */
+export const sheetInsertion = example({
+    keywords: ["Sheet", "edits", "insertRows", "removeRows", "insert", "newRow", "before", "after", "Undo", "State"],
+    description: "Insert rows with the gutter buttons, selection strip or Alt+Insert; existing-row deletion is disabled while new drafts can be discarded",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const RowType = StructType({ id: StringType, task: StringType, qty: IntegerType, createdBy: StringType });
+            const jobs = $.const(State.bind([ArrayType(RowType)], "sheet_insertion_jobs", [
+                { id: "rough", task: "Rough machining", qty: 120n, createdBy: "planner" },
+                { id: "inspect", task: "Inspect lots", qty: 4n, createdBy: "planner" },
+                { id: "finish", task: "Finish housings", qty: 120n, createdBy: "planner" },
+            ]));
+            const saved = $.const(jobs.read());
+            return <VStack gap="3" align="stretch">
+                <Text textStyle="caption" color="fg.muted">Hover or focus a gutter to insert before a row. Select a row marker for Insert above/below, or use Alt+Insert and Alt+Shift+Insert. Name the draft and Apply to save it.</Text>
+                <Sheet data={jobs} id="id" columns={{ task: Sheet.column.text(RowType), qty: Sheet.column.integer(RowType) }}
+                    edits={{ insertRows: true, removeRows: false, moveRows: "none" }}
+                    newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(RowType), () => Sheet.patch(RowType, { qty: 1n, createdBy: "planner" }))}
+                    onUpdate={jobs.write} blanks={2n} />
+                <Text.MonoLabel>{East.str`SAVED · ${saved.map((_$, row) => row.task).stringJoin(" → ")}`}</Text.MonoLabel>
+            </VStack>;
         }}</Reactive>
     )),
     inputs: [],

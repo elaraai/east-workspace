@@ -36,14 +36,11 @@
  *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
  *     `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; the lens band's
  *     pill opens on hover (`shadow.xs`) with brand controls.
- *   - A group's band (#740, G1): 40 px `bg.panel`, 1 px `border.strong`
- *     above, `border.subtle` below (`border.strong` when folded); chevron
+ *   - A group's band (#740, G1): 40 px `bg.panel`, no extra top rule,
+ *     `border.subtle` below (`border.strong` when folded); chevron
  *     18 px `fg.muted`, count mono 10; title body 13/600 `fg` over the
  *     eyebrow mono 9.5 uppercase .08em `fg.subtle`; band cells mono 11
- *     `fg.muted`. The extent rule (G2): 2 px `border.strong` down the right
- *     edge from the band to the group's last line. The `+ plan` ghost band
- *     (G6): 40 px, dashed `border.strong` top, mono 10/600 `fg.subtle`,
- *     brand on hover.
+ *     `fg.muted`. Membership is shown by markers and rails in the gutter.
  *   - A phone (the adaptive contract, #346): the grid scrolls sideways under
  *     a gutter that stays put (`position: sticky`), the toolbar keeps its one
  *     row through its ladder, and on a coarse pointer the small controls grow
@@ -61,18 +58,21 @@ export const sheetSlotRecipe = defineSlotRecipe({
     className: "elara-sheet",
     slots: [
         "root", "frame", "card", "body",
+        "insertPoint", "insertButton", "insertGroupIcon", "insertGroupPlus", "insertStrip", "insertChoice",
+        "history", "historyActions", "historyStatus", "historyButton", "historyIssues", "historyError",
         "toolbar", "toolbarRailGroup", "toolbarCluster", "toolbarCount", "toolbarBadge",
         "tabs", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
         "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerCell", "headerLabel", "headerSub",
         "row", "rowBlank", "gutter", "gutterNumber", "gutterButton", "gutterBar",
-        "cell", "cellText", "cellMono", "cellWord", "cellNum", "cellUnit", "cellGhost", "cellDot",
+        "cell", "cellIssue", "cellText", "cellMono", "cellWord", "cellNum", "cellUnit", "cellGhost", "cellDot",
         "ring", "rangeWash", "hatch", "nextTarget", "takeButton",
         "editor", "editorField", "editorMirror", "editorGhost", "editorInput", "editorResolve", "editorBadge", "editorError",
         "editorNumber", "editorNumberInput", "editorStepper", "editorDate",
         "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "lockTag", "lockWarn", "arrow",
         "band", "bandRule", "bandPill", "bandControl", "bandCount",
-        "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell", "edge", "ghostBand", "ghostCell", "ghostLabel",
+        "membershipLane", "membershipRail", "membershipButton", "membershipGlyph", "gutterAction", "groupSummary",
+        "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell",
         "strip", "stripLabel", "stripChips", "stripChip", "stripChipOn", "stripChipFlat", "stripMeta", "stripKeys",
         "footer", "footerCounts", "footerHint", "footerMessage", "footerTransport",
         "diagnostic",
@@ -85,6 +85,69 @@ export const sheetSlotRecipe = defineSlotRecipe({
             fontFamily: "body",
             color: "fg",
             fontFeatureSettings: '"tnum" 1',
+            // Paint a segment inside the sticky gutter too: its raised hover layer covers the row rule.
+            "& [data-row][data-insert-preview]::after, & [data-row][data-insert-preview] > [data-slot=gutter]::after": { content: '""', position: "absolute", left: "0", right: "0", top: "0", borderTopWidth: "1px", borderTopColor: "brand.solid", pointerEvents: "none", zIndex: "8" },
+            "& [data-row][data-insert-preview=group]::after, & [data-row][data-insert-preview=group] > [data-slot=gutter]::after": { borderTopWidth: "2px" },
+            "& [data-slot=gutter]:hover:has([data-slot=insertPoint]), & [data-slot=gutter]:focus-within": { zIndex: "9" },
+            // Virtual rows have transformed wrappers; lift that stacking context above the sticky header too.
+            "& :has(> [data-row] > [data-slot=gutter]:hover [data-slot=insertPoint]), & :has(> [data-row] > [data-slot=gutter]:focus-within [data-slot=insertPoint])": { zIndex: "9" },
+            "& [data-row][data-draft] > [data-slot=cell][data-blank][data-editable]": {
+                background: "color-mix(in srgb, var(--chakra-colors-status-warn) 17%, var(--chakra-colors-bg-surface))",
+            },
+            "& [data-row][data-invalid] > [data-slot=cell][data-invalid]": {
+                background: "color-mix(in srgb, var(--chakra-colors-status-neg) 17%, var(--chakra-colors-bg-surface))",
+            },
+        },
+        insertPoint: {
+            position: "absolute", left: "52px", top: "-9px", display: "flex", gap: "4px", zIndex: "9",
+            _coarse: { left: "166px", top: "0", gap: "0", height: "44px" },
+        },
+        insertButton: {
+            display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: "0",
+            width: "18px", height: "18px", padding: "0", borderWidth: "1px", borderColor: "brand.solid",
+            borderRadius: "sm", background: "bg.surface", color: "brand.solid", fontSize: "10px", cursor: "pointer", opacity: "0",
+            "[data-slot=gutter]:hover &, [data-slot=gutter]:focus-within &": { opacity: "1" },
+            _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "1px", opacity: "1" },
+            _hover: { background: "brandTint" }, _coarse: { width: "44px", height: "44px", opacity: "1" },
+        },
+        insertGroupIcon: { position: "relative", display: "inline-flex", width: "14px", height: "14px", alignItems: "center" },
+        insertGroupPlus: { position: "absolute", right: "-1px", bottom: "-1px", width: "8px", height: "8px", background: "bg.surface", fontFamily: "mono", fontSize: "10px", lineHeight: "8px" },
+        insertStrip: { display: "flex", gap: "2", paddingX: "5", paddingY: "2", background: "bg.panel", borderTopWidth: "1px", borderColor: "border.subtle", overflowX: "auto" },
+        insertChoice: { borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm", paddingX: "2", paddingY: "1", color: "fg.muted", background: "bg.surface", fontFamily: "mono", fontSize: "xs", whiteSpace: "nowrap", _hover: { borderColor: "brand.solid" }, _coarse: { minWidth: "44px", minHeight: "44px" } },
+        history: {
+            flexShrink: "0",
+            paddingX: "{spacing.3}",
+            paddingY: "{spacing.2}",
+            background: "bg.surface",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
+        },
+        historyActions: {
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "{spacing.2}",
+        },
+        historyStatus: {
+            flex: "1 1 auto",
+            fontFamily: "mono",
+            fontSize: "xs",
+            color: "fg.muted",
+        },
+        historyButton: {
+            flexShrink: "0",
+            _coarse: { minWidth: "11", minHeight: "11" },
+        },
+        historyIssues: {
+            display: "flex",
+            flexShrink: "0",
+            "&[data-empty]": { visibility: "hidden" },
+        },
+        historyError: {
+            marginTop: "{spacing.2}",
+            fontSize: "xs",
+            color: "fg.danger",
         },
         frame: {
             display: "flex",
@@ -343,6 +406,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         // The gutters stay put while the grid scrolls sideways (a phone).
         headerGutter: {
+            display: "flex", alignItems: "center", paddingLeft: "43px",
+            fontFamily: "mono", fontSize: "10px", color: "fg.subtle",
+            _coarse: { paddingLeft: "55px" },
             background: "bg.panel",
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
@@ -387,6 +453,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             position: "relative",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
+            "&[data-draft]": { background: "color-mix(in srgb, var(--chakra-colors-status-warn) 9%, var(--chakra-colors-bg-surface))" },
+            "&[data-invalid]": { background: "color-mix(in srgb, var(--chakra-colors-status-neg) 9%, var(--chakra-colors-bg-surface))" },
             "&[data-proposed]": {
                 "&::before": {
                     content: '""',
@@ -404,7 +472,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         rowBlank: {},
         gutter: {
-            paddingX: "4px",
+            paddingRight: "4px",
             display: "flex",
             alignItems: "center",
             gap: "3px",
@@ -420,9 +488,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             left: "0",
             zIndex: "5",
             _hover: { background: "bg.muted", color: "fg.muted" },
+            "[data-row][data-draft] > &": { background: "color-mix(in srgb, var(--chakra-colors-status-warn) 12%, var(--chakra-colors-bg-panel))" },
+            "[data-row][data-invalid] > &": { background: "color-mix(in srgb, var(--chakra-colors-status-neg) 12%, var(--chakra-colors-bg-panel))" },
         },
         gutterNumber: {
-            width: "26px",
+            width: "18px",
             textAlign: "right",
             flex: "none",
             // Breathing room before the ✓ × → buttons: the number is right-aligned, so without it a digit touches the first button.
@@ -443,8 +513,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             cursor: "pointer",
             fontSize: "9px",
-            _coarse: { width: "26px", height: "26px", fontSize: "12px" },
+            _coarse: { width: "44px", height: "44px", fontSize: "12px" },
             _hover: { background: "brand.solid", color: "brand.contrast" },
+            "&[data-slot=discardDraft]": {
+                borderColor: "status.warn",
+                color: "status.warn",
+                _hover: { background: "bg.surface", borderColor: "status.neg", color: "status.neg" },
+            },
             "&[data-reject]": {
                 borderColor: "border.strong",
                 color: "fg.subtle",
@@ -474,6 +549,18 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightColor: "border.subtle",
             minWidth: "0",
             _hover: { background: "bg.panel" },
+            "&[data-invalid]": { background: "color-mix(in srgb, var(--chakra-colors-status-neg) 17%, var(--chakra-colors-bg-surface))", "& [data-slot=cellText]": { color: "fg.danger" } },
+        },
+        cellIssue: {
+            position: "absolute",
+            width: "1px",
+            height: "1px",
+            padding: "0",
+            margin: "-1px",
+            overflow: "hidden",
+            clipPath: "inset(50%)",
+            whiteSpace: "nowrap",
+            borderWidth: "0",
         },
         cellText: {
             fontSize: "13px",
@@ -553,6 +640,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             zIndex: "4",
             // The row under the sticky header: the header would cover the ring's top pixel, so it stays inside the cell.
             "[data-first] &": { top: "0" },
+            // Keep both pixels visible beside the sticky gutter, including group titles.
+            "[data-slot=gutter] + [data-slot=cell] > &": { left: "0" },
         },
         rangeWash: {
             position: "absolute",
@@ -606,6 +695,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             top: "-1px",
             minHeight: "calc(100% + 2px)",
             "[data-first] &": { top: "0", minHeight: "calc(100% + 1px)" },
+            "[data-slot=gutter] + [data-slot=cell] > &": { left: "0" },
             zIndex: "10",
             background: "bg.surface",
             boxShadow: "inset 0 0 0 2px var(--chakra-colors-brand-solid)",
@@ -613,6 +703,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "4px",
             paddingX: "10px",
+            "&[data-kind=date], &[data-kind=quantity], &[data-kind=integer]": { paddingX: "4px" },
             overflow: "hidden",
         },
         editorField: {
@@ -656,8 +747,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         editorNumber: {
             flex: "1",
             minWidth: "0",
-            alignSelf: "stretch",
-            minHeight: "0",
+            alignSelf: "center",
             borderWidth: "0",
             borderRadius: "0",
             boxShadow: "none",
@@ -667,13 +757,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         editorNumberInput: {
             fontFamily: "mono",
-            fontSize: "12.5px",
             fontWeight: "400",
             color: "fg",
             paddingInline: "0",
-            paddingBlock: "0",
-            minHeight: "0",
-            _coarse: { fontSize: "16px", minHeight: "0" },
         },
         editorStepper: {
             marginLeft: "6px",
@@ -685,9 +771,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "center",
             fontFamily: "mono",
-            fontSize: "12.5px",
             color: "fg",
-            _coarse: { fontSize: "16px" },
         },
         editorResolve: {
             display: "inline-flex",
@@ -712,6 +796,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             pointerEvents: "none",
             zIndex: "11",
             "[data-first] &": { top: "0" },
+            "[data-slot=gutter] + [data-slot=cell] > &": { left: "0" },
         },
         linkGrid: {
             flex: "1",
@@ -895,18 +980,57 @@ export const sheetSlotRecipe = defineSlotRecipe({
         bandCount: {
             cursor: "pointer",
         },
+        membershipLane: {
+            position: "relative", alignSelf: "stretch", flex: "0 0 32px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: "fg.subtle", _coarse: { flexBasis: "44px" },
+            '&[data-group-color="1"]': { color: "sheet.group.1" },
+            '&[data-group-color="2"]': { color: "sheet.group.2" },
+            '&[data-group-color="3"]': { color: "sheet.group.3" },
+            '&[data-group-color="4"]': { color: "sheet.group.4" },
+            '&[data-group-color="5"]': { color: "sheet.group.5" },
+            '&[data-group-color="6"]': { color: "sheet.group.6" },
+        },
+        membershipRail: {
+            position: "absolute", left: "16px", width: "2px", top: "50%", bottom: "50%",
+            background: "currentColor", opacity: "0.6", pointerEvents: "none",
+            '&[data-above]': { top: "-1px" }, '&[data-below]': { bottom: "-1px" },
+            _coarse: { left: "22px" },
+        },
+        membershipButton: {
+            position: "relative", display: "flex", alignItems: "center", justifyContent: "center",
+            width: "32px", height: "32px", color: "inherit", background: "transparent",
+            border: "none", padding: "0", cursor: "pointer", flexShrink: "0",
+            _coarse: { width: "44px", height: "44px" },
+            _hover: { '& > span': { outline: "2px solid currentColor", outlineOffset: "2px" } },
+            _focusVisible: { outline: "none", '& > span': { outline: "2px solid currentColor", outlineOffset: "2px" } },
+            '&[aria-pressed=true] > span': { background: "currentColor" },
+        },
+        membershipGlyph: {
+            width: "14px", height: "16px", border: "1px solid currentColor", borderRadius: "3px",
+            background: "bg.panel", marginLeft: "2px",
+        },
+        gutterAction: {
+            display: "flex", alignItems: "center", justifyContent: "center", flex: "0 0 18px",
+            _coarse: { flexBasis: "44px" },
+        },
+        groupSummary: {
+            display: "flex", alignItems: "center", gap: "12px", paddingX: "10px", minWidth: "0",
+            '& > [data-slot=fold]': { marginRight: "-6px" },
+        },
+        // One summary spans the row columns; membership is confined to the gutter.
         // A group's band (#740): one grid row on the line columns' template.
         groupRow: {
             display: "grid",
             position: "relative",
-            background: "bg.panel",
-            borderTopWidth: "1px",
-            borderTopColor: "border.strong",
+            background: "bg.subtle",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
+            "&[data-draft]": { background: "color-mix(in srgb, var(--chakra-colors-status-warn) 9%, var(--chakra-colors-bg-panel))" },
+            "&[data-invalid]": { background: "color-mix(in srgb, var(--chakra-colors-status-neg) 9%, var(--chakra-colors-bg-panel))" },
             "&[data-folded]": { borderBottomColor: "border.strong" },
             // The copy under the header while the group's lines scroll (G1).
-            "&[data-slot=stickyBand]": { borderTopColor: "transparent", borderBottomColor: "border.strong" },
+            "&[data-slot=stickyBand]": { borderBottomColor: "border.strong" },
         },
         groupChevron: {
             display: "inline-flex",
@@ -920,7 +1044,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             fontSize: "11px",
             _hover: { background: "bg.muted", color: "fg" },
-            _coarse: { width: "26px", height: "26px", fontSize: "14px" },
+            _coarse: { width: "44px", height: "44px", fontSize: "14px" },
         },
         groupCount: {
             fontFamily: "mono",
@@ -931,18 +1055,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "&[data-quiet]": { opacity: "0.6" },
         },
         groupTitle: {
-            position: "relative",
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            gap: "1px",
-            paddingX: "10px",
-            paddingY: "4px",
-            minWidth: "0",
-            borderRightWidth: "1px",
-            borderRightColor: "border.subtle",
-            cursor: "default",
-            overflow: "visible",
+            position: "relative", display: "flex", alignItems: "center", minWidth: "0",
+            minHeight: "28px", cursor: "text", overflow: "visible",
+            '&:has([data-slot=editorInput])': { width: "240px", flex: "0 0 240px" },
         },
         groupTitleText: {
             fontSize: "13px",
@@ -956,10 +1071,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         groupSub: {
             fontFamily: "mono",
-            fontSize: "9.5px",
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "fg.subtle",
+            fontSize: "10px",
+            color: "fg.muted",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -967,56 +1080,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             zIndex: "1",
         },
         groupCell: {
-            position: "relative",
-            display: "flex",
-            alignItems: "center",
-            paddingX: "10px",
-            paddingY: "4px",
-            minWidth: "0",
-            borderRightWidth: "1px",
-            borderRightColor: "border.subtle",
-            cursor: "default",
-            overflow: "visible",
-            // Band cells read smaller and quieter than line cells.
-            "& > span": { fontSize: "11px", fontFamily: "mono", color: "fg.muted" },
-            "&[data-editable]": { cursor: "text" },
-        },
-        // The group's extent (G2): a 2 px rule down the right edge of the band and every line.
-        edge: {
-            position: "absolute",
-            right: "0",
-            top: "0",
-            bottom: "-1px",
-            width: "2px",
-            background: "border.strong",
-            pointerEvents: "none",
-            zIndex: "3",
-        },
-        ghostBand: {
-            display: "grid",
-            position: "relative",
-            borderTopWidth: "1px",
-            borderTopStyle: "dashed",
-            borderTopColor: "border.strong",
-            cursor: "pointer",
-            _hover: { "& [data-slot=ghostLabel]": { color: "brand.solid" } },
-        },
-        ghostCell: {
-            position: "relative",
-            display: "flex",
-            alignItems: "center",
-            paddingX: "10px",
-            minWidth: "0",
-        },
-        ghostLabel: {
-            fontFamily: "mono",
-            fontSize: "10px",
-            fontWeight: "600",
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-            position: "relative",
-            zIndex: "1",
+            position: "relative", display: "flex", alignItems: "center", minWidth: "0", minHeight: "28px",
+            cursor: "default", overflow: "visible",
+            '& > span': { fontSize: "10px", fontFamily: "mono", color: "fg.muted" },
+            '&[data-editable]': { cursor: "text" },
+            '&:last-child': { marginLeft: "auto" },
         },
         strip: {
             display: "flex",

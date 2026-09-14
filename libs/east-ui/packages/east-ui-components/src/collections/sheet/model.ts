@@ -12,8 +12,8 @@
  * On a GROUPED sheet (#740) the body is the groups' BANDS with their lines
  * under them: a line is a `real` item whose row is a pseudo wire row over
  * the line's cells (so every cell helper reads it as a row) tagged with its
- * group ({@link LineGroup}); each open group ends with one blank line; the
- * body ends with the `+ plan` ghost band.
+ * group ({@link LineGroup}). Group-local lenses and synthetic new-group
+ * rows are absent; source key search navigates entries without filtering.
  *
  * Pure: no React, no DOM. The interaction state lives in `sheet-state.ts`;
  * the data lives in the component (local rows over the decoded value).
@@ -189,9 +189,6 @@ export function blankLineId(groupId: string): string {
     return ` blank:g:${groupId}`;
 }
 
-/** The synthetic id of the `+ plan` ghost band. */
-export const GHOST_BAND_ID = " blank:+";
-
 /** The wire key a line that the source does not hold yet carries — never a source index. */
 export const NEW_LINE_KEY = "+";
 
@@ -268,19 +265,6 @@ export function withoutLines(group: SheetRowValue, keys: ReadonlySet<string>): S
 /** A line's ADDRESS in an edit event — its position on `Array` lines, its key on `Dict` lines. */
 export function lineAddress(keyed: boolean, key: string, index: number): string {
     return keyed ? key : String(index);
-}
-
-/** The positions a group's lines take in the lens — one stride per group, so reveals and gap keys stay per line. */
-export const LINE_POSITION_STRIDE = 1 << 20;
-
-/** A line's lens position. */
-export function linePosition(groupPosition: number, index: number): number {
-    return groupPosition * LINE_POSITION_STRIDE + index;
-}
-
-/** The line index a lens position names. */
-export function lineIndexOfPosition(position: number): number {
-    return position % LINE_POSITION_STRIDE;
 }
 
 /** The band's height per density (px). */
@@ -401,6 +385,7 @@ export function formatDateCell(d: Date, pattern: string | undefined): string {
  */
 export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta): string {
     if (cell === undefined || cell.type === "Null") return "";
+    if (cell.type === "Invalid") return cell.value;
     switch (meta.kind) {
         case "custom":
             if (meta.customPrint !== undefined) {
@@ -427,6 +412,7 @@ export function rawCellText(cell: SheetCellValue): string {
         case "Boolean": return String(cell.value);
         case "Integer": return String(cell.value);
         case "Float": return String(cell.value);
+        case "Invalid":
         case "String": return cell.value;
         case "DateTime": return formatDatePattern(DATE_DISPLAY_PATTERN, cell.value);
         case "Link": return printLinkText(cell.value);
@@ -454,17 +440,7 @@ export interface LensSlice {
     gaps: readonly LensGap[];
 }
 
-/** A grouped sheet's lens (#740) — one slice per resident group, over its lines. */
-export interface GroupedLens {
-    groups: readonly LensSlice[];
-}
-
-/** Whether a lens is a grouped sheet's. */
-function isGroupedLens(lens: LensSlice | GroupedLens): lens is GroupedLens {
-    return (lens as Partial<GroupedLens>).groups !== undefined;
-}
-
-/** One body item — a real row (a line, when tagged with its group), a blank padding row (a group's blank line, when tagged), a group's band, the `+ plan` ghost band, a paged band, a lens gap, or a proposal. */
+/** One body item — a real row (a line, when tagged with its group), a blank padding row (a group's blank line, when tagged), a group's band, a paged band, a lens gap, or a proposal. */
 export type SheetBodyItem =
     | {
         kind: "real";
@@ -499,11 +475,7 @@ export type SheetBodyItem =
         folded: boolean;
         /** The group's line count. */
         count: number;
-        /** Under a lens: how many of its lines are hits. */
-        hits: number | undefined;
     }
-    /** The `+ plan` ghost band (#740). */
-    | { kind: "groupBlank"; position: number }
     | { kind: "band"; band: SheetBand }
     | {
         kind: "proposal";
@@ -527,7 +499,7 @@ export interface SheetBodyInput {
     rows: readonly SheetRowValue[];
     /** The source offset of `rows[0]` (`0` on the inline arm). */
     rowsOffset: number;
-    /** Padding rows below the last real one (a grouped sheet: `> 0` ⇒ each open group ends with a blank line and the sheet with the ghost band). */
+    /** Padding rows below the last real one (a grouped sheet: `> 0` ⇒ each open group ends with a blank line). */
     blanks: number;
     /** Whether blanks may show — the inline arm, or a paged source that is exhausted. */
     exhausted: boolean;
@@ -535,10 +507,10 @@ export interface SheetBodyInput {
     total: number | undefined;
     head: SheetBand | undefined;
     tail: SheetBand | undefined;
-    /** The lens over the resident rows (B§8); a grouped sheet: one slice per resident group, over its lines. Absent ⇒ the sheet is whole. */
-    lens?: LensSlice | GroupedLens | undefined;
-    /** Grouped rows (#740): whether each group is folded, and whether the `+ plan` ghost band shows (the source is writable). */
-    grouped?: { foldedOf: (row: SheetRowValue) => boolean; ghost: boolean } | undefined;
+    /** The flat-sheet lens over resident rows. Grouped bodies ignore it. */
+    lens?: LensSlice | undefined;
+    /** Whether each group is folded. */
+    grouped?: { foldedOf: (row: SheetRowValue) => boolean } | undefined;
 }
 
 /**
@@ -552,7 +524,7 @@ export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
     if (input.grouped !== undefined) return buildGroupedBody(input, input.grouped);
     const out: SheetBodyItem[] = [];
     if (input.head !== undefined) out.push({ kind: "band", band: input.head });
-    const lens = input.lens !== undefined && !isGroupedLens(input.lens) ? input.lens : undefined;
+    const lens = input.lens;
     let inGap = false;
     input.rows.forEach((row, i) => {
         const position = input.rowsOffset + i;
@@ -579,47 +551,29 @@ export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
 
 /**
  * A grouped sheet's body (#740): for each resident group its band, then —
- * unless folded — its lines (under a lens: the hits and their context, the
- * rest as gaps inside the group) and one blank line; a group with no hits
- * folds to its band. The `+ plan` ghost band ends an exhausted sheet.
+ * unless folded — all its lines and one blank line. Search navigates the
+ * source; it never hides children or changes a group's fold state.
  */
 function buildGroupedBody(input: SheetBodyInput, grouped: NonNullable<SheetBodyInput["grouped"]>): SheetBodyItem[] {
     const out: SheetBodyItem[] = [];
     if (input.head !== undefined) out.push({ kind: "band", band: input.head });
-    const lens = input.lens !== undefined && isGroupedLens(input.lens) ? input.lens.groups : undefined;
     input.rows.forEach((row, i) => {
         const position = input.rowsOffset + i;
-        const slice = lens?.[i];
-        const hits = slice !== undefined ? slice.hits.filter(Boolean).length : undefined;
-        const folded = grouped.foldedOf(row) || (slice !== undefined && hits === 0);
-        out.push({ kind: "group", position, residentIndex: i, row, folded, count: row.lines.length, hits });
+        const folded = grouped.foldedOf(row);
+        out.push({ kind: "group", position, residentIndex: i, row, folded, count: row.lines.length });
         if (folded) return;
-        let inGap = false;
         row.lines.forEach((line, j) => {
-            if (slice !== undefined && !slice.visible[j]) {
-                if (!inGap) {
-                    const at = linePosition(position, j);
-                    const gap = slice.gaps.find((g) => g.from === at);
-                    if (gap !== undefined) out.push({ kind: "gap", gap });
-                    inGap = true;
-                }
-                return;
-            }
-            inGap = false;
             out.push({
                 kind: "real", position, residentIndex: i, row: lineRowOf(row, line),
-                hit: slice !== undefined && slice.hits[j] === true,
+                hit: false,
                 group: { row, key: line.key, index: j, number: j + 1 },
             });
         });
-        if (input.blanks > 0 && lens === undefined) {
+        if (input.blanks > 0) {
             out.push({ kind: "blank", position, blankIndex: 0, group: { row, key: "", index: row.lines.length, number: row.lines.length + 1 } });
         }
     });
     if (input.tail !== undefined) out.push({ kind: "band", band: input.tail });
-    if (input.exhausted && lens === undefined && input.blanks > 0 && grouped.ghost) {
-        out.push({ kind: "groupBlank", position: input.total ?? input.rowsOffset + input.rows.length });
-    }
     return out;
 }
 
@@ -646,9 +600,9 @@ export function withProposals(
     return out.concat(body.slice(anchorBodyIndex + 1));
 }
 
-/** Whether a body item occupies the ROW space (paged bands, gaps and proposals do not; a group's band and the ghost band do). */
+/** Whether a body item occupies the ROW space (paged bands, gaps and proposals do not; group summaries do). */
 export function isRowSpace(item: SheetBodyItem): boolean {
-    return item.kind === "real" || item.kind === "blank" || item.kind === "group" || item.kind === "groupBlank";
+    return item.kind === "real" || item.kind === "blank" || item.kind === "group";
 }
 
 /** The body index of the real row (or the group band) with `id`, if resident. */
@@ -705,7 +659,7 @@ export function stickyBandIndex(body: readonly SheetBodyItem[], offsets: readonl
     for (let i = lo; i >= 0; i--) {
         const it = body[i]!;
         if (it.kind === "group") return i === lo && offsets[i]! >= scrollTop ? undefined : i;
-        if (it.kind === "band" || it.kind === "groupBlank") return undefined;
+        if (it.kind === "band") return undefined;
     }
     return undefined;
 }

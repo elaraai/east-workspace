@@ -121,3 +121,22 @@ describe("sheet paging — an unreadable source", () => {
         expect(text("rows")).toBe("0+0");
     });
 });
+
+
+describe("sheet paging — content revisions", () => {
+    test("a same-size update replaces resident rows without changing source identity", async () => {
+        const base = source(450);
+        const { rerender } = render(<Harness src={{ ...base.value, revision: () => some("A") }} />);
+        await waitFor(() => expect(latest?.exhausted).toBe(true));
+        expect(latest!.rows[0]!.id).toBe("r00000");
+        const oldVersion = latest!.sizeVersion;
+        const page: SheetPagedSourceValue["page"] = (offset, limit) => {
+            const window = base.value.page(offset, limit);
+            return window.type === "none" ? none : some(window.value.map(row => ({ ...row, id: `updated-${row.id}` })));
+        };
+        rerender(<Harness src={{ ...base.value, page, revision: () => some("B") }} />);
+        await waitFor(() => expect(latest!.rows[0]!.id).toBe("updated-r00000"));
+        expect(latest!.rows).toHaveLength(450);
+        expect(latest!.sizeVersion).toBeGreaterThan(oldVersion);
+    });
+});

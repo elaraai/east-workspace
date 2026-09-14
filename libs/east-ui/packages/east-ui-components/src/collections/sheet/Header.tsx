@@ -26,7 +26,7 @@ export interface SheetHeaderProps {
 export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemplate }: SheetHeaderProps) {
     return (
         <Box css={styles.header} style={{ gridTemplateColumns: gridTemplate }} data-slot="header" role="row">
-            <Box css={styles.headerGutter} />
+            <Box css={styles.headerGutter} data-slot="headerGutter" role="columnheader">#</Box>
             {columns.map((col) => (
                 <Box key={col.key} css={styles.headerCell} data-slot="headerCell" data-key={col.key} role="columnheader" title={col.sub}>
                     <Box as="span" css={styles.headerLabel}>{col.header}</Box>

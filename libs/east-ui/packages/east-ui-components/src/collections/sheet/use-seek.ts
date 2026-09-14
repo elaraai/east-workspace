@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StringType, toEastTypeValue, type EastTypeValue } from "@elaraai/east";
 import type { DatasetKeyMatchRange, DatasetKeyQuery } from "../key-search/index.js";
+import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "../paged-snapshot.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { soughtKeyOf, toSeekQuery } from "../plan/use-seek.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
@@ -35,6 +36,8 @@ const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
 
 /** What the toolbar needs to mount `<DatasetKeySearch>`. */
 export interface SheetSearch {
+    /** Source snapshot identity; remounts cached positional search results. */
+    resetKey: string;
     keyType: EastTypeValue;
     /** Locate a query — resolves when the tracked search lands. */
     find: (query: DatasetKeyQuery) => Promise<DatasetKeyMatchRange>;
@@ -86,10 +89,18 @@ export function useSheetSeek(
     }, [source]);
 
     const read = useCallback(() => {
-        if (seekFn === undefined || query === null) return undefined;
-        return seekFn(query as never) as { type: string; value?: { found: boolean; row: bigint; count: bigint } };
-    }, [seekFn, query]);
+        const revision = source?.revision?.();
+        const answer = seekFn === undefined || query === null ? undefined
+            : seekFn(query as never);
+        return { revision, answer };
+    }, [source, seekFn, query]);
     const { result } = useTrackedEvaluation(read);
+    const revision = result.ok && result.value.revision?.type === "some"
+        ? result.value.revision.value : undefined;
+    const snapshot = useMemo(() => pagedSnapshot(source?.id, revision), [source?.id, revision]);
+    const resetKey = pagedSnapshotKey(snapshot);
+    const previousSnapshot = useRef(snapshot);
+    const snapshotChanged = !pagedSnapshotEqual(previousSnapshot.current, snapshot);
 
     useEffect(() => {
         const waiting = pending.current;
@@ -99,7 +110,7 @@ export function useSheetSeek(
             waiting.reject(result.error);
             return;
         }
-        const answer = result.value;
+        const answer = result.value.answer;
         if (answer === undefined || answer.type !== "some" || answer.value === undefined) return;
         pending.current = null;
         waiting.resolve({ found: answer.value.found, row: Number(answer.value.row), count: Number(answer.value.count) });
@@ -141,10 +152,26 @@ export function useSheetSeek(
 
     const clearTarget = useCallback(() => setTarget(undefined), []);
 
+    // Clear positions before passive effects can settle an answer from the
+    // previous snapshot. A query can be repeated against the new source, but
+    // its old element index cannot be reused there.
+    useLayoutEffect(() => {
+        if (pagedSnapshotEqual(previousSnapshot.current, snapshot)) return;
+        previousSnapshot.current = snapshot;
+        clear();
+    }, [snapshot, clear]);
+    const clearJumpRef = useRef(clearJump);
+    useLayoutEffect(() => { clearJumpRef.current = clearJump; });
+    useEffect(() => () => {
+        pending.current?.reject(new Error("search source unmounted"));
+        pending.current = null;
+        clearJumpRef.current();
+    }, []);
+
     const search = useMemo<SheetSearch | undefined>(
-        () => (seekFn === undefined ? undefined : { keyType: KEY_TYPE, find, listRange, jump, clear }),
-        [seekFn, find, listRange, jump, clear],
+        () => (seekFn === undefined ? undefined : { resetKey, keyType: KEY_TYPE, find, listRange, jump, clear }),
+        [resetKey, seekFn, find, listRange, jump, clear],
     );
 
-    return { search, target, clearTarget };
+    return { search, target: snapshotChanged ? undefined : target, clearTarget };
 }
