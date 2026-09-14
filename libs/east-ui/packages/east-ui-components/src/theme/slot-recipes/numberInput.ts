@@ -13,14 +13,15 @@
  * Chakra's default numberInput recipe deep-merges beneath this one, so the
  * styles here explicitly override its layout decisions — the absolutely
  * positioned control, the `--stepper-width` sizing vars, the 1em trigger
- * icons, and every `size` variant (all four collapse to the single field
- * shape shared by the other inputs).
+ * icons, and the `size` variants. Small fields use the same padding and
+ * typography as the shared input recipe.
  *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldChrome, fieldFocusRing, numericChrome } from "../field-chrome.js";
+import { inputRecipe } from "../recipes/input.js";
 
 /** One stepper chevron — both triggers share this shape. */
 const stepperTrigger = {
@@ -47,9 +48,12 @@ const stepperTrigger = {
     },
 };
 
-/** All sizes collapse to the one padding-driven field shape. */
+/** Common overrides of Chakra defaults; each size supplies the shared input sizing below. */
 const sizeOverride = {
     input: {
+        // Clear Chakra's size textStyle so shared input typography wins.
+        textStyle: "none",
+        lineHeight: "1.3",
         fontSize: "{fontSizes.control}",
         paddingX: "10px",
         paddingY: "7px",
@@ -137,10 +141,10 @@ export const numberInputSlotRecipe = defineSlotRecipe({
             },
         },
         size: {
-            xs: sizeOverride,
-            sm: sizeOverride,
-            md: sizeOverride,
-            lg: sizeOverride,
+            xs: { ...sizeOverride, root: { minHeight: "20px" }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.sm, paddingY: "0" }, control: { ...sizeOverride.control, width: "18px" } },
+            sm: { ...sizeOverride, root: { minHeight: "24px" }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.sm }, control: { ...sizeOverride.control, width: "20px" } },
+            md: { ...sizeOverride, root: { minHeight: "32px" }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.md } },
+            lg: { ...sizeOverride, root: { minHeight: "44px" }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.lg } },
         },
     },
     defaultVariants: { variant: "default", size: "md" },

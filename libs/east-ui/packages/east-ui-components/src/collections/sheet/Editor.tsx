@@ -38,6 +38,7 @@ import { faArrowRightLong, faMinus } from "@fortawesome/free-solid-svg-icons";
 import type { DateValue } from "@internationalized/date";
 import { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "../../forms/input/date/index.js";
 import { dateToCalendarDate, dateValueToDate } from "../../forms/input/index.js";
+import { useDensity } from "../../contracts/density.js";
 import { memberIsDashed, memberLabel, type SheetKind } from "./model.js";
 import { formatDateEdit } from "./parse/date.js";
 import type { LinkVocabulary } from "./link/grammar.js";
@@ -126,6 +127,8 @@ function segmentsOf(root: HTMLElement | null): HTMLElement[] {
 
 /** Renders the overlay editor. */
 export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date, seed, ghost, resolve, badge, error, focus, ariaLabel, link, onChange, onKey, onBlur, onHalfDown }: SheetEditorProps) {
+    const density = useDensity();
+    const controlSize = density === "comfortable" ? "md" : density === "condensed" ? "xs" : "sm";
     const rootRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
     const lastFocus = useRef("");
@@ -179,13 +182,12 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
     // The date field owns its keys (digits, arrows, backspace); ⏎ and esc are
     // the sheet's, and ⇥ is the sheet's only at the edge segments.
     const handleDateKey = (e: KeyboardEvent<HTMLDivElement>) => {
-        e.stopPropagation();
-        if (e.key === "Enter" || e.key === "Escape") { if (forward(e, true)) e.preventDefault(); return; }
+        if (e.key === "Enter" || e.key === "Escape") { e.stopPropagation(); if (forward(e, true)) e.preventDefault(); return; }
         if (e.key !== "Tab") return;
         const segments = segmentsOf(rootRef.current);
         const active = typeof document !== "undefined" ? document.activeElement : null;
         const edge = e.shiftKey ? segments[0] : segments[segments.length - 1];
-        if (edge !== undefined && edge === active && forward(e, true)) e.preventDefault();
+        if (edge !== undefined && edge === active && forward(e, true)) { e.preventDefault(); e.stopPropagation(); }
     };
     const handleChange = (e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value);
     const handleDateChange = (next: DateValue | null) => onChange(next === null ? "" : formatDateEdit(dateValueToDate(next)));
@@ -247,6 +249,7 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
     /** The common number field: the input and its stepper column, borderless inside the ring. */
     const number = (
         <ChakraNumberInput.Root
+            size={controlSize}
             css={styles.editorNumber}
             data-slot="editorNumber"
             value={value}
@@ -272,8 +275,8 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
 
     /** The common date field — the segmented control over the buffer's date. */
     const dateField = (
-        <Box css={styles.editorDate} data-slot="editorDate" onKeyDownCapture={handleDateKey} onBlur={handleBlur}>
-            <CompoundDateField {...(date !== undefined ? { value: dateToCalendarDate(date) } : {})} onChange={handleDateChange} aria-label={ariaLabel}>
+        <Box css={styles.editorDate} data-slot="editorDate" onKeyDownCapture={handleDateKey} onKeyDown={stop} onBlur={handleBlur}>
+            <CompoundDateField size={controlSize} {...(date !== undefined ? { value: dateToCalendarDate(date) } : {})} onChange={handleDateChange} aria-label={ariaLabel}>
                 <CompoundDateInput>
                     {({ segment }) => <CompoundDateSegment segment={segment} />}
                 </CompoundDateInput>

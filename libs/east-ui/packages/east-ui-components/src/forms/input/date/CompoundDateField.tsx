@@ -4,7 +4,7 @@
  */
 
 import React, { useRef, useMemo } from 'react';
-import { Box, Text, useToken } from '@chakra-ui/react';
+import { Box, Text, useSlotRecipe, type SystemStyleObject } from '@chakra-ui/react';
 import { useDateField, useDateSegment } from '@react-aria/datepicker';
 import { useDateFieldState } from '@react-stately/datepicker';
 import { createCalendar } from '@internationalized/date';
@@ -13,6 +13,7 @@ import type { AriaDateFieldProps } from '@react-aria/datepicker';
 import type { DateValue } from '@internationalized/date';
 
 interface DateFieldContextValue {
+  styles: Record<string, SystemStyleObject>;
   state: DateFieldState;
   fieldProps: React.HTMLAttributes<HTMLElement>;
   fieldRef: React.RefObject<HTMLDivElement | null>;
@@ -22,12 +23,16 @@ const DateFieldContext = React.createContext<DateFieldContextValue | null>(null)
 
 interface DateFieldProps extends AriaDateFieldProps<DateValue> {
   children: React.ReactNode;
+  /** Shared input size; the containing surface can derive this from its density. */
+  size?: "xs" | "sm" | "md" | "lg";
   value?: DateValue;
   onChange?: (value: DateValue | null) => void;
   isReadOnly?: boolean;
 }
 
-export function DateField({ children, value, onChange, isReadOnly, ...props }: DateFieldProps) {
+export function DateField({ children, value, onChange, isReadOnly, size = "md", ...props }: DateFieldProps) {
+  const recipe = useSlotRecipe({ key: 'dateField' });
+  const styles = recipe({ size });
   // Force en-GB locale for DD/MM/YYYY format
   const dateLocale = 'en-GB';
   
@@ -43,14 +48,15 @@ export function DateField({ children, value, onChange, isReadOnly, ...props }: D
   const { fieldProps } = useDateField({ ...props, isReadOnly: isReadOnly ?? false }, state, fieldRef);
 
   const contextValue = useMemo(() => ({
+    styles,
     state,
     fieldProps,
     fieldRef
-  }), [state, fieldProps]);
+  }), [styles, state, fieldProps]);
 
   return (
     <DateFieldContext.Provider value={contextValue}>
-      <Box display="inline-block">{children}</Box>
+      <Box css={styles.root}>{children}</Box>
     </DateFieldContext.Provider>
   );
 }
@@ -60,8 +66,10 @@ interface LabelProps {
 }
 
 export function Label({ children }: LabelProps) {
+  const recipe = useSlotRecipe({ key: 'dateField' });
+  const styles = recipe({});
   return (
-    <Text fontSize="sm" fontWeight={500} color="fg" mb={2}>
+    <Text css={styles.label}>
       {children}
     </Text>
   );
@@ -77,26 +85,14 @@ export function DateInput({ children }: DateInputProps) {
     throw new Error('DateInput must be used within a DateField');
   }
 
-  const { state, fieldProps, fieldRef } = context;
+  const { state, fieldProps, fieldRef, styles } = context;
 
   return (
     <Box
       {...fieldProps}
       ref={fieldRef}
-      display="inline-flex"
-      border="none"
-      px={0}
-      py={0}
-      alignItems="center"
-      gap={0}
-      bg="transparent"
-      opacity={state.isReadOnly ? 0.8 : 1}
-      cursor={state.isReadOnly ? "not-allowed" : "text"}
-      whiteSpace="nowrap"
-      flexWrap="nowrap"
-      _focus={{
-        outline: 'none'
-      }}
+      css={styles.input}
+      data-readonly={state.isReadOnly ? "" : undefined}
     >
       {state.segments.map((segment, i) => (
         <React.Fragment key={i}>
@@ -118,37 +114,17 @@ export function DateSegment({ segment }: DateSegmentProps) {
     throw new Error('DateSegment must be used within a DateField');
   }
   
-  const { state } = context;
+  const { state, styles } = context;
   const { segmentProps } = useDateSegment(segment, state, ref);
   
-  // Get theme tokens for dynamic styling. Semantic tokens (`bg.subtle`,
-  // `fg.subtle`, `fg`) anchor against the canonical Elara system; the
-  // gray.* fallback values match the spec focus chrome.
-  const [bgSecondary, textTertiary, textPrimary, focusBg, focusText, focusBorder] = useToken(
-    'colors',
-    ['bg.subtle', 'fg.subtle', 'fg', 'gray.100', 'gray.800', 'gray.400']
-  );
-
   return (
     <Box
       {...segmentProps}
       ref={ref}
-      px={0.5}
-      textAlign="center"
-      bg={segment.isPlaceholder ? bgSecondary : 'transparent'}
-      color={segment.isPlaceholder ? textTertiary : textPrimary}
-      borderRadius="2px"
-      outline="none"
-      border="1px solid transparent"
-      cursor={state.isReadOnly ? "default" : "text"}
-      fontStyle={state.isReadOnly ? 'italic' : 'normal'}
-      _focus={state.isReadOnly ? {} : {
-        bg: focusBg,
-        color: focusText,
-        borderColor: focusBorder,
-        outline: 'none'
-      }}
-      opacity={state.isReadOnly ? 0.8 : 1}
+      css={styles.segment}
+      data-placeholder={segment.isPlaceholder ? "" : undefined}
+      data-readonly={state.isReadOnly ? "" : undefined}
+      data-literal={segment.type === "literal" ? "" : undefined}
     >
       {segment.text}
     </Box>
