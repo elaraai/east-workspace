@@ -681,17 +681,18 @@ describe("the view tabs", () => {
 
 // ── Grouped rows (#740 — G4, G6, G7, G8) ───────────────────────────────────
 
-/** Two plans: p1's band at 0, its lines 1–2, its blank line 3; p2 folded at 4; the ghost band at 5. The title spans columns 0–1. */
+/** Two groups: p1 at 0, children 1–2, blank child 3; folded p2 at 4. The title spans columns 0–1. */
 function groupedCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
-    const kinds = ["group", "row", "row", "blank", "group", "groupBlank"] as const;
+    const kinds = ["group", "row", "row", "blank", "group"] as const;
     return ctxOf({
-        rowCount: 6,
+        rowCount: 5,
         colCount: 3,
+        grouped: true,
         canAppend: false,
-        editableAt: (r, c) => (kinds[r] === "groupBlank" ? c < 2 : c !== 2 || kinds[r] !== "group"),
+        editableAt: (r, c) => (c !== 2 || kinds[r] !== "group"),
         rowKindAt: (r) => kinds[r],
         groupAt: (r) => (r === 0 ? { id: "p1", folded: false, lines: { r0: 1, r1: 2 } } : r === 4 ? { id: "p2", folded: true, lines: undefined } : undefined),
-        spanAt: (r, c) => (kinds[r] === "groupBlank" ? { c0: 0, c1: 2 } : kinds[r] === "group" && c < 2 ? { c0: 0, c1: 1 } : undefined),
+        spanAt: (r, c) => (kinds[r] === "group" && c < 2 ? { c0: 0, c1: 1 } : undefined),
         ...over,
     });
 }
@@ -720,22 +721,30 @@ describe("grouped rows", () => {
         expect(run(band.state, [key("Backspace")], ctx).effects).toContainEqual({ t: "delete.rows", r0: 4, r1: 4 });
     });
 
-    test("folds are lens state: a tab switch persists them into the view it leaves, and a view brings its folds back", () => {
-        const folded = run(onPaint(), [{ t: "fold.toggle", r: 4 }], groupedCtxOf({ views: VIEWS, emptyNarrowing: EMPTY }));
-        expect(folded.state.lens.folds).toEqual(new Map([["p2", false]]));
-        const left = run(folded.state, [{ t: "tab.switch", id: "lathe" }], groupedCtxOf({ views: VIEWS, narrowing: PAINT, emptyNarrowing: EMPTY }));
-        expect(viewsOf(left)![0]!.folds).toEqual(new Map([["p2", false]]));
-        expect(left.state.lens.folds.size).toBe(0);
-        const back = run(left.state, [{ t: "tab.switch", id: "paint" }], groupedCtxOf({ views: viewsOf(left)!, narrowing: LATHE, emptyNarrowing: EMPTY }));
-        expect(back.state.lens.folds).toEqual(new Map([["p2", false]]));
+    test("queued local search and view events cannot change a grouped sheet or its folds", () => {
+        const ctx = groupedCtxOf({ views: VIEWS, narrowing: PAINT, emptyNarrowing: EMPTY });
+        const folded = run(initialSheetState(), [{ t: "fold.toggle", r: 4 }], ctx).state;
+        const events: SheetEvent[] = [
+            { t: "tab.open", id: "paint" }, { t: "tab.switch", id: "lathe" }, { t: "tab.create" },
+            { t: "tab.close", id: "paint" }, { t: "tab.update" }, { t: "tab.revert" },
+            { t: "tab.rename.start", id: "paint" }, { t: "tab.rename.change", val: "Changed" },
+            { t: "tab.rename.commit" }, { t: "tab.rename.cancel" }, { t: "tab.reorder", id: "paint", to: 1 },
+            { t: "lens.context", context: 3 }, { t: "lens.narrowed" },
+            { t: "band.reveal", key: "hidden", from: 0, to: 10, where: "all" },
+            { t: "search.key", key: "Enter" }, { t: "search.key", key: "Escape" },
+        ];
+        for (const event of events) {
+            const result = sheetReducer(folded, event, ctx);
+            expect(result.state).toBe(folded);
+            expect(result.effects).toEqual([]);
+        }
+        expect(folded.lens.folds).toEqual(new Map([["p2", false]]));
+        expect(run(folded, [key("f", { meta: true })], ctx).effects).toEqual([{ t: "focus.search" }]);
     });
 
-    test("the ghost band opens its title on a click, ⏎ or a printable key; arrows step over a spanned title", () => {
+    test("arrows step over a spanned title and cannot reach an invisible new-group row", () => {
         const ctx = groupedCtxOf();
-        const clicked = run(initialSheetState(), [{ t: "cell.down", r: 5, c: 2, shift: false }], ctx);
-        expect(clicked.state.edit).toMatchObject({ r: 5, c: 0 });
-        expect(run(initialSheetState({ r: 5, c: 1 }), [key("Enter")], ctx).state.edit).toMatchObject({ r: 5, c: 0 });
-        expect(run(initialSheetState({ r: 5, c: 1 }), [key("W")], ctx).state.edit).toMatchObject({ r: 5, c: 0, val: "W", seeded: true });
+        expect(run(initialSheetState({ r: 4, c: 0 }), [key("ArrowDown")], ctx).state.sel).toEqual({ r: 4, c: 0 });
         // → from the title (columns 0–1) lands on column 2; ← from column 2 lands back on the title.
         expect(run(initialSheetState({ r: 0, c: 0 }), [key("ArrowRight")], ctx).state.sel).toEqual({ r: 0, c: 2 });
         expect(run(initialSheetState({ r: 0, c: 2 }), [key("ArrowLeft")], ctx).state.sel).toEqual({ r: 0, c: 1 });

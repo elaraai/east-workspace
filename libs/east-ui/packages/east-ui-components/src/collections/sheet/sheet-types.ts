@@ -41,8 +41,8 @@ export interface LensState {
     folds: ReadonlyMap<string, boolean>;
 }
 
-/** What a row-space index holds (#740): a row, a blank padding row (or blank line), a group's band, the ghost band. */
-export type SheetRowKind = "row" | "blank" | "group" | "groupBlank";
+/** What a row-space index holds: a row, a blank padding row, or a group summary. */
+export type SheetRowKind = "row" | "blank" | "group";
 
 /** The view tabs' own state (B§8); whether the active tab is dirty is derived by the component from the slice. */
 export interface TabsState {
@@ -268,6 +268,8 @@ export interface SheetMachineCtx {
     rowCount: number;
     /** Declared columns. */
     colCount: number;
+    /** Grouped sheets have source key search and fold controls, without local lenses or views. */
+    grouped?: boolean;
     /** A lens narrows the sheet — ↓ on the last row must not append. */
     lensActive: boolean;
     /** The inline arm, or an exhausted paged source — ↓ on the last row may append. */
@@ -312,7 +314,7 @@ export interface SheetMachineCtx {
     rowKindAt?: (r: number) => SheetRowKind | undefined;
     /** A group's band at a row-space index (#740): its id, its fold, and the row-space range of its lines (`undefined` when it has none or is folded). */
     groupAt?: (r: number) => { id: string; folded: boolean; lines: { r0: number; r1: number } | undefined } | undefined;
-    /** The columns one cell spans (#740): a band's title spans its first columns, the ghost band the whole row; `undefined` ⇒ one column. */
+    /** The columns one cell spans (#740): a band's title spans its first columns; `undefined` ⇒ one column. */
     spanAt?: (r: number, c: number) => { c0: number; c1: number } | undefined;
 }
 

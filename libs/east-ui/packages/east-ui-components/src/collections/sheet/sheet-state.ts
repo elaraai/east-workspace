@@ -40,9 +40,8 @@
  *   (never a stamped column — the component skips those); ⌫ on the armed
  *   fill or the selected proposal rejects it and remembers.
  * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
- *   chevron folds it; the band's gutter selects the group's lines; a click,
- *   ⏎ or a printable key on the `+ plan` ghost band opens its title — the
- *   commit creates the group.
+ *   chevron folds it; the summary gutter selects its children. Insertion
+ *   uses explicit controls. Grouped sheets have no local lens or view tabs.
  *
  * @packageDocumentation
  */
@@ -225,12 +224,9 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
     if (e.meta && (e.key === "/" || e.key === "f")) return { state: s, effects: [{ t: "focus.search" }] };
     if (ctx.rowCount === 0 || ctx.colCount === 0) return { state: s, effects: [] };
     const effects: SheetEffect[] = [];
-    // A band folds on Space; the ghost band opens its title on ⏎ or a printable key (#740).
+    // A summary folds on Space.
     const rowKind = ctx.rowKindAt?.(s.sel.r);
     if (rowKind === "group" && e.key === " " && !e.meta && !e.alt) return toggleFold(s, s.sel.r, ctx);
-    if (rowKind === "groupBlank" && (e.key === "Enter" || e.key === "F2" || (e.key.length === 1 && !e.meta && !e.alt))) {
-        return startEdit(s, s.sel.r, 0, e.key.length === 1 ? e.key : undefined, ctx);
-    }
     const dropPick = (t: Transition): Transition => (t.state.gsel === null ? t : { ...t, state: { ...t.state, gsel: null } });
     const move = (dr: number, dc: number): Transition => {
         const base = e.shift && s.selEnd !== null ? s.selEnd : s.sel;
@@ -346,6 +342,10 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
  * @returns The next state plus the effects the component must run
  */
 export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCtx): Transition {
+    // Queued chrome events must not alter a grouped sheet after a mode change.
+    if (ctx.grouped === true && (e.t.startsWith("tab.") || e.t.startsWith("lens.") || e.t === "band.reveal" || e.t === "search.key")) {
+        return { state: s, effects: [] };
+    }
     switch (e.t) {
         case "cell.down": {
             // A click commits an open editor in place first.
@@ -353,11 +353,6 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const effects = closed.effects;
             if (e.shift) {
                 return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: e.c }, ctx), gsel: null }, effects };
-            }
-            // A click on the `+ plan` ghost band opens its title — the commit creates the group (#740, G6).
-            if (ctx.rowKindAt?.(e.r) === "groupBlank") {
-                const opened = startEdit(closed.state, e.r, 0, undefined, ctx);
-                return { state: opened.state.gsel === null ? opened.state : { ...opened.state, gsel: null }, effects: [...effects, ...opened.effects] };
             }
             const moved = moveTo(closed.state, { r: e.r, c: e.c }, ctx, effects, false);
             effects.push({ t: "focus.sheet" });
