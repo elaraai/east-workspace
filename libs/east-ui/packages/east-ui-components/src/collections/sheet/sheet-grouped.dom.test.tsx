@@ -27,7 +27,8 @@ import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import "../../platform/slice/index.js";
 import { EastChakraSheet } from "./index.js";
-import type { SheetEditValue, SheetRootValue, SheetRowValue } from "./values.js";
+import { sheetJournal } from "./journal.test-utils.js";
+import type { SheetRootValue } from "./values.js";
 
 afterEach(cleanup);
 beforeEach(() => { initializeStore(new UIStore()); });
@@ -102,9 +103,8 @@ function buildGrouped(opts: Options = {}): SheetRootValue {
 
 /** Swap the host's edit channel for a spy after compilation — the renderer takes every function from the value. */
 function withSpy(root: SheetRootValue) {
-    const edits: SheetEditValue[] = [];
-    const value: SheetRootValue = { ...root, onEdit: some((e: SheetEditValue) => { edits.push(e); return null; }) } as SheetRootValue;
-    return { value, edits };
+    const journal = sheetJournal(root);
+    return { value: journal.value, edits: journal.events, draft: journal.draft, drafts: journal.drafts };
 }
 
 function mount(value: SheetRootValue) {
@@ -129,43 +129,53 @@ function mount(value: SheetRootValue) {
     return { ...utils, card, rows, band, lines, numbers, ghost, input, key, editorKey, type, flush, msg };
 }
 
-/** The decoded group row an edit event carries. */
-const rowOf = (e: SheetEditValue) => (e.value as { row: SheetRowValue }).row;
-
 describe("the body (G1–G3, G6, G12)", () => {
-    test("a band per plan over its lines, numbered from 1 per plan, one blank line per open plan; a folded plan is its band; the extent rule; the footer counts plans and lines", () => {
+    test("a band per plan over its lines, numbered from 1 per plan, one blank line per open plan; a folded plan is its band; gutter membership; the footer counts plans and lines", () => {
         const { container, rows, band, lines, numbers, ghost } = mount(buildGrouped());
         // p1 band · 2 lines · its blank line · p2 band (folded). No edit channel ⇒ no ghost band.
-        expect(rows()).toHaveLength(5);
+        expect(rows()).toHaveLength(4);
         expect(ghost()).toBeNull();
-        expect(numbers("p1")).toEqual(["1", "2", "3"]);
-        expect(lines("p1").map((r) => r.getAttribute("data-line"))).toEqual(["0", "1", ""]);
+        expect(numbers("p1")).toEqual(["1", "2"]);
+        expect(lines("p1").map((r) => r.getAttribute("data-line"))).toEqual(["0", "1"]);
         expect(band("p1")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Line 2 week 8");
         expect(band("p1")!.querySelector('[data-slot="groupSub"]')!.textContent).toBe("planner · PLANNED");
         expect(band("p1")!.querySelector('[data-slot="groupCount"]')!.textContent).toBe("2");
         expect(band("p1")!.getAttribute("aria-expanded")).toBe("true");
-        // Band cells sit under their line columns; a column with none is empty.
+        // Summary fields share one spanning cell, independently of the line grid.
         expect(band("p1")!.querySelector('[data-key="qty"]')!.textContent).toBe("300");
         expect(band("p1")!.querySelector('[data-key="status"] [data-tone="neutral"]')).toBeTruthy();
         expect(band("p1")!.querySelector('[data-key="status"]')!.textContent).toBe("PLANNED");
-        // The title spans the columns before the first band cell: start · task.
-        expect(band("p1")!.querySelector('[data-key="$title"]')!.getAttribute("style")).toMatch(/span 2/);
+        expect(band("p1")!.querySelector('[data-slot="groupSummary"]')!.getAttribute("style")).toMatch(/span 4/);
+        expect(band("p1")!.querySelectorAll('[role="gridcell"]')).toHaveLength(1);
+        expect(band("p1")!.querySelector('[data-slot="groupSummary"] [data-slot="fold"]')).toBeTruthy();
+        expect(band("p1")!.querySelector('[data-slot="gutter"] [data-slot="fold"]')).toBeNull();
+        expect(band("p1")!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("1");
+        expect(band("p2")!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("2");
         // Folded: the band keeps its cells and count; its lines hide.
         expect(band("p2")!.hasAttribute("data-folded")).toBe(true);
         expect(band("p2")!.querySelector('[data-slot="groupCount"]')!.textContent).toBe("1");
         expect(lines("p2")).toHaveLength(0);
-        // Lines are not nested: every line keeps the full grid; the extent rule runs down the band and its lines.
+        // Lines keep the full grid; only the gutter connects adjacent members.
         expect(lines("p1")[0]!.querySelectorAll('[data-slot="cell"]')).toHaveLength(4);
-        expect(container.querySelectorAll('[data-slot="edge"]')).toHaveLength(5);
+        expect(container.querySelectorAll('[data-slot="edge"]')).toHaveLength(0);
+        const rails = [...container.querySelectorAll('[data-slot="membershipRail"]')];
+        expect(rails.map(rail => [rail.hasAttribute("data-above"), rail.hasAttribute("data-below")])).toEqual([
+            [false, true], [true, true], [true, false], [false, false],
+        ]);
+        const colors = [...container.querySelectorAll('[data-slot="membershipLane"][data-group-color]')].map(lane => lane.getAttribute("data-group-color"));
+        expect(colors[0]).toBe(colors[1]);
+        expect(colors[1]).toBe(colors[2]);
         expect(container.querySelector('[data-slot="footerSummary"]')!.textContent).toBe("2 plans · 3 lines");
     });
 
-    test("with an edit channel the ghost band closes the sheet; a read-only sheet has no blank lines and no ghost band", () => {
+    test("writable gutters expose group insertion without a ghost band; read-only sheets hide insertion", () => {
         const writable = mount(withSpy(buildGrouped()).value);
-        expect(writable.ghost()!.textContent).toBe("+ plan");
+        expect(writable.ghost()).toBeNull();
+        expect(writable.container.querySelectorAll("[data-slot=insertGroup]").length).toBeGreaterThan(0);
         writable.unmount();
         const readOnly = mount(withSpy(buildGrouped({ readOnly: true })).value);
         expect(readOnly.ghost()).toBeNull();
+        expect(readOnly.container.querySelector("[data-slot=insertPoint]")).toBeNull();
         expect(readOnly.numbers("p1")).toEqual(["1", "2"]);
     });
 });
@@ -179,13 +189,13 @@ describe("folds (G4)", () => {
         fireEvent.mouseDown(band("p2")!.querySelector('[data-key="$title"]')!, { button: 0 });
         fireEvent.keyDown(container.querySelector("[data-sheet-card]")!, { key: " " });
         expect(band("p2")!.hasAttribute("data-folded")).toBe(false);
-        expect(lines("p2").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Inspection", ""]);
+        expect(lines("p2").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Inspection"]);
     });
 });
 
 describe("edits (G5, G8)", () => {
     test("typing on a line commits its plan — the line's address and the whole plan after the edit", async () => {
-        const { value, edits } = withSpy(buildGrouped());
+        const { value, edits, draft } = withSpy(buildGrouped());
         const { lines, key, type, editorKey, flush } = mount(value);
         fireEvent.mouseDown(lines("p1")[1]!.querySelector('[data-key="task"]')!, { button: 0 });
         key("P");
@@ -193,29 +203,27 @@ describe("edits (G5, G8)", () => {
         editorKey("Enter");
         await flush();
         expect(edits).toHaveLength(1);
-        expect(edits[0]!.type).toBe("lineCommit");
-        const c = edits[0]!.value as { rowId: string; line: string; key: string; offset: bigint };
-        expect([c.rowId, c.line, c.key, c.offset]).toEqual(["p1", "1", "task", 0n]);
-        expect(rowOf(edits[0]!).lines.map((l) => l.cells.get("task"))).toEqual([variant("String", "Machining"), variant("String", "Packaging")]);
+        expect(edits[0]!.draftChanges.map(change => change.id)).toEqual(["p1"]);
+        expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).lines.map(line => line.task)).toEqual([variant("value", "Machining"), variant("value", "Packaging")]);
         expect(lines("p1")[1]!.querySelector('[data-key="task"]')!.textContent).toBe("Packaging");
         // ⏎ moved the ring down onto the plan's blank line.
         expect(lines("p1")[2]!.querySelector('[data-key="task"]')!.hasAttribute("data-selected")).toBe(true);
     });
 
     test("the blank line inserts a line at the end of its plan; a new blank line follows and the ring lands on it", async () => {
-        const { value, edits } = withSpy(buildGrouped());
+        const { value, edits, draft } = withSpy(buildGrouped());
         const { lines, numbers, key, type, editorKey, flush } = mount(value);
         fireEvent.mouseDown(lines("p1")[2]!.querySelector('[data-key="task"]')!, { button: 0 });
         key("D");
         type("Deburring");
         editorKey("Enter");
         await flush();
-        expect(edits.map((e) => e.type)).toEqual(["lineInsert"]);
-        const i = edits[0]!.value as { rowId: string; after: unknown; line: string };
-        expect([i.rowId, i.after, i.line]).toEqual(["p1", some("1"), "2"]);
-        expect(rowOf(edits[0]!).lines).toHaveLength(3);
-        // The new line's wire key is minted — never a source index.
-        expect(rowOf(edits[0]!).lines[2]!.key).toMatch(/^\+/);
+        expect(edits).toHaveLength(1);
+        expect(edits[0]!.draftChanges.map(change => change.id)).toEqual(["p1"]);
+        const created = draft("p1", Sheet.Types.DraftGroup(PlanType, "lines"));
+        expect(created.lines).toHaveLength(3);
+        expect(created.lines[2]!.task).toEqual(variant("value", "Deburring"));
+        expect(lines("p1")[2]!.getAttribute("data-line")).toMatch(/^\+/);
         expect(numbers("p1")).toEqual(["1", "2", "3", "4"]);
         expect(lines("p1")[2]!.querySelector('[data-key="task"]')!.textContent).toBe("Deburring");
         expect(lines("p1")[3]!.querySelector('[data-key="task"]')!.hasAttribute("data-selected")).toBe(true);
@@ -223,16 +231,15 @@ describe("edits (G5, G8)", () => {
     });
 
     test("a band cell commits the plan's field; ⏎ on the title renames the plan; a read-only band cell never opens", async () => {
-        const { value, edits } = withSpy(buildGrouped());
+        const { value, edits, draft } = withSpy(buildGrouped());
         const { band, input, key, type, editorKey, flush } = mount(value);
         fireEvent.mouseDown(band("p1")!.querySelector('[data-key="status"]')!, { button: 0 });
         key("c");
         type("comp");
         editorKey("Enter");
         await flush();
-        expect(edits.map((e) => e.type)).toEqual(["commit"]);
-        expect((edits[0]!.value as { rowId: string; key: string }).key).toBe("status");
-        expect(rowOf(edits[0]!).cells.get("status")).toEqual(variant("String", "COMPLETE"));
+        expect(edits).toHaveLength(1);
+        expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).status).toEqual(variant("value", "COMPLETE"));
         expect(band("p1")!.querySelector('[data-key="status"] [data-tone="success"]')).toBeTruthy();
         // The title.
         fireEvent.mouseDown(band("p1")!.querySelector('[data-key="$title"]')!, { button: 0 });
@@ -241,7 +248,7 @@ describe("edits (G5, G8)", () => {
         type("Line 2 week 8b");
         editorKey("Enter");
         await flush();
-        expect((edits[1]!.value as { key: string }).key).toBe("$title");
+        expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).name).toEqual(variant("value", "Line 2 week 8b"));
         expect(band("p1")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Line 2 week 8b");
         // The derived quantity cell is read-only.
         fireEvent.mouseDown(band("p1")!.querySelector('[data-key="qty"]')!, { button: 0 });
@@ -249,39 +256,43 @@ describe("edits (G5, G8)", () => {
         expect(input()).toBeNull();
     });
 
-    test("the ghost band: a click opens its title, ⏎ creates the plan after the last one, the ring lands on its blank line", async () => {
-        const { value, edits } = withSpy(buildGrouped());
-        const { container, ghost, input, type, editorKey, flush, rows } = mount(value);
-        fireEvent.mouseDown(ghost()!.querySelector('[data-slot="cell"]')!, { button: 0 });
+    test("New group creates a draft before its anchor and opens the name editor; naming is a separate undoable gesture", async () => {
+        const { value, edits, draft } = withSpy(buildGrouped());
+        const { container, band, ghost, input, type, editorKey, flush } = mount(value);
+        fireEvent.click(band("p2")!.querySelector('[data-slot="insertGroup"]')!);
+        await flush();
         expect(input()).not.toBeNull();
+        expect(edits).toHaveLength(1);
+        const change = edits[0]!.draftChanges[0]!;
+        expect(change.place).toEqual(some(variant("ordered", variant("before", "p2"))));
+        expect(edits[0]!.origin.type).toBe("insert");
+        expect(draft(change.id, Sheet.Types.DraftGroup(PlanType, "lines")).name.type).toBe("missing");
         type("Line 4 week 9");
         editorKey("Enter");
         await flush();
-        expect(edits.map((e) => e.type)).toEqual(["insert"]);
-        expect((edits[0]!.value as { afterRowId: unknown }).afterRowId).toEqual(some("p2"));
-        const created = rowOf(edits[0]!);
-        expect(created.cells.get("$title")).toEqual(variant("String", "Line 4 week 9"));
+        expect(edits).toHaveLength(2);
+        const created = draft(change.id, Sheet.Types.DraftGroup(PlanType, "lines"));
+        expect(created.name).toEqual(variant("value", "Line 4 week 9"));
         expect(created.lines).toEqual([]);
-        const bands = [...container.querySelectorAll('[data-slot="row"][data-band-row]')].map((b) => b.querySelector('[data-slot="groupTitle"]')!.textContent);
-        expect(bands).toEqual(["Line 2 week 8", "Line 3 week 8", "Line 4 week 9"]);
-        // The new plan's blank line holds the ring; the ghost band still closes the sheet.
-        const blank = rows().find((r) => r.getAttribute("data-group-id") === created.id)!;
-        expect(blank.querySelector('[data-slot="cell"][data-selected]')).toBeTruthy();
-        expect(rows().at(-1)!.hasAttribute("data-ghost-band")).toBe(true);
+        expect(created.owner.type).toBe("missing");
+        expect(edits[1]!.domainChanges.type).toBe("none");
+        const bands = [...container.querySelectorAll('[data-slot="row"][data-band-row]')].map(b => b.querySelector('[data-slot="groupTitle"]')!.textContent);
+        expect(bands).toEqual(["Line 2 week 8", "Line 4 week 9", "Line 3 week 8"]);
+        expect(ghost()).toBeNull();
     });
 });
 
 describe("selection and delete (G7)", () => {
     test("the band's gutter selects the plan's lines; ⌫ removes them; ⌫ again removes the empty plan", async () => {
-        const { value, edits } = withSpy(buildGrouped());
+        const { value, edits, draft } = withSpy(buildGrouped());
         const { container, band, lines, key, flush, msg } = mount(value);
         fireEvent.mouseDown(band("p1")!.querySelector('[data-slot="gutter"]')!, { button: 0 });
         expect(container.querySelectorAll('[data-slot="rangeWash"]')).toHaveLength(8);
         key("Backspace");
         await flush();
-        expect(edits.map((e) => e.type)).toEqual(["lineRemove"]);
-        expect((edits[0]!.value as { lines: string[] }).lines).toEqual(["0", "1"]);
-        expect(rowOf(edits[0]!).lines).toEqual([]);
+        expect(edits).toHaveLength(1);
+        expect(edits[0]!.origin.type).toBe("remove");
+        expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).lines).toEqual([]);
         expect(band("p1")!.querySelector('[data-slot="groupCount"]')!.textContent).toBe("0");
         expect(lines("p1").map((r) => r.getAttribute("data-line"))).toEqual([""]);
         expect(msg()).toBe("Deleted 2 lines — ⌫ again removes the plan");
@@ -289,24 +300,26 @@ describe("selection and delete (G7)", () => {
         expect(band("p1")!.querySelector('[data-slot="gutter"] > div')).toBeTruthy();
         key("Backspace");
         await flush();
-        expect(edits.map((e) => e.type)).toEqual(["lineRemove", "remove"]);
-        expect((edits[1]!.value as { rowIds: string[] }).rowIds).toEqual(["p1"]);
+        expect(edits.map(e => e.origin.type)).toEqual(["remove", "remove"]);
+        expect(edits[1]!.draftChanges.map(change => change.id)).toEqual(["p1"]);
         expect(band("p1")).toBeNull();
     });
 });
 
 describe("the clipboard (G9)", () => {
     test("paste lands on the plan's lines from the ring and inserts past its blank line, never across a band; copy skips bands", async () => {
-        const { value, edits } = withSpy(buildGrouped());
+        const { value, edits, draft } = withSpy(buildGrouped());
         const { card, band, lines, numbers, flush, msg } = mount(value);
         fireEvent.mouseDown(lines("p1")[1]!.querySelector('[data-key="task"]')!, { button: 0 });
         fireEvent.paste(card, { clipboardData: { getData: () => "Grinding\nPolishing\nPacking" } });
         await flush();
-        expect(edits.map((e) => e.type)).toEqual(["lineCommit", "lineInsert", "lineInsert"]);
+        expect(edits).toHaveLength(1);
+        expect(edits[0]!.origin.type).toBe("pasted");
+        expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).lines).toHaveLength(4);
         expect(lines("p1").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Machining", "Grinding", "Polishing", "Packing", ""]);
         expect(numbers("p1")).toEqual(["1", "2", "3", "4", "5"]);
         // p2 is untouched.
-        expect(edits.every((e) => (e.value as { rowId: string }).rowId === "p1")).toBe(true);
+        expect(edits[0]!.draftChanges.map(change => change.id)).toEqual(["p1"]);
         // Copy from the band through the first line: the band is left out.
         fireEvent.mouseDown(band("p1")!.querySelector('[data-key="$title"]')!, { button: 0 });
         fireEvent.mouseDown(lines("p1")[0]!.querySelector('[data-key="qty"]')!, { button: 0, shiftKey: true });
@@ -352,12 +365,47 @@ function buildPagedPlans(n: number): SheetRootValue {
 }
 
 describe("the paged arm (G13)", () => {
-    test("windows of plans land with their lines; the transport counts plans; the ghost band waits for exhaustion", async () => {
+    test("windows land with children and insertion controls without a ghost band", async () => {
         const { container, band, lines, ghost } = mount(withSpy(buildPagedPlans(250)).value);
         await waitFor(() => expect(container.querySelectorAll('[data-slot="row"][data-band-row]').length).toBe(250), { timeout: 15_000 });
         expect(band("P1000")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Plan 0");
         expect(lines("P1249").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Task 249", ""]);
         expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("250 loaded of 250");
-        expect(ghost()).not.toBeNull();
+        expect(ghost()).toBeNull();
+        expect(band("P1000")!.querySelector("[data-slot=insertGroup]")!.getAttribute("aria-label")).toBe("New group");
     }, 30_000);
+});
+
+
+test("clicking a selected row marker deselects it without editing the data", async () => {
+    const { value, edits } = withSpy(buildGrouped());
+    const { lines, flush } = mount(value);
+    const row = () => lines("p1")[0]!;
+    const marker = () => row().querySelector('[data-slot="membershipMarker"]')!;
+    expect(marker().getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(marker(), { button: 0 });
+    expect(marker().getAttribute("aria-pressed")).toBe("true");
+    expect(row().querySelectorAll('[data-slot="rangeWash"]')).toHaveLength(4);
+    fireEvent.click(marker(), { button: 0 });
+    expect(marker().getAttribute("aria-pressed")).toBe("false");
+    expect(row().querySelectorAll('[data-slot="rangeWash"]')).toHaveLength(0);
+    await flush();
+    expect(edits).toHaveLength(0);
+});
+
+
+test("child insertion uses the current local slot, preserves siblings and unfolds a selected folded group", async () => {
+    const { value, edits, draft } = withSpy(buildGrouped());
+    const ui = mount(value);
+    fireEvent.click(ui.lines("p1")[1]!.querySelector('[data-slot="insertRow"]')!); await ui.flush();
+    expect(edits).toHaveLength(1);
+    const p1 = draft("p1", Sheet.Types.DraftGroup(PlanType, "lines"));
+    expect(p1.lines.map(row => row.task)).toEqual([variant("value", "Machining"), variant("missing", null), variant("value", "Painting")]);
+    expect(p1.lines[0]!.status).toEqual(variant("value", "RELEASED"));
+    expect(ui.lines("p1")[1]!.querySelector('[data-slot="editor"]')).toBeTruthy();
+    // Commit/cancel the first editor before inserting into the folded group.
+    fireEvent.click(ui.band("p2")!.querySelector('[data-slot="insertRow"]')!); await ui.flush();
+    expect(ui.band("p2")!.hasAttribute("data-folded")).toBe(false);
+    expect(ui.lines("p2")[0]!.querySelector('[data-slot="editor"]')).toBeTruthy();
+    expect(draft("p2", Sheet.Types.DraftGroup(PlanType, "lines")).lines).toHaveLength(2);
 });

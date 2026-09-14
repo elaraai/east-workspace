@@ -19,7 +19,7 @@
  * This file holds only plain data and closed function types — no
  * `UIComponentType` — so `component.ts` imports it without a cycle. The
  * author-facing TYPED constructors (`Sheet.Types.Context(R, D)`, `Fill(T)`,
- * `Patch(R)`, `Proposal(R)`, `Edit(R)`, `CheckContext(R)`) live here too:
+ * `Patch(R)`, `Proposal(R)`, `CheckContext(R)`) live here too:
  * they are type-level twins of the wire types, instantiated per row type
  * (the `Plan.Types.Series(R)` pattern).
  *
@@ -33,6 +33,7 @@ import {
     type ArrayType as ArrayTypeOf,
     AsyncFunctionType,
     BooleanType,
+    BlobType,
     DateTimeType,
     DictType,
     EastTypeType,
@@ -46,6 +47,9 @@ import {
     VariantType,
 } from "@elaraai/east";
 
+import { SheetDraftTypeFor, type SheetDraftOf } from "./transactions.js";
+import { SheetDraftGroupTypeFor, type SheetDraftGroupOf } from "./drafts.js";
+import { SheetEditingType } from "./editing-types.js";
 import { StatusValueType } from "../../feedback/status/types.js";
 import { TickFormatType } from "../../format/types.js";
 import { DensityType } from "../../style/interaction.js";
@@ -111,6 +115,7 @@ export type SheetLinkType = typeof SheetLinkType;
  * the column kind's primitive; a `set` / `link` column's cell is a
  * {@link SheetLinkType} value, never a string.
  *
+ * @property Invalid - Unparseable draft text, retained verbatim until corrected
  * @property Null - The blank cell
  * @property Boolean - A boolean value
  * @property Integer - An integer value
@@ -120,6 +125,7 @@ export type SheetLinkType = typeof SheetLinkType;
  * @property Link - A typed link (a `set` / `link` column's cell)
  */
 export const SheetCellType = VariantType({
+    Invalid:  StringType,
     Null:     NullType,
     Boolean:  BooleanType,
     Integer:  IntegerType,
@@ -422,6 +428,7 @@ export type SheetCountedType = typeof SheetCountedType;
  * @property today - UTC midnight — so providers stay pure
  */
 export const SheetContextType = StructType({
+    drafts:     DictType(StringType, BlobType),
     rowIndex:   IntegerType,
     rowId:      StringType,
     offset:     IntegerType,
@@ -518,6 +525,8 @@ export type SheetSuggestType = typeof SheetSuggestType;
  * @property member - The resolved member under check
  */
 export const SheetCheckContextType = StructType({
+    drafts:   DictType(StringType, BlobType),
+    group:    OptionType(SheetRowType),
     rowIndex: IntegerType,
     rowId:    StringType,
     offset:   IntegerType,
@@ -745,8 +754,9 @@ export type SheetSourceLiteral = "typed" | "pasted" | "fill" | "row" | "pattern"
 
 /**
  * The WIRE edit event — a raw commit / insert / remove carrying the wire row
- * (§3.7). The author sees the typed twin, `Sheet.Types.Edit(R)`, through the
- * bridge.
+ * inside a renderer gesture. These records never call an author callback;
+ * the editing session emits one complete PatchEvent after the gesture.
+ * @internal
  *
  * On a grouped sheet (#740) the three row arms are the GROUP's — a band
  * cell committed, a group created, groups removed — and the line arms carry
@@ -822,9 +832,9 @@ export type SheetStyleType = typeof SheetStyleType;
  * `Sheet` arm of `UIComponentType` references directly.
  *
  * @remarks
- * `onUpdate` never reaches the wire: the factory compiles it into `onEdit`
- * (§4.7), and a typed `onEdit` is bridged into the same closed function
- * (§4.8). `selection` present makes the selection controlled (§3.14).
+ * `editing` carries the exact schemas and checked batch callbacks. The
+ * live onUpdate adapter writes once per application. `selection` present
+ * makes the selection controlled (§3.14).
  *
  * @property rows - The row source: inline wire rows, or a paged source of them
  * @property columns - The declared columns, in order
@@ -835,7 +845,6 @@ export type SheetStyleType = typeof SheetStyleType;
  * @property views - The saved views
  * @property activeView - The active view's id
  * @property onViewsChange - Views changed (snapshot, rename, reorder, close)
- * @property onEdit - The raw edit channel (`onUpdate` compiles to it)
  * @property onSelect - The ring moved
  * @property selection - Controlled selection when `some`
  * @property newRowId - Overrides the renderer's id minting for inserted rows
@@ -849,6 +858,7 @@ export type SheetStyleType = typeof SheetStyleType;
  */
 export const SheetRootType = StructType({
     rows:          SheetRowsType,
+    editing:       SheetEditingType,
     columns:       ArrayType(SheetColumnType),
     registers:     DictType(StringType, SheetRegisterType),
     driver:        OptionType(SheetDriverType),
@@ -857,7 +867,6 @@ export const SheetRootType = StructType({
     views:         ArrayType(SheetViewType),
     activeView:    OptionType(StringType),
     onViewsChange: OptionType(FunctionType([ArrayType(SheetViewType)], NullType)),
-    onEdit:        OptionType(FunctionType([SheetEditType], NullType)),
     onSelect:      OptionType(FunctionType([SheetSelectionType], NullType)),
     selection:     OptionType(SheetSelectionType),
     newRowId:      OptionType(FunctionType([], StringType)),
@@ -902,8 +911,9 @@ export type SheetRootType = typeof SheetRootType;
 export function SheetContextTypeFor<R extends StructType, D extends EastType = NullType>(rowType: R, driverType?: D) {
     return StructType({
         rowIndex: IntegerType,
-        row:      rowType,
-        rows:     ArrayType(rowType),
+        row:      SheetDraftTypeFor(rowType),
+        rows:     ArrayType(SheetDraftTypeFor(rowType)),
+        group:    OptionType(NullType),
         partial:  BooleanType,
         driver:   OptionType((driverType ?? NullType) as D),
         today:    DateTimeType,
@@ -970,27 +980,6 @@ export function SheetProposalTypeFor<R extends StructType>(rowType: R) {
 }
 
 /**
- * `Sheet.Types.Edit(R)` — the raw edit event typed over the host's row
- * (§3.7): `commit` carries the row AFTER the commit, `insert` the new row,
- * `remove` the ids.
- *
- * @typeParam R - The host's row type
- * @param rowType - The row type value
- * @returns The concrete edit `VariantType`
- *
- * @property commit - One cell committed: `{ rowId, key, row, source }`
- * @property insert - A row inserted after `afterRowId` (`none` ⇒ at the end): `{ afterRowId, row, source }`
- * @property remove - Rows removed: `{ rowIds }`
- */
-export function SheetEditTypeFor<R extends StructType>(rowType: R) {
-    return VariantType({
-        commit: StructType({ rowId: StringType, key: StringType, row: rowType, source: SheetSourceType }),
-        insert: StructType({ afterRowId: OptionType(StringType), row: rowType, source: SheetSourceType }),
-        remove: StructType({ rowIds: ArrayType(StringType) }),
-    });
-}
-
-/**
  * `Sheet.Types.CheckContext(R)` — what an author's member check sees (§3.4):
  * the typed row, the half and the resolved member.
  *
@@ -1006,7 +995,8 @@ export function SheetEditTypeFor<R extends StructType>(rowType: R) {
 export function SheetCheckContextTypeFor<R extends StructType>(rowType: R) {
     return StructType({
         rowIndex: IntegerType,
-        row:      rowType,
+        row:      SheetDraftTypeFor(rowType),
+        group:    OptionType(NullType),
         half:     SheetHalfType,
         member:   SheetMemberType,
     });
@@ -1024,9 +1014,7 @@ export function SheetCheckContextTypeFor<R extends StructType>(rowType: R) {
  */
 export type SheetLinesField<P extends StructType> = {
     [K in Extract<keyof P["fields"], string>]:
-        P["fields"][K] extends ArrayTypeOf<StructType> ? K
-        : P["fields"][K] extends DictType<StringType, StructType> ? K
-        : never
+        P["fields"][K] extends ArrayTypeOf<StructType> ? K : never
 }[Extract<keyof P["fields"], string>];
 
 /**
@@ -1037,7 +1025,6 @@ export type SheetLinesField<P extends StructType> = {
  */
 export type SheetLineOf<P extends StructType, F extends SheetLinesField<P>> =
     P["fields"][F] extends ArrayTypeOf<infer L extends StructType> ? L
-    : P["fields"][F] extends DictType<StringType, infer L extends StructType> ? L
     : never;
 
 /**
@@ -1067,10 +1054,7 @@ export function sheetLinesOf(groupType: StructType, field: string): { lineType: 
     if (t.type === "Array" && (t.value as { type?: string } | undefined)?.type === "Struct") {
         return { lineType: t.value as StructType, keyed: false };
     }
-    if (t.type === "Dict" && (t.key as { type?: string } | undefined)?.type === "String" && (t.value as { type?: string } | undefined)?.type === "Struct") {
-        return { lineType: t.value as StructType, keyed: true };
-    }
-    throw new Error(`Sheet: the lines field "${field}" must be an Array<Line> or a Dict<String, Line> of structs — got ${t.type ?? "an unknown type"}`);
+    throw new Error(`Sheet: the lines field "${field}" must be an Array of row structs — got ${t.type ?? "an unknown type"}`);
 }
 
 /**
@@ -1097,50 +1081,18 @@ export function sheetLinesOf(groupType: StructType, field: string): { lineType: 
  */
 export function SheetGroupContextTypeFor<P extends StructType, F extends SheetLinesField<P>, D extends EastType = NullType>(
     groupType: P, lines: F, driverType?: D,
-): SheetGroupContextOf<P, SheetLineOf<P, F>, D> {
+): SheetGroupContextOf<P, SheetLineOf<P, F>, D, F> {
     const { lineType } = sheetLinesOf(groupType, lines);
     return StructType({
         rowIndex: IntegerType,
-        row:      lineType,
-        rows:     ArrayType(lineType),
-        group:    groupType,
-        groups:   ArrayType(groupType),
+        row:      SheetDraftTypeFor(lineType),
+        rows:     ArrayType(SheetDraftTypeFor(lineType)),
+        group:    OptionType(SheetDraftGroupTypeFor(groupType, lines)),
+        groups:   ArrayType(SheetDraftGroupTypeFor(groupType, lines)),
         partial:  BooleanType,
         driver:   OptionType((driverType ?? NullType) as D),
         today:    DateTimeType,
-    }) as unknown as SheetGroupContextOf<P, SheetLineOf<P, F>, D>;
-}
-
-/**
- * `Sheet.Types.Edit(P, "lines")` — the raw edit event of a GROUPED sheet,
- * typed over the group's row: the three line arms address a line by its
- * group's id and its index (`Array` lines) or key (`Dict` lines); the three
- * group arms are the band's.
- *
- * @typeParam P - The group's row type
- * @typeParam F - The lines field
- * @param groupType - The group's row type value
- * @param lines - The lines field
- * @returns The concrete edit `VariantType`
- *
- * @property commit - A line's cell committed: `{ rowId, line, key, row, source }` — `row` is the GROUP after the commit
- * @property insert - A line inserted into a group after `after` (`none` ⇒ first), at `line`
- * @property remove - Lines removed from a group
- * @property groupCommit - A band cell committed: `{ rowId, key, row, source }`
- * @property groupInsert - A group created after `afterRowId` (`none` ⇒ at the end)
- * @property groupRemove - Groups removed
- */
-export function SheetGroupEditTypeFor<P extends StructType, F extends SheetLinesField<P>>(groupType: P, lines: F) {
-    const { keyed } = sheetLinesOf(groupType, lines);
-    const address = (keyed ? StringType : IntegerType) as SheetLineAddress<P, F>;
-    return VariantType({
-        commit:      StructType({ rowId: StringType, line: address, key: StringType, row: groupType, source: SheetSourceType }),
-        insert:      StructType({ rowId: StringType, after: OptionType(address), line: address, row: groupType, source: SheetSourceType }),
-        remove:      StructType({ rowId: StringType, lines: ArrayType(address) }),
-        groupCommit: StructType({ rowId: StringType, key: StringType, row: groupType, source: SheetSourceType }),
-        groupInsert: StructType({ afterRowId: OptionType(StringType), row: groupType }),
-        groupRemove: StructType({ rowIds: ArrayType(StringType) }),
-    });
+    }) as unknown as SheetGroupContextOf<P, SheetLineOf<P, F>, D, F>;
 }
 
 /**
@@ -1157,8 +1109,8 @@ export function SheetGroupCheckContextTypeFor<P extends StructType, F extends Sh
     const { lineType } = sheetLinesOf(groupType, lines);
     return StructType({
         rowIndex: IntegerType,
-        row:      lineType,
-        group:    groupType,
+        row:      SheetDraftTypeFor(lineType),
+        group:    OptionType(SheetDraftGroupTypeFor(groupType, lines)),
         half:     SheetHalfType,
         member:   SheetMemberType,
     });
@@ -1176,47 +1128,44 @@ export type SheetFillOf<T extends EastType> = ReturnType<typeof SheetFillTypeFor
 export type SheetPatchOf<R extends StructType> = ReturnType<typeof SheetPatchTypeFor<R>>;
 /** The TS type of `Sheet.Types.Proposal(R)`. */
 export type SheetProposalOf<R extends StructType> = ReturnType<typeof SheetProposalTypeFor<R>>;
-/** The TS type of `Sheet.Types.Edit(R)`. */
-export type SheetEditOf<R extends StructType> = ReturnType<typeof SheetEditTypeFor<R>>;
 /** The TS type of `Sheet.Types.CheckContext(R)`. */
 export type SheetCheckContextOf<R extends StructType> = ReturnType<typeof SheetCheckContextTypeFor<R>>;
 /** The TS type of `Sheet.Types.Context(P, "lines", D)` — parameterised by the LINE type the context carries. */
-export type SheetGroupContextOf<P extends StructType, L extends StructType, D extends EastType = NullType> = StructType<{
+export type SheetGroupContextOf<P extends StructType, L extends StructType, D extends EastType = NullType, F extends SheetLinesField<P> = SheetLinesField<P>> = StructType<{
     rowIndex: IntegerType;
-    row:      L;
-    rows:     ArrayTypeOf<L>;
-    group:    P;
-    groups:   ArrayTypeOf<P>;
+    row:      SheetDraftOf<L>;
+    rows:     ArrayTypeOf<SheetDraftOf<L>>;
+    group:    OptionType<SheetDraftGroupOf<P, F>>;
+    groups:   ArrayTypeOf<SheetDraftGroupOf<P, F>>;
     partial:  BooleanType;
     driver:   OptionType<D>;
     today:    DateTimeType;
 }>;
-/** The TS type of `Sheet.Types.Edit(P, "lines")`. */
-export type SheetGroupEditOf<P extends StructType, F extends SheetLinesField<P>> = ReturnType<typeof SheetGroupEditTypeFor<P, F>>;
 /** The TS type of `Sheet.Types.CheckContext(P, "lines")`. */
 export type SheetGroupCheckContextOf<P extends StructType, F extends SheetLinesField<P>> = ReturnType<typeof SheetGroupCheckContextTypeFor<P, F>>;
 /** Either context an author function may take — a flat sheet's over `R`, or a grouped sheet's over the line `R`. */
-export type SheetAnyContextOf<R extends StructType, D extends EastType = any> = SheetContextOf<R, D> | SheetGroupContextOf<StructType, R, D>;
+export type SheetAnyContextOf<R extends StructType, D extends EastType = any> = SheetContextOf<R, D> | StructType<{
+    rowIndex: IntegerType;
+    row: SheetDraftOf<R>;
+    rows: ArrayTypeOf<SheetDraftOf<R>>;
+    group: OptionType<StructType>;
+    groups: ArrayTypeOf<StructType>;
+    partial: BooleanType;
+    driver: OptionType<D>;
+    today: DateTimeType;
+}>;
 /** Either check context an author check may take — a flat sheet's over `R`, or a grouped sheet's over the line `R`. */
-export type SheetAnyCheckContextOf<R extends StructType> = SheetCheckContextOf<R> | StructType<{ rowIndex: IntegerType; row: R; group: StructType; half: SheetHalfType; member: SheetMemberType }>;
+export type SheetAnyCheckContextOf<R extends StructType> = SheetCheckContextOf<R> | StructType<{ rowIndex: IntegerType; row: SheetDraftOf<R>; group: OptionType<StructType>; half: SheetHalfType; member: SheetMemberType }>;
 
 /**
  * `Sheet.Types.Context` — the copilot context: `Context(R, D?)` on a flat
  * sheet, `Context(P, "lines", D?)` on a grouped one.
  */
 export function sheetContextType<R extends StructType, D extends EastType = NullType>(rowType: R, driverType?: D): SheetContextOf<R, D>;
-export function sheetContextType<P extends StructType, F extends SheetLinesField<P>, D extends EastType = NullType>(groupType: P, lines: F, driverType?: D): SheetGroupContextOf<P, SheetLineOf<P, F>, D>;
+export function sheetContextType<P extends StructType, F extends SheetLinesField<P>, D extends EastType = NullType>(groupType: P, lines: F, driverType?: D): SheetGroupContextOf<P, SheetLineOf<P, F>, D, F>;
 export function sheetContextType(first: StructType, second?: unknown, third?: unknown): unknown {
     if (typeof second === "string") return SheetGroupContextTypeFor(first, second as never, third as EastType | undefined);
     return SheetContextTypeFor(first, second as EastType | undefined);
-}
-
-/** `Sheet.Types.Edit` — the raw edit event: `Edit(R)` on a flat sheet, `Edit(P, "lines")` on a grouped one. */
-export function sheetEditType<R extends StructType>(rowType: R): SheetEditOf<R>;
-export function sheetEditType<P extends StructType, F extends SheetLinesField<P>>(groupType: P, lines: F): SheetGroupEditOf<P, F>;
-export function sheetEditType(first: StructType, second?: unknown): unknown {
-    if (typeof second === "string") return SheetGroupEditTypeFor(first, second as never);
-    return SheetEditTypeFor(first);
 }
 
 /** `Sheet.Types.CheckContext` — a member check's context: `CheckContext(R)` on a flat sheet, `CheckContext(P, "lines")` on a grouped one. */

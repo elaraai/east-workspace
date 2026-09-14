@@ -519,11 +519,14 @@ Task → Which tag?
 │   │   │   ├─ driver (optional) — Sheet.driver(column, rows, { key, label, aliases?, meta? }): the `lookup` column whose member decides what the row does; its rows are the register and its row type `D` is what a quantity's `uom`, a link's `sides` and every copilot function (`ctx.driver`) read
 │   │   │   ├─ registers (optional) — { name: Sheet.register.members(rows, { kind, key, label, aliases?, meta?, parent?, tone? }) | Sheet.register.concat([…]) }: the lookup tables reference / enum / set / link columns resolve against; accessors receive `(value, key)` (a `Dict<String, T>` register reads its key as the second argument; an Array's key is its index); duplicate keys fold, first wins — so a family kind ("CNC lathe" from every lathe) declares one member per distinct value
 │   │   │   ├─ owned (optional) — accessor r => Bool: rows the upstream system owns — no copilot, stamped columns read-only
-│   │   │   ├─ suggest (optional) — { ahead?, triggers?, ghost?, propose: [fn] }: the copilot's row proposers — East functions (sync, or async for a model call) over Sheet.Types.Context(R, D) — { rowIndex, row (as it would be if the open editor committed), rows, partial, driver: Option<D>, today } — returning Array<Sheet.Types.Proposal(R)> ({ patch: Sheet.patch(R, { … }), meta }); a column's `fill` providers are the same shape returning Option<Sheet.Types.Fill(T)> ({ value, meta }). The first that yields wins; fills CHAIN in column order (a later column sees the earlier fills as if taken); an async one shows a pending chip in the strip and the newest context wins; a rejected fill / proposal is remembered for the session
+│   │   │   ├─ suggest (optional) — { ahead?, triggers?, ghost?, propose: [fn] }: the copilot's row proposers — East functions (sync, or async for a model call) over Sheet.Types.DraftContext(R, D) — current draft row and neighbours, rowIndex, driver: Option<D> and today; draft fields are missing | value(T) | invalid(String), so guard with hasTag("value") before unwrap("value") — returning Array<Sheet.Types.Proposal(R)> ({ patch: Sheet.patch(R, { … }), meta }); a column's `fill` providers are the same shape returning Option<Sheet.Types.Fill(T)> ({ value, meta }). The first that yields wins; fills CHAIN in column order (a later column sees the earlier fills as if taken); an async one shows a pending chip in the strip and the newest context wins; a rejected fill / proposal is remembered for the session
 │   │   │   ├─ slice + affordances (optional) — bound slice chrome (default ["search"]; filter / cohort allowed; brush / legend / breakdown refused — no axis, no series): the sheet NEVER narrows — it draws the narrowing as the LENS: hits keep brand row numbers, ±0 / ±1 / ±3 context rows show either side, the rest collapse into bands whose pill opens 1 · 3 · 10 · all rows at a time, the count reads `n matches · m context`, no blank tail. A Link column is searched through `Slice.config`'s `text` projection (`stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) }`); a field the slice narrows on must be a COLUMN of the sheet. On the paged arm the lens is scope-badged "loaded rows only" and a keyed source's `search` becomes a KEY SEARCH over `seek` (the jump rebases residency and lands the ring on the match)
 │   │   │   ├─ views / onViewsChange / activeView (optional) — saved views = slice-state snapshots plus the lens's context and reveals (Array<Sheet.Types.View>), evaluated live as TABS: the pinned whole-sheet tab, `+ TAB` snapshot (named from the query), live match counts, the dirty dot when the slice drifts from the tab, ⏎ update / esc revert, × or middle-click close, double-click rename, drag reorder; every change reaches the host through `onViewsChange` while landing locally at once; `activeView` opens a tab and is followed when the host moves it
-│   │   │   ├─ onUpdate (optional, INLINE arm only) — fn(Array<R>) => Null: the WHOLE collection with the edit applied (the ValueTree idiom — `onUpdate={rows.write}` is the entire persistence story; fields without a column keep their values)
-│   │   │   ├─ onEdit (optional, either arm) — fn(Sheet.Types.Edit(R)) => Null: the raw event — commit { rowId, key, row (AFTER the commit), source } · insert { afterRowId, row, source } · remove { rowIds }; `source` = typed | pasted | fill | row | pattern, so copilot uptake is measurable; the only write path on a paged source (route it to the dataset you page from)
+│   │   │   ├─ onUpdate (optional, INLINE arm only) — fn(Array<R>) => Null over a LIVE data bind handle: reads the latest collection, checks the batch base and writes the complete result once. Hidden fields survive. Pass data={rows} and onUpdate={rows.write}; a captured array is refused for this adapter.
+│   │   │   ├─ onPatch / onApply (optional, either arm) — onPatch: fn(Sheet.Types.PatchEvent(E)) => Null observes one draft gesture including incomplete values; onApply: sync/async fn(Sheet.Types.ChangeSet(E)) => Sheet.Types.ApplyResult persists a complete checked batch. Paged writes require revision/refresh, atomic host application and request-id deduplication. onEdit / Types.Edit / Types.Source are removed.
+│   │   │   ├─ applyMode (optional) — "batch" (default) shows right-aligned Font Awesome Undo, Redo, Discard and Apply icon buttons with tooltips; "automatic" serializes ready gestures through the same acknowledgement path. No duplicate pending-change label.
+│   │   │   ├─ newRow / ready (optional) — newRow: fn(NewRow) => Patch(R) supplies defaults, including hidden fields; ready.row: fn(Draft(R), DraftContext(R, D)) => Readiness adds business rules; ready.group: fn(DraftGroup(G, "rows")) => Readiness checks grouped drafts. Required fields and valid parsing are always checked; optional absence becomes none.
+│   │   │   ├─ edits (optional) — insertRows / removeRows gate structure independently of cell edits; insertGroups / removeGroups require grouping. moveRows: "none" | "within" | "between" and moveGroups declare source-compatible movement permissions (movement gestures remain in progress). Keyed top-level creation uses key order; positional insertion uses gutter buttons, the selection strip or Alt+Insert / Alt+Shift+Insert.
 │   │   │   ├─ onSelect / selection (optional) — the ring reported as { rowId, key }; give `selection` and the ring is CONTROLLED (follows the value, scrolls into view, every move still reports)
 │   │   │   ├─ newRowId (optional) — fn() => String minting inserted rows' ids (else the renderer mints one)
 │   │   │   ├─ readOnly / blanks / density (optional) — the whole sheet read-only · padding rows below the last real one (default 18; typing into one INSERTS a row after the last real one — blanks are padding, never rows) · row rhythm
@@ -534,7 +537,7 @@ Task → Which tag?
 │   │       ├─ Sheet.column.text / date / quantity / integer / lookup / reference / enum / set / link / stamped / custom(R, …) — the column builders (see `columns`); Sheet.driver(column, rows, accessors) — the driver; Sheet.register.members(rows, accessors) / Sheet.register.concat([…]) — registers
 │   │       ├─ Sheet.link.parse(text, members) / Sheet.link.print(link) — the link grammar as East functions (`M2140, Line 2 > 4 x CNC lathe`: codes and aliases, ranges `M2140-45`, counted `N x kind`, `TBC`, free text kept as a `text` member — never a refusal) · Sheet.link.arity(half, implied) — how many members a half should hold, `implied: fn(Context(R, D)) => Option<Sheet.Types.Counted>` (the strip reads "n × kind implied · k named") · Sheet.link.check.exists() and author checks fn(Sheet.Types.CheckContext(R)) => Option<String> — a `some(message)` FLAGS the member (warn chip + title), never blocks
 │   │       ├─ Sheet.patch(R, { field: value, … }) — a row patch for a proposal (omitted fields `none`; the runner writes only the fields with editable columns)
-│   │       └─ Sheet.Types.Context(R, D) / Fill(T) / Patch(R) / Proposal(R) / Edit(R) / CheckContext(R) — the typed twins providers, proposers, checks and `onEdit` are written over; Sheet.Types.Link / Member / Cell / Row / View / Selection / Counted / Sides / RegisterMember — the wire types (a Link is { from, to: Array<Member> }; a Member is identified { key } · range { from, to } · counted { n, key } · placeholder · text)
+│   │       └─ Sheet.Types.DraftContext(R, D) / Draft(R) / Fill(T) / Patch(R) / Proposal(R) / PatchEvent(E) / ChangeSet(E) / ApplyResult / Readiness / CheckContext(R) — typed contracts for providers, drafts, checked application and checks; grouped contexts use (G, "rows", D). Sheet.Types.Link / Member / Cell / Row / View / Selection / Counted / Sides / RegisterMember are shared value and wire types.
 │   ├─ <Matrix data={…} columns={…} cell={(r, col) => Matrix.cell({…})} /> — rows × columns of status-coloured segment bars
 │   │   ├─ Props:
 │   │   │   ├─ data (required) — row structs; columns (required) — array of Matrix.column(…) (data-drivable with .map)
@@ -1366,63 +1369,45 @@ numeric column value — build-time error otherwise). Computed statement lines
 (Gross profit) that aren't plain subtotals: model them as their own
 single-member section in the data, or use `footerRows`.
 
-### Sheet — typed columns, an East-function copilot, a slice lens
+### Sheet — drafts and checked application
 
-The row type is the schema: every column builder takes it first and is checked
-against the field it sits on; every per-row fact is an accessor; the copilot's
-rules are East functions over `Sheet.Types.Context(R, D)`; and search runs
-through a bound slice the sheet draws as a lens rather than a filter.
+The row's `StructType` defines completeness, including fields without columns.
+Columns define editing and parsing. Missing optional fields normalize to `none`;
+missing required fields and invalid text block the entire batch. Optional
+`ready.row` / `ready.group` business rules cannot bypass these automatic checks.
 
 ```tsx
-/** @jsxImportSource @elaraai/east-ui */
-import { East, ArrayType, DateTimeType, FloatType, OptionType, StringType, StructType, none, some } from "@elaraai/east";
-import { Reactive, Sheet, Slice, State, UIComponentType } from "@elaraai/east-ui";
-
-const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType), stations: Sheet.Types.Link });
-const Ctx = Sheet.Types.Context(JobType);
-const QtyFill = OptionType(Sheet.Types.Fill(FloatType));
-
-const sheet = East.function([], UIComponentType, (_$) => (
-    <Reactive>{$ => {
-        const jobs = $.let(State.bind([ArrayType(JobType)], "jobs", [{ id: "j1", start: none, task: "Machining", qty: none, stations: { from: [], to: [] } }]));
-        const rows = $.let(jobs.read());
-        // A fill provider: the last similar row's quantity — history, as an East function.
-        const lastQuantity = $.const(East.function([Ctx], QtyFill, ($, ctx) => {
-            const noFill = $.const(none, QtyFill);
-            const similar = $.let(ctx.rows.slice(0n, ctx.rowIndex).filter((_$, r) => r.task.equal(ctx.row.task)));
-            return similar.length().equal(0n).ifElse(
-                (_$) => noFill,
-                ($2) => { const r = $2.let(similar.get(similar.length().subtract(1n))); return r.qty.match({ none: (_$) => noFill, some: (_$, v) => East.value(some({ value: v, meta: East.str`like ${r.id}` }), QtyFill) }); });
-        }));
-        // Search runs THROUGH the slice; a Link column is searched by its display form.
-        const cfg = $.const(Slice.config(JobType, {
-            fields: { task: { label: "Task" }, stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) } },
-            searchFieldIds: ["task", "stations"],
-        }));
-        const slice = $.let(Slice.bind([JobType], "jobs.slice", cfg, Slice.state(), rows, none));
-        const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "jobs.views", []));
-        return (
-            <Sheet data={rows} id="id"
-                registers={{ stations: Sheet.register.members(East.value(["M2140", "M2141"], ArrayType(StringType)), { kind: "machine", key: m => m, label: m => m }) }}
-                columns={{
-                    start:    Sheet.column.date(JobType, { header: "Start", sub: "dd / mm / yyyy" }),
-                    task:     Sheet.column.text(JobType, { header: "Task" }),
-                    qty:      Sheet.column.quantity(JobType, { header: "Qty", fill: [lastQuantity] }),   // no driver — the two-argument form
-                    stations: Sheet.column.set(JobType, "stations", { header: "Work centres", members: [{ kind: "machine", identified: true }] }),
-                }}
-                slice={slice} affordances={["search"]}
-                views={views.read()} onViewsChange={views.write}
-                onUpdate={jobs.write}
-                style={{ height: "420px" }} />
-        );
-    }}</Reactive>
-));
+<Sheet data={jobs} id="id"
+    columns={{ task: Sheet.column.text(JobType), qty: Sheet.column.integer(JobType) }}
+    onUpdate={jobs.write} />
 ```
 
-The paged arm is the same tag over `Paged.of` / `Data.bindPaged` with `onEdit`
-instead of `onUpdate`; the flagship (`sheetPlan` in the index) adds a driver,
-`uom` and `sides` read off the driver's row, a `from > to` link column with an
-arity rule and checks, and async proposers.
+Here `jobs` is a live `State.bind` or `Data.bind` handle over `ArrayType(JobType)`.
+`onUpdate` reads the latest collection when applying, checks the original batch
+base and writes once. Use `onPatch` for a journal of individual gestures,
+including incomplete drafts, and `onApply` for host transactions. A paged host
+must atomically check its revision, deduplicate the request id and return the
+committed revision. An append-only journal is not an application acknowledgement.
+An unknown outcome retries the same frozen request.
+
+**Draft and editing contracts**
+
+| Signature | Description | Example |
+| --- | --- | --- |
+| `Sheet.Types.Draft(R)` | Each field is missing / value(T) / invalid(String). | `sheetReadiness` |
+| `Sheet.Types.DraftContext(R, D)` | Current draft row, neighbours and optional driver; grouped overload `(G, "rows", D)`. | `sheetCopilot` |
+| `newRow: fn(NewRow) => Patch(R)` | Explicit defaults for newly inserted drafts, including required hidden fields. | `sheetInsertion` |
+| `ready.row: fn(Draft(R), DraftContext(R)) => Readiness` | Synchronous business checks alongside mandatory schema checks. | `sheetReadiness` |
+| `onPatch: fn(PatchEvent(E)) => Null` | Draft contents, placement, origin and readiness once per gesture. | `sheetPaged` |
+| `onApply: fn(ChangeSet(E)) => ApplyResult` | Complete checked batch; supports async callbacks and safe retries. | `sheetPaged` |
+| `edits: { insertRows?, removeRows?, insertGroups?, removeGroups?, moveRows?, moveGroups? }` | Structure permissions; group flags require grouping; keyed top-level movement is refused. Movement gestures remain under development. | `sheetInsertion` |
+
+Providers receive drafts: test `field.hasTag("value")` before reading
+`field.unwrap("value")`. They can fill a row before its remaining fields are
+complete. Constructors can supply hidden fields; copilot patches target editable
+columns. Typing, paste, fill and accepted suggestions share the transaction path
+and Undo/Redo. `sheetWriteBack`, `sheetReadiness`, `sheetInsertion` and
+`sheetGrouped` are executable showcase examples.
 
 ### Overlays — trigger prop + body children
 
@@ -1545,7 +1530,7 @@ import { AppProvider, EastChakraComponent } from "@elaraai/east-ui-components";
   directed link), a blank tail that inserts rows, an East-function copilot,
   and a slice lens drawn as context bands rather than a filtered row set.
   Reach for `<Sheet>` when the rows are authored in place and written back
-  (`onUpdate` / `onEdit`); for reading, sorting and reviewing a dataset,
+  (`onUpdate` / `onApply`); for reading, sorting and reviewing a dataset,
   `<Table>`.
 - **Flowchart vs Schematic** — `<Schematic>` is a world-coordinate 2D canvas
   (data carries x/y; zones, footprints, camera); `<Flowchart>` derives its

@@ -8,7 +8,7 @@
  * `component.ts` (`Sheet Spec.md` §4.6): resolves the row source (both
  * arms), describes every column against the row type, compiles the typed
  * bridge (§4.8), builds each column's wire value, compiles `onUpdate` into
- * the edit channel (§4.7), and refuses every mistake of §3.12 naming the
+ * the checked batch adapter (§4.7), and refuses every mistake naming the
  * column and the remedy.
  *
  * @packageDocumentation
@@ -63,15 +63,13 @@ import {
     SheetSelectionType,
     SheetFooterItemType,
     SheetStyleType,
-    SheetEditType,
     SheetGroupType,
     SheetGroupCellType,
     SHEET_TITLE_CELL,
     sheetLinesOf,
     type SheetAnyContextOf,
     type SheetProposalOf,
-    type SheetEditOf,
-    type SheetGroupEditOf,
+    type SheetPatchOf,
     type SheetLinesField,
     type SheetLineOf,
     type SheetHalfLiteral,
@@ -89,13 +87,14 @@ import {
     wrapCheck,
     wrapCustomParse,
     wrapCustomPrint,
-    wrapOnEdit,
-    compileOnUpdate,
-    composeEditHandlers,
 } from "./bridge.js";
 import type { SheetColumn, SheetColumnSpec, SheetFieldKey, SheetMemberKindInput, SheetMultipleInput } from "./columns.js";
 import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
 import type { SheetGroupValue } from "./group.js";
+import type { SheetEditsInput } from "./edits.js";
+import { buildSheetEditing } from "./editing-bridge.js";
+import { SheetApplyResultType, SheetNewRowType, SheetNewGroupType, SheetReadinessType, type SheetDraftOf, type SheetChangeSetTypeFor } from "./transactions.js";
+import type { SheetPatchEventTypeFor, SheetDraftEntryOf } from "./drafts.js";
 import { isExistsCheck, type SheetLocksInput } from "./link.js";
 
 // ============================================================================
@@ -138,6 +137,17 @@ export interface SheetSuggestInput<R extends StructType> {
     propose: SheetProposerInput<R>[];
 }
 
+/** Business readiness checks add requirements without bypassing structural validity.
+ * @typeParam R - The row struct (a grouped sheet's child struct)
+ * @typeParam G - The group draft schema, when grouping is enabled
+ */
+export interface SheetReadyInput<R extends StructType, G extends EastType = never> {
+    /** Check a row draft and its current draft-aware context. */
+    row?: SubtypeExprOrValue<FunctionType<[SheetDraftOf<R>, SheetAnyContextOf<R>], typeof SheetReadinessType>>;
+    /** Check the group's own draft fields; child issues are checked separately. */
+    group?: [G] extends [never] ? never : SubtypeExprOrValue<FunctionType<[G], typeof SheetReadinessType>>;
+}
+
 /**
  * The options of `Sheet.Root` / the `<Sheet>` tag's props beside `data` and
  * `columns` (§3).
@@ -154,7 +164,6 @@ export interface SheetSuggestInput<R extends StructType> {
  * @property activeView - The active view's id
  * @property onViewsChange - Views changed
  * @property onUpdate - The whole collection with the edit applied (inline arm only)
- * @property onEdit - The raw edit event, typed over the row (either arm)
  * @property onSelect - The ring moved
  * @property selection - Controlled selection (§3.14)
  * @property newRowId - Overrides the renderer's id minting for inserted rows
@@ -166,6 +175,8 @@ export interface SheetSuggestInput<R extends StructType> {
  * @property style - Sizing and the gutter width
  */
 export interface SheetOptions<R extends StructType> {
+    /** Structural capabilities; defaults depend on grouping and source ordering. */
+    edits?: SheetEditsInput;
     /** The `String` field that identifies a row. */
     id?: SheetStringField<R>;
     /** Rows the upstream system owns — an accessor. */
@@ -188,12 +199,21 @@ export interface SheetOptions<R extends StructType> {
     onViewsChange?: SubtypeExprOrValue<FunctionType<[ArrayType<SheetViewType>], NullType>>;
     /** The whole collection with the edit applied (inline arm only). */
     onUpdate?: SubtypeExprOrValue<FunctionType<[ArrayType<R>], NullType>>;
-    /** The raw edit event, typed over the row. */
-    onEdit?: SubtypeExprOrValue<FunctionType<[SheetEditOf<R>], NullType>>;
+    /** Observe one gesture's draft and domain patches; this does not authorize writes. */
+    onPatch?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetPatchEventTypeFor<R>>], NullType>>;
+    /** Submit one checked, idempotent batch to the authoritative source. */
+    onApply?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R>>], typeof SheetApplyResultType>>
+        | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R>>], typeof SheetApplyResultType>>;
+    /** Batch by default; auto submits complete gestures through the same checked protocol. */
+    applyMode?: "batch" | "auto";
     /** The ring moved. */
     onSelect?: SubtypeExprOrValue<FunctionType<[SheetSelectionType], NullType>>;
     /** Controlled selection. */
     selection?: SubtypeExprOrValue<OptionType<SheetSelectionType>>;
+    /** Additional author requirements; structural completeness always remains mandatory. */
+    ready?: SheetReadyInput<R>;
+    /** Explicit defaults for new rows, including required fields without columns. */
+    newRow?: SubtypeExprOrValue<FunctionType<[typeof SheetNewRowType], SheetPatchOf<R>>>;
     /** Overrides the renderer's id minting for inserted rows. */
     newRowId?: SubtypeExprOrValue<FunctionType<[], StringType>>;
     /** Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}. */
@@ -232,26 +252,34 @@ export interface SheetOptions<R extends StructType> {
  * @typeParam F - The lines field
  * @property group - The group declaration (`Sheet.group`)
  * @property suggest - The row-proposal declaration, over the LINE type
- * @property onEdit - The raw edit event — `Sheet.Types.Edit(P, "lines")`
  * @property onUpdate - The whole collection of groups with the edit applied (inline arm only)
  * @property newLineKey - Overrides the renderer's key minting for lines inserted into `Dict` lines
  */
-export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesField<P>> extends Omit<SheetOptions<P>, "group" | "suggest" | "onEdit"> {
+export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesField<P>> extends Omit<SheetOptions<P>, "group" | "suggest" | "onPatch" | "newRow" | "ready"> {
+    /** Additional row and group requirements over complete field drafts. */
+    ready?: SheetReadyInput<SheetLineOf<P, F>, SheetDraftEntryOf<P, F>>;
+    /** Explicit defaults for each new child row. */
+    newRow?: SubtypeExprOrValue<FunctionType<[typeof SheetNewRowType], SheetPatchOf<SheetLineOf<P, F>>>>;
+    /** Explicit defaults for a new group. */
+    newGroup?: SubtypeExprOrValue<FunctionType<[typeof SheetNewGroupType], SheetPatchOf<P>>>;
     /** The group declaration. */
     group: SheetGroupValue<P, F>;
     /** The row-proposal declaration, over the line type. */
     suggest?: SheetSuggestInput<SheetLineOf<P, F>>;
-    /** The raw edit event, typed over the group and the line's address. */
-    onEdit?: SubtypeExprOrValue<FunctionType<[SheetGroupEditOf<P, F>], NullType>>;
+    /** Observe a gesture with drafts over this group's child array. */
+    onPatch?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetPatchEventTypeFor<P, F>>], NullType>>;
     /** Overrides the renderer's key minting for lines inserted into `Dict` lines. */
     newLineKey?: SubtypeExprOrValue<FunctionType<[], StringType>>;
 }
 
 /** Either arm's options, erased — what the implementation reads. */
-type SheetAnyOptions = Omit<SheetOptions<StructType>, "group" | "suggest" | "onEdit"> & {
+type SheetAnyOptions = Omit<SheetOptions<StructType>, "group" | "suggest" | "onPatch" | "newRow" | "ready"> & {
+    ready?: { row?: unknown; group?: unknown };
     group?: SheetGroupValue<StructType, string>;
     suggest?: SheetSuggestInput<StructType>;
-    onEdit?: unknown;
+    onPatch?: unknown;
+    newRow?: unknown;
+    newGroup?: unknown;
     newLineKey?: SubtypeExprOrValue<FunctionType<[], StringType>>;
 };
 
@@ -387,13 +415,13 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
  *
  * @remarks
  * `id` is required on a positional source. `onUpdate` is refused on the
- * paged arm (there is no collection to rebuild — route `onEdit` events to
- * the dataset you page from). A `Dict` inline is refused: a sorted map would
+ * paged arm; use onApply with a revision-aware source. A `Dict` inline is refused: a sorted map would
  * sit rows in key order, not the planner's.
  *
  * With `group` (#740) the rows are GROUPS: `columns` are declared over the
  * line type the group's lines field holds, `onUpdate` rebuilds the groups
- * with their lines inside, and `onEdit` is `Sheet.Types.Edit(P, "lines")`.
+ * with their lines inside. onPatch observes one gesture; onApply confirms
+ * an atomic checked batch.
  *
  * @example
  * ```ts
@@ -404,7 +432,7 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
  *
  * const example = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
  *     const jobs = $.let(State.bind([ArrayType(JobType)], "jobs", [{ id: "j1", start: none, task: "Machining", qty: none }]));
- *     return Sheet.Root(jobs.read(), {
+ *     return Sheet.Root(jobs, {
  *         start: Sheet.column.date(JobType, { header: "Start" }),
  *         task:  Sheet.column.text(JobType, { header: "Task" }),
  *         qty:   Sheet.column.quantity(JobType, { header: "Qty" }),
@@ -435,7 +463,7 @@ export function createSheet<T extends SubtypeExprOrValue<ArrayType<StructType>>>
     columns: SheetColumnSpec<DataRowType<T>>,
     options: SheetOptions<DataRowType<T>>,
 ): ExprType<UIComponentType>;
-/** The whole-value bind handle — `data={jobs}` builds the same IR as `data={jobs.read()}`. */
+/** A whole-value bind handle retains its live reader for atomic onUpdate. */
 export function createSheet<R extends StructType>(
     data: SheetBindHandle<R>,
     columns: SheetColumnSpec<R>,
@@ -643,16 +671,7 @@ export function createSheet(
         throw new Error("Sheet: `affordances` needs `slice` — the rail mounts them on the bound slice");
     }
 
-    // Edits — `onUpdate` compiles to the wire channel; a typed `onEdit` is bridged; both compose.
-    if (opts.onUpdate !== undefined && resolved.kind === "paged") {
-        throw new Error("Sheet: `onUpdate` cannot be combined with a paged source — the whole-value rebuild needs the whole collection; use `onEdit` and route the events to the dataset you page from");
-    }
-    const observe = opts.onEdit !== undefined ? wrapOnEdit(bridge, opts.onEdit) : undefined;
-    const write = opts.onUpdate !== undefined && resolved.kind === "inline"
-        ? compileOnUpdate(bridge, resolved.rows as ExprType<ArrayType<StructType>>, idField!, opts.onUpdate)
-        : undefined;
-    const onEdit = composeEditHandlers(observe, write);
-
+    const editing = buildSheetEditing(resolved, bridge, idField, opts, driver?.column);
     // The group declaration on the wire (#740).
     const groupValue = groupBridge !== undefined && groupDecl !== undefined && cellMetas !== undefined
         ? East.value(some({
@@ -683,6 +702,7 @@ export function createSheet(
 
     return East.value(variant("Sheet", {
         rows:          rowsValue,
+        editing,
         columns:       East.value(columnValues, ArrayType(SheetColumnType)),
         registers:     East.value(new Map(Object.entries(registers).map(([name, members]) => [name, East.value({ members }, SheetRegisterType)])), DictType(StringType, SheetRegisterType)),
         driver:        driver !== undefined
@@ -695,7 +715,6 @@ export function createSheet(
         onViewsChange: opts.onViewsChange !== undefined
             ? some(East.value(opts.onViewsChange, FunctionType([ArrayType(SheetViewType)], NullType)))
             : none,
-        onEdit:        onEdit !== undefined ? some(onEdit) : East.value(none, OptionType(FunctionType([SheetEditType], NullType))),
         onSelect:      opts.onSelect !== undefined
             ? some(East.value(opts.onSelect, FunctionType([SheetSelectionType], NullType)))
             : none,

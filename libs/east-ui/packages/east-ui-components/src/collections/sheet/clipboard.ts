@@ -30,6 +30,7 @@ export function exportCell(cell: SheetCellValue | undefined, meta: SheetColumnMe
         case "DateTime": return [formatDateClipboard(cell.value)];
         case "Float": return [formatNumberBare(cell.value)];
         case "Integer": return [String(cell.value)];
+        case "Invalid":
         case "String": return [cell.value];
         case "Boolean": return [String(cell.value)];
         case "Link": return [linkHalvesText(cell.value).join(" > ")];

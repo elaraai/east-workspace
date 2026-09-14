@@ -27,7 +27,8 @@ import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { EastChakraSheet } from "./index.js";
-import type { SheetEditValue, SheetRootValue, SheetSelectionValue } from "./values.js";
+import { sheetJournal } from "./journal.test-utils.js";
+import type { SheetRootValue, SheetSelectionValue } from "./values.js";
 
 afterEach(cleanup);
 beforeEach(() => { initializeStore(new UIStore()); });
@@ -100,14 +101,14 @@ function buildPaged(n: number): SheetRootValue {
 
 /** Swap the host callbacks for spies after compilation — the renderer takes every function from the value. */
 function withSpies(root: SheetRootValue) {
-    const edits: SheetEditValue[] = [];
+    const journal = sheetJournal(root);
+    const edits = journal.events;
     const selects: SheetSelectionValue[] = [];
     const value: SheetRootValue = {
-        ...root,
-        onEdit: some((e: SheetEditValue) => { edits.push(e); return null; }),
+        ...journal.value,
         onSelect: some((s: SheetSelectionValue) => { selects.push(s); return null; }),
     } as SheetRootValue;
-    return { value, edits, selects };
+    return { value, edits, selects, draft: journal.draft };
 }
 
 function mount(value: SheetRootValue) {
@@ -198,7 +199,7 @@ describe("the ring and the range", () => {
 
 describe("editing", () => {
     test("a printable key seeds an edit, ⏎ commits down and the host hears a typed commit carrying the row after it", async () => {
-        const { value, edits } = withSpies(buildSheet());
+        const { value, edits, draft } = withSpies(buildSheet());
         const { cell, key, input, type, editorKey, flush } = mount(value);
         fireEvent.mouseDown(cell(1, "task"), { button: 0 });
         key("x");
@@ -210,18 +211,13 @@ describe("editing", () => {
         expect(cell(2, "task").hasAttribute("data-selected")).toBe(true);
         await flush();
         expect(edits).toHaveLength(1);
-        const e = edits[0]!;
-        expect(e.type).toBe("commit");
-        const c = e.value as { rowId: string; offset: bigint; key: string; row: { cells: Map<string, { type: string; value: unknown }> }; source: { type: string } };
-        expect(c.rowId).toBe("j2");
-        expect(c.offset).toBe(1n);
-        expect(c.key).toBe("task");
-        expect(c.row.cells.get("task")).toEqual(variant("String", "xy"));
-        expect(c.source.type).toBe("typed");
+        expect(edits[0]!.origin.type).toBe("typed");
+        expect(edits[0]!.draftChanges.map(change => change.id)).toEqual(["j2"]);
+        expect(draft("j2", Sheet.Types.Draft(JobType)).task).toEqual(variant("value", "xy"));
     });
 
-    test("the date field: a seed lands in the day segment, digits fill the rest, ⇥ on the last segment commits right; an unrecognised number keeps the editor open with the neg ring", async () => {
-        const { value, edits } = withSpies(buildSheet());
+    test("the date field: a seed lands in the day segment, digits fill the rest, ⇥ on the last segment commits right; an unrecognised number becomes an undoable invalid draft", async () => {
+        const { value, edits, draft } = withSpies(buildSheet());
         const { container, cell, key, type, editorKey, input, flush } = mount(value);
         fireEvent.mouseDown(cell(1, "start"), { button: 0 });
         key("1");   // the printable key that opened the editor is typed into the day segment
@@ -240,26 +236,30 @@ describe("editing", () => {
         expect(container.querySelector('[data-slot="stripChip"]')!.textContent).toBe("Tue 17 Nov 26");
         fireEvent.keyDown(segments()[2]!, { key: "Tab" });
         await flush();
-        const c = edits[0]!.value as { row: { cells: Map<string, { type: string; value: Date }> } };
-        expect(c.row.cells.get("start")!.type).toBe("DateTime");
-        expect(c.row.cells.get("start")!.value.toISOString()).toBe("2026-11-17T00:00:00.000Z");
+        expect(draft("j2", Sheet.Types.Draft(JobType)).start).toEqual(variant("value", some(new Date("2026-11-17T00:00:00Z"))));
         expect(cell(1, "start").textContent).toBe("17 Nov 26");
         // Tab on the last segment moved right, onto the task column.
         expect(cell(1, "task").hasAttribute("data-selected")).toBe(true);
-        // An unparseable quantity never commits.
+        // An unparseable quantity stays local as raw draft text.
         fireEvent.mouseDown(cell(1, "qty"), { button: 0 });
         key("z");
         await flush();
         type("zz");
         await flush();
         editorKey("Enter");
-        expect(input()).not.toBeNull();
-        expect(container.querySelector('[data-slot="editorError"]')).toBeTruthy();
-        expect(container.querySelector('[data-slot="stripChip"]')!.textContent).toBe("unrecognised");
-        editorKey("Escape");
         expect(input()).toBeNull();
         await flush();
-        expect(edits).toHaveLength(1);
+        expect(edits).toHaveLength(2);
+        expect(draft("j2", Sheet.Types.Draft(JobType)).qty).toEqual(variant("invalid", "zz"));
+        expect(edits[1]!.domainChanges.type).toBe("none");
+        expect(cell(1, "qty").getAttribute("aria-invalid")).toBe("true");
+        const description = document.getElementById(cell(1, "qty").getAttribute("aria-describedby")!);
+        expect(description?.textContent).toBe("Invalid input: zz");
+        key("z", { ctrlKey: true });
+        await flush();
+        expect(draft("j2", Sheet.Types.Draft(JobType)).qty).toEqual(variant("value", none));
+        expect(cell(1, "qty").hasAttribute("aria-invalid")).toBe(false);
+        expect(edits[2]!.origin.type).toBe("undo");
     });
 
     test("the number field opens on the value, ↑ steps it through the field's own handler, ⏎ commits", async () => {
@@ -284,7 +284,7 @@ describe("editing", () => {
     });
 
     test("an enum resolves to the register's word through the strip's armed candidate", async () => {
-        const { value, edits } = withSpies(buildSheet());
+        const { value, edits, draft } = withSpies(buildSheet());
         const { container, cell, key, type, editorKey, flush } = mount(value);
         fireEvent.mouseDown(cell(1, "status"), { button: 0 });
         key("c");
@@ -292,13 +292,12 @@ describe("editing", () => {
         expect(container.querySelector('[data-slot="stripChip"][data-armed]')!.textContent).toBe("CANCELLED");
         editorKey("Enter");
         await flush();
-        const c = edits[0]!.value as { row: { cells: Map<string, { value: unknown }> } };
-        expect(c.row.cells.get("status")!.value).toBe("CANCELLED");
+        expect(draft("j2", Sheet.Types.Draft(JobType)).status).toEqual(variant("value", "CANCELLED"));
         expect(container.querySelector('[data-row-id="j2"] [data-key="status"] [data-tone="danger"]')).toBeTruthy();
     });
 
     test("typing into a blank row inserts a real row after the last one, the ring follows it", async () => {
-        const { value, edits } = withSpies(buildSheet());
+        const { value, edits, draft } = withSpies(buildSheet());
         const { cell, key, type, editorKey, rows, flush } = mount(value);
         fireEvent.mouseDown(cell(3, "task"), { button: 0 });
         key("N");
@@ -310,30 +309,32 @@ describe("editing", () => {
         expect(cell(2, "task").textContent).toBe("New job");
         expect(cell(3, "task").hasAttribute("data-selected")).toBe(true);
         expect(edits).toHaveLength(1);
-        const e = edits[0]!.value as { afterRowId: { type: string; value: string }; row: { id: string; cells: Map<string, { type: string; value: unknown }> } };
-        expect(edits[0]!.type).toBe("insert");
-        expect(e.afterRowId).toEqual(some("j2"));
-        expect(e.row.id).toMatch(/^sheet-/);
-        expect(e.row.cells.get("task")).toEqual(variant("String", "New job"));
-        expect(e.row.cells.get("qty")).toEqual(variant("Null", null));
+        const change = edits[0]!.draftChanges[0]!;
+        expect(change.id).toMatch(/^sheet-/);
+        expect(change.place).toEqual(some(variant("ordered", variant("after", "j2"))));
+        const inserted = draft(change.id, Sheet.Types.Draft(JobType));
+        expect(inserted.task).toEqual(variant("value", "New job"));
+        expect(inserted.qty.type).toBe("missing");
+        expect(inserted.code.type).toBe("missing");
+        expect(edits[0]!.domainChanges.type).toBe("none");
     });
 
     test("⌫ clears the selected cells but never a stamped one; whole rows selected ⌫ removes them", async () => {
-        const { value, edits } = withSpies(buildSheet());
+        const { value, edits, draft } = withSpies(buildSheet());
         const { cell, key, rows, flush } = mount(value);
         fireEvent.mouseDown(cell(0, "qty"), { button: 0 });
         fireEvent.mouseDown(cell(0, "code"), { button: 0, shiftKey: true });
         key("Delete");
         await flush();
         expect(edits).toHaveLength(1);
-        expect((edits[0]!.value as { key: string }).key).toBe("qty");
+        expect(draft("j1", Sheet.Types.Draft(JobType)).qty.type).toBe("missing");
         expect(cell(0, "qty").textContent).toBe("");
         expect(cell(0, "code").textContent).toBe("WO-26001");
         fireEvent.mouseDown(rows()[1]!.querySelector('[data-slot="gutter"]')!, { button: 0 });
         key("Backspace");
         await flush();
-        expect(edits[1]!.type).toBe("remove");
-        expect((edits[1]!.value as { rowIds: string[] }).rowIds).toEqual(["j2"]);
+        expect(edits[1]!.origin.type).toBe("remove");
+        expect(edits[1]!.draftChanges.map(change => change.id)).toEqual(["j2"]);
         expect(rows().filter((r) => !r.hasAttribute("data-blank"))).toHaveLength(1);
     });
 
@@ -360,7 +361,7 @@ describe("the controlled selection (§3.14)", () => {
 
 describe("the clipboard", () => {
     test("copy is tab-separated with the kinds' clipboard forms; paste lands at the ring and parses by kind", async () => {
-        const { value, edits } = withSpies(buildSheet());
+        const { value, edits, draft } = withSpies(buildSheet());
         const { container, card, cell, flush } = mount(value);
         fireEvent.mouseDown(cell(0, "start"), { button: 0 });
         fireEvent.mouseDown(cell(0, "qty"), { button: 0, shiftKey: true });
@@ -371,10 +372,14 @@ describe("the clipboard", () => {
         fireEvent.mouseDown(cell(1, "start"), { button: 0 });
         fireEvent.paste(card, { clipboardData: { getData: () => "17/11/2026\tPasted\t18k" } });
         await flush();
-        expect(edits.map((e) => (e.value as { key: string }).key)).toEqual(["start", "task", "qty"]);
+        expect(edits).toHaveLength(1);
+        expect(edits[0]!.draftChanges).toHaveLength(1);
+        const pasted = draft("j2", Sheet.Types.Draft(JobType));
+        expect(pasted.task).toEqual(variant("value", "Pasted"));
+        expect(pasted.qty).toEqual(variant("value", some(18000)));
         expect(cell(1, "start").textContent).toBe("17 Nov 26");
         expect(cell(1, "qty").textContent).toBe("18,000");
-        expect((edits[0]!.value as { source: { type: string } }).source.type).toBe("pasted");
+        expect(edits[0]!.origin.type).toBe("pasted");
         expect(container.querySelectorAll('[data-slot="rangeWash"]')).toHaveLength(3);
     });
 });
@@ -394,26 +399,16 @@ describe("the paged arm (§3.13)", () => {
         expect(container.querySelector('[data-row-id="p0"] [data-key="task"]')!.textContent).toBe("Task 0");
     }, 30_000);
 
-    test("a source that fits the opening ring is exhausted: the blanks appear and edits go to onEdit as commits with the source offset", async () => {
-        const { value, edits } = withSpies(buildPaged(450));
-        const { container, cell, key, type, editorKey, flush } = mount(value);
+    test("an exhausted immutable source shows its rows but has no editing capability", async () => {
+        const { container, cell, key, input } = mount(buildPaged(450));
         await waitFor(() => {
             expect(container.querySelectorAll('[data-slot="row"][data-blank]').length).toBe(2);
         }, { timeout: 15_000 });
         expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("450 loaded of 450");
-        expect(container.querySelector('[data-slot="toolbarBadge"]')).toBeNull();
         fireEvent.mouseDown(cell(449, "qty"), { button: 0 });
         key("4");
-        await flush();
-        type("42");
-        await flush();
-        editorKey("Enter");
-        await flush();
-        expect(edits).toHaveLength(1);
-        const c = edits[0]!.value as { rowId: string; offset: bigint };
-        expect(c.rowId).toBe("p449");
-        expect(c.offset).toBe(449n);
-        expect(cell(449, "qty").textContent).toBe("42");
+        expect(input()).toBeNull();
+        expect(container.querySelector('[data-slot="history"]')).toBeNull();
     }, 30_000);
 });
 
@@ -449,18 +444,21 @@ function buildLinkSheet(): SheetRootValue {
         const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
         const machines = $.const(MACHINES, ArrayType(MachineType));
         const lines = $.const(LINES, ArrayType(LineType));
-        const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);
+        const Ctx = Sheet.Types.DraftContext(PlanRowType, ActivityType);
         const impliedStations = $.const(East.function([Ctx], OptionType(Sheet.Types.Counted), ($2, ctx) => {
             const noCount = $2.const(none, OptionType(Sheet.Types.Counted));
             return ctx.row.qty.match({
-                none: (_$) => noCount,
-                some: ($3, q) => {
-                    // ⌈qty ÷ 300⌉ by hand — `toInteger` refuses a fraction.
-                    const share = $3.let(q.divide(300.0));
-                    const frac = $3.let(share.remainder(1.0));
-                    const n = $3.let(frac.equal(0.0).ifElse((_$) => share, (_$) => share.subtract(frac).add(1.0)).toInteger());
-                    return East.value(some({ n, key: "CNC lathe" }), OptionType(Sheet.Types.Counted));
-                },
+                missing: () => noCount,
+                invalid: () => noCount,
+                value: (_$, value) => value.match({
+                    none: () => noCount,
+                    some: ($3, q) => {
+                        const share = $3.let(q.divide(300.0));
+                        const frac = $3.let(share.remainder(1.0));
+                        const n = $3.let(frac.equal(0.0).ifElse(() => share, () => share.subtract(frac).add(1.0)).toInteger());
+                        return East.value(some({ n, key: "CNC lathe" }), OptionType(Sheet.Types.Counted));
+                    },
+                }),
             });
         }));
         const CheckCtx = Sheet.Types.CheckContext(PlanRowType);
@@ -531,7 +529,7 @@ describe("the link cell (B§4.3)", () => {
 
 describe("the link editor (B§4.4)", () => {
     test("typing resolves through the grammar — `,` chips, `>` hops, the armed candidate on ⇥ — and commits a typed Link", async () => {
-        const { value, edits } = withSpies(buildLinkSheet());
+        const { value, edits, draft } = withSpies(buildLinkSheet());
         const { container, cell, key, type, editorKey, input, flush } = mount(value);
         fireEvent.mouseDown(cell(3, "stations"), { button: 0 });
         key("m");
@@ -557,8 +555,9 @@ describe("the link editor (B§4.4)", () => {
         editorKey("Enter");   // empty: commits down
         await flush();
         expect(edits).toHaveLength(1);
-        const link = (edits[0]!.value as { row: { cells: Map<string, { type: string; value: { from: unknown[]; to: unknown[] } }> } }).row.cells.get("stations")!;
-        expect(link.type).toBe("Link");
+        const link = draft("p4", Sheet.Types.Draft(PlanRowType)).stations;
+        expect(link.type).toBe("value");
+        if (link.type !== "value") throw new Error("Expected a complete link draft");
         expect(link.value.from).toEqual([variant("identified", { key: "M2140" }), variant("identified", { key: "Line 2" })]);
         expect(link.value.to).toEqual([variant("counted", { n: 4n, key: "CNC lathe" }), variant("identified", { key: "M7301" })]);
         // The committed cell draws its chips; the custom check flags the bench.
@@ -570,7 +569,7 @@ describe("the link editor (B§4.4)", () => {
     });
 
     test("a locked half is skipped by ⇥ and flagged when typed into; a click in a half moves the caret; ⌫ pops a chip", () => {
-        const { container, cell, key, type, editorKey, input } = mount(buildLinkSheet());
+        const { container, cell, key, type, editorKey, input } = mount(sheetJournal(buildLinkSheet()).value);
         // Shipping — from only: the editor opens in From, ⇥ commits right instead of hopping.
         fireEvent.mouseDown(cell(2, "stations"), { button: 0 });
         key("Enter");
@@ -596,15 +595,16 @@ describe("the link editor (B§4.4)", () => {
     });
 
     test("paste lays two clipboard columns over a link column and parses them through the grammar", async () => {
-        const { value, edits } = withSpies(buildLinkSheet());
+        const { value, edits, draft } = withSpies(buildLinkSheet());
         const { card, cell, flush } = mount(value);
         fireEvent.mouseDown(cell(3, "stations"), { button: 0 });
         fireEvent.paste(card, { clipboardData: { getData: () => "M2141\t2 x line 2, tbc" } });
         await flush();
         expect(edits).toHaveLength(1);
-        const link = (edits[0]!.value as { row: { cells: Map<string, { value: { from: unknown[]; to: unknown[] } }> } }).row.cells.get("stations")!.value;
-        expect(link.from).toEqual([variant("identified", { key: "M2141" })]);
-        expect(link.to).toEqual([variant("counted", { n: 2n, key: "Line 2" }), variant("placeholder", null)]);
+        const link = draft("p4", Sheet.Types.Draft(PlanRowType)).stations;
+        if (link.type !== "value") throw new Error("Expected a complete link draft");
+        expect(link.value.from).toEqual([variant("identified", { key: "M2141" })]);
+        expect(link.value.to).toEqual([variant("counted", { n: 2n, key: "Line 2" }), variant("placeholder", null)]);
         expect(cell(3, "stations").querySelectorAll('[data-slot="chip"]')).toHaveLength(3);
     });
 });
