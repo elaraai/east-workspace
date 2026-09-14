@@ -72,7 +72,7 @@ export function columnFrequency(rows: readonly SheetRowValue[], column: string):
     for (const r of rows) {
         const c = r.cells.get(column);
         if (c === undefined || c.type !== "String" || c.value === "") continue;
-        f.set(c.value as string, (f.get(c.value as string) ?? 0) + 1);
+        f.set(c.value, (f.get(c.value) ?? 0) + 1);
     }
     return f;
 }
@@ -86,7 +86,7 @@ function memberKeys(ctx: CandidateContext, register: string | undefined): string
 /** The String value of a row's column, or `""`. */
 function stringAt(row: SheetRowValue | undefined, column: string): string {
     const c = row?.cells.get(column);
-    return c !== undefined && c.type === "String" ? (c.value as string) : "";
+    return c !== undefined && c.type === "String" ? c.value : "";
 }
 
 /**

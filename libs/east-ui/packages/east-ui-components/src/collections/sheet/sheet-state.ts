@@ -39,6 +39,10 @@
  * - **Whole rows selected + ⌫ deletes the records**; ⌫ on cells clears them
  *   (never a stamped column — the component skips those); ⌫ on the armed
  *   fill or the selected proposal rejects it and remembers.
+ * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
+ *   chevron folds it; the band's gutter selects the group's lines; a click,
+ *   ⏎ or a printable key on the `+ plan` ghost band opens its title — the
+ *   commit creates the group.
  *
  * @packageDocumentation
  */
@@ -82,6 +86,13 @@ function moveTo(s: SheetUiState, to: CellRef, ctx: SheetMachineCtx, effects: She
     return { ...s, sel: next, selEnd: null };
 }
 
+/** The column one step left or right of a cell — past the whole span of a band's title (#740). */
+function stepColumn(r: number, c: number, dir: 1 | -1, ctx: SheetMachineCtx): number {
+    const span = ctx.spanAt?.(r, c);
+    if (span === undefined) return c + dir;
+    return dir > 0 ? span.c1 + 1 : span.c0 - 1;
+}
+
 /** Open the editor on a cell — `seed` is a printable key that starts a fresh edit. */
 function startEdit(s: SheetUiState, r: number, c: number, seed: string | undefined, ctx: SheetMachineCtx): Transition {
     if (r < 0 || r >= ctx.rowCount || c < 0 || c >= ctx.colCount) return { state: s, effects: [] };
@@ -103,7 +114,7 @@ function startEdit(s: SheetUiState, r: number, c: number, seed: string | undefin
 
 /** The text a register-kind commit takes: the armed candidate when a ghost or an explicit pick applies. */
 export function commitText(edit: EditBuffer, ctx: SheetMachineCtx): string {
-    if (!isRegisterKind(ctx.kindAt(edit.c))) return edit.val;
+    if (!isRegisterKind(ctx.kindAt(edit.r, edit.c))) return edit.val;
     const cand = ctx.candidateAt(edit.r, edit.c, edit.val, edit.hi);
     if (cand !== undefined && edit.val.trim() !== "" && (ghostFor(edit.val, cand) !== "" || edit.hi > 0)) return cand;
     return edit.val;
@@ -161,8 +172,8 @@ function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Tran
 /** Where the ring goes after a commit. */
 function moveAfterCommit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx, effects: SheetEffect[]): SheetUiState {
     switch (dir) {
-        case "right": return moveTo(s, { r: s.sel.r, c: s.sel.c + 1 }, ctx, effects);
-        case "left": return moveTo(s, { r: s.sel.r, c: s.sel.c - 1 }, ctx, effects);
+        case "right": return moveTo(s, { r: s.sel.r, c: stepColumn(s.sel.r, s.sel.c, 1, ctx) }, ctx, effects);
+        case "left": return moveTo(s, { r: s.sel.r, c: stepColumn(s.sel.r, s.sel.c, -1, ctx) }, ctx, effects);
         case "down": return moveDown(s, ctx, effects);
         default: return s;
     }
@@ -181,21 +192,39 @@ function moveDown(s: SheetUiState, ctx: SheetMachineCtx, effects: SheetEffect[])
     return moveTo(s, { r: s.sel.r + 1, c: s.sel.c }, ctx, effects);
 }
 
+/** Fold or open the group whose band sits at `r` (#740); the ring lands on the band. */
+function toggleFold(s: SheetUiState, r: number, ctx: SheetMachineCtx): Transition {
+    const g = ctx.groupAt?.(r);
+    if (g === undefined) return { state: s, effects: [] };
+    const folds = new Map(s.lens.folds);
+    folds.set(g.id, !g.folded);
+    const effects: SheetEffect[] = [];
+    const moved = moveTo(s, { r, c: s.sel.c }, ctx, effects, false);
+    return { state: { ...moved, lens: { ...moved.lens, folds }, msg: g.folded ? "Opened the plan" : "Folded the plan — Space or the chevron opens it" }, effects };
+}
+
 /** The sheet's keyboard (B§6) — no editor open. */
 function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: SheetMachineCtx): Transition {
     // ⌘/ and ⌘F focus the rail's search (B§6) — whatever the sheet holds.
     if (e.meta && (e.key === "/" || e.key === "f")) return { state: s, effects: [{ t: "focus.search" }] };
     if (ctx.rowCount === 0 || ctx.colCount === 0) return { state: s, effects: [] };
     const effects: SheetEffect[] = [];
+    // A band folds on Space; the ghost band opens its title on ⏎ or a printable key (#740).
+    const rowKind = ctx.rowKindAt?.(s.sel.r);
+    if (rowKind === "group" && e.key === " " && !e.meta && !e.alt) return toggleFold(s, s.sel.r, ctx);
+    if (rowKind === "groupBlank" && (e.key === "Enter" || e.key === "F2" || (e.key.length === 1 && !e.meta && !e.alt))) {
+        return startEdit(s, s.sel.r, 0, e.key.length === 1 ? e.key : undefined, ctx);
+    }
     const dropPick = (t: Transition): Transition => (t.state.gsel === null ? t : { ...t, state: { ...t.state, gsel: null } });
     const move = (dr: number, dc: number): Transition => {
         const base = e.shift && s.selEnd !== null ? s.selEnd : s.sel;
+        const c = dc === 0 ? base.c : stepColumn(base.r, base.c, dc > 0 ? 1 : -1, ctx);
         if (e.shift) {
-            const selEnd = clamp({ r: base.r + dr, c: base.c + dc }, ctx);
+            const selEnd = clamp({ r: base.r + dr, c }, ctx);
             return dropPick({ state: { ...s, selEnd }, effects });
         }
         if (dr === 1) return dropPick({ state: moveDown(s, ctx, effects), effects });
-        return dropPick({ state: moveTo(s, { r: base.r + dr, c: base.c + dc }, ctx, effects), effects });
+        return dropPick({ state: moveTo(s, { r: base.r + dr, c }, ctx, effects), effects });
     };
     switch (e.key) {
         case "ArrowDown": return move(1, 0);
@@ -205,7 +234,7 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
         case "Tab": {
             const taken = suggestKey(s, e, ctx);
             if (taken !== null) return taken;
-            return { state: moveTo(s, { r: s.sel.r, c: s.sel.c + (e.shift ? -1 : 1) }, ctx, effects), effects };
+            return { state: moveTo(s, { r: s.sel.r, c: stepColumn(s.sel.r, s.sel.c, e.shift ? -1 : 1, ctx) }, ctx, effects), effects };
         }
         case "Enter": {
             const taken = suggestKey(s, e, ctx);
@@ -254,7 +283,7 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
         return { state: filled.state, effects: [...committed.effects, ...filled.effects] };
     }
     if (edit.link !== undefined) return linkKey(s, e, ctx, commitEdit);
-    const kind = ctx.kindAt(edit.c);
+    const kind = ctx.kindAt(edit.r, edit.c);
     if (e.key === "Escape") return commitEdit(s, "cancel", ctx);
     if (isRegisterKind(kind) && e.alt && (e.key === "]" || e.key === "[" || e.key === "ArrowDown" || e.key === "ArrowUp")) {
         const n = ctx.candidates(edit.r, edit.c, edit.val).length;
@@ -311,6 +340,11 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             if (e.shift) {
                 return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: e.c }, ctx), gsel: null }, effects };
             }
+            // A click on the `+ plan` ghost band opens its title — the commit creates the group (#740, G6).
+            if (ctx.rowKindAt?.(e.r) === "groupBlank") {
+                const opened = startEdit(closed.state, e.r, 0, undefined, ctx);
+                return { state: opened.state.gsel === null ? opened.state : { ...opened.state, gsel: null }, effects: [...effects, ...opened.effects] };
+            }
             const moved = moveTo(closed.state, { r: e.r, c: e.c }, ctx, effects, false);
             effects.push({ t: "focus.sheet" });
             return { state: moved.gsel === null ? moved : { ...moved, gsel: null }, effects };
@@ -327,8 +361,12 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const effects = closed.effects;
             const last = Math.max(0, ctx.colCount - 1);
             if (e.shift) return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: last }, ctx), gsel: null }, effects };
-            effects.push({ t: "emit.select", r: e.r, c: 0 }, { t: "focus.sheet" });
-            return { state: { ...closed.state, sel: clamp({ r: e.r, c: 0 }, ctx), selEnd: clamp({ r: e.r, c: last }, ctx), gsel: null }, effects };
+            // A band's gutter selects the group's lines (#740, G7); an empty or folded group selects the band itself.
+            const group = ctx.rowKindAt?.(e.r) === "group" ? ctx.groupAt?.(e.r) : undefined;
+            const r0 = group?.lines !== undefined ? group.lines.r0 : e.r;
+            const r1 = group?.lines !== undefined ? group.lines.r1 : e.r;
+            effects.push({ t: "emit.select", r: r0, c: 0 }, { t: "focus.sheet" });
+            return { state: { ...closed.state, sel: clamp({ r: r0, c: 0 }, ctx), selEnd: clamp({ r: r1, c: last }, ctx), gsel: null }, effects };
         }
         case "key":
             if (s.edit !== null) return { state: s, effects: [] };
@@ -452,6 +490,12 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return reorderTab(s, ctx, e.id, e.to);
         case "search.key":
             return searchKey(s, ctx, e.key) ?? { state: s, effects: [] };
+        // ── Grouped rows (#740) ───────────────────────────────────────────
+        case "fold.toggle": {
+            const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
+            const t = toggleFold(closed.state, e.r, ctx);
+            return { state: t.state, effects: [...closed.effects, ...t.effects] };
+        }
     }
 }
 

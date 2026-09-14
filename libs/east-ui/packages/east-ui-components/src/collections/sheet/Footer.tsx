@@ -29,20 +29,23 @@ export interface SheetTransport {
 export interface SheetFooterProps {
     styles: Styles;
     items: readonly SheetFooterItemValue[];
+    /** The sheet's own count line before the host's items — a grouped sheet's `3 plans · 14 lines` (#740, G12). */
+    summary?: string | undefined;
     hint: string;
     message: string;
     transport: SheetTransport | undefined;
 }
 
 /** Renders the footer. */
-export const SheetFooter = memo(function SheetFooter({ styles, items, hint, message, transport }: SheetFooterProps) {
+export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, transport }: SheetFooterProps) {
     return (
         <Box css={styles.footer} data-slot="footer">
-            {items.length > 0 && (
+            {(items.length > 0 || summary !== undefined) && (
                 <Box as="span" css={styles.footerCounts} data-slot="footerCounts">
+                    {summary !== undefined && <Box as="span" data-slot="footerSummary">{summary}</Box>}
                     {items.map((it, i) => (
                         <Box key={i} as="span" data-tone={getSomeorUndefined(it.tone)?.type}>
-                            {i > 0 ? `· ${it.text}` : it.text}
+                            {i > 0 || summary !== undefined ? `· ${it.text}` : it.text}
                         </Box>
                     ))}
                 </Box>

@@ -6,9 +6,9 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { none, some } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import { classifyToken, linkVocabulary, parseLinkText, printLinkText, usedKeys, memberMeta, parseRange } from "./grammar.js";
-import { indexColumns } from "../model.js";
+import { indexColumns, memberLabel } from "../model.js";
 import type { SheetMemberValue, SheetRegisterMemberValue } from "../values.js";
 
 const member = (key: string, kind: string, extra: Partial<{ aliases: string[]; meta: string; parent: string; label: string }> = {}): SheetRegisterMemberValue => ({
@@ -46,7 +46,7 @@ const column = indexColumns([{
 }] as never).list[0]!;
 const vocab = linkVocabulary(column, MEMBERS);
 
-const m = (type: string, value: unknown): SheetMemberValue => ({ type, value }) as SheetMemberValue;
+const m = (type: string, value: unknown): SheetMemberValue => variant(type, value) as SheetMemberValue;
 
 describe("classify", () => {
     test.each<[string, SheetMemberValue[]]>([
@@ -92,8 +92,8 @@ describe("halves", () => {
         ["M2140-45 > mystery", ["M2140-M2145"], ["mystery"]],
     ])("%s", (text, from, to) => {
         const link = parseLinkText(text, vocab);
-        expect(link.from.map((x) => (x.type === "range" ? `${(x.value as { from: string }).from}-${(x.value as { to: string }).to}` : x.type === "counted" ? `${(x.value as { n: bigint }).n} × ${(x.value as { key: string }).key}` : x.type === "placeholder" ? "TBC" : x.type === "text" ? x.value : (x.value as { key: string }).key))).toEqual(from);
-        expect(link.to.map((x) => (x.type === "range" ? `${(x.value as { from: string }).from}-${(x.value as { to: string }).to}` : x.type === "counted" ? `${(x.value as { n: bigint }).n} × ${(x.value as { key: string }).key}` : x.type === "placeholder" ? "TBC" : x.type === "text" ? x.value : (x.value as { key: string }).key))).toEqual(to);
+        expect(link.from.map(memberLabel)).toEqual(from);
+        expect(link.to.map(memberLabel)).toEqual(to);
     });
 
     test("print is the planner's text — both halves, destination only, source only — and round-trips", () => {
@@ -102,7 +102,7 @@ describe("halves", () => {
         expect(parseLinkText(printLinkText(both), vocab)).toEqual(both);
         expect(printLinkText(parseLinkText("bay, TBC", vocab))).toBe("Test bay, TBC");
         expect(printLinkText(parseLinkText("M2141 >", vocab))).toBe("M2141 >");
-        expect(printLinkText({ from: [], to: [] } as never)).toBe("");
+        expect(printLinkText({ from: [], to: [] })).toBe("");
     });
 });
 
