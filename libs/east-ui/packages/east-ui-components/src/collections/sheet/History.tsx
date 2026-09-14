@@ -4,9 +4,9 @@
  */
 
 /** Review and history controls for the current checked batch. @packageDocumentation */
-import { Box, Button, chakra, Portal, Text, Tooltip, useRecipe } from "@chakra-ui/react";
+import { Box, chakra, Portal, Text, Tooltip, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faArrowRotateLeft, faArrowRotateRight, faCheck, faRotate, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import type { SheetTransactions } from "./transactions.js";
 
@@ -56,10 +56,14 @@ export function SheetHistory({ session, styles, editing, onAction, onIssue }: Sh
         : undefined;
     return <Box data-slot="history" css={styles.history}>
         <Box css={styles.historyActions}>
+            {message !== undefined && <Text role="status" aria-live="polite" css={styles.historyStatus}>{message}</Text>}
+            <Box data-slot="historyIssues" data-empty={issues.length === 0 ? "" : undefined} css={styles.historyIssues}>
+                <HistoryButton styles={styles} label={`${issues.length} issue${issues.length === 1 ? "" : "s"}`}
+                    tip={`${issues.length} issue${issues.length === 1 ? "" : "s"} · Go to first issue`}
+                    icon={faTriangleExclamation} disabled={issues.length === 0} onClick={() => { if (issues[0]) onIssue(issues[0]); }} />
+            </Box>
             <HistoryButton styles={styles} label="Undo" tip="Undo · Ctrl+Z / ⌘Z" icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} onClick={() => onAction("undo")} />
             <HistoryButton styles={styles} label="Redo" tip="Redo · Ctrl+Shift+Z / ⌘⇧Z" icon={faArrowRotateRight} disabled={!session.canRedo} onClick={() => onAction("redo")} />
-            {issues.length > 0 && <Button css={styles.historyButton} size="xs" variant="outline" onMouseDown={e => e.preventDefault()} onClick={() => onIssue(issues[0]!)}>{issues.length} issue{issues.length === 1 ? "" : "s"}</Button>}
-            {message !== undefined && <Text role="status" aria-live="polite" css={styles.historyStatus}>{message}</Text>}
             <HistoryButton styles={styles} label="Discard" tip="Discard changes" icon={faXmark} disabled={!session.canDiscard || (pending === 0 && !commitEditor)} onClick={() => onAction("discard")} />
             {status === "reconciling" ? <HistoryButton styles={styles} label="Retry refresh" icon={faRotate} disabled={false} onClick={() => onAction("refresh")} />
                 : <HistoryButton styles={styles} label={status === "unknown" ? "Retry request" : "Apply changes"}

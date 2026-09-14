@@ -62,7 +62,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "frame", "card", "body",
         "insertPoint", "insertButton", "insertGroupIcon", "insertGroupPlus", "insertStrip", "insertChoice",
-        "history", "historyActions", "historyStatus", "historyButton", "historyError",
+        "history", "historyActions", "historyStatus", "historyButton", "historyIssues", "historyError",
         "toolbar", "toolbarRailGroup", "toolbarCluster", "toolbarCount", "toolbarBadge",
         "tabs", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
         "contextSwitch", "contextLabel", "contextOption",
@@ -88,8 +88,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             fontFamily: "body",
             color: "fg",
             fontFeatureSettings: '"tnum" 1',
-            "& [data-row][data-insert-preview]::after": { content: '""', position: "absolute", left: "0", right: "0", top: "0", borderTopWidth: "1px", borderTopColor: "brand.solid", pointerEvents: "none", zIndex: "8" },
-            "& [data-row][data-insert-preview=group]::after": { borderTopWidth: "2px" },
+            // Paint a segment inside the sticky gutter too: its raised hover layer covers the row rule.
+            "& [data-row][data-insert-preview]::after, & [data-row][data-insert-preview] > [data-slot=gutter]::after": { content: '""', position: "absolute", left: "0", right: "0", top: "0", borderTopWidth: "1px", borderTopColor: "brand.solid", pointerEvents: "none", zIndex: "8" },
+            "& [data-row][data-insert-preview=group]::after, & [data-row][data-insert-preview=group] > [data-slot=gutter]::after": { borderTopWidth: "2px" },
             "& [data-slot=gutter]:hover:has([data-slot=insertPoint]), & [data-slot=gutter]:focus-within": { zIndex: "9" },
             // Virtual rows have transformed wrappers; lift that stacking context above the sticky header too.
             "& :has(> [data-row] > [data-slot=gutter]:hover [data-slot=insertPoint]), & :has(> [data-row] > [data-slot=gutter]:focus-within [data-slot=insertPoint])": { zIndex: "9" },
@@ -140,6 +141,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
         historyButton: {
             flexShrink: "0",
             _coarse: { minWidth: "11", minHeight: "11" },
+        },
+        historyIssues: {
+            display: "flex",
+            flexShrink: "0",
+            "&[data-empty]": { visibility: "hidden" },
         },
         historyError: {
             marginTop: "{spacing.2}",
@@ -1027,15 +1033,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
             display: "grid",
             position: "relative",
             background: "bg.subtle",
-            borderTopWidth: "1px",
-            borderTopColor: "border.strong",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
             "&[data-draft]": { background: "color-mix(in srgb, var(--chakra-colors-status-warn) 9%, var(--chakra-colors-bg-panel))" },
             "&[data-invalid]": { background: "color-mix(in srgb, var(--chakra-colors-status-neg) 9%, var(--chakra-colors-bg-panel))" },
             "&[data-folded]": { borderBottomColor: "border.strong" },
             // The copy under the header while the group's lines scroll (G1).
-            "&[data-slot=stickyBand]": { borderTopColor: "transparent", borderBottomColor: "border.strong" },
+            "&[data-slot=stickyBand]": { borderBottomColor: "border.strong" },
         },
         groupChevron: {
             display: "inline-flex",
