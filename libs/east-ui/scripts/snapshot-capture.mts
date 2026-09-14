@@ -197,6 +197,10 @@ export async function captureFiles(cfg: CaptureConfig): Promise<{ captured: numb
                 // up front so the optimized graph is settled before we capture.
                 await page.waitForTimeout(500);
                 await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
+                // A page whose entry module has not mounted has no skeletons
+                // either. Require a mounted app before treating their absence
+                // as readiness, so blank captures cannot count as successful.
+                await page.locator('#root > *').first().waitFor({ state: 'visible', timeout: 30_000 });
                 await page.evaluate(() => document.fonts.ready);
                 // Wait for the snapshot app to boot past its "Loading…" state
                 // (cold Vite can compile a newly-seen example module slower than

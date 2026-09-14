@@ -3,8 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * The state machine's transition table (Sheet Spec §6.1, §5 rows 13–14):
- * the esc ladder, the commit directions, the unrecognised value that never
- * commits, the printable seed, whole-row deletion.
+ * the esc ladder, the commit directions, retained invalid draft input, the printable seed, whole-row deletion.
  */
 
 import { describe, test, expect } from "vitest";
@@ -100,14 +99,14 @@ describe("editing", () => {
         }
     });
 
-    test("an unparseable value never commits — the editor stays with the neg ring; a blur discards it", () => {
+    test("an unparseable value is retained verbatim on Enter, Tab and blur; Escape still cancels", () => {
         const open = run(initialSheetState(), [key("b"), { t: "editor.change", val: "bad" }]).state;
-        const stuck = run(open, [ekey("Enter")]);
-        expect(stuck.state.edit).toMatchObject({ val: "bad", err: true });
-        expect(stuck.effects.some((e) => e.t === "write")).toBe(false);
-        const dropped = run(open, [{ t: "editor.blur" }]);
-        expect(dropped.state.edit).toBeNull();
-        expect(dropped.effects.some((e) => e.t === "write")).toBe(false);
+        for (const event of [ekey("Enter"), ekey("Tab"), { t: "editor.blur" } as SheetEvent]) {
+            const committed = run(open, [event]);
+            expect(committed.state.edit).toBeNull();
+            expect(committed.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: variant("Invalid", "bad"), text: "bad" });
+        }
+        expect(run(open, [ekey("Escape")]).effects.some(effect => effect.t === "write")).toBe(false);
     });
 
     test("esc cancels and refocuses the sheet; an empty buffer commits a blank", () => {
@@ -431,8 +430,9 @@ describe("the copilot", () => {
         expect(run(both, [key("Enter", { meta: true })], ctx).effects.map((e) => e.t)).toEqual(["write.many"]);
         const all = run(both, [key("Enter", { meta: true, shift: true })], ctx);
         expect(all.effects.map((e) => e.t)).toEqual(["write.many", "insert.rows"]);
-        expect((all.effects[1] as { rows: PendingRow[]; rest: PendingRow[] }).rows).toHaveLength(2);
-        expect((all.effects[1] as { rest: PendingRow[] }).rest).toEqual([]);
+        const insertion = all.effects.find(effect => effect.t === "insert.rows");
+        expect(insertion?.rows).toHaveLength(2);
+        expect(insertion?.rest).toEqual([]);
         expect(run(both, [{ t: "fill.row" }], ctx).effects[0]).toMatchObject({ t: "write.many", source: "row" });
         // Rows only: ⇥ takes the next one.
         const rowsOnly = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", {}, [proposal("Painting")]) }], ctx).state;
@@ -524,7 +524,8 @@ describe("the copilot", () => {
         expect(typing.effects).toContainEqual({ t: "schedule.suggest", latency: "idle" });
         // ⌘⏎ in the editor commits in place and takes the row fill.
         const filled = run(typing.state, [ekey("Enter", { meta: true })], ctx);
-        expect(filled.effects.map((e) => e.t)).toEqual(["write", "focus.sheet", "write.many"]);
+        const writes = filled.effects.filter(effect => effect.t === "write" || effect.t === "write.many");
+        expect(writes).toEqual([{ t: "write.many", r: 1, writes: [{ c: 1, cell: START.cell }], source: "row" }]);
         expect(filled.state.edit).toBeNull();
         expect(run(armed, [{ t: "clipboard.paste", text: "a\tb" }], ctx).state.sugg).toBeNull();
     });

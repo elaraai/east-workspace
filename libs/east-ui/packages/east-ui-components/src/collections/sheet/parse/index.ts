@@ -7,7 +7,7 @@
  * Parse / print dispatch by column kind (`Sheet Spec.md` §6): typed text to
  * a wire cell, and a cell back to its edit form. A custom kind calls the
  * factory's compiled East pair; the register kinds resolve through the
- * scored candidates (exact → top → typed; an enum non-match clears).
+ * scored candidates (exact → top → typed; an enum non-match remains invalid).
  *
  * @packageDocumentation
  */
@@ -26,7 +26,7 @@ export type ParseOutcome =
     | { kind: "blank" }
     /** A recognised value. */
     | { kind: "cell"; cell: SheetCellValue }
-    /** Unrecognised — the editor stays open with the neg ring. */
+    /** Unrecognised — retained as invalid draft text at the gesture boundary. */
     | { kind: "unrecognised" };
 
 /** What a parse may need beside the text and the column. */
@@ -73,10 +73,10 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
             return { kind: "cell", cell: cellOf("Float", n) };
         }
         case "integer": {
-            const n = parseQuantity(text);
+            const n = parseQuantity(text, false);
             if (n === undefined) return { kind: "blank" };
-            if (n === null) return { kind: "unrecognised" };
-            return { kind: "cell", cell: cellOf("Integer", BigInt(Math.round(n))) };
+            if (n === null || !Number.isSafeInteger(n)) return { kind: "unrecognised" };
+            return { kind: "cell", cell: cellOf("Integer", BigInt(n)) };
         }
         case "lookup":
         case "reference": {
@@ -90,8 +90,8 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
             const list = candidateList(meta, trimmed.toUpperCase(), ctx);
             const exact = list.find((l) => l.toLowerCase() === trimmed.toLowerCase());
             const pick = exact ?? list[0];
-            // A non-match clears the cell (B§3).
-            return pick === undefined ? { kind: "blank" } : { kind: "cell", cell: cellOf("String", pick) };
+            // Preserve an unmatched enum as invalid draft text.
+            return pick === undefined ? { kind: "unrecognised" } : { kind: "cell", cell: cellOf("String", pick) };
         }
         case "set":
         case "link": {
@@ -131,6 +131,7 @@ export function editText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
         case "DateTime": return formatDateEdit(cell.value);
         case "Float": return formatNumberBare(cell.value);
         case "Integer": return String(cell.value);
+        case "Invalid":
         case "String": return cell.value;
         case "Boolean": return String(cell.value);
         case "Link": return printLinkText(cell.value);

@@ -149,6 +149,21 @@ A workspace-scoped reactive binding to a dataset — pass the `e3.input` def
 - `'staged'` — `write()` accumulates a patch; `commit()` applies it, `discard()`
   drops it.
 
+### `Data.bindPaged(dataset)`
+
+Bind an Array, Set or Dict dataset without fetching the complete value.
+The source has `id`, `page(offset, limit)`, `total()`, `seek`, `revision()`
+and `refresh(target)`. Read methods are tracked and return `none` while
+loading; an empty `some` page means exhaustion. `seek` is absent on arrays.
+
+One resolved content hash pins every page and key search. `revision()` reads
+that hash; `id` remains the logical source identity. In an event handler,
+`refresh(none)` discovers current content, while `refresh(some(hash))` pins
+an exact committed snapshot. Refresh invalidates all handles of that source,
+including old totals and search positions. Late results from prior snapshots
+are ignored. The handle's methods serialize as East closures and work with
+both scoped and global platforms. A paged handle does not itself write data.
+
 ### `Func.bind(fn)`
 
 A workspace-scoped call handle for a named package function

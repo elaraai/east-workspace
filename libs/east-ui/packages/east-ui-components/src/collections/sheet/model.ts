@@ -401,6 +401,7 @@ export function formatDateCell(d: Date, pattern: string | undefined): string {
  */
 export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta): string {
     if (cell === undefined || cell.type === "Null") return "";
+    if (cell.type === "Invalid") return cell.value;
     switch (meta.kind) {
         case "custom":
             if (meta.customPrint !== undefined) {
@@ -427,6 +428,7 @@ export function rawCellText(cell: SheetCellValue): string {
         case "Boolean": return String(cell.value);
         case "Integer": return String(cell.value);
         case "Float": return String(cell.value);
+        case "Invalid":
         case "String": return cell.value;
         case "DateTime": return formatDatePattern(DATE_DISPLAY_PATTERN, cell.value);
         case "Link": return printLinkText(cell.value);

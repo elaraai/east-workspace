@@ -4,23 +4,12 @@
  */
 
 /**
- * One body row (B§11): the gutter — the row number (brand for a lens hit),
- * the 3 px bar when the whole row is selected, the → button that fills the
- * anchor row — then one cell per column carrying the selection ring, the
- * range wash, a pending fill as a grey ghost over the brand hatch, the
- * next-target dotted underline, the ✓ take button on hover, and the overlay
- * editor. Blank padding rows draw empty cells. A paged source's unloaded run
- * draws as a band with its element count; a run the lens hides (B§8) as a
- * band whose pill opens the rows a few at a time. A proposed row (B§5.2)
- * draws dashed-topped and hatched with real numbers, its gutter carrying ✓
- * and ×. A group's band (#740, G1) — the chevron and the line count in the
- * gutter, the title over the eyebrow across the first columns, the band
- * cells under their line columns — and the `+ plan` ghost band (G6); a line
- * carries the 2 px extent rule down its right edge (G2).
+ * Renders aligned spreadsheet rows and full-width group summaries. Group
+ * membership lives in the gutter markers and rails; rows share one grid.
  */
 
-import { memo, type MouseEvent, type ReactNode } from "react";
-import { Box } from "@chakra-ui/react";
+import { memo, useId, type MouseEvent, type ReactNode } from "react";
+import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faAngleDown, faAngleRight, faAngleUp, faArrowRightLong, faCheck, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none } from "@elaraai/east";
@@ -33,12 +22,37 @@ import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
 import type { LensGap } from "./lens.js";
 import type { PendingFill } from "./sheet-types.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
+import type { DraftPresentation } from "./draft-state.js";
+
+import type { SheetMembership } from "./membership.js";
 
 type Styles = Record<string, Record<string, unknown>>;
+
+/** A membership marker occupies its own lane so actions never shift the number. */
+function Membership({ styles, membership, picked, label, onPick }: {
+    styles: Styles;
+    membership?: SheetMembership | undefined;
+    picked: boolean;
+    label: string;
+    onPick: (event: MouseEvent) => void;
+}) {
+    return <Box css={styles.membershipLane} data-slot="membershipLane" data-group-color={membership?.color}>
+        {membership !== undefined && <Box css={styles.membershipRail} data-slot="membershipRail"
+            data-above={membership.above ? "" : undefined} data-below={membership.below ? "" : undefined} aria-hidden="true" />}
+        <chakra.button type="button" css={styles.membershipButton} data-slot="membershipMarker"
+            aria-label={label} title={label} aria-pressed={picked}
+            onMouseDown={(event) => { event.stopPropagation(); event.preventDefault(); }}
+            onClick={(event) => { event.stopPropagation(); onPick(event); }}>
+            <Box as="span" css={styles.membershipGlyph} aria-hidden="true" />
+        </chakra.button>
+    </Box>;
+}
 
 /** The per-row facts the row renderer is handed — primitives, so the memo can skip. */
 export interface SheetRowProps {
     styles: Styles;
+    insertion?: ReactNode;
+    insertPreview?: "row" | "group" | undefined;
     columns: SheetColumnIndex;
     registers: SheetRegisterIndex;
     driverColumn: string | undefined;
@@ -52,8 +66,9 @@ export interface SheetRowProps {
     first?: boolean | undefined;
     /** The real row, or `undefined` for a blank padding row. */
     row: SheetRowValue | undefined;
-    /** A line's group (#740): the row is a line, numbered within its group, with the extent rule down its right edge. */
+    /** A line's group: its number resets within the group; membership stays in the gutter. */
     group?: LineGroup | undefined;
+    membership?: SheetMembership | undefined;
     /** The link cell's halves, vocabulary and flags for a row (P3). */
     linkCtx: (row: SheetRowValue | undefined, meta: SheetColumnMeta) => LinkCellContext | undefined;
     /** The ring's column when it sits on this row. */
@@ -80,12 +95,20 @@ export interface SheetRowProps {
     onTake: (key: string) => void;
     /** The gutter's → button. */
     onFillRow: () => void;
+    /** Schema-derived state of the current unapplied row. */
+    draft?: DraftPresentation | undefined;
+    /** Discard a never-applied row as an undoable gesture. */
+    onDiscard?: (() => void) | undefined;
 }
 
 /** Renders one row. */
 export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
     const { styles, columns, registers, driverColumn, gridTemplate, rowPx, r, number, row, group, linkCtx, selC, range, picked, hit, editor, fills, nextTargetC, hoverC, first } = props;
+    const issuePrefix = useId();
+    const invalid = props.draft?.invalid === true || (row !== undefined && [...row.cells.values()].some(cell => cell.type === "Invalid"));
     const rowBlank = row === undefined;
+    const groupTitle = group?.row.cells.get(TITLE_KEY);
+    const groupName = groupTitle?.type === "String" ? groupTitle.value : group?.row.id;
     const driverKey = driverKeyOf(row, driverColumn);
     const hasFills = fills !== undefined && fills.size > 0;
     return (
@@ -93,9 +116,13 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
             css={styles.row}
             style={{ gridTemplateColumns: gridTemplate, minHeight: `${rowPx}px` }}
             data-slot="row"
+            data-insert-preview={props.insertPreview}
             data-row={r}
             data-row-id={row?.id}
             data-blank={rowBlank ? "" : undefined}
+            data-invalid={invalid ? "" : undefined}
+            data-draft={props.draft?.pending ? "" : undefined}
+            data-incomplete={props.draft?.incomplete ? "" : undefined}
             data-owned={row?.owned ? "" : undefined}
             data-anchor={hasFills ? "" : undefined}
             data-first={first ? "" : undefined}
@@ -103,16 +130,19 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
             data-line={group !== undefined ? group.key : undefined}
             role="row"
         >
-            {group !== undefined && <Box css={styles.edge} data-slot="edge" aria-hidden="true" />}
             <Box
                 css={styles.gutter}
                 data-slot="gutter"
                 onMouseDown={(e) => props.onRowPick(r, e)}
                 title={hasFills ? "Click the number to select the row · the button fills it" : "Select whole row — delete removes it"}
             >
-                {picked && <Box css={styles.gutterBar} />}
+                {props.insertion}
+                {!rowBlank && <Membership styles={styles} membership={props.membership} picked={picked}
+                    label={group !== undefined ? `Select row ${number} in ${groupName}` : `Select row ${number}`}
+                    onPick={(event) => props.onRowPick(r, event)} />}
+                {rowBlank && <Box css={styles.membershipLane} />}
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber" data-hit={hit ? "" : undefined}>{number}</Box>
-                {hasFills && (
+                <Box css={styles.gutterAction} data-slot="fillSlot">{hasFills && (
                     <Box
                         as="span"
                         css={styles.gutterButton}
@@ -124,10 +154,18 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                     >
                         <FontAwesomeIcon icon={faArrowRightLong} />
                     </Box>
-                )}
+                )}</Box>
+                {props.draft?.discardable && <chakra.button
+                    type="button" css={styles.gutterButton}
+                    data-slot="discardDraft" aria-label="Discard new row" title="Discard new row"
+                    onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                    onClick={(event) => { event.stopPropagation(); props.onDiscard?.(); }}
+                ><FontAwesomeIcon icon={faXmark} /></chakra.button>}
             </Box>
             {columns.list.map((meta, c) => {
                 const cell: SheetCellValue | undefined = row?.cells.get(meta.key);
+                const issue = cell?.type === "Invalid" ? `Invalid input: ${cell.value}` : props.draft?.issues.get(meta.key);
+                const issueId = `${issuePrefix}-${c}`;
                 const editing = editor?.c === c;
                 const selected = selC === c && !editing;
                 const inRange = range !== undefined && c >= range.c0 && c <= range.c1;
@@ -142,6 +180,11 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                         data-slot="cell"
                         data-key={meta.key}
                         data-kind={meta.kind}
+                        data-editable={meta.editable ? "" : undefined}
+                        data-invalid={cell?.type === "Invalid" ? "" : undefined}
+                        aria-invalid={issue !== undefined ? true : undefined}
+                        aria-describedby={issue !== undefined ? issueId : undefined}
+                        title={issue}
                         data-selected={selected ? "" : undefined}
                         data-blank={cellIsBlank(cell) ? "" : undefined}
                         data-proposed={fill !== undefined ? "" : undefined}
@@ -151,6 +194,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                         onDoubleClick={() => props.onCellDouble(r, c)}
                         onMouseEnter={() => props.onCellEnter(r, c)}
                     >
+                        {issue !== undefined && <Box as="span" css={styles.cellIssue} id={issueId}>{issue}</Box>}
                         {inRange && <Box css={styles.rangeWash} data-slot="rangeWash" />}
                         {fill !== undefined && <Box css={styles.hatch} data-slot="hatch" aria-hidden="true" />}
                         <SheetCellContent
@@ -188,6 +232,8 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
 
 export interface SheetProposalRowProps {
     styles: Styles;
+    insertion?: ReactNode;
+    insertPreview?: "row" | "group" | undefined;
     columns: SheetColumnIndex;
     registers: SheetRegisterIndex;
     driverColumn: string | undefined;
@@ -197,7 +243,7 @@ export interface SheetProposalRowProps {
     index: number;
     /** The 1-based row number it would take. */
     number: number;
-    /** Proposed under a line (#740) — the group's extent rule runs down its edge. */
+    /** Proposed under a grouped line. */
     grouped?: boolean | undefined;
     cells: ReadonlyMap<string, SheetCellValue>;
     meta: string;
@@ -211,7 +257,7 @@ export interface SheetProposalRowProps {
 
 /** A proposed row (B§5.2): dashed-topped, hatched, real numbers; ✓ adds it, × rejects it. */
 export const SheetProposalRow = memo(function SheetProposalRow(props: SheetProposalRowProps) {
-    const { styles, columns, registers, driverColumn, gridTemplate, rowPx, index, number, grouped, cells, meta, picked, linkCtx } = props;
+    const { styles, columns, registers, driverColumn, gridTemplate, rowPx, index, number, cells, meta, picked, linkCtx } = props;
     const pseudo: SheetRowValue = { id: "", owned: false, cells: cells as Map<string, SheetCellValue>, lines: [], band: none };
     const driverKey = driverKeyOf(pseudo, driverColumn);
     const pick = (e: MouseEvent) => { if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); props.onPick(index); };
@@ -226,9 +272,8 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
             role="row"
             title={meta}
         >
-            {grouped === true && <Box css={styles.edge} data-slot="edge" aria-hidden="true" />}
             <Box css={styles.gutter} data-slot="gutter" onMouseDown={pick} title="Suggested row — ✓ adds it, × rejects it">
-                {picked && <Box css={styles.gutterBar} />}
+                <Box css={styles.membershipLane}>{picked && <Box css={styles.gutterBar} />}</Box>
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber">{number}</Box>
                 <Box
                     as="span"
@@ -371,6 +416,8 @@ export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onRev
 
 export interface SheetGroupRowProps {
     styles: Styles;
+    insertion?: ReactNode;
+    insertPreview?: "row" | "group" | undefined;
     columns: SheetColumnIndex;
     registers: SheetRegisterIndex;
     gridTemplate: string;
@@ -378,6 +425,8 @@ export interface SheetGroupRowProps {
     bandPx: number;
     /** The row-space index. */
     r: number;
+    number: number;
+    membership?: SheetMembership | undefined;
     /** The group's wire row — its band cells under {@link TITLE_KEY} and the line columns. */
     row: SheetRowValue;
     /** The band's cells and the title span. */
@@ -406,14 +455,11 @@ export interface SheetGroupRowProps {
     onRowPick: (r: number, e: MouseEvent) => void;
     /** The chevron. */
     onFold: (r: number) => void;
+    draft?: DraftPresentation | undefined;
+    onDiscard?: (() => void) | undefined;
 }
 
-/**
- * A group's band (#740, G1): the gutter carries the fold chevron and the
- * line count (`3 of 6` under a lens); the title and its eyebrow span the
- * first columns; every other column shows the group's band cell for it, or
- * nothing. The band starts the group's extent rule (G2).
- */
+/** Renders one full-width summary with a fold control and independent metadata. */
 export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowProps) {
     const { styles, columns, registers, gridTemplate, bandPx, r, row, group, folded, count, hits, first, sticky, selC, range, picked, editor } = props;
     const titleCell = row.cells.get(TITLE_KEY);
@@ -430,6 +476,10 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
             style={{ gridTemplateColumns: gridTemplate, minHeight: `${bandPx}px` }}
             data-slot={sticky === true ? "stickyBand" : "row"}
             data-band-row=""
+            data-draft={props.draft?.pending ? "" : undefined}
+            data-invalid={props.draft?.invalid ? "" : undefined}
+            data-incomplete={props.draft?.incomplete ? "" : undefined}
+            data-insert-preview={props.insertPreview}
             data-row={r}
             data-row-id={row.id}
             data-folded={folded ? "" : undefined}
@@ -438,73 +488,81 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
             role="row"
             aria-expanded={!folded}
         >
-            <Box css={styles.edge} data-slot="edge" aria-hidden="true" />
             <Box css={styles.gutter} data-slot="gutter" onMouseDown={(e) => props.onRowPick(r, e)} title="Select the plan's lines — delete removes them">
-                {picked && <Box css={styles.gutterBar} />}
-                <Box
-                    as="span"
-                    css={styles.groupChevron}
-                    data-slot="fold"
-                    role="button"
-                    aria-label={folded ? "Open the plan" : "Fold the plan"}
+                {props.insertion}
+                <Membership styles={styles} membership={props.membership} picked={picked}
+                    label={`Select group ${title}`} onPick={(event) => props.onRowPick(r, event)} />
+                <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber">{props.number}</Box>
+                <Box css={styles.gutterAction} data-slot="fillSlot" />
+                {props.draft?.discardable && <chakra.button
+                    type="button" css={styles.gutterButton}
+                    data-slot="discardDraft" aria-label="Discard new group" title="Discard new group"
+                    onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                    onClick={(event) => { event.stopPropagation(); props.onDiscard?.(); }}
+                ><FontAwesomeIcon icon={faXmark} /></chakra.button>}
+            </Box>
+            <Box css={styles.groupSummary} data-slot="groupSummary" role="gridcell" aria-colspan={columns.list.length}
+                style={{ gridColumn: `span ${Math.max(1, columns.list.length)}` }}>
+                <chakra.button type="button" css={styles.groupChevron} data-slot="fold"
+                    aria-label={folded ? "Open the plan" : "Fold the plan"} aria-expanded={!folded}
                     title={folded ? "Open — Space" : "Fold — Space"}
-                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); props.onFold(r); }}
-                >
+                    onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); props.onFold(r); }}
+                    onClick={(event) => { if (event.detail === 0) props.onFold(r); }}>
                     <FontAwesomeIcon icon={folded ? faAngleRight : faAngleDown} />
+                </chakra.button>
+                <Box
+                    css={styles.groupTitle}
+                    data-slot="cell"
+                    data-key={TITLE_KEY}
+                    data-kind="text"
+                    data-selected={titleSelected ? "" : undefined}
+                    role="group"
+                    onMouseDown={(e) => props.onCellDown(r, 0, e)}
+                    onDoubleClick={() => props.onCellDouble(r, 0)}
+                    onMouseEnter={() => props.onCellEnter(r, 0)}
+                >
+                    {range !== undefined && range.c0 < span && <Box css={styles.rangeWash} data-slot="rangeWash" />}
+                    <Box as="span" css={styles.groupTitleText} data-slot="groupTitle">{title === "" && titleMeta !== undefined ? "Untitled" : title}</Box>
+                    {titleSelected && <Box css={styles.ring} data-slot="ring" />}
+                    {titleEditing && editor.node}
                 </Box>
-                <Box as="span" css={styles.groupCount} data-slot="groupCount" data-quiet={hits === 0 ? "" : undefined}>{countText}</Box>
-            </Box>
-            <Box
-                css={styles.groupTitle}
-                style={{ gridColumn: `span ${span}` }}
-                data-slot="cell"
-                data-key={TITLE_KEY}
-                data-kind="text"
-                data-selected={titleSelected ? "" : undefined}
-                role="gridcell"
-                onMouseDown={(e) => props.onCellDown(r, 0, e)}
-                onDoubleClick={() => props.onCellDouble(r, 0)}
-                onMouseEnter={() => props.onCellEnter(r, 0)}
-            >
-                {range !== undefined && range.c0 < span && <Box css={styles.rangeWash} data-slot="rangeWash" />}
-                <Box as="span" css={styles.groupTitleText} data-slot="groupTitle">{title === "" && titleMeta !== undefined ? "Untitled" : title}</Box>
                 {sub !== "" && <Box as="span" css={styles.groupSub} data-slot="groupSub">{sub}</Box>}
-                {titleSelected && <Box css={styles.ring} data-slot="ring" />}
-                {titleEditing && editor.node}
+                <Box as="span" css={styles.groupCount} data-slot="groupCount" data-quiet={hits === 0 ? "" : undefined}>{countText}</Box>
+                {columns.list.map((colMeta, c) => {
+                    if (c < span) return null;
+                    const meta = group.cells.get(colMeta.key);
+                    if (meta === undefined) return null;
+                    const cell = meta !== undefined ? row.cells.get(colMeta.key) : undefined;
+                    const editing = editor?.c === c;
+                    const selected = selC === c && !editing;
+                    const inRange = range !== undefined && c >= range.c0 && c <= range.c1;
+                    const member = meta?.kind === "enum" && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
+                    return (
+                        <Box
+                            key={colMeta.key}
+                            css={styles.groupCell}
+                            data-slot="cell"
+                            data-key={colMeta.key}
+                            data-kind={meta?.kind}
+                            data-selected={selected ? "" : undefined}
+                            data-blank={cellIsBlank(cell) ? "" : undefined}
+                            data-editable={meta !== undefined && meta.editable ? "" : undefined}
+                            role="group"
+                            onMouseDown={(e) => props.onCellDown(r, c, e)}
+                            onDoubleClick={() => props.onCellDouble(r, c)}
+                            onMouseEnter={() => props.onCellEnter(r, c)}
+                            title={meta !== undefined ? `${colMeta.header} — ${cellText(cell, meta)}` : undefined}
+                        >
+                            {inRange && <Box css={styles.rangeWash} data-slot="rangeWash" />}
+                            {meta !== undefined && (
+                                <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={undefined} member={member} ghost={undefined} link={undefined} />
+                            )}
+                            {selected && <Box css={styles.ring} data-slot="ring" />}
+                            {editing && editor.node}
+                        </Box>
+                    );
+                })}
             </Box>
-            {columns.list.map((colMeta, c) => {
-                if (c < span) return null;
-                const meta = group.cells.get(colMeta.key);
-                const cell = meta !== undefined ? row.cells.get(colMeta.key) : undefined;
-                const editing = editor?.c === c;
-                const selected = selC === c && !editing;
-                const inRange = range !== undefined && c >= range.c0 && c <= range.c1;
-                const member = meta?.kind === "enum" && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
-                return (
-                    <Box
-                        key={colMeta.key}
-                        css={styles.groupCell}
-                        data-slot="cell"
-                        data-key={colMeta.key}
-                        data-kind={meta?.kind}
-                        data-selected={selected ? "" : undefined}
-                        data-blank={cellIsBlank(cell) ? "" : undefined}
-                        data-editable={meta !== undefined && meta.editable ? "" : undefined}
-                        role="gridcell"
-                        onMouseDown={(e) => props.onCellDown(r, c, e)}
-                        onDoubleClick={() => props.onCellDouble(r, c)}
-                        onMouseEnter={() => props.onCellEnter(r, c)}
-                        title={meta !== undefined ? `${colMeta.header} — ${cellText(cell, meta)}` : undefined}
-                    >
-                        {inRange && <Box css={styles.rangeWash} data-slot="rangeWash" />}
-                        {meta !== undefined && (
-                            <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={undefined} member={member} ghost={undefined} link={undefined} />
-                        )}
-                        {selected && <Box css={styles.ring} data-slot="ring" />}
-                        {editing && editor.node}
-                    </Box>
-                );
-            })}
         </Box>
     );
 });
