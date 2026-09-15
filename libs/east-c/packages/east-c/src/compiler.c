@@ -348,6 +348,19 @@ static inline Environment *frame_for(Environment *parent, IRScope *scope)
     return scope ? env_new_scoped(parent, scope) : env_new(parent);
 }
 
+/* The frame for the next iteration of a loop: the previous one, reset, when
+ * nothing captured it (a closure is the only thing that can, and holds a
+ * reference), else a fresh one. `*frame` is NULL before the first pass. */
+static inline void loop_frame(Environment **frame, Environment *parent, IRScope *scope)
+{
+    if (*frame && (*frame)->ref_count == 1) {
+        env_reset(*frame);
+        return;
+    }
+    if (*frame) env_release(*frame);
+    *frame = frame_for(parent, scope);
+}
+
 /* Bind a loop/case/catch variable into the frame: its cell when the frame is
  * scoped, its name otherwise. */
 static inline void bind_var(Environment *frame, size_t slot, const char *name, EastValue *value)
@@ -478,6 +491,12 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
             ? east_beast2_projection_for_loop(body, proj_target, east_beast2_pages_type(pages))
             : NULL;
     paged_iter_lock(subject);
+    IRScope *loop_scope = node->kind == IR_FOR_ARRAY ? node->data.for_array.scope
+                          : node->kind == IR_FOR_SET ? node->data.for_set.scope
+                                                     : node->data.for_dict.scope;
+    /* One iteration frame, reused across elements and segments while nothing
+     * captures it. */
+    Environment *iter_env = NULL;
 
     for (size_t s = 0; s < seg_count; s++) {
         EastValue *seg = NULL;
@@ -504,18 +523,15 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
             disjoint ? (east_beast2_pages_type(pages)->kind == EAST_TYPE_DICT ? east_dict_len(seg)
                                                                               : east_set_len(seg))
                      : east_array_len(seg);
-        IRScope *loop_scope = node->kind == IR_FOR_ARRAY ? node->data.for_array.scope
-                              : node->kind == IR_FOR_SET ? node->data.for_set.scope
-                                                         : node->data.for_dict.scope;
         for (size_t i = 0; i < seg_len; i++) {
-            Environment *iter_env = frame_for(env, loop_scope);
+            loop_frame(&iter_env, env, loop_scope);
             bind(node, iter_env, seg, i, base + i);
             EvalResult body_res = eval_ir(body, iter_env, platform, builtins);
-            env_release(iter_env);
 
             EvalResult out;
             PagedLoopStep step = paged_loop_step(&body_res, loop_label, &out);
             if (step == PAGED_LOOP_RETURN) {
+                env_release(iter_env);
                 east_value_release(seg);
                 if (proj) east_beast2_projection_free(proj);
                 paged_iter_unlock(subject);
@@ -523,6 +539,7 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
                 return out;
             }
             if (step == PAGED_LOOP_STOP) {
+                env_release(iter_env);
                 east_value_release(seg);
                 if (proj) east_beast2_projection_free(proj);
                 paged_iter_unlock(subject);
@@ -534,6 +551,7 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
         east_value_release(seg);
     }
 
+    if (iter_env) env_release(iter_env);
     if (proj) east_beast2_projection_free(proj);
     paged_iter_unlock(subject);
     east_value_release(subject);
@@ -800,8 +818,9 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         bool should_break = false;
 
         arr->iter_lock++;
+        Environment *iter_env = NULL;
         for (size_t i = 0; i < len; i++) {
-            Environment *iter_env = frame_for(env, node->data.for_array.scope);
+            loop_frame(&iter_env, env, node->data.for_array.scope);
 
             EastValue *elem = east_array_get(arr, i);
             /* the frame retains internally, no extra retain needed */
@@ -814,7 +833,6 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             }
 
             EvalResult body_res = eval_ir(node->data.for_array.body, iter_env, platform, builtins);
-            env_release(iter_env);
 
             if (body_res.status == EVAL_BREAK) {
                 if (labels_match(body_res.label, loop_label)) {
@@ -822,6 +840,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     should_break = true;
                     break;
                 }
+                env_release(iter_env);
                 arr->iter_lock--;
                 east_value_release(arr);
                 return body_res;
@@ -831,11 +850,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     eval_result_free(&body_res);
                     continue;
                 }
+                env_release(iter_env);
                 arr->iter_lock--;
                 east_value_release(arr);
                 return body_res;
             }
             if (body_res.status != EVAL_OK) {
+                env_release(iter_env);
                 arr->iter_lock--;
                 east_value_release(arr);
                 return body_res;
@@ -843,6 +864,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
+        if (iter_env) env_release(iter_env);
         arr->iter_lock--;
 
         east_value_release(arr);
@@ -874,15 +896,15 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         bool should_break = false;
 
         set->iter_lock++;
+        Environment *iter_env = NULL;
         for (size_t i = 0; i < len; i++) {
-            Environment *iter_env = frame_for(env, node->data.for_set.scope);
+            loop_frame(&iter_env, env, node->data.for_set.scope);
 
             EastValue *elem = east_set_at(set, i);
             /* the frame retains internally, no extra retain needed */
             bind_var(iter_env, 0, node->data.for_set.var.name, elem);
 
             EvalResult body_res = eval_ir(node->data.for_set.body, iter_env, platform, builtins);
-            env_release(iter_env);
 
             if (body_res.status == EVAL_BREAK) {
                 if (labels_match(body_res.label, loop_label)) {
@@ -890,6 +912,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     should_break = true;
                     break;
                 }
+                env_release(iter_env);
                 set->iter_lock--;
                 east_value_release(set);
                 return body_res;
@@ -899,11 +922,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     eval_result_free(&body_res);
                     continue;
                 }
+                env_release(iter_env);
                 set->iter_lock--;
                 east_value_release(set);
                 return body_res;
             }
             if (body_res.status != EVAL_OK) {
+                env_release(iter_env);
                 set->iter_lock--;
                 east_value_release(set);
                 return body_res;
@@ -911,6 +936,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
+        if (iter_env) env_release(iter_env);
         set->iter_lock--;
 
         east_value_release(set);
@@ -942,8 +968,9 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         bool should_break = false;
 
         dict->iter_lock++;
+        Environment *iter_env = NULL;
         for (size_t i = 0; i < len; i++) {
-            Environment *iter_env = frame_for(env, node->data.for_dict.scope);
+            loop_frame(&iter_env, env, node->data.for_dict.scope);
 
             EastValue *key = east_dict_key_at(dict, i);
             EastValue *val = east_dict_val_at(dict, i);
@@ -952,7 +979,6 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             bind_var(iter_env, 1, node->data.for_dict.val.name, val);
 
             EvalResult body_res = eval_ir(node->data.for_dict.body, iter_env, platform, builtins);
-            env_release(iter_env);
 
             if (body_res.status == EVAL_BREAK) {
                 if (labels_match(body_res.label, loop_label)) {
@@ -960,6 +986,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     should_break = true;
                     break;
                 }
+                env_release(iter_env);
                 dict->iter_lock--;
                 east_value_release(dict);
                 return body_res;
@@ -969,11 +996,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     eval_result_free(&body_res);
                     continue;
                 }
+                env_release(iter_env);
                 dict->iter_lock--;
                 east_value_release(dict);
                 return body_res;
             }
             if (body_res.status != EVAL_OK) {
+                env_release(iter_env);
                 dict->iter_lock--;
                 east_value_release(dict);
                 return body_res;
@@ -981,6 +1010,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
+        if (iter_env) env_release(iter_env);
         dict->iter_lock--;
 
         east_value_release(dict);

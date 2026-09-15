@@ -39,6 +39,23 @@ void env_bind_slot(Environment *env, size_t slot, EastValue *value)
     if (old) east_value_release(old);
 }
 
+void env_reset(Environment *env)
+{
+    if (!env) return;
+    if (env->scope) {
+        for (size_t i = 0; i < env->scope->count; i++) {
+            if (env->slots[i]) {
+                east_value_release(env->slots[i]);
+                env->slots[i] = NULL;
+            }
+        }
+    }
+    if (env->overflow) {
+        hashmap_free(env->overflow, release_value_cb);
+        env->overflow = NULL;
+    }
+}
+
 /* The cell of `name` in this frame's scope, or SIZE_MAX. */
 static inline size_t frame_slot(const Environment *env, const char *name)
 {

@@ -63,7 +63,10 @@ static EastCompiledFn *compile_reader(EastType *stype, const char *field, IRNode
     EastType *inputs[1] = {stype};
     EastType *fn_type = east_function_type(inputs, 1, &east_integer_type);
     IRNode *fn_node = ir_function(fn_type, NULL, 0, &param, 1, get);
+    /* The function node retains its body and the body its operand; the
+     * constructors' own references are dropped here. */
     ir_node_release(var);
+    ir_node_release(get);
     ir_resolve_scopes(fn_node);
     EastCompiledFn *fn = east_compile_fn(fn_node, platform, builtins, NULL);
     *get_field_out = get; /* borrowed: the function node retains it */
