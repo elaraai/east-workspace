@@ -56,14 +56,15 @@ static void prof_index_insert(const IRNode *body, size_t entry)
     g_prof_index[i] = entry + 1;
 }
 
-/* The entry for `fn`, created on first sight. SIZE_MAX on allocation failure. */
-static size_t prof_entry_for(EastCompiledFn *fn)
+/* The entry for a function body, created on first sight. SIZE_MAX on
+ * allocation failure. */
+static size_t prof_entry_for(const IRNode *body, const char *name, int64_t loc_id)
 {
     if (g_prof_index) {
-        size_t i = prof_hash(fn->ir) & g_prof_mask;
+        size_t i = prof_hash(body) & g_prof_mask;
         while (g_prof_index[i]) {
             size_t e = g_prof_index[i] - 1;
-            if (g_prof_entries[e].body == fn->ir) return e;
+            if (g_prof_entries[e].body == body) return e;
             i = (i + 1) & g_prof_mask;
         }
     }
@@ -83,22 +84,23 @@ static size_t prof_entry_for(EastCompiledFn *fn)
     }
     size_t e = g_prof_len++;
     g_prof_entries[e] = (EastProfileEntry){
-        .body = fn->ir,
-        .name = fn->name ? strdup(fn->name) : NULL,
-        .loc_id = fn->loc_id,
+        .body = body,
+        .name = name ? strdup(name) : NULL,
+        .loc_id = loc_id,
         .call_loc_id = 0,
         .calls = 0,
         .total_ns = 0,
         .self_ns = 0,
     };
-    prof_index_insert(fn->ir, e);
+    prof_index_insert(body, e);
     return e;
 }
 
-static inline void prof_enter(EastCompiledFn *fn, int64_t call_loc_id)
+static inline void prof_enter(const IRNode *body, const char *name, int64_t loc_id,
+                              int64_t call_loc_id)
 {
     if (!g_prof_on) return;
-    size_t e = prof_entry_for(fn);
+    size_t e = prof_entry_for(body, name, loc_id);
     if (e == SIZE_MAX) return;
     if (!g_prof_entries[e].call_loc_id) g_prof_entries[e].call_loc_id = call_loc_id;
     if (g_prof_depth == g_prof_stack_cap) {
@@ -1054,6 +1056,62 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
     /* ----- IR_CALL / IR_CALL_ASYNC --------------------------------- */
     case IR_CALL:
     case IR_CALL_ASYNC: {
+        /* An inline callee — a Function node as the call target, which is
+         * how the TypeScript builder splices a helper into a caller — would
+         * be evaluated into a closure, called once and freed. Its frame is
+         * built directly instead: the closure would capture `env`, run this
+         * node's body, and carry the platform, builtins and source map that
+         * are current here, so nothing observable changes. */
+        IRNode *fnode = node->data.call.func;
+        if (fnode && (fnode->kind == IR_FUNCTION || fnode->kind == IR_ASYNC_FUNCTION)) {
+            size_t nargs = node->data.call.num_args;
+            EastValue *inline_args[EVAL_ARGS_INLINE];
+            EastValue **args = NULL;
+            bool heap_args = false;
+            if (nargs > 0) {
+                if (nargs <= EVAL_ARGS_INLINE) {
+                    args = inline_args;
+                } else {
+                    args = calloc(nargs, sizeof(EastValue *));
+                    heap_args = true;
+                }
+                if (!args) return eval_error_at(node, "out of memory");
+                for (size_t i = 0; i < nargs; i++) {
+                    EvalResult arg_res = eval_ir(node->data.call.args[i], env, platform, builtins);
+                    if (arg_res.status != EVAL_OK) {
+                        for (size_t j = 0; j < i; j++)
+                            east_value_release(args[j]);
+                        if (heap_args) free(args);
+                        return arg_res;
+                    }
+                    args[i] = arg_res.value;
+                }
+            }
+
+            Environment *call_env = frame_for(env, fnode->data.function.scope);
+            size_t nparams = fnode->data.function.num_params;
+            for (size_t i = 0; i < nparams && i < nargs; i++)
+                bind_var(call_env, i, fnode->data.function.params[i].name, args[i]);
+
+            prof_enter(fnode->data.function.body, fnode->data.function.name, fnode->loc_id,
+                       node->loc_id);
+            EvalResult body_res = eval_ir(fnode->data.function.body, call_env, platform, builtins);
+            prof_exit();
+
+            env_release(call_env);
+            for (size_t i = 0; i < nargs; i++)
+                east_value_release(args[i]);
+            if (heap_args) free(args);
+
+            if (body_res.status == EVAL_RETURN) {
+                EastValue *ret_val = body_res.value;
+                eval_result_free(&body_res);
+                return eval_ok(ret_val);
+            }
+            if (body_res.status == EVAL_ERROR) eval_result_add_loc_id(&body_res, node->loc_id);
+            return body_res;
+        }
+
         EvalResult func_res = eval_ir(node->data.call.func, env, platform, builtins);
         if (func_res.status != EVAL_OK) return func_res;
 
@@ -1163,7 +1221,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         }
 
         /* Evaluate body */
-        prof_enter(cfn, node->loc_id);
+        prof_enter(cfn->ir, cfn->name, cfn->loc_id, node->loc_id);
         EvalResult body_res = eval_ir(cfn->ir, call_env, cfn->platform, cfn->builtins);
         prof_exit();
 
@@ -2153,7 +2211,7 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
         bind_var(call_env, i, fn->param_names[i], args[i]);
     }
 
-    prof_enter(fn, 0);
+    prof_enter(fn->ir, fn->name, fn->loc_id, 0);
     EvalResult result = eval_ir(fn->ir, call_env, fn->platform, fn->builtins);
     prof_exit();
     env_release(call_env);
