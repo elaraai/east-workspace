@@ -27,6 +27,10 @@ BuiltinRegistry *builtin_registry_new(void);
 void builtin_registry_register(BuiltinRegistry *reg, const char *name, BuiltinFactory factory);
 BuiltinImpl builtin_registry_get(BuiltinRegistry *reg, const char *name, EastType **type_params,
                                  size_t num_tp);
+/* As builtin_registry_get, with `hash` = hashmap_hash(name) computed once by
+ * the caller (the evaluator keeps it on the Builtin node). */
+BuiltinImpl builtin_registry_get_hashed(BuiltinRegistry *reg, const char *name, size_t hash,
+                                        EastType **type_params, size_t num_tp);
 void builtin_registry_free(BuiltinRegistry *reg);
 
 // Register all builtins

@@ -231,6 +231,7 @@ struct IRNode {
         // IR_PLATFORM
         struct {
             char *name;
+            size_t name_hash; /* hashmap_hash(name), for the registry lookup */
             EastType **type_params;
             size_t num_type_params;
             IRNode **args;
@@ -242,6 +243,7 @@ struct IRNode {
         // IR_BUILTIN
         struct {
             char *name;
+            size_t name_hash; /* hashmap_hash(name), for the registry lookup */
             EastType **type_params;
             size_t num_type_params;
             IRNode **args;

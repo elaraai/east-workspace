@@ -176,6 +176,10 @@ static inline Environment *resolved_frame(Environment *env, uint32_t hops, const
     return f && f->scope == scope ? f : NULL;
 }
 
+/* Evaluated argument arrays for a call, builtin or platform invocation live
+ * on the C stack up to this arity; wider calls take the heap. */
+#define EVAL_ARGS_INLINE 8
+
 /* A per-iteration or call frame for `scope`, or a plain frame when the tree
  * was not resolved. */
 static inline Environment *frame_for(Environment *parent, IRScope *scope)
@@ -901,9 +905,16 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         /* Foreign-runtime dispatch: skip IR eval and route to custom invoke */
         if (cfn->invoke) {
             size_t nargs = node->data.call.num_args;
+            EastValue *inline_args[EVAL_ARGS_INLINE];
             EastValue **args = NULL;
+            bool heap_args = false;
             if (nargs > 0) {
-                args = calloc(nargs, sizeof(EastValue *));
+                if (nargs <= EVAL_ARGS_INLINE) {
+                    args = inline_args;
+                } else {
+                    args = calloc(nargs, sizeof(EastValue *));
+                    heap_args = true;
+                }
                 if (!args) {
                     east_value_release(func_val);
                     return eval_error_at(node, "out of memory");
@@ -913,7 +924,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     if (arg_res.status != EVAL_OK) {
                         for (size_t j = 0; j < i; j++)
                             east_value_release(args[j]);
-                        free(args);
+                        if (heap_args) free(args);
                         east_value_release(func_val);
                         return arg_res;
                     }
@@ -927,7 +938,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                         !hydrate_owned_arg(&args[i])) {
                         for (size_t j = 0; j < nargs; j++)
                             east_value_release(args[j]);
-                        free(args);
+                        if (heap_args) free(args);
                         east_value_release(func_val);
                         return paged_error(node);
                     }
@@ -936,7 +947,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             EvalResult body_res = cfn->invoke(cfn, args, nargs);
             for (size_t i = 0; i < nargs; i++)
                 east_value_release(args[i]);
-            free(args);
+            if (heap_args) free(args);
             east_value_release(func_val);
             if (body_res.status == EVAL_RETURN) {
                 EastValue *ret_val = body_res.value;
@@ -955,9 +966,16 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
         /* Evaluate arguments */
         size_t nargs = node->data.call.num_args;
+        EastValue *inline_args[EVAL_ARGS_INLINE];
         EastValue **args = NULL;
+        bool heap_args = false;
         if (nargs > 0) {
-            args = calloc(nargs, sizeof(EastValue *));
+            if (nargs <= EVAL_ARGS_INLINE) {
+                args = inline_args;
+            } else {
+                args = calloc(nargs, sizeof(EastValue *));
+                heap_args = true;
+            }
             if (!args) {
                 east_value_release(func_val);
                 return eval_error_at(node, "out of memory");
@@ -967,7 +985,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 if (arg_res.status != EVAL_OK) {
                     for (size_t j = 0; j < i; j++)
                         east_value_release(args[j]);
-                    free(args);
+                    if (heap_args) free(args);
                     east_value_release(func_val);
                     return arg_res;
                 }
@@ -989,7 +1007,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         /* Clean up args */
         for (size_t i = 0; i < nargs; i++)
             east_value_release(args[i]);
-        free(args);
+        if (heap_args) free(args);
         east_value_release(func_val);
 
         /* Handle RETURN status: extract value */
@@ -1009,9 +1027,9 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
     /* ----- IR_PLATFORM --------------------------------------------- */
     case IR_PLATFORM: {
-        PlatformFn pfn = platform_registry_get(platform, node->data.platform.name,
-                                               node->data.platform.type_params,
-                                               node->data.platform.num_type_params);
+        PlatformFn pfn = platform_registry_get_hashed(
+            platform, node->data.platform.name, node->data.platform.name_hash,
+            node->data.platform.type_params, node->data.platform.num_type_params);
         if (!pfn) {
             if (node->data.platform.optional) {
                 char buf[256];
@@ -1025,16 +1043,24 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         }
 
         size_t nargs = node->data.platform.num_args;
+        EastValue *inline_args[EVAL_ARGS_INLINE];
+        EastType *inline_types[EVAL_ARGS_INLINE];
         EastValue **args = NULL;
+        bool heap_args = false;
         if (nargs > 0) {
-            args = calloc(nargs, sizeof(EastValue *));
+            if (nargs <= EVAL_ARGS_INLINE) {
+                args = inline_args;
+            } else {
+                args = calloc(nargs, sizeof(EastValue *));
+                heap_args = true;
+            }
             if (!args) return eval_error_at(node, "out of memory");
             for (size_t i = 0; i < nargs; i++) {
                 EvalResult arg_res = eval_ir(node->data.platform.args[i], env, platform, builtins);
                 if (arg_res.status != EVAL_OK) {
                     for (size_t j = 0; j < i; j++)
                         east_value_release(args[j]);
-                    free(args);
+                    if (heap_args) free(args);
                     return arg_res;
                 }
                 args[i] = arg_res.value;
@@ -1059,7 +1085,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 if (args[i] && args[i]->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&args[i])) {
                     for (size_t j = 0; j < nargs; j++)
                         east_value_release(args[j]);
-                    free(args);
+                    if (heap_args) free(args);
                     return paged_error(node);
                 }
             }
@@ -1073,17 +1099,17 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         /* Collect input types from the arg IR nodes */
         EastType **input_types = NULL;
         if (nargs > 0) {
-            input_types = calloc(nargs, sizeof(EastType *));
+            input_types = heap_args ? calloc(nargs, sizeof(EastType *)) : inline_types;
             for (size_t i = 0; i < nargs; i++)
                 input_types[i] = node->data.platform.args[i]->type;
         }
 
         EvalResult result = pfn(args, nargs, input_types, nargs, node->type);
-        free(input_types);
+        if (heap_args) free(input_types);
 
         for (size_t i = 0; i < nargs; i++)
             east_value_release(args[i]);
-        free(args);
+        if (heap_args) free(args);
 
         if (result.status != EVAL_OK) {
             eval_result_add_loc_id(&result, node->loc_id);
@@ -1099,16 +1125,23 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
          * This ensures that the factory call and the impl call are adjacent,
          * which allows factories to set static type context safely. */
         size_t nargs = node->data.builtin.num_args;
+        EastValue *inline_args[EVAL_ARGS_INLINE];
         EastValue **args = NULL;
+        bool heap_args = false;
         if (nargs > 0) {
-            args = calloc(nargs, sizeof(EastValue *));
+            if (nargs <= EVAL_ARGS_INLINE) {
+                args = inline_args;
+            } else {
+                args = calloc(nargs, sizeof(EastValue *));
+                heap_args = true;
+            }
             if (!args) return eval_error_at(node, "out of memory");
             for (size_t i = 0; i < nargs; i++) {
                 EvalResult arg_res = eval_ir(node->data.builtin.args[i], env, platform, builtins);
                 if (arg_res.status != EVAL_OK) {
                     for (size_t j = 0; j < i; j++)
                         east_value_release(args[j]);
-                    free(args);
+                    if (heap_args) free(args);
                     return arg_res;
                 }
                 args[i] = arg_res.value;
@@ -1123,19 +1156,19 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 !hydrate_owned_arg(&args[i])) {
                 for (size_t j = 0; j < nargs; j++)
                     east_value_release(args[j]);
-                free(args);
+                if (heap_args) free(args);
                 return paged_error(node);
             }
         }
 
         /* Now call factory + impl back-to-back (no IR eval in between) */
-        BuiltinImpl bfn =
-            builtin_registry_get(builtins, node->data.builtin.name, node->data.builtin.type_params,
-                                 node->data.builtin.num_type_params);
+        BuiltinImpl bfn = builtin_registry_get_hashed(
+            builtins, node->data.builtin.name, node->data.builtin.name_hash,
+            node->data.builtin.type_params, node->data.builtin.num_type_params);
         if (!bfn) {
             for (size_t i = 0; i < nargs; i++)
                 east_value_release(args[i]);
-            free(args);
+            if (heap_args) free(args);
             char buf[256];
             snprintf(buf, sizeof(buf), "Unknown builtin function: %s", node->data.builtin.name);
             return eval_error_at_owned(strdup(buf), node);
@@ -1145,7 +1178,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
         for (size_t i = 0; i < nargs; i++)
             east_value_release(args[i]);
-        free(args);
+        if (heap_args) free(args);
 
         if (!result) {
             char *err = east_builtin_get_error();

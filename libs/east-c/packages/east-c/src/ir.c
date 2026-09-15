@@ -1,4 +1,5 @@
 #include "east/ir.h"
+#include "east/hashmap.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -334,6 +335,7 @@ IRNode *ir_platform(EastType *type, const char *name, EastType **type_params, si
     IRNode *n = ir_alloc(IR_PLATFORM, type);
     if (!n) return NULL;
     n->data.platform.name = name ? strdup(name) : NULL;
+    n->data.platform.name_hash = hashmap_hash(name);
     n->data.platform.type_params = ir_types_dup(type_params, num_tp);
     n->data.platform.num_type_params = num_tp;
     n->data.platform.args = ir_nodes_dup(args, num_args);
@@ -349,6 +351,7 @@ IRNode *ir_builtin(EastType *type, const char *name, EastType **type_params, siz
     IRNode *n = ir_alloc(IR_BUILTIN, type);
     if (!n) return NULL;
     n->data.builtin.name = name ? strdup(name) : NULL;
+    n->data.builtin.name_hash = hashmap_hash(name);
     n->data.builtin.type_params = ir_types_dup(type_params, num_tp);
     n->data.builtin.num_type_params = num_tp;
     n->data.builtin.args = ir_nodes_dup(args, num_args);

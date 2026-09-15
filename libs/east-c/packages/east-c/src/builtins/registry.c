@@ -39,7 +39,13 @@ void builtin_registry_register(BuiltinRegistry *reg, const char *name, BuiltinFa
 BuiltinImpl builtin_registry_get(BuiltinRegistry *reg, const char *name, EastType **type_params,
                                  size_t num_tp)
 {
-    void *raw = hashmap_get(reg->factories, name);
+    return builtin_registry_get_hashed(reg, name, hashmap_hash(name), type_params, num_tp);
+}
+
+BuiltinImpl builtin_registry_get_hashed(BuiltinRegistry *reg, const char *name, size_t hash,
+                                        EastType **type_params, size_t num_tp)
+{
+    void *raw = hashmap_get_hashed(reg->factories, name, hash);
     if (!raw) return NULL;
     BuiltinFactory factory = (BuiltinFactory)(uintptr_t)raw;
     return factory(type_params, num_tp);

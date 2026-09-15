@@ -80,13 +80,20 @@ PlatformFn platform_registry_get(PlatformRegistry *reg, const char *name, EastTy
                                  size_t num_tp)
 {
     if (!reg || !name) return NULL;
+    return platform_registry_get_hashed(reg, name, hashmap_hash(name), type_params, num_tp);
+}
+
+PlatformFn platform_registry_get_hashed(PlatformRegistry *reg, const char *name, size_t hash,
+                                        EastType **type_params, size_t num_tp)
+{
+    if (!reg || !name) return NULL;
 
     /* Try concrete functions first. */
-    PlatformFunction *pf = hashmap_get(reg->functions, name);
+    PlatformFunction *pf = hashmap_get_hashed(reg->functions, name, hash);
     if (pf) return pf->fn;
 
     /* Try generic functions. */
-    GenericPlatformFunction *gf = hashmap_get(reg->generic_functions, name);
+    GenericPlatformFunction *gf = hashmap_get_hashed(reg->generic_functions, name, hash);
     if (gf) return gf->factory(type_params, num_tp);
 
     return NULL;

@@ -24,6 +24,11 @@ typedef struct {
 Hashmap *hashmap_new(void);
 void hashmap_free(Hashmap *map, void (*free_value)(void *));
 void *hashmap_get(Hashmap *map, const char *key);
+/* The hash of `key` as the table computes it, so a caller that looks the
+ * same key up repeatedly (an IR node's builtin name, on every evaluation)
+ * can hash once and probe with hashmap_get_hashed. */
+size_t hashmap_hash(const char *key);
+void *hashmap_get_hashed(Hashmap *map, const char *key, size_t hash);
 void hashmap_set(Hashmap *map, const char *key, void *value);
 bool hashmap_has(Hashmap *map, const char *key);
 void hashmap_delete(Hashmap *map, const char *key, void (*free_value)(void *));
