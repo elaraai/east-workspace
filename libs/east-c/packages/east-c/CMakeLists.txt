@@ -325,6 +325,17 @@ add_executable(test_field_cache tests/test_field_cache.c)
 target_link_libraries(test_field_cache east-c)
 add_test(NAME field_cache COMMAND test_field_cache)
 
+# Value ordering gate: east_value_compare orders Set elements and Dict keys,
+# and its order is the canonical wire order every runtime pins. The struct
+# case skips the field-name compare when both values borrow their names from
+# one interned type; this gate pins that borrowed, copied and mixed-name
+# structs still order exactly as a name-then-value compare, that kinds still
+# rank in the documented order, and that east_dict_find answers as
+# has-then-get did.
+add_executable(test_value_compare tests/test_value_compare.c)
+target_link_libraries(test_value_compare east-c)
+add_test(NAME value_compare COMMAND test_value_compare)
+
 # Platform-signature check parity gate (#62): compiles TS-exported IR against
 # drifted typed platform registrations and asserts east_compile_checked's
 # error text is byte-identical to the TS analyzer's. Skips (exit 77) unless

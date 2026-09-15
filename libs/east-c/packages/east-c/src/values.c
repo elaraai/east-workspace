@@ -762,6 +762,23 @@ EastValue *east_dict_get(EastValue *dict, EastValue *key)
     return found ? found->val : NULL;
 }
 
+bool east_dict_find(EastValue *dict, EastValue *key, EastValue **val_out)
+{
+    if (val_out) *val_out = NULL;
+    if (!dict) return false;
+    if (dict->kind == EAST_VAL_PAGED) {
+        /* Borrowed-return contract — delegate through the hydrated dict, as
+         * east_dict_get does; the pager-served builtins take their own path. */
+        return east_dict_find(east_paged_hydrated(dict), key, val_out);
+    }
+    if (dict->kind != EAST_VAL_DICT) return false;
+    DictPair probe = {key, NULL};
+    const DictPair *found = (const DictPair *)btree_get(dict->data.dict.tree, &probe);
+    if (!found) return false;
+    if (val_out) *val_out = found->val;
+    return true;
+}
+
 bool east_dict_has(EastValue *dict, EastValue *key)
 {
     if (!dict) return false;
@@ -1558,9 +1575,9 @@ int east_value_compare(EastValue *a, EastValue *b)
         if (h) b = h;
     }
 
-    int ra = kind_rank(a->kind);
-    int rb = kind_rank(b->kind);
-    if (ra != rb) return (ra < rb) ? -1 : 1;
+    /* Ranks differ exactly when kinds differ, so the common same-kind
+     * compare skips the two rank lookups. */
+    if (a->kind != b->kind) return kind_rank(a->kind) < kind_rank(b->kind) ? -1 : 1;
 
     switch (a->kind) {
     case EAST_VAL_NULL:
@@ -1634,9 +1651,21 @@ int east_value_compare(EastValue *a, EastValue *b)
     case EAST_VAL_STRUCT: {
         int c = cmp_size(a->data.struct_.num_fields, b->data.struct_.num_fields);
         if (c != 0) return c;
+        /* Two values borrowing their names from one interned type have equal
+         * names by construction; only mixed or copied names are compared,
+         * and those by pointer before content. */
+        bool same_names = a->data.struct_.field_names == NULL &&
+                          b->data.struct_.field_names == NULL && a->data.struct_.type != NULL &&
+                          a->data.struct_.type == b->data.struct_.type;
         for (size_t i = 0; i < a->data.struct_.num_fields; i++) {
-            c = strcmp(east_struct_field_name(a, i), east_struct_field_name(b, i));
-            if (c != 0) return (c < 0) ? -1 : 1;
+            if (!same_names) {
+                const char *an = east_struct_field_name(a, i);
+                const char *bn = east_struct_field_name(b, i);
+                if (an != bn) {
+                    c = strcmp(an, bn);
+                    if (c != 0) return (c < 0) ? -1 : 1;
+                }
+            }
             c = east_value_compare(a->data.struct_.field_values[i],
                                    b->data.struct_.field_values[i]);
             if (c != 0) return c;
