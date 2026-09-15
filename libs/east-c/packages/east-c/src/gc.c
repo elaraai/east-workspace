@@ -232,7 +232,7 @@ static void gc_traverse(EastValue *v, gc_visit_fn visit, void *ctx, bool include
                  env = env->parent) {
                 if (env->gc_gen == gc_generation) break;
                 env->gc_gen = gc_generation;
-                if (env->locals) hashmap_iter(env->locals, env_visit_cb, &ectx);
+                env_visit(env, env_visit_cb, &ectx);
             }
         }
         break;

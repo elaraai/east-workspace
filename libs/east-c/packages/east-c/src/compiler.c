@@ -20,6 +20,10 @@ static void east_compile_lazy(EastCompiledFn *fn)
     if (ir_node && (ir_node->kind == IR_FUNCTION || ir_node->kind == IR_ASYNC_FUNCTION)) {
         fn->ir = ir_node->data.function.body;
         ir_node_retain(fn->ir);
+        if (!fn->scope) {
+            fn->scope = ir_node->data.function.scope;
+            ir_scope_retain(fn->scope);
+        }
     }
     if (ir_node) ir_node_release(ir_node);
 }
@@ -151,6 +155,42 @@ static bool is_truthy(EastValue *v)
     if (v->kind == EAST_VAL_BOOLEAN) return v->data.boolean;
     if (v->kind == EAST_VAL_NULL) return false;
     return true;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Resolved bindings (ir_resolve_scopes)                              */
+/* ------------------------------------------------------------------ */
+
+/* The frame `hops` parents above `env` when it is the one the resolver
+ * annotated — carrying `scope` — and every frame passed on the way is a
+ * scoped frame with nothing bound outside its scope. NULL otherwise, and
+ * the caller takes the by-name walk, so a mismatched chain (a host-built
+ * frame, a name bound from outside) can never produce a wrong binding. */
+static inline Environment *resolved_frame(Environment *env, uint32_t hops, const IRScope *scope)
+{
+    Environment *f = env;
+    for (uint32_t h = 0; h < hops; h++) {
+        if (!f || !f->scope || f->overflow) return NULL;
+        f = f->parent;
+    }
+    return f && f->scope == scope ? f : NULL;
+}
+
+/* A per-iteration or call frame for `scope`, or a plain frame when the tree
+ * was not resolved. */
+static inline Environment *frame_for(Environment *parent, IRScope *scope)
+{
+    return scope ? env_new_scoped(parent, scope) : env_new(parent);
+}
+
+/* Bind a loop/case/catch variable into the frame: its cell when the frame is
+ * scoped, its name otherwise. */
+static inline void bind_var(Environment *frame, size_t slot, const char *name, EastValue *value)
+{
+    if (frame->scope)
+        env_bind_slot(frame, slot, value);
+    else
+        env_set(frame, name, value);
 }
 
 /* ------------------------------------------------------------------ */
@@ -299,8 +339,11 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
             disjoint ? (east_beast2_pages_type(pages)->kind == EAST_TYPE_DICT ? east_dict_len(seg)
                                                                               : east_set_len(seg))
                      : east_array_len(seg);
+        IRScope *loop_scope = node->kind == IR_FOR_ARRAY ? node->data.for_array.scope
+                              : node->kind == IR_FOR_SET ? node->data.for_set.scope
+                                                         : node->data.for_dict.scope;
         for (size_t i = 0; i < seg_len; i++) {
-            Environment *iter_env = env_new(env);
+            Environment *iter_env = frame_for(env, loop_scope);
             bind(node, iter_env, seg, i, base + i);
             EvalResult body_res = eval_ir(body, iter_env, platform, builtins);
             env_release(iter_env);
@@ -335,10 +378,10 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
 static void paged_bind_array(IRNode *node, Environment *iter_env, EastValue *seg, size_t i,
                              size_t global_index)
 {
-    env_set(iter_env, node->data.for_array.var.name, east_array_get(seg, i));
+    bind_var(iter_env, 0, node->data.for_array.var.name, east_array_get(seg, i));
     if (node->data.for_array.index_var.name) {
         EastValue *idx = east_integer((int64_t)global_index);
-        env_set(iter_env, node->data.for_array.index_var.name, idx);
+        bind_var(iter_env, 1, node->data.for_array.index_var.name, idx);
         east_value_release(idx);
     }
 }
@@ -347,15 +390,15 @@ static void paged_bind_set(IRNode *node, Environment *iter_env, EastValue *seg, 
                            size_t global_index)
 {
     (void)global_index;
-    env_set(iter_env, node->data.for_set.var.name, east_set_at(seg, i));
+    bind_var(iter_env, 0, node->data.for_set.var.name, east_set_at(seg, i));
 }
 
 static void paged_bind_dict(IRNode *node, Environment *iter_env, EastValue *seg, size_t i,
                             size_t global_index)
 {
     (void)global_index;
-    env_set(iter_env, node->data.for_dict.key.name, east_dict_key_at(seg, i));
-    env_set(iter_env, node->data.for_dict.val.name, east_dict_val_at(seg, i));
+    bind_var(iter_env, 0, node->data.for_dict.key.name, east_dict_key_at(seg, i));
+    bind_var(iter_env, 1, node->data.for_dict.val.name, east_dict_val_at(seg, i));
 }
 
 /* Whether a paged loop subject still pages (pre-hydration) with the given
@@ -386,6 +429,17 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
     /* ----- IR_VARIABLE --------------------------------------------- */
     case IR_VARIABLE: {
+        if (node->data.variable.scope) {
+            Environment *f =
+                resolved_frame(env, node->data.variable.hops, node->data.variable.scope);
+            if (f) {
+                EastValue *v = f->slots[node->data.variable.slot];
+                if (v) {
+                    east_value_retain(v);
+                    return eval_ok(v);
+                }
+            }
+        }
         EastValue *v = env_get(env, node->data.variable.name);
         if (!v) {
             char buf[256];
@@ -401,7 +455,10 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EvalResult val_res = eval_ir(node->data.let.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
-        env_set(env, node->data.let.var.name, val_res.value);
+        if (node->data.let.scope && env->scope == node->data.let.scope)
+            env_bind_slot(env, node->data.let.slot, val_res.value);
+        else
+            env_set(env, node->data.let.var.name, val_res.value);
         east_value_release(val_res.value);
         return eval_ok(east_null());
     }
@@ -411,7 +468,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EvalResult val_res = eval_ir(node->data.assign.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
-        env_update(env, node->data.assign.var.name, val_res.value);
+        Environment *f = node->data.assign.scope
+                             ? resolved_frame(env, node->data.assign.hops, node->data.assign.scope)
+                             : NULL;
+        if (f && f->slots[node->data.assign.slot])
+            env_bind_slot(f, node->data.assign.slot, val_res.value);
+        else
+            env_update(env, node->data.assign.var.name, val_res.value);
         east_value_release(val_res.value);
         return eval_ok(east_null());
     }
@@ -431,11 +494,16 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
          * Only a block that BINDS needs a scope, so the common statement
          * sequence still costs nothing. */
         Environment *block_env = env;
-        for (size_t i = 0; i < node->data.block.num_stmts; i++) {
-            if (node->data.block.stmts[i] && node->data.block.stmts[i]->kind == IR_LET) {
-                block_env = env_new(env);
-                if (!block_env) return eval_error_at(node, "out of memory");
-                break;
+        if (node->data.block.scope) {
+            block_env = env_new_scoped(env, node->data.block.scope);
+            if (!block_env) return eval_error_at(node, "out of memory");
+        } else {
+            for (size_t i = 0; i < node->data.block.num_stmts; i++) {
+                if (node->data.block.stmts[i] && node->data.block.stmts[i]->kind == IR_LET) {
+                    block_env = env_new(env);
+                    if (!block_env) return eval_error_at(node, "out of memory");
+                    break;
+                }
             }
         }
 
@@ -490,9 +558,9 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         for (size_t i = 0; i < node->data.match.num_cases; i++) {
             IRMatchCase *mc = &node->data.match.cases[i];
             if (strcmp(mc->case_name, case_name) == 0) {
-                Environment *match_env = env_new(env);
+                Environment *match_env = frame_for(env, mc->scope);
                 if (mc->bind.name && inner) {
-                    env_set(match_env, mc->bind.name, inner);
+                    bind_var(match_env, 0, mc->bind.name, inner);
                 }
                 EvalResult body_res = eval_ir(mc->body, match_env, platform, builtins);
                 env_release(match_env);
@@ -568,15 +636,15 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
         arr->iter_lock++;
         for (size_t i = 0; i < len; i++) {
-            Environment *iter_env = env_new(env);
+            Environment *iter_env = frame_for(env, node->data.for_array.scope);
 
             EastValue *elem = east_array_get(arr, i);
-            /* env_set retains internally, no extra retain needed */
-            env_set(iter_env, node->data.for_array.var.name, elem);
+            /* the frame retains internally, no extra retain needed */
+            bind_var(iter_env, 0, node->data.for_array.var.name, elem);
 
             if (node->data.for_array.index_var.name) {
                 EastValue *idx = east_integer((int64_t)i);
-                env_set(iter_env, node->data.for_array.index_var.name, idx);
+                bind_var(iter_env, 1, node->data.for_array.index_var.name, idx);
                 east_value_release(idx);
             }
 
@@ -642,11 +710,11 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
         set->iter_lock++;
         for (size_t i = 0; i < len; i++) {
-            Environment *iter_env = env_new(env);
+            Environment *iter_env = frame_for(env, node->data.for_set.scope);
 
             EastValue *elem = east_set_at(set, i);
-            /* env_set retains internally, no extra retain needed */
-            env_set(iter_env, node->data.for_set.var.name, elem);
+            /* the frame retains internally, no extra retain needed */
+            bind_var(iter_env, 0, node->data.for_set.var.name, elem);
 
             EvalResult body_res = eval_ir(node->data.for_set.body, iter_env, platform, builtins);
             env_release(iter_env);
@@ -710,13 +778,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
         dict->iter_lock++;
         for (size_t i = 0; i < len; i++) {
-            Environment *iter_env = env_new(env);
+            Environment *iter_env = frame_for(env, node->data.for_dict.scope);
 
             EastValue *key = east_dict_key_at(dict, i);
             EastValue *val = east_dict_val_at(dict, i);
-            /* env_set retains internally, no extra retain needed */
-            env_set(iter_env, node->data.for_dict.key.name, key);
-            env_set(iter_env, node->data.for_dict.val.name, val);
+            /* the frame retains internally, no extra retain needed */
+            bind_var(iter_env, 0, node->data.for_dict.key.name, key);
+            bind_var(iter_env, 1, node->data.for_dict.val.name, val);
 
             EvalResult body_res = eval_ir(node->data.for_dict.body, iter_env, platform, builtins);
             env_release(iter_env);
@@ -796,6 +864,10 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
         /* Store function type (not owned — points to IR node's type) */
         fn->fn_type = node->type;
+
+        /* The call frame's scope: params at their resolved cells. */
+        fn->scope = node->data.function.scope;
+        ir_scope_retain(fn->scope);
 
         /* Snapshot the thread-local source map so this function value can be
          * beast2-encoded with its own source_map section (matches JS's
@@ -904,9 +976,9 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         }
 
         /* Create call environment: captures as parent, then params */
-        Environment *call_env = env_new(cfn->captures);
+        Environment *call_env = frame_for(cfn->captures, cfn->scope);
         for (size_t i = 0; i < cfn->num_params && i < nargs; i++) {
-            env_set(call_env, cfn->param_names[i], args[i]);
+            bind_var(call_env, i, cfn->param_names[i], args[i]);
         }
 
         /* Evaluate body */
@@ -1142,13 +1214,14 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
         EvalResult try_res = eval_ir(node->data.try_catch.try_body, env, platform, builtins);
         if (try_res.status == EVAL_ERROR) {
-            Environment *catch_env = env_new(env);
+            Environment *catch_env = frame_for(env, node->data.try_catch.scope);
 
             /* Bind the error message as a string value */
             if (node->data.try_catch.message_var.name && node->data.try_catch.message_var.name[0]) {
                 EastValue *err_val =
                     east_string(try_res.error_message ? try_res.error_message : "");
-                env_set(catch_env, node->data.try_catch.message_var.name, err_val);
+                bind_var(catch_env, node->data.try_catch.message_slot,
+                         node->data.try_catch.message_var.name, err_val);
                 east_value_release(err_val);
             }
 
@@ -1175,7 +1248,8 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                         east_value_release(vals[j]);
                 }
 
-                env_set(catch_env, node->data.try_catch.stack_var.name, stack_arr);
+                bind_var(catch_env, node->data.try_catch.stack_slot,
+                         node->data.try_catch.stack_var.name, stack_arr);
                 east_value_release(stack_arr);
                 east_type_release(loc_arr_type);
                 east_type_release(loc_struct_type);
@@ -1745,6 +1819,31 @@ EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegi
     return east_compile_checked(ir, platform, builtins, NULL);
 }
 
+EastCompiledFn *east_compile_fn(IRNode *fn_node, PlatformRegistry *platform,
+                                BuiltinRegistry *builtins, char **error_out)
+{
+    if (error_out) *error_out = NULL;
+    if (!fn_node || (fn_node->kind != IR_FUNCTION && fn_node->kind != IR_ASYNC_FUNCTION))
+        return NULL;
+    EastCompiledFn *fn =
+        east_compile_checked(fn_node->data.function.body, platform, builtins, error_out);
+    if (!fn) return NULL;
+    fn->fn_type = fn_node->type;
+    fn->num_params = fn_node->data.function.num_params;
+    if (fn->num_params > 0) {
+        fn->param_names = calloc(fn->num_params, sizeof(char *));
+        if (!fn->param_names) {
+            east_compiled_fn_free(fn);
+            return NULL;
+        }
+        for (size_t i = 0; i < fn->num_params; i++)
+            fn->param_names[i] = strdup(fn_node->data.function.params[i].name);
+    }
+    fn->scope = fn_node->data.function.scope;
+    ir_scope_retain(fn->scope);
+    return fn;
+}
+
 /* ------------------------------------------------------------------ */
 /*  east_call                                                          */
 /* ------------------------------------------------------------------ */
@@ -1825,12 +1924,12 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
 
     east_call_depth++;
 
-    Environment *call_env = env_new(fn->captures);
+    Environment *call_env = frame_for(fn->captures, fn->scope);
 
-    /* Bind arguments to parameter names.
-     * env_set retains the value internally, so no extra retain needed. */
+    /* Bind arguments to their parameter cells (or names, for a function
+     * compiled without a scope). The frame retains each value. */
     for (size_t i = 0; i < fn->num_params && i < num_args; i++) {
-        env_set(call_env, fn->param_names[i], args[i]);
+        bind_var(call_env, i, fn->param_names[i], args[i]);
     }
 
     EvalResult result = eval_ir(fn->ir, call_env, fn->platform, fn->builtins);
@@ -1920,6 +2019,9 @@ void east_compiled_fn_free(EastCompiledFn *fn)
         platform_registry_release(fn->platform);
         fn->platform = NULL;
     }
+
+    ir_scope_release(fn->scope);
+    fn->scope = NULL;
 
     east_free(fn);
 }

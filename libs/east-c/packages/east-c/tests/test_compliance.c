@@ -385,13 +385,10 @@ static int run_suite(void *arg)
      * The top-level IR is an AsyncFunction with 0 params.
      * Extract the body and compile it directly.
      */
-    IRNode *body = ir;
-    if (ir->kind == IR_ASYNC_FUNCTION || ir->kind == IR_FUNCTION) {
-        body = ir->data.function.body;
-    }
-
     char *compile_err = NULL;
-    EastCompiledFn *fn = east_compile_checked(body, platform, builtins, &compile_err);
+    EastCompiledFn *fn = (ir->kind == IR_ASYNC_FUNCTION || ir->kind == IR_FUNCTION)
+                             ? east_compile_fn(ir, platform, builtins, &compile_err)
+                             : east_compile_checked(ir, platform, builtins, &compile_err);
     if (!fn) {
         fprintf(stderr, "Failed to compile IR%s%s\n", compile_err ? ": " : "",
                 compile_err ? compile_err : "");

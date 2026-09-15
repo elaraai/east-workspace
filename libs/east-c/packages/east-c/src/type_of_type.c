@@ -1971,11 +1971,20 @@ cleanup:
 }
 
 
+/* EAST_C_NO_SLOT_RESOLVE=1 skips static name resolution, so every variable
+ * reads by name — the oracle the resolved path is checked against. */
+static bool slot_resolution_disabled(void)
+{
+    const char *env = getenv("EAST_C_NO_SLOT_RESOLVE");
+    return env && env[0] && !(env[0] == '0' && env[1] == '\0');
+}
+
 IRNode *east_ir_from_value(EastValue *value)
 {
     type_cache_init();
     IRNode *result = convert_ir(value);
     type_cache_free();
+    if (result && !slot_resolution_disabled()) ir_resolve_scopes(result);
     return result;
 }
 

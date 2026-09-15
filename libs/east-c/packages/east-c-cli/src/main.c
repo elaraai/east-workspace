@@ -1394,9 +1394,8 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
      * the current one. */
     if (decoded_source_map) east_set_source_map(decoded_source_map);
 
-    IRNode *body = ir->data.function.body;
     char *compile_err = NULL;
-    EastCompiledFn *fn = east_compile_checked(body, platform, builtins, &compile_err);
+    EastCompiledFn *fn = east_compile_fn(ir, platform, builtins, &compile_err);
     if (!fn) {
         fprintf(stderr, "Error: %s\n", compile_err ? compile_err : "Failed to compile IR");
         free(compile_err);
@@ -1415,15 +1414,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
      * already installed as the current map, from before the compile). */
     if (decoded_source_map) {
         fn->source_map = decoded_source_map;
-    }
-
-    /* Set parameter names so east_call can bind arguments */
-    fn->num_params = ir->data.function.num_params;
-    if (fn->num_params > 0) {
-        fn->param_names = calloc(fn->num_params, sizeof(char *));
-        for (size_t i = 0; i < fn->num_params; i++) {
-            fn->param_names[i] = strdup(ir->data.function.params[i].name);
-        }
     }
 
     /* Execute */

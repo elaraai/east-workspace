@@ -79,6 +79,61 @@ static EastType **ir_types_dup(EastType **src, size_t count)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Scope descriptors                                                   */
+/* ------------------------------------------------------------------ */
+
+IRScope *ir_scope_new(void)
+{
+    IRScope *s = calloc(1, sizeof(IRScope));
+    if (s) s->ref_count = 1;
+    return s;
+}
+
+size_t ir_scope_push(IRScope *s, const char *name)
+{
+    if (s->count == s->cap) {
+        size_t cap = s->cap ? s->cap * 2 : 4;
+        char **grown = realloc(s->names, cap * sizeof(char *));
+        if (!grown) return SIZE_MAX;
+        s->names = grown;
+        s->cap = cap;
+    }
+    s->names[s->count] = strdup(name ? name : "");
+    return s->count++;
+}
+
+size_t ir_scope_find(const IRScope *s, const char *name)
+{
+    if (!s || !name) return SIZE_MAX;
+    /* From the last binding: a repeated name's later cell is the live one,
+     * matching a by-name set that overwrote the earlier binding. */
+    for (size_t i = s->count; i > 0; i--)
+        if (strcmp(s->names[i - 1], name) == 0) return i - 1;
+    return SIZE_MAX;
+}
+
+size_t ir_scope_bind(IRScope *s, const char *name)
+{
+    size_t i = ir_scope_find(s, name);
+    return i != SIZE_MAX ? i : ir_scope_push(s, name);
+}
+
+void ir_scope_retain(IRScope *s)
+{
+    if (s) __atomic_add_fetch(&s->ref_count, 1, __ATOMIC_RELAXED);
+}
+
+void ir_scope_release(IRScope *s)
+{
+    if (!s) return;
+    if (__atomic_sub_fetch(&s->ref_count, 1, __ATOMIC_ACQ_REL) > 0) return;
+    for (size_t i = 0; i < s->count; i++)
+        free(s->names[i]);
+    free(s->names);
+    free(s);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Builder functions                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -497,16 +552,19 @@ void ir_node_release(IRNode *node)
 
     case IR_VARIABLE:
         free(node->data.variable.name);
+        ir_scope_release(node->data.variable.scope);
         break;
 
     case IR_LET:
         ir_variable_free(&node->data.let.var);
         ir_node_release(node->data.let.value);
+        ir_scope_release(node->data.let.scope);
         break;
 
     case IR_ASSIGN:
         ir_variable_free(&node->data.assign.var);
         ir_node_release(node->data.assign.value);
+        ir_scope_release(node->data.assign.scope);
         break;
 
     case IR_BLOCK:
@@ -514,6 +572,7 @@ void ir_node_release(IRNode *node)
             ir_node_release(node->data.block.stmts[i]);
         }
         free(node->data.block.stmts);
+        ir_scope_release(node->data.block.scope);
         break;
 
     case IR_IF_ELSE:
@@ -528,6 +587,7 @@ void ir_node_release(IRNode *node)
             free(node->data.match.cases[i].case_name);
             ir_variable_free(&node->data.match.cases[i].bind);
             ir_node_release(node->data.match.cases[i].body);
+            ir_scope_release(node->data.match.cases[i].scope);
         }
         free(node->data.match.cases);
         break;
@@ -544,6 +604,7 @@ void ir_node_release(IRNode *node)
         ir_node_release(node->data.for_array.array);
         ir_node_release(node->data.for_array.body);
         ir_label_free(&node->data.for_array.label);
+        ir_scope_release(node->data.for_array.scope);
         break;
 
     case IR_FOR_SET:
@@ -551,6 +612,7 @@ void ir_node_release(IRNode *node)
         ir_node_release(node->data.for_set.set);
         ir_node_release(node->data.for_set.body);
         ir_label_free(&node->data.for_set.label);
+        ir_scope_release(node->data.for_set.scope);
         break;
 
     case IR_FOR_DICT:
@@ -559,6 +621,7 @@ void ir_node_release(IRNode *node)
         ir_node_release(node->data.for_dict.dict);
         ir_node_release(node->data.for_dict.body);
         ir_label_free(&node->data.for_dict.label);
+        ir_scope_release(node->data.for_dict.scope);
         break;
 
     case IR_FUNCTION:
@@ -582,6 +645,8 @@ void ir_node_release(IRNode *node)
         if (node->data.function.source_ir) {
             east_value_release(node->data.function.source_ir);
         }
+        ir_scope_release(node->data.function.scope);
+        free(node->data.function.name);
         break;
 
     case IR_CALL:
@@ -636,6 +701,7 @@ void ir_node_release(IRNode *node)
         ir_variable_free(&node->data.try_catch.stack_var);
         ir_node_release(node->data.try_catch.catch_body);
         ir_node_release(node->data.try_catch.finally_body);
+        ir_scope_release(node->data.try_catch.scope);
         break;
 
     case IR_NEW_ARRAY:

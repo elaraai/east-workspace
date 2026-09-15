@@ -6,6 +6,7 @@ set(EAST_C_SOURCES
     src/values.c
     src/value_slab.c
     src/ir.c
+    src/ir_resolve.c
     src/env.c
     src/compiler.c
     src/platform.c
@@ -300,6 +301,19 @@ add_test(NAME source_map_lifetime COMMAND test_source_map_lifetime)
 add_executable(test_scope_and_datetime tests/test_scope_and_datetime.c)
 target_link_libraries(test_scope_and_datetime east-c)
 add_test(NAME scope_and_datetime COMMAND test_scope_and_datetime)
+
+# Scope resolution gate: variables read their frame cell by index once the
+# resolver has annotated the tree, and the answer must be what the by-name
+# walk gives — a use before its Let seeing the outer binding, shadowing in
+# nested blocks, a closure per loop iteration, an Assign visible through a
+# closure both ways, match and catch binders, captures bound from outside by
+# name, a scoped frame receiving a by-name set, and a function compiled from
+# a bare body. Every case runs with resolution on and off
+# (EAST_C_NO_SLOT_RESOLVE). Run under ASan/LSan: frames retain their scope
+# and the scope outlives the IR through a closure.
+add_executable(test_scope_resolution tests/test_scope_resolution.c)
+target_link_libraries(test_scope_resolution east-c)
+add_test(NAME scope_resolution COMMAND test_scope_resolution)
 
 # Platform-signature check parity gate (#62): compiles TS-exported IR against
 # drifted typed platform registrations and asserts east_compile_checked's

@@ -40,6 +40,12 @@ struct EastCompiledFn {
     EastInvokeFn invoke;
     void *invoke_userdata;
     void (*invoke_release)(void *userdata);
+
+    /* The call frame's scope (retained): params at cells 0..num_params-1,
+     * from the Function node this was compiled or evaluated from. NULL for a
+     * function compiled from a bare body (east_compile_checked) or built by
+     * a host, whose params then bind by name. */
+    IRScope *scope;
 };
 
 // Top-level API
@@ -54,6 +60,11 @@ EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegi
  * same validation but discards the message. */
 EastCompiledFn *east_compile_checked(IRNode *ir, PlatformRegistry *platform,
                                      BuiltinRegistry *builtins, char **error_out);
+/* Compile a Function / AsyncFunction NODE: the body with the platform check
+ * of east_compile_checked, plus the node's parameter names, its scope and
+ * its function type, so east_call binds arguments into resolved cells. */
+EastCompiledFn *east_compile_fn(IRNode *fn_node, PlatformRegistry *platform,
+                                BuiltinRegistry *builtins, char **error_out);
 EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args);
 void east_compiled_fn_free(EastCompiledFn *fn);
 
