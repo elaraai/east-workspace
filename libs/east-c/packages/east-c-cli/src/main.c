@@ -1111,9 +1111,52 @@ static void emit_sink_free(EmitSink *s)
 /*  Commands                                                           */
 /* ------------------------------------------------------------------ */
 
+/* "file:line:column" for a loc_id, or "-" when the map cannot place it. */
+static const char *profile_site(const EastSourceMap *sm, int64_t loc_id, char *buf, size_t cap)
+{
+    size_t count = 0;
+    const EastLocation *locs = loc_id > 0 ? east_source_map_resolve(sm, loc_id, &count) : NULL;
+    if (locs && count > 0 && locs[0].filename)
+        snprintf(buf, cap, "%s:%lld:%lld", locs[0].filename, (long long)locs[0].line,
+                 (long long)locs[0].column);
+    else
+        snprintf(buf, cap, "-");
+    return buf;
+}
+
+/* The --profile epilogue: every East function called, by self time. A
+ * function is named after the Let it was bound to when the IR has one, and
+ * placed by its Function node's site plus, when it differs, the site of the
+ * first call that reached it — the builder stamps a helper it inlines at a
+ * call site with the caller's location, so the call site is what tells the
+ * helpers apart. */
+static void print_profile(const EastSourceMap *sm)
+{
+    size_t n = 0;
+    EastProfileEntry *entries = east_profile_report(&n);
+    fprintf(stderr, "\nProfile (self time, %s%zu function%s):\n", n > 20 ? "top 20 of " : "", n,
+            n == 1 ? "" : "s");
+    size_t shown = n > 20 ? 20 : n;
+    for (size_t i = 0; i < shown; i++) {
+        const EastProfileEntry *e = &entries[i];
+        char defined[512], called[512], where[1100];
+        profile_site(sm, e->loc_id, defined, sizeof(defined));
+        profile_site(sm, e->call_loc_id, called, sizeof(called));
+        if (e->call_loc_id > 0 && strcmp(defined, called) != 0)
+            snprintf(where, sizeof(where), "%s  called at %s", defined, called);
+        else
+            snprintf(where, sizeof(where), "%s", defined);
+        fprintf(stderr, "  %-16s %10llu calls %9.3f s self %9.3f s total  %s\n",
+                e->name ? e->name : "<anon>", (unsigned long long)e->calls,
+                (double)e->self_ns / 1e9, (double)e->total_ns / 1e9, where);
+    }
+    free(entries);
+}
+
 static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                    const char **input_files, int num_inputs, const char *output_file, bool verbose,
-                   const char *snapshot_out_path, EmitKind emit_kind, int stream_input)
+                   const char *snapshot_out_path, EmitKind emit_kind, int stream_input,
+                   bool profile)
 {
     /* Init type system */
     east_type_of_type_init();
@@ -1419,7 +1462,9 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     /* Execute */
     clock_gettime(CLOCK_MONOTONIC, &t2);
 
+    east_profile_enable(profile);
     EvalResult result = east_call(fn, args, num_args);
+    east_profile_enable(false);
     clock_gettime(CLOCK_MONOTONIC, &t3);
 
     int exit_code = 0;
@@ -1495,6 +1540,13 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                         decoded, segments, fences);
             }
         }
+    }
+
+    /* The profile resolves its sites through the map the compiled function
+     * owns, so it prints before the cleanup below. */
+    if (profile) {
+        print_profile(fn->source_map);
+        east_profile_reset();
     }
 
     /* Cleanup */
@@ -1844,7 +1896,8 @@ static void print_usage(const char *prog)
 {
     fprintf(stderr,
             "Usage:\n"
-            "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v] [--snapshot PATH]\n"
+            "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v] [--profile]\n"
+            "         [--snapshot PATH]\n"
             "  %s run --from-snapshot PATH [-o FILE] [-v]\n"
             "  %s convert <in_file> [-o FILE] [--type TYPE] [-v]\n"
             "  %s ir normalize <ir_file> [-o FILE]\n"
@@ -1876,6 +1929,8 @@ static void print_usage(const char *prog)
             "                          trailing emit parameter (array|set|dict)\n"
             "      --stream N          Feed the given -i input lazily (0-based index;\n"
             "                          segment-fed iteration, O(segment) decoded memory)\n"
+            "      --profile           Print every East function called, by self time,\n"
+            "                          with its call count and source location\n"
             "      --snapshot PATH     Write a .east-snapshot bundle (IR + inputs + manifest)\n"
             "      --from-snapshot PATH  Replay from a .east-snapshot bundle (exclusive\n"
             "                            with <ir_file>, -i, -p)\n"
@@ -1919,6 +1974,7 @@ static int cli_main(void *arg)
     const char *from_snapshot_path = NULL;
     EmitKind emit_kind = EMIT_NONE;
     int stream_input = -1;
+    bool profile = false;
 
     if (strcmp(command, "run") == 0) {
         /* Single-pass parse — --from-snapshot makes <ir_file> optional, so we
@@ -1945,6 +2001,9 @@ static int cli_main(void *arg)
                 i += 2;
             } else if (strcmp(a, "-v") == 0 || strcmp(a, "--verbose") == 0) {
                 verbose = true;
+                i++;
+            } else if (strcmp(a, "--profile") == 0) {
+                profile = true;
                 i++;
             } else if (strcmp(a, "--snapshot") == 0 && i + 1 < argc) {
                 snapshot_out_path = argv[i + 1];
@@ -1999,7 +2058,7 @@ static int cli_main(void *arg)
              * task's flags must be passed explicitly on replay — forward them. */
             int rc = cmd_run(ex.ir_path, (const char **)ex.packages, (int)ex.num_packages,
                              (const char **)ex.input_paths, (int)ex.num_inputs, output_file,
-                             verbose, NULL, emit_kind, stream_input);
+                             verbose, NULL, emit_kind, stream_input, profile);
             snapshot_extract_free(&ex);
             return rc;
         }
@@ -2018,7 +2077,7 @@ static int cli_main(void *arg)
         }
 
         return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file,
-                       verbose, snapshot_out_path, emit_kind, stream_input);
+                       verbose, snapshot_out_path, emit_kind, stream_input, profile);
 
     } else if (strcmp(command, "convert") == 0) {
         const char *in_path = NULL;

@@ -8,9 +8,165 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* Thread-local source map for loc_id resolution at error time */
 static __thread const EastSourceMap *g_current_source_map = NULL;
+
+/* ------------------------------------------------------------------ */
+/*  Per-function profiler                                               */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    size_t entry;      /* index into g_prof_entries */
+    uint64_t t_enter;  /* CLOCK_MONOTONIC nanoseconds at entry */
+    uint64_t child_ns; /* time spent in East functions called from here */
+} ProfFrame;
+
+static _Thread_local bool g_prof_on = false;
+static _Thread_local EastProfileEntry *g_prof_entries = NULL;
+static _Thread_local size_t g_prof_len = 0, g_prof_cap = 0;
+/* Open-addressing index: body pointer -> entry index + 1 (0 = empty). */
+static _Thread_local size_t *g_prof_index = NULL;
+static _Thread_local size_t g_prof_mask = 0;
+static _Thread_local ProfFrame *g_prof_stack = NULL;
+static _Thread_local size_t g_prof_depth = 0, g_prof_stack_cap = 0;
+
+static uint64_t prof_now(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+
+static inline size_t prof_hash(const void *p)
+{
+    uint64_t x = (uint64_t)(uintptr_t)p;
+    x ^= x >> 33;
+    x *= 0xff51afd7ed558ccdull;
+    x ^= x >> 33;
+    return (size_t)x;
+}
+
+static void prof_index_insert(const IRNode *body, size_t entry)
+{
+    size_t i = prof_hash(body) & g_prof_mask;
+    while (g_prof_index[i])
+        i = (i + 1) & g_prof_mask;
+    g_prof_index[i] = entry + 1;
+}
+
+/* The entry for `fn`, created on first sight. SIZE_MAX on allocation failure. */
+static size_t prof_entry_for(EastCompiledFn *fn)
+{
+    if (g_prof_index) {
+        size_t i = prof_hash(fn->ir) & g_prof_mask;
+        while (g_prof_index[i]) {
+            size_t e = g_prof_index[i] - 1;
+            if (g_prof_entries[e].body == fn->ir) return e;
+            i = (i + 1) & g_prof_mask;
+        }
+    }
+    if (g_prof_len == g_prof_cap) {
+        size_t cap = g_prof_cap ? g_prof_cap * 2 : 64;
+        EastProfileEntry *grown = realloc(g_prof_entries, cap * sizeof(EastProfileEntry));
+        if (!grown) return SIZE_MAX;
+        g_prof_entries = grown;
+        g_prof_cap = cap;
+        /* Rebuild the index at twice the entry capacity (load <= 1/2). */
+        free(g_prof_index);
+        g_prof_mask = cap * 2 - 1;
+        g_prof_index = calloc(g_prof_mask + 1, sizeof(size_t));
+        if (!g_prof_index) return SIZE_MAX;
+        for (size_t e = 0; e < g_prof_len; e++)
+            prof_index_insert(g_prof_entries[e].body, e);
+    }
+    size_t e = g_prof_len++;
+    g_prof_entries[e] = (EastProfileEntry){
+        .body = fn->ir,
+        .name = fn->name ? strdup(fn->name) : NULL,
+        .loc_id = fn->loc_id,
+        .call_loc_id = 0,
+        .calls = 0,
+        .total_ns = 0,
+        .self_ns = 0,
+    };
+    prof_index_insert(fn->ir, e);
+    return e;
+}
+
+static inline void prof_enter(EastCompiledFn *fn, int64_t call_loc_id)
+{
+    if (!g_prof_on) return;
+    size_t e = prof_entry_for(fn);
+    if (e == SIZE_MAX) return;
+    if (!g_prof_entries[e].call_loc_id) g_prof_entries[e].call_loc_id = call_loc_id;
+    if (g_prof_depth == g_prof_stack_cap) {
+        size_t cap = g_prof_stack_cap ? g_prof_stack_cap * 2 : 64;
+        ProfFrame *grown = realloc(g_prof_stack, cap * sizeof(ProfFrame));
+        if (!grown) return;
+        g_prof_stack = grown;
+        g_prof_stack_cap = cap;
+    }
+    g_prof_stack[g_prof_depth++] = (ProfFrame){.entry = e, .t_enter = prof_now(), .child_ns = 0};
+}
+
+static inline void prof_exit(void)
+{
+    if (!g_prof_on || g_prof_depth == 0) return;
+    ProfFrame *f = &g_prof_stack[--g_prof_depth];
+    uint64_t elapsed = prof_now() - f->t_enter;
+    EastProfileEntry *e = &g_prof_entries[f->entry];
+    e->calls++;
+    e->total_ns += elapsed;
+    e->self_ns += elapsed > f->child_ns ? elapsed - f->child_ns : 0;
+    if (g_prof_depth > 0) g_prof_stack[g_prof_depth - 1].child_ns += elapsed;
+}
+
+void east_profile_enable(bool on)
+{
+    g_prof_on = on;
+}
+
+bool east_profile_enabled(void)
+{
+    return g_prof_on;
+}
+
+static int prof_by_self_desc(const void *a, const void *b)
+{
+    const EastProfileEntry *x = a, *y = b;
+    if (x->self_ns != y->self_ns) return x->self_ns > y->self_ns ? -1 : 1;
+    if (x->total_ns != y->total_ns) return x->total_ns > y->total_ns ? -1 : 1;
+    return x->calls > y->calls ? -1 : x->calls < y->calls ? 1 : 0;
+}
+
+EastProfileEntry *east_profile_report(size_t *count_out)
+{
+    if (count_out) *count_out = 0;
+    if (g_prof_len == 0) return NULL;
+    EastProfileEntry *out = malloc(g_prof_len * sizeof(EastProfileEntry));
+    if (!out) return NULL;
+    memcpy(out, g_prof_entries, g_prof_len * sizeof(EastProfileEntry));
+    qsort(out, g_prof_len, sizeof(EastProfileEntry), prof_by_self_desc);
+    if (count_out) *count_out = g_prof_len;
+    return out;
+}
+
+void east_profile_reset(void)
+{
+    for (size_t e = 0; e < g_prof_len; e++)
+        free((char *)g_prof_entries[e].name);
+    free(g_prof_entries);
+    free(g_prof_index);
+    free(g_prof_stack);
+    g_prof_entries = NULL;
+    g_prof_index = NULL;
+    g_prof_stack = NULL;
+    g_prof_len = g_prof_cap = 0;
+    g_prof_mask = 0;
+    g_prof_depth = g_prof_stack_cap = 0;
+}
 
 /* Lazy IR compilation: convert source_ir EastValue → IRNode body on first use */
 static void east_compile_lazy(EastCompiledFn *fn)
@@ -24,6 +180,9 @@ static void east_compile_lazy(EastCompiledFn *fn)
             fn->scope = ir_node->data.function.scope;
             ir_scope_retain(fn->scope);
         }
+        if (!fn->name && ir_node->data.function.name)
+            fn->name = strdup(ir_node->data.function.name);
+        if (!fn->loc_id) fn->loc_id = ir_node->loc_id;
     }
     if (ir_node) ir_node_release(ir_node);
 }
@@ -873,6 +1032,10 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         fn->scope = node->data.function.scope;
         ir_scope_retain(fn->scope);
 
+        /* For the profiler: the Let this function was bound to, its site. */
+        fn->name = node->data.function.name ? east_strdup(node->data.function.name) : NULL;
+        fn->loc_id = node->loc_id;
+
         /* Snapshot the thread-local source map so this function value can be
          * beast2-encoded with its own source_map section (matches JS's
          * SourceMapSymbol attach at East.function/asyncFunction construction)
@@ -1000,7 +1163,9 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         }
 
         /* Evaluate body */
+        prof_enter(cfn, node->loc_id);
         EvalResult body_res = eval_ir(cfn->ir, call_env, cfn->platform, cfn->builtins);
+        prof_exit();
 
         env_release(call_env);
 
@@ -1895,6 +2060,8 @@ EastCompiledFn *east_compile_fn(IRNode *fn_node, PlatformRegistry *platform,
     }
     fn->scope = fn_node->data.function.scope;
     ir_scope_retain(fn->scope);
+    fn->name = fn_node->data.function.name ? strdup(fn_node->data.function.name) : NULL;
+    fn->loc_id = fn_node->loc_id;
     return fn;
 }
 
@@ -1986,7 +2153,9 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
         bind_var(call_env, i, fn->param_names[i], args[i]);
     }
 
+    prof_enter(fn, 0);
     EvalResult result = eval_ir(fn->ir, call_env, fn->platform, fn->builtins);
+    prof_exit();
     env_release(call_env);
 
     /* If body returned via IR_RETURN, unwrap to EVAL_OK */
@@ -2076,6 +2245,8 @@ void east_compiled_fn_free(EastCompiledFn *fn)
 
     ir_scope_release(fn->scope);
     fn->scope = NULL;
+    east_free(fn->name);
+    fn->name = NULL;
 
     east_free(fn);
 }

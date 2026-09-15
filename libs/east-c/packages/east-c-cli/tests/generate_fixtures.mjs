@@ -145,6 +145,21 @@ const fixtures = {
   // traceback or a negative arity count.
   'zero_param.beast2': encodeEastIR(East.function([], IntegerType, (_$) => 1n).toIR()),
 
+  // A helper called 100 times from a loop: `--profile` must list it with
+  // its call count and the source location of its definition.
+  'profile_calls.beast2': (() => {
+    const inc = East.function([IntegerType], IntegerType, (_$, x) => x.add(1n));
+    return encodeEastIR(
+      East.function([], IntegerType, ($) => {
+        const acc = $.let(0n);
+        $.for(East.Array.range(0n, 100n), ($, _i) => {
+          $.assign(acc, inc(acc));
+        });
+        return acc;
+      }).toIR(),
+    );
+  })(),
+
   // The fold's input: [0..2500), written segmented + indexed by the TS
   // paged writer (500 elements per segment).
   'events.beast2': encodeBeast2PagedFor(ArrayType(IntegerType), { batchSize: 500 })(

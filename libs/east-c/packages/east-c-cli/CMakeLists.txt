@@ -35,6 +35,16 @@ add_test(NAME cli_paged COMMAND test_cli_paged $<TARGET_FILE:east-c-cli>
          ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
 set_tests_properties(cli_paged PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
+# CLI --profile gate: spawns the binary over a fixture whose helper is
+# called 100 times and pins the epilogue — the helper listed with its call
+# count and its source location, nothing printed without the flag, and the
+# program's answer unchanged either way.
+add_executable(test_cli_profile tests/test_cli_profile.c)
+target_link_libraries(test_cli_profile east-c)
+add_test(NAME cli_profile COMMAND test_cli_profile $<TARGET_FILE:east-c-cli>
+         ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
+set_tests_properties(cli_profile PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
 # CLI `ir` toolbox gate (#627): spawns the binary over checked-in IR fixtures
 # and pins normalize (a fixed point, loc_ids zero, no map), diff (exit code +
 # path, --raw) and convert (json <-> beast2 with the source map intact).

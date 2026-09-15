@@ -46,7 +46,43 @@ struct EastCompiledFn {
      * function compiled from a bare body (east_compile_checked) or built by
      * a host, whose params then bind by name. */
     IRScope *scope;
+
+    /* What the profiler prints for this function: the Let it was bound to
+     * (owned copy, or NULL) and the Function node's loc_id. */
+    char *name;
+    int64_t loc_id;
 };
+
+/* ------------------------------------------------------------------ */
+/*  Per-function profiler (east-c run --profile)                       */
+/* ------------------------------------------------------------------ */
+
+/* One profiled function: every closure evaluated from one Function node
+ * shares its body, which is the entry's identity. Counts and nanoseconds
+ * accumulate across calls; `self` excludes time spent in East functions
+ * called from the body. `name` borrows the profiler's own copy and is
+ * valid until east_profile_reset. */
+typedef struct {
+    const IRNode *body;
+    const char *name;
+    int64_t loc_id;      /* the Function node's site */
+    int64_t call_loc_id; /* the first Call node that invoked it (0 when only
+                            a host called it) — what places a helper the
+                            builder inlined at its call site and stamped with
+                            the caller's location */
+    uint64_t calls;
+    uint64_t total_ns;
+    uint64_t self_ns;
+} EastProfileEntry;
+
+/* Arm or disarm the profiler on this thread. Off, a call costs one branch. */
+void east_profile_enable(bool on);
+bool east_profile_enabled(void);
+/* The entries so far, sorted by self time descending, in a malloc'd array
+ * the caller frees (NULL when nothing was profiled). */
+EastProfileEntry *east_profile_report(size_t *count_out);
+/* Drop every entry and the profiler's copies of their names. */
+void east_profile_reset(void);
 
 // Top-level API
 EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegistry *builtins);
