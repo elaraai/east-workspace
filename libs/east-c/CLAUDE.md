@@ -12,6 +12,7 @@ C port of the East language runtime. Three packages:
 make build    # Build both packages
 make unit     # Run the ctest gates (no exported IR needed)
 make test     # Gates + both compliance suites
+make bench-cli # The interpreter + emit-sink benchmarks (needs a built libs/east)
 make clean    # Remove build directory
 ```
 
@@ -41,7 +42,11 @@ REBUILD=1 make leak-check-all
 
 - C11, CMake.
 - Reference counting for memory management (`EastValue`, `EastType`).
-- Tree-walking interpreter (not code generation).
+- Tree-walking interpreter (not code generation). Variables are resolved to
+  frame cells once, at IR construction (`src/ir_resolve.c`); a resolved read
+  is verified against the live frame and falls back to the by-name walk, and
+  `EAST_C_NO_SLOT_RESOLVE=1` skips the resolver so every read takes that walk
+  — the oracle the resolved path is checked against.
 - `int64_t` for integers (no bigint).
 - Async preserved in IR but executed synchronously.
 
@@ -57,5 +62,8 @@ REBUILD=1 make leak-check-all
 - `packages/east-c/src/builtins/` — builtin operations.
 - `packages/east-c/src/serialization/` — JSON, Beast2, CSV, East text.
 - `packages/east-c/src/type_of_type.c` — IR JSON decoder.
+- `packages/east-c/src/ir_resolve.c` — static name resolution over a built IR tree.
+- `packages/east-c-cli/contrib/` — benchmark generators for the interpreter and
+  emit-sink profiles (`make bench-cli`).
 - `packages/east-c/tests/` — unit tests and compliance runner.
 - `packages/east-c-std/` — platform functions.
