@@ -1528,7 +1528,28 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             return eval_error_at(node, "get_field: value is not a struct");
         }
 
-        EastValue *field = east_struct_get_field(s, node->data.get_field.field_name);
+        /* A value that borrows its names from the type this node last read
+         * has the field at the cached index; anything else — another type,
+         * a coerced struct with its own field order — looks the name up and
+         * refills the cache when it can. */
+        EastValue *field = NULL;
+        EastType *vtype = s->data.struct_.type;
+        bool borrowed = s->data.struct_.field_names == NULL && vtype != NULL;
+        if (borrowed && vtype == node->data.get_field.cache_type) {
+            field = s->data.struct_.field_values[node->data.get_field.cache_idx];
+        } else {
+            const char *name = node->data.get_field.field_name;
+            for (size_t i = 0; i < s->data.struct_.num_fields; i++) {
+                if (strcmp(east_struct_field_name(s, i), name) == 0) {
+                    field = s->data.struct_.field_values[i];
+                    if (borrowed) {
+                        node->data.get_field.cache_type = vtype;
+                        node->data.get_field.cache_idx = i;
+                    }
+                    break;
+                }
+            }
+        }
         if (!field) {
             char buf[256];
             snprintf(buf, sizeof(buf), "no field named '%s'", node->data.get_field.field_name);

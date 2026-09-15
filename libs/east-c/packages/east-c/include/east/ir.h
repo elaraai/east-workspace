@@ -318,6 +318,13 @@ struct IRNode {
         struct {
             IRNode *expr;
             char *field_name;
+            /* Inline cache: the last struct type read through this node and
+             * the field's index in it. Valid only for a value that borrows
+             * its names from that very type (a coerced struct carrying its
+             * own field order never matches). Types are arena-immortal for
+             * the IR's lifetime, so the pointer is a stable key. */
+            EastType *cache_type;
+            size_t cache_idx;
         } get_field;
 
         // IR_VARIANT

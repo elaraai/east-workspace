@@ -315,6 +315,16 @@ add_executable(test_scope_resolution tests/test_scope_resolution.c)
 target_link_libraries(test_scope_resolution east-c)
 add_test(NAME scope_resolution COMMAND test_scope_resolution)
 
+# Field-read inline cache gate: a GetField node remembers the struct type it
+# last read and the field's index, so a value that borrows its names from
+# that type is read by index. A coerced struct carrying its own field order
+# must never hit the cache (its layout disagrees with the type's), and a
+# value stamped with a recursive wrapper must. Run under ASan/LSan for the
+# type and value lifetimes it exercises.
+add_executable(test_field_cache tests/test_field_cache.c)
+target_link_libraries(test_field_cache east-c)
+add_test(NAME field_cache COMMAND test_field_cache)
+
 # Platform-signature check parity gate (#62): compiles TS-exported IR against
 # drifted typed platform registrations and asserts east_compile_checked's
 # error text is byte-identical to the TS analyzer's. Skips (exit 77) unless
