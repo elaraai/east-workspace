@@ -329,6 +329,90 @@ static void test_dict_shuffled(const char *bin, const char *fixtures)
     if (rf) fclose(rf);
 }
 
+static void test_dict_nested_shuffled(const char *bin, const char *fixtures)
+{
+    /* The out-of-order path encodes every emission at the emit and merges
+     * runs of bytes, decoding keys only. With a nested value type and a
+     * tiny run cap the shuffled producer must still yield a blob byte-
+     * identical to the ascending producer's, decode to the same content,
+     * and account for its spills in the -v epilogue. */
+    char cmd[2048];
+    char out_ordered[64] = "emit_out_nested_ordered.beast2", err1[64] = "emit_err_nested_o.txt";
+    char out_shuffled[64] = "emit_out_nested_shuffled.beast2", err2[64] = "emit_err_nested_s.txt";
+    snprintf(cmd, sizeof(cmd), "\"%s\" run \"%s/emit_nested.beast2\" --emit dict -o %s", bin,
+             fixtures, out_ordered);
+    int rc = run_cli(cmd, err1);
+    CHECK(rc == 0, "nested: ordered control expected exit 0, got %d", rc);
+    set_run_cap("40");
+    snprintf(cmd, sizeof(cmd), "\"%s\" run \"%s/emit_nested_shuffled.beast2\" --emit dict -o %s -v",
+             bin, fixtures, out_shuffled);
+    rc = run_cli(cmd, err2);
+    set_run_cap(NULL);
+    CHECK(rc == 0, "nested: shuffled expected exit 0, got %d", rc);
+    check_stderr_contains(err2, "left ascending order");
+    check_stderr_contains(err2, "spill(s), peak");
+    if (rc != 0) return;
+
+    size_t len_a = 0, len_b = 0;
+    uint8_t *a = read_file(out_ordered, &len_a);
+    uint8_t *b = read_file(out_shuffled, &len_b);
+    CHECK(a != NULL && b != NULL, "nested: outputs missing");
+    if (a && b) {
+        CHECK(len_a == len_b && memcmp(a, b, len_a) == 0,
+              "nested: merged blob is not byte-identical to the ordered blob (%zu vs %zu bytes)",
+              len_a, len_b);
+    }
+
+    /* Dict<Integer, Struct{label: String, items: Array<Struct{x: Integer, y: Float}>}> */
+    const char *item_names[2] = {"x", "y"};
+    EastType *item_types[2] = {&east_integer_type, &east_float_type};
+    EastType *item_t = east_struct_type(item_names, item_types, 2);
+    EastType *items_t = east_array_type(item_t);
+    const char *val_names[2] = {"label", "items"};
+    EastType *val_types[2] = {&east_string_type, items_t};
+    EastType *val_t = east_struct_type(val_names, val_types, 2);
+    EastType *dt = east_dict_type(&east_integer_type, val_t);
+    if (b) {
+        Beast2Pages *pages = east_beast2_pages_new(b, len_b, dt);
+        CHECK(pages != NULL, "nested: merged blob carries no index");
+        if (pages) {
+            CHECK(east_beast2_pages_element_count(pages) == 300, "nested: pair count %zu",
+                  east_beast2_pages_element_count(pages));
+            east_beast2_pages_free(pages);
+        }
+        EastValue *dict = east_beast2_decode_full(b, len_b, dt);
+        CHECK(dict != NULL, "nested: decode failed");
+        if (dict) {
+            CHECK(dict->data.dict.len == 300, "nested: decoded size %zu", dict->data.dict.len);
+            EastValue *key = east_integer(42);
+            /* east_dict_get borrows — no release of the returned value. */
+            EastValue *row = east_dict_get(dict, key);
+            CHECK(row != NULL && row->kind == EAST_VAL_STRUCT, "nested: get(42) missing");
+            if (row && row->kind == EAST_VAL_STRUCT) {
+                EastValue *label = east_struct_get_field(row, "label");
+                EastValue *items = east_struct_get_field(row, "items");
+                CHECK(label && strcmp(label->data.string.data, "row-42") == 0,
+                      "nested: get(42).label wrong");
+                CHECK(items && east_array_len(items) == 3, "nested: get(42).items length wrong");
+                if (items && east_array_len(items) == 3) {
+                    EastValue *x1 = east_struct_get_field(east_array_get(items, 1), "x");
+                    CHECK(x1 && x1->data.integer == 43, "nested: get(42).items[1].x wrong");
+                }
+            }
+            east_value_release(key);
+            east_value_release(dict);
+        }
+    }
+    free(a);
+    free(b);
+
+    char runpath[96];
+    snprintf(runpath, sizeof(runpath), "%s.run1", out_shuffled);
+    FILE *rf = fopen(runpath, "rb");
+    CHECK(rf == NULL, "nested: spill run left behind");
+    if (rf) fclose(rf);
+}
+
 static void test_dict_duplicate(const char *bin, const char *fixtures)
 {
     /* Duplicate keys are the surviving hard error of the old strictly-
@@ -380,6 +464,7 @@ int main(int argc, char **argv)
     test_dict(argv[1], argv[2]);
     test_dict_out_of_order(argv[1], argv[2]);
     test_dict_shuffled(argv[1], argv[2]);
+    test_dict_nested_shuffled(argv[1], argv[2]);
     test_dict_duplicate(argv[1], argv[2]);
     test_snapshot_guard(argv[1], argv[2]);
 
