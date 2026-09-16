@@ -219,6 +219,19 @@ test("fires: the message names the file source as the remedy", () => {
   assert.equal(hits.length, 1);
   assert.match(String(hits[0]!.messageText), /variant\('file', path\)/);
 });
+test("fires through an aliased variant import", () => {
+  const body =
+    `import { variant as v } from "@elaraai/east";\n` +
+    `const s = buildSeed();\n` +
+    `export const d = e3.input("x", DictType(StringType, IntegerType), v("value", s));\n`;
+  assert.equal(rule(body).length, 1);
+});
+test("silent: an aliased file source", () => {
+  const body =
+    `import { variant as v } from "@elaraai/east";\n` +
+    `export const d = e3.input("x", ArrayType(IntegerType), v("file", "./t.beast2"));\n`;
+  assert.equal(rule(body).length, 0);
+});
 
 // ── exactly-one-diagnostic + the full inputs.ts pattern ────────────────────
 test("fires exactly once per e3.input (no duplicate diagnostics)", () => {

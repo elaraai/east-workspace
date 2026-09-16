@@ -5,7 +5,7 @@
 import type * as ts from "typescript";
 import type { EastRule, RuleContext, TsModule } from "../types.js";
 import { insideBlockScope } from "../block-scope.js";
-import { importDeclarationOf, resolvesToEastImport } from "../east-source.js";
+import { importDeclarationOf, importedNameOf, resolvesToEastImport } from "../east-source.js";
 
 const NAME = "no-compile-time-seed-data";
 const CODE = 990021;
@@ -149,7 +149,8 @@ function isHostFilled(sym: ts.Symbol, ctx: RuleContext): boolean {
  * The third argument is a source variant: `variant('value', seed)` carries an
  * inline seed, while `variant('file', path)` carries no data at all — the file is
  * adopted at deploy, which is exactly where bulk data belongs, so it is never
- * flagged. A source this rule cannot see into (an
+ * flagged. The constructor is recognised by the name it is imported under, so
+ * `import { variant as v }` reads the same. A source this rule cannot see into (an
  * identifier holding a whole variant, a non-`@elaraai/east` `variant`) is left
  * silent, like any opaque seed.
  */
@@ -157,7 +158,11 @@ function inlineSeed(sourceArg: ts.Expression, ctx: RuleContext): ts.Expression |
   const t = ctx.ts;
   if (!t.isCallExpression(sourceArg)) return undefined;
   const callee = sourceArg.expression;
-  if (!t.isIdentifier(callee) || callee.text !== "variant" || !resolvesToEastImport(callee, ctx.checker, t)) return undefined;
+  if (
+    !t.isIdentifier(callee) ||
+    importedNameOf(callee, ctx.checker, t) !== "variant" ||
+    !resolvesToEastImport(callee, ctx.checker, t)
+  ) return undefined;
   const [tag, payload] = sourceArg.arguments;
   if (tag === undefined || !t.isStringLiteralLike(tag) || tag.text !== "value") return undefined;
   return payload;

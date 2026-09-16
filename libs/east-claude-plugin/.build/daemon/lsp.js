@@ -201,6 +201,13 @@ function resolvesToEastImport(id, checker, t) {
   const imp = importDeclarationOf(checker.getSymbolAtLocation(id), t);
   return imp !== void 0 && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text.startsWith("@elaraai/");
 }
+function importedNameOf(id, checker, t) {
+  for (const d of checker.getSymbolAtLocation(id)?.declarations ?? []) {
+    if (t.isImportSpecifier(d))
+      return (d.propertyName ?? d.name).text;
+  }
+  return void 0;
+}
 var importsCache = /* @__PURE__ */ new WeakMap();
 function importsEastPackage(sf, t) {
   const cached = importsCache.get(sf);
@@ -1095,7 +1102,7 @@ function inlineSeed(sourceArg, ctx) {
   if (!t.isCallExpression(sourceArg))
     return void 0;
   const callee = sourceArg.expression;
-  if (!t.isIdentifier(callee) || callee.text !== "variant" || !resolvesToEastImport(callee, ctx.checker, t))
+  if (!t.isIdentifier(callee) || importedNameOf(callee, ctx.checker, t) !== "variant" || !resolvesToEastImport(callee, ctx.checker, t))
     return void 0;
   const [tag, payload] = sourceArg.arguments;
   if (tag === void 0 || !t.isStringLiteralLike(tag) || tag.text !== "value")
