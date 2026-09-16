@@ -120,6 +120,12 @@ type FsModule = { existsSync(path: URL): boolean };
  *  worker boots in tens of milliseconds; this only bounds a broken install. */
 const STARTUP_TIMEOUT_MS = 10_000;
 
+/** The most workers the pool starts. A writer keeps two frames per worker in
+ *  flight, so memory scales with the worker count, while deflate throughput
+ *  flattens well before this (#763 measured 254 MB/s at 32 threads). east-c's
+ *  writer caps its threads the same (`B2V5_POOL_MAX_THREADS`). */
+const FRAME_POOL_MAX_WORKERS = 32;
+
 /** How long {@link PendingFrame.take} waits for one frame before it presumes
  *  the worker's thread lost. A 4 MiB segment deflates in well under a second,
  *  so this fires only when the worker is gone. */
@@ -289,7 +295,7 @@ function createPool(): FramePool | null {
   const os = getBuiltin("node:os") as OsModule | undefined;
   const fs = getBuiltin("node:fs") as FsModule | undefined;
   if (!threads || !os || !fs || !threads.isMainThread) return null;
-  const cpus = os.availableParallelism?.() ?? os.cpus().length;
+  const cpus = Math.min(FRAME_POOL_MAX_WORKERS, os.availableParallelism?.() ?? os.cpus().length);
   if (cpus < 2) return null;
 
   // Bundled into a single file (or loaded as CommonJS), this module has no

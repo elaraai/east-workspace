@@ -206,10 +206,12 @@ bool east_beast2_writer_finish(Beast2StreamWriter *w);
 void east_beast2_writer_free(Beast2StreamWriter *w);
 
 // Frame parallelism (issue #763). Opt in before the second segment and the
-// writer deflates frames on a pool of worker threads (one per online CPU; a
-// single-core host stays inline), appending them in order so the bytes are
-// identical to the inline writer's. take() then returns only the frames
-// already done, and finish() waits for the rest.
+// writer deflates frames on a pool of worker threads — one per CPU the process
+// may use (the affinity mask, capped by the cgroup CPU quota), and at most 32:
+// the ring holds two segments per worker and throughput flattens well before
+// that — appending them in order so the bytes are identical to the inline
+// writer's. A single-core host stays inline. take() then returns only the
+// frames already done, and finish() waits for the rest.
 //
 // A caller that sizes its NEXT batch from the bytes emitted so far must not
 // read a lagging count — its segmentation would depend on thread timing.

@@ -97,8 +97,10 @@ export type Beast2WriterOptions = {
    * sink has only received the ones already done. A caller that sizes its
    * next batch from the bytes written must therefore read
    * {@link Beast2Writer.emittedBounds} rather than count sink bytes, or its
-   * segmentation would depend on thread timing. Node only; elsewhere, and on
-   * a single CPU, the writer frames inline.
+   * segmentation would depend on thread timing. The pool has one worker per
+   * CPU the process may use, at most 32 — a writer keeps two frames per worker
+   * in flight, and throughput flattens well before that. Node only; elsewhere,
+   * and on a single CPU, the writer frames inline.
    */
   parallel?: boolean;
 };

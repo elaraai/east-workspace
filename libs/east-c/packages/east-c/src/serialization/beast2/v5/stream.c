@@ -30,6 +30,14 @@
  * shrink), so logical + this bounds a frame not yet written. */
 #define B2V5_FRAME_HEADER_MAX 21
 
+/* The most frame workers one writer starts. The ring holds two segments per
+ * worker, so in-flight memory scales with the thread count, while deflate
+ * throughput flattens well before this (#763 measured 254 MB/s at 32
+ * threads): an uncapped writer on a 64-core host, with a few partition
+ * runners writing at once, would hold hundreds of segments in flight for no
+ * gain. The TypeScript pool (frame-pool.ts) caps its workers the same. */
+#define B2V5_POOL_MAX_THREADS 32
+
 typedef struct {
     ByteBuffer *logical; /* owned input; the worker frees it */
     ByteBuffer *frame;   /* owned output, NULL until done (or on OOM) */
@@ -296,9 +304,11 @@ static bool writer_push_segment(Beast2StreamWriter *w, ByteBuffer *logical, size
 
     /* The pool starts on the SECOND segment: a writer that only ever writes
      * one (a probe, a small value) never starts a thread. One core keeps the
-     * inline path — there is nothing to parallelize onto. */
+     * inline path — there is nothing to parallelize onto — and many cores
+     * start at most B2V5_POOL_MAX_THREADS workers. */
     if (w->parallel && !w->pool && w->seg_count >= 2) {
         int cpus = east_cpu_count();
+        if (cpus > B2V5_POOL_MAX_THREADS) cpus = B2V5_POOL_MAX_THREADS;
         if (cpus >= 2) w->pool = b2v5_pool_new(w->codec, cpus);
     }
     /* ...and when at least half of them needed a settle. Framing strategy

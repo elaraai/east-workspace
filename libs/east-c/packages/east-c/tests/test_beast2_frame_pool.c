@@ -34,6 +34,9 @@
 size_t b2v5_writer_peak_inflight(const Beast2StreamWriter *w);
 bool b2v5_writer_pooled(const Beast2StreamWriter *w);
 
+/* B2V5_POOL_MAX_THREADS in stream.c: the most workers one writer starts. */
+#define POOL_MAX_THREADS 32
+
 static int failures = 0;
 
 #define CHECK(cond, ...)                                                                           \
@@ -245,10 +248,13 @@ static void test_queue_bound(void)
     CHECK(east_beast2_writer_finish(w), "finish failed");
     int cpus = east_cpu_count();
     if (cpus >= 2) {
+        /* A writer starts at most POOL_MAX_THREADS workers (the cap in
+         * stream.c), so that bounds the ring on a host with more CPUs. */
+        int threads = cpus < POOL_MAX_THREADS ? cpus : POOL_MAX_THREADS;
         CHECK(b2v5_writer_pooled(w), "a multi-core writer that opted in should pool");
-        CHECK(b2v5_writer_peak_inflight(w) <= (size_t)cpus * 2,
+        CHECK(b2v5_writer_peak_inflight(w) <= (size_t)threads * 2,
               "in flight peaked at %zu frames, above the ring bound of %d",
-              b2v5_writer_peak_inflight(w), cpus * 2);
+              b2v5_writer_peak_inflight(w), threads * 2);
     } else {
         CHECK(!b2v5_writer_pooled(w), "a single-core host keeps the inline path");
     }
