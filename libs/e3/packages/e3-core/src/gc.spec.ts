@@ -16,6 +16,7 @@ import e3 from '@elaraai/e3';
 import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType, EnvironmentSpecType } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
+import { transferStagingPath } from './storage/local/localHelpers.js';
 import { objectWrite, objectRead } from './storage/local/LocalObjectStore.js';
 import { packageImport, packageRemove, packageRead } from './packages.js';
 import { ObjectNotFoundError } from './errors.js';
@@ -94,7 +95,7 @@ describe('gc', () => {
   describe('with package refs', () => {
     it('retains objects referenced by packages', async () => {
       // Create and import a package
-      const myInput = e3.input('greeting', StringType, 'hello');
+      const myInput = e3.input('greeting', StringType, variant('value', 'hello'));
       const pkg = e3.package('gc-test', '1.0.0', myInput);
       const zipPath = join(tempDir, 'gc-test.zip');
       await e3.export(pkg, zipPath);
@@ -242,6 +243,34 @@ describe('gc', () => {
       assert.strictEqual(result.deletedPartials, 1);
       assert.ok(!existsSync(stagingPath));
     });
+
+    it('removes an orphaned dataset transfer staging file', async () => {
+      // A dataset upload stages under the repository, not the OS temp dir, so
+      // its commit can link or rename — and nothing but gc clears it when the
+      // client disconnects mid-upload.
+      const stagingPath = join(testRepoPath, 'tmp', 'transfers', 'abc.beast2.partial');
+      assert.strictEqual(transferStagingPath(testRepoPath, 'abc'), stagingPath, 'the server stages exactly here');
+      mkdirSync(dirname(stagingPath), { recursive: true });
+      writeFileSync(stagingPath, 'an upload that never committed');
+
+      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
+
+      assert.strictEqual(result.deletedPartials, 1);
+      assert.ok(!existsSync(stagingPath));
+    });
+
+    it('keeps a young transfer staging file', async () => {
+      // An in-flight upload is young: the default age gate must not race it.
+      const stagingPath = join(testRepoPath, 'tmp', 'transfers', 'abc.beast2.partial');
+      mkdirSync(dirname(stagingPath), { recursive: true });
+      writeFileSync(stagingPath, 'an upload in flight');
+
+      const result = await repoGc(storage, testRepoPath);
+
+      assert.strictEqual(result.deletedPartials, 0);
+      assert.strictEqual(result.skippedYoung, 1);
+      assert.ok(existsSync(stagingPath));
+    });
   });
 
   describe('minAge option', () => {
@@ -325,7 +354,7 @@ describe('gc', () => {
           ]),
         },
         functions: new Map(),
-        records: new Map(),
+        records: new Map(), sources: new Map(),
       } as PackageObject));
 
       // Create a package ref pointing to the package
@@ -356,7 +385,7 @@ describe('gc', () => {
           refs: new Map(),
         },
         functions: new Map(),
-        records: new Map(),
+        records: new Map(), sources: new Map(),
       } as PackageObject));
 
       // Unreachable orphan object
@@ -535,7 +564,7 @@ describe('gc', () => {
           refs: new Map(),
         },
         functions: new Map(),
-        records: new Map(),
+        records: new Map(), sources: new Map(),
       } as PackageObject);
       const pkgHash = 'a'.repeat(64);
 

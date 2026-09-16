@@ -270,22 +270,30 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  *
  * @param input - The request URL.
  * @param init - Standard `fetch` init; a re-readable body (string / `Uint8Array` / `Blob`) is required for a retry to resend it.
+ *   Pass a function to build the init afresh for every attempt instead — the way to retry a body that is a stream, which
+ *   one attempt consumes.
  * @param opts - `idempotent` gates transient-status retries; `retry` overrides the {@link DEFAULT_RETRY} policy (set `attempts: 1` to opt out).
  * @returns The final `fetch` response — a success, or the last transient/non-retryable response for the caller to decode.
  * @throws The original error once retries are exhausted or the error is non-retryable; the abort reason if `init.signal` aborts.
  */
 export async function fetchWithRetry(
   input: string | URL,
-  init: RequestInit,
+  init: RequestInit | (() => RequestInit),
   opts: { idempotent: boolean; retry?: RetryOptions },
 ): Promise<globalThis.Response> {
   const cfg = resolveRetry(opts.retry);
-  const signal = init.signal ?? undefined;
   for (let attempt = 0; ; attempt++) {
-    if (signal?.aborted) throw signal.reason;
+    const request = typeof init === 'function' ? init() : init;
+    const signal = request.signal ?? undefined;
+    if (signal?.aborted) {
+      // A built stream body that will never be sent is released here.
+      const body = request.body as { cancel?: () => Promise<void> } | null | undefined;
+      await body?.cancel?.().catch(() => { /* unsent body */ });
+      throw signal.reason;
+    }
     let response: globalThis.Response;
     try {
-      response = await fetch(input, init);
+      response = await fetch(input, request);
     } catch (err) {
       if (isAbortError(err)) throw err;
       if (!isRetryableNetworkError(err) || attempt + 1 >= cfg.attempts) throw err;

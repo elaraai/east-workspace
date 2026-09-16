@@ -437,6 +437,9 @@ cdef extern from "east/serialization.h":
     ByteBuffer *east_beast2_writer_take(Beast2StreamWriter *w)
     bint east_beast2_writer_finish(Beast2StreamWriter *w)
     void east_beast2_writer_free(Beast2StreamWriter *w)
+    void east_beast2_writer_set_parallel(Beast2StreamWriter *w, bint parallel)
+    void east_beast2_writer_emitted_bounds(Beast2StreamWriter *w, size_t *lo, size_t *hi)
+    bint east_beast2_writer_settle(Beast2StreamWriter *w)
 
     ctypedef struct Beast2SegmentReader:
         pass

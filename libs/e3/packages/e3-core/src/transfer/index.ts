@@ -19,6 +19,7 @@ export {
 
 // Interfaces
 export {
+  type DatasetPartUpload,
   type DatasetUploadStore,
   type DatasetDownloadStore,
   type PackageImportStore,
@@ -28,6 +29,7 @@ export {
 
 // InMemory implementation
 export {
+  DEFAULT_TRANSFER_PART_BYTES,
   InMemoryTransferBackend,
   type InMemoryTransferBackendOptions,
 } from './InMemoryTransferBackend.js';

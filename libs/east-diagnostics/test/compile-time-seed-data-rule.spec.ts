@@ -27,7 +27,7 @@ function rule(body: string) {
   return analyze(BASE + body).filter((d) => d.ruleName === RULE);
 }
 /** A one-liner `e3.input` with an INLINE seed expression. */
-const inp = (type: string, seed: string, name = "x") => `export const d = e3.input("${name}", ${type}, ${seed});\n`;
+const inp = (type: string, seed: string, name = "x") => `export const d = e3.input("${name}", ${type}, variant("value", ${seed}));\n`;
 
 // ===========================================================================
 // SILENT — authored constant seeds, across every East type.
@@ -96,19 +96,19 @@ test("silent: template label with a constant identifier substitution (ROLE_LIST 
 
 // ── named-but-static identifier seeds ──────────────────────────────────────
 test("silent: identifier seed resolving to an all-literal object", () => {
-  const body = `const def = { a: 1n, b: 2n };\n` + `export const d = e3.input("x", StructType({ a: IntegerType, b: IntegerType }), def);\n`;
+  const body = `const def = { a: 1n, b: 2n };\n` + `export const d = e3.input("x", StructType({ a: IntegerType, b: IntegerType }), variant("value", def));\n`;
   assert.equal(rule(body).length, 0);
 });
 test("silent: identifier seed = Map with literal entries, never mutated", () => {
-  const body = `const m = new Map([["a", 1n]]);\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), m);\n`;
+  const body = `const m = new Map([["a", 1n]]);\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), variant("value", m));\n`;
   assert.equal(rule(body).length, 0);
 });
 test("silent: identifier seed = empty Map, never filled", () => {
-  const body = `const m = new Map();\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), m);\n`;
+  const body = `const m = new Map();\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), variant("value", m));\n`;
   assert.equal(rule(body).length, 0);
 });
 test("silent: imperative LITERAL fill outside any loop (authored Map)", () => {
-  const body = `const m = new Map();\nm.set("a", 1n);\nm.set("b", 2n);\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), m);\n`;
+  const body = `const m = new Map();\nm.set("a", 1n);\nm.set("b", 2n);\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), variant("value", m));\n`;
   assert.equal(rule(body).length, 0);
 });
 test("silent: literal seed wrapped in `as const`", () => assert.equal(rule(inp("StructType({ a: IntegerType })", "{ a: 1n } as const")).length, 0));
@@ -129,20 +129,20 @@ test("silent: a host-filled value handed to e3.task (not e3.input)", () => {
   assert.equal(rule(body).length, 0);
 });
 test("silent: unrelated local `input` function (not the e3 import)", () => {
-  const body = `function input(_a: string, _b: unknown, _c: unknown) { return 0; }\nconst m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const d = input("x", DictType(StringType, IntegerType), m);\n`;
+  const body = `function input(_a: string, _b: unknown, _c: unknown) { return 0; }\nconst m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const d = input("x", DictType(StringType, IntegerType), variant("value", m));\n`;
   assert.equal(rule(body).length, 0);
 });
 test("silent: a local object literal named `e3` with an `input` method", () => {
-  const body = `const e3local = { input: (_a: string, _b: unknown, _c: unknown) => 0 };\nconst m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const d = e3local.input("x", DictType(StringType, IntegerType), m);\n`;
+  const body = `const e3local = { input: (_a: string, _b: unknown, _c: unknown) => 0 };\nconst m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const d = e3local.input("x", DictType(StringType, IntegerType), variant("value", m));\n`;
   // (renamed receiver so the `e3` default import isn't shadowed in the fixture)
   assert.equal(rule(body).length, 0);
 });
 test("silent: opaque imported seed (unresolvable to a local literal)", () => {
-  const body = `import { seed } from "./elsewhere.js";\n` + `export const d = e3.input("x", IntegerType, seed as any);\n`;
+  const body = `import { seed } from "./elsewhere.js";\n` + `export const d = e3.input("x", IntegerType, variant("value", seed as any));\n`;
   assert.equal(rule(body).length, 0);
 });
 test("silent: aliased default import with a literal seed", () => {
-  const body = `import myE3 from "@elaraai/e3";\n` + `export const d = myE3.input("x", IntegerType, 5n);\n`;
+  const body = `import myE3 from "@elaraai/e3";\n` + `export const d = myE3.input("x", IntegerType, variant("value", 5n));\n`;
   assert.equal(rule(body).length, 0);
 });
 
@@ -172,47 +172,70 @@ test("fires: inline new (non-value-ctor) class", () => {
 
 // ── identifier seed, host-computed initializer ─────────────────────────────
 test("fires: identifier seed = a bare host call", () => {
-  const body = `const s = buildSeed();\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), s);\n`;
+  const body = `const s = buildSeed();\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), variant("value", s));\n`;
   assert.equal(rule(body).length, 1);
 });
 test("fires: identifier seed = object literal of host calls (the leversSeed shape)", () => {
-  const body = `const s = { a: num("1"), b: num("2") };\n` + `export const d = e3.input("x", StructType({ a: FloatType, b: FloatType }), s);\n`;
+  const body = `const s = { a: num("1"), b: num("2") };\n` + `export const d = e3.input("x", StructType({ a: FloatType, b: FloatType }), variant("value", s));\n`;
   assert.equal(rule(body).length, 1);
 });
 test("fires: identifier seed = struct with BigInt(Math.round(num(...))) (the engineSeed shape)", () => {
-  const body = `const s = { seed: BigInt(Math.round(num("42"))) };\n` + `export const d = e3.input("x", StructType({ seed: IntegerType }), s);\n`;
+  const body = `const s = { seed: BigInt(Math.round(num("42"))) };\n` + `export const d = e3.input("x", StructType({ seed: IntegerType }), variant("value", s));\n`;
   assert.equal(rule(body).length, 1);
 });
 
 // ── identifier seed, host-FILLED (loop / host-valued mutation) ──────────────
 test("fires: empty Map filled by a for-of loop", () => {
-  const body = `const m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), m);\n`;
+  const body = `const m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), variant("value", m));\n`;
   assert.equal(rule(body).length, 1);
 });
 test("fires: empty Map filled by a loop over readCsv() with host-call values", () => {
-  const body = `const m = new Map();\nfor (const r of readCsv("a")) m.set(r.k, num(r.v));\n` + `export const d = e3.input("x", DictType(StringType, FloatType), m);\n`;
+  const body = `const m = new Map();\nfor (const r of readCsv("a")) m.set(r.k, num(r.v));\n` + `export const d = e3.input("x", DictType(StringType, FloatType), variant("value", m));\n`;
   assert.equal(rule(body).length, 1);
 });
 test("fires: empty array filled by a counting for-loop push", () => {
-  const body = `const a: bigint[] = [];\nfor (let i = 0n; i < 3n; i++) a.push(i);\n` + `export const d = e3.input("x", ArrayType(IntegerType), a);\n`;
+  const body = `const a: bigint[] = [];\nfor (let i = 0n; i < 3n; i++) a.push(i);\n` + `export const d = e3.input("x", ArrayType(IntegerType), variant("value", a));\n`;
   assert.equal(rule(body).length, 1);
 });
 test("fires: Map .set with a host-call value OUTSIDE a loop", () => {
-  const body = `const m = new Map();\nm.set("a", num("1"));\n` + `export const d = e3.input("x", DictType(StringType, FloatType), m);\n`;
+  const body = `const m = new Map();\nm.set("a", num("1"));\n` + `export const d = e3.input("x", DictType(StringType, FloatType), variant("value", m));\n`;
   assert.equal(rule(body).length, 1);
 });
 test("fires: object filled by element-access assignment inside a loop", () => {
-  const body = `const o: any = {};\nfor (const k of ks) o[k] = 0;\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), o);\n`;
+  const body = `const o: any = {};\nfor (const k of ks) o[k] = 0;\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), variant("value", o));\n`;
   assert.equal(rule(body).length, 1);
 });
 test("fires: aliased default import with a host-filled seed (alias-robust)", () => {
-  const body = `import myE3 from "@elaraai/e3";\nconst m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const d = myE3.input("x", DictType(StringType, IntegerType), m);\n`;
+  const body = `import myE3 from "@elaraai/e3";\nconst m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const d = myE3.input("x", DictType(StringType, IntegerType), variant("value", m));\n`;
   assert.equal(rule(body).length, 1);
+});
+
+// ── the source variant: only an inline `value` seed carries data ────────────
+test("silent: a file source carries no data — bulk data belongs there", () => {
+  assert.equal(rule(`export const d = e3.input("x", ArrayType(IntegerType), variant("file", "./deliveries/TABLE.beast2"));\n`).length, 0);
+});
+test("fires: the message names the file source as the remedy", () => {
+  const hits = rule(inp("DictType(StringType, IntegerType)", "buildSeed()"));
+  assert.equal(hits.length, 1);
+  assert.match(String(hits[0]!.messageText), /variant\('file', path\)/);
+});
+test("fires through an aliased variant import", () => {
+  const body =
+    `import { variant as v } from "@elaraai/east";\n` +
+    `const s = buildSeed();\n` +
+    `export const d = e3.input("x", DictType(StringType, IntegerType), v("value", s));\n`;
+  assert.equal(rule(body).length, 1);
+});
+test("silent: an aliased file source", () => {
+  const body =
+    `import { variant as v } from "@elaraai/east";\n` +
+    `export const d = e3.input("x", ArrayType(IntegerType), v("file", "./t.beast2"));\n`;
+  assert.equal(rule(body).length, 0);
 });
 
 // ── exactly-one-diagnostic + the full inputs.ts pattern ────────────────────
 test("fires exactly once per e3.input (no duplicate diagnostics)", () => {
-  const body = `const m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), m);\n`;
+  const body = `const m = new Map();\nfor (const k of ks) m.set(k, 0);\n` + `export const d = e3.input("x", DictType(StringType, IntegerType), variant("value", m));\n`;
   const hits = rule(body);
   assert.equal(hits.length, 1);
   assert.equal(hits[0]!.ruleName, RULE);
@@ -223,14 +246,14 @@ test("fires: the real inputs.ts pattern — Cartesian prefill + CSV overlay + ke
     `const fy26Seed = new Map<string, number>();\n` +
     `for (const o of BUS) for (const l of ROLES) fy26Seed.set(buRoleKey(o, l), 0);\n` +
     `for (const r of readCsv("fy26.csv")) fy26Seed.set(buRoleKey(r.business_unit, r.role), num(r.hours));\n` +
-    `export const fy26 = e3.input("fy26_actuals", DictType(StringType, FloatType), fy26Seed);\n`;
+    `export const fy26 = e3.input("fy26_actuals", DictType(StringType, FloatType), variant("value", fy26Seed));\n`;
   assert.equal(rule(body).length, 1);
 });
 test("fires: two host-built inputs in one file → two diagnostics", () => {
   const body =
     `const a = new Map();\nfor (const k of ks) a.set(k, 0);\n` +
     `const b = { x: num("1") };\n` +
-    `export const da = e3.input("a", DictType(StringType, IntegerType), a);\n` +
-    `export const db = e3.input("b", StructType({ x: FloatType }), b);\n`;
+    `export const da = e3.input("a", DictType(StringType, IntegerType), variant("value", a));\n` +
+    `export const db = e3.input("b", StructType({ x: FloatType }), variant("value", b));\n`;
   assert.equal(rule(body).length, 2);
 });

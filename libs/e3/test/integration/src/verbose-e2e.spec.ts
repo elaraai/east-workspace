@@ -31,7 +31,7 @@ import { join, dirname, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
 import e3 from '@elaraai/e3';
-import { IntegerType, East, encodeBeast2For, none } from '@elaraai/east';
+import { IntegerType, East, encodeBeast2For, none, variant } from '@elaraai/east';
 import { createServer, type Server } from '@elaraai/e3-api-server';
 import { functionCall } from '@elaraai/e3-api-client';
 import { repoInit, packageImport, LocalStorage } from '@elaraai/e3-core';
@@ -63,7 +63,7 @@ describe('e3 dataflow run -v (east-c)', () => {
   it('-v is cache-safe and its verbose output reaches the task logs',
     { skip: hasEastC ? false : 'east-c not built' }, async () => {
       // --- deploy a single east-c task: doubled = n * 2 ---------------------
-      const n = e3.input('n', IntegerType, 5n);
+      const n = e3.input('n', IntegerType, variant('value', 5n));
       const doubled = e3.task(
         'doubled', [n],
         East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),

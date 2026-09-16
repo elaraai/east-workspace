@@ -58,7 +58,12 @@ export {
   objectExists,
 } from './storage/local/LocalObjectStore.js';
 
-export { objectPath, objectAbbrev } from './storage/local/localHelpers.js';
+export {
+  objectPath,
+  objectAbbrev,
+  transferStagingDir,
+  transferStagingPath,
+} from './storage/local/localHelpers.js';
 
 // Package operations
 export {
@@ -107,8 +112,20 @@ export {
   treeWrite,
   datasetRead,
   datasetWrite,
+  workspaceResolveDataset,
+  type DatasetLeaf,
+  type WorkspaceGetDatasetStatusOptions,
   type TreeObject,
 } from './trees.js';
+
+// Taking an existing file into a workspace as a dataset value (#765)
+export {
+  datasetAdoptFile,
+  datasetAdoptObject,
+  objectAdoptFile,
+  type DatasetAdoptOptions,
+  type DatasetAdoptResult,
+} from './dataset-adopt.js';
 
 // Tree and dataset operations (high-level, by path)
 export {
@@ -310,6 +327,7 @@ export {
   // Dataset
   DatasetNotFoundError,
   DatasetRefConflictError,
+  DatasetTypeMismatchError,
   // Task
   TaskNotFoundError,
   // Object

@@ -34,6 +34,17 @@ export function resolvesToEastImport(id: ts.Identifier, checker: ts.TypeChecker,
   return imp !== undefined && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text.startsWith("@elaraai/");
 }
 
+/** The name `id`'s binding is EXPORTED under by the module it is imported from —
+ * `variant` for `import { variant as v }` — or undefined when `id` is not bound by
+ * a named import (a namespace or default import, a local declaration). A rule that
+ * keys on an API's name reads it here, so an alias cannot hide the call. */
+export function importedNameOf(id: ts.Identifier, checker: ts.TypeChecker, t: TsModule): string | undefined {
+  for (const d of checker.getSymbolAtLocation(id)?.declarations ?? []) {
+    if (t.isImportSpecifier(d)) return (d.propertyName ?? d.name).text;
+  }
+  return undefined;
+}
+
 // File-level "is this East/e3 source?" detection. Several rules describe abuses
 // that only make sense inside an East/e3 program (baking build-time data, building
 // East IR in a module-scope macro); gating them on a real `@elaraai/*` import keeps

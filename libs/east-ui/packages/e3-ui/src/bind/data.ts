@@ -293,12 +293,12 @@ export interface DataBindOptions {
  *
  * @example
  * ```ts
- * import { East, FloatType, NullType } from "@elaraai/east";
+ * import { East, FloatType, NullType, variant } from "@elaraai/east";
  * import { Reactive, Slider, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Diff } from "@elaraai/e3-ui";
  * import * as e3 from "@elaraai/e3";
  *
- * const thresholdInput = e3.input("threshold", FloatType, 38.0);
+ * const thresholdInput = e3.input("threshold", FloatType, variant("value", 38.0));
  *
  * // Mirrors `dataBindStaged` in test/data.examples.ts.
  * const dataBindStaged = East.function([], UIComponentType, _$ => {
@@ -457,14 +457,14 @@ export const DataPagedPrimitives = {
  *
  * @example
  * ```ts
- * import { ArrayType, DictType, East, StringType } from "@elaraai/east";
+ * import { ArrayType, DictType, East, StringType, variant } from "@elaraai/east";
  * import { Plan, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Data } from "@elaraai/e3-ui";
  * import * as e3 from "@elaraai/e3";
  *
  * // KEYED, because the Plan's canvas rows inherit the dataset's keys — the
  * // same key space `page` windows and `seek` searches.
- * const ops = e3.input("ops", DictType(StringType, OpsRow), new Map());
+ * const ops = e3.input("ops", DictType(StringType, OpsRow), variant("value", new Map()));
  *
  * // Mirrors `dataBindPagedPlan` in test/bind/data/data.examples.tsx.
  * const dataBindPagedPlan = East.function([], UIComponentType, _$ => {

@@ -35,7 +35,7 @@ import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
 
 // SDK imports
 import e3 from '@elaraai/e3';
-import { IntegerType, StringType, East } from '@elaraai/east';
+import { IntegerType, StringType, East, variant } from '@elaraai/east';
 
 describe('end-to-end workflow', () => {
   let testDir: string;
@@ -60,8 +60,8 @@ describe('end-to-end workflow', () => {
       // =====================================================================
 
       // Define inputs
-      const input_a = e3.input('a', IntegerType, 10n);
-      const input_b = e3.input('b', IntegerType, 5n);
+      const input_a = e3.input('a', IntegerType, variant('value', 10n));
+      const input_b = e3.input('b', IntegerType, variant('value', 5n));
 
       // Left branch: computes a + b
       const task_left = e3.task(
@@ -229,7 +229,7 @@ describe('end-to-end workflow', () => {
 
     it('handles input value changes and re-execution', async () => {
       // Create a simple package with one task
-      const input_x = e3.input('x', IntegerType, 10n);
+      const input_x = e3.input('x', IntegerType, variant('value', 10n));
       const task_double = e3.task(
         'double',
         [input_x],
@@ -285,7 +285,7 @@ describe('end-to-end workflow', () => {
       // Create a custom task that uses bash to transform data
       // This simulates a task that might call external tools like Python
 
-      const input_text = e3.input('text', StringType, 'hello');
+      const input_text = e3.input('text', StringType, variant('value', 'hello'));
 
       // Custom task that uses bash to uppercase the input
       // The command function receives input paths and output path
@@ -326,7 +326,7 @@ describe('end-to-end workflow', () => {
   describe('mixed East and custom tasks', () => {
     it('executes workflow with both task types', async () => {
       // Input: a number
-      const input_n = e3.input('n', IntegerType, 7n);
+      const input_n = e3.input('n', IntegerType, variant('value', 7n));
 
       // East task: compute n * 2
       const task_double = e3.task(
@@ -383,7 +383,7 @@ describe('end-to-end workflow', () => {
   describe('status command', () => {
     it('shows dataset status detail', async () => {
       // Create a simple package with one task
-      const input_x = e3.input('x', IntegerType, 10n);
+      const input_x = e3.input('x', IntegerType, variant('value', 10n));
       const task_double = e3.task(
         'double',
         [input_x],
@@ -444,7 +444,7 @@ describe('end-to-end workflow', () => {
     });
 
     it('reports error for non-existent field', async () => {
-      const input_x = e3.input('x', IntegerType, 10n);
+      const input_x = e3.input('x', IntegerType, variant('value', 10n));
       const pkg = e3.package('status-err-field', '1.0.0', input_x);
       await e3.export(pkg, packageZipPath);
 
@@ -460,7 +460,7 @@ describe('end-to-end workflow', () => {
     });
 
     it('reports error when path points to tree', async () => {
-      const input_x = e3.input('x', IntegerType, 10n);
+      const input_x = e3.input('x', IntegerType, variant('value', 10n));
       const pkg = e3.package('status-err-tree', '1.0.0', input_x);
       await e3.export(pkg, packageZipPath);
 
@@ -481,7 +481,7 @@ describe('end-to-end workflow', () => {
 
   describe('per-dataset ref files', () => {
     it('creates ref files after deploy', async () => {
-      const input_x = e3.input('x', IntegerType, 10n);
+      const input_x = e3.input('x', IntegerType, variant('value', 10n));
       const task_double = e3.task(
         'double',
         [input_x],
@@ -519,7 +519,7 @@ describe('end-to-end workflow', () => {
     });
 
     it('updates ref files after set', async () => {
-      const input_x = e3.input('x', IntegerType, 10n);
+      const input_x = e3.input('x', IntegerType, variant('value', 10n));
       const pkg = e3.package('ref-set-test', '1.0.0', input_x);
       await e3.export(pkg, packageZipPath);
 
@@ -548,7 +548,7 @@ describe('end-to-end workflow', () => {
     });
 
     it('populates task output refs after start', async () => {
-      const input_x = e3.input('x', IntegerType, 10n);
+      const input_x = e3.input('x', IntegerType, variant('value', 10n));
       const task_double = e3.task(
         'double',
         [input_x],
@@ -634,9 +634,9 @@ describe('reactive caching — change one input, only its tasks recompute', () =
   it('changing one input re-runs only its task; the independent tasks stay CACHED', async () => {
     // customTasks (bash) need no runtime runner, so this is self-contained.
     // Each task copies its own input to its output — an independent branch.
-    const a = e3.input('a', StringType, 'a1');
-    const b = e3.input('b', StringType, 'b1');
-    const c = e3.input('c', StringType, 'c1');
+    const a = e3.input('a', StringType, variant('value', 'a1'));
+    const b = e3.input('b', StringType, variant('value', 'b1'));
+    const c = e3.input('c', StringType, variant('value', 'c1'));
     const taskA = e3.customTask('task_a', [a], StringType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
     const taskB = e3.customTask('task_b', [b], StringType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
     const taskC = e3.customTask('task_c', [c], StringType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
@@ -681,7 +681,7 @@ describe('reactive caching — change one input, only its tasks recompute', () =
   it('mutating a record re-runs the task that reads it; an independent task stays CACHED', async () => {
     const counter = e3.record('counter', IntegerType, 0n);
     const inc = e3.mutation('inc', counter, East.function([IntegerType], IntegerType, ($, s) => s.add(1n)));
-    const otherIn = e3.input('other_in', StringType, 'x1');
+    const otherIn = e3.input('other_in', StringType, variant('value', 'x1'));
     // customTasks read their inputs directly; reads_counter depends on the record.
     const readsCounter = e3.customTask('reads_counter', [counter], IntegerType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
     const independent = e3.customTask('independent', [otherIn], StringType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);

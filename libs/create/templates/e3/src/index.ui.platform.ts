@@ -1,13 +1,13 @@
 import e3 from "@elaraai/e3";
-import { East, FloatType, IntegerType } from "@elaraai/east";
+import { East, FloatType, IntegerType, variant } from "@elaraai/east";
 
 import { surface } from "./ui/index.js";
 import { exampleNode } from "./platform/index.js";
 
 // In East a decision is a typed task over inputs. This one recommends how many
 // units to reorder to bring stock up to its target level — never negative.
-export const onHandInput = e3.input("on_hand", IntegerType, 12n);
-export const targetInput = e3.input("reorder_to", IntegerType, 50n);
+export const onHandInput = e3.input("on_hand", IntegerType, variant("value", 12n));
+export const targetInput = e3.input("reorder_to", IntegerType, variant("value", 50n));
 
 export const reorderFn = East.function(
   [IntegerType, IntegerType],
@@ -23,7 +23,7 @@ export const reorderQty = e3.task("reorder_qty", [onHandInput, targetInput], reo
 // An example project-owned TS-East platform function on the east-node runtime.
 // `{ custom: "@elaraai/__PROJECT_NAME__" }` loads this package's own `./platform`
 // export. Replace `exampleNode` (src/platform/example.ts) with your own.
-export const exampleFactorInput = e3.input("example_factor", FloatType, 1.5);
+export const exampleFactorInput = e3.input("example_factor", FloatType, variant("value", 1.5));
 
 export const exampleNodeFn = East.function(
   [IntegerType, FloatType],

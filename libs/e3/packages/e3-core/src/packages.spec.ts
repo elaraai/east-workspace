@@ -11,7 +11,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { StringType, IntegerType, East } from '@elaraai/east';
+import { StringType, IntegerType, East, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
   packageImport,
@@ -61,7 +61,7 @@ describe('packages', () => {
     });
 
     it('imports package with input dataset', async () => {
-      const myInput = e3.input('greeting', StringType, 'hello');
+      const myInput = e3.input('greeting', StringType, variant('value', 'hello'));
       const pkg = e3.package('input-pkg', '2.0.0', myInput);
       const zipPath = join(tempDir, 'input.zip');
       await e3.export(pkg, zipPath);
@@ -251,7 +251,7 @@ describe('packages', () => {
     });
 
     it('exports package with input dataset', async () => {
-      const myInput = e3.input('greeting', StringType, 'hello');
+      const myInput = e3.input('greeting', StringType, variant('value', 'hello'));
       const pkg = e3.package('export-input', '1.0.0', myInput);
       const importZip = join(tempDir, 'import-input.zip');
       await e3.export(pkg, importZip);
@@ -264,7 +264,7 @@ describe('packages', () => {
     });
 
     it('produces zip with same content as original', async () => {
-      const myInput = e3.input('name', StringType, 'world');
+      const myInput = e3.input('name', StringType, variant('value', 'world'));
       const pkg = e3.package('roundtrip', '1.0.0', myInput);
       const originalZip = join(tempDir, 'original.zip');
       await e3.export(pkg, originalZip);
@@ -313,7 +313,7 @@ describe('packages', () => {
   describe('packages with tasks', () => {
     it('imports and reads package with single East task', async () => {
       // Create package with a single task
-      const input_x = e3.input('x', IntegerType, 10n);
+      const input_x = e3.input('x', IntegerType, variant('value', 10n));
       const task_double = e3.task(
         'double',
         [input_x],
@@ -341,8 +341,8 @@ describe('packages', () => {
 
     it('imports and reads package with two tasks (simpler than diamond)', async () => {
       // Simpler test: two independent tasks to isolate the issue
-      const input_a = e3.input('a', IntegerType, 10n);
-      const input_b = e3.input('b', IntegerType, 5n);
+      const input_a = e3.input('a', IntegerType, variant('value', 10n));
+      const input_b = e3.input('b', IntegerType, variant('value', 5n));
 
       const task_left = e3.task(
         'left',
@@ -385,8 +385,8 @@ describe('packages', () => {
     it('imports and reads package with diamond dependency (multiple tasks)', async () => {
       // Create diamond dependency pattern:
       // input_a, input_b -> task_left, task_right -> task_merge
-      const input_a = e3.input('a', IntegerType, 10n);
-      const input_b = e3.input('b', IntegerType, 5n);
+      const input_a = e3.input('a', IntegerType, variant('value', 10n));
+      const input_b = e3.input('b', IntegerType, variant('value', 5n));
 
       const task_left = e3.task(
         'left',
@@ -443,7 +443,7 @@ describe('packages', () => {
     });
 
     it('roundtrip export of package with tasks preserves content', async () => {
-      const input_x = e3.input('x', IntegerType, 10n);
+      const input_x = e3.input('x', IntegerType, variant('value', 10n));
       const task_double = e3.task(
         'double',
         [input_x],

@@ -1,10 +1,10 @@
 import e3 from "@elaraai/e3";
-import { East, IntegerType } from "@elaraai/east";
+import { East, IntegerType, variant } from "@elaraai/east";
 
 // In East a decision is a typed task over inputs. This one recommends how many
 // units to reorder to bring stock up to its target level — never negative.
-export const onHandInput = e3.input("on_hand", IntegerType, 12n);
-export const targetInput = e3.input("reorder_to", IntegerType, 50n);
+export const onHandInput = e3.input("on_hand", IntegerType, variant("value", 12n));
+export const targetInput = e3.input("reorder_to", IntegerType, variant("value", 50n));
 
 export const reorderFn = East.function(
   [IntegerType, IntegerType],

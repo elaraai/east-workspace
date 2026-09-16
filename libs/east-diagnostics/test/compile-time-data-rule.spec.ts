@@ -11,8 +11,8 @@ const RULE = "no-compile-time-data-injection";
 // `@elaraai/*` AND declaring a program (an e3 definition / East factory).
 // Plain Node scripts and host-side TOOLING are out of scope.
 const EAST =
-  `import e3 from "@elaraai/e3";\nimport { IntegerType } from "@elaraai/east";\n` +
-  `export const counter = e3.input("counter", IntegerType, 0n);\n`;
+  `import e3 from "@elaraai/e3";\nimport { IntegerType, variant } from "@elaraai/east";\n` +
+  `export const counter = e3.input("counter", IntegerType, variant("value", 0n));\n`;
 
 function rule(source: string) {
   return analyze(source).filter((d) => d.ruleName === RULE);

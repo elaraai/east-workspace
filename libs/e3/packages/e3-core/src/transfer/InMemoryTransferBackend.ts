@@ -21,6 +21,7 @@ import { variant } from '@elaraai/east';
 import type { StorageBackend } from '../storage/index.js';
 import type {
   TransferBackend,
+  DatasetPartUpload,
   DatasetUploadStore,
   DatasetDownloadStore,
   PackageImportStore,
@@ -31,14 +32,18 @@ import { handleProcessExport, handleProcessImport } from './process.js';
 
 const STAGING_DIR = join(tmpdir(), 'e3-transfers');
 
+/** The part size a protocol-2 dataset upload is planned with by default. */
+export const DEFAULT_TRANSFER_PART_BYTES = 64 * 1024 * 1024;
+
 // =============================================================================
 // Dataset Upload
 // =============================================================================
 
 class InMemoryDatasetUploadStore implements DatasetUploadStore {
   private readonly records = new Map<string, DatasetUpload>();
+  private readonly partPlans = new Map<string, bigint>();
 
-  constructor(private readonly baseUrl: string) {}
+  constructor(private readonly baseUrl: string, private readonly partBytes: bigint) {}
 
   async create(id: string, record: DatasetUpload): Promise<void> {
     this.records.set(id, record);
@@ -50,19 +55,37 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
 
   async delete(id: string): Promise<void> {
     this.records.delete(id);
+    this.partPlans.delete(id);
   }
 
   async getUploadUrl(id: string, _repo: string, _hash: string): Promise<string> {
     return `${this.baseUrl}/api/uploads/${id}`;
   }
 
+  async createParts(id: string, _record: DatasetUpload): Promise<bigint> {
+    this.partPlans.set(id, this.partBytes);
+    return this.partBytes;
+  }
+
+  async getPartBytes(id: string): Promise<bigint | null> {
+    return this.partPlans.get(id) ?? null;
+  }
+
+  async getPartUpload(id: string, _record: DatasetUpload, part: number): Promise<DatasetPartUpload> {
+    // The server streams a part straight to its offset in the staged file, so
+    // it needs no headers beyond the bytes' own length.
+    return { url: `${this.baseUrl}/api/uploads/${id}/parts/${part}`, headers: {} };
+  }
+
   async commitObject(_repo: string, _hash: string, uploadId: string): Promise<void> {
     // Mock — just remove the record. Real verification happens in integration tests.
     this.records.delete(uploadId);
+    this.partPlans.delete(uploadId);
   }
 
   clear(): void {
     this.records.clear();
+    this.partPlans.clear();
   }
 }
 
@@ -241,6 +264,11 @@ export interface InMemoryTransferBackendOptions {
   baseUrl?: string;
   storage?: StorageBackend;
   getRepoPath?: (repo: string) => string;
+  /**
+   * The part size protocol-2 dataset uploads are planned with (default
+   * {@link DEFAULT_TRANSFER_PART_BYTES}). An upload no larger is one part.
+   */
+  partBytes?: number;
 }
 
 export class InMemoryTransferBackend implements TransferBackend {
@@ -251,7 +279,11 @@ export class InMemoryTransferBackend implements TransferBackend {
 
   constructor(options: InMemoryTransferBackendOptions) {
     const baseUrl = options.baseUrl ?? '';
-    this.datasetUpload = new InMemoryDatasetUploadStore(baseUrl);
+    const partBytes = options.partBytes ?? DEFAULT_TRANSFER_PART_BYTES;
+    if (!Number.isSafeInteger(partBytes) || partBytes < 1) {
+      throw new Error(`partBytes must be a positive integer, got ${partBytes}`);
+    }
+    this.datasetUpload = new InMemoryDatasetUploadStore(baseUrl, BigInt(partBytes));
     this.datasetDownload = new InMemoryDatasetDownloadStore(baseUrl);
     this.packageImport = new InMemoryPackageImportStore(baseUrl, options.storage, options.getRepoPath);
     this.packageExport = new InMemoryPackageExportStore(baseUrl, options.storage, options.getRepoPath);

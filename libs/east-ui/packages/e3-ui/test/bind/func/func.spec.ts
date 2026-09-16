@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, FloatType, IntegerType, NullType, StringType } from "@elaraai/east";
+import { East, FloatType, IntegerType, NullType, StringType, variant } from "@elaraai/east";
 import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
 import { Func, Data, deriveManifest, decodeManifest, ui } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -102,7 +102,7 @@ describeEast("Func — manifest derivation", (test) => {
     });
 
     test("deriveManifest collects Data.bind paths and Func.bind names together", _ => {
-        const x = e3.input("x", FloatType, 0.0);
+        const x = e3.input("x", FloatType, variant("value", 0.0));
         const fn = East.function([], UIComponentType, _$ =>
             Reactive.Root(East.function([], UIComponentType, $ => {
                 const bound = $.let(Data.bind(x));

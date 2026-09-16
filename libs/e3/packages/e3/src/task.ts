@@ -154,7 +154,7 @@ function collectDeps(
  *
  * @example
  * ```ts
- * const input_name = e3.input('name', StringType, 'World');
+ * const input_name = e3.input('name', StringType, variant('value', 'World'));
  *
  * const say_hello = e3.task(
  *   'say_hello',
@@ -401,6 +401,28 @@ export interface PartitionTaskSpec<
    *  pairwise in a fixed tree order; when absent, each execution returns its
    *  shard of the output and the shards splice in partition order. */
   readonly combine?: ($: BlockBuilder<Output>, a: ExprType<Output>, b: ExprType<Output>) => SubtypeExprOrValue<Output> | void;
+  /**
+   * Per-key resolution for keyed partials that may collide — the third
+   * assembly mode, alongside splice and `combine`.
+   *
+   * @remarks
+   * Selects a SEGMENT MERGE: the orchestrator walks the partials by their
+   * segment fences in one pass, byte-copies every segment whose key range no
+   * other partial reaches (exactly what a splice does), and decodes, merges
+   * and re-encodes only the segments that actually overlap. There is no runner
+   * process and no whole-value fold, so disjoint partials — every re-key or
+   * per-entity aggregation whose partition key is a prefix of the output key —
+   * cost a byte splice, and overlapping ones cost only the overlap.
+   *
+   * A `Dict` output takes the function, called for a key present in two
+   * partials. A `Set` output takes the literal `'union'`: the elements are the
+   * merge. Mutually exclusive with {@link combine}, which stays the mode for
+   * non-collection outputs (KPIs, counts) and for authors who want a
+   * whole-value fold.
+   */
+  readonly merge?:
+    | (($: BlockBuilder<Output>, key: ExprType<PartitionByKey<Partitions>>, a: ExprType<Output>, b: ExprType<Output>) => SubtypeExprOrValue<Output> | void)
+    | 'union';
   /** Target carved-slice size in wire bytes. Defaults to 256 MiB. */
   readonly targetPartitionBytes?: number;
   /** Runtime the body runs on; defaults to {@link DEFAULT_RUNNER}. */
@@ -500,8 +522,9 @@ function projectionFieldPrefix(ir: FunctionIR): ProjectionShape | null {
  * Defines a partitioned task: e3 carves the huge partitioned input(s) into
  * key-range slices, runs `fn` once per partition as an ordinary
  * content-addressed execution (parallel, memoized per partition), and
- * assembles the output — by splicing shards in partition order, or by
- * folding partials pairwise when `combine` is given.
+ * assembles the output — by splicing shards in partition order, by merging
+ * keyed partials segment by segment when `merge` is given, or by folding
+ * partials pairwise when `combine` is given.
  *
  * `fn` always returns the output type: without `combine` each execution
  * returns its *shard* of the output (Array shards concatenate freely;
@@ -531,8 +554,9 @@ function projectionFieldPrefix(ir: FunctionIR): ProjectionShape | null {
  *   mix collection kinds (or include Arrays) under co-partitioning, key
  *   types cannot align, `by` (explicit or the implicit alignment under
  *   co-partitioning) does not read a leading prefix of every partitioned
- *   dataset's key, or the output is not a collection in splice mode (no
- *   `combine`).
+ *   dataset's key, the output is not a collection in splice mode (no
+ *   `combine`), or `merge` is given alongside `combine`, on an Array output,
+ *   or in the wrong form for the output's kind.
  *
  * @example
  * ```ts
@@ -712,8 +736,8 @@ export function partitionTask<
   if (spec.combine === undefined && output.type !== 'Array' && output.type !== 'Set' && output.type !== 'Dict') {
     throw new Error(
       `partitionTask '${name}': without \`combine\`, each partition returns a shard of the output and the shards ` +
-      `splice in partition order — the output must be a collection (Array, Set or Dict), got ${output.type}. ` +
-      `Provide \`combine\` to fold non-collection partials.`
+      `splice (or, with \`merge\`, merge) in key order — the output must be a collection (Array, Set or Dict), ` +
+      `got ${output.type}. Provide \`combine\` to fold non-collection partials.`
     );
   }
 
@@ -722,6 +746,38 @@ export function partitionTask<
   if (spec.combine !== undefined) {
     const combineFn = East.function([output, output], output, spec.combine as any);
     combineIr = encodeEastIR(combineFn.toIR());
+  }
+
+  // Reify `merge` as a free East function (Key, Value, Value) -> Value for a
+  // Dict output, or record the Set union flag. The orchestrator compiles the
+  // bundle in-process and calls it only for keys that actually collide.
+  let mergeIr: Uint8Array | undefined;
+  let mergeSets = false;
+  if (spec.merge !== undefined) {
+    if (spec.combine !== undefined) {
+      throw new Error(
+        `partitionTask '${name}': \`merge\` and \`combine\` are two assembly modes — give one. ` +
+        `\`merge\` walks the partials' segments in the orchestrator; \`combine\` folds whole partials through the runner.`
+      );
+    }
+    if (spec.merge === 'union') {
+      if (output.type !== 'Set') {
+        throw new Error(`partitionTask '${name}': \`merge: 'union'\` assembles a Set output, got ${output.type}` +
+          (output.type === 'Dict' ? ' — a Dict output takes a per-key merge function' : ''));
+      }
+      mergeSets = true;
+    } else {
+      if (output.type !== 'Dict') {
+        throw new Error(
+          `partitionTask '${name}': a \`merge\` FUNCTION resolves a key present in two partials, so the output must be a Dict, ` +
+          `got ${output.type}${output.type === 'Set' ? " — a Set output takes `merge: 'union'`" : ''}`
+        );
+      }
+      const keyType = (output as EastType & { key?: EastType }).key!;
+      const valueType = (output as EastType & { value?: EastType }).value!;
+      const mergeFn = East.function([keyType, valueType, valueType], valueType, spec.merge as any);
+      mergeIr = encodeEastIR(mergeFn.toIR());
+    }
   }
 
   const targetPartitionBytes = spec.targetPartitionBytes ?? DEFAULT_TARGET_PARTITION_BYTES;
@@ -740,6 +796,8 @@ export function partitionTask<
     by: byIr !== undefined ? some(byIr) : none,
     combine: combineIr !== undefined ? some(combineIr) : none,
     targetPartitionBytes: BigInt(targetPartitionBytes),
+    merge: mergeIr !== undefined ? some(mergeIr) : none,
+    mergeSets,
   });
 
   return task(

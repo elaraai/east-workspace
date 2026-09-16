@@ -89,6 +89,39 @@ export async function objectAbbrev(
 }
 
 /**
+ * The directory dataset uploads are staged in before they become objects.
+ *
+ * @remarks
+ * Under the REPOSITORY, not `os.tmpdir()`. A staged dataset becomes an object
+ * by link or rename (`ObjectStore.adoptFile`), and both are same-device
+ * operations — from a temp directory on another filesystem every commit would
+ * silently degrade to a whole-file copy, which for a multi-gigabyte delivery is
+ * the cost the transfer exists to avoid.
+ *
+ * Nothing clears this directory the way the OS clears its temp directory, so
+ * `repoGc` sweeps it: a `.partial` file older than gc's `minAge` is an upload
+ * that was never committed — a client that disconnected mid-upload, or a
+ * server that crashed before the commit.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @returns The absolute staging directory: `<repo>/tmp/transfers`
+ */
+export function transferStagingDir(repoPath: string): string {
+  return path.join(repoPath, 'tmp', 'transfers');
+}
+
+/**
+ * The staging path for one dataset upload, in {@link transferStagingDir}.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param id - The transfer's id
+ * @returns The absolute staging path: `<repo>/tmp/transfers/<id>.beast2.partial`
+ */
+export function transferStagingPath(repoPath: string, id: string): string {
+  return path.join(transferStagingDir(repoPath), `${id}.beast2.partial`);
+}
+
+/**
  * Errno codes Windows raises when an operation targets a path another handle has
  * open (a sharing violation), or when a just-deleted name briefly resists
  * re-creation. POSIX never raises these on rename-over-existing, so retrying is a

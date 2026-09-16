@@ -278,14 +278,13 @@ function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeV
 
     /** Opens a streaming file writer: header at open, terminator + index at
      *  `finishClose` — every finished file is a complete canonical blob. */
-    function openFileWriter(path: string): {
+    function openFileWriter(path: string, parallel = false): {
         writer: Beast2Writer;
-        bodyBytes: () => number;
+        nextBatch: (elements: number) => number;
         finishClose: () => void;
         closeAbandoned: () => void;
     } {
         const fd = openSync(path, 'w');
-        let bytesWritten = 0;
         let headerBytes = -1;
         const writer = new Beast2Writer(outTypeValue, (bytes) => {
             // writeSync may return a short count; loop until the chunk is
@@ -296,11 +295,25 @@ function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeV
                 written += writeSync(fd, bytes, written, bytes.length - written);
             }
             if (headerBytes < 0) headerBytes = bytes.length;
-            bytesWritten += bytes.length;
-        });
+        }, { parallel });
+        const refine = (bytes: number, elements: number): number => {
+            const avg = Math.max(1, Math.max(1, bytes - Math.max(0, headerBytes)) / elements);
+            return Math.max(1, Math.min(BEAST2_PAGED_BATCH_DEFAULT, Math.floor(BEAST2_PAGED_TARGET_BYTES_DEFAULT / avg)));
+        };
         return {
             writer,
-            bodyBytes: () => Math.max(1, bytesWritten - Math.max(0, headerBytes)),
+            // The next batch size after `elements` have been written. With
+            // frames deflating on workers (#763) the bytes written are only
+            // known within bounds; the refinement is monotone in them, so
+            // agreeing bounds are the serial decision and disagreeing ones
+            // wait for the frames — the segmentation never depends on timing.
+            nextBatch: (elements) => {
+                const { lo, hi } = writer.emittedBounds();
+                const next = refine(lo, elements);
+                if (next === refine(hi, elements)) return next;
+                writer.settle();
+                return refine(writer.emittedBounds().lo, elements);
+            },
             finishClose: () => { writer.finish(); closeSync(fd); },
             closeAbandoned: () => { closeSync(fd); },
         };
@@ -320,7 +333,7 @@ function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeV
     const toValue = (items: unknown[]): unknown =>
         kind === 'dict' ? new Map(items as [unknown, unknown][]) : kind === 'set' ? new Set(items) : items;
 
-    let out = openFileWriter(outputPath);
+    let out = openFileWriter(outputPath, true);
     let hasLast = false;
     let lastKey: unknown;
     let emitted = 0;
@@ -335,8 +348,7 @@ function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeV
         out.writer.write(toValue(batch) as never);
         written += batch.length;
         batch = [];
-        const avg = Math.max(1, out.bodyBytes() / written);
-        nextBatch = Math.max(1, Math.min(BEAST2_PAGED_BATCH_DEFAULT, Math.floor(BEAST2_PAGED_TARGET_BYTES_DEFAULT / avg)));
+        nextBatch = out.nextBatch(written);
     };
 
     // Out-of-order (spill/merge) state; `buffer === null` means the
@@ -411,7 +423,7 @@ function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeV
         iters.push(tail[Symbol.iterator]());
         const heads: (IteratorResult<unknown>)[] = iters.map((it) => it.next());
 
-        out = openFileWriter(outputPath);
+        out = openFileWriter(outputPath, true);
         let finished = false;
         try {
             let prevKey: unknown;
@@ -438,8 +450,7 @@ function createEmitSink(kind: 'array' | 'set' | 'dict', emitParamType: EastTypeV
                     out.writer.write(toValue(mergedBatch) as never);
                     merged += mergedBatch.length;
                     mergedBatch = [];
-                    const avg = Math.max(1, out.bodyBytes() / merged);
-                    next = Math.max(1, Math.min(BEAST2_PAGED_BATCH_DEFAULT, Math.floor(BEAST2_PAGED_TARGET_BYTES_DEFAULT / avg)));
+                    next = out.nextBatch(merged);
                 }
             }
             if (mergedBatch.length > 0) out.writer.write(toValue(mergedBatch) as never);

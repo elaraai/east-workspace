@@ -86,6 +86,7 @@ export {
   // Transfer types
   TransferUploadRequestType,
   TransferUploadResponseType,
+  TransferPartResponseType,
   TransferDoneResponseType,
   PackageImportStatusType,
   PackageExportStatusType,
@@ -146,6 +147,7 @@ export type {
   DatasetStatusDetail,
   TransferUploadRequest,
   TransferUploadResponse,
+  TransferPartResponse,
   TransferDoneResponse,
   PackageImportStatus,
   PackageExportStatus,
@@ -233,6 +235,7 @@ import {
   DatasetStatusDetailType,
   TransferUploadRequestType,
   TransferUploadResponseType,
+  TransferPartResponseType,
   TransferDoneResponseType,
   PackageImportStatusType,
   PackageExportStatusType,
@@ -336,6 +339,7 @@ export const ApiTypes = {
   // Transfer
   TransferUploadRequestType,
   TransferUploadResponseType,
+  TransferPartResponseType,
   TransferDoneResponseType,
   PackageImportStatusType,
   PackageExportStatusType,

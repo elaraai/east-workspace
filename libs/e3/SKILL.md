@@ -30,11 +30,11 @@ Nothing is injected for you; the search is the step.
 
 ```typescript
 // src/index.ts
-import { East, StringType } from '@elaraai/east';
+import { East, StringType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 
-// Define an input
-const name = e3.input('name', StringType, 'World');
+// Define an input (its initial value is a source: inline, or a file)
+const name = e3.input('name', StringType, variant('value', 'World'));
 
 // Define a task
 const greet = e3.task(
@@ -73,7 +73,7 @@ e3 dataset get . dev.greet
 Task → What do you need?
 │
 ├─ Authoring a package (SDK)
-│   ├─ Input dataset        → e3.input(name, type, default?)
+│   ├─ Input dataset        → e3.input(name, type, source?) — variant('value', v) | variant('file', path)
 │   ├─ Record (audited state)→ e3.record(name, type, initial)
 │   ├─ Mutation (reducer)    → e3.mutation(name, record, fn)
 │   ├─ East function task   → e3.task(name, [inputs], fn, config?)
@@ -114,6 +114,7 @@ Task → What do you need?
 ├─ Datasets (read / write values)
 │   ├─ Read a value         → e3 dataset get <repo> <ws.name> [-f east|json|beast2]
 │   ├─ Write a value        → e3 dataset set <repo> <ws.name> <file>
+│   ├─ Adopt a .beast2 file  → e3 dataset set <repo> <ws.name> --from-file <path> (by hash, never read whole)
 │   ├─ List all paths       → e3 dataset list <repo> <ws> [-l]
 │   ├─ Status (kind/type)   → e3 dataset status <repo> <ws.name>
 │   └─ Search               → e3 dataset find <repo> <ws> <pattern>
@@ -141,14 +142,51 @@ Task → What do you need?
 
 ## SDK Reference (@elaraai/e3)
 
-### e3.input(name, type, defaultValue?)
+### e3.input(name, type, source?)
 
 Define an input dataset. Addressed from the CLI as `<ws>.${name}` (storage path `<ws>/inputs/${name}` is internal).
 
+The third argument is always a **source variant** — there is no bare-value form:
+
+| Source | Meaning |
+|---|---|
+| `variant('value', v)` | An inline value, carried in the package. |
+| `variant('file', path)` | A beast2 file on the machine that **deploys** the package. The package carries only the path; deploy adopts the file into the object store **by hash** (reflink, hard link, or one kernel copy — never read whole, never modified). Relative paths resolve against the working directory at export. |
+| omitted | Unassigned until something sets it. |
+
 ```typescript
-const name = e3.input('name', StringType, 'default');
+const name = e3.input('name', StringType, variant('value', 'default'));
 const count = e3.input('count', IntegerType);
+// A large delivery — the file IS the value: a new delivery under the same path
+// is a new hash, so only its consumers re-run (and unchanged partitions of a
+// partitionTask stay cached).
+const table = e3.input('table', ArrayType(RowType), variant('file', './deliveries/TABLE.beast2'));
 ```
+
+A `file` source is checked twice against the declared type: at `e3.export`
+(a schema drift is a build error naming the input and the first differing
+field) and at deploy, before the workspace is touched (a missing or drifted
+delivery fails the deploy with the previous deployment intact). A collection
+delivery must be an indexed, self-contained v5 blob — the at-rest contract
+every collection dataset keeps, and what lets runners page it and
+`partitionTask` carve it. Deliveries are immutable by contract: the object may
+be a hard link to the file, so replace a delivery with a new file rather than
+editing it in place.
+
+A `file` source is read on the machine that runs `e3 workspace deploy`, local
+repository or not. Against a server — a package spec, `--from-zip` or
+`--from-source` alike — the CLI checks every delivery before it touches the
+remote workspace, then streams each over the transfer protocol after the
+deploy (an unchanged delivery costs a round trip, not its bytes). The server
+never opens a path, so a deploy made straight through the API leaves those
+inputs unset. `--skip-file-sources` deploys without reading them and prints the
+`e3 dataset set <repo> <ws>.<name> --from-file <path>` that completes each.
+
+Every door into a dataset — `e3 dataset set`, the API `PUT`, the transfer
+commit, a file adopt — checks the bytes' wire type **equals** the declared type
+(not merely assignable: runners decode by the declared type) and refuses a
+mismatch before writing anything, with the same one-line message everywhere.
+
 
 ### e3.task(name, inputs, fn, config?)
 
@@ -165,7 +203,9 @@ those carrying a `Ref` or a function; any operation the pager cannot serve
 hydrates once, transparently. Full mechanics under e3.streamTask below.
 
 Datasets stay inputs — the lazy open is already there, and only a dataset
-takes part in the dataflow's hashing and reactivity. Two in-expression
+takes part in the dataflow's hashing and reactivity. A large table delivered as
+a beast2 file becomes a dataset with `e3.input(name, T, variant('file', path))`
+(above), not a String path plus an open inside the body. Two in-expression
 opens give the same frozen, pager-served value for data that is NOT a
 dataset: `FileSystem.openBeast(T, path)` (the std family — every stock
 runner, so a python-authored function using it links into an east-c task)
@@ -372,9 +412,10 @@ image, as before.
 Define a task over huge collection datasets with bounded memory: e3 carves
 the partitioned input(s) into key-range slices, runs `fn` once per partition
 as an ordinary content-addressed execution (parallel, memoized per
-partition), and assembles the output — shards splice in partition order, or
-partials fold pairwise when `combine` is given. One task node, one output
-dataset; the dataflow graph is unchanged.
+partition), and assembles the output — shards splice in partition order,
+keyed partials merge segment by segment when `merge` is given, or partials
+fold pairwise when `combine` is given. One task node, one output dataset; the
+dataflow graph is unchanged.
 
 ```typescript
 const sales = e3.input('sales', DictType(SaleKeyType, SaleType));
@@ -399,6 +440,17 @@ const totals = e3.partitionTask('totals', {
   },
 }, ($, slice) => /* per-partition aggregation of `slice` */ ...);
 
+// Keyed partials that may share keys: `merge` resolves a key two partials
+// both produce. Assembled in the orchestrator by segment — disjoint segments
+// are byte-copied (a splice), only overlapping ones are decoded and rebuilt —
+// with no runner-side fold, so a re-run after an append costs the changed
+// partitions plus the merge. A Set output takes `merge: 'union'`.
+const latest = e3.partitionTask('latest', {
+  partitions: [events],
+  output: DictType(StringType, EventType),
+  merge: ($, _key, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),
+}, ($, slice) => /* per-partition map keyed by entity */ ...);
+
 // Co-partition two same-keyed datasets (reconcile / delta): 2+ entries in
 // `partitions` carve at shared boundary keys; each execution receives the
 // matching key-range slice of each.
@@ -418,18 +470,25 @@ each step is the first field of its level, or a struct literal of leading
 fields in declared order; validated at build time, any other body rejected),
 `inputs` (ordinary broadcast inputs — any change re-runs all partitions),
 `output` (a collection unless `combine` is given — splice mode assembles the
-output from shards), `combine` (associative fold; its presence is the whole
-mode switch), `targetPartitionBytes` (the only sizing knob, default 256
-MiB), `runner`, `environment`.
+output from shards), `merge` (for a Dict output, `($, key, a, b) => value`
+resolving a key present in two partials; for a Set output, `'union'` —
+selects the segment-merge assembly; mutually exclusive with `combine`, and
+refused on an Array output or in the wrong form for the output's kind),
+`combine` (associative fold over whole partials; its presence is the mode
+switch), `targetPartitionBytes` (the only sizing knob, default 256 MiB),
+`runner`, `environment`.
 
 Splice-mode contract: Array shards concatenate freely; Dict/Set shard key
 ranges must ascend disjointly in partition order (key-preserving and monotone
 re-keys qualify). A violation fails the task at splice naming the offending
 partitions — deliberately a runtime check, not build-time: whether an
 arbitrary body preserves key order is undecidable from types, and a static
-rule would false-reject permitted monotone re-keys. A PARALLEL huge→huge
-re-key needs `combine`, `customTask`, or future shuffle support (a one-pass
-re-key fits `streamTask` — its sink accepts any emission order). Partition memoization is append-friendly: appends and
+rule would false-reject permitted monotone re-keys. Shards whose key ranges
+may overlap — a re-key or per-entity aggregation whose partition key is not a
+prefix of the output key — take `merge` instead: it tolerates overlap,
+resolving each shared key once, and degenerates to a byte splice where the
+partials happen to be disjoint (a one-pass re-key also fits `streamTask` — its
+sink accepts any emission order). Partition memoization is append-friendly: appends and
 tail-localized changes re-run only the affected partitions, while a
 mid-key-space insertion re-runs partitions from the insertion point on.
 
@@ -493,13 +552,14 @@ Set elements are a runtime error.
 | Enrich against small references | `partitionTask` + `inputs` |
 | Enrich against another huge dataset (sparse keyed reads) | `partitionTask` + huge `inputs` entry (opened lazily) |
 | Aggregate huge → small (KPIs, counts, top-k) | `partitionTask` + `combine` |
+| Keyed partials that may collide (per-key latest/sum, entity rollups) | `partitionTask` + `merge` |
 | Per-entity sequential, parallel across entities | `partitionTask` + `by` |
 | Reconcile/delta two same-keyed huge datasets | `partitionTask`, 2+ `partitions` |
 | Global sequential state (running balances, replay, simulation) | `streamTask` |
 | Ingest from external sources | `streamTask` (no `stream`) |
 | Filter/sample huge → still-big | `partitionTask` |
 | Re-key huge → huge, one pass | `streamTask` (emit in any order; the sink sorts) |
-| Re-key huge → huge, parallel (shuffle) | not yet — `combine`, `customTask`, or re-key upstream |
+| Re-key huge → huge, parallel (shuffle) | `partitionTask` + `merge` (Dict/Set outputs) |
 | ML training / genuinely non-East work | `customTask` |
 
 ### e3.customTask(name, inputs, outputType, command)
@@ -630,6 +690,7 @@ e3 workspace deploy <repo> <ws> <pkg>[@<ver>]         # Deploy an imported packa
 e3 workspace deploy <repo> <ws> --from-zip <zip>      # Import + create + deploy in one shot
 e3 workspace deploy <repo> <ws> --from-source <src.ts> # Bundle TS source + import + create + deploy
 e3 workspace deploy <repo> <ws> --from-source <src.ts> --functions <manifest…>  # … plus manifests of imported packages built elsewhere (workspace ones resolve themselves)
+e3 workspace deploy <repo> <ws> … --skip-file-sources  # Any mode: leave `file`-source inputs unset (prints the dataset set that completes each)
 e3 workspace export <repo> <ws> <zipPath>             # Export workspace as a package
 e3 workspace list <repo>                              # List workspaces
 e3 workspace status <repo> <ws>                       # Detailed status (tasks, datasets, locks)
@@ -643,6 +704,7 @@ Paths use the flat form `<ws>.<name>`. The resolver maps `<name>` to its storage
 ```bash
 e3 dataset get <repo> <ws.name> [-f east|json|beast2]
 e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
+e3 dataset set <repo> <ws.name> --from-file <path.beast2>  # adopt by hash: streamed SHA-256, header checked, link/copy — never decoded
 e3 dataset list <repo> <ws> [-l]            # List dataset paths (-l adds columns)
 e3 dataset status <repo> <ws.name>          # Kind/type/status/size for one dataset
 e3 dataset find <repo> <ws> <pattern>       # Substring or glob (`*`, `?`) match

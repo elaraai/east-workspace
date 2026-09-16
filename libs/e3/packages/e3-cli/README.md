@@ -37,6 +37,7 @@ e3 package remove <repo> <pkg>            # Remove a package
 e3 workspace create <repo> <name>                            # Create empty workspace
 e3 workspace deploy <repo> <ws> <pkg>[@<ver>]                # Deploy a package
 e3 workspace deploy <repo> <ws> --from-zip <path.zip>        # Import + create + deploy in one shot
+e3 workspace deploy <repo> <ws> … --skip-file-sources        # Leave `file`-source inputs unset
 e3 workspace export <repo> <ws> <zip>                        # Export workspace as a package
 e3 workspace list <repo>                                     # List workspaces
 e3 workspace status <repo> <ws>                              # Detailed workspace status

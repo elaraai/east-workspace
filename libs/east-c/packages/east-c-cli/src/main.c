@@ -570,6 +570,11 @@ typedef struct {
     size_t next_batch;
     size_t written_elements;
     size_t written_bytes;
+    /* written_bytes at the current writer's creation. The batch refinement
+     * needs the total the sink WILL have written once every frame lands —
+     * writer_base + the writer's emitted total — which, with frames still
+     * deflating on the pool (#763), only the writer's bounds can give. */
+    size_t writer_base;
     size_t emitted;
     /* Out-of-order (spill/merge) state; `buffered` false means the
      * ascending fast path is still live. */
@@ -619,19 +624,40 @@ static bool emit_drain(EmitSink *s)
     return ok;
 }
 
-/* After a segment of `n` elements landed: the running average wire size
- * refines the next batch toward the byte target. written_bytes includes
- * the header — a slight average overestimate that only makes batches
- * marginally smaller. Shared by the value path and the raw merge so both
- * segment identically. */
-static void emit_adapt_batch(EmitSink *s, size_t n)
+/* The refinement: `bytes` written over `elements`, toward the byte target,
+ * clamped to the element cap. Non-increasing in `bytes`. */
+static size_t emit_next_batch(size_t bytes, size_t elements)
 {
-    s->written_elements += n;
-    size_t avg = s->written_bytes / (s->written_elements > 0 ? s->written_elements : 1);
+    size_t avg = bytes / (elements > 0 ? elements : 1);
     if (avg == 0) avg = 1;
     size_t next = EMIT_TARGET_BYTES / avg;
     if (next < 1) next = 1;
     if (next > EMIT_BATCH_CAP) next = EMIT_BATCH_CAP;
+    return next;
+}
+
+/* After a segment of `n` elements landed: the running average wire size
+ * refines the next batch toward the byte target. The byte count includes
+ * the header — a slight average overestimate that only makes batches
+ * marginally smaller. Shared by the value path and the raw merge so both
+ * segment identically.
+ *
+ * The frames may still be deflating on the writer's pool, so the exact byte
+ * count is not yet known: decide at both of the writer's bounds, and only
+ * when those decisions differ wait for the frames. The decision is monotone
+ * in the byte count, so agreeing bounds give exactly the decision a serial
+ * writer would have made — the segmentation, and every byte, is unchanged. */
+static void emit_adapt_batch(EmitSink *s, size_t n)
+{
+    s->written_elements += n;
+    size_t lo, hi;
+    east_beast2_writer_emitted_bounds(s->writer, &lo, &hi);
+    size_t next = emit_next_batch(s->writer_base + lo, s->written_elements);
+    if (next != emit_next_batch(s->writer_base + hi, s->written_elements)) {
+        east_beast2_writer_settle(s->writer);
+        east_beast2_writer_emitted_bounds(s->writer, &lo, &hi);
+        next = emit_next_batch(s->writer_base + lo, s->written_elements);
+    }
     s->next_batch = next;
 }
 
@@ -1038,6 +1064,10 @@ static bool emit_merge_runs(EmitSink *s)
     }
     if (ok) {
         s->writer = east_beast2_writer_new(s->out_type, EAST_BEAST2_CODEC_DEFLATE, true, true);
+        if (s->writer) {
+            east_beast2_writer_set_parallel(s->writer, true);
+            s->writer_base = s->written_bytes;
+        }
         ok = s->writer != NULL && emit_drain(s);
     }
 
@@ -1264,6 +1294,13 @@ static EmitSink *emit_sink_new(EmitKind kind, EastType *emit_param_type, const c
         return NULL;
     }
     s->writer = east_beast2_writer_new(out_type, EAST_BEAST2_CODEC_DEFLATE, true, true);
+    if (s->writer) {
+        /* Frames deflate on worker threads (#763); emit_adapt_batch reads
+         * the byte count through the writer's bounds, so the output is
+         * byte-identical to a serial writer's. */
+        east_beast2_writer_set_parallel(s->writer, true);
+        s->writer_base = 0;
+    }
     s->batch = emit_new_batch(s);
     if (!s->writer || !s->batch) {
         if (s->writer) east_beast2_writer_free(s->writer);

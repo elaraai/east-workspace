@@ -385,6 +385,88 @@ const WorkspaceStatusResultType = StructType({
 
 Note: `get/*` returns raw BEAST2 bytes from the object store (the dataset value). `set/*` accepts raw BEAST2 bytes with the type embedded.
 
+### Dataset transfer
+
+A value too large for an inline `PUT` (the client's threshold is 1 MB) is
+staged and committed. The bytes never pass through the API itself: they go to
+upload URLs the server hands out — capability URLs on the local server,
+presigned object-store URLs in a cloud deployment — which is why those `PUT`s
+carry no `Authorization` header. Every path below is under
+`/api/repos/:repo/workspaces/:ws/datasets/<path>`.
+
+| Step | Method | Path | Request | Response |
+|------|--------|------|---------|----------|
+| Init | POST | `…/upload[?protocol=2]` | `TransferUploadRequestType` `{hash, size}` | `TransferUploadResponseType` |
+| Part target (protocol 2) | GET | `…/upload/<id>/parts/<n>` | - | `TransferPartResponseType` `{url, headers}` |
+| Send bytes | PUT | the upload URL, or each part's URL | raw bytes (+ the part's `headers`) | HTTP status only |
+| Commit | POST | `…/upload/<id>[?protocol=2]` | - | `TransferDoneResponseType` |
+| Poll (protocol 2) | GET | `…/upload/<id>` | - | `TransferDoneResponseType` |
+
+```typescript
+const TransferUploadResponseType = VariantType({
+  completed: NullType,                                        // already stored: the ref is set
+  upload: StructType({ id: StringType, uploadUrl: StringType }), // protocol 1: every byte in one PUT
+  upload_parts: StructType({ id: StringType, partBytes: IntegerType }), // protocol 2
+});
+const TransferPartResponseType = StructType({ url: StringType, headers: DictType(StringType, StringType) });
+const TransferDoneResponseType = VariantType({
+  completed: NullType,
+  error: StructType({ message: StringType }),
+  processing: NullType,                                       // protocol 2: poll
+});
+```
+
+**Versions.** A client names the protocol it speaks with `?protocol=N` on the
+init and the commit; without it the request is protocol 1, and the server
+answers only in protocol-1 forms (`completed`/`upload`, `completed`/`error`).
+Protocol 2 adds variant cases whose names sort after the protocol-1 cases, so
+the tags a protocol-1 peer encodes and decodes are unchanged
+(`e3-types/src/transfer.spec.ts` pins this).
+
+**Parts (protocol 2).** The server plans the upload: part `n` (from 1) is the
+byte range `[(n-1)·partBytes, min(size, n·partBytes))`, and an upload no larger
+than `partBytes` is one part (`transferPartCount` / `transferPartRange`). The
+client asks for each part's URL and headers just before sending it — a
+presigned URL can then never expire while earlier parts upload — and `PUT`s the
+range with exactly those headers. Parts may be sent in any order and
+concurrently (the client sends four at a time), and re-sending a part replaces
+it (the client retries a transient failure from a fresh read of the range). The
+client commits once every part has been sent.
+
+**Commit.** The server checks the staged bytes are `size` bytes hashing to
+`hash`, checks the header against the dataset's declared type, stores the
+object and points the dataset at it (with the version-vector self entry). A
+refusal is an `error` answer, or the `dataset_type_mismatch` API error. A
+protocol-2 commit may answer `processing` instead; the client polls
+`GET …/upload/<id>` (100 ms, doubling to 1 s) until it answers `completed` or
+`error`. A finished commit's answer stays pollable for a while, so a client
+whose response was lost asks again and hears the same thing. A protocol-1
+commit answers only when it is done.
+
+**Dedup.** An init whose hash is already stored answers `completed` after
+checking that object's header against the dataset's declared type — the one
+door that skips the commit.
+
+**Local server (`e3-api-server`).** Parts stream to their own offsets in one
+staged file under `<repo>/tmp/transfers`, so the commit adopts the file exactly
+as a single `PUT`'s, by link or rename; the server refuses a part longer or
+shorter than its range (a longer one would overwrite its neighbour), and a
+part never sent leaves a hole the hash check refuses. `transferPartBytes`
+(default 64 MiB) sets the plan, and the commit runs in the background:
+the request waits `transferCommitWaitMs` (default 5 s) for it before answering
+`processing`, so verifying a many-gigabyte delivery never holds one request
+open for as long as its SHA-256 takes.
+
+**Object store (cloud).** The same protocol maps onto S3: an upload that fits
+one `PUT` is one part whose headers carry the SHA-256 as a signed checksum
+(`x-amz-checksum-sha256`), so the store verifies the bytes and the commit needs
+only a `HeadObject` and two ranged reads for the type check; a larger upload is
+a multipart upload with presigned `UploadPart` URLs and a part size that keeps
+the part count bounded, completed at the commit and verified by a background
+job while the commit answers `processing`. A single `PUT` tops out at 5 GB, and
+S3 cannot checksum a multipart object with SHA-256, which is what the parts and
+the polled commit are for.
+
 ### Tasks
 
 | e3-core Function | Method | Path | Request | Response |

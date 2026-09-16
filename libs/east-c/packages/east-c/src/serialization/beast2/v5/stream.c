@@ -6,6 +6,150 @@
 
 #include "internal_v5.h"
 
+#include <east/compat.h>
+
+/* ================================================================== */
+/*  Frame pool — deflate on worker threads, append in order (#763)     */
+/* ================================================================== */
+
+/* Frames are independent (v5/SPEC.md unit alignment: one segment per frame,
+ * decoded standalone), so their deflates run in parallel with no format
+ * change. What must NOT change is the order the frames reach the wire or
+ * where each one lands: the writer submits jobs in segment order, workers
+ * complete them in any order, and the consumer (the writer's own thread)
+ * appends a job only once every earlier job has been appended — so offsets
+ * are assigned at append time exactly as the inline path assigns them.
+ *
+ * Only BYTES cross threads: a job owns its logical buffer and produces a
+ * frame buffer. No EastValue is ever touched off the writer's thread, which
+ * is the runtime's per-thread collector rule. */
+
+/* An upper bound on a frame's header: varint(codec) + varint(uncompressed
+ * length) + varint(payload length). A frame's PAYLOAD never exceeds its
+ * logical bytes (b2v5_write_frame stores codec `none` when deflate does not
+ * shrink), so logical + this bounds a frame not yet written. */
+#define B2V5_FRAME_HEADER_MAX 21
+
+/* The most frame workers one writer starts. The ring holds two segments per
+ * worker, so in-flight memory scales with the thread count, while deflate
+ * throughput flattens well before this (#763 measured 254 MB/s at 32
+ * threads): an uncapped writer on a 64-core host, with a few partition
+ * runners writing at once, would hold hundreds of segments in flight for no
+ * gain. The TypeScript pool (frame-pool.ts) caps its workers the same. */
+#define B2V5_POOL_MAX_THREADS 32
+
+typedef struct {
+    ByteBuffer *logical; /* owned input; the worker frees it */
+    ByteBuffer *frame;   /* owned output, NULL until done (or on OOM) */
+    size_t logical_len;  /* kept for the consumer's in-flight bound */
+    bool done;
+} B2V5FrameJob;
+
+typedef struct {
+    EastThread *threads;
+    int n_threads;
+    EastMutex lock;
+    EastCond work;     /* workers: a job was submitted, or shutdown */
+    EastCond progress; /* consumer: a job completed */
+    B2V5FrameJob *ring;
+    size_t cap;       /* ring slots; bounds submitted - appended */
+    size_t submitted; /* monotone job counters; slot = seq % cap */
+    size_t claimed;
+    size_t appended;
+    int32_t codec;
+    bool shutdown;
+    bool failed; /* a worker could not allocate its frame */
+} B2V5FramePool;
+
+static EAST_THREAD_ENTRY b2v5_frame_worker(void *arg)
+{
+    B2V5FramePool *pool = arg;
+    east_mutex_lock(&pool->lock);
+    for (;;) {
+        while (!pool->shutdown && pool->claimed == pool->submitted)
+            east_cond_wait(&pool->work, &pool->lock);
+        if (pool->shutdown) break;
+        B2V5FrameJob *job = &pool->ring[pool->claimed % pool->cap];
+        pool->claimed++;
+        ByteBuffer *logical = job->logical;
+        job->logical = NULL;
+        int32_t codec = pool->codec;
+        east_mutex_unlock(&pool->lock);
+
+        /* The expensive part, outside the lock. */
+        ByteBuffer *frame = byte_buffer_new(logical->len + B2V5_FRAME_HEADER_MAX);
+        if (frame) b2v5_write_frame(frame, logical->data, logical->len, codec);
+        byte_buffer_free(logical);
+
+        east_mutex_lock(&pool->lock);
+        job->frame = frame;
+        job->done = true;
+        if (!frame) pool->failed = true;
+        east_cond_broadcast(&pool->progress);
+    }
+    east_mutex_unlock(&pool->lock);
+    return EAST_THREAD_DONE;
+}
+
+/* Start `n_threads` workers. NULL when a thread or the ring cannot be made —
+ * the writer then keeps framing inline, which produces the same bytes. */
+static B2V5FramePool *b2v5_pool_new(int32_t codec, int n_threads)
+{
+    B2V5FramePool *pool = calloc(1, sizeof(*pool));
+    if (!pool) return NULL;
+    /* Two queued jobs per worker: enough that a worker is rarely idle, few
+     * enough that memory stays O(threads x segment). */
+    pool->cap = (size_t)n_threads * 2;
+    pool->ring = calloc(pool->cap, sizeof(B2V5FrameJob));
+    pool->threads = calloc((size_t)n_threads, sizeof(EastThread));
+    if (!pool->ring || !pool->threads) {
+        free(pool->ring);
+        free(pool->threads);
+        free(pool);
+        return NULL;
+    }
+    pool->codec = codec;
+    east_mutex_init(&pool->lock);
+    east_cond_init(&pool->work);
+    east_cond_init(&pool->progress);
+    for (int i = 0; i < n_threads; i++) {
+        if (!east_thread_start(&pool->threads[i], b2v5_frame_worker, pool)) break;
+        pool->n_threads++;
+    }
+    if (pool->n_threads == 0) {
+        east_cond_destroy(&pool->progress);
+        east_cond_destroy(&pool->work);
+        east_mutex_destroy(&pool->lock);
+        free(pool->ring);
+        free(pool->threads);
+        free(pool);
+        return NULL;
+    }
+    return pool;
+}
+
+/* Stop the workers and free every buffer a job still holds. */
+static void b2v5_pool_free(B2V5FramePool *pool)
+{
+    if (!pool) return;
+    east_mutex_lock(&pool->lock);
+    pool->shutdown = true;
+    east_cond_broadcast(&pool->work);
+    east_mutex_unlock(&pool->lock);
+    for (int i = 0; i < pool->n_threads; i++)
+        east_thread_join(pool->threads[i]);
+    for (size_t i = 0; i < pool->cap; i++) {
+        byte_buffer_free(pool->ring[i].logical);
+        byte_buffer_free(pool->ring[i].frame);
+    }
+    east_cond_destroy(&pool->progress);
+    east_cond_destroy(&pool->work);
+    east_mutex_destroy(&pool->lock);
+    free(pool->ring);
+    free(pool->threads);
+    free(pool);
+}
+
 /* ================================================================== */
 /*  Streaming writer                                                   */
 /* ================================================================== */
@@ -24,7 +168,26 @@ struct Beast2StreamWriter {
     size_t seg_count;
     size_t seg_cap;
     EastValue *last_key; /* retained; greatest Set element / Dict key written */
+    /* Frame parallelism (#763). Off unless the caller opts in with
+     * east_beast2_writer_set_parallel — a caller that sizes its batches
+     * from the bytes emitted must read them through the bounds API, or its
+     * segmentation would depend on thread timing. */
+    bool parallel;
+    B2V5FramePool *pool;     /* created on the second segment */
+    size_t seg_appended;     /* segments whose frames are in `pending` */
+    size_t inflight_logical; /* logical bytes submitted but not appended */
+    size_t inflight_frames;  /* frames submitted but not appended */
+    size_t peak_inflight;    /* high-water mark of inflight_frames (gate) */
+    /* settle() calls that found frames in flight. A caller whose batch
+     * decisions keep landing between the bounds settles on nearly every
+     * segment, which makes the pool pure overhead; the writer then demotes
+     * itself to inline framing (see writer_push_segment). */
+    size_t settles_inflight;
 };
+
+/* Demote a pool that keeps being settled once at least this many segments
+ * have been written... */
+#define B2V5_POOL_DEMOTE_MIN_SEGMENTS 8
 
 Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, bool self_contained,
                                            bool with_index)
@@ -69,9 +232,59 @@ Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, boo
     return w;
 }
 
-/* Records segment `n` elements long at the current wire offset and frames
- * its logical bytes. Shared by the value and raw writes. */
-static bool writer_push_segment(Beast2StreamWriter *w, const ByteBuffer *logical, size_t n)
+/* Move completed frames at the head of the pool's ring into `pending`, in
+ * submission order, assigning each segment its offset as it lands.
+ * wait_all: block until every submitted frame is appended; otherwise take
+ * only what is already done, waiting for at most `min_appends` frames. */
+static bool writer_pool_append(Beast2StreamWriter *w, bool wait_all, size_t min_appends)
+{
+    B2V5FramePool *pool = w->pool;
+    if (!pool) return !w->failed;
+    size_t appended_now = 0;
+    east_mutex_lock(&pool->lock);
+    while (pool->appended < pool->submitted) {
+        B2V5FrameJob *job = &pool->ring[pool->appended % pool->cap];
+        if (!job->done) {
+            if (wait_all || appended_now < min_appends) {
+                east_cond_wait(&pool->progress, &pool->lock);
+                continue;
+            }
+            break;
+        }
+        ByteBuffer *frame = job->frame;
+        size_t logical_len = job->logical_len;
+        job->frame = NULL;
+        job->done = false;
+        pool->appended++;
+        east_mutex_unlock(&pool->lock);
+
+        appended_now++;
+        w->inflight_logical -= logical_len;
+        w->inflight_frames--;
+        if (frame) {
+            w->seg_offsets[w->seg_appended++] = w->total_emitted;
+            byte_buffer_write_bytes(w->pending, frame->data, frame->len);
+            w->total_emitted += frame->len;
+            byte_buffer_free(frame);
+        } else {
+            w->failed = true;
+        }
+        east_mutex_lock(&pool->lock);
+    }
+    bool failed = pool->failed;
+    east_mutex_unlock(&pool->lock);
+    if (failed) w->failed = true;
+    return !w->failed;
+}
+
+/* Records segment `n` elements long and frames its logical bytes, taking
+ * ownership of `logical`. Shared by the value and raw writes.
+ *
+ * Inline, the frame is written here and its offset is the current wire
+ * position. On the pool, the logical bytes are submitted as the next job and
+ * the offset is assigned when the frame is appended — in the same order, so
+ * the index is identical. */
+static bool writer_push_segment(Beast2StreamWriter *w, ByteBuffer *logical, size_t n)
 {
     if (w->seg_count == w->seg_cap) {
         size_t new_cap = w->seg_cap ? w->seg_cap * 2 : 16;
@@ -80,19 +293,88 @@ static bool writer_push_segment(Beast2StreamWriter *w, const ByteBuffer *logical
         size_t *counts = realloc(w->seg_counts, new_cap * sizeof(size_t));
         if (counts) w->seg_counts = counts;
         if (!offsets || !counts) {
+            byte_buffer_free(logical);
             w->failed = true;
             return false;
         }
         w->seg_cap = new_cap;
     }
-    w->seg_offsets[w->seg_count] = w->total_emitted;
     w->seg_counts[w->seg_count] = n;
     w->seg_count++;
 
-    size_t before = w->pending->len;
-    b2v5_write_frame(w->pending, logical->data, logical->len, w->codec);
-    w->total_emitted += w->pending->len - before;
+    /* The pool starts on the SECOND segment: a writer that only ever writes
+     * one (a probe, a small value) never starts a thread. One core keeps the
+     * inline path — there is nothing to parallelize onto — and many cores
+     * start at most B2V5_POOL_MAX_THREADS workers. A writer left inline (one
+     * core, or a pool that could not start) stops asking: neither answer
+     * changes on the next segment, and asking is not free — east_cpu_count
+     * reads the affinity mask and walks the cgroup CPU quota files. */
+    if (w->parallel && !w->pool && w->seg_count >= 2) {
+        int cpus = east_cpu_count();
+        if (cpus > B2V5_POOL_MAX_THREADS) cpus = B2V5_POOL_MAX_THREADS;
+        if (cpus >= 2) w->pool = b2v5_pool_new(w->codec, cpus);
+        if (!w->pool) w->parallel = false;
+    }
+    /* ...and when at least half of them needed a settle. Framing strategy
+     * never changes a byte, so demoting is always safe: drain what is in
+     * flight (the frames land in order), stop the workers, frame inline. */
+    if (w->pool && w->seg_count >= B2V5_POOL_DEMOTE_MIN_SEGMENTS &&
+        w->settles_inflight * 2 >= w->seg_count) {
+        if (!writer_pool_append(w, true, 0)) {
+            byte_buffer_free(logical);
+            return false;
+        }
+        b2v5_pool_free(w->pool);
+        w->pool = NULL;
+        w->parallel = false;
+    }
+
+    if (!w->pool) {
+        w->seg_offsets[w->seg_appended++] = w->total_emitted;
+        size_t before = w->pending->len;
+        b2v5_write_frame(w->pending, logical->data, logical->len, w->codec);
+        w->total_emitted += w->pending->len - before;
+        byte_buffer_free(logical);
+        return true;
+    }
+
+    B2V5FramePool *pool = w->pool;
+    /* Back-pressure: with the ring full, the producer does consumer duty
+     * until a slot frees, so memory stays O(threads x segment). */
+    for (;;) {
+        east_mutex_lock(&pool->lock);
+        bool full = pool->submitted - pool->appended >= pool->cap;
+        east_mutex_unlock(&pool->lock);
+        if (!full) break;
+        if (!writer_pool_append(w, false, 1)) {
+            byte_buffer_free(logical);
+            return false;
+        }
+    }
+    size_t logical_len = logical->len;
+    east_mutex_lock(&pool->lock);
+    B2V5FrameJob *job = &pool->ring[pool->submitted % pool->cap];
+    job->logical = logical;
+    job->frame = NULL;
+    job->logical_len = logical_len;
+    job->done = false;
+    pool->submitted++;
+    east_cond_signal(&pool->work);
+    east_mutex_unlock(&pool->lock);
+    w->inflight_logical += logical_len;
+    w->inflight_frames++;
+    if (w->inflight_frames > w->peak_inflight) w->peak_inflight = w->inflight_frames;
     return true;
+}
+
+size_t b2v5_writer_peak_inflight(const Beast2StreamWriter *w)
+{
+    return w ? w->peak_inflight : 0;
+}
+
+bool b2v5_writer_pooled(const Beast2StreamWriter *w)
+{
+    return w && w->pool != NULL;
 }
 
 /* The Set/Dict boundary check: a segment must start strictly above the
@@ -140,9 +422,7 @@ bool east_beast2_writer_write_raw(Beast2StreamWriter *w, const uint8_t *entries,
     if (!logical) return false;
     write_varint(logical, (uint64_t)n);
     byte_buffer_write_bytes(logical, entries, len);
-    bool framed = writer_push_segment(w, logical, n);
-    byte_buffer_free(logical);
-    return framed;
+    return writer_push_segment(w, logical, n); /* takes ownership */
 }
 
 /* ================================================================== */
@@ -279,9 +559,7 @@ bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch)
         return false;
     }
 
-    bool framed = writer_push_segment(w, logical, n);
-    byte_buffer_free(logical);
-    return framed;
+    return writer_push_segment(w, logical, n); /* takes ownership */
 
 wrong_kind:
     east_builtin_error("beast2 v5: batch value does not match the stream's collection type");
@@ -291,7 +569,11 @@ wrong_kind:
 
 ByteBuffer *east_beast2_writer_take(Beast2StreamWriter *w)
 {
-    if (!w || w->pending->len == 0) return NULL;
+    if (!w) return NULL;
+    /* Frames already deflated join `pending` first; frames still in flight
+     * stay behind — take() never waits. */
+    if (w->pool) writer_pool_append(w, false, 0);
+    if (w->pending->len == 0) return NULL;
     ByteBuffer *out = w->pending;
     w->pending = byte_buffer_new(256);
     if (!w->pending) {
@@ -307,6 +589,8 @@ bool east_beast2_writer_finish(Beast2StreamWriter *w)
     if (!w) return false;
     if (w->finished) return !w->failed;
     if (w->failed) return false;
+    /* Every frame must be on the wire, in order, before the terminator. */
+    if (w->pool && !writer_pool_append(w, true, 0)) return false;
     w->finished = true;
 
     static const uint8_t terminator = 0x00;
@@ -324,9 +608,43 @@ bool east_beast2_writer_finish(Beast2StreamWriter *w)
     return true;
 }
 
+void east_beast2_writer_set_parallel(Beast2StreamWriter *w, bool parallel)
+{
+    /* Only before the second segment: the pool is created there, and a
+     * writer must not change framing strategy with frames in flight. */
+    if (w && !w->pool) w->parallel = parallel;
+}
+
+void east_beast2_writer_emitted_bounds(Beast2StreamWriter *w, size_t *lo, size_t *hi)
+{
+    if (!w) {
+        if (lo) *lo = 0;
+        if (hi) *hi = 0;
+        return;
+    }
+    /* Opportunistically settle what is already done, so the bounds are as
+     * tight as they can be without waiting. */
+    if (w->pool) writer_pool_append(w, false, 0);
+    if (lo) *lo = w->total_emitted;
+    if (hi)
+        *hi = w->total_emitted + w->inflight_logical +
+              w->inflight_frames * (size_t)B2V5_FRAME_HEADER_MAX;
+}
+
+bool east_beast2_writer_settle(Beast2StreamWriter *w)
+{
+    if (!w) return false;
+    if (!w->pool) return !w->failed;
+    if (w->inflight_frames > 0) w->settles_inflight++;
+    return writer_pool_append(w, true, 0);
+}
+
 void east_beast2_writer_free(Beast2StreamWriter *w)
 {
     if (!w) return;
+    /* Workers first: they may still hold job buffers. */
+    b2v5_pool_free(w->pool);
+    w->pool = NULL;
     if (w->type) east_type_release(w->type);
     if (w->last_key) east_value_release(w->last_key);
     b2v5_enc_ctx_free(&w->ctx);
@@ -362,6 +680,17 @@ static EastValue *paged_batch(EastValue *value, EastType *type, size_t i, size_t
             east_dict_set(batch, east_dict_key_at(value, k), east_dict_val_at(value, k));
     }
     return batch;
+}
+
+/* The paged encoder's batch refinement: `body` wire bytes over `written`
+ * elements, toward `target` bytes per segment, clamped to the element cap.
+ * Non-increasing in `body`, which is what makes a bounded decision exact. */
+static size_t paged_next_batch(size_t target, size_t body, size_t written)
+{
+    double avg = (double)body / (double)written;
+    if (avg < 1.0) avg = 1.0;
+    size_t nb = (size_t)((double)target / avg);
+    return nb < 1 ? 1 : nb > B2V5_PAGED_BATCH_DEFAULT ? (size_t)B2V5_PAGED_BATCH_DEFAULT : nb;
 }
 
 ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id,
@@ -402,6 +731,10 @@ ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t c
 
     Beast2StreamWriter *w = east_beast2_writer_new(type, codec_id, true, true);
     if (!w) return NULL;
+    /* Frames deflate on worker threads (#763); the batch refinement below
+     * reads the emitted total through bounds so the segmentation — and so
+     * every byte — is exactly the inline writer's. */
+    east_beast2_writer_set_parallel(w, true);
     size_t header = w->total_emitted;
     size_t written = 0;
     size_t i = 0;
@@ -415,13 +748,19 @@ ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t c
         if (!ok) break;
         written += j - i;
         i = j;
-        /* Refine toward the target as real output accumulates. */
-        double avg = (double)(w->total_emitted - header) / (double)written;
-        if (avg < 1.0) avg = 1.0;
-        size_t nb = (size_t)((double)target / avg);
-        next_batch = nb < 1                          ? 1
-                     : nb > B2V5_PAGED_BATCH_DEFAULT ? (size_t)B2V5_PAGED_BATCH_DEFAULT
-                                                     : nb;
+        /* Refine toward the target as real output accumulates. The decision
+         * is monotone in the emitted total, so agreeing decisions at both
+         * bounds ARE the exact decision; otherwise wait for the frames. */
+        size_t lo, hi;
+        east_beast2_writer_emitted_bounds(w, &lo, &hi);
+        size_t at_lo = paged_next_batch(target, lo - header, written);
+        size_t at_hi = paged_next_batch(target, hi - header, written);
+        if (at_lo != at_hi) {
+            ok = east_beast2_writer_settle(w);
+            east_beast2_writer_emitted_bounds(w, &lo, &hi);
+            at_lo = paged_next_batch(target, lo - header, written);
+        }
+        next_batch = at_lo;
     }
     if (ok) ok = east_beast2_writer_finish(w);
     ByteBuffer *out = ok ? east_beast2_writer_take(w) : NULL;

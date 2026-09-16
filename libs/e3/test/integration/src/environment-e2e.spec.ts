@@ -46,7 +46,7 @@ import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, symlinkSync
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
-import { East, IntegerType, FloatType, ArrayType, FunctionType } from '@elaraai/east';
+import { East, IntegerType, FloatType, ArrayType, FunctionType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
 import { ensureLocalStack, injectLocalNpmRegistry, injectLocalPythonIndex, localStackUnavailable, stopLocalStack } from './localStack.js';
@@ -209,13 +209,15 @@ describe('execution environments e2e — scaffolded python platform travels with
   let projectDir: string;
 
   before(async () => {
-    if (!hasUv || !hasScaffoldCore) return;
+    // Mirrors the test's skip: without the stack the test skips, and locking
+    // against the last release would only test that release.
+    if (!hasUv || !hasScaffoldCore || !stack) return;
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldPlatformProject(testDir, 'envpy', { py: true, node: false });
     // Lock the scaffolded project the way a user would — but against this
     // tree's runtime, not the last release (see localStack.ts).
-    if (stack) injectLocalPythonIndex(projectDir, stack);
+    injectLocalPythonIndex(projectDir, stack);
     runTool('uv', ['lock'], projectDir);
   });
 
@@ -229,7 +231,7 @@ describe('execution environments e2e — scaffolded python platform travels with
       //   @platform_function(name="envpy.example_python",
       //                      inputs=[ArrayType(FloatType)], output=FloatType)
       const examplePython = East.platform('envpy.example_python', [ArrayType(FloatType)], FloatType);
-      const values = e3.input('values', ArrayType(FloatType), [1.0, 2.0, 3.0]);
+      const values = e3.input('values', ArrayType(FloatType), variant('value', [1.0, 2.0, 3.0]));
       const mean = e3.task('mean', [values],
         East.function([ArrayType(FloatType)], FloatType, (_$, v) => examplePython(v)),
         {
@@ -256,13 +258,15 @@ describe('execution environments e2e — scaffolded node platform travels with t
   let projectDir: string;
 
   before(async () => {
-    if (!hasNpm || !hasScaffoldCore) return;
+    // Mirrors the test's skip. Without the stack npm would install the last
+    // release, which cannot build a scaffold written against this tree's API.
+    if (!hasNpm || !hasScaffoldCore || !stack) return;
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldPlatformProject(testDir, 'envnode', { py: false, node: true });
     // Install + build the scaffolded project the way a user would, so the
     // `./platform` export (dist/platform/index.js) exists for `npm pack`.
-    if (stack) injectLocalNpmRegistry(projectDir, stack);
+    injectLocalNpmRegistry(projectDir, stack);
     runTool('npm', ['install', '--no-audit', '--no-fund'], projectDir);
     runTool('npm', ['run', 'build'], projectDir);
   });
@@ -277,8 +281,8 @@ describe('execution environments e2e — scaffolded node platform travels with t
       //   East.platform("envnode.example_node", [IntegerType, FloatType], IntegerType)
       //   impl: ceil(value * factor)
       const exampleNode = East.platform('envnode.example_node', [IntegerType, FloatType], IntegerType);
-      const value = e3.input('value', IntegerType, 21n);
-      const factor = e3.input('factor', FloatType, 2.0);
+      const value = e3.input('value', IntegerType, variant('value', 21n));
+      const factor = e3.input('factor', FloatType, variant('value', 2.0));
       const scaled = e3.task('scaled', [value, factor],
         East.function([IntegerType, FloatType], IntegerType, (_$, v, f) => exampleNode(v, f)),
         {
@@ -308,13 +312,13 @@ describe('execution environments e2e — python multi-package scaffold, AUTO-der
   let projectDir: string;
 
   before(async () => {
-    if (!hasUv || !hasScaffoldCore) return;
+    if (!hasUv || !hasScaffoldCore || !stack) return;   // mirrors the test's skip
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     // Two INDEPENDENT python packages; only `pricing` is referenced below, so
     // `forecasting` is an unrelated sibling that must NOT ride the derived env.
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { python: ['pricing', 'forecasting'] });
-    if (stack) injectLocalPythonIndex(projectDir, stack);
+    injectLocalPythonIndex(projectDir, stack);
     runTool('uv', ['lock'], projectDir);
   });
 
@@ -327,7 +331,7 @@ describe('execution environments e2e — python multi-package scaffold, AUTO-der
       // Mirror of the scaffolded packages/python/pricing/src/pricing/example.py:
       //   @platform_function(name="pricing.example", inputs=[ArrayType(FloatType)], output=FloatType)
       const pricing = East.platform('pricing.example', [ArrayType(FloatType)], FloatType);
-      const priceValues = e3.input('price_values', ArrayType(FloatType), [2.0, 4.0, 6.0]);
+      const priceValues = e3.input('price_values', ArrayType(FloatType), variant('value', [2.0, 4.0, 6.0]));
       // NO `environment` — e3 auto-derives it from `{ custom: 'pricing' }`,
       // capturing packages/python/pricing's closure (not forecasting's).
       const priced = e3.task('priced', [priceValues],
@@ -340,7 +344,7 @@ describe('execution environments e2e — python multi-package scaffold, AUTO-der
       // e3 finds `pricing` in the uv workspace at export, exports it (east-py
       // export-functions) and embeds the IR; the DEFAULT runner executes it.
       const scale = East.importFunction('pricing', 'scale', FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)));
-      const factor = e3.input('price_factor', FloatType, 2.0);
+      const factor = e3.input('price_factor', FloatType, variant('value', 2.0));
       const scaled = e3.task('scaled', [priceValues, factor],
         East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType), (_$, v, f) => scale(v, f)));
       const pkg = e3.package('shop', '1.0.0', priced, scaled);
@@ -374,13 +378,13 @@ describe('execution environments e2e — node multi-package scaffold, AUTO-deriv
   let projectDir: string;
 
   before(async () => {
-    if (!hasNpm || !hasScaffoldCore) return;
+    if (!hasNpm || !hasScaffoldCore || !stack) return;   // mirrors the test's skip (see the node platform suite)
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { node: ['api'] });
     // Install + build the workspace so the member's dist/platform.js exists for
     // `npm pack` (the root build runs `npm run build --workspaces` first).
-    if (stack) injectLocalNpmRegistry(projectDir, stack);
+    injectLocalNpmRegistry(projectDir, stack);
     runTool('npm', ['install', '--no-audit', '--no-fund'], projectDir);
     runTool('npm', ['run', 'build'], projectDir);
   });
@@ -393,8 +397,8 @@ describe('execution environments e2e — node multi-package scaffold, AUTO-deriv
     { skip: (!hasNpm && 'npm not on PATH') || (!stack && localStackUnavailable()) || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       // Mirror of packages/node/api/src/platform.ts: api.example = ceil(value * factor)
       const api = East.platform('api.example', [IntegerType, FloatType], IntegerType);
-      const value = e3.input('api_value', IntegerType, 21n);
-      const factor = e3.input('api_factor', FloatType, 2.0);
+      const value = e3.input('api_value', IntegerType, variant('value', 21n));
+      const factor = e3.input('api_factor', FloatType, variant('value', 2.0));
       // NO `environment` — e3 derives it from `{ custom: '@shop/api' }`,
       // resolving the npm workspace member and capturing its closure.
       const apiScaled = e3.task('api_scaled', [value, factor],
@@ -408,7 +412,7 @@ describe('execution environments e2e — node multi-package scaffold, AUTO-deriv
       // exports it with the project's east-node (east-node export-functions)
       // and embeds the IR; the DEFAULT runner executes it.
       const scale = East.importFunction('@shop/api', 'scale', FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)));
-      const series = e3.input('api_series', ArrayType(FloatType), [1.0, 2.0, 3.0]);
+      const series = e3.input('api_series', ArrayType(FloatType), variant('value', [1.0, 2.0, 3.0]));
       const apiScaledSeries = e3.task('api_scaled_series', [series, factor],
         East.function([ArrayType(FloatType), FloatType], ArrayType(FloatType), (_$, s, f) => scale(s, f)));
       const pkg = e3.package('shop', '1.0.0', apiScaled, apiScaledSeries);
@@ -457,7 +461,7 @@ describe('execution environments e2e — C tool scaffold, explicit tools environ
 
   it('captures the built C binary via an explicit tools env and runs it after the project is deleted',
     { skip: (!hasCc && 'no C toolchain (or windows)') || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
-      const values = e3.input('c_values', ArrayType(FloatType), [1.0, 2.0, 3.0]);
+      const values = e3.input('c_values', ArrayType(FloatType), variant('value', [1.0, 2.0, 3.0]));
       // C is NOT auto-derived — the binary is attached explicitly via `tools`.
       // An absolute path lets export run from any cwd (no workspace to resolve).
       const toolTask = e3.customTask('c_tool', [values], ArrayType(FloatType),
@@ -487,13 +491,13 @@ describe('execution environments e2e — mixed python + node + C in one package'
   let solverBin: string;
 
   before(async () => {
-    if (!hasAll || !hasScaffoldCore) return;
+    if (!hasAll || !hasScaffoldCore || !stack) return;   // mirrors the test's skip
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { python: ['pricing'], node: ['api'], c: ['solver'] });
-    if (stack) injectLocalPythonIndex(projectDir, stack);
+    injectLocalPythonIndex(projectDir, stack);
     runTool('uv', ['lock'], projectDir);
-    if (stack) injectLocalNpmRegistry(projectDir, stack);
+    injectLocalNpmRegistry(projectDir, stack);
     runTool('npm', ['install', '--no-audit', '--no-fund'], projectDir);
     // Build only the node MEMBER (its dist/platform.js), not the whole app: the
     // scaffolded app's C wiring uses the `tools` env decl, which the pinned
@@ -512,19 +516,19 @@ describe('execution environments e2e — mixed python + node + C in one package'
     { skip: (!hasAll && 'need uv + npm + cc/make (non-windows)') || (!stack && localStackUnavailable()) || (!hasScaffoldCore && SKIP_NO_SCAFFOLD) }, async () => {
       // python (auto-derived from { custom: 'pricing' })
       const pricing = East.platform('pricing.example', [ArrayType(FloatType)], FloatType);
-      const pv = e3.input('m_pv', ArrayType(FloatType), [2.0, 4.0, 6.0]);
+      const pv = e3.input('m_pv', ArrayType(FloatType), variant('value', [2.0, 4.0, 6.0]));
       const priced = e3.task('m_priced', [pv],
         East.function([ArrayType(FloatType)], FloatType, (_$, v) => pricing(v)),
         { runner: { runtime: 'east-py', platforms: [{ custom: 'pricing' }, 'east-py-std'] } });
       // node (auto-derived from { custom: '@shop/api' })
       const api = East.platform('api.example', [IntegerType, FloatType], IntegerType);
-      const mVal = e3.input('m_val', IntegerType, 21n);
-      const mFac = e3.input('m_fac', FloatType, 2.0);
+      const mVal = e3.input('m_val', IntegerType, variant('value', 21n));
+      const mFac = e3.input('m_fac', FloatType, variant('value', 2.0));
       const scaled = e3.task('m_scaled', [mVal, mFac],
         East.function([IntegerType, FloatType], IntegerType, (_$, v, f) => api(v, f)),
         { runner: { runtime: 'east-node', platforms: [{ custom: '@shop/api' }] } });
       // C (explicit tools env — not auto-derived)
-      const cv = e3.input('m_cv', ArrayType(FloatType), [7.0, 8.0]);
+      const cv = e3.input('m_cv', ArrayType(FloatType), variant('value', [7.0, 8.0]));
       const toolT = e3.customTask('m_tool', [cv], ArrayType(FloatType),
         (_$, i, o) => East.str`solver ${i.get(0n)} ${o}`,
         { environment: { tools: { files: [solverBin] } } });
@@ -592,10 +596,10 @@ describe('execution environments e2e — per-package granularity CACHES across a
   // deploy is both faithful to the real workflow and deterministic.
   const EXPORTER = [
     "import e3 from '@elaraai/e3';",
-    "import { East, ArrayType, FloatType } from '@elaraai/east';",
+    "import { East, ArrayType, FloatType, variant } from '@elaraai/east';",
     "const pricing = East.platform('pricing.example', [ArrayType(FloatType)], FloatType);",
     "const forecasting = East.platform('forecasting.example', [ArrayType(FloatType)], FloatType);",
-    "const v = e3.input('values', ArrayType(FloatType), [1.0, 2.0, 3.0]);",
+    "const v = e3.input('values', ArrayType(FloatType), variant('value', [1.0, 2.0, 3.0]));",
     "const priced = e3.task('priced', [v], East.function([ArrayType(FloatType)], FloatType, (_$, x) => pricing(x)), { runner: { runtime: 'east-py', platforms: [{ custom: 'pricing' }, 'east-py-std'] } });",
     "const forecast = e3.task('forecast', [v], East.function([ArrayType(FloatType)], FloatType, (_$, x) => forecasting(x)), { runner: { runtime: 'east-py', platforms: [{ custom: 'forecasting' }, 'east-py-std'] } });",
     "process.chdir(process.env.GEXP_PROJECT);",
@@ -629,11 +633,11 @@ describe('execution environments e2e — per-package granularity CACHES across a
   };
 
   before(async () => {
-    if (!hasUv || !hasScaffoldCore) return;
+    if (!hasUv || !hasScaffoldCore || !stack) return;   // mirrors the test's skip
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { python: ['pricing', 'forecasting'] });
-    if (stack) injectLocalPythonIndex(projectDir, stack);
+    injectLocalPythonIndex(projectDir, stack);
     runTool('uv', ['lock'], projectDir);
     repoDir = join(testDir, 'repo');
   });

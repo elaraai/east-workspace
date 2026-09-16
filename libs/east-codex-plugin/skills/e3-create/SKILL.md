@@ -161,7 +161,7 @@ attaches a prebuilt binary explicitly:**
 ```typescript
 // Three separate files under src/packages/. Each begins with:
 //   import e3 from "@elaraai/e3";
-//   import { East, ArrayType, FloatType, IntegerType, FunctionType } from "@elaraai/east";
+//   import { East, ArrayType, FloatType, IntegerType, FunctionType, variant } from "@elaraai/east";
 
 // ── src/packages/pricing.ts — PYTHON ──
 // 1. the platform function (native python; env AUTO-DERIVED from { custom: "pricing" })
@@ -169,8 +169,8 @@ const example = East.platform("pricing.example", [ArrayType(FloatType)], FloatTy
 // 2. the East function authored in python (src/pricing/functions.py, listed in `east_functions`)
 const scale = East.importFunction("pricing", "scale",
   FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)));
-const values = e3.input("pricing_values", ArrayType(FloatType), [1.0, 2.0, 3.0]);
-const factor = e3.input("pricing_factor", FloatType, 2.0);
+const values = e3.input("pricing_values", ArrayType(FloatType), variant("value", [1.0, 2.0, 3.0]));
+const factor = e3.input("pricing_factor", FloatType, variant("value", 2.0));
 export const pricing_task = e3.task("pricing_example", [values],
   East.function([ArrayType(FloatType)], FloatType, ($, v) => { $.return(example(v)); }),
   { runner: { runtime: "east-py", platforms: [{ custom: "pricing" }, "east-py-std"] } });
@@ -184,9 +184,9 @@ export const pricing_tasks = [pricing_task, pricing_scaled_task];
 const example = East.platform("api.example", [IntegerType, FloatType], IntegerType);
 const scale = East.importFunction("@my-app/api", "scale",
   FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)));   // src/functions.ts, in `eastFunctions`
-const value = e3.input("api_value", IntegerType, 21n);
-const factor = e3.input("api_factor", FloatType, 2.0);
-const series = e3.input("api_series", ArrayType(FloatType), [1.0, 2.0, 3.0]);
+const value = e3.input("api_value", IntegerType, variant("value", 21n));
+const factor = e3.input("api_factor", FloatType, variant("value", 2.0));
+const series = e3.input("api_series", ArrayType(FloatType), variant("value", [1.0, 2.0, 3.0]));
 export const api_task = e3.task("api_example", [value, factor],
   East.function([IntegerType, FloatType], IntegerType, ($, v, f) => { $.return(example(v, f)); }),
   { runner: { runtime: "east-node", platforms: [{ custom: "@my-app/api" }] } });
@@ -197,7 +197,7 @@ export const api_scaled_task = e3.task("api_scaled", [series, factor],
 export const api_tasks = [api_task, api_scaled_task];
 
 // ── src/packages/solver.ts — C (NOT auto-derived; attach the built binary via tools) ──
-const solverValues = e3.input("solver_values", ArrayType(FloatType), [1.0, 2.0, 3.0]);
+const solverValues = e3.input("solver_values", ArrayType(FloatType), variant("value", [1.0, 2.0, 3.0]));
 export const solver_task = e3.customTask("solver_tool", [solverValues], ArrayType(FloatType),
   (_$, inputs, output) => East.str`solver ${inputs.get(0n)} ${output}`,
   { environment: { tools: { files: ["packages/native/solver/build/solver"] } } });

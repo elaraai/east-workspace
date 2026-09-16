@@ -234,7 +234,17 @@ export async function deployWorkspace(
       return sendError(NullType, errorToVariant(new Error(`Package not found: ${pkgName}`)));
     }
 
-    await workspaceDeploy(storage, repoPath, workspace, pkgName, pkgVersion);
+    // A path-initialised input names a path on the machine that EXPORTED the
+    // package, never this server's. The server must not open it — even a path
+    // it can read — or a package could adopt any server-readable file of the
+    // declared type into the caller's repository. Every `file` source is left
+    // unassigned with a warning: `e3 workspace deploy <url> --from-source`
+    // completes those inputs over the dataset transfer protocol immediately
+    // afterwards, and the server's commit runs the same validation.
+    await workspaceDeploy(storage, repoPath, workspace, pkgName, pkgVersion, {
+      resolveFileSources: false,
+      sourceWarning: (message) => console.warn(`[deploy ${workspace}] ${message}`),
+    });
     return sendSuccess(NullType, null);
   } catch (err) {
     return sendError(NullType, errorToVariant(err));

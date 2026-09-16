@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, IntegerType, NullType } from "@elaraai/east";
+import { East, IntegerType, NullType, variant } from "@elaraai/east";
 import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Data, deriveManifest, decodeManifest, ui } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -87,7 +87,7 @@ describeEast("Record — manifest derivation", (test) => {
     });
 
     test("deriveManifest dedupes repeated record binds and collects Data + Record together", _ => {
-        const x = e3.input("x", IntegerType, 0n);
+        const x = e3.input("x", IntegerType, variant("value", 0n));
         const fn = East.function([], UIComponentType, _$ =>
             Reactive.Root(East.function([], UIComponentType, $ => {
                 const a = $.let(Record.bind(counter, [increment]));

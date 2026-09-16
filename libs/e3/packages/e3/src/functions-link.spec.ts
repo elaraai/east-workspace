@@ -21,8 +21,7 @@ import { execFileSync } from 'node:child_process';
 import yauzl from 'yauzl';
 import {
   East, FunctionType, IntegerType, NullType, StringType,
-  decodeBeast2For, decodeEastIR, walkIR, IMPORT_PLATFORM,
-} from '@elaraai/east';
+  decodeBeast2For, decodeEastIR, walkIR, IMPORT_PLATFORM, variant } from '@elaraai/east';
 import { DatasetRefType } from '@elaraai/e3-types';
 import { export_ } from './export.js';
 import { package_ } from './package.js';
@@ -90,7 +89,7 @@ describe('export_ links East.importFunction references (#628)', () => {
   after(() => { fs.rmSync(tempDir, { recursive: true, force: true }); });
 
   it("embeds the exported IR in the task's function_ir and the program runs", async () => {
-    const greeting = input('greeting', StringType, 'hello');
+    const greeting = input('greeting', StringType, variant('value', 'hello'));
     const use = task('use_double', [greeting], East.function([StringType], IntegerType, ($, s) => dbl(s.length()).add(1n)));
     const pkg = package_('importer', '1.0.0', use);
     const zipPath = path.join(tempDir, 'importer.zip');
@@ -105,7 +104,7 @@ describe('export_ links East.importFunction references (#628)', () => {
   it('reads manifests from files and accepts a platform dependency the runner provides through its stock family', async () => {
     const manifestPath = path.join(tempDir, 'pricing.functions.beast2');
     fs.writeFileSync(manifestPath, East.encodeFunctionManifest(manifest));
-    const greeting = input('greeting', StringType, 'hello');
+    const greeting = input('greeting', StringType, variant('value', 'hello'));
     // default runner: east-node + @elaraai/east-node-std, the family of east-py-std
     const use = task('use_shout', [greeting], East.function([StringType], NullType, ($, s) => { $(sh(s)); }));
     const pkg = package_('importer', '1.0.0', use);
@@ -116,7 +115,7 @@ describe('export_ links East.importFunction references (#628)', () => {
   });
 
   it("rejects a runner that lists no package providing an embedded function's platform call", async () => {
-    const greeting = input('greeting', StringType, 'hello');
+    const greeting = input('greeting', StringType, variant('value', 'hello'));
     const use = task('use_shout', [greeting], East.function([StringType], NullType, ($, s) => { $(sh(s)); }), {
       runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-io'] },
     });
@@ -129,7 +128,7 @@ describe('export_ links East.importFunction references (#628)', () => {
 
   it('rejects a dependency whose manifest names no provider, and an import with no manifest', async () => {
     const unprovided = East.exportFunctions('pricing', '1.0.0', { shout });
-    const greeting = input('greeting', StringType, 'hello');
+    const greeting = input('greeting', StringType, variant('value', 'hello'));
     const use = task('use_shout', [greeting], East.function([StringType], NullType, ($, s) => { $(sh(s)); }));
     const pkg = package_('importer', '1.0.0', use);
     await assert.rejects(
@@ -230,7 +229,7 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
   it('finds the package in the uv workspace, exports it with east-py, and links — no manifest given',
     { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
       const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
-      const n = input('n', IntegerType, 4n);
+      const n = input('n', IntegerType, variant('value', 4n));
       const use = task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n)));
       const pkg = package_('importer', '1.0.0', use);
       const zipPath = path.join(ws, 'importer.zip');
@@ -246,7 +245,7 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
     { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
       const given = East.exportFunctions('pricing', '0.0.1', { triple: East.function([IntegerType], IntegerType, ($, x) => x.multiply(30n)) });
       const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
-      const n = input('n', IntegerType, 4n);
+      const n = input('n', IntegerType, variant('value', 4n));
       const use = task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x)));
       const pkg = package_('importer', '1.0.0', use);
       const zipPath = path.join(ws, 'importer-explicit.zip');
@@ -259,7 +258,7 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
   it("a function the package does not export is the exporter's own error, naming the import",
     { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
       const missing = East.importFunction('pricing', 'quadruple', FunctionType([IntegerType], IntegerType));
-      const n = input('n', IntegerType, 4n);
+      const n = input('n', IntegerType, variant('value', 4n));
       const use = task('use_missing', [n], East.function([IntegerType], IntegerType, ($, x) => missing(x)));
       const pkg = package_('importer', '1.0.0', use);
       await assert.rejects(
@@ -276,8 +275,8 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
       // the functions its owner imports — and each owner links its own.
       const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
       const shout = East.importFunction('pricing', 'shout', FunctionType([StringType], NullType));
-      const n = input('n', IntegerType, 4n);
-      const s = input('s', StringType, 'hi');
+      const n = input('n', IntegerType, variant('value', 4n));
+      const s = input('s', StringType, variant('value', 'hi'));
       const a = task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n)));
       const b = task('use_shout', [s], East.function([StringType], NullType, ($, x) => { $(shout(x)); }), {
         runner: { runtime: 'east-py', platforms: [{ custom: 'acme_platform' }, 'east-py-std'] },
@@ -378,7 +377,7 @@ describe('export_ resolves an imported npm workspace package itself (#652)', () 
   it('finds the package in the npm workspace, exports it with east-node from its built ./functions entry, and links — no manifest given',
     { skip }, async () => {
       const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
-      const n = input('n', IntegerType, 4n);
+      const n = input('n', IntegerType, variant('value', 4n));
       const use = task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n)));
       const pkg = package_('importer', '1.0.0', use);
       const zipPath = path.join(ws, 'importer.zip');
@@ -393,7 +392,7 @@ describe('export_ resolves an imported npm workspace package itself (#652)', () 
   it("an owner importing a function whose platform call its runner cannot provide is the exporter's error, naming the call",
     { skip }, async () => {
       const shout = East.importFunction('pricing', 'shout', FunctionType([StringType], NullType));
-      const s = input('s', StringType, 'hi');
+      const s = input('s', StringType, variant('value', 'hi'));
       const use = task('use_shout', [s], East.function([StringType], NullType, ($, x) => { $(shout(x)); }));
       await assert.rejects(
         inWorkspace(() => export_(package_('importer', '1.0.0', use), path.join(ws, 'unprovided.zip'))),
@@ -426,7 +425,7 @@ describe('export_ resolves an imported npm workspace package itself (#652)', () 
         ['plain', /task "use_it" imports from "plain", a package of this workspace at '.*plain', but its package\.json exports no "\.\/functions" entry/],
       ] as const) {
         const fn = East.importFunction(name, 'triple', FunctionType([IntegerType], IntegerType));
-        const n = input('n', IntegerType, 4n);
+        const n = input('n', IntegerType, variant('value', 4n));
         const use = task('use_it', [n], East.function([IntegerType], IntegerType, ($, x) => fn(x)));
         await assert.rejects(inWorkspace(() => export_(package_('importer', '1.0.0', use), path.join(ws, `${name}.zip`))), message);
       }

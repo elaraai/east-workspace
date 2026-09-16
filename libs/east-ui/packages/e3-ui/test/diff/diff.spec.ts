@@ -4,14 +4,14 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, FloatType, type ExprType } from "@elaraai/east";
+import { East, FloatType, variant, type ExprType } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data } from "@elaraai/e3-ui";
 import { Diff } from "@elaraai/e3-ui/internal";
 import * as e3 from "@elaraai/e3";
 import * as ex from "./diff.examples.js";
 
-const policyInput = e3.input("policy_spec", FloatType, 0.0);
+const policyInput = e3.input("policy_spec", FloatType, variant("value", 0.0));
 
 describeEast("Diff", (test) => {
     Assert.examples(test, {

@@ -20,9 +20,22 @@ import type { DatasetUpload, PackageImport, PackageExport } from './types.js';
 // =============================================================================
 
 /**
+ * Where and how a client sends one part of an upload planned as parts.
+ */
+export interface DatasetPartUpload {
+  /** The URL the client PUTs the part's bytes to, with no `Authorization` header. */
+  url: string;
+  /** Request headers the PUT must carry exactly as given (e.g. a signed checksum). */
+  headers: Record<string, string>;
+}
+
+/**
  * Manages staged dataset uploads.
  *
- * Flow: create → getUploadUrl → (client uploads) → commitObject → delete
+ * Flow (protocol 1): create → getUploadUrl → (client uploads) → commitObject → delete
+ *
+ * Flow (protocol 2): create → createParts → getPartUpload per part → (client
+ * uploads the parts) → commit → delete
  */
 export interface DatasetUploadStore {
   create(id: string, record: DatasetUpload): Promise<void>;
@@ -34,6 +47,41 @@ export interface DatasetUploadStore {
    * so concurrent uploads to the same hash are unambiguous.
    */
   getUploadUrl(id: string, repo: string, hash: string): Promise<string>;
+
+  /**
+   * Plan a created upload as parts, for a protocol-2 client.
+   *
+   * @remarks
+   * Every part but the last is exactly the returned size, and an upload no
+   * larger than it is one part. The plan is the backend's to choose and to
+   * remember: a local store takes its configured part size, while an object
+   * store may send an upload it can take in one PUT as a single part carrying a
+   * checksum header, and a larger one as a multipart upload whose part size
+   * keeps the part count within its limits.
+   *
+   * @param id - The upload's id
+   * @param record - The upload, as created
+   * @returns The byte size of every part but the last
+   */
+  createParts(id: string, record: DatasetUpload): Promise<bigint>;
+
+  /**
+   * The part size {@link createParts} planned for an upload.
+   *
+   * @param id - The upload's id
+   * @returns The part size, or `null` when the upload was not planned as parts
+   */
+  getPartBytes(id: string): Promise<bigint | null>;
+
+  /**
+   * Where and how the client sends one part of an upload planned as parts.
+   *
+   * @param id - The upload's id
+   * @param record - The upload, as created
+   * @param part - The part's number, from 1
+   * @returns The part's URL and the headers its PUT must carry
+   */
+  getPartUpload(id: string, record: DatasetUpload, part: number): Promise<DatasetPartUpload>;
 
   /**
    * Verify the upload and make the object visible in the catalogue.

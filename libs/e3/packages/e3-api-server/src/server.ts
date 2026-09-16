@@ -55,6 +55,15 @@ export interface ServerConfig {
   /** Byte budget clamping each dataset page's share of the source blob
    *  (default: 4 MiB). Lower it for deployments with tight response limits. */
   pageByteBudget?: number;
+  /** Size of the parts a dataset upload is sent in, for a client that speaks
+   *  transfer protocol 2 (default: 64 MiB). An upload no larger is one part;
+   *  a smaller size suits a proxy that caps request bodies. */
+  transferPartBytes?: number;
+  /** How long a protocol-2 dataset commit waits for the upload to be verified
+   *  before answering `processing` for the client to poll (default: 5000 ms;
+   *  0 answers `processing` at once). Keep it under any proxy's request
+   *  timeout. */
+  transferCommitWaitMs?: number;
 }
 
 /**
@@ -85,7 +94,10 @@ export interface Server {
  * @returns Server instance
  */
 export async function createServer(config: ServerConfig): Promise<Server> {
-  const { reposDir, singleRepoPath, port = 3000, host = 'localhost', cors: enableCors = false, auth, oidc, pageByteBudget } = config;
+  const {
+    reposDir, singleRepoPath, port = 3000, host = 'localhost', cors: enableCors = false, auth, oidc, pageByteBudget,
+    transferPartBytes, transferCommitWaitMs,
+  } = config;
 
   // Validate config: exactly one of reposDir or singleRepoPath must be specified
   if (reposDir && singleRepoPath) {
@@ -146,13 +158,16 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     baseUrl: '',
     storage,
     getRepoPath,
+    ...(transferPartBytes !== undefined && { partBytes: transferPartBytes }),
   });
 
   // Data routes (no auth — capability-URL pattern via UUID)
   // Must be mounted BEFORE auth middleware so they bypass JWT validation.
   // In cloud deployments these URLs are S3 presigned URLs that reject auth headers.
   const pkgTransfer = createPackageTransferRoutes(storage, getRepoPath, transferBackend);
-  const dsTransfer = createTransferRoutes(storage, getRepoPath, transferBackend);
+  const dsTransfer = createTransferRoutes(storage, getRepoPath, transferBackend, {
+    ...(transferCommitWaitMs !== undefined && { commitWaitMs: transferCommitWaitMs }),
+  });
   const dataEndpoints = createDataEndpoints(transferBackend, storage, getRepoPath);
   app.route('/api/uploads', dataEndpoints.uploads);
   app.route('/api/downloads', dataEndpoints.downloads);

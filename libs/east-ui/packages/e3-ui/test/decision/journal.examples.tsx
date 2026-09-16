@@ -23,7 +23,7 @@ import * as e3 from '@elaraai/e3';
 export const journalDecisions = e3.input(
     'journal_decisions',
     ArrayType(Decision.Types.Decision),
-    [
+    variant('value', [
         {
             id: 'cap-ne-wk10',
             kind: 'capacity',
@@ -43,13 +43,13 @@ export const journalDecisions = e3.input(
             evidence: [],
             alternatives: [],
         },
-    ],
+    ]),
 );
 
 export const journalJudgements = e3.input(
     'journal_judgements',
     Decision.Types.Judgements(),
-    new Map([
+    variant('value', new Map([
         ['ros-patel-cho', {
             caseId: 'ros-patel-cho',
             answers: new Map([['cho_told', variant('yes', null)]]),
@@ -82,7 +82,7 @@ export const journalJudgements = e3.input(
             verdict: none,
             resolvedAt: none,
         }],
-    ]),
+    ])),
 );
 
 // ============================================================================

@@ -18,7 +18,7 @@ import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } f
 
 // SDK imports
 import e3 from '@elaraai/e3';
-import { StringType, East, decodeBeast2For } from '@elaraai/east';
+import { StringType, East, decodeBeast2For, variant } from '@elaraai/east';
 import { DataflowExecutionStateType } from '@elaraai/e3-types';
 
 describe('signal handling', () => {
@@ -45,7 +45,7 @@ describe('signal handling', () => {
       // We use a unique marker in the sleep command that we can grep for to
       // verify the process is killed.
 
-      const input = e3.input('input', StringType, 'hello');
+      const input = e3.input('input', StringType, variant('value', 'hello'));
 
       // Task that sleeps with a unique marker we can find
       // The marker is embedded in the command so we can grep for it
@@ -111,7 +111,7 @@ describe('signal handling', () => {
     });
 
     it('reports abort status when SIGINT is received', async () => {
-      const input = e3.input('input', StringType, 'hello');
+      const input = e3.input('input', StringType, variant('value', 'hello'));
 
       const slowTask = e3.customTask(
         'slow',
@@ -160,7 +160,7 @@ describe('signal handling', () => {
       // This test verifies that after SIGINT, the execution state file
       // shows "cancelled" status - important for crash recovery.
 
-      const input = e3.input('input', StringType, 'hello');
+      const input = e3.input('input', StringType, variant('value', 'hello'));
 
       const slowTask = e3.customTask(
         'slow',
@@ -212,7 +212,7 @@ describe('signal handling', () => {
       // The cancellation should be persisted immediately on first SIGINT,
       // so even if SIGKILL follows shortly after, the status is preserved.
 
-      const input = e3.input('input', StringType, 'hello');
+      const input = e3.input('input', StringType, variant('value', 'hello'));
 
       const slowTask = e3.customTask(
         'slow',
@@ -269,7 +269,7 @@ describe('signal handling', () => {
       // the user can restart it without any special flags.
       // The stale lock should be automatically cleaned up.
 
-      const input = e3.input('input', StringType, 'hello');
+      const input = e3.input('input', StringType, variant('value', 'hello'));
 
       const slowTask = e3.customTask(
         'slow',
@@ -326,7 +326,7 @@ describe('signal handling', () => {
       // second start must all be refused while the workspace lock is held.
       // (Lock semantics are unit-tested in LocalLockService.spec.ts and via
       // the API in e3-api-tests dataflow suite; this covers the CLI surface.)
-      const input = e3.input('input', StringType, 'hello');
+      const input = e3.input('input', StringType, variant('value', 'hello'));
 
       const slowTask = e3.customTask(
         'slow',

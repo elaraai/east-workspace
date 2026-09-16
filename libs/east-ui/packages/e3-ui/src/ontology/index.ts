@@ -193,7 +193,7 @@ const OntologyTypeImpl = StructType({
  * literal's inferred type is a large anonymous structural type (every
  * node/link variant spelled out). Type aliases lose their name through
  * generic inference, so a downstream `export const x = e3.input('o',
- * OntologyType, …)` compiled with declaration emit would serialize the
+ * OntologyType, variant('value', …))` compiled with declaration emit would serialize the
  * whole structure inline into the `.d.ts`. An interface is a symbol, so
  * the declaration emitter references it by name instead.
  *
@@ -409,14 +409,14 @@ export const Ontology = {
      *
      * @example
      * ```ts
-     * import { East } from '@elaraai/east';
+     * import { East, variant } from '@elaraai/east';
      * import { Reactive, UIComponentType } from '@elaraai/east-ui';
      * import { Data, Ontology, OntologyType } from '@elaraai/e3-ui';
      * import * as e3 from '@elaraai/e3';
      *
-     * const ontologyInput = e3.input('supply_chain', OntologyType, {
+     * const ontologyInput = e3.input('supply_chain', OntologyType, variant('value', {
      *   nodes: [], links: [], metadata: { type: 'none', value: null },
-     * });
+     * }));
      *
      * const editor = East.function([], UIComponentType, (_$) =>
      *   Reactive.Root(East.function([], UIComponentType, $ => {

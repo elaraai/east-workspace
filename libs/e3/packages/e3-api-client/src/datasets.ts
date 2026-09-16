@@ -5,15 +5,16 @@
 
 import { ArrayType, NullType, StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
-import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, TRANSFER_PROTOCOL_VERSION, transferPartCount, transferPartRange } from '@elaraai/e3-types';
 import { computeHash } from './util.js';
-import { ApiError, AuthError, fetchWithAuth, parseErrorBody, get, type RequestOptions, type Response } from './http.js';
+import { ApiError, AuthError, fetchWithAuth, fetchWithRetry, parseErrorBody, get, type RequestOptions, type Response } from './http.js';
 import {
   ResponseType,
   DatasetStatusDetailType,
   ListEntryType,
   TransferUploadRequestType,
   TransferUploadResponseType,
+  TransferPartResponseType,
   TransferDoneResponseType,
   type ListEntry,
   type DatasetStatusDetail,
@@ -343,6 +344,13 @@ export async function datasetFindKey(
 
 const SIZE_THRESHOLD = 1 * 1024 * 1024; // 1 MB
 
+/** How many parts of one upload are sent at a time. */
+const PART_CONCURRENCY = 4;
+
+/** The first and the longest wait between polls of a commit still `processing`. */
+const COMMIT_POLL_MIN_MS = 100;
+const COMMIT_POLL_MAX_MS = 1000;
+
 /**
  * Set a dataset value from raw BEAST2 bytes.
  *
@@ -365,7 +373,11 @@ export async function datasetSet(
   options: RequestOptions
 ): Promise<void> {
   if (data.byteLength > SIZE_THRESHOLD) {
-    return datasetSetTransfer(url, repo, workspace, path, data, options);
+    return datasetSetTransfer(url, repo, workspace, path, {
+      size: data.byteLength,
+      hash: await computeHash(data),
+      slice: (start, end) => data.subarray(start, end),
+    }, options);
   }
 
   const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
@@ -397,31 +409,61 @@ export async function datasetSet(
 }
 
 /**
- * Set a large dataset using the transfer flow (init → upload → complete).
+ * A payload for {@link datasetSetTransfer}: its size and digest up front, and
+ * its bytes produced only if the server actually wants them.
+ *
+ * @remarks
+ * The bytes come by range because the transfer dedups on the hash (when the
+ * object is already in the store nothing is ever read) and because a server may
+ * ask for them in parts: `slice` is called for each part — concurrently for
+ * distinct parts, and again for a part whose send is retried. It returns a
+ * stream for a file, which is how a multi-gigabyte delivery reaches a remote
+ * repo without the client holding it, or the bytes for an in-memory value.
+ */
+export interface DatasetTransferSource {
+  /** Total byte length. */
+  readonly size: number;
+  /** SHA256 of those bytes, as lowercase hex. */
+  readonly hash: string;
+  /** The bytes in `[start, end)`, produced on demand. */
+  slice(start: number, end: number): Uint8Array | ReadableStream<Uint8Array>;
+}
+
+/**
+ * Set a large dataset using the transfer flow (init → upload → commit).
+ *
+ * @remarks
+ * Speaks transfer protocol 2 and still understands a server that predates it:
+ * the init answers `completed` (the object is stored already), `upload` (one
+ * PUT of every byte — a protocol-1 server) or `upload_parts` (the parts the
+ * server planned, each sent to the URL and with the headers it names for that
+ * part, a few at a time). The commit may answer `processing` while the server
+ * verifies the bytes, and is polled until it finishes.
  */
 async function datasetSetTransfer(
   url: string,
   repo: string,
   workspace: string,
   path: TreePath,
-  data: Uint8Array,
+  source: DatasetTransferSource,
   options: RequestOptions
 ): Promise<void> {
-  const hash = await computeHash(data);
+  const { hash } = source;
   const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
   const repoEncoded = encodeURIComponent(repo);
   const wsEncoded = encodeURIComponent(workspace);
+  const uploadPath = `/repos/${repoEncoded}/workspaces/${wsEncoded}/datasets/${pathStr}/upload`;
+  const protocol = `protocol=${TRANSFER_PROTOCOL_VERSION}`;
 
   // 1. Init transfer (BEAST2 request/response)
   const encodeInit = encodeBeast2For(TransferUploadRequestType);
-  const initRes = await fetchWithAuth(
-    `${url}/api/repos/${repoEncoded}/workspaces/${wsEncoded}/datasets/${pathStr}/upload`, {
+  const initRes = await fetchWithAuth(`${url}/api${uploadPath}?${protocol}`, {
     method: 'POST',
     headers: {
       'Content-Type': BEAST2_CONTENT_TYPE,
       'Accept': BEAST2_CONTENT_TYPE,
     },
-    body: encodeInit({ hash, size: BigInt(data.byteLength) }),
+    body: encodeInit({ hash, size: BigInt(source.size) }),
   }, options);
 
   if (!initRes.ok) {
@@ -440,41 +482,150 @@ async function datasetSetTransfer(
   // Dedup — object already exists, ref updated
   if (init.type === 'completed') return;
 
-  // 2. Upload to staging (no auth — URL may be a presigned S3 URL)
-  const uploadRes = await fetch(init.value.uploadUrl, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': BEAST2_CONTENT_TYPE,
-      'Accept': BEAST2_CONTENT_TYPE,
-    },
-    body: data,
-  });
-
-  if (!uploadRes.ok) {
-    throw new Error(`Transfer upload failed: ${uploadRes.status} ${uploadRes.statusText}`);
+  // 2. Upload to staging (no auth — the URLs may be presigned S3 URLs)
+  if (init.type === 'upload') {
+    await putRange(init.value.uploadUrl, {}, source, 0, source.size, options, 'Transfer upload failed');
+  } else {
+    await putParts(url, `${uploadPath}/${init.value.id}`, Number(init.value.partBytes), source, options);
   }
 
-  // 3. Commit — server verifies hash + updates ref (BEAST2 response)
-  const commitRes = await fetchWithAuth(
-    `${url}/api/repos/${repoEncoded}/workspaces/${wsEncoded}/datasets/${pathStr}/upload/${init.value.id}`, {
-    method: 'POST',
+  // 3. Commit — server verifies hash + updates ref (BEAST2 response), and
+  //    answers `processing` while that is still running
+  let done = await commitRequest(`${url}/api${uploadPath}/${init.value.id}?${protocol}`, 'POST', options);
+  for (let wait = COMMIT_POLL_MIN_MS; done.type === 'processing'; wait = Math.min(wait * 2, COMMIT_POLL_MAX_MS)) {
+    await new Promise(resolve => setTimeout(resolve, wait));
+    done = await commitRequest(`${url}/api${uploadPath}/${init.value.id}`, 'GET', options);
+  }
+
+  if (done.type === 'error') {
+    throw new Error(`Transfer failed: ${done.value.message}`);
+  }
+}
+
+/**
+ * Send every part of an upload the server planned as parts, a few at a time,
+ * each to the URL and with the headers the server names for it.
+ */
+async function putParts(
+  url: string,
+  transferPath: string,
+  partBytes: number,
+  source: DatasetTransferSource,
+  options: RequestOptions
+): Promise<void> {
+  const count = transferPartCount(source.size, partBytes);
+  let next = 1;
+  let failed = false;
+  const sender = async (): Promise<void> => {
+    // Parts are claimed one at a time; once one fails the rest are left unsent.
+    for (let part = next++; part <= count && !failed; part = next++) {
+      const { start, end } = transferPartRange(source.size, partBytes, part)!;
+      try {
+        const target = await get(url, `${transferPath}/parts/${part}`, TransferPartResponseType, options);
+        await putRange(
+          target.url, Object.fromEntries(target.headers), source, start, end, options,
+          `Transfer upload failed: part ${part} of ${count}`,
+        );
+      } catch (err) {
+        failed = true;
+        throw err;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PART_CONCURRENCY, count) }, sender));
+}
+
+/**
+ * PUT the source's bytes in `[start, end)` to an upload URL, retrying a
+ * transient failure with the range read afresh.
+ */
+async function putRange(
+  uploadUrl: string,
+  headers: Record<string, string>,
+  source: DatasetTransferSource,
+  start: number,
+  end: number,
+  options: RequestOptions,
+  failure: string
+): Promise<void> {
+  // A stream body needs `duplex: 'half'` and a declared length; undici refuses
+  // a streaming request without the former and cannot chunk without the
+  // latter. `fetch`'s lib.dom BodyInit does not name ReadableStream in this
+  // configuration, and `duplex` is not in the type at all — both are undici
+  // runtime contracts, so the init is typed through RequestInit.
+  const res = await fetchWithRetry(uploadUrl, () => {
+    const body = source.slice(start, end);
+    const streaming = typeof (body as ReadableStream<Uint8Array>).getReader === 'function';
+    return {
+      method: 'PUT',
+      headers: {
+        'Content-Type': BEAST2_CONTENT_TYPE,
+        'Accept': BEAST2_CONTENT_TYPE,
+        ...headers,
+        'Content-Length': String(end - start),
+      },
+      ...({ body, ...(streaming ? { duplex: 'half' } : {}) } as Record<string, unknown>),
+    } as RequestInit;
+  }, { idempotent: true, retry: options.retry });
+
+  if (!res.ok) {
+    throw new Error(`${failure}: ${res.status} ${res.statusText}`);
+  }
+}
+
+/** Commit an upload (POST) or poll its commit (GET), decoding the answer. */
+async function commitRequest(
+  commitUrl: string,
+  method: 'POST' | 'GET',
+  options: RequestOptions
+): Promise<TransferDoneResponse> {
+  const res = await fetchWithAuth(commitUrl, {
+    method,
     headers: { 'Accept': BEAST2_CONTENT_TYPE },
   }, options);
 
-  if (!commitRes.ok) {
-    throw new Error(`Transfer commit failed: ${commitRes.status} ${commitRes.statusText}`);
+  if (!res.ok) {
+    throw new Error(`Transfer commit failed: ${res.status} ${res.statusText}`);
   }
 
-  const commitBuffer = new Uint8Array(await commitRes.arrayBuffer());
+  const buffer = new Uint8Array(await res.arrayBuffer());
   const decodeDone = decodeBeast2For(ResponseType(TransferDoneResponseType));
-  const commitResult = decodeDone(commitBuffer) as Response<TransferDoneResponse>;
-  if (commitResult.type === 'error') {
-    throw new ApiError(commitResult.value.type, commitResult.value.value);
+  const result = decodeDone(buffer) as Response<TransferDoneResponse>;
+  if (result.type === 'error') {
+    throw new ApiError(result.value.type, result.value.value);
   }
+  return result.value;
+}
 
-  if (commitResult.value.type === 'error') {
-    throw new Error(`Transfer failed: ${commitResult.value.value.message}`);
-  }
+/**
+ * Set a dataset from a file, streaming it to a remote repository.
+ *
+ * @remarks
+ * The remote twin of `e3 dataset set --from-file`: the digest is streamed from
+ * the file, the transfer dedups on it (a delivery already in the store costs
+ * one round trip and no bytes), and every part the server asks for is a stream
+ * of the file's range, so the client's memory is a buffer per part in flight
+ * rather than the file. The server's commit runs the same `datasetAdoptFile`
+ * validation a local set does, so a type mismatch is refused with the same
+ * message.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the dataset (e.g., ['inputs', 'table'])
+ * @param source - The file's size, digest and byte ranges
+ * @param options - Request options including auth token
+ * @throws {ApiError} On application-level errors, including a type mismatch
+ */
+export async function datasetSetStream(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  source: DatasetTransferSource,
+  options: RequestOptions
+): Promise<void> {
+  return datasetSetTransfer(url, repo, workspace, path, source, options);
 }
 
 /**

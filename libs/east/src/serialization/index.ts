@@ -8,7 +8,7 @@ export * from "./beast.js";
 export {
   encodeBeast2For, decodeBeast2For, decodeBeast2ForAsync, decodeBeast2,
   compileFunctionIR, compileAsyncFunctionIR, encodeEastIR, decodeEastIR, decodeAsyncEastIR,
-  Beast2Writer, encodeBeast2SegmentsFor, encodeBeast2PagedFor, iterBeast2SegmentsFor, Beast2Pages, openBeast2PagesFor, beast2HasIndex, readBeast2Type,
+  Beast2Writer, encodeBeast2SegmentsFor, encodeBeast2PagedFor, iterBeast2SegmentsFor, Beast2Pages, openBeast2PagesFor, beast2HasIndex, readBeast2Type, readBeast2HeaderType,
   readBeast2Extents, carveBeast2, spliceBeast2, rebuildBeast2, openBeast2LazyFor, isBeast2LazySafe,
   readBeast2ExtentsRanged, readBeast2ExtentsSync, isBeast2SyncRangeReader, carveBeast2Ranged, spliceBeast2Tail,
   BEAST2_WRITE_VERSION, BEAST2_READ_VERSIONS, BEAST2_PAGED_BATCH_DEFAULT, BEAST2_PAGED_TARGET_BYTES_DEFAULT,

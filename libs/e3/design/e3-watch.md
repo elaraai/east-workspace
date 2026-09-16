@@ -35,9 +35,9 @@ The watched TypeScript file must have a default export that is a `PackageDef`:
 ```ts
 // my-package.ts
 import e3 from '@elaraai/e3';
-import { StringType } from '@elaraai/east';
+import { StringType, variant } from '@elaraai/east';
 
-const input_name = e3.input('name', StringType, 'World');
+const input_name = e3.input('name', StringType, variant('value', 'World'));
 
 const say_hello = e3.task(
   'say_hello',

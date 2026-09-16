@@ -7,12 +7,12 @@
 // Test fixture: an e3 ui() task WITH a compute-time input — not renderable
 // standalone (the browser app cannot supply the argument), so the loader must
 // reject it with the --from-task remediation.
-import { East, StringType } from "@elaraai/east";
+import { East, StringType, variant } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { ui } from "@elaraai/e3-ui";
 import { UIComponentType, Text } from "@elaraai/east-ui";
 
-const name = e3.input("name", StringType, "world");
+const name = e3.input("name", StringType, variant("value", "world"));
 
 export const surface = ui(
     "surface",

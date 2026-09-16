@@ -35,7 +35,7 @@ import type {
  *
  * @example
  * ```ts
- * const input_name = e3.input('name', StringType, 'World');
+ * const input_name = e3.input('name', StringType, variant('value', 'World'));
  * const say_hello = e3.task('say_hello', [input_name], ...);
  *
  * // Only need to pass the final task - input_name is included automatically

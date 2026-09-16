@@ -6,20 +6,53 @@
       "package": "e3",
       "file": "static",
       "suite": "e3.input",
-      "test": "Define an input dataset with a default value",
+      "test": "Define an input dataset whose initial value is a source: an inline value, or none",
       "keywords": [
         "e3",
         "input",
         "dataset",
+        "source",
+        "value",
+        "variant",
         "default",
         "StringType",
         "IntegerType"
       ],
       "imports": [
-        "import { East, StringType, IntegerType } from '@elaraai/east';",
+        "import { StringType, IntegerType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// Define an input with a default value\nconst name = e3.input('name', StringType, 'default');\nconst count = e3.input('count', IntegerType);"
+      "source": "// The third argument is a source variant: variant('value', v) inline,\n// or variant('file', path) for a beast2 file adopted at deploy.\nconst name = e3.input('name', StringType, variant('value', 'default'));\n// Omitted: unassigned until something sets it.\nconst count = e3.input('count', IntegerType);"
+    },
+    {
+      "id": "e3:static:input-file-source",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.input",
+      "test": "Path-initialise an input from a large beast2 delivery, adopted by hash at deploy",
+      "keywords": [
+        "e3",
+        "input",
+        "file",
+        "path",
+        "delivery",
+        "beast2",
+        "large",
+        "table",
+        "adopt",
+        "hash",
+        "source",
+        "variant",
+        "deploy",
+        "dataset set",
+        "from-file"
+      ],
+      "imports": [
+        "import { ArrayType, IntegerType, StringType, StructType, variant } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "// A large table delivered as an indexed beast2 file. Only the path travels in\n// the package; deploy adopts the file into the object store by hash (reflink,\n// hard link or one kernel copy — never read whole, never modified), after\n// checking its header against the declared type. A new delivery under the same\n// path is a new hash, so only its consumers re-run.\nconst RowType = StructType({ id: IntegerType, site: StringType });\nconst table = e3.input('table', ArrayType(RowType), variant('file', './deliveries/TABLE.beast2'));\n\n// Re-point it later without a redeploy:\n//   e3 dataset set . dev.table --from-file ./deliveries/TABLE-v2.beast2"
     },
     {
       "id": "e3:static:task-basic",
@@ -36,10 +69,10 @@
         "dependency"
       ],
       "imports": [
-        "import { East, StringType } from '@elaraai/east';",
+        "import { East, StringType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// Define a task that runs an East function\nconst name = e3.input('name', StringType, 'World');\n\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);"
+      "source": "// Define a task that runs an East function\nconst name = e3.input('name', StringType, variant('value', 'World'));\n\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);"
     },
     {
       "id": "e3:static:task-chain",
@@ -142,10 +175,10 @@
         "hello world"
       ],
       "imports": [
-        "import { East, StringType } from '@elaraai/east';",
+        "import { East, StringType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "// Complete e3 package with input, task, package, and export\nconst name = e3.input('name', StringType, 'World');\n\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);\n\nconst pkg = e3.package('hello', '1.0.0', greet);\nawait e3.export(pkg, '/tmp/hello.zip');\nexport default pkg;"
+      "source": "// Complete e3 package with input, task, package, and export\nconst name = e3.input('name', StringType, variant('value', 'World'));\n\nconst greet = e3.task(\n  'greet',\n  [name],\n  East.function([StringType], StringType, ($, n) =>\n    East.str`Hello, ${n}!`\n  )\n);\n\nconst pkg = e3.package('hello', '1.0.0', greet);\nawait e3.export(pkg, '/tmp/hello.zip');\nexport default pkg;"
     },
     {
       "id": "e3-ui-cli:static:shot-from-source",
@@ -417,6 +450,34 @@
       ],
       "imports": [],
       "source": "npm create @elaraai/east mylib\nnpm create @elaraai/east mylib -- --no-tests"
+    },
+    {
+      "id": "e3:static:partition-merge",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.partitionTask",
+      "test": "Merge keyed partials that may share keys, segment by segment",
+      "keywords": [
+        "e3",
+        "partitionTask",
+        "merge",
+        "segment",
+        "partials",
+        "overlap",
+        "collide",
+        "keyed",
+        "Dict",
+        "union",
+        "Set",
+        "fan-in",
+        "re-key"
+      ],
+      "imports": [
+        "import { East, DictType, IntegerType, StringType, StructType } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "const EventType = StructType({ entity: StringType, at: IntegerType });\nconst events = e3.input('events', DictType(IntegerType, EventType));\n\n// Each partition returns a Dict keyed by entity; the same entity may appear in\n// several partitions. `merge` resolves such a key; the orchestrator byte-copies\n// every segment no other partial reaches and decodes only the overlaps. A Set\n// output takes `merge: 'union'`.\nconst latest = e3.partitionTask('latest', {\n  partitions: [events],\n  output: DictType(StringType, EventType),\n  merge: ($, _entity, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n}, ($, slice) => slice.toDict(\n  ($, event, _id) => event.entity,\n  ($, event, _id) => event,\n  ($, a, b, _entity) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n));"
     }
   ]
 }

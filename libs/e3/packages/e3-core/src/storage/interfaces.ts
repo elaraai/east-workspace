@@ -161,6 +161,50 @@ export interface ObjectStore {
   readRange?(repo: string, hash: string, offset: number, length: number): Promise<Uint8Array>;
 
   /**
+   * Take an existing file into the store as an object, without reading it.
+   *
+   * Optional: backends whose objects are files (a local repository, EFS)
+   * implement it so a large delivery becomes a dataset for the cost of a
+   * link. Callers that need a universal path fall back to
+   * `writeStream(repo, createReadStream(file))`, which must produce the same
+   * hash.
+   *
+   * The file is never opened for writing and its mode and mtime are left
+   * alone. A backend may hard-link it, so the caller's contract is that the
+   * file is immutable from here on: modifying it IN PLACE afterwards would
+   * change the bytes stored under a hash that no longer describes them.
+   * (Replacing it — a new delivery written to a fresh inode — is exactly the
+   * intended workflow and is safe.)
+   *
+   * @param repo - Repository identifier
+   * @param file - Path to the file to adopt
+   * @param hash - The file's SHA256 when the caller already streamed it;
+   *   otherwise the backend computes it
+   * @returns The object's hash and size
+   */
+  adoptFile?(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }>;
+
+  /**
+   * Place an object's bytes at `destPath`, without reading them.
+   *
+   * Optional: backends whose objects are files link or kernel-copy them, so
+   * staging a task's inputs never puts an object on the orchestrator's heap.
+   * Callers fall back to streaming {@link readRange} into the destination
+   * when it is absent.
+   *
+   * A link makes the staged file share the object's storage, so a consumer
+   * that could WRITE to it must ask for `link: false`. The stock runners only
+   * ever read their inputs; a `custom` runner is an arbitrary command.
+   *
+   * @param repo - Repository identifier
+   * @param hash - SHA256 hash of the object
+   * @param destPath - Where to place the bytes; its directory must exist
+   * @param options - `link: false` forbids sharing storage with the object
+   * @throws {ObjectNotFoundError} If object doesn't exist
+   */
+  materialize?(repo: string, hash: string, destPath: string, options?: { link?: boolean }): Promise<void>;
+
+  /**
    * Check if an object exists.
    * @param repo - Repository identifier
    * @param hash - SHA256 hash of the object

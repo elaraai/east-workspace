@@ -91,10 +91,14 @@ describe('partitionTaskExecute', () => {
     partitions: number;
     targetPartitionBytes: number;
     combine?: Uint8Array;
+    merge?: Uint8Array;
+    mergeSets?: boolean;
     commandIrHash?: string;
   }): Promise<string> {
     const commandIrHash = options.commandIrHash ?? await createCopyCommandIr(options.copyIndex);
     const metadata = encodePartitionTaskMetadata({
+      merge: options.merge !== undefined ? some(options.merge) : none,
+      mergeSets: options.mergeSets ?? false,
       partitions: BigInt(options.partitions),
       by: none,
       combine: options.combine !== undefined ? some(options.combine) : none,
@@ -214,6 +218,53 @@ describe('partitionTaskExecute', () => {
 
     // 10 partition executions + 9 merges (5 + 2 + 1 + 1) + the logical record.
     assert.equal(await executionCount(taskHash), 20);
+  });
+
+  it('merge mode assembles disjoint shards by byte copy, with no runner-side fold', async () => {
+    const table = makeTable(1000);
+    const tableBlob = encodeBeast2PagedFor(TableType, { batchSize: 100 })(table);
+    const tableHash = await storage.objects.write(repo, tableBlob);
+    const fnIrHash = await createDummyFnIr();
+    const mergeFn = East.function([IntegerType, RowType, RowType], RowType, ($, _k, a, _b) => $.return(a));
+    const taskHash = await createPartitionTask({
+      copyIndex: 1,
+      partitions: 1,
+      targetPartitionBytes: 1,
+      merge: encodeEastIR(mergeFn.toIR()),
+    });
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(result.state, 'success', result.error ?? '');
+
+    // The identity body's shards are the input's own segments and cannot
+    // collide, so the segment merge degenerates to the splice: the input
+    // blob, byte for byte.
+    assert.equal(result.outputHash, tableHash);
+    // 10 partition executions + the logical record — and NO combine
+    // executions: the fan-in ran in the orchestrator.
+    assert.equal(await executionCount(taskHash), 11);
+  });
+
+  it('merge mode resolves shards that collide, where splice mode refuses them', async () => {
+    const table = makeTable(1000);
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    // Every partition copies the same broadcast blob: ten shards with
+    // identical key ranges — exactly the case splice mode rejects below.
+    const broadcastTable = makeTable(50);
+    const broadcastHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(broadcastTable));
+    const fnIrHash = await createDummyFnIr();
+    const mergeFn = East.function([IntegerType, RowType, RowType], RowType, ($, _k, a, _b) => $.return(a));
+    const taskHash = await createPartitionTask({
+      copyIndex: 2,
+      partitions: 1,
+      targetPartitionBytes: 1,
+      merge: encodeEastIR(mergeFn.toIR()),
+    });
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash, broadcastHash]);
+    assert.equal(result.state, 'success', result.error ?? '');
+    const merged = decodeBeast2For(TableType)(await storage.objects.read(repo, result.outputHash!));
+    assert.ok(equalFor(TableType)(merged, broadcastTable), 'each colliding key resolved once');
   });
 
   it('rejects splice-mode shards that do not ascend disjointly, naming the remedy', async () => {
@@ -409,7 +460,7 @@ describe('partitionTaskExecute', () => {
       tasks: new Map([['t', taskHash]]),
       data: { structure: variant('struct', new Map()), refs: new Map() },
       functions: new Map(),
-      records: new Map(),
+      records: new Map(), sources: new Map(),
     } as PackageObject));
     mkdirSync(join(repo, 'packages', 'p'), { recursive: true });
     writeFileSync(join(repo, 'packages', 'p', '1.0.0'), pkgHash + '\n');

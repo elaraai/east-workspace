@@ -12,11 +12,11 @@ npm install @elaraai/e3
 
 ```typescript
 import e3 from '@elaraai/e3';
-import { StringType, East } from '@elaraai/east';
+import { StringType, East, variant } from '@elaraai/east';
 
 // Define input datasets with default values
-const input_name = e3.input('name', StringType, 'World');
-const input_prefix = e3.input('prefix', StringType, 'Hello');
+const input_name = e3.input('name', StringType, variant('value', 'World'));
+const input_prefix = e3.input('prefix', StringType, variant('value', 'Hello'));
 
 // Define a task that combines inputs
 const greet = e3.task(
@@ -53,7 +53,7 @@ This creates a package with:
 
 ## API
 
-- `e3.input(name, type, default)` - Define an input dataset
+- `e3.input(name, type, variant('value', default))` - Define an input dataset
 - `e3.task(name, inputs, fn)` - Define a task with East function
 - `e3.package(name, version, task)` - Create a package (dependencies collected automatically)
 - `e3.export(pkg, path)` - Export package to zip file

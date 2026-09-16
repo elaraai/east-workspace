@@ -23,7 +23,7 @@ import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
-import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
+import { adoptOutputFile, marshalInputsToDir, spawnAndCapture } from './processExec.js';
 import { materializeEnvironment } from './environment.js';
 import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
 
@@ -311,8 +311,13 @@ export async function taskExecuteBody(
   await fs.mkdir(scratchDir, { recursive: true });
 
   try {
-    // Step 5: Marshal inputs to scratch dir
-    const inputPaths = await marshalInputsToDir(storage, repo, scratchDir, inputHashes);
+    // Step 5: Marshal inputs to scratch dir. A stock runner only ever READS
+    // its inputs, so they may share the object's storage; a `custom` runner is
+    // an arbitrary command that could move or truncate the path, which through
+    // a hard link would rewrite the object itself — so it gets copies.
+    const inputPaths = await marshalInputsToDir(storage, repo, scratchDir, inputHashes, {
+      link: task.runner.type !== 'custom',
+    });
 
     // Step 6: Evaluate command IR to get exec args
     const outputPath = path.join(scratchDir, 'output.beast2');
@@ -431,10 +436,12 @@ export async function taskExecuteBody(
 
     // Step 9: Handle result
     if (result.exitCode === 0) {
-      // Success - read and store output
+      // Success - take the output into the store without reading it: hashed
+      // by streaming and linked or kernel-copied, so a multi-gigabyte output
+      // never lands on this process's heap. Done before the scratch cleanup
+      // in the `finally` below.
       try {
-        const outputData = await fs.readFile(outputPath);
-        const outputHash = await storage.objects.write(repo, outputData);
+        const outputHash = await adoptOutputFile(storage, repo, outputPath);
 
         // Write success status (output is stored within status.beast2's directory)
         const status: ExecutionStatus = variant('success', {

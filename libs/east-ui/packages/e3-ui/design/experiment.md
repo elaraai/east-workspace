@@ -235,7 +235,7 @@ component's mock and the library agree.
 ### 6b. e3-ui showcase example
 
 `e3-ui/test/experiment/experiment.examples.tsx`:
-- An input dataset `e3.input('batches', ArrayType(BatchRow), [...])` — the slow-cure
+- An input dataset `e3.input('batches', ArrayType(BatchRow), variant('value', [...]))` — the slow-cure
   batches (treatment `slow_cure`, outcome `bond_strength`, `incoming_grade`, …).
 - `e3.function` fixtures `estimate`/`refute`/`dose` returning the contract constants
   (pure East — no Python).

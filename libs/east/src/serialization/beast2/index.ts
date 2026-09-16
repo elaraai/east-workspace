@@ -75,6 +75,7 @@ export {
 } from "./v5/geometry.js";
 export { openBeast2LazyFor, isBeast2LazySafe, type Beast2LazySafeOptions } from "./v5/lazy.js";
 import { readIndex, MAGIC_BYTES_V5 } from "./v5/codec.js";
+import type { Beast2SyncRangeReader } from "./v5/range.js";
 
 /**
  * Reads the root type a beast2 blob's header declares, without decoding the
@@ -93,6 +94,62 @@ import { readIndex, MAGIC_BYTES_V5 } from "./v5/codec.js";
 export function readBeast2Type(data: Uint8Array): EastTypeValue {
   if (sniffVersion(data) !== 5) return readBeast2V4Type(data);
   return readTypeSection(new BufferReader(data, MAGIC_BYTES_V5.length)).rootType;
+}
+
+/** Head read sizes {@link readBeast2HeaderType} tries, in order. The first
+ *  covers every type section anything realistic writes; the last is a ceiling,
+ *  not a budget — a blob whose declared type needs more than 16 MiB of type
+ *  table is malformed, not merely large. */
+const HEADER_TYPE_PROBE_BYTES = [64 * 1024, 1024 * 1024, 16 * 1024 * 1024];
+
+/**
+ * Reads the root type a beast2 blob's header declares, through ranged reads
+ * instead of the whole blob.
+ *
+ * The sibling of {@link readBeast2Type}, for a blob too big to hold in memory:
+ * a delivered file a caller is about to accept as a dataset, where the point of
+ * checking the type is to refuse it *before* paying for its bytes. Both
+ * container versions carry the type up front, so one head read normally answers
+ * it; a type section wider than the probe costs one more read, never the file.
+ *
+ * Collection roots have a cheaper and stricter check available in
+ * `readBeast2Extents(reader)`, which reads the index too. This one is for the
+ * roots that have no index.
+ *
+ * @param reader - synchronous ranged access to the blob
+ * @returns the declared root type
+ * @throws {Error} When the blob is not a beast2 container, or its type section
+ *   is malformed or implausibly large.
+ */
+export function readBeast2HeaderType(reader: Beast2SyncRangeReader): EastTypeValue {
+  const size = reader.size;
+  if (size < 8) {
+    throw new Error(`Data too short for Beast2 format: ${size} bytes`);
+  }
+  let lastError: unknown;
+  let read = 0;
+  for (const probe of HEADER_TYPE_PROBE_BYTES) {
+    const length = Math.min(size, probe);
+    if (length <= read && read > 0) break;
+    read = length;
+    const head = reader.read(0, length);
+    if (head.length !== length) {
+      throw new Error(`beast2: reader returned ${head.length} bytes for a ${length}-byte range at offset 0`);
+    }
+    try {
+      return readBeast2Type(head);
+    } catch (err) {
+      // A short head fails the same way a malformed one does, so grow first
+      // and only report the failure once the whole type section must be in
+      // hand. `read === size` means it is.
+      if (length === size) throw err;
+      lastError = err;
+    }
+  }
+  throw new Error(
+    `beast2: type section not readable in the first ${read} bytes — ` +
+    `${lastError instanceof Error ? lastError.message : String(lastError)}`
+  );
 }
 
 /**

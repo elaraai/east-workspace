@@ -310,7 +310,7 @@ describe('trees', () => {
   describe('packageListTree', () => {
     it('lists root tree fields', async () => {
       // Create and import a package with inputs
-      const myInput = e3.input('greeting', StringType, 'hello');
+      const myInput = e3.input('greeting', StringType, variant('value', 'hello'));
       const pkg = e3.package('list-test', '1.0.0', myInput);
       const zipPath = join(tempDir, 'list-test.zip');
       await e3.export(pkg, zipPath);
@@ -324,8 +324,8 @@ describe('trees', () => {
 
     it('lists nested tree fields', async () => {
       // Create and import a package with multiple inputs
-      const input1 = e3.input('sales', IntegerType, 100n);
-      const input2 = e3.input('costs', IntegerType, 50n);
+      const input1 = e3.input('sales', IntegerType, variant('value', 100n));
+      const input2 = e3.input('costs', IntegerType, variant('value', 50n));
       const pkg = e3.package('nested-list', '1.0.0', input1, input2);
       const zipPath = join(tempDir, 'nested-list.zip');
       await e3.export(pkg, zipPath);
@@ -349,7 +349,7 @@ describe('trees', () => {
     });
 
     it('throws for invalid path', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('path-test', '1.0.0', myInput);
       const zipPath = join(tempDir, 'path-test.zip');
       await e3.export(pkg, zipPath);
@@ -364,7 +364,7 @@ describe('trees', () => {
     });
 
     it('throws when path points to dataset', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('dataset-path', '1.0.0', myInput);
       const zipPath = join(tempDir, 'dataset-path.zip');
       await e3.export(pkg, zipPath);
@@ -385,7 +385,7 @@ describe('trees', () => {
 
   describe('workspaceListTree', () => {
     it('lists root tree fields', async () => {
-      const myInput = e3.input('greeting', StringType, 'hello');
+      const myInput = e3.input('greeting', StringType, variant('value', 'hello'));
       const pkg = e3.package('ws-list-test', '1.0.0', myInput);
       const zipPath = join(tempDir, 'ws-list-test.zip');
       await e3.export(pkg, zipPath);
@@ -398,8 +398,8 @@ describe('trees', () => {
     });
 
     it('lists nested tree fields', async () => {
-      const input1 = e3.input('sales', IntegerType, 100n);
-      const input2 = e3.input('costs', IntegerType, 50n);
+      const input1 = e3.input('sales', IntegerType, variant('value', 100n));
+      const input2 = e3.input('costs', IntegerType, variant('value', 50n));
       const pkg = e3.package('ws-nested-list', '1.0.0', input1, input2);
       const zipPath = join(tempDir, 'ws-nested-list.zip');
       await e3.export(pkg, zipPath);
@@ -432,7 +432,7 @@ describe('trees', () => {
     });
 
     it('throws when path points to dataset', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('ws-dataset-path', '1.0.0', myInput);
       const zipPath = join(tempDir, 'ws-dataset-path.zip');
       await e3.export(pkg, zipPath);
@@ -451,7 +451,7 @@ describe('trees', () => {
 
   describe('workspaceGetDataset', () => {
     it('reads dataset value at path', async () => {
-      const myInput = e3.input('greeting', StringType, 'hello world');
+      const myInput = e3.input('greeting', StringType, variant('value', 'hello world'));
       const pkg = e3.package('ws-get-test', '1.0.0', myInput);
       const zipPath = join(tempDir, 'ws-get-test.zip');
       await e3.export(pkg, zipPath);
@@ -467,7 +467,7 @@ describe('trees', () => {
     });
 
     it('reads integer dataset', async () => {
-      const myInput = e3.input('count', IntegerType, 42n);
+      const myInput = e3.input('count', IntegerType, variant('value', 42n));
       const pkg = e3.package('ws-int-test', '1.0.0', myInput);
       const zipPath = join(tempDir, 'ws-int-test.zip');
       await e3.export(pkg, zipPath);
@@ -483,7 +483,7 @@ describe('trees', () => {
     });
 
     it('throws for empty path', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('ws-empty-path', '1.0.0', myInput);
       const zipPath = join(tempDir, 'ws-empty-path.zip');
       await e3.export(pkg, zipPath);
@@ -497,7 +497,7 @@ describe('trees', () => {
     });
 
     it('throws when path points to tree', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('ws-tree-path', '1.0.0', myInput);
       const zipPath = join(tempDir, 'ws-tree-path.zip');
       await e3.export(pkg, zipPath);
@@ -535,7 +535,7 @@ describe('trees', () => {
 
   describe('workspaceSetDataset', () => {
     it('updates dataset value at path', async () => {
-      const myInput = e3.input('greeting', StringType, 'hello');
+      const myInput = e3.input('greeting', StringType, variant('value', 'hello'));
       const pkg = e3.package('ws-set-test', '1.0.0', myInput);
       const zipPath = join(tempDir, 'ws-set-test.zip');
       await e3.export(pkg, zipPath);
@@ -564,7 +564,7 @@ describe('trees', () => {
     });
 
     it('updates integer dataset', async () => {
-      const myInput = e3.input('count', IntegerType, 100n);
+      const myInput = e3.input('count', IntegerType, variant('value', 100n));
       const pkg = e3.package('ws-set-int', '1.0.0', myInput);
       const zipPath = join(tempDir, 'ws-set-int.zip');
       await e3.export(pkg, zipPath);
@@ -584,8 +584,8 @@ describe('trees', () => {
     });
 
     it('preserves other fields in tree (structural sharing)', async () => {
-      const input1 = e3.input('a', StringType, 'alpha');
-      const input2 = e3.input('b', StringType, 'beta');
+      const input1 = e3.input('a', StringType, variant('value', 'alpha'));
+      const input2 = e3.input('b', StringType, variant('value', 'beta'));
       const pkg = e3.package('ws-share-test', '1.0.0', input1, input2);
       const zipPath = join(tempDir, 'ws-share-test.zip');
       await e3.export(pkg, zipPath);
@@ -614,7 +614,7 @@ describe('trees', () => {
     });
 
     it('throws for empty path', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('ws-set-empty', '1.0.0', myInput);
       const zipPath = join(tempDir, 'ws-set-empty.zip');
       await e3.export(pkg, zipPath);
@@ -628,7 +628,7 @@ describe('trees', () => {
     });
 
     it('throws when path points to tree', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('ws-set-tree', '1.0.0', myInput);
       const zipPath = join(tempDir, 'ws-set-tree.zip');
       await e3.export(pkg, zipPath);
@@ -644,7 +644,7 @@ describe('trees', () => {
     });
 
     it('throws for non-existent path', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('ws-set-bad', '1.0.0', myInput);
       const zipPath = join(tempDir, 'ws-set-bad.zip');
       await e3.export(pkg, zipPath);
@@ -683,7 +683,7 @@ describe('trees', () => {
 
   describe('workspaceGetDatasetStatus', () => {
     it('returns status for value ref (input with default)', async () => {
-      const myInput = e3.input('count', IntegerType, 42n);
+      const myInput = e3.input('count', IntegerType, variant('value', 42n));
       const pkg = e3.package('status-value', '1.0.0', myInput);
       const zipPath = join(tempDir, 'status-value.zip');
       await e3.export(pkg, zipPath);
@@ -705,7 +705,7 @@ describe('trees', () => {
     });
 
     it('returns status for unassigned ref (task output)', async () => {
-      const myInput = e3.input('x', IntegerType, 10n);
+      const myInput = e3.input('x', IntegerType, variant('value', 10n));
       const task = e3.task(
         'double',
         [myInput],
@@ -731,7 +731,7 @@ describe('trees', () => {
 
     it('returns status for null ref', async () => {
       // Deploy a package, then manually write a null ref
-      const myInput = e3.input('value', IntegerType, 10n);
+      const myInput = e3.input('value', IntegerType, variant('value', 10n));
       const pkg = e3.package('status-null', '1.0.0', myInput);
       const zipPath = join(tempDir, 'status-null.zip');
       await e3.export(pkg, zipPath);
@@ -754,7 +754,7 @@ describe('trees', () => {
     });
 
     it('returns updated status after set', async () => {
-      const myInput = e3.input('value', IntegerType, 10n);
+      const myInput = e3.input('value', IntegerType, variant('value', 10n));
       const pkg = e3.package('status-update', '1.0.0', myInput);
       const zipPath = join(tempDir, 'status-update.zip');
       await e3.export(pkg, zipPath);
@@ -780,7 +780,7 @@ describe('trees', () => {
     });
 
     it('throws for empty path', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('status-empty', '1.0.0', myInput);
       const zipPath = join(tempDir, 'status-empty.zip');
       await e3.export(pkg, zipPath);
@@ -794,7 +794,7 @@ describe('trees', () => {
     });
 
     it('throws when path points to tree', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('status-tree', '1.0.0', myInput);
       const zipPath = join(tempDir, 'status-tree.zip');
       await e3.export(pkg, zipPath);
@@ -810,7 +810,7 @@ describe('trees', () => {
     });
 
     it('throws for non-existent field', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('status-nofield', '1.0.0', myInput);
       const zipPath = join(tempDir, 'status-nofield.zip');
       await e3.export(pkg, zipPath);

@@ -16,6 +16,7 @@ import {
   workspaceGetState,
   workspaceStatus,
   packageImport,
+  packageRead,
   LocalStorage,
   WorkspaceExistsError,
   type WorkspaceStatusResult,
@@ -28,15 +29,21 @@ import {
   workspaceRemove as workspaceRemoveRemote,
   workspaceStatus as workspaceStatusRemote,
   packageImport as packageImportRemote,
+  packageGet as packageGetRemote,
+  packageList as packageListRemote,
+  datasetSetStream,
   ApiError,
 } from '@elaraai/e3-api-client';
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import e3 from '@elaraai/e3';
-import { parseRepoLocation, parsePackageSpec, formatError, exitError } from '../utils.js';
+import type { EastTypeValue } from '@elaraai/east';
+import e3, { DatasetFileTypeMismatchError, readDatasetFileHeader, sha256File } from '@elaraai/e3';
+import { treePath, type PackageObject, type TreePath } from '@elaraai/e3-types';
+import { parseRepoLocation, parsePackageSpec, formatError, exitError, type RepoLocation } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
 import { createProgress, formatBytes, type Progress } from '../progress.js';
+import { fileTransferSource } from '../file-transfer-source.js';
 
 export const workspaceCommand = {
   /**
@@ -63,16 +70,23 @@ export const workspaceCommand = {
   /**
    * Deploy a package to a workspace.
    *
-   * Two modes:
+   * Three modes:
    *   - With `pkgSpec`: deploy an already-imported package by name[@version].
    *   - With `--from-zip <path>`: import the zip first, create the workspace if
    *     missing, then deploy. Replaces the legacy `workspace import` command.
+   *   - With `--from-source <file.ts>`: bundle the source into a package, then
+   *     deploy it as `--from-zip` does.
+   *
+   * A package's `file` sources are read on THIS machine in every mode: a local
+   * deploy adopts them, a remote one checks each before touching the remote
+   * workspace and uploads it after the deploy. `--skip-file-sources` leaves them
+   * unset instead.
    */
   async deploy(
     repoArg: string,
     ws: string,
     pkgSpec: string | undefined,
-    options: { fromZip?: string; fromSource?: string; functions?: string[]; quiet?: boolean } = {},
+    options: { fromZip?: string; fromSource?: string; functions?: string[]; quiet?: boolean; skipFileSources?: boolean } = {},
   ): Promise<void> {
     try {
       const modes = [pkgSpec, options.fromZip, options.fromSource].filter(Boolean);
@@ -86,16 +100,17 @@ export const workspaceCommand = {
       const location = await parseRepoLocation(repoArg);
 
       const progress = createProgress({ quiet: options.quiet === true });
+      const target: DeployTarget = { location, repoArg, ws, progress, skipFileSources: options.skipFileSources === true };
 
       // --from-source mode: bundle the TS source into a package, then import + deploy
       if (options.fromSource) {
-        await deployFromSource(location, ws, options.fromSource, progress, options.functions ?? []);
+        await deployFromSource(target, options.fromSource, options.functions ?? []);
         return;
       }
 
       // --from-zip mode: import then deploy
       if (options.fromZip) {
-        await deployFromZip(location, ws, options.fromZip, progress);
+        await deployFromZip(target, options.fromZip);
         return;
       }
 
@@ -103,10 +118,15 @@ export const workspaceCommand = {
 
       if (location.type === 'local') {
         const storage = new LocalStorage();
-        await workspaceDeploy(storage, location.path, ws, name, version);
+        await workspaceDeploy(storage, location.path, ws, name, version, { resolveFileSources: !target.skipFileSources });
+        if (target.skipFileSources) {
+          reportSkippedFileSources(target, fileSourcesOf(await packageRead(storage, location.path, name, version)));
+        }
       } else {
-        const packageRef = version === 'latest' ? name : `${name}@${version}`;
-        await workspaceDeployRemote(location.baseUrl, location.repo, ws, packageRef, { token: location.token });
+        // Resolve `latest` here, so the package this command checks the file
+        // sources of is exactly the one the server deploys.
+        const resolved = version === 'latest' ? await latestRemoteVersion(location, name) : version;
+        await deployRemote(target, name, resolved);
       }
 
       console.log(`Deployed ${pkgSpec} to workspace: ${ws}`);
@@ -370,17 +390,156 @@ export const workspaceCommand = {
   },
 };
 
+/** Where a deploy lands and how it treats file sources — shared by every mode. */
+interface DeployTarget {
+  location: RepoLocation;
+  /** The repository argument as the user gave it, for the commands we print. */
+  repoArg: string;
+  ws: string;
+  progress: Progress;
+  /** Leave the package's `file` sources unset instead of reading them. */
+  skipFileSources: boolean;
+}
+
+/** A package's path-initialised input, as a deploy completes it. */
+interface FileSource {
+  /** The input's name (`table`), as `<ws>.<name>` paths spell it. */
+  name: string;
+  /** Its dataset path (`.inputs.table`). */
+  treePath: TreePath;
+  /** The absolute path recorded when the package was exported. */
+  file: string;
+  /** The type the package declares for the input. */
+  type: EastTypeValue;
+}
+
+/**
+ * The `file` sources a package declares, with each input's dataset path and
+ * declared type.
+ */
+function fileSourcesOf(pkg: PackageObject): FileSource[] {
+  const sources: FileSource[] = [];
+  for (const [refPath, source] of pkg.sources) {
+    const { path: datasetPath, structure } = treePath(pkg.data.structure, ...refPath.split('/'));
+    if (structure.type !== 'value') {
+      throw new Error(`the package declares a file source for '${refPath}', which is not a dataset`);
+    }
+    sources.push({
+      name: refPath.split('/').pop() ?? refPath,
+      treePath: datasetPath,
+      file: source.value.path,
+      type: structure.value.type,
+    });
+  }
+  return sources;
+}
+
+/**
+ * Check a `file` source on this machine — readable, indexed where the input is a
+ * collection, and of the type the package declares — so a remote deploy that
+ * could not complete fails before it touches the remote workspace, as a local
+ * deploy fails before its wipe.
+ */
+function checkFileSource(target: DeployTarget, source: FileSource): void {
+  try {
+    readDatasetFileHeader(source.file, `input '${source.name}'`, source.type);
+  } catch (err) {
+    if (err instanceof DatasetFileTypeMismatchError) throw err;
+    throw new Error(
+      `${err instanceof Error ? err.message : String(err)} — a file source is read on the machine that deploys the package: ` +
+      `deploy from where the delivery is, or pass --skip-file-sources and set it afterwards with ` +
+      `e3 dataset set ${target.repoArg} ${target.ws}.${source.name} --from-file <path>`
+    );
+  }
+}
+
+/** Name the inputs a `--skip-file-sources` deploy left unset, and how to set each. */
+function reportSkippedFileSources(target: DeployTarget, sources: FileSource[]): void {
+  if (target.progress.quiet) return;
+  for (const source of sources) {
+    console.log(
+      `Left ${target.ws}.${source.name} unset (file source ${source.file}); set it with: ` +
+      `e3 dataset set ${target.repoArg} ${target.ws}.${source.name} --from-file ${source.file}`
+    );
+  }
+}
+
+/**
+ * The version a server deploys for a bare package name: the greatest version
+ * string, sorted as `packageGetLatestVersion` sorts them.
+ */
+async function latestRemoteVersion(location: RepoLocation, name: string): Promise<string> {
+  if (location.type !== 'remote') throw new Error('latestRemoteVersion needs a remote repository');
+  const versions = (await packageListRemote(location.baseUrl, location.repo, { token: location.token }))
+    .filter((p) => p.name === name)
+    .map((p) => p.version)
+    .sort();
+  const latest = versions[versions.length - 1];
+  if (latest === undefined) throw new Error(`Package not found: ${name}`);
+  return latest;
+}
+
+/**
+ * Deploy an imported package to a REMOTE workspace, completing its `file`
+ * sources from this machine.
+ *
+ * @remarks
+ * A `file` source names a path on the machine that exported the package, and
+ * the server never opens it: it leaves those inputs unassigned. So each source
+ * is checked HERE before the remote workspace is touched, the server deploys,
+ * and each delivery is then streamed over the dataset transfer protocol, whose
+ * commit runs the same validation a local deploy's adopt does. The transfer
+ * dedups on the hash, so a redeploy whose delivery has not changed costs one
+ * round trip and no bytes.
+ */
+async function deployRemote(target: DeployTarget, name: string, version: string): Promise<void> {
+  const { location, ws, progress } = target;
+  if (location.type !== 'remote') throw new Error('deployRemote needs a remote repository');
+  const auth = { token: location.token };
+
+  const sources = fileSourcesOf(await packageGetRemote(location.baseUrl, location.repo, name, version, auth));
+  if (!target.skipFileSources) {
+    for (const source of sources) checkFileSource(target, source);
+  }
+
+  const deployStep = progress.step(`deploying ${name}@${version} to workspace ${ws}`);
+  try {
+    await workspaceDeployRemote(location.baseUrl, location.repo, ws, `${name}@${version}`, auth);
+  } catch (err) {
+    deployStep.fail();
+    throw err;
+  }
+  deployStep.done(`deployed ${name}@${version} to workspace ${ws}`);
+
+  if (target.skipFileSources) {
+    reportSkippedFileSources(target, sources);
+    return;
+  }
+  for (const source of sources) {
+    const step = progress.step(`uploading ${source.name} from ${source.file}`);
+    try {
+      const { size } = readDatasetFileHeader(source.file, `input '${source.name}'`, source.type);
+      const hash = await sha256File(source.file);
+      await datasetSetStream(
+        location.baseUrl, location.repo, ws, source.treePath,
+        fileTransferSource(source.file, size, hash),
+        auth,
+      );
+      step.done(`uploaded ${ws}.${source.name} (${formatBytes(size)}, ${hash.slice(0, 12)}...)`);
+    } catch (err) {
+      step.fail();
+      throw err;
+    }
+  }
+}
+
 /**
  * Import a zip, ensure the workspace exists, and deploy.
  *
- * Used by `workspace deploy --from-zip`.
+ * Used by `workspace deploy --from-zip` and `--from-source`.
  */
-async function deployFromZip(
-  location: Awaited<ReturnType<typeof parseRepoLocation>>,
-  ws: string,
-  zipPath: string,
-  progress: Progress,
-): Promise<void> {
+async function deployFromZip(target: DeployTarget, zipPath: string): Promise<void> {
+  const { location, ws, progress } = target;
   let name: string;
   let version: string;
   let packageHash: string;
@@ -401,7 +560,10 @@ async function deployFromZip(
     } catch (err) {
       if (!(err instanceof WorkspaceExistsError)) throw err;
     }
-    await workspaceDeploy(storage, location.path, ws, name, version);
+    await workspaceDeploy(storage, location.path, ws, name, version, { resolveFileSources: !target.skipFileSources });
+    if (target.skipFileSources) {
+      reportSkippedFileSources(target, fileSourcesOf(await packageRead(storage, location.path, name, version)));
+    }
   } else {
     const zipBytes = readFileSync(zipPath);
     // Upload + server-side import progress (#311) — byte counter while the
@@ -440,17 +602,7 @@ async function deployFromZip(
     } catch (err) {
       if (!(err instanceof ApiError && err.code === 'workspace_exists')) throw err;
     }
-    const deployStep = progress.step(`deploying to workspace ${ws}`);
-    try {
-      await workspaceDeployRemote(
-        location.baseUrl, location.repo, ws, `${name}@${version}`,
-        { token: location.token },
-      );
-    } catch (err) {
-      deployStep.fail();
-      throw err;
-    }
-    deployStep.done(`deployed to workspace ${ws}`);
+    await deployRemote(target, name, version);
   }
 
   if (!progress.quiet) {
@@ -468,12 +620,11 @@ async function deployFromZip(
  * Used by `workspace deploy --from-source`.
  */
 async function deployFromSource(
-  location: Awaited<ReturnType<typeof parseRepoLocation>>,
-  ws: string,
+  target: DeployTarget,
   sourceFile: string,
-  progress: Progress,
   functions: string[],
 ): Promise<void> {
+  const { progress } = target;
   // Step-level progress (#311): compile and per-member capture are the
   // dominant, previously-silent costs of a multi-package deploy.
   const compileStep = progress.step(`compiling ${sourceFile}`);
@@ -505,7 +656,7 @@ async function deployFromSource(
       throw err;
     }
     captureStep.done(`captured package ${pkg.name}@${pkg.version}`);
-    await deployFromZip(location, ws, tempZip, progress);
+    await deployFromZip(target, tempZip);
   } finally {
     try {
       unlinkSync(tempZip);

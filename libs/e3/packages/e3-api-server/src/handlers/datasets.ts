@@ -894,7 +894,7 @@ export async function getDatasetStatus(
       return sendError(DatasetStatusDetailType, errorToVariant(new Error('Path required for status')));
     }
 
-    const result = await workspaceGetDatasetStatus(storage, repoPath, workspace, treePath);
+    const result = await workspaceGetDatasetStatus(storage, repoPath, workspace, treePath, { geometry: true });
 
     // Build path string from treePath
     const pathStr = '.' + treePath.map(s => s.value).join('.');
@@ -910,6 +910,8 @@ export async function getDatasetStatus(
       refType: result.refType,
       hash: result.hash ? some(result.hash) : none,
       size: result.size !== null ? some(BigInt(result.size)) : none,
+      segments: result.segments != null ? some(BigInt(result.segments)) : none,
+      rows: result.rows != null ? some(BigInt(result.rows)) : none,
     };
 
     return sendSuccess(DatasetStatusDetailType, detail);

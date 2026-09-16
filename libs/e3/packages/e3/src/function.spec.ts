@@ -168,7 +168,7 @@ describe('export_ with functions', () => {
   });
 
   it('round-trips a FunctionObject through the bundle', async () => {
-    const greeting = input('greeting', StringType, 'hello');
+    const greeting = input('greeting', StringType, variant('value', 'hello'));
     const shout = task('shout', [greeting], East.function([StringType], StringType, ($, s) => s));
     const double = function_(
       'double',
@@ -232,10 +232,14 @@ describe('decodePackageObject', () => {
       data: { structure: variant('struct', new Map()), refs: new Map() },
       functions: new Map([['f', 'b'.repeat(64)]]),
       records: new Map([['r', 'c'.repeat(64)]]),
+      sources: new Map([['inputs/table', variant('file', { path: '/deliveries/TABLE.beast2' })]]),
     });
     const decoded = decodePackageObject(bytes);
     assert.strictEqual(decoded.functions.get('f'), 'b'.repeat(64));
     assert.strictEqual(decoded.records.get('r'), 'c'.repeat(64));
+    const source = decoded.sources.get('inputs/table');
+    assert.strictEqual(source?.type, 'file');
+    assert.strictEqual(source?.type === 'file' ? source.value.path : undefined, '/deliveries/TABLE.beast2');
   });
 
   it('decodes a pre-functions (legacy) package with functions defaulted empty', () => {
@@ -269,11 +273,35 @@ describe('decodePackageObject', () => {
       functions: new Map([['f', 'b'.repeat(64)]]),
     });
 
-    // The strict 4-field decoder rejects 3-field bytes...
+    // The strict 5-field decoder rejects 3-field bytes...
     assert.throws(() => decodeBeast2For(PackageObjectType)(bytes));
     // ...the tolerant decoder recovers via the functions-era tier, records empty.
     const decoded = decodePackageObject(bytes);
     assert.strictEqual(decoded.functions.get('f'), 'b'.repeat(64));
     assert.strictEqual(decoded.records.size, 0);
+    assert.strictEqual(decoded.sources.size, 0);
+  });
+
+  it('decodes a pre-sources (records-era) package with sources defaulted empty', () => {
+    // The tier that matters for #765: a package exported before
+    // path-initialised inputs existed still decodes and still deploys.
+    const RecordsEraPackageObjectType = StructType({
+      tasks: DictType(StringType, StringType),
+      data: PackageDataType,
+      functions: DictType(StringType, StringType),
+      records: DictType(StringType, StringType),
+    });
+    const bytes = encodeBeast2For(RecordsEraPackageObjectType)({
+      tasks: new Map([['t', 'a'.repeat(64)]]),
+      data: { structure: variant('struct', new Map()), refs: new Map() },
+      functions: new Map([['f', 'b'.repeat(64)]]),
+      records: new Map([['r', 'c'.repeat(64)]]),
+    });
+
+    assert.throws(() => decodeBeast2For(PackageObjectType)(bytes));
+    const decoded = decodePackageObject(bytes);
+    assert.strictEqual(decoded.functions.get('f'), 'b'.repeat(64));
+    assert.strictEqual(decoded.records.get('r'), 'c'.repeat(64));
+    assert.strictEqual(decoded.sources.size, 0);
   });
 });

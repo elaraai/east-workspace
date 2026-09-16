@@ -221,12 +221,12 @@ export const Diff = {
      *
      * @example
      * ```ts
-     * import { East, FloatType } from "@elaraai/east";
+     * import { East, FloatType, variant } from "@elaraai/east";
      * import { Reactive, UIComponentType } from "@elaraai/east-ui";
      * import { Data, Diff } from "@elaraai/e3-ui";
      * import * as e3 from "@elaraai/e3";
      *
-     * const maxWeeklyHoursInput = e3.input("max_weekly_hours", FloatType, 38.0);
+     * const maxWeeklyHoursInput = e3.input("max_weekly_hours", FloatType, variant("value", 38.0));
      *
      * // Mirrors `diffDefaults` in test/diff.examples.ts (wired via Assert.examples).
      * const diffDefaults = East.function([], UIComponentType, _$ => {
