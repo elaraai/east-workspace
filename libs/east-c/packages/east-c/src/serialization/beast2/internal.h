@@ -89,6 +89,12 @@ EastType *east_beast2_v5_extract_type(const uint8_t *data, size_t len);
 
 /* Read a varint-prefixed string, returning malloc'd string and setting *out_len */
 char *b2_read_string_varint(const uint8_t *data, size_t len, size_t *offset, size_t *out_len);
+/* The same read without the copy: a pointer to the string's bytes inside
+ * `data` (valid while `data` is), its length in *out_len, the offset
+ * advanced past it. NULL on a truncated length or body. The value
+ * constructors copy what they keep, so a decoder needs no copy of its own. */
+const uint8_t *b2_read_string_view(const uint8_t *data, size_t len, size_t *offset,
+                                   size_t *out_len);
 
 /* Fibonacci hashing — good distribution for pointer values */
 static inline uint32_t b2_hash_ptr(uintptr_t p)

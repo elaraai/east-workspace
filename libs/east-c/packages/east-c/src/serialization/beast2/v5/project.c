@@ -836,9 +836,12 @@ EastValue *b2v5_decode_value_projected(const uint8_t *data, size_t len, size_t *
     case EAST_TYPE_STRUCT: {
         size_t nf_wire = node->wire->data.struct_.num_fields;
         size_t nf_proj = node->proj->data.struct_.num_fields;
-        const char **names = NULL;
-        EastValue **values = NULL;
-        if (nf_proj) {
+        const char *inline_names[B2V5_STRUCT_SCRATCH];
+        EastValue *inline_values[B2V5_STRUCT_SCRATCH];
+        const char **names = inline_names;
+        EastValue **values = inline_values;
+        bool heap = nf_proj > B2V5_STRUCT_SCRATCH;
+        if (heap) {
             names = malloc(nf_proj * sizeof(char *));
             values = calloc(nf_proj, sizeof(EastValue *));
             if (!names || !values) {
@@ -846,6 +849,9 @@ EastValue *b2v5_decode_value_projected(const uint8_t *data, size_t len, size_t *
                 free(values);
                 break;
             }
+        } else {
+            for (size_t i = 0; i < nf_proj; i++)
+                values[i] = NULL;
         }
         bool ok = true;
         for (size_t i = 0; i < nf_wire && ok; i++) {
@@ -864,11 +870,17 @@ EastValue *b2v5_decode_value_projected(const uint8_t *data, size_t len, size_t *
             names[pi] = node->proj->data.struct_.fields[pi].name;
             values[pi] = v;
         }
-        if (ok) result = east_struct_new(names, values, nf_proj, node->proj);
-        for (size_t i = 0; i < nf_proj; i++)
-            if (values && values[i]) east_value_release(values[i]);
-        free(names);
-        free(values);
+        /* The struct takes over the fields' references; on any failure the
+         * fields decoded so far are still ours to release. */
+        if (ok) result = east_struct_new_owned(names, values, nf_proj, node->proj);
+        if (!result) {
+            for (size_t i = 0; i < nf_proj; i++)
+                if (values[i]) east_value_release(values[i]);
+        }
+        if (heap) {
+            free(names);
+            free(values);
+        }
         break;
     }
 

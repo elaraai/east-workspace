@@ -391,6 +391,12 @@ static inline EastValue *east_dict_val_at(EastValue *dict, size_t i)
 }
 
 EastValue *east_struct_new(const char **names, EastValue **values, size_t count, EastType *type);
+/* east_struct_new that takes OVER the caller's reference to each value
+ * instead of retaining its own — for a decoder that has just built the
+ * fields and would otherwise retain and release each one. On NULL (out of
+ * memory) the values are still the caller's to release. */
+EastValue *east_struct_new_owned(const char **names, EastValue **values, size_t count,
+                                 EastType *type);
 EastValue *east_struct_get_field(EastValue *s, const char *name);
 
 /* Name of field `idx`. Instances whose StructType lists the same names in the
