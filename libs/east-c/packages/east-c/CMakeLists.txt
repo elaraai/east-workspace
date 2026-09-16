@@ -6,6 +6,7 @@ set(EAST_C_SOURCES
     src/values.c
     src/value_slab.c
     src/ir.c
+    src/ir_resolve.c
     src/env.c
     src/compiler.c
     src/platform.c
@@ -300,6 +301,40 @@ add_test(NAME source_map_lifetime COMMAND test_source_map_lifetime)
 add_executable(test_scope_and_datetime tests/test_scope_and_datetime.c)
 target_link_libraries(test_scope_and_datetime east-c)
 add_test(NAME scope_and_datetime COMMAND test_scope_and_datetime)
+
+# Scope resolution gate: variables read their frame cell by index once the
+# resolver has annotated the tree, and the answer must be what the by-name
+# walk gives — a use before its Let seeing the outer binding, shadowing in
+# nested blocks, a closure per loop iteration, an Assign visible through a
+# closure both ways, match and catch binders, captures bound from outside by
+# name, a scoped frame receiving a by-name set, and a function compiled from
+# a bare body. Every case runs with resolution on and off
+# (EAST_C_NO_SLOT_RESOLVE). Run under ASan/LSan: frames retain their scope
+# and the scope outlives the IR through a closure.
+add_executable(test_scope_resolution tests/test_scope_resolution.c)
+target_link_libraries(test_scope_resolution east-c)
+add_test(NAME scope_resolution COMMAND test_scope_resolution)
+
+# Field-read inline cache gate: a GetField node remembers the struct type it
+# last read and the field's index, so a value that borrows its names from
+# that type is read by index. A coerced struct carrying its own field order
+# must never hit the cache (its layout disagrees with the type's), and a
+# value stamped with a recursive wrapper must. Run under ASan/LSan for the
+# type and value lifetimes it exercises.
+add_executable(test_field_cache tests/test_field_cache.c)
+target_link_libraries(test_field_cache east-c)
+add_test(NAME field_cache COMMAND test_field_cache)
+
+# Value ordering gate: east_value_compare orders Set elements and Dict keys,
+# and its order is the canonical wire order every runtime pins. The struct
+# case skips the field-name compare when both values borrow their names from
+# one interned type; this gate pins that borrowed, copied and mixed-name
+# structs still order exactly as a name-then-value compare, that kinds still
+# rank in the documented order, and that east_dict_find answers as
+# has-then-get did.
+add_executable(test_value_compare tests/test_value_compare.c)
+target_link_libraries(test_value_compare east-c)
+add_test(NAME value_compare COMMAND test_value_compare)
 
 # Platform-signature check parity gate (#62): compiles TS-exported IR against
 # drifted typed platform registrations and asserts east_compile_checked's

@@ -70,6 +70,10 @@ void platform_registry_add_generic(PlatformRegistry *reg, const char *name,
                                    GenericPlatformFactory factory, bool is_async);
 PlatformFn platform_registry_get(PlatformRegistry *reg, const char *name, EastType **type_params,
                                  size_t num_tp);
+/* As platform_registry_get, with `hash` = hashmap_hash(name) computed once
+ * by the caller (the evaluator keeps it on the Platform node). */
+PlatformFn platform_registry_get_hashed(PlatformRegistry *reg, const char *name, size_t hash,
+                                        EastType **type_params, size_t num_tp);
 
 /** Look up a concrete (non-generic) registry entry by name. Returns NULL if
  *  the name is unregistered or registered only as a generic factory. */

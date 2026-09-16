@@ -8,9 +8,167 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* Thread-local source map for loc_id resolution at error time */
 static __thread const EastSourceMap *g_current_source_map = NULL;
+
+/* ------------------------------------------------------------------ */
+/*  Per-function profiler                                               */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    size_t entry;      /* index into g_prof_entries */
+    uint64_t t_enter;  /* CLOCK_MONOTONIC nanoseconds at entry */
+    uint64_t child_ns; /* time spent in East functions called from here */
+} ProfFrame;
+
+static _Thread_local bool g_prof_on = false;
+static _Thread_local EastProfileEntry *g_prof_entries = NULL;
+static _Thread_local size_t g_prof_len = 0, g_prof_cap = 0;
+/* Open-addressing index: body pointer -> entry index + 1 (0 = empty). */
+static _Thread_local size_t *g_prof_index = NULL;
+static _Thread_local size_t g_prof_mask = 0;
+static _Thread_local ProfFrame *g_prof_stack = NULL;
+static _Thread_local size_t g_prof_depth = 0, g_prof_stack_cap = 0;
+
+static uint64_t prof_now(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+
+static inline size_t prof_hash(const void *p)
+{
+    uint64_t x = (uint64_t)(uintptr_t)p;
+    x ^= x >> 33;
+    x *= 0xff51afd7ed558ccdull;
+    x ^= x >> 33;
+    return (size_t)x;
+}
+
+static void prof_index_insert(const IRNode *body, size_t entry)
+{
+    size_t i = prof_hash(body) & g_prof_mask;
+    while (g_prof_index[i])
+        i = (i + 1) & g_prof_mask;
+    g_prof_index[i] = entry + 1;
+}
+
+/* The entry for a function body, created on first sight. SIZE_MAX on
+ * allocation failure. */
+static size_t prof_entry_for(const IRNode *body, const char *name, int64_t loc_id)
+{
+    if (g_prof_index) {
+        size_t i = prof_hash(body) & g_prof_mask;
+        while (g_prof_index[i]) {
+            size_t e = g_prof_index[i] - 1;
+            if (g_prof_entries[e].body == body) return e;
+            i = (i + 1) & g_prof_mask;
+        }
+    }
+    if (g_prof_len == g_prof_cap) {
+        size_t cap = g_prof_cap ? g_prof_cap * 2 : 64;
+        EastProfileEntry *grown = realloc(g_prof_entries, cap * sizeof(EastProfileEntry));
+        if (!grown) return SIZE_MAX;
+        g_prof_entries = grown;
+        g_prof_cap = cap;
+        /* Rebuild the index at twice the entry capacity (load <= 1/2). */
+        free(g_prof_index);
+        g_prof_mask = cap * 2 - 1;
+        g_prof_index = calloc(g_prof_mask + 1, sizeof(size_t));
+        if (!g_prof_index) return SIZE_MAX;
+        for (size_t e = 0; e < g_prof_len; e++)
+            prof_index_insert(g_prof_entries[e].body, e);
+    }
+    size_t e = g_prof_len++;
+    g_prof_entries[e] = (EastProfileEntry){
+        .body = body,
+        .name = name ? strdup(name) : NULL,
+        .loc_id = loc_id,
+        .call_loc_id = 0,
+        .calls = 0,
+        .total_ns = 0,
+        .self_ns = 0,
+    };
+    prof_index_insert(body, e);
+    return e;
+}
+
+static inline void prof_enter(const IRNode *body, const char *name, int64_t loc_id,
+                              int64_t call_loc_id)
+{
+    if (!g_prof_on) return;
+    size_t e = prof_entry_for(body, name, loc_id);
+    if (e == SIZE_MAX) return;
+    if (!g_prof_entries[e].call_loc_id) g_prof_entries[e].call_loc_id = call_loc_id;
+    if (g_prof_depth == g_prof_stack_cap) {
+        size_t cap = g_prof_stack_cap ? g_prof_stack_cap * 2 : 64;
+        ProfFrame *grown = realloc(g_prof_stack, cap * sizeof(ProfFrame));
+        if (!grown) return;
+        g_prof_stack = grown;
+        g_prof_stack_cap = cap;
+    }
+    g_prof_stack[g_prof_depth++] = (ProfFrame){.entry = e, .t_enter = prof_now(), .child_ns = 0};
+}
+
+static inline void prof_exit(void)
+{
+    if (!g_prof_on || g_prof_depth == 0) return;
+    ProfFrame *f = &g_prof_stack[--g_prof_depth];
+    uint64_t elapsed = prof_now() - f->t_enter;
+    EastProfileEntry *e = &g_prof_entries[f->entry];
+    e->calls++;
+    e->total_ns += elapsed;
+    e->self_ns += elapsed > f->child_ns ? elapsed - f->child_ns : 0;
+    if (g_prof_depth > 0) g_prof_stack[g_prof_depth - 1].child_ns += elapsed;
+}
+
+void east_profile_enable(bool on)
+{
+    g_prof_on = on;
+}
+
+bool east_profile_enabled(void)
+{
+    return g_prof_on;
+}
+
+static int prof_by_self_desc(const void *a, const void *b)
+{
+    const EastProfileEntry *x = a, *y = b;
+    if (x->self_ns != y->self_ns) return x->self_ns > y->self_ns ? -1 : 1;
+    if (x->total_ns != y->total_ns) return x->total_ns > y->total_ns ? -1 : 1;
+    return x->calls > y->calls ? -1 : x->calls < y->calls ? 1 : 0;
+}
+
+EastProfileEntry *east_profile_report(size_t *count_out)
+{
+    if (count_out) *count_out = 0;
+    if (g_prof_len == 0) return NULL;
+    EastProfileEntry *out = malloc(g_prof_len * sizeof(EastProfileEntry));
+    if (!out) return NULL;
+    memcpy(out, g_prof_entries, g_prof_len * sizeof(EastProfileEntry));
+    qsort(out, g_prof_len, sizeof(EastProfileEntry), prof_by_self_desc);
+    if (count_out) *count_out = g_prof_len;
+    return out;
+}
+
+void east_profile_reset(void)
+{
+    for (size_t e = 0; e < g_prof_len; e++)
+        free((char *)g_prof_entries[e].name);
+    free(g_prof_entries);
+    free(g_prof_index);
+    free(g_prof_stack);
+    g_prof_entries = NULL;
+    g_prof_index = NULL;
+    g_prof_stack = NULL;
+    g_prof_len = g_prof_cap = 0;
+    g_prof_mask = 0;
+    g_prof_depth = g_prof_stack_cap = 0;
+}
 
 /* Lazy IR compilation: convert source_ir EastValue → IRNode body on first use */
 static void east_compile_lazy(EastCompiledFn *fn)
@@ -20,6 +178,13 @@ static void east_compile_lazy(EastCompiledFn *fn)
     if (ir_node && (ir_node->kind == IR_FUNCTION || ir_node->kind == IR_ASYNC_FUNCTION)) {
         fn->ir = ir_node->data.function.body;
         ir_node_retain(fn->ir);
+        if (!fn->scope) {
+            fn->scope = ir_node->data.function.scope;
+            ir_scope_retain(fn->scope);
+        }
+        if (!fn->name && ir_node->data.function.name)
+            fn->name = strdup(ir_node->data.function.name);
+        if (!fn->loc_id) fn->loc_id = ir_node->loc_id;
     }
     if (ir_node) ir_node_release(ir_node);
 }
@@ -154,6 +319,59 @@ static bool is_truthy(EastValue *v)
 }
 
 /* ------------------------------------------------------------------ */
+/*  Resolved bindings (ir_resolve_scopes)                              */
+/* ------------------------------------------------------------------ */
+
+/* The frame `hops` parents above `env` when it is the one the resolver
+ * annotated — carrying `scope` — and every frame passed on the way is a
+ * scoped frame with nothing bound outside its scope. NULL otherwise, and
+ * the caller takes the by-name walk, so a mismatched chain (a host-built
+ * frame, a name bound from outside) can never produce a wrong binding. */
+static inline Environment *resolved_frame(Environment *env, uint32_t hops, const IRScope *scope)
+{
+    Environment *f = env;
+    for (uint32_t h = 0; h < hops; h++) {
+        if (!f || !f->scope || f->overflow) return NULL;
+        f = f->parent;
+    }
+    return f && f->scope == scope ? f : NULL;
+}
+
+/* Evaluated argument arrays for a call, builtin or platform invocation live
+ * on the C stack up to this arity; wider calls take the heap. */
+#define EVAL_ARGS_INLINE 8
+
+/* A per-iteration or call frame for `scope`, or a plain frame when the tree
+ * was not resolved. */
+static inline Environment *frame_for(Environment *parent, IRScope *scope)
+{
+    return scope ? env_new_scoped(parent, scope) : env_new(parent);
+}
+
+/* The frame for the next iteration of a loop: the previous one, reset, when
+ * nothing captured it (a closure is the only thing that can, and holds a
+ * reference), else a fresh one. `*frame` is NULL before the first pass. */
+static inline void loop_frame(Environment **frame, Environment *parent, IRScope *scope)
+{
+    if (*frame && (*frame)->ref_count == 1) {
+        env_reset(*frame);
+        return;
+    }
+    if (*frame) env_release(*frame);
+    *frame = frame_for(parent, scope);
+}
+
+/* Bind a loop/case/catch variable into the frame: its cell when the frame is
+ * scoped, its name otherwise. */
+static inline void bind_var(Environment *frame, size_t slot, const char *name, EastValue *value)
+{
+    if (frame->scope)
+        env_bind_slot(frame, slot, value);
+    else
+        env_set(frame, name, value);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Lazy paged collections (issue #505)                                */
 /* ------------------------------------------------------------------ */
 
@@ -273,6 +491,12 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
             ? east_beast2_projection_for_loop(body, proj_target, east_beast2_pages_type(pages))
             : NULL;
     paged_iter_lock(subject);
+    IRScope *loop_scope = node->kind == IR_FOR_ARRAY ? node->data.for_array.scope
+                          : node->kind == IR_FOR_SET ? node->data.for_set.scope
+                                                     : node->data.for_dict.scope;
+    /* One iteration frame, reused across elements and segments while nothing
+     * captures it. */
+    Environment *iter_env = NULL;
 
     for (size_t s = 0; s < seg_count; s++) {
         EastValue *seg = NULL;
@@ -300,14 +524,14 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
                                                                               : east_set_len(seg))
                      : east_array_len(seg);
         for (size_t i = 0; i < seg_len; i++) {
-            Environment *iter_env = env_new(env);
+            loop_frame(&iter_env, env, loop_scope);
             bind(node, iter_env, seg, i, base + i);
             EvalResult body_res = eval_ir(body, iter_env, platform, builtins);
-            env_release(iter_env);
 
             EvalResult out;
             PagedLoopStep step = paged_loop_step(&body_res, loop_label, &out);
             if (step == PAGED_LOOP_RETURN) {
+                env_release(iter_env);
                 east_value_release(seg);
                 if (proj) east_beast2_projection_free(proj);
                 paged_iter_unlock(subject);
@@ -315,6 +539,7 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
                 return out;
             }
             if (step == PAGED_LOOP_STOP) {
+                env_release(iter_env);
                 east_value_release(seg);
                 if (proj) east_beast2_projection_free(proj);
                 paged_iter_unlock(subject);
@@ -326,6 +551,7 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
         east_value_release(seg);
     }
 
+    if (iter_env) env_release(iter_env);
     if (proj) east_beast2_projection_free(proj);
     paged_iter_unlock(subject);
     east_value_release(subject);
@@ -335,10 +561,10 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
 static void paged_bind_array(IRNode *node, Environment *iter_env, EastValue *seg, size_t i,
                              size_t global_index)
 {
-    env_set(iter_env, node->data.for_array.var.name, east_array_get(seg, i));
+    bind_var(iter_env, 0, node->data.for_array.var.name, east_array_get(seg, i));
     if (node->data.for_array.index_var.name) {
         EastValue *idx = east_integer((int64_t)global_index);
-        env_set(iter_env, node->data.for_array.index_var.name, idx);
+        bind_var(iter_env, 1, node->data.for_array.index_var.name, idx);
         east_value_release(idx);
     }
 }
@@ -347,15 +573,15 @@ static void paged_bind_set(IRNode *node, Environment *iter_env, EastValue *seg, 
                            size_t global_index)
 {
     (void)global_index;
-    env_set(iter_env, node->data.for_set.var.name, east_set_at(seg, i));
+    bind_var(iter_env, 0, node->data.for_set.var.name, east_set_at(seg, i));
 }
 
 static void paged_bind_dict(IRNode *node, Environment *iter_env, EastValue *seg, size_t i,
                             size_t global_index)
 {
     (void)global_index;
-    env_set(iter_env, node->data.for_dict.key.name, east_dict_key_at(seg, i));
-    env_set(iter_env, node->data.for_dict.val.name, east_dict_val_at(seg, i));
+    bind_var(iter_env, 0, node->data.for_dict.key.name, east_dict_key_at(seg, i));
+    bind_var(iter_env, 1, node->data.for_dict.val.name, east_dict_val_at(seg, i));
 }
 
 /* Whether a paged loop subject still pages (pre-hydration) with the given
@@ -386,6 +612,17 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
     /* ----- IR_VARIABLE --------------------------------------------- */
     case IR_VARIABLE: {
+        if (node->data.variable.scope) {
+            Environment *f =
+                resolved_frame(env, node->data.variable.hops, node->data.variable.scope);
+            if (f) {
+                EastValue *v = f->slots[node->data.variable.slot];
+                if (v) {
+                    east_value_retain(v);
+                    return eval_ok(v);
+                }
+            }
+        }
         EastValue *v = env_get(env, node->data.variable.name);
         if (!v) {
             char buf[256];
@@ -401,7 +638,10 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EvalResult val_res = eval_ir(node->data.let.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
-        env_set(env, node->data.let.var.name, val_res.value);
+        if (node->data.let.scope && env->scope == node->data.let.scope)
+            env_bind_slot(env, node->data.let.slot, val_res.value);
+        else
+            env_set(env, node->data.let.var.name, val_res.value);
         east_value_release(val_res.value);
         return eval_ok(east_null());
     }
@@ -411,7 +651,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         EvalResult val_res = eval_ir(node->data.assign.value, env, platform, builtins);
         if (val_res.status != EVAL_OK) return val_res;
 
-        env_update(env, node->data.assign.var.name, val_res.value);
+        Environment *f = node->data.assign.scope
+                             ? resolved_frame(env, node->data.assign.hops, node->data.assign.scope)
+                             : NULL;
+        if (f && f->slots[node->data.assign.slot])
+            env_bind_slot(f, node->data.assign.slot, val_res.value);
+        else
+            env_update(env, node->data.assign.var.name, val_res.value);
         east_value_release(val_res.value);
         return eval_ok(east_null());
     }
@@ -431,11 +677,16 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
          * Only a block that BINDS needs a scope, so the common statement
          * sequence still costs nothing. */
         Environment *block_env = env;
-        for (size_t i = 0; i < node->data.block.num_stmts; i++) {
-            if (node->data.block.stmts[i] && node->data.block.stmts[i]->kind == IR_LET) {
-                block_env = env_new(env);
-                if (!block_env) return eval_error_at(node, "out of memory");
-                break;
+        if (node->data.block.scope) {
+            block_env = env_new_scoped(env, node->data.block.scope);
+            if (!block_env) return eval_error_at(node, "out of memory");
+        } else {
+            for (size_t i = 0; i < node->data.block.num_stmts; i++) {
+                if (node->data.block.stmts[i] && node->data.block.stmts[i]->kind == IR_LET) {
+                    block_env = env_new(env);
+                    if (!block_env) return eval_error_at(node, "out of memory");
+                    break;
+                }
             }
         }
 
@@ -490,9 +741,9 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         for (size_t i = 0; i < node->data.match.num_cases; i++) {
             IRMatchCase *mc = &node->data.match.cases[i];
             if (strcmp(mc->case_name, case_name) == 0) {
-                Environment *match_env = env_new(env);
+                Environment *match_env = frame_for(env, mc->scope);
                 if (mc->bind.name && inner) {
-                    env_set(match_env, mc->bind.name, inner);
+                    bind_var(match_env, 0, mc->bind.name, inner);
                 }
                 EvalResult body_res = eval_ir(mc->body, match_env, platform, builtins);
                 env_release(match_env);
@@ -567,21 +818,21 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         bool should_break = false;
 
         arr->iter_lock++;
+        Environment *iter_env = NULL;
         for (size_t i = 0; i < len; i++) {
-            Environment *iter_env = env_new(env);
+            loop_frame(&iter_env, env, node->data.for_array.scope);
 
             EastValue *elem = east_array_get(arr, i);
-            /* env_set retains internally, no extra retain needed */
-            env_set(iter_env, node->data.for_array.var.name, elem);
+            /* the frame retains internally, no extra retain needed */
+            bind_var(iter_env, 0, node->data.for_array.var.name, elem);
 
             if (node->data.for_array.index_var.name) {
                 EastValue *idx = east_integer((int64_t)i);
-                env_set(iter_env, node->data.for_array.index_var.name, idx);
+                bind_var(iter_env, 1, node->data.for_array.index_var.name, idx);
                 east_value_release(idx);
             }
 
             EvalResult body_res = eval_ir(node->data.for_array.body, iter_env, platform, builtins);
-            env_release(iter_env);
 
             if (body_res.status == EVAL_BREAK) {
                 if (labels_match(body_res.label, loop_label)) {
@@ -589,6 +840,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     should_break = true;
                     break;
                 }
+                env_release(iter_env);
                 arr->iter_lock--;
                 east_value_release(arr);
                 return body_res;
@@ -598,11 +850,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     eval_result_free(&body_res);
                     continue;
                 }
+                env_release(iter_env);
                 arr->iter_lock--;
                 east_value_release(arr);
                 return body_res;
             }
             if (body_res.status != EVAL_OK) {
+                env_release(iter_env);
                 arr->iter_lock--;
                 east_value_release(arr);
                 return body_res;
@@ -610,6 +864,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
+        if (iter_env) env_release(iter_env);
         arr->iter_lock--;
 
         east_value_release(arr);
@@ -641,15 +896,15 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         bool should_break = false;
 
         set->iter_lock++;
+        Environment *iter_env = NULL;
         for (size_t i = 0; i < len; i++) {
-            Environment *iter_env = env_new(env);
+            loop_frame(&iter_env, env, node->data.for_set.scope);
 
             EastValue *elem = east_set_at(set, i);
-            /* env_set retains internally, no extra retain needed */
-            env_set(iter_env, node->data.for_set.var.name, elem);
+            /* the frame retains internally, no extra retain needed */
+            bind_var(iter_env, 0, node->data.for_set.var.name, elem);
 
             EvalResult body_res = eval_ir(node->data.for_set.body, iter_env, platform, builtins);
-            env_release(iter_env);
 
             if (body_res.status == EVAL_BREAK) {
                 if (labels_match(body_res.label, loop_label)) {
@@ -657,6 +912,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     should_break = true;
                     break;
                 }
+                env_release(iter_env);
                 set->iter_lock--;
                 east_value_release(set);
                 return body_res;
@@ -666,11 +922,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     eval_result_free(&body_res);
                     continue;
                 }
+                env_release(iter_env);
                 set->iter_lock--;
                 east_value_release(set);
                 return body_res;
             }
             if (body_res.status != EVAL_OK) {
+                env_release(iter_env);
                 set->iter_lock--;
                 east_value_release(set);
                 return body_res;
@@ -678,6 +936,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
+        if (iter_env) env_release(iter_env);
         set->iter_lock--;
 
         east_value_release(set);
@@ -709,17 +968,17 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         bool should_break = false;
 
         dict->iter_lock++;
+        Environment *iter_env = NULL;
         for (size_t i = 0; i < len; i++) {
-            Environment *iter_env = env_new(env);
+            loop_frame(&iter_env, env, node->data.for_dict.scope);
 
             EastValue *key = east_dict_key_at(dict, i);
             EastValue *val = east_dict_val_at(dict, i);
-            /* env_set retains internally, no extra retain needed */
-            env_set(iter_env, node->data.for_dict.key.name, key);
-            env_set(iter_env, node->data.for_dict.val.name, val);
+            /* the frame retains internally, no extra retain needed */
+            bind_var(iter_env, 0, node->data.for_dict.key.name, key);
+            bind_var(iter_env, 1, node->data.for_dict.val.name, val);
 
             EvalResult body_res = eval_ir(node->data.for_dict.body, iter_env, platform, builtins);
-            env_release(iter_env);
 
             if (body_res.status == EVAL_BREAK) {
                 if (labels_match(body_res.label, loop_label)) {
@@ -727,6 +986,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     should_break = true;
                     break;
                 }
+                env_release(iter_env);
                 dict->iter_lock--;
                 east_value_release(dict);
                 return body_res;
@@ -736,11 +996,13 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     eval_result_free(&body_res);
                     continue;
                 }
+                env_release(iter_env);
                 dict->iter_lock--;
                 east_value_release(dict);
                 return body_res;
             }
             if (body_res.status != EVAL_OK) {
+                env_release(iter_env);
                 dict->iter_lock--;
                 east_value_release(dict);
                 return body_res;
@@ -748,6 +1010,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             east_value_release(body_res.value);
             east_gc_maybe_collect_young(); /* safe point: loop back-edge */
         }
+        if (iter_env) env_release(iter_env);
         dict->iter_lock--;
 
         east_value_release(dict);
@@ -797,6 +1060,14 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         /* Store function type (not owned — points to IR node's type) */
         fn->fn_type = node->type;
 
+        /* The call frame's scope: params at their resolved cells. */
+        fn->scope = node->data.function.scope;
+        ir_scope_retain(fn->scope);
+
+        /* For the profiler: the Let this function was bound to, its site. */
+        fn->name = node->data.function.name ? east_strdup(node->data.function.name) : NULL;
+        fn->loc_id = node->loc_id;
+
         /* Snapshot the thread-local source map so this function value can be
          * beast2-encoded with its own source_map section (matches JS's
          * SourceMapSymbol attach at East.function/asyncFunction construction)
@@ -815,6 +1086,62 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
     /* ----- IR_CALL / IR_CALL_ASYNC --------------------------------- */
     case IR_CALL:
     case IR_CALL_ASYNC: {
+        /* An inline callee — a Function node as the call target, which is
+         * how the TypeScript builder splices a helper into a caller — would
+         * be evaluated into a closure, called once and freed. Its frame is
+         * built directly instead: the closure would capture `env`, run this
+         * node's body, and carry the platform, builtins and source map that
+         * are current here, so nothing observable changes. */
+        IRNode *fnode = node->data.call.func;
+        if (fnode && (fnode->kind == IR_FUNCTION || fnode->kind == IR_ASYNC_FUNCTION)) {
+            size_t nargs = node->data.call.num_args;
+            EastValue *inline_args[EVAL_ARGS_INLINE];
+            EastValue **args = NULL;
+            bool heap_args = false;
+            if (nargs > 0) {
+                if (nargs <= EVAL_ARGS_INLINE) {
+                    args = inline_args;
+                } else {
+                    args = calloc(nargs, sizeof(EastValue *));
+                    heap_args = true;
+                }
+                if (!args) return eval_error_at(node, "out of memory");
+                for (size_t i = 0; i < nargs; i++) {
+                    EvalResult arg_res = eval_ir(node->data.call.args[i], env, platform, builtins);
+                    if (arg_res.status != EVAL_OK) {
+                        for (size_t j = 0; j < i; j++)
+                            east_value_release(args[j]);
+                        if (heap_args) free(args);
+                        return arg_res;
+                    }
+                    args[i] = arg_res.value;
+                }
+            }
+
+            Environment *call_env = frame_for(env, fnode->data.function.scope);
+            size_t nparams = fnode->data.function.num_params;
+            for (size_t i = 0; i < nparams && i < nargs; i++)
+                bind_var(call_env, i, fnode->data.function.params[i].name, args[i]);
+
+            prof_enter(fnode->data.function.body, fnode->data.function.name, fnode->loc_id,
+                       node->loc_id);
+            EvalResult body_res = eval_ir(fnode->data.function.body, call_env, platform, builtins);
+            prof_exit();
+
+            env_release(call_env);
+            for (size_t i = 0; i < nargs; i++)
+                east_value_release(args[i]);
+            if (heap_args) free(args);
+
+            if (body_res.status == EVAL_RETURN) {
+                EastValue *ret_val = body_res.value;
+                eval_result_free(&body_res);
+                return eval_ok(ret_val);
+            }
+            if (body_res.status == EVAL_ERROR) eval_result_add_loc_id(&body_res, node->loc_id);
+            return body_res;
+        }
+
         EvalResult func_res = eval_ir(node->data.call.func, env, platform, builtins);
         if (func_res.status != EVAL_OK) return func_res;
 
@@ -829,9 +1156,16 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         /* Foreign-runtime dispatch: skip IR eval and route to custom invoke */
         if (cfn->invoke) {
             size_t nargs = node->data.call.num_args;
+            EastValue *inline_args[EVAL_ARGS_INLINE];
             EastValue **args = NULL;
+            bool heap_args = false;
             if (nargs > 0) {
-                args = calloc(nargs, sizeof(EastValue *));
+                if (nargs <= EVAL_ARGS_INLINE) {
+                    args = inline_args;
+                } else {
+                    args = calloc(nargs, sizeof(EastValue *));
+                    heap_args = true;
+                }
                 if (!args) {
                     east_value_release(func_val);
                     return eval_error_at(node, "out of memory");
@@ -841,7 +1175,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                     if (arg_res.status != EVAL_OK) {
                         for (size_t j = 0; j < i; j++)
                             east_value_release(args[j]);
-                        free(args);
+                        if (heap_args) free(args);
                         east_value_release(func_val);
                         return arg_res;
                     }
@@ -855,7 +1189,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                         !hydrate_owned_arg(&args[i])) {
                         for (size_t j = 0; j < nargs; j++)
                             east_value_release(args[j]);
-                        free(args);
+                        if (heap_args) free(args);
                         east_value_release(func_val);
                         return paged_error(node);
                     }
@@ -864,7 +1198,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             EvalResult body_res = cfn->invoke(cfn, args, nargs);
             for (size_t i = 0; i < nargs; i++)
                 east_value_release(args[i]);
-            free(args);
+            if (heap_args) free(args);
             east_value_release(func_val);
             if (body_res.status == EVAL_RETURN) {
                 EastValue *ret_val = body_res.value;
@@ -883,9 +1217,16 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
         /* Evaluate arguments */
         size_t nargs = node->data.call.num_args;
+        EastValue *inline_args[EVAL_ARGS_INLINE];
         EastValue **args = NULL;
+        bool heap_args = false;
         if (nargs > 0) {
-            args = calloc(nargs, sizeof(EastValue *));
+            if (nargs <= EVAL_ARGS_INLINE) {
+                args = inline_args;
+            } else {
+                args = calloc(nargs, sizeof(EastValue *));
+                heap_args = true;
+            }
             if (!args) {
                 east_value_release(func_val);
                 return eval_error_at(node, "out of memory");
@@ -895,7 +1236,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 if (arg_res.status != EVAL_OK) {
                     for (size_t j = 0; j < i; j++)
                         east_value_release(args[j]);
-                    free(args);
+                    if (heap_args) free(args);
                     east_value_release(func_val);
                     return arg_res;
                 }
@@ -904,20 +1245,22 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         }
 
         /* Create call environment: captures as parent, then params */
-        Environment *call_env = env_new(cfn->captures);
+        Environment *call_env = frame_for(cfn->captures, cfn->scope);
         for (size_t i = 0; i < cfn->num_params && i < nargs; i++) {
-            env_set(call_env, cfn->param_names[i], args[i]);
+            bind_var(call_env, i, cfn->param_names[i], args[i]);
         }
 
         /* Evaluate body */
+        prof_enter(cfn->ir, cfn->name, cfn->loc_id, node->loc_id);
         EvalResult body_res = eval_ir(cfn->ir, call_env, cfn->platform, cfn->builtins);
+        prof_exit();
 
         env_release(call_env);
 
         /* Clean up args */
         for (size_t i = 0; i < nargs; i++)
             east_value_release(args[i]);
-        free(args);
+        if (heap_args) free(args);
         east_value_release(func_val);
 
         /* Handle RETURN status: extract value */
@@ -937,9 +1280,9 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
     /* ----- IR_PLATFORM --------------------------------------------- */
     case IR_PLATFORM: {
-        PlatformFn pfn = platform_registry_get(platform, node->data.platform.name,
-                                               node->data.platform.type_params,
-                                               node->data.platform.num_type_params);
+        PlatformFn pfn = platform_registry_get_hashed(
+            platform, node->data.platform.name, node->data.platform.name_hash,
+            node->data.platform.type_params, node->data.platform.num_type_params);
         if (!pfn) {
             if (node->data.platform.optional) {
                 char buf[256];
@@ -953,16 +1296,24 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         }
 
         size_t nargs = node->data.platform.num_args;
+        EastValue *inline_args[EVAL_ARGS_INLINE];
+        EastType *inline_types[EVAL_ARGS_INLINE];
         EastValue **args = NULL;
+        bool heap_args = false;
         if (nargs > 0) {
-            args = calloc(nargs, sizeof(EastValue *));
+            if (nargs <= EVAL_ARGS_INLINE) {
+                args = inline_args;
+            } else {
+                args = calloc(nargs, sizeof(EastValue *));
+                heap_args = true;
+            }
             if (!args) return eval_error_at(node, "out of memory");
             for (size_t i = 0; i < nargs; i++) {
                 EvalResult arg_res = eval_ir(node->data.platform.args[i], env, platform, builtins);
                 if (arg_res.status != EVAL_OK) {
                     for (size_t j = 0; j < i; j++)
                         east_value_release(args[j]);
-                    free(args);
+                    if (heap_args) free(args);
                     return arg_res;
                 }
                 args[i] = arg_res.value;
@@ -987,7 +1338,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 if (args[i] && args[i]->kind == EAST_VAL_PAGED && !hydrate_owned_arg(&args[i])) {
                     for (size_t j = 0; j < nargs; j++)
                         east_value_release(args[j]);
-                    free(args);
+                    if (heap_args) free(args);
                     return paged_error(node);
                 }
             }
@@ -1001,17 +1352,17 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
         /* Collect input types from the arg IR nodes */
         EastType **input_types = NULL;
         if (nargs > 0) {
-            input_types = calloc(nargs, sizeof(EastType *));
+            input_types = heap_args ? calloc(nargs, sizeof(EastType *)) : inline_types;
             for (size_t i = 0; i < nargs; i++)
                 input_types[i] = node->data.platform.args[i]->type;
         }
 
         EvalResult result = pfn(args, nargs, input_types, nargs, node->type);
-        free(input_types);
+        if (heap_args) free(input_types);
 
         for (size_t i = 0; i < nargs; i++)
             east_value_release(args[i]);
-        free(args);
+        if (heap_args) free(args);
 
         if (result.status != EVAL_OK) {
             eval_result_add_loc_id(&result, node->loc_id);
@@ -1027,16 +1378,23 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
          * This ensures that the factory call and the impl call are adjacent,
          * which allows factories to set static type context safely. */
         size_t nargs = node->data.builtin.num_args;
+        EastValue *inline_args[EVAL_ARGS_INLINE];
         EastValue **args = NULL;
+        bool heap_args = false;
         if (nargs > 0) {
-            args = calloc(nargs, sizeof(EastValue *));
+            if (nargs <= EVAL_ARGS_INLINE) {
+                args = inline_args;
+            } else {
+                args = calloc(nargs, sizeof(EastValue *));
+                heap_args = true;
+            }
             if (!args) return eval_error_at(node, "out of memory");
             for (size_t i = 0; i < nargs; i++) {
                 EvalResult arg_res = eval_ir(node->data.builtin.args[i], env, platform, builtins);
                 if (arg_res.status != EVAL_OK) {
                     for (size_t j = 0; j < i; j++)
                         east_value_release(args[j]);
-                    free(args);
+                    if (heap_args) free(args);
                     return arg_res;
                 }
                 args[i] = arg_res.value;
@@ -1051,19 +1409,19 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                 !hydrate_owned_arg(&args[i])) {
                 for (size_t j = 0; j < nargs; j++)
                     east_value_release(args[j]);
-                free(args);
+                if (heap_args) free(args);
                 return paged_error(node);
             }
         }
 
         /* Now call factory + impl back-to-back (no IR eval in between) */
-        BuiltinImpl bfn =
-            builtin_registry_get(builtins, node->data.builtin.name, node->data.builtin.type_params,
-                                 node->data.builtin.num_type_params);
+        BuiltinImpl bfn = builtin_registry_get_hashed(
+            builtins, node->data.builtin.name, node->data.builtin.name_hash,
+            node->data.builtin.type_params, node->data.builtin.num_type_params);
         if (!bfn) {
             for (size_t i = 0; i < nargs; i++)
                 east_value_release(args[i]);
-            free(args);
+            if (heap_args) free(args);
             char buf[256];
             snprintf(buf, sizeof(buf), "Unknown builtin function: %s", node->data.builtin.name);
             return eval_error_at_owned(strdup(buf), node);
@@ -1073,7 +1431,7 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
         for (size_t i = 0; i < nargs; i++)
             east_value_release(args[i]);
-        free(args);
+        if (heap_args) free(args);
 
         if (!result) {
             char *err = east_builtin_get_error();
@@ -1142,13 +1500,14 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
 
         EvalResult try_res = eval_ir(node->data.try_catch.try_body, env, platform, builtins);
         if (try_res.status == EVAL_ERROR) {
-            Environment *catch_env = env_new(env);
+            Environment *catch_env = frame_for(env, node->data.try_catch.scope);
 
             /* Bind the error message as a string value */
             if (node->data.try_catch.message_var.name && node->data.try_catch.message_var.name[0]) {
                 EastValue *err_val =
                     east_string(try_res.error_message ? try_res.error_message : "");
-                env_set(catch_env, node->data.try_catch.message_var.name, err_val);
+                bind_var(catch_env, node->data.try_catch.message_slot,
+                         node->data.try_catch.message_var.name, err_val);
                 east_value_release(err_val);
             }
 
@@ -1175,7 +1534,8 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
                         east_value_release(vals[j]);
                 }
 
-                env_set(catch_env, node->data.try_catch.stack_var.name, stack_arr);
+                bind_var(catch_env, node->data.try_catch.stack_slot,
+                         node->data.try_catch.stack_var.name, stack_arr);
                 east_value_release(stack_arr);
                 east_type_release(loc_arr_type);
                 east_type_release(loc_struct_type);
@@ -1454,7 +1814,28 @@ EvalResult eval_ir(IRNode *node, Environment *env, PlatformRegistry *platform,
             return eval_error_at(node, "get_field: value is not a struct");
         }
 
-        EastValue *field = east_struct_get_field(s, node->data.get_field.field_name);
+        /* A value that borrows its names from the type this node last read
+         * has the field at the cached index; anything else — another type,
+         * a coerced struct with its own field order — looks the name up and
+         * refills the cache when it can. */
+        EastValue *field = NULL;
+        EastType *vtype = s->data.struct_.type;
+        bool borrowed = s->data.struct_.field_names == NULL && vtype != NULL;
+        if (borrowed && vtype == node->data.get_field.cache_type) {
+            field = s->data.struct_.field_values[node->data.get_field.cache_idx];
+        } else {
+            const char *name = node->data.get_field.field_name;
+            for (size_t i = 0; i < s->data.struct_.num_fields; i++) {
+                if (strcmp(east_struct_field_name(s, i), name) == 0) {
+                    field = s->data.struct_.field_values[i];
+                    if (borrowed) {
+                        node->data.get_field.cache_type = vtype;
+                        node->data.get_field.cache_idx = i;
+                    }
+                    break;
+                }
+            }
+        }
         if (!field) {
             char buf[256];
             snprintf(buf, sizeof(buf), "no field named '%s'", node->data.get_field.field_name);
@@ -1745,6 +2126,33 @@ EastCompiledFn *east_compile(IRNode *ir, PlatformRegistry *platform, BuiltinRegi
     return east_compile_checked(ir, platform, builtins, NULL);
 }
 
+EastCompiledFn *east_compile_fn(IRNode *fn_node, PlatformRegistry *platform,
+                                BuiltinRegistry *builtins, char **error_out)
+{
+    if (error_out) *error_out = NULL;
+    if (!fn_node || (fn_node->kind != IR_FUNCTION && fn_node->kind != IR_ASYNC_FUNCTION))
+        return NULL;
+    EastCompiledFn *fn =
+        east_compile_checked(fn_node->data.function.body, platform, builtins, error_out);
+    if (!fn) return NULL;
+    fn->fn_type = fn_node->type;
+    fn->num_params = fn_node->data.function.num_params;
+    if (fn->num_params > 0) {
+        fn->param_names = calloc(fn->num_params, sizeof(char *));
+        if (!fn->param_names) {
+            east_compiled_fn_free(fn);
+            return NULL;
+        }
+        for (size_t i = 0; i < fn->num_params; i++)
+            fn->param_names[i] = strdup(fn_node->data.function.params[i].name);
+    }
+    fn->scope = fn_node->data.function.scope;
+    ir_scope_retain(fn->scope);
+    fn->name = fn_node->data.function.name ? strdup(fn_node->data.function.name) : NULL;
+    fn->loc_id = fn_node->loc_id;
+    return fn;
+}
+
 /* ------------------------------------------------------------------ */
 /*  east_call                                                          */
 /* ------------------------------------------------------------------ */
@@ -1825,15 +2233,17 @@ EvalResult east_call(EastCompiledFn *fn, EastValue **args, size_t num_args)
 
     east_call_depth++;
 
-    Environment *call_env = env_new(fn->captures);
+    Environment *call_env = frame_for(fn->captures, fn->scope);
 
-    /* Bind arguments to parameter names.
-     * env_set retains the value internally, so no extra retain needed. */
+    /* Bind arguments to their parameter cells (or names, for a function
+     * compiled without a scope). The frame retains each value. */
     for (size_t i = 0; i < fn->num_params && i < num_args; i++) {
-        env_set(call_env, fn->param_names[i], args[i]);
+        bind_var(call_env, i, fn->param_names[i], args[i]);
     }
 
+    prof_enter(fn->ir, fn->name, fn->loc_id, 0);
     EvalResult result = eval_ir(fn->ir, call_env, fn->platform, fn->builtins);
+    prof_exit();
     env_release(call_env);
 
     /* If body returned via IR_RETURN, unwrap to EVAL_OK */
@@ -1920,6 +2330,11 @@ void east_compiled_fn_free(EastCompiledFn *fn)
         platform_registry_release(fn->platform);
         fn->platform = NULL;
     }
+
+    ir_scope_release(fn->scope);
+    fn->scope = NULL;
+    east_free(fn->name);
+    fn->name = NULL;
 
     east_free(fn);
 }

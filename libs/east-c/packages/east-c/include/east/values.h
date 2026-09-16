@@ -352,6 +352,10 @@ EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type, s
 void east_dict_set(EastValue *dict, EastValue *key, EastValue *val);
 EastValue *east_dict_get(EastValue *dict, EastValue *key);
 bool east_dict_has(EastValue *dict, EastValue *key);
+/* One search for a keyed read: whether `key` is present, and its value
+ * (borrowed) through *val_out when it is. The builtins that used to ask
+ * `has` and then `get` paid two O(log n) searches per read. */
+bool east_dict_find(EastValue *dict, EastValue *key, EastValue **val_out);
 bool east_dict_delete(EastValue *dict, EastValue *key);
 EastValue *east_dict_pop(EastValue *dict, EastValue *key);
 void east_dict_clear(EastValue *dict);

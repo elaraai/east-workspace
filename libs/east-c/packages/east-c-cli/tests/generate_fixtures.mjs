@@ -30,6 +30,7 @@ import {
   BooleanType,
   DictType,
   East,
+  FloatType,
   FunctionType,
   IntegerType,
   NullType,
@@ -50,6 +51,32 @@ const targets = [
 
 const emitInt = FunctionType([IntegerType], NullType);
 const emitPair = FunctionType([IntegerType, StringType], NullType);
+const NestedT = StructType({
+  label: StringType,
+  items: ArrayType(StructType({ x: IntegerType, y: FloatType })),
+});
+const emitNested = FunctionType([IntegerType, NestedT], NullType);
+
+/** A dict producer whose values are structs of arrays of structs, emitted
+ *  in the given key order: the sink encodes an out-of-order emission at
+ *  the emit and merges runs of bytes, and its output must be byte-identical
+ *  to the ascending producer's. */
+function nestedProducer(keys) {
+  return East.function([emitNested], NullType, ($, emit) => {
+    $.for($.const(keys, ArrayType(IntegerType)), ($, i) => {
+      $(
+        emit(i, {
+          label: East.str`row-${i}`,
+          items: [
+            { x: i, y: 0.5 },
+            { x: i.add(1n), y: 1.5 },
+            { x: i.add(2n), y: 2.5 },
+          ],
+        }),
+      );
+    });
+  }).toIR();
+}
 
 /** The 0..count keys in a deterministic Fisher-Yates shuffle (fixed LCG
  *  seed), so the disorder the sink must absorb is stable across fixture
@@ -145,6 +172,21 @@ const fixtures = {
   // traceback or a negative arity count.
   'zero_param.beast2': encodeEastIR(East.function([], IntegerType, (_$) => 1n).toIR()),
 
+  // A helper called 100 times from a loop: `--profile` must list it with
+  // its call count and the source location of its definition.
+  'profile_calls.beast2': (() => {
+    const inc = East.function([IntegerType], IntegerType, (_$, x) => x.add(1n));
+    return encodeEastIR(
+      East.function([], IntegerType, ($) => {
+        const acc = $.let(0n);
+        $.for(East.Array.range(0n, 100n), ($, _i) => {
+          $.assign(acc, inc(acc));
+        });
+        return acc;
+      }).toIR(),
+    );
+  })(),
+
   // The fold's input: [0..2500), written segmented + indexed by the TS
   // paged writer (500 elements per segment).
   'events.beast2': encodeBeast2PagedFor(ArrayType(IntegerType), { batchSize: 500 })(
@@ -214,6 +256,16 @@ const fixtures = {
       compareFor(IntegerType),
     ),
   ),
+
+  // ---- Encode-at-the-emit pins ----------------------------------------
+
+  // 300 nested-value pairs in ascending order, and the same pairs in a
+  // deterministically shuffled order (run under a tiny
+  // EAST_EMIT_RUN_ELEMENTS to force several raw spill runs).
+  'emit_nested.beast2': encodeEastIR(
+    nestedProducer(Array.from({ length: 300 }, (_, i) => BigInt(i))),
+  ),
+  'emit_nested_shuffled.beast2': encodeEastIR(nestedProducer(shuffledKeys(300))),
 };
 
 for (const dir of targets) {

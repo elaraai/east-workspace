@@ -90,6 +90,27 @@ int main(void)
     }
     hashmap_free(map, NULL);
 
+    /* 4. A pre-hashed lookup (the evaluator keeps a Builtin/Platform node's
+     *    name hash) must answer exactly as the by-name one, present or not,
+     *    across a resize. */
+    map = hashmap_new();
+    CHECK(map != NULL, "hashmap_new returned NULL");
+    for (int i = 0; i < 100; i++) {
+        char key[32];
+        snprintf(key, sizeof key, "Builtin%d", i);
+        hashmap_set(map, key, (void *)(size_t)(i + 1));
+    }
+    for (int i = 0; i < 120; i++) {
+        char key[32];
+        snprintf(key, sizeof key, "Builtin%d", i);
+        void *by_name = hashmap_get(map, key);
+        void *by_hash = hashmap_get_hashed(map, key, hashmap_hash(key));
+        CHECK(by_name == by_hash, "%s: hashed lookup %p differs from by-name %p", key, by_hash,
+              by_name);
+        CHECK((i < 100) == (by_hash != NULL), "%s: presence wrong", key);
+    }
+    hashmap_free(map, NULL);
+
     printf("hashmap churn: ok\n");
     return 0;
 }

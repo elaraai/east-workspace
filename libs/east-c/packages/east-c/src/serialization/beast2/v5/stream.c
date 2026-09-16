@@ -69,6 +69,147 @@ Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, boo
     return w;
 }
 
+/* Records segment `n` elements long at the current wire offset and frames
+ * its logical bytes. Shared by the value and raw writes. */
+static bool writer_push_segment(Beast2StreamWriter *w, const ByteBuffer *logical, size_t n)
+{
+    if (w->seg_count == w->seg_cap) {
+        size_t new_cap = w->seg_cap ? w->seg_cap * 2 : 16;
+        size_t *offsets = realloc(w->seg_offsets, new_cap * sizeof(size_t));
+        if (offsets) w->seg_offsets = offsets;
+        size_t *counts = realloc(w->seg_counts, new_cap * sizeof(size_t));
+        if (counts) w->seg_counts = counts;
+        if (!offsets || !counts) {
+            w->failed = true;
+            return false;
+        }
+        w->seg_cap = new_cap;
+    }
+    w->seg_offsets[w->seg_count] = w->total_emitted;
+    w->seg_counts[w->seg_count] = n;
+    w->seg_count++;
+
+    size_t before = w->pending->len;
+    b2v5_write_frame(w->pending, logical->data, logical->len, w->codec);
+    w->total_emitted += w->pending->len - before;
+    return true;
+}
+
+/* The Set/Dict boundary check: a segment must start strictly above the
+ * previous segment's greatest key, and its own last key becomes that. */
+static bool writer_accept_keys(Beast2StreamWriter *w, EastValue *first, EastValue *last)
+{
+    if (w->type->kind == EAST_TYPE_ARRAY) return true;
+    if (w->last_key && first && east_value_compare(w->last_key, first) >= 0) {
+        east_builtin_error(
+            w->type->kind == EAST_TYPE_SET
+                ? "beast2 v5: Set stream batches must be strictly ascending in East element "
+                  "order — segment content is the canonical value; pre-sort batches, or "
+                  "encode arrival order as an Array"
+                : "beast2 v5: Dict stream batches must be strictly ascending in East key "
+                  "order — segment content is the canonical value; pre-sort batches, or "
+                  "encode arrival order as an Array");
+        w->failed = true;
+        return false;
+    }
+    if (last) {
+        if (w->last_key) east_value_release(w->last_key);
+        w->last_key = last;
+        east_value_retain(last);
+    }
+    return true;
+}
+
+bool east_beast2_writer_write_raw(Beast2StreamWriter *w, const uint8_t *entries, size_t len,
+                                  size_t n, EastValue *first_key, EastValue *last_key)
+{
+    if (!w || (!entries && len > 0)) return false;
+    if (w->finished || w->failed) {
+        east_builtin_error("beast2 v5: write() after finish()");
+        return false;
+    }
+    if (n == 0) return true;
+    if (!writer_accept_keys(w, first_key, last_key)) return false;
+
+    /* The entries were encoded under their own aliasing scopes, so this
+     * segment defines nothing the encoder's own scope must know about —
+     * but the scope is reset all the same, exactly as a value write does. */
+    b2v5_enc_ctx_begin_segment(&w->ctx);
+
+    ByteBuffer *logical = byte_buffer_new(len + 16);
+    if (!logical) return false;
+    write_varint(logical, (uint64_t)n);
+    byte_buffer_write_bytes(logical, entries, len);
+    bool framed = writer_push_segment(w, logical, n);
+    byte_buffer_free(logical);
+    return framed;
+}
+
+/* ================================================================== */
+/*  Per-entry encoder / decoder                                        */
+/* ================================================================== */
+
+struct Beast2EntryEncoder {
+    B2V5EncodeCtx ctx;
+};
+
+Beast2EntryEncoder *east_beast2_entry_encoder_new(void)
+{
+    if (!east_type_type) east_type_of_type_init();
+    Beast2EntryEncoder *e = calloc(1, sizeof(*e));
+    if (!e) return NULL;
+    b2v5_enc_ctx_init(&e->ctx, NULL, true);
+    return e;
+}
+
+void east_beast2_entry_begin(Beast2EntryEncoder *e)
+{
+    if (!e) return;
+    b2v5_enc_ctx_begin_segment(&e->ctx);
+    e->ctx.failed = false;
+}
+
+bool east_beast2_entry_encode(Beast2EntryEncoder *e, ByteBuffer *out, EastValue *value,
+                              EastType *type)
+{
+    if (!e || !out || !value || !type) return false;
+    b2v5_encode_value(out, value, type, &e->ctx);
+    return !e->ctx.failed;
+}
+
+void east_beast2_entry_encoder_free(Beast2EntryEncoder *e)
+{
+    if (!e) return;
+    b2v5_enc_ctx_free(&e->ctx);
+    free(e);
+}
+
+EastValue *east_beast2_entry_decode(const uint8_t *data, size_t len, EastType *type)
+{
+    if (!data || !type) return NULL;
+    if (!east_type_type) east_type_of_type_init();
+    B2V5DecodeCtx ctx;
+    b2v5_dec_ctx_init(&ctx, NULL);
+    size_t offset = 0;
+    EastValue *v = b2v5_decode_value(data, len, &offset, type, &ctx);
+    b2v5_dec_ctx_free(&ctx);
+    if (v && offset != len) {
+        east_value_release(v);
+        east_builtin_error("beast2 v5: trailing bytes after the entry");
+        return NULL;
+    }
+    if (!v) {
+        char *specific = east_builtin_get_error();
+        if (specific) {
+            east_builtin_error(specific);
+            free(specific);
+        } else {
+            east_builtin_error("beast2 v5: malformed entry");
+        }
+    }
+    return v;
+}
+
 bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch)
 {
     if (!w || !batch) return false;
@@ -105,25 +246,9 @@ bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch)
     if (w->type->kind != EAST_TYPE_ARRAY) {
         EastValue *first =
             w->type->kind == EAST_TYPE_SET ? east_set_at(batch, 0) : east_dict_key_at(batch, 0);
-        if (w->last_key && first && east_value_compare(w->last_key, first) >= 0) {
-            east_builtin_error(
-                w->type->kind == EAST_TYPE_SET
-                    ? "beast2 v5: Set stream batches must be strictly ascending in East element "
-                      "order — segment content is the canonical value; pre-sort batches, or "
-                      "encode arrival order as an Array"
-                    : "beast2 v5: Dict stream batches must be strictly ascending in East key "
-                      "order — segment content is the canonical value; pre-sort batches, or "
-                      "encode arrival order as an Array");
-            w->failed = true;
-            return false;
-        }
         EastValue *last = w->type->kind == EAST_TYPE_SET ? east_set_at(batch, n - 1)
                                                          : east_dict_key_at(batch, n - 1);
-        if (last) {
-            if (w->last_key) east_value_release(w->last_key);
-            w->last_key = last;
-            east_value_retain(last);
-        }
+        if (!writer_accept_keys(w, first, last)) return false;
     }
 
     b2v5_enc_ctx_begin_segment(&w->ctx);
@@ -154,28 +279,9 @@ bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch)
         return false;
     }
 
-    if (w->seg_count == w->seg_cap) {
-        size_t new_cap = w->seg_cap ? w->seg_cap * 2 : 16;
-        size_t *offsets = realloc(w->seg_offsets, new_cap * sizeof(size_t));
-        if (offsets) w->seg_offsets = offsets;
-        size_t *counts = realloc(w->seg_counts, new_cap * sizeof(size_t));
-        if (counts) w->seg_counts = counts;
-        if (!offsets || !counts) {
-            byte_buffer_free(logical);
-            w->failed = true;
-            return false;
-        }
-        w->seg_cap = new_cap;
-    }
-    w->seg_offsets[w->seg_count] = w->total_emitted;
-    w->seg_counts[w->seg_count] = n;
-    w->seg_count++;
-
-    size_t before = w->pending->len;
-    b2v5_write_frame(w->pending, logical->data, logical->len, w->codec);
-    w->total_emitted += w->pending->len - before;
+    bool framed = writer_push_segment(w, logical, n);
     byte_buffer_free(logical);
-    return true;
+    return framed;
 
 wrong_kind:
     east_builtin_error("beast2 v5: batch value does not match the stream's collection type");

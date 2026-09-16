@@ -29,9 +29,10 @@ static size_t fnv1a(const char *key)
  * slot or the first available slot (empty or tombstone) where the key could be
  * inserted. When `for_insert` is true the search stops at tombstones so they
  * can be reused; when false it skips tombstones to find a true match. */
-static size_t find_index(HashmapEntry *entries, size_t capacity, const char *key, bool for_insert)
+static size_t find_index_hashed(HashmapEntry *entries, size_t capacity, const char *key,
+                                size_t hash, bool for_insert)
 {
-    size_t idx = fnv1a(key) & (capacity - 1);
+    size_t idx = hash & (capacity - 1);
     size_t tombstone_idx = capacity; /* capacity = "none found" */
 
     for (;;) {
@@ -54,6 +55,11 @@ static size_t find_index(HashmapEntry *entries, size_t capacity, const char *key
 
         idx = (idx + 1) & (capacity - 1);
     }
+}
+
+static size_t find_index(HashmapEntry *entries, size_t capacity, const char *key, bool for_insert)
+{
+    return find_index_hashed(entries, capacity, key, fnv1a(key), for_insert);
 }
 
 /* Resize the table to `new_capacity` and re-insert all live entries. */
@@ -123,8 +129,19 @@ void hashmap_free(Hashmap *map, void (*free_value)(void *))
 void *hashmap_get(Hashmap *map, const char *key)
 {
     if (!map || !key) return NULL;
+    return hashmap_get_hashed(map, key, fnv1a(key));
+}
 
-    size_t idx = find_index(map->entries, map->capacity, key, false);
+size_t hashmap_hash(const char *key)
+{
+    return key ? fnv1a(key) : 0;
+}
+
+void *hashmap_get_hashed(Hashmap *map, const char *key, size_t hash)
+{
+    if (!map || !key) return NULL;
+
+    size_t idx = find_index_hashed(map->entries, map->capacity, key, hash, false);
     HashmapEntry *e = &map->entries[idx];
 
     if (e->occupied && e->key != TOMBSTONE_KEY) {

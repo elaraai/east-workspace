@@ -52,6 +52,39 @@ typedef enum {
 
 typedef struct IRNode IRNode;
 
+/* A lexical scope descriptor: the names one runtime frame binds, in binding
+ * order, so a Variable resolved at IR construction reads its cell by index
+ * instead of hashing its name. Owned by the IR node that opens the scope;
+ * every Variable/Let/Assign annotated against it, every runtime frame
+ * created from it, and every compiled function whose params it describes
+ * hold their own reference — a closure's captured frames outlive the IR
+ * that made them. */
+typedef struct IRScope {
+    char **names;
+    size_t count;
+    size_t cap;
+    int ref_count;
+} IRScope;
+
+IRScope *ir_scope_new(void);
+/* Appends `name` (copied) as a new cell even if the name is already bound,
+ * returning its slot: binders that occupy fixed positions (params, loop
+ * variables) use this. */
+size_t ir_scope_push(IRScope *s, const char *name);
+/* The slot of `name`, or a new cell when unbound: a second `Let` of one name
+ * in one scope reuses the first's cell, which is what a by-name set does. */
+size_t ir_scope_bind(IRScope *s, const char *name);
+/* The slot of `name`, scanning from the last binding, or SIZE_MAX. */
+size_t ir_scope_find(const IRScope *s, const char *name);
+void ir_scope_retain(IRScope *s);
+void ir_scope_release(IRScope *s);
+
+/* Annotate every scope-opening node of `root` with its IRScope and every
+ * Variable / Let / Assign with the (hops, slot) of its binding, mirroring the
+ * analyzer's scoping rules. Nodes whose name is not bound in the static chain
+ * stay unresolved and take the by-name path at run time. */
+void ir_resolve_scopes(IRNode *root);
+
 /* A Variable sub-node as it appears in the IR wire format:
  *   StructType({ type, loc_id, name, mutable, captured })
  *
@@ -74,6 +107,7 @@ typedef struct {
     char *case_name;
     IRVariable bind; /* case binding variable (name + location) */
     IRNode *body;
+    IRScope *scope; /* the case body's frame: bind at slot 0 (resolver) */
 } IRMatchCase;
 
 struct IRNode {
@@ -92,24 +126,35 @@ struct IRNode {
             char *name;
             bool mutable;
             bool captured;
+            /* Resolved binding (resolver): the frame `hops` parents up must
+             * carry `scope`, and the cell is `slot`. NULL scope = by name. */
+            IRScope *scope;
+            uint32_t hops;
+            uint32_t slot;
         } variable;
 
         // IR_LET
         struct {
             IRVariable var;
             IRNode *value;
+            IRScope *scope; /* the frame this Let binds into, cell `slot` */
+            uint32_t slot;
         } let;
 
         // IR_ASSIGN
         struct {
             IRVariable var;
             IRNode *value;
+            IRScope *scope; /* as IR_VARIABLE */
+            uint32_t hops;
+            uint32_t slot;
         } assign;
 
         // IR_BLOCK
         struct {
             IRNode **stmts;
             size_t num_stmts;
+            IRScope *scope; /* non-NULL iff the block binds (a direct Let) */
         } block;
 
         // IR_IF_ELSE
@@ -140,6 +185,7 @@ struct IRNode {
             IRNode *array;
             IRNode *body;
             IRLabel label;
+            IRScope *scope; /* per-iteration frame: var at 0, index at 1 */
         } for_array;
 
         // IR_FOR_SET
@@ -148,6 +194,7 @@ struct IRNode {
             IRNode *set;
             IRNode *body;
             IRLabel label;
+            IRScope *scope; /* per-iteration frame: var at 0 */
         } for_set;
 
         // IR_FOR_DICT
@@ -157,6 +204,7 @@ struct IRNode {
             IRNode *dict;
             IRNode *body;
             IRLabel label;
+            IRScope *scope; /* per-iteration frame: key at 0, val at 1 */
         } for_dict;
 
         // IR_FUNCTION, IR_ASYNC_FUNCTION
@@ -169,6 +217,8 @@ struct IRNode {
             size_t num_params;
             IRNode *body;
             EastValue *source_ir; // original IR variant value for serialization
+            IRScope *scope;       /* the call frame: params at 0..num_params-1 */
+            char *name;           /* the Let this function is bound to, if any */
         } function;
 
         // IR_CALL, IR_CALL_ASYNC
@@ -181,6 +231,7 @@ struct IRNode {
         // IR_PLATFORM
         struct {
             char *name;
+            size_t name_hash; /* hashmap_hash(name), for the registry lookup */
             EastType **type_params;
             size_t num_type_params;
             IRNode **args;
@@ -192,6 +243,7 @@ struct IRNode {
         // IR_BUILTIN
         struct {
             char *name;
+            size_t name_hash; /* hashmap_hash(name), for the registry lookup */
             EastType **type_params;
             size_t num_type_params;
             IRNode **args;
@@ -219,7 +271,10 @@ struct IRNode {
             IRVariable message_var; /* bound message string variable */
             IRVariable stack_var;   /* bound stack array variable */
             IRNode *catch_body;
-            IRNode *finally_body; /* may be NULL if no finally block */
+            IRNode *finally_body;  /* may be NULL if no finally block */
+            IRScope *scope;        /* the catch frame */
+            uint32_t message_slot; /* UINT32_MAX when the variable is unnamed */
+            uint32_t stack_slot;
         } try_catch;
 
         // IR_NEW_ARRAY, IR_NEW_SET
@@ -265,6 +320,13 @@ struct IRNode {
         struct {
             IRNode *expr;
             char *field_name;
+            /* Inline cache: the last struct type read through this node and
+             * the field's index in it. Valid only for a value that borrows
+             * its names from that very type (a coerced struct carrying its
+             * own field order never matches). Types are arena-immortal for
+             * the IR's lifetime, so the pointer is a stable key. */
+            EastType *cache_type;
+            size_t cache_idx;
         } get_field;
 
         // IR_VARIANT

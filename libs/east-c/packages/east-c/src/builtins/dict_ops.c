@@ -113,11 +113,11 @@ static EastValue *dict_get_impl(EastValue **args, size_t n)
         if (found == 0) dict_key_not_found_error(args[1]);
         return NULL; /* -1: pager error already posted */
     }
-    if (!east_dict_has(args[0], args[1])) {
+    EastValue *v = NULL;
+    if (!east_dict_find(args[0], args[1], &v)) {
         dict_key_not_found_error(args[1]);
         return NULL;
     }
-    EastValue *v = east_dict_get(args[0], args[1]);
     if (v) east_value_retain(v);
     return v;
 }
@@ -133,8 +133,8 @@ static EastValue *dict_get_or_default_impl(EastValue **args, size_t n)
         EastValue *call_args[] = {args[1]};
         return call_fn(args[2], call_args, 1);
     }
-    if (east_dict_has(args[0], args[1])) {
-        EastValue *v = east_dict_get(args[0], args[1]);
+    EastValue *v = NULL;
+    if (east_dict_find(args[0], args[1], &v)) {
         if (v) east_value_retain(v);
         return v;
     }
@@ -156,8 +156,8 @@ static EastValue *dict_try_get_impl(EastValue **args, size_t n)
         }
         return east_variant_new("none", east_null(), _option_ctx);
     }
-    if (east_dict_has(args[0], args[1])) {
-        EastValue *val = east_dict_get(args[0], args[1]);
+    EastValue *val = NULL;
+    if (east_dict_find(args[0], args[1], &val)) {
         return east_variant_new("some", val, _option_ctx);
     }
     return east_variant_new("none", east_null(), _option_ctx);
@@ -181,8 +181,8 @@ static EastValue *dict_get_or_insert_impl(EastValue **args, size_t n)
     (void)n;
     FROZEN_GUARD(args[0]);
     ITER_GUARD_DICT(args[0]);
-    if (east_dict_has(args[0], args[1])) {
-        EastValue *v = east_dict_get(args[0], args[1]);
+    EastValue *v = NULL;
+    if (east_dict_find(args[0], args[1], &v)) {
         if (v) east_value_retain(v);
         return v;
     }
@@ -202,8 +202,8 @@ static EastValue *dict_insert_or_update_impl(EastValue **args, size_t n)
     EastValue *key = args[1];
     EastValue *value = args[2];
     EastValue *merge_fn = args[3];
-    if (east_dict_has(d, key)) {
-        EastValue *existing = east_dict_get(d, key);
+    EastValue *existing = NULL;
+    if (east_dict_find(d, key, &existing)) {
         EastValue *margs[] = {existing, value, key};
         EastValue *merged = call_fn(merge_fn, margs, 3);
         if (!merged) return NULL;
@@ -231,11 +231,11 @@ static EastValue *dict_swap_impl(EastValue **args, size_t n)
 {
     (void)n;
     FROZEN_GUARD(args[0]);
-    if (!east_dict_has(args[0], args[1])) {
+    EastValue *old = NULL;
+    if (!east_dict_find(args[0], args[1], &old)) {
         dict_key_not_found_error(args[1]);
         return NULL;
     }
-    EastValue *old = east_dict_get(args[0], args[1]);
     east_value_retain(old);
     east_dict_set(args[0], args[1], args[2]);
     return old;
@@ -252,11 +252,9 @@ static EastValue *dict_merge_impl(EastValue **args, size_t n)
     EastValue *value = args[2];
     EastValue *merge_fn = args[3];
     EastValue *initial_fn = args[4];
-    EastValue *existing;
+    EastValue *existing = NULL;
     bool existing_owned = false;
-    if (east_dict_has(d, key)) {
-        existing = east_dict_get(d, key);
-    } else {
+    if (!east_dict_find(d, key, &existing)) {
         EastValue *iargs[] = {key};
         existing = call_fn(initial_fn, iargs, 1);
         if (!existing) return NULL; /* initial_fn threw */
@@ -326,8 +324,8 @@ static EastValue *dict_union_in_place_impl(EastValue **args, size_t n)
     for (size_t i = 0; i < other->data.dict.len; i++) {
         EastValue *k = east_dict_key_at(other, i);
         EastValue *v = east_dict_val_at(other, i);
-        if (east_dict_has(d, k)) {
-            EastValue *existing = east_dict_get(d, k);
+        EastValue *existing = NULL;
+        if (east_dict_find(d, k, &existing)) {
             EastValue *margs[] = {existing, v, k};
             EastValue *merged = call_fn(merge_fn, margs, 3);
             if (!merged) return NULL; /* merge_fn threw */
@@ -352,11 +350,9 @@ static EastValue *dict_merge_all_impl(EastValue **args, size_t n)
     for (size_t i = 0; i < other->data.dict.len; i++) {
         EastValue *k = east_dict_key_at(other, i);
         EastValue *v = east_dict_val_at(other, i);
-        EastValue *existing;
+        EastValue *existing = NULL;
         bool existing_owned = false;
-        if (east_dict_has(d, k)) {
-            existing = east_dict_get(d, k);
-        } else {
+        if (!east_dict_find(d, k, &existing)) {
             EastValue *dargs[] = {k};
             existing = call_fn(default_fn, dargs, 1);
             if (!existing) return NULL; /* default_fn threw */
@@ -391,8 +387,9 @@ static EastValue *dict_get_keys_impl(EastValue **args, size_t n)
     EastValue *result = east_dict_new(d->data.dict.key_type, d->data.dict.val_type);
     for (size_t i = 0; i < keys_set->data.set.len; i++) {
         EastValue *k = east_set_at(keys_set, i);
-        if (east_dict_has(d, k)) {
-            east_dict_set(result, k, east_dict_get(d, k));
+        EastValue *found = NULL;
+        if (east_dict_find(d, k, &found)) {
+            east_dict_set(result, k, found);
         } else {
             EastValue *dargs[] = {k};
             EastValue *def = call_fn(default_fn, dargs, 1);
@@ -432,8 +429,8 @@ static EastValue *dict_generate_impl(EastValue **args, size_t n)
             east_value_release(result);
             return NULL;
         }
-        if (east_dict_has(result, key)) {
-            EastValue *existing = east_dict_get(result, key);
+        EastValue *existing = NULL;
+        if (east_dict_find(result, key, &existing)) {
             EastValue *margs[] = {existing, val, key};
             EastValue *merged = call_fn(merge_fn, margs, 3);
             if (!merged) {
@@ -695,8 +692,8 @@ static EastValue *dict_to_dict_impl(EastValue **args, size_t n)
             east_value_release(result);
             return NULL;
         }
-        if (east_dict_has(result, new_key)) {
-            EastValue *existing = east_dict_get(result, new_key);
+        EastValue *existing = NULL;
+        if (east_dict_find(result, new_key, &existing)) {
             EastValue *margs[] = {existing, new_val, new_key};
             EastValue *merged = call_fn(merge_fn, margs, 3);
             if (!merged) {
@@ -778,8 +775,8 @@ static EastValue *dict_flatten_to_dict_impl(EastValue **args, size_t n)
             for (size_t j = 0; j < mapped->data.dict.len; j++) {
                 EastValue *mk = east_dict_key_at(mapped, j);
                 EastValue *mv = east_dict_val_at(mapped, j);
-                if (east_dict_has(result, mk)) {
-                    EastValue *existing = east_dict_get(result, mk);
+                EastValue *existing = NULL;
+                if (east_dict_find(result, mk, &existing)) {
                     EastValue *margs[] = {existing, mv, mk};
                     EastValue *merged = call_fn(merge_fn, margs, 3);
                     if (!merged) {
@@ -816,7 +813,8 @@ static EastValue *dict_group_fold_impl(EastValue **args, size_t n)
             east_value_release(result);
             return NULL;
         }
-        if (!east_dict_has(result, group_key)) {
+        EastValue *acc = NULL;
+        if (!east_dict_find(result, group_key, &acc)) {
             EastValue *iargs[] = {group_key};
             EastValue *init = call_fn(init_fn, iargs, 1);
             if (!init) {
@@ -826,8 +824,8 @@ static EastValue *dict_group_fold_impl(EastValue **args, size_t n)
             }
             east_dict_set(result, group_key, init);
             east_value_release(init);
+            acc = east_dict_get(result, group_key);
         }
-        EastValue *acc = east_dict_get(result, group_key);
         EastValue *fargs[] = {acc, v, k};
         EastValue *new_acc = call_fn(fold_fn, fargs, 3);
         if (!new_acc) {

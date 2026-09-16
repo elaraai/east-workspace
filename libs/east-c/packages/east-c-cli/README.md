@@ -33,6 +33,39 @@ See [`docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFI
 
 The CLI loads the standard platform from `east-c-std` by default. Custom platform functions can be linked at build time.
 
+### Streaming outputs and inputs
+
+A function whose trailing parameter is an emit capability writes its output
+incrementally instead of returning it; a large collection input can be fed
+lazily, one decoded segment at a time:
+
+```bash
+# Emit a Dict (or array / set) through the trailing parameter, feeding
+# input 0 lazily from an indexed beast2 blob
+east-c run task.beast2 -i rows.beast2 --stream 0 --emit dict -o out.beast2 -v
+```
+
+Dict and Set emissions may arrive in any order. While they ascend, segments
+stream straight to the output; on the first out-of-order key the sink
+encodes each further emission as it arrives, keeps only the key, and spills
+sorted runs of `EAST_EMIT_RUN_ELEMENTS` entries (default 100000) beside the
+output as raw byte records, merging them at the end by decoding keys only.
+With `-v` the epilogue reports the spills, the peak entries and bytes
+buffered, and the time spent spilling and merging.
+
+### Profiling
+
+```bash
+east-c run task.beast2 -i rows.beast2 --profile
+```
+
+prints every East function the run called, by self time, with its call
+count, its total time, and where it is: the name of the Let it was bound to
+when the IR has one, its definition site, and — when that differs — the
+site of the first call that reached it, which is what tells apart helpers
+the TypeScript builder inlined at their call sites. Off, profiling costs
+one branch per call.
+
 The `ir` toolbox (issue #627) works on IR files without running them:
 
 ```bash

@@ -526,27 +526,37 @@ static size_t emit_run_elements(void)
     return EMIT_RUN_ELEMENTS_DEFAULT;
 }
 
-/* One buffered out-of-order emission: an owned key (element) and, for dict
- * outputs, an owned value. */
+/* One buffered out-of-order emission, encoded at the emit: the decoded key
+ * (owned — it orders the run and catches duplicates) and where its entry
+ * bytes — the key then, for dict outputs, the value, exactly as a segment
+ * holds them — sit in the run arena. The value itself is released at the
+ * emit, while it is small and hot. */
 typedef struct {
     EastValue *key;
-    EastValue *value;
+    size_t offset;
+    size_t key_len;
+    size_t val_len;
 } EmitPending;
 
 /* The body's trailing parameter is a runner-provided function value; each
  * call appends one element (pair for dict outputs) through a streaming
  * beast2 writer to the output file.
  *
- * Emission order is unconstrained (issue #518). While Set/Dict emissions
- * stay strictly ascending in East (key) order, segments stream straight to
- * the output file — O(batch) memory, byte-identical to an always-ascending
- * producer. On the first out-of-order key the file written so far is
- * finalized (a complete canonical beast2 file of the prefix) and demoted to
- * spill run #0; emissions then buffer to a bounded element cap
- * (EAST_EMIT_RUN_ELEMENTS) and spill as sorted runs beside the output, and
- * finish k-way merges runs + tail into the canonical output. Duplicate
- * Set/Dict keys are a hard error in every path: immediately when adjacent
- * in the stream, at spill/merge time otherwise. */
+ * Emission order is unconstrained. While Set/Dict emissions stay strictly
+ * ascending in East (key) order, segments stream straight to the output
+ * file — O(batch) memory, byte-identical to an always-ascending producer.
+ * On the first out-of-order key the file written so far is finalized (a
+ * complete canonical beast2 file of the prefix) and demoted to spill run
+ * #0; from then on every emission is encoded into a byte arena as it
+ * arrives, its value released at once, and only its key kept for ordering.
+ * A run is that entry table sorted by key and written raw beside the output
+ * as `varint(key_len) key varint(val_len) value` records — the sink's own
+ * temporary format, not beast2 — up to EAST_EMIT_RUN_ELEMENTS entries per
+ * run. The finish k-way merges the runs and the in-memory tail into the
+ * canonical output decoding KEYS only: value bytes are copied straight into
+ * the output segments, never decoded or re-encoded, and the final write is
+ * the only deflate. Duplicate Set/Dict keys are a hard error in every path:
+ * immediately when adjacent in the stream, at spill/merge time otherwise. */
 typedef struct {
     FILE *out;
     Beast2StreamWriter *writer;
@@ -566,10 +576,18 @@ typedef struct {
     bool buffered;
     EmitPending *buf;
     size_t buf_len, buf_cap;
+    ByteBuffer *arena;           /* the current run's entry bytes */
+    Beast2EntryEncoder *encoder; /* per-entry self-contained encoder */
     size_t run_cap;
     char **run_paths; /* owned paths of spilled runs (run 0 = demoted prefix) */
     size_t num_runs, runs_cap;
     size_t spilled_bytes;
+    /* The -v epilogue's account of the buffered path. */
+    size_t spills;
+    size_t peak_entries;
+    size_t peak_bytes;
+    double spill_ms;
+    double merge_ms;
 } EmitSink;
 
 static EastValue *emit_new_batch(EmitSink *s)
@@ -584,6 +602,12 @@ static EastValue *emit_new_batch(EmitSink *s)
     }
 }
 
+/* The key type of a Set/Dict sink (the element type for a Set). */
+static EastType *emit_key_type(EmitSink *s)
+{
+    return s->kind == EMIT_DICT ? s->out_type->data.dict.key : s->out_type->data.element;
+}
+
 static bool emit_drain(EmitSink *s)
 {
     ByteBuffer *buf = east_beast2_writer_take(s->writer);
@@ -595,24 +619,33 @@ static bool emit_drain(EmitSink *s)
     return ok;
 }
 
-static bool emit_flush(EmitSink *s)
+/* After a segment of `n` elements landed: the running average wire size
+ * refines the next batch toward the byte target. written_bytes includes
+ * the header — a slight average overestimate that only makes batches
+ * marginally smaller. Shared by the value path and the raw merge so both
+ * segment identically. */
+static void emit_adapt_batch(EmitSink *s, size_t n)
 {
-    if (s->batch_count == 0) return true;
-    if (!east_beast2_writer_write(s->writer, s->batch)) return false;
-    if (!emit_drain(s)) return false;
-    s->written_elements += s->batch_count;
-    east_value_release(s->batch);
-    s->batch = emit_new_batch(s);
-    s->batch_count = 0;
-    if (!s->batch) return false;
-    /* written_bytes includes the header — a slight average overestimate
-     * that only makes batches marginally smaller. */
+    s->written_elements += n;
     size_t avg = s->written_bytes / (s->written_elements > 0 ? s->written_elements : 1);
     if (avg == 0) avg = 1;
     size_t next = EMIT_TARGET_BYTES / avg;
     if (next < 1) next = 1;
     if (next > EMIT_BATCH_CAP) next = EMIT_BATCH_CAP;
     s->next_batch = next;
+}
+
+static bool emit_flush(EmitSink *s)
+{
+    if (s->batch_count == 0) return true;
+    if (!east_beast2_writer_write(s->writer, s->batch)) return false;
+    if (!emit_drain(s)) return false;
+    size_t n = s->batch_count;
+    east_value_release(s->batch);
+    s->batch = emit_new_batch(s);
+    s->batch_count = 0;
+    if (!s->batch) return false;
+    emit_adapt_batch(s, n);
     return true;
 }
 
@@ -622,8 +655,7 @@ static void emit_duplicate_msg(EmitSink *s, EastValue *key, char *buf, size_t bu
 {
     const char *noun = s->kind == EMIT_DICT ? "Dict" : "Set";
     const char *part = s->kind == EMIT_DICT ? "key" : "element";
-    EastType *kt = s->kind == EMIT_DICT ? s->out_type->data.dict.key : s->out_type->data.element;
-    char *printed = key ? east_print_value(key, kt) : NULL;
+    char *printed = key ? east_print_value(key, emit_key_type(s)) : NULL;
     snprintf(buf, buflen, "beast2 v5: duplicate %s %s emitted%s%s — %s %ss must be unique", noun,
              part, printed ? ": " : "", printed ? printed : "", noun, part);
     free(printed);
@@ -637,15 +669,16 @@ static char *emit_run_path(EmitSink *s, size_t i)
     return p;
 }
 
+/* Drops the buffered entries: their keys, and the arena's bytes. */
 static void emit_buf_clear(EmitSink *s)
 {
-    for (size_t i = 0; i < s->buf_len; i++) {
+    for (size_t i = 0; i < s->buf_len; i++)
         east_value_release(s->buf[i].key);
-        if (s->buf[i].value) east_value_release(s->buf[i].value);
-    }
     s->buf_len = 0;
+    if (s->arena) s->arena->len = 0;
 }
 
+/* Encodes one emission into the arena and keeps its key. */
 static bool emit_buf_push(EmitSink *s, EastValue *key, EastValue *val)
 {
     if (s->buf_len == s->buf_cap) {
@@ -655,11 +688,20 @@ static bool emit_buf_push(EmitSink *s, EastValue *key, EastValue *val)
         s->buf = grown;
         s->buf_cap = cap;
     }
+    size_t offset = s->arena->len;
+    east_beast2_entry_begin(s->encoder);
+    if (!east_beast2_entry_encode(s->encoder, s->arena, key, emit_key_type(s))) return false;
+    size_t key_len = s->arena->len - offset;
+    size_t val_len = 0;
+    if (val) {
+        if (!east_beast2_entry_encode(s->encoder, s->arena, val, s->out_type->data.dict.value))
+            return false;
+        val_len = s->arena->len - offset - key_len;
+    }
     east_value_retain(key);
-    if (val) east_value_retain(val);
-    s->buf[s->buf_len].key = key;
-    s->buf[s->buf_len].value = val;
-    s->buf_len++;
+    s->buf[s->buf_len++] = (EmitPending){key, offset, key_len, val_len};
+    if (s->buf_len > s->peak_entries) s->peak_entries = s->buf_len;
+    if (s->arena->len > s->peak_bytes) s->peak_bytes = s->arena->len;
     return true;
 }
 
@@ -690,12 +732,56 @@ static EastValue *emit_sort_pending(EmitSink *s)
     return NULL;
 }
 
-/* Writes the sorted pending buffer as one indexed run file and clears it.
+/* ----- the run record format: LEB128 length prefixes around raw bytes ----- */
+
+static bool run_write_varint(FILE *f, uint64_t v)
+{
+    uint8_t b[10];
+    size_t n = 0;
+    do {
+        uint8_t byte = (uint8_t)(v & 0x7f);
+        v >>= 7;
+        if (v) byte |= 0x80;
+        b[n++] = byte;
+    } while (v);
+    return fwrite(b, 1, n, f) == n;
+}
+
+/* Returns 1 with *out read, 0 at a clean end of file (before any byte of
+ * the number), -1 on a truncated or overlong number. */
+static int run_read_varint(FILE *f, uint64_t *out)
+{
+    uint64_t v = 0;
+    unsigned shift = 0;
+    bool first = true;
+    for (;;) {
+        int c = fgetc(f);
+        if (c == EOF) return first ? 0 : -1;
+        first = false;
+        v |= (uint64_t)(c & 0x7f) << shift;
+        if (!(c & 0x80)) break;
+        shift += 7;
+        if (shift > 63) return -1;
+    }
+    *out = v;
+    return 1;
+}
+
+static double emit_elapsed_ms(struct timespec *since)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return elapsed_ms(since, &now);
+}
+
+/* Writes the sorted pending buffer as one raw run file and clears it.
  * Returns 0 on success, 1 on a duplicate (retaining the offending key into
  * *dup_out), 2 on an I/O or allocation failure. */
 static int emit_spill(EmitSink *s, EastValue **dup_out)
 {
     if (s->buf_len == 0) return 0;
+    struct timespec t0;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
     EastValue *dup = emit_sort_pending(s);
     if (dup) {
         east_value_retain(dup);
@@ -710,40 +796,16 @@ static int emit_spill(EmitSink *s, EastValue **dup_out)
         free(path);
         return 2;
     }
-    Beast2StreamWriter *rw =
-        east_beast2_writer_new(s->out_type, EAST_BEAST2_CODEC_DEFLATE, true, true);
-    bool ok = rw != NULL;
-    for (size_t i = 0; ok && i < s->buf_len; i += EMIT_BATCH_CAP) {
-        size_t end = i + EMIT_BATCH_CAP < s->buf_len ? i + EMIT_BATCH_CAP : s->buf_len;
-        EastValue *chunk = emit_new_batch(s);
-        ok = chunk != NULL;
-        for (size_t j = i; ok && j < end; j++) {
-            if (s->kind == EMIT_DICT)
-                east_dict_set(chunk, s->buf[j].key, s->buf[j].value);
-            else
-                east_set_insert(chunk, s->buf[j].key);
-        }
-        ok = ok && east_beast2_writer_write(rw, chunk);
-        if (chunk) east_value_release(chunk);
-        if (ok) {
-            ByteBuffer *bb = east_beast2_writer_take(rw);
-            if (bb) {
-                ok = fwrite(bb->data, 1, bb->len, rf) == bb->len;
-                s->spilled_bytes += bb->len;
-                byte_buffer_free(bb);
-            }
-        }
+    bool ok = true;
+    size_t bytes = 0;
+    for (size_t i = 0; ok && i < s->buf_len; i++) {
+        const EmitPending *e = &s->buf[i];
+        const uint8_t *rec = s->arena->data + e->offset;
+        ok = run_write_varint(rf, e->key_len) && fwrite(rec, 1, e->key_len, rf) == e->key_len &&
+             run_write_varint(rf, e->val_len) &&
+             fwrite(rec + e->key_len, 1, e->val_len, rf) == e->val_len;
+        bytes += e->key_len + e->val_len;
     }
-    ok = ok && east_beast2_writer_finish(rw);
-    if (ok) {
-        ByteBuffer *bb = east_beast2_writer_take(rw);
-        if (bb) {
-            ok = fwrite(bb->data, 1, bb->len, rf) == bb->len;
-            s->spilled_bytes += bb->len;
-            byte_buffer_free(bb);
-        }
-    }
-    if (rw) east_beast2_writer_free(rw);
     ok = fclose(rf) == 0 && ok;
     if (!ok) {
         remove(path);
@@ -751,13 +813,16 @@ static int emit_spill(EmitSink *s, EastValue **dup_out)
         return 2;
     }
     s->run_paths[s->num_runs++] = path;
+    s->spilled_bytes += bytes;
+    s->spills++;
     emit_buf_clear(s);
+    s->spill_ms += emit_elapsed_ms(&t0);
     return 0;
 }
 
 /* First out-of-order key: finalize the ascending prefix written so far (a
- * complete canonical beast2 file), demote it to spill run #0, and switch to
- * buffered emission. */
+ * complete canonical beast2 file), demote it to spill run #0 — the one run
+ * the merge reads as a beast2 blob — and switch to buffered emission. */
 static bool emit_demote_to_runs(EmitSink *s)
 {
     if (!emit_flush(s)) return false;
@@ -784,6 +849,9 @@ static bool emit_demote_to_runs(EmitSink *s)
         remove(s->output_path);
     }
     s->buffered = true;
+    s->arena = byte_buffer_new(1 << 16);
+    s->encoder = east_beast2_entry_encoder_new();
+    if (!s->arena || !s->encoder) return false;
     fprintf(stderr,
             "east emit: %s left ascending order at element %zu; establishing canonical "
             "order in the sink (spill/merge)\n",
@@ -791,52 +859,151 @@ static bool emit_demote_to_runs(EmitSink *s)
     return true;
 }
 
-/* One merge cursor: a run's bytes + segment reader + the current decoded
- * segment with an element index into it. */
+/* One merge cursor over a spilled run. Run 0 is the demoted ascending
+ * prefix, a beast2 blob read through the segment reader with its values
+ * re-encoded entry by entry; every later run is raw records read
+ * sequentially, its keys decoded and its bytes copied as they are. */
 typedef struct {
+    /* raw runs */
+    FILE *f;
+    uint8_t *rec; /* current record's bytes: key then value */
+    size_t rec_cap;
+    /* the demoted beast2 prefix */
     uint8_t *data;
     size_t len;
     Beast2SegmentReader *reader;
     EastValue *segment; /* owned; NULL when exhausted */
-    size_t idx;
-    size_t seg_len;
+    size_t idx, seg_len;
+    ByteBuffer *enc; /* the current pair re-encoded */
+    /* both */
+    EastValue *key; /* owned: the current key, NULL when exhausted */
+    size_t key_len, val_len;
 } MergeCursor;
 
-/* Advances to the next non-empty segment (or exhaustion). Returns false on
- * a reader error. */
-static bool merge_cursor_advance(EmitSink *s, MergeCursor *c)
+static void cursor_drop_key(MergeCursor *c)
 {
-    if (c->segment) {
-        east_value_release(c->segment);
-        c->segment = NULL;
-    }
-    for (;;) {
-        EastValue *seg = east_beast2_reader_next(c->reader);
-        if (!seg) return east_beast2_reader_done(c->reader);
-        size_t n = s->kind == EMIT_DICT ? east_dict_len(seg) : east_set_len(seg);
-        if (n > 0) {
-            c->segment = seg;
-            c->idx = 0;
-            c->seg_len = n;
-            return true;
-        }
-        east_value_release(seg);
-    }
+    if (c->key) east_value_release(c->key);
+    c->key = NULL;
 }
 
-static EastValue *merge_cursor_key(EmitSink *s, MergeCursor *c)
+/* Advances a raw-run cursor to its next record. Returns false on a read or
+ * decode error (message on stderr). */
+static bool cursor_advance_raw(EmitSink *s, MergeCursor *c)
 {
-    return s->kind == EMIT_DICT ? east_dict_key_at(c->segment, c->idx)
-                                : east_set_at(c->segment, c->idx);
+    cursor_drop_key(c);
+    uint64_t klen, vlen;
+    int r = run_read_varint(c->f, &klen);
+    if (r == 0) return true; /* exhausted */
+    if (r < 0) goto corrupt;
+    if (c->rec_cap < klen) {
+        uint8_t *grown = realloc(c->rec, (size_t)klen);
+        if (!grown) return false;
+        c->rec = grown;
+        c->rec_cap = (size_t)klen;
+    }
+    if (fread(c->rec, 1, (size_t)klen, c->f) != klen) goto corrupt;
+    if (run_read_varint(c->f, &vlen) != 1) goto corrupt;
+    if (c->rec_cap < klen + vlen) {
+        uint8_t *grown = realloc(c->rec, (size_t)(klen + vlen));
+        if (!grown) return false;
+        c->rec = grown;
+        c->rec_cap = (size_t)(klen + vlen);
+    }
+    if (fread(c->rec + klen, 1, (size_t)vlen, c->f) != vlen) goto corrupt;
+    c->key = east_beast2_entry_decode(c->rec, (size_t)klen, emit_key_type(s));
+    if (!c->key) {
+        char *err = east_builtin_get_error();
+        fprintf(stderr, "Error: emit: cannot decode a spilled key: %s\n", err ? err : "?");
+        free(err);
+        return false;
+    }
+    c->key_len = (size_t)klen;
+    c->val_len = (size_t)vlen;
+    return true;
+corrupt:
+    fprintf(stderr, "Error: emit: a spilled run is truncated or corrupt\n");
+    return false;
+}
+
+/* Advances the demoted-prefix cursor to its next pair, re-encoding it into
+ * c->enc so the merge copies bytes uniformly. */
+static bool cursor_advance_prefix(EmitSink *s, MergeCursor *c)
+{
+    cursor_drop_key(c);
+    if (c->segment && c->idx + 1 < c->seg_len) {
+        c->idx++;
+    } else {
+        if (c->segment) {
+            east_value_release(c->segment);
+            c->segment = NULL;
+        }
+        for (;;) {
+            EastValue *seg = east_beast2_reader_next(c->reader);
+            if (!seg) return east_beast2_reader_done(c->reader); /* exhausted, or error */
+            size_t n = s->kind == EMIT_DICT ? east_dict_len(seg) : east_set_len(seg);
+            if (n > 0) {
+                c->segment = seg;
+                c->idx = 0;
+                c->seg_len = n;
+                break;
+            }
+            east_value_release(seg);
+        }
+    }
+    EastValue *key = s->kind == EMIT_DICT ? east_dict_key_at(c->segment, c->idx)
+                                          : east_set_at(c->segment, c->idx);
+    c->enc->len = 0;
+    east_beast2_entry_begin(s->encoder);
+    if (!east_beast2_entry_encode(s->encoder, c->enc, key, emit_key_type(s))) return false;
+    c->key_len = c->enc->len;
+    c->val_len = 0;
+    if (s->kind == EMIT_DICT) {
+        if (!east_beast2_entry_encode(s->encoder, c->enc, east_dict_val_at(c->segment, c->idx),
+                                      s->out_type->data.dict.value))
+            return false;
+        c->val_len = c->enc->len - c->key_len;
+    }
+    east_value_retain(key);
+    c->key = key;
+    return true;
+}
+
+static bool cursor_advance(EmitSink *s, MergeCursor *c)
+{
+    return c->reader ? cursor_advance_prefix(s, c) : cursor_advance_raw(s, c);
+}
+
+static const uint8_t *cursor_bytes(const MergeCursor *c)
+{
+    return c->reader ? c->enc->data : c->rec;
+}
+
+/* Frames the raw entries accumulated in `seg` as one output segment. */
+static bool emit_flush_raw(EmitSink *s, ByteBuffer *seg, size_t *count, EastValue **first,
+                           EastValue **last)
+{
+    if (*count == 0) return true;
+    bool ok = east_beast2_writer_write_raw(s->writer, seg->data, seg->len, *count, *first, *last);
+    ok = ok && emit_drain(s);
+    if (ok) emit_adapt_batch(s, *count);
+    seg->len = 0;
+    *count = 0;
+    if (*first) east_value_release(*first);
+    if (*last) east_value_release(*last);
+    *first = *last = NULL;
+    return ok;
 }
 
 /* K-way merges the spilled runs + the sorted in-memory tail into the
- * canonical output file — O(run cap + one decoded segment per run) memory,
- * with the cross-run duplicate check on the merged stream. On failure the
- * partial output is left unfinalized (no terminator or index), exactly like
- * an error on the straight-through path. */
+ * canonical output file — one record per run plus one output segment in
+ * memory — with the cross-run duplicate check on the merged stream. Keys
+ * are decoded; value bytes are copied. On failure the partial output is
+ * left unfinalized (no terminator or index), exactly like an error on the
+ * straight-through path. */
 static bool emit_merge_runs(EmitSink *s)
 {
+    struct timespec t0;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
     EastValue *tail_dup = emit_sort_pending(s);
     if (tail_dup) {
         char msg[512];
@@ -849,13 +1016,20 @@ static bool emit_merge_runs(EmitSink *s)
     MergeCursor *cur = calloc(k > 0 ? k : 1, sizeof(MergeCursor));
     bool ok = cur != NULL;
     for (size_t i = 0; ok && i < k; i++) {
-        cur[i].data = read_file_binary(s->run_paths[i], &cur[i].len);
-        ok = cur[i].data != NULL;
-        if (ok) {
-            cur[i].reader = east_beast2_reader_new(cur[i].data, cur[i].len, s->out_type);
-            ok = cur[i].reader != NULL;
+        bool prefix = i == 0 && s->written_elements > 0;
+        if (prefix) {
+            cur[i].data = read_file_binary(s->run_paths[i], &cur[i].len);
+            ok = cur[i].data != NULL;
+            if (ok) {
+                cur[i].reader = east_beast2_reader_new(cur[i].data, cur[i].len, s->out_type);
+                cur[i].enc = byte_buffer_new(256);
+                ok = cur[i].reader != NULL && cur[i].enc != NULL;
+            }
+        } else {
+            cur[i].f = fopen(s->run_paths[i], "rb");
+            ok = cur[i].f != NULL;
         }
-        if (ok) ok = merge_cursor_advance(s, &cur[i]);
+        if (ok) ok = cursor_advance(s, &cur[i]);
     }
 
     if (ok) {
@@ -867,6 +1041,10 @@ static bool emit_merge_runs(EmitSink *s)
         ok = s->writer != NULL && emit_drain(s);
     }
 
+    ByteBuffer *seg = byte_buffer_new(1 << 16);
+    ok = ok && seg != NULL;
+    size_t seg_count = 0;
+    EastValue *seg_first = NULL, *seg_last = NULL; /* owned */
     size_t tail_idx = 0;
     EastValue *prev_key = NULL; /* owned */
     bool duplicate = false;
@@ -874,11 +1052,10 @@ static bool emit_merge_runs(EmitSink *s)
         int min = -1;
         EastValue *min_key = NULL;
         for (size_t i = 0; i < k; i++) {
-            if (!cur[i].segment) continue;
-            EastValue *ck = merge_cursor_key(s, &cur[i]);
-            if (min < 0 || east_value_compare(ck, min_key) < 0) {
+            if (!cur[i].key) continue;
+            if (min < 0 || east_value_compare(cur[i].key, min_key) < 0) {
                 min = (int)i;
-                min_key = ck;
+                min_key = cur[i].key;
             }
         }
         bool from_tail = false;
@@ -888,14 +1065,18 @@ static bool emit_merge_runs(EmitSink *s)
         }
         if (min < 0 && !from_tail) break;
 
-        EastValue *key, *val = NULL;
+        EastValue *key;
+        const uint8_t *bytes;
+        size_t nbytes;
         if (from_tail) {
-            key = s->buf[tail_idx].key;
-            val = s->buf[tail_idx].value;
-            tail_idx++;
+            const EmitPending *e = &s->buf[tail_idx++];
+            key = e->key;
+            bytes = s->arena->data + e->offset;
+            nbytes = e->key_len + e->val_len;
         } else {
-            key = merge_cursor_key(s, &cur[min]);
-            if (s->kind == EMIT_DICT) val = east_dict_val_at(cur[min].segment, cur[min].idx);
+            key = cur[min].key;
+            bytes = cursor_bytes(&cur[min]);
+            nbytes = cur[min].key_len + cur[min].val_len;
         }
         if (prev_key && east_value_compare(prev_key, key) == 0) {
             char msg[512];
@@ -909,18 +1090,20 @@ static bool emit_merge_runs(EmitSink *s)
         if (prev_key) east_value_release(prev_key);
         prev_key = key;
 
-        if (s->kind == EMIT_DICT)
-            east_dict_set(s->batch, key, val);
-        else
-            east_set_insert(s->batch, key);
-        s->batch_count++;
-        if (!from_tail) {
-            cur[min].idx++;
-            if (cur[min].idx >= cur[min].seg_len) ok = merge_cursor_advance(s, &cur[min]);
+        byte_buffer_write_bytes(seg, bytes, nbytes);
+        if (!seg_first) {
+            seg_first = key;
+            east_value_retain(key);
         }
-        if (ok && s->batch_count >= s->next_batch && !emit_flush(s)) ok = false;
+        if (seg_last) east_value_release(seg_last);
+        seg_last = key;
+        east_value_retain(key);
+        seg_count++;
+        if (!from_tail) ok = cursor_advance(s, &cur[min]);
+        if (ok && seg_count >= s->next_batch)
+            ok = emit_flush_raw(s, seg, &seg_count, &seg_first, &seg_last);
     }
-    if (ok) ok = emit_flush(s);
+    if (ok) ok = emit_flush_raw(s, seg, &seg_count, &seg_first, &seg_last);
     if (ok) {
         ok = east_beast2_writer_finish(s->writer);
         ok = emit_drain(s) && ok;
@@ -931,21 +1114,32 @@ static bool emit_merge_runs(EmitSink *s)
     }
 
     if (prev_key) east_value_release(prev_key);
+    if (seg_first) east_value_release(seg_first);
+    if (seg_last) east_value_release(seg_last);
+    if (seg) byte_buffer_free(seg);
     for (size_t i = 0; i < k; i++) {
+        cursor_drop_key(&cur[i]);
         if (cur[i].segment) east_value_release(cur[i].segment);
         if (cur[i].reader) east_beast2_reader_free(cur[i].reader);
+        if (cur[i].enc) byte_buffer_free(cur[i].enc);
         free(cur[i].data);
+        if (cur[i].f) fclose(cur[i].f);
+        free(cur[i].rec);
     }
     free(cur);
     emit_buf_clear(s);
+    s->merge_ms = emit_elapsed_ms(&t0);
     if (ok) {
         for (size_t i = 0; i < s->num_runs; i++)
             remove(s->run_paths[i]);
         if (s->verbose) {
-            char sz[32];
+            char sz[32], peak[32];
             format_size((off_t)s->spilled_bytes, sz, sizeof(sz));
-            fprintf(stderr, "  emit: merged %zu spilled run(s) + in-memory tail (%s temp)\n",
-                    s->num_runs, sz);
+            format_size((off_t)s->peak_bytes, peak, sizeof(peak));
+            fprintf(stderr,
+                    "  emit: merged %zu spilled run(s) + in-memory tail (%s temp); %zu spill(s), "
+                    "peak %zu entries / %s buffered, spill %.1f ms, merge %.1f ms\n",
+                    s->num_runs, sz, s->spills, s->peak_entries, peak, s->spill_ms, s->merge_ms);
         }
     } else if (!duplicate) {
         fprintf(stderr, "Error: emit: failed to merge spilled runs\n");
@@ -963,7 +1157,12 @@ static EvalResult emit_invoke(EastCompiledFn *self, EastValue **args, size_t n_a
     EastValue *key = args[0];
     if (s->buffered) {
         if (!emit_buf_push(s, key, expected == 2 ? args[1] : NULL)) {
-            return eval_error("emit: out of memory buffering out-of-order emission");
+            char *err = east_builtin_get_error();
+            char msg[512];
+            snprintf(msg, sizeof(msg), "emit: cannot encode the emitted value%s%s", err ? ": " : "",
+                     err ? err : "");
+            free(err);
+            return eval_error(msg);
         }
         s->emitted++;
         if (s->buf_len >= s->run_cap) {
@@ -1101,6 +1300,8 @@ static void emit_sink_free(EmitSink *s)
     if (s->out_type) east_type_release(s->out_type);
     emit_buf_clear(s);
     free(s->buf);
+    if (s->arena) byte_buffer_free(s->arena);
+    if (s->encoder) east_beast2_entry_encoder_free(s->encoder);
     for (size_t i = 0; i < s->num_runs; i++)
         free(s->run_paths[i]);
     free(s->run_paths);
@@ -1111,9 +1312,52 @@ static void emit_sink_free(EmitSink *s)
 /*  Commands                                                           */
 /* ------------------------------------------------------------------ */
 
+/* "file:line:column" for a loc_id, or "-" when the map cannot place it. */
+static const char *profile_site(const EastSourceMap *sm, int64_t loc_id, char *buf, size_t cap)
+{
+    size_t count = 0;
+    const EastLocation *locs = loc_id > 0 ? east_source_map_resolve(sm, loc_id, &count) : NULL;
+    if (locs && count > 0 && locs[0].filename)
+        snprintf(buf, cap, "%s:%lld:%lld", locs[0].filename, (long long)locs[0].line,
+                 (long long)locs[0].column);
+    else
+        snprintf(buf, cap, "-");
+    return buf;
+}
+
+/* The --profile epilogue: every East function called, by self time. A
+ * function is named after the Let it was bound to when the IR has one, and
+ * placed by its Function node's site plus, when it differs, the site of the
+ * first call that reached it — the builder stamps a helper it inlines at a
+ * call site with the caller's location, so the call site is what tells the
+ * helpers apart. */
+static void print_profile(const EastSourceMap *sm)
+{
+    size_t n = 0;
+    EastProfileEntry *entries = east_profile_report(&n);
+    fprintf(stderr, "\nProfile (self time, %s%zu function%s):\n", n > 20 ? "top 20 of " : "", n,
+            n == 1 ? "" : "s");
+    size_t shown = n > 20 ? 20 : n;
+    for (size_t i = 0; i < shown; i++) {
+        const EastProfileEntry *e = &entries[i];
+        char defined[512], called[512], where[1100];
+        profile_site(sm, e->loc_id, defined, sizeof(defined));
+        profile_site(sm, e->call_loc_id, called, sizeof(called));
+        if (e->call_loc_id > 0 && strcmp(defined, called) != 0)
+            snprintf(where, sizeof(where), "%s  called at %s", defined, called);
+        else
+            snprintf(where, sizeof(where), "%s", defined);
+        fprintf(stderr, "  %-16s %10llu calls %9.3f s self %9.3f s total  %s\n",
+                e->name ? e->name : "<anon>", (unsigned long long)e->calls,
+                (double)e->self_ns / 1e9, (double)e->total_ns / 1e9, where);
+    }
+    free(entries);
+}
+
 static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                    const char **input_files, int num_inputs, const char *output_file, bool verbose,
-                   const char *snapshot_out_path, EmitKind emit_kind, int stream_input)
+                   const char *snapshot_out_path, EmitKind emit_kind, int stream_input,
+                   bool profile)
 {
     /* Init type system */
     east_type_of_type_init();
@@ -1394,9 +1638,8 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
      * the current one. */
     if (decoded_source_map) east_set_source_map(decoded_source_map);
 
-    IRNode *body = ir->data.function.body;
     char *compile_err = NULL;
-    EastCompiledFn *fn = east_compile_checked(body, platform, builtins, &compile_err);
+    EastCompiledFn *fn = east_compile_fn(ir, platform, builtins, &compile_err);
     if (!fn) {
         fprintf(stderr, "Error: %s\n", compile_err ? compile_err : "Failed to compile IR");
         free(compile_err);
@@ -1417,19 +1660,12 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         fn->source_map = decoded_source_map;
     }
 
-    /* Set parameter names so east_call can bind arguments */
-    fn->num_params = ir->data.function.num_params;
-    if (fn->num_params > 0) {
-        fn->param_names = calloc(fn->num_params, sizeof(char *));
-        for (size_t i = 0; i < fn->num_params; i++) {
-            fn->param_names[i] = strdup(ir->data.function.params[i].name);
-        }
-    }
-
     /* Execute */
     clock_gettime(CLOCK_MONOTONIC, &t2);
 
+    east_profile_enable(profile);
     EvalResult result = east_call(fn, args, num_args);
+    east_profile_enable(false);
     clock_gettime(CLOCK_MONOTONIC, &t3);
 
     int exit_code = 0;
@@ -1505,6 +1741,13 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                         decoded, segments, fences);
             }
         }
+    }
+
+    /* The profile resolves its sites through the map the compiled function
+     * owns, so it prints before the cleanup below. */
+    if (profile) {
+        print_profile(fn->source_map);
+        east_profile_reset();
     }
 
     /* Cleanup */
@@ -1854,7 +2097,8 @@ static void print_usage(const char *prog)
 {
     fprintf(stderr,
             "Usage:\n"
-            "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v] [--snapshot PATH]\n"
+            "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v] [--profile]\n"
+            "         [--snapshot PATH]\n"
             "  %s run --from-snapshot PATH [-o FILE] [-v]\n"
             "  %s convert <in_file> [-o FILE] [--type TYPE] [-v]\n"
             "  %s ir normalize <ir_file> [-o FILE]\n"
@@ -1886,6 +2130,8 @@ static void print_usage(const char *prog)
             "                          trailing emit parameter (array|set|dict)\n"
             "      --stream N          Feed the given -i input lazily (0-based index;\n"
             "                          segment-fed iteration, O(segment) decoded memory)\n"
+            "      --profile           Print every East function called, by self time,\n"
+            "                          with its call count and source location\n"
             "      --snapshot PATH     Write a .east-snapshot bundle (IR + inputs + manifest)\n"
             "      --from-snapshot PATH  Replay from a .east-snapshot bundle (exclusive\n"
             "                            with <ir_file>, -i, -p)\n"
@@ -1929,6 +2175,7 @@ static int cli_main(void *arg)
     const char *from_snapshot_path = NULL;
     EmitKind emit_kind = EMIT_NONE;
     int stream_input = -1;
+    bool profile = false;
 
     if (strcmp(command, "run") == 0) {
         /* Single-pass parse — --from-snapshot makes <ir_file> optional, so we
@@ -1955,6 +2202,9 @@ static int cli_main(void *arg)
                 i += 2;
             } else if (strcmp(a, "-v") == 0 || strcmp(a, "--verbose") == 0) {
                 verbose = true;
+                i++;
+            } else if (strcmp(a, "--profile") == 0) {
+                profile = true;
                 i++;
             } else if (strcmp(a, "--snapshot") == 0 && i + 1 < argc) {
                 snapshot_out_path = argv[i + 1];
@@ -2009,7 +2259,7 @@ static int cli_main(void *arg)
              * task's flags must be passed explicitly on replay — forward them. */
             int rc = cmd_run(ex.ir_path, (const char **)ex.packages, (int)ex.num_packages,
                              (const char **)ex.input_paths, (int)ex.num_inputs, output_file,
-                             verbose, NULL, emit_kind, stream_input);
+                             verbose, NULL, emit_kind, stream_input, profile);
             snapshot_extract_free(&ex);
             return rc;
         }
@@ -2028,7 +2278,7 @@ static int cli_main(void *arg)
         }
 
         return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file,
-                       verbose, snapshot_out_path, emit_kind, stream_input);
+                       verbose, snapshot_out_path, emit_kind, stream_input, profile);
 
     } else if (strcmp(command, "convert") == 0) {
         const char *in_path = NULL;
