@@ -209,13 +209,15 @@ describe('execution environments e2e — scaffolded python platform travels with
   let projectDir: string;
 
   before(async () => {
-    if (!hasUv || !hasScaffoldCore) return;
+    // Mirrors the test's skip: without the stack the test skips, and locking
+    // against the last release would only test that release.
+    if (!hasUv || !hasScaffoldCore || !stack) return;
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldPlatformProject(testDir, 'envpy', { py: true, node: false });
     // Lock the scaffolded project the way a user would — but against this
     // tree's runtime, not the last release (see localStack.ts).
-    if (stack) injectLocalPythonIndex(projectDir, stack);
+    injectLocalPythonIndex(projectDir, stack);
     runTool('uv', ['lock'], projectDir);
   });
 
@@ -256,13 +258,15 @@ describe('execution environments e2e — scaffolded node platform travels with t
   let projectDir: string;
 
   before(async () => {
-    if (!hasNpm || !hasScaffoldCore) return;
+    // Mirrors the test's skip. Without the stack npm would install the last
+    // release, which cannot build a scaffold written against this tree's API.
+    if (!hasNpm || !hasScaffoldCore || !stack) return;
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldPlatformProject(testDir, 'envnode', { py: false, node: true });
     // Install + build the scaffolded project the way a user would, so the
     // `./platform` export (dist/platform/index.js) exists for `npm pack`.
-    if (stack) injectLocalNpmRegistry(projectDir, stack);
+    injectLocalNpmRegistry(projectDir, stack);
     runTool('npm', ['install', '--no-audit', '--no-fund'], projectDir);
     runTool('npm', ['run', 'build'], projectDir);
   });
@@ -308,13 +312,13 @@ describe('execution environments e2e — python multi-package scaffold, AUTO-der
   let projectDir: string;
 
   before(async () => {
-    if (!hasUv || !hasScaffoldCore) return;
+    if (!hasUv || !hasScaffoldCore || !stack) return;   // mirrors the test's skip
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     // Two INDEPENDENT python packages; only `pricing` is referenced below, so
     // `forecasting` is an unrelated sibling that must NOT ride the derived env.
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { python: ['pricing', 'forecasting'] });
-    if (stack) injectLocalPythonIndex(projectDir, stack);
+    injectLocalPythonIndex(projectDir, stack);
     runTool('uv', ['lock'], projectDir);
   });
 
@@ -374,13 +378,13 @@ describe('execution environments e2e — node multi-package scaffold, AUTO-deriv
   let projectDir: string;
 
   before(async () => {
-    if (!hasNpm || !hasScaffoldCore) return;
+    if (!hasNpm || !hasScaffoldCore || !stack) return;   // mirrors the test's skip (see the node platform suite)
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { node: ['api'] });
     // Install + build the workspace so the member's dist/platform.js exists for
     // `npm pack` (the root build runs `npm run build --workspaces` first).
-    if (stack) injectLocalNpmRegistry(projectDir, stack);
+    injectLocalNpmRegistry(projectDir, stack);
     runTool('npm', ['install', '--no-audit', '--no-fund'], projectDir);
     runTool('npm', ['run', 'build'], projectDir);
   });
@@ -487,13 +491,13 @@ describe('execution environments e2e — mixed python + node + C in one package'
   let solverBin: string;
 
   before(async () => {
-    if (!hasAll || !hasScaffoldCore) return;
+    if (!hasAll || !hasScaffoldCore || !stack) return;   // mirrors the test's skip
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { python: ['pricing'], node: ['api'], c: ['solver'] });
-    if (stack) injectLocalPythonIndex(projectDir, stack);
+    injectLocalPythonIndex(projectDir, stack);
     runTool('uv', ['lock'], projectDir);
-    if (stack) injectLocalNpmRegistry(projectDir, stack);
+    injectLocalNpmRegistry(projectDir, stack);
     runTool('npm', ['install', '--no-audit', '--no-fund'], projectDir);
     // Build only the node MEMBER (its dist/platform.js), not the whole app: the
     // scaffolded app's C wiring uses the `tools` env decl, which the pinned
@@ -629,11 +633,11 @@ describe('execution environments e2e — per-package granularity CACHES across a
   };
 
   before(async () => {
-    if (!hasUv || !hasScaffoldCore) return;
+    if (!hasUv || !hasScaffoldCore || !stack) return;   // mirrors the test's skip
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     projectDir = await scaffoldMultiPackageProject(testDir, 'shop', { python: ['pricing', 'forecasting'] });
-    if (stack) injectLocalPythonIndex(projectDir, stack);
+    injectLocalPythonIndex(projectDir, stack);
     runTool('uv', ['lock'], projectDir);
     repoDir = join(testDir, 'repo');
   });
