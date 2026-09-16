@@ -16,10 +16,11 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import e3 from '@elaraai/e3';
+import { createServer, type Server } from '@elaraai/e3-api-server';
 import {
   ArrayType,
   EastTypeType,
@@ -33,7 +34,7 @@ import {
   toEastTypeValue,
   variant,
 } from '@elaraai/east';
-import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
+import { createTestDir, getE3CliPath, removeTestDir, runE3Command } from './helpers.js';
 
 const Row = StructType({ id: IntegerType, name: StringType, score: FloatType });
 /** The same table after its schema drifted: `score` is gone. */
@@ -223,6 +224,124 @@ describe('e3 dataset set', () => {
       assert.match(status.stdout, new RegExp(`Hash: +${sha256Of(goodPath)}`));
       assert.match(status.stdout, new RegExp(`Segments: ${segmentCount}\\b`));
       assert.match(status.stdout, new RegExp(`Rows: +${ROW_COUNT}\\b`));
+    });
+  });
+
+  // A remote `--from-source` deploy: the package names a path on the
+  // developer's machine, so after the server-side deploy the CLI streams each
+  // file source over the transfer protocol. Server and CLI share a filesystem
+  // here, so the server's own deploy could already read the delivery — what
+  // this pins is the whole developer flow (the esbuild-loaded source, the
+  // relative path resolved against the CLI's working directory, the upload step,
+  // geometry over the API) and that a new or drifted delivery behaves. The
+  // server-cannot-read branch is e3-core's dataset-adopt spec.
+  describe('a file source deployed to a remote repository from source', () => {
+    let server: Server;
+    let remoteUrl: string;
+    let credentialsPath: string;
+    let projectDir: string;
+    let delivery: string;
+
+    const SOURCE = [
+      "import e3 from '@elaraai/e3';",
+      "import { ArrayType, FloatType, IntegerType, StringType, StructType, variant } from '@elaraai/east';",
+      "const Row = StructType({ id: IntegerType, name: StringType, score: FloatType });",
+      "export default e3.package('remote-source', '1.0.0', e3.input('table', ArrayType(Row), variant('file', './TABLE.beast2')));",
+      '',
+    ].join('\n');
+
+    /** Replace the delivery with a NEW file. Never rewrite it in place: the
+     *  store may hold a hard link to it, which is the delivery contract. */
+    function deliver(bytes: Uint8Array): void {
+      rmSync(delivery, { force: true });
+      writeFileSync(delivery, bytes);
+    }
+
+    function deploy(): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+      return runE3Command(
+        ['workspace', 'deploy', remoteUrl, 'ws', '--from-source', 'pkg.ts'],
+        projectDir,
+        { env: { E3_CREDENTIALS_PATH: credentialsPath } }
+      );
+    }
+
+    function status(): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+      return runE3Command(['dataset', 'status', remoteUrl, 'ws.table'], projectDir, {
+        env: { E3_CREDENTIALS_PATH: credentialsPath },
+      });
+    }
+
+    beforeEach(async () => {
+      const reposDir = join(testDir, 'repos');
+      mkdirSync(join(reposDir, 'remote'), { recursive: true });
+      const created = await runE3Command(['repo', 'create', join(reposDir, 'remote')], testDir);
+      assert.strictEqual(created.exitCode, 0, `repo create failed: ${created.stderr}`);
+
+      server = await createServer({ reposDir, port: 0, host: 'localhost' });
+      await server.start();
+      const baseUrl = `http://localhost:${server.port}`;
+      remoteUrl = `${baseUrl}/repos/remote`;
+      credentialsPath = join(testDir, 'credentials.json');
+      writeFileSync(credentialsPath, JSON.stringify({
+        version: 1,
+        credentials: {
+          [baseUrl]: {
+            accessToken: 'mock-test-token',
+            refreshToken: 'mock-refresh-token',
+            expiresAt: new Date(Date.now() + 3600000).toISOString(),
+          },
+        },
+      }));
+
+      // The developer's project: the source, the delivery beside it, and the
+      // SAME @elaraai/e3 and @elaraai/east the CLI loads (the bundled source is
+      // imported from its own directory, and export checks instanceof).
+      projectDir = join(testDir, 'project');
+      const scope = join(projectDir, 'node_modules', '@elaraai');
+      mkdirSync(scope, { recursive: true });
+      const cliModules = join(dirname(getE3CliPath()), '..', '..', 'node_modules', '@elaraai');
+      for (const name of ['e3', 'east']) {
+        symlinkSync(realpathSync(join(cliModules, name)), join(scope, name), 'junction');
+      }
+      writeFileSync(join(projectDir, 'pkg.ts'), SOURCE);
+      delivery = join(projectDir, 'TABLE.beast2');
+      deliver(readFileSync(goodPath));
+    });
+
+    afterEach(async () => {
+      await server.stop();
+    });
+
+    it('uploads the delivery after the deploy, re-points on a new delivery, and refuses a drifted one', async () => {
+      const first = await deploy();
+      assert.strictEqual(first.exitCode, 0, `deploy failed: ${first.stderr}\n${first.stdout}`);
+      assert.match(first.stderr, /✔ uploaded ws\.table \(/, 'the CLI completes the file source after the deploy');
+
+      let remote = await status();
+      assert.strictEqual(remote.exitCode, 0, `status failed: ${remote.stderr}`);
+      assert.match(remote.stdout, new RegExp(`Hash: +${sha256Of(delivery)}`));
+      assert.match(remote.stdout, new RegExp(`Segments: ${segmentCount}\\b`));
+      assert.match(remote.stdout, new RegExp(`Rows: +${ROW_COUNT}\\b`));
+
+      // A new delivery under the same path is a new hash on the next deploy.
+      const more = Array.from({ length: ROW_COUNT + 500 }, (_, i) => ({ id: BigInt(i), name: `row-${i}`, score: i / 7 }));
+      deliver(encodeBeast2PagedFor(ArrayType(Row), { targetSegmentBytes: 4096 })(more));
+      const second = await deploy();
+      assert.strictEqual(second.exitCode, 0, `redeploy failed: ${second.stderr}\n${second.stdout}`);
+      remote = await status();
+      const newHash = sha256Of(delivery);
+      assert.match(remote.stdout, new RegExp(`Hash: +${newHash}`));
+      assert.match(remote.stdout, new RegExp(`Rows: +${ROW_COUNT + 500}\\b`));
+
+      // A drifted delivery fails at the export, before anything reaches the
+      // server, and the remote dataset keeps the last good delivery.
+      deliver(readFileSync(driftedPath));
+      const third = await deploy();
+      assert.notStrictEqual(third.exitCode, 0, 'a drifted delivery fails the deploy');
+      assert.match(third.stderr, /input 'table' declares \.Array/);
+      assert.match(third.stderr, /first difference at .*score/);
+      remote = await status();
+      assert.match(remote.stdout, new RegExp(`Hash: +${newHash}`), 'the remote dataset is untouched');
     });
   });
 });
