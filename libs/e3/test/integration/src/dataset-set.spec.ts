@@ -20,6 +20,7 @@ import { mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, s
 import { dirname, join } from 'node:path';
 
 import e3 from '@elaraai/e3';
+import { workspaceDeploy as workspaceDeployRemote } from '@elaraai/e3-api-client';
 import { createServer, type Server } from '@elaraai/e3-api-server';
 import {
   ArrayType,
@@ -228,15 +229,17 @@ describe('e3 dataset set', () => {
   });
 
   // A remote `--from-source` deploy: the package names a path on the
-  // developer's machine, so after the server-side deploy the CLI streams each
-  // file source over the transfer protocol. Server and CLI share a filesystem
-  // here, so the server's own deploy could already read the delivery — what
-  // this pins is the whole developer flow (the esbuild-loaded source, the
-  // relative path resolved against the CLI's working directory, the upload step,
-  // geometry over the API) and that a new or drifted delivery behaves. The
-  // server-cannot-read branch is e3-core's dataset-adopt spec.
+  // developer's machine, so the server-side deploy leaves each file source
+  // unassigned and the CLI streams it over the transfer protocol afterwards.
+  // Server and CLI share a filesystem here, so the server COULD read the
+  // delivery — which is what makes this the test that it never does: a deploy
+  // through the API alone leaves the input unset, and only the CLI's upload
+  // sets it. Around that it pins the whole developer flow (the esbuild-loaded
+  // source, the relative path resolved against the CLI's working directory,
+  // geometry over the API) and that a new or drifted delivery behaves.
   describe('a file source deployed to a remote repository from source', () => {
     let server: Server;
+    let baseUrl: string;
     let remoteUrl: string;
     let credentialsPath: string;
     let projectDir: string;
@@ -279,7 +282,7 @@ describe('e3 dataset set', () => {
 
       server = await createServer({ reposDir, port: 0, host: 'localhost' });
       await server.start();
-      const baseUrl = `http://localhost:${server.port}`;
+      baseUrl = `http://localhost:${server.port}`;
       remoteUrl = `${baseUrl}/repos/remote`;
       credentialsPath = join(testDir, 'credentials.json');
       writeFileSync(credentialsPath, JSON.stringify({
@@ -322,6 +325,21 @@ describe('e3 dataset set', () => {
       assert.match(remote.stdout, new RegExp(`Hash: +${sha256Of(delivery)}`));
       assert.match(remote.stdout, new RegExp(`Segments: ${segmentCount}\\b`));
       assert.match(remote.stdout, new RegExp(`Rows: +${ROW_COUNT}\\b`));
+
+      // The server never resolves the path itself, although it could read it
+      // here: the imported package redeployed through the API alone leaves the
+      // input unset...
+      await workspaceDeployRemote(baseUrl, 'remote', 'ws', 'remote-source@1.0.0', { token: 'mock-test-token' });
+      remote = await status();
+      assert.strictEqual(remote.exitCode, 0, `status failed: ${remote.stderr}`);
+      assert.match(remote.stdout, /Status: unset/, 'a deploy through the API alone adopts nothing');
+
+      // ...and the CLI's upload is what sets it again.
+      const again = await deploy();
+      assert.strictEqual(again.exitCode, 0, `redeploy failed: ${again.stderr}\n${again.stdout}`);
+      remote = await status();
+      assert.match(remote.stdout, /Status: set/);
+      assert.match(remote.stdout, new RegExp(`Hash: +${sha256Of(delivery)}`));
 
       // A new delivery under the same path is a new hash on the next deploy.
       const more = Array.from({ length: ROW_COUNT + 500 }, (_, i) => ({ id: BigInt(i), name: `row-${i}`, score: i / 7 }));

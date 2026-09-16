@@ -366,5 +366,30 @@ describe('path-initialised inputs', () => {
       assert.match(warnings[0]!, /input 'table' is left unassigned/);
       assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).refType, 'unassigned');
     });
+
+    it('leaves a file source unassigned, with a warning, when resolution is off — even one this process could read', async () => {
+      // The API server's contract: the path names a file on the machine that
+      // exported the package, so a server never opens it. That this process
+      // CAN read a good delivery at the path proves nothing about whose file
+      // it is, and must change nothing.
+      const readable = join(tempDir, 'readable.beast2');
+      writeFileSync(readable, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(8)));
+      await packageImport(storage, testRepo, await exportWithFileSource('deploy-remote', readable));
+      const objectsBefore = await storage.objects.count(testRepo);
+
+      const warnings: string[] = [];
+      await workspaceDeploy(storage, testRepo, 'ws', 'deploy-remote', '1.0.0', {
+        resolveFileSources: false,
+        sourceWarning: (message) => warnings.push(message),
+      });
+
+      assert.equal(warnings.length, 1);
+      assert.match(
+        warnings[0]!,
+        /^input 'table' is left unassigned: a file source \(.*readable\.beast2\) is resolved by the deploying client, not by this server$/
+      );
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).refType, 'unassigned');
+      assert.equal(await storage.objects.count(testRepo), objectsBefore, 'nothing was adopted');
+    });
   });
 });

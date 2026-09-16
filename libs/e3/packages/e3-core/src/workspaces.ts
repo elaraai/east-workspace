@@ -247,15 +247,34 @@ export interface WorkspaceDeployOptions {
    */
   lock?: LockHandle;
   /**
-   * Where to report a path-initialised input this process cannot read.
+   * Whether this deploy reads the package's `file` sources and adopts them.
    *
    * @remarks
-   * Without it an unreadable `file` source fails the deploy, which is what a
-   * developer deploying locally wants. The API server passes one: the path in
-   * the package is the developer's, not the server's, and the CLI completes
-   * those inputs over the transfer protocol right after the deploy. A type
-   * MISMATCH always fails, sink or not — that is a broken package, not a
-   * missing file.
+   * A `file` source names a path on the machine that EXPORTS the package. A
+   * local deploy runs on that machine, so by default each delivery is opened,
+   * its header checked against the declared type, and the file adopted by hash.
+   *
+   * A server deploying on behalf of a client must pass `false`. The path is the
+   * client's, and a server that opened it would adopt whatever server-readable
+   * file of the declared type sits there — another repository's object under
+   * the same repositories directory, given its hash. With `false` no path is
+   * opened: every `file` source is left unassigned with a warning through
+   * {@link WorkspaceDeployOptions.sourceWarning}, and the client completes it
+   * over the dataset transfer protocol, whose commit runs the same validation.
+   *
+   * @defaultValue true
+   */
+  resolveFileSources?: boolean;
+  /**
+   * The sink for warnings about `file` sources this deploy leaves unassigned.
+   *
+   * @remarks
+   * With `resolveFileSources: false` it receives one warning per `file`
+   * source. When sources are resolved it also turns an unreadable delivery into
+   * a warning and an unassigned input; without a sink that delivery fails the
+   * deploy, which is what a developer deploying locally wants. It never makes
+   * this process read a path, and a type MISMATCH always fails, sink or not —
+   * that is a broken package, not a missing file.
    */
   sourceWarning?: (message: string) => void;
 }
@@ -315,7 +334,9 @@ export async function workspaceDeploy(
     // whose delivery is missing or has drifted follows the same rule: every
     // file source is validated here, before the wipe.
     await assertRecordTypesCompatible(storage, repo, pkg, priorRecords);
-    const sourceFiles = validateDatasetSources(pkg, options.sourceWarning);
+    const sourceFiles = validateDatasetSources(
+      pkg, options.sourceWarning, options.resolveFileSources ?? true,
+    );
 
     // Remove any existing dataset refs
     await storage.datasets.removeAll(repo, name);
@@ -375,22 +396,32 @@ function treePathOfRefPath(refPath: string): TreePath {
  * {@link assertRecordTypesCompatible} is: a deploy that cannot succeed must
  * leave the workspace exactly as it found it. A path this process cannot read
  * is therefore a deploy error naming the input and the path — never a silently
- * unassigned input — with one exception, the server-side half of a remote
- * `--from-source` deploy, where the developer's path is genuinely not this
- * machine's and the CLI completes the transfer afterwards; that caller passes a
- * `sourceWarning` sink and gets a warning instead.
+ * unassigned input — unless the caller passes a `warn` sink, which turns it
+ * into a warning and an unassigned input.
+ *
+ * With `resolve` false no path is opened at all. That is the server-side half
+ * of a remote deploy: a `file` source names a path on the machine that exported
+ * the package, so a server reading it would adopt a file that is not the
+ * client's delivery — whatever it can read at that path. Every `file` source is
+ * left unassigned with a warning, and the client completes it over the transfer
+ * protocol afterwards.
  *
  * @param pkg - The package being deployed
- * @param warn - When given, an unreadable `file` source warns through this and
- *   is left unassigned rather than failing the deploy
- * @returns refPath -> absolute file path, for the sources to adopt
+ * @param warn - When given, an unassigned `file` source is reported through
+ *   this; with `resolve` on, an unreadable one warns and is left unassigned
+ *   rather than failing the deploy
+ * @param resolve - Whether this process reads and validates the `file` sources;
+ *   false leaves every one unassigned without touching its path
+ * @returns refPath -> absolute file path, for the sources to adopt (always
+ *   empty when `resolve` is false)
  * @throws {DatasetTypeMismatchError} When a delivery's type has drifted
  * @throws {Error} When a `file` source is unreadable (and no `warn` sink is
- *   given)
+ *   given), or names a path that is not a dataset
  */
 function validateDatasetSources(
   pkg: PackageObject,
-  warn?: (message: string) => void,
+  warn: ((message: string) => void) | undefined,
+  resolve: boolean,
 ): Map<string, string> {
   const files = new Map<string, string>();
   for (const [refPath, source] of pkg.sources) {
@@ -398,6 +429,13 @@ function validateDatasetSources(
     const declared = datasetLeafType(pkg.data.structure, refPath);
     if (!declared) {
       throw new Error(`input '${inputName}': the package declares a source for '${refPath}', which is not a dataset`);
+    }
+    if (!resolve) {
+      warn?.(
+        `input '${inputName}' is left unassigned: a file source (${source.value.path}) is resolved by the ` +
+        `deploying client, not by this server`
+      );
+      continue;
     }
     try {
       readDatasetFileHeader(source.value.path, `input '${inputName}'`, declared);
