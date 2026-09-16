@@ -228,9 +228,10 @@ describe('e3 dataset set', () => {
     });
   });
 
-  // A remote `--from-source` deploy: the package names a path on the
-  // developer's machine, so the server-side deploy leaves each file source
-  // unassigned and the CLI streams it over the transfer protocol afterwards.
+  // A remote deploy — from source, from a zip, or of an imported package: the
+  // package names a path on the developer's machine, so the server-side deploy
+  // leaves each file source unassigned and the CLI streams it over the
+  // transfer protocol afterwards.
   // Server and CLI share a filesystem here, so the server COULD read the
   // delivery — which is what makes this the test that it never does: a deploy
   // through the API alone leaves the input unset, and only the CLI's upload
@@ -360,6 +361,47 @@ describe('e3 dataset set', () => {
       assert.match(third.stderr, /first difference at .*score/);
       remote = await status();
       assert.match(remote.stdout, new RegExp(`Hash: +${newHash}`), 'the remote dataset is untouched');
+    });
+
+    it('completes the file source when deploying a zip or an imported package, checking the delivery before touching the workspace', async () => {
+      const env = { env: { E3_CREDENTIALS_PATH: credentialsPath } };
+      const e3At = (args: string[]) => runE3Command(args, projectDir, env);
+      const statusOf = async (ws: string) => (await e3At(['dataset', 'status', remoteUrl, `${ws}.table`])).stdout;
+
+      // A zip exported elsewhere carries the delivery's absolute path.
+      const zip = join(testDir, 'remote-zip.zip');
+      await e3.export(e3.package('remote-zip', '1.0.0', e3.input('table', ArrayType(Row), variant('file', delivery))), zip);
+      const hash = sha256Of(delivery);
+
+      const fromZip = await e3At(['workspace', 'deploy', remoteUrl, 'zipws', '--from-zip', zip]);
+      assert.strictEqual(fromZip.exitCode, 0, `--from-zip deploy failed: ${fromZip.stderr}\n${fromZip.stdout}`);
+      assert.match(fromZip.stderr, /✔ uploaded zipws\.table \(/, 'a zip deploy uploads the file source too');
+      assert.match(await statusOf('zipws'), new RegExp(`Hash: +${hash}`));
+
+      // The package is now imported: deploy it by name, pinned and as `latest`.
+      assert.strictEqual((await e3At(['workspace', 'create', remoteUrl, 'pkgws'])).exitCode, 0);
+      const pinned = await e3At(['workspace', 'deploy', remoteUrl, 'pkgws', 'remote-zip@1.0.0']);
+      assert.strictEqual(pinned.exitCode, 0, `pkg@version deploy failed: ${pinned.stderr}\n${pinned.stdout}`);
+      assert.match(pinned.stderr, /✔ uploaded pkgws\.table \(/);
+      assert.match(await statusOf('pkgws'), new RegExp(`Hash: +${hash}`));
+      const latest = await e3At(['workspace', 'deploy', remoteUrl, 'pkgws', 'remote-zip']);
+      assert.strictEqual(latest.exitCode, 0, `latest deploy failed: ${latest.stderr}\n${latest.stdout}`);
+      assert.match(latest.stderr, /deployed remote-zip@1\.0\.0 to workspace pkgws/);
+
+      // Without the delivery on this machine the deploy fails before the
+      // remote workspace is touched, naming the input, the path and the way out.
+      rmSync(delivery);
+      const missing = await e3At(['workspace', 'deploy', remoteUrl, 'pkgws', 'remote-zip@1.0.0']);
+      assert.notStrictEqual(missing.exitCode, 0, 'a delivery this machine does not have fails the deploy');
+      assert.match(missing.stderr, /input 'table': no file at .*TABLE\.beast2 — a file source is read on the machine that deploys the package/);
+      assert.match(missing.stderr, /--skip-file-sources/);
+      assert.match(await statusOf('pkgws'), new RegExp(`Hash: +${hash}`), 'the remote workspace is untouched');
+
+      // --skip-file-sources deploys anyway and says how to set the input.
+      const skipped = await e3At(['workspace', 'deploy', remoteUrl, 'pkgws', 'remote-zip@1.0.0', '--skip-file-sources']);
+      assert.strictEqual(skipped.exitCode, 0, `--skip-file-sources deploy failed: ${skipped.stderr}\n${skipped.stdout}`);
+      assert.match(skipped.stdout, /Left pkgws\.table unset \(file source .*TABLE\.beast2\); set it with: e3 dataset set \S+ pkgws\.table --from-file /);
+      assert.match(await statusOf('pkgws'), /Status: unset/);
     });
   });
 });

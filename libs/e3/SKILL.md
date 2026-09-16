@@ -171,8 +171,16 @@ delivery must be an indexed, self-contained v5 blob — the at-rest contract
 every collection dataset keeps, and what lets runners page it and
 `partitionTask` carve it. Deliveries are immutable by contract: the object may
 be a hard link to the file, so replace a delivery with a new file rather than
-editing it in place. A remote `e3 workspace deploy <url> --from-source` streams
-each `file` source to the server after the deploy.
+editing it in place.
+
+A `file` source is read on the machine that runs `e3 workspace deploy`, local
+repository or not. Against a server — a package spec, `--from-zip` or
+`--from-source` alike — the CLI checks every delivery before it touches the
+remote workspace, then streams each over the transfer protocol after the
+deploy (an unchanged delivery costs a round trip, not its bytes). The server
+never opens a path, so a deploy made straight through the API leaves those
+inputs unset. `--skip-file-sources` deploys without reading them and prints the
+`e3 dataset set <repo> <ws>.<name> --from-file <path>` that completes each.
 
 Every door into a dataset — `e3 dataset set`, the API `PUT`, the transfer
 commit, a file adopt — checks the bytes' wire type **equals** the declared type
@@ -682,6 +690,7 @@ e3 workspace deploy <repo> <ws> <pkg>[@<ver>]         # Deploy an imported packa
 e3 workspace deploy <repo> <ws> --from-zip <zip>      # Import + create + deploy in one shot
 e3 workspace deploy <repo> <ws> --from-source <src.ts> # Bundle TS source + import + create + deploy
 e3 workspace deploy <repo> <ws> --from-source <src.ts> --functions <manifest…>  # … plus manifests of imported packages built elsewhere (workspace ones resolve themselves)
+e3 workspace deploy <repo> <ws> … --skip-file-sources  # Any mode: leave `file`-source inputs unset (prints the dataset set that completes each)
 e3 workspace export <repo> <ws> <zipPath>             # Export workspace as a package
 e3 workspace list <repo>                              # List workspaces
 e3 workspace status <repo> <ws>                       # Detailed status (tasks, datasets, locks)

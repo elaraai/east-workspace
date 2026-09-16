@@ -151,6 +151,15 @@ fails with the input's name, both types and the first differing field.
 Deliveries are immutable by contract — the stored object may be a hard link to
 the file, so publish a new file rather than editing one in place.
 
+The file is read on the machine that runs `e3 workspace deploy`, whichever
+repository it deploys to. Against a remote repository — a package spec,
+`--from-zip` or `--from-source` — the CLI checks every delivery before it
+touches the remote workspace and streams each over the transfer protocol after
+the deploy; an unchanged delivery costs a round trip, not its bytes. The server
+never opens a path, so a deploy made straight through the API leaves those
+inputs unset. `--skip-file-sources` deploys without reading them and prints the
+`e3 dataset set <repo> <ws>.<name> --from-file <path>` that completes each.
+
 A bare third argument (`e3.input('name', StringType, 'World')`) is refused at
 definition time: once the type is `StringType`, a value and a path cannot be
 told apart.
@@ -416,6 +425,7 @@ e3 package remove <repo> <pkg>           # Remove a package
 e3 workspace create <repo> <name>                            # Create empty workspace
 e3 workspace deploy <repo> <ws> <pkg>[@<ver>]                # Deploy a package
 e3 workspace deploy <repo> <ws> --from-zip <path.zip>        # Import + create + deploy in one shot
+e3 workspace deploy <repo> <ws> … --skip-file-sources        # Leave `file`-source inputs unset
 e3 workspace export <repo> <ws> <zip>                        # Export workspace as a package
 e3 workspace list <repo>                                     # List workspaces
 e3 workspace remove <repo> <ws>                              # Remove workspace

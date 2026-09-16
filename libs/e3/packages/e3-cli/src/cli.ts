@@ -162,6 +162,7 @@ program
       .option('--from-zip <path>', 'Import the zip and deploy (creates the workspace if needed)')
       .option('--from-source <path>', 'Bundle a TypeScript source file into a package, then import and deploy (creates the workspace if needed)')
       .option('--functions <path...>', 'Function manifests (east-py / east-node export-functions) for East.importFunction packages built elsewhere; a package of this uv or npm workspace is exported and linked by itself')
+      .option('--skip-file-sources', "Deploy without reading the package's file sources; those inputs stay unset until `e3 dataset set --from-file`")
       .option('--quiet', 'Suppress progress and success output (errors only)')
       .action(withDefaultRepo(workspaceCommand.deploy))
   )
