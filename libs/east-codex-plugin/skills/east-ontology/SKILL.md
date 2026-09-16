@@ -110,7 +110,7 @@ import { Reactive, UIComponentType } from '@elaraai/east-ui';
 import { Data, Ontology, OntologyType } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
 
-const ontology = e3.input('supply_chain', OntologyType, {
+const ontology = e3.input('supply_chain', OntologyType, variant('value', {
   nodes: [
     { id: 'obj-1',  name: 'Reduce stockouts', description: some('FY26 target.'), type: variant('objective', null) },
     { id: 'kpi-1',  name: 'Fill rate',        description: none,                  type: variant('kpi',       null) },
@@ -130,7 +130,7 @@ const ontology = e3.input('supply_chain', OntologyType, {
     updated: new Date('2026-05-01T12:00:00Z'),
     description: some('Supply-chain operations ontology.'),
   }),
-});
+}));
 
 const editor = East.function([], UIComponentType, (_$) =>
   Reactive.Root(East.function([], UIComponentType, $ => {
