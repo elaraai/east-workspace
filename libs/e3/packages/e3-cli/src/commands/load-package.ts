@@ -14,6 +14,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
 import type { PackageDef } from '@elaraai/e3';
 
@@ -58,8 +59,9 @@ export async function loadPackageFile(filePath: string): Promise<LoadResult> {
   let defaultExport: unknown;
   try {
     fs.writeFileSync(tempFile, jsCode);
-    // Cache-busting query avoids Node's ESM module cache across reloads.
-    const moduleExports = await import(`${tempFile}?t=${Date.now()}`) as Record<string, unknown>;
+    // Cache-busting query avoids Node's ESM module cache across reloads. The
+    // import takes a URL: a bare Windows path (`C:\…`) reads as a `c:` scheme.
+    const moduleExports = await import(`${pathToFileURL(tempFile).href}?t=${Date.now()}`) as Record<string, unknown>;
     defaultExport = moduleExports.default ?? moduleExports;
   } catch (err) {
     if (err instanceof Error && err.stack) {
