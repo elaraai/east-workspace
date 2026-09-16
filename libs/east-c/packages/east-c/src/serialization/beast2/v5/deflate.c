@@ -1,5 +1,5 @@
 /*
- * BEAST2 v5 frame codec — deterministic DEFLATE encode, miniz inflate.
+ * BEAST2 v5 frame codec — deterministic DEFLATE encode, libdeflate inflate.
  *
  * Why beast2 ships its own encoder: inflate is universally interoperable (any
  * valid RFC 1951 stream decodes identically under zlib, zlib-ng, miniz and the
@@ -14,7 +14,9 @@
  * So the ENCODER is specified by the format (v5/SPEC.md) and implemented
  * identically here and in libs/east/src/serialization/beast2/v5/deflate.ts;
  * east-py reaches this one through the C bridge. Decoding stays liberal and
- * simply inflates, which is why miniz is still used for that direction.
+ * simply inflates: a whole frame through libdeflate (the fastest inflate
+ * around, and the read path's largest fixed cost), the bounded prefix the
+ * fence probes want through miniz's tinfl, which can stop mid-stream.
  *
  * Pinned choices, matching the TypeScript implementation exactly:
  *   - fixed Huffman blocks (BTYPE=01), so no dynamic tree construction
@@ -24,6 +26,7 @@
 
 #include "internal_v5.h"
 
+#include "libdeflate.h"
 #include "miniz.h"
 
 #define DEF_WINDOW 32768
@@ -208,9 +211,14 @@ bool b2v5_inflate_raw(const uint8_t *src, size_t src_len, uint8_t *dst, size_t d
 {
     /* Decoding stays liberal: any valid raw-DEFLATE stream is accepted, from
      * this encoder or any other. The frame header declares the exact
-     * uncompressed size, so anything else is corruption. */
-    size_t produced = tinfl_decompress_mem_to_mem(dst, dst_len, src, src_len, 0);
-    return produced != TINFL_DECOMPRESS_MEM_TO_MEM_FAILED && produced == dst_len;
+     * uncompressed size, so anything else is corruption — with no actual-size
+     * out-parameter libdeflate itself fails a stream that produces fewer
+     * bytes, and it never writes more. */
+    struct libdeflate_decompressor *d = libdeflate_alloc_decompressor();
+    if (!d) return false;
+    enum libdeflate_result r = libdeflate_deflate_decompress(d, src, src_len, dst, dst_len, NULL);
+    libdeflate_free_decompressor(d);
+    return r == LIBDEFLATE_SUCCESS;
 }
 
 size_t b2v5_inflate_prefix(const uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_cap)

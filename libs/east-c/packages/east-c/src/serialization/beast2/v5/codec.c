@@ -613,12 +613,12 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
     }
 
     case EAST_TYPE_STRING: {
+        /* Straight from the chunk: the value constructor copies the bytes
+         * it keeps (inline for short strings), so no scratch copy. */
         size_t slen;
-        char *str = b2_read_string_varint(data, len, offset, &slen);
-        if (!str) return NULL;
-        EastValue *val = east_string_len(str, slen);
-        free(str);
-        return val;
+        const uint8_t *bytes = b2_read_string_view(data, len, offset, &slen);
+        if (!bytes) return NULL;
+        return east_string_len((const char *)bytes, slen);
     }
 
     case EAST_TYPE_DATETIME: {
@@ -693,12 +693,19 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
 
     case EAST_TYPE_STRUCT: {
         size_t nf = type->data.struct_.num_fields;
-        const char **names = malloc(nf * sizeof(char *));
-        EastValue **values = malloc(nf * sizeof(EastValue *));
-        if (!names || !values) {
-            free(names);
-            free(values);
-            return NULL;
+        const char *inline_names[B2V5_STRUCT_SCRATCH];
+        EastValue *inline_values[B2V5_STRUCT_SCRATCH];
+        const char **names = inline_names;
+        EastValue **values = inline_values;
+        bool heap = nf > B2V5_STRUCT_SCRATCH;
+        if (heap) {
+            names = malloc(nf * sizeof(char *));
+            values = malloc(nf * sizeof(EastValue *));
+            if (!names || !values) {
+                free(names);
+                free(values);
+                return NULL;
+            }
         }
 
         for (size_t i = 0; i < nf; i++) {
@@ -709,18 +716,24 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
                 for (size_t j = 0; j < i; j++) {
                     east_value_release(values[j]);
                 }
-                free(names);
-                free(values);
+                if (heap) {
+                    free(names);
+                    free(values);
+                }
                 return NULL;
             }
         }
 
-        EastValue *result = east_struct_new(names, values, nf, type);
-        for (size_t i = 0; i < nf; i++) {
-            east_value_release(values[i]);
+        /* The struct takes over the fields' references. */
+        EastValue *result = east_struct_new_owned(names, values, nf, type);
+        if (!result) {
+            for (size_t i = 0; i < nf; i++)
+                east_value_release(values[i]);
         }
-        free(names);
-        free(values);
+        if (heap) {
+            free(names);
+            free(values);
+        }
         return result;
     }
 

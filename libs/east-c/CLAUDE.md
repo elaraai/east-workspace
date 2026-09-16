@@ -12,7 +12,7 @@ C port of the East language runtime. Three packages:
 make build    # Build both packages
 make unit     # Run the ctest gates (no exported IR needed)
 make test     # Gates + both compliance suites
-make bench-cli # The interpreter + emit-sink benchmarks (needs a built libs/east)
+make bench-cli # The interpreter, emit-sink and paged-read benchmarks (needs a built libs/east)
 make clean    # Remove build directory
 ```
 
@@ -63,7 +63,7 @@ REBUILD=1 make leak-check-all
 - `packages/east-c/src/serialization/` — JSON, Beast2, CSV, East text.
 - `packages/east-c/src/type_of_type.c` — IR JSON decoder.
 - `packages/east-c/src/ir_resolve.c` — static name resolution over a built IR tree.
-- `packages/east-c-cli/contrib/` — benchmark generators for the interpreter and
-  emit-sink profiles (`make bench-cli`).
+- `packages/east-c-cli/contrib/` — benchmark generators for the interpreter,
+  emit-sink and paged-read profiles (`make bench-cli`).
 - `packages/east-c/tests/` — unit tests and compliance runner.
 - `packages/east-c-std/` — platform functions.

@@ -83,8 +83,7 @@ double b2_read_float64_le(const uint8_t *data, size_t *offset)
     return val;
 }
 
-/* Read a varint-prefixed string, returning malloc'd string and setting *out_len */
-char *b2_read_string_varint(const uint8_t *data, size_t len, size_t *offset, size_t *out_len)
+const uint8_t *b2_read_string_view(const uint8_t *data, size_t len, size_t *offset, size_t *out_len)
 {
     uint64_t slen;
     if (!read_varint_checked(data, len, offset, &slen)) {
@@ -97,14 +96,28 @@ char *b2_read_string_varint(const uint8_t *data, size_t len, size_t *offset, siz
         *out_len = 0;
         return NULL;
     }
+    const uint8_t *bytes = data + *offset;
+    *offset += (size_t)slen;
+    *out_len = (size_t)slen;
+    return bytes;
+}
+
+/* Read a varint-prefixed string, returning malloc'd string and setting *out_len */
+char *b2_read_string_varint(const uint8_t *data, size_t len, size_t *offset, size_t *out_len)
+{
+    size_t slen;
+    const uint8_t *bytes = b2_read_string_view(data, len, offset, &slen);
+    if (!bytes) {
+        *out_len = 0;
+        return NULL;
+    }
     char *str = malloc(slen + 1);
     if (!str) {
         *out_len = 0;
         return NULL;
     }
-    memcpy(str, data + *offset, slen);
+    memcpy(str, bytes, slen);
     str[slen] = '\0';
-    *offset += slen;
-    *out_len = (size_t)slen;
+    *out_len = slen;
     return str;
 }

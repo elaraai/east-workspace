@@ -888,7 +888,22 @@ static bool struct_names_match_type(const char **names, size_t count, EastType *
     return true;
 }
 
+static EastValue *struct_new_impl(const char **names, EastValue **values, size_t count,
+                                  EastType *type, bool retain_values);
+
 EastValue *east_struct_new(const char **names, EastValue **values, size_t count, EastType *type)
+{
+    return struct_new_impl(names, values, count, type, true);
+}
+
+EastValue *east_struct_new_owned(const char **names, EastValue **values, size_t count,
+                                 EastType *type)
+{
+    return struct_new_impl(names, values, count, type, false);
+}
+
+static EastValue *struct_new_impl(const char **names, EastValue **values, size_t count,
+                                  EastType *type, bool retain_values)
 {
     EastValue *v = alloc_value(EAST_VAL_STRUCT);
     if (!v) return NULL;
@@ -912,7 +927,7 @@ EastValue *east_struct_new(const char **names, EastValue **values, size_t count,
         for (size_t i = 0; i < count; i++) {
             if (!borrow_names) v->data.struct_.field_names[i] = east_strdup(names[i]);
             v->data.struct_.field_values[i] = values[i];
-            if (values[i]) east_value_retain(values[i]);
+            if (retain_values && values[i]) east_value_retain(values[i]);
         }
     }
 

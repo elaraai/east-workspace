@@ -325,9 +325,14 @@ bool east_beast2_projection_is_identity(Beast2Projection *pr)
  * Derive the mask by walking the body for the maximal GetField chains
  * rooted at the variable; any other use (the variable escaping whole, a
  * shadowing binder, a node kind this walker has not been taught) declines,
- * and the loop decodes whole exactly as before. The observability contract
- * (an inferred optimisation must be visible when it stops applying) is the
- * pair of thread-local counters surfaced through eager_stats().
+ * and the loop decodes whole exactly as before. The walk follows an inner
+ * loop into a nested Array<Struct> or a Dict's values: `for l in r.lines`
+ * binds `l` to the element mask of `lines`, so the items narrow to what the
+ * inner body reads of `l` (an item used whole marks only the items whole),
+ * and `r.lines.size()` narrows them to nothing — an empty struct that is
+ * parsed and hopped. The observability contract (an inferred optimisation
+ * must be visible when it stops applying) is the pair of thread-local
+ * counters surfaced through eager_stats().
  */
 
 static _Thread_local size_t g_paged_loop_projected = 0;
@@ -348,12 +353,16 @@ void east_beast2_paged_loop_stats(size_t *projected, size_t *whole)
 }
 
 /* A mask tree over a struct row: names borrowed from the IR (which outlives
- * the loop); whole == true marks a subtree needed in full. */
+ * the loop); whole == true marks a subtree needed in full. A field that is
+ * iterated or sized rather than read whole carries `elem` — the mask over an
+ * Array's element or a Dict's value — so `for l in r.lines: l.price` narrows
+ * the items to `price` while `r.lines.size()` narrows them to nothing. */
 typedef struct PagedMask {
     bool whole;
     size_t n, cap;
     const char **names;
     struct PagedMask **sub;
+    struct PagedMask *elem;
 } PagedMask;
 
 static PagedMask *mask_new(void)
@@ -366,6 +375,7 @@ static void mask_free(PagedMask *m)
     if (!m) return;
     for (size_t i = 0; i < m->n; i++)
         mask_free(m->sub[i]);
+    mask_free(m->elem);
     free(m->names);
     free(m->sub);
     free(m);
@@ -405,12 +415,123 @@ static bool mask_insert_path(PagedMask *m, const char **path, size_t n)
     return mask_insert_path(child, path + 1, n - 1);
 }
 
+/* The node at `path`, creating the way down without marking anything whole;
+ * NULL when a prefix (or the node itself) is already whole — nothing left
+ * to narrow there — or on allocation failure (*oom set). */
+static PagedMask *mask_node_at(PagedMask *m, const char **path, size_t n, bool *oom)
+{
+    for (size_t i = 0; i < n; i++) {
+        if (m->whole) return NULL;
+        m = mask_child(m, path[i]);
+        if (!m) {
+            *oom = true;
+            return NULL;
+        }
+    }
+    return m->whole ? NULL : m;
+}
+
+static PagedMask *mask_elem(PagedMask *m)
+{
+    if (!m->elem) m->elem = mask_new();
+    return m->elem;
+}
+
 #define PAGED_MASK_MAX_PATH 64
 
-/* Walk `node` collecting the mask for `target`. Returns false when the
- * variable escapes whole, a binder shadows it, or anything is not
- * positively recognized — the caller then declines the projection. */
-static bool paged_mask_walk(const IRNode *node, const char *target, PagedMask *mask)
+/* The variables whose field reads the walk collects: the loop variable at
+ * the root, and — pushed while walking an inner loop's body — each inner
+ * loop variable bound to the element mask of the field it iterates. The
+ * root escaping declines the projection; an inner variable escaping only
+ * marks its own subtree whole. */
+typedef struct MaskTarget {
+    const char *name;
+    PagedMask *mask;
+    bool root;
+    const struct MaskTarget *next;
+} MaskTarget;
+
+static const MaskTarget *target_find(const MaskTarget *t, const char *name)
+{
+    for (; t; t = t->next)
+        if (name && strcmp(t->name, name) == 0) return t;
+    return NULL;
+}
+
+/* Whether `name` is bound by any binder while a target is live: a binder
+ * that shadows a target hides it, and the walk declines rather than guess. */
+static bool shadows_target(const MaskTarget *t, const char *name)
+{
+    return target_find(t, name) != NULL;
+}
+
+/* A GetField chain rooted at a target variable: 1 with the target and its
+ * path (outermost access first), 0 when the chain's root is not a target
+ * (*inner is the root expression to walk instead), -1 when the chain is
+ * too deep to record. */
+static int chain_root(const IRNode *node, const MaskTarget *targets, const MaskTarget **t_out,
+                      const char **path, size_t *depth_out, const IRNode **inner)
+{
+    const char *rev[PAGED_MASK_MAX_PATH];
+    size_t depth = 0;
+    const IRNode *cur = node;
+    while (cur->kind == IR_GET_FIELD) {
+        if (depth == PAGED_MASK_MAX_PATH) return -1;
+        rev[depth++] = cur->data.get_field.field_name;
+        cur = cur->data.get_field.expr;
+    }
+    *inner = cur;
+    if (cur->kind != IR_VARIABLE) return 0;
+    const MaskTarget *t = target_find(targets, cur->data.variable.name);
+    if (!t) return 0;
+    /* reverse: outermost access is deepest in the chain */
+    for (size_t i = 0; i < depth; i++)
+        path[i] = rev[depth - 1 - i];
+    *t_out = t;
+    *depth_out = depth;
+    return 1;
+}
+
+static bool paged_mask_walk(const IRNode *node, const MaskTarget *targets);
+
+static bool walk_all(IRNode **nodes, size_t n, const MaskTarget *targets)
+{
+    for (size_t i = 0; i < n; i++)
+        if (!paged_mask_walk(nodes[i], targets)) return false;
+    return true;
+}
+
+/* An iteration (or a size) of a target-rooted chain: the mask node for the
+ * chain, with its element mask created. Returns 1 with *elem set, 0 when
+ * `expr` is not such a chain or the chain is already whole (nothing to
+ * narrow; *walk_expr says whether the caller must still walk it), -1 to
+ * decline. */
+static int chain_elem(const IRNode *expr, const MaskTarget *targets, PagedMask **elem,
+                      bool *walk_expr)
+{
+    *elem = NULL;
+    *walk_expr = true;
+    if (expr->kind != IR_GET_FIELD) return 0;
+    const MaskTarget *t;
+    const char *path[PAGED_MASK_MAX_PATH];
+    size_t depth;
+    const IRNode *inner;
+    int r = chain_root(expr, targets, &t, path, &depth, &inner);
+    if (r < 0) return -1;
+    if (r == 0) return 0;
+    *walk_expr = false; /* a target-rooted chain: recorded here, not by a walk */
+    bool oom = false;
+    PagedMask *m = mask_node_at(t->mask, path, depth, &oom);
+    if (oom) return -1;
+    if (!m) return 0; /* already whole */
+    *elem = mask_elem(m);
+    return *elem ? 1 : -1;
+}
+
+/* Walk `node` collecting the masks of `targets`. Returns false when the
+ * root variable escapes whole, a binder shadows a target, or anything is
+ * not positively recognized — the caller then declines the projection. */
+static bool paged_mask_walk(const IRNode *node, const MaskTarget *targets)
 {
     if (!node) return true;
 
@@ -418,197 +539,231 @@ static bool paged_mask_walk(const IRNode *node, const char *target, PagedMask *m
     case IR_VALUE:
         return true;
 
-    case IR_VARIABLE:
-        return strcmp(node->data.variable.name, target) != 0;
+    case IR_VARIABLE: {
+        const MaskTarget *t = target_find(targets, node->data.variable.name);
+        if (!t) return true;
+        if (t->root) return false; /* the row escapes whole */
+        t->mask->whole = true;     /* an inner element escapes: that subtree, whole */
+        return true;
+    }
 
     case IR_GET_FIELD: {
+        const MaskTarget *t;
         const char *path[PAGED_MASK_MAX_PATH];
-        size_t depth = 0;
-        const IRNode *cur = node;
-        while (cur->kind == IR_GET_FIELD) {
-            if (depth == PAGED_MASK_MAX_PATH) return false;
-            path[depth++] = cur->data.get_field.field_name;
-            cur = cur->data.get_field.expr;
-        }
-        if (cur->kind == IR_VARIABLE && strcmp(cur->data.variable.name, target) == 0) {
-            /* reverse in place: outermost access is deepest in the chain */
-            for (size_t i = 0; i < depth / 2; i++) {
-                const char *t = path[i];
-                path[i] = path[depth - 1 - i];
-                path[depth - 1 - i] = t;
-            }
-            return mask_insert_path(mask, path, depth);
-        }
-        return paged_mask_walk(cur, target, mask);
+        size_t depth;
+        const IRNode *inner;
+        int r = chain_root(node, targets, &t, path, &depth, &inner);
+        if (r < 0) return false;
+        if (r == 1) return mask_insert_path(t->mask, path, depth);
+        return paged_mask_walk(inner, targets);
     }
 
     case IR_LET:
-        if (strcmp(node->data.let.var.name, target) == 0) return false;
-        return paged_mask_walk(node->data.let.value, target, mask);
+        if (shadows_target(targets, node->data.let.var.name)) return false;
+        return paged_mask_walk(node->data.let.value, targets);
 
     case IR_ASSIGN:
-        if (strcmp(node->data.assign.var.name, target) == 0) return false;
-        return paged_mask_walk(node->data.assign.value, target, mask);
+        if (shadows_target(targets, node->data.assign.var.name)) return false;
+        return paged_mask_walk(node->data.assign.value, targets);
 
     case IR_BLOCK:
-        for (size_t i = 0; i < node->data.block.num_stmts; i++)
-            if (!paged_mask_walk(node->data.block.stmts[i], target, mask)) return false;
-        return true;
+        return walk_all(node->data.block.stmts, node->data.block.num_stmts, targets);
 
     case IR_IF_ELSE:
-        return paged_mask_walk(node->data.if_else.cond, target, mask) &&
-               paged_mask_walk(node->data.if_else.then_branch, target, mask) &&
-               paged_mask_walk(node->data.if_else.else_branch, target, mask);
+        return paged_mask_walk(node->data.if_else.cond, targets) &&
+               paged_mask_walk(node->data.if_else.then_branch, targets) &&
+               paged_mask_walk(node->data.if_else.else_branch, targets);
 
     case IR_MATCH:
-        if (!paged_mask_walk(node->data.match.expr, target, mask)) return false;
+        if (!paged_mask_walk(node->data.match.expr, targets)) return false;
         for (size_t i = 0; i < node->data.match.num_cases; i++) {
             IRMatchCase *mc = &node->data.match.cases[i];
-            if (mc->bind.name && strcmp(mc->bind.name, target) == 0) return false;
-            if (!paged_mask_walk(mc->body, target, mask)) return false;
+            if (mc->bind.name && shadows_target(targets, mc->bind.name)) return false;
+            if (!paged_mask_walk(mc->body, targets)) return false;
         }
         return true;
 
     case IR_WHILE:
-        return paged_mask_walk(node->data.while_.cond, target, mask) &&
-               paged_mask_walk(node->data.while_.body, target, mask);
+        return paged_mask_walk(node->data.while_.cond, targets) &&
+               paged_mask_walk(node->data.while_.body, targets);
 
-    case IR_FOR_ARRAY:
-        if (strcmp(node->data.for_array.var.name, target) == 0) return false;
+    case IR_FOR_ARRAY: {
+        if (shadows_target(targets, node->data.for_array.var.name)) return false;
         if (node->data.for_array.index_var.name &&
-            strcmp(node->data.for_array.index_var.name, target) == 0)
+            shadows_target(targets, node->data.for_array.index_var.name))
             return false;
-        return paged_mask_walk(node->data.for_array.array, target, mask) &&
-               paged_mask_walk(node->data.for_array.body, target, mask);
+        /* Iterating a target-rooted array narrows its items to what the
+         * body reads of the loop variable. */
+        PagedMask *elem;
+        bool walk_expr;
+        int r = chain_elem(node->data.for_array.array, targets, &elem, &walk_expr);
+        if (r < 0) return false;
+        if (walk_expr && !paged_mask_walk(node->data.for_array.array, targets)) return false;
+        if (r == 1) {
+            MaskTarget sub = {node->data.for_array.var.name, elem, false, targets};
+            return paged_mask_walk(node->data.for_array.body, &sub);
+        }
+        return paged_mask_walk(node->data.for_array.body, targets);
+    }
 
     case IR_FOR_SET:
-        if (strcmp(node->data.for_set.var.name, target) == 0) return false;
-        return paged_mask_walk(node->data.for_set.set, target, mask) &&
-               paged_mask_walk(node->data.for_set.body, target, mask);
+        /* Set elements never narrow: the set itself is recorded whole. */
+        if (shadows_target(targets, node->data.for_set.var.name)) return false;
+        return paged_mask_walk(node->data.for_set.set, targets) &&
+               paged_mask_walk(node->data.for_set.body, targets);
 
-    case IR_FOR_DICT:
-        if (strcmp(node->data.for_dict.key.name, target) == 0 ||
-            strcmp(node->data.for_dict.val.name, target) == 0)
+    case IR_FOR_DICT: {
+        if (shadows_target(targets, node->data.for_dict.key.name) ||
+            shadows_target(targets, node->data.for_dict.val.name))
             return false;
-        return paged_mask_walk(node->data.for_dict.dict, target, mask) &&
-               paged_mask_walk(node->data.for_dict.body, target, mask);
+        /* Keys decode whole regardless (they order the container); the
+         * value narrows to what the body reads of the value variable. */
+        PagedMask *elem;
+        bool walk_expr;
+        int r = chain_elem(node->data.for_dict.dict, targets, &elem, &walk_expr);
+        if (r < 0) return false;
+        if (walk_expr && !paged_mask_walk(node->data.for_dict.dict, targets)) return false;
+        if (r == 1) {
+            MaskTarget sub = {node->data.for_dict.val.name, elem, false, targets};
+            return paged_mask_walk(node->data.for_dict.body, &sub);
+        }
+        return paged_mask_walk(node->data.for_dict.body, targets);
+    }
 
     case IR_FUNCTION:
     case IR_ASYNC_FUNCTION:
         /* Parameter shadowing hides the target; captures are declarations
          * (the body's uses are what count). */
         for (size_t i = 0; i < node->data.function.num_params; i++)
-            if (strcmp(node->data.function.params[i].name, target) == 0) return false;
-        return paged_mask_walk(node->data.function.body, target, mask);
+            if (shadows_target(targets, node->data.function.params[i].name)) return false;
+        return paged_mask_walk(node->data.function.body, targets);
 
     case IR_CALL:
     case IR_CALL_ASYNC:
-        if (!paged_mask_walk(node->data.call.func, target, mask)) return false;
-        for (size_t i = 0; i < node->data.call.num_args; i++)
-            if (!paged_mask_walk(node->data.call.args[i], target, mask)) return false;
-        return true;
+        if (!paged_mask_walk(node->data.call.func, targets)) return false;
+        return walk_all(node->data.call.args, node->data.call.num_args, targets);
 
     case IR_PLATFORM:
-        for (size_t i = 0; i < node->data.platform.num_args; i++)
-            if (!paged_mask_walk(node->data.platform.args[i], target, mask)) return false;
-        return true;
+        return walk_all(node->data.platform.args, node->data.platform.num_args, targets);
 
-    case IR_BUILTIN:
-        for (size_t i = 0; i < node->data.builtin.num_args; i++)
-            if (!paged_mask_walk(node->data.builtin.args[i], target, mask)) return false;
-        return true;
+    case IR_BUILTIN: {
+        /* The size of a target-rooted array or dict reads no element field:
+         * its elements narrow to nothing (an empty struct, parsed and
+         * hopped) unless something else reads them. */
+        const char *name = node->data.builtin.name;
+        if (node->data.builtin.num_args == 1 &&
+            (strcmp(name, "ArraySize") == 0 || strcmp(name, "DictSize") == 0)) {
+            PagedMask *elem;
+            bool walk_expr;
+            int r = chain_elem(node->data.builtin.args[0], targets, &elem, &walk_expr);
+            if (r < 0) return false;
+            if (!walk_expr) return true;
+        }
+        return walk_all(node->data.builtin.args, node->data.builtin.num_args, targets);
+    }
 
     case IR_RETURN:
-        return paged_mask_walk(node->data.return_.value, target, mask);
+        return paged_mask_walk(node->data.return_.value, targets);
 
     case IR_BREAK:
     case IR_CONTINUE:
         return true;
 
     case IR_ERROR:
-        return paged_mask_walk(node->data.error.message, target, mask);
+        return paged_mask_walk(node->data.error.message, targets);
 
     case IR_TRY_CATCH:
         if ((node->data.try_catch.message_var.name &&
-             strcmp(node->data.try_catch.message_var.name, target) == 0) ||
+             shadows_target(targets, node->data.try_catch.message_var.name)) ||
             (node->data.try_catch.stack_var.name &&
-             strcmp(node->data.try_catch.stack_var.name, target) == 0))
+             shadows_target(targets, node->data.try_catch.stack_var.name)))
             return false;
-        return paged_mask_walk(node->data.try_catch.try_body, target, mask) &&
-               paged_mask_walk(node->data.try_catch.catch_body, target, mask) &&
-               paged_mask_walk(node->data.try_catch.finally_body, target, mask);
+        return paged_mask_walk(node->data.try_catch.try_body, targets) &&
+               paged_mask_walk(node->data.try_catch.catch_body, targets) &&
+               paged_mask_walk(node->data.try_catch.finally_body, targets);
 
     case IR_NEW_ARRAY:
     case IR_NEW_SET:
-        for (size_t i = 0; i < node->data.new_collection.num_items; i++)
-            if (!paged_mask_walk(node->data.new_collection.items[i], target, mask)) return false;
-        return true;
+        return walk_all(node->data.new_collection.items, node->data.new_collection.num_items,
+                        targets);
 
     case IR_NEW_DICT:
-        for (size_t i = 0; i < node->data.new_dict.num_pairs; i++) {
-            if (!paged_mask_walk(node->data.new_dict.keys[i], target, mask)) return false;
-            if (!paged_mask_walk(node->data.new_dict.values[i], target, mask)) return false;
-        }
-        return true;
+        return walk_all(node->data.new_dict.keys, node->data.new_dict.num_pairs, targets) &&
+               walk_all(node->data.new_dict.values, node->data.new_dict.num_pairs, targets);
 
     case IR_NEW_REF:
-        return paged_mask_walk(node->data.new_ref.value, target, mask);
+        return paged_mask_walk(node->data.new_ref.value, targets);
 
     case IR_NEW_VECTOR:
-        for (size_t i = 0; i < node->data.new_vector.num_items; i++)
-            if (!paged_mask_walk(node->data.new_vector.items[i], target, mask)) return false;
-        return true;
+        return walk_all(node->data.new_vector.items, node->data.new_vector.num_items, targets);
 
     case IR_NEW_MATRIX:
-        for (size_t i = 0; i < node->data.new_matrix.num_items; i++)
-            if (!paged_mask_walk(node->data.new_matrix.items[i], target, mask)) return false;
-        return true;
+        return walk_all(node->data.new_matrix.items, node->data.new_matrix.num_items, targets);
 
     case IR_STRUCT:
-        for (size_t i = 0; i < node->data.struct_.num_fields; i++)
-            if (!paged_mask_walk(node->data.struct_.field_values[i], target, mask)) return false;
-        return true;
+        return walk_all(node->data.struct_.field_values, node->data.struct_.num_fields, targets);
 
     case IR_VARIANT:
-        return paged_mask_walk(node->data.variant.value, target, mask);
+        return paged_mask_walk(node->data.variant.value, targets);
 
     case IR_WRAP_RECURSIVE:
     case IR_UNWRAP_RECURSIVE:
-        return paged_mask_walk(node->data.recursive.value, target, mask);
+        return paged_mask_walk(node->data.recursive.value, targets);
     }
 
     return false; /* a kind this walker has not been taught: decline */
 }
 
-/* The subset type `mask` keeps of `wire` (wire field order). Interned type
- * constructors — nothing to release. */
+/* The subset type `mask` keeps of `wire` (wire field order): struct fields
+ * by name, and through an iterated Array's element or Dict's value by its
+ * element mask. Interned type constructors — nothing to release. */
 static EastType *mask_to_type(EastType *wire, const PagedMask *m)
 {
-    if (m->whole || wire->kind != EAST_TYPE_STRUCT) return wire;
-    size_t nf = wire->data.struct_.num_fields;
-    const char **names = malloc((nf ? nf : 1) * sizeof(*names));
-    EastType **types = malloc((nf ? nf : 1) * sizeof(*types));
-    if (!names || !types) {
-        free(names);
-        free(types);
-        return wire;
-    }
-    size_t kept = 0;
-    for (size_t i = 0; i < nf; i++) {
-        const char *fname = wire->data.struct_.fields[i].name;
-        for (size_t j = 0; j < m->n; j++) {
-            if (strcmp(m->names[j], fname) == 0) {
-                names[kept] = fname;
-                types[kept] = mask_to_type(wire->data.struct_.fields[i].type, m->sub[j]);
-                kept++;
-                break;
+    if (m->whole) return wire;
+    switch (wire->kind) {
+    case EAST_TYPE_STRUCT: {
+        size_t nf = wire->data.struct_.num_fields;
+        const char **names = malloc((nf ? nf : 1) * sizeof(*names));
+        EastType **types = malloc((nf ? nf : 1) * sizeof(*types));
+        if (!names || !types) {
+            free(names);
+            free(types);
+            return wire;
+        }
+        size_t kept = 0;
+        for (size_t i = 0; i < nf; i++) {
+            const char *fname = wire->data.struct_.fields[i].name;
+            for (size_t j = 0; j < m->n; j++) {
+                if (strcmp(m->names[j], fname) == 0) {
+                    names[kept] = fname;
+                    types[kept] = mask_to_type(wire->data.struct_.fields[i].type, m->sub[j]);
+                    kept++;
+                    break;
+                }
             }
         }
+        EastType *narrow = east_struct_type(names, types, kept);
+        free(names);
+        free(types);
+        return narrow ? narrow : wire;
     }
-    EastType *narrow = east_struct_type(names, types, kept);
-    free(names);
-    free(types);
-    return narrow ? narrow : wire;
+    case EAST_TYPE_ARRAY: {
+        if (!m->elem) return wire;
+        EastType *elem = mask_to_type(wire->data.element, m->elem);
+        if (elem == wire->data.element) return wire;
+        EastType *narrow = east_array_type(elem);
+        return narrow ? narrow : wire;
+    }
+    case EAST_TYPE_DICT: {
+        if (!m->elem) return wire;
+        EastType *val = mask_to_type(wire->data.dict.value, m->elem);
+        if (val == wire->data.dict.value) return wire;
+        EastType *narrow = east_dict_type(wire->data.dict.key, val);
+        return narrow ? narrow : wire;
+    }
+    default:
+        return wire;
+    }
 }
 
 Beast2Projection *east_beast2_projection_for_loop(const IRNode *body, const char *target,
@@ -627,7 +782,8 @@ Beast2Projection *east_beast2_projection_for_loop(const IRNode *body, const char
 
     PagedMask *mask = mask_new();
     if (!mask) return NULL;
-    if (!paged_mask_walk(body, target, mask) || mask->whole) {
+    MaskTarget root = {target, mask, true, NULL};
+    if (!paged_mask_walk(body, &root) || mask->whole) {
         mask_free(mask);
         return NULL;
     }
@@ -836,9 +992,12 @@ EastValue *b2v5_decode_value_projected(const uint8_t *data, size_t len, size_t *
     case EAST_TYPE_STRUCT: {
         size_t nf_wire = node->wire->data.struct_.num_fields;
         size_t nf_proj = node->proj->data.struct_.num_fields;
-        const char **names = NULL;
-        EastValue **values = NULL;
-        if (nf_proj) {
+        const char *inline_names[B2V5_STRUCT_SCRATCH];
+        EastValue *inline_values[B2V5_STRUCT_SCRATCH];
+        const char **names = inline_names;
+        EastValue **values = inline_values;
+        bool heap = nf_proj > B2V5_STRUCT_SCRATCH;
+        if (heap) {
             names = malloc(nf_proj * sizeof(char *));
             values = calloc(nf_proj, sizeof(EastValue *));
             if (!names || !values) {
@@ -846,6 +1005,9 @@ EastValue *b2v5_decode_value_projected(const uint8_t *data, size_t len, size_t *
                 free(values);
                 break;
             }
+        } else {
+            for (size_t i = 0; i < nf_proj; i++)
+                values[i] = NULL;
         }
         bool ok = true;
         for (size_t i = 0; i < nf_wire && ok; i++) {
@@ -864,11 +1026,17 @@ EastValue *b2v5_decode_value_projected(const uint8_t *data, size_t len, size_t *
             names[pi] = node->proj->data.struct_.fields[pi].name;
             values[pi] = v;
         }
-        if (ok) result = east_struct_new(names, values, nf_proj, node->proj);
-        for (size_t i = 0; i < nf_proj; i++)
-            if (values && values[i]) east_value_release(values[i]);
-        free(names);
-        free(values);
+        /* The struct takes over the fields' references; on any failure the
+         * fields decoded so far are still ours to release. */
+        if (ok) result = east_struct_new_owned(names, values, nf_proj, node->proj);
+        if (!result) {
+            for (size_t i = 0; i < nf_proj; i++)
+                if (values[i]) east_value_release(values[i]);
+        }
+        if (heap) {
+            free(names);
+            free(values);
+        }
         break;
     }
 

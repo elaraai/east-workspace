@@ -35,8 +35,12 @@
 /* Decompression-bomb guard: max declared uncompressed bytes per frame. */
 #define B2V5_MAX_FRAME_UNCOMPRESSED ((uint64_t)1 << 30)
 
+/* A struct decode gathers its fields in stack scratch up to this many; wider
+ * structs take the heap. Rows and items are almost always narrower. */
+#define B2V5_STRUCT_SCRATCH 16
+
 /* ================================================================== */
-/*  Deflate (v5/deflate.c — miniz raw DEFLATE)                          */
+/*  Deflate (v5/deflate.c — raw DEFLATE: own encoder, libdeflate/tinfl)   */
 /* ================================================================== */
 
 /* Compress src into a malloc'd raw-DEFLATE buffer (caller frees *out). */

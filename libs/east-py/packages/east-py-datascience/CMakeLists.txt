@@ -113,9 +113,10 @@ if(WIN32)
         OUTPUT_NAME                east_c_shared
         ARCHIVE_OUTPUT_NAME        east_c_shared
         WINDOWS_EXPORT_ALL_SYMBOLS ON)
-    # miniz backs east-c's beast2 v5 deflate codec; east-c declares the target
-    # (if(NOT TARGET miniz)) when this file add_subdirectory's it.
-    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz)
+    # miniz and libdeflate back east-c's beast2 v5 deflate codec; east-c
+    # declares both targets (if(NOT TARGET ...)) when this file
+    # add_subdirectory's it.
+    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz libdeflate)
     set(EAST_PY_LINK_EASTC east-c-shared)
     # NO install(TARGETS east-c-shared) — core ships the one copy.
 else()
@@ -129,14 +130,15 @@ else()
     if(APPLE)
         target_link_options(east-c-shared PRIVATE
             "LINKER:-force_load,$<TARGET_FILE:east-c>")
-        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz)
+        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz libdeflate)
     else()
         target_link_options(east-c-shared PRIVATE
             "LINKER:--whole-archive,$<TARGET_FILE:east-c>,--no-whole-archive"
             "LINKER:--exclude-libs,libpcre2-8.a"
             "LINKER:--exclude-libs,libbtreec.a"
-            "LINKER:--exclude-libs,libminiz.a")
-        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz m)
+            "LINKER:--exclude-libs,libminiz.a"
+            "LINKER:--exclude-libs,libdeflate.a")
+        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz libdeflate m)
     endif()
     set(EAST_PY_LINK_EASTC east-c-shared)
 endif()
