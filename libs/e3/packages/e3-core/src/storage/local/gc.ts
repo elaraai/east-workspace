@@ -22,6 +22,7 @@ import * as path from 'path';
 import { tmpdir } from 'os';
 import { decodeBeast2, isEastDict } from '@elaraai/east';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, StorageBackend } from '../interfaces.js';
+import { transferStagingDir } from './localHelpers.js';
 
 /**
  * Options for garbage collection
@@ -539,7 +540,9 @@ export async function repoGc(
  * Clean up orphaned .partial staging files in the objects directory — both
  * the per-prefix stages of whole-object writes and the root-level
  * `stage.*.partial` files of streaming writes (which cannot stage under a
- * prefix: the content path is unknown until the digest names it).
+ * prefix: the content path is unknown until the digest names it) — and the
+ * dataset uploads staged in {@link transferStagingDir}, which an upload that
+ * was never committed leaves behind and nothing else removes.
  * This is a local-only concern — cloud storage doesn't use .partial files.
  */
 async function cleanupPartials(
@@ -593,6 +596,21 @@ async function cleanupPartials(
     }
   } catch {
     // Objects directory doesn't exist
+  }
+
+  // Dataset uploads staged under the repository. An in-flight upload is
+  // young, so the same age gate keeps gc from racing it.
+  const stagingDir = transferStagingDir(repoPath);
+  let staged: string[] = [];
+  try {
+    staged = await fs.readdir(stagingDir);
+  } catch {
+    // No upload has been staged in this repository (ENOENT) — nothing to sweep
+  }
+  for (const entry of staged) {
+    if (entry.endsWith('.partial')) {
+      await sweep(path.join(stagingDir, entry));
+    }
   }
 
   return { deleted, skippedYoung };

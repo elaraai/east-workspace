@@ -14,10 +14,11 @@ import { variant } from '@elaraai/east';
 import {
   BEAST2_CONTENT_TYPE,
   ObjectNotFoundError,
+  transferStagingDir,
+  transferStagingPath,
   type StorageBackend,
   type TransferBackend,
 } from '@elaraai/e3-core';
-import { datasetStagingDir, datasetStagingPath } from '../staging.js';
 
 const STAGING_DIR = join(tmpdir(), 'e3-transfers');
 
@@ -68,13 +69,21 @@ export function createDataEndpoints(
       // than this process's heap, and the commit turns the staged file into an
       // object by link or rename — which only works on the repo's device.
       const repoPath = getRepoPath(dsRecord.repo);
-      const stagingPath = datasetStagingPath(repoPath, id);
-      await mkdir(datasetStagingDir(repoPath), { recursive: true });
+      const stagingPath = transferStagingPath(repoPath, id);
+      await mkdir(transferStagingDir(repoPath), { recursive: true });
       const stream = c.req.raw.body;
-      if (stream) {
-        await pipeline(Readable.fromWeb(stream as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(stagingPath));
-      } else {
-        await writeFile(stagingPath, new Uint8Array(await c.req.arrayBuffer()));
+      try {
+        if (stream) {
+          await pipeline(Readable.fromWeb(stream as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(stagingPath));
+        } else {
+          await writeFile(stagingPath, new Uint8Array(await c.req.arrayBuffer()));
+        }
+      } catch (err) {
+        // A broken upload leaves no partial file behind; gc sweeps the staging
+        // directory only as the backstop for a server that crashed mid-upload.
+        // The transfer record stays, so the client may retry the PUT.
+        await unlink(stagingPath).catch(() => {});
+        throw err;
       }
       return new Response(null, { status: 200 });
     }

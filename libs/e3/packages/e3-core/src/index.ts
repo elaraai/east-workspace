@@ -58,7 +58,12 @@ export {
   objectExists,
 } from './storage/local/LocalObjectStore.js';
 
-export { objectPath, objectAbbrev } from './storage/local/localHelpers.js';
+export {
+  objectPath,
+  objectAbbrev,
+  transferStagingDir,
+  transferStagingPath,
+} from './storage/local/localHelpers.js';
 
 // Package operations
 export {

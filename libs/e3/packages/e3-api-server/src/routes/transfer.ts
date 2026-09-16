@@ -13,11 +13,12 @@ import {
   DatasetTypeMismatchError,
   datasetAdoptFile,
   datasetAdoptObject,
+  transferStagingDir,
+  transferStagingPath,
   type StorageBackend,
   type TransferBackend,
 } from '@elaraai/e3-core';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
-import { datasetStagingDir, datasetStagingPath } from '../staging.js';
 import { TransferUploadRequestType, TransferUploadResponseType, TransferDoneResponseType } from '../types.js';
 
 /**
@@ -106,7 +107,7 @@ export function createTransferRoutes(
 
     // Create the staging slot under the repo, so the commit's adopt is a
     // same-device link or rename rather than a whole-file copy.
-    await mkdir(datasetStagingDir(repoPath), { recursive: true });
+    await mkdir(transferStagingDir(repoPath), { recursive: true });
 
     const uploadUrl = await transferBackend.datasetUpload.getUploadUrl(transferId, repo, hash);
     // Resolve relative URL against the request origin
@@ -122,7 +123,7 @@ export function createTransferRoutes(
     }
 
     const repoPath = getRepoPath(transfer.repo);
-    const stagingPath = datasetStagingPath(repoPath, id);
+    const stagingPath = transferStagingPath(repoPath, id);
 
     try {
       // The staged file is never read whole: its size comes from `stat`, its
