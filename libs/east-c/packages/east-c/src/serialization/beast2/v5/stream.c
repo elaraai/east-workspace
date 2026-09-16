@@ -305,11 +305,15 @@ static bool writer_push_segment(Beast2StreamWriter *w, ByteBuffer *logical, size
     /* The pool starts on the SECOND segment: a writer that only ever writes
      * one (a probe, a small value) never starts a thread. One core keeps the
      * inline path — there is nothing to parallelize onto — and many cores
-     * start at most B2V5_POOL_MAX_THREADS workers. */
+     * start at most B2V5_POOL_MAX_THREADS workers. A writer left inline (one
+     * core, or a pool that could not start) stops asking: neither answer
+     * changes on the next segment, and asking is not free — east_cpu_count
+     * reads the affinity mask and walks the cgroup CPU quota files. */
     if (w->parallel && !w->pool && w->seg_count >= 2) {
         int cpus = east_cpu_count();
         if (cpus > B2V5_POOL_MAX_THREADS) cpus = B2V5_POOL_MAX_THREADS;
         if (cpus >= 2) w->pool = b2v5_pool_new(w->codec, cpus);
+        if (!w->pool) w->parallel = false;
     }
     /* ...and when at least half of them needed a settle. Framing strategy
      * never changes a byte, so demoting is always safe: drain what is in
