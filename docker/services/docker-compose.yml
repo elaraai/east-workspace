@@ -67,7 +67,9 @@ services:
       - /data
 
   minio:
-    image: minio/minio:latest
+    # MinIO publishes its image on quay.io; Docker Hub no longer serves
+    # minio/minio (the repository is gone, every pull is denied).
+    image: quay.io/minio/minio:latest
     profiles: [services]
     entrypoint: /bin/sh -c "minio server /data --console-address ':9001' & until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done && mc alias set local http://localhost:9000 minioadmin minioadmin && mc mb local/test-bucket --ignore-existing && wait"
     environment:
