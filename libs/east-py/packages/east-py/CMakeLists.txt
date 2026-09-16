@@ -145,6 +145,13 @@ add_subdirectory(
 # basename (east_c_shared) so its import .lib doesn't collide with the static
 # east-c.lib. The slab globals are file-static in value_slab.c, so they're never
 # exported and stay internal to the one DLL — the single-slab guarantee.
+#
+# east-c's beast2 v5 writer deflates frames on a worker pool (#763). The static
+# east-c target links Threads::Threads PUBLIC, but the shared library relinks
+# its archive / objects directly, so it names the platform thread library
+# itself rather than relying on libc (glibc >= 2.34), libSystem or the Python
+# host to provide pthreads.
+find_package(Threads REQUIRED)
 if(WIN32)
     add_library(east-c-shared SHARED $<TARGET_OBJECTS:east-c-obj>)
     add_dependencies(east-c-shared east-c-obj)
@@ -155,7 +162,7 @@ if(WIN32)
     # miniz and libdeflate (beast2 v5 deflate) are declared inside
     # packages/east-c with the same defensive if(NOT TARGET) shape as btreec,
     # so the targets exist here.
-    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz libdeflate)
+    target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz libdeflate Threads::Threads)
     set(EAST_PY_LINK_EASTC east-c-shared)
     # Ship the .dll (a RUNTIME artifact) beside the .pyd's; the import .lib is
     # build-time only — do NOT install it.
@@ -171,7 +178,7 @@ else()
     if(APPLE)
         target_link_options(east-c-shared PRIVATE
             "LINKER:-force_load,$<TARGET_FILE:east-c>")
-        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz libdeflate)
+        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz libdeflate Threads::Threads)
     else()
         target_link_options(east-c-shared PRIVATE
             "LINKER:--whole-archive,$<TARGET_FILE:east-c>,--no-whole-archive"
@@ -179,7 +186,7 @@ else()
             "LINKER:--exclude-libs,libbtreec.a"
             "LINKER:--exclude-libs,libminiz.a"
             "LINKER:--exclude-libs,libdeflate.a")
-        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz libdeflate m)
+        target_link_libraries(east-c-shared PRIVATE pcre2-8 btreec miniz libdeflate m Threads::Threads)
     endif()
     set(EAST_PY_LINK_EASTC east-c-shared)
 
