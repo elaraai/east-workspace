@@ -260,6 +260,17 @@ add_executable(test_beast2_projection tests/test_beast2_projection.c)
 target_link_libraries(test_beast2_projection east-c)
 add_test(NAME beast2_projection COMMAND test_beast2_projection)
 
+# Nested-loop projection gate: the paged for-loop inference follows an
+# inner loop into a nested Array<Struct> or a Dict's values, narrowing the
+# items to the fields the inner body reads (a sized array's items to an
+# empty struct), while an item used whole keeps only its subtree whole, the
+# row used whole still declines, and a shadowing binder declines. A
+# projected decode of a small paged blob must agree with the whole decode
+# on every field read. Run under ASan/LSan for the mask and plan lifetimes.
+add_executable(test_projection_nested tests/test_projection_nested.c)
+target_link_libraries(test_projection_nested east-c)
+add_test(NAME projection_nested COMMAND test_projection_nested)
+
 # Lazy paged collection value gate (issue #505): EAST_VAL_PAGED construction,
 # pager-served size/keyed reads, hydrate-on-demand equivalence with the eager
 # decode, and release of every lifetime state. Run under ASan/LSan
