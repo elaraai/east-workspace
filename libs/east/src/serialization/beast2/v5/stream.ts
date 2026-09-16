@@ -32,6 +32,7 @@ import { SortedMap } from "../../../containers/sortedmap.js";
 import { type Beast2DecodeOptions, buildPlatformContext } from "../shared.js";
 import { writeTypeSection, readTypeSection, asTypeValue } from "./type-section.js";
 import { type Beast2Codec, FrameReader, openFramePrefix, writeFrame } from "./frames.js";
+import { FRAME_HEADER_MAX, framePool, type FramePool, type PendingFrame } from "./frame-pool.js";
 import {
   MAGIC_BYTES_V5,
   TAG_NEW,
@@ -88,7 +89,28 @@ export type Beast2WriterOptions = {
    *  to rebuild segments byte-compatible with an existing blob's header.
    *  When set, `sourceMap` must be the prefix's own decoded source map. */
   headerPrefix?: Uint8Array;
+  /**
+   * Deflate frames on worker threads (issue #763). Defaults to `false`.
+   *
+   * The bytes are identical either way — frames reach the sink in order and
+   * index offsets are assigned as they land — but with frames in flight the
+   * sink has only received the ones already done. A caller that sizes its
+   * next batch from the bytes written must therefore read
+   * {@link Beast2Writer.emittedBounds} rather than count sink bytes, or its
+   * segmentation would depend on thread timing. Node only; elsewhere, and on
+   * a single CPU, the writer frames inline.
+   */
+  parallel?: boolean;
 };
+
+/** Logical bytes a parallel writer produces inline before it asks for the
+ *  frame pool: workers cost tens of milliseconds to start, and a value this
+ *  small deflates faster than that on one thread. */
+const POOL_MIN_LOGICAL_BYTES = 8 * 1024 * 1024;
+
+/** Segments a pooled writer writes before it may demote itself to inline
+ *  framing because its caller keeps settling (see `Beast2Writer.settle`). */
+const POOL_DEMOTE_MIN_SEGMENTS = 8;
 
 // =============================================================================
 // Streaming writer
@@ -131,6 +153,15 @@ export class Beast2Writer<T extends EastType = EastType> {
   private hasLast = false;
   private bytesWritten = 0;
   private finished = false;
+  private readonly parallel: boolean;
+  /** `undefined` until decided; `null` when frames are written inline. */
+  private pool: FramePool | null | undefined;
+  private logicalWritten = 0;
+  /** Frames submitted to the pool and not yet on the sink, in order. */
+  private readonly inflight: { frame: PendingFrame; count: number }[] = [];
+  private inflightLogical = 0;
+  /** {@link settle} calls that found frames in flight. */
+  private settlesInflight = 0;
 
   /**
    * @param type - the collection type this stream holds (Array/Set/Dict)
@@ -146,6 +177,7 @@ export class Beast2Writer<T extends EastType = EastType> {
     this.codec = options?.codec ?? "deflate";
     this.selfContained = options?.selfContained ?? true;
     this.withIndex = options?.index ?? true;
+    this.parallel = options?.parallel ?? false;
     this.orderCmp = orderCmpFor(typeValue, this.kind);
 
     const sourceMap = options?.sourceMap ?? null;
@@ -229,12 +261,92 @@ export class Beast2Writer<T extends EastType = EastType> {
     const logical = new BufferWriter();
     logical.writeVarint(count);
     this.encodeElems(batch, logical);
-
-    const frame = new BufferWriter();
-    writeFrame(frame, logical.toUint8Array(), this.codec);
-    this.index.push({ offset: this.bytesWritten, count });
+    const logicalBytes = logical.toUint8Array();
     this.segments++;
-    this.emit(frame.toUint8Array());
+    this.logicalWritten += logicalBytes.length;
+
+    const pool = this.poolFor();
+    if (pool === null) {
+      const frame = new BufferWriter();
+      writeFrame(frame, logicalBytes, this.codec);
+      this.index.push({ offset: this.bytesWritten, count });
+      this.emit(frame.toUint8Array());
+      return;
+    }
+    // A caller whose batch decisions keep landing between the bounds settles
+    // on nearly every segment, which makes the pool pure overhead. Framing
+    // strategy never changes a byte, so demote: drain in order, then frame
+    // inline for the rest of the stream.
+    if (this.segments >= POOL_DEMOTE_MIN_SEGMENTS && this.settlesInflight * 2 >= this.segments) {
+      this.appendFrames(Infinity);
+      this.pool = null;
+      const frame = new BufferWriter();
+      writeFrame(frame, logicalBytes, this.codec);
+      this.index.push({ offset: this.bytesWritten, count });
+      this.emit(frame.toUint8Array());
+      return;
+    }
+    // Back-pressure: at most two frames per worker in flight, so the
+    // writer's memory stays O(workers x segment).
+    while (this.inflight.length >= pool.workers * 2) this.appendFrames(1);
+    this.inflight.push({ frame: pool.submit(logicalBytes, this.codec), count });
+    this.inflightLogical += logicalBytes.length;
+    this.appendFrames(0);
+  }
+
+  /**
+   * Brackets the total bytes the writer will have passed to its sink once
+   * every in-flight frame lands.
+   *
+   * `lo` is exactly the bytes the sink has received; `hi` adds each
+   * in-flight frame's logical bytes plus a header bound (a frame's payload
+   * never exceeds its logical bytes). A serial writer has `lo === hi`. A
+   * decision that is monotone in the byte count — the paged encoders' batch
+   * refinement — is exact when it agrees at both bounds; otherwise
+   * {@link settle} first.
+   *
+   * @returns the bounds, in bytes
+   */
+  emittedBounds(): { lo: number; hi: number } {
+    this.appendFrames(0);
+    return {
+      lo: this.bytesWritten,
+      hi: this.bytesWritten + this.inflightLogical + this.inflight.length * FRAME_HEADER_MAX,
+    };
+  }
+
+  /** Waits for every in-flight frame and passes it to the sink, after which
+   *  {@link emittedBounds} is exact. A no-op for a serial writer. */
+  settle(): void {
+    if (this.inflight.length > 0) this.settlesInflight++;
+    this.appendFrames(Infinity);
+  }
+
+  /** The pool to frame on — decided once a parallel writer has produced
+   *  enough bytes to be worth it, and never revisited, so frames cannot
+   *  interleave inline and pooled out of order. */
+  private poolFor(): FramePool | null {
+    if (this.pool !== undefined) return this.pool;
+    if (!this.parallel || this.logicalWritten < POOL_MIN_LOGICAL_BYTES) return null;
+    this.pool = framePool();
+    return this.pool;
+  }
+
+  /** Passes the done frames at the head of the in-flight queue to the sink,
+   *  in order, assigning index offsets as they land; blocks until at least
+   *  `minimum` have been passed (`Infinity` settles the queue). */
+  private appendFrames(minimum: number): void {
+    let appended = 0;
+    while (this.inflight.length > 0) {
+      const head = this.inflight[0]!;
+      if (appended >= minimum && !head.frame.ready()) return;
+      const bytes = head.frame.take();
+      this.inflight.shift();
+      this.inflightLogical -= head.frame.logicalLength;
+      this.index.push({ offset: this.bytesWritten, count: head.count });
+      this.emit(bytes);
+      appended++;
+    }
   }
 
   /**
@@ -243,6 +355,7 @@ export class Beast2Writer<T extends EastType = EastType> {
    */
   finish(): void {
     if (this.finished) return;
+    this.appendFrames(Infinity);
     this.finished = true;
     const tail = new BufferWriter();
     writeFrame(tail, new Uint8Array([0x00]), "none");
@@ -433,21 +546,32 @@ export function encodeBeast2PagedFor<T extends EastType>(type: T | EastTypeValue
 
     const chunks: Uint8Array[] = [];
     let bodyBytes = 0;
+    // Frames deflate on worker threads where the runtime has them (#763).
     const writer = new Beast2Writer(typeValue, (b) => {
       chunks.push(b);
       bodyBytes += b.length;
-    }, writerOptions);
+    }, { ...writerOptions, parallel: true });
     const headerBytes = bodyBytes;
     let written = 0;
     let batch: unknown[] = [];
+    const refine = (body: number): number =>
+      Math.max(1, Math.min(batchCap, Math.floor(targetBytes / Math.max(1, body / written))));
     const flush = (): void => {
       if (batch.length === 0) return;
       writer.write(makeBatch(batch));
       written += batch.length;
       batch = [];
       // Refine toward the target as real output accumulates (drifting data).
-      const avg = Math.max(1, (bodyBytes - headerBytes) / written);
-      nextBatch = Math.max(1, Math.min(batchCap, Math.floor(targetBytes / avg)));
+      // With frames still deflating, only bounds on that output are known;
+      // the refinement is monotone in it, so agreeing bounds ARE the serial
+      // decision, and disagreeing ones wait for the frames. Either way the
+      // segmentation — and every byte — is what a serial writer produces.
+      const { lo, hi } = writer.emittedBounds();
+      nextBatch = refine(lo - headerBytes);
+      if (nextBatch !== refine(hi - headerBytes)) {
+        writer.settle();
+        nextBatch = refine(writer.emittedBounds().lo - headerBytes);
+      }
     };
     const pump = (item: unknown): void => {
       batch.push(item);

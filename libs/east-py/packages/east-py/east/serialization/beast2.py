@@ -109,13 +109,30 @@ class Beast2Writer:
     """
 
     def __init__(self, collection_type, stream, *, codec: str = "deflate",
-                 self_contained: bool = True, index: bool = True):
+                 self_contained: bool = True, index: bool = True,
+                 parallel: bool = False):
         _check_segmented(collection_type)
         self._core = _Beast2WriterCore(collection_type, codec, self_contained, index)
+        # Frame deflates on east-c's worker pool (issue #763): the bytes are
+        # identical, but ``write`` then hands the stream only the frames
+        # already done, so a caller sizing batches from the bytes written must
+        # read :meth:`emitted_bounds` instead of the stream position.
+        if parallel:
+            self._core.set_parallel(True)
         self._stream = stream
         self._closed = False
         self.segments = 0
         stream.write(self._core.take())
+
+    def emitted_bounds(self) -> tuple[int, int]:
+        """``(lo, hi)`` bracketing the total bytes this writer will have
+        written once every in-flight frame lands (``lo == hi`` when serial)."""
+        return self._core.emitted_bounds()
+
+    def settle(self) -> None:
+        """Wait for every in-flight frame and hand its bytes to the stream."""
+        self._core.settle()
+        self._stream.write(self._core.take())
 
     def write(self, batch) -> None:
         """Encode ``batch`` (a value of the declared type) as one segment.
@@ -261,8 +278,16 @@ def encode_beast2_paged_for(collection_type, *, batch_size: int | None = None,
             avg = max(1.0, (scratch.tell() - header_len) / probe_n)
             next_batch = max(1, min(batch_cap, int(target / avg)))
 
+        def refine(body: int, elements: int) -> int:
+            avg = max(1.0, body / elements)
+            return max(1, min(batch_cap, int(target / avg)))
+
         buf = io.BytesIO()
-        writer = Beast2Writer(collection_type, buf, codec=codec)
+        # Frames deflate on east-c's worker pool (#763). The refinement is
+        # monotone in the bytes emitted, so deciding at both of the writer's
+        # bounds and settling only when they disagree reproduces the serial
+        # decisions exactly — and with them every byte.
+        writer = Beast2Writer(collection_type, buf, codec=codec, parallel=True)
         header_len = buf.tell()
         written = 0
         i = 0
@@ -271,9 +296,12 @@ def encode_beast2_paged_for(collection_type, *, batch_size: int | None = None,
             writer.write(chunk(i, j))
             written += j - i
             i = j
-            # Refine toward the target as real output accumulates.
-            avg = max(1.0, (buf.tell() - header_len) / written)
-            next_batch = max(1, min(batch_cap, int(target / avg)))
+            lo, hi = writer.emitted_bounds()
+            next_batch = refine(lo - header_len, written)
+            if next_batch != refine(hi - header_len, written):
+                writer.settle()
+                lo, _ = writer.emitted_bounds()
+                next_batch = refine(lo - header_len, written)
         writer.close()
         return buf.getvalue()
 

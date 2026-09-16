@@ -386,6 +386,28 @@ cdef class _Beast2WriterCore:
         if not _eastc.east_beast2_writer_finish(self._w):
             _consume_eastc_error("east-c beast2 v5 writer finish failed")
 
+    def set_parallel(self, bint parallel):
+        """Deflate frames on worker threads (issue #763). Before the second
+        segment only; a caller that sizes batches from the bytes emitted must
+        then read them through :meth:`emitted_bounds`."""
+        _eastc.east_beast2_writer_set_parallel(self._w, parallel)
+
+    def emitted_bounds(self):
+        """``(lo, hi)`` bracketing the total bytes the writer will have
+        emitted once every submitted frame lands; ``lo == hi`` when none is in
+        flight."""
+        cdef size_t lo = 0
+        cdef size_t hi = 0
+        _eastc.east_beast2_writer_emitted_bounds(self._w, &lo, &hi)
+        return (lo, hi)
+
+    def settle(self):
+        """Wait for every in-flight frame, after which the bounds are exact."""
+        # The workers are pure C threads and never touch Python, so waiting
+        # with the GIL held cannot deadlock them.
+        if not _eastc.east_beast2_writer_settle(self._w):
+            _consume_eastc_error("east-c beast2 v5 writer settle failed")
+
     def __dealloc__(self):
         if self._w != NULL:
             _eastc.east_beast2_writer_free(self._w)

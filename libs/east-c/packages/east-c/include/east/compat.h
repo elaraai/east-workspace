@@ -339,6 +339,146 @@ static inline int east_random_bytes(void *buf, size_t len)
 
 #endif /* _WIN32 */
 
+/* ================================================================== */
+/*  Threads — the minimum the beast2 frame pool needs (issue #763).     */
+/*                                                                     */
+/*  East VALUES never cross threads (the runtime's collector is per     */
+/*  thread); only plain bytes do. So this is deliberately a byte-worker */
+/*  shim — start/join, one mutex, condition variables, a CPU count —    */
+/*  not a general concurrency layer. POSIX threads everywhere but       */
+/*  Windows, where the Win32 primitives map one to one.                 */
+/* ================================================================== */
+
+#include <stdbool.h>
+
+#ifdef _WIN32
+
+typedef HANDLE EastThread;
+typedef CRITICAL_SECTION EastMutex;
+typedef CONDITION_VARIABLE EastCond;
+/* A thread entry point: `EAST_THREAD_ENTRY name(void *arg)` returning
+ * EAST_THREAD_DONE. The calling convention differs per platform. */
+#define EAST_THREAD_ENTRY DWORD WINAPI
+#define EAST_THREAD_DONE 0
+typedef DWORD(WINAPI *EastThreadFn)(void *);
+
+static inline bool east_thread_start(EastThread *t, EastThreadFn fn, void *arg)
+{
+    *t = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)fn, arg, 0, NULL);
+    return *t != NULL;
+}
+static inline void east_thread_join(EastThread t)
+{
+    WaitForSingleObject(t, INFINITE);
+    CloseHandle(t);
+}
+static inline void east_mutex_init(EastMutex *m)
+{
+    InitializeCriticalSection(m);
+}
+static inline void east_mutex_destroy(EastMutex *m)
+{
+    DeleteCriticalSection(m);
+}
+static inline void east_mutex_lock(EastMutex *m)
+{
+    EnterCriticalSection(m);
+}
+static inline void east_mutex_unlock(EastMutex *m)
+{
+    LeaveCriticalSection(m);
+}
+static inline void east_cond_init(EastCond *c)
+{
+    InitializeConditionVariable(c);
+}
+static inline void east_cond_destroy(EastCond *c)
+{
+    (void)c; /* Win32 condition variables need no teardown */
+}
+static inline void east_cond_wait(EastCond *c, EastMutex *m)
+{
+    SleepConditionVariableCS(c, m, INFINITE);
+}
+static inline void east_cond_signal(EastCond *c)
+{
+    WakeConditionVariable(c);
+}
+static inline void east_cond_broadcast(EastCond *c)
+{
+    WakeAllConditionVariable(c);
+}
+static inline int east_cpu_count(void)
+{
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    return info.dwNumberOfProcessors > 0 ? (int)info.dwNumberOfProcessors : 1;
+}
+
+#else /* !_WIN32 */
+
+#include <pthread.h>
+#include <unistd.h>
+
+typedef pthread_t EastThread;
+typedef pthread_mutex_t EastMutex;
+typedef pthread_cond_t EastCond;
+#define EAST_THREAD_ENTRY void *
+#define EAST_THREAD_DONE NULL
+typedef void *(*EastThreadFn)(void *);
+
+static inline bool east_thread_start(EastThread *t, EastThreadFn fn, void *arg)
+{
+    return pthread_create(t, NULL, fn, arg) == 0;
+}
+static inline void east_thread_join(EastThread t)
+{
+    pthread_join(t, NULL);
+}
+static inline void east_mutex_init(EastMutex *m)
+{
+    pthread_mutex_init(m, NULL);
+}
+static inline void east_mutex_destroy(EastMutex *m)
+{
+    pthread_mutex_destroy(m);
+}
+static inline void east_mutex_lock(EastMutex *m)
+{
+    pthread_mutex_lock(m);
+}
+static inline void east_mutex_unlock(EastMutex *m)
+{
+    pthread_mutex_unlock(m);
+}
+static inline void east_cond_init(EastCond *c)
+{
+    pthread_cond_init(c, NULL);
+}
+static inline void east_cond_destroy(EastCond *c)
+{
+    pthread_cond_destroy(c);
+}
+static inline void east_cond_wait(EastCond *c, EastMutex *m)
+{
+    pthread_cond_wait(c, m);
+}
+static inline void east_cond_signal(EastCond *c)
+{
+    pthread_cond_signal(c);
+}
+static inline void east_cond_broadcast(EastCond *c)
+{
+    pthread_cond_broadcast(c);
+}
+static inline int east_cpu_count(void)
+{
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    return n > 0 ? (int)n : 1;
+}
+
+#endif /* _WIN32 */
+
 /* Run the program entry point. East evaluation can recurse deeply, so the
  * binary is linked with a large stack reserve (see -Wl,--stack in the east-c
  * CMakeLists); this simply invokes fn on that stack. A worker-thread variant

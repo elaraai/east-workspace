@@ -205,6 +205,24 @@ ByteBuffer *east_beast2_writer_take(Beast2StreamWriter *w);
 bool east_beast2_writer_finish(Beast2StreamWriter *w);
 void east_beast2_writer_free(Beast2StreamWriter *w);
 
+// Frame parallelism (issue #763). Opt in before the second segment and the
+// writer deflates frames on a pool of worker threads (one per online CPU; a
+// single-core host stays inline), appending them in order so the bytes are
+// identical to the inline writer's. take() then returns only the frames
+// already done, and finish() waits for the rest.
+//
+// A caller that sizes its NEXT batch from the bytes emitted so far must not
+// read a lagging count — its segmentation would depend on thread timing.
+// emitted_bounds() brackets the total the writer will have emitted once
+// every submitted frame lands: `lo` is exact for the frames appended, and
+// `hi` adds each in-flight frame's logical bytes plus a header bound (a frame
+// payload never exceeds its logical bytes). Decide at both bounds; when the
+// decisions agree the exact one does too, and when they differ settle()
+// waits for the in-flight frames, after which lo == hi.
+void east_beast2_writer_set_parallel(Beast2StreamWriter *w, bool parallel);
+void east_beast2_writer_emitted_bounds(Beast2StreamWriter *w, size_t *lo, size_t *hi);
+bool east_beast2_writer_settle(Beast2StreamWriter *w);
+
 // Sequential v5 segment reader over a complete blob (the caller keeps `data`
 // alive and unchanged for the reader's lifetime). next() returns one decoded
 // collection per root segment (caller releases), NULL when done or on error —

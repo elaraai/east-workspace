@@ -80,6 +80,12 @@ static inline bool b2v5_chunk_exhausted(const B2V5Frames *f)
     return f->chunk_off >= f->chunk_len;
 }
 
+/* The frame pool's accounting, for the pool gate (tests/test_beast2_frame_pool.c):
+ * the most frames ever in flight at once — bounded by the ring, two per
+ * worker — and whether the writer actually started a pool. */
+size_t b2v5_writer_peak_inflight(const Beast2StreamWriter *w);
+bool b2v5_writer_pooled(const Beast2StreamWriter *w);
+
 /* Append one frame carrying `logical` to buf. codec_id degrades to none for
  * tiny or incompressible payloads. */
 void b2v5_write_frame(ByteBuffer *buf, const uint8_t *logical, size_t logical_len,

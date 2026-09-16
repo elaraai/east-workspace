@@ -68,6 +68,11 @@ endif()
 
 target_include_directories(east-c PUBLIC include)
 target_link_libraries(east-c PRIVATE pcre2-8)
+# The beast2 v5 writer deflates frames on a worker pool (issue #763). PUBLIC:
+# compat.h's thread shim is header-inline, so every consumer of the library
+# links the platform thread library too (a no-op on Windows).
+find_package(Threads REQUIRED)
+target_link_libraries(east-c PUBLIC Threads::Threads)
 # values.c backs Set/Dict with tidwall/btree.c. Parents that add_subdirectory()
 # this package (standalone east-c, east-py, and each downstream east-py package)
 # may already provide the btreec target; declare it here when they haven't so
@@ -271,6 +276,19 @@ add_test(NAME value_layout COMMAND test_value_layout)
 add_executable(test_gc_pacing tests/test_gc_pacing.c)
 target_link_libraries(test_gc_pacing east-c)
 add_test(NAME gc_pacing COMMAND test_gc_pacing)
+
+# Frame-pool gate (issue #763): the v5 writer deflates frames on worker
+# threads and appends them in order. A pooled paged encode must be
+# byte-identical to the serial algorithm — including its segmentation, which
+# is refined from the bytes emitted and so must be decided through the
+# writer's bounds — at byte targets that pin the element cap and targets that
+# keep the refinement live; in-flight frames must stay within the ring bound;
+# and an abandoned writer must free its workers' buffers. Run under ASan/LSan
+# (run_leak_check.sh) for the pool's lifetimes.
+add_executable(test_beast2_frame_pool tests/test_beast2_frame_pool.c)
+target_link_libraries(test_beast2_frame_pool east-c)
+add_test(NAME beast2_frame_pool COMMAND test_beast2_frame_pool)
+set_tests_properties(beast2_frame_pool PROPERTIES TIMEOUT 300)
 
 # Deterministic-deflate equivalence gate (issue #762): the beast2 v5 encoder's
 # bytes ARE the wire format (e3 content-addresses them), so the word-packed
