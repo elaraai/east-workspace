@@ -63,7 +63,7 @@ describe('workspaceStatus crash detection', () => {
     storage = new LocalStorage(dirname(repoPath));
 
     // Build + deploy a one-task package
-    const input = e3.input('x', IntegerType, 10n);
+    const input = e3.input('x', IntegerType, variant('value', 10n));
     const double = e3.task(
       'double',
       [input],

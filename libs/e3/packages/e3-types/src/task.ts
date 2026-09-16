@@ -167,18 +167,64 @@ export const PartitionTaskMetadataType = StructType({
   combine: OptionType(BlobType),
   /** Target carved-slice size in wire bytes — the only sizing knob. */
   targetPartitionBytes: IntegerType,
+  /**
+   * `encodeEastIR` bundle of the per-key merge `(Key, Value, Value) -> Value`
+   * for a Dict output; `none` otherwise.
+   *
+   * Its presence (or {@link mergeSets}) selects the SEGMENT-MERGE assembly:
+   * partials are walked by their segment fences in the orchestrator, disjoint
+   * segments are byte-copied exactly as a splice does, and only overlapping
+   * ones are decoded, merged and re-encoded. Appended LAST (BEAST2 encodes
+   * struct fields positionally) with a dual decoder — see
+   * {@link decodePartitionTaskMetadata}.
+   */
+  merge: OptionType(BlobType),
+  /** Whether a Set output assembles by segment merge (union). The Set twin of
+   *  {@link merge}, which needs no function. Appended LAST. */
+  mergeSets: BooleanType,
 });
 export type PartitionTaskMetadataType = typeof PartitionTaskMetadataType;
 
 export type PartitionTaskMetadata = ValueTypeOf<typeof PartitionTaskMetadataType>;
 
+/**
+ * The pre-`merge` partition metadata wire shape, kept only so
+ * {@link decodePartitionTaskMetadata} can read tasks exported before the
+ * segment-merge assembly existed.
+ */
+const PreMergePartitionTaskMetadataType = StructType({
+  partitions: IntegerType,
+  by: OptionType(BlobType),
+  combine: OptionType(BlobType),
+  targetPartitionBytes: IntegerType,
+});
+
 /** Encode a {@link PartitionTaskMetadataType} value for `TaskObject.metadata`. */
 export const encodePartitionTaskMetadata: (value: PartitionTaskMetadata) => Uint8Array =
   encodeBeast2For(PartitionTaskMetadataType);
 
-/** Decode a `TaskObject.metadata` blob of a {@link TASK_KIND_PARTITION} task. */
-export const decodePartitionTaskMetadata: (data: Uint8Array) => PartitionTaskMetadata =
-  decodeBeast2For(PartitionTaskMetadataType);
+const decodeCurrentPartitionMetadata = decodeBeast2For(PartitionTaskMetadataType);
+const decodePreMergePartitionMetadata = decodeBeast2For(PreMergePartitionTaskMetadataType);
+
+/**
+ * Decode a `TaskObject.metadata` blob of a {@link TASK_KIND_PARTITION} task,
+ * tolerating the pre-`merge` wire format (dual-decode migration).
+ *
+ * @param data - the metadata blob
+ * @returns the decoded metadata, with `merge`/`mergeSets` defaulted off for
+ *   older bytes
+ */
+export function decodePartitionTaskMetadata(data: Uint8Array): PartitionTaskMetadata {
+  try {
+    return decodeCurrentPartitionMetadata(data);
+  } catch (err) {
+    try {
+      return { ...decodePreMergePartitionMetadata(data), merge: none, mergeSets: false };
+    } catch {
+      throw err; // no known shape — surface the current-format error
+    }
+  }
+}
 
 /**
  * Metadata of a {@link TASK_KIND_STREAM} task.

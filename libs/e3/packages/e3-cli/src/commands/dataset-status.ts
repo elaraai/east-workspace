@@ -35,7 +35,7 @@ export async function datasetStatusCommand(
 
     if (location.type === 'local') {
       const storage = new LocalStorage();
-      const result = await workspaceGetDatasetStatus(storage, location.path, ws, path);
+      const result = await workspaceGetDatasetStatus(storage, location.path, ws, path, { geometry: true });
 
       const typeValue: EastTypeValue = isVariant(result.datasetType)
         ? result.datasetType as EastTypeValue
@@ -55,6 +55,10 @@ export async function datasetStatusCommand(
         console.log('Status: set');
         console.log(`Hash:   ${result.hash}`);
         console.log(`Size:   ${formatSize(result.size!)}`);
+        // From the blob's trailing index, two ranged reads — so a re-pointed
+        // input can be inspected without decoding a gigabyte of it.
+        if (result.segments != null) console.log(`Segments: ${result.segments}`);
+        if (result.rows != null) console.log(`Rows:   ${result.rows}`);
       }
     } else {
       const detail = await datasetGetStatusRemote(
@@ -80,6 +84,12 @@ export async function datasetStatusCommand(
         }
         if (detail.size.type === 'some') {
           console.log(`Size:   ${formatSize(Number(detail.size.value))}`);
+        }
+        if (detail.segments.type === 'some') {
+          console.log(`Segments: ${detail.segments.value}`);
+        }
+        if (detail.rows.type === 'some') {
+          console.log(`Rows:   ${detail.rows.value}`);
         }
       }
     }

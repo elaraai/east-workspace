@@ -345,10 +345,10 @@ export type ConversationType = typeof ConversationType;
 Authors declare the transcript dataset with this type:
 
 ```ts
-const thread = e3.input("assistant_thread", ConversationType, {
+const thread = e3.input("assistant_thread", ConversationType, variant('value', {
     messages: [],
     metadata: none,   // OptionType(ConversationMetadataType)
-});
+}));
 ```
 
 ### 3.2 Config & tool-exposure types (`e3-ui/src/chat.ts`)
@@ -490,9 +490,9 @@ Author-side usage (the `Data.bind` calls are what `deriveManifest` scans, so the
 `ui()` task preloads every referenced dataset — same as Diff/Ontology):
 
 ```ts
-const thread  = e3.input("assistant_thread", ConversationType, { messages: [], metadata: none });
-const roster  = e3.input("roster", RosterType, defaultRoster);
-const policy  = e3.input("workforce_policy", PolicyType, defaultPolicy);
+const thread  = e3.input("assistant_thread", ConversationType, variant('value', { messages: [], metadata: none }));
+const roster  = e3.input("roster", RosterType, variant('value', defaultRoster));
+const policy  = e3.input("workforce_policy", PolicyType, variant('value', defaultPolicy));
 
 export const assistant = ui("assistant", [], East.function([], UIComponentType, _$ =>
   Reactive.Root(East.function([], UIComponentType, $ => {

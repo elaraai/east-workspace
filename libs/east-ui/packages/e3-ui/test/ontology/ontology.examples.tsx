@@ -16,7 +16,7 @@
  * completeness warnings have something real to surface.
  *
  * Pattern:
- *   1. Declare `e3.input(name, OntologyType, default)` with `default` fully
+ *   1. Declare `e3.input(name, OntologyType, variant('value', default))` with `default` fully
  *      inline (no shared constants, no `node()` / `link()` wrappers).
  *   2. Inside `<Reactive>`, bind via `Data.bind(dataset)`.
  *   3. Pass the handle to `<Ontology value={view} />` — its East type pins the
@@ -35,7 +35,7 @@ import * as e3 from '@elaraai/e3';
 // showcase can forward them as extras.
 // ============================================================================
 
-export const supplyChainOntologyInput = e3.input('supply_chain_ontology', OntologyType, {
+export const supplyChainOntologyInput = e3.input('supply_chain_ontology', OntologyType, variant('value', {
     nodes: [
         { id: 'obj-1',  name: 'Reduce stockout rate',    description: some('Strategic target for FY26.'),      type: variant('objective', null) },
         { id: 'kpi-1',  name: 'Fill rate (weekly)',      description: some('Orders fulfilled / total.'),       type: variant('kpi',       null) },
@@ -90,9 +90,9 @@ export const supplyChainOntologyInput = e3.input('supply_chain_ontology', Ontolo
         updated: new Date('2026-06-12T00:00:00Z'),
         description: some('Supply-chain operations ontology — fulfilment leg.'),
     }),
-});
+}));
 
-export const tradingCycleOntologyInput = e3.input('trading_cycle_ontology', OntologyType, {
+export const tradingCycleOntologyInput = e3.input('trading_cycle_ontology', OntologyType, variant('value', {
     nodes: [
         { id: 'tc-obj',   name: 'Grow operating profit',    description: some('FY27 north star.'),                       type: variant('objective', null) },
         { id: 'tc-kpi-m', name: 'Gross margin %',           description: some('Weekly, by product family.'),             type: variant('kpi',       null) },
@@ -152,7 +152,7 @@ export const tradingCycleOntologyInput = e3.input('trading_cycle_ontology', Onto
         updated: new Date('2026-06-12T00:00:00Z'),
         description: some('Buy → make → sell with the working-capital cycle closed.'),
     }),
-});
+}));
 
 // ============================================================================
 // 1. Supply-chain ontology — the fulfilment leg as a graph.

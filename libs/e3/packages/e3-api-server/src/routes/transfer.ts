@@ -5,23 +5,20 @@
 
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { mkdir, readFile, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { mkdir, stat, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { variant, NullType, beast2HasIndex, isVariant, toEastTypeValue, type EastTypeValue } from '@elaraai/east';
+import { variant, NullType } from '@elaraai/east';
 import { urlPathToTreePath } from '@elaraai/e3-types';
 import {
-  computeHash,
-  workspaceGetDatasetStatus,
-  workspaceSetDatasetByHash,
+  DatasetTypeMismatchError,
+  datasetAdoptFile,
+  datasetAdoptObject,
   type StorageBackend,
   type TransferBackend,
 } from '@elaraai/e3-core';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
+import { datasetStagingDir, datasetStagingPath } from '../staging.js';
 import { TransferUploadRequestType, TransferUploadResponseType, TransferDoneResponseType } from '../types.js';
-
-const STAGING_DIR = join(tmpdir(), 'e3-transfers');
 
 /**
  * Create dataset transfer routes.
@@ -93,10 +90,13 @@ export function createTransferRoutes(
     const pathStr = extractDatasetPath(c, '/upload');
     const { hash, size } = await decodeBody(c, TransferUploadRequestType);
 
-    // Dedup check — object already verified when originally stored
+    // Dedup — the bytes are already an object, so no upload is needed. The
+    // object is not necessarily THIS dataset's type though (it may have been
+    // stored for another one), so the pairing is checked here: it is the only
+    // door that skips the commit.
     if (await storage.objects.exists(repoPath, hash)) {
       const treePath = urlPathToTreePath(pathStr);
-      await workspaceSetDatasetByHash(storage, repoPath, ws, treePath, hash, new Map());
+      await datasetAdoptObject(storage, repoPath, ws, treePath, hash);
       return sendSuccess(TransferUploadResponseType, variant('completed', null));
     }
 
@@ -104,8 +104,9 @@ export function createTransferRoutes(
     const transferId = randomUUID();
     await transferBackend.datasetUpload.create(transferId, { repo, workspace: ws, path: pathStr, hash, size });
 
-    // Create staging slot in OS temp dir
-    await mkdir(STAGING_DIR, { recursive: true });
+    // Create the staging slot under the repo, so the commit's adopt is a
+    // same-device link or rename rather than a whole-file copy.
+    await mkdir(datasetStagingDir(repoPath), { recursive: true });
 
     const uploadUrl = await transferBackend.datasetUpload.getUploadUrl(transferId, repo, hash);
     // Resolve relative URL against the request origin
@@ -121,47 +122,38 @@ export function createTransferRoutes(
     }
 
     const repoPath = getRepoPath(transfer.repo);
-    const stagingPath = join(STAGING_DIR, `${id}.beast2.partial`);
+    const stagingPath = datasetStagingPath(repoPath, id);
 
     try {
-      // Read from staging to verify size and hash
-      const data = await readFile(stagingPath);
-
-      if (BigInt(data.byteLength) !== transfer.size) {
+      // The staged file is never read whole: its size comes from `stat`, its
+      // digest from a streamed hash, its declared type and paging index from
+      // two ranged reads, and it becomes an object by link or rename. A
+      // multi-gigabyte delivery therefore commits for the cost of its SHA-256.
+      const stats = await stat(stagingPath);
+      if (BigInt(stats.size) !== transfer.size) {
         await unlink(stagingPath).catch(() => {});
         return sendSuccess(TransferDoneResponseType,
-          variant('error', { message: `size mismatch: expected ${transfer.size}, got ${data.byteLength}` }));
+          variant('error', { message: `size mismatch: expected ${transfer.size}, got ${stats.size}` }));
       }
 
-      const actualHash = computeHash(data);
-
-      if (actualHash !== transfer.hash) {
-        await unlink(stagingPath).catch(() => {});
-        return sendSuccess(TransferDoneResponseType,
-          variant('error', { message: `hash mismatch: expected ${transfer.hash}, got ${actualHash}` }));
-      }
-
-      // The transfer path stores the client's bytes verbatim — the one place
-      // un-indexed bytes could enter at rest. Collection datasets must be
-      // segmented + indexed (the uniform at-rest contract), so validate here.
       const treePath = urlPathToTreePath(transfer.path);
-      const status = await workspaceGetDatasetStatus(storage, repoPath, transfer.workspace, treePath);
-      const typeValue: EastTypeValue = isVariant(status.datasetType)
-        ? status.datasetType
-        : toEastTypeValue(status.datasetType as never);
-      const collection = typeValue.type === 'Array' || typeValue.type === 'Set' || typeValue.type === 'Dict';
-      if (collection && !beast2HasIndex(data)) {
+      try {
+        await datasetAdoptFile(storage, repoPath, transfer.workspace, treePath, stagingPath, {
+          expectHash: transfer.hash,
+        });
+      } catch (err) {
         await unlink(stagingPath).catch(() => {});
+        if (err instanceof DatasetTypeMismatchError) {
+          return sendError(TransferDoneResponseType, variant('dataset_type_mismatch', {
+            workspace: transfer.workspace,
+            path: err.path,
+            message: err.message,
+          }));
+        }
         return sendSuccess(TransferDoneResponseType,
-          variant('error', { message: 'collection dataset blob carries no paging index — encode it with encodeBeast2PagedFor (collection datasets are stored segmented + indexed)' }));
+          variant('error', { message: err instanceof Error ? err.message : String(err) }));
       }
-
-      // Write through storage abstraction (re-hashes internally, that's fine)
-      await storage.objects.write(repoPath, data);
       await unlink(stagingPath).catch(() => {});
-
-      // Update dataset ref
-      await workspaceSetDatasetByHash(storage, repoPath, transfer.workspace, treePath, actualHash, new Map());
 
       return sendSuccess(TransferDoneResponseType, variant('completed', null));
     } finally {

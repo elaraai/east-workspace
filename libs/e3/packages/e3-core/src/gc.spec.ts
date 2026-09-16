@@ -94,7 +94,7 @@ describe('gc', () => {
   describe('with package refs', () => {
     it('retains objects referenced by packages', async () => {
       // Create and import a package
-      const myInput = e3.input('greeting', StringType, 'hello');
+      const myInput = e3.input('greeting', StringType, variant('value', 'hello'));
       const pkg = e3.package('gc-test', '1.0.0', myInput);
       const zipPath = join(tempDir, 'gc-test.zip');
       await e3.export(pkg, zipPath);
@@ -325,7 +325,7 @@ describe('gc', () => {
           ]),
         },
         functions: new Map(),
-        records: new Map(),
+        records: new Map(), sources: new Map(),
       } as PackageObject));
 
       // Create a package ref pointing to the package
@@ -356,7 +356,7 @@ describe('gc', () => {
           refs: new Map(),
         },
         functions: new Map(),
-        records: new Map(),
+        records: new Map(), sources: new Map(),
       } as PackageObject));
 
       // Unreachable orphan object
@@ -535,7 +535,7 @@ describe('gc', () => {
           refs: new Map(),
         },
         functions: new Map(),
-        records: new Map(),
+        records: new Map(), sources: new Map(),
       } as PackageObject);
       const pkgHash = 'a'.repeat(64);
 

@@ -37,15 +37,18 @@ function incompressibleString(byteLength: number): string {
   return chars.join('');
 }
 
-import { StringType, encodeBeast2For, decodeBeast2For } from '@elaraai/east';
+import { BlobType, IntegerType, StringType, encodeBeast2For, decodeBeast2For } from '@elaraai/east';
 import { variant } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE, computeHash } from '@elaraai/e3-core';
 import {
+  ApiError,
   packageImport,
   workspaceCreate,
   workspaceDeploy,
   datasetGet,
+  datasetGetStatus,
   datasetSet,
+  datasetSetStream,
 } from '@elaraai/e3-api-client';
 
 import type { TestContext } from '../context.js';
@@ -171,6 +174,75 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       assert.strictEqual(response.headers.get('Content-Type'), 'application/json');
       const body = await response.json() as { error: { type: string; message: string } };
       assert.strictEqual(body.error.type, 'object_not_found');
+    });
+
+    it('refuses an inline PUT whose wire type is not the declared type', async (t) => {
+      const ctx = await withStringPackage(t);
+      const opts = await ctx.opts();
+      const path = [variant('field', 'inputs'), variant('field', 'config')];
+      const before = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'transfer-ws', path, opts);
+
+      // `inputs.config` declares String; the body carries an Integer.
+      await assert.rejects(
+        () => datasetSet(ctx.config.baseUrl, ctx.repoName, 'transfer-ws', path, encodeBeast2For(IntegerType)(42n), opts),
+        (err: unknown) => {
+          assert.ok(err instanceof ApiError);
+          assert.strictEqual(err.code, 'dataset_type_mismatch');
+          const details = err.details as { path: string; message: string };
+          assert.strictEqual(details.path, '.inputs.config');
+          assert.match(details.message, /dataset '\.inputs\.config' declares \.String but the value carries \.Integer/);
+          return true;
+        }
+      );
+      const after = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'transfer-ws', path, opts);
+      assert.deepStrictEqual(after.hash, before.hash, 'a refused PUT leaves the dataset where it was');
+    });
+
+    it('refuses a transfer whose staged bytes carry another type, with the same error', async (t) => {
+      const ctx = await withStringPackage(t);
+      const opts = await ctx.opts();
+      const path = [variant('field', 'inputs'), variant('field', 'config')];
+
+      // Over the inline threshold, so it takes the upload + commit path; a
+      // Blob of incompressible bytes stays over it after deflate.
+      const bytes = new TextEncoder().encode(incompressibleString(1_100_002));
+      const data = encodeBeast2For(BlobType)(bytes);
+      assert.ok(data.byteLength > 1024 * 1024);
+
+      await assert.rejects(
+        () => datasetSet(ctx.config.baseUrl, ctx.repoName, 'transfer-ws', path, data, opts),
+        (err: unknown) => {
+          assert.ok(err instanceof ApiError);
+          assert.strictEqual(err.code, 'dataset_type_mismatch');
+          assert.match((err.details as { message: string }).message, /declares \.String but .* carries \.Blob/);
+          return true;
+        }
+      );
+    });
+
+    it('streams a dataset from a body stream, landing on the bytes\' own hash', async (t) => {
+      const ctx = await withStringPackage(t);
+      const opts = await ctx.opts();
+      const path = [variant('field', 'inputs'), variant('field', 'config')];
+
+      const data = encodeBeast2For(StringType)(incompressibleString(1_200_000));
+      const hash = computeHash(data);
+      await datasetSetStream(ctx.config.baseUrl, ctx.repoName, 'transfer-ws', path, {
+        size: data.byteLength,
+        hash,
+        body: () => new ReadableStream<Uint8Array>({
+          start(controller) {
+            // Several chunks, as a file stream delivers them.
+            for (let at = 0; at < data.byteLength; at += 256 * 1024) {
+              controller.enqueue(data.subarray(at, Math.min(data.byteLength, at + 256 * 1024)));
+            }
+            controller.close();
+          },
+        }),
+      }, opts);
+
+      const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'transfer-ws', path, opts);
+      assert.deepStrictEqual(status.hash, variant('some', hash));
     });
 
     it('small dataset SET still uses inline PUT', async (t) => {

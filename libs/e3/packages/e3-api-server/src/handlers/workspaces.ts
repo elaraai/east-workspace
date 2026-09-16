@@ -234,7 +234,15 @@ export async function deployWorkspace(
       return sendError(NullType, errorToVariant(new Error(`Package not found: ${pkgName}`)));
     }
 
-    await workspaceDeploy(storage, repoPath, workspace, pkgName, pkgVersion);
+    // A path-initialised input names a path on the DEVELOPER's machine, which
+    // this server cannot read. Leaving it unassigned with a warning is correct
+    // here: `e3 workspace deploy <url> --from-source` completes those inputs
+    // over the dataset transfer protocol immediately afterwards, and the
+    // server's commit runs the same validation. A type MISMATCH still fails —
+    // that is a broken package, not a missing file.
+    await workspaceDeploy(storage, repoPath, workspace, pkgName, pkgVersion, {
+      sourceWarning: (message) => console.warn(`[deploy ${workspace}] ${message}`),
+    });
     return sendSuccess(NullType, null);
   } catch (err) {
     return sendError(NullType, errorToVariant(err));

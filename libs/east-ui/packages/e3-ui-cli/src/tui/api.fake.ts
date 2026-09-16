@@ -391,6 +391,9 @@ export class FakeApi implements Api {
                 refType: stored === undefined ? 'unassigned' : 'value',
                 hash: stored !== undefined ? some(stored.hash) : none,
                 size: stored !== undefined ? some(BigInt(stored.bytes.length)) : none,
+                // The fake does not model stored geometry.
+                segments: none,
+                rows: none,
             };
         });
     }

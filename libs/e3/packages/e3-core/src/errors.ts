@@ -10,6 +10,7 @@
  * with `if (err instanceof E3Error)` or specific errors with their class.
  */
 
+import type { DatasetTypeMismatch } from '@elaraai/e3-types';
 import type { TaskExecutionResult } from './dataflow.js';
 
 // =============================================================================
@@ -192,6 +193,27 @@ export class DatasetRefConflictError extends E3Error {
       `Dataset ref '${path}' in workspace '${workspace}' changed concurrently ` +
       `(expected revision ${expectedRevision ?? '<absent>'}, found ${actualRevision ?? '<absent>'})`
     );
+  }
+}
+
+/**
+ * Thrown by every door into a dataset when the bytes' wire type is not the type
+ * the dataset declares.
+ *
+ * @remarks
+ * Raised before any object is written, so a refused write leaves the store
+ * untouched. The message is built once, in `checkDatasetType`, so the SDK's
+ * export, `workspaceSetDataset`, `datasetAdoptFile`, the API `PUT` and the
+ * transfer commit all report a mismatch identically — declared type, given
+ * type, and the first position they differ at.
+ */
+export class DatasetTypeMismatchError extends E3Error {
+  constructor(
+    public readonly workspace: string,
+    public readonly path: string,
+    public readonly mismatch: DatasetTypeMismatch
+  ) {
+    super(mismatch.message);
   }
 }
 

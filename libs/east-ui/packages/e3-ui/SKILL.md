@@ -42,12 +42,12 @@ Nothing is injected for you; the search is the step.
 
 ```tsx
 /** @jsxImportSource @elaraai/e3-ui */
-import { East, FloatType } from '@elaraai/east';
+import { East, FloatType, variant } from '@elaraai/east';
 import { Reactive, Slider, UIComponentType } from '@elaraai/east-ui';
 import { ui, Data } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
 
-const threshold = e3.input('threshold', FloatType, 50.0);
+const threshold = e3.input('threshold', FloatType, variant('value', 50.0));
 
 // A UI task: reactive binding to a workspace dataset, no compute-time inputs.
 const dashboard = ui('dashboard', [], East.function([], UIComponentType, (_$) => (

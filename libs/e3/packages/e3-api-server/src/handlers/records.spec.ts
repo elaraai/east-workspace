@@ -82,6 +82,7 @@ async function seedDeployedRecord(storage: InMemoryStorage): Promise<void> {
     data: { structure, refs: new Map([['records/counter', variant('value', { hash: stateHash, versions: new Map() })]]) },
     functions: new Map(),
     records: new Map([['counter', recHash]]),
+    sources: new Map(),
   }));
 
   await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceStateType)({

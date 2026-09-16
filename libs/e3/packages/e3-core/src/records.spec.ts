@@ -441,7 +441,7 @@ describe('records', () => {
 
   it('redeploy without the record drops it (record removed)', async () => {
     await recordMutate(storage, successRunner(encodeInt(4n)), repo, ws, 'counter', 'increment', [encodeInt(4n)], { actor: 'x' });
-    const noRecord = e3.package('counters', '3.0.0', e3.input('greeting', StringType, 'hi'));
+    const noRecord = e3.package('counters', '3.0.0', e3.input('greeting', StringType, variant('value', 'hi')));
     const zip3 = join(tempDir, 'counters-norecord.zip');
     await e3.export(noRecord, zip3);
     await packageImport(storage, repo, zip3);

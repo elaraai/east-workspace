@@ -16,6 +16,7 @@
 
 import type { EastType, EastIR, AsyncEastIR, ValueTypeOf, variant } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
+import type { DatasetSource } from './input.js';
 import type { Runner } from './runner.js';
 import type { EnvironmentDecl } from './environment.js';
 
@@ -52,8 +53,27 @@ export interface DatasetDef<T extends EastType = EastType, Path extends TreePath
   readonly path: Path;
   /** East type of the dataset value */
   readonly type: T;
-  /** Optional default value (only for input datasets) */
+  /**
+   * An inline initial value that travels IN the package.
+   *
+   * @remarks
+   * Not the input surface any more — `e3.input` writes {@link source}. This
+   * stays for the two internal inline-value uses: a task's `function_ir`
+   * dataset (an `EastIR` bundle) and `record()`'s initial state. Neither is
+   * path-initialisable.
+   */
   readonly default?: ValueTypeOf<T>;
+  /**
+   * Where the initial value comes from, for an input declared with
+   * `e3.input(name, type, source)`.
+   *
+   * @remarks
+   * A `value` source is exported exactly like {@link default} was. A `file`
+   * source leaves the package ref `unassigned` and records a descriptor in
+   * `PackageObjectType.sources`, which deploy resolves — the bytes never travel
+   * in the bundle.
+   */
+  readonly source?: DatasetSource<T>;
   /** Whether this dataset can be written to by users */
   readonly writable: boolean;
   /** Dependencies: all trees, datasets and tasks this dataset depends on */

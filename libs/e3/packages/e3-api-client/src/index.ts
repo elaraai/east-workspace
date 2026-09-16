@@ -108,6 +108,8 @@ export {
   datasetGetStatus,
   datasetFindKey,
   datasetSet,
+  datasetSetStream,
+  type DatasetTransferSource,
   type DatasetPage,
   type DatasetPageWindow,
   type DatasetFindQuery,

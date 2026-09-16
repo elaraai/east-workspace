@@ -14,8 +14,10 @@
  * copy; at most the two edge segments of each co-partitioned secondary are
  * re-encoded) → runs each partition as an ordinary content-addressed
  * execution through the standard runner path → assembles the output by byte
- * splice (validating the canonical shard order) or by folding partials
- * pairwise through combine executions.
+ * splice (validating the canonical shard order), by a k-way SEGMENT MERGE of
+ * keyed partials that may collide (`partitionMerge.ts` — byte-copying every
+ * segment no other partial reaches, decoding only the overlaps), or by folding
+ * partials pairwise through combine executions.
  *
  * Because each per-partition execution is content-addressed by
  * `(taskHash, inputsHash([functionIr, ...slices, ...broadcast]))` and
@@ -42,6 +44,7 @@ import {
 } from '@elaraai/east';
 import type { EastTypeValue } from '@elaraai/east';
 import { PartitionBlob, bufferPart, spliceChunks, type SplicePart } from './partitionIo.js';
+import { mergePartialsBySegments, type MergeResolve } from './partitionMerge.js';
 import {
   decodePartitionTaskMetadata,
   type ExecutionStatus,
@@ -371,11 +374,31 @@ export async function partitionTaskExecute(
   }
 
   // ---------------------------------------------------------------------
-  // Fan in: fold partials pairwise (combine mode) or splice shards in
-  // partition order (splice mode).
+  // Fan in: merge keyed partials segment by segment (merge mode), fold
+  // partials pairwise (combine mode), or splice shards in partition order
+  // (splice mode).
   // ---------------------------------------------------------------------
   let outputHash: string;
-  if (meta.combine.type === 'some') {
+  if (meta.merge.type === 'some' || meta.mergeSets) {
+    try {
+      let resolve: MergeResolve | null = null;
+      if (meta.merge.type === 'some') {
+        // Compiled in-process, exactly as the `by` projection is: the
+        // orchestrator calls it only for keys two partials both carry.
+        resolve = decodeEastIR(meta.merge.value).compile([]) as MergeResolve;
+      }
+      progress?.({ phase: 'combine', index: 0, total: 1, state: 'started' });
+      const mergeStart = Date.now();
+      const partials: PartitionBlob[] = [];
+      for (const r of results) {
+        partials.push(await PartitionBlob.open(storage, repo, r!.outputHash!));
+      }
+      outputHash = await mergePartialsBySegments(storage, repo, partials, resolve);
+      progress?.({ phase: 'combine', index: 0, total: 1, state: 'completed', cached: false, duration: Date.now() - mergeStart });
+    } catch (err) {
+      return errorResult(`Failed to merge partition partials: ${err instanceof Error ? err.message : err}`);
+    }
+  } else if (meta.combine.type === 'some') {
     // Combine steps are ordinary executions too: the combine IR is the
     // execution's input 0 (exactly as function_ir is for body executions),
     // so re-aggregation is memoized along the unchanged side of the tree.

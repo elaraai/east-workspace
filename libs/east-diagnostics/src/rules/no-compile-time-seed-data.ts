@@ -142,28 +142,53 @@ function isHostFilled(sym: ts.Symbol, ctx: RuleContext): boolean {
   return filled;
 }
 
-// `e3.input(name, type, seed?)` declares a WRITABLE dataset; the optional 3rd arg
-// is only a default/genesis value, overwritten the moment anything writes to the
-// dataset. It must therefore be a small AUTHORED CONSTANT — a literal, an
-// empty/literal Map/Set/array/struct, or an East value (`variant`/`some`/`none`/
-// `East.value`) — or omitted. Computing it from build-time data (a `new Map()`
-// filled by host `for`-loops over parsed CSV, or an object literal of `num(cfg.x)`
-// calls) bakes a non-portable, non-reactive snapshot into the deployed program.
-// Real/bulk data belongs at RUNTIME: a `BlobType` input parsed with
-// `blob.decodeCsv(...)` inside an `e3.task`, a platform `FileSystem.readFile` in a
-// task, or `e3.record(...)` + `e3.mutation` for set-once root state.
+/**
+ * The inline seed of an `e3.input` source argument, or `undefined` when there is
+ * none to judge.
+ *
+ * The third argument is a source variant: `variant('value', seed)` carries an
+ * inline seed, while `variant('file', path)` carries no data at all — the file is
+ * adopted at deploy, which is exactly where bulk data belongs, so it is never
+ * flagged. A source this rule cannot see into (an
+ * identifier holding a whole variant, a non-`@elaraai/east` `variant`) is left
+ * silent, like any opaque seed.
+ */
+function inlineSeed(sourceArg: ts.Expression, ctx: RuleContext): ts.Expression | undefined {
+  const t = ctx.ts;
+  if (!t.isCallExpression(sourceArg)) return undefined;
+  const callee = sourceArg.expression;
+  if (!t.isIdentifier(callee) || callee.text !== "variant" || !resolvesToEastImport(callee, ctx.checker, t)) return undefined;
+  const [tag, payload] = sourceArg.arguments;
+  if (tag === undefined || !t.isStringLiteralLike(tag) || tag.text !== "value") return undefined;
+  return payload;
+}
+
+// `e3.input(name, type, source?)` declares a WRITABLE dataset; an inline
+// `variant('value', seed)` source is only a genesis value, overwritten the moment
+// anything writes to the dataset. The seed must therefore be a small AUTHORED
+// CONSTANT — a literal, an empty/literal Map/Set/array/struct, or an East value
+// (`variant`/`some`/`none`/`East.value`) — or omitted. Computing it from
+// build-time data (a `new Map()` filled by host `for`-loops over parsed CSV, or an
+// object literal of `num(cfg.x)` calls) bakes a non-portable, non-reactive
+// snapshot into the deployed program. Real/bulk data belongs outside the package:
+// a `variant('file', path)` source (adopted by hash at deploy), a `BlobType` input
+// parsed with `blob.decodeCsv(...)` inside an `e3.task`, a platform
+// `FileSystem.readFile` in a task, or `e3.record(...)` + `e3.mutation` for set-once
+// root state.
 export const noCompileTimeSeedData: EastRule = {
   name: NAME,
   code: CODE,
   description:
-    "Flag host-computed data passed as the seed (3rd arg) of e3.input — the default must be a small authored constant; load real data at runtime.",
+    "Flag host-computed data passed as the inline seed (variant('value', …)) of e3.input — it must be a small authored constant; load real data from a file source or at runtime.",
   check(node, ctx) {
     const t = ctx.ts;
     if (!t.isCallExpression(node) || !isE3InputCall(node, ctx)) return;
     if (insideBlockScope(node, ctx)) return; // e3.input only legitimately appears at module scope
 
-    const seedArg = node.arguments[2];
-    if (seedArg === undefined) return; // no default — value arrives at runtime (correct)
+    const sourceArg = node.arguments[2];
+    if (sourceArg === undefined) return; // no source — value arrives at runtime (correct)
+    const seedArg = inlineSeed(sourceArg, ctx);
+    if (seedArg === undefined) return; // a file source, or one this rule cannot see into
 
     // Resolve an identifier seed to its initializer; keep the symbol so we can see
     // whether an authored-empty collection is then host-filled. An opaque seed
@@ -193,7 +218,7 @@ export const noCompileTimeSeedData: EastRule = {
     fire(
       ctx,
       seedArg,
-      `Host-computed data passed as the \`e3.input("${name}", …)\` seed bakes a build-time snapshot into the deployed program — ${reason}. The default (3rd arg) must be a small AUTHORED CONSTANT (a literal, an empty/literal Map/Set/array/struct, or an East value \`variant\`/\`some\`/\`none\`/\`East.value\`) or omitted. Load real/bulk data at RUNTIME: put the bytes in a \`BlobType\` input and parse with \`blob.decodeCsv(...)\` inside an \`e3.task\`, read files in a task via a platform \`FileSystem.readFile\`, or use \`e3.record(...)\` + \`e3.mutation\` for set-once root state.`,
+      `Host-computed data passed as the \`e3.input("${name}", …)\` seed bakes a build-time snapshot into the deployed program — ${reason}. An inline \`variant('value', …)\` seed must be a small AUTHORED CONSTANT (a literal, an empty/literal Map/Set/array/struct, or an East value \`variant\`/\`some\`/\`none\`/\`East.value\`), or the source omitted. Keep real/bulk data out of the package: deliver it as a beast2 file and declare \`variant('file', path)\` (adopted by hash at deploy), put the bytes in a \`BlobType\` input and parse with \`blob.decodeCsv(...)\` inside an \`e3.task\`, read files in a task via a platform \`FileSystem.readFile\`, or use \`e3.record(...)\` + \`e3.mutation\` for set-once root state.`,
     );
   },
 };

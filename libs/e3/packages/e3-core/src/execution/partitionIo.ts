@@ -109,6 +109,36 @@ export class PartitionBlob {
     return (await this.pagesAt(segment)).segment(0);
   }
 
+  /** Memo for {@link lastKey}: decoding the last segment once is the cost. */
+  private lastKeyMemo: { value: unknown } | null = null;
+
+  /**
+   * The blob's greatest element (Array/Set) or key (Dict) — the last element
+   * of its last segment.
+   *
+   * @remarks
+   * The one bound the index does not carry: a segment's keys are bounded above
+   * by the NEXT segment's fence, which the last segment does not have. Costs
+   * one decode, once per blob.
+   *
+   * @returns the last element or key, or `undefined` for an empty blob
+   */
+  async lastKey(): Promise<unknown> {
+    if (this.lastKeyMemo) return this.lastKeyMemo.value;
+    const count = this.extents.offsets.length;
+    let last: unknown;
+    if (count > 0) {
+      const segment = await this.segmentValue(count - 1);
+      if (segment instanceof Map) {
+        for (const key of segment.keys()) last = key;
+      } else {
+        for (const element of segment as Iterable<unknown>) last = element;
+      }
+    }
+    this.lastKeyMemo = { value: last };
+    return last;
+  }
+
   /**
    * A splice part covering segments `[fromSegment, toSegment)` of this blob,
    * streamed as ranged chunks.
@@ -123,6 +153,7 @@ export class PartitionBlob {
     const start = toSegment > fromSegment ? extents.offsets[fromSegment]! : 0;
     const end = toSegment > fromSegment ? segmentEnd(extents, toSegment - 1) : 0;
     return {
+      kind: 'span',
       head: extents.head,
       selfContained: extents.selfContained,
       offsets: extents.offsets.slice(fromSegment, toSegment).map((o) => o - start),
@@ -143,6 +174,11 @@ export class PartitionBlob {
  * bytes as a chunk stream.
  */
 export interface SplicePart {
+  /** How the part's frame bytes were obtained: `span` copies them from a
+   *  stored blob's frames untouched, `rebuilt` re-encoded a decoded batch.
+   *  The segment merge's whole claim is how FEW parts are rebuilt, so the
+   *  distinction is part of the contract, not an implementation detail. */
+  readonly kind: 'span' | 'rebuilt';
   /** The source blob's `[0, prefixEnd)` bytes — every part of a splice must
    *  carry byte-identical header sections. */
   readonly head: Uint8Array;
@@ -171,6 +207,7 @@ export interface SplicePart {
 export function bufferPart(blob: Uint8Array): SplicePart {
   const extents = readBeast2Extents(blob);
   return {
+    kind: 'rebuilt',
     head: blob.subarray(0, extents.prefixEnd),
     selfContained: extents.selfContained,
     offsets: extents.offsets.map((o) => o - extents.prefixEnd),
@@ -207,20 +244,31 @@ function bytesEqual(a: Uint8Array, b: Uint8Array, length: number): boolean {
  *   neighbouring part's containers after the splice) — the same refusals as
  *   {@link spliceBeast2}.
  */
-export async function* spliceChunks(head: Uint8Array, parts: readonly SplicePart[]): AsyncIterable<Uint8Array> {
-  for (let p = 0; p < parts.length; p++) {
-    const part = parts[p]!;
+export async function* spliceChunks(head: Uint8Array, parts: readonly SplicePart[] | AsyncIterable<SplicePart>): AsyncIterable<Uint8Array> {
+  const check = (part: SplicePart, index: number): void => {
     if (part.head.length !== head.length || !bytesEqual(part.head, head, head.length)) {
-      throw new Error(`beast2 v5: splice part ${p} has differing header sections — parts must share one wire type and source map`);
+      throw new Error(`beast2 v5: splice part ${index} has differing header sections — parts must share one wire type and source map`);
     }
     if (!part.selfContained) {
-      throw new Error(`beast2 v5: splice part ${p} has cross-segment aliasing — splice needs self-contained segments`);
+      throw new Error(`beast2 v5: splice part ${index} has cross-segment aliasing — splice needs self-contained segments`);
     }
-  }
+  };
+  // An array of parts is validated up front, so a bad part is reported before
+  // a byte is written. A LAZY source — the segment merge, which produces its
+  // rebuilt parts as it walks so they are never all resident — is validated
+  // part by part instead; the consumer is `objects.writeStream`, which stages
+  // and only names an object once the stream completes, so an abort mid-way
+  // still writes nothing.
+  const eager = Array.isArray(parts) ? (parts as readonly SplicePart[]) : null;
+  if (eager) eager.forEach(check);
+
   yield head;
   let pos = head.length;
+  let index = 0;
   const segments: { offset: number; count: number }[] = [];
-  for (const part of parts) {
+  for await (const part of eager ?? (parts as AsyncIterable<SplicePart>)) {
+    if (!eager) check(part, index);
+    index++;
     for (let i = 0; i < part.offsets.length; i++) {
       segments.push({ offset: part.offsets[i]! + pos, count: part.counts[i]! });
     }

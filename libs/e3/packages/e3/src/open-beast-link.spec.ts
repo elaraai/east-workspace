@@ -22,8 +22,7 @@ import * as path from 'node:path';
 import yauzl from 'yauzl';
 import {
   East, DictType, FunctionType, IntegerType, StringType, StructType,
-  decodeBeast2For, decodeEastIR, walkIR, IMPORT_PLATFORM,
-} from '@elaraai/east';
+  decodeBeast2For, decodeEastIR, walkIR, IMPORT_PLATFORM, variant } from '@elaraai/east';
 import { DatasetRefType } from '@elaraai/e3-types';
 import { export_ } from './export.js';
 import { package_ } from './package.js';
@@ -121,7 +120,7 @@ describe('FileSystem.openBeast links on every stock runner (#660)', () => {
 
   for (const runner of STOCK_RUNNERS) {
     it(`embeds the imported function for the ${runner.runtime} runner, its generic platform call intact`, async () => {
-      const file = input('file', StringType, 'rows.beast2');
+      const file = input('file', StringType, variant('value', 'rows.beast2'));
       const use = task('sum_rows', [file], East.function([StringType], IntegerType, ($, p) => tot(p)), { runner });
       const pkg = package_('importer', '1.0.0', use);
       const zipPath = path.join(tempDir, `importer-${runner.runtime}.zip`);
@@ -134,7 +133,7 @@ describe('FileSystem.openBeast links on every stock runner (#660)', () => {
   }
 
   it("refuses a runner whose packages do not provide the call, naming it", async () => {
-    const file = input('file', StringType, 'rows.beast2');
+    const file = input('file', StringType, variant('value', 'rows.beast2'));
     const use = task('sum_rows', [file], East.function([StringType], IntegerType, ($, p) => tot(p)), {
       runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-io'] },
     });

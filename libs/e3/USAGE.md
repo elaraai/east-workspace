@@ -25,11 +25,11 @@ e3 provides git-like task management with cryptographic content addressing, allo
 
 ```typescript
 // src/index.ts
-import { East, IntegerType, StringType } from '@elaraai/east';
+import { East, IntegerType, StringType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 
-// Define an input
-const name = e3.input('name', StringType, 'World');
+// Define an input, initialised with an inline value
+const name = e3.input('name', StringType, variant('value', 'World'));
 
 // Define a task that uses the input
 const greet = e3.task(
@@ -116,22 +116,44 @@ All objects (IR, data, results) are stored by SHA256 hash. This enables:
 
 ## SDK Reference
 
-### `e3.input(name, type, defaultValue?)`
+### `e3.input(name, type, source?)`
 
 Defines an input dataset. CLI users address it as `<ws>.${name}`; the on-disk storage path is `<ws>/inputs/${name}` but you never have to type that — the resolver handles the mapping.
 
+The third argument says where the initial value comes from, and is always a variant:
+
+- `variant('value', v)` — an inline value, carried in the package.
+- `variant('file', path)` — a beast2 file on the machine that deploys the package. Only the path travels in the package; `e3 workspace deploy` adopts the file into the object store **by hash** (a reflink, hard link or one kernel copy — the file is never read whole and never modified). Relative paths resolve against the working directory at export.
+- omitted — unassigned until set.
+
 ```typescript
-import { StringType, IntegerType, ArrayType } from '@elaraai/east';
+import { StringType, IntegerType, ArrayType, variant } from '@elaraai/east';
 
-// With default value
-const name = e3.input('name', StringType, 'World');
+// With an inline initial value
+const name = e3.input('name', StringType, variant('value', 'World'));
 
-// Without default (must be set before running)
+// Without one (must be set before running)
 const count = e3.input('count', IntegerType);
 
 // Complex types
-const items = e3.input('items', ArrayType(StringType), ['a', 'b', 'c']);
+const items = e3.input('items', ArrayType(StringType), variant('value', ['a', 'b', 'c']));
+
+// A large delivery: the file IS the value. A new delivery under the same path
+// is a new hash, so only its consumers re-run — and a partitionTask over it
+// re-runs only the partitions whose slices changed.
+const table = e3.input('table', ArrayType(RowType), variant('file', './deliveries/TABLE.beast2'));
 ```
+
+A `file` source is validated against the declared type at `e3.export` and
+again at deploy, before the workspace is touched: a missing file, a collection
+without a paging index, or a header whose type differs from the declared one
+fails with the input's name, both types and the first differing field.
+Deliveries are immutable by contract — the stored object may be a hard link to
+the file, so publish a new file rather than editing one in place.
+
+A bare third argument (`e3.input('name', StringType, 'World')`) is refused at
+definition time: once the type is `StringType`, a value and a path cannot be
+told apart.
 
 ### `e3.task(name, inputs, fn, config?)`
 
@@ -203,9 +225,9 @@ the partitioned input(s) into key-range slices (deterministically, from the
 dataset's segment index and the `targetPartitionBytes` knob), runs the body
 once per partition as an ordinary content-addressed execution — parallel,
 and memoized per partition — and assembles the one output dataset: shards
-splice in partition order, or partials fold pairwise when `combine` is
-given. The dataflow graph sees one task with one output, exactly like
-`e3.task`.
+splice in partition order, keyed partials merge segment by segment when
+`merge` is given, or partials fold pairwise when `combine` is given. The
+dataflow graph sees one task with one output, exactly like `e3.task`.
 
 ```typescript
 import { DictType, StringType, IntegerType } from '@elaraai/east';
@@ -230,6 +252,17 @@ const totals = e3.partitionTask('totals', {
     $.return(acc);
   },
 }, ($, slice) => /* aggregate the slice */ ...);
+
+// Keyed partials that may share keys: `merge` resolves a key present in two
+// partials. The orchestrator walks the partials' segments in key order,
+// byte-copies every segment no other partial reaches, and decodes only the
+// overlaps — no runner-side fold, so an append re-runs the changed partitions
+// plus the merge. A Set output takes `merge: 'union'`.
+const latest = e3.partitionTask('latest', {
+  partitions: [events],
+  output: DictType(StringType, EventType),
+  merge: ($, _key, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),
+}, ($, slice) => /* per-partition latest-by-entity */ ...);
 ```
 
 The body's parameters are the partition slices (each typed as its dataset's
@@ -238,9 +271,11 @@ leading prefix of every partitioned dataset's key — the key itself, one
 leading field, or a struct of leading fields in order — and is validated
 when the task is built. Two or more `partitions` entries co-partition
 same-keyed Dict/Set datasets at shared boundary keys (the reconcile/delta
-shape). Without `combine`, Dict/Set shard key ranges must ascend disjointly
-in partition order — key-preserving and monotone re-keying transforms
-qualify; anything else fails at splice naming the offending partitions.
+shape). Without `combine` or `merge`, Dict/Set shard key ranges must ascend
+disjointly in partition order — key-preserving and monotone re-keying
+transforms qualify; anything else fails at splice naming the offending
+partitions, and is what `merge` is for. `merge` and `combine` are mutually
+exclusive, and `merge` is refused on an Array output.
 
 Memoization is append-friendly: appends and tail-localized changes leave
 earlier slices byte-identical, so their executions are served from the
@@ -394,8 +429,9 @@ Dataset paths use the flat form `<ws>.<name>`. The CLI resolves `<name>` against
 ```bash
 e3 dataset get <repo> <ws.name> [-f east|json|beast2]
 e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
+e3 dataset set <repo> <ws.name> --from-file <path.beast2>   # Adopt a beast2 file by hash
 e3 dataset list <repo> <ws> [-l]                 # List paths (with -l for type/status/size table)
-e3 dataset status <repo> <ws.name>               # Kind, type, status, size for one dataset
+e3 dataset status <repo> <ws.name>               # Kind, type, status, size (+ segments/rows for a collection)
 e3 dataset find <repo> <ws> <pattern>            # Substring or glob (`*`, `?`) match
 ```
 
@@ -405,8 +441,19 @@ Examples:
 e3 dataset get . dev.name             # Read an input
 e3 dataset get . dev.greet            # Read a task output
 e3 dataset set . dev.name data.east   # Set an input from a file
+e3 dataset set . dev.table --from-file ./deliveries/TABLE.beast2   # Re-point an input at a delivery
 e3 dataset find . dev '*output*'      # Find names matching a glob
 ```
+
+Every set checks the value's type **equals** the dataset's declared type —
+not merely assignable, since runners decode by the declared type — and
+refuses a mismatch before anything is written, naming the dataset, both types
+and the first differing field. `--from-file` never decodes the file: its hash
+is streamed, its header is checked by two ranged reads, and it enters the
+object store by reflink, hard link or one kernel copy (against a remote
+repository it is streamed through the transfer protocol and checked the same
+way at the server's commit). `--type`/`--type-file` on a `.beast2` argument is
+checked against the file's own header rather than silently overriding it.
 
 The resolver gives `did you mean` suggestions on typos:
 

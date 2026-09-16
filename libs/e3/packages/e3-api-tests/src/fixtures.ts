@@ -14,7 +14,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import e3 from '@elaraai/e3';
-import { ArrayType, DictType, IntegerType, StringType, StructType, East } from '@elaraai/east';
+import { ArrayType, DictType, IntegerType, StringType, StructType, East, variant } from '@elaraai/east';
 import { Time } from '@elaraai/east-node-std';
 
 /**
@@ -36,7 +36,7 @@ export async function createPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const input = e3.input('value', IntegerType, 10n);
+  const input = e3.input('value', IntegerType, variant('value', 10n));
   const task = e3.task(
     'compute',
     [input],
@@ -70,7 +70,7 @@ export async function createKindsPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const input = e3.input('value', IntegerType, 10n);
+  const input = e3.input('value', IntegerType, variant('value', 10n));
   const compute = e3.task(
     'compute',
     [input],
@@ -111,7 +111,7 @@ export async function createFunctionPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const input = e3.input('value', IntegerType, 10n);
+  const input = e3.input('value', IntegerType, variant('value', 10n));
   const compute = e3.task(
     'compute',
     [input],
@@ -200,8 +200,8 @@ export async function createMultiInputPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const inputA = e3.input('a', IntegerType, 1n);
-  const inputB = e3.input('b', IntegerType, 2n);
+  const inputA = e3.input('a', IntegerType, variant('value', 1n));
+  const inputB = e3.input('b', IntegerType, variant('value', 2n));
   const task = e3.task(
     'add',
     [inputA, inputB],
@@ -237,9 +237,9 @@ export async function createTablePackageZip(
   mkdirSync(tempDir, { recursive: true });
 
   const RowType = StructType({ id: IntegerType, name: StringType });
-  const rows = e3.input('rows', ArrayType(RowType), []);
-  const lookup = e3.input('lookup', DictType(StringType, IntegerType), new Map());
-  const label = e3.input('label', StringType, 'x');
+  const rows = e3.input('rows', ArrayType(RowType), variant('value', []));
+  const lookup = e3.input('lookup', DictType(StringType, IntegerType), variant('value', new Map()));
+  const label = e3.input('label', StringType, variant('value', 'x'));
   const count = e3.task(
     'count',
     [rows, lookup, label],
@@ -272,7 +272,7 @@ export async function createStringPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const input = e3.input('config', StringType, 'default');
+  const input = e3.input('config', StringType, variant('value', 'default'));
   const task = e3.task(
     'echo',
     [input],
@@ -308,8 +308,8 @@ export async function createDiamondPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const inputA = e3.input('a', IntegerType, 10n);
-  const inputB = e3.input('b', IntegerType, 5n);
+  const inputA = e3.input('a', IntegerType, variant('value', 10n));
+  const inputB = e3.input('b', IntegerType, variant('value', 5n));
 
   const leftTask = e3.task(
     'left',
@@ -356,7 +356,7 @@ export async function createFailingPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const input = e3.input('value', StringType, 'test');
+  const input = e3.input('value', StringType, variant('value', 'test'));
   const task = e3.customTask(
     'failing',
     [input],
@@ -392,7 +392,7 @@ export async function createSlowPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const input = e3.input('value', StringType, 'test');
+  const input = e3.input('value', StringType, variant('value', 'test'));
   const task = e3.task(
     'slow',
     [input],
@@ -434,8 +434,8 @@ export async function createParallelMixedPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const inputA = e3.input('a', IntegerType, 3n);
-  const inputB = e3.input('b', IntegerType, 4n);
+  const inputA = e3.input('a', IntegerType, variant('value', 3n));
+  const inputB = e3.input('b', IntegerType, variant('value', 4n));
 
   const succeedA = e3.task(
     'succeed_a',
@@ -488,8 +488,8 @@ export async function createFailingDiamondPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const inputA = e3.input('a', IntegerType, 10n);
-  const inputB = e3.input('b', IntegerType, 5n);
+  const inputA = e3.input('a', IntegerType, variant('value', 10n));
+  const inputB = e3.input('b', IntegerType, variant('value', 5n));
 
   const leftTask = e3.task(
     'left',
@@ -541,7 +541,7 @@ export async function createWideParallelPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const input = e3.input('value', IntegerType, 7n);
+  const input = e3.input('value', IntegerType, variant('value', 7n));
   const fn = (multiplier: bigint) =>
     East.function([IntegerType], IntegerType, ($, x) => x.multiply(multiplier));
 
@@ -582,7 +582,7 @@ export async function createSlowDiamondPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const input = e3.input('x', IntegerType, 1n);
+  const input = e3.input('x', IntegerType, variant('value', 1n));
 
   // Left: sleep then x*2
   const leftTask = e3.task(

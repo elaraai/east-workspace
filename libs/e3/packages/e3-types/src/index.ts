@@ -126,6 +126,8 @@ export {
   type PackageData,
   PackageObjectType,
   type PackageObject,
+  DatasetSourceWireType,
+  type DatasetSourceWire,
   decodePackageObject,
   // Backwards compatibility
   PackageDatasetsType,
@@ -190,6 +192,14 @@ export {
   encodeDatasetBlob,
 } from './dataset-blob.js';
 
+// The ONE declared-type-vs-wire-type check, shared by every door a value
+// enters a dataset through (the export, the set, the adopt, the API)
+export {
+  checkDatasetType,
+  datasetAddress,
+  type DatasetTypeMismatch,
+} from './dataset-type.js';
+
 // Wire format constants
 export { BEAST2_CONTENT_TYPE } from './constants.js';
 
@@ -212,6 +222,7 @@ export {
   PermissionDeniedErrorType,
   InternalErrorType,
   RepositoryNotFoundErrorType,
+  DatasetTypeMismatchErrorType,
   ErrorType,
   ResponseType,
   // Repository

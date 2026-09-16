@@ -156,6 +156,13 @@ export function parsePackageSpec(spec: string): { name: string; version: string 
  */
 export function formatError(err: unknown): string {
   if (err instanceof ApiError) {
+    // A type mismatch carries the one line every door renders (declared type,
+    // given type, first differing field). Print it verbatim, so a remote
+    // `e3 dataset set` reports exactly what a local one does.
+    if (err.code === 'dataset_type_mismatch') {
+      const detail = err.details as { message?: unknown } | undefined;
+      if (typeof detail?.message === 'string') return detail.message;
+    }
     // Humanize the error code: "execution_not_found" → "Execution not found"
     const message = err.code.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
     if (err.details != null) {

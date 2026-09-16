@@ -4,7 +4,7 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, type ExprType } from "@elaraai/east";
+import { ArrayType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, variant, type ExprType } from "@elaraai/east";
 import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -44,7 +44,7 @@ describeEast("Data", (test) => {
     test("Data.bind exposes a read closure inside Reactive.Root", $ => {
         // The def carries the (statically-known) path and type — manifest
         // derivation preloads the path from the bind's literal IR node.
-        const x = e3.input("x", FloatType, 0.0);
+        const x = e3.input("x", FloatType, variant("value", 0.0));
         const root = $.let(Reactive.Root(East.function([], UIComponentType, $ => {
             const bound = $.let(Data.bind(x));
             const value = $.let(bound.read());
@@ -54,7 +54,7 @@ describeEast("Data", (test) => {
     });
 
     test("Data.bind exposes a write closure inside Reactive.Root", $ => {
-        const x = e3.input("x", FloatType, 0.0);
+        const x = e3.input("x", FloatType, variant("value", 0.0));
         const root = $.let(Reactive.Root(East.function([], UIComponentType, $ => {
             const bound = $.let(Data.bind(x));
             const reset = $.const(East.function([], NullType, $ => {
@@ -67,7 +67,7 @@ describeEast("Data", (test) => {
 
     test("Data.bindPaged exposes page + total closures typed from the DatasetDef", $ => {
         const Row = StructType({ id: StringType, v: FloatType });
-        const rows = e3.input("paged_rows", ArrayType(Row), []);
+        const rows = e3.input("paged_rows", ArrayType(Row), variant("value", []));
         const root = $.let(Reactive.Root(East.function([], UIComponentType, $ => {
             const paged = $.let(Data.bindPaged(rows));
             // page(offset, limit) is Option<Array<Row>>; total() is Option<Integer>.
@@ -84,7 +84,7 @@ describeEast("Data", (test) => {
     });
 
     test("Data.bind(def) takes path and type from the DatasetDef", $ => {
-        const threshold = e3.input("threshold", FloatType, 38.0);
+        const threshold = e3.input("threshold", FloatType, variant("value", 38.0));
         const root = $.let(Reactive.Root(East.function([], UIComponentType, $ => {
             const bound = $.let(Data.bind(threshold));
             // read() is Float (from the def's type); write type-checks too.

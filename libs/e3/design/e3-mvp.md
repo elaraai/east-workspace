@@ -460,11 +460,11 @@ const ml = $.import("east-python/ml");
 Packages are defined in TypeScript using the e3 SDK:
 
 ```typescript
-import { ArrayType } from '@elaraai/east';
+import { ArrayType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 
 // Input dataset at .inputs.sales
-const sales = e3.input("sales", ArrayType(...), /* default value goes here */);
+const sales = e3.input("sales", ArrayType(...), variant('value', /* default value goes here */));
 
 // Define a task - creates .tasks.train.function_ir and .tasks.train.output
 const train = e3.task("train", [sales], ($, salesData) => {

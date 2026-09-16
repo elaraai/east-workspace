@@ -257,7 +257,7 @@ async function seedDataset(storage: InMemoryStorage, blob: Uint8Array, name: str
     tasks: new Map(),
     data: { structure, refs: new Map([[`inputs/${name}`, variant('value', { hash, versions: new Map() })]]) },
     functions: new Map(),
-    records: new Map(),
+    records: new Map(), sources: new Map(),
   }));
   await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceStateType)({
     packageName: 'pages', packageVersion: '1.0.0', packageHash: pkgHash, deployedAt: new Date(0), currentRunId: none,

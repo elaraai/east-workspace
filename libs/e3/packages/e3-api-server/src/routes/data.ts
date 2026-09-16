@@ -5,6 +5,9 @@
 
 import { Hono } from 'hono';
 import { mkdir, writeFile, readFile, unlink } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { variant } from '@elaraai/east';
@@ -14,6 +17,7 @@ import {
   type StorageBackend,
   type TransferBackend,
 } from '@elaraai/e3-core';
+import { datasetStagingDir, datasetStagingPath } from '../staging.js';
 
 const STAGING_DIR = join(tmpdir(), 'e3-transfers');
 
@@ -60,10 +64,18 @@ export function createDataEndpoints(
     // Try dataset upload first
     const dsRecord = await transferBackend.datasetUpload.get(id);
     if (dsRecord) {
-      const stagingPath = join(STAGING_DIR, `${id}.beast2.partial`);
-      const body = new Uint8Array(await c.req.arrayBuffer());
-      await mkdir(STAGING_DIR, { recursive: true });
-      await writeFile(stagingPath, body);
+      // Streamed to the repo's own staging area: a delivery can be far larger
+      // than this process's heap, and the commit turns the staged file into an
+      // object by link or rename — which only works on the repo's device.
+      const repoPath = getRepoPath(dsRecord.repo);
+      const stagingPath = datasetStagingPath(repoPath, id);
+      await mkdir(datasetStagingDir(repoPath), { recursive: true });
+      const stream = c.req.raw.body;
+      if (stream) {
+        await pipeline(Readable.fromWeb(stream as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(stagingPath));
+      } else {
+        await writeFile(stagingPath, new Uint8Array(await c.req.arrayBuffer()));
+      }
       return new Response(null, { status: 200 });
     }
 

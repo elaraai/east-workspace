@@ -69,6 +69,15 @@ export const DataflowErrorType = StructType({ message: StringType });
 export const PermissionDeniedErrorType = StructType({ path: StringType });
 export const InternalErrorType = StructType({ message: StringType });
 export const RepositoryNotFoundErrorType = StructType({ repo: StringType });
+/** A write refused at the door because the bytes' wire type is not the type the
+ *  dataset declares. `message` is the shared one-line rendering (declared type,
+ *  given type, first differing field) so a remote `e3 dataset set` prints the
+ *  line a local one does. */
+export const DatasetTypeMismatchErrorType = StructType({
+  workspace: StringType,
+  path: StringType,
+  message: StringType,
+});
 
 export const ErrorType = VariantType({
   repository_not_found: RepositoryNotFoundErrorType,
@@ -87,6 +96,9 @@ export const ErrorType = VariantType({
   dataflow_aborted: NullType,
   permission_denied: PermissionDeniedErrorType,
   internal: InternalErrorType,
+  // Appended last: BEAST2 encodes a variant case by index, so a case added at
+  // the end leaves every existing payload decodable.
+  dataset_type_mismatch: DatasetTypeMismatchErrorType,
 });
 
 // =============================================================================
@@ -725,6 +737,12 @@ export const DatasetStatusDetailType = StructType({
   refType: StringType,
   hash: OptionType(StringType),
   size: OptionType(IntegerType),
+  /** Segment and element counts of a stored collection, read from the blob's
+   *  trailing index — so a re-pointed input is inspectable without decoding
+   *  it. `none` for a non-collection or an unset dataset. Appended LAST, per
+   *  the positional struct rule. */
+  segments: OptionType(IntegerType),
+  rows: OptionType(IntegerType),
 });
 
 // =============================================================================

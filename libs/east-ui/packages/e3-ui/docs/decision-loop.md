@@ -319,7 +319,7 @@ export const RosterConstraint = VariantType({
     blackout:      StructType({ person: StringType, from: DateTimeType, to: DateTimeType }),
 });
 export const judgements = e3.input('roster_judgements',
-    DictType(StringType, Decision.Types.JudgementInput(RosterConstraint)), new Map());
+    DictType(StringType, Decision.Types.JudgementInput(RosterConstraint)), variant('value', new Map()));
 ```
 
 `JudgementInputType` is generic over the constraint variant (the

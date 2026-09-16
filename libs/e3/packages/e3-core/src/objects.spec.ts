@@ -218,7 +218,6 @@ describe('objects', () => {
       chunks.forEach((chunk, i) => whole.set(chunk, i * 16 * 1024));
 
       const store = new LocalObjectStore();
-      // eslint-disable-next-line @typescript-eslint/require-await
       async function* generate(): AsyncIterable<Uint8Array> {
         yield* chunks;
       }
@@ -232,7 +231,6 @@ describe('objects', () => {
 
     it('cleans its staging file when the chunk stream throws', async () => {
       const store = new LocalObjectStore();
-      // eslint-disable-next-line @typescript-eslint/require-await
       async function* failing(): AsyncIterable<Uint8Array> {
         yield new Uint8Array([1, 2, 3]);
         throw new Error('source failed');

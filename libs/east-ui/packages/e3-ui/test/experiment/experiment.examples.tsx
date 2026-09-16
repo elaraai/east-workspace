@@ -13,10 +13,10 @@
  * and the honesty verdict is `causal`.
  *
  * Pattern (the real, interactive shape — not a mock):
- *   1. `e3.input('batches', Array(BatchRow), [...])` — the **input dataset**. The
+ *   1. `e3.input('batches', Array(BatchRow), variant('value', [...]))` — the **input dataset**. The
  *      renderer introspects this row struct to drive the treatment / outcome /
  *      confounder pickers, exactly like `Table`.
- *   2. `e3.input('experiment_configs', Array(Configuration), [...])` — the list of
+ *   2. `e3.input('experiment_configs', Array(Configuration), variant('value', [...]))` — the list of
  *      **questions**. Each entry is self-contained: a full `spec`
  *      ({@link Experiment.Types.Config}) and an OPTIONAL precomputed `result`
  *      (+ `design`). Selecting one seeds the working config.
@@ -55,7 +55,7 @@ export const BatchRow = StructType({
     run_date: DateTimeType,        // suggested-but-unused column
 });
 
-export const batchesInput = e3.input('batches', ArrayType(BatchRow), [
+export const batchesInput = e3.input('batches', ArrayType(BatchRow), variant('value', [
     { slow_cure: false, bond_strength: 9.0, incoming_grade: 9.0, mix_viscosity: 24.1, supplier: 0n, line: 'A', product: 'panel', run_date: new Date('2026-05-02') },
     { slow_cure: false, bond_strength: 8.6, incoming_grade: 8.5, mix_viscosity: 24.0, supplier: 0n, line: 'B', product: 'panel', run_date: new Date('2026-05-03') },
     { slow_cure: false, bond_strength: 8.2, incoming_grade: 8.0, mix_viscosity: 24.2, supplier: 1n, line: 'A', product: 'panel', run_date: new Date('2026-05-04') },
@@ -68,7 +68,7 @@ export const batchesInput = e3.input('batches', ArrayType(BatchRow), [
     { slow_cure: true, bond_strength: 5.7, incoming_grade: 3.5, mix_viscosity: 24.5, supplier: 0n, line: 'B', product: 'panel', run_date: new Date('2026-05-11') },
     { slow_cure: true, bond_strength: 5.3, incoming_grade: 3.0, mix_viscosity: 24.9, supplier: 1n, line: 'A', product: 'panel', run_date: new Date('2026-05-12') },
     { slow_cure: true, bond_strength: 4.8, incoming_grade: 2.5, mix_viscosity: 24.7, supplier: 1n, line: 'B', product: 'panel', run_date: new Date('2026-05-13') },
-]);
+]));
 
 // ============================================================================
 // Estimator — ONE pure-East fixture returning the full numeric contract inline,
@@ -161,7 +161,7 @@ export const designFn = e3.function('design',
 // ============================================================================
 
 /** A single question, no precomputed answer — the estimator auto-runs on select. */
-export const experimentConfigsInput = e3.input('experiment_configs', ArrayType(Experiment.Types.Configuration), [
+export const experimentConfigsInput = e3.input('experiment_configs', ArrayType(Experiment.Types.Configuration), variant('value', [
     {
         id: 'cure_strength', label: 'Slow cure → bond strength',
         spec: {
@@ -181,10 +181,10 @@ export const experimentConfigsInput = e3.input('experiment_configs', ArrayType(E
         ]),
         group: none, result: none, design: none,
     },
-]);
+]));
 
 /** Three vetted questions — the curated menu (no precomputed answers; each runs live). */
-export const experimentMenuConfigsInput = e3.input('experiment_menu_configs', ArrayType(Experiment.Types.Configuration), [
+export const experimentMenuConfigsInput = e3.input('experiment_menu_configs', ArrayType(Experiment.Types.Configuration), variant('value', [
     {
         id: 'cure_strength', label: 'Slow cure → bond strength',
         spec: {
@@ -213,10 +213,10 @@ export const experimentMenuConfigsInput = e3.input('experiment_menu_configs', Ar
         },
         population: none, group: none, result: none, design: none,
     },
-]);
+]));
 
 /** Curated, precomputed — the question carries its answer inline; no estimator needed. */
-export const experimentPrecomputedConfigsInput = e3.input('experiment_precomputed_configs', ArrayType(Experiment.Types.Configuration), [
+export const experimentPrecomputedConfigsInput = e3.input('experiment_precomputed_configs', ArrayType(Experiment.Types.Configuration), variant('value', [
     {
         id: 'cure_strength', label: 'Slow cure → bond strength',
         spec: {
@@ -356,14 +356,14 @@ export const experimentPrecomputedConfigsInput = e3.input('experiment_precompute
             rationale: 'Controlling for line shrinks the effect to +3.1 MPa, so a confirming trial needs ~320 batches (even split), matched on incoming grade, supplier and line, for 80% power (α = 0.05).',
         }),
     },
-]);
+]));
 
 // ============================================================================
 // Journal — committed experiments (newest first). The verdict is STORED on each
 // row (not recomputed); the renderer derives only its colour/word from it.
 // ============================================================================
 
-export const experimentJournalInput = e3.input('experiment_journal', Experiment.Types.Journal, [
+export const experimentJournalInput = e3.input('experiment_journal', Experiment.Types.Journal, variant('value', [
     {
         config: {
             treatment: 'slow_cure', outcome: 'bond_strength', common_causes: ['incoming_grade', 'mix_viscosity', 'supplier'],
@@ -386,7 +386,7 @@ export const experimentJournalInput = e3.input('experiment_journal', Experiment.
         committed_at: new Date('2026-06-09T08:00:00Z'), committed_by: 'M. Kerr',
         preset: none,
     },
-]);
+]));
 
 // ============================================================================
 // Scenes
@@ -622,7 +622,7 @@ export const experimentPrecomputed = example({
 // put a curve on it).
 // ============================================================================
 
-export const experimentPositivityConfigsInput = e3.input('experiment_positivity_configs', ArrayType(Experiment.Types.Configuration), [
+export const experimentPositivityConfigsInput = e3.input('experiment_positivity_configs', ArrayType(Experiment.Types.Configuration), variant('value', [
     {
         id: 'cure_strength_overlap', label: 'Slow cure → bond strength (no overlap)',
         spec: {
@@ -656,9 +656,9 @@ export const experimentPositivityConfigsInput = e3.input('experiment_positivity_
         }),
         design: none,
     },
-]);
+]));
 
-export const experimentNotEstimableConfigsInput = e3.input('experiment_not_estimable_configs', ArrayType(Experiment.Types.Configuration), [
+export const experimentNotEstimableConfigsInput = e3.input('experiment_not_estimable_configs', ArrayType(Experiment.Types.Configuration), variant('value', [
     {
         id: 'deal_strength', label: 'Special batch flag → bond strength (44-unit arm)',
         spec: {
@@ -691,7 +691,7 @@ export const experimentNotEstimableConfigsInput = e3.input('experiment_not_estim
         }),
         design: none,
     },
-]);
+]));
 
 /** The two REFUSALS side-by-side. Positivity: no like-for-like comparison
  *  exists; the Answer tab renders the back-to-back propensity histogram

@@ -28,12 +28,17 @@ import {
   workspaceRemove as workspaceRemoveRemote,
   workspaceStatus as workspaceStatusRemote,
   packageImport as packageImportRemote,
+  datasetGetStatus as datasetGetStatusRemote,
+  datasetSetStream,
   ApiError,
 } from '@elaraai/e3-api-client';
-import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { createReadStream, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { stat as statAsync } from 'node:fs/promises';
+import { Readable } from 'node:stream';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import e3 from '@elaraai/e3';
+import e3, { readDatasetFileHeader, sha256File } from '@elaraai/e3';
+import type { DatasetDef, PackageItem } from '@elaraai/e3';
 import { parseRepoLocation, parsePackageSpec, formatError, exitError } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
 import { createProgress, formatBytes, type Progress } from '../progress.js';
@@ -506,11 +511,60 @@ async function deployFromSource(
     }
     captureStep.done(`captured package ${pkg.name}@${pkg.version}`);
     await deployFromZip(location, ws, tempZip, progress);
+    await completeRemoteFileSources(location, ws, pkg, progress);
   } finally {
     try {
       unlinkSync(tempZip);
     } catch {
       // Ignore cleanup errors
+    }
+  }
+}
+
+/**
+ * Finish a REMOTE deploy's path-initialised inputs, by streaming each file.
+ *
+ * @remarks
+ * A `file` source names a path on the DEVELOPER's machine, which the server
+ * cannot read — so the server-side deploy leaves those inputs unassigned with a
+ * warning, and this completes them over the dataset transfer protocol. The
+ * server's commit runs the same validation a local deploy's adopt does, so the
+ * outcome is identical either way; the transfer also dedups on the hash, so a
+ * redeploy whose delivery has not changed costs one round trip and no bytes.
+ *
+ * A local deploy resolves its own sources inside `workspaceDeploy` and never
+ * reaches here.
+ */
+async function completeRemoteFileSources(
+  location: Awaited<ReturnType<typeof parseRepoLocation>>,
+  ws: string,
+  pkg: { contents: readonly PackageItem[] },
+  progress: Progress,
+): Promise<void> {
+  if (location.type === 'local') return;
+  const fileInputs = pkg.contents.filter(
+    (item): item is DatasetDef => item.kind === 'dataset' && item.source?.type === 'file'
+  );
+  for (const item of fileInputs) {
+    const file = path.resolve(process.cwd(), (item.source as { value: string }).value);
+    const pathSpec = `${ws}.${item.name}`;
+    const step = progress.step(`uploading ${item.name} from ${file}`);
+    try {
+      const declared = await datasetGetStatusRemote(
+        location.baseUrl, location.repo, ws, item.path, { token: location.token }
+      );
+      const { size } = await statAsync(file);
+      readDatasetFileHeader(file, `input '${item.name}'`, declared.type);
+      const hash = await sha256File(file);
+      await datasetSetStream(
+        location.baseUrl, location.repo, ws, item.path,
+        { size, hash, body: () => Readable.toWeb(createReadStream(file)) as ReadableStream<Uint8Array> },
+        { token: location.token },
+      );
+      step.done(`uploaded ${pathSpec} (${formatBytes(size)}, ${hash.slice(0, 12)}...)`);
+    } catch (err) {
+      step.fail();
+      throw err;
     }
   }
 }

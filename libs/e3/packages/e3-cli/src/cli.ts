@@ -216,9 +216,10 @@ program
       .description('Set a dataset value from a file (path: <ws>.<name>)')
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<path>', 'Dataset path (<ws>.<name>)')
-      .argument('<file>', 'Path to .east, .beast2, .json, or .csv file')
+      .argument('[file]', 'Path to .east, .beast2, .json, or .csv file')
       .option('--type <typespec>', 'Inline .east type specification (required for .json/.csv)')
       .option('--type-file <path>', 'Read .east type specification from a file (alternative to --type)')
+      .option('--from-file <path>', 'Adopt an existing .beast2 file by hash — the file is never read whole and never modified')
       .action(withDefaultRepo(setCommand))
   )
   .addCommand(

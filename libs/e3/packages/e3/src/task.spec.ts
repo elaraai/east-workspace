@@ -14,7 +14,7 @@ import { input } from './input.js';
 describe('task', () => {
   describe('type inference', () => {
     it('accepts single input dataset', () => {
-      const name_input = input('name', StringType, 'World');
+      const name_input = input('name', StringType, variant('value', 'World'));
 
       const greet = task(
         'greet',
@@ -32,8 +32,8 @@ describe('task', () => {
     });
 
     it('accepts multiple input datasets with different types', () => {
-      const name_input = input('name', StringType, 'World');
-      const count_input = input('count', IntegerType, 1n);
+      const name_input = input('name', StringType, variant('value', 'World'));
+      const count_input = input('count', IntegerType, variant('value', 1n));
 
       const repeat_greet = task(
         'repeat_greet',
@@ -50,9 +50,9 @@ describe('task', () => {
     });
 
     it('accepts three input datasets', () => {
-      const a_input = input('a', StringType, 'a');
-      const b_input = input('b', IntegerType, 1n);
-      const c_input = input('c', FloatType, 1.0);
+      const a_input = input('a', StringType, variant('value', 'a'));
+      const b_input = input('b', IntegerType, variant('value', 1n));
+      const c_input = input('c', FloatType, variant('value', 1.0));
 
       const combine = task(
         'combine',
@@ -69,10 +69,10 @@ describe('task', () => {
     });
 
     it('accepts four input datasets (tuple type preservation)', () => {
-      const a_input = input('a', StringType, 'a');
-      const b_input = input('b', IntegerType, 1n);
-      const c_input = input('c', FloatType, 1.0);
-      const d_input = input('d', StringType, 'd');
+      const a_input = input('a', StringType, variant('value', 'a'));
+      const b_input = input('b', IntegerType, variant('value', 1n));
+      const c_input = input('c', FloatType, variant('value', 1.0));
+      const d_input = input('d', StringType, variant('value', 'd'));
 
       const combine_four = task(
         'combine_four',
@@ -94,7 +94,7 @@ describe('task', () => {
         age: IntegerType,
       });
 
-      const person_input = input('person', PersonType, { name: 'Alice', age: 30n });
+      const person_input = input('person', PersonType, variant('value', { name: 'Alice', age: 30n }));
 
       const describe_person = task(
         'describe_person',
@@ -112,7 +112,7 @@ describe('task', () => {
 
   describe('task chaining', () => {
     it('allows using task output as input to another task', () => {
-      const name_input = input('name', StringType, 'World');
+      const name_input = input('name', StringType, variant('value', 'World'));
 
       const greet = task(
         'greet',
@@ -141,8 +141,8 @@ describe('task', () => {
     });
 
     it('allows mixing inputs and task outputs', () => {
-      const name_input = input('name', StringType, 'World');
-      const suffix_input = input('suffix', StringType, '!');
+      const name_input = input('name', StringType, variant('value', 'World'));
+      const suffix_input = input('suffix', StringType, variant('value', '!'));
 
       const greet = task(
         'greet',
@@ -171,7 +171,7 @@ describe('task', () => {
 
   describe('async functions', () => {
     it('accepts an async function', () => {
-      const name_input = input('name', StringType, 'World');
+      const name_input = input('name', StringType, variant('value', 'World'));
 
       const greet = task(
         'greet',
@@ -190,8 +190,8 @@ describe('task', () => {
     });
 
     it('accepts async function with multiple inputs', () => {
-      const name_input = input('name', StringType, 'World');
-      const count_input = input('count', IntegerType, 1n);
+      const name_input = input('name', StringType, variant('value', 'World'));
+      const count_input = input('count', IntegerType, variant('value', 1n));
 
       const repeat_greet = task(
         'repeat_greet',
@@ -210,7 +210,7 @@ describe('task', () => {
 
   describe('task structure', () => {
     it('creates correct output path', () => {
-      const name_input = input('name', StringType, 'World');
+      const name_input = input('name', StringType, variant('value', 'World'));
 
       const greet = task(
         'my_task',
@@ -230,7 +230,7 @@ describe('task', () => {
     });
 
     it('includes function_ir as first input', () => {
-      const name_input = input('name', StringType, 'World');
+      const name_input = input('name', StringType, variant('value', 'World'));
 
       const greet = task(
         'greet',
@@ -247,7 +247,7 @@ describe('task', () => {
     });
 
     it('preserves custom runner config', () => {
-      const name_input = input('name', StringType, 'World');
+      const name_input = input('name', StringType, variant('value', 'World'));
 
       const greet = task(
         'greet',
@@ -471,7 +471,7 @@ describe('partitionTask', () => {
   });
 
   it('rejects non-collection partitions and mixed-kind co-partitioning', () => {
-    const scalar = input('scalar', IntegerType, 1n);
+    const scalar = input('scalar', IntegerType, variant('value', 1n));
     const sales = input('sales', DictType(SaleKeyType, IntegerType));
     const skus = input('skus', SetType(StringType));
     const rows = input('rows', ArrayType(IntegerType));
@@ -595,7 +595,7 @@ describe('partitionTask', () => {
         partitions: [sales],
         output: TotalType,
       }, ($, slice) => $.return({ total: slice.size() })),
-      /without `combine`, each partition returns a shard of the output and the shards splice in partition order — the output must be a collection \(Array, Set or Dict\), got Struct/,
+      /without `combine`, each partition returns a shard of the output and the shards splice \(or, with `merge`, merge\) in key order — the output must be a collection \(Array, Set or Dict\), got Struct/,
     );
 
     const folded = partitionTask('struct_combine', {
@@ -604,6 +604,70 @@ describe('partitionTask', () => {
       combine: ($, a, b) => $.return({ total: a.total.add(b.total) }),
     }, ($, slice) => $.return({ total: slice.size() }));
     assert.strictEqual(folded.taskKind, TASK_KIND_PARTITION);
+  });
+});
+
+describe('partitionTask merge', () => {
+  const RowType = StructType({ id: IntegerType, name: StringType });
+  const events = input('merge_events', DictType(IntegerType, RowType));
+
+  it('encodes a Dict merge function as IR, and the Set union as a flag', () => {
+    const byId = partitionTask('merge_by_id', {
+      partitions: [events],
+      output: DictType(IntegerType, RowType),
+      merge: ($, _key, a, _b) => $.return(a),
+    }, ($, slice) => $.return(slice));
+    const dictMeta = decodePartitionTaskMetadata(byId.metadata!);
+    assert.strictEqual(dictMeta.merge.type, 'some');
+    assert.strictEqual(dictMeta.mergeSets, false);
+    assert.strictEqual(dictMeta.combine.type, 'none');
+    // The bundle is the (Key, Value, Value) -> Value the orchestrator compiles.
+    const bundle = decodeEastIR(dictMeta.merge.type === 'some' ? dictMeta.merge.value : new Uint8Array());
+    const resolve = bundle.compile([]) as (k: bigint, a: unknown, b: unknown) => unknown;
+    const left = { id: 1n, name: 'left' };
+    assert.deepStrictEqual(resolve(1n, left, { id: 1n, name: 'right' }), left);
+
+    const ids = partitionTask('merge_ids', {
+      partitions: [events],
+      output: SetType(IntegerType),
+      merge: 'union',
+    }, ($, slice) => $.return(slice.keys()));
+    const setMeta = decodePartitionTaskMetadata(ids.metadata!);
+    assert.strictEqual(setMeta.merge.type, 'none');
+    assert.strictEqual(setMeta.mergeSets, true);
+  });
+
+  it('refuses merge alongside combine, on the wrong output kind, or in the wrong form', () => {
+    assert.throws(
+      () => partitionTask('merge_and_combine', {
+        partitions: [events],
+        output: DictType(IntegerType, RowType),
+        merge: ($, _k, a, _b) => $.return(a),
+        combine: ($, a, _b) => $.return(a),
+      }, ($, slice) => $.return(slice)),
+      /partitionTask 'merge_and_combine': `merge` and `combine` are two assembly modes — give one/
+    );
+    // The next two are the shapes the static types already forbid; a caller
+    // outside TypeScript's reach (a JS author, an `any`) still gets a message
+    // naming the task, so they go through an untyped alias.
+    const untypedPartitionTask = partitionTask as unknown as (name: string, spec: object, fn: () => void) => unknown;
+    const takeLeft = (_$: unknown, _k: unknown, a: unknown) => a;
+    assert.throws(
+      () => untypedPartitionTask('merge_array', { partitions: [events], output: ArrayType(RowType), merge: takeLeft }, () => {}),
+      /partitionTask 'merge_array': a `merge` FUNCTION resolves a key present in two partials, so the output must be a Dict, got Array/
+    );
+    assert.throws(
+      () => untypedPartitionTask('merge_fn_on_set', { partitions: [events], output: SetType(IntegerType), merge: takeLeft }, () => {}),
+      /got Set — a Set output takes `merge: 'union'`/
+    );
+    assert.throws(
+      () => partitionTask('merge_union_on_dict', {
+        partitions: [events],
+        output: DictType(IntegerType, RowType),
+        merge: 'union',
+      }, ($, slice) => $.return(slice)),
+      /`merge: 'union'` assembles a Set output, got Dict — a Dict output takes a per-key merge function/
+    );
   });
 });
 
@@ -637,7 +701,7 @@ describe('streamTask', () => {
   });
 
   it('supports producer mode (no stream input) and dict emit', () => {
-    const limit = input('limit', IntegerType, 3n);
+    const limit = input('limit', IntegerType, variant('value', 3n));
 
     const producer = streamTask('ingest', {
       inputs: [limit],

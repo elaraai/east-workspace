@@ -47,6 +47,8 @@ export {
 // Persistence-free process helpers (shared by tracked + detached paths)
 export {
   marshalInputsToDir,
+  adoptOutputFile,
+  type MarshalInputsOptions,
   marshalBytesToDir,
   readOutputFile,
   buildRunnerArgv,

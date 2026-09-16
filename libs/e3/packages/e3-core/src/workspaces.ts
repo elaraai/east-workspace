@@ -21,8 +21,10 @@ import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, EastTypeType, type EastTypeValue } from '@elaraai/east';
+import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
 import { PackageObjectType, WorkspaceStateType, RecordObjectType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject, decodeTaskObject, decodeFunctionObject, EnvironmentSpecType, environmentSpecObjectHashes } from '@elaraai/e3-types';
-import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef, RecordCommit, Structure } from '@elaraai/e3-types';
+import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
+import { datasetAdoptFile } from './dataset-adopt.js';
 import { packageResolve, packageRead } from './packages.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
 import {
@@ -244,6 +246,18 @@ export interface WorkspaceDeployOptions {
    * will acquire and release a lock internally.
    */
   lock?: LockHandle;
+  /**
+   * Where to report a path-initialised input this process cannot read.
+   *
+   * @remarks
+   * Without it an unreadable `file` source fails the deploy, which is what a
+   * developer deploying locally wants. The API server passes one: the path in
+   * the package is the developer's, not the server's, and the CLI completes
+   * those inputs over the transfer protocol right after the deploy. A type
+   * MISMATCH always fails, sink or not — that is a broken package, not a
+   * missing file.
+   */
+  sourceWarning?: (message: string) => void;
 }
 
 /**
@@ -297,14 +311,18 @@ export async function workspaceDeploy(
 
     // Reject an incompatible (type-changed) redeploy BEFORE any destructive
     // write, so a doomed redeploy leaves the workspace fully intact rather than
-    // half-wiped with a torn state/data-dir mismatch.
+    // half-wiped with a torn state/data-dir mismatch. A path-initialised input
+    // whose delivery is missing or has drifted follows the same rule: every
+    // file source is validated here, before the wipe.
     await assertRecordTypesCompatible(storage, repo, pkg, priorRecords);
+    const sourceFiles = validateDatasetSources(pkg, options.sourceWarning);
 
     // Remove any existing dataset refs
     await storage.datasets.removeAll(repo, name);
 
     // Initialize per-dataset ref files from the package
     await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
+
 
     // Mint each new record's genesis ($init) commit, and restore any existing
     // record's committed state + history across a redeploy (errors if its type
@@ -321,12 +339,82 @@ export async function workspaceDeploy(
     };
 
     await writeState(storage, repo, name, state);
+
+    // Adopt every validated file source by hash, once the workspace names
+    // this package — the adopt resolves the dataset's declared type through
+    // the DEPLOYED structure, so it has to follow the state write. Each
+    // source was already validated above, before the wipe, so nothing here
+    // can fail on a bad delivery; only a delivery that vanished between the
+    // two points can, and that is an ordinary I/O error.
+    //
+    // The file IS the value, so a new delivery under the same path is a new
+    // hash: its consumers re-run and `partitionTask`'s per-partition
+    // memoization keeps the partitions whose slices did not move.
+    for (const [refPath, file] of sourceFiles) {
+      await datasetAdoptFile(storage, repo, name, treePathOfRefPath(refPath), file, { lock });
+    }
   } finally {
     // Only release the lock if we acquired it internally
     if (!externalLock) {
       await lock.release();
     }
   }
+}
+
+/** `inputs/table` back to the tree path the dataset APIs take. */
+function treePathOfRefPath(refPath: string): TreePath {
+  return refPath.split('/').map(segment => variant('field', segment));
+}
+
+/**
+ * Check every unresolved source in a package and return the `file` ones to
+ * adopt.
+ *
+ * @remarks
+ * Called BEFORE `datasets.removeAll`, for the reason
+ * {@link assertRecordTypesCompatible} is: a deploy that cannot succeed must
+ * leave the workspace exactly as it found it. A path this process cannot read
+ * is therefore a deploy error naming the input and the path — never a silently
+ * unassigned input — with one exception, the server-side half of a remote
+ * `--from-source` deploy, where the developer's path is genuinely not this
+ * machine's and the CLI completes the transfer afterwards; that caller passes a
+ * `sourceWarning` sink and gets a warning instead.
+ *
+ * @param pkg - The package being deployed
+ * @param warn - When given, an unreadable `file` source warns through this and
+ *   is left unassigned rather than failing the deploy
+ * @returns refPath -> absolute file path, for the sources to adopt
+ * @throws {DatasetTypeMismatchError} When a delivery's type has drifted
+ * @throws {Error} When a `file` source is unreadable (and no `warn` sink is
+ *   given)
+ */
+function validateDatasetSources(
+  pkg: PackageObject,
+  warn?: (message: string) => void,
+): Map<string, string> {
+  const files = new Map<string, string>();
+  for (const [refPath, source] of pkg.sources) {
+    const inputName = refPath.split('/').pop() ?? refPath;
+    const declared = datasetLeafType(pkg.data.structure, refPath);
+    if (!declared) {
+      throw new Error(`input '${inputName}': the package declares a source for '${refPath}', which is not a dataset`);
+    }
+    try {
+      readDatasetFileHeader(source.value.path, `input '${inputName}'`, declared);
+      files.set(refPath, source.value.path);
+    } catch (err) {
+      if (!warn || err instanceof DatasetFileTypeMismatchError) throw err;
+      warn(
+        `input '${inputName}' is left unassigned: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+  return files;
+}
+
+/** The East type of the dataset leaf at a refPath (e.g. `inputs/table`). */
+function datasetLeafType(structure: Structure, refPath: string): EastTypeValue | undefined {
+  return recordLeafType(structure, refPath);
 }
 
 const decodeRecordObject = decodeBeast2For(RecordObjectType);
@@ -555,6 +643,11 @@ export async function workspaceExport(
     },
     functions: deployedPkgObject.functions,
     records: deployedPkgObject.records,
+    // No sources: a workspace export carries the workspace's RESOLVED refs
+    // (`value { hash }` plus the object bytes), so a path-initialised input
+    // travels as an ordinary object and the exported package is self-contained
+    // on a machine that has never seen the delivery.
+    sources: new Map(),
   };
 
   // Encode and store the new package object

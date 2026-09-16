@@ -48,7 +48,7 @@ describe("ui()", () => {
     });
 
     test("compute-time inputs land in manifest paths", () => {
-        const threshold = input("threshold", FloatType, 100.0);
+        const threshold = input("threshold", FloatType, variant("value", 100.0));
         const dashboard = ui("dashboard", [threshold],
             East.function([FloatType], UIComponentType, (_$, _t) => Text.Root("hi"))
         );
@@ -59,7 +59,7 @@ describe("ui()", () => {
     });
 
     test("derives paths from Data.bind() usage", () => {
-        const threshold = input("threshold", FloatType, 100.0);
+        const threshold = input("threshold", FloatType, variant("value", 100.0));
         const dashboard = ui("dashboard", [], East.function([], UIComponentType, (_$) =>
             Reactive.Root(East.function([], UIComponentType, $ => {
                 const t = $.let(Data.bind(threshold));
@@ -78,8 +78,8 @@ describe("ui()", () => {
         // task may only window datasets it bound) but must NOT join `paths`,
         // which is the preload + poll list — preloading a paged source would
         // fetch the whole thing, the exact cost paging exists to avoid.
-        const ops = input("ops", ArrayType(StructType({ id: StringType })), []);
-        const threshold = input("threshold", FloatType, 100.0);
+        const ops = input("ops", ArrayType(StructType({ id: StringType })), variant("value", []));
+        const threshold = input("threshold", FloatType, variant("value", 100.0));
         const dashboard = ui("paged_dashboard", [], East.function([], UIComponentType, (_$) =>
             Reactive.Root(East.function([], UIComponentType, $ => {
                 const paged = $.let(Data.bindPaged(ops));
@@ -102,7 +102,7 @@ describe("ui()", () => {
     });
 
     test("compute-time inputs and reactive paths union without duplicates", () => {
-        const threshold = input("threshold", FloatType, 100.0);
+        const threshold = input("threshold", FloatType, variant("value", 100.0));
         const dashboard = ui("dashboard", [threshold],
             East.function([FloatType], UIComponentType, (_$, _t) =>
                 Reactive.Root(East.function([], UIComponentType, $ => {

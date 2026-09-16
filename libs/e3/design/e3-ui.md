@@ -366,12 +366,12 @@ const isUI = taskKindByOutput.get(datasetPath) === 'ui';
 ```typescript
 import e3 from '@elaraai/e3';
 import { ui, Data } from '@elaraai/e3-ui';
-import { East, FloatType, NullType } from '@elaraai/east';
+import { East, FloatType, NullType, variant } from '@elaraai/east';
 import { Reactive, State, Stack, Slider, Stat, Text, Button, UIComponentType } from '@elaraai/east-ui';
 
 // Data
-const sales = e3.input('sales', SalesType, defaults);
-const threshold = e3.input('threshold', FloatType, 100.0);
+const sales = e3.input('sales', SalesType, variant('value', defaults));
+const threshold = e3.input('threshold', FloatType, variant('value', 100.0));
 const summary = e3.task('summarize', [sales, threshold], summarizeFn);
 
 // UI

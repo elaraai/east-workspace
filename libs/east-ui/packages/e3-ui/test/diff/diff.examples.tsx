@@ -20,7 +20,7 @@
  *   7. Staged + patch datasets  → diffStagedPatchVariants
  *
  * Pattern:
- *   1. Declare an `e3.input(name, type, default)` per editable scalar.
+ *   1. Declare an `e3.input(name, type, variant('value', default))` per editable scalar.
  *   2. Inside `<Reactive>`, bind each via `Data.bind`.
  *   3. Wire form components — `read()` for the current value,
  *      `write()` on change.
@@ -61,17 +61,17 @@ import * as e3 from "@elaraai/e3";
 // ============================================================================
 
 // Workforce-policy scenario (sliders)
-export const maxWeeklyHoursInput      = e3.input("max_weekly_hours",         FloatType, 38.0);
-export const overtimeThresholdInput   = e3.input("overtime_threshold_hours", FloatType, 38.0);
-export const restGapHoursInput        = e3.input("mandatory_rest_gap_hours", FloatType, 12.0);
-export const holidayPenaltyInput      = e3.input("public_holiday_penalty",   FloatType, 1.5);
+export const maxWeeklyHoursInput      = e3.input("max_weekly_hours",         FloatType, variant('value', 38.0));
+export const overtimeThresholdInput   = e3.input("overtime_threshold_hours", FloatType, variant('value', 38.0));
+export const restGapHoursInput        = e3.input("mandatory_rest_gap_hours", FloatType, variant('value', 12.0));
+export const holidayPenaltyInput      = e3.input("public_holiday_penalty",   FloatType, variant('value', 1.5));
 
 // Service-config scenario (heterogeneous inputs)
-export const serviceNameInput   = e3.input("service_name",  StringType,   "auth-svc");
-export const replicasInput      = e3.input("replicas",      IntegerType,  3n);
-export const autoScaleInput     = e3.input("auto_scale",    BooleanType,  false);
-export const regionInput        = e3.input("region",        StringType,   "ap-southeast-2");
-export const deployAfterInput   = e3.input("deploy_after",  DateTimeType, new Date("2026-05-01T08:00:00Z"));
+export const serviceNameInput   = e3.input("service_name",  StringType,   variant('value', "auth-svc"));
+export const replicasInput      = e3.input("replicas",      IntegerType,  variant('value', 3n));
+export const autoScaleInput     = e3.input("auto_scale",    BooleanType,  variant('value', false));
+export const regionInput        = e3.input("region",        StringType,   variant('value', "ap-southeast-2"));
+export const deployAfterInput   = e3.input("deploy_after",  DateTimeType, variant('value', new Date("2026-05-01T08:00:00Z")));
 
 // Roster table scenario (single ArrayType<Struct> binding)
 const RosterEntryType = StructType({
@@ -81,42 +81,42 @@ const RosterEntryType = StructType({
     shiftLength:  IntegerType,
 });
 const RosterArrayType = ArrayType(RosterEntryType);
-export const rosterInput = e3.input("roster", RosterArrayType, [
+export const rosterInput = e3.input("roster", RosterArrayType, variant('value', [
     { id: "alice",   name: "Alice Chen",     rate: 32.50, shiftLength: 8n },
     { id: "bob",     name: "Bob Romero",     rate: 28.00, shiftLength: 8n },
     { id: "charlie", name: "Charlie Patel",  rate: 35.75, shiftLength: 10n },
     { id: "diana",   name: "Diana Wallace",  rate: 30.25, shiftLength: 8n },
-]);
+]));
 
 // Merge-conflict demo scenario — single Float; both bindStaged (for the user's
 // pending edit) and bindDirect (for the "simulate concurrent edit" button)
 // point at the same path so writes via the button drift the server view away
 // from the staged buffer's pinned snapshot.
-export const mergeDemoHoursInput = e3.input("merge_demo_hours", FloatType, 38.0);
+export const mergeDemoHoursInput = e3.input("merge_demo_hours", FloatType, variant('value', 38.0));
 
 // Pricing-rules scenario (mixed slider + integer/string input)
-export const listPriceInput      = e3.input("list_price",        FloatType,   49.95);
-export const discountPctInput    = e3.input("discount_pct",      FloatType,   10.0);
-export const minOrderQtyInput    = e3.input("min_order_qty",     IntegerType, 1n);
-export const currencyCodeInput   = e3.input("currency_code",     StringType,  "AUD");
+export const listPriceInput      = e3.input("list_price",        FloatType,   variant('value', 49.95));
+export const discountPctInput    = e3.input("discount_pct",      FloatType,   variant('value', 10.0));
+export const minOrderQtyInput    = e3.input("min_order_qty",     IntegerType, variant('value', 1n));
+export const currencyCodeInput   = e3.input("currency_code",     StringType,  variant('value', "AUD"));
 
 // Feature flags scenario (Set<String>)
 export const featureFlagsInput = e3.input(
     "feature_flags",
     SetType(StringType),
-    new Set<string>(["dark_mode", "experiments"]),
+    variant('value', new Set<string>(["dark_mode", "experiments"])),
 );
 
 // Regional pricing scenario (Dict<String, Float>)
 export const regionalPricesInput = e3.input(
     "regional_prices",
     DictType(StringType, FloatType),
-    new Map<string, number>([
+    variant('value', new Map<string, number>([
         ["AU", 49.95],
         ["US", 39.95],
         ["EU", 44.95],
         ["JP", 5499.0],
-    ]),
+    ])),
 );
 
 // Deployment status scenario (Variant)
@@ -129,7 +129,7 @@ const DeploymentStatusType = VariantType({
 export const deploymentStatusInput = e3.input(
     "deployment_status",
     DeploymentStatusType,
-    variant("pending", null),
+    variant('value', variant("pending", null)),
 );
 
 // ============================================================================
@@ -631,19 +631,19 @@ export const mergeConflictDemo = example({
 export const maxWeeklyHoursPatchInput = e3.input(
     "max_weekly_hours_patch",
     PatchType(FloatType),
-    variant("unchanged", null),
+    variant('value', variant("unchanged", null)),
 );
 
 export const regionalPricesPatchInput = e3.input(
     "regional_prices_patch",
     PatchType(DictType(StringType, FloatType)),
-    variant("unchanged", null),
+    variant('value', variant("unchanged", null)),
 );
 
 export const rosterPatchInput = e3.input(
     "roster_patch",
     PatchType(RosterArrayType),
-    variant("unchanged", null),
+    variant('value', variant("unchanged", null)),
 );
 
 // Drift-laden patch input — defaults to a non-trivial patch whose ops are
@@ -658,12 +658,12 @@ export const rosterPatchInput = e3.input(
 export const regionalPricesDriftPatchInput = e3.input(
     "regional_prices_drift_patch",
     PatchType(DictType(StringType, FloatType)),
-    variant("patch", new Map<string, { type: string; value: unknown }>([
+    variant('value', variant("patch", new Map<string, { type: string; value: unknown }>([
         ["MX", variant("delete", 99.0)],
         ["AU", variant("insert", 100.0)],
         ["US", variant("update", variant("replace", { before: 30.0, after: 25.0 }))],
         ["EU", variant("update", variant("replace", { before: 44.95, after: 39.95 }))],
-    ])),
+    ]))),
 );
 
 // Roster overlay drift — a patch over the array-of-structs source. Built with
@@ -685,7 +685,7 @@ const rosterDriftEdited = [
 export const rosterDriftPatchInput = e3.input(
     "roster_drift_patch",
     PatchType(RosterArrayType),
-    diffFor(RosterArrayType)(rosterDriftBase, rosterDriftEdited),
+    variant('value', diffFor(RosterArrayType)(rosterDriftBase, rosterDriftEdited)),
 );
 
 /**

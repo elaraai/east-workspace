@@ -21,10 +21,10 @@
  *
  * @example
  * ```ts
- * import { StringType } from '@elaraai/east';
+ * import { StringType, variant } from '@elaraai/east';
  * import e3 from '@elaraai/e3';
  *
- * const input_name = e3.input('name', StringType, 'World');
+ * const input_name = e3.input('name', StringType, variant('value', 'World'));
  *
  * const say_hello = e3.task(
  *   'say_hello',
@@ -121,4 +121,11 @@ export { tasksTree } from './task.js';
 export { type EnvironmentDecl, validateEnvironmentDecl } from './environment.js';
 export { captureEnvironment } from './environment-capture.js';
 export { sha256File, sha256Bytes, hashToPath } from './sha256.js';
+export {
+  readDatasetFileHeader,
+  readDatasetFileType,
+  DatasetFileTypeMismatchError,
+  type DatasetFileHeader,
+} from './dataset-file.js';
+export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';

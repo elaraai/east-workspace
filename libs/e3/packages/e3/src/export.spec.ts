@@ -10,7 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import yazl from 'yazl';
 import yauzl from 'yauzl';
-import { East, DictType, IntegerType, StringType, beast2HasIndex, decodeBeast2For, openBeast2PagesFor } from '@elaraai/east';
+import { East, DictType, IntegerType, StringType, beast2HasIndex, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, openBeast2PagesFor, variant } from '@elaraai/east';
 import { PackageObjectType, DatasetRefType, EnvironmentSpecType, decodePackageObject, decodeTaskObject, decodeFunctionObject } from '@elaraai/e3-types';
 import { addObject, export_ } from './export.js';
 import { package_ } from './package.js';
@@ -157,7 +157,7 @@ describe('export_', () => {
   });
 
   it('exports package with input dataset', async () => {
-    const myInput = input('greeting', StringType, 'hello');
+    const myInput = input('greeting', StringType, variant('value', 'hello'));
     const pkg = package_('input-pkg', '1.0.0', myInput);
     const zipPath = path.join(tempDir, 'input.zip');
 
@@ -198,7 +198,7 @@ describe('export_', () => {
   });
 
   it('produces identical output for same package', async () => {
-    const myInput = input('name', StringType, 'world');
+    const myInput = input('name', StringType, variant('value', 'world'));
     const pkg = package_('deterministic', '1.0.0', myInput);
 
     const zipPath1 = path.join(tempDir, 'deterministic1.zip');
@@ -249,7 +249,7 @@ describe('environment capture on export', () => {
   });
 
   it('rejects a mutable image reference at definition time', () => {
-    const greeting = input('greeting', StringType, 'hi');
+    const greeting = input('greeting', StringType, variant('value', 'hi'));
     assert.throws(
       () => task('bad_env', [greeting], East.function([StringType], StringType, (_$, g) => g), {
         environment: { image: { digest: 'example.com/img:latest' } },
@@ -259,7 +259,7 @@ describe('environment capture on export', () => {
   });
 
   it('captures a node environment into the bundle and stamps the task + function', async () => {
-    const greeting = input('greeting', StringType, 'hi');
+    const greeting = input('greeting', StringType, variant('value', 'hi'));
     const echo = task('echo', [greeting], East.function([StringType], StringType, (_$, g) => g), {
       environment: { node: { project: projectDir } },
     });
@@ -357,7 +357,7 @@ describe('collection defaults export PAGEABLE', () => {
     // wrote it — `dataset_not_indexed`, with no whole-decode fallback.
     const rows = new Map<string, bigint>();
     for (let i = 0; i < 40; i++) rows.set(`u${String(i).padStart(3, '0')}`, BigInt(i));
-    const units = input('units', DictType(StringType, IntegerType), rows);
+    const units = input('units', DictType(StringType, IntegerType), variant('value', rows));
     const zipPath = path.join(tempDir, 'paged.zip');
     await export_(package_('paged-pkg', '1.0.0', units), zipPath);
 
@@ -371,11 +371,124 @@ describe('collection defaults export PAGEABLE', () => {
   });
 
   it('a scalar default stays unsegmented — only collection roots are paged', async () => {
-    const greeting = input('greeting', StringType, 'hello');
+    const greeting = input('greeting', StringType, variant('value', 'hello'));
     const zipPath = path.join(tempDir, 'scalar.zip');
     await export_(package_('scalar-pkg', '1.0.0', greeting), zipPath);
 
     const blob = blobOf(await readZip(zipPath), 'data/inputs/greeting.ref');
     assert.ok(!beast2HasIndex(blob), 'a scalar root must not be segmented');
+  });
+});
+
+describe('path-initialised inputs (source variants)', () => {
+  let tempDir: string;
+  const RowsType = DictType(StringType, IntegerType);
+
+  before(async () => {
+    tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'e3-export-sources-'));
+  });
+  after(async () => {
+    await fs.promises.rm(tempDir, { recursive: true });
+  });
+
+  /** An indexed delivery of `n` rows at `name` in the temp dir. */
+  function delivery(name: string, n: number, type = RowsType): string {
+    const file = path.join(tempDir, name);
+    const rows = new Map<string, bigint>();
+    for (let i = 0; i < n; i++) rows.set(`k${String(i).padStart(4, '0')}`, BigInt(i));
+    fs.writeFileSync(file, encodeBeast2PagedFor(type as typeof RowsType, { batchSize: 8 })(rows));
+    return file;
+  }
+
+  /** The package object of an exported bundle. */
+  async function packageObjectOf(zipPath: string, name: string): Promise<ReturnType<typeof decodePackageObject>> {
+    const entries = await readZip(zipPath);
+    const ref = entries.get(`packages/${name}/1.0.0`)!.toString().trim();
+    return decodePackageObject(entries.get(`objects/${ref.slice(0, 2)}/${ref.slice(2)}.beast2`)!);
+  }
+
+  it('refuses a third argument that is not a source variant, at definition time', () => {
+    assert.throws(
+      () => input('bare', StringType, 'World' as never),
+      /e3\.input\('bare'\): the third argument is a source — variant\('value', v\) or variant\('file', path\)/
+    );
+    assert.throws(
+      () => input('other', StringType, variant('other', 'x') as never),
+      /the third argument is a source/
+    );
+  });
+
+  it('records a file source as a descriptor and leaves the ref unassigned — the bytes stay put', async () => {
+    const file = delivery('table.beast2', 40);
+    const table = input('table', RowsType, variant('file', file));
+    const zipPath = path.join(tempDir, 'file-src.zip');
+    await export_(package_('file-src', '1.0.0', table), zipPath);
+
+    const entries = await readZip(zipPath);
+    const ref = decodeBeast2For(DatasetRefType)(entries.get('data/inputs/table.ref')!);
+    assert.strictEqual(ref.type, 'unassigned', 'no value travels in the package');
+
+    const pkg = await packageObjectOf(zipPath, 'file-src');
+    const source = pkg.sources.get('inputs/table');
+    assert.strictEqual(source?.type, 'file');
+    assert.strictEqual(source?.type === 'file' ? source.value.path : '', file);
+
+    // Nothing the size of the delivery entered the bundle.
+    const deliverySize = fs.statSync(file).size;
+    const objectSizes = [...entries.keys()].filter((k) => k.startsWith('objects/')).map((k) => entries.get(k)!.length);
+    assert.ok(!objectSizes.includes(deliverySize), 'the delivery is not an object in the bundle');
+  });
+
+  it('resolves a relative file path against the working directory', async () => {
+    const file = delivery('relative.beast2', 8);
+    const table = input('rel', RowsType, variant('file', path.relative(process.cwd(), file)));
+    const zipPath = path.join(tempDir, 'rel-src.zip');
+    await export_(package_('rel-src', '1.0.0', table), zipPath);
+
+    const source = (await packageObjectOf(zipPath, 'rel-src')).sources.get('inputs/rel');
+    assert.strictEqual(source?.type === 'file' ? source.value.path : '', file);
+  });
+
+  it('refuses a delivery whose type differs from the declared one, naming the input and the field', async () => {
+    const Drifted = DictType(StringType, StringType);
+    const file = path.join(tempDir, 'drifted.beast2');
+    fs.writeFileSync(file, encodeBeast2PagedFor(Drifted, { batchSize: 8 })(new Map([['a', 'x']])));
+    const table = input('drifted', RowsType, variant('file', file));
+
+    await assert.rejects(
+      () => export_(package_('drift', '1.0.0', table), path.join(tempDir, 'drift.zip')),
+      (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        assert.match(message, /input 'drifted' declares \.Dict/);
+        assert.match(message, new RegExp(`but ${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} carries`));
+        assert.match(message, /first difference at \[value\]/, 'names where the types diverge');
+        return true;
+      }
+    );
+  });
+
+  it('refuses a missing delivery and a delivery with no paging index', async () => {
+    await assert.rejects(
+      () => export_(package_('missing', '1.0.0', input('gone', RowsType, variant('file', path.join(tempDir, 'nope.beast2')))),
+        path.join(tempDir, 'missing.zip')),
+      /input 'gone': no file at/
+    );
+
+    const flat = path.join(tempDir, 'flat.beast2');
+    fs.writeFileSync(flat, encodeBeast2For(RowsType)(new Map([['a', 1n]])));
+    await assert.rejects(
+      () => export_(package_('flat', '1.0.0', input('flat', RowsType, variant('file', flat))), path.join(tempDir, 'flat.zip')),
+      /input 'flat': .* is not a readable indexed beast2 collection/
+    );
+  });
+
+  it('exports a value source exactly as an inline default was', async () => {
+    const rows = new Map([['a', 1n], ['b', 2n]]);
+    const zipPath = path.join(tempDir, 'value-src.zip');
+    await export_(package_('value-src', '1.0.0', input('inline', RowsType, variant('value', rows))), zipPath);
+    const entries = await readZip(zipPath);
+    const ref = decodeBeast2For(DatasetRefType)(entries.get('data/inputs/inline.ref')!);
+    assert.strictEqual(ref.type, 'value');
+    assert.strictEqual((await packageObjectOf(zipPath, 'value-src')).sources.size, 0);
   });
 });

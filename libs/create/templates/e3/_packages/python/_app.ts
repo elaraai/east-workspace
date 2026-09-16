@@ -1,5 +1,5 @@
 import e3 from "@elaraai/e3";
-import { East, ArrayType, FloatType, FunctionType } from "@elaraai/east";
+import { East, ArrayType, FloatType, FunctionType, variant } from "@elaraai/east";
 
 // Two ways of crossing the language boundary into packages/python/__PACKAGE_NAME__:
 //
@@ -21,8 +21,8 @@ const scale = East.importFunction(
   FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)),
 );
 
-const values = e3.input("__PACKAGE_IDENT___values", ArrayType(FloatType), [1.0, 2.0, 3.0]);
-const factor = e3.input("__PACKAGE_IDENT___factor", FloatType, 2.0);
+const values = e3.input("__PACKAGE_IDENT___values", ArrayType(FloatType), variant("value", [1.0, 2.0, 3.0]));
+const factor = e3.input("__PACKAGE_IDENT___factor", FloatType, variant("value", 2.0));
 
 // No `environment` needed: e3 derives it from the `{ custom: "__PACKAGE_NAME__" }`
 // platform reference below — at export it captures packages/python/__PACKAGE_NAME__'s

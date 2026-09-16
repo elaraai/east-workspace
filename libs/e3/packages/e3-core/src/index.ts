@@ -107,8 +107,19 @@ export {
   treeWrite,
   datasetRead,
   datasetWrite,
+  workspaceResolveDataset,
+  type DatasetLeaf,
+  type WorkspaceGetDatasetStatusOptions,
   type TreeObject,
 } from './trees.js';
+
+// Taking an existing file into a workspace as a dataset value (#765)
+export {
+  datasetAdoptFile,
+  datasetAdoptObject,
+  type DatasetAdoptOptions,
+  type DatasetAdoptResult,
+} from './dataset-adopt.js';
 
 // Tree and dataset operations (high-level, by path)
 export {
@@ -310,6 +321,7 @@ export {
   // Dataset
   DatasetNotFoundError,
   DatasetRefConflictError,
+  DatasetTypeMismatchError,
   // Task
   TaskNotFoundError,
   // Object

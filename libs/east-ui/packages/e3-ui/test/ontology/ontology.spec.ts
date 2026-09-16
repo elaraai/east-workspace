@@ -4,18 +4,18 @@
  */
 
 import { describeEast, Assert, TestImpl } from '@elaraai/east-node-std';
-import { East, none } from '@elaraai/east';
+import { East, none, variant } from '@elaraai/east';
 import { Reactive, UIComponentType } from '@elaraai/east-ui/internal';
 import { Data, OntologyType } from '@elaraai/e3-ui';
 import { Ontology } from '@elaraai/e3-ui/internal';
 import * as e3 from '@elaraai/e3';
 import * as ex from './ontology.examples.js';
 
-const ontologyInput = e3.input('ontology_spec', OntologyType, {
+const ontologyInput = e3.input('ontology_spec', OntologyType, variant('value', {
     nodes: [],
     links: [],
     metadata: none,
-});
+}));
 
 describeEast('Ontology', (test) => {
     Assert.examples(test, {

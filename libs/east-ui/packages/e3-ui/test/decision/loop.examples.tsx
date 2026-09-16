@@ -43,7 +43,7 @@ const CURRENCY = variant('currency', {
 export const loopRosterDecisions = e3.input(
     'loop_roster_decisions',
     ArrayType(Decision.Types.Decision),
-    [
+    variant('value', [
         {
             id: 'ros-patel-cho',
             kind: 'roster',
@@ -88,13 +88,13 @@ export const loopRosterDecisions = e3.input(
             evidence: [],
             alternatives: [],
         },
-    ],
+    ]),
 );
 
 export const loopOrderDecisions = e3.input(
     'loop_order_decisions',
     ArrayType(Decision.Types.Decision),
-    [
+    variant('value', [
         {
             id: 'ord-sku-001',
             kind: 'reorder',
@@ -114,13 +114,13 @@ export const loopOrderDecisions = e3.input(
             evidence: [{ label: 'demand', text: 'wk 10 forecast +9%', note: none }],
             alternatives: [],
         },
-    ],
+    ]),
 );
 
 export const loopJudgements = e3.input(
     'loop_judgements',
     Decision.Types.Judgements(LoopConstraint),
-    new Map(),
+    variant('value', new Map()),
 );
 
 // ============================================================================

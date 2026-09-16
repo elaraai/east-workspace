@@ -14,7 +14,7 @@
  */
 
 import * as fs from 'fs/promises';
-import { existsSync } from 'fs';
+import { createReadStream, existsSync } from 'fs';
 import * as path from 'path';
 import crossSpawn from 'cross-spawn';
 import { spawn as nodeSpawn } from 'child_process';
@@ -80,28 +80,101 @@ export function collectVenvBins(startDir: string): string[] {
   }
 }
 
+/** Options for {@link marshalInputsToDir}. */
+export interface MarshalInputsOptions {
+  /**
+   * Whether a staged input may SHARE the object's storage (a hard link or a
+   * reflink) rather than being copied.
+   *
+   * @remarks
+   * True is the default and is safe for every stock runner: east-c maps its
+   * inputs read-only, east-node and east-py read them. It must be false for a
+   * `custom` runner, whose command is arbitrary and could `mv` or truncate an
+   * input path — which, through a hard link, would corrupt the object itself.
+   */
+  link?: boolean;
+}
+
+/** Bytes per read when streaming an object into scratch without
+ *  {@link ObjectStore.materialize}. */
+const MARSHAL_CHUNK_BYTES = 4 * 1024 * 1024;
+
 /**
  * Marshal input objects to staged `.beast2` files in a scratch directory.
  *
- * This is the input-staging loop extracted from `taskExecute`: each input
- * hash is read from the object store and written as `input-<i>.beast2`.
+ * @remarks
+ * The bytes never pass through this process's heap. A backend whose objects
+ * are files links or kernel-copies them (`ObjectStore.materialize`); one that
+ * only serves ranges streams them a chunk at a time. Before #767 this read
+ * each object whole — measured at 2.1 GB of orchestrator RSS on every
+ * execution over a 2 GB input, for bytes the runner then opened lazily
+ * anyway.
  *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param scratchDir - The execution's scratch directory
+ * @param inputHashes - Object hashes, in input order
+ * @param options - Whether a staged input may share the object's storage
  * @returns The staged file paths, in input order
  */
 export async function marshalInputsToDir(
   storage: StorageBackend,
   repo: string,
   scratchDir: string,
-  inputHashes: string[]
+  inputHashes: string[],
+  options: MarshalInputsOptions = {}
 ): Promise<string[]> {
+  const link = options.link !== false;
+  const materialize = storage.objects.materialize;
+  const readRange = storage.objects.readRange;
   const inputPaths: string[] = [];
   for (let i = 0; i < inputHashes.length; i++) {
     const inputPath = path.join(scratchDir, `input-${i}.beast2`);
-    const inputData = await storage.objects.read(repo, inputHashes[i]!);
-    await fs.writeFile(inputPath, inputData);
+    const hash = inputHashes[i]!;
+    if (materialize) {
+      await materialize.call(storage.objects, repo, hash, inputPath, { link });
+    } else if (readRange) {
+      const { size } = await storage.objects.stat(repo, hash);
+      const handle = await fs.open(inputPath, 'w');
+      try {
+        for (let offset = 0; offset < size; offset += MARSHAL_CHUNK_BYTES) {
+          const chunk = await readRange.call(storage.objects, repo, hash, offset, Math.min(MARSHAL_CHUNK_BYTES, size - offset));
+          if (chunk.length === 0) break;
+          await handle.write(chunk);
+        }
+      } finally {
+        await handle.close();
+      }
+    } else {
+      await fs.writeFile(inputPath, await storage.objects.read(repo, hash));
+    }
     inputPaths.push(inputPath);
   }
   return inputPaths;
+}
+
+/**
+ * Take a runner's output file into the object store, without reading it.
+ *
+ * @remarks
+ * The write-side twin of {@link marshalInputsToDir}: the file is hashed by
+ * streaming and linked, reflinked or kernel-copied into the store. The link is
+ * taken while the scratch directory still exists — its `finally` cleanup
+ * unlinks the scratch NAME, which is not the object.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param outputPath - The runner's output file
+ * @returns The object's hash
+ */
+export async function adoptOutputFile(
+  storage: StorageBackend,
+  repo: string,
+  outputPath: string
+): Promise<string> {
+  const adopt = storage.objects.adoptFile;
+  if (adopt) return (await adopt.call(storage.objects, repo, outputPath)).hash;
+  return storage.objects.writeStream(repo, createReadStream(outputPath));
 }
 
 /**

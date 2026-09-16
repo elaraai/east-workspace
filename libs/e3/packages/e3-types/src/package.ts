@@ -72,6 +72,27 @@ export type PackageDatasets = PackageData;
  * };
  * ```
  */
+/**
+ * Where a dataset's initial value comes from, when it is not in the package.
+ *
+ * @remarks
+ * A package carries the DESCRIPTOR, never the bytes: `e3.input('table', T,
+ * variant('file', './TABLE.beast2'))` puts `{ file: { path } }` here and leaves
+ * the ref `unassigned`, and deploy resolves it — adopting the file into the
+ * object store by hash, so a new delivery under the same path is a new hash
+ * whose consumers re-run. An inline `variant('value', v)` needs no descriptor:
+ * its bytes are an object in the bundle like any other.
+ *
+ * A variant so that further source kinds can be appended later without a wire
+ * break; `file` is the only one today.
+ */
+export const DatasetSourceWireType = VariantType({
+  /** A path on the machine that DEPLOYS the package, resolved at deploy. */
+  file: StructType({ path: StringType }),
+});
+export type DatasetSourceWireType = typeof DatasetSourceWireType;
+export type DatasetSourceWire = ValueTypeOf<typeof DatasetSourceWireType>;
+
 export const PackageObjectType = StructType({
   /** Tasks defined in this package: name -> task object hash */
   tasks: DictType(StringType, StringType),
@@ -83,10 +104,25 @@ export const PackageObjectType = StructType({
    *  BEAST2 encodes struct fields positionally in declaration order, so new
    *  fields MUST be appended LAST — never inserted between existing fields. */
   records: DictType(StringType, StringType),
+  /** Unresolved dataset sources: refPath (e.g. "inputs/table") -> descriptor.
+   *  Appended LAST, per the positional rule above. */
+  sources: DictType(StringType, DatasetSourceWireType),
 });
 export type PackageObjectType = typeof PackageObjectType;
 
 export type PackageObject = ValueTypeOf<typeof PackageObjectType>;
+
+/**
+ * The pre-`sources` package object wire shape (tasks, data, functions,
+ * records), kept only so {@link decodePackageObject} can read packages exported
+ * before path-initialised inputs existed.
+ */
+const RecordsEraPackageObjectType = StructType({
+  tasks: DictType(StringType, StringType),
+  data: PackageDataType,
+  functions: DictType(StringType, StringType),
+  records: DictType(StringType, StringType),
+});
 
 /**
  * The pre-`records` package object wire shape (tasks, data, functions), kept
@@ -110,31 +146,37 @@ const LegacyPackageObjectType = StructType({
 });
 
 const decodeCurrent = decodeBeast2For(PackageObjectType);
+const decodeRecordsEra = decodeBeast2For(RecordsEraPackageObjectType);
 const decodeFunctionsEra = decodeBeast2For(FunctionsEraPackageObjectType);
 const decodeLegacy = decodeBeast2For(LegacyPackageObjectType);
 
 /**
- * Decode a `PackageObject` from BEAST2 bytes, tolerating the two older wire
+ * Decode a `PackageObject` from BEAST2 bytes, tolerating the older wire
  * formats (dual-decode migration).
  *
  * Every package-read path — local AND cloud — must use this instead of
  * `decodeBeast2For(PackageObjectType)` directly, so packages exported before
- * the `records`/`functions` fields existed keep decoding. Older bytes decode
- * with the missing maps defaulted to empty.
+ * the `sources`/`records`/`functions` fields existed keep decoding. Older
+ * bytes decode with the missing maps defaulted to empty.
  */
 export function decodePackageObject(data: Uint8Array): PackageObject {
   try {
     return decodeCurrent(data);
   } catch (err) {
     try {
-      const fnEra = decodeFunctionsEra(data);
-      return { tasks: fnEra.tasks, data: fnEra.data, functions: fnEra.functions, records: new Map() };
+      const recEra = decodeRecordsEra(data);
+      return { ...recEra, sources: new Map() };
     } catch {
       try {
-        const legacy = decodeLegacy(data);
-        return { tasks: legacy.tasks, data: legacy.data, functions: new Map(), records: new Map() };
+        const fnEra = decodeFunctionsEra(data);
+        return { tasks: fnEra.tasks, data: fnEra.data, functions: fnEra.functions, records: new Map(), sources: new Map() };
       } catch {
-        throw err; // no known shape — surface the current-format error
+        try {
+          const legacy = decodeLegacy(data);
+          return { tasks: legacy.tasks, data: legacy.data, functions: new Map(), records: new Map(), sources: new Map() };
+        } catch {
+          throw err; // no known shape — surface the current-format error
+        }
       }
     }
   }

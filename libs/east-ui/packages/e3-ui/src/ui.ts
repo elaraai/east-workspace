@@ -46,10 +46,10 @@ import { deriveManifest } from './utils/derive.js';
  * ```ts
  * import e3 from '@elaraai/e3';
  * import { ui, Data } from '@elaraai/e3-ui';
- * import { FloatType, East } from '@elaraai/east';
+ * import { FloatType, East, variant } from '@elaraai/east';
  * import { Reactive, Slider, Stat, Text, UIComponentType } from '@elaraai/east-ui';
  *
- * const threshold = e3.input('threshold', FloatType, 50.0);
+ * const threshold = e3.input('threshold', FloatType, variant('value', 50.0));
  *
  * // No compute-time inputs (fn arg list is []), reactive bindings only:
  * const dashboard = ui('dashboard', [], East.function([], UIComponentType, (_$) =>

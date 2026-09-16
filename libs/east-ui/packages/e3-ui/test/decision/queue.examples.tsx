@@ -60,7 +60,7 @@ const CURRENCY = variant('currency', {
 export const queueDecisions = e3.input(
     'queue_decisions',
     ArrayType(Decision.Types.Decision),
-    [
+    variant('value', [
         {
             id: 'ros-patel-cho',
             kind: 'roster',
@@ -171,13 +171,13 @@ export const queueDecisions = e3.input(
             evidence: [],
             alternatives: [],
         },
-    ],
+    ]),
 );
 
 export const queueJudgements = e3.input(
     'queue_judgements',
     Decision.Types.Judgements(RosterConstraint),
-    new Map([
+    variant('value', new Map([
         ['ros-patel-cho', {
             caseId: 'ros-patel-cho',
             answers: new Map(),
@@ -186,7 +186,7 @@ export const queueJudgements = e3.input(
             verdict: none,
             resolvedAt: none,
         }],
-    ]),
+    ])),
 );
 
 // ============================================================================

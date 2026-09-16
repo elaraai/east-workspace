@@ -122,7 +122,7 @@ describe('dataflow', () => {
       },
       tasks: tasksMap,
       functions: new Map(),
-      records: new Map(),
+      records: new Map(), sources: new Map(),
     };
     const pkgHash = await objectWrite(repoPath, pkgEncoder(pkgObj));
 

@@ -270,7 +270,7 @@ const OpsRow = StructType({
         order:   StructType({ raw: ArrayType(StructType({ at: DateTimeType, value: OptionType(FloatType) })) }),
     }),
 });
-const ops = e3.input("ops", ArrayType(OpsRow), []);
+const ops = e3.input("ops", ArrayType(OpsRow), variant('value', []));
 
 // ── the ui() task: a reference + config; windows stream in on scroll ──
 const dash = e3.ui("plan", { ops }, _$ => (
@@ -363,7 +363,7 @@ Paging is a BIND-layer concern, not component machinery. A new public
 sibling of `Data.bind` in `e3-ui/src/bind/data.ts`:
 
 ```tsx
-const ops = e3.input("ops", ArrayType(OpsRow), []);
+const ops = e3.input("ops", ArrayType(OpsRow), variant('value', []));
 
 // inside the ui() task body — the handle is an East value, bound like
 // every Data.bind (never called inline in a prop); see §3.5c in full:

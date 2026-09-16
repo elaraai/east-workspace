@@ -25,18 +25,20 @@ import {
   decodeBeast2For,
   encodeBeast2For,
   printIdentifier,
+  readBeast2ExtentsRanged,
   StructType,
   variant,
   type EastType,
   type EastTypeValue,
 } from '@elaraai/east';
-import { DataRefType, WorkspaceStateType, decodePackageObject, encodeDatasetBlob, isCollectionRoot, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
+import { DataRefType, WorkspaceStateType, checkDatasetType, datasetAddress, decodePackageObject, encodeDatasetBlob, isCollectionRoot, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
 import { packageRead } from './packages.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
   WorkspaceLockError,
   DatasetRefConflictError,
+  DatasetTypeMismatchError,
 } from './errors.js';
 
 // Bounded retries when a concurrent writer wins the per-path CAS. e3 set is a
@@ -178,6 +180,81 @@ export async function datasetWrite(
 // =============================================================================
 
 /**
+ * A dataset leaf as the deployed package's structure describes it.
+ */
+export interface DatasetLeaf {
+  /** The type the dataset declares — what every door checks a write against. */
+  readonly type: EastTypeValue;
+  /** Whether a set is allowed here (task outputs are not writable). */
+  readonly writable: boolean;
+  /** `.inputs.table` — how every message names this dataset. */
+  readonly address: string;
+  /** `inputs/table` — the per-dataset ref file's path. */
+  readonly refPath: string;
+}
+
+/**
+ * Resolve a tree path against a workspace's deployed structure to the dataset
+ * leaf it names.
+ *
+ * @remarks
+ * The one navigation every write door shares: it is what makes
+ * {@link workspaceSetDataset} and `datasetAdoptFile` agree on the declared
+ * type, the writable flag, and the spelling of the path in their errors.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param treePath - Path to the dataset
+ * @returns The leaf's declared type, writability and addresses
+ * @throws {WorkspaceNotFoundError} If the workspace does not exist
+ * @throws {WorkspaceNotDeployedError} If the workspace has no package deployed
+ * @throws If the path is empty, invalid, or names a tree rather than a dataset
+ */
+export async function workspaceResolveDataset(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  treePath: TreePath
+): Promise<DatasetLeaf> {
+  if (treePath.length === 0) {
+    throw new Error('Cannot address a dataset at root path - root is always a tree');
+  }
+  const { rootStructure } = await getWorkspaceStructure(storage, repo, ws);
+
+  let currentStructure = rootStructure;
+  for (let i = 0; i < treePath.length; i++) {
+    const segment = treePath[i]!;
+    if (segment.type !== 'field') {
+      throw new Error(`Unsupported path segment type: ${segment.type}`);
+    }
+    if (currentStructure.type !== 'struct') {
+      const pathSoFar = treePath.slice(0, i).map(s => s.value).join('.');
+      throw new Error(`Cannot descend into non-struct at path '${pathSoFar}'`);
+    }
+    const childStructure = currentStructure.value.get(segment.value);
+    if (!childStructure) {
+      const pathSoFar = treePath.slice(0, i).map(s => s.value).join('.');
+      const available = Array.from(currentStructure.value.keys()).join(', ');
+      throw new Error(`Field '${segment.value}' not found at '${pathSoFar}'. Available: ${available}`);
+    }
+    currentStructure = childStructure;
+  }
+
+  if (currentStructure.type !== 'value') {
+    const pathStr = treePath.map(s => s.value).join('.');
+    throw new Error(`Path '${pathStr}' points to a tree, not a dataset`);
+  }
+
+  return {
+    type: currentStructure.value.type as EastTypeValue,
+    writable: currentStructure.value.writable,
+    address: datasetAddress(treePath.map(s => s.value)),
+    refPath: treePath.map(s => s.value).join('/'),
+  };
+}
+
+/**
  * Options for setting a workspace dataset.
  */
 export interface WorkspaceSetDatasetOptions {
@@ -232,53 +309,27 @@ export async function workspaceSetDataset(
     }
   }
   try {
-    const wsState = await readWorkspaceState(storage, repo, ws);
-
-    // Read the deployed package object to get the structure
-    const pkgData = await storage.objects.read(repo, wsState.packageHash);
-    const pkgObject = decodePackageObject(Buffer.from(pkgData));
-    const rootStructure = pkgObject.data.structure;
-
-    // Validate that the path leads to a value structure and check writable
-    let currentStructure = rootStructure;
-    for (let i = 0; i < treePath.length; i++) {
-      const segment = treePath[i]!;
-      if (segment.type !== 'field') {
-        throw new Error(`Unsupported path segment type: ${segment.type}`);
-      }
-
-      if (currentStructure.type !== 'struct') {
-        const pathSoFar = treePath.slice(0, i).map(s => s.value).join('.');
-        throw new Error(`Cannot descend into non-struct at path '${pathSoFar}'`);
-      }
-
-      const childStructure = currentStructure.value.get(segment.value);
-      if (!childStructure) {
-        const pathSoFar = treePath.slice(0, i).map(s => s.value).join('.');
-        const available = Array.from(currentStructure.value.keys()).join(', ');
-        throw new Error(`Field '${segment.value}' not found at '${pathSoFar}'. Available: ${available}`);
-      }
-
-      currentStructure = childStructure;
-    }
-
-    // Final structure must be a value
-    if (currentStructure.type !== 'value') {
-      const pathStr = treePath.map(s => s.value).join('.');
-      throw new Error(`Path '${pathStr}' points to a tree, not a dataset`);
-    }
+    const leaf = await workspaceResolveDataset(storage, repo, ws, treePath);
 
     // Check writable flag
-    if (!currentStructure.value.writable) {
+    if (!leaf.writable) {
       const pathStr = treePath.map(s => s.value).join('.');
       throw new Error(`Dataset at '${pathStr}' is not writable`);
     }
 
+    // The type the caller encodes with must be the type the dataset declares.
+    // Exact equality, not assignability: the runner decodes the object BY the
+    // declared type and beast2 decoding is type-directed, so a merely
+    // assignable blob still decodes wrong — and it would do so inside the
+    // consuming task, naming neither this dataset nor the field that moved.
+    // Checked before `datasetWrite`, so a refusal leaves the store untouched.
+    const mismatch = checkDatasetType(`dataset '${leaf.address}'`, 'the value', leaf.type, type);
+    if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
+
     // Write the new dataset value to object store
     const newValueHash = await datasetWrite(storage, repo, value, type);
 
-    // Build ref path from tree path
-    const refPath = treePath.map(s => s.value).join('/');
+    const refPath = leaf.refPath;
 
     // A root input references its own current value in its version vector. The
     // dataflow reconstructs this from the value hash, so populating it here is
@@ -543,6 +594,28 @@ export interface DatasetStatusResult {
   datasetType: EastTypeValue;
   /** Size in bytes (null for unassigned) */
   size: number | null;
+  /** Segment count of a stored collection, read from the blob's trailing
+   *  index — `null` for a non-collection, an unassigned/null ref, or a
+   *  backend without ranged reads. Costs two ranged reads, never the blob. */
+  segments?: number | null;
+  /** Element count (pairs for a Dict) of a stored collection, from the same
+   *  index — so a re-pointed input is inspectable without decoding it. */
+  rows?: number | null;
+}
+
+/** Options for {@link workspaceGetDatasetStatus}. */
+export interface WorkspaceGetDatasetStatusOptions {
+  /**
+   * Also read a stored collection's segment and element counts from its
+   * trailing index.
+   *
+   * @remarks
+   * Off by default, and deliberately: two ranged reads is nothing next to
+   * decoding a blob, but this call sits in front of the paged-read and
+   * key-search endpoints, which are held to reading exactly the frames they
+   * decode. The geometry is for the places that DISPLAY a dataset.
+   */
+  geometry?: boolean;
 }
 
 /**
@@ -554,6 +627,7 @@ export interface DatasetStatusResult {
  * @param repo - Repository identifier
  * @param ws - Workspace name
  * @param treePath - Path to the dataset
+ * @param options - Whether to also read the stored collection's geometry
  * @returns Dataset status including ref type, hash, type, and size
  * @throws If workspace not deployed, path invalid, or path points to a tree
  */
@@ -561,46 +635,61 @@ export async function workspaceGetDatasetStatus(
   storage: StorageBackend,
   repo: string,
   ws: string,
-  treePath: TreePath
+  treePath: TreePath,
+  options: WorkspaceGetDatasetStatusOptions = {}
 ): Promise<DatasetStatusResult> {
   if (treePath.length === 0) {
     throw new Error('Cannot get dataset status at root path - root is always a tree');
   }
 
-  // Validate path and get type from structure
-  const { rootStructure } = await getWorkspaceStructure(storage, repo, ws);
-  let currentStructure = rootStructure;
-  for (let i = 0; i < treePath.length; i++) {
-    const segment = treePath[i]!;
-    if (segment.type !== 'field') throw new Error(`Unsupported path segment type: ${segment.type}`);
-    if (currentStructure.type !== 'struct') throw new Error('Cannot descend into non-struct');
-    const child = currentStructure.value.get(segment.value);
-    if (!child) throw new Error(`Field '${segment.value}' not found`);
-    currentStructure = child;
-  }
-
-  if (currentStructure.type !== 'value') {
-    const pathStr = treePath.map(s => s.value).join('.');
-    throw new Error(`Path '${pathStr}' points to a tree, not a dataset`);
-  }
-
-  const datasetType = currentStructure.value.type as EastTypeValue;
+  const leaf = await workspaceResolveDataset(storage, repo, ws, treePath);
+  const datasetType = leaf.type;
 
   // Read the ref file
-  const refPath = treePath.map(s => s.value).join('/');
-  const ref = await storage.datasets.read(repo, ws, refPath);
+  const ref = await storage.datasets.read(repo, ws, leaf.refPath);
 
   if (!ref || ref.type === 'unassigned') {
-    return { refType: 'unassigned', hash: null, datasetType, size: null };
+    return { refType: 'unassigned', hash: null, datasetType, size: null, segments: null, rows: null };
   }
 
   if (ref.type === 'null') {
-    return { refType: 'null', hash: null, datasetType, size: 0 };
+    return { refType: 'null', hash: null, datasetType, size: 0, segments: null, rows: null };
   }
 
   // value ref - get size from object store
   const { size } = await storage.objects.stat(repo, ref.value.hash);
-  return { refType: 'value', hash: ref.value.hash, datasetType, size };
+  const geometry = options.geometry
+    ? await datasetGeometry(storage, repo, ref.value.hash, datasetType, size)
+    : { segments: null, rows: null };
+  return { refType: 'value', hash: ref.value.hash, datasetType, size, ...geometry };
+}
+
+/**
+ * Segment and element counts of a stored collection, from its trailing index.
+ *
+ * Two ranged reads (the tail, then the head); never the blob. A backend
+ * without {@link ObjectStore.readRange}, a non-collection root, or a blob
+ * whose index cannot be read reports `null` rather than failing a status
+ * call — the geometry is a convenience on top of the hash and the size.
+ */
+async function datasetGeometry(
+  storage: StorageBackend,
+  repo: string,
+  hash: string,
+  datasetType: EastTypeValue,
+  size: number
+): Promise<{ segments: number | null; rows: number | null }> {
+  const readRange = storage.objects.readRange;
+  if (!readRange || !isCollectionRoot(datasetType)) return { segments: null, rows: null };
+  try {
+    const extents = await readBeast2ExtentsRanged({
+      size,
+      read: (offset, length) => readRange.call(storage.objects, repo, hash, offset, length),
+    });
+    return { segments: extents.offsets.length, rows: extents.elementCount };
+  } catch {
+    return { segments: null, rows: null };
+  }
 }
 
 // =============================================================================

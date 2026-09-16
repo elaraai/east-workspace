@@ -148,7 +148,7 @@ describe('workspaces', () => {
   describe('workspaceDeploy', () => {
     it('creates workspace and deploys package', async () => {
       // Create and import a package
-      const myInput = e3.input('greeting', StringType, 'hello');
+      const myInput = e3.input('greeting', StringType, variant('value', 'hello'));
       const pkg = e3.package('deploy-test', '1.0.0', myInput);
       const zipPath = join(tempDir, 'deploy-test.zip');
       await e3.export(pkg, zipPath);
@@ -171,7 +171,7 @@ describe('workspaces', () => {
     });
 
     it('initializes per-dataset refs from package', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('root-test', '1.0.0', myInput);
       const zipPath = join(tempDir, 'root-test.zip');
       await e3.export(pkg, zipPath);
@@ -245,7 +245,7 @@ describe('workspaces', () => {
   describe('workspaceExport', () => {
     it('exports workspace as package zip', async () => {
       // Create and deploy a package
-      const myInput = e3.input('data', StringType, 'initial');
+      const myInput = e3.input('data', StringType, variant('value', 'initial'));
       const pkg = e3.package('export-test', '1.0.0', myInput);
       const importZip = join(tempDir, 'export-test.zip');
       await e3.export(pkg, importZip);
@@ -304,7 +304,7 @@ describe('workspaces', () => {
       const pkg: PackageObject = {
         tasks: new Map([['tools_task', toolsTask], ['wn_task', wnTask]]),
         data: { structure: variant('struct', new Map()), refs: new Map() },
-        functions: new Map(), records: new Map(),
+        functions: new Map(), records: new Map(), sources: new Map(),
       };
       const pkgHash = await storage.objects.write(testRepo, encodeBeast2For(PackageObjectType)(pkg));
 
@@ -354,7 +354,7 @@ describe('workspaces', () => {
     });
 
     it('exported package can be imported', async () => {
-      const myInput = e3.input('value', StringType, 'test');
+      const myInput = e3.input('value', StringType, variant('value', 'test'));
       const pkg = e3.package('reimport-test', '1.0.0', myInput);
       const importZip = join(tempDir, 'reimport.zip');
       await e3.export(pkg, importZip);
@@ -379,7 +379,7 @@ describe('workspaces', () => {
     });
 
     it('exports workspace with per-dataset refs', async () => {
-      const myInput = e3.input('value', StringType, 'initial');
+      const myInput = e3.input('value', StringType, variant('value', 'initial'));
       const pkg = e3.package('modified-export', '1.0.0', myInput);
       const importZip = join(tempDir, 'modified-export.zip');
       await e3.export(pkg, importZip);

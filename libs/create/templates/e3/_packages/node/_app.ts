@@ -1,5 +1,5 @@
 import e3 from "@elaraai/e3";
-import { East, ArrayType, IntegerType, FloatType, FunctionType } from "@elaraai/east";
+import { East, ArrayType, IntegerType, FloatType, FunctionType, variant } from "@elaraai/east";
 
 // Two ways of crossing the package boundary into packages/node/__PACKAGE_NAME__
 // (@__PROJECT_NAME__/__PACKAGE_NAME__):
@@ -23,9 +23,9 @@ const scale = East.importFunction(
   FunctionType([ArrayType(FloatType), FloatType], ArrayType(FloatType)),
 );
 
-const value = e3.input("__PACKAGE_IDENT___value", IntegerType, 21n);
-const factor = e3.input("__PACKAGE_IDENT___factor", FloatType, 2.0);
-const series = e3.input("__PACKAGE_IDENT___series", ArrayType(FloatType), [1.0, 2.0, 3.0]);
+const value = e3.input("__PACKAGE_IDENT___value", IntegerType, variant("value", 21n));
+const factor = e3.input("__PACKAGE_IDENT___factor", FloatType, variant("value", 2.0));
+const series = e3.input("__PACKAGE_IDENT___series", ArrayType(FloatType), variant("value", [1.0, 2.0, 3.0]));
 
 // No `environment` — e3 derives it from the `{ custom: "@__PROJECT_NAME__/__PACKAGE_NAME__" }`
 // platform reference below, capturing packages/node/__PACKAGE_NAME__'s npm

@@ -8,10 +8,10 @@ import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat,
 import { Data } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
-export const thresholdInput      = e3.input('threshold',       FloatType, 50.0);
-export const thresholdPatchInput = e3.input('threshold_patch', PatchType(FloatType), variant("unchanged", null));
-export const countInput          = e3.input('count', IntegerType, 0n);
-export const nameInput           = e3.input('name',  StringType,  '');
+export const thresholdInput      = e3.input('threshold',       FloatType, variant('value', 50.0));
+export const thresholdPatchInput = e3.input('threshold_patch', PatchType(FloatType), variant('value', variant("unchanged", null)));
+export const countInput          = e3.input('count', IntegerType, variant('value', 0n));
+export const nameInput           = e3.input('name',  StringType,  variant('value', ''));
 
 // Lifecycle shorthands, so a stored row fits on one line. These are plain
 // `EventStateType` values — the shared contracts vocabulary a plan dataset
@@ -57,7 +57,7 @@ export const OpsRow = StructType({
  * observed at the back, in-progress across it, confirmed then proposed then
  * estimated ahead of it.
  */
-export const opsInput = e3.input('ops', DictType(StringType, OpsRow), new Map([
+export const opsInput = e3.input('ops', DictType(StringType, OpsRow), variant('value', new Map([
     ["L1-M01", { line: "Line 1", batch: "B-201", startWeek: 25n, weeks: 3n, tonnes: 96.0,  load: 78.0, state: ACTUAL }],
     ["L1-M02", { line: "Line 1", batch: "B-204", startWeek: 26n, weeks: 2n, tonnes: 64.0,  load: 71.0, state: ACTUAL }],
     ["L1-M03", { line: "Line 1", batch: "B-214", startWeek: 28n, weeks: 3n, tonnes: 112.0, load: 88.0, state: RUNNING }],
@@ -125,7 +125,7 @@ export const opsInput = e3.input('ops', DictType(StringType, OpsRow), new Map([
     ["D-08", { line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 97.0, state: CONFIRMED }],
     ["D-09", { line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 64.0, state: CONFIRMED }],
     ["D-10", { line: "Docks", batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 52.0, state: CONFIRMED }],
-]));
+])));
 
 export const dataBindFloat = example({
     keywords: ["Data", "bind", "Reactive", "Float", "dataset", "read"],

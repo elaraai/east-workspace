@@ -16,7 +16,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import e3 from '@elaraai/e3';
-import { IntegerType, East } from '@elaraai/east';
+import { IntegerType, East, variant } from '@elaraai/east';
 import { createServer, type Server } from '@elaraai/e3-api-server';
 
 import { createTestDir, removeTestDir, runE3Command, getFreePort } from './helpers.js';
@@ -111,7 +111,7 @@ describe('single-repo mode', () => {
 
     it('creates and lists packages at /repos/default', async () => {
       // Create a test package
-      const input = e3.input('value', IntegerType, 42n);
+      const input = e3.input('value', IntegerType, variant('value', 42n));
       const task = e3.task(
         'double',
         [input],
@@ -173,7 +173,7 @@ describe('single-repo mode', () => {
   describe('full workflow in single-repo mode', () => {
     it('imports package, creates workspace, deploys, and executes', async () => {
       // Create a test package
-      const input = e3.input('n', IntegerType, 10n);
+      const input = e3.input('n', IntegerType, variant('value', 10n));
       const task = e3.task(
         'square',
         [input],

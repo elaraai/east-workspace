@@ -365,7 +365,11 @@ export async function datasetSet(
   options: RequestOptions
 ): Promise<void> {
   if (data.byteLength > SIZE_THRESHOLD) {
-    return datasetSetTransfer(url, repo, workspace, path, data, options);
+    return datasetSetTransfer(url, repo, workspace, path, {
+      size: data.byteLength,
+      hash: await computeHash(data),
+      body: () => data,
+    }, options);
   }
 
   const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
@@ -397,6 +401,25 @@ export async function datasetSet(
 }
 
 /**
+ * A payload for {@link datasetSetTransfer}: its size and digest up front, and a
+ * body produced only if the server actually wants the bytes.
+ *
+ * @remarks
+ * `body` is a thunk because the transfer dedups on the hash: when the object is
+ * already in the store nothing is ever read. It returns a stream for a file —
+ * which is how a multi-gigabyte delivery reaches a remote repo without the
+ * client holding it — or the bytes for an in-memory value.
+ */
+export interface DatasetTransferSource {
+  /** Total byte length. */
+  readonly size: number;
+  /** SHA256 of those bytes, as lowercase hex. */
+  readonly hash: string;
+  /** The bytes, produced on demand. */
+  body(): Uint8Array | ReadableStream<Uint8Array>;
+}
+
+/**
  * Set a large dataset using the transfer flow (init → upload → complete).
  */
 async function datasetSetTransfer(
@@ -404,10 +427,10 @@ async function datasetSetTransfer(
   repo: string,
   workspace: string,
   path: TreePath,
-  data: Uint8Array,
+  source: DatasetTransferSource,
   options: RequestOptions
 ): Promise<void> {
-  const hash = await computeHash(data);
+  const { hash } = source;
   const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
   const repoEncoded = encodeURIComponent(repo);
   const wsEncoded = encodeURIComponent(workspace);
@@ -421,7 +444,7 @@ async function datasetSetTransfer(
       'Content-Type': BEAST2_CONTENT_TYPE,
       'Accept': BEAST2_CONTENT_TYPE,
     },
-    body: encodeInit({ hash, size: BigInt(data.byteLength) }),
+    body: encodeInit({ hash, size: BigInt(source.size) }),
   }, options);
 
   if (!initRes.ok) {
@@ -440,15 +463,24 @@ async function datasetSetTransfer(
   // Dedup — object already exists, ref updated
   if (init.type === 'completed') return;
 
-  // 2. Upload to staging (no auth — URL may be a presigned S3 URL)
+  // 2. Upload to staging (no auth — URL may be a presigned S3 URL). A stream
+  //    body needs `duplex: 'half'` and a declared length; undici refuses a
+  //    streaming request without the former and cannot chunk without the
+  //    latter.
+  const body = source.body();
+  const streaming = typeof (body as ReadableStream<Uint8Array>).getReader === 'function';
   const uploadRes = await fetch(init.value.uploadUrl, {
     method: 'PUT',
     headers: {
       'Content-Type': BEAST2_CONTENT_TYPE,
       'Accept': BEAST2_CONTENT_TYPE,
+      'Content-Length': String(source.size),
     },
-    body: data,
-  });
+    // `fetch`'s lib.dom BodyInit does not name ReadableStream in this
+    // configuration, and `duplex` is not in the type at all — both are
+    // undici runtime contracts, so the call is typed through RequestInit.
+    ...({ body, ...(streaming ? { duplex: 'half' } : {}) } as Record<string, unknown>),
+  } as RequestInit);
 
   if (!uploadRes.ok) {
     throw new Error(`Transfer upload failed: ${uploadRes.status} ${uploadRes.statusText}`);
@@ -475,6 +507,36 @@ async function datasetSetTransfer(
   if (commitResult.value.type === 'error') {
     throw new Error(`Transfer failed: ${commitResult.value.value.message}`);
   }
+}
+
+/**
+ * Set a dataset from a file, streaming it to a remote repository.
+ *
+ * @remarks
+ * The remote twin of `e3 dataset set --from-file`: the digest is streamed from
+ * the file, the transfer dedups on it (a delivery already in the store costs
+ * one round trip and no bytes), and the upload is a stream, so the client's
+ * memory is a buffer rather than the file. The server's commit runs the same
+ * `datasetAdoptFile` validation a local set does, so a type mismatch is refused
+ * with the same message.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the dataset (e.g., ['inputs', 'table'])
+ * @param source - The file's size, digest and streaming body
+ * @param options - Request options including auth token
+ * @throws {ApiError} On application-level errors, including a type mismatch
+ */
+export async function datasetSetStream(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  source: DatasetTransferSource,
+  options: RequestOptions
+): Promise<void> {
+  return datasetSetTransfer(url, repo, workspace, path, source, options);
 }
 
 /**

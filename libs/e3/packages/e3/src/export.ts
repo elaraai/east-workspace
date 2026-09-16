@@ -14,11 +14,13 @@
  */
 
 import * as fs from 'node:fs';
+import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
 import { variant, some, none, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
-import type { Structure, PackageObject, DatasetRef, FunctionObject, MutationObject, RecordObject } from '@elaraai/e3-types';
+import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MutationObject, RecordObject } from '@elaraai/e3-types';
 import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
+import { readDatasetFileHeader } from './dataset-file.js';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
 import { captureEnvironment, captureAutoEnvironment, type CaptureEvent } from './environment-capture.js';
@@ -132,6 +134,10 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   const tasks = new SortedMap<string, string>(); // name -> task object hash
   const structures = new Map<string, Structure>(); // path -> structure (parallel to tree hierarchy)
   const refs = new SortedMap<string, DatasetRef>(); // refPath -> DatasetRef
+  // Unresolved sources: refPath -> descriptor. A `file` input puts the
+  // DESCRIPTOR in the package and leaves its ref unassigned; deploy resolves it
+  // on the machine that actually has the bytes.
+  const sources = new SortedMap<string, DatasetSourceWire>();
 
   // Resolve environment declarations to content-addressed EnvironmentSpec
   // objects, once per distinct declaration per export run (a project capture
@@ -233,22 +239,37 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
         return seg.value;
       }).join('/');
 
-      // Serialize default value (if present) and build DatasetRef.
-      // When the dataset default is an EastIR / AsyncEastIR bundle (e.g. a
-      // task's function_ir dataset set by task.ts), use encodeEastIR so the
-      // source map is preserved in the beast2 blob. Otherwise fall back to
-      // the generic typed encoder.
+      // An input's initial value comes from its SOURCE variant; `default` is
+      // the internal inline-value channel (a task's function_ir bundle,
+      // record()'s initial state), which is never path-initialised.
+      //
+      // - `value` and `default` are serialized into the bundle as before —
+      //   an EastIR / AsyncEastIR bundle through encodeEastIR so its source
+      //   map survives, everything else through the store path's own encoder
+      //   (a collection root ships segmented + indexed, so a deployed input is
+      //   pageable without anyone having to write it first, #584).
+      // - `file` records a DESCRIPTOR and leaves the ref unassigned: the
+      //   bytes never travel in the package. The file is validated here,
+      //   from its header, so a schema drift is a build error at the
+      //   developer's desk rather than a decode failure inside a running task.
+      const inline = item.default !== undefined ? item.default
+        : item.source?.type === 'value' ? item.source.value as typeof item.default
+        : undefined;
       let datasetRef: DatasetRef;
-      if (item.default !== undefined) {
+      if (item.source?.type === 'file') {
+        // Resolved against the process's cwd exactly as environment capture
+        // resolves project paths; an absolute path is used as given.
+        const resolved = nodePath.resolve(process.cwd(), item.source.value);
+        readDatasetFileHeader(resolved, `input '${item.name}'`, item.type);
+        sources.set(refPath, variant('file', { path: resolved }));
+        datasetRef = variant('unassigned', null);
+      } else if (inline !== undefined) {
         let valueData: Uint8Array;
-        if (item.default instanceof EastIR || item.default instanceof AsyncEastIR) {
+        if (inline instanceof EastIR || inline instanceof AsyncEastIR) {
           const owner = taskOfFunctionIR.get(item);
-          valueData = encodeEastIR(link(item.default, owner ? `task "${owner.name}"` : `dataset "${refPath}"`, owner?.runner));
+          valueData = encodeEastIR(link(inline, owner ? `task "${owner.name}"` : `dataset "${refPath}"`, owner?.runner));
         } else {
-          // The SAME encoder the store path uses — a collection root ships
-          // segmented + indexed, so a deployed input is pageable without
-          // anyone having to write it first (#584).
-          valueData = encodeDatasetBlob(item.type, item.default);
+          valueData = encodeDatasetBlob(item.type, inline);
         }
         const valueHash = addObject(zipfile, Buffer.from(valueData));
         datasetRef = variant('value', { hash: valueHash, versions: new Map() });
@@ -378,6 +399,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     },
     functions,
     records,
+    sources,
   };
   const packageObjectEncoder = encodeBeast2For(PackageObjectType);
   const packageObjectData = packageObjectEncoder(packageObject);
