@@ -115,6 +115,36 @@ if(NOT TARGET miniz)
     endif()
 endif()
 target_link_libraries(east-c PRIVATE miniz)
+# Whole frames inflate through libdeflate, several times faster than miniz's
+# tinfl on the decode direction — the paged read path's largest fixed cost.
+# Decompression only (its compression, zlib and gzip halves stay out); the
+# deterministic encoder is beast2's own (v5/deflate.c), and the fence probes'
+# bounded prefix inflate stays on tinfl, which streams. Built from its
+# sources like btreec and miniz above, with the same defensive guard.
+if(NOT TARGET libdeflate)
+    include(FetchContent)
+    FetchContent_Declare(
+        libdeflate
+        URL https://github.com/ebiggers/libdeflate/archive/refs/tags/v1.26.tar.gz
+        URL_HASH SHA256=bba03fffc5538576213675ce6968fcff6ce2e67d82e4d5febea2d05f9f13cf85
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_GetProperties(libdeflate)
+    if(NOT libdeflate_POPULATED)
+        FetchContent_Populate(libdeflate)
+    endif()
+    add_library(libdeflate STATIC
+        ${libdeflate_SOURCE_DIR}/lib/deflate_decompress.c
+        ${libdeflate_SOURCE_DIR}/lib/utils.c
+        ${libdeflate_SOURCE_DIR}/lib/arm/cpu_features.c
+        ${libdeflate_SOURCE_DIR}/lib/x86/cpu_features.c)
+    set_target_properties(libdeflate PROPERTIES OUTPUT_NAME deflate)
+    target_include_directories(libdeflate PUBLIC ${libdeflate_SOURCE_DIR})
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(libdeflate PRIVATE -w)
+    endif()
+endif()
+target_link_libraries(east-c PRIVATE libdeflate)
 # libm is part of the CRT on Windows/MSVC; only link the separate libm elsewhere.
 if(NOT WIN32)
     target_link_libraries(east-c PRIVATE m)
@@ -153,7 +183,7 @@ endif()
 if(EAST_C_BUILD_OBJECT)
     add_library(east-c-obj OBJECT ${EAST_C_SOURCES})
     target_include_directories(east-c-obj PUBLIC include)
-    target_link_libraries(east-c-obj PRIVATE pcre2-8 btreec miniz)
+    target_link_libraries(east-c-obj PRIVATE pcre2-8 btreec miniz libdeflate)
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(east-c-obj PRIVATE -ffp-contract=off)
     endif()

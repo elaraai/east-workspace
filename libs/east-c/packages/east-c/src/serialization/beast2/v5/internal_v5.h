@@ -40,7 +40,7 @@
 #define B2V5_STRUCT_SCRATCH 16
 
 /* ================================================================== */
-/*  Deflate (v5/deflate.c — miniz raw DEFLATE)                          */
+/*  Deflate (v5/deflate.c — raw DEFLATE: own encoder, libdeflate/tinfl)   */
 /* ================================================================== */
 
 /* Compress src into a malloc'd raw-DEFLATE buffer (caller frees *out). */
