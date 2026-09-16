@@ -272,6 +272,15 @@ add_executable(test_gc_pacing tests/test_gc_pacing.c)
 target_link_libraries(test_gc_pacing east-c)
 add_test(NAME gc_pacing COMMAND test_gc_pacing)
 
+# Deterministic-deflate equivalence gate (issue #762): the beast2 v5 encoder's
+# bytes ARE the wire format (e3 content-addresses them), so the word-packed
+# rewrite is held to a copy of the bit-at-a-time original kept in the test,
+# over degenerate lengths, byte runs, window-edge matches and bulk row-shaped
+# and random input. Throughput is printed, never asserted.
+add_executable(test_deflate_equivalence tests/test_deflate_equivalence.c)
+target_link_libraries(test_deflate_equivalence east-c)
+add_test(NAME deflate_equivalence COMMAND test_deflate_equivalence)
+
 # Beast2 decoder hardening gate (issue #34): truncation/corruption sweeps,
 # crafted out-of-bounds type tables, and allocation-overflow guards. The
 # beast2 decoders are an untrusted-input boundary — run under ASan
