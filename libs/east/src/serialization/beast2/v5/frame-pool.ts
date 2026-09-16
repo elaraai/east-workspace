@@ -25,6 +25,12 @@
  * which yields the same bytes. Node's modules are reached through
  * `process.getBuiltinModule` — as `frames.ts` reaches zlib — so browser
  * bundles never see a `node:` import.
+ *
+ * A worker can die without flipping a status cell — a worker-thread OOM ends
+ * its isolate before its `catch` runs — and the main thread cannot receive the
+ * worker's `exit` event while it is blocked waiting on that worker's frame. So
+ * every wait is bounded: a frame pending past the wait timeout fails, the pool
+ * is abandoned, and the process frames inline from then on.
  */
 
 import type { Beast2Codec } from "./frames.js";
@@ -50,7 +56,10 @@ export interface PendingFrame {
    * The frame's wire bytes, blocking until the worker has written them.
    *
    * @returns the frame bytes
-   * @throws {Error} When the worker failed to build the frame.
+   * @throws {Error} When the worker failed to build the frame, or stopped
+   *   responding — the frame was still pending when the wait timed out, or its
+   *   pool had already lost a worker. A lost worker abandons the pool: the
+   *   process frames inline from then on.
    */
   take(): Uint8Array;
 }
@@ -67,6 +76,21 @@ export interface FramePool {
    * @returns the frame, pending
    */
   submit(logical: Uint8Array, codec: Beast2Codec): PendingFrame;
+  /**
+   * Terminates every worker thread. A frame still pending on one never
+   * completes, so its {@link PendingFrame.take} fails once the wait times out.
+   *
+   * @returns a promise that settles once every thread has exited
+   * @internal
+   */
+  terminateWorkers(): Promise<void>;
+}
+
+/** The frame pool's tunable timeouts — see {@link configureFramePool}. */
+export interface FramePoolSettings {
+  /** How long {@link PendingFrame.take} waits for one frame before it presumes
+   *  the worker's thread lost, in milliseconds. */
+  waitTimeoutMs?: number;
 }
 
 type WorkerLike = {
@@ -85,7 +109,20 @@ type FsModule = { existsSync(path: URL): boolean };
  *  worker boots in tens of milliseconds; this only bounds a broken install. */
 const STARTUP_TIMEOUT_MS = 10_000;
 
-/** `undefined` until first asked for; `null` when this runtime cannot pool. */
+/** How long {@link PendingFrame.take} waits for one frame before it presumes
+ *  the worker's thread lost. A 4 MiB segment deflates in well under a second,
+ *  so this fires only when the worker is gone. */
+const FRAME_WAIT_TIMEOUT_MS = 60_000;
+
+/** The slices a blocked {@link PendingFrame.take} waits in, checking its
+ *  deadline between them. */
+const FRAME_WAIT_SLICE_MS = 1_000;
+
+/** The timeouts in force; {@link configureFramePool} changes them. */
+const settings: Required<FramePoolSettings> = { waitTimeoutMs: FRAME_WAIT_TIMEOUT_MS };
+
+/** `undefined` until first asked for; `null` when this runtime cannot pool,
+ *  or once a pool has lost a worker. */
 let shared: FramePool | null | undefined;
 
 /**
@@ -93,11 +130,83 @@ let shared: FramePool | null | undefined;
  *
  * @returns the pool, or `null` when frames must be written inline — no Node
  *   `worker_threads`, no `SharedArrayBuffer`, a single CPU, not the main thread
- *   (a pool per worker would only oversubscribe), or worker start-up failed
+ *   (a pool per worker would only oversubscribe), worker start-up failed, or
+ *   an earlier pool lost a worker
  */
 export function framePool(): FramePool | null {
   if (shared === undefined) shared = createPool();
   return shared;
+}
+
+/**
+ * Changes the frame pool's timeouts, for tests that cannot wait them out.
+ *
+ * @param options - the settings to change; an omitted one keeps its value
+ * @returns every setting as it was before, to restore afterwards
+ * @internal
+ */
+export function configureFramePool(options: FramePoolSettings): Required<FramePoolSettings> {
+  const previous = { ...settings };
+  if (options.waitTimeoutMs !== undefined) settings.waitTimeoutMs = options.waitTimeoutMs;
+  return previous;
+}
+
+/**
+ * Gives up on a pool that lost a worker: terminates its threads and makes the
+ * process frame inline from then on — the same bytes, on the calling thread.
+ * Every frame still pending on the pool fails at once rather than waiting out
+ * its own timeout.
+ */
+function abandonPool(pool: WorkerFramePool): void {
+  pool.lost = true;
+  void pool.terminateWorkers();
+  shared = null;
+}
+
+/** The worker-thread pool {@link framePool} hands out. */
+class WorkerFramePool implements FramePool {
+  readonly workers: number;
+  /** Set once a worker stopped responding; every pending frame then fails. */
+  lost = false;
+  private readonly threads: readonly WorkerLike[];
+  private next = 0;
+
+  constructor(threads: readonly WorkerLike[]) {
+    this.threads = threads;
+    this.workers = threads.length;
+  }
+
+  submit(logical: Uint8Array, codec: Beast2Codec): PendingFrame {
+    const input = new SharedArrayBuffer(Math.max(1, logical.length));
+    new Uint8Array(input).set(logical);
+    const output = new SharedArrayBuffer(logical.length + FRAME_HEADER_MAX);
+    const status = new Int32Array(new SharedArrayBuffer(8));
+    this.threads[this.next]!.postMessage({ input, length: logical.length, output, status: status.buffer, codec });
+    this.next = (this.next + 1) % this.threads.length;
+    return {
+      logicalLength: logical.length,
+      ready: () => Atomics.load(status, 0) !== PENDING,
+      take: () => {
+        const deadline = Date.now() + settings.waitTimeoutMs;
+        while (Atomics.load(status, 0) === PENDING) {
+          const remaining = deadline - Date.now();
+          if (this.lost || remaining <= 0) {
+            abandonPool(this);
+            throw new Error("beast2 v5: a frame worker stopped responding — its thread was lost");
+          }
+          Atomics.wait(status, 0, PENDING, Math.min(FRAME_WAIT_SLICE_MS, remaining));
+        }
+        if (Atomics.load(status, 0) === FAILED) {
+          throw new Error("beast2 v5: a frame worker failed to build a frame");
+        }
+        return new Uint8Array(output, 0, Atomics.load(status, 1)).slice();
+      },
+    };
+  }
+
+  async terminateWorkers(): Promise<void> {
+    await Promise.all(this.threads.map((worker) => worker.terminate()));
+  }
 }
 
 function createPool(): FramePool | null {
@@ -153,29 +262,7 @@ function createPool(): FramePool | null {
     }
   }
 
-  let next = 0;
-  return {
-    workers: workers.length,
-    submit(logical, codec) {
-      const input = new SharedArrayBuffer(Math.max(1, logical.length));
-      new Uint8Array(input).set(logical);
-      const output = new SharedArrayBuffer(logical.length + FRAME_HEADER_MAX);
-      const status = new Int32Array(new SharedArrayBuffer(8));
-      workers[next]!.postMessage({ input, length: logical.length, output, status: status.buffer, codec });
-      next = (next + 1) % workers.length;
-      return {
-        logicalLength: logical.length,
-        ready: () => Atomics.load(status, 0) !== PENDING,
-        take: () => {
-          while (Atomics.load(status, 0) === PENDING) Atomics.wait(status, 0, PENDING);
-          if (Atomics.load(status, 0) === FAILED) {
-            throw new Error("beast2 v5: a frame worker failed to build a frame");
-          }
-          return new Uint8Array(output, 0, Atomics.load(status, 1)).slice();
-        },
-      };
-    },
-  };
+  return new WorkerFramePool(workers);
 }
 
 /** Status cell values, for the worker. @internal */

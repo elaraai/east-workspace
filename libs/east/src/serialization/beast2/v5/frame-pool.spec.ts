@@ -31,7 +31,7 @@ import {
   decodeBeast2For,
   encodeBeast2PagedFor,
 } from "../index.js";
-import { framePool } from "./frame-pool.js";
+import { configureFramePool, framePool } from "./frame-pool.js";
 
 /** xorshift32 — a fixed stream, so a failure reproduces exactly. */
 function rng(seed: number): () => number {
@@ -85,6 +85,16 @@ function serialPaged<T>(type: Parameters<typeof encodeBeast2PagedFor>[0], items:
   }
   writer.finish();
   const out = new Uint8Array(bytes);
+  let pos = 0;
+  for (const c of chunks) { out.set(c, pos); pos += c.length; }
+  return out;
+}
+
+/** Chunks joined into one buffer. */
+function concat(chunks: Uint8Array[]): Uint8Array {
+  let length = 0;
+  for (const c of chunks) length += c.length;
+  const out = new Uint8Array(length);
   let pos = 0;
   for (const c of chunks) { out.set(c, pos); pos += c.length; }
   return out;
@@ -147,5 +157,64 @@ describe("beast2 v5 parallel frame writer", () => {
     console.log(`  paged encode of ${(serial.length / 1e6).toFixed(1)} MB: serial ${(t1 - t0).toFixed(0)} ms, ` +
       `pooled ${(t2 - t1).toFixed(0)} ms (${((t1 - t0) / (t2 - t1)).toFixed(2)}x on ${framePool()?.workers ?? 1} workers), ` +
       `identical: ${firstDifference(serial, pooled) === -1}`);
+  });
+
+  // LAST in this file: losing a worker abandons the process's pool, so every
+  // encode after it in this process frames inline.
+  test("a lost frame worker fails its frame instead of hanging, and the process frames inline after", async (t) => {
+    const pool = framePool();
+    if (pool === null) {
+      t.skip("no frame pool on this host — frames are written inline");
+      return;
+    }
+    const type = ArrayType(StringType);
+    const items = strings(24_000, 0x1057);
+    const batches = (from: number, to: number): string[][] => {
+      const out: string[][] = [];
+      for (let i = from; i < to; i += 500) out.push(items.slice(i, Math.min(to, i + 500)));
+      return out;
+    };
+    // A parallel writer already framing on the pool — well past the pool's
+    // start threshold — with nothing in flight when the worker is lost.
+    const survivorChunks: Uint8Array[] = [];
+    const survivor = new Beast2Writer(type, (b) => { survivorChunks.push(b); }, { parallel: true });
+    for (const batch of batches(0, 16_000)) survivor.write(batch);
+    survivor.settle();
+
+    const logical = new Uint8Array(64 * 1024).fill(0x61);
+    assert.ok(pool.submit(logical, "deflate").take().length > 0, "a live worker builds the frame");
+
+    // A worker that dies without reporting: the thread is gone, the frame it
+    // was handed stays pending. Only this wait is shortened — a healthy frame
+    // on a loaded runner must never be mistaken for a lost one.
+    await pool.terminateWorkers();
+    const previous = configureFramePool({ waitTimeoutMs: 200 });
+    try {
+      const orphan = pool.submit(logical, "deflate");
+      const started = Date.now();
+      assert.throws(() => orphan.take(), /a frame worker stopped responding — its thread was lost/);
+      assert.ok(Date.now() - started < 10_000, "the configured wait applies, not the minute-long default");
+    } finally {
+      configureFramePool(previous);
+    }
+    assert.equal(framePool(), null, "the process frames inline from then on");
+
+    // The surviving writer follows the process inline rather than handing
+    // frames to the abandoned pool, and its stream is the inline stream.
+    for (const batch of batches(16_000, items.length)) survivor.write(batch);
+    survivor.finish();
+    const inlineChunks: Uint8Array[] = [];
+    const inline = new Beast2Writer(type, (b) => { inlineChunks.push(b); });
+    for (const batch of batches(0, items.length)) inline.write(batch);
+    inline.finish();
+    assert.equal(firstDifference(concat(survivorChunks), concat(inlineChunks)), -1, "a writer that outlives the loss writes the inline bytes");
+
+    // ...and a new encode writes exactly the serial bytes.
+    const target = 64 * 1024;
+    assert.equal(
+      firstDifference(encodeBeast2PagedFor(type, { targetSegmentBytes: target })(items), serialPaged(type, items, (batch) => batch, target)),
+      -1,
+      "inline framing after the loss is byte-identical to the serial algorithm",
+    );
   });
 });

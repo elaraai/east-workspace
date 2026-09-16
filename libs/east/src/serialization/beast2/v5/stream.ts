@@ -244,8 +244,11 @@ export class Beast2Writer<T extends EastType = EastType> {
    * or an external sort), or encode arrival order as an Array of entries.
    *
    * @param batch - a value of the declared collection type
-   * @throws {Error} When called after {@link finish}, or when a Set/Dict
-   *   batch violates the stream's strict ascending (key) order.
+   * @throws {Error} When called after {@link finish}, when a Set/Dict
+   *   batch violates the stream's strict ascending (key) order, or — for a
+   *   parallel writer — when a frame worker failed to build a frame or stopped
+   *   responding. A lost frame cannot be rebuilt, so the stream fails loudly
+   *   and cannot be finished; the process frames inline from then on.
    */
   write(batch: ValueTypeOf<T>): void {
     if (this.finished) throw new Error("write() after finish()");
@@ -323,12 +326,18 @@ export class Beast2Writer<T extends EastType = EastType> {
   }
 
   /** The pool to frame on — decided once a parallel writer has produced
-   *  enough bytes to be worth it, and never revisited, so frames cannot
-   *  interleave inline and pooled out of order. */
+   *  enough bytes to be worth it. While frames are in flight the writer keeps
+   *  the pool they are on, so frames cannot interleave out of order; with none
+   *  in flight it follows the process's current pool, which is `null` once a
+   *  pool has lost a worker — a writer never submits to a pool given up on. A
+   *  writer demoted to inline framing stays inline. */
   private poolFor(): FramePool | null {
-    if (this.pool !== undefined) return this.pool;
-    if (!this.parallel || this.logicalWritten < POOL_MIN_LOGICAL_BYTES) return null;
-    this.pool = framePool();
+    if (this.pool === undefined) {
+      if (!this.parallel || this.logicalWritten < POOL_MIN_LOGICAL_BYTES) return null;
+      this.pool = framePool();
+    } else if (this.pool !== null && this.inflight.length === 0) {
+      this.pool = framePool();
+    }
     return this.pool;
   }
 
@@ -352,6 +361,9 @@ export class Beast2Writer<T extends EastType = EastType> {
   /**
    * Terminates the stream: writes the terminator frame and, unless disabled,
    * the index and footer. Idempotent.
+   *
+   * @throws {Error} For a parallel writer, when an in-flight frame's worker
+   *   failed or stopped responding (see {@link write}).
    */
   finish(): void {
     if (this.finished) return;
