@@ -90,6 +90,11 @@ function serialPaged<T>(type: Parameters<typeof encodeBeast2PagedFor>[0], items:
   return out;
 }
 
+/** Resolves after `ms` milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Chunks joined into one buffer. */
 function concat(chunks: Uint8Array[]): Uint8Array {
   let length = 0;
@@ -157,6 +162,76 @@ describe("beast2 v5 parallel frame writer", () => {
     console.log(`  paged encode of ${(serial.length / 1e6).toFixed(1)} MB: serial ${(t1 - t0).toFixed(0)} ms, ` +
       `pooled ${(t2 - t1).toFixed(0)} ms (${((t1 - t0) / (t2 - t1)).toFixed(2)}x on ${framePool()?.workers ?? 1} workers), ` +
       `identical: ${firstDifference(serial, pooled) === -1}`);
+  });
+
+  test("an idle pool retires its workers, and the next pooled encode starts a new pool", async (t) => {
+    const before = framePool();
+    if (before === null) {
+      t.skip("no frame pool on this host — frames are written inline");
+      return;
+    }
+    const previous = configureFramePool({ idleMs: 50 });
+    try {
+      const type = ArrayType(StringType);
+      const items = strings(24_000, 0x1d1e);
+      const target = 64 * 1024;
+      const serial = serialPaged(type, items, (batch) => batch, target);
+      assert.equal(firstDifference(encodeBeast2PagedFor(type, { targetSegmentBytes: target })(items), serial), -1);
+
+      // The check runs on a timer, so wait for the retirement rather than for
+      // a fixed time — a loaded host delays timers.
+      const deadline = Date.now() + 10_000;
+      while (framePool() === before && Date.now() < deadline) await sleep(25);
+      assert.notEqual(framePool(), before, "the idle pool retired and a new one started");
+      assert.equal(
+        firstDifference(encodeBeast2PagedFor(type, { targetSegmentBytes: target })(items), serial),
+        -1,
+        "the new pool writes the same bytes",
+      );
+    } finally {
+      configureFramePool(previous);
+    }
+  });
+
+  test("a writer that outlives an idle retirement frames on the new pool, byte-identically", async (t) => {
+    const pool = framePool();
+    if (pool === null) {
+      t.skip("no frame pool on this host — frames are written inline");
+      return;
+    }
+    // A shorter wait too: if the writer handed frames to the retired workers,
+    // this fails in seconds rather than a minute — yet far longer than any
+    // healthy frame takes on a loaded runner.
+    const previous = configureFramePool({ idleMs: 50, waitTimeoutMs: 10_000 });
+    try {
+      const type = ArrayType(StringType);
+      const items = strings(24_000, 0x0a7e);
+      const batches = (from: number, to: number): string[][] => {
+        const out: string[][] = [];
+        for (let i = from; i < to; i += 500) out.push(items.slice(i, Math.min(to, i + 500)));
+        return out;
+      };
+      // A long-lived writer (an emit sink between batches) goes quiet with
+      // nothing in flight, long enough for its pool to retire.
+      const chunks: Uint8Array[] = [];
+      const writer = new Beast2Writer(type, (b) => { chunks.push(b); }, { parallel: true });
+      for (const batch of batches(0, 16_000)) writer.write(batch);
+      writer.settle();
+      const deadline = Date.now() + 10_000;
+      while (framePool() === pool && Date.now() < deadline) await sleep(25);
+      assert.notEqual(framePool(), pool, "the quiet pool retired");
+
+      for (const batch of batches(16_000, items.length)) writer.write(batch);
+      writer.finish();
+      const inlineChunks: Uint8Array[] = [];
+      const inline = new Beast2Writer(type, (b) => { inlineChunks.push(b); });
+      for (const batch of batches(0, items.length)) inline.write(batch);
+      inline.finish();
+      assert.equal(firstDifference(concat(chunks), concat(inlineChunks)), -1, "the writer's stream is the inline stream");
+      assert.notEqual(framePool(), null, "no worker was lost along the way");
+    } finally {
+      configureFramePool(previous);
+    }
   });
 
   // LAST in this file: losing a worker abandons the process's pool, so every

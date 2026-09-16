@@ -31,6 +31,14 @@
  * worker's `exit` event while it is blocked waiting on that worker's frame. So
  * every wait is bounded: a frame pending past the wait timeout fails, the pool
  * is abandoned, and the process frames inline from then on.
+ *
+ * The pool is process-wide and outlives the write that started it, so a
+ * long-lived process — an API server, a terminal UI — would otherwise keep one
+ * idle V8 isolate per CPU for good. A pool with no frame outstanding and no
+ * activity for the idle limit terminates its workers, and the next pooled
+ * write starts a new pool. A writer abandoned mid-flight never takes its
+ * frames, so it keeps the pool alive; the idle check is `unref`'d, so process
+ * exit is unaffected either way.
  */
 
 import type { Beast2Codec } from "./frames.js";
@@ -91,6 +99,9 @@ export interface FramePoolSettings {
   /** How long {@link PendingFrame.take} waits for one frame before it presumes
    *  the worker's thread lost, in milliseconds. */
   waitTimeoutMs?: number;
+  /** How long a pool with no frame outstanding keeps its workers before it
+   *  terminates them, in milliseconds. */
+  idleMs?: number;
 }
 
 type WorkerLike = {
@@ -118,15 +129,31 @@ const FRAME_WAIT_TIMEOUT_MS = 60_000;
  *  deadline between them. */
 const FRAME_WAIT_SLICE_MS = 1_000;
 
-/** The timeouts in force; {@link configureFramePool} changes them. */
-const settings: Required<FramePoolSettings> = { waitTimeoutMs: FRAME_WAIT_TIMEOUT_MS };
+/** How long a pool with no frame outstanding keeps its workers. Starting a
+ *  pool costs tens of milliseconds, so a busy process never pays it twice;
+ *  an idle one does not hold an isolate per CPU for its whole life. */
+const FRAME_POOL_IDLE_MS = 30_000;
 
-/** `undefined` until first asked for; `null` when this runtime cannot pool,
- *  or once a pool has lost a worker. */
+/** How often the live pool is checked for idleness (more often only when the
+ *  idle limit is shorter). */
+const IDLE_CHECK_INTERVAL_MS = 10_000;
+
+/** The timeouts in force; {@link configureFramePool} changes them. */
+const settings: Required<FramePoolSettings> = {
+  waitTimeoutMs: FRAME_WAIT_TIMEOUT_MS,
+  idleMs: FRAME_POOL_IDLE_MS,
+};
+
+/** `undefined` until first asked for, and again once an idle pool retires;
+ *  `null` when this runtime cannot pool, or once a pool has lost a worker. */
 let shared: FramePool | null | undefined;
 
+/** The live pool's idle check; `undefined` while no pool is live. */
+let idleCheck: ReturnType<typeof setInterval> | undefined;
+
 /**
- * The process's frame pool, created on first use.
+ * The process's frame pool, created on first use — and again after an idle
+ * pool retired its workers.
  *
  * @returns the pool, or `null` when frames must be written inline — no Node
  *   `worker_threads`, no `SharedArrayBuffer`, a single CPU, not the main thread
@@ -134,7 +161,10 @@ let shared: FramePool | null | undefined;
  *   an earlier pool lost a worker
  */
 export function framePool(): FramePool | null {
-  if (shared === undefined) shared = createPool();
+  if (shared === undefined) {
+    shared = createPool();
+    armIdleCheck();
+  }
   return shared;
 }
 
@@ -148,6 +178,8 @@ export function framePool(): FramePool | null {
 export function configureFramePool(options: FramePoolSettings): Required<FramePoolSettings> {
   const previous = { ...settings };
   if (options.waitTimeoutMs !== undefined) settings.waitTimeoutMs = options.waitTimeoutMs;
+  if (options.idleMs !== undefined) settings.idleMs = options.idleMs;
+  armIdleCheck();
   return previous;
 }
 
@@ -161,6 +193,29 @@ function abandonPool(pool: WorkerFramePool): void {
   pool.lost = true;
   void pool.terminateWorkers();
   shared = null;
+  armIdleCheck();
+}
+
+/** Starts, restarts or stops the idle check so it runs exactly while a pool
+ *  is live, at a period no longer than the idle limit. */
+function armIdleCheck(): void {
+  if (idleCheck !== undefined) clearInterval(idleCheck);
+  idleCheck = undefined;
+  if (!(shared instanceof WorkerFramePool)) return;
+  idleCheck = setInterval(retireIfIdle, Math.max(1, Math.min(IDLE_CHECK_INTERVAL_MS, settings.idleMs)));
+  // Never keeps a finished process alive.
+  (idleCheck as { unref?: () => void }).unref?.();
+}
+
+/** Terminates the live pool's workers once no frame is outstanding and none
+ *  has moved for the idle limit; the next {@link framePool} starts a new one. */
+function retireIfIdle(): void {
+  const pool = shared;
+  if (pool instanceof WorkerFramePool && pool.outstanding === 0 && Date.now() - pool.lastActivity > settings.idleMs) {
+    void pool.terminateWorkers();
+    shared = undefined;
+  }
+  if (!(shared instanceof WorkerFramePool)) armIdleCheck();
 }
 
 /** The worker-thread pool {@link framePool} hands out. */
@@ -168,6 +223,10 @@ class WorkerFramePool implements FramePool {
   readonly workers: number;
   /** Set once a worker stopped responding; every pending frame then fails. */
   lost = false;
+  /** Frames submitted and not yet taken — a pool with any is never idle. */
+  outstanding = 0;
+  /** When a frame was last submitted or taken, or the pool started. */
+  lastActivity = Date.now();
   private readonly threads: readonly WorkerLike[];
   private next = 0;
 
@@ -183,23 +242,35 @@ class WorkerFramePool implements FramePool {
     const status = new Int32Array(new SharedArrayBuffer(8));
     this.threads[this.next]!.postMessage({ input, length: logical.length, output, status: status.buffer, codec });
     this.next = (this.next + 1) % this.threads.length;
+    this.outstanding++;
+    this.lastActivity = Date.now();
+    let taken = false;
     return {
       logicalLength: logical.length,
       ready: () => Atomics.load(status, 0) !== PENDING,
       take: () => {
-        const deadline = Date.now() + settings.waitTimeoutMs;
-        while (Atomics.load(status, 0) === PENDING) {
-          const remaining = deadline - Date.now();
-          if (this.lost || remaining <= 0) {
-            abandonPool(this);
-            throw new Error("beast2 v5: a frame worker stopped responding — its thread was lost");
+        try {
+          const deadline = Date.now() + settings.waitTimeoutMs;
+          while (Atomics.load(status, 0) === PENDING) {
+            const remaining = deadline - Date.now();
+            if (this.lost || remaining <= 0) {
+              abandonPool(this);
+              throw new Error("beast2 v5: a frame worker stopped responding — its thread was lost");
+            }
+            Atomics.wait(status, 0, PENDING, Math.min(FRAME_WAIT_SLICE_MS, remaining));
           }
-          Atomics.wait(status, 0, PENDING, Math.min(FRAME_WAIT_SLICE_MS, remaining));
+          if (Atomics.load(status, 0) === FAILED) {
+            throw new Error("beast2 v5: a frame worker failed to build a frame");
+          }
+          return new Uint8Array(output, 0, Atomics.load(status, 1)).slice();
+        } finally {
+          // Taken once, however it ended: a failed frame is not outstanding.
+          if (!taken) {
+            taken = true;
+            this.outstanding--;
+          }
+          this.lastActivity = Date.now();
         }
-        if (Atomics.load(status, 0) === FAILED) {
-          throw new Error("beast2 v5: a frame worker failed to build a frame");
-        }
-        return new Uint8Array(output, 0, Atomics.load(status, 1)).slice();
       },
     };
   }

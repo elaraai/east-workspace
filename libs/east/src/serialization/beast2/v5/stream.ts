@@ -328,9 +328,10 @@ export class Beast2Writer<T extends EastType = EastType> {
   /** The pool to frame on — decided once a parallel writer has produced
    *  enough bytes to be worth it. While frames are in flight the writer keeps
    *  the pool they are on, so frames cannot interleave out of order; with none
-   *  in flight it follows the process's current pool, which is `null` once a
-   *  pool has lost a worker — a writer never submits to a pool given up on. A
-   *  writer demoted to inline framing stays inline. */
+   *  in flight it follows the process's current pool — a new one after an idle
+   *  pool retired its workers, `null` once a pool has lost a worker — so a
+   *  writer never submits to terminated workers. A writer demoted to inline
+   *  framing stays inline. */
   private poolFor(): FramePool | null {
     if (this.pool === undefined) {
       if (!this.parallel || this.logicalWritten < POOL_MIN_LOGICAL_BYTES) return null;
