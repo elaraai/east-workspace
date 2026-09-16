@@ -177,10 +177,15 @@ export {
 
 // Dataset transfer types
 export {
+  TRANSFER_PROTOCOL_VERSION,
+  transferPartCount,
+  transferPartRange,
   TransferUploadRequestType,
   type TransferUploadRequest,
   TransferUploadResponseType,
   type TransferUploadResponse,
+  TransferPartResponseType,
+  type TransferPartResponse,
   TransferDoneResponseType,
   type TransferDoneResponse,
 } from './transfer.js';

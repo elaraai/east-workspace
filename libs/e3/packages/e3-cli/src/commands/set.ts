@@ -26,10 +26,8 @@
  * big to decode, and the file is never modified.
  */
 
-import { createReadStream } from 'node:fs';
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
-import { Readable } from 'node:stream';
 import { stat } from 'node:fs/promises';
 import { datasetAdoptFile, workspaceResolveDataset, workspaceSetDataset, LocalStorage } from '@elaraai/e3-core';
 import { readDatasetFileHeader, readDatasetFileType, sha256File } from '@elaraai/e3';
@@ -54,6 +52,7 @@ import { checkDatasetType, type TreePath } from '@elaraai/e3-types';
 import { parseRepoLocation, formatError, exitError, type RepoLocation } from '../utils.js';
 import { resolveDatasetPath } from '../path-resolver.js';
 import { formatSize } from '../format.js';
+import { fileTransferSource } from '../file-transfer-source.js';
 
 /**
  * Parse a type specification in .east format.
@@ -271,7 +270,7 @@ async function setFromFile(repoArg: string, pathSpec: string, file: string): Pro
     location.repo,
     ws,
     path,
-    { size, hash, body: () => Readable.toWeb(createReadStream(file)) as ReadableStream<Uint8Array> },
+    fileTransferSource(file, size, hash),
     { token: location.token }
   );
   console.log(`Set ${pathSpec} from ${file}`);

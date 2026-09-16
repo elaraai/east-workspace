@@ -45,6 +45,10 @@ const getServerConfig = (() => {
       reposDir,
       port: 0,
       host: 'localhost',
+      // Small parts and no commit wait, so the suites' megabyte-sized uploads
+      // go through the protocol's multi-part path and a polled commit.
+      transferPartBytes: 256 * 1024,
+      transferCommitWaitMs: 0,
     });
     await server.start();
 

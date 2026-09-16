@@ -4,13 +4,14 @@
  */
 
 import { Hono } from 'hono';
-import { mkdir, writeFile, readFile, unlink } from 'node:fs/promises';
+import { mkdir, open, writeFile, readFile, unlink } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { variant } from '@elaraai/east';
+import { transferPartCount, transferPartRange } from '@elaraai/e3-types';
 import {
   BEAST2_CONTENT_TYPE,
   ObjectNotFoundError,
@@ -41,7 +42,8 @@ function rejectAuthHeader(c: { req: { header(name: string): string | undefined }
  * Create generic upload/download data endpoints.
  *
  * Returns two Hono apps:
- * - `uploads`: PUT /:id — upload data (dataset BEAST2 or package zip)
+ * - `uploads`: PUT /:id — upload data (dataset BEAST2 or package zip);
+ *   PUT /:id/parts/:part — one part of a dataset upload planned as parts
  * - `downloads`: GET /:id — download data (dataset BEAST2 or package zip)
  *
  * These are unauthenticated — the UUID in the URL is the sole capability.
@@ -109,6 +111,70 @@ export function createDataEndpoints(
     }
 
     return new Response('Not found', { status: 404 });
+  });
+
+  // PUT /api/uploads/:id/parts/:part — One part of a dataset upload planned as
+  // parts (protocol 2)
+  uploads.put('/:id/parts/:part', async (c) => {
+    const rejected = rejectAuthHeader(c);
+    if (rejected) return rejected;
+
+    const id = c.req.param('id')!;
+    const record = await transferBackend.datasetUpload.get(id);
+    const partBytes = record ? await transferBackend.datasetUpload.getPartBytes(id) : null;
+    if (!record || partBytes === null) {
+      return new Response('Not found', { status: 404 });
+    }
+    const part = Number(c.req.param('part'));
+    const range = transferPartRange(record.size, partBytes, part);
+    if (!range) {
+      return new Response(
+        `No part ${c.req.param('part')}: the upload has ${transferPartCount(record.size, partBytes)} parts`,
+        { status: 404 }
+      );
+    }
+
+    // Every part streams to its own offset in the one staged file — in any
+    // order, concurrently, and a re-sent part over the old one — so the commit
+    // adopts the file exactly as it does a single PUT's, with nothing to
+    // assemble. Opening with 'a' creates the file without truncating the parts
+    // already there; the write itself needs a positioned handle.
+    const repoPath = getRepoPath(record.repo);
+    const stagingPath = transferStagingPath(repoPath, id);
+    await mkdir(transferStagingDir(repoPath), { recursive: true });
+    await (await open(stagingPath, 'a')).close();
+
+    // A part longer than its range would overwrite the next part, so the
+    // stream stops at the range's end instead of trusting Content-Length.
+    const expected = range.end - range.start;
+    let received = 0;
+    const bounded = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        received += chunk.length;
+        if (received > expected) {
+          callback(new Error(`part ${part} is ${expected} bytes, and more were sent`));
+        } else {
+          callback(null, chunk);
+        }
+      },
+    });
+    const body = c.req.raw.body;
+    try {
+      await pipeline(
+        body ? Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]) : Readable.from([]),
+        bounded,
+        createWriteStream(stagingPath, { flags: 'r+', start: range.start }),
+      );
+    } catch (err) {
+      if (received > expected) {
+        return new Response(`part ${part} is ${expected} bytes, and more were sent`, { status: 400 });
+      }
+      throw err;
+    }
+    if (received !== expected) {
+      return new Response(`part ${part} is ${expected} bytes, got ${received}`, { status: 400 });
+    }
+    return new Response(null, { status: 200 });
   });
 
   // GET /api/downloads/:id — Download data (dataset BEAST2 or package zip)

@@ -34,8 +34,7 @@ import {
   datasetSetStream,
   ApiError,
 } from '@elaraai/e3-api-client';
-import { createReadStream, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
-import { Readable } from 'node:stream';
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { EastTypeValue } from '@elaraai/east';
@@ -44,6 +43,7 @@ import { treePath, type PackageObject, type TreePath } from '@elaraai/e3-types';
 import { parseRepoLocation, parsePackageSpec, formatError, exitError, type RepoLocation } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
 import { createProgress, formatBytes, type Progress } from '../progress.js';
+import { fileTransferSource } from '../file-transfer-source.js';
 
 export const workspaceCommand = {
   /**
@@ -522,7 +522,7 @@ async function deployRemote(target: DeployTarget, name: string, version: string)
       const hash = await sha256File(source.file);
       await datasetSetStream(
         location.baseUrl, location.repo, ws, source.treePath,
-        { size, hash, body: () => Readable.toWeb(createReadStream(source.file)) as ReadableStream<Uint8Array> },
+        fileTransferSource(source.file, size, hash),
         auth,
       );
       step.done(`uploaded ${ws}.${source.name} (${formatBytes(size)}, ${hash.slice(0, 12)}...)`);

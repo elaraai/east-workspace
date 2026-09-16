@@ -113,6 +113,23 @@ describe('fetchWithRetry: thrown network errors', () => {
     await assert.rejects(fetchWithRetry(URL, {}, { idempotent: true, retry: { attempts: 1 } }));
     assert.equal(m.calls, 1);
   });
+
+  it('builds the request afresh for every attempt when init is a function (a stream body is spent by one)', async () => {
+    const bodies: unknown[] = [];
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      bodies.push(init?.body);
+      if (bodies.length === 1) throw new TypeError('fetch failed');
+      return new Response('ok', { status: 200 });
+    }) as typeof fetch;
+    let built = 0;
+    const res = await fetchWithRetry(URL, () => {
+      built++;
+      return { method: 'PUT', body: new ReadableStream<Uint8Array>() };
+    }, { idempotent: true, retry: NO_WAIT });
+    assert.equal(res.status, 200);
+    assert.equal(built, 2);
+    assert.notEqual(bodies[0], bodies[1], 'the retry sends a new body, not the spent one');
+  });
 });
 
 // ===========================================================================
