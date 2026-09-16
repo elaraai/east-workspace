@@ -1,5 +1,6 @@
 set(EAST_C_SOURCES
     src/arena.c
+    src/cpu_count.c
     src/gc.c
     src/hashmap.c
     src/types.c
@@ -289,6 +290,15 @@ add_executable(test_beast2_frame_pool tests/test_beast2_frame_pool.c)
 target_link_libraries(test_beast2_frame_pool east-c)
 add_test(NAME beast2_frame_pool COMMAND test_beast2_frame_pool)
 set_tests_properties(beast2_frame_pool PROPERTIES TIMEOUT 300)
+
+# CPU-count gate (#763): worker pools are sized like Node's
+# os.availableParallelism() — the affinity mask, capped by the cgroup v2 CPU
+# quota. Pins the quota reader against fabricated cgroup trees (nested limits,
+# sub-CPU quotas, "max", v1, malformed files) and, on Linux, that a process
+# pinned to one CPU counts one.
+add_executable(test_cpu_count tests/test_cpu_count.c)
+target_link_libraries(test_cpu_count east-c)
+add_test(NAME cpu_count COMMAND test_cpu_count)
 
 # Deterministic-deflate equivalence gate (issue #762): the beast2 v5 encoder's
 # bytes ARE the wire format (e3 content-addresses them), so the word-packed

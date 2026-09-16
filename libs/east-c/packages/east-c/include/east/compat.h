@@ -408,12 +408,6 @@ static inline void east_cond_broadcast(EastCond *c)
 {
     WakeAllConditionVariable(c);
 }
-static inline int east_cpu_count(void)
-{
-    SYSTEM_INFO info;
-    GetSystemInfo(&info);
-    return info.dwNumberOfProcessors > 0 ? (int)info.dwNumberOfProcessors : 1;
-}
 
 #else /* !_WIN32 */
 
@@ -471,13 +465,14 @@ static inline void east_cond_broadcast(EastCond *c)
 {
     pthread_cond_broadcast(c);
 }
-static inline int east_cpu_count(void)
-{
-    long n = sysconf(_SC_NPROCESSORS_ONLN);
-    return n > 0 ? (int)n : 1;
-}
 
 #endif /* _WIN32 */
+
+/* How many CPUs this process may use, at least 1 — the count Node's
+ * os.availableParallelism() reports, so east-c and the TypeScript runtime size
+ * their worker pools alike: the scheduler affinity mask, capped on Linux by the
+ * cgroup v2 CPU quota (src/cpu_count.c has the rules). */
+int east_cpu_count(void);
 
 /* Run the program entry point. East evaluation can recurse deeply, so the
  * binary is linked with a large stack reserve (see -Wl,--stack in the east-c
