@@ -6,12 +6,14 @@ on:
     paths:
       - "libs/east/**"
       - "libs/east-node/**"
+      - "docker/services/**"
       - ".github/workflows/test-east-node.yml"
   pull_request:
     branches: [main]
     paths:
       - "libs/east/**"
       - "libs/east-node/**"
+      - "docker/services/**"
       - ".github/workflows/test-east-node.yml"
 
 concurrency:
