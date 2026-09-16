@@ -24,9 +24,10 @@ import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, EastTypeType
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
 import { PackageObjectType, WorkspaceStateType, RecordObjectType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject, decodeTaskObject, decodeFunctionObject, EnvironmentSpecType, environmentSpecObjectHashes } from '@elaraai/e3-types';
 import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
-import { datasetAdoptFile } from './dataset-adopt.js';
+import { objectAdoptFile } from './dataset-adopt.js';
 import { packageResolve, packageRead } from './packages.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
+import { workspaceSetDatasetByHash } from './trees.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
@@ -338,6 +339,18 @@ export async function workspaceDeploy(
       pkg, options.sourceWarning, options.resolveFileSources ?? true,
     );
 
+    // Adopt every validated delivery into the object store, still before the
+    // wipe. Objects are repo-wide and content-addressed, so this is safe and
+    // idempotent whatever follows (an object no ref names is gc's to collect),
+    // and it moves every step that can fail for an I/O reason — the hash, a
+    // cross-device copy, ENOSPC, a delivery replaced since it was validated —
+    // ahead of the first destructive write. Only the ref writes come after.
+    const adoptedSources = new Map<string, string>();
+    for (const [refPath, file] of sourceFiles) {
+      const { hash } = await objectAdoptFile(storage, repo, file);
+      adoptedSources.set(refPath, hash);
+    }
+
     // Remove any existing dataset refs
     await storage.datasets.removeAll(repo, name);
 
@@ -361,18 +374,19 @@ export async function workspaceDeploy(
 
     await writeState(storage, repo, name, state);
 
-    // Adopt every validated file source by hash, once the workspace names
-    // this package — the adopt resolves the dataset's declared type through
-    // the DEPLOYED structure, so it has to follow the state write. Each
-    // source was already validated above, before the wipe, so nothing here
-    // can fail on a bad delivery; only a delivery that vanished between the
-    // two points can, and that is an ordinary I/O error.
+    // Point each path-initialised input at the object adopted above — the
+    // one step after the wipe, a ref write per input. The self entry in the
+    // version vector names the file's hash, which is what makes change
+    // detection exact for the input's consumers.
     //
     // The file IS the value, so a new delivery under the same path is a new
     // hash: its consumers re-run and `partitionTask`'s per-partition
     // memoization keeps the partitions whose slices did not move.
-    for (const [refPath, file] of sourceFiles) {
-      await datasetAdoptFile(storage, repo, name, treePathOfRefPath(refPath), file, { lock });
+    for (const [refPath, hash] of adoptedSources) {
+      await workspaceSetDatasetByHash(
+        storage, repo, name, treePathOfRefPath(refPath), hash,
+        new Map([[refPathToKeypath(refPath), hash]]),
+      );
     }
   } finally {
     // Only release the lock if we acquired it internally

@@ -75,6 +75,56 @@ export interface DatasetAdoptOptions {
 }
 
 /**
+ * Take an existing file into the object store, by hash.
+ *
+ * @remarks
+ * Repository-level: no workspace, no lock and no type check — the caller has
+ * already checked the file's header against whatever declares its type (the
+ * dataset, for {@link datasetAdoptFile}; the package's structure, at deploy).
+ * The file is hashed by streaming and stored by `ObjectStore.adoptFile` (a
+ * reflink, hard link or one kernel copy), or streamed into the store by a
+ * backend without it. Objects are content-addressed and immutable, so adopting
+ * a file again is a no-op, and an adopted object no ref names is gc's to
+ * collect.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param file - Path to the file to adopt
+ * @param options - The digest the caller was promised, checked before anything
+ *   is written
+ * @returns The object's hash and size
+ * @throws If the file is missing or unreadable, its digest is not
+ *   `options.expectHash`, or the backend stored it under another hash
+ */
+export async function objectAdoptFile(
+  storage: StorageBackend,
+  repo: string,
+  file: string,
+  options: { expectHash?: string } = {}
+): Promise<{ hash: string; size: number }> {
+  const hash = await sha256File(file);
+  if (options.expectHash !== undefined && options.expectHash !== hash) {
+    throw new Error(`hash mismatch: expected ${options.expectHash}, got ${hash}`);
+  }
+  const adopt = storage.objects.adoptFile;
+  if (adopt) {
+    const { size } = await adopt.call(storage.objects, repo, file, hash);
+    return { hash, size };
+  }
+  // A backend without adoptFile still gets the object, and must land on the
+  // same hash: the store is content-addressed either way.
+  const written = await storage.objects.writeStream(repo, createReadStream(file));
+  if (written !== hash) {
+    throw new Error(
+      `object store wrote ${file} under ${written} but its SHA256 is ${hash} — the backend's ` +
+      `writeStream must be content-addressed on the same digest`
+    );
+  }
+  const { size } = await storage.objects.stat(repo, hash);
+  return { hash, size };
+}
+
+/**
  * Point a workspace dataset at an existing file, by hash.
  *
  * @remarks
@@ -134,24 +184,7 @@ export async function datasetAdoptFile(
       throw err;
     }
 
-    const hash = await sha256File(file);
-    if (options.expectHash !== undefined && options.expectHash !== hash) {
-      throw new Error(`hash mismatch: expected ${options.expectHash}, got ${hash}`);
-    }
-    const adopt = storage.objects.adoptFile;
-    if (adopt) {
-      await adopt.call(storage.objects, repo, file, hash);
-    } else {
-      // A backend without adoptFile still gets the object, and must land on
-      // the same hash: the store is content-addressed either way.
-      const written = await storage.objects.writeStream(repo, createReadStream(file));
-      if (written !== hash) {
-        throw new Error(
-          `object store wrote ${file} under ${written} but its SHA256 is ${hash} — the backend's ` +
-          `writeStream must be content-addressed on the same digest`
-        );
-      }
-    }
+    const { hash } = await objectAdoptFile(storage, repo, file, { expectHash: options.expectHash });
 
     // The self entry is what makes change detection exact: the ref's version
     // vector names the file's hash, so a new delivery invalidates precisely

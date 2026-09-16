@@ -122,6 +122,7 @@ export {
 export {
   datasetAdoptFile,
   datasetAdoptObject,
+  objectAdoptFile,
   type DatasetAdoptOptions,
   type DatasetAdoptResult,
 } from './dataset-adopt.js';

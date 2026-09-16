@@ -38,10 +38,10 @@ import {
   variant,
 } from '@elaraai/east';
 import e3, { type DatasetSource } from '@elaraai/e3';
-import { datasetAdoptFile, datasetAdoptObject } from './dataset-adopt.js';
+import { datasetAdoptFile, datasetAdoptObject, objectAdoptFile } from './dataset-adopt.js';
 import { DatasetTypeMismatchError } from './errors.js';
 import { packageImport } from './packages.js';
-import { workspaceDeploy } from './workspaces.js';
+import { workspaceDeploy, workspaceGetState } from './workspaces.js';
 import { workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
@@ -159,6 +159,12 @@ describe('path-initialised inputs', () => {
       const written = await storage.objects.write(testRepo, bytes);
 
       assert.equal(hash, written, 'adopt and write are one content address');
+      // The repository-level adopt deploy uses lands on the same object.
+      assert.deepEqual(
+        await objectAdoptFile(storage, testRepo, file),
+        { hash: written, size: bytes.length },
+        'objectAdoptFile agrees on the address and reports the size'
+      );
     });
 
     it('re-pointing at a new delivery moves the hash', async () => {
@@ -347,6 +353,45 @@ describe('path-initialised inputs', () => {
       );
       const after = await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath]);
       assert.equal(after.hash, before.hash, 'the workspace is exactly as the failed deploy found it');
+    });
+
+    it('adopts the deliveries before touching the workspace, so a failed adopt leaves the previous deployment intact', async () => {
+      const first = join(tempDir, 'first.beast2');
+      writeFileSync(first, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(16)));
+      await packageImport(storage, testRepo, await exportWithFileSource('deploy-first', first));
+      await workspaceDeploy(storage, testRepo, 'ws', 'deploy-first', '1.0.0');
+      const before = await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath]);
+      assert.equal(before.refType, 'value');
+
+      // A second package whose delivery is readable and of the declared type,
+      // deployed through a store whose adopt fails for an I/O reason.
+      const second = join(tempDir, 'second.beast2');
+      writeFileSync(second, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(24)));
+      await packageImport(storage, testRepo, await exportWithFileSource('deploy-second', second));
+      const objects = Object.create(storage.objects, {
+        adoptFile: { value: async (): Promise<never> => { throw new Error('disk full'); } },
+      }) as StorageBackend['objects'];
+      const failing: StorageBackend = {
+        objects,
+        refs: storage.refs,
+        locks: storage.locks,
+        logs: storage.logs,
+        repos: storage.repos,
+        datasets: storage.datasets,
+        validateRepository: (repo) => storage.validateRepository(repo),
+      };
+
+      await assert.rejects(
+        () => workspaceDeploy(failing, testRepo, 'ws', 'deploy-second', '1.0.0'),
+        /disk full/
+      );
+      const after = await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath]);
+      assert.equal(after.hash, before.hash, 'the wipe never happened');
+      assert.equal(
+        (await workspaceGetState(storage, testRepo, 'ws'))?.packageName,
+        'deploy-first',
+        'the workspace still names the previous package'
+      );
     });
 
     it('leaves a file source unassigned, with a warning, when the caller cannot read it', async () => {
