@@ -172,16 +172,17 @@ export const PartitionTaskMetadataType = StructType({
    * `encodeEastIR` bundle of the per-key merge `(Key, Value, Value) -> Value`
    * for a Dict output; `none` otherwise.
    *
-   * Its presence (or {@link mergeSets}) selects the SEGMENT-MERGE assembly:
-   * partials are walked by their segment fences in the orchestrator, disjoint
-   * segments are byte-copied exactly as a splice does, and only overlapping
-   * ones are decoded, merged and re-encoded. Appended LAST (BEAST2 encodes
-   * struct fields positionally) with a dual decoder — see
-   * {@link decodePartitionTaskMetadata}.
+   * Its presence (or {@link mergeSets}) selects the MERGE-TREE assembly:
+   * partials whose key ranges overlap are merged by the task's own runner, in
+   * a tree of stream executions whose emit sink folds equal keys with this
+   * function (`--merge`); disjoint partials are spliced; the orchestrator
+   * never decodes a partial. Appended LAST (BEAST2 encodes struct fields
+   * positionally) with a dual decoder — see {@link decodePartitionTaskMetadata}.
    */
   merge: OptionType(BlobType),
-  /** Whether a Set output assembles by segment merge (union). The Set twin of
-   *  {@link merge}, which needs no function. Appended LAST. */
+  /** Whether a Set output assembles by the merge tree, keeping one of equal
+   *  elements (`--union`). The Set twin of {@link merge}, which needs no
+   *  function. Appended LAST. */
   mergeSets: BooleanType,
 });
 export type PartitionTaskMetadataType = typeof PartitionTaskMetadataType;

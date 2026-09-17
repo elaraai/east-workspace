@@ -16,10 +16,12 @@
  * secondary are re-encoded), reusing the slices a previous run of the same
  * plan recorded → runs each partition as an ordinary content-addressed
  * execution, probed in the execution cache first → assembles the output by
- * byte splice (validating the canonical shard order), by a k-way SEGMENT MERGE
- * of keyed partials that may collide (`partitionMerge.ts` — byte-copying every
- * segment no other partial reaches, decoding only the overlaps), or by folding
- * partials pairwise through combine executions.
+ * byte splice (validating the canonical shard order), by a MERGE TREE of
+ * stream executions on the task's own runner over keyed partials that may
+ * collide (`partitionAssembly.ts` — disjoint partials are spliced, never
+ * decoded), or by folding partials pairwise through combine executions. While
+ * its units run, the logical execution is recorded `running`, and its log
+ * names every unit's execution.
  *
  * Because each per-partition execution is content-addressed by
  * `(taskHash, inputsHash([functionIr, ...slices, ...broadcast]))` and
@@ -47,7 +49,7 @@ import {
 } from '@elaraai/east';
 import type { EastTypeValue, FunctionTypeValue } from '@elaraai/east';
 import { PartitionBlob, bufferPart, spliceChunks, type SplicePart } from './partitionIo.js';
-import { mergePartialsBySegments, type MergeResolve } from './partitionMerge.js';
+import { assembleMergeTree, type MergeTreeOutcome } from './partitionAssembly.js';
 import {
   PartitionPlanType,
   decodePartitionPlan,
@@ -64,6 +66,7 @@ import {
 } from '@elaraai/e3-types';
 import { inputsHash } from '../executions.js';
 import type { StorageBackend } from '../storage/interfaces.js';
+import { getBootId, getPidStartTime } from './processHelpers.js';
 import {
   probeExecutionCache,
   taskExecuteBody,
@@ -101,9 +104,9 @@ export type PartitionUnitExecutor = (taskHash: string, task: TaskObject, inputHa
  * task's own `(taskHash, inputsHash)` identity.
  *
  * Called by `taskExecute` after its cache probe and task decode. Every unit —
- * a partition execution or a combine step — is probed in the execution cache
- * here and run through `executeUnit` only on a miss (never back through the
- * dispatch, which would re-enter this path).
+ * a partition execution, a combine step or a merge unit — is probed in the
+ * execution cache here and run through `executeUnit` only on a miss (never
+ * back through the dispatch, which would re-enter this path).
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -127,8 +130,45 @@ export async function partitionTaskExecute(
 ): Promise<ExecutionResult> {
   const { inHash, executionId, startTime } = ids;
 
+  // The logical execution's log: one stdout line per unit, appended when the
+  // unit's result is known and naming the unit's execution in full, so its
+  // own logs can be opened. Appends run one at a time; a record waits for them.
+  let logWrites: Promise<void> = Promise.resolve();
+  const logUnit = (label: string, unitTaskHash: string, result: ExecutionResult): void => {
+    const state = result.cached ? 'cached' : result.state === 'success' ? 'completed' : 'failed';
+    const line = `${label} ${state} task=${unitTaskHash} inputs=${result.inputsHash} execution=${result.executionId} duration=${result.duration}\n`;
+    logWrites = logWrites.then(async () => {
+      try {
+        await storage.logs.append(repo, taskHash, inHash, executionId, 'stdout', line);
+      } catch (err) {
+        console.warn(`Failed to append partition log: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
+  };
+
   const record = async (status: ExecutionStatus): Promise<void> => {
+    await logWrites;
     await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+  };
+  /** Records a unit's own non-zero exit as the logical execution's `failed`. */
+  const failedResult = async (exitCode: number | null, message: string): Promise<ExecutionResult> => {
+    await record(variant('failed', {
+      executionId,
+      inputHashes,
+      startedAt: new Date(startTime),
+      completedAt: new Date(),
+      exitCode: BigInt(exitCode ?? -1),
+    }));
+    return {
+      inputsHash: inHash,
+      executionId,
+      cached: false,
+      state: 'failed',
+      outputHash: null,
+      exitCode,
+      duration: Date.now() - startTime,
+      error: message,
+    };
   };
   const errorResult = async (message: string): Promise<ExecutionResult> => {
     await record(variant('error', {
@@ -287,6 +327,21 @@ export async function partitionTaskExecute(
     return result;
   }
 
+  // Two or more partitions: the logical execution is this process's own work
+  // while its units run — recorded `running` under this process, with the
+  // owner sidecar naming it.
+  const bootId = await getBootId();
+  const pidStartTime = await getPidStartTime(process.pid);
+  await record(variant('running', {
+    executionId,
+    inputHashes,
+    startedAt: new Date(startTime),
+    pid: BigInt(process.pid),
+    pidStartTime: BigInt(pidStartTime),
+    bootId,
+  }));
+  await storage.refs.executionOwnerWrite?.(repo, taskHash, inHash, executionId, { pid: process.pid, pidStartTime, bootId });
+
   // ---------------------------------------------------------------------
   // Plan each co-partitioned secondary's split point at every primary
   // boundary (fence search per boundary). The primary splits at segment
@@ -409,6 +464,7 @@ export async function partitionTaskExecute(
       const subInputs = [fnIrHash, ...sliceHashes.map((slices) => slices[p]!), ...broadcastHashes];
       const result = await runUnit(taskHash, task, subInputs);
       results[p] = result;
+      logUnit(`partition ${p + 1}/${partitions}`, taskHash, result);
       partitionsCompleted++;
       progress?.({ phase: 'partition', index: p, total: partitions, completed: partitionsCompleted, state: 'completed', cached: result.cached, duration: result.duration });
       if (result.state !== 'success') hasFailure = true;
@@ -445,49 +501,64 @@ export async function partitionTaskExecute(
       ? `failed (exit code ${failed.exitCode})${failed.error ? `: ${failed.error}` : ''}`
       : `errored: ${failed.error}`}`;
     if (failed.state === 'failed') {
-      await record(variant('failed', {
-        executionId,
-        inputHashes,
-        startedAt: new Date(startTime),
-        completedAt: new Date(),
-        exitCode: BigInt(failed.exitCode ?? -1),
-      }));
-      return {
-        inputsHash: inHash,
-        executionId,
-        cached: false,
-        state: 'failed',
-        outputHash: null,
-        exitCode: failed.exitCode,
-        duration: Date.now() - startTime,
-        error: message,
-      };
+      return failedResult(failed.exitCode, message);
     }
     return errorResult(message);
   }
 
   // ---------------------------------------------------------------------
-  // Fan in: merge keyed partials segment by segment (merge mode), fold
-  // partials pairwise (combine mode), or splice shards in partition order
-  // (splice mode).
+  // Fan in: merge keyed partials through a tree of stream executions on the
+  // task's runner (merge mode), fold partials pairwise (combine mode), or
+  // splice shards in partition order (splice mode).
   // ---------------------------------------------------------------------
   let outputHash: string;
   if (meta.merge.type === 'some' || meta.mergeSets) {
+    const partials = results.map((r) => r!.outputHash!);
+    let outcome: MergeTreeOutcome;
     try {
-      let resolve: MergeResolve | null = null;
-      if (meta.merge.type === 'some') {
-        // Compiled in-process, exactly as the `by` projection is: the
-        // orchestrator calls it only for keys two partials both carry.
-        resolve = decodeEastIR(meta.merge.value).compile([]) as MergeResolve;
+      outcome = await assembleMergeTree({
+        storage,
+        repo,
+        parent: task,
+        mode: meta.merge.type === 'some' ? 'function' : 'union',
+        partials,
+        concurrency,
+        runUnit,
+        onUnitStarted: (unit) => {
+          progress?.({ phase: 'merge', index: unit.index, total: unit.total, completed: unit.completed, state: 'started' });
+        },
+        onUnitCompleted: (unit, result) => {
+          logUnit(`merge level ${unit.level}/${unit.levels} unit ${unit.index + 1}/${unit.total}`, unit.taskHash, result);
+          progress?.({ phase: 'merge', index: unit.index, total: unit.total, completed: unit.completed, state: 'completed', cached: result.cached, duration: result.duration });
+        },
+      });
+    } catch (err) {
+      return errorResult(`Failed to merge partition partials: ${err instanceof Error ? err.message : err}`);
+    }
+    if (outcome.kind === 'error') {
+      return errorResult(outcome.message);
+    }
+    if (outcome.kind === 'unitFailed') {
+      const { unit, result: merged } = outcome;
+      const message = `Merge unit ${unit.index + 1} of ${unit.total} at level ${unit.level} of ${unit.levels} ${merged.state === 'failed'
+        ? `failed (exit code ${merged.exitCode})${merged.error ? `: ${merged.error}` : ''}`
+        : `errored: ${merged.error}`}`;
+      if (merged.state === 'failed') {
+        return failedResult(merged.exitCode, message);
       }
-      progress?.({ phase: 'combine', index: 0, total: 1, completed: 0, state: 'started' });
-      const mergeStart = Date.now();
-      const partials: PartitionBlob[] = [];
-      for (const r of results) {
-        partials.push(await PartitionBlob.open(storage, repo, r!.outputHash!));
+      return errorResult(message);
+    }
+    // One component is the output; several splice in key order; no
+    // non-empty partial leaves an empty collection under the partials' head.
+    try {
+      if (outcome.results.length === 0) {
+        const first = await PartitionBlob.open(storage, repo, partials[0]!);
+        outputHash = await storage.objects.writeStream(repo, spliceChunks(first.extents.head, []));
+      } else if (outcome.results.length === 1) {
+        outputHash = outcome.results[0]!;
+      } else {
+        outputHash = await spliceBlobs(storage, repo, outcome.results);
       }
-      outputHash = await mergePartialsBySegments(storage, repo, partials, resolve);
-      progress?.({ phase: 'combine', index: 0, total: 1, completed: 1, state: 'completed', cached: false, duration: Date.now() - mergeStart });
     } catch (err) {
       return errorResult(`Failed to merge partition partials: ${err instanceof Error ? err.message : err}`);
     }
@@ -499,7 +570,11 @@ export async function partitionTaskExecute(
     // partition fan-out — a wide combine layer no longer serializes.
     const combineIrHash = await storage.objects.write(repo, meta.combine.value);
     let layer = results.map((r) => r!.outputHash!);
+    let combineLevels = 0;
+    for (let entries = layer.length; entries > 1; entries = Math.ceil(entries / 2)) combineLevels++;
+    let combineLevel = 0;
     while (layer.length > 1) {
+      const levelNumber = ++combineLevel;
       const pairs = layer.length >> 1;
       const next: string[] = new Array(pairs + (layer.length % 2));
       const level = layer;
@@ -515,6 +590,7 @@ export async function partitionTaskExecute(
           progress?.({ phase: 'combine', index: pair, total: pairs, completed: pairsCompleted, state: 'started' });
           const merged = await runUnit(taskHash, task, [combineIrHash, level[i]!, level[i + 1]!]);
           mergeResults[pair] = merged;
+          logUnit(`combine level ${levelNumber}/${combineLevels} unit ${pair + 1}/${pairs}`, taskHash, merged);
           if (merged.state !== 'success' || merged.outputHash === null) {
             mergeFailed = true;
             return;
@@ -537,23 +613,7 @@ export async function partitionTaskExecute(
         // with the exit code, exactly as the partition branch does, so the
         // state distinction (failed vs orchestrator error) survives.
         if (merged.state === 'failed') {
-          await record(variant('failed', {
-            executionId,
-            inputHashes,
-            startedAt: new Date(startTime),
-            completedAt: new Date(),
-            exitCode: BigInt(merged.exitCode ?? -1),
-          }));
-          return {
-            inputsHash: inHash,
-            executionId,
-            cached: false,
-            state: 'failed',
-            outputHash: null,
-            exitCode: merged.exitCode,
-            duration: Date.now() - startTime,
-            error: message,
-          };
+          return failedResult(merged.exitCode, message);
         }
         return errorResult(message);
       }

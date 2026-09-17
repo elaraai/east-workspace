@@ -17,11 +17,12 @@ import { dirname, join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import {
   variant, some, none,
-  StringType, IntegerType, NullType, StructType, DictType, ArrayType,
+  StringType, IntegerType, NullType, StructType, DictType, ArrayType, SetType,
   East, SortedMap, compareFor, equalFor,
   encodeBeast2For, decodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR, readBeast2Extents,
-  IRType,
+  IRType, EastIR,
 } from '@elaraai/east';
+import { input, partitionTask, runnerToVariant, type TaskDef } from '@elaraai/e3';
 import {
   TaskObjectType,
   PackageObjectType,
@@ -31,6 +32,7 @@ import {
   decodePartitionPlan,
   decodeTaskObject,
   encodePartitionTaskMetadata,
+  type ExecutionStatus,
   type PackageObject,
   type TaskObject,
   type TreePath,
@@ -39,6 +41,7 @@ import type { PartitionProgress } from '@elaraai/e3-types';
 import { taskExecute, taskExecuteBody, type ExecuteOptions } from './LocalTaskRunner.js';
 import { carvePartitionSlices, partitionTaskExecute, spliceBlobs, type PartitionUnitExecutor } from './partitionExec.js';
 import { bufferPart, spliceChunks } from './partitionIo.js';
+import { getBootId, getPidStartTime } from './processHelpers.js';
 import { inputsHash } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
@@ -251,13 +254,12 @@ describe('partitionTaskExecute', () => {
     assert.equal(await executionCount(taskHash), 11);
   });
 
-  it('merge mode resolves shards that collide, where splice mode refuses them', async () => {
+  it('merge mode refuses to merge colliding shards on the custom runtime', async () => {
     const table = makeTable(1000);
     const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
     // Every partition copies the same broadcast blob: ten shards with
-    // identical key ranges — exactly the case splice mode rejects below.
-    const broadcastTable = makeTable(50);
-    const broadcastHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(broadcastTable));
+    // identical key ranges, which only merge units on a stock runner merge.
+    const broadcastHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(50)));
     const fnIrHash = await createDummyFnIr();
     const mergeFn = East.function([IntegerType, RowType, RowType], RowType, ($, _k, a, _b) => $.return(a));
     const taskHash = await createPartitionTask({
@@ -268,9 +270,135 @@ describe('partitionTaskExecute', () => {
     });
 
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash, broadcastHash]);
+    assert.equal(result.state, 'error');
+    assert.equal(result.error, 'partition merge needs a stock runtime (east-c, east-node, east-py); this task uses the custom runtime');
+  });
+
+  /** Stores an SDK-built task as `e3.export` would: its function IR, its
+   *  command IR and its task object. */
+  async function writeSdkTask(def: TaskDef): Promise<{ taskHash: string; fnIrHash: string }> {
+    const fnIrHash = await objectWrite(repo, encodeEastIR(def.inputs[0]!.default as unknown as EastIR<never[], unknown>));
+    const commandIrHash = await objectWrite(repo, encodeEastIR(def.command));
+    const task: TaskObject = {
+      commandIr: commandIrHash,
+      inputs: def.inputs.map((i) => i.path),
+      output: def.output.path,
+      kind: some(def.taskKind!),
+      metadata: some(def.metadata!),
+      runner: runnerToVariant(def.runner!),
+      environment: none,
+    };
+    return { taskHash: await objectWrite(repo, encodeBeast2For(TaskObjectType)(task)), fnIrHash };
+  }
+
+  /** The logical execution's log, line by line. */
+  async function logLines(taskHash: string, result: { inputsHash: string; executionId: string }): Promise<string[]> {
+    const log = await storage.logs.read(repo, taskHash, result.inputsHash, result.executionId, 'stdout');
+    return log.data.split('\n').filter((line) => line !== '');
+  }
+
+  it('merges colliding keyed partials on the task runner through a merge tree, logging every unit', async () => {
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    // Every partition counts its rows onto the same seven keys: the ten
+    // partials overlap everywhere, so they form one component, merged by two
+    // units at level 1 (eight partials, then two) and one at level 2.
+    const counts = partitionTask('counts', {
+      partitions: [input('table', TableType)],
+      output: DictType(IntegerType, IntegerType),
+      merge: ($, _key, a, b) => a.add(b),
+      targetPartitionBytes: 1,
+      runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] },
+    }, ($, slice) => slice.toDict(($, _row, key) => key.remainder(7n), ($, _row, _key) => 1n, ($, a, b) => a.add(b)));
+    const { taskHash, fnIrHash } = await writeSdkTask(counts);
+
+    // The logical execution is recorded `running` before any unit runs: the
+    // executor reads it before running the first units.
+    const inputs = [fnIrHash, tableHash];
+    const ids = { inHash: inputsHash(inputs), executionId: uuidv7(), startTime: Date.now() };
+    let runningStatus: Promise<ExecutionStatus | null> | undefined;
+    const executeUnit: PartitionUnitExecutor = async (unitTaskHash, unitTask, unitInputs, unitOptions) => {
+      runningStatus ??= storage.refs.executionGet(repo, taskHash, ids.inHash, ids.executionId);
+      await runningStatus;
+      return taskExecuteBody(storage, repo, unitTaskHash, unitTask, unitInputs,
+        { inHash: inputsHash(unitInputs), executionId: uuidv7(), startTime: Date.now() }, unitOptions);
+    };
+    const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
+    const result = await partitionTaskExecute(storage, repo, taskHash, task, inputs, ids, {}, executeUnit);
     assert.equal(result.state, 'success', result.error ?? '');
-    const merged = decodeBeast2For(TableType)(await storage.objects.read(repo, result.outputHash!));
-    assert.ok(equalFor(TableType)(merged, broadcastTable), 'each colliding key resolved once');
+
+    const running = await runningStatus;
+    assert.equal(running?.type, 'running');
+    assert.equal(running?.type === 'running' ? running.value.pid : null, BigInt(process.pid));
+    const owner = await storage.refs.executionOwnerRead!(repo, taskHash, ids.inHash, ids.executionId);
+    assert.deepEqual(owner, { pid: process.pid, pidStartTime: await getPidStartTime(process.pid), bootId: await getBootId() });
+
+    const expected = new SortedMap<bigint, bigint>([], compareFor(IntegerType));
+    for (let i = 0; i < 1000; i++) {
+      const key = BigInt(i % 7);
+      expected.set(key, (expected.get(key) ?? 0n) + 1n);
+    }
+    const merged = decodeBeast2For(DictType(IntegerType, IntegerType))(await storage.objects.read(repo, result.outputHash!));
+    assert.ok(equalFor(DictType(IntegerType, IntegerType))(merged, expected), 'every key counts all its rows once');
+
+    // One line per unit, naming each unit's execution in full.
+    const lines = await logLines(taskHash, result);
+    const unitLine = /^(partition \d+\/10|merge level \d\/2 unit \d\/\d) (completed|cached) task=([0-9a-f]{64}) inputs=([0-9a-f]{64}) execution=(\S+) duration=\d+$/;
+    assert.equal(lines.length, 13, lines.join('\n'));
+    for (const line of lines) {
+      const match = unitLine.exec(line);
+      assert.ok(match, line);
+      const status = await storage.refs.executionGet(repo, match[3]!, match[4]!, match[5]!);
+      assert.equal(status?.type, 'success', line);
+    }
+    assert.deepEqual(
+      lines.filter((line) => line.startsWith('partition ')).map((line) => line.split(' ')[1]).sort(),
+      Array.from({ length: 10 }, (_, p) => `${p + 1}/10`).sort(),
+    );
+    assert.deepEqual(
+      lines.filter((line) => line.startsWith('merge ')).map((line) => line.split(' ').slice(0, 5).join(' ')).sort(),
+      ['merge level 1/2 unit 1/2', 'merge level 1/2 unit 2/2', 'merge level 2/2 unit 1/1'],
+    );
+  });
+
+  it('merges Set partials by union on the task runner', async () => {
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(300)));
+    const keys = partitionTask('keys', {
+      partitions: [input('table', TableType)],
+      output: SetType(IntegerType),
+      merge: 'union',
+      targetPartitionBytes: 1,
+      runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] },
+    }, ($, slice) => slice.toSet(($, _row, key) => key.remainder(5n)));
+    const { taskHash, fnIrHash } = await writeSdkTask(keys);
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(result.state, 'success', result.error ?? '');
+    const merged = decodeBeast2For(SetType(IntegerType))(await storage.objects.read(repo, result.outputHash!));
+    assert.deepEqual([...merged], [0n, 1n, 2n, 3n, 4n]);
+    // Three overlapping partials: one unit merges them.
+    const mergeLines = (await logLines(taskHash, result)).filter((line) => line.startsWith('merge '));
+    assert.deepEqual(mergeLines.map((line) => line.split(' ').slice(0, 6).join(' ')), ['merge level 1/1 unit 1/1 completed']);
+  });
+
+  it('merge mode stores an empty collection when every partial is empty', async () => {
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(200)));
+    const nothing = partitionTask('nothing', {
+      partitions: [input('table', TableType)],
+      output: DictType(IntegerType, IntegerType),
+      merge: ($, _key, a, _b) => a,
+      targetPartitionBytes: 1,
+      runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] },
+    }, ($, slice) => slice
+      .filter(($, _row, key) => East.less(key, 0n))
+      .toDict(($, _row, key) => key, ($, _row, _key) => 1n));
+    const { taskHash, fnIrHash } = await writeSdkTask(nothing);
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(result.state, 'success', result.error ?? '');
+    const output = await storage.objects.read(repo, result.outputHash!);
+    assert.equal(decodeBeast2For(DictType(IntegerType, IntegerType))(output).size, 0);
+    assert.equal(readBeast2Extents(output).offsets.length, 0);
+    assert.deepEqual((await logLines(taskHash, result)).filter((line) => line.startsWith('merge ')), []);
   });
 
   it('rejects splice-mode shards that do not ascend disjointly, naming the remedy', async () => {
