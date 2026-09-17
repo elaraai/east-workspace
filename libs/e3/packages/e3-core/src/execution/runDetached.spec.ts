@@ -220,8 +220,102 @@ describe('spawnAndCapture', { skip: isWindows }, () => {
       { timeoutMs: 300 }
     );
     assert.equal(result.timedOut, true);
+    assert.equal(result.stoppedByE3, true);
+    assert.equal(result.signal, 'SIGKILL');
     assert.notEqual(result.exitCode, 0);
     assert.ok(Date.now() - start < 10_000, 'timeout did not kill the process promptly');
+  });
+
+  it('reports the signal that ended a process, and whether this process sent it', async () => {
+    const exited = await spawnAndCapture(['node', '-e', 'process.exit(0)'], scratch);
+    assert.equal(exited.signal, null);
+    assert.equal(exited.stoppedByE3, false);
+
+    const signalled = await spawnAndCapture(['node', '-e', 'process.kill(process.pid, "SIGTERM"); setTimeout(() => {}, 30000);'], scratch);
+    assert.equal(signalled.exitCode, null);
+    assert.equal(signalled.signal, 'SIGTERM');
+    assert.equal(signalled.stoppedByE3, false, 'a signal from elsewhere is not a stop by e3');
+
+    const abort = new AbortController();
+    const aborted = await spawnAndCapture(['node', '-e', 'setTimeout(() => {}, 30000);'], scratch, {
+      signal: abort.signal,
+      onSpawned: () => abort.abort(),
+    });
+    assert.equal(aborted.exitCode, null);
+    assert.equal(aborted.signal, 'SIGKILL');
+    assert.equal(aborted.stoppedByE3, true);
+    assert.equal(aborted.timedOut, false);
+  });
+
+  it('gives the child a stdin lifeline and EAST_EXIT_WITH_PARENT only when asked', async () => {
+    const probe = 'const s = require("fs").fstatSync(0); process.stdout.write((process.env.EAST_EXIT_WITH_PARENT ?? "unset") + " " + (s.isFIFO() || s.isSocket()))';
+    const previous = process.env.EAST_EXIT_WITH_PARENT;
+    // Inherited from this process, the variable must still not reach a child
+    // whose stdin is ignored: it would read EOF at once and exit.
+    process.env.EAST_EXIT_WITH_PARENT = '1';
+    try {
+      const withLifeline = await spawnAndCapture(['node', '-e', probe], scratch, { stdinLifeline: true });
+      assert.equal(withLifeline.stdoutTail, '1 true');
+      const without = await spawnAndCapture(['node', '-e', probe], scratch);
+      assert.equal(without.stdoutTail, 'unset false');
+    } finally {
+      if (previous === undefined) delete process.env.EAST_EXIT_WITH_PARENT;
+      else process.env.EAST_EXIT_WITH_PARENT = previous;
+    }
+  });
+
+  it('hands the callbacks whole characters however the output is split', async () => {
+    // Three-byte characters written seven bytes at a time, pausing between
+    // writes, so the pipe's reads end inside characters.
+    const text = '€'.repeat(300);
+    const writer = [
+      `const bytes = Buffer.from(${JSON.stringify(text)});`,
+      'const pause = new Int32Array(new SharedArrayBuffer(4));',
+      'for (let i = 0; i < bytes.length; i += 7) { process.stdout.write(bytes.subarray(i, i + 7)); Atomics.wait(pause, 0, 0, 2); }',
+    ].join('\n');
+    const chunks: string[] = [];
+    const result = await spawnAndCapture(['node', '-e', writer], scratch, { onStdout: (data) => { chunks.push(data); } });
+    assert.equal(result.exitCode, 0);
+    assert.ok(chunks.every((chunk) => !chunk.includes('�')), 'no chunk carries a split character');
+    assert.equal(chunks.join(''), text);
+  });
+
+  it('pauses a stream while its callback holds more than maxPendingBytes, and resumes it', async () => {
+    const total = 4 * 1024 * 1024;
+    const cap = 256 * 1024;
+    // A slow consumer: nothing settles until more than the cap is pending,
+    // and then everything settles on a later turn.
+    const outstanding: { bytes: number; settle: () => void }[] = [];
+    let pending = 0;
+    let peak = 0;
+    let largestChunk = 0;
+    let received = 0;
+    const result = await spawnAndCapture(
+      ['node', '-e', `process.stdout.write(Buffer.alloc(${total}, 120))`],
+      scratch,
+      {
+        maxPendingBytes: cap,
+        onStdout: (data) => new Promise<void>((settle) => {
+          const bytes = Buffer.byteLength(data);
+          received += bytes;
+          largestChunk = Math.max(largestChunk, bytes);
+          pending += bytes;
+          peak = Math.max(peak, pending);
+          outstanding.push({ bytes, settle });
+          if (pending > cap) {
+            setTimeout(() => {
+              for (const chunk of outstanding.splice(0)) {
+                pending -= chunk.bytes;
+                chunk.settle();
+              }
+            }, 0);
+          }
+        }),
+      },
+    );
+    assert.equal(result.exitCode, 0);
+    assert.equal(received, total, 'every byte reaches the callback once the stream resumes');
+    assert.ok(peak <= cap + largestChunk, `pending bytes peaked at ${peak}, over the cap ${cap} plus one chunk ${largestChunk}`);
   });
 
   it('reports spawn failures as an error with null exit code', async () => {

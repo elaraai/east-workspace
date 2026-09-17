@@ -411,7 +411,8 @@ export async function taskExecuteBody(
     // Step 7: Get boot ID for crash detection
     const bootId = await getBootId();
 
-    // Step 8: Execute command
+    // Step 8: Execute command. A stock runner gets the stdin lifeline, so it
+    // exits if this process dies; a custom command keeps an ignored stdin.
     const result = await runCommand(
       storage,
       repo,
@@ -423,7 +424,8 @@ export async function taskExecuteBody(
       bootId,
       scratchDir,
       options,
-      envBins
+      envBins,
+      task.runner.type !== 'custom'
     );
 
     // Step 9: Handle result
@@ -509,12 +511,58 @@ export async function taskExecuteBody(
   }
 }
 
+/** One stream's appends to an execution's log. */
+interface LogAppender {
+  /** Queues a chunk; resolves once the append that holds it has settled. */
+  push(data: string): Promise<void>;
+  /** Resolves once every queued chunk has been appended. */
+  idle(): Promise<void>;
+}
+
+/**
+ * Appends one stream's output to an execution's log with at most one append
+ * in flight: the chunks that arrive while an append runs are queued, and the
+ * next append writes them all at once.
+ *
+ * @param append - Appends data to the stream's log
+ * @param stream - The stream, for the warning a failed append prints
+ * @returns The appender
+ */
+function createLogAppender(append: (data: string) => Promise<void>, stream: 'stdout' | 'stderr'): LogAppender {
+  let queue: { data: string; settle: () => void }[] = [];
+  let draining: Promise<void> | null = null;
+  const drain = async (): Promise<void> => {
+    while (queue.length > 0) {
+      const batch = queue;
+      queue = [];
+      try {
+        await append(batch.map((chunk) => chunk.data).join(''));
+      } catch (err) {
+        console.warn(`Failed to append ${stream} log: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      for (const chunk of batch) chunk.settle();
+    }
+    draining = null;
+  };
+  return {
+    push: (data) => new Promise<void>((resolve) => {
+      queue.push({ data, settle: resolve });
+      draining ??= drain();
+    }),
+    idle: () => draining ?? Promise.resolve(),
+  };
+}
+
 /**
  * Run a command and capture output.
  *
  * Composes the persistence-free `spawnAndCapture` (processExec.ts) with the
  * tracked path's storage writes: `storage.logs.append` for both streams and
  * the `running` execution status (with pid) once the child has spawned.
+ *
+ * Each stream's appends run one at a time and the chunks that queue behind one
+ * are coalesced; a chunk counts as pending until its append settles, so a
+ * runner that writes faster than the log is appended blocks on its pipe.
  */
 async function runCommand(
   storage: StorageBackend,
@@ -527,15 +575,18 @@ async function runCommand(
   bootId: string,
   scratchDir: string,
   options: ExecuteOptions,
-  extraBins: string[] = []
+  extraBins: string[] = [],
+  stdinLifeline = false
 ): Promise<{ exitCode: number | null; error: string | null }> {
-  // Use promise chains to ensure sequential log writes without overlapping
-  let stdoutWriteChain = Promise.resolve();
-  let stderrWriteChain = Promise.resolve();
+  const stdoutLog = createLogAppender(
+    (data) => storage.logs.append(repo, taskHash, inHash, executionId, 'stdout', data), 'stdout');
+  const stderrLog = createLogAppender(
+    (data) => storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', data), 'stderr');
 
   const result = await spawnAndCapture(args, scratchDir, {
     timeoutMs: options.timeout,
     signal: options.signal,
+    stdinLifeline,
     // Runners (`east-node`, `east-c`) are typically installed as project
     // devDeps and exposed on `node_modules/.bin`. Walk up from BOTH the
     // repo and process.cwd() — the nearest .bin often lacks the runner
@@ -544,30 +595,20 @@ async function runCommand(
     searchDirs: [path.dirname(repo), process.cwd()],
     // Tee stdout - use storage.logs.append for log persistence
     onStdout: (str) => {
-      stdoutWriteChain = stdoutWriteChain.then(async () => {
-        try {
-          await storage.logs.append(repo, taskHash, inHash, executionId, 'stdout', str);
-        } catch (err) {
-          console.warn(`Failed to append stdout log: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      });
+      const appended = stdoutLog.push(str);
       if (options.onStdout) {
         options.onStdout(str);
       }
+      return appended;
     },
     // Tee stderr — persist to storage.logs; spawnAndCapture keeps the
     // in-memory tail that the error message includes on non-zero exit.
     onStderr: (str) => {
-      stderrWriteChain = stderrWriteChain.then(async () => {
-        try {
-          await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', str);
-        } catch (err) {
-          console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      });
+      const appended = stderrLog.push(str);
       if (options.onStderr) {
         options.onStderr(str);
       }
+      return appended;
     },
     // Write running status with actual child PID
     onSpawned: async (pid) => {
@@ -585,7 +626,7 @@ async function runCommand(
   });
 
   // Wait for any pending log writes to complete
-  await Promise.all([stdoutWriteChain, stderrWriteChain]);
+  await Promise.all([stdoutLog.idle(), stderrLog.idle()]);
 
   return { exitCode: result.exitCode, error: result.error };
 }

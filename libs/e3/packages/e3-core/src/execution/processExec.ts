@@ -16,6 +16,8 @@
 import * as fs from 'fs/promises';
 import { createReadStream, existsSync } from 'fs';
 import * as path from 'path';
+import { StringDecoder } from 'string_decoder';
+import type { Readable } from 'stream';
 import crossSpawn from 'cross-spawn';
 import { spawn as nodeSpawn } from 'child_process';
 import { runnerToArgv, type RunnerValue } from '@elaraai/e3-types';
@@ -239,12 +241,25 @@ export interface SpawnAndCaptureOptions {
   timeoutMs?: number;
   /** AbortSignal for cancellation (kills the process group). */
   signal?: AbortSignal;
-  /** Streaming stdout callback (called per chunk, before tail capture). */
-  onStdout?: (data: string) => void;
-  /** Streaming stderr callback (called per chunk, before tail capture). */
-  onStderr?: (data: string) => void;
+  /** Streaming stdout callback, called per chunk of whole characters after
+   *  tail capture. A returned promise keeps the chunk's bytes pending until it
+   *  settles (see {@link maxPendingBytes}). */
+  onStdout?: (data: string) => void | Promise<void>;
+  /** Streaming stderr callback, as {@link onStdout}. */
+  onStderr?: (data: string) => void | Promise<void>;
   /** Per-stream in-memory tail cap in bytes (default 64 KiB). */
   maxLogBytes?: number;
+  /** Per stream, the bytes handed to its callback whose promises have not
+   *  settled above which the stream is paused (default 1 MiB); it resumes once
+   *  they fall to half. A child writing faster than the callback settles then
+   *  blocks on its pipe. */
+  maxPendingBytes?: number;
+  /** Gives the child a stdin pipe this process never writes to and
+   *  `EAST_EXIT_WITH_PARENT=1` in its environment, so a stock runner exits
+   *  when the pipe closes — when this process dies. The pipe is destroyed once
+   *  the child has closed. Without it stdin is ignored and the variable is
+   *  never passed on. */
+  stdinLifeline?: boolean;
   /** Executable dirs prepended to the child PATH ahead of everything else —
    *  a materialized execution environment's bin dir (materializeEnvironment)
    *  must beat both the project venv and node_modules/.bin. */
@@ -263,10 +278,15 @@ export interface SpawnAndCaptureOptions {
 export interface SpawnAndCaptureResult {
   /** Process exit code (null if killed by signal or spawn failed) */
   exitCode: number | null;
+  /** The signal that ended the process, when one did (null otherwise) */
+  signal: NodeJS.Signals | null;
   /** Spawn-failure / non-zero-exit description (null on success) */
   error: string | null;
   /** True if the timeout fired and killed the process group */
   timedOut: boolean;
+  /** True if this process killed the process group — because the abort
+   *  signal fired or the timeout expired */
+  stoppedByE3: boolean;
   /** Bounded tail of stdout (per maxLogBytes) */
   stdoutTail: string;
   /** Bounded tail of stderr (per maxLogBytes) */
@@ -283,8 +303,9 @@ export interface SpawnAndCaptureResult {
  *
  * Keeps: cross-spawn/nodeSpawn selection, node_modules/.bin PATH
  * augmentation, `detached: true` process-group management, stdout/stderr
- * listeners (streaming callbacks + bounded in-memory tails), process-group
- * kill, timeout + AbortSignal wiring.
+ * listeners (streaming callbacks of whole characters with backpressure +
+ * bounded in-memory tails), process-group kill, timeout + AbortSignal wiring,
+ * and the optional stdin lifeline that lets a runner exit with this process.
  *
  * Process Lifecycle Management
  * ============================
@@ -303,8 +324,10 @@ export async function spawnAndCapture(
   if (!cmd) {
     return {
       exitCode: null,
+      signal: null,
       error: 'Empty command',
       timedOut: false,
+      stoppedByE3: false,
       stdoutTail: '',
       stderrTail: '',
       stdoutTruncated: false,
@@ -347,7 +370,7 @@ export async function spawnAndCapture(
     // removed, so a `detached` child that outlives a killed parent would
     // hold the repo/project dir open and block its cleanup (EBUSY).
     cwd: scratchDir,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: [options.stdinLifeline ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     detached: true,
     windowsHide: true,
   };
@@ -358,6 +381,14 @@ export async function spawnAndCapture(
       .filter(Boolean)
       .join(pathSep),
   };
+  // A runner told to exit with its parent reads stdin until EOF, so the
+  // variable goes only with the lifeline pipe: inherited next to an ignored
+  // stdin, it would read EOF at once and exit.
+  if (options.stdinLifeline) {
+    spawnOpts.env.EAST_EXIT_WITH_PARENT = '1';
+  } else {
+    delete spawnOpts.env.EAST_EXIT_WITH_PARENT;
+  }
   // Propagate the project search dirs to the runner. The child runs in a scratch
   // cwd (above), so it cannot find the project root on its own — without this a
   // runner CLI can't resolve a project's OWN platform package by Node
@@ -375,43 +406,82 @@ export async function spawnAndCapture(
   // of both streams so callers get a useful diagnostic without ballooning
   // memory on chatty processes.
   const tailBytes = options.maxLogBytes ?? 64 * 1024;
+  const maxPendingBytes = options.maxPendingBytes ?? 1024 * 1024;
   let stdoutTail = '';
   let stderrTail = '';
   let stdoutTruncated = false;
   let stderrTruncated = false;
   let timedOut = false;
+  let stoppedByE3 = false;
 
-  const resultPromise = new Promise<{ exitCode: number | null; error: string | null }>((resolve) => {
+  // The lifeline pipe is never written to; an error on it (the child closing
+  // its end) is not this process's concern.
+  child.stdin?.on('error', () => {});
+
+  const resultPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null; error: string | null }>((resolve) => {
     child.on('error', (err) => {
-      resolve({ exitCode: null, error: `Failed to spawn: ${err.message}` });
+      resolve({ exitCode: null, signal: null, error: `Failed to spawn: ${err.message}` });
     });
 
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
+      child.stdin?.destroy();
       if (code === 0) {
-        resolve({ exitCode: code, error: null });
+        resolve({ exitCode: code, signal, error: null });
       } else {
         const tail = stderrTail.trim();
         const detail = tail ? `\nstderr:\n${tail}` : '';
-        resolve({ exitCode: code, error: `Exit code: ${code}${detail}` });
+        resolve({ exitCode: code, signal, error: `Exit code: ${code}${detail}` });
       }
     });
   });
 
-  child.stdout?.on('data', (data: Buffer) => {
-    const str = data.toString('utf-8');
+  // Each stream is decoded as whole characters and handed to its callback;
+  // while more than `maxPendingBytes` handed over have not settled, the
+  // stream is paused, so the child blocks on its pipe.
+  const capture = (
+    stream: Readable | null,
+    record: (data: string) => void,
+    callback: ((data: string) => void | Promise<void>) | undefined,
+  ): void => {
+    if (!stream) return;
+    const decoder = new StringDecoder('utf8');
+    let pending = 0;
+    let paused = false;
+    const deliver = (data: string): void => {
+      if (data === '') return;
+      record(data);
+      const settled = callback?.(data);
+      if (!settled) return;
+      const bytes = Buffer.byteLength(data, 'utf8');
+      pending += bytes;
+      if (!paused && pending > maxPendingBytes) {
+        paused = true;
+        stream.pause();
+      }
+      const release = (): void => {
+        pending -= bytes;
+        if (paused && pending <= maxPendingBytes / 2) {
+          paused = false;
+          stream.resume();
+        }
+      };
+      void settled.then(release, release);
+    };
+    stream.on('data', (chunk: Buffer) => deliver(decoder.write(chunk)));
+    stream.on('end', () => deliver(decoder.end()));
+  };
+
+  capture(child.stdout, (str) => {
     const combined = stdoutTail + str;
     if (combined.length > tailBytes) stdoutTruncated = true;
     stdoutTail = combined.slice(-tailBytes);
-    if (options.onStdout) options.onStdout(str);
-  });
+  }, options.onStdout);
 
-  child.stderr?.on('data', (data: Buffer) => {
-    const str = data.toString('utf-8');
+  capture(child.stderr, (str) => {
     const combined = stderrTail + str;
     if (combined.length > tailBytes) stderrTruncated = true;
     stderrTail = combined.slice(-tailBytes);
-    if (options.onStderr) options.onStderr(str);
-  });
+  }, options.onStderr);
 
   // Helper to kill the entire process group (child and all its descendants).
   // With detached: true, child.pid is the process group leader, so killing
@@ -425,13 +495,18 @@ export async function spawnAndCapture(
       }
     }
   };
+  // The kills this process decides on, as opposed to any other signal.
+  const stopProcessGroup = () => {
+    stoppedByE3 = true;
+    killProcessGroup();
+  };
 
   // Handle timeout
   let timeoutId: NodeJS.Timeout | undefined;
   if (options.timeoutMs) {
     timeoutId = setTimeout(() => {
       timedOut = true;
-      killProcessGroup();
+      stopProcessGroup();
     }, options.timeoutMs);
   }
 
@@ -439,9 +514,9 @@ export async function spawnAndCapture(
   if (options.signal) {
     if (options.signal.aborted) {
       // Already aborted before we started
-      killProcessGroup();
+      stopProcessGroup();
     } else {
-      options.signal.addEventListener('abort', killProcessGroup, { once: true });
+      options.signal.addEventListener('abort', stopProcessGroup, { once: true });
     }
   }
 
@@ -457,13 +532,15 @@ export async function spawnAndCapture(
   // Cleanup
   if (timeoutId) clearTimeout(timeoutId);
   if (options.signal) {
-    options.signal.removeEventListener('abort', killProcessGroup);
+    options.signal.removeEventListener('abort', stopProcessGroup);
   }
 
   return {
     exitCode: result.exitCode,
+    signal: result.signal,
     error: result.error,
     timedOut,
+    stoppedByE3,
     stdoutTail,
     stderrTail,
     stdoutTruncated,

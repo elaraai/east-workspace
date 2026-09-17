@@ -120,6 +120,8 @@ export async function runDetached(
       maxLogBytes: spec.limits.maxLogBytes,
       searchDirs,
       extraBins: options.extraBins,
+      // A stock runner exits with this process; a custom command is left alone.
+      stdinLifeline: spec.runner.type !== 'custom',
     });
 
     const streams = {
