@@ -54,12 +54,14 @@ static size_t emit_run_elements_from_env(void)
  * (owned — it orders the run and catches duplicates) and where its entry
  * bytes — the key then, for dict outputs, the value, exactly as a segment
  * holds them — sit in the run arena. The value itself is released at the
- * emit, while it is small and hot. */
+ * emit, while it is small and hot. `seq` is the emission's position in the
+ * stream: entries order by (key, seq), so equal keys fold in emission order. */
 typedef struct {
     EastValue *key;
     size_t offset;
     size_t key_len;
     size_t val_len;
+    uint64_t seq;
 } EmitPending;
 
 struct EastEmitSink {
@@ -69,8 +71,10 @@ struct EastEmitSink {
     const char *output_path; /* borrowed */
     EastEmitKind kind;
     bool verbose;
-    EastValue *batch;    /* owned accumulator of the collection kind */
-    EastValue *last_key; /* owned: previous key/element for the ascent check */
+    EastCompiledFn *merge_fn; /* borrowed: folds equal dict keys, or NULL */
+    bool union_mode;          /* equal set elements collapse to the first */
+    EastValue *batch;         /* owned accumulator of the collection kind */
+    EastValue *last_key;      /* owned: previous key/element for the ascent check */
     size_t batch_count;
     size_t next_batch;
     size_t written_elements;
@@ -150,6 +154,31 @@ static EastValue *emit_new_batch(EmitSink *s)
 static EastType *emit_key_type(EmitSink *s)
 {
     return s->kind == EAST_EMIT_DICT ? s->out_type->data.dict.key : s->out_type->data.element;
+}
+
+/* Whether equal keys fold (merge or union) instead of being a duplicate. */
+static bool emit_folds(EmitSink *s)
+{
+    return s->merge_fn != NULL || s->union_mode;
+}
+
+/* acc = merge(key, acc, value). Consumes `acc` and `value`; returns the result
+ * (owned), or NULL with the merge function's message posted. */
+static EastValue *emit_fold_values(EmitSink *s, EastValue *key, EastValue *acc, EastValue *value)
+{
+    EastValue *args[3] = {key, acc, value};
+    EvalResult r = east_call(s->merge_fn, args, 3);
+    east_value_release(acc);
+    east_value_release(value);
+    if (r.status == EVAL_ERROR || !r.value) {
+        east_builtin_error(r.error_message ? r.error_message : "emit: the merge function failed");
+        if (r.value) east_value_release(r.value);
+        eval_result_free(&r);
+        return NULL;
+    }
+    EastValue *out = r.value;
+    eval_result_free(&r);
+    return out;
 }
 
 static bool emit_drain(EmitSink *s)
@@ -264,7 +293,7 @@ static bool emit_buf_push(EmitSink *s, EastValue *key, EastValue *val)
         val_len = s->arena->len - offset - key_len;
     }
     east_value_retain(key);
-    s->buf[s->buf_len++] = (EmitPending){key, offset, key_len, val_len};
+    s->buf[s->buf_len++] = (EmitPending){key, offset, key_len, val_len, s->emitted};
     if (s->buf_len > s->peak_entries) s->peak_entries = s->buf_len;
     if (s->arena->len > s->peak_bytes) s->peak_bytes = s->arena->len;
     return true;
@@ -283,18 +312,70 @@ static bool emit_runs_reserve(EmitSink *s)
 
 static int emit_pending_cmp(const void *a, const void *b)
 {
-    return east_value_compare(((const EmitPending *)a)->key, ((const EmitPending *)b)->key);
+    const EmitPending *x = a, *y = b;
+    int order = east_value_compare(x->key, y->key);
+    if (order != 0) return order;
+    return x->seq < y->seq ? -1 : x->seq > y->seq ? 1 : 0;
 }
 
-/* Sorts the pending buffer in East order and checks adjacent duplicates.
- * Returns the offending key (borrowed from the buffer) or NULL. */
-static EastValue *emit_sort_pending(EmitSink *s)
+/* Sorts the pending buffer by (key, emission sequence). Without a fold, an
+ * adjacent equal pair is a duplicate: returns 1 with the offending key
+ * (borrowed from the buffer) in *dup_out. With a fold, each run of equal keys
+ * collapses to one entry in emission order — union keeps the first; merge
+ * folds the values and re-encodes the key and the result at the arena's end.
+ * Returns 0 on success, 2 with the message posted on a failure (the merge
+ * function's error, an encode failure). */
+static int emit_sort_pending(EmitSink *s, EastValue **dup_out)
 {
     qsort(s->buf, s->buf_len, sizeof(EmitPending), emit_pending_cmp);
-    for (size_t i = 1; i < s->buf_len; i++) {
-        if (east_value_compare(s->buf[i - 1].key, s->buf[i].key) == 0) return s->buf[i].key;
+    bool folds = emit_folds(s);
+    size_t kept = 0;
+    for (size_t i = 0; i < s->buf_len;) {
+        size_t j = i + 1;
+        while (j < s->buf_len && east_value_compare(s->buf[i].key, s->buf[j].key) == 0)
+            j++;
+        if (j - i > 1) {
+            if (!folds) {
+                *dup_out = s->buf[i + 1].key;
+                return 1;
+            }
+            if (s->merge_fn) {
+                EmitPending *e = &s->buf[i];
+                EastType *vt = s->out_type->data.dict.value;
+                EastValue *acc = east_beast2_entry_decode(s->arena->data + e->offset + e->key_len,
+                                                          e->val_len, vt);
+                for (size_t k = i + 1; acc && k < j; k++) {
+                    const EmitPending *next = &s->buf[k];
+                    EastValue *v = east_beast2_entry_decode(
+                        s->arena->data + next->offset + next->key_len, next->val_len, vt);
+                    if (!v) {
+                        east_value_release(acc);
+                        acc = NULL;
+                        break;
+                    }
+                    acc = emit_fold_values(s, e->key, acc, v);
+                }
+                if (!acc) return 2;
+                size_t offset = s->arena->len;
+                east_beast2_entry_begin(s->encoder);
+                bool ok = east_beast2_entry_encode(s->encoder, s->arena, e->key, emit_key_type(s));
+                size_t key_len = s->arena->len - offset;
+                ok = ok && east_beast2_entry_encode(s->encoder, s->arena, acc, vt);
+                east_value_release(acc);
+                if (!ok) return 2;
+                e->offset = offset;
+                e->key_len = key_len;
+                e->val_len = s->arena->len - offset - key_len;
+                if (s->arena->len > s->peak_bytes) s->peak_bytes = s->arena->len;
+            }
+            for (size_t k = i + 1; k < j; k++)
+                east_value_release(s->buf[k].key);
+        }
+        s->buf[kept++] = s->buf[i];
+        i = j;
     }
-    return NULL;
+    s->buf_len = kept;
+    return 0;
 }
 
 /* ----- the run record format: LEB128 length prefixes around raw bytes ----- */
@@ -332,20 +413,23 @@ static int run_read_varint(FILE *f, uint64_t *out)
     return 1;
 }
 
-/* Writes the sorted pending buffer as one raw run file and clears it.
- * Returns 0 on success, 1 on a duplicate (retaining the offending key into
- * *dup_out), 2 on an I/O or allocation failure. */
+/* Writes the sorted (and folded) pending buffer as one raw run file and
+ * clears it. Returns 0 on success, 1 on a duplicate (retaining the offending
+ * key into *dup_out), 2 on an I/O or allocation failure, 3 on a fold failure
+ * (message posted). */
 static int emit_spill(EmitSink *s, EastValue **dup_out)
 {
     if (s->buf_len == 0) return 0;
     struct timespec t0;
     if (s->verbose) clock_gettime(CLOCK_MONOTONIC, &t0);
-    EastValue *dup = emit_sort_pending(s);
-    if (dup) {
+    EastValue *dup = NULL;
+    int sorted = emit_sort_pending(s, &dup);
+    if (sorted == 1) {
         east_value_retain(dup);
         *dup_out = dup;
         return 1;
     }
+    if (sorted != 0) return 3;
     if (!emit_runs_reserve(s)) return 2;
     char *path = emit_run_path(s, s->num_runs);
     if (!path) return 2;
@@ -554,6 +638,35 @@ static bool emit_flush_raw(EmitSink *s, ByteBuffer *seg, size_t *count, EastValu
     return ok;
 }
 
+/* Appends the held entry of a folding merge to the output segment: its bytes
+ * as copied, or — when a fold ran — the key and the folded value re-encoded
+ * (and *acc released). Keeps the segment's first/last keys for the writer's
+ * ascent check. */
+static bool emit_commit_held(EmitSink *s, ByteBuffer *seg, ByteBuffer *held, EastValue *held_key,
+                             EastValue **acc, EastValue **seg_first, EastValue **seg_last,
+                             size_t *seg_count)
+{
+    if (*acc) {
+        east_beast2_entry_begin(s->encoder);
+        bool ok = east_beast2_entry_encode(s->encoder, seg, held_key, emit_key_type(s)) &&
+                  east_beast2_entry_encode(s->encoder, seg, *acc, s->out_type->data.dict.value);
+        east_value_release(*acc);
+        *acc = NULL;
+        if (!ok) return false;
+    } else {
+        byte_buffer_write_bytes(seg, held->data, held->len);
+    }
+    if (!*seg_first) {
+        *seg_first = held_key;
+        east_value_retain(held_key);
+    }
+    if (*seg_last) east_value_release(*seg_last);
+    *seg_last = held_key;
+    east_value_retain(held_key);
+    (*seg_count)++;
+    return true;
+}
+
 /* K-way merges the spilled runs + the sorted in-memory tail into the
  * canonical output file — one record per run plus one output segment in
  * memory — with the cross-run duplicate check on the merged stream. Keys
@@ -564,13 +677,15 @@ static bool emit_merge_runs(EmitSink *s)
 {
     struct timespec t0;
     if (s->verbose) clock_gettime(CLOCK_MONOTONIC, &t0);
-    EastValue *tail_dup = emit_sort_pending(s);
-    if (tail_dup) {
+    EastValue *tail_dup = NULL;
+    int sorted = emit_sort_pending(s, &tail_dup);
+    if (sorted == 1) {
         char msg[512];
         emit_duplicate_msg(s, tail_dup, msg, sizeof(msg));
         east_builtin_error(msg);
         return false;
     }
+    if (sorted != 0) return false; /* the fold's message is posted */
 
     size_t k = s->num_runs;
     MergeCursor *cur = calloc(k > 0 ? k : 1, sizeof(MergeCursor));
@@ -612,6 +727,15 @@ static bool emit_merge_runs(EmitSink *s)
     size_t tail_idx = 0;
     EastValue *prev_key = NULL; /* owned */
     bool duplicate = false;
+    /* A merge function folds equal keys across sources, so the entry for
+     * the current key is held back until a greater key arrives: its bytes
+     * stay as they were copied unless a second equal key makes it fold, and
+     * then it is re-encoded from the folded value. */
+    ByteBuffer *held = s->merge_fn ? byte_buffer_new(256) : NULL;
+    size_t held_key_len = 0;
+    EastValue *held_key = NULL; /* owned */
+    EastValue *held_acc = NULL; /* owned: the folded value, once a fold ran */
+    ok = ok && (!s->merge_fn || held != NULL);
     while (ok) {
         int min = -1;
         EastValue *min_key = NULL;
@@ -642,17 +766,62 @@ static bool emit_merge_runs(EmitSink *s)
             bytes = cursor_bytes(&cur[min]);
             nbytes = cur[min].key_len + cur[min].val_len;
         }
+        size_t key_len = from_tail ? s->buf[tail_idx - 1].key_len : cur[min].key_len;
         if (prev_key && east_value_compare(prev_key, key) == 0) {
-            char msg[512];
-            emit_duplicate_msg(s, key, msg, sizeof(msg));
-            east_builtin_error(msg);
-            duplicate = true;
-            ok = false;
-            break;
+            if (!emit_folds(s)) {
+                char msg[512];
+                emit_duplicate_msg(s, key, msg, sizeof(msg));
+                east_builtin_error(msg);
+                duplicate = true;
+                ok = false;
+                break;
+            }
+            if (s->merge_fn) {
+                EastType *vt = s->out_type->data.dict.value;
+                if (!held_acc) {
+                    held_acc = east_beast2_entry_decode(held->data + held_key_len,
+                                                        held->len - held_key_len, vt);
+                }
+                EastValue *v = held_acc
+                                   ? east_beast2_entry_decode(bytes + key_len, nbytes - key_len, vt)
+                                   : NULL;
+                if (!v) {
+                    ok = false;
+                    break;
+                }
+                held_acc = emit_fold_values(s, key, held_acc, v);
+                if (!held_acc) {
+                    ok = false;
+                    break;
+                }
+            }
+            /* Union: the first element stands; the equal one is dropped. */
+            if (!from_tail) ok = cursor_advance(s, &cur[min]);
+            continue;
         }
         east_value_retain(key);
         if (prev_key) east_value_release(prev_key);
         prev_key = key;
+
+        if (s->merge_fn) {
+            /* A greater key: the held entry is final — commit it, then hold
+             * this one. */
+            if (held_key) {
+                ok = emit_commit_held(s, seg, held, held_key, &held_acc, &seg_first, &seg_last,
+                                      &seg_count);
+                east_value_release(held_key);
+                held_key = NULL;
+                if (ok && seg_count >= s->next_batch)
+                    ok = emit_flush_raw(s, seg, &seg_count, &seg_first, &seg_last);
+            }
+            held->len = 0;
+            byte_buffer_write_bytes(held, bytes, nbytes);
+            held_key_len = key_len;
+            held_key = key;
+            east_value_retain(key);
+            if (ok && !from_tail) ok = cursor_advance(s, &cur[min]);
+            continue;
+        }
 
         byte_buffer_write_bytes(seg, bytes, nbytes);
         if (!seg_first) {
@@ -667,6 +836,12 @@ static bool emit_merge_runs(EmitSink *s)
         if (ok && seg_count >= s->next_batch)
             ok = emit_flush_raw(s, seg, &seg_count, &seg_first, &seg_last);
     }
+    if (ok && held_key) {
+        ok = emit_commit_held(s, seg, held, held_key, &held_acc, &seg_first, &seg_last, &seg_count);
+    }
+    if (held_key) east_value_release(held_key);
+    if (held_acc) east_value_release(held_acc);
+    if (held) byte_buffer_free(held);
     if (ok) ok = emit_flush_raw(s, seg, &seg_count, &seg_first, &seg_last);
     if (ok) {
         ok = east_beast2_writer_finish(s->writer);
@@ -732,6 +907,12 @@ static EvalResult emit_invoke(EastCompiledFn *self, EastValue **args, size_t n_a
                 east_value_release(dup);
                 return eval_error(msg);
             }
+            if (rc == 3) {
+                char *err = east_builtin_get_error();
+                EvalResult failed = eval_error(err ? err : "emit: the merge function failed");
+                free(err);
+                return failed;
+            }
             if (rc != 0) return eval_error("emit: failed to write a spill run");
         }
         return eval_ok(east_null());
@@ -739,6 +920,25 @@ static EvalResult emit_invoke(EastCompiledFn *self, EastValue **args, size_t n_a
     if (s->kind != EAST_EMIT_ARRAY) {
         if (s->last_key) {
             int order = east_value_compare(s->last_key, key);
+            if (order == 0 && s->union_mode) {
+                /* The first element stands. */
+                s->emitted++;
+                return eval_ok(east_null());
+            }
+            if (order == 0 && s->merge_fn) {
+                /* The flush rule keeps the last entry in the open batch, so
+                 * the fold lands in place. */
+                EastValue *acc = east_dict_get(s->batch, key); /* borrowed */
+                if (!acc) return eval_error("emit: the folded key is missing from the batch");
+                EastValue *fold_args[3] = {key, acc, args[1]};
+                EvalResult r = east_call(s->merge_fn, fold_args, 3);
+                if (r.status == EVAL_ERROR) return r;
+                east_dict_set(s->batch, key, r.value);
+                if (r.value) east_value_release(r.value);
+                eval_result_free(&r);
+                s->emitted++;
+                return eval_ok(east_null());
+            }
             if (order == 0) {
                 char msg[512];
                 emit_duplicate_msg(s, key, msg, sizeof(msg));
@@ -756,6 +956,11 @@ static EvalResult emit_invoke(EastCompiledFn *self, EastValue **args, size_t n_a
         if (s->last_key) east_value_release(s->last_key);
         s->last_key = key;
     }
+    /* The flush rule: a full batch goes out only now that an element which
+     * will not fold into it has arrived. */
+    if (s->batch_count >= s->next_batch && !emit_flush(s)) {
+        return eval_error("emit: failed to write output segment");
+    }
     switch (s->kind) {
     case EAST_EMIT_ARRAY:
         east_array_push(s->batch, args[0]);
@@ -769,9 +974,6 @@ static EvalResult emit_invoke(EastCompiledFn *self, EastValue **args, size_t n_a
     }
     s->batch_count++;
     s->emitted++;
-    if (s->batch_count >= s->next_batch && !emit_flush(s)) {
-        return eval_error("emit: failed to write output segment");
-    }
     return eval_ok(east_null());
 }
 
@@ -781,12 +983,22 @@ EastEmitSink *east_emit_sink_new(const EastEmitSinkConfig *cfg)
         east_builtin_error("emit: the sink needs an output type and an output path");
         return NULL;
     }
+    if (cfg->merge_fn && cfg->kind != EAST_EMIT_DICT) {
+        east_builtin_error("--merge applies to --emit dict only");
+        return NULL;
+    }
+    if (cfg->union_mode && cfg->kind != EAST_EMIT_SET) {
+        east_builtin_error("--union applies to --emit set only");
+        return NULL;
+    }
     EmitSink *s = calloc(1, sizeof(EmitSink));
     if (!s) {
         east_builtin_error("emit: out of memory");
         return NULL;
     }
     s->kind = cfg->kind;
+    s->merge_fn = cfg->merge_fn;
+    s->union_mode = cfg->union_mode;
     s->out_type = cfg->out_type;
     s->output_path = cfg->output_path;
     s->verbose = cfg->verbose;

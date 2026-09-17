@@ -498,14 +498,96 @@ typedef enum {
     EMIT_DICT = EAST_EMIT_DICT,
 } EmitKind;
 
+static EastValue *load_ir_with_map(const char *path, EastSourceMap **map_out);
+
+/* The compiled --merge function and the IR it was compiled from, freed after
+ * the sink that borrows it. */
+typedef struct {
+    IRNode *ir;
+    EastCompiledFn *fn;
+} EmitMerge;
+
+static void emit_merge_free(EmitMerge *merge)
+{
+    if (merge->fn) east_compiled_fn_free(merge->fn);
+    if (merge->ir) ir_node_release(merge->ir);
+    merge->fn = NULL;
+    merge->ir = NULL;
+}
+
+/* Loads the --merge IR (any format the IR positional accepts), checks it is a
+ * function (K, V, V) -> V over the emit parameter's key and value types, and
+ * compiles it with the run's platforms. Returns false with a message on
+ * stderr. */
+static bool emit_merge_load(const char *path, EastType *key_type, EastType *value_type,
+                            PlatformRegistry *platform, BuiltinRegistry *builtins, EmitMerge *out)
+{
+    out->ir = NULL;
+    out->fn = NULL;
+    EastSourceMap *map = NULL;
+    EastValue *ir_val = load_ir_with_map(path, &map);
+    if (!ir_val) {
+        east_source_map_release(map);
+        return false;
+    }
+    IRNode *ir = east_ir_from_value(ir_val);
+    east_value_release(ir_val);
+    EastType *t = ir ? ir->type : NULL;
+    bool shape = ir && ir->kind == IR_FUNCTION && t && t->kind == EAST_TYPE_FUNCTION &&
+                 t->data.function.num_inputs == 3 &&
+                 east_type_equal(t->data.function.inputs[0], key_type) &&
+                 east_type_equal(t->data.function.inputs[1], value_type) &&
+                 east_type_equal(t->data.function.inputs[2], value_type) &&
+                 east_type_equal(t->data.function.output, value_type);
+    if (!shape) {
+        char *ks = format_type(key_type);
+        char *vs = format_type(value_type);
+        char *ts = t ? format_type(t) : NULL;
+        fprintf(stderr,
+                "Error: --merge: expected a function (K, V, V) -> V matching the emit parameter "
+                "(K = %s, V = %s), got %s\n",
+                ks ? ks : "?", vs ? vs : "?", ts ? ts : "?");
+        free(ks);
+        free(vs);
+        free(ts);
+        if (ir) ir_node_release(ir);
+        east_source_map_release(map);
+        return false;
+    }
+    /* The map resolves the function's own loc_ids: current while it compiles,
+     * owned by the compiled function after. */
+    const EastSourceMap *saved_map = east_get_source_map();
+    if (map) east_set_source_map(map);
+    char *err = NULL;
+    EastCompiledFn *fn = east_compile_fn(ir, platform, builtins, &err);
+    east_set_source_map(saved_map);
+    if (!fn) {
+        fprintf(stderr, "Error: --merge: %s\n", err ? err : "failed to compile the function");
+        free(err);
+        ir_node_release(ir);
+        east_source_map_release(map);
+        return false;
+    }
+    if (map) fn->source_map = map;
+    out->ir = ir;
+    out->fn = fn;
+    return true;
+}
+
 /* Builds the sink + its output collection type from the emit parameter's
  * function type. Returns NULL with a message on stderr when the shape or
- * output destination is unusable; *out_type_out receives the output type the
- * caller releases after the sink. */
+ * output destination is unusable; *out_type_out receives the output type and
+ * *merge_out the --merge function, both of which the caller frees after the
+ * sink. */
 static EastEmitSink *emit_sink_open(EmitKind kind, EastType *emit_param_type,
-                                    const char *output_file, bool verbose, EastType **out_type_out)
+                                    const char *output_file, bool verbose, const char *merge_path,
+                                    bool union_mode, PlatformRegistry *platform,
+                                    BuiltinRegistry *builtins, EastType **out_type_out,
+                                    EmitMerge *merge_out)
 {
     *out_type_out = NULL;
+    merge_out->ir = NULL;
+    merge_out->fn = NULL;
     if (!output_file || detect_format(output_file) != FMT_BEAST2) {
         fprintf(stderr, "Error: --emit requires a .beast2 output file (-o)\n");
         return NULL;
@@ -528,18 +610,26 @@ static EastEmitSink *emit_sink_open(EmitKind kind, EastType *emit_param_type,
                                             : east_array_type(ins[0]);
     if (!out_type) return NULL;
 
+    if (merge_path && !emit_merge_load(merge_path, ins[0], ins[1], platform, builtins, merge_out)) {
+        east_type_release(out_type);
+        return NULL;
+    }
+
     EastEmitSinkConfig cfg = {
         .kind = (EastEmitKind)kind,
         .out_type = out_type,
         .output_path = output_file,
         .verbose = verbose,
         .run_elements = 0,
+        .merge_fn = merge_out->fn,
+        .union_mode = union_mode,
     };
     EastEmitSink *sink = east_emit_sink_new(&cfg);
     if (!sink) {
         char *err = east_builtin_get_error();
         if (err) fprintf(stderr, "Error: %s\n", err);
         free(err);
+        emit_merge_free(merge_out);
         east_type_release(out_type);
         return NULL;
     }
@@ -562,10 +652,12 @@ static void emit_print_epilogue(const EastEmitSink *sink)
             st.runs, sz, st.spills, st.peak_entries, peak, st.spill_ms, st.merge_ms);
 }
 
-/* Frees the sink (NULL-safe) and the output type emit_sink_open built. */
-static void emit_sink_close(EastEmitSink *sink, EastType *out_type)
+/* Frees the sink (NULL-safe), then the --merge function and the output type
+ * emit_sink_open built for it. */
+static void emit_sink_close(EastEmitSink *sink, EastType *out_type, EmitMerge *merge)
 {
     east_emit_sink_free(sink);
+    emit_merge_free(merge);
     if (out_type) east_type_release(out_type);
 }
 
@@ -617,8 +709,8 @@ static void print_profile(const EastSourceMap *sm)
 
 static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                    const char **input_files, int num_inputs, const char *output_file, bool verbose,
-                   const char *snapshot_out_path, EmitKind emit_kind, int stream_input,
-                   bool profile)
+                   const char *snapshot_out_path, EmitKind emit_kind, const char *merge_path,
+                   bool union_mode, const int *stream_inputs, int num_streams, bool profile)
 {
     /* Init type system */
     east_type_of_type_init();
@@ -739,6 +831,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                 "The IR file should contain compiled function IR.\n",
                 ir->kind);
         ir_node_release(ir);
+        east_source_map_release(decoded_source_map);
         platform_registry_free(platform);
         builtin_registry_free(builtins);
         return 1;
@@ -750,6 +843,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         (fn_type->kind != EAST_TYPE_FUNCTION && fn_type->kind != EAST_TYPE_ASYNC_FUNCTION)) {
         fprintf(stderr, "Error: IR function node has invalid type\n");
         ir_node_release(ir);
+        east_source_map_release(decoded_source_map);
         platform_registry_free(platform);
         builtin_registry_free(builtins);
         return 1;
@@ -763,13 +857,16 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
      * emit capability) beyond the input files; the output file is written
      * incrementally by the sink instead of from the return value. */
     size_t file_params = emit_kind != EMIT_NONE && num_params > 0 ? num_params - 1 : num_params;
-    if (stream_input >= 0 && (size_t)stream_input >= file_params) {
-        fprintf(stderr, "Error: --stream index %d out of range (%zu inputs)\n", stream_input,
-                file_params);
-        ir_node_release(ir);
-        platform_registry_free(platform);
-        builtin_registry_free(builtins);
-        return 1;
+    for (int s = 0; s < num_streams; s++) {
+        if ((size_t)stream_inputs[s] >= file_params) {
+            fprintf(stderr, "Error: --stream index %d out of range (%zu inputs)\n",
+                    stream_inputs[s], file_params);
+            ir_node_release(ir);
+            east_source_map_release(decoded_source_map);
+            platform_registry_free(platform);
+            builtin_registry_free(builtins);
+            return 1;
+        }
     }
 
     if (verbose) {
@@ -810,6 +907,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         fprintf(stderr, "Error: Function expects %zu inputs, got %d\nSignature: %s\n", file_params,
                 num_inputs, sig_buf);
         ir_node_release(ir);
+        east_source_map_release(decoded_source_map);
         platform_registry_free(platform);
         builtin_registry_free(builtins);
         return 1;
@@ -819,11 +917,14 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
      * emit shape fails fast. */
     EastEmitSink *emit_sink = NULL;
     EastType *emit_out_type = NULL;
+    EmitMerge emit_merge = {NULL, NULL};
     if (emit_kind != EMIT_NONE) {
         emit_sink = emit_sink_open(emit_kind, num_params > 0 ? param_types[num_params - 1] : NULL,
-                                   output_file, verbose, &emit_out_type);
+                                   output_file, verbose, merge_path, union_mode, platform, builtins,
+                                   &emit_out_type, &emit_merge);
         if (!emit_sink) {
             ir_node_release(ir);
+            east_source_map_release(decoded_source_map);
             platform_registry_free(platform);
             builtin_registry_free(builtins);
             return 1;
@@ -840,9 +941,11 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     if (num_args > 0) {
         args = calloc(num_args, sizeof(EastValue *));
         for (int i = 0; i < num_inputs; i++) {
-            /* The streamed input always opens lazily; other collection
-             * inputs open lazily at or above the size threshold. */
-            bool want_lazy = i == stream_input;
+            /* Streamed inputs always open lazily; other collection inputs
+             * open lazily at or above the size threshold. */
+            bool want_lazy = false;
+            for (int s = 0; s < num_streams; s++)
+                want_lazy = want_lazy || stream_inputs[s] == i;
             if (!want_lazy && threshold > 0) {
                 struct stat st;
                 want_lazy = stat(input_files[i], &st) == 0 && (size_t)st.st_size >= threshold;
@@ -867,8 +970,9 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                     east_value_release(args[j]);
                 free(args);
                 free(lazy_inputs);
-                emit_sink_close(emit_sink, emit_out_type);
+                emit_sink_close(emit_sink, emit_out_type, &emit_merge);
                 ir_node_release(ir);
+                east_source_map_release(decoded_source_map);
                 platform_registry_free(platform);
                 builtin_registry_free(builtins);
                 return 1;
@@ -882,8 +986,9 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                     east_value_release(args[j]);
                 free(args);
                 free(lazy_inputs);
-                emit_sink_close(emit_sink, emit_out_type);
+                emit_sink_close(emit_sink, emit_out_type, &emit_merge);
                 ir_node_release(ir);
+                east_source_map_release(decoded_source_map);
                 platform_registry_free(platform);
                 builtin_registry_free(builtins);
                 return 1;
@@ -908,7 +1013,11 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
             east_value_release(args[i]);
         free(args);
         free(lazy_inputs);
-        emit_sink_close(emit_sink, emit_out_type);
+        emit_sink_close(emit_sink, emit_out_type, &emit_merge);
+        /* The map never reached a compiled function: stop it being the
+         * current one, then drop it. */
+        east_set_source_map(NULL);
+        east_source_map_release(decoded_source_map);
         ir_node_release(ir);
         platform_registry_free(platform);
         builtin_registry_free(builtins);
@@ -1023,7 +1132,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         east_value_release(args[i]);
     free(args);
     free(lazy_inputs);
-    emit_sink_close(emit_sink, emit_out_type);
+    emit_sink_close(emit_sink, emit_out_type, &emit_merge);
     ir_node_release(ir);
     platform_registry_free(platform);
     builtin_registry_free(builtins);
@@ -1393,8 +1502,12 @@ static void print_usage(const char *prog)
             "  -v, --verbose           Enable verbose output\n"
             "      --emit KIND         Write the output incrementally from the function's\n"
             "                          trailing emit parameter (array|set|dict)\n"
-            "      --stream N          Feed the given -i input lazily (0-based index;\n"
-            "                          segment-fed iteration, O(segment) decoded memory)\n"
+            "      --merge FILE        With --emit dict: fold equal keys with the East\n"
+            "                          function (K, V, V) -> V in FILE, in emission order\n"
+            "      --union             With --emit set: collapse equal elements\n"
+            "      --stream N          Feed the given -i input lazily (0-based index,\n"
+            "                          repeatable; segment-fed iteration, O(segment)\n"
+            "                          decoded memory)\n"
             "      --profile           Print every East function called, by self time,\n"
             "                          with its call count and source location\n"
             "      --snapshot PATH     Write a .east-snapshot bundle (IR + inputs + manifest)\n"
@@ -1439,7 +1552,10 @@ static int cli_main(void *arg)
     const char *snapshot_out_path = NULL;
     const char *from_snapshot_path = NULL;
     EmitKind emit_kind = EMIT_NONE;
-    int stream_input = -1;
+    const char *merge_path = NULL;
+    bool union_mode = false;
+    int stream_inputs[MAX_INPUTS];
+    int num_streams = 0;
     bool profile = false;
 
     if (strcmp(command, "run") == 0) {
@@ -1491,16 +1607,26 @@ static int cli_main(void *arg)
                     return 1;
                 }
                 i += 2;
+            } else if (strcmp(a, "--merge") == 0 && i + 1 < argc) {
+                merge_path = argv[i + 1];
+                i += 2;
+            } else if (strcmp(a, "--union") == 0) {
+                union_mode = true;
+                i++;
             } else if (strcmp(a, "--stream") == 0 && i + 1 < argc) {
                 char *end = NULL;
                 long v = strtol(argv[i + 1], &end, 10);
-                if (!end || *end != '\0' || v < 0) {
+                if (!end || *end != '\0' || v < 0 || v > 1000000) {
                     fprintf(stderr,
                             "Error: --stream must be a non-negative input index, got '%s'\n",
                             argv[i + 1]);
                     return 1;
                 }
-                stream_input = (int)v;
+                if (num_streams >= MAX_INPUTS) {
+                    fprintf(stderr, "Error: Too many --stream flags (max %d)\n", MAX_INPUTS);
+                    return 1;
+                }
+                stream_inputs[num_streams++] = (int)v;
                 i += 2;
             } else if (a[0] != '-' && !ir_path) {
                 ir_path = a;
@@ -1510,6 +1636,15 @@ static int cli_main(void *arg)
                 print_usage(argv[0]);
                 return 1;
             }
+        }
+
+        if (merge_path && emit_kind != EMIT_DICT) {
+            fprintf(stderr, "Error: --merge applies to --emit dict only\n");
+            return 1;
+        }
+        if (union_mode && emit_kind != EMIT_SET) {
+            fprintf(stderr, "Error: --union applies to --emit set only\n");
+            return 1;
         }
 
         if (from_snapshot_path) {
@@ -1524,12 +1659,13 @@ static int cli_main(void *arg)
              * task's flags must be passed explicitly on replay — forward them. */
             int rc = cmd_run(ex.ir_path, (const char **)ex.packages, (int)ex.num_packages,
                              (const char **)ex.input_paths, (int)ex.num_inputs, output_file,
-                             verbose, NULL, emit_kind, stream_input, profile);
+                             verbose, NULL, emit_kind, merge_path, union_mode, stream_inputs,
+                             num_streams, profile);
             snapshot_extract_free(&ex);
             return rc;
         }
 
-        if (snapshot_out_path && (emit_kind != EMIT_NONE || stream_input >= 0)) {
+        if (snapshot_out_path && (emit_kind != EMIT_NONE || num_streams > 0)) {
             fprintf(stderr, "Error: --snapshot does not capture --emit/--stream (snapshot format "
                             "v1 has no streaming flags); replay with --from-snapshot passing "
                             "--emit/--stream explicitly\n");
@@ -1543,7 +1679,8 @@ static int cli_main(void *arg)
         }
 
         return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file,
-                       verbose, snapshot_out_path, emit_kind, stream_input, profile);
+                       verbose, snapshot_out_path, emit_kind, merge_path, union_mode, stream_inputs,
+                       num_streams, profile);
 
     } else if (strcmp(command, "convert") == 0) {
         const char *in_path = NULL;

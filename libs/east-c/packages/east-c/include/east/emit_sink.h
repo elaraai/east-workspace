@@ -23,8 +23,21 @@
  * k-way merges the runs and the in-memory tail into the canonical output
  * decoding KEYS only: value bytes are copied straight into the output
  * segments, never decoded or re-encoded, and the final write is the only
- * deflate. Duplicate Set/Dict keys are a hard error in every path: immediately
- * when adjacent in the stream, at spill/merge time otherwise.
+ * deflate.
+ *
+ * Duplicate Set/Dict keys are a hard error in every path — immediately when
+ * adjacent in the stream, at spill/merge time otherwise — unless the sink
+ * folds them: with a merge function (dict sinks) equal keys fold left in
+ * emission order, `acc = merge(key, acc, value)`; with union mode (set sinks)
+ * equal elements collapse to the first. Either way the file is byte-identical
+ * to what the non-folding sink writes for the already-folded sequence. The
+ * sink may fold part of a key's emissions before combining it with the rest,
+ * so a merge function must be associative; emission order is never changed.
+ *
+ * A batch is flushed when it is full and the next element will not fold into
+ * it (or at finish, or when the output demotes) — never on the insert that
+ * fills it — which segments exactly as flushing on that insert would, and
+ * lets an equal key fold into a full batch's last entry.
  *
  * Errors are posted through east_builtin_error: a failed east_emit_sink_new or
  * east_emit_sink_finish leaves the message for east_builtin_get_error, and the
@@ -57,6 +70,13 @@ typedef struct {
     /* Spill once this many out-of-order entries are buffered; 0 reads
      * EAST_EMIT_RUN_ELEMENTS (digits only, at least 1), else 100,000. */
     size_t run_elements;
+    /* Dict sinks: fold equal keys, `acc = merge(key, acc, value)`, in
+     * emission order — a compiled `(K, V, V) -> V` over the output's key and
+     * value types (borrowed; kept alive by the caller for the sink's
+     * lifetime). NULL: equal keys are a duplicate error. */
+    EastCompiledFn *merge_fn;
+    /* Set sinks: equal elements collapse to the first. */
+    bool union_mode;
 } EastEmitSinkConfig;
 
 typedef struct {
@@ -81,7 +101,8 @@ typedef struct {
 typedef struct EastEmitSink EastEmitSink;
 
 /* Opens the output file and builds the sink. NULL with the message posted
- * when the output cannot be written or the configuration is unusable. */
+ * when the output cannot be written or the configuration is unusable (a
+ * merge function on a non-dict sink, union mode on a non-set sink). */
 EastEmitSink *east_emit_sink_new(const EastEmitSinkConfig *cfg);
 
 /* The emit capability: a function value of `fn_type` (borrowed; the emit
