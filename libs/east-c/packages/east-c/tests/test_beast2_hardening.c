@@ -1007,6 +1007,43 @@ static void canonical_type_sections_gate(void)
         east_value_release(iv);
     }
 
+    /* Outer = Recursive(Struct{nodes: Array<Inner>, next: Array<self>}),
+     * Inner = Recursive(Struct{children: Array<self>}): the nested wrapper is
+     * reached through the container its own body recurses through, so that
+     * container is one entry inside and outside the wrapper — the shape of
+     * east-ui's TreeView, which the TypeScript reader used to refuse (#773). */
+    {
+        EastType *inner = east_recursive_type_new();
+        const char *in_fn[1] = {"children"};
+        EastType *in_ft[1] = {east_array_type(inner)};
+        EastType *in_node = east_struct_type(in_fn, in_ft, 1);
+        east_recursive_type_set(inner, in_node);
+        inner = east_recursive_type_intern(inner);
+        EastType *outer = east_recursive_type_new();
+        const char *out_fn[2] = {"nodes", "next"};
+        EastType *out_ft[2] = {east_array_type(inner), east_array_type(outer)};
+        EastType *out_node = east_struct_type(out_fn, out_ft, 2);
+        east_recursive_type_set(outer, out_node);
+        outer = east_recursive_type_intern(outer);
+
+        EastValue *leaf_children = east_array_new(inner);
+        EastValue *leaf_fv[1] = {leaf_children};
+        EastValue *leaf = east_struct_new(in_fn, leaf_fv, 1, in_node);
+        EastValue *nodes = east_array_new(inner);
+        east_array_push(nodes, leaf);
+        EastValue *next = east_array_new(outer);
+        EastValue *out_fv[2] = {nodes, next};
+        EastValue *v = east_struct_new(out_fn, out_fv, 2, out_node);
+        canonical_type_section_check(
+            "Recursive(Struct{nodes: Array<Inner>, next: Array<self>})", outer, v,
+            "00250006120512030a010901086368696c6472656e020a000902056e6f64657302046e65787404");
+        east_value_release(v);
+        east_value_release(next);
+        east_value_release(nodes);
+        east_value_release(leaf);
+        east_value_release(leaf_children);
+    }
+
     /* A carried well-known schema is still written as its well-known section. */
     {
         EastType *carried = carried_type(east_type_type);
