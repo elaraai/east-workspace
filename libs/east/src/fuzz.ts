@@ -93,7 +93,8 @@ export interface RandomTypeOptions {
    * several fields of one struct (so `Array<T>` may be reached before `T`,
    * the shape whose beast2 type table was not canonical — #770); and
    * recursive bodies drawn at random rather than from the fixed patterns of
-   * {@link randomRecursiveType}, nested recursive types included.
+   * {@link randomRecursiveType}, nested recursive types included — bare and
+   * through the container their own bodies recurse through (#773).
    */
   nestedRecursive?: boolean;
   /**
@@ -296,11 +297,31 @@ export function randomRecursiveType(options: { randomBody?: boolean } = {}): Eas
  *  closed recursive type or a type value now and then. */
 function randomRecursiveLeaf(terminal: boolean): EastType {
   const r = random();
-  if (r < 0.55) return randomPrimitiveType();
-  if (r < 0.70) return ArrayType(randomPrimitiveType());
-  if (r < 0.80 || terminal) return StructType({ id: IntegerType, label: StringType });
-  if (r < 0.90) return randomRecursiveType(); // nested recursion, SCC size 1
+  if (r < 0.45) return randomPrimitiveType();
+  if (r < 0.55) return ArrayType(randomPrimitiveType());
+  if (r < 0.67 || terminal) return StructType({ id: IntegerType, label: StringType });
+  if (r < 0.92) return randomNestedRecursiveLeaf(); // nested recursion, SCC size 1
   return EastTypeType;
+}
+
+/**
+ * A nested closed recursive type as a leaf of an enclosing wrapper's body:
+ * bare, or reached through the container its own body recurses through —
+ * `Array<T>` beside `T`'s `children: Array<self>`, `Option<T>` beside
+ * `next: Option<self>`, `Dict<String, T>` beside `children: Dict<String,
+ * self>`. In a canonical type table that container is one entry inside and
+ * outside the wrapper, and a reader walking the enclosing wrapper's body
+ * meets it before the nested wrapper it names — the shape east-ui's
+ * `TreeView.nodes` has and the #771 reader rejected (#773).
+ */
+function randomNestedRecursiveLeaf(): EastType {
+  const r = random();
+  if (r < 0.25) return randomRecursiveType();
+  if (r < 0.5) return randomRecursiveType({ randomBody: true });
+  const value = randomPrimitiveType();
+  if (r < 0.7) return ArrayType(RecursiveType((self) => StructType({ value, children: ArrayType(self) })));
+  if (r < 0.85) return OptionType(RecursiveType((self) => StructType({ value, next: OptionType(self) })));
+  return DictType(StringType, RecursiveType((self) => StructType({ value, children: DictType(StringType, self) })));
 }
 
 /**
@@ -346,9 +367,12 @@ function randomRecursiveBody(self: RecursiveTypeMarker): EastType {
 /**
  * A struct that names one recursive type from several fields — bare, under
  * Array, Option and Dict — in random order, so the type may be reached first
- * through a container and only then itself.
+ * through a container and only then itself; half of the time the struct is
+ * itself the body of an enclosing recursive type, so a reader walking that
+ * body top-down meets the container before the wrapper it names (#773).
  *
- * @returns A {@link StructType} over one random {@link RecursiveType}
+ * @returns A {@link StructType} over one random {@link RecursiveType}, or a
+ *   {@link RecursiveType} whose body is that struct
  */
 export function randomSharedRecursiveType(): EastType {
   const rec = randomRecursiveType({ randomBody: true });
@@ -361,7 +385,8 @@ export function randomSharedRecursiveType(): EastType {
   const fieldCount = 2 + Math.floor(random() * 3);
   const fields: Record<string, EastType> = {};
   for (let i = 0; i < fieldCount; i++) fields[`f${i}`] = shapes[i]!;
-  return StructType(fields);
+  if (random() < 0.5) return StructType(fields);
+  return RecursiveType((self) => StructType({ ...fields, next: OptionType(self) }));
 }
 
 /**
