@@ -26,16 +26,21 @@
  */
 
 import {
+  ArrayType,
   East,
+  EastIR,
   FunctionType,
   NullType,
+  StringType,
   compareFor,
   encodeBeast2For,
   encodeEastIR,
   fromEastTypeValue,
+  isTypeValueEqual,
   some,
-  type EastIR,
+  toEastTypeValue,
   type EastTypeValue,
+  type FunctionIR,
 } from '@elaraai/east';
 import {
   TASK_KIND_STREAM,
@@ -46,7 +51,7 @@ import {
   stripIrLocations,
   type TaskObject,
 } from '@elaraai/e3-types';
-import { PartitionBlob } from './partitionIo.js';
+import { PartitionBlob, decodedSegmentPeak, resetDecodedSegmentPeak } from './partitionIo.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { ExecutionResult } from './LocalTaskRunner.js';
 
@@ -56,6 +61,68 @@ export const MERGE_TREE_FANIN = 8;
 /** Why a merge tree cannot run on a task's runner. */
 const CUSTOM_RUNTIME_MERGE_MESSAGE =
   'partition merge needs a stock runtime (east-c, east-node, east-py); this task uses the custom runtime';
+
+/** Assembly units — merge units and combine steps — run or found cached since
+ *  the counters were last reset. */
+let assemblyUnits = 0;
+
+/**
+ * Counts one assembly unit, a merge unit or a combine step.
+ *
+ * @internal
+ */
+export function countAssemblyUnit(): void {
+  assemblyUnits++;
+}
+
+/** The signature of a command IR, `(inputs, output) -> argv`. */
+const COMMAND_IR_TYPE = toEastTypeValue(FunctionType([ArrayType(StringType), StringType], ArrayType(StringType)));
+
+/**
+ * The counters of a partitioned execution's assembly — the orchestrator's
+ * side of issue #770's memory claim.
+ *
+ * @internal
+ */
+export interface PartitionAssemblyStats {
+  /** The most decoded segments e3-core held at once. */
+  peakDecodedSegments: number;
+  /** Functions compiled in this process other than command IRs: the merge,
+   *  combine and `by` functions a partitioned task carries, which e3-core
+   *  must never run itself. */
+  compiledFunctions: number;
+  /** Merge units and combine steps run or found cached. */
+  units: number;
+}
+
+/**
+ * Runs `run` and returns the partition assembly's counters over it.
+ *
+ * @remarks
+ * For specs. Compiles are counted by wrapping `EastIR.prototype.compile`
+ * while `run` runs, and every counter is process-wide, so nothing else may
+ * run meanwhile.
+ *
+ * @param run - A partitioned task's execution
+ * @returns The counters
+ * @internal
+ */
+export async function partitionAssemblyStats(run: () => Promise<unknown>): Promise<PartitionAssemblyStats> {
+  resetDecodedSegmentPeak();
+  assemblyUnits = 0;
+  let compiledFunctions = 0;
+  const compile = EastIR.prototype.compile;
+  EastIR.prototype.compile = function (this: EastIR<any, any>, platform) {
+    if (!isTypeValueEqual((this.ir as FunctionIR).value.type as EastTypeValue, COMMAND_IR_TYPE)) compiledFunctions++;
+    return compile.call(this, platform);
+  } as typeof compile;
+  try {
+    await run();
+  } finally {
+    EastIR.prototype.compile = compile;
+  }
+  return { peakDecodedSegments: decodedSegmentPeak(), compiledFunctions, units: assemblyUnits };
+}
 
 /** Partials whose key ranges overlap, directly or through each other. */
 export interface MergeComponent {
@@ -93,9 +160,13 @@ export async function mergeComponents(
   const ranges: { partition: number; first: unknown; last: unknown }[] = [];
   for (let p = 0; p < partials.length; p++) {
     const blob = await PartitionBlob.open(storage, repo, partials[p]!);
-    typeValue ??= blob.extents.typeValue;
-    if (blob.extents.offsets.length === 0) continue;
-    ranges.push({ partition: p, first: await blob.fence(0), last: await blob.lastKey() });
+    try {
+      typeValue ??= blob.extents.typeValue;
+      if (blob.extents.offsets.length === 0) continue;
+      ranges.push({ partition: p, first: await blob.fence(0), last: await blob.lastKey() });
+    } finally {
+      blob.release();
+    }
   }
   const collection = typeValue!;
   if (collection.type !== 'Dict' && collection.type !== 'Set') {
@@ -373,6 +444,7 @@ export async function assembleMergeTree(options: MergeTreeOptions): Promise<Merg
         const position = { level, levels, index, total: units.length, taskHash: unitTask.taskHash };
         options.onUnitStarted?.({ ...position, completed });
         const result = await options.runUnit(unitTask.taskHash, unitTask.task, [...unitTask.inputs, ...unit.partials]);
+        countAssemblyUnit();
         results[index] = result;
         completed++;
         positions[index] = { ...position, completed };

@@ -101,10 +101,12 @@ spills, and the most entries and bytes held at once:
 ### Exiting with the Parent
 
 With `EAST_EXIT_WITH_PARENT=1` in its environment the runner watches its
-stdin on a worker thread and kills its own process as soon as a read returns
-end of file or fails. A parent that spawns the runner with a stdin pipe it
-never writes to — as e3 does — takes the runner down with it when it dies,
-even while the body is computing. Without the variable, stdin is left alone.
+stdin from a worker thread, reading it through a socket on the worker's own
+event loop, and kills its own process as soon as stdin ends, closes or cannot
+be read. A parent that spawns the runner with a stdin pipe it never writes to
+— as e3 does — takes the runner down with it when it dies, even while the body
+is computing. The watcher never blocks in a read, so it never holds up the
+runner's own exit. Without the variable, stdin is left alone.
 
 ### Version Information
 
