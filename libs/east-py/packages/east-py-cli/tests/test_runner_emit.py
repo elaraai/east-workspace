@@ -10,13 +10,14 @@ by ``libs/east-c/packages/east-c-cli/tests/generate_fixtures.mjs`` and mirror
 the same programs. ``events.beast2`` is written by the TS paged writer, which
 makes the stream-fold case a cross-runtime decode of TS-writer bytes.
 
-These cases exercise the whole seam end to end: ``_EmitSink`` (batching, the
-order-robust spill/merge path and its duplicate-key check — issue #518 —
-and output validation), the native accumulator function value that carries
-the sink's ``emit`` into the compiled body (issue #560 phase 2), and
-``Beast2FileWriter`` finalization (terminator + index + footer). The last
-case drives the sink from python instead of from a compiled program — the
-harness route that issue #592 closed.
+These cases exercise the whole seam end to end: ``_EmitSink`` (output
+validation) over east-c's library sink (batching, the order-robust spill/merge
+path and its duplicate-key check — issues #518, #770 — and finalization:
+terminator + index + footer), and the native function value that carries the
+sink's ``emit`` into the compiled body (issue #560 phase 2). The C sink writes
+its demote notice to the process's stderr, so those checks capture file
+descriptors. The last case drives the sink from python instead of from a
+compiled program — the harness route that issue #592 closed.
 """
 
 import os
@@ -77,7 +78,7 @@ def test_stream_fold_reads_ts_written_input(tmp_path):
         [FIXTURES / "events.beast2"],
         out,
         emit="array",
-        stream_input=0,
+        stream_inputs=[0],
     )
 
     sums = list(decode_beast2_with_header_for(INT_ARRAY)(out.read_bytes()))
@@ -200,7 +201,7 @@ def test_dict_emit_decodes_with_index(tmp_path):
     assert table[42] == "row-42"
 
 
-def test_dict_emit_accepts_out_of_order_keys(tmp_path, capsys):
+def test_dict_emit_accepts_out_of_order_keys(tmp_path, capfd):
     # Since issue #518 the sink absorbs out-of-order emission (demote →
     # spill → merge) instead of erroring; the output is the canonical dict
     # and the transition is reported on stderr.
@@ -211,7 +212,7 @@ def test_dict_emit_accepts_out_of_order_keys(tmp_path, capsys):
     assert read_beast2_index(INT_STR_DICT, blob) is not None
     table = decode_beast2_with_header_for(INT_STR_DICT)(blob)
     assert dict(table.items()) == {1: "a", 2: "b"}
-    assert "left ascending order" in capsys.readouterr().err
+    assert "left ascending order" in capfd.readouterr().err
 
 
 def test_dict_emit_shuffled_spills_and_merges_byte_identical(tmp_path, monkeypatch):
@@ -262,7 +263,7 @@ def test_stream_index_rejected_on_a_zero_input_program(tmp_path):
     with pytest.raises(ValueError, match=r"--stream index 0 out of range \(0 inputs\)"):
         run_program(
             FIXTURES / "emit_producer.beast2", [], [], [], tmp_path / "out.beast2",
-            emit="array", stream_input=0,
+            emit="array", stream_inputs=[0],
         )
 
 

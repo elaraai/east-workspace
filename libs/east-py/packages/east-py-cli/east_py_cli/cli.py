@@ -127,10 +127,23 @@ def create_parser() -> argparse.ArgumentParser:
         "parameter (array|set|dict)",
     )
     run_parser.add_argument(
+        "--merge",
+        type=Path,
+        metavar="FILE",
+        help="With --emit dict: fold equal keys with the East function (K, V, V) -> V "
+        "in FILE, in emission order",
+    )
+    run_parser.add_argument(
+        "--union",
+        action="store_true",
+        help="With --emit set: collapse equal elements",
+    )
+    run_parser.add_argument(
         "--stream",
         type=int,
+        action="append",
         metavar="N",
-        help="Feed the given -i input lazily (0-based index; segment-fed "
+        help="Feed the given -i input lazily (0-based index, repeatable; segment-fed "
         "iteration, O(segment) decoded memory)",
     )
 
@@ -215,6 +228,12 @@ def create_parser() -> argparse.ArgumentParser:
 
 def cmd_run(args: argparse.Namespace) -> int:
     """Execute the run command."""
+    # A parent that gave the runner a stdin lifeline (EAST_EXIT_WITH_PARENT=1)
+    # takes it down with it — east-c's native watcher (issue #770).
+    from east.runtime._compiler_eastc import exit_with_parent
+
+    exit_with_parent()
+
     extract = None
 
     # --from-snapshot is exclusive with ir_file, -i, -p
@@ -251,6 +270,13 @@ def cmd_run(args: argparse.Namespace) -> int:
             if not input_file.exists():
                 print(f"Error: Input file not found: {input_file}", file=sys.stderr)
                 return 1
+
+        if getattr(args, "merge", None) is not None and getattr(args, "emit", None) != "dict":
+            print("Error: --merge applies to --emit dict only", file=sys.stderr)
+            return 1
+        if getattr(args, "union", False) and getattr(args, "emit", None) != "set":
+            print("Error: --union applies to --emit set only", file=sys.stderr)
+            return 1
 
         # The manifest carries no streaming flags (format v1), so a captured
         # emit/stream invocation would replay with the wrong arity — refuse
@@ -300,7 +326,9 @@ def cmd_run(args: argparse.Namespace) -> int:
             output_file=args.output,
             verbose=args.verbose,
             emit=getattr(args, "emit", None),
-            stream_input=getattr(args, "stream", None),
+            stream_inputs=getattr(args, "stream", None) or (),
+            merge=getattr(args, "merge", None),
+            union=getattr(args, "union", False),
         )
 
         return 0

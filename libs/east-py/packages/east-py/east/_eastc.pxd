@@ -649,6 +649,58 @@ cdef extern from "east/compiler.h":
     const EastSourceMap *east_get_source_map()
 
 
+# ─── east.h ──────────────────────────────────────────────────────────────
+
+cdef extern from "east/east.h":
+    # Exit with the parent (#770): with EAST_EXIT_WITH_PARENT=1, a detached C
+    # thread blocks reading stdin and _exit(1)s at end of file or an error.
+    void east_exit_with_parent()
+
+
+# ─── emit_sink.h ─────────────────────────────────────────────────────────
+# The streaming emit sink behind `run --emit` (#507, #518, #770), shared with
+# the east-c CLI. Struct fields declared `bint` are C `bool` in the header;
+# they are assigned and read by value, which the C compiler converts.
+
+cdef extern from "east/emit_sink.h":
+    ctypedef enum EastEmitKind:
+        EAST_EMIT_ARRAY
+        EAST_EMIT_SET
+        EAST_EMIT_DICT
+
+    ctypedef struct EastEmitSinkConfig:
+        EastEmitKind kind
+        EastType *out_type
+        const char *output_path
+        bint verbose
+        size_t run_elements
+        size_t run_bytes
+        EastCompiledFn *merge_fn
+        bint union_mode
+
+    ctypedef struct EastEmitSinkStats:
+        size_t emitted
+        bint buffered
+        size_t sources
+        size_t passes
+        size_t runs_per_pass
+        size_t spills
+        size_t peak_entries
+        size_t peak_bytes
+        size_t spilled_bytes
+        double spill_ms
+        double merge_ms
+
+    ctypedef struct EastEmitSink:
+        pass
+
+    EastEmitSink *east_emit_sink_new(const EastEmitSinkConfig *cfg)
+    EastValue *east_emit_sink_function(EastEmitSink *sink, EastType *fn_type)
+    bint east_emit_sink_finish(EastEmitSink *sink)
+    void east_emit_sink_stats(const EastEmitSink *sink, EastEmitSinkStats *out)
+    void east_emit_sink_free(EastEmitSink *sink)
+
+
 # ─── type_of_type.h ─────────────────────────────────────────────────────
 
 cdef extern from "east/ir_normalize.h":

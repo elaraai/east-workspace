@@ -47,6 +47,21 @@ cdef void _ensure_runtime() except *:
     _runtime_initialized = True
 
 
+def exit_with_parent():
+    """Exit with the parent (issue #770): with ``EAST_EXIT_WITH_PARENT=1`` in
+    the environment, start east-c's watcher — a detached C thread that blocks
+    reading stdin and ends the process with ``_exit(1)`` once the read returns
+    end of file or an error. A parent sets the variable only when it gives the
+    runner a stdin pipe it never writes to, so the read returns only when that
+    parent is gone. Any other value, or none, does nothing.
+
+    The watcher is native because a python thread cannot do this job: east-c
+    runs a compiled body holding the GIL, so a python watcher never runs while
+    the body computes, and one blocked in ``sys.stdin.buffer.read`` holds the
+    reader's lock and aborts interpreter shutdown."""
+    _eastc.east_exit_with_parent()
+
+
 # ─── Eager-path observability ─────────────────────────────────────────────
 #
 # How eager-method callbacks actually executed, read via
