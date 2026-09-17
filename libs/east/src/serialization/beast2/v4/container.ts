@@ -458,26 +458,27 @@ function writeValueTableEntry(entry: ValueTableEntry, writer: BufferWriter, ctx:
     }
   };
 
+  // Element types are named by table index; `add` is idempotent, so a type
+  // already in the table (the root closure, or an earlier entry's) is reused
+  // and a new one (a capture type, say) is appended canonically.
   switch (type.type) {
     case "Array": {
-      if (!ctx.typeTable.has(type.value)) ctx.typeTable.addETV(type.value);
-      writer.writeVarint(ctx.typeTable.indexOf(type.value));
+      writer.writeVarint(ctx.typeTable.add(type.value));
       writer.writeVarint(value.length);
       for (const item of value) encodeElem(type.value, item, writer, ctx);
       break;
     }
     case "Set": {
-      if (!ctx.typeTable.has(type.value)) ctx.typeTable.addETV(type.value);
-      writer.writeVarint(ctx.typeTable.indexOf(type.value));
+      writer.writeVarint(ctx.typeTable.add(type.value));
       writer.writeVarint(value.size);
       for (const key of value) encodeElem(type.value, key, writer, ctx);
       break;
     }
     case "Dict": {
-      if (!ctx.typeTable.has(type.value.key)) ctx.typeTable.addETV(type.value.key);
-      if (!ctx.typeTable.has(type.value.value)) ctx.typeTable.addETV(type.value.value);
-      writer.writeVarint(ctx.typeTable.indexOf(type.value.key));
-      writer.writeVarint(ctx.typeTable.indexOf(type.value.value));
+      const keyIdx = ctx.typeTable.add(type.value.key);
+      const valIdx = ctx.typeTable.add(type.value.value);
+      writer.writeVarint(keyIdx);
+      writer.writeVarint(valIdx);
       writer.writeVarint(value.size);
       for (const [k, v] of value) {
         encodeElem(type.value.key, k, writer, ctx);
@@ -486,8 +487,7 @@ function writeValueTableEntry(entry: ValueTableEntry, writer: BufferWriter, ctx:
       break;
     }
     case "Ref": {
-      if (!ctx.typeTable.has(type.value)) ctx.typeTable.addETV(type.value);
-      writer.writeVarint(ctx.typeTable.indexOf(type.value));
+      writer.writeVarint(ctx.typeTable.add(type.value));
       encodeElem(type.value, value.value, writer, ctx);
       break;
     }

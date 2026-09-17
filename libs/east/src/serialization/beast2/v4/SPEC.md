@@ -19,6 +19,31 @@ All five tables/sections are **global** — shared across the entire blob. Every
 - Every unique `EastType` in the value gets one entry.
 - Referenced by `varint(type_idx)` from value table entries.
 - Section format: `varint(byte_length) varint(root_type_idx) varint(count) [entries...]`
+- **The table is canonical** — a pure function of the types it holds, identical
+  across runtimes and for a type built in code or read back off the wire (e3
+  content-addresses the bytes, so one type must have one table). Every
+  runtime's builder follows the same rules (issue #770):
+  - Entries are committed in a post-order walk over the type in declaration
+    order: Struct fields as declared, Variant cases as sorted, Function inputs
+    then output, Dict key then value. A child therefore has a lower index than
+    its parent, which the decoders rely on.
+  - A Recursive wrapper takes its index before its body is walked, so the
+    body's self-references name that index.
+  - An entry whose bytes (tag + parameters) are already in the table is not
+    written again. Two occurrences of one type are one entry, whether they
+    sit inside or outside a recursive wrapper's body — so `Array<T>` under
+    `T = Recursive(…)` is the same entry as an `Array<T>` field elsewhere,
+    and an entry may be referenced both from inside its wrapper's body and
+    from outside it.
+  - Two Recursive wrappers are one entry when their bodies are structurally
+    equal with each body's self-references standing for its own wrapper
+    (wrapper ids are not on the wire).
+  - Types found during the value walk (capture types, recursive wrappers) are
+    appended by the same rules, after the root closure, in walk order.
+- A decoder must build an entry reached from inside a wrapper's body (where
+  its references to that wrapper are self-references) separately from the
+  same entry reached from outside it (where they are the whole recursive
+  type); one object cannot serve both scopes.
 
 ### String table
 - Every unique string value gets one entry.
