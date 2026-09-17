@@ -239,9 +239,9 @@ export async function partitionTaskExecute(
   // one). Run the standard body once under the LOGICAL identity instead.
   if (partitions === 1) {
     const progress = options.onPartitionProgress;
-    progress?.({ phase: 'partition', index: 0, total: 1, state: 'started' });
+    progress?.({ phase: 'partition', index: 0, total: 1, completed: 0, state: 'started' });
     const result = await taskExecuteBody(storage, repo, taskHash, task, inputHashes, ids, options);
-    progress?.({ phase: 'partition', index: 0, total: 1, state: 'completed', cached: result.cached, duration: result.duration });
+    progress?.({ phase: 'partition', index: 0, total: 1, completed: 1, state: 'completed', cached: result.cached, duration: result.duration });
     return result;
   }
 
@@ -324,16 +324,18 @@ export async function partitionTaskExecute(
   const progress = options.onPartitionProgress;
   const results: (ExecutionResult | undefined)[] = new Array(partitions);
   let nextPartition = 0;
+  let partitionsCompleted = 0;
   let hasFailure = false;
   const workers = Array.from({ length: Math.min(concurrency, partitions) }, async () => {
     for (;;) {
       const p = nextPartition++;
       if (p >= partitions || hasFailure) return;
       const subInputs = [fnIrHash, ...sliceHashes.map((slices) => slices[p]!), ...broadcastHashes];
-      progress?.({ phase: 'partition', index: p, total: partitions, state: 'started' });
+      progress?.({ phase: 'partition', index: p, total: partitions, completed: partitionsCompleted, state: 'started' });
       const result = await taskExecuteStandard(storage, repo, taskHash, task, subInputs, options);
       results[p] = result;
-      progress?.({ phase: 'partition', index: p, total: partitions, state: 'completed', cached: result.cached, duration: result.duration });
+      partitionsCompleted++;
+      progress?.({ phase: 'partition', index: p, total: partitions, completed: partitionsCompleted, state: 'completed', cached: result.cached, duration: result.duration });
       if (result.state !== 'success') hasFailure = true;
     }
   });
@@ -387,14 +389,14 @@ export async function partitionTaskExecute(
         // orchestrator calls it only for keys two partials both carry.
         resolve = decodeEastIR(meta.merge.value).compile([]) as MergeResolve;
       }
-      progress?.({ phase: 'combine', index: 0, total: 1, state: 'started' });
+      progress?.({ phase: 'combine', index: 0, total: 1, completed: 0, state: 'started' });
       const mergeStart = Date.now();
       const partials: PartitionBlob[] = [];
       for (const r of results) {
         partials.push(await PartitionBlob.open(storage, repo, r!.outputHash!));
       }
       outputHash = await mergePartialsBySegments(storage, repo, partials, resolve);
-      progress?.({ phase: 'combine', index: 0, total: 1, state: 'completed', cached: false, duration: Date.now() - mergeStart });
+      progress?.({ phase: 'combine', index: 0, total: 1, completed: 1, state: 'completed', cached: false, duration: Date.now() - mergeStart });
     } catch (err) {
       return errorResult(`Failed to merge partition partials: ${err instanceof Error ? err.message : err}`);
     }
@@ -412,20 +414,22 @@ export async function partitionTaskExecute(
       const level = layer;
       const mergeResults: (ExecutionResult | undefined)[] = new Array(pairs);
       let nextPair = 0;
+      let pairsCompleted = 0;
       let mergeFailed = false;
       const mergeWorkers = Array.from({ length: Math.min(concurrency, pairs) }, async () => {
         for (;;) {
           const pair = nextPair++;
           if (pair >= pairs || mergeFailed) return;
           const i = pair * 2;
-          progress?.({ phase: 'combine', index: pair, total: pairs, state: 'started' });
+          progress?.({ phase: 'combine', index: pair, total: pairs, completed: pairsCompleted, state: 'started' });
           const merged = await taskExecuteStandard(storage, repo, taskHash, task, [combineIrHash, level[i]!, level[i + 1]!], options);
           mergeResults[pair] = merged;
           if (merged.state !== 'success' || merged.outputHash === null) {
             mergeFailed = true;
             return;
           }
-          progress?.({ phase: 'combine', index: pair, total: pairs, state: 'completed', cached: merged.cached, duration: merged.duration });
+          pairsCompleted++;
+          progress?.({ phase: 'combine', index: pair, total: pairs, completed: pairsCompleted, state: 'completed', cached: merged.cached, duration: merged.duration });
           next[pair] = merged.outputHash;
         }
       });

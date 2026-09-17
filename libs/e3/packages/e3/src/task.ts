@@ -13,7 +13,7 @@
 
 import type { AsyncFunctionExpr, BlockBuilder, CallableAsyncFunctionExpr, CallableFunctionExpr, DictType, EastType, ExprType, FunctionExpr, FunctionIR, NeverType, SetType, SubtypeExprOrValue } from '@elaraai/east';
 import { Expr, variant, some, none, ArrayType, StringType, NullType, FunctionType, StructType, East, IRType, EastIR, AsyncEastIR, encodeEastIR, toEastTypeValue, isTypeValueEqual } from '@elaraai/east';
-import { TASK_KIND_PARTITION, TASK_KIND_STREAM, encodePartitionTaskMetadata, encodeStreamTaskMetadata } from '@elaraai/e3-types';
+import { TASK_KIND_PARTITION, TASK_KIND_STREAM, encodePartitionTaskMetadata, encodeStreamTaskMetadata, partitionProjectionShape, type ProjectionShape } from '@elaraai/e3-types';
 import type { DatasetDef, DataTreeDef, TaskDef } from './types.js';
 import { DEFAULT_RUNNER, runnerToCommand, type Runner } from './runner.js';
 import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
@@ -447,78 +447,6 @@ function collectionKeyType(name: string, dataset: DatasetDef): EastType {
 }
 
 /**
- * The shape a `by` projection reads, as extracted from its IR.
- *
- * - `fields`: the identity (`names: []`), or a leading prefix of the key's
- *   top-level fields — one field, or a struct literal of fields in declared
- *   order. Validated against each dataset's top-level key field order.
- * - `path`: a nested leading-field path (`key.a.b`, two or more steps).
- *   Validated per step: each must read the FIRST field of its level's
- *   struct, which is what keeps the projection monotone in canonical key
- *   order.
- */
-interface ProjectionShape {
-  kind: 'fields' | 'path';
-  names: string[];
-}
-
-/** Extracts the shape a `by` projection reads — see {@link ProjectionShape}
- *  — or `null` for any other (unaccepted) shape. */
-function projectionFieldPrefix(ir: FunctionIR): ProjectionShape | null {
-  const param = ir.value.parameters[0]?.value.name;
-  if (param === undefined) return null;
-
-  // Chase wrappers to the expression the body evaluates to.
-  const unwrap = (node: any): any => {
-    for (;;) {
-      if (node.type === 'Block') {
-        const statements = node.value.statements;
-        if (statements.length === 0) return node;
-        node = statements[statements.length - 1];
-      } else if (node.type === 'Return') {
-        node = node.value.value;
-      } else if (node.type === 'As' || node.type === 'WrapRecursive' || node.type === 'UnwrapRecursive') {
-        node = node.value.value;
-      } else {
-        return node;
-      }
-    }
-  };
-
-  const isParam = (node: any): boolean => node.type === 'Variable' && node.value.name === param;
-  const fieldOf = (node: any): string | null =>
-    node.type === 'GetField' && isParam(unwrap(node.value.struct)) ? node.value.field as string : null;
-  // Walks a GetField chain down to the parameter: `key.a.b` → ['a', 'b'].
-  const pathOf = (node: any): string[] | null => {
-    const path: string[] = [];
-    let cur = node;
-    while (cur.type === 'GetField') {
-      path.unshift(cur.value.field as string);
-      cur = unwrap(cur.value.struct);
-    }
-    return isParam(cur) && path.length > 0 ? path : null;
-  };
-
-  const body = unwrap(ir.value.body as any);
-  if (isParam(body)) return { kind: 'fields', names: [] };
-  const chain = pathOf(body);
-  if (chain !== null) {
-    // A one-step chain is a top-level field read — the `fields` family.
-    return chain.length === 1 ? { kind: 'fields', names: chain } : { kind: 'path', names: chain };
-  }
-  if (body.type === 'Struct') {
-    const fields: string[] = [];
-    for (const { value } of body.value.fields) {
-      const f = fieldOf(unwrap(value));
-      if (f === null) return null;
-      fields.push(f);
-    }
-    return { kind: 'fields', names: fields };
-  }
-  return null;
-}
-
-/**
  * Defines a partitioned task: e3 carves the huge partitioned input(s) into
  * key-range slices, runs `fn` once per partition as an ordinary
  * content-addressed execution (parallel, memoized per partition), and
@@ -635,7 +563,7 @@ export function partitionTask<
   if (spec.by !== undefined) {
     const byFn = East.function([byParamType], undefined, spec.by as any);
     const bundle = byFn.toIR();
-    const shape = projectionFieldPrefix(bundle.ir as FunctionIR);
+    const shape = partitionProjectionShape(bundle.ir as FunctionIR);
     if (shape === null) {
       throw new Error(
         `partitionTask '${name}': \`by\` must project a leading prefix of the partition key — ` +
@@ -1009,6 +937,7 @@ export function streamTask<
   const metadata = encodeStreamTaskMetadata({
     stream: spec.stream !== undefined,
     emit: emitKind,
+    merge: 'none',
   });
 
   const taskDef: TaskDef = {

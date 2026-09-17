@@ -54,7 +54,23 @@ export {
   type StreamTaskMetadata,
   encodeStreamTaskMetadata,
   decodeStreamTaskMetadata,
+  PartitionPlanType,
+  type PartitionPlan,
+  encodePartitionPlan,
+  decodePartitionPlan,
+  type ProjectionShape,
+  partitionProjectionShape,
+  projectedKeyType,
+  projectKey,
 } from './task.js';
+
+// Stream commands
+export {
+  type StreamMergeMode,
+  type StreamCommandSpec,
+  streamCommandIr,
+  stripIrLocations,
+} from './stream.js';
 
 // Execution environments
 export {
@@ -163,6 +179,7 @@ export {
 export {
   ExecutionStatusType,
   type ExecutionStatus,
+  type ExecutionOwner,
 } from './execution.js';
 
 // Lock state

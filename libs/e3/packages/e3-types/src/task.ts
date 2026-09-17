@@ -16,7 +16,8 @@
  * specified paths - the task just references locations, not types.
  */
 
-import { StructType, StringType, ArrayType, BlobType, BooleanType, IntegerType, OptionType, ValueTypeOf, decodeBeast2For, encodeBeast2For, none } from '@elaraai/east';
+import { StructType, StringType, ArrayType, BlobType, BooleanType, IntegerType, OptionType, ValueTypeOf, decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
+import type { EastTypeValue, FunctionIR } from '@elaraai/east';
 import { TreePathType } from './structure.js';
 import { RunnerType } from './runner.js';
 
@@ -229,28 +230,237 @@ export function decodePartitionTaskMetadata(data: Uint8Array): PartitionTaskMeta
 /**
  * Metadata of a {@link TASK_KIND_STREAM} task.
  *
- * The task's wire `inputs` are laid out `[function_ir, stream?, ...inputs]`;
- * the compiled body takes one trailing `emit` parameter beyond the wire
- * inputs, and the runner writes the `-o` file from the emit sink instead of
- * the body's (Null) return value.
+ * The task's wire `inputs` are laid out `[function_ir, merge_ir?, stream?,
+ * ...inputs]` — `merge_ir` only in `function` merge mode; the compiled body
+ * takes one trailing `emit` parameter beyond the wire inputs, and the runner
+ * writes the `-o` file from the emit sink instead of the body's (Null) return
+ * value.
  */
 export const StreamTaskMetadataType = StructType({
-  /** Whether wire input index 1 is the streamed input (producer tasks have
-   *  no streamed input). */
+  /** Whether the first input after the IRs is the streamed input (producer
+   *  tasks have no streamed input). */
   stream: BooleanType,
   /** The output collection kind the emit sink writes: `"array"`, `"set"`, or
    *  `"dict"` — element/key/value types come from the body IR's emit
    *  parameter. */
   emit: StringType,
+  /**
+   * How the emit sink treats equal keys, a `StreamMergeMode`: `"none"` —
+   * a duplicate key is an error; `"function"` — wire input 1 is the merge IR
+   * `(K, V, V) -> V`, folding equal Dict keys; `"union"` — equal Set elements
+   * collapse. Appended LAST (BEAST2 encodes struct fields positionally) with a
+   * dual decoder — see {@link decodeStreamTaskMetadata}.
+   */
+  merge: StringType,
 });
 export type StreamTaskMetadataType = typeof StreamTaskMetadataType;
 
 export type StreamTaskMetadata = ValueTypeOf<typeof StreamTaskMetadataType>;
 
+/**
+ * The pre-`merge` stream metadata wire shape, kept only so
+ * {@link decodeStreamTaskMetadata} can read tasks exported before folding
+ * emit sinks existed.
+ */
+const PreMergeStreamTaskMetadataType = StructType({
+  stream: BooleanType,
+  emit: StringType,
+});
+
 /** Encode a {@link StreamTaskMetadataType} value for `TaskObject.metadata`. */
 export const encodeStreamTaskMetadata: (value: StreamTaskMetadata) => Uint8Array =
   encodeBeast2For(StreamTaskMetadataType);
 
-/** Decode a `TaskObject.metadata` blob of a {@link TASK_KIND_STREAM} task. */
-export const decodeStreamTaskMetadata: (data: Uint8Array) => StreamTaskMetadata =
-  decodeBeast2For(StreamTaskMetadataType);
+const decodeCurrentStreamMetadata = decodeBeast2For(StreamTaskMetadataType);
+const decodePreMergeStreamMetadata = decodeBeast2For(PreMergeStreamTaskMetadataType);
+
+/**
+ * Decode a `TaskObject.metadata` blob of a {@link TASK_KIND_STREAM} task,
+ * tolerating the pre-`merge` wire format (dual-decode migration).
+ *
+ * @param data - the metadata blob
+ * @returns the decoded metadata, with `merge` defaulted to `"none"` for older
+ *   bytes
+ */
+export function decodeStreamTaskMetadata(data: Uint8Array): StreamTaskMetadata {
+  try {
+    return decodeCurrentStreamMetadata(data);
+  } catch (err) {
+    try {
+      return { ...decodePreMergeStreamMetadata(data), merge: 'none' };
+    } catch {
+      throw err; // no known shape — surface the current-format error
+    }
+  }
+}
+
+// =============================================================================
+// Partition plan
+// =============================================================================
+
+/**
+ * The plan of a partitioned execution (issue #770): the partitioned inputs,
+ * where each partition starts in every one of them, and the carved slices.
+ *
+ * @remarks
+ * `partitionTaskExecute` writes it to the object store once every partition
+ * has run, and points the `plan` sidecar of the execution's
+ * `(taskHash, inputsHash)` directory at it, so a re-plan or a resume that
+ * computes the same `partitions`/`boundaries`/`splits` reuses the slices
+ * instead of carving them again.
+ */
+export const PartitionPlanType = StructType({
+  /** Partitioned input hashes, wire order. */
+  partitions: ArrayType(StringType),
+  /** First segment index of each partition of the primary; boundaries[0] = 0. */
+  boundaries: ArrayType(IntegerType),
+  /** Per secondary (partitions[1..]): the split point of every partition plus the end; length boundaries.length + 1. */
+  splits: ArrayType(ArrayType(StructType({ seg: IntegerType, offset: IntegerType }))),
+  /** slices[input][partition] object hashes; empty until carved. */
+  slices: ArrayType(ArrayType(StringType)),
+});
+export type PartitionPlanType = typeof PartitionPlanType;
+
+export type PartitionPlan = ValueTypeOf<typeof PartitionPlanType>;
+
+/** Encode a {@link PartitionPlanType} value for the object store. */
+export const encodePartitionPlan: (value: PartitionPlan) => Uint8Array =
+  encodeBeast2For(PartitionPlanType);
+
+/** Decode a {@link PartitionPlanType} object. */
+export const decodePartitionPlan: (data: Uint8Array) => PartitionPlan =
+  decodeBeast2For(PartitionPlanType);
+
+// =============================================================================
+// Partition `by` projections
+// =============================================================================
+
+/**
+ * The shape a partition task's `by` projection reads, as extracted from its
+ * IR by {@link partitionProjectionShape}.
+ *
+ * - `fields`: the identity (`names: []`), or a leading prefix of the key's
+ *   top-level fields — one field, or a struct literal of fields in declared
+ *   order. Validated against each dataset's top-level key field order.
+ * - `path`: a nested leading-field path (`key.a.b`, two or more steps).
+ *   Validated per step: each must read the FIRST field of its level's
+ *   struct, which is what keeps the projection monotone in canonical key
+ *   order.
+ */
+export interface ProjectionShape {
+  /** Top-level fields (or the identity), or a nested first-field path. */
+  kind: 'fields' | 'path';
+  /** The fields read, in order; empty for the identity. */
+  names: string[];
+}
+
+/**
+ * Extracts the shape a `by` projection reads — see {@link ProjectionShape} —
+ * or `null` for any other (unaccepted) shape.
+ *
+ * @param ir - the projection's function IR, `(Key) -> Projection`
+ * @returns the shape, or `null` when the body is not an accepted projection
+ */
+export function partitionProjectionShape(ir: FunctionIR): ProjectionShape | null {
+  const param = ir.value.parameters[0]?.value.name;
+  if (param === undefined) return null;
+
+  // Chase wrappers to the expression the body evaluates to.
+  const unwrap = (node: any): any => {
+    for (;;) {
+      if (node.type === 'Block') {
+        const statements = node.value.statements;
+        if (statements.length === 0) return node;
+        node = statements[statements.length - 1];
+      } else if (node.type === 'Return') {
+        node = node.value.value;
+      } else if (node.type === 'As' || node.type === 'WrapRecursive' || node.type === 'UnwrapRecursive') {
+        node = node.value.value;
+      } else {
+        return node;
+      }
+    }
+  };
+
+  const isParam = (node: any): boolean => node.type === 'Variable' && node.value.name === param;
+  const fieldOf = (node: any): string | null =>
+    node.type === 'GetField' && isParam(unwrap(node.value.struct)) ? node.value.field as string : null;
+  // Walks a GetField chain down to the parameter: `key.a.b` → ['a', 'b'].
+  const pathOf = (node: any): string[] | null => {
+    const path: string[] = [];
+    let cur = node;
+    while (cur.type === 'GetField') {
+      path.unshift(cur.value.field as string);
+      cur = unwrap(cur.value.struct);
+    }
+    return isParam(cur) && path.length > 0 ? path : null;
+  };
+
+  const body = unwrap(ir.value.body as any);
+  if (isParam(body)) return { kind: 'fields', names: [] };
+  const chain = pathOf(body);
+  if (chain !== null) {
+    // A one-step chain is a top-level field read — the `fields` family.
+    return chain.length === 1 ? { kind: 'fields', names: chain } : { kind: 'path', names: chain };
+  }
+  if (body.type === 'Struct') {
+    const fields: string[] = [];
+    for (const { value } of body.value.fields) {
+      const f = fieldOf(unwrap(value));
+      if (f === null) return null;
+      fields.push(f);
+    }
+    return { kind: 'fields', names: fields };
+  }
+  return null;
+}
+
+/**
+ * The East type of a projected key — the type {@link projectKey} values have,
+ * and the one to build their comparator for: the key type itself for the
+ * identity, a struct of the named leading fields in declared order, or the
+ * type at the end of a nested first-field path.
+ *
+ * @param shape - the projection's shape
+ * @param keyType - the partitioned dataset's key type
+ * @returns the projected key type
+ * @throws {Error} When the shape reads a field the key type does not have.
+ *
+ * @example
+ * ```ts
+ * const cmp = compareFor(projectedKeyType(shape, keyTypeValue));
+ * cmp(projectKey(shape, a), projectKey(shape, b));
+ * ```
+ */
+export function projectedKeyType(shape: ProjectionShape, keyType: EastTypeValue): EastTypeValue {
+  if (shape.names.length === 0) return keyType;
+  const fieldType = (level: EastTypeValue, name: string): EastTypeValue => {
+    const field = level.type === 'Struct' ? level.value.find((f) => f.name === name) : undefined;
+    if (field === undefined) {
+      throw new Error(`partition projection reads field '${name}' of a key level that has no such field`);
+    }
+    return field.type as EastTypeValue;
+  };
+  if (shape.kind === 'path') return shape.names.reduce(fieldType, keyType);
+  return variant('Struct', shape.names.map((name) => ({ name, type: fieldType(keyType, name) })));
+}
+
+/**
+ * Projects a partition key through a `by` shape, without compiling the
+ * projection: the key itself for the identity, a struct of the named leading
+ * fields built field by field in declared order, or the value at the end of a
+ * nested first-field path.
+ *
+ * @param shape - the projection's shape
+ * @param key - a key of the partitioned dataset
+ * @returns the projected key, a value of {@link projectedKeyType}
+ */
+export function projectKey(shape: ProjectionShape, key: unknown): unknown {
+  if (shape.names.length === 0) return key;
+  if (shape.kind === 'path') {
+    return shape.names.reduce((level, name) => (level as Record<string, unknown>)[name], key);
+  }
+  const projected: Record<string, unknown> = {};
+  for (const name of shape.names) projected[name] = (key as Record<string, unknown>)[name];
+  return projected;
+}

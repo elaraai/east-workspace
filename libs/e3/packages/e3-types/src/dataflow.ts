@@ -261,19 +261,23 @@ export type ExecutionEvent = ValueTypeOf<typeof ExecutionEventType>;
 
 /**
  * Progress notification for one unit of a partitioned task — a partition
- * slice execution or a combine step. Delivered through runner-layer
- * callbacks while the logical task runs. Deliberately NOT persisted as
- * execution events: {@link ExecutionEventType} is a frozen beast2 wire (see
- * its wire warning), and nothing consumes persisted partition progress —
- * local `[PART]`/`[MERGE]` lines come straight from this callback.
+ * slice execution, a combine step or a merge unit. Delivered through
+ * runner-layer callbacks while the logical task runs. Deliberately NOT
+ * persisted as execution events: {@link ExecutionEventType} is a frozen beast2
+ * wire (see its wire warning), and nothing consumes persisted partition
+ * progress — local `[PART]`/`[MERGE]`/`[COMBINE]` lines come straight from
+ * this callback.
  */
 export interface PartitionProgress {
   /** Which phase the unit belongs to. */
-  phase: 'partition' | 'combine';
+  phase: 'partition' | 'combine' | 'merge';
   /** Zero-based index of the unit within its phase. */
   index: number;
   /** Total units in the phase (partitions, or combine steps in the level). */
   total: number;
+  /** Units of the phase completed so far, including this one when `state`
+   *  is `completed`. */
+  completed: number;
   /** Whether the unit started or finished. */
   state: 'started' | 'completed';
   /** Whether the unit was served from the execution cache (completed only). */

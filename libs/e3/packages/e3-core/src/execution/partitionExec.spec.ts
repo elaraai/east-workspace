@@ -402,8 +402,8 @@ describe('partitionTaskExecute', () => {
     // would have collided with it and double-recorded.
     assert.equal(await executionCount(taskHash), 1);
     assert.deepEqual(events, [
-      { phase: 'partition', index: 0, total: 1, state: 'started' },
-      { phase: 'partition', index: 0, total: 1, state: 'completed', cached: false, duration: events[1]?.duration },
+      { phase: 'partition', index: 0, total: 1, completed: 0, state: 'started' },
+      { phase: 'partition', index: 0, total: 1, completed: 1, state: 'completed', cached: false, duration: events[1]?.duration },
     ]);
   });
 
@@ -433,6 +433,8 @@ describe('partitionTaskExecute', () => {
     assert.equal(partitionUnits.length, 10, 'one completion per partition');
     assert.deepEqual(new Set(partitionUnits.map((e) => e.index)), new Set(Array.from({ length: 10 }, (_, i) => i)));
     assert.ok(partitionUnits.every((e) => e.total === 10));
+    // Completions count up across the pool, whichever partition finishes.
+    assert.deepEqual(partitionUnits.map((e) => e.completed), Array.from({ length: 10 }, (_, i) => i + 1));
     // Pairwise tree over 10 shards: 5 + 2 + 1 + 1 merges, reported per level.
     const combineUnits = completed.filter((e) => e.phase === 'combine');
     assert.equal(combineUnits.length, 9);
