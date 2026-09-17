@@ -42,13 +42,17 @@ import {
   decodeEastIR,
   rebuildBeast2,
 } from '@elaraai/east';
-import type { EastTypeValue } from '@elaraai/east';
+import type { EastTypeValue, FunctionTypeValue } from '@elaraai/east';
 import { PartitionBlob, bufferPart, spliceChunks, type SplicePart } from './partitionIo.js';
 import { mergePartialsBySegments, type MergeResolve } from './partitionMerge.js';
 import {
   decodePartitionTaskMetadata,
+  partitionProjectionShape,
+  projectKey,
+  projectedKeyType,
   type ExecutionStatus,
   type PartitionTaskMetadata,
+  type ProjectionShape,
   type TaskObject,
 } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -157,26 +161,40 @@ export async function partitionTaskExecute(
   }
   const primaryExtents = primary.extents;
 
-  let proj: ((key: unknown) => unknown) | null = null;
-  let projCmp: ((a: unknown, b: unknown) => number) | null = null;
-  if (meta.by.type === 'some') {
-    try {
-      const bundle = decodeEastIR(meta.by.value);
-      proj = bundle.compile([]) as (key: unknown) => unknown;
-      const outType = (bundle.ir as any).value.type.value.output as EastTypeValue;
-      projCmp = compareFor(outType as any) as (a: unknown, b: unknown) => number;
-    } catch (err) {
-      return errorResult(`Failed to decode the partition \`by\` projection: ${err}`);
-    }
-  }
-
   const rootKind = primaryExtents.typeValue.type as 'Array' | 'Set' | 'Dict';
   const keyTypeValue: EastTypeValue = rootKind === 'Dict'
     ? (primaryExtents.typeValue as any).value.key
     : (primaryExtents.typeValue as any).value;
-  const keyCmp = compareFor(keyTypeValue as any) as (a: unknown, b: unknown) => number;
-  const projOf = proj ?? ((k: unknown) => k);
-  const cmpOf = projCmp ?? keyCmp;
+
+  // `by` is evaluated by reading key fields, never by compiling its IR: the
+  // SDK builds only leading-prefix projections (the key itself, leading
+  // fields, a first-field path), so the IR's shape is the projection. The
+  // projected keys compare under the type the projection was built over —
+  // the `by` IR's parameter type, which under co-partitioning is the shared
+  // key fields rather than the primary's own key.
+  let projOf = (k: unknown): unknown => k;
+  let cmpOf = compareFor(keyTypeValue as any) as (a: unknown, b: unknown) => number;
+  if (meta.by.type === 'some') {
+    let shape: ProjectionShape | null;
+    let byKeyType: EastTypeValue;
+    try {
+      const ir = decodeEastIR(meta.by.value).ir;
+      shape = partitionProjectionShape(ir);
+      byKeyType = (ir.value.type as FunctionTypeValue).value.inputs[0] as EastTypeValue;
+    } catch (err) {
+      return errorResult(`Failed to decode the partition \`by\` projection: ${err}`);
+    }
+    if (shape === null) {
+      return errorResult('partition by projection is not a leading-prefix key projection — re-export the package with the current SDK');
+    }
+    const byShape = shape;
+    try {
+      cmpOf = compareFor(projectedKeyType(byShape, byKeyType) as any) as (a: unknown, b: unknown) => number;
+    } catch (err) {
+      return errorResult(`Failed to decode the partition \`by\` projection: ${err instanceof Error ? err.message : err}`);
+    }
+    projOf = (k) => projectKey(byShape, k);
+  }
 
   // ---------------------------------------------------------------------
   // Boundary selection: greedy byte packing, then `by` alignment so rows
@@ -199,10 +217,10 @@ export async function partitionTaskExecute(
   }
 
   let boundaries = cuts;
-  if (proj !== null && cuts.length > 1) {
-    // Boundary probes decode segments and run the compiled projection — a
-    // decode or projection failure here must record an error execution, not
-    // escape as an unhandled throw (the stuck-dataflow class).
+  if (meta.by.type === 'some' && cuts.length > 1) {
+    // Boundary probes decode segments and project their keys — a decode or
+    // projection failure here must record an error execution, not escape as
+    // an unhandled throw (the stuck-dataflow class).
     try {
       const lastKeyOf = (segment: unknown): unknown => {
         let last: unknown;

@@ -17,7 +17,7 @@ import { dirname, join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import {
   variant, some, none,
-  StringType, IntegerType, StructType, DictType, ArrayType,
+  StringType, IntegerType, NullType, StructType, DictType, ArrayType,
   East, SortedMap, compareFor, equalFor,
   encodeBeast2For, decodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR, readBeast2Extents,
   IRType,
@@ -93,6 +93,7 @@ describe('partitionTaskExecute', () => {
     combine?: Uint8Array;
     merge?: Uint8Array;
     mergeSets?: boolean;
+    by?: Uint8Array;
     commandIrHash?: string;
   }): Promise<string> {
     const commandIrHash = options.commandIrHash ?? await createCopyCommandIr(options.copyIndex);
@@ -100,7 +101,7 @@ describe('partitionTaskExecute', () => {
       merge: options.merge !== undefined ? some(options.merge) : none,
       mergeSets: options.mergeSets ?? false,
       partitions: BigInt(options.partitions),
-      by: none,
+      by: options.by !== undefined ? some(options.by) : none,
       combine: options.combine !== undefined ? some(options.combine) : none,
       targetPartitionBytes: BigInt(options.targetPartitionBytes),
     });
@@ -593,6 +594,92 @@ describe('partitionTaskExecute', () => {
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, primaryHash, secondaryHash]);
     assert.equal(result.state, 'error');
     assert.match(result.error ?? '', /projected segment fences are not monotone/);
+  });
+
+  it('aligns boundaries on a `by` field read without compiling the projection', async () => {
+    const GroupKeyType = StructType({ group: IntegerType, id: IntegerType });
+    // 1000 rows in 100-row segments, 150 rows per group: a group straddles
+    // every fence except where one starts (rows 300, 600 and 900).
+    const table = new SortedMap<{ group: bigint; id: bigint }, string>(
+      Array.from({ length: 1000 }, (_, i) =>
+        [{ group: BigInt(Math.floor(i / 150)), id: BigInt(i) }, `row-${i}`] as [{ group: bigint; id: bigint }, string]),
+      compareFor(GroupKeyType),
+    );
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(DictType(GroupKeyType, StringType), { batchSize: 100 })(table));
+    const fnIrHash = await createDummyFnIr();
+    // The projection reads `key.group` after calling a platform function no
+    // runtime provides: compiling it would fail, so the run succeeding pins
+    // that the orchestrator only reads its shape.
+    const unprovided = East.platform('e3_core_test_unprovided', [], NullType);
+    const byFn = East.function([GroupKeyType], IntegerType, ($, key) => {
+      $(unprovided());
+      return key.group;
+    });
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1, by: encodeEastIR(byFn.toIR()) });
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(result.state, 'success', result.error ?? '');
+    assert.equal(result.outputHash, tableHash, 'the aligned slices splice back byte-identically');
+    // A cut at every fence, kept only where a group starts: partitions from
+    // segments 0, 3, 6 and 9, plus the logical record.
+    assert.equal(await executionCount(taskHash), 5);
+  });
+
+  it('refuses a `by` projection that is not a leading-prefix key read', async () => {
+    const GroupKeyType = StructType({ group: IntegerType, id: IntegerType });
+    const table = new SortedMap<{ group: bigint; id: bigint }, string>(
+      Array.from({ length: 200 }, (_, i) => [{ group: BigInt(i >> 4), id: BigInt(i) }, `row-${i}`] as [{ group: bigint; id: bigint }, string]),
+      compareFor(GroupKeyType),
+    );
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(DictType(GroupKeyType, StringType), { batchSize: 50 })(table));
+    const fnIrHash = await createDummyFnIr();
+    const byFn = East.function([GroupKeyType], IntegerType, (_$, key) => key.group.add(1n));
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1, by: encodeEastIR(byFn.toIR()) });
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(result.state, 'error');
+    assert.equal(result.error, 'partition by projection is not a leading-prefix key projection — re-export the package with the current SDK');
+  });
+
+  it('aligns an identity `by` over co-partitioned keys on the shared fields, not the primary key', async () => {
+    const WideKeyType = StructType({ sku: StringType, period: IntegerType, line: IntegerType });
+    const SharedKeyType = StructType({ sku: StringType, period: IntegerType });
+    type Shared = { sku: string; period: bigint };
+    // The primary holds three lines per (sku, period) in 4-row segments, so
+    // groups straddle fences; the secondary holds one row per (sku, period).
+    const groups: Shared[] = ['a', 'b', 'c'].flatMap((sku) => [0n, 1n, 2n, 3n].map((period) => ({ sku, period })));
+    const primary = new SortedMap<Shared & { line: bigint }, bigint>(
+      groups.flatMap((g) => [0n, 1n, 2n].map((line) => [{ ...g, line }, line] as [Shared & { line: bigint }, bigint])),
+      compareFor(WideKeyType),
+    );
+    const secondary = new SortedMap<Shared, bigint>(groups.map((g) => [g, g.period] as [Shared, bigint]), compareFor(SharedKeyType));
+    const primaryHash = await storage.objects.write(repo, encodeBeast2PagedFor(DictType(WideKeyType, IntegerType), { batchSize: 4 })(primary));
+    const secondaryHash = await storage.objects.write(repo, encodeBeast2PagedFor(DictType(SharedKeyType, IntegerType), { batchSize: 5 })(secondary));
+    const fnIrHash = await createDummyFnIr();
+    // The SDK builds an identity `by` over the shared key fields.
+    const byFn = East.function([SharedKeyType], SharedKeyType, (_$, key) => key);
+    const taskHash = await createPartitionTask({ copyIndex: 2, partitions: 2, targetPartitionBytes: 1, by: encodeEastIR(byFn.toIR()) });
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, primaryHash, secondaryHash]);
+    assert.equal(result.state, 'success', result.error ?? '');
+
+    // Every partition's primary slice holds exactly the (sku, period) groups of
+    // its secondary slice: no group is split from its counterpart.
+    const decodePrimary = decodeBeast2For(DictType(WideKeyType, IntegerType));
+    const decodeSecondary = decodeBeast2For(DictType(SharedKeyType, IntegerType));
+    const groupsOf = (keys: Iterable<Shared>): Set<string> => new Set([...keys].map((k) => `${k.sku}/${k.period}`));
+    let partitionRuns = 0;
+    for (const inputsHash of await storage.refs.executionListForTask(repo, taskHash)) {
+      const status = await storage.refs.executionGetLatest(repo, taskHash, inputsHash);
+      if (status?.type !== 'success' || status.value.inputHashes[1] === primaryHash) continue;
+      partitionRuns++;
+      const [, primarySlice, secondarySlice] = status.value.inputHashes;
+      assert.deepEqual(
+        groupsOf(decodePrimary(await storage.objects.read(repo, primarySlice!)).keys()),
+        groupsOf(decodeSecondary(await storage.objects.read(repo, secondarySlice!)).keys()),
+      );
+    }
+    assert.ok(partitionRuns > 1, 'the primary carves into several partitions');
   });
 
   it('rejects a partitioned input that carries no segment index', async () => {
