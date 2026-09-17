@@ -610,6 +610,14 @@ interface OpenBuild {
  * open wrapper is closed and memoized for good. One table index yields one
  * closed object, shared by every reference to it, so a decoded type is a
  * canonical input to {@link TypeTableBuilder} in turn.
+ *
+ * The walk is top-down, so the outside reading of `Array<T>` can be under
+ * construction when `T` — its child, indexed before it — opens and its body
+ * reaches `Array<T>` again. That re-entry is `T`'s own recursion, built as
+ * the inside reading in `T`'s scope; only a cycle with no wrapper in it is
+ * malformed. So entries under construction are tracked per open wrapper
+ * (#773 — east-ui's `TreeView.nodes`, an `Array<Inner>` whose `Inner` has
+ * `children: Array<self>`, under the `UIComponentType` wrapper).
  */
 function reconstructTypes(parsed: ParsedEntry[]): EastTypeValue[] {
   const closed = new Array<EastTypeValue | undefined>(parsed.length);
@@ -617,9 +625,11 @@ function reconstructTypes(parsed: ParsedEntry[]): EastTypeValue[] {
   // built under `stack[i]` and reaches an open wrapper.
   const stack: number[] = [];
   const scopes: Map<number, OpenBuild>[] = [];
-  // Non-wrapper entries under construction: a cycle through them has no
-  // wrapper to close it and is malformed.
-  const building = new Set<number>();
+  // Non-wrapper entries under construction since the innermost open wrapper
+  // was pushed (`building[0]` for none): a cycle through them has no wrapper
+  // to close it and is malformed. Reaching one from inside a wrapper opened
+  // later is that wrapper's recursion, so each wrapper starts a fresh set.
+  const building: Set<number>[] = [new Set()];
   // Shallowest stack position referenced by the subtree under construction
   // (Infinity = nothing referenced).
   let minRef = Infinity;
@@ -654,23 +664,26 @@ function reconstructTypes(parsed: ParsedEntry[]): EastTypeValue[] {
     if (entry.tag === TAG_RECURSIVE) {
       stack.push(idx);
       scopes.push(new Map());
+      building.push(new Set());
       let inner: EastTypeValue;
       try {
         inner = build(entry.childIndices[0]!);
       } finally {
         stack.pop();
         scopes.pop();
+        building.pop();
       }
       result = variant("Recursive", variant("wrapper", { id: BigInt(idx), inner })) as unknown as EastTypeValue;
     } else {
-      if (building.has(idx)) {
+      const open = building[building.length - 1]!;
+      if (open.has(idx)) {
         throw new Error(`Type table entry ${idx} refers to itself without a Recursive wrapper`);
       }
-      building.add(idx);
+      open.add(idx);
       try {
         result = buildCompound(entry);
       } finally {
-        building.delete(idx);
+        open.delete(idx);
       }
     }
     const mine = minRef;
