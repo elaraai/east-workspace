@@ -6,7 +6,7 @@
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } from '@elaraai/east';
@@ -280,6 +280,30 @@ describe('stopped executions', { skip: process.platform === 'win32' }, () => {
       await probeExecutionCache(storage, repo, taskHash, inHash);
       assert.equal((await storage.refs.executionGet(repo, taskHash, inHash, noOwner))?.type, 'running');
     });
+  });
+
+  it('runs in a scratch directory under E3_SCRATCH_DIR named after the execution and this process, removed after', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'e3-scratch-root-'));
+    const previous = process.env.E3_SCRATCH_DIR;
+    process.env.E3_SCRATCH_DIR = root;
+    try {
+      const { taskHash, inputHashes } = await bashTask('echo "$PWD"; cp "$1" "$2"');
+      const result = await taskExecute(storage, repo, taskHash, inputHashes);
+      assert.equal(result.state, 'success', result.error ?? '');
+
+      const cwd = (await storage.logs.read(repo, taskHash, result.inputsHash, result.executionId, 'stdout')).data.trim();
+      assert.equal(path.dirname(cwd), root);
+      const pidStartTime = await getPidStartTime(process.pid);
+      assert.match(
+        path.basename(cwd),
+        new RegExp(`^e3-exec-${taskHash.slice(0, 8)}-${result.inputsHash.slice(0, 8)}-${process.pid}-${pidStartTime}-\\d+$`),
+      );
+      assert.deepEqual(readdirSync(root), [], 'the execution removed its scratch directory');
+    } finally {
+      if (previous === undefined) delete process.env.E3_SCRATCH_DIR;
+      else process.env.E3_SCRATCH_DIR = previous;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('writes the owner sidecar beside the running record', async () => {

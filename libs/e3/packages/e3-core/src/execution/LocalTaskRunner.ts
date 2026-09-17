@@ -15,7 +15,6 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { tmpdir } from 'os';
 import { variant } from '@elaraai/east';
 import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject, withRunnerVerbose, TASK_KIND_PARTITION } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
@@ -26,6 +25,7 @@ import { getBootId, getPidStartTime, isProcessAlive } from './processHelpers.js'
 import { adoptOutputFile, marshalInputsToDir, spawnAndCapture } from './processExec.js';
 import { materializeEnvironment } from './environment.js';
 import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
+import { executionScratchDir } from './scratch.js';
 
 // Re-exported from processExec.js (where the implementation moved) for
 // backwards compatibility — exported for testing, not public API.
@@ -342,13 +342,11 @@ export async function taskExecuteBody(
 ): Promise<ExecutionResult> {
   const { inHash, executionId, startTime } = ids;
 
-  // Step 4: Create scratch directory
-  // Include PID to prevent collisions when multiple e3 processes run the same
-  // task concurrently (e.g., same task in different workspaces at same millisecond)
-  const scratchDir = path.join(
-    tmpdir(),
-    `e3-exec-${taskHash.slice(0, 8)}-${inHash.slice(0, 8)}-${process.pid}-${Date.now()}`
-  );
+  // Step 4: Create scratch directory under E3_SCRATCH_DIR (or the temp dir),
+  // named after the execution and this process — its pid and start time — so
+  // concurrent e3 processes never collide and a directory this process leaves
+  // behind if it dies is swept once it is gone (execution/scratch.ts).
+  const scratchDir = await executionScratchDir(taskHash, inHash);
   await fs.mkdir(scratchDir, { recursive: true });
 
   try {

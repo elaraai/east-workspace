@@ -19,6 +19,7 @@ import {
   LocalStorage,
   LocalOrchestrator,
   FileStateStore,
+  sweepScratchDirs,
   workspaceGetTree,
   type TaskCompletedCallback,
   type TreeNode,
@@ -153,6 +154,13 @@ async function executeLocal(
   const workspacesDir = join(repoPath, 'workspaces');
   const stateStore = new FileStateStore(workspacesDir);
   const orchestrator = new LocalOrchestrator(stateStore);
+
+  // Scratch directories an earlier run left behind when its process died.
+  try {
+    await sweepScratchDirs({ minAge: 60_000 });
+  } catch {
+    // Not a reason to fail the run
+  }
 
   const handle = await orchestrator.start(storage, repoPath, ws, {
     concurrency: options.concurrency,

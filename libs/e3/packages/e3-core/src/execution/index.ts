@@ -58,3 +58,6 @@ export {
 } from './processExec.js';
 
 export { materializeEnvironment } from './environment.js';
+
+// Scratch directories of local executions
+export { sweepScratchDirs, type SweepScratchOptions } from './scratch.js';

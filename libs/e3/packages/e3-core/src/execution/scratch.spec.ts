@@ -1,0 +1,77 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Licensed under BSL 1.1. See LICENSE for details.
+ */
+
+/**
+ * Scratch directories of local executions (issue #770): where they are
+ * created, how they are named, and which ones a sweep removes.
+ */
+
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
+import { executionScratchDir, scratchRoot, sweepScratchDirs } from './scratch.js';
+import { getPidStartTime } from './processHelpers.js';
+
+describe('scratch directories', { skip: process.platform === 'win32' }, () => {
+  let root: string;
+  let previous: string | undefined;
+
+  beforeEach(() => {
+    root = mkdtempSync(path.join(tmpdir(), 'e3-scratch-root-'));
+    previous = process.env.E3_SCRATCH_DIR;
+    process.env.E3_SCRATCH_DIR = root;
+  });
+
+  afterEach(() => {
+    if (previous === undefined) delete process.env.E3_SCRATCH_DIR;
+    else process.env.E3_SCRATCH_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  /** The pid of a process that has exited. */
+  const deadPid = (): number => spawnSync(process.execPath, ['-e', '']).pid!;
+
+  it('names an execution\'s directory under E3_SCRATCH_DIR after the execution and this process', async () => {
+    assert.equal(scratchRoot(), root);
+    const dir = await executionScratchDir('a'.repeat(64), 'b'.repeat(64));
+    assert.equal(path.dirname(dir), root);
+    const pidStartTime = await getPidStartTime(process.pid);
+    assert.match(path.basename(dir), new RegExp(`^e3-exec-aaaaaaaa-bbbbbbbb-${process.pid}-${pidStartTime}-\\d+$`));
+  });
+
+  it('removes the directories of exited owners and keeps the rest', async () => {
+    const hour = 60 * 60 * 1000;
+    const now = Date.now();
+    const dead = deadPid();
+    const live = path.basename(await executionScratchDir('a'.repeat(64), 'b'.repeat(64)));
+    const names = {
+      live,
+      exitedOwner: `e3-exec-aaaaaaaa-bbbbbbbb-${dead}-12345-${now}`,
+      reusedPid: `e3-exec-aaaaaaaa-bbbbbbbb-${process.pid}-12345-${now}`,
+      oldFormExitedOld: `e3-exec-cccccccc-dddddddd-${dead}-${now - hour}`,
+      oldFormExitedYoung: `e3-exec-eeeeeeee-ffffffff-${dead}-${now}`,
+      oldFormLive: `e3-exec-11111111-22222222-${process.pid}-${now - hour}`,
+      unrelated: `e3-call-${dead}-${now - hour}-abcd`,
+    };
+    for (const name of Object.values(names)) mkdirSync(path.join(root, name));
+
+    const removed = await sweepScratchDirs({ minAge: 60_000 });
+
+    assert.equal(removed, 3);
+    assert.deepEqual(
+      readdirSync(root).sort(),
+      [names.live, names.oldFormExitedYoung, names.oldFormLive, names.unrelated].sort(),
+    );
+    assert.ok(!existsSync(path.join(root, names.reusedPid)), 'a pid now running with another start time is not the owner');
+  });
+
+  it('removes nothing when there is no scratch root', async () => {
+    process.env.E3_SCRATCH_DIR = path.join(root, 'absent');
+    assert.equal(await sweepScratchDirs({ minAge: 0 }), 0);
+  });
+});

@@ -20,9 +20,10 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
-import { decodeBeast2, isEastDict } from '@elaraai/east';
-import type { RepoStore, GcObjectEntry, GcRootScanResult, StorageBackend } from '../interfaces.js';
+import { decodeBeast2, isEastDict, readBeast2Type, variant, type EastTypeValue } from '@elaraai/east';
+import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
+import { sweepScratchDirs } from '../../execution/scratch.js';
 
 /**
  * Options for garbage collection
@@ -103,6 +104,24 @@ export async function collectAllRoots(store: RepoStore, repo: string): Promise<S
   return roots;
 }
 
+/** Head read sizes the header-first mark tries, in order — the sequence
+ *  `readBeast2HeaderType` uses. */
+const HEAD_PROBE_BYTES = [64 * 1024, 1024 * 1024, 16 * 1024 * 1024];
+
+/**
+ * Options for {@link markReachable}.
+ */
+export interface MarkReachableOptions {
+  /**
+   * Reads the first `length` bytes of an object (fewer when the object is
+   * shorter), or returns null when it does not exist. With it the mark is
+   * header-first: an object's type is read from its head, and only an object
+   * of a structural shape — one that names other objects — is read whole;
+   * every other object is marked without being read.
+   */
+  readHead?: (hash: string, length: number) => Promise<Uint8Array | null>;
+}
+
 /**
  * Trace the object graph from roots using iterative DFS with schema-aware traversal.
  *
@@ -110,13 +129,21 @@ export async function collectAllRoots(store: RepoStore, repo: string): Promise<S
  * hashes based on the detected object type (Package, Task, or Tree). Objects
  * known to be leaves (values, IR blobs) are marked reachable without reading.
  *
+ * With `options.readHead`, a root or child whose kind is not known in advance
+ * is classified by its header first: 64 KiB of head, growing to 1 MiB and then
+ * 16 MiB while its type section does not fit. Only a structural shape is read
+ * whole; a dataset, whatever its size, is marked without being read, and so is
+ * an object whose head yields no type.
+ *
  * @param readObject - Function to read an object by hash (returns null if missing)
  * @param roots - Set of root hashes to start from
+ * @param options - Header-first classification
  * @returns Set of all reachable hashes
  */
 export async function markReachable(
   readObject: (hash: string) => Promise<Uint8Array | null>,
-  roots: Set<string>
+  roots: Set<string>,
+  options: MarkReachableOptions = {}
 ): Promise<Set<string>> {
   const reachable = new Set<string>();
   const stack = [...roots];
@@ -124,6 +151,15 @@ export async function markReachable(
   while (stack.length > 0) {
     const hash = stack.pop()!;
     if (reachable.has(hash)) continue;
+
+    if (options.readHead) {
+      const type = await readHeadType(options.readHead, hash);
+      if (type === 'missing') continue;
+      if (type === null || !isStructuralShape(type)) {
+        reachable.add(hash); // a leaf: marked without being read
+        continue;
+      }
+    }
 
     const data = await readObject(hash);
     if (!data) continue;
@@ -149,6 +185,30 @@ export async function markReachable(
   }
 
   return reachable;
+}
+
+/**
+ * The root type an object's header declares, read through growing head
+ * probes; `null` when no probe yields one (not beast2, or a malformed or
+ * implausibly large type section — a leaf), or `'missing'` when the object
+ * does not exist.
+ */
+async function readHeadType(
+  readHead: (hash: string, length: number) => Promise<Uint8Array | null>,
+  hash: string
+): Promise<EastTypeValue | null | 'missing'> {
+  for (const probe of HEAD_PROBE_BYTES) {
+    const head = await readHead(hash, probe);
+    if (head === null) return 'missing';
+    try {
+      return readBeast2Type(head);
+    } catch {
+      // A short head fails like a malformed one: grow, unless this head was
+      // already the whole object.
+      if (head.length < probe) return null;
+    }
+  }
+  return null;
 }
 
 // =============================================================================
@@ -247,6 +307,18 @@ function isRecordCommitShape(type: any): boolean {
 }
 
 /**
+ * Check if a decoded EastTypeValue represents a PartitionPlan.
+ * PartitionPlan is a Struct with exactly the fields partitions, boundaries,
+ * splits, slices.
+ */
+function isPartitionPlanShape(type: any): boolean {
+  if (type.type !== 'Struct') return false;
+  const names = new Set((type.value as { name: string }[]).map(f => f.name));
+  return names.size === 4
+    && names.has('partitions') && names.has('boundaries') && names.has('splits') && names.has('slices');
+}
+
+/**
  * Check if a field type is a DataRef (Variant with cases: unassigned, null, value, tree).
  */
 function isDataRefFieldType(fieldType: any): boolean {
@@ -264,6 +336,17 @@ function isTreeObjectShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
   const fields = type.value as { name: string; type: any }[];
   return fields.length > 0 && fields.every(f => isDataRefFieldType(f.type));
+}
+
+/**
+ * Whether an object of this type names other objects, so the mark must read
+ * it whole: every shape {@link extractChildren} traverses.
+ */
+function isStructuralShape(type: EastTypeValue): boolean {
+  const t = type as any;
+  return isPackageObjectShape(t) || isTaskObjectShape(t) || isFunctionObjectShape(t)
+    || isRecordObjectShape(t) || isMutationObjectShape(t) || isEnvironmentSpecShape(t)
+    || isRecordCommitShape(t) || isPartitionPlanShape(t) || isTreeObjectShape(t);
 }
 
 /**
@@ -380,6 +463,14 @@ function extractChildren(
     return children;
   }
 
+  if (isPartitionPlanShape(t)) {
+    const plan = value as { slices: string[][] };
+    for (const slices of plan.slices) {
+      for (const slice of slices) children.push({ hash: slice, isLeaf: true }); // slices are leaves
+    }
+    return children;
+  }
+
   if (isTreeObjectShape(t)) {
     const tree = value as Record<string, { type: string; value: any }>;
     for (const ref of Object.values(tree)) {
@@ -444,15 +535,46 @@ export function sweepBatch(
  *
  * Works with any StorageBackend — no instanceof checks.
  *
+ * gc holds every workspace's dataflow lock from before the mark until the
+ * sweep is done, so it never overlaps a dataflow run: the objects a run writes
+ * before it roots them (carved slices, merge-unit objects) need no rooting.
+ * Marking is header-first when the object store serves ranged reads, so a
+ * dataset is never read whole.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param options - GC options
  * @returns GC result with statistics
+ * @throws {Error} When a dataflow is running in one of the repository's
+ *   workspaces.
  */
 export async function repoGc(
   storage: StorageBackend,
   repo: string,
   options: GcOptions = {}
+): Promise<GcResult> {
+  const locks: LockHandle[] = [];
+  try {
+    for (const ws of await storage.refs.workspaceList(repo)) {
+      const lock = await storage.locks.acquire(repo, `${ws}#dataflow`, variant('dataflow', null));
+      if (lock === null) {
+        throw new Error(`gc: a dataflow is running in workspace '${ws}' — retry when it finishes`);
+      }
+      locks.push(lock);
+    }
+    return await collectGarbage(storage, repo, options);
+  } finally {
+    for (const lock of locks) {
+      await lock.release();
+    }
+  }
+}
+
+/** The mark and sweep of {@link repoGc}, run under its dataflow locks. */
+async function collectGarbage(
+  storage: StorageBackend,
+  repo: string,
+  options: GcOptions
 ): Promise<GcResult> {
   const minAge = options.minAge ?? 60000;
   const dryRun = options.dryRun ?? false;
@@ -460,7 +582,7 @@ export async function repoGc(
   // Step 1: Collect all root hashes
   const roots = await collectAllRoots(storage.repos, repo);
 
-  // Step 2: Mark all reachable objects
+  // Step 2: Mark all reachable objects, header-first where ranged reads exist
   const readObject = async (hash: string): Promise<Uint8Array | null> => {
     try {
       return await storage.objects.read(repo, hash);
@@ -468,7 +590,17 @@ export async function repoGc(
       return null;
     }
   };
-  const reachable = await markReachable(readObject, roots);
+  const readRange = storage.objects.readRange?.bind(storage.objects);
+  const readHead = readRange
+    ? async (hash: string, length: number): Promise<Uint8Array | null> => {
+      try {
+        return await readRange(repo, hash, 0, length);
+      } catch {
+        return null;
+      }
+    }
+    : undefined;
+  const reachable = await markReachable(readObject, roots, { readHead });
 
   // Step 3: Scan and sweep objects
   let totalDeleted = 0;
@@ -525,6 +657,16 @@ export async function repoGc(
     partialSkippedYoung += transferResult.skippedYoung;
   } catch {
     // Not a fatal error
+  }
+
+  // Step 6: Remove the scratch directories of executions whose orchestrator
+  // has exited (local-only concern)
+  if (!dryRun) {
+    try {
+      await sweepScratchDirs({ minAge });
+    } catch {
+      // Not a fatal error
+    }
   }
 
   return {

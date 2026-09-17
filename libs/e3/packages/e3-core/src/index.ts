@@ -44,6 +44,7 @@ export {
   sweepBatch,
   type GcOptions,
   type GcResult,
+  type MarkReachableOptions,
   type SweepBatchResult,
 } from './storage/local/gc.js';
 
