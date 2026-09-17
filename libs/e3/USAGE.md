@@ -234,8 +234,8 @@ the partitioned input(s) into key-range slices (deterministically, from the
 dataset's segment index and the `targetPartitionBytes` knob), runs the body
 once per partition as an ordinary content-addressed execution — parallel,
 and memoized per partition — and assembles the one output dataset: shards
-splice in partition order, keyed partials merge segment by segment when
-`merge` is given, or partials fold pairwise when `combine` is given. The
+splice in partition order, keyed partials merge by key on the task's runner
+when `merge` is given, or partials fold pairwise when `combine` is given. The
 dataflow graph sees one task with one output, exactly like `e3.task`.
 
 ```typescript
@@ -262,11 +262,12 @@ const totals = e3.partitionTask('totals', {
   },
 }, ($, slice) => /* aggregate the slice */ ...);
 
-// Keyed partials that may share keys: `merge` resolves a key present in two
-// partials. The orchestrator walks the partials' segments in key order,
-// byte-copies every segment no other partial reaches, and decodes only the
-// overlaps — no runner-side fold, so an append re-runs the changed partitions
-// plus the merge. A Set output takes `merge: 'union'`.
+// Keyed partials that may share keys: `merge` folds a key present in two
+// partials (it must be associative). The task's runner merges the partials
+// whose key ranges overlap, as a tree of stream executions, and the results
+// splice with the partials no other reaches — the orchestrator never decodes
+// them. Every merge unit is cached, so an append re-runs the changed
+// partitions plus the merges they reach. A Set output takes `merge: 'union'`.
 const latest = e3.partitionTask('latest', {
   partitions: [events],
   output: DictType(StringType, EventType),
@@ -285,6 +286,14 @@ disjointly in partition order — key-preserving and monotone re-keying
 transforms qualify; anything else fails at splice naming the offending
 partitions, and is what `merge` is for. `merge` and `combine` are mutually
 exclusive, and `merge` is refused on an Array output.
+
+A `merge` function takes the key and two values, typed as the output's own key
+and value, and must be associative: a key's values may fold in any grouping,
+though never out of partition order. It runs on the task's runner, so it needs
+a stock runtime — the `custom` runtime is refused — of this release: an older
+runner fails the merge unit with `Unknown option: --merge`. The merge tree's
+intermediate results are stored like any execution output; that storage is what
+lets a re-run re-merge only what changed.
 
 Memoization is append-friendly: appends and tail-localized changes leave
 earlier slices byte-identical, so their executions are served from the
@@ -327,9 +336,32 @@ the output file, and out-of-order emission is sorted by the runner's sink
 (bounded-memory spill/merge, reported on stderr when it engages) before
 the output is finalized, so the stored dataset is always the canonical
 collection and a re-keying producer can emit rows as it reads them.
-Duplicate Dict keys / Set elements are a runtime error. Omit `stream` for
-a producer task whose body loops over platform-function sources (paginated
-APIs, database cursors) and emits.
+Duplicate Dict keys / Set elements are a runtime error unless `merge` folds
+them. Omit `stream` for a producer task whose body loops over
+platform-function sources (paginated APIs, database cursors) and emits.
+
+With `merge`, equal keys fold instead of failing: a Dict output takes a
+function of the key and two values, and equal keys fold left in emission
+order; a Set output takes `'union'`, and equal elements collapse to the first.
+The stored dataset is exactly what the folded emissions would write. The sink
+may fold some of a key's values before combining them with the rest, so the
+function must be associative.
+
+```typescript
+import { ArrayType, DictType, FloatType, StringType } from '@elaraai/east';
+
+const payments = e3.input('payments', ArrayType(PaymentType));
+
+const accountTotals = e3.streamTask('account_totals', {
+  stream: payments,
+  output: DictType(StringType, FloatType),
+  merge: (_$, _account, a, b) => a.add(b),
+}, ($, payments, emit) => {
+  $.for(payments, ($, payment) => {
+    $(emit(payment.account, payment.amount));
+  });
+});
+```
 
 ### `e3.customTask(name, inputs, outputType, command)`
 
@@ -759,7 +791,9 @@ Tasks are cached by content hash. A task only re-runs when:
 - Its East function IR changes
 - Any of its input values change
 
-Changing one task doesn't invalidate unrelated tasks. Use `--force` to bypass cache:
+Changing one task doesn't invalidate unrelated tasks. A `partitionTask` is
+also cached per partition and, with `merge`, per merge unit. Use `--force` to
+bypass cache:
 
 ```bash
 e3 dataflow run . dev --force

@@ -647,7 +647,7 @@ describe('partitionTask merge', () => {
       }, ($, slice) => $.return(slice)),
       /partitionTask 'merge_and_combine': `merge` and `combine` are two assembly modes — give one/
     );
-    // The next two are the shapes the static types already forbid; a caller
+    // The next three are the shapes the static types already forbid; a caller
     // outside TypeScript's reach (a JS author, an `any`) still gets a message
     // naming the task, so they go through an untyped alias.
     const untypedPartitionTask = partitionTask as unknown as (name: string, spec: object, fn: () => void) => unknown;
@@ -661,12 +661,39 @@ describe('partitionTask merge', () => {
       /got Set — a Set output takes `merge: 'union'`/
     );
     assert.throws(
-      () => partitionTask('merge_union_on_dict', {
+      () => untypedPartitionTask('merge_union_on_dict', { partitions: [events], output: DictType(IntegerType, RowType), merge: 'union' }, () => {}),
+      /`merge: 'union'` assembles a Set output, got Dict — a Dict output takes a per-key merge function/
+    );
+  });
+
+  it('types merge over the output\'s own key and value, not the partition key', () => {
+    const SaleKeyType = StructType({ sku: StringType, period: IntegerType });
+    const sales = input('merge_sales', DictType(SaleKeyType, IntegerType));
+
+    // Re-keyed by sku: the merge sees the OUTPUT's String key and Integer
+    // values (a value-level `add` would not type-check against the whole
+    // output), and its IR is the (String, Integer, Integer) -> Integer fold.
+    const bySku = partitionTask('merge_by_sku', {
+      partitions: [sales],
+      output: DictType(StringType, IntegerType),
+      merge: (_$, _sku, a, b) => a.add(b),
+    }, ($, slice) => slice.toArray(($, v, k) => ({ sku: k.sku, v }))
+      .groupReduce(($, x) => x.sku, ($, _k) => 0n, ($, acc, x) => acc.add(x.v)));
+    const meta = decodePartitionTaskMetadata(bySku.metadata!);
+    const merge = decodeEastIR(meta.merge.type === 'some' ? meta.merge.value : new Uint8Array());
+    assert.strictEqual(merge.ir.value.parameters.length, 3);
+    assert.strictEqual((merge.compile([]) as (k: string, a: bigint, b: bigint) => bigint)('x', 2n, 3n), 5n);
+  });
+
+  it('refuses merge on the custom runtime, which cannot run the merge units', () => {
+    assert.throws(
+      () => partitionTask('merge_custom', {
         partitions: [events],
         output: DictType(IntegerType, RowType),
-        merge: 'union',
+        merge: ($, _key, a, _b) => $.return(a),
+        runner: { runtime: 'custom', command: ['my-runner'] },
       }, ($, slice) => $.return(slice)),
-      /`merge: 'union'` assembles a Set output, got Dict — a Dict output takes a per-key merge function/
+      /^Error: partitionTask 'merge_custom': merge runs the fan-in on the task's runner, which must be a stock runtime \(east-node, east-py, east-c\) — the custom runtime cannot carry the streaming flags$/
     );
   });
 });
@@ -698,6 +725,7 @@ describe('streamTask', () => {
     const meta = decodeStreamTaskMetadata(balances.metadata!);
     assert.strictEqual(meta.stream, true);
     assert.strictEqual(meta.emit, 'array');
+    assert.strictEqual(meta.merge, 'none');
   });
 
   it('supports producer mode (no stream input) and dict emit', () => {
@@ -754,5 +782,85 @@ describe('streamTask', () => {
       });
     });
     assert.strictEqual(cStream.taskKind, TASK_KIND_STREAM);
+  });
+
+  describe('merge', () => {
+    const TotalsType = DictType(StringType, FloatType);
+
+    it('folds equal Dict keys with a merge function staged as wire input 1', () => {
+      const events = input('merge_stream_events', ArrayType(StructType({ account: StringType, amount: FloatType })));
+      const rates = input('merge_stream_rates', FloatType, variant('value', 1.0));
+
+      const totals = streamTask('totals', {
+        stream: events,
+        inputs: [rates],
+        output: TotalsType,
+        merge: (_$, _account, a, b) => a.add(b),
+        runner: { runtime: 'east-c', platforms: ['east-c-std'] },
+      }, ($, events, rate, emit) => {
+        $.for(events, ($, event) => {
+          $(emit(event.account, event.amount.multiply(rate)));
+        });
+      });
+
+      // function_ir, merge_ir, the stream, then the ordinary input.
+      assert.deepStrictEqual(totals.inputs.map((d) => d.name), ['function_ir', 'merge_ir', 'merge_stream_events', 'merge_stream_rates']);
+      const mergeIR = totals.inputs[1]!;
+      assert.deepStrictEqual(mergeIR.path, [variant('field', 'tasks'), variant('field', 'totals'), variant('field', 'merge_ir')]);
+      assert.strictEqual(mergeIR.writable, false);
+      const fold = (mergeIR.default as unknown as { compile(p: []): (k: string, a: number, b: number) => number }).compile([]);
+      assert.strictEqual(fold('x', 1.5, 2.0), 3.5);
+
+      const meta = decodeStreamTaskMetadata(totals.metadata!);
+      assert.deepStrictEqual(meta, { stream: true, emit: 'dict', merge: 'function' });
+
+      // The runner receives the merge IR as --merge and streams the first -i input.
+      const argv = totals.command.compile([])(['body.beast2', 'merge.beast2', 'events.beast2', 'rates.beast2'], 'out.beast2');
+      assert.deepStrictEqual(argv, [
+        'east-c', 'run', '-p', 'east-c-std', '--emit', 'dict', '--merge', 'merge.beast2', '--stream', '0',
+        '-i', 'events.beast2', '-i', 'rates.beast2', '-o', 'out.beast2', 'body.beast2',
+      ]);
+    });
+
+    it('collapses equal Set elements with union, which stages no input', () => {
+      const events = input('union_stream_events', ArrayType(StringType));
+
+      const accounts = streamTask('accounts', {
+        stream: events,
+        output: SetType(StringType),
+        merge: 'union',
+      }, ($, events, emit) => {
+        $.for(events, ($, account) => {
+          $(emit(account));
+        });
+      });
+
+      assert.deepStrictEqual(accounts.inputs.map((d) => d.name), ['function_ir', 'union_stream_events']);
+      assert.deepStrictEqual(decodeStreamTaskMetadata(accounts.metadata!), { stream: true, emit: 'set', merge: 'union' });
+      const argv = accounts.command.compile([])(['body.beast2', 'events.beast2'], 'out.beast2');
+      assert.deepStrictEqual(argv, [
+        'east-node', 'run', '-p', '@elaraai/east-node-std', '--emit', 'set', '--union', '--stream', '0',
+        '-i', 'events.beast2', '-o', 'out.beast2', 'body.beast2',
+      ]);
+    });
+
+    it('refuses merge for an Array output and in the wrong form for the output kind', () => {
+      // The static types already forbid both; a caller outside TypeScript's
+      // reach still gets a message naming the task.
+      const untypedStreamTask = streamTask as unknown as (name: string, spec: object, fn: () => void) => unknown;
+      const takeLeft = (_$: unknown, _k: unknown, a: unknown) => a;
+      assert.throws(
+        () => untypedStreamTask('merge_array_out', { output: ArrayType(FloatType), merge: takeLeft }, () => {}),
+        /^Error: streamTask 'merge_array_out': merge applies to Dict \(a function\) or Set \('union'\) outputs, got Array$/
+      );
+      assert.throws(
+        () => untypedStreamTask('union_on_dict', { output: TotalsType, merge: 'union' }, () => {}),
+        /streamTask 'union_on_dict': merge applies to Dict \(a function\) or Set \('union'\) outputs, got Dict with 'union'/
+      );
+      assert.throws(
+        () => untypedStreamTask('fn_on_set', { output: SetType(StringType), merge: takeLeft }, () => {}),
+        /streamTask 'fn_on_set': merge applies to Dict \(a function\) or Set \('union'\) outputs, got Set with a function/
+      );
+    });
   });
 });
