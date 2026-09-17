@@ -28,16 +28,19 @@ function inputsHash(inputHashes: string[]): string {
 
 ## Execution Storage
 
-Executions are stored in `executions/<taskHash>/<inputsHash>/`:
+Executions are stored in `executions/<taskHash>/<inputsHash>/<executionId>/`, one directory per attempt (`executionId` is a UUIDv7, so the latest sorts last):
 
 ```
 executions/
 └── <taskHash>/
     └── <inputsHash>/
-        ├── stdout.txt      # Captured stdout (streamed during execution)
-        ├── stderr.txt      # Captured stderr (streamed during execution)
-        ├── output          # Ref file: hash of output dataset (on success)
-        └── status          # Execution status file
+        ├── plan                # Partitioned tasks: hash of the completed partition plan
+        └── <executionId>/
+            ├── status.beast2   # Execution status
+            ├── output          # Ref file: hash of output dataset (on success)
+            ├── owner           # JSON: the orchestrator process that launched the runner
+            ├── stdout.txt      # Captured stdout (streamed during execution)
+            └── stderr.txt      # Captured stderr (streamed during execution)
 ```
 
 This organization provides:
@@ -211,7 +214,7 @@ interface ExecutionResult {
 
 4. **Resolve runner**: Get the command template from the task object's `command` field
 
-5. **Create scratch directory**: `<tmpdir>/e3-exec-<execId>/`
+5. **Create scratch directory**: `e3-exec-<task8>-<in8>-<pid>-<pidStartTime>-<ms>` under `E3_SCRATCH_DIR`, or the system temp directory (see [Stopped Executions](#stopped-executions))
 
 6. **Marshal inputs**:
    - For each input hash, read from object store
@@ -254,6 +257,69 @@ Yes, we should separate stdout and stderr:
 2. **Convention**: Unix tools expect this separation
 3. **Structured output**: Some runners might emit structured data on stdout
 4. **Log levels**: Can display stderr prominently in UI while dimming stdout
+
+### Output Capture
+
+Each stream is decoded as whole UTF-8 characters and appended to its log with at most one append in flight; whatever arrives meanwhile is coalesced into the next append. While more than 1 MiB handed to the log has not been written, e3 pauses the pipe, so a runner that floods its output blocks on the pipe instead of growing e3's heap.
+
+## Stopped Executions
+
+An execution that e3 stops, or whose process dies, is recorded with a status that names the cause. There is no status case for it: `error` carries a message whose prefix is the cause, so the status type — a wire format — is unchanged.
+
+| Outcome | Status | Message |
+|---|---|---|
+| The runner exits 0 | `success` | — |
+| e3 stopped the runner because the run was aborted (Ctrl-C, `SIGTERM`, `SIGHUP`, `LocalOrchestrator.cancel()`, the caller's `AbortSignal`) | `error` | `cancelled: e3 stopped the runner because the run was aborted` |
+| e3 stopped the runner at the task's timeout | `error` | `timed out: e3 stopped the runner after <ms> ms` |
+| A signal from elsewhere ended the runner | `failed`, exit code -1 | `e3: runner killed by <signal>` |
+| The runner exits non-zero, or cannot be spawned | `failed` | the exit code (-1 and `Failed to spawn: …` for a spawn failure) |
+| The orchestrator died before recording the outcome (found by a later run) | `error` | `interrupted: the orchestrator exited before this execution finished (runner pid <pid>)` |
+
+Every stopped or signalled outcome also appends `e3: <message>` to the execution's `stderr.txt`, so its log says why it ended.
+
+**A cancelled execution is not a failure.** `ExecutionResult.cancelled` (and `TaskResult.cancelled`) is true for the `cancelled:` case. `LocalOrchestrator` gives each run one `AbortController`, following the caller's signal and `cancel()`, and passes it to every execution. A task whose result is cancelled goes back to `pending` without an event (the event type is a frozen wire), `onTaskComplete` receives `state: 'cancelled'` (the CLI prints `[CANCELLED] <task>`), and the run ends through the abort path as `cancelled`. Only `success` is ever served from the cache, so the next run executes the task.
+
+**Runners exit with e3.** Runners are spawned `detached`, in their own process group, so e3 can stop a whole runner tree — which also means a runner outlives an e3 that dies without warning (a V8 abort, `kill -9`). A stock runner (east-node, east-c, east-py) is therefore given a stdin pipe e3 never writes to and `EAST_EXIT_WITH_PARENT=1`: its watcher blocks reading stdin and exits the runner when the read returns end of file, which happens when e3's end of the pipe closes with e3. A `custom` runner keeps an ignored stdin and never sees the variable.
+
+**The owner sidecar, and interrupted executions.** Once a runner has spawned, e3 writes the `running` status (the runner's pid, start time and boot id) and an `owner` sidecar naming itself (`{ pid, pidStartTime, bootId }`). A `running` record is stale only when both processes are gone: the cache probe (`probeExecutionCache`) rewrites it `interrupted:` when the runner is dead **and** the owner exists and is dead. A live owner may be between its runner's exit and the record's write — hashing the output — so its record is never touched, and a record without an owner sidecar (written by an older e3) is never repaired.
+
+**Scratch directories.** An execution runs in `e3-exec-<task8>-<in8>-<pid>-<pidStartTime>-<ms>`, named after the execution and the orchestrator that owns it, under `E3_SCRATCH_DIR` or else the system temp directory. (A tmpfs `TMPDIR` holds a runner's spill runs in memory; point `E3_SCRATCH_DIR` at a disk for large outputs.) The execution removes it when it finishes. `sweepScratchDirs` removes the directories whose owner has exited — its pid no longer has the start time in the name — and runs before every local `e3 dataflow run` and in `repoGc`.
+
+## Partitioned Tasks
+
+A partition task (`e3.partitionTask`) is one task node with one output dataset. The orchestrator plans, carves and records; the value work — the body, `merge`, `combine` — runs on the task's runner, and the byte work — carving slices, splicing blobs, hashing outputs — streams through the storage layer. The orchestrator holds at most one decoded segment per open blob and never evaluates a `merge` or `combine` function.
+
+1. **Plan.** The primary partitioned input's segment index gives the boundaries: greedy byte packing up to `targetPartitionBytes`, advanced so rows with equal `by` projections never split. `by` is evaluated by reading key fields — the SDK builds only leading-prefix projections — never by compiling its IR. Each co-partitioned secondary gets a split point at every boundary. The plan is a pure function of the inputs and the task's metadata.
+2. **Record the logical execution.** With two or more partitions, the task's own execution is recorded `running` under the orchestrator (with its owner sidecar) while its units run, and its `stdout.txt` gets one line per unit once the unit's result is known:
+   ```
+   partition <p>/<n> <completed|cached|failed|cancelled> task=<hash> inputs=<hash> execution=<id> duration=<ms>
+   merge level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms>
+   combine level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms>
+   ```
+   The ids are in full, so `e3 task logs <repo> --execution <task>/<inputs>/<id>` opens any unit's own logs. A single partition instead runs the ordinary execution under the task's own identity.
+3. **Carve on demand.** When a worker picks up partition `p` it carves that partition's slices (`carvePartitionSlices`): byte copies of the primary's segments, and of each secondary's range with at most the two edge segments a split falls inside re-encoded. No input is read whole.
+4. **Run the units.** Each partition is an ordinary content-addressed execution, `(taskHash, inputsHash([functionIr, ...slices, ...broadcast]))`, in a pool of `partitionConcurrency` workers. Every unit — partition, merge unit or combine step — is probed in the execution cache first and run by the `PartitionUnitExecutor` only on a miss (the local executor runs the standard execution body; a remote backend supplies its own). Failure attribution is deterministic (the lowest index); a cancelled unit is not a failure, and an aborted run records the logical execution `cancelled: e3 stopped the partitioned run because the run was aborted`.
+5. **Assemble** the output, and record `success`.
+
+### Assembly
+
+- **Splice** (neither `merge` nor `combine`). The shards' segment frames are byte-copied in partition order under the first shard's header (`spliceBlobs`). Set and Dict shards must ascend disjointly in key order, which is checked from their fences, one shard open at a time.
+- **Combine** (`combine`). Partials fold pairwise, level by level; each step is an execution of the task with the combine IR as its input 0, so the unchanged side of the tree cache-hits. A combine folds whole values, so its memory is the runner's to bound.
+- **Merge** (`merge`, for keyed partials that may collide). The partials are merged on the task's own runner by a merge tree (`partitionAssembly.ts`):
+  1. *Components.* Each partial's key range is its first fence and its last key. Ordered by first key, a partial joins the current component when its first key is at most the greatest last key the component has seen. Empty partials belong to no component, and a component of one partial is already its own result.
+  2. *Tree.* A component of two or more partials takes them in partition order; each level groups `MERGE_TREE_FANIN` (8) consecutive entries into one unit (a group of one passes through) until one entry remains. A level's units, across components, run in the partition pool; then the next level.
+  3. *Units.* A unit is a synthesized stream task on the parent's runner and environment. Its body over `m` partials emits every entry of every partial, in parameter order, into an emit sink run with `--merge <merge IR>` (a Dict, folding equal keys in emission order) or `--union` (a Set). Its objects — the body IR for `m`, the merge IR, the command IR and the task object — are built without source locations and written idempotently on every run, so its identity, `(taskHash, inputsHash([bodyIr, mergeIr?, ...partials]))`, cache-hits on an unchanged part of the tree. None of them is a gc root. The `custom` runtime cannot carry the streaming flags, and is refused when a unit would run.
+  4. *Output.* One component is the output; several splice in key order; when every partial is empty the output is the empty collection.
+
+  `merge` must be associative: the sink may fold part of a key's values before the rest, though never out of partition order. The intermediate results of the tree are cached execution outputs, stored like any other.
+
+### The Partition Plan
+
+The plan is an object (`PartitionPlanType`): the partitioned input hashes in wire order, the primary's boundaries (the first segment of each partition), each secondary's split points (segment and element offset, for every partition plus the end), and `slices[input][partition]`, empty until carved. The plan with empty slices is written before anything is carved. Once every partition has run — after a failed partition too — the completed plan is written and the `plan` sidecar names it.
+
+A later run of the same logical execution (a retry, or `--force`, which re-runs executions but not the carve) reuses the recorded slices when the recorded plan decodes, plans exactly as this run (equal partitions, boundaries and splits) and every slice it names still exists; otherwise its workers carve again.
+
+Neither plans nor slices are gc roots. gc takes every workspace's `#dataflow` lock before marking, and refuses while a run holds one, so gc never runs while a partitioned run is using its slices; a slice gc removes between runs is carved again by the next run that needs it.
 
 ## Dataflow Execution
 
@@ -369,7 +435,7 @@ For MVP, full scan is acceptable. Future optimization: maintain an index file.
 | Input hash not found | Error before execution starts |
 | Command not found | Execution fails, exit code from shell |
 | Non-zero exit | Execution fails, logs preserved |
-| Timeout | Execution fails, process killed, error in status |
+| Timeout | Process group killed, `error` recorded as `timed out: …` (see [Stopped Executions](#stopped-executions)) |
 | Output file missing | Execution fails, error in status |
 | Output decode error | Execution fails, error in status |
 

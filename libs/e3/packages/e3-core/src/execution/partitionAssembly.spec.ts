@@ -206,6 +206,55 @@ describe('partitionAssembly', () => {
     );
   });
 
+  it('synthesizes unit objects whose hashes match the pinned constants', async () => {
+    // A unit is cached under these hashes: when one changes, every merge unit
+    // a repository has cached runs again. The body's parameter names come
+    // from the TypeScript compiler (east's naming), so these are the hashes of
+    // a build where it is installed — the monorepo's. The merge IR input is
+    // the parent's own bytes, checked above.
+    const pinned = [
+      {
+        mode: 'function' as const,
+        typeValue: toEastTypeValue(OutType),
+        taskHash: '047369f51f79fe8023ae1864d493892f7edda454e19fec396d75835da2b83a64',
+        commandIr: 'd5f2aa321087cbbb770e4943989cc040dfc09020ed507f582c95841f7a9d4d54',
+        bodyIr: [
+          '7c559c7ee606dcd943923206abb3b81b61a92321da98800200e7e9cfe00367da',
+          'efed104c1cb522907ec8014a83517df27e09fa09494620be1e2ffb4b3aad1ceb',
+          'dc21e58e85cd0ba33b60bbe6aae0bad3bc29b2dca6899786a043aef291e44515',
+          '3be33e040415cf50a69cfe652215b67ade192a9837ae49abdb24063f7f8e579e',
+          '7e12be9f6bb2da26475fc691d0e98236d940975b7cea0d2c5bf779e6a3483d6b',
+          '931246a3908e8653c6ccc07c6f0fa55912fb85ad701613bf86e3f04084c90f3c',
+          'b3dbc525dda5d351a32c4d7104b33ef1968eab749dbbca3fc9e85e534e269326',
+        ],
+      },
+      {
+        mode: 'union' as const,
+        typeValue: toEastTypeValue(SetType(IntegerType)),
+        taskHash: 'eeb9c5f3fd71a3b59f22ce25a20920014fcce9c2dd6664b3229939f13f72bfb8',
+        commandIr: '7679c7e86672ce58b2808a06c4acc6d228ae6f95038adbb3426e4624cc9b4a71',
+        bodyIr: [
+          '8c99186016760790ad340fa6318b630f6d8093ec5c46b34c96dbf7f515150fe9',
+          'c159ec66aa0a20c032aee4a2c7f8365707c3840f4dba8f676215d4181300ffea',
+          '43d6e6418e40492266fed78592482b626b3e0aa2b18bdcdd7d8cd368e8829c0f',
+          'ca91637c9d07f726b9b58c9bb0306494553c125e8cf05bc1c6b7c97c3c766739',
+          '2c64045f8ee96d47e00bb02fed6c22abc8dc1036f63e7a0b3b708c04334bb03d',
+          'ce992a9e03bdea96cda7ad4ada6e8bebf3c2004b78011df7c15be82980800f48',
+          '8ff0c4c6e499bf6d855f770c8971e06c03ea295cee9aabb7396f9cc34f2242fa',
+        ],
+      },
+    ];
+    const parent = parentTask('east_node');
+    for (const { mode, typeValue, taskHash, commandIr, bodyIr } of pinned) {
+      for (let m = 2; m <= MERGE_TREE_FANIN; m++) {
+        const unit = await synthesizeMergeTask(storage, repo, parent, typeValue, mode, m);
+        assert.equal(unit.taskHash, taskHash, `${mode} task, m = ${m}`);
+        assert.equal(unit.task.commandIr, commandIr, `${mode} command IR, m = ${m}`);
+        assert.equal(unit.inputs[0], bodyIr[m - 2], `${mode} body IR, m = ${m}`);
+      }
+    }
+  });
+
   it('runs one unit per group of two or more, level by level, until each component is one blob', async () => {
     // Ten partials over one key space: a single component, merged by two
     // units at level 1 (eight partials, then two) and one at level 2.

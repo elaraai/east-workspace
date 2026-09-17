@@ -23,8 +23,10 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
+import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { East, FunctionType, IntegerType, NullType, encodeEastIR } from '@elaraai/east';
 import { adoptOutputFile, marshalInputsToDir } from './processExec.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
@@ -150,5 +152,104 @@ describe('staging by link or kernel copy', () => {
     rmSync(outputPath);
 
     assert.deepEqual(await storage.objects.read(testRepo, hash), bytes);
+  });
+});
+
+/** Whether a process with this pid exists. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether `pid` has exited within `ms` — a bounded liveness wait. */
+async function exitsWithin(pid: number, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (alive(pid)) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return true;
+}
+
+describe('the stdin lifeline (#770)', { skip: process.platform === 'win32' }, () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = createTempDir();
+  });
+
+  afterEach(() => {
+    removeTempDir(dir);
+  });
+
+  it('a stock runner spawned with it exits once the e3 process that spawned it is killed', async () => {
+    // e3 dies without warning while a stock runner spins in its body. The
+    // runner leads its own process group, so the kill never reaches it; the
+    // lifeline pipe closes with e3, and the runner exits. The body's
+    // out-of-order second emission prints the sink's demote notice (the body
+    // is running), then the body loops forever.
+    const spin = East.function([FunctionType([IntegerType], NullType)], NullType, ($, emit) => {
+      $(emit(2n));
+      $(emit(1n));
+      const turns = $.let(0n);
+      $.while(true, ($) => {
+        $.assign(turns, turns.add(1n));
+      });
+    });
+    const irPath = join(dir, 'spin.beast2');
+    writeFileSync(irPath, encodeEastIR(spin.toIR()));
+    const scratch = join(dir, 'scratch');
+    mkdirSync(scratch);
+
+    // The e3 process: this build's spawnAndCapture, reporting the runner's pid
+    // and passing its stderr through.
+    const argv = ['east-node', 'run', '-p', '@elaraai/east-node-std', '--emit', 'set', '-o', join(dir, 'output.beast2'), irPath];
+    const e3Script = join(dir, 'e3.mjs');
+    writeFileSync(e3Script, [
+      `import { spawnAndCapture } from ${JSON.stringify(new URL('./processExec.js', import.meta.url).href)};`,
+      `await spawnAndCapture(${JSON.stringify(argv)}, ${JSON.stringify(scratch)}, {`,
+      '  stdinLifeline: true,',
+      `  searchDirs: [${JSON.stringify(process.cwd())}],`,
+      "  onSpawned: (pid) => { process.stdout.write(`runner pid ${pid}\\n`); },",
+      '  onStderr: (data) => { process.stdout.write(data); },',
+      '});',
+    ].join('\n'));
+    const e3 = spawn(process.execPath, [e3Script], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let output = '';
+    let runnerPid: number | null = null;
+    const running = new Promise<boolean>((resolve) => {
+      e3.stdout!.setEncoding('utf8');
+      e3.stdout!.on('data', (chunk: string) => {
+        output += chunk;
+        runnerPid ??= Number(/runner pid (\d+)/.exec(output)?.[1]) || null;
+        if (runnerPid !== null && output.includes('left ascending order')) resolve(true);
+      });
+      e3.on('exit', () => resolve(false));
+    });
+    let e3Stderr = '';
+    e3.stderr!.setEncoding('utf8');
+    e3.stderr!.on('data', (chunk: string) => { e3Stderr += chunk; });
+
+    try {
+      // Bounded liveness waits: start-up, then the lifeline.
+      const started = await Promise.race([running, new Promise<false>((resolve) => setTimeout(() => resolve(false), 30_000).unref())]);
+      assert.ok(started, `the runner never reported its body running:\n${output}\n${e3Stderr}`);
+      e3.kill('SIGKILL');
+      assert.ok(await exitsWithin(runnerPid!, 10_000), `runner ${runnerPid} outlived the e3 process that spawned it by 10 s`);
+    } finally {
+      e3.kill('SIGKILL');
+      if (runnerPid !== null && alive(runnerPid)) {
+        try {
+          process.kill(-runnerPid, 'SIGKILL');
+        } catch {
+          // Already gone
+        }
+      }
+    }
   });
 });

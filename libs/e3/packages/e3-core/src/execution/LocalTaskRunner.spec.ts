@@ -84,12 +84,12 @@ describe('taskExecute output capture', { skip: process.platform === 'win32' }, (
   });
 
   it('keeps every byte of a stdout flood with one append in flight and bounded pending output', async () => {
-    const floodBytes = 8 * 1024 * 1024;
+    const floodBytes = 256 * 1024 * 1024;
     // A custom bash task that floods stdout with floodBytes, then copies its input to its output.
     const commandFn = East.function(
       [ArrayType(StringType), StringType],
       ArrayType(StringType),
-      ($, inputs, output) => ['bash', '-c', 'head -c 8388608 /dev/zero | tr "\\0" x; cp "$1" "$2"', '--', inputs.get(0n), output],
+      ($, inputs, output) => ['bash', '-c', 'head -c 268435456 /dev/zero | tr "\\0" x; cp "$1" "$2"', '--', inputs.get(0n), output],
     );
     const task: TaskObject = {
       commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)),

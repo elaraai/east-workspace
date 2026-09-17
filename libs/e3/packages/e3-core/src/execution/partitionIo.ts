@@ -33,6 +33,31 @@ import type { StorageBackend } from '../storage/interfaces.js';
 /** Bytes per range-read → write-stream copy chunk. */
 export const PARTITION_COPY_CHUNK_BYTES = 8 * 1024 * 1024;
 
+/** The decoded segments open {@link PartitionBlob}s hold now, and the most
+ *  they have held at once since the peak was last reset. */
+const decodedSegments = { held: 0, peak: 0 };
+
+/**
+ * The most decoded segments open {@link PartitionBlob}s have held at once
+ * since {@link resetDecodedSegmentPeak} — the orchestrator's memory claim for
+ * partitioned execution, counted for specs.
+ *
+ * @returns The peak number of decoded segments held at once
+ * @internal
+ */
+export function decodedSegmentPeak(): number {
+  return decodedSegments.peak;
+}
+
+/**
+ * Starts a new peak of {@link decodedSegmentPeak} from the segments held now.
+ *
+ * @internal
+ */
+export function resetDecodedSegmentPeak(): void {
+  decodedSegments.peak = decodedSegments.held;
+}
+
 /** The end offset of segment `i`'s frame. */
 function segmentEnd(extents: Beast2RangedExtents, i: number): number {
   return i + 1 < extents.offsets.length ? extents.offsets[i + 1]! : extents.segmentsEnd;
@@ -85,8 +110,25 @@ export class PartitionBlob {
     const frames = await this.read(start, segmentEnd(this.extents, segment) - start);
     const mini = carveBeast2Ranged(this.extents, frames, segment, segment + 1);
     const pages = openBeast2PagesFor(this.extents.typeValue)(mini);
+    if (this.probe === null) {
+      decodedSegments.held++;
+      decodedSegments.peak = Math.max(decodedSegments.peak, decodedSegments.held);
+    }
     this.probe = { segment, pages };
     return pages;
+  }
+
+  /**
+   * Drops the decoded segment this blob holds, if any. A blob stays usable —
+   * a later probe decodes again — so a caller releases a blob when it is done
+   * with it.
+   */
+  release(): void {
+    if (this.probe !== null) {
+      decodedSegments.held--;
+      this.probe = null;
+    }
+    this.lastKeyMemo = null;
   }
 
   /**

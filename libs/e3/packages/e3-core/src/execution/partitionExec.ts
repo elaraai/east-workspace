@@ -49,7 +49,7 @@ import {
 } from '@elaraai/east';
 import type { EastTypeValue, FunctionTypeValue } from '@elaraai/east';
 import { PartitionBlob, bufferPart, spliceChunks, type SplicePart } from './partitionIo.js';
-import { assembleMergeTree, type MergeTreeOutcome } from './partitionAssembly.js';
+import { assembleMergeTree, countAssemblyUnit, type MergeTreeOutcome } from './partitionAssembly.js';
 import {
   PartitionPlanType,
   decodePartitionPlan,
@@ -317,6 +317,7 @@ export async function partitionTaskExecute(
         }
       }
     } catch (err) {
+      primary.release();
       return errorResult(`Failed to align partition boundaries: ${err instanceof Error ? err.message : err}`);
     }
   }
@@ -327,6 +328,7 @@ export async function partitionTaskExecute(
   // work twice (the sub-execution's identity collides with the logical
   // one). Run the standard body once under the LOGICAL identity instead.
   if (partitions === 1) {
+    primary.release();
     const progress = options.onPartitionProgress;
     progress?.({ phase: 'partition', index: 0, total: 1, completed: 0, state: 'started' });
     const result = await taskExecuteBody(storage, repo, taskHash, task, inputHashes, ids, options);
@@ -356,6 +358,9 @@ export async function partitionTaskExecute(
   // most the two edge segments a split falls inside.
   // ---------------------------------------------------------------------
   const secondarySplits: SplitPoint[][] = [];
+  // Each blob is released once read, so at most one of them holds a decoded
+  // segment beside the primary.
+  let secondary: PartitionBlob | null = null;
   try {
     // Boundary values, in projection space, at each internal boundary.
     const bounds: unknown[] = [];
@@ -365,6 +370,7 @@ export async function partitionTaskExecute(
 
     for (let s = 1; s < partitionCount; s++) {
       const blob = await PartitionBlob.open(storage, repo, partitionHashes[s]!);
+      secondary = blob;
       const isDict = blob.extents.typeValue.type === 'Dict';
 
       // The soundness condition boundary alignment relies on: the secondary's
@@ -400,10 +406,15 @@ export async function partitionTaskExecute(
       }
       splits.push({ seg: blob.extents.offsets.length, offset: 0 });
       secondarySplits.push(splits);
+      blob.release();
+      secondary = null;
     }
   } catch (err) {
+    secondary?.release();
+    primary.release();
     return errorResult(`Failed to carve partition slices: ${err instanceof Error ? err.message : err}`);
   }
+  primary.release();
 
   // The plan is stored before anything is carved from it. The `plan` sidecar
   // names the completed plan of a previous run: when it plans exactly as this
@@ -606,6 +617,7 @@ export async function partitionTaskExecute(
           const i = pair * 2;
           progress?.({ phase: 'combine', index: pair, total: pairs, completed: pairsCompleted, state: 'started' });
           const merged = await runUnit(taskHash, task, [combineIrHash, level[i]!, level[i + 1]!]);
+          countAssemblyUnit();
           mergeResults[pair] = merged;
           logUnit(`combine level ${levelNumber}/${combineLevels} unit ${pair + 1}/${pairs}`, taskHash, merged);
           if (merged.state !== 'success' || merged.outputHash === null) {
@@ -710,10 +722,14 @@ export async function carvePartitionSlices(
   ];
   for (let s = 1; s < plan.partitions.length; s++) {
     const blob = await PartitionBlob.open(storage, repo, plan.partitions[s]!);
-    const splits = plan.splits[s - 1]!;
-    const split = (i: number): SplitPoint => ({ seg: Number(splits[i]!.seg), offset: Number(splits[i]!.offset) });
-    const parts = await carveRangeParts(blob, blob.extents.typeValue.type === 'Dict', split(p), split(p + 1));
-    slices.push(await storage.objects.writeStream(repo, spliceChunks(blob.extents.head, parts)));
+    try {
+      const splits = plan.splits[s - 1]!;
+      const split = (i: number): SplitPoint => ({ seg: Number(splits[i]!.seg), offset: Number(splits[i]!.offset) });
+      const parts = await carveRangeParts(blob, blob.extents.typeValue.type === 'Dict', split(p), split(p + 1));
+      slices.push(await storage.objects.writeStream(repo, spliceChunks(blob.extents.head, parts)));
+    } finally {
+      blob.release();
+    }
   }
   return slices;
 }
@@ -891,19 +907,23 @@ async function findSpliceViolation(
   let cmp: ((a: unknown, b: unknown) => number) | null = null;
   for (let i = 0; i < hashes.length; i++) {
     const shard = await PartitionBlob.open(storage, repo, hashes[i]!);
-    const extents = shard.extents;
-    if (extents.typeValue.type === 'Array') return null;
-    if (extents.offsets.length === 0) continue;
-    const isDict = extents.typeValue.type === 'Dict';
-    const keyType: EastTypeValue = isDict ? (extents.typeValue as any).value.key : (extents.typeValue as any).value;
-    cmp ??= compareFor(keyType as any) as (a: unknown, b: unknown) => number;
-    const first = await shard.fence(0);
-    if (prevIndex >= 0 && cmp(prevLast, first) >= 0) {
-      return { left: prevIndex, right: i };
+    try {
+      const extents = shard.extents;
+      if (extents.typeValue.type === 'Array') return null;
+      if (extents.offsets.length === 0) continue;
+      const isDict = extents.typeValue.type === 'Dict';
+      const keyType: EastTypeValue = isDict ? (extents.typeValue as any).value.key : (extents.typeValue as any).value;
+      cmp ??= compareFor(keyType as any) as (a: unknown, b: unknown) => number;
+      const first = await shard.fence(0);
+      if (prevIndex >= 0 && cmp(prevLast, first) >= 0) {
+        return { left: prevIndex, right: i };
+      }
+      const keys = segmentKeys(await shard.segmentValue(extents.offsets.length - 1), isDict);
+      prevLast = keys[keys.length - 1];
+      prevIndex = i;
+    } finally {
+      shard.release();
     }
-    const keys = segmentKeys(await shard.segmentValue(extents.offsets.length - 1), isDict);
-    prevLast = keys[keys.length - 1];
-    prevIndex = i;
   }
   return null;
 }

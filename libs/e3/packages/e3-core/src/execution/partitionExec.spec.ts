@@ -13,7 +13,8 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { dirname, join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { delimiter, dirname, join } from 'node:path';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import {
   variant, some, none,
@@ -22,7 +23,7 @@ import {
   encodeBeast2For, decodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR, readBeast2Extents,
   IRType, EastIR,
 } from '@elaraai/east';
-import { input, partitionTask, runnerToVariant, type TaskDef } from '@elaraai/e3';
+import { input, partitionTask, runnerToVariant, type Runner, type TaskDef } from '@elaraai/e3';
 import {
   TaskObjectType,
   PackageObjectType,
@@ -38,8 +39,9 @@ import {
   type TreePath,
 } from '@elaraai/e3-types';
 import type { PartitionProgress } from '@elaraai/e3-types';
-import { taskExecute, taskExecuteBody, type ExecuteOptions } from './LocalTaskRunner.js';
+import { collectNodeModulesBins, taskExecute, taskExecuteBody, type ExecuteOptions } from './LocalTaskRunner.js';
 import { carvePartitionSlices, partitionTaskExecute, spliceBlobs, type PartitionUnitExecutor } from './partitionExec.js';
+import { partitionAssemblyStats } from './partitionAssembly.js';
 import { bufferPart, spliceChunks } from './partitionIo.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import { inputsHash } from '../executions.js';
@@ -358,6 +360,71 @@ describe('partitionTaskExecute', () => {
       lines.filter((line) => line.startsWith('merge ')).map((line) => line.split(' ').slice(0, 5).join(' ')).sort(),
       ['merge level 1/2 unit 1/2', 'merge level 1/2 unit 2/2', 'merge level 2/2 unit 1/1'],
     );
+  });
+
+  describe('orchestrator memory does not depend on output size', () => {
+    /** Units the merge tree runs over `n` overlapping partials. */
+    const plannedUnits = (n: number): number => {
+      let units = 0;
+      for (let entries = n; entries > 1; entries = Math.ceil(entries / 8)) {
+        units += Math.ceil(entries / 8) - (entries % 8 === 1 ? 1 : 0);
+      }
+      return units;
+    };
+
+    /** Whether a runner resolves where e3 looks for one. */
+    const runnerAvailable = (binary: string): boolean => spawnSync(binary, ['version'], {
+      stdio: 'ignore',
+      env: { ...process.env, PATH: [...collectNodeModulesBins(process.cwd()), process.env.PATH ?? ''].join(delimiter) },
+    }).status === 0;
+
+    const cases: { name: string; runner: Runner; available: boolean }[] = [
+      { name: 'east-node', runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] }, available: true },
+      { name: 'east-c', runner: { runtime: 'east-c', platforms: ['east-c-std'] }, available: runnerAvailable('east-c') },
+    ];
+
+    for (const { name, runner, available } of cases) {
+      it(`${name}: the assembly's counters are the same at N and 8N rows and 4 and 20 partitions`,
+        { skip: available ? false : `${name} not on PATH` }, async () => {
+          // Re-keys every row by a scattered id: each partial spans the whole
+          // key space, so every partial overlaps every other.
+          const rekeyed = partitionTask(`rekeyed_${name.replace('-', '_')}`, {
+            partitions: [input('table', TableType)],
+            output: TableType,
+            merge: ($, _key, a, _b) => a,
+            targetPartitionBytes: 1,
+            runner,
+          }, ($, slice) => slice.toDict(($, _row, key) => key.multiply(7919n).remainder(1_000_003n), ($, row, _key) => row));
+          const { taskHash, fnIrHash } = await writeSdkTask(rekeyed);
+
+          const observed: { rows: number; partitions: number; peakDecodedSegments: number; compiledFunctions: number; units: number }[] = [];
+          for (const rows of [400, 3200]) {
+            for (const partitions of [4, 20]) {
+              const table = makeTable(rows);
+              const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: rows / partitions })(table));
+              let result: Awaited<ReturnType<typeof taskExecute>> | undefined;
+              const stats = await partitionAssemblyStats(async () => {
+                result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+              });
+              assert.equal(result?.state, 'success', result?.error ?? '');
+
+              const expected = new SortedMap<bigint, { id: bigint; name: string }>([], compareFor(IntegerType));
+              for (const [id, row] of table) expected.set((id * 7919n) % 1_000_003n, row);
+              const output = decodeBeast2For(TableType)(await storage.objects.read(repo, result!.outputHash!));
+              assert.ok(equalFor(TableType)(output, expected), `${rows} rows, ${partitions} partitions`);
+
+              observed.push({ rows, partitions, ...stats });
+            }
+          }
+
+          for (const run of observed) {
+            assert.equal(run.compiledFunctions, 0, `no merge function compiled in process (${run.rows} rows, ${run.partitions} partitions)`);
+            assert.equal(run.units, plannedUnits(run.partitions), `the planned tree (${run.rows} rows, ${run.partitions} partitions)`);
+            assert.equal(run.peakDecodedSegments, observed[0]!.peakDecodedSegments,
+              `decoded segments held at once must not grow with rows or partitions: ${JSON.stringify(observed)}`);
+          }
+        });
+    }
   });
 
   it('merges Set partials by union on the task runner', async () => {
