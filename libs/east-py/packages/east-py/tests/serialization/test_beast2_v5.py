@@ -402,6 +402,10 @@ def _canonical_type_section_cases():
     three = StructType(
         [("a", ArrayType(EastTypeType)), ("b", EastTypeType), ("c", ArrayType(EastTypeType))]
     )
+    inner = RecursiveType(lambda self: StructType([("children", ArrayType(self))]))
+    outer = RecursiveType(
+        lambda self: StructType([("nodes", ArrayType(inner)), ("next", ArrayType(self))])
+    )
     etv_head = (
         "00fa010c0d120b0a00090206696e7075747301066f757470757400000902036b6579000576616c7565"
         "000209020269640505696e6e65720008020372656605077772617070657206010902046e616d650804"
@@ -448,6 +452,16 @@ def _canonical_type_section_cases():
             three,
             coerce_to({"a": [IntegerType], "b": IntegerType, "c": [IntegerType]}, three),
             etv_head.replace("00fa010c0d", "00fd010c0d", 1) + "0903016101016200016301",
+        ),
+        (
+            # The nested wrapper is reached through the container its own body
+            # recurses through: one entry inside and outside the wrapper — the
+            # shape of east-ui's TreeView, which the TypeScript reader used to
+            # refuse (#773).
+            "Recursive(Struct{nodes: Array<Inner>, next: Array<self>})",
+            outer,
+            coerce_to({"nodes": [{"children": []}], "next": []}, outer),
+            "00250006120512030a010901086368696c6472656e020a000902056e6f64657302046e65787404",
         ),
     ]
 

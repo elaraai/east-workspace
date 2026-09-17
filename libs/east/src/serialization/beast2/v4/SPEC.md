@@ -43,7 +43,11 @@ All five tables/sections are **global** — shared across the entire blob. Every
 - A decoder must build an entry reached from inside a wrapper's body (where
   its references to that wrapper are self-references) separately from the
   same entry reached from outside it (where they are the whole recursive
-  type); one object cannot serve both scopes.
+  type); one object cannot serve both scopes. A top-down walk can still be
+  building the outside reading when the wrapper opens and its body reaches
+  the entry again (`Array<T>` is indexed after `T`, so it is reached first);
+  that re-entry is the wrapper's recursion, not a cycle. Only a cycle with
+  no Recursive entry in it is malformed.
 
 ### String table
 - Every unique string value gets one entry.

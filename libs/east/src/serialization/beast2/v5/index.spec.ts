@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import {
   NullType, BooleanType, IntegerType, FloatType, StringType, DateTimeType, BlobType,
   ArrayType, SetType, DictType, StructType, VariantType, OptionType,
-  RefType, VectorType, MatrixType, FunctionType, RecursiveType,
+  RefType, VectorType, MatrixType, FunctionType, AsyncFunctionType, RecursiveType,
   type EastType,
 } from "../../../types.js";
 import { toEastTypeValue, isTypeValueEqual, EastTypeType, EastTypeValueType, type EastTypeValue } from "../../../type_of_type.js";
@@ -24,7 +24,7 @@ import { IRType } from "../../../ir.js";
 import { equalFor, compareFor } from "../../../comparison.js";
 import { East, variant, ref, some, none, SortedMap, SortedSet } from "../../../index.js";
 import { matrix } from "../../../containers/matrix.js";
-import { BufferWriter } from "../../binary-utils.js";
+import { BufferWriter, BufferReader } from "../../binary-utils.js";
 import {
   encodeBeast2For,
   decodeBeast2For,
@@ -41,7 +41,7 @@ import {
   readBeast2Type,
   MAGIC_BYTES_V5,
 } from "../index.js";
-import { writeTypeSection } from "./type-section.js";
+import { writeTypeSection, readTypeSection } from "./type-section.js";
 import { writeSourceMapSectionV5, writeIndexAndFooter, FOOTER_MAGIC_V5 } from "./codec.js";
 import { writeFrame, inflateRawSync } from "./frames.js";
 import { deterministicDeflateRaw } from "./deflate.js";
@@ -889,6 +889,12 @@ describe("Beast2 v5 — Canonical type sections (#770)", () => {
   // used to write duplicate entries (a second `Integer`, a second wrapper)
   // and, for the three-field case, an entry east-c wrote once.
   const Tree = RecursiveType((self) => StructType({ value: IntegerType, children: ArrayType(self) }));
+  // Inner is reached as `nodes: Array<Inner>` inside Outer's body while its
+  // own body recurses through `children: Array<self>`: one entry inside and
+  // outside the wrapper, under an enclosing wrapper — east-ui's
+  // `TreeView.nodes` under `UIComponentType` (#773).
+  const Inner = RecursiveType((self) => StructType({ children: ArrayType(self) }));
+  const Outer = RecursiveType((self) => StructType({ nodes: ArrayType(Inner), next: ArrayType(self) }));
   const I = variant("Integer", null);
   const CASES: { name: string; type: EastType; value: any; hex: string }[] = [
     {
@@ -925,6 +931,17 @@ describe("Beast2 v5 — Canonical type sections (#770)", () => {
       type: StructType({ a: ArrayType(EastTypeType), b: EastTypeType, c: ArrayType(EastTypeType) }),
       value: { a: [I], b: I, c: [I] },
       hex: "00fd010c0d120b0a00090206696e7075747301066f757470757400000902036b6579000576616c7565000209020269640505696e6e65720008020372656605077772617070657206010902046e616d65080474797065000a090813054172726179000d4173796e6346756e6374696f6e0204426c6f620307426f6f6c65616e03084461746554696d650304446963740405466c6f6174030846756e6374696f6e0207496e746567657203064d617472697800054e6576657203044e756c6c0309526563757273697665070352656600035365740006537472696e6703065374727563740a0756617269616e740a06566563746f72000903016101016200016301",
+    },
+    {
+      // Entry 2 (Array<entry 1>) is Inner's `children` inside its body and
+      // Outer's `nodes` outside it. Walking Outer's body top-down the reader
+      // starts building entry 2, opens Inner, meets entry 2 again, and used
+      // to call that a cycle (#773). The bytes are the writer's before and
+      // after: the reader alone changed.
+      name: "Recursive(Struct{nodes: Array<Inner>, next: Array<self>})",
+      type: Outer,
+      value: { nodes: [{ children: [{ children: [] }] }], next: [{ nodes: [], next: [] }] },
+      hex: "00250006120512030a010901086368696c6472656e020a000902056e6f64657302046e65787404",
     },
   ];
 
@@ -1032,6 +1049,91 @@ describe("Beast2 v5 — Canonical type sections (#770)", () => {
     // The wrapper's own body still refers to itself by ref.
     const inputs = b.value.value.inner.value.find((k: any) => k.name === "Function")!.type.value.find((f: any) => f.name === "inputs")!.type;
     assert.equal(inputs.value.value.type, "ref");
+  });
+
+  test("a UIComponentType-scale section reads back through every entry point (#773)", () => {
+    // east cannot import east-ui, so this is UIComponentType's shape at
+    // east's scale: a deep variant over shared sub-types (Style, Icon, one
+    // review struct used twice), children under Array, Option, Dict, Ref,
+    // struct rows and function results, a type-value leaf, and four nested
+    // recursive types — Chart reached bare, Tree's nodes, Outline's sections
+    // and Steps' first through the container their own bodies recurse
+    // through. The section is pinned to what the writer produced before the
+    // fix; TypeScript refused to read it back at entry 44.
+    const Style = StructType({ tone: OptionType(StringType), density: OptionType(IntegerType) });
+    const Icon = VariantType({ named: StringType, glyph: StructType({ code: IntegerType, label: StringType }) });
+    const Chain = RecursiveType((next) => StructType({ value: IntegerType, next: OptionType(next) }));
+    const Section = RecursiveType((section) => StructType({ title: StringType, children: DictType(StringType, section) }));
+    const Spec = RecursiveType((spec) => VariantType({
+      mark: StructType({ kind: StringType, style: OptionType(Style) }),
+      layer: StructType({ children: ArrayType(spec) }),
+      facet: StructType({ by: StringType, inner: OptionType(spec) }),
+    }));
+    const Panel = RecursiveType((node) => {
+      const review = StructType({ summary: OptionType(node), onApprove: OptionType(FunctionType([IntegerType], NullType)) });
+      return VariantType({
+        Text: StructType({ text: StringType, style: OptionType(Style) }),
+        Icon: Icon,
+        Button: StructType({ label: node, icon: OptionType(Icon), onClick: OptionType(FunctionType([], NullType)), style: OptionType(Style) }),
+        Stack: StructType({ children: ArrayType(node), style: OptionType(Style) }),
+        Grid: StructType({ items: ArrayType(StructType({ content: node, span: OptionType(IntegerType) })), style: OptionType(Style) }),
+        Card: StructType({ header: OptionType(node), body: ArrayType(node), footer: OptionType(node), style: OptionType(Style) }),
+        Tree: StructType({
+          nodes: ArrayType(RecursiveType((inner) => VariantType({
+            Item: StructType({ value: StringType, icon: OptionType(Icon) }),
+            Branch: StructType({ value: StringType, children: ArrayType(inner), style: OptionType(Style) }),
+          }))),
+          onSelect: OptionType(FunctionType([ArrayType(StringType)], NullType)),
+        }),
+        Outline: StructType({ sections: DictType(StringType, Section), style: OptionType(Style) }),
+        Steps: StructType({ first: OptionType(Chain), labels: ArrayType(node) }),
+        Chart: Spec,
+        Table: StructType({
+          columns: ArrayType(StructType({ key: StringType, dataType: EastTypeType, header: OptionType(StringType), render: FunctionType([IntegerType], node) })),
+          footer: OptionType(DictType(StringType, StructType({ content: node, span: OptionType(IntegerType) }))),
+          review: OptionType(review),
+          style: OptionType(Style),
+        }),
+        Plan: StructType({ rows: ArrayType(StructType({ key: StringType, values: VectorType(FloatType) })), popover: OptionType(FunctionType([StringType], OptionType(node))), review: OptionType(review) }),
+        Pages: StructType({ render: FunctionType([], node), key: StringType }),
+        Match: StructType({ render: FunctionType([], node), tag: FunctionType([], StringType) }),
+        Slot: StructType({ content: RefType(node) }),
+        Menu: StructType({ trigger: node, items: ArrayType(StructType({ label: StringType, icon: OptionType(Icon), submenu: OptionType(ArrayType(node)) })) }),
+        Deck: StructType({ items: ArrayType(StructType({ key: StringType, face: OptionType(node), detail: OptionType(node), groups: DictType(StringType, StringType) })), statuses: DictType(StringType, Style) }),
+        Loader: StructType({ load: AsyncFunctionType([StringType], node) }),
+        Extension: StructType({ kind: StringType, payload: BlobType }),
+      });
+    });
+    const PANEL_HEX = "00a50a005c125b000201090204636f646502056c6162656c03080205676c79706804056e616d6564030802046e6f6e650104736f6d65051000010802046e6f6e650104736f6d65070802046e6f6e650104736f6d65030802046e6f6e650104736f6d6502090204746f6e65090764656e736974790a0802046e6f6e650104736f6d650b0904056c6162656c000469636f6e06076f6e436c69636b08057374796c650c0802046e6f6e650104736f6d65000a000904066865616465720e04626f64790f06666f6f7465720e057374796c650c12170802046e6f6e650104736f6d651109020262790305696e6e6572120a110901086368696c6472656e140902046b696e6403057374796c650c080305666163657413056c6179657215046d61726b160b03030904036b65790304666163650e0664657461696c0e0667726f757073180a190b030b0902056974656d731a0873746174757365731b060902046b696e6403077061796c6f61641d090207636f6e74656e7400047370616e0a0a1f0902056974656d7320057374796c650c110103000901046c6f61642210000010000309020672656e6465722403746167250802046e6f6e650104736f6d650f0903056c6162656c030469636f6e06077375626d656e75270a280902077472696767657200056974656d7329122d0b032b0902057469746c6503086368696c6472656e2c09020873656374696f6e732c057374796c650c09020672656e64657224036b657903030e300902036b6579030676616c756573310a321001030e0802046e6f6e650104736f6d6534100102010802046e6f6e650104736f6d653609020773756d6d6172790e096f6e417070726f7665370802046e6f6e650104736f6d6538090304726f77733307706f706f7665723506726576696577390d00090107636f6e74656e743b0902086368696c6472656e0f057374796c650c12400802046e6f6e650104736f6d653e09020576616c756502046e6578743f09020566697273743f066c6162656c730f124a0a42090206696e7075747343066f7574707574420902036b6579420576616c75654209020269640205696e6e657242080203726566020777726170706572460902046e616d65030474797065420a480813054172726179420d4173796e6346756e6374696f6e4404426c6f620107426f6f6c65616e01084461746554696d650104446963744505466c6f6174010846756e6374696f6e4407496e746567657201064d617472697842054e6576657201044e756c6c0109526563757273697665470352656642035365744206537472696e670106537472756374490756617269616e744906566563746f7242100102000904036b6579030864617461547970654206686561646572090672656e6465724b0a4c0b031f0802046e6f6e650104736f6d654e090407636f6c756d6e734d06666f6f7465724f0672657669657739057374796c650c0902047465787403057374796c650c12560a5209030576616c756503086368696c6472656e53057374796c650c09020576616c7565030469636f6e060802064272616e636854044974656d550a03100157010802046e6f6e650104736f6d65580902056e6f64657353086f6e53656c65637459081306427574746f6e0d04436172641005436861727411044465636b1c09457874656e73696f6e1e0447726964210449636f6e05064c6f6164657223054d6174636826044d656e752a074f75746c696e652e0550616765732f04506c616e3a04536c6f743c05537461636b3d05537465707341055461626c655004546578745104547265655a";
+
+    const writer = new BufferWriter();
+    writeTypeSection(toEastTypeValue(Panel), writer);
+    const bytes = writer.toUint8Array();
+    assert.equal(Buffer.from(bytes).toString("hex"), PANEL_HEX, "the section is the pinned one");
+    const { rootType } = readTypeSection(new BufferReader(bytes));
+    assert.ok(isTypeValueEqual(rootType, toEastTypeValue(Panel)), "readTypeSection returns the type");
+    assert.deepEqual(dangling(rootType), [], "no dangling Recursive refs");
+
+    const value = variant("Card", {
+      header: some(variant("Text", { text: "t", style: none })),
+      body: [
+        variant("Tree", { nodes: [variant("Branch", { value: "a", children: [variant("Item", { value: "b", icon: some(variant("named", "leaf")) })], style: none })], onSelect: none }),
+        variant("Chart", variant("layer", { children: [variant("mark", { kind: "bar", style: some({ tone: none, density: some(1n) }) })] })),
+        variant("Outline", { sections: new Map([["s", { title: "S", children: new Map([["t", { title: "T", children: new Map() }]]) }]]), style: none }),
+        variant("Steps", { first: some({ value: 1n, next: some({ value: 2n, next: none }) }), labels: [variant("Icon", variant("glyph", { code: 7n, label: "g" }))] }),
+        variant("Slot", { content: ref(variant("Extension", { kind: "k", payload: new Uint8Array([9]) })) }),
+      ],
+      footer: none,
+      style: some({ tone: some("calm"), density: none }),
+    });
+    const blob = encodeBeast2For(Panel, V5_PLAIN)(value as any);
+    assert.equal(section(blob), PANEL_HEX, "the blob carries the pinned section");
+    assert.ok(equalFor(Panel)(decodeBeast2For(Panel)(blob), value as any), "decodeBeast2For");
+    const auto = decodeBeast2(blob);
+    assert.ok(isTypeValueEqual(auto.type, toEastTypeValue(Panel)), "decodeBeast2: the wire type");
+    assert.ok(equalFor(Panel)(auto.value, value as any), "decodeBeast2: the value");
+    assert.ok(isTypeValueEqual(readBeast2Type(blob), toEastTypeValue(Panel)), "readBeast2Type");
+    assert.equal(section(encodeBeast2For(auto.type, V5_PLAIN)(auto.value)), PANEL_HEX, "re-encode from the wire type");
   });
 
   test("a table an earlier TypeScript wrote with duplicate wrappers decodes and re-encodes canonically", () => {
