@@ -16,10 +16,11 @@ import assert from "node:assert/strict";
 import {
   NullType, BooleanType, IntegerType, FloatType, StringType, DateTimeType, BlobType,
   ArrayType, SetType, DictType, StructType, VariantType, OptionType,
-  RefType, VectorType, MatrixType, FunctionType,
+  RefType, VectorType, MatrixType, FunctionType, RecursiveType,
   type EastType,
 } from "../../../types.js";
-import { toEastTypeValue, EastTypeValueType, type EastTypeValue } from "../../../type_of_type.js";
+import { toEastTypeValue, isTypeValueEqual, EastTypeType, EastTypeValueType, type EastTypeValue } from "../../../type_of_type.js";
+import { IRType } from "../../../ir.js";
 import { equalFor, compareFor } from "../../../comparison.js";
 import { East, variant, ref, some, none, SortedMap, SortedSet } from "../../../index.js";
 import { matrix } from "../../../containers/matrix.js";
@@ -37,6 +38,7 @@ import {
   iterBeast2SegmentsFor,
   openBeast2PagesFor,
   readBeast2Extents,
+  readBeast2Type,
   MAGIC_BYTES_V5,
 } from "../index.js";
 import { writeTypeSection } from "./type-section.js";
@@ -872,5 +874,189 @@ describe("Beast2 v5 — Pure inflate (browser sync path)", () => {
     assert.throws(() => inflateRawPure(new Uint8Array([0x03, 0x02]), 3), /distance/);
     // Reserved block type 3.
     assert.throws(() => inflateRawPure(new Uint8Array([0x07]), 1), /block type/);
+  });
+});
+
+// =============================================================================
+// 8. Canonical type sections — one type, one section, everywhere (#770)
+// =============================================================================
+
+describe("Beast2 v5 — Canonical type sections (#770)", () => {
+  // The SAME sections are pinned in east-c's test_beast2_hardening.c and
+  // east-py's test_beast2_v5.py: the type section is a pure function of the
+  // type, so every runtime writes these bytes, and so does TypeScript for the
+  // type carried as an EastTypeValue (what a runner reads from IR) — which
+  // used to write duplicate entries (a second `Integer`, a second wrapper)
+  // and, for the three-field case, an entry east-c wrote once.
+  const Tree = RecursiveType((self) => StructType({ value: IntegerType, children: ArrayType(self) }));
+  const I = variant("Integer", null);
+  const CASES: { name: string; type: EastType; value: any; hex: string }[] = [
+    {
+      name: "Dict<Integer, Struct{count: Integer, text: String}>",
+      type: DictType(IntegerType, StructType({ count: IntegerType, text: StringType })),
+      value: new Map([[1n, { count: 2n, text: "x" }]]),
+      hex: "001603040201090205636f756e74000474657874010b0002",
+    },
+    {
+      name: "Dict<String, String>",
+      type: DictType(StringType, StringType),
+      value: new Map([["a", "b"]]),
+      hex: "00060102010b0000",
+    },
+    {
+      name: "Struct{left: Tree, right: Tree}",
+      type: StructType({ left: Tree, right: Tree }),
+      value: { left: { value: 1n, children: [] }, right: { value: 2n, children: [] } },
+      hex: "002904051203020a0009020576616c756501086368696c6472656e020902046c6566740005726967687400",
+    },
+    {
+      // Entry 1 (Array<entry 0>) is EastTypeType's `inputs` inside its own
+      // body AND field `a` outside it — one entry, read in two scopes.
+      name: "Struct{b: EastTypeType, a: Array<EastTypeType>}",
+      type: StructType({ b: EastTypeType, a: ArrayType(EastTypeType) }),
+      value: { b: I, a: [I] },
+      hex: "00fa010c0d120b0a00090206696e7075747301066f757470757400000902036b6579000576616c7565000209020269640505696e6e65720008020372656605077772617070657206010902046e616d65080474797065000a090813054172726179000d4173796e6346756e6374696f6e0204426c6f620307426f6f6c65616e03084461746554696d650304446963740405466c6f6174030846756e6374696f6e0207496e746567657203064d617472697800054e6576657203044e756c6c0309526563757273697665070352656600035365740006537472696e6703065374727563740a0756617269616e740a06566563746f72000902016200016101",
+    },
+    {
+      // Field `a` is reached before EastTypeType's body: every runtime used
+      // to write Array<EastTypeType> twice (14 entries), naming `c` by one
+      // entry in TypeScript and the other in east-c. It is 13 entries now.
+      name: "Struct{a: Array<EastTypeType>, b: EastTypeType, c: Array<EastTypeType>}",
+      type: StructType({ a: ArrayType(EastTypeType), b: EastTypeType, c: ArrayType(EastTypeType) }),
+      value: { a: [I], b: I, c: [I] },
+      hex: "00fd010c0d120b0a00090206696e7075747301066f757470757400000902036b6579000576616c7565000209020269640505696e6e65720008020372656605077772617070657206010902046e616d65080474797065000a090813054172726179000d4173796e6346756e6374696f6e0204426c6f620307426f6f6c65616e03084461746554696d650304446963740405466c6f6174030846756e6374696f6e0207496e746567657203064d617472697800054e6576657203044e756c6c0309526563757273697665070352656600035365740006537472696e6703065374727563740a0756617269616e740a06566563746f72000903016101016200016301",
+    },
+  ];
+
+  /** The type section of a v5 blob, as hex. */
+  function section(blob: Uint8Array): string {
+    let offset = 8;
+    const varint = () => {
+      let value = 0, shift = 0, byte: number;
+      do { byte = blob[offset++]!; value |= (byte & 0x7f) << shift; shift += 7; } while (byte & 0x80);
+      return value;
+    };
+    const kind = varint();
+    if (kind === 0) {
+      const length = varint();
+      offset += length;
+    } else {
+      varint();  // the well-known id
+      offset += 8;
+    }
+    return Buffer.from(blob.subarray(8, offset)).toString("hex");
+  }
+
+  /** The type as a value that crossed the wire — what a runner holds. */
+  const carried = (type: EastType): EastTypeValue =>
+    decodeBeast2For(EastTypeValueType)(encodeBeast2For(EastTypeValueType, V5_PLAIN)(toEastTypeValue(type)));
+
+  /** The `Recursive` refs in a type value that no enclosing wrapper binds. */
+  function dangling(t: any, bound: bigint[] = []): bigint[] {
+    switch (t.type) {
+      case "Recursive":
+        return t.value.type === "ref"
+          ? (bound.includes(t.value.value) ? [] : [t.value.value])
+          : dangling(t.value.value.inner, [...bound, t.value.value.id]);
+      case "Struct": case "Variant": return t.value.flatMap((f: any) => dangling(f.type, bound));
+      case "Dict": return [...dangling(t.value.key, bound), ...dangling(t.value.value, bound)];
+      case "Function": case "AsyncFunction": return [...t.value.inputs.flatMap((i: any) => dangling(i, bound)), ...dangling(t.value.output, bound)];
+      case "Array": case "Set": case "Ref": case "Vector": case "Matrix": return dangling(t.value, bound);
+      default: return [];
+    }
+  }
+
+  test("a type built in code and the same type carried as a value write the pinned section", () => {
+    for (const c of CASES) {
+      const built = encodeBeast2For(c.type, V5_PLAIN)(c.value);
+      assert.equal(section(built), c.hex, `${c.name}: built`);
+      const viaCarried = encodeBeast2For(carried(c.type), V5_PLAIN)(c.value);
+      assert.equal(section(viaCarried), c.hex, `${c.name}: carried`);
+      assert.deepEqual(Array.from(viaCarried), Array.from(built), `${c.name}: whole blob`);
+    }
+  });
+
+  test("the bytes depend on the type alone, not on the objects that spell it", () => {
+    // Two builds of one type from separate objects; the same type value
+    // decoded twice (distinct objects, no type ids); and a type value spelled
+    // by hand with wrapper ids of its own.
+    for (const c of CASES) {
+      assert.equal(section(encodeBeast2For(carried(c.type), V5_PLAIN)(c.value)), section(encodeBeast2For(carried(c.type), V5_PLAIN)(c.value)), c.name);
+    }
+    const spelled = variant("Struct", [
+      { name: "left", type: variant("Recursive", variant("wrapper", { id: 900n, inner: variant("Struct", [
+        { name: "value", type: variant("Integer", null) },
+        { name: "children", type: variant("Array", variant("Recursive", variant("ref", 900n))) },
+      ]) })) },
+      { name: "right", type: variant("Recursive", variant("wrapper", { id: 901n, inner: variant("Struct", [
+        { name: "value", type: variant("Integer", null) },
+        { name: "children", type: variant("Array", variant("Recursive", variant("ref", 901n))) },
+      ]) })) },
+    ]) as EastTypeValue;
+    assert.equal(section(encodeBeast2For(spelled, V5_PLAIN)(CASES[2]!.value)), CASES[2]!.hex, "wrappers of different ids and one structure are one entry");
+  });
+
+  test("a carried well-known schema is written as its well-known section", () => {
+    const ir = East.function([IntegerType], IntegerType, ($, x) => x).toIR().ir;
+    assert.equal(section(encodeBeast2For(carried(IRType), V5_PLAIN)(ir)), "010145cf4e0706d397df", "IRType");
+    const tv = toEastTypeValue(StructType({ a: IntegerType, b: ArrayType(StringType) }));
+    assert.equal(section(encodeBeast2For(carried(EastTypeType), V5_PLAIN)(tv)), "01020947b0dde16f8641", "EastTypeValueType");
+  });
+
+  test("every section decodes to the type it names, self-describing decodes included", () => {
+    for (const c of CASES) {
+      const blob = encodeBeast2For(c.type, V5_PLAIN)(c.value);
+      const { type, value } = decodeBeast2(blob);
+      assert.deepEqual(dangling(type), [], `${c.name}: no dangling Recursive refs`);
+      assert.ok(isTypeValueEqual(type, toEastTypeValue(c.type)), `${c.name}: the decoded type is the type, up to wrapper naming`);
+      assert.ok(isTypeValueEqual(readBeast2Type(blob), toEastTypeValue(c.type)), `${c.name}: readBeast2Type`);
+      assert.ok(equalFor(c.type)(value, c.value), `${c.name}: value`);
+      // ...and the decoded type writes the section again.
+      assert.equal(section(encodeBeast2For(type, V5_PLAIN)(value)), c.hex, `${c.name}: re-encode from the wire type`);
+    }
+  });
+
+  test("an entry shared by a wrapper's body and its outside reads closed outside", () => {
+    // Struct{b: EastTypeType, a: Array<EastTypeType>}: inside EastTypeType's
+    // body, entry 1's element is a self-reference; as field `a` it is the
+    // whole recursive type — the same object field `b` decodes to.
+    const c = CASES[3]!;
+    const { type } = decodeBeast2(encodeBeast2For(c.type, V5_PLAIN)(c.value));
+    const fields = (type as any).value as { name: string; type: any }[];
+    const a = fields.find((f) => f.name === "a")!.type;
+    const b = fields.find((f) => f.name === "b")!.type;
+    assert.equal(a.type, "Array");
+    assert.equal(a.value.type, "Recursive");
+    assert.equal(a.value.value.type, "wrapper", "outside its wrapper the element is the wrapper, not a ref");
+    assert.ok(a.value === b, "one closed object serves both references");
+    // The wrapper's own body still refers to itself by ref.
+    const inputs = b.value.value.inner.value.find((k: any) => k.name === "Function")!.type.value.find((f: any) => f.name === "inputs")!.type;
+    assert.equal(inputs.value.value.type, "ref");
+  });
+
+  test("a table an earlier TypeScript wrote with duplicate wrappers decodes and re-encodes canonically", () => {
+    // What TypeScript wrote for the carried Struct{left: Tree, right: Tree}:
+    // two wrapper entries (0 and 4) for one type, the second unfolding into
+    // the first. Readers accept every released container, and the decoded
+    // type writes the one canonical section.
+    const c = CASES[2]!;
+    const OLD_HEX = "003e06071203020a0009020576616c756501086368696c6472656e02120509020576616c756501086368696c6472656e020902046c6566740005726967687404";
+    const head = new BufferWriter();
+    head.writeBytes(MAGIC_BYTES_V5);
+    head.writeBytes(Buffer.from(OLD_HEX, "hex"));
+    writeSourceMapSectionV5(null, head);
+    const logical = new BufferWriter();
+    logical.writeZigzag(1n); logical.writeUint8(0x00); logical.writeVarint(0);   // left: value, children NEW + terminator
+    logical.writeZigzag(2n); logical.writeUint8(0x00); logical.writeVarint(0);   // right
+    writeFrame(head, logical.toUint8Array(), "none");
+    const blob = head.toUint8Array();
+    assert.notEqual(section(blob), c.hex, "the old section is not the canonical one");
+    const { type, value } = decodeBeast2(blob);
+    assert.deepEqual(dangling(type), []);
+    assert.ok(equalFor(c.type)(value, c.value));
+    const fields = (type as any).value as { name: string; type: any }[];
+    assert.ok(isTypeValueEqual(fields[0]!.type, fields[1]!.type), "both wrappers are one type");
+    assert.equal(section(encodeBeast2For(type, V5_PLAIN)(value)), c.hex, "re-encoded canonically");
+    assert.ok(equalFor(c.type)(decodeBeast2For(c.type)(blob), c.value), "typed decode of the old blob");
   });
 });

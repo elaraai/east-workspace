@@ -26,7 +26,8 @@ import {
     NullType,
     printType,
 } from "../types.js";
-import { randomType, randomValueFor, randomRecursiveType, randomFunctionType, seedFuzz } from "../fuzz.js";
+import { EastTypeType } from "../type_of_type.js";
+import { randomType, randomValueFor, randomRecursiveType, randomSharedRecursiveType, randomFunctionType, seedFuzz, typeFingerprint } from "../fuzz.js";
 
 /**
  * A generated test case containing a random type and sample values for testing.
@@ -36,6 +37,8 @@ export interface FuzzTestCase<T extends EastType = EastType> {
     type: T;
     /** String representation of the type for test naming */
     typeName: string;
+    /** {@link typeFingerprint} of the type — a name stable across processes */
+    fingerprint: string;
     /** Array type for before/after pairs (used by compliance tests) */
     pairsArrayType: ArrayTypeT<StructTypeT<{ before: T; after: T }>>;
     /** Array type for v1/v2/v3 triplets (used by compliance tests) */
@@ -54,10 +57,17 @@ export interface FuzzTestOptions {
     numTypes?: number;
     /** Number of sample values per type */
     numSamples?: number;
+    /** Depth at which sample values stop nesting (default 5) */
+    valueDepth?: number;
     /** Include recursive types in generation */
     includeRecursive?: boolean;
     /** Include function types in generation */
     includeFunctions?: boolean;
+    /** Recursion below the top level: closed recursive leaves, a recursive
+     *  type shared by several fields, random recursive bodies (default true) */
+    nestedRecursive?: boolean;
+    /** `EastTypeType` as a leaf, with type values as values (default true) */
+    includeTypeValues?: boolean;
     /** Maximum retries when generating values for a single type */
     maxValueRetries?: number;
     /** Multiplier for max attempts (numTypes * multiplier) */
@@ -74,8 +84,11 @@ export interface FuzzTestOptions {
 const DEFAULT_OPTIONS: Required<FuzzTestOptions> = {
     numTypes: 20,
     numSamples: 5,
+    valueDepth: 5,
     includeRecursive: true,
     includeFunctions: true,
+    nestedRecursive: true,
+    includeTypeValues: true,
     maxValueRetries: 20,
     attemptsMultiplier: 3,
     ensureDiversity: true,
@@ -86,7 +99,7 @@ const DEFAULT_OPTIONS: Required<FuzzTestOptions> = {
  * Specific type generators to ensure diversity in test coverage.
  * These guarantee we test important type patterns that random generation might miss.
  */
-function getDiverseTypes(includeRecursive: boolean, includeFunctions: boolean): EastType[] {
+function getDiverseTypes(includeRecursive: boolean, includeFunctions: boolean, nestedRecursive: boolean, includeTypeValues: boolean): EastType[] {
     const types: EastType[] = [
         // Variants (often missed by random generation)
         VariantType({ none: NullType, some: IntegerType }),
@@ -126,6 +139,21 @@ function getDiverseTypes(includeRecursive: boolean, includeFunctions: boolean): 
         for (let i = 0; i < 3; i++) {
             types.push(randomRecursiveType());
         }
+        if (nestedRecursive) {
+            // A recursive type reached through a container before itself,
+            // random bodies, and recursion nested in recursion (#770).
+            types.push(randomSharedRecursiveType());
+            types.push(randomRecursiveType({ randomBody: true }));
+            types.push(ArrayType(randomRecursiveType({ randomBody: true })));
+        }
+    }
+
+    // Type values: the shape every IR annotation travels as
+    if (includeTypeValues) {
+        types.push(
+            EastTypeType,
+            StructType({ a: ArrayType(EastTypeType), b: EastTypeType, c: ArrayType(EastTypeType) }),
+        );
     }
 
     // Add function types if enabled
@@ -172,7 +200,7 @@ export function generateFuzzTestCases(options: FuzzTestOptions = {}): FuzzTestCa
         }
 
         try {
-            const genValue = randomValueFor(type);
+            const genValue = randomValueFor(type, { maxDepth: opts.valueDepth });
 
             // Helper to safely generate a value (retry on depth exceeded)
             const safeGenValue = (): any => {
@@ -209,6 +237,7 @@ export function generateFuzzTestCases(options: FuzzTestOptions = {}): FuzzTestCa
             testCases.push({
                 type,
                 typeName,
+                fingerprint: typeFingerprint(type),
                 pairsArrayType,
                 tripletsArrayType,
                 pairs,
@@ -226,7 +255,7 @@ export function generateFuzzTestCases(options: FuzzTestOptions = {}): FuzzTestCa
 
     // First, add diverse types to ensure coverage
     if (opts.ensureDiversity) {
-        const diverseTypes = getDiverseTypes(opts.includeRecursive, opts.includeFunctions);
+        const diverseTypes = getDiverseTypes(opts.includeRecursive, opts.includeFunctions, opts.nestedRecursive, opts.includeTypeValues);
         for (const type of diverseTypes) {
             if (testCases.length >= opts.numTypes) break;
             tryAddType(type);
@@ -244,6 +273,8 @@ export function generateFuzzTestCases(options: FuzzTestOptions = {}): FuzzTestCa
         const type = randomType(0, {
             includeRecursive: opts.includeRecursive,
             includeFunctions: opts.includeFunctions,
+            nestedRecursive: opts.nestedRecursive,
+            includeTypeValues: opts.includeTypeValues,
         });
 
         tryAddType(type);

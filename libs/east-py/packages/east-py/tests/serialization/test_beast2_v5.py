@@ -24,6 +24,7 @@ from east import (
     IntegerType,
     SetType,
     StringType,
+    StructType,
 )
 from east.serialization.beast2 import (
     BEAST2_V5_MAGIC,
@@ -36,6 +37,7 @@ from east.serialization.beast2 import (
     iter_beast2_segments_for,
     open_beast2_pages_for,
     read_beast2_index,
+    read_beast2_type,
 )
 
 AT = ArrayType(StringType)
@@ -352,3 +354,124 @@ def test_paging_element_addresses_array_roots_only():
     assert sorted(pages.segment(0)) == ["a", "b"]
     with pytest.raises(RuntimeError, match="Array roots"):
         pages.element(0)
+
+
+# ── Canonical type sections (issue #770) ─────────────────────────────────
+#
+# The type section is a pure function of the type: the SAME sections are
+# pinned in libs/east's v5/index.spec.ts and east-c's test_beast2_hardening.c,
+# so every runtime writes these bytes — for a type built in code and for the
+# same type read back off the wire (what a runner holds).
+
+
+def _type_section_hex(blob: bytes) -> str:
+    """The v5 type section of ``blob`` (offset 8 up to the source map), as hex."""
+    offset = 8
+
+    def varint() -> int:
+        nonlocal offset
+        value, shift = 0, 0
+        while True:
+            byte = blob[offset]
+            offset += 1
+            value |= (byte & 0x7F) << shift
+            shift += 7
+            if not byte & 0x80:
+                return value
+
+    kind = varint()
+    if kind == 0:
+        section_len = varint()
+        offset += section_len
+    else:
+        varint()  # the well-known id
+        offset += 8
+    return blob[8:offset].hex()
+
+
+def _canonical_type_section_cases():
+    from east import RecursiveType, coerce_to
+    from east.types.type_of_type import EastTypeType
+
+    row = StructType([("count", IntegerType), ("text", StringType)])
+    tree = RecursiveType(
+        lambda self: StructType([("value", IntegerType), ("children", ArrayType(self))])
+    )
+    pair = StructType([("left", tree), ("right", tree)])
+    two = StructType([("b", EastTypeType), ("a", ArrayType(EastTypeType))])
+    three = StructType(
+        [("a", ArrayType(EastTypeType)), ("b", EastTypeType), ("c", ArrayType(EastTypeType))]
+    )
+    etv_head = (
+        "00fa010c0d120b0a00090206696e7075747301066f757470757400000902036b6579000576616c7565"
+        "000209020269640505696e6e65720008020372656605077772617070657206010902046e616d650804"
+        "74797065000a090813054172726179000d4173796e6346756e6374696f6e0204426c6f620307426f6f"
+        "6c65616e03084461746554696d650304446963740405466c6f6174030846756e6374696f6e0207496e"
+        "746567657203064d617472697800054e6576657203044e756c6c0309526563757273697665070352"
+        "656600035365740006537472696e6703065374727563740a0756617269616e740a06566563746f7200"
+    )
+    return [
+        (
+            "Dict<Integer, Struct{count, text}>",
+            DictType(IntegerType, row),
+            EastDict(IntegerType, row, {1: coerce_to({"count": 2, "text": "x"}, row)}),
+            "001603040201090205636f756e74000474657874010b0002",
+        ),
+        (
+            "Dict<String, String>",
+            DictType(StringType, StringType),
+            EastDict(StringType, StringType, {"a": "b"}),
+            "00060102010b0000",
+        ),
+        (
+            "Struct{left: Tree, right: Tree}",
+            pair,
+            coerce_to(
+                {"left": {"value": 1, "children": []}, "right": {"value": 2, "children": []}},
+                pair,
+            ),
+            "002904051203020a0009020576616c756501086368696c6472656e020902046c65667400057269"
+            "67687400",
+        ),
+        (
+            # Array<EastTypeType> is EastTypeType's own `inputs` inside its body
+            # and field `a` outside it — one entry, read in two scopes.
+            "Struct{b: EastTypeType, a: Array<EastTypeType>}",
+            two,
+            coerce_to({"b": IntegerType, "a": [IntegerType]}, two),
+            etv_head + "0902016200016101",
+        ),
+        (
+            # Field `a` is reached before EastTypeType's body: every runtime
+            # used to write Array<EastTypeType> twice. It is 13 entries now.
+            "Struct{a: Array<EastTypeType>, b: EastTypeType, c: Array<EastTypeType>}",
+            three,
+            coerce_to({"a": [IntegerType], "b": IntegerType, "c": [IntegerType]}, three),
+            etv_head.replace("00fa010c0d", "00fd010c0d", 1) + "0903016101016200016301",
+        ),
+    ]
+
+
+def test_type_sections_match_the_cross_runtime_pins():
+    for name, typ, value, expected in _canonical_type_section_cases():
+        blob = encode_beast2_v5_for(typ, codec="none")(value)
+        assert _type_section_hex(blob) == expected, name
+        # The type read back off the wire writes the same section.
+        carried = read_beast2_type(blob)
+        assert _type_section_hex(encode_beast2_v5_for(carried, codec="none")(value)) == expected, (
+            f"{name}: carried"
+        )
+        # ...and the blob decodes to the value under either type.
+        assert decode_beast2_with_header_for(typ)(blob) == value, name
+        assert decode_beast2_with_header_for(carried)(blob) == value, f"{name}: carried decode"
+
+
+def test_a_carried_well_known_schema_writes_its_well_known_section():
+    from east.types.type_of_type import EastTypeType
+
+    blob = encode_beast2_v5_for(EastTypeType, codec="none")(ArrayType(StringType))
+    assert blob[8] == 0x01 and blob[9] == 0x02, "EastTypeValueType is well-known id 2"
+    carried = read_beast2_type(blob)
+    again = encode_beast2_v5_for(carried, codec="none")(ArrayType(StringType))
+    assert again[8] == 0x01 and again[9] == 0x02
+    assert again == blob

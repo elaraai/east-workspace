@@ -2,7 +2,6 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { createHash } from "node:crypto";
 import { East, ArrayType, IntegerType, StringType, NullType, SetType, DictType, StructType, VariantType, variant, FloatType, BooleanType, DateTimeType, SortedSet, RefType, ref, RecursiveType, some, none, PatchType } from "../src/index.js";
 import type { ValueTypeOf } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
@@ -1999,18 +1998,20 @@ await describe("Patch - E2E All Types", (test) => {
 // Fuzz Tests - Random Types
 // =============================================================================
 
-// Generate all test cases upfront using shared fuzz configuration
-const fuzzTestCases = generateFuzzTestCases({ numTypes: 20, numSamples: 5 });
+// One suite — one exported IR file — for the whole corpus: a hundred random
+// types (nested, shared and randomly-bodied recursion, type values included)
+// with shallow sample values, replayed by the east-c and east-py compliance
+// harnesses. The generator is seeded, so the corpus reproduces across
+// exports. Test names carry the type's fingerprint — the hash of its canonical
+// beast2 type section — which names the same type in every process, where a
+// printed type would embed process-local ids.
+const fuzzTestCases = generateFuzzTestCases({ numTypes: 100, numSamples: 3, valueDepth: 3 });
 
-for (const tc of fuzzTestCases) {
-    // describeEast turns the suite name into the exported IR filename. A printed
-    // recursive type runs to hundreds of chars, and on Windows the C compliance
-    // harness can't open the resulting path (260-char MAX_PATH). Hash typeName to
-    // a short, stable id — typeNames are already unique (see seenTypes), so the
-    // truncated digest stays collision-free.
-    const typeId = createHash("sha256").update(tc.typeName).digest("hex").slice(0, 12);
-    await describe(`Patch Fuzz - ${typeId}`, (test) => {
-        test("diff/apply round trip", $ => {
+await describe("Patch Fuzz", (test) => {
+    for (const tc of fuzzTestCases) {
+        const typeId = tc.fingerprint;
+
+        test(`${typeId}: diff/apply round trip`, $ => {
             // Use 'as any' to bypass TypeScript's static type checking for dynamic types
             const pairs = $.const(tc.pairs as any, tc.pairsArrayType as any);
 
@@ -2025,7 +2026,7 @@ for (const tc of fuzzTestCases) {
             });
         });
 
-        test("invert round trip", $ => {
+        test(`${typeId}: invert round trip`, $ => {
             const pairs = $.const(tc.pairs as any, tc.pairsArrayType as any);
 
             $.for(pairs as any, ($, pair: any) => {
@@ -2040,7 +2041,7 @@ for (const tc of fuzzTestCases) {
             });
         });
 
-        test("compose round trip", $ => {
+        test(`${typeId}: compose round trip`, $ => {
             const trips = $.const(tc.triplets as any, tc.tripletsArrayType as any);
 
             $.for(trips as any, ($, trip: any) => {
@@ -2061,5 +2062,5 @@ for (const tc of fuzzTestCases) {
                 $(assert.equal(East.equal(step2 as any, v3 as any), true));
             });
         });
-    });
-}
+    }
+});
