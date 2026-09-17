@@ -138,7 +138,7 @@ describe('runner streaming execution', () => {
       },
     );
     const outputPath = join(tempDir, 'output.beast2');
-    await runProgram(writeIr(fn), [], [], [inputPath], outputPath, { emit: 'array', streamInput: 0 });
+    await runProgram(writeIr(fn), [], [], [inputPath], outputPath, { emit: 'array', streamInputs: [0] });
 
     const decoded = decodeBeast2For(AT)(new Uint8Array(readFileSync(outputPath)));
     assert.equal(decoded.length, 2500);

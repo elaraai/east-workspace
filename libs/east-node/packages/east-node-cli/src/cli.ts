@@ -5,10 +5,11 @@
 
 import { Command } from 'commander';
 import { writeFileSync } from 'node:fs';
+import { Worker } from 'node:worker_threads';
 import { createRequire } from 'module';
 import { EastError } from '@elaraai/east/internal';
 import { loadPlatforms, loadPlatformWithMetadata } from './loader.js';
-import { runProgram } from './runner.js';
+import { runProgram, type RunProgramOptions } from './runner.js';
 import { writeSnapshot, readSnapshot } from './snapshot.js';
 import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile.js';
 import { exportFunctionsFromModule } from './export-functions.js';
@@ -27,25 +28,37 @@ interface RunOptions {
     snapshot?: string;
     fromSnapshot?: string;
     emit?: string;
-    stream?: string;
+    stream?: string[];
+    merge?: string;
+    union?: boolean;
     lazyInputs?: string;
 }
 
 /** Parses the streaming-execution flags into runner options. */
-function streamingOptions(options: RunOptions): { emit?: 'array' | 'set' | 'dict'; streamInput?: number; lazyInputBytes?: number } {
-    const out: { emit?: 'array' | 'set' | 'dict'; streamInput?: number; lazyInputBytes?: number } = {};
+function streamingOptions(options: RunOptions): RunProgramOptions {
+    const out: RunProgramOptions = {};
     if (options.emit !== undefined) {
         if (options.emit !== 'array' && options.emit !== 'set' && options.emit !== 'dict') {
             throw new Error(`--emit must be one of array, set or dict, got '${options.emit}'`);
         }
         out.emit = options.emit;
     }
+    if (options.merge !== undefined) {
+        if (out.emit !== 'dict') throw new Error('--merge applies to --emit dict only');
+        out.merge = options.merge;
+    }
+    if (options.union) {
+        if (out.emit !== 'set') throw new Error('--union applies to --emit set only');
+        out.union = true;
+    }
     if (options.stream !== undefined) {
-        const index = Number(options.stream);
-        if (!Number.isInteger(index) || index < 0) {
-            throw new Error(`--stream must be a non-negative input index, got '${options.stream}'`);
-        }
-        out.streamInput = index;
+        out.streamInputs = options.stream.map((raw) => {
+            const index = Number(raw);
+            if (!Number.isInteger(index) || index < 0) {
+                throw new Error(`--stream must be a non-negative input index, got '${raw}'`);
+            }
+            return index;
+        });
     }
     if (options.lazyInputs !== undefined) {
         const bytes = Number(options.lazyInputs);
@@ -93,7 +106,46 @@ function fail(message: string): Promise<never> {
     });
 }
 
+/**
+ * The exit-with-parent watcher (issue #770), run on a worker thread: it blocks
+ * reading one byte at a time from stdin, and once a read returns end of file
+ * or fails it kills the whole process — `process.exit` inside a worker ends
+ * only the worker. A non-blocking stdin waits 50 ms between reads.
+ */
+const EXIT_WITH_PARENT_WATCHER = `
+const { readSync } = require('node:fs');
+const byte = Buffer.alloc(1);
+const pause = new Int32Array(new SharedArrayBuffer(4));
+for (;;) {
+    let n;
+    try {
+        n = readSync(0, byte, 0, 1, null);
+    } catch (err) {
+        if (err && err.code === 'EAGAIN') {
+            Atomics.wait(pause, 0, 0, 50);
+            continue;
+        }
+        break;
+    }
+    if (n === 0) break;
+}
+process.kill(process.pid, 'SIGKILL');
+`;
+
+/**
+ * Exit with the parent (issue #770): with `EAST_EXIT_WITH_PARENT=1` in the
+ * environment, start the watcher on an unref'd worker thread. A parent sets
+ * the variable only when it gives the runner a stdin pipe it never writes
+ * to, so the watcher's read returns only when that parent is gone. The runner
+ * never touches `process.stdin` meanwhile.
+ */
+function exitWithParent(): void {
+    if (process.env.EAST_EXIT_WITH_PARENT !== '1') return;
+    new Worker(EXIT_WITH_PARENT_WATCHER, { eval: true }).unref();
+}
+
 async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<void> {
+    exitWithParent();
     try {
         // --from-snapshot is exclusive with <ir_file>, -i, -p
         if (options.fromSnapshot) {
@@ -275,8 +327,11 @@ export function main(): void {
             'Replay from a .east-snapshot bundle (exclusive with <ir_file>, -i, -p)')
         .option('--emit <kind>',
             "Write the output incrementally from the function's trailing emit parameter (array|set|dict)")
-        .option('--stream <index>',
-            'Feed the given -i input (0-based) lazily, segment-by-segment')
+        .option('--merge <file>',
+            'With --emit dict: fold equal keys with the East function (K, V, V) -> V in <file>, in emission order')
+        .option('--union', 'With --emit set: collapse equal elements')
+        .option('--stream <index...>',
+            'Feed the given -i inputs (0-based) lazily, segment-by-segment (repeatable)')
         .option('--lazy-inputs <bytes>',
             'Open indexed collection inputs at or above this size lazily (0 disables; default 64 MiB)')
         .action(cmdRun);
