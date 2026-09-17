@@ -160,6 +160,65 @@ describe('LocalRefStore dataflow run (concurrent read/write)', () => {
   });
 });
 
+describe('LocalRefStore execution sidecars (#770)', () => {
+  let repo: string;
+  beforeEach(() => { repo = createTestRepo(); });
+  afterEach(() => { removeTestRepo(repo); });
+
+  const taskHash = 'a'.repeat(64);
+  const inputsHash = 'b'.repeat(64);
+  const executionId = '0190a0b0-2222-7000-8000-000000000000';
+
+  it('round-trips the owner as JSON beside the execution status', async () => {
+    const store = new LocalRefStore();
+    assert.strictEqual(await store.executionOwnerRead(repo, taskHash, inputsHash, executionId), null);
+
+    const owner = { pid: 4242, pidStartTime: 987654, bootId: 'boot-1' };
+    await store.executionOwnerWrite(repo, taskHash, inputsHash, executionId, owner);
+    assert.deepStrictEqual(await store.executionOwnerRead(repo, taskHash, inputsHash, executionId), owner);
+    const text = await fs.readFile(join(repo, 'executions', taskHash, inputsHash, executionId, 'owner'), 'utf-8');
+    assert.deepStrictEqual(JSON.parse(text), owner);
+  });
+
+  it('treats an owner sidecar that does not parse as unrecorded', async () => {
+    const store = new LocalRefStore();
+    const dir = join(repo, 'executions', taskHash, inputsHash, executionId);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(join(dir, 'owner'), '{"pid":"4242","pidStartTime":1,"bootId":"b"}\n');
+    assert.strictEqual(await store.executionOwnerRead(repo, taskHash, inputsHash, executionId), null);
+    await fs.writeFile(join(dir, 'owner'), 'not json');
+    assert.strictEqual(await store.executionOwnerRead(repo, taskHash, inputsHash, executionId), null);
+  });
+
+  it('points the inputs directory at a plan object without disturbing the execution listings', async () => {
+    const store = new LocalRefStore();
+    assert.strictEqual(await store.executionPlanRead(repo, taskHash, inputsHash), null);
+
+    const running: ExecutionStatus = variant('running', {
+      executionId,
+      inputHashes: [],
+      startedAt: new Date(0),
+      pid: 1234n,
+      pidStartTime: 5678n,
+      bootId: 'boot-id',
+    });
+    await store.executionWrite(repo, taskHash, inputsHash, executionId, running);
+    await store.executionOwnerWrite(repo, taskHash, inputsHash, executionId, { pid: 1, pidStartTime: 2, bootId: 'boot-id' });
+    await store.executionPlanWrite(repo, taskHash, inputsHash, 'c'.repeat(64));
+
+    assert.strictEqual(await store.executionPlanRead(repo, taskHash, inputsHash), 'c'.repeat(64));
+    assert.strictEqual(await fs.readFile(join(repo, 'executions', taskHash, inputsHash, 'plan'), 'utf-8'), 'c'.repeat(64) + '\n');
+    // Neither sidecar reads as an execution.
+    assert.deepStrictEqual(await store.executionListIds(repo, taskHash, inputsHash), [executionId]);
+    assert.deepStrictEqual(await store.executionListForTask(repo, taskHash), [inputsHash]);
+    assert.strictEqual((await store.executionGetLatest(repo, taskHash, inputsHash))?.type, 'running');
+
+    // A later plan replaces the pointer.
+    await store.executionPlanWrite(repo, taskHash, inputsHash, 'd'.repeat(64));
+    assert.strictEqual(await store.executionPlanRead(repo, taskHash, inputsHash), 'd'.repeat(64));
+  });
+});
+
 describe('LocalRefStore packageList', () => {
   let repo: string;
   beforeEach(() => { repo = createTestRepo(); });

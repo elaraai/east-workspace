@@ -7,7 +7,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import { ExecutionStatusType, DataflowRunType } from '@elaraai/e3-types';
-import type { ExecutionStatus, DataflowRun } from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, DataflowRun } from '@elaraai/e3-types';
 import type { RefStore } from '../interfaces.js';
 import { isNotFoundError, ExecutionCorruptError } from '../../errors.js';
 import { atomicWriteFile } from './localHelpers.js';
@@ -310,6 +310,61 @@ export class LocalRefStore implements RefStore {
       })
     );
     return entries.filter((e): e is { inputsHash: string; status: ExecutionStatus } => e !== null);
+  }
+
+  /**
+   * Writes the owner sidecar as JSON: executions/<taskHash>/<inputsHash>/<executionId>/owner
+   */
+  async executionOwnerWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, owner: ExecutionOwner): Promise<void> {
+    const ownerPath = path.join(this.executionDir(repo, taskHash, inputsHash, executionId), 'owner');
+    const record: ExecutionOwner = { pid: owner.pid, pidStartTime: owner.pidStartTime, bootId: owner.bootId };
+    await atomicWriteFile(ownerPath, JSON.stringify(record) + '\n');
+  }
+
+  async executionOwnerRead(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionOwner | null> {
+    const ownerPath = path.join(this.executionDir(repo, taskHash, inputsHash, executionId), 'owner');
+    let text: string;
+    try {
+      text = await fs.readFile(ownerPath, 'utf-8');
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        return null;
+      }
+      throw err;
+    }
+    // The owner is advisory: one that does not parse is treated as unrecorded,
+    // so the stale-`running` repair — which needs a recorded, dead owner —
+    // leaves the execution alone.
+    try {
+      const owner = JSON.parse(text) as Partial<ExecutionOwner>;
+      if (typeof owner.pid === 'number' && typeof owner.pidStartTime === 'number' && typeof owner.bootId === 'string') {
+        return { pid: owner.pid, pidStartTime: owner.pidStartTime, bootId: owner.bootId };
+      }
+    } catch {
+      // Not JSON: fall through to unrecorded.
+    }
+    return null;
+  }
+
+  /**
+   * Writes the plan sidecar: executions/<taskHash>/<inputsHash>/plan, the hash
+   * and a newline.
+   */
+  async executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string): Promise<void> {
+    await atomicWriteFile(path.join(this.inputsDir(repo, taskHash, inputsHash), 'plan'), planHash + '\n');
+  }
+
+  async executionPlanRead(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
+    try {
+      const content = await fs.readFile(path.join(this.inputsDir(repo, taskHash, inputsHash), 'plan'), 'utf-8');
+      const hash = content.trim();
+      return hash === '' ? null : hash;
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        return null;
+      }
+      throw err;
+    }
   }
 
   // -------------------------------------------------------------------------
