@@ -1701,6 +1701,8 @@ static int cli_main(void *arg)
 int main(int argc, char **argv)
 {
     east_init_crash_handling();
+    /* A parent that gave the runner a stdin lifeline takes it down with it. */
+    east_exit_with_parent();
     cli_args args = {argc, argv};
     return east_run_on_large_stack(cli_main, &args);
 }

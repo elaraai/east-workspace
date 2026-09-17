@@ -34,4 +34,14 @@
 #include "emit_sink.h"
 #include "file_map.h"
 
+/* Exit with the parent (issue #770). With EAST_EXIT_WITH_PARENT=1 in the
+ * environment, starts a detached watcher thread that blocks reading stdin and
+ * terminates the process with _exit(1) when the read returns end of file or
+ * an error. A parent sets the variable only when it gives the runner a stdin
+ * pipe it never writes to, so the read blocks until that parent dies. Any
+ * other value, or none, does nothing. The watcher touches no East value, so
+ * the single-thread contract above holds. A runner's main() calls it before
+ * any work starts. */
+void east_exit_with_parent(void);
+
 #endif

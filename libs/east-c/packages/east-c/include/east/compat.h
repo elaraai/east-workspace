@@ -344,9 +344,9 @@ static inline int east_random_bytes(void *buf, size_t len)
 /*                                                                     */
 /*  East VALUES never cross threads (the runtime's collector is per     */
 /*  thread); only plain bytes do. So this is deliberately a byte-worker */
-/*  shim — start/join, one mutex, condition variables, a CPU count —    */
-/*  not a general concurrency layer. POSIX threads everywhere but       */
-/*  Windows, where the Win32 primitives map one to one.                 */
+/*  shim — start/join/detach, one mutex, condition variables, a CPU     */
+/*  count — not a general concurrency layer. POSIX threads everywhere   */
+/*  but Windows, where the Win32 primitives map one to one.             */
 /* ================================================================== */
 
 #include <stdbool.h>
@@ -370,6 +370,12 @@ static inline bool east_thread_start(EastThread *t, EastThreadFn fn, void *arg)
 static inline void east_thread_join(EastThread t)
 {
     WaitForSingleObject(t, INFINITE);
+    CloseHandle(t);
+}
+/* Lets a started thread run on unjoined: the handle is closed, the thread
+ * keeps running until it returns or the process ends. */
+static inline void east_thread_detach(EastThread t)
+{
     CloseHandle(t);
 }
 static inline void east_mutex_init(EastMutex *m)
@@ -428,6 +434,12 @@ static inline bool east_thread_start(EastThread *t, EastThreadFn fn, void *arg)
 static inline void east_thread_join(EastThread t)
 {
     pthread_join(t, NULL);
+}
+/* Lets a started thread run on unjoined: its resources are released when it
+ * returns, and it keeps running until then or until the process ends. */
+static inline void east_thread_detach(EastThread t)
+{
+    pthread_detach(t);
 }
 static inline void east_mutex_init(EastMutex *m)
 {

@@ -13,6 +13,7 @@ set(EAST_C_SOURCES
     src/platform.c
     src/emit_sink.c
     src/file_map.c
+    src/exit_with_parent.c
     src/builtins/registry.c
     src/builtins/integer.c
     src/builtins/float_ops.c
