@@ -16,13 +16,20 @@ path and its duplicate-key check — issues #518, #770 — and finalization:
 terminator + index + footer), and the native function value that carries the
 sink's ``emit`` into the compiled body (issue #560 phase 2). The C sink writes
 its demote notice to the process's stderr, so those checks capture file
-descriptors. The last case drives the sink from python instead of from a
-compiled program — the harness route that issue #592 closed.
+descriptors. One case drives the sink from python instead of from a compiled
+program — the harness route that issue #592 closed.
+
+The issue #770 gates pin the folding sink (``--merge`` / ``--union`` write the
+bytes the flag-less sink writes for the folded sequence), its bounded runs (the
+``-v`` account: peak entries and bytes independent of the output's size, only
+the merge passes growing) and the ``EAST_EXIT_WITH_PARENT`` stdin lifeline.
 """
 
 import os
+import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -34,6 +41,7 @@ from east import (
     FunctionType,
     IntegerType,
     NullType,
+    SetType,
     StringType,
     platform_function,
 )
@@ -357,3 +365,132 @@ def test_snapshot_capture_refuses_streaming_flags(tmp_path, capsys):
     assert cmd_run(args) == 1
     assert "--snapshot does not capture --emit/--stream" in capsys.readouterr().err
     assert not (tmp_path / "snap.east-snapshot").exists()
+
+
+MERGE_CONCAT = FIXTURES / "emit_merge_concat.beast2"
+
+
+@pytest.mark.parametrize(
+    ("program", "run_cap", "demotes"),
+    [
+        ("emit_merge_ascending", None, False),
+        ("emit_merge_scattered", None, True),
+        ("emit_merge_scattered", "16", True),
+        ("emit_merge_scattered", "2", True),
+        ("emit_union_ascending", None, False),
+        ("emit_union_scattered", None, True),
+        ("emit_union_scattered", "16", True),
+        ("emit_union_scattered", "2", True),
+    ],
+)
+def test_folding_sink_writes_the_folded_sequence_byte_for_byte(
+    tmp_path, monkeypatch, capfd, program, run_cap, demotes
+):
+    # Issue #770: with --merge (dict) or --union (set) the sink folds equal
+    # keys in emission order, and the output is byte-identical to what the
+    # flag-less sink writes for the folded sequence. The ascending sequence
+    # folds on the straight-through path — key 999 into a full batch's last
+    # entry; the scattered one demotes, a duplicate of a prefix key follows,
+    # and the run cap moves its folds into the tail (the default), across
+    # runs (16), or across the runs of a two-pass merge (2).
+    kind = "dict" if program.startswith("emit_merge") else "set"
+    expected = tmp_path / "expected.beast2"
+    run_program(FIXTURES / f"{program}_folded.beast2", [], [], [], expected, emit=kind)
+
+    if run_cap is not None:
+        monkeypatch.setenv("EAST_EMIT_RUN_ELEMENTS", run_cap)
+    capfd.readouterr()
+    folded = tmp_path / "folded.beast2"
+    run_program(
+        FIXTURES / f"{program}.beast2", [], [], [], folded, emit=kind,
+        merge=MERGE_CONCAT if kind == "dict" else None, union=kind == "set",
+    )
+
+    assert ("left ascending order" in capfd.readouterr().err) == demotes
+    assert folded.read_bytes() == expected.read_bytes()
+    assert not list(tmp_path.glob("folded.beast2.run*"))
+
+
+_EMIT_EPILOGUE = re.compile(
+    r"emit: merged (?P<sources>\d+) source\(s\) in (?P<passes>\d+) pass\(es\) "
+    r"\((?P<runs_per_pass>\d+) runs per pass\); (?P<spills>\d+) spill\(s\), "
+    r"peak (?P<peak_entries>\d+) entries / (?P<peak_bytes>[\d.]+ [KM]?B) buffered"
+)
+
+
+def test_merge_passes_grow_while_the_sink_peak_stays_bounded(tmp_path, monkeypatch, capfd):
+    # Issue #770 gate (a): the sink's memory is bounded by its run caps, not by
+    # the output. Under a 64-entry run cap, 50,000 and 400,000 out-of-order
+    # emissions (every element encoded in the same number of bytes) report the
+    # same peak entries and bytes and merge 64 runs at once; only the passes
+    # grow — 783 sources (the demoted prefix, 781 spills, the tail) in 2,
+    # 6,251 in 3. A byte cap below one run's bytes spills by bytes: fewer
+    # entries per run than the element cap allows.
+    monkeypatch.setenv("EAST_EMIT_RUN_ELEMENTS", "64")
+
+    def account(fixture: str, out: str) -> dict[str, str]:
+        capfd.readouterr()
+        run_program(FIXTURES / fixture, [], [], [], tmp_path / out, verbose=True, emit="set")
+        err = capfd.readouterr().err
+        match = _EMIT_EPILOGUE.search(err)
+        assert match is not None, f"-v printed no emit epilogue:\n{err}"
+        return match.groupdict()
+
+    small = account("emit_scatter_50k.beast2", "small.beast2")
+    large = account("emit_scatter_400k.beast2", "large.beast2")
+    monkeypatch.setenv("EAST_EMIT_RUN_BYTES", "256")
+    by_bytes = account("emit_scatter_50k.beast2", "by_bytes.beast2")
+
+    assert small["peak_bytes"] == large["peak_bytes"]
+    assert (small["peak_entries"], small["runs_per_pass"]) == ("64", "64")
+    assert (large["peak_entries"], large["runs_per_pass"]) == ("64", "64")
+    assert (small["sources"], small["passes"]) == ("783", "2")
+    assert (large["sources"], large["passes"]) == ("6251", "3")
+    assert 0 < int(by_bytes["peak_entries"]) < 64
+    assert int(by_bytes["spills"]) > int(small["spills"])
+    assert read_beast2_index(SetType(IntegerType), (tmp_path / "large.beast2").read_bytes())[1] == 400_000
+    assert not list(tmp_path.glob("*.run*"))
+
+
+def test_a_runner_given_the_stdin_lifeline_exits_once_stdin_closes(tmp_path):
+    # Issue #770 gate (c): with EAST_EXIT_WITH_PARENT=1 and a stdin pipe
+    # nobody writes, the runner exits once that pipe closes — through east-c's
+    # native watcher, which runs while the body holds the GIL. The fixture's
+    # out-of-order second emission prints the sink's demote notice (the body
+    # is running), then the body loops forever.
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "east_py_cli", "run", str(FIXTURES / "emit_spin.beast2"),
+         "--emit", "set", "-o", str(tmp_path / "spin.beast2")],
+        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        env={**os.environ, "EAST_EXIT_WITH_PARENT": "1"},
+    )
+    stderr: list[bytes] = []
+    running = threading.Event()
+
+    def read_stderr() -> None:
+        assert proc.stderr is not None
+        for line in proc.stderr:
+            stderr.append(line)
+            if b"left ascending order" in line:
+                running.set()
+
+    reader = threading.Thread(target=read_stderr, daemon=True)
+    reader.start()
+    try:
+        # Bounded liveness waits: the interpreter's start-up, then the watcher.
+        assert running.wait(timeout=60), b"".join(stderr).decode(errors="replace")
+        assert proc.stdin is not None
+        proc.stdin.close()  # the lifeline closes
+        try:
+            returncode = proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pytest.fail("the runner outlived its closed stdin by 10 s")
+        reader.join(timeout=10)
+        # The watcher's exit, not an error's: exit 1 with nothing reported.
+        assert returncode == 1
+        assert b"Error" not in b"".join(stderr), b"".join(stderr).decode(errors="replace")
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        reader.join(timeout=10)

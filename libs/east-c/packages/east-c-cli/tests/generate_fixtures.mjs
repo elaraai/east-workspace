@@ -78,19 +78,97 @@ function nestedProducer(keys) {
   }).toIR();
 }
 
-/** The 0..count keys in a deterministic Fisher-Yates shuffle (fixed LCG
- *  seed), so the disorder the sink must absorb is stable across fixture
- *  regenerations. */
-function shuffledKeys(count) {
-  const keys = Array.from({ length: count }, (_, i) => BigInt(i));
+/** `items` in a deterministic Fisher-Yates shuffle (fixed LCG seed), so the
+ *  disorder the sink must absorb is stable across fixture regenerations. */
+function shuffled(items) {
+  const out = items.slice();
   let seed = 12345;
   const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
-  for (let i = keys.length - 1; i > 0; i--) {
+  for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(rnd() * (i + 1));
-    [keys[i], keys[j]] = [keys[j], keys[i]];
+    [out[i], out[j]] = [out[j], out[i]];
   }
-  return keys;
+  return out;
 }
+
+/** The 0..count keys in the deterministic shuffle. */
+function shuffledKeys(count) {
+  return shuffled(Array.from({ length: count }, (_, i) => BigInt(i)));
+}
+
+const PairT = StructType({ key: IntegerType, value: StringType });
+
+/** A dict producer emitting the given (key, value) pairs in order. */
+function pairEmitter(pairs) {
+  return East.function([emitPair], NullType, ($, emit) => {
+    $.for($.const(pairs, ArrayType(PairT)), ($, pair) => {
+      $(emit(pair.key, pair.value));
+    });
+  }).toIR();
+}
+
+/** A set producer emitting the given keys in order. */
+function keyEmitter(keys) {
+  return East.function([emitInt], NullType, ($, emit) => {
+    $.for($.const(keys, ArrayType(IntegerType)), ($, key) => {
+      $(emit(key));
+    });
+  }).toIR();
+}
+
+/** The fold contract's emission sequences (#770), as keys. `ascending` emits
+ *  0..1199 in order with adjacent duplicates: every third key twice, and key
+ *  999 — the last entry of a full 1000-element batch — four times.
+ *  `scattered` emits 0..19 in order, each twice, then 7 again (the first key
+ *  out of order: the prefix demotes, and 7 must fold across it), then 0..599
+ *  shuffled with one to three copies each, so equal keys meet in the prefix,
+ *  within a run and across runs. */
+function foldSequences() {
+  const ascending = [];
+  for (let k = 0; k < 1200; k++) {
+    const copies = 1 + (k % 3 === 0 ? 1 : 0) + (k % 1000 === 999 ? 2 : 0);
+    for (let c = 0; c < copies; c++) ascending.push(BigInt(k));
+  }
+  const rest = [];
+  for (let k = 0; k < 600; k++) {
+    const copies = 1 + (k % 4 === 1 ? 1 : 0) + (k % 7 === 2 ? 1 : 0);
+    for (let c = 0; c < copies; c++) rest.push(BigInt(k));
+  }
+  const scattered = [];
+  for (let k = 0; k < 20; k++) scattered.push(BigInt(k), BigInt(k));
+  scattered.push(7n, ...shuffled(rest));
+  return { ascending, scattered };
+}
+
+/** A key sequence as dict emissions — each value names its emission — and
+ *  its fold under the concatenating merge, ascending by key. */
+function foldPairs(keys) {
+  const pairs = keys.map((key, i) => ({ key, value: `${i};` }));
+  const folded = new Map();
+  for (const { key, value } of pairs) folded.set(key, (folded.get(key) ?? '') + value);
+  const ascending = [...folded].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return { pairs, folded: ascending.map(([key, value]) => ({ key, value })) };
+}
+
+/** A key sequence's union: its distinct keys, ascending. */
+function unionKeys(keys) {
+  return [...new Set(keys)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** A set producer emitting 0..count scattered by a multiplicative step and
+ *  offset by 10^12: every element distinct and encoded in the same number of
+ *  bytes, so the sink's peak buffered bytes depend on its run cap alone. */
+function scatterEmitter(count) {
+  return East.function([emitInt], NullType, ($, emit) => {
+    $.for(East.Array.range(0n, count), ($, i) => {
+      $(emit(i.multiply(7919n).remainder(count).add(1_000_000_000_000n)));
+    });
+  }).toIR();
+}
+
+const folds = foldSequences();
+const ascendingPairs = foldPairs(folds.ascending);
+const scatteredPairs = foldPairs(folds.scattered);
 
 const fixtures = {
   // Producer: no file inputs, 2500 emissions of i*2 through the trailing
@@ -266,6 +344,44 @@ const fixtures = {
     nestedProducer(Array.from({ length: 300 }, (_, i) => BigInt(i))),
   ),
   'emit_nested_shuffled.beast2': encodeEastIR(nestedProducer(shuffledKeys(300))),
+
+  // ---- Folding sinks, bounded runs, the lifeline (#770) ----------------
+
+  // The fold contract: each sequence emitted with --merge (dict) or --union
+  // (set), and the fold of that sequence emitted ascending for the flag-less
+  // sink — the two outputs must be byte-identical.
+  'emit_merge_concat.beast2': encodeEastIR(
+    East.function([IntegerType, StringType, StringType], StringType, (_$, _key, acc, value) =>
+      acc.concat(value),
+    ).toIR(),
+  ),
+  'emit_merge_ascending.beast2': encodeEastIR(pairEmitter(ascendingPairs.pairs)),
+  'emit_merge_ascending_folded.beast2': encodeEastIR(pairEmitter(ascendingPairs.folded)),
+  'emit_merge_scattered.beast2': encodeEastIR(pairEmitter(scatteredPairs.pairs)),
+  'emit_merge_scattered_folded.beast2': encodeEastIR(pairEmitter(scatteredPairs.folded)),
+  'emit_union_ascending.beast2': encodeEastIR(keyEmitter(folds.ascending)),
+  'emit_union_ascending_folded.beast2': encodeEastIR(keyEmitter(unionKeys(folds.ascending))),
+  'emit_union_scattered.beast2': encodeEastIR(keyEmitter(folds.scattered)),
+  'emit_union_scattered_folded.beast2': encodeEastIR(keyEmitter(unionKeys(folds.scattered))),
+
+  // Bounded runs: 50,000 and 400,000 out-of-order emissions, run under a tiny
+  // EAST_EMIT_RUN_ELEMENTS so the merge takes more passes as the output grows.
+  'emit_scatter_50k.beast2': encodeEastIR(scatterEmitter(50_000n)),
+  'emit_scatter_400k.beast2': encodeEastIR(scatterEmitter(400_000n)),
+
+  // The lifeline: two emissions out of order — the sink's demote notice on
+  // stderr says the body is running — then a loop that never ends, which only
+  // the EAST_EXIT_WITH_PARENT watcher stops.
+  'emit_spin.beast2': encodeEastIR(
+    East.function([emitInt], NullType, ($, emit) => {
+      $(emit(2n));
+      $(emit(1n));
+      const turns = $.let(0n);
+      $.while(true, ($) => {
+        $.assign(turns, turns.add(1n));
+      });
+    }).toIR(),
+  ),
 };
 
 for (const dir of targets) {

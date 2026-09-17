@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -36,6 +36,62 @@ import {
 } from '@elaraai/east';
 
 import { runProgram, lazyThreshold } from './runner.js';
+
+/** `items` in a deterministic Fisher-Yates shuffle (fixed LCG seed) — the
+ *  shuffle east-c-cli's generate_fixtures.mjs uses, so all three runners are
+ *  pinned against the same disorder. */
+function shuffled<T>(items: T[]): T[] {
+  const out = items.slice();
+  let seed = 12345;
+  const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
+/** Runs `run` with console.error captured; returns what it printed. */
+async function stderrOf(run: () => Promise<unknown>): Promise<string> {
+  const lines: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+  try {
+    await run();
+  } finally {
+    console.error = original;
+  }
+  return lines.join('\n');
+}
+
+/** Runs `run` with the given environment variables set (`undefined` unsets
+ *  one), restoring them afterwards. */
+async function withEnv<T>(vars: Record<string, string | undefined>, run: () => Promise<T>): Promise<T> {
+  const saved = Object.fromEntries(Object.keys(vars).map((name) => [name, process.env[name]]));
+  const apply = (values: Record<string, string | undefined>): void => {
+    for (const [name, value] of Object.entries(values)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  };
+  apply(vars);
+  try {
+    return await run();
+  } finally {
+    apply(saved);
+  }
+}
+
+/** `promise`'s value, or `undefined` once `ms` pass first — a bounded wait. */
+async function within<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), ms); });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 describe('runner output encoding', () => {
   let tempDir: string;
@@ -146,17 +202,10 @@ describe('runner streaming execution', () => {
     assert.equal(decoded[2499], (2499n * 2500n) / 2n);
   });
 
-  /** The 0..count keys in a deterministic Fisher-Yates shuffle, so the
-   *  disorder the sink must absorb is stable across runs. */
+  /** The 0..count keys in the deterministic shuffle, so the disorder the
+   *  sink must absorb is stable across runs. */
   function shuffledKeys(count: number): bigint[] {
-    const keys = Array.from({ length: count }, (_, i) => BigInt(i));
-    let seed = 12345;
-    const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
-    for (let i = keys.length - 1; i > 0; i--) {
-      const j = Math.floor(rnd() * (i + 1));
-      [keys[i], keys[j]] = [keys[j]!, keys[i]!];
-    }
-    return keys;
+    return shuffled(Array.from({ length: count }, (_, i) => BigInt(i)));
   }
 
   /** A dict producer emitting `row-${i}` for each key in the given order. */
@@ -361,6 +410,205 @@ describe('runner streaming execution', () => {
       runProgram(writeIr(dup), [], [], [], join(tempDir, 'dupset.beast2'), { emit: 'set' }),
       /duplicate Set element emitted/,
     );
+  });
+});
+
+describe('folding emit, bounded runs and the stdin lifeline (#770)', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'east-node-fold-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function writeIr(name: string, fn: { toIR(): any }): string {
+    const irPath = join(tempDir, name);
+    writeFileSync(irPath, encodeEastIR(fn.toIR()));
+    return irPath;
+  }
+
+  const PairType = StructType({ key: IntegerType, value: StringType });
+  const emitPairType = FunctionType([IntegerType, StringType], NullType);
+  const emitKeyType = FunctionType([IntegerType], NullType);
+  const ascendingBigints = (a: bigint, b: bigint): number => (a < b ? -1 : a > b ? 1 : 0);
+
+  /** The fold contract's emission sequences, as keys — the sequences
+   *  generate_fixtures.mjs writes for east-c and east-py. `ascending` emits
+   *  0..1199 in order with adjacent duplicates: every third key twice, and
+   *  key 999 — the last entry of a full 1000-element batch — four times.
+   *  `scattered` emits 0..19 in order, each twice, then 7 again (the first
+   *  key out of order: the prefix demotes, and 7 must fold across it), then
+   *  0..599 shuffled with one to three copies each, so equal keys meet in the
+   *  prefix, within a run and across runs. */
+  function foldSequence(name: 'ascending' | 'scattered'): bigint[] {
+    const keys: bigint[] = [];
+    if (name === 'ascending') {
+      for (let k = 0; k < 1200; k++) {
+        const copies = 1 + (k % 3 === 0 ? 1 : 0) + (k % 1000 === 999 ? 2 : 0);
+        for (let c = 0; c < copies; c++) keys.push(BigInt(k));
+      }
+      return keys;
+    }
+    const rest: bigint[] = [];
+    for (let k = 0; k < 600; k++) {
+      const copies = 1 + (k % 4 === 1 ? 1 : 0) + (k % 7 === 2 ? 1 : 0);
+      for (let c = 0; c < copies; c++) rest.push(BigInt(k));
+    }
+    for (let k = 0; k < 20; k++) keys.push(BigInt(k), BigInt(k));
+    keys.push(7n, ...shuffled(rest));
+    return keys;
+  }
+
+  /** A dict producer emitting the given (key, value) pairs in order. */
+  function pairEmitter(pairs: { key: bigint; value: string }[]) {
+    return East.function([emitPairType], NullType, ($, emit) => {
+      $.for($.const(pairs, ArrayType(PairType)), ($, pair) => {
+        $(emit(pair.key, pair.value));
+      });
+    });
+  }
+
+  /** A set producer emitting the given keys in order. */
+  function keyEmitter(keys: bigint[]) {
+    return East.function([emitKeyType], NullType, ($, emit) => {
+      $.for($.const(keys, ArrayType(IntegerType)), ($, key) => {
+        $(emit(key));
+      });
+    });
+  }
+
+  // The ascending sequence folds on the straight-through path — key 999 into
+  // a full batch's last entry; the scattered one demotes, and the run cap
+  // moves its folds into the tail (the default), across runs (16), or across
+  // the runs of a two-pass merge (2).
+  const foldCases = [
+    { sequence: 'ascending', runCap: undefined, demotes: false },
+    { sequence: 'scattered', runCap: undefined, demotes: true },
+    { sequence: 'scattered', runCap: '16', demotes: true },
+    { sequence: 'scattered', runCap: '2', demotes: true },
+  ] as const;
+
+  for (const { sequence, runCap, demotes } of foldCases) {
+    it(`--merge writes the folded ${sequence} sequence's bytes (run cap ${runCap ?? 'default'})`, async () => {
+      const pairs = foldSequence(sequence).map((key, i) => ({ key, value: `${i};` }));
+      const folded = new Map<bigint, string>();
+      for (const { key, value } of pairs) folded.set(key, (folded.get(key) ?? '') + value);
+      const foldedPairs = [...folded].sort(([a], [b]) => ascendingBigints(a, b)).map(([key, value]) => ({ key, value }));
+
+      const expectedPath = join(tempDir, 'expected.beast2');
+      await runProgram(writeIr('folded.beast2', pairEmitter(foldedPairs)), [], [], [], expectedPath, { emit: 'dict' });
+      const mergePath = writeIr('merge.beast2',
+        East.function([IntegerType, StringType, StringType], StringType, (_$, _key, acc, value) => acc.concat(value)));
+      const outputPath = join(tempDir, 'output.beast2');
+      const err = await withEnv({ EAST_EMIT_RUN_ELEMENTS: runCap }, () => stderrOf(() =>
+        runProgram(writeIr('program.beast2', pairEmitter(pairs)), [], [], [], outputPath, { emit: 'dict', merge: mergePath })));
+
+      assert.equal(err.includes('left ascending order'), demotes, err);
+      assert.deepEqual(new Uint8Array(readFileSync(outputPath)), new Uint8Array(readFileSync(expectedPath)),
+        'the folded output must be byte-identical to the flag-less sink\'s output for the folded sequence');
+      assert.ok(!existsSync(`${outputPath}.run0`) && !existsSync(`${outputPath}.run0.p1`), 'temporary runs are removed');
+    });
+
+    it(`--union writes the ${sequence} sequence's distinct keys' bytes (run cap ${runCap ?? 'default'})`, async () => {
+      const keys = foldSequence(sequence);
+      const distinct = [...new Set(keys)].sort(ascendingBigints);
+
+      const expectedPath = join(tempDir, 'expected.beast2');
+      await runProgram(writeIr('folded.beast2', keyEmitter(distinct)), [], [], [], expectedPath, { emit: 'set' });
+      const outputPath = join(tempDir, 'output.beast2');
+      const err = await withEnv({ EAST_EMIT_RUN_ELEMENTS: runCap }, () => stderrOf(() =>
+        runProgram(writeIr('program.beast2', keyEmitter(keys)), [], [], [], outputPath, { emit: 'set', union: true })));
+
+      assert.equal(err.includes('left ascending order'), demotes, err);
+      assert.deepEqual(new Uint8Array(readFileSync(outputPath)), new Uint8Array(readFileSync(expectedPath)),
+        'the union output must be byte-identical to the flag-less sink\'s output for the distinct keys');
+      assert.ok(!existsSync(`${outputPath}.run0`) && !existsSync(`${outputPath}.run0.p1`), 'temporary runs are removed');
+    });
+  }
+
+  it('the merge takes more passes as the output grows while the peak stays at the run caps', async () => {
+    // Gate (a): the sink's memory is bounded by its run caps, not by the
+    // output. Under a 64-entry run cap, 50,000 and 400,000 out-of-order
+    // emissions (every element encoded in the same number of bytes) report
+    // the same peak entries and bytes and merge 64 runs at once; only the
+    // passes grow — 783 sources (the demoted prefix, 781 spills, the tail) in
+    // 2, 6,251 in 3. A byte cap below one run's bytes spills by bytes: fewer
+    // entries per run than the element cap allows.
+    const scatter = (count: bigint) => East.function([emitKeyType], NullType, ($, emit) => {
+      $.for(East.Array.range(0n, count), ($, i) => {
+        $(emit(i.multiply(7919n).remainder(count).add(1_000_000_000_000n)));
+      });
+    });
+    const epilogue = /emit: merged (\d+) source\(s\) in (\d+) pass\(es\) \((\d+) runs per pass\); (\d+) spill\(s\), peak (\d+) entries \/ ([\d.]+ [KM]?B) buffered/;
+    const account = async (count: bigint, name: string, runBytes?: string) => {
+      const outputPath = join(tempDir, name);
+      const err = await withEnv({ EAST_EMIT_RUN_ELEMENTS: '64', EAST_EMIT_RUN_BYTES: runBytes }, () => stderrOf(() =>
+        runProgram(writeIr('scatter.beast2', scatter(count)), [], [], [], outputPath, { emit: 'set', verbose: true })));
+      const match = epilogue.exec(err);
+      assert.ok(match !== null, `-v printed no emit epilogue:\n${err}`);
+      const [, sources, passes, runsPerPass, spills, peakEntries, peakBytes] = match;
+      return { sources: Number(sources), passes: Number(passes), runsPerPass: Number(runsPerPass), spills: Number(spills), peakEntries: Number(peakEntries), peakBytes };
+    };
+
+    const small = await account(50_000n, 'small.beast2');
+    const large = await account(400_000n, 'large.beast2');
+    const byBytes = await account(50_000n, 'by-bytes.beast2', '256');
+
+    assert.equal(small.peakBytes, large.peakBytes, 'the peak bytes do not depend on the output');
+    assert.deepEqual([small.peakEntries, small.runsPerPass, large.peakEntries, large.runsPerPass], [64, 64, 64, 64]);
+    assert.deepEqual([small.sources, small.passes], [783, 2]);
+    assert.deepEqual([large.sources, large.passes], [6251, 3]);
+    assert.ok(byBytes.peakEntries > 0 && byBytes.peakEntries < 64, `a 256-byte cap spills by bytes: peak ${byBytes.peakEntries} entries`);
+    assert.ok(byBytes.spills > small.spills, `${byBytes.spills} spills under the byte cap, ${small.spills} under the element cap alone`);
+    assert.equal(openBeast2PagesFor(SetType(IntegerType))(new Uint8Array(readFileSync(join(tempDir, 'large.beast2')))).elementCount, 400_000);
+    assert.ok(!existsSync(join(tempDir, 'large.beast2.run0')) && !existsSync(join(tempDir, 'large.beast2.run0.p1')), 'temporary runs are removed');
+  });
+
+  it('a runner given the stdin lifeline exits once its stdin closes, mid-computation', async () => {
+    // Gate (c): with EAST_EXIT_WITH_PARENT=1 and a stdin pipe nobody writes,
+    // the runner exits once that pipe closes. The body's out-of-order second
+    // emission prints the sink's demote notice (the body is running), then
+    // the body loops forever — only the watcher stops it.
+    const spin = East.function([emitKeyType], NullType, ($, emit) => {
+      $(emit(2n));
+      $(emit(1n));
+      const turns = $.let(0n);
+      $.while(true, ($) => {
+        $.assign(turns, turns.add(1n));
+      });
+    });
+    const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
+    // As in the wide-input test: point the platform loader at east-node-std.
+    const stdDir = fileURLToPath(new URL('../../east-node-std', import.meta.url));
+    const child = spawn(process.execPath,
+      [bin, 'run', writeIr('spin.beast2', spin), '-p', '@elaraai/east-node-std', '--emit', 'set', '-o', join(tempDir, 'spin-output.beast2')],
+      { env: { ...process.env, EAST_EXIT_WITH_PARENT: '1', E3_RUNNER_SEARCH_DIRS: stdDir }, stdio: ['pipe', 'ignore', 'pipe'] });
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      child.on('exit', (code, signal) => resolve({ code, signal }));
+    });
+    let stderr = '';
+    const running = new Promise<boolean>((resolve) => {
+      child.stderr!.setEncoding('utf8');
+      child.stderr!.on('data', (chunk: string) => {
+        stderr += chunk;
+        if (stderr.includes('left ascending order')) resolve(true);
+      });
+      void exited.then(() => resolve(false));
+    });
+    try {
+      // Bounded liveness waits: start-up, then the watcher.
+      assert.equal(await within(running, 30_000), true, `the runner never reported its body running:\n${stderr}`);
+      child.stdin!.destroy(); // the lifeline closes
+      const outcome = await within(exited, 10_000);
+      assert.ok(outcome !== undefined, 'the runner outlived its closed stdin by 10 s');
+      // The watcher kills the whole process: nothing else sends it SIGKILL.
+      if (process.platform !== 'win32') assert.equal(outcome.signal, 'SIGKILL', stderr);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }
   });
 });
 

@@ -37,21 +37,59 @@ The CLI loads the standard platform from `east-c-std` by default. Custom platfor
 
 A function whose trailing parameter is an emit capability writes its output
 incrementally instead of returning it; a large collection input can be fed
-lazily, one decoded segment at a time:
+lazily, one decoded segment at a time (`--stream` is repeatable):
 
 ```bash
 # Emit a Dict (or array / set) through the trailing parameter, feeding
-# input 0 lazily from an indexed beast2 blob
-east-c run task.beast2 -i rows.beast2 --stream 0 --emit dict -o out.beast2 -v
+# inputs 0 and 1 lazily from indexed beast2 blobs
+east-c run task.beast2 -i rows.beast2 -i more.beast2 --stream 0 --stream 1 \
+    --emit dict -o out.beast2 -v
 ```
 
 Dict and Set emissions may arrive in any order. While they ascend, segments
 stream straight to the output; on the first out-of-order key the sink
 encodes each further emission as it arrives, keeps only the key, and spills
-sorted runs of `EAST_EMIT_RUN_ELEMENTS` entries (default 100000) beside the
-output as raw byte records, merging them at the end by decoding keys only.
-With `-v` the epilogue reports the spills, the peak entries and bytes
-buffered, and the time spent spilling and merging.
+a sorted run beside the output as raw byte records once the buffered entries
+reach `EAST_EMIT_RUN_ELEMENTS` (default 100000) or their encoded bytes reach
+`EAST_EMIT_RUN_BYTES` (default 64 MiB). The finish merges the runs by
+decoding keys, at most 64 runs at once — more merge in passes, through
+intermediate runs named `<output>.run<N>.p<pass>` — so the sink's memory is
+bounded by the two caps whatever the size of the output or the width of its
+rows, and the output is byte-identical to what an ascending producer writes.
+
+Equal keys are an error unless the sink folds them:
+
+```bash
+# Dict: fold the values of equal keys with an East function (K, V, V) -> V
+east-c run task.beast2 --emit dict --merge merge.beast2 -o out.beast2
+
+# Set: keep one of equal elements
+east-c run task.beast2 --emit set --union -o out.beast2
+```
+
+`--merge` takes an IR file in any format the program itself may use, compiled
+with the run's `-p` platforms; its signature must match the emit parameter's
+key and value types. Equal keys fold left in emission order, `acc = merge(key,
+acc, value)`, and the output is byte-identical to what the sink writes without
+the flag for the already-folded sequence. The sink may fold some of a key's
+values before combining them with the rest, so the function must be
+associative.
+
+With `-v`, a run whose emissions left ascending order ends with the sink's
+account — the sources merged, the passes, the most runs one merge read, the
+spills, and the most entries and bytes held at once:
+
+```text
+  emit: merged 783 source(s) in 2 pass(es) (64 runs per pass); 781 spill(s), peak 64 entries / 384 B buffered, spill 8.2 ms, merge 22.6 ms
+```
+
+### Exiting with the parent
+
+With `EAST_EXIT_WITH_PARENT=1` in its environment the runner watches its
+stdin on a thread of its own and exits with status 1 as soon as a read returns
+end of file or fails. A parent that spawns the runner with a stdin pipe it
+never writes to — as e3 does — takes the runner down with it when it dies,
+even while the body is computing. Without the variable, stdin is left alone.
 
 ### Profiling
 
