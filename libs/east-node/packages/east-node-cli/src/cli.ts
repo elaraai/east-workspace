@@ -107,37 +107,36 @@ function fail(message: string): Promise<never> {
 }
 
 /**
- * The exit-with-parent watcher (issue #770), run on a worker thread: it blocks
- * reading one byte at a time from stdin, and once a read returns end of file
- * or fails it kills the whole process — `process.exit` inside a worker ends
- * only the worker. A non-blocking stdin waits 50 ms between reads.
+ * The exit-with-parent watcher (issue #770), run on a worker thread: it reads
+ * stdin through a socket on the worker's own event loop, and once stdin ends,
+ * closes or cannot be read it kills the whole process — `process.exit` inside
+ * a worker ends only the worker.
+ *
+ * It never blocks in a read. Process exit joins worker threads, so a worker
+ * blocked in `fs.readSync(0)` keeps the runner from ever exiting: a read that
+ * starts before stdin is non-blocking stays blocked, and on Windows libuv
+ * keeps pipes in blocking mode. An evented read stops with the worker's loop.
  */
 const EXIT_WITH_PARENT_WATCHER = `
-const { readSync } = require('node:fs');
-const byte = Buffer.alloc(1);
-const pause = new Int32Array(new SharedArrayBuffer(4));
-for (;;) {
-    let n;
-    try {
-        n = readSync(0, byte, 0, 1, null);
-    } catch (err) {
-        if (err && err.code === 'EAGAIN') {
-            Atomics.wait(pause, 0, 0, 50);
-            continue;
-        }
-        break;
-    }
-    if (n === 0) break;
+const { Socket } = require('node:net');
+const stop = () => process.kill(process.pid, 'SIGKILL');
+try {
+    const stdin = new Socket({ fd: 0, readable: true, writable: false });
+    stdin.on('end', stop);
+    stdin.on('close', stop);
+    stdin.on('error', stop);
+    stdin.resume();
+} catch {
+    stop();
 }
-process.kill(process.pid, 'SIGKILL');
 `;
 
 /**
  * Exit with the parent (issue #770): with `EAST_EXIT_WITH_PARENT=1` in the
  * environment, start the watcher on an unref'd worker thread. A parent sets
  * the variable only when it gives the runner a stdin pipe it never writes
- * to, so the watcher's read returns only when that parent is gone. The runner
- * never touches `process.stdin` meanwhile.
+ * to, so stdin ends only when that parent is gone. The main thread never
+ * reads `process.stdin`.
  */
 function exitWithParent(): void {
     if (process.env.EAST_EXIT_WITH_PARENT !== '1') return;

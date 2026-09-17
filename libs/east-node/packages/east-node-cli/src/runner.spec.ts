@@ -11,7 +11,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -608,6 +608,52 @@ describe('folding emit, bounded runs and the stdin lifeline (#770)', () => {
       if (process.platform !== 'win32') assert.equal(outcome.signal, 'SIGKILL', stderr);
     } finally {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }
+  });
+
+  it('a runner given the stdin lifeline exits when its body returns, its watcher long since reading', async () => {
+    // Gate (c): the watcher never holds up the runner's own exit. The only
+    // platform is an empty package, so nothing in the runner touches stdin and
+    // it stays the pipe the parent made. The body computes long enough for the
+    // watcher to be reading stdin when it returns, and stdin stays open: the
+    // runner must still exit 0 with its output written. (A watcher blocked in
+    // a synchronous read kept such a runner alive forever: process exit joins
+    // the worker thread.)
+    const platformDir = join(tempDir, 'node_modules', 'empty-platform');
+    mkdirSync(platformDir, { recursive: true });
+    writeFileSync(join(platformDir, 'package.json'), JSON.stringify({
+      name: 'empty-platform',
+      version: '0.0.0',
+      type: 'module',
+      exports: { './platform': './platform.js', './package.json': './package.json' },
+    }));
+    writeFileSync(join(platformDir, 'platform.js'), 'export default [];\n');
+    const busy = East.function([], IntegerType, ($) => {
+      const turns = $.let(0n);
+      $.while(turns.lessThan(30_000_000n), ($) => {
+        $.assign(turns, turns.add(1n));
+      });
+      return turns;
+    });
+    const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
+    const outputPath = join(tempDir, 'busy-output.beast2');
+    const child = spawn(process.execPath, [bin, 'run', writeIr('busy.beast2', busy), '-p', 'empty-platform', '-o', outputPath],
+      { env: { ...process.env, EAST_EXIT_WITH_PARENT: '1', E3_RUNNER_SEARCH_DIRS: tempDir }, stdio: ['pipe', 'ignore', 'pipe'] });
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      child.on('exit', (code, signal) => resolve({ code, signal }));
+    });
+    let stderr = '';
+    child.stderr!.setEncoding('utf8');
+    child.stderr!.on('data', (chunk: string) => { stderr += chunk; });
+    try {
+      // A bounded liveness wait; the lifeline stays open throughout.
+      const outcome = await within(exited, 60_000);
+      assert.ok(outcome !== undefined, `the runner did not exit within 60 s of starting:\n${stderr}`);
+      assert.deepEqual(outcome, { code: 0, signal: null }, stderr);
+      assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 30_000_000n);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      child.stdin!.destroy();
     }
   });
 });
