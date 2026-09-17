@@ -52,7 +52,7 @@ export async function startCommand(
   const controller = new AbortController();
   let aborted = false;
 
-  // Handle SIGINT (Ctrl+C) and SIGTERM gracefully
+  // Handle SIGINT (Ctrl+C), SIGTERM and SIGHUP (a closed terminal) gracefully
   const signalHandler = (signal: string) => {
     console.log('');
     console.log(`Received ${signal}, aborting...`);
@@ -62,6 +62,7 @@ export async function startCommand(
 
   process.on('SIGINT', () => signalHandler('SIGINT'));
   process.on('SIGTERM', () => signalHandler('SIGTERM'));
+  process.on('SIGHUP', () => signalHandler('SIGHUP'));
 
   try {
     const location = await parseRepoLocation(repoArg);
@@ -177,9 +178,14 @@ async function executeLocal(
     },
     onPartitionProgress: (task, progress) => {
       if (progress.state !== 'completed') return;
-      const label = progress.phase === 'combine' ? 'MERGE' : 'PART';
       const cached = progress.cached ? ' (cached)' : '';
-      console.log(`  [${label}] ${task} ${progress.index + 1}/${progress.total}${cached} [${Math.round(progress.duration ?? 0)}ms]`);
+      const duration = `[${Math.round(progress.duration ?? 0)}ms]`;
+      if (progress.phase === 'partition') {
+        console.log(`  [PART] ${task} ${progress.completed}/${progress.total} #${progress.index + 1}${cached} ${duration}`);
+      } else {
+        const label = progress.phase === 'merge' ? 'MERGE' : 'COMBINE';
+        console.log(`  [${label}] ${task} ${progress.completed}/${progress.total}${cached} ${duration}`);
+      }
     },
   });
 
@@ -372,6 +378,9 @@ function printTaskResult(result: TaskCompletedCallback): void {
       break;
     case 'skipped':
       console.log(`  [SKIP] ${result.name}`);
+      break;
+    case 'cancelled':
+      console.log(`  [CANCELLED] ${result.name}`);
       break;
   }
 }

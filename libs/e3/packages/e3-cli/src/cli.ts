@@ -264,10 +264,11 @@ program
     new Command('logs')
       .description('View logs for a task')
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
-      .argument('<path>', 'Task path (<ws>.<task>)')
+      .argument('[path]', 'Task path (<ws>.<task>)')
       .option('-n, --lines <n>', `Show the last <n> lines (default: ${DEFAULT_TAIL_LINES})`)
       .option('--all', 'Show the whole log instead of the last lines')
       .option('--follow', 'Follow log output')
+      .option('--execution <ref>', "View one execution's logs by <taskHash>/<inputsHash>/<executionId>, as a partitioned task's log names its units (local repositories)")
       .action(withDefaultRepo(logsCommand))
   );
 

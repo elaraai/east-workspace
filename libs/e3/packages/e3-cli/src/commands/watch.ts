@@ -177,7 +177,8 @@ export async function watchCommand(
         onTaskComplete: (taskResult: TaskCompletedCallback) => {
           const status = taskResult.state === 'success' ? 'DONE' :
                         taskResult.state === 'failed' ? 'FAIL' :
-                        taskResult.state === 'skipped' ? 'SKIP' : 'ERR';
+                        taskResult.state === 'skipped' ? 'SKIP' :
+                        taskResult.state === 'cancelled' ? 'CANCELLED' : 'ERR';
           const cached = taskResult.cached ? ' (cached)' : '';
           const duration = taskResult.duration > 0 ? ` [${taskResult.duration}ms]` : '';
           console.log(`  [${status}] ${taskResult.name}${cached}${duration}`);
@@ -313,6 +314,7 @@ export async function watchCommand(
 
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
+  process.on('SIGHUP', cleanup);
 
   // Debug: show what files are being watched
   console.log(`Watching ${watchers.size} files:`);
