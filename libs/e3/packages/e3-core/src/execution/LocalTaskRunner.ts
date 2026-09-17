@@ -208,20 +208,41 @@ export async function taskExecute(
   }
 
   // Partitioned tasks fan out below this point: carve the partitioned
-  // input(s), run each slice through the standard path as its own
-  // content-addressed execution, and splice/combine the shards. Loaded
-  // lazily — partitionExec imports back into this module for the standard
-  // per-slice path.
+  // input(s), run each slice as its own content-addressed execution, and
+  // splice/combine the shards. Every unit that misses the cache runs the
+  // standard body in this process under fresh ids. Loaded lazily —
+  // partitionExec imports back into this module for the cache probe and the
+  // standard body.
   if (task.kind.type === 'some' && task.kind.value === TASK_KIND_PARTITION) {
     const { partitionTaskExecute } = await import('./partitionExec.js');
-    return partitionTaskExecute(storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options);
+    return partitionTaskExecute(
+      storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options,
+      (unitTaskHash, unitTask, unitInputs, unitOptions) => taskExecuteBody(
+        storage, repo, unitTaskHash, unitTask, unitInputs,
+        { inHash: inputsHash(unitInputs), executionId: uuidv7(), startTime: Date.now() },
+        unitOptions,
+      ),
+    );
   }
 
   return taskExecuteBody(storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options);
 }
 
-/** Probes the execution cache for a successful prior execution. */
-async function probeExecutionCache(
+/**
+ * Probes the execution cache for a successful prior execution.
+ *
+ * Exported for the partition executor, which probes every unit of a
+ * partitioned task before running it.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param taskHash - Hash of the task object
+ * @param inHash - Combined inputs hash
+ * @returns The cached result, or `null` when no successful execution exists
+ *
+ * @internal
+ */
+export async function probeExecutionCache(
   storage: StorageBackend,
   repo: string,
   taskHash: string,
@@ -255,35 +276,6 @@ export interface ExecutionIds {
   executionId: string;
   /** Wall-clock start of the attempt (epoch ms). */
   startTime: number;
-}
-
-/**
- * Executes one content-addressed execution of an already-decoded task
- * through the standard marshal → spawn → store path, with the ordinary
- * cache probe.
- *
- * Partition fan-out uses this for its per-slice and combine executions —
- * dispatching through {@link taskExecute} would re-enter the partition path
- * on the same task object.
- *
- * @internal
- */
-export async function taskExecuteStandard(
-  storage: StorageBackend,
-  repo: string,
-  taskHash: string,
-  task: TaskObject,
-  inputHashes: string[],
-  options: ExecuteOptions = {}
-): Promise<ExecutionResult> {
-  const inHash = inputsHash(inputHashes);
-  const startTime = Date.now();
-  if (!options.force) {
-    const cached = await probeExecutionCache(storage, repo, taskHash, inHash);
-    if (cached !== null) return cached;
-  }
-  const executionId = uuidv7();
-  return taskExecuteBody(storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options);
 }
 
 /** The standard execution body: scratch dir, input marshalling, command IR

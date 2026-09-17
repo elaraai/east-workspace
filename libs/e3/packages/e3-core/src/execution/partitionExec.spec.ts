@@ -28,14 +28,19 @@ import {
   WorkspaceStateType,
   DatasetRefType,
   TASK_KIND_PARTITION,
+  decodePartitionPlan,
+  decodeTaskObject,
   encodePartitionTaskMetadata,
   type PackageObject,
   type TaskObject,
   type TreePath,
 } from '@elaraai/e3-types';
 import type { PartitionProgress } from '@elaraai/e3-types';
-import { taskExecute } from './LocalTaskRunner.js';
+import { taskExecute, taskExecuteBody, type ExecuteOptions } from './LocalTaskRunner.js';
+import { carvePartitionSlices, partitionTaskExecute, spliceBlobs, type PartitionUnitExecutor } from './partitionExec.js';
 import { bufferPart, spliceChunks } from './partitionIo.js';
+import { inputsHash } from '../executions.js';
+import { uuidv7 } from '../uuid.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { repoGc } from '../storage/local/gc.js';
 import { createTestRepo, removeTestRepo } from '../test-helpers.js';
@@ -406,6 +411,151 @@ describe('partitionTaskExecute', () => {
       { phase: 'partition', index: 0, total: 1, completed: 0, state: 'started' },
       { phase: 'partition', index: 0, total: 1, completed: 1, state: 'completed', cached: false, duration: events[1]?.duration },
     ]);
+  });
+
+  /** Counts streamed object writes — slice carves and output splices. */
+  function countStreamWrites(): { readonly count: number } {
+    const counter = { count: 0 };
+    const objects = storage.objects;
+    const origWriteStream = objects.writeStream.bind(objects);
+    objects.writeStream = (r: string, s: AsyncIterable<Uint8Array>) => {
+      counter.count++;
+      return origWriteStream(r, s);
+    };
+    return counter;
+  }
+
+  it('records the completed plan and reuses its slices on a forced re-run', async () => {
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const fnIrHash = await createDummyFnIr();
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
+
+    const first = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(first.state, 'success', first.error ?? '');
+
+    // The plan sidecar names the completed plan: a cut at each of the ten
+    // segments, no secondaries, and one carved slice per partition.
+    const planHash = await storage.refs.executionPlanRead!(repo, taskHash, first.inputsHash);
+    assert.notEqual(planHash, null);
+    const plan = decodePartitionPlan(await storage.objects.read(repo, planHash!));
+    assert.deepEqual(plan.partitions, [tableHash]);
+    assert.deepEqual(plan.boundaries, Array.from({ length: 10 }, (_, i) => BigInt(i)));
+    assert.deepEqual(plan.splits, []);
+    assert.equal(plan.slices.length, 1);
+    assert.equal(plan.slices[0]!.length, 10);
+    // Carving is a pure function of the plan.
+    assert.deepEqual(await carvePartitionSlices(storage, repo, plan, 3), [plan.slices[0]![3]]);
+
+    // A forced re-run executes every partition again but carves nothing: the
+    // output splice is its only streamed write.
+    const streamWrites = countStreamWrites();
+    const second = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], { force: true });
+    assert.equal(second.state, 'success', second.error ?? '');
+    assert.equal(second.outputHash, tableHash);
+    assert.equal(streamWrites.count, 1, 'only the output splice is streamed');
+    for (const slice of plan.slices[0]!) {
+      const ids = await storage.refs.executionListIds(repo, taskHash, inputsHash([fnIrHash, slice]));
+      assert.equal(ids.length, 2, 'every partition executed on both runs');
+    }
+  });
+
+  it('carves again when a slice the recorded plan names no longer exists', async () => {
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const fnIrHash = await createDummyFnIr();
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
+
+    const first = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(first.state, 'success', first.error ?? '');
+    const planHash = await storage.refs.executionPlanRead!(repo, taskHash, first.inputsHash);
+    const plan = decodePartitionPlan(await storage.objects.read(repo, planHash!));
+
+    // The store reports one recorded slice missing, as after a gc sweep.
+    const gone = plan.slices[0]![3]!;
+    const objects = storage.objects;
+    const origStat = objects.stat.bind(objects);
+    let reportedGone = false;
+    objects.stat = (r: string, h: string) => {
+      if (h === gone && !reportedGone) {
+        reportedGone = true;
+        return Promise.reject(new Error(`object ${h} not found`));
+      }
+      return origStat(r, h);
+    };
+    const streamWrites = countStreamWrites();
+
+    const second = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], { force: true });
+    assert.equal(second.state, 'success', second.error ?? '');
+    assert.equal(second.outputHash, tableHash);
+    assert.ok(reportedGone, 'the reuse check looked the slice up');
+    assert.equal(streamWrites.count, 11, 'all ten partitions carve again, then the output splices');
+  });
+
+  it('carves a partition when a worker picks it up, and records no plan until every partition has run', async () => {
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const fnIrHash = await createDummyFnIr();
+    const failFn = East.function(
+      [ArrayType(StringType), StringType],
+      ArrayType(StringType),
+      (_$, _inputs, _output) => ['bash', '-c', 'exit 3'],
+    );
+    const commandIrHash = await objectWrite(repo, encodeBeast2For(IRType)(failFn.toIR().ir));
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1, commandIrHash });
+    const streamWrites = countStreamWrites();
+
+    // One worker: the first partition fails, so the pool stops before
+    // picking up another.
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], { partitionConcurrency: 1 });
+    assert.equal(result.state, 'failed');
+    assert.equal(streamWrites.count, 1, 'only the first partition was carved');
+    assert.equal(await storage.refs.executionPlanRead!(repo, taskHash, result.inputsHash), null);
+  });
+
+  it('runs a unit through executeUnit only when the execution cache misses', async () => {
+    const fnIrHash = await createDummyFnIr();
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
+    const v1Hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const first = await taskExecute(storage, repo, taskHash, [fnIrHash, v1Hash]);
+    assert.equal(first.state, 'success', first.error ?? '');
+
+    const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
+    const units: string[][] = [];
+    const executeUnit: PartitionUnitExecutor = (unitTaskHash, unitTask, unitInputs, unitOptions) => {
+      units.push(unitInputs);
+      return taskExecuteBody(storage, repo, unitTaskHash, unitTask, unitInputs,
+        { inHash: inputsHash(unitInputs), executionId: uuidv7(), startTime: Date.now() }, unitOptions);
+    };
+    const run = (inputs: string[], options: ExecuteOptions) => partitionTaskExecute(
+      storage, repo, taskHash, task, inputs,
+      { inHash: inputsHash(inputs), executionId: uuidv7(), startTime: Date.now() }, options, executeUnit);
+
+    // An append leaves the first ten slices byte-identical: only the new
+    // tail partition misses the cache.
+    const v2Hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1100)));
+    const appended = await run([fnIrHash, v2Hash], {});
+    assert.equal(appended.state, 'success', appended.error ?? '');
+    assert.equal(appended.outputHash, v2Hash);
+    assert.equal(units.length, 1, 'only the tail partition runs');
+
+    // `force` skips the probe: every partition runs.
+    units.length = 0;
+    const forced = await run([fnIrHash, v2Hash], { force: true });
+    assert.equal(forced.state, 'success', forced.error ?? '');
+    assert.equal(units.length, 11);
+  });
+
+  it('spliceBlobs splices stored blobs in order, and refuses keys that do not ascend', async () => {
+    const encode = encodeBeast2PagedFor(TableType, { batchSize: 100 });
+    const lowHash = await storage.objects.write(repo, encode(makeTable(250)));
+    const highHash = await storage.objects.write(repo, encode(makeTable(250, 250)));
+
+    const spliced = await storage.objects.read(repo, await spliceBlobs(storage, repo, [lowHash, highHash]));
+    assert.ok(equalFor(TableType)(decodeBeast2For(TableType)(spliced), makeTable(500)));
+    assert.equal(readBeast2Extents(spliced).offsets.length, 6, 'both blobs keep their segments');
+
+    await assert.rejects(
+      spliceBlobs(storage, repo, [highHash, lowHash]),
+      /blobs 1 and 2 of 2 do not ascend disjointly in key order/,
+    );
   });
 
   it('reports per-unit progress across the fan-out and every combine level', async () => {

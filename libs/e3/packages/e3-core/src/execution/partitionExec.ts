@@ -10,12 +10,14 @@
  * A partition task is one logical task node with one output dataset. At run
  * time this module: reads the primary partitioned input's segment index →
  * chooses partition boundaries (deterministically, from the index + the `by`
- * projection + `targetPartitionBytes`) → carves per-partition slices (byte
- * copy; at most the two edge segments of each co-partitioned secondary are
- * re-encoded) → runs each partition as an ordinary content-addressed
- * execution through the standard runner path → assembles the output by byte
- * splice (validating the canonical shard order), by a k-way SEGMENT MERGE of
- * keyed partials that may collide (`partitionMerge.ts` — byte-copying every
+ * projection + `targetPartitionBytes`) and each co-partitioned secondary's
+ * split points — the partition PLAN → carves a partition's slices when a
+ * worker picks it up (byte copy; at most the two edge segments of each
+ * secondary are re-encoded), reusing the slices a previous run of the same
+ * plan recorded → runs each partition as an ordinary content-addressed
+ * execution, probed in the execution cache first → assembles the output by
+ * byte splice (validating the canonical shard order), by a k-way SEGMENT MERGE
+ * of keyed partials that may collide (`partitionMerge.ts` — byte-copying every
  * segment no other partial reaches, decoding only the overlaps), or by folding
  * partials pairwise through combine executions.
  *
@@ -40,25 +42,31 @@ import { variant } from '@elaraai/east';
 import {
   compareFor,
   decodeEastIR,
+  equalFor,
   rebuildBeast2,
 } from '@elaraai/east';
 import type { EastTypeValue, FunctionTypeValue } from '@elaraai/east';
 import { PartitionBlob, bufferPart, spliceChunks, type SplicePart } from './partitionIo.js';
 import { mergePartialsBySegments, type MergeResolve } from './partitionMerge.js';
 import {
+  PartitionPlanType,
+  decodePartitionPlan,
   decodePartitionTaskMetadata,
+  encodePartitionPlan,
   partitionProjectionShape,
   projectKey,
   projectedKeyType,
   type ExecutionStatus,
+  type PartitionPlan,
   type PartitionTaskMetadata,
   type ProjectionShape,
   type TaskObject,
 } from '@elaraai/e3-types';
+import { inputsHash } from '../executions.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import {
+  probeExecutionCache,
   taskExecuteBody,
-  taskExecuteStandard,
   type ExecuteOptions,
   type ExecutionIds,
   type ExecutionResult,
@@ -75,13 +83,27 @@ interface SplitPoint {
 const DEFAULT_PARTITION_CONCURRENCY = 4;
 
 /**
- * Executes a partitioned task: carve → per-partition standard executions →
- * splice/combine fan-in, recording the logical result under the task's own
- * `(taskHash, inputsHash)` identity.
+ * Runs one unit of a partitioned task — a partition execution, a combine step
+ * or a merge unit — once {@link partitionTaskExecute}'s own cache probe has
+ * missed (or `force` skipped it): the unit is an ordinary content-addressed
+ * execution of `task` over `inputHashes`, recorded under a fresh execution id.
  *
- * Called by `taskExecute` after its cache probe and task decode; the
- * per-partition and combine executions run through `taskExecuteStandard`
- * (never back through the dispatch, which would re-enter this path).
+ * @remarks
+ * The local default runs the standard execution body in this process; a
+ * remote backend supplies its own, so the orchestration (planning, carving,
+ * caching, assembly) stays in e3-core whatever runs the unit.
+ */
+export type PartitionUnitExecutor = (taskHash: string, task: TaskObject, inputHashes: string[], options: ExecuteOptions) => Promise<ExecutionResult>;
+
+/**
+ * Executes a partitioned task: plan → carve on demand → per-partition
+ * executions → splice/combine fan-in, recording the logical result under the
+ * task's own `(taskHash, inputsHash)` identity.
+ *
+ * Called by `taskExecute` after its cache probe and task decode. Every unit —
+ * a partition execution or a combine step — is probed in the execution cache
+ * here and run through `executeUnit` only on a miss (never back through the
+ * dispatch, which would re-enter this path).
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -90,6 +112,7 @@ const DEFAULT_PARTITION_CONCURRENCY = 4;
  * @param inputHashes - Logical input hashes: `[functionIr, ...partitions, ...broadcast]`
  * @param ids - The logical execution's identity
  * @param options - Execution options
+ * @param executeUnit - Runs a unit on a cache miss
  * @returns The logical execution result
  */
 export async function partitionTaskExecute(
@@ -99,7 +122,8 @@ export async function partitionTaskExecute(
   task: TaskObject,
   inputHashes: string[],
   ids: ExecutionIds,
-  options: ExecuteOptions = {}
+  options: ExecuteOptions,
+  executeUnit: PartitionUnitExecutor,
 ): Promise<ExecutionResult> {
   const { inHash, executionId, startTime } = ids;
 
@@ -264,21 +288,13 @@ export async function partitionTaskExecute(
   }
 
   // ---------------------------------------------------------------------
-  // Carve the primary (pure byte copy at segment boundaries) and each
-  // co-partitioned secondary (fence search per boundary; at most the two
-  // edge segments a boundary splits are re-encoded).
+  // Plan each co-partitioned secondary's split point at every primary
+  // boundary (fence search per boundary). The primary splits at segment
+  // boundaries, so its slices are pure byte copies; a secondary re-encodes at
+  // most the two edge segments a split falls inside.
   // ---------------------------------------------------------------------
-  const sliceHashes: string[][] = [];
+  const secondarySplits: SplitPoint[][] = [];
   try {
-    const primarySlices: string[] = [];
-    for (let p = 0; p < partitions; p++) {
-      const from = boundaries[p]!;
-      const to = p + 1 < partitions ? boundaries[p + 1]! : segCount;
-      primarySlices.push(await storage.objects.writeStream(
-        repo, spliceChunks(primaryExtents.head, [primary.spanPart(from, to)])));
-    }
-    sliceHashes.push(primarySlices);
-
     // Boundary values, in projection space, at each internal boundary.
     const bounds: unknown[] = [];
     for (let p = 1; p < partitions; p++) {
@@ -321,18 +337,43 @@ export async function partitionTaskExecute(
         resumeFrom = Math.max(0, Math.min(split.seg, blob.extents.offsets.length - 1));
       }
       splits.push({ seg: blob.extents.offsets.length, offset: 0 });
-
-      const slices: string[] = [];
-      for (let p = 0; p < partitions; p++) {
-        const parts = await carveRangeParts(blob, isDict, splits[p]!, splits[p + 1]!);
-        slices.push(await storage.objects.writeStream(
-          repo, spliceChunks(blob.extents.head, parts)));
-      }
-      sliceHashes.push(slices);
+      secondarySplits.push(splits);
     }
   } catch (err) {
     return errorResult(`Failed to carve partition slices: ${err instanceof Error ? err.message : err}`);
   }
+
+  // The plan is stored before anything is carved from it. The `plan` sidecar
+  // names the completed plan of a previous run: when it plans exactly as this
+  // one and every slice it names still exists, its slices are reused (`force`
+  // re-runs executions, never the carve); otherwise each partition's slices
+  // are carved when a worker picks the partition up.
+  const plan: PartitionPlan = {
+    partitions: partitionHashes,
+    boundaries: boundaries.map((b) => BigInt(b)),
+    splits: secondarySplits.map((splits) => splits.map((split) => ({ seg: BigInt(split.seg), offset: BigInt(split.offset) }))),
+    slices: [],
+  };
+  let reusedSlices: string[][] | null = null;
+  try {
+    await storage.objects.write(repo, encodePartitionPlan(plan));
+    const recordedPlanHash = await storage.refs.executionPlanRead?.(repo, taskHash, inHash) ?? null;
+    if (recordedPlanHash !== null) {
+      reusedSlices = await recordedSlices(storage, repo, recordedPlanHash, plan);
+    }
+  } catch (err) {
+    return errorResult(`Failed to carve partition slices: ${err instanceof Error ? err.message : err}`);
+  }
+
+  // Every unit is probed in the execution cache here, and run by
+  // `executeUnit` only on a miss.
+  const runUnit = async (unitTaskHash: string, unitTask: TaskObject, unitInputs: string[]): Promise<ExecutionResult> => {
+    if (!options.force) {
+      const cached = await probeExecutionCache(storage, repo, unitTaskHash, inputsHash(unitInputs));
+      if (cached !== null) return cached;
+    }
+    return executeUnit(unitTaskHash, unitTask, unitInputs, options);
+  };
 
   // ---------------------------------------------------------------------
   // Fan out: each partition is an ordinary content-addressed execution of
@@ -340,7 +381,11 @@ export async function partitionTaskExecute(
   // ---------------------------------------------------------------------
   const concurrency = Math.max(1, options.partitionConcurrency ?? DEFAULT_PARTITION_CONCURRENCY);
   const progress = options.onPartitionProgress;
-  const results: (ExecutionResult | undefined)[] = new Array(partitions);
+  const results: (ExecutionResult | undefined)[] = Array.from({ length: partitions }, () => undefined);
+  // sliceHashes[input][partition], filled in as partitions are carved.
+  const sliceHashes: (string | undefined)[][] = reusedSlices
+    ?? partitionHashes.map(() => Array.from({ length: partitions }, () => undefined));
+  const carveFailures: (string | undefined)[] = Array.from({ length: partitions }, () => undefined);
   let nextPartition = 0;
   let partitionsCompleted = 0;
   let hasFailure = false;
@@ -348,9 +393,21 @@ export async function partitionTaskExecute(
     for (;;) {
       const p = nextPartition++;
       if (p >= partitions || hasFailure) return;
-      const subInputs = [fnIrHash, ...sliceHashes.map((slices) => slices[p]!), ...broadcastHashes];
+      if (reusedSlices === null) {
+        try {
+          const carved = await carvePartitionSlices(storage, repo, plan, p);
+          for (let input = 0; input < carved.length; input++) {
+            sliceHashes[input]![p] = carved[input]!;
+          }
+        } catch (err) {
+          carveFailures[p] = err instanceof Error ? err.message : String(err);
+          hasFailure = true;
+          continue;
+        }
+      }
       progress?.({ phase: 'partition', index: p, total: partitions, completed: partitionsCompleted, state: 'started' });
-      const result = await taskExecuteStandard(storage, repo, taskHash, task, subInputs, options);
+      const subInputs = [fnIrHash, ...sliceHashes.map((slices) => slices[p]!), ...broadcastHashes];
+      const result = await runUnit(taskHash, task, subInputs);
       results[p] = result;
       partitionsCompleted++;
       progress?.({ phase: 'partition', index: p, total: partitions, completed: partitionsCompleted, state: 'completed', cached: result.cached, duration: result.duration });
@@ -359,10 +416,26 @@ export async function partitionTaskExecute(
   });
   await Promise.all(workers);
 
+  // Once every partition has run, the completed plan is recorded — after a
+  // failed partition too, so the retry reuses the slices.
+  if (results.every((r) => r !== undefined)) {
+    try {
+      const completedPlanHash = await storage.objects.write(repo, encodePartitionPlan({ ...plan, slices: sliceHashes as string[][] }));
+      await storage.refs.executionPlanWrite?.(repo, taskHash, inHash, completedPlanHash);
+    } catch (err) {
+      return errorResult(`Failed to record the partition plan: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
   // Attribute failure deterministically: the LOWEST-index failed partition
   // among the completed results, not whichever failing worker settled first
   // (that races the pool and made the reported partition nondeterministic).
+  // A partition whose carve failed has no result, and counts at its index.
   const failedPartition = results.findIndex((r) => r !== undefined && r.state !== 'success');
+  const failedCarve = carveFailures.findIndex((message) => message !== undefined);
+  if (failedCarve >= 0 && (failedPartition < 0 || failedCarve < failedPartition)) {
+    return errorResult(`Failed to carve partition slices: ${carveFailures[failedCarve]}`);
+  }
   if (failedPartition >= 0) {
     const failed = results[failedPartition]!;
     // Include the runner's error tail on the failed branch too — without it
@@ -440,7 +513,7 @@ export async function partitionTaskExecute(
           if (pair >= pairs || mergeFailed) return;
           const i = pair * 2;
           progress?.({ phase: 'combine', index: pair, total: pairs, completed: pairsCompleted, state: 'started' });
-          const merged = await taskExecuteStandard(storage, repo, taskHash, task, [combineIrHash, level[i]!, level[i + 1]!], options);
+          const merged = await runUnit(taskHash, task, [combineIrHash, level[i]!, level[i + 1]!]);
           mergeResults[pair] = merged;
           if (merged.state !== 'success' || merged.outputHash === null) {
             mergeFailed = true;
@@ -490,22 +563,15 @@ export async function partitionTaskExecute(
     outputHash = layer[0]!;
   } else {
     try {
-      const shards: PartitionBlob[] = [];
-      for (const r of results) {
-        shards.push(await PartitionBlob.open(storage, repo, r!.outputHash!));
-      }
-      const violation = await findSpliceViolation(shards);
-      if (violation !== null) {
+      outputHash = await spliceBlobs(storage, repo, results.map((r) => r!.outputHash!));
+    } catch (err) {
+      if (err instanceof SpliceOrderError) {
         return errorResult(
-          `Partition shards ${violation.left + 1} and ${violation.right + 1} of ${partitions} do not ascend disjointly in key order — ` +
+          `Partition shards ${err.left + 1} and ${err.right + 1} of ${partitions} do not ascend disjointly in key order — ` +
           `a splice-mode partition task must keep (or monotonically re-key) the partition key order. ` +
           `Use \`combine\` to aggregate partials instead, or customTask for full control.`
         );
       }
-      outputHash = await storage.objects.writeStream(repo, spliceChunks(
-        shards[0]!.extents.head,
-        shards.map((shard) => shard.spanPart(0, shard.extents.offsets.length))));
-    } catch (err) {
       return errorResult(`Failed to splice partition shards: ${err instanceof Error ? err.message : err}`);
     }
   }
@@ -528,6 +594,126 @@ export async function partitionTaskExecute(
     duration: Date.now() - startTime,
     error: null,
   };
+}
+
+/**
+ * Carves one partition's slice of every partitioned input, as a plan names
+ * them: the primary's segments from `boundaries[p]` up to the next boundary
+ * by byte copy, and each co-partitioned secondary's range between its split
+ * points `p` and `p + 1` — whole segments by byte copy, at most the two edge
+ * segments a split falls inside re-encoded. Slices stream to the object
+ * store; no input is read whole.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param plan - The partition plan (its `slices` are not read)
+ * @param p - Zero-based partition index
+ * @returns The partition's slice hashes, one per partitioned input in wire order
+ * @throws {RangeError} When `p` is not a partition of the plan.
+ */
+export async function carvePartitionSlices(
+  storage: StorageBackend,
+  repo: string,
+  plan: PartitionPlan,
+  p: number,
+): Promise<string[]> {
+  const partitions = plan.boundaries.length;
+  if (!Number.isInteger(p) || p < 0 || p >= partitions) {
+    throw new RangeError(`partition ${p} is not one of the plan's ${partitions} partitions`);
+  }
+  const primary = await PartitionBlob.open(storage, repo, plan.partitions[0]!);
+  const from = Number(plan.boundaries[p]!);
+  const to = p + 1 < partitions ? Number(plan.boundaries[p + 1]!) : primary.extents.offsets.length;
+  const slices = [
+    await storage.objects.writeStream(repo, spliceChunks(primary.extents.head, [primary.spanPart(from, to)])),
+  ];
+  for (let s = 1; s < plan.partitions.length; s++) {
+    const blob = await PartitionBlob.open(storage, repo, plan.partitions[s]!);
+    const splits = plan.splits[s - 1]!;
+    const split = (i: number): SplitPoint => ({ seg: Number(splits[i]!.seg), offset: Number(splits[i]!.offset) });
+    const parts = await carveRangeParts(blob, blob.extents.typeValue.type === 'Dict', split(p), split(p + 1));
+    slices.push(await storage.objects.writeStream(repo, spliceChunks(blob.extents.head, parts)));
+  }
+  return slices;
+}
+
+/** The slices a recorded plan carved, when that plan plans exactly as `plan`
+ *  and every slice it names still exists; `null` otherwise, including when
+ *  the recorded plan is gone or does not decode. */
+async function recordedSlices(
+  storage: StorageBackend,
+  repo: string,
+  recordedPlanHash: string,
+  plan: PartitionPlan,
+): Promise<string[][] | null> {
+  let recorded: PartitionPlan;
+  try {
+    recorded = decodePartitionPlan(await storage.objects.read(repo, recordedPlanHash));
+  } catch {
+    return null;
+  }
+  if (!equalFor(PartitionPlanType)({ ...recorded, slices: [] }, plan)) return null;
+  const partitions = plan.boundaries.length;
+  if (recorded.slices.length !== plan.partitions.length || recorded.slices.some((slices) => slices.length !== partitions)) {
+    return null;
+  }
+  for (const slices of recorded.slices) {
+    for (const hash of slices) {
+      try {
+        await storage.objects.stat(repo, hash);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return recorded.slices;
+}
+
+/** The blobs a splice was given do not ascend disjointly in key order: the
+ *  keys of blob `right` (0-based) do not all follow those of blob `left`, the
+ *  last non-empty blob before it. */
+class SpliceOrderError extends Error {
+  readonly left: number;
+  readonly right: number;
+
+  constructor(left: number, right: number, count: number) {
+    super(`blobs ${left + 1} and ${right + 1} of ${count} do not ascend disjointly in key order`);
+    this.left = left;
+    this.right = right;
+  }
+}
+
+/**
+ * Splices stored blobs into one, in the given order, under the first blob's
+ * header: every blob's segment frames are byte-copied and the index rebuilt,
+ * streamed to the object store without decoding a value. Set and Dict blobs
+ * must ascend disjointly in key order, which is checked first, one blob at a
+ * time; Array blobs concatenate freely.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hashes - The blobs to splice, in order; at least one
+ * @returns The hash of the spliced blob
+ * @throws {Error} When `hashes` is empty, the keys do not ascend disjointly,
+ *   or a blob's header sections differ from the first blob's.
+ */
+export async function spliceBlobs(storage: StorageBackend, repo: string, hashes: string[]): Promise<string> {
+  if (hashes.length === 0) {
+    throw new Error('spliceBlobs: no blobs to splice');
+  }
+  const violation = await findSpliceViolation(storage, repo, hashes);
+  if (violation !== null) {
+    throw new SpliceOrderError(violation.left, violation.right, hashes.length);
+  }
+  const { head } = (await PartitionBlob.open(storage, repo, hashes[0]!)).extents;
+  // Parts open lazily, so one blob is open while its frames stream.
+  async function* parts(): AsyncIterable<SplicePart> {
+    for (const hash of hashes) {
+      const blob = await PartitionBlob.open(storage, repo, hash);
+      yield blob.spanPart(0, blob.extents.offsets.length);
+    }
+  }
+  return storage.objects.writeStream(repo, spliceChunks(head, parts()));
 }
 
 /** Finds the first global position in a co-partitioned secondary whose
@@ -609,27 +795,32 @@ async function carveRangeParts(
   return parts;
 }
 
-/** Validates the splice-mode shard contract for Set/Dict outputs: adjacent
- *  non-empty shards' key ranges must ascend disjointly in partition order.
- *  Bounded: only each shard's first fence and last segment decode. Returns
- *  the offending pair, or `null` when the shards splice cleanly (Array
- *  shards concatenate freely). */
-async function findSpliceViolation(shards: PartitionBlob[]): Promise<{ left: number; right: number } | null> {
+/** Validates the splice contract for Set/Dict blobs: adjacent non-empty
+ *  blobs' key ranges must ascend disjointly in the given order. Bounded: one
+ *  blob is open at a time, and only its first fence and last segment decode.
+ *  Returns the offending pair, or `null` when the blobs splice cleanly (Array
+ *  blobs concatenate freely). */
+async function findSpliceViolation(
+  storage: StorageBackend,
+  repo: string,
+  hashes: string[],
+): Promise<{ left: number; right: number } | null> {
   let prevIndex = -1;
   let prevLast: unknown;
   let cmp: ((a: unknown, b: unknown) => number) | null = null;
-  for (let i = 0; i < shards.length; i++) {
-    const extents = shards[i]!.extents;
+  for (let i = 0; i < hashes.length; i++) {
+    const shard = await PartitionBlob.open(storage, repo, hashes[i]!);
+    const extents = shard.extents;
     if (extents.typeValue.type === 'Array') return null;
     if (extents.offsets.length === 0) continue;
     const isDict = extents.typeValue.type === 'Dict';
     const keyType: EastTypeValue = isDict ? (extents.typeValue as any).value.key : (extents.typeValue as any).value;
     cmp ??= compareFor(keyType as any) as (a: unknown, b: unknown) => number;
-    const first = await shards[i]!.fence(0);
+    const first = await shard.fence(0);
     if (prevIndex >= 0 && cmp(prevLast, first) >= 0) {
       return { left: prevIndex, right: i };
     }
-    const keys = segmentKeys(await shards[i]!.segmentValue(extents.offsets.length - 1), isDict);
+    const keys = segmentKeys(await shard.segmentValue(extents.offsets.length - 1), isDict);
     prevLast = keys[keys.length - 1];
     prevIndex = i;
   }
