@@ -631,33 +631,35 @@ static void test_bounded_runs(const char *bin, const char *fixtures)
           "bounded runs: expected exit 0, got %d (50k), %d (400k), %d (byte cap)", rc_small,
           rc_large, rc_bytes);
 
-    EmitEpilogue small = read_epilogue("emit_err_scatter_50k.txt");
-    EmitEpilogue large = read_epilogue("emit_err_scatter_400k.txt");
-    EmitEpilogue bytes = read_epilogue("emit_err_scatter_bytes.txt");
-    CHECK(small.found && large.found && bytes.found,
-          "bounded runs: -v printed no emit epilogue (50k %d, 400k %d, byte cap %d)", small.found,
-          large.found, bytes.found);
-    if (!small.found || !large.found || !bytes.found) return;
+    /* Not `small`: the Windows headers define it as a macro for `char`. */
+    EmitEpilogue scatter_50k = read_epilogue("emit_err_scatter_50k.txt");
+    EmitEpilogue scatter_400k = read_epilogue("emit_err_scatter_400k.txt");
+    EmitEpilogue byte_cap = read_epilogue("emit_err_scatter_bytes.txt");
+    CHECK(scatter_50k.found && scatter_400k.found && byte_cap.found,
+          "bounded runs: -v printed no emit epilogue (50k %d, 400k %d, byte cap %d)",
+          scatter_50k.found, scatter_400k.found, byte_cap.found);
+    if (!scatter_50k.found || !scatter_400k.found || !byte_cap.found) return;
 
-    CHECK(small.peak_entries == 64 && large.peak_entries == 64,
+    CHECK(scatter_50k.peak_entries == 64 && scatter_400k.peak_entries == 64,
           "bounded runs: peak entries %llu (50k) and %llu (400k), expected the 64-entry cap",
-          small.peak_entries, large.peak_entries);
-    CHECK(strcmp(small.peak_bytes, large.peak_bytes) == 0,
-          "bounded runs: peak bytes \"%s\" (50k) differ from \"%s\" (400k)", small.peak_bytes,
-          large.peak_bytes);
-    CHECK(small.runs_per_pass == 64 && large.runs_per_pass == 64,
+          scatter_50k.peak_entries, scatter_400k.peak_entries);
+    CHECK(strcmp(scatter_50k.peak_bytes, scatter_400k.peak_bytes) == 0,
+          "bounded runs: peak bytes \"%s\" (50k) differ from \"%s\" (400k)", scatter_50k.peak_bytes,
+          scatter_400k.peak_bytes);
+    CHECK(scatter_50k.runs_per_pass == 64 && scatter_400k.runs_per_pass == 64,
           "bounded runs: %llu (50k) and %llu (400k) runs per pass, expected 64",
-          small.runs_per_pass, large.runs_per_pass);
-    CHECK(small.sources == 783 && small.passes == 2,
-          "bounded runs: 50k merged %llu sources in %llu passes, expected 783 in 2", small.sources,
-          small.passes);
-    CHECK(large.sources == 6251 && large.passes == 3,
+          scatter_50k.runs_per_pass, scatter_400k.runs_per_pass);
+    CHECK(scatter_50k.sources == 783 && scatter_50k.passes == 2,
+          "bounded runs: 50k merged %llu sources in %llu passes, expected 783 in 2",
+          scatter_50k.sources, scatter_50k.passes);
+    CHECK(scatter_400k.sources == 6251 && scatter_400k.passes == 3,
           "bounded runs: 400k merged %llu sources in %llu passes, expected 6251 in 3",
-          large.sources, large.passes);
-    CHECK(bytes.peak_entries > 0 && bytes.peak_entries < 64 && bytes.spills > small.spills,
+          scatter_400k.sources, scatter_400k.passes);
+    CHECK(byte_cap.peak_entries > 0 && byte_cap.peak_entries < 64 &&
+              byte_cap.spills > scatter_50k.spills,
           "bounded runs: a 256-byte cap should spill by bytes — peak %llu entries, %llu spills "
           "(%llu under the element cap alone)",
-          bytes.peak_entries, bytes.spills, small.spills);
+          byte_cap.peak_entries, byte_cap.spills, scatter_50k.spills);
 
     /* The largest merge is whole, and its runs are gone. */
     size_t len = 0;
