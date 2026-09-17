@@ -9,6 +9,7 @@
 
 #include <east/builtins.h>
 #include <east/compiler.h>
+#include <east/file_map.h>
 #include <east/serialization.h>
 
 #include <errno.h>
@@ -23,14 +24,22 @@
 #define EMIT_BATCH_CAP 1000
 #define EMIT_TARGET_BYTES (2u * 1024u * 1024u)
 
-/* Out-of-order Set/Dict emission buffers and spills sorted runs of at most
- * this many elements (EAST_EMIT_RUN_ELEMENTS overrides; minimum 1) — the
- * in-memory bound of the sink's spill/merge path (issue #518). */
+/* Out-of-order Set/Dict emission buffers and spills sorted runs once the
+ * buffered entries reach this many (EAST_EMIT_RUN_ELEMENTS overrides) or
+ * their encoded bytes reach this many (EAST_EMIT_RUN_BYTES overrides) — the
+ * in-memory bound of the sink's spill/merge path (issues #518, #770). */
 #define EMIT_RUN_ELEMENTS_DEFAULT 100000u
+#define EMIT_RUN_BYTES_DEFAULT (64u * 1024u * 1024u)
 
-static size_t emit_run_elements_from_env(void)
+/* At most this many sources feed one merge; more runs merge in passes. */
+#define EMIT_MERGE_FANIN 64
+
+/* A positive size from the environment variable `name`: digits only, at
+ * least 1, no overflow — anything else (a sign, a suffix, a number strtoull
+ * would wrap or saturate) is `fallback`. */
+static size_t emit_size_from_env(const char *name, size_t fallback)
 {
-    const char *env = getenv("EAST_EMIT_RUN_ELEMENTS");
+    const char *env = getenv(name);
     if (env && *env) {
         bool digits = true;
         for (const char *p = env; *p; p++) {
@@ -47,7 +56,7 @@ static size_t emit_run_elements_from_env(void)
                 return (size_t)v;
         }
     }
-    return EMIT_RUN_ELEMENTS_DEFAULT;
+    return fallback;
 }
 
 /* One buffered out-of-order emission, encoded at the emit: the decoded key
@@ -92,14 +101,21 @@ struct EastEmitSink {
     size_t buf_len, buf_cap;
     ByteBuffer *arena;           /* the current run's entry bytes */
     Beast2EntryEncoder *encoder; /* per-entry self-contained encoder */
-    size_t run_cap;
-    char **run_paths; /* owned paths of spilled runs (run 0 = demoted prefix) */
+    size_t run_cap;              /* spill at this many buffered entries... */
+    size_t run_bytes;            /* ...or at this many buffered entry bytes */
+    /* Owned paths of every temporary run: the spill runs by index, then the
+     * merge passes' intermediate runs. */
+    char **run_paths;
     size_t num_runs, runs_cap;
+    bool prefix_run; /* run 0 is the demoted beast2 prefix */
     size_t spilled_bytes;
     /* The -v epilogue's account of the buffered path. */
     size_t spills;
     size_t peak_entries;
     size_t peak_bytes;
+    size_t merge_sources;
+    size_t merge_passes;
+    size_t merge_width; /* the most sources one merge read */
     double spill_ms;
     double merge_ms;
 };
@@ -117,25 +133,6 @@ static double emit_elapsed_ms(struct timespec *since)
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     return elapsed_ms(since, &now);
-}
-
-/* Reads a whole file into a malloc'd buffer; NULL when it cannot be read. */
-static uint8_t *read_whole_file(const char *path, size_t *out_len)
-{
-    FILE *f = fopen(path, "rb");
-    if (!f) return NULL;
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    uint8_t *buf = malloc((size_t)len > 0 ? (size_t)len : 1u);
-    if (!buf) {
-        fclose(f);
-        return NULL;
-    }
-    size_t rd = fread(buf, 1, (size_t)len, f);
-    fclose(f);
-    *out_len = rd;
-    return buf;
 }
 
 static EastValue *emit_new_batch(EmitSink *s)
@@ -260,6 +257,15 @@ static char *emit_run_path(EmitSink *s, size_t i)
     size_t len = strlen(s->output_path) + 32;
     char *p = malloc(len);
     if (p) snprintf(p, len, "%s.run%zu", s->output_path, i);
+    return p;
+}
+
+/* A merge pass's intermediate run: `<output>.run<N>.p<pass>`. */
+static char *emit_pass_run_path(EmitSink *s, size_t n, size_t pass)
+{
+    size_t len = strlen(s->output_path) + 56;
+    char *p = malloc(len);
+    if (p) snprintf(p, len, "%s.run%zu.p%zu", s->output_path, n, pass);
     return p;
 }
 
@@ -393,6 +399,14 @@ static bool run_write_varint(FILE *f, uint64_t v)
     return fwrite(b, 1, n, f) == n;
 }
 
+/* One record: `varint(key_len) key varint(val_len) value`, from an entry's
+ * bytes (the key's, then the value's). */
+static bool run_write_record(FILE *f, const uint8_t *entry, size_t key_len, size_t val_len)
+{
+    return run_write_varint(f, key_len) && fwrite(entry, 1, key_len, f) == key_len &&
+           run_write_varint(f, val_len) && fwrite(entry + key_len, 1, val_len, f) == val_len;
+}
+
 /* Returns 1 with *out read, 0 at a clean end of file (before any byte of
  * the number), -1 on a truncated or overlong number. */
 static int run_read_varint(FILE *f, uint64_t *out)
@@ -442,10 +456,7 @@ static int emit_spill(EmitSink *s, EastValue **dup_out)
     size_t bytes = 0;
     for (size_t i = 0; ok && i < s->buf_len; i++) {
         const EmitPending *e = &s->buf[i];
-        const uint8_t *rec = s->arena->data + e->offset;
-        ok = run_write_varint(rf, e->key_len) && fwrite(rec, 1, e->key_len, rf) == e->key_len &&
-             run_write_varint(rf, e->val_len) &&
-             fwrite(rec + e->key_len, 1, e->val_len, rf) == e->val_len;
+        ok = run_write_record(rf, s->arena->data + e->offset, e->key_len, e->val_len);
         bytes += e->key_len + e->val_len;
     }
     ok = fclose(rf) == 0 && ok;
@@ -485,6 +496,7 @@ static bool emit_demote_to_runs(EmitSink *s)
             return false;
         }
         s->run_paths[s->num_runs++] = run0;
+        s->prefix_run = true;
         s->spilled_bytes += s->written_bytes;
     } else {
         /* Header-only prefix: nothing emitted before the inversion. */
@@ -501,24 +513,35 @@ static bool emit_demote_to_runs(EmitSink *s)
     return true;
 }
 
-/* One merge cursor over a spilled run. Run 0 is the demoted ascending
- * prefix, a beast2 blob read through the segment reader with its values
- * re-encoded entry by entry; every later run is raw records read
- * sequentially, its keys decoded and its bytes copied as they are. */
+/* ----- the merge: a binary min-heap over the sources, in passes ----- */
+
+typedef enum {
+    SOURCE_RUN,    /* raw records, read sequentially through the stdio buffer */
+    SOURCE_PREFIX, /* the demoted beast2 prefix, segment by segment through a mapping */
+    SOURCE_TAIL,   /* the sorted in-memory entries */
+} MergeSourceKind;
+
+/* One merge source and its current entry. */
 typedef struct {
-    /* raw runs */
+    MergeSourceKind kind;
+    /* SOURCE_RUN */
     FILE *f;
-    uint8_t *rec; /* current record's bytes: key then value */
+    uint8_t *rec; /* the current record's bytes: key then value */
     size_t rec_cap;
-    /* the demoted beast2 prefix */
-    uint8_t *data;
+    /* SOURCE_PREFIX: its values re-encoded entry by entry */
+    uint8_t *data; /* the mapping */
     size_t len;
+    void *map_ctx;
     Beast2SegmentReader *reader;
     EastValue *segment; /* owned; NULL when exhausted */
     size_t idx, seg_len;
     ByteBuffer *enc; /* the current pair re-encoded */
-    /* both */
-    EastValue *key; /* owned: the current key, NULL when exhausted */
+    /* SOURCE_TAIL */
+    size_t next; /* the next pending entry */
+    /* Every kind: the current entry's key (owned; NULL once the source is
+     * exhausted) and bytes, the key's then the value's. */
+    EastValue *key;
+    const uint8_t *bytes;
     size_t key_len, val_len;
 } MergeCursor;
 
@@ -561,6 +584,7 @@ static bool cursor_advance_raw(EmitSink *s, MergeCursor *c)
         east_builtin_error(msg);
         return false;
     }
+    c->bytes = c->rec;
     c->key_len = (size_t)klen;
     c->val_len = (size_t)vlen;
     return true;
@@ -609,70 +633,276 @@ static bool cursor_advance_prefix(EmitSink *s, MergeCursor *c)
     }
     east_value_retain(key);
     c->key = key;
+    c->bytes = c->enc->data;
     return true;
+}
+
+/* Advances the tail cursor to the next sorted pending entry. */
+static void cursor_advance_tail(EmitSink *s, MergeCursor *c)
+{
+    cursor_drop_key(c);
+    if (c->next >= s->buf_len) return; /* exhausted */
+    const EmitPending *e = &s->buf[c->next++];
+    east_value_retain(e->key);
+    c->key = e->key;
+    c->bytes = s->arena->data + e->offset;
+    c->key_len = e->key_len;
+    c->val_len = e->val_len;
 }
 
 static bool cursor_advance(EmitSink *s, MergeCursor *c)
 {
-    return c->reader ? cursor_advance_prefix(s, c) : cursor_advance_raw(s, c);
+    switch (c->kind) {
+    case SOURCE_RUN:
+        return cursor_advance_raw(s, c);
+    case SOURCE_PREFIX:
+        return cursor_advance_prefix(s, c);
+    default:
+        cursor_advance_tail(s, c);
+        return true;
+    }
 }
 
-static const uint8_t *cursor_bytes(const MergeCursor *c)
+/* Opens a source on its first entry: `path` is the run's file (unused for
+ * the tail). On false the cursor still needs cursor_close. */
+static bool cursor_open(EmitSink *s, MergeCursor *c, MergeSourceKind kind, const char *path)
 {
-    return c->reader ? c->enc->data : c->rec;
+    memset(c, 0, sizeof(*c));
+    c->kind = kind;
+    if (kind == SOURCE_PREFIX) {
+        c->data = map_input_file(path, &c->len, &c->map_ctx);
+        if (!c->data) return false;
+        c->reader = east_beast2_reader_new(c->data, c->len, s->out_type);
+        c->enc = byte_buffer_new(256);
+        if (!c->reader || !c->enc) return false;
+    } else if (kind == SOURCE_RUN) {
+        c->f = fopen(path, "rb");
+        if (!c->f) return false;
+    }
+    return cursor_advance(s, c);
 }
 
-/* Frames the raw entries accumulated in `seg` as one output segment. */
-static bool emit_flush_raw(EmitSink *s, ByteBuffer *seg, size_t *count, EastValue **first,
-                           EastValue **last)
+static void cursor_close(MergeCursor *c)
 {
-    if (*count == 0) return true;
-    bool ok = east_beast2_writer_write_raw(s->writer, seg->data, seg->len, *count, *first, *last);
+    cursor_drop_key(c);
+    if (c->segment) east_value_release(c->segment);
+    if (c->reader) east_beast2_reader_free(c->reader);
+    if (c->enc) byte_buffer_free(c->enc);
+    if (c->data) input_release_mapping(c->map_ctx, c->data, c->len);
+    if (c->f) fclose(c->f);
+    free(c->rec);
+    memset(c, 0, sizeof(*c));
+}
+
+/* Whether source `a`'s entry leaves the heap before source `b`'s: the lesser
+ * key, and for equal keys the earlier source — emission order. */
+static bool cursor_before(const MergeCursor *cur, size_t a, size_t b)
+{
+    int order = east_value_compare(cur[a].key, cur[b].key);
+    return order < 0 || (order == 0 && a < b);
+}
+
+static void heap_sift_down(size_t *heap, size_t n, size_t i, const MergeCursor *cur)
+{
+    for (;;) {
+        size_t least = i, l = 2 * i + 1, r = l + 1;
+        if (l < n && cursor_before(cur, heap[l], heap[least])) least = l;
+        if (r < n && cursor_before(cur, heap[r], heap[least])) least = r;
+        if (least == i) return;
+        size_t t = heap[i];
+        heap[i] = heap[least];
+        heap[least] = t;
+        i = least;
+    }
+}
+
+/* Where one merge writes: raw records into an intermediate run, or segments
+ * framed by the output writer (the final pass). */
+typedef struct {
+    FILE *run;       /* an intermediate pass's run; NULL in the final pass */
+    ByteBuffer *seg; /* the final pass's open segment: its entries' bytes */
+    size_t seg_count;
+    EastValue *seg_first, *seg_last; /* owned: the open segment's first and last keys */
+} MergeOut;
+
+/* Frames the entries accumulated in the open segment as one output segment. */
+static bool emit_flush_raw(EmitSink *s, MergeOut *out)
+{
+    if (out->seg_count == 0) return true;
+    bool ok = east_beast2_writer_write_raw(s->writer, out->seg->data, out->seg->len, out->seg_count,
+                                           out->seg_first, out->seg_last);
     ok = ok && emit_drain(s);
-    if (ok) emit_adapt_batch(s, *count);
-    seg->len = 0;
-    *count = 0;
-    if (*first) east_value_release(*first);
-    if (*last) east_value_release(*last);
-    *first = *last = NULL;
+    if (ok) emit_adapt_batch(s, out->seg_count);
+    out->seg->len = 0;
+    out->seg_count = 0;
+    if (out->seg_first) east_value_release(out->seg_first);
+    if (out->seg_last) east_value_release(out->seg_last);
+    out->seg_first = out->seg_last = NULL;
     return ok;
 }
 
-/* Appends the held entry of a folding merge to the output segment: its bytes
- * as copied, or — when a fold ran — the key and the folded value re-encoded
- * (and *acc released). Keeps the segment's first/last keys for the writer's
- * ascent check. */
-static bool emit_commit_held(EmitSink *s, ByteBuffer *seg, ByteBuffer *held, EastValue *held_key,
-                             EastValue **acc, EastValue **seg_first, EastValue **seg_last,
-                             size_t *seg_count)
+/* Writes one merged entry: a raw record into the intermediate run, or its
+ * bytes into the open segment, which goes out once it holds the batch. */
+static bool merge_out_put(EmitSink *s, MergeOut *out, EastValue *key, const uint8_t *bytes,
+                          size_t key_len, size_t val_len)
+{
+    if (out->run) {
+        if (!run_write_record(out->run, bytes, key_len, val_len)) return false;
+        s->spilled_bytes += key_len + val_len;
+        return true;
+    }
+    if (key_len + val_len > 0) byte_buffer_write_bytes(out->seg, bytes, key_len + val_len);
+    if (!out->seg_first) {
+        out->seg_first = key;
+        east_value_retain(key);
+    }
+    if (out->seg_last) east_value_release(out->seg_last);
+    out->seg_last = key;
+    east_value_retain(key);
+    out->seg_count++;
+    return out->seg_count < s->next_batch || emit_flush_raw(s, out);
+}
+
+/* Commits the held entry of a folding merge: its bytes as copied, or — when
+ * a fold ran — the key and the folded value re-encoded into `held` (and *acc
+ * released). */
+static bool emit_commit_held(EmitSink *s, MergeOut *out, ByteBuffer *held, size_t key_len,
+                             EastValue *key, EastValue **acc)
 {
     if (*acc) {
+        held->len = 0;
         east_beast2_entry_begin(s->encoder);
-        bool ok = east_beast2_entry_encode(s->encoder, seg, held_key, emit_key_type(s)) &&
-                  east_beast2_entry_encode(s->encoder, seg, *acc, s->out_type->data.dict.value);
+        bool ok = east_beast2_entry_encode(s->encoder, held, key, emit_key_type(s));
+        key_len = held->len;
+        ok = ok && east_beast2_entry_encode(s->encoder, held, *acc, s->out_type->data.dict.value);
         east_value_release(*acc);
         *acc = NULL;
         if (!ok) return false;
-    } else {
-        byte_buffer_write_bytes(seg, held->data, held->len);
     }
-    if (!*seg_first) {
-        *seg_first = held_key;
-        east_value_retain(held_key);
+    return merge_out_put(s, out, key, held->data, key_len, held->len - key_len);
+}
+
+/* Merges `n` open sources, given in emission order, into `out`: a binary
+ * min-heap of the sources ordered by (key, source index), so equal keys leave
+ * in emission order. Keys are decoded; bytes are copied. Equal keys fold — a
+ * merge function holds the current key's entry back until a greater key
+ * arrives, its bytes untouched unless a second equal key makes it fold, and
+ * then re-encoded from the folded value; union keeps the first — or, without
+ * a fold, are the duplicate error (*duplicate_out set). Returns false with
+ * the message posted. */
+static bool emit_merge_sources(EmitSink *s, MergeCursor *cur, size_t n, MergeOut *out,
+                               bool *duplicate_out)
+{
+    size_t *heap = malloc((n > 0 ? n : 1) * sizeof(size_t));
+    if (!heap) return false;
+    size_t live = 0;
+    for (size_t i = 0; i < n; i++)
+        if (cur[i].key) heap[live++] = i;
+    for (size_t i = live / 2; i-- > 0;)
+        heap_sift_down(heap, live, i, cur);
+
+    EastType *vt = s->kind == EAST_EMIT_DICT ? s->out_type->data.dict.value : NULL;
+    ByteBuffer *held = s->merge_fn ? byte_buffer_new(256) : NULL;
+    size_t held_key_len = 0;
+    EastValue *held_key = NULL; /* owned */
+    EastValue *held_acc = NULL; /* owned: the folded value, once a fold ran */
+    EastValue *prev_key = NULL; /* owned */
+    bool ok = !s->merge_fn || held != NULL;
+    while (ok && live > 0) {
+        MergeCursor *c = &cur[heap[0]];
+        EastValue *key = c->key;
+        if (prev_key && east_value_compare(prev_key, key) == 0) {
+            if (!emit_folds(s)) {
+                char msg[512];
+                emit_duplicate_msg(s, key, msg, sizeof(msg));
+                east_builtin_error(msg);
+                *duplicate_out = true;
+                ok = false;
+                break;
+            }
+            if (s->merge_fn) {
+                if (!held_acc) {
+                    held_acc = east_beast2_entry_decode(held->data + held_key_len,
+                                                        held->len - held_key_len, vt);
+                }
+                EastValue *v = held_acc
+                                   ? east_beast2_entry_decode(c->bytes + c->key_len, c->val_len, vt)
+                                   : NULL;
+                if (!v) {
+                    ok = false;
+                    break;
+                }
+                held_acc = emit_fold_values(s, key, held_acc, v);
+                if (!held_acc) {
+                    ok = false;
+                    break;
+                }
+            }
+            /* Union: the first element stands; the equal one is dropped. */
+        } else {
+            east_value_retain(key);
+            if (prev_key) east_value_release(prev_key);
+            prev_key = key;
+            if (s->merge_fn) {
+                /* A greater key: the held entry is final — commit it, then
+                 * hold this one. */
+                if (held_key) {
+                    ok = emit_commit_held(s, out, held, held_key_len, held_key, &held_acc);
+                    east_value_release(held_key);
+                    held_key = NULL;
+                }
+                if (ok) {
+                    held->len = 0;
+                    byte_buffer_write_bytes(held, c->bytes, c->key_len + c->val_len);
+                    held_key_len = c->key_len;
+                    held_key = key;
+                    east_value_retain(key);
+                }
+            } else {
+                ok = merge_out_put(s, out, key, c->bytes, c->key_len, c->val_len);
+            }
+        }
+        if (ok) ok = cursor_advance(s, c);
+        if (ok && !c->key) heap[0] = heap[--live];
+        if (ok && live > 0) heap_sift_down(heap, live, 0, cur);
     }
-    if (*seg_last) east_value_release(*seg_last);
-    *seg_last = held_key;
-    east_value_retain(held_key);
-    (*seg_count)++;
+    if (ok && held_key) ok = emit_commit_held(s, out, held, held_key_len, held_key, &held_acc);
+    if (held_key) east_value_release(held_key);
+    if (held_acc) east_value_release(held_acc);
+    if (held) byte_buffer_free(held);
+    if (prev_key) east_value_release(prev_key);
+    free(heap);
+    return ok;
+}
+
+/* Opens one merge's sources into `cur`: the `m` runs named by index into
+ * run_paths — the first the demoted prefix when `prefix` — then, when
+ * `tail`, the in-memory tail as the last source. *opened counts the cursors
+ * that need cursor_close, whether or not they opened. */
+static bool emit_open_sources(EmitSink *s, MergeCursor *cur, const size_t *runs, size_t m,
+                              bool prefix, bool tail, size_t *opened)
+{
+    *opened = 0;
+    for (size_t i = 0; i < m; i++) {
+        (*opened)++;
+        MergeSourceKind kind = i == 0 && prefix ? SOURCE_PREFIX : SOURCE_RUN;
+        if (!cursor_open(s, &cur[i], kind, s->run_paths[runs[i]])) return false;
+    }
+    if (tail) {
+        (*opened)++;
+        if (!cursor_open(s, &cur[m], SOURCE_TAIL, NULL)) return false;
+    }
     return true;
 }
 
-/* K-way merges the spilled runs + the sorted in-memory tail into the
- * canonical output file — one record per run plus one output segment in
- * memory — with the cross-run duplicate check on the merged stream. Keys
- * are decoded; value bytes are copied. On failure the partial output is
- * left unfinalized (no terminator or index), exactly like an error on the
- * straight-through path. */
+/* Merges the spilled runs and the sorted in-memory tail into the canonical
+ * output file. While the runs and the tail are more than EMIT_MERGE_FANIN
+ * sources, a pass merges every EMIT_MERGE_FANIN consecutive runs into one
+ * intermediate run (a lone run passes through) and removes the runs it read;
+ * the final pass merges what is left, the tail last, into the output. Memory
+ * is one entry per source plus one output segment. On failure the partial
+ * output is left unfinalized (no terminator or index), exactly like an error
+ * on the straight-through path. */
 static bool emit_merge_runs(EmitSink *s)
 {
     struct timespec t0;
@@ -687,27 +917,58 @@ static bool emit_merge_runs(EmitSink *s)
     }
     if (sorted != 0) return false; /* the fold's message is posted */
 
-    size_t k = s->num_runs;
-    MergeCursor *cur = calloc(k > 0 ? k : 1, sizeof(MergeCursor));
-    bool ok = cur != NULL;
-    for (size_t i = 0; ok && i < k; i++) {
-        bool prefix = i == 0 && s->written_elements > 0;
-        if (prefix) {
-            cur[i].data = read_whole_file(s->run_paths[i], &cur[i].len);
-            ok = cur[i].data != NULL;
-            if (ok) {
-                cur[i].reader = east_beast2_reader_new(cur[i].data, cur[i].len, s->out_type);
-                cur[i].enc = byte_buffer_new(256);
-                ok = cur[i].reader != NULL && cur[i].enc != NULL;
+    size_t tail = s->buf_len > 0 ? 1u : 0u;
+    size_t level_n = s->num_runs;
+    bool level_prefix = s->prefix_run;
+    size_t *level = malloc((level_n > 0 ? level_n : 1) * sizeof(size_t));
+    MergeCursor *cur = calloc(EMIT_MERGE_FANIN, sizeof(MergeCursor));
+    bool ok = level != NULL && cur != NULL;
+    for (size_t i = 0; ok && i < level_n; i++)
+        level[i] = i;
+    s->merge_sources = level_n + tail;
+    s->merge_passes = 0;
+    s->merge_width = 0;
+    bool duplicate = false;
+
+    while (ok && level_n + tail > EMIT_MERGE_FANIN) {
+        s->merge_passes++;
+        size_t next_n = 0;
+        for (size_t g = 0; ok && g < level_n; g += EMIT_MERGE_FANIN) {
+            size_t m = level_n - g < EMIT_MERGE_FANIN ? level_n - g : EMIT_MERGE_FANIN;
+            bool prefix = g == 0 && level_prefix;
+            if (m == 1 && !prefix) {
+                level[next_n++] = level[g];
+                continue;
             }
-        } else {
-            cur[i].f = fopen(s->run_paths[i], "rb");
-            ok = cur[i].f != NULL;
+            char *path =
+                emit_runs_reserve(s) ? emit_pass_run_path(s, next_n, s->merge_passes) : NULL;
+            ok = path != NULL;
+            if (!ok) break;
+            s->run_paths[s->num_runs++] = path; /* owned from here, freed with the sink */
+            MergeOut out = {0};
+            out.run = fopen(path, "wb");
+            ok = out.run != NULL;
+            size_t opened = 0;
+            if (ok) ok = emit_open_sources(s, cur, level + g, m, prefix, false, &opened);
+            if (ok) ok = emit_merge_sources(s, cur, m, &out, &duplicate);
+            for (size_t i = 0; i < opened; i++)
+                cursor_close(&cur[i]);
+            if (out.run) ok = fclose(out.run) == 0 && ok;
+            if (!ok) break;
+            if (m > s->merge_width) s->merge_width = m;
+            for (size_t i = 0; i < m; i++)
+                remove(s->run_paths[level[g + i]]);
+            level[next_n++] = s->num_runs - 1;
         }
-        if (ok) ok = cursor_advance(s, &cur[i]);
+        level_n = next_n;
+        level_prefix = false;
     }
 
+    MergeOut out = {0};
+    size_t opened = 0;
     if (ok) {
+        s->merge_passes++;
+        if (level_n + tail > s->merge_width) s->merge_width = level_n + tail;
         s->out = fopen(s->output_path, "wb");
         ok = s->out != NULL;
     }
@@ -715,134 +976,26 @@ static bool emit_merge_runs(EmitSink *s)
         s->writer = east_beast2_writer_new(s->out_type, EAST_BEAST2_CODEC_DEFLATE, true, true);
         if (s->writer) {
             east_beast2_writer_set_parallel(s->writer, true);
-            s->writer_base = s->written_bytes;
+            /* The refinement starts afresh, as a new sink's does: the demoted
+             * prefix's bytes and elements (already counted in spilled_bytes)
+             * never size the merge's segments, so the output is what the
+             * ascending path writes for the same entries. */
+            s->next_batch = EMIT_BATCH_CAP;
+            s->written_elements = 0;
+            s->written_bytes = 0;
+            s->writer_base = 0;
         }
         ok = s->writer != NULL && emit_drain(s);
     }
-
-    ByteBuffer *seg = byte_buffer_new(1 << 16);
-    ok = ok && seg != NULL;
-    size_t seg_count = 0;
-    EastValue *seg_first = NULL, *seg_last = NULL; /* owned */
-    size_t tail_idx = 0;
-    EastValue *prev_key = NULL; /* owned */
-    bool duplicate = false;
-    /* A merge function folds equal keys across sources, so the entry for
-     * the current key is held back until a greater key arrives: its bytes
-     * stay as they were copied unless a second equal key makes it fold, and
-     * then it is re-encoded from the folded value. */
-    ByteBuffer *held = s->merge_fn ? byte_buffer_new(256) : NULL;
-    size_t held_key_len = 0;
-    EastValue *held_key = NULL; /* owned */
-    EastValue *held_acc = NULL; /* owned: the folded value, once a fold ran */
-    ok = ok && (!s->merge_fn || held != NULL);
-    while (ok) {
-        int min = -1;
-        EastValue *min_key = NULL;
-        for (size_t i = 0; i < k; i++) {
-            if (!cur[i].key) continue;
-            if (min < 0 || east_value_compare(cur[i].key, min_key) < 0) {
-                min = (int)i;
-                min_key = cur[i].key;
-            }
-        }
-        bool from_tail = false;
-        if (tail_idx < s->buf_len &&
-            (min < 0 || east_value_compare(s->buf[tail_idx].key, min_key) < 0)) {
-            from_tail = true;
-        }
-        if (min < 0 && !from_tail) break;
-
-        EastValue *key;
-        const uint8_t *bytes;
-        size_t nbytes;
-        if (from_tail) {
-            const EmitPending *e = &s->buf[tail_idx++];
-            key = e->key;
-            bytes = s->arena->data + e->offset;
-            nbytes = e->key_len + e->val_len;
-        } else {
-            key = cur[min].key;
-            bytes = cursor_bytes(&cur[min]);
-            nbytes = cur[min].key_len + cur[min].val_len;
-        }
-        size_t key_len = from_tail ? s->buf[tail_idx - 1].key_len : cur[min].key_len;
-        if (prev_key && east_value_compare(prev_key, key) == 0) {
-            if (!emit_folds(s)) {
-                char msg[512];
-                emit_duplicate_msg(s, key, msg, sizeof(msg));
-                east_builtin_error(msg);
-                duplicate = true;
-                ok = false;
-                break;
-            }
-            if (s->merge_fn) {
-                EastType *vt = s->out_type->data.dict.value;
-                if (!held_acc) {
-                    held_acc = east_beast2_entry_decode(held->data + held_key_len,
-                                                        held->len - held_key_len, vt);
-                }
-                EastValue *v = held_acc
-                                   ? east_beast2_entry_decode(bytes + key_len, nbytes - key_len, vt)
-                                   : NULL;
-                if (!v) {
-                    ok = false;
-                    break;
-                }
-                held_acc = emit_fold_values(s, key, held_acc, v);
-                if (!held_acc) {
-                    ok = false;
-                    break;
-                }
-            }
-            /* Union: the first element stands; the equal one is dropped. */
-            if (!from_tail) ok = cursor_advance(s, &cur[min]);
-            continue;
-        }
-        east_value_retain(key);
-        if (prev_key) east_value_release(prev_key);
-        prev_key = key;
-
-        if (s->merge_fn) {
-            /* A greater key: the held entry is final — commit it, then hold
-             * this one. */
-            if (held_key) {
-                ok = emit_commit_held(s, seg, held, held_key, &held_acc, &seg_first, &seg_last,
-                                      &seg_count);
-                east_value_release(held_key);
-                held_key = NULL;
-                if (ok && seg_count >= s->next_batch)
-                    ok = emit_flush_raw(s, seg, &seg_count, &seg_first, &seg_last);
-            }
-            held->len = 0;
-            byte_buffer_write_bytes(held, bytes, nbytes);
-            held_key_len = key_len;
-            held_key = key;
-            east_value_retain(key);
-            if (ok && !from_tail) ok = cursor_advance(s, &cur[min]);
-            continue;
-        }
-
-        byte_buffer_write_bytes(seg, bytes, nbytes);
-        if (!seg_first) {
-            seg_first = key;
-            east_value_retain(key);
-        }
-        if (seg_last) east_value_release(seg_last);
-        seg_last = key;
-        east_value_retain(key);
-        seg_count++;
-        if (!from_tail) ok = cursor_advance(s, &cur[min]);
-        if (ok && seg_count >= s->next_batch)
-            ok = emit_flush_raw(s, seg, &seg_count, &seg_first, &seg_last);
+    if (ok) {
+        out.seg = byte_buffer_new(1 << 16);
+        ok = out.seg != NULL;
     }
-    if (ok && held_key) {
-        ok = emit_commit_held(s, seg, held, held_key, &held_acc, &seg_first, &seg_last, &seg_count);
-    }
-    if (held_key) east_value_release(held_key);
-    if (held_acc) east_value_release(held_acc);
-    if (held) byte_buffer_free(held);
-    if (ok) ok = emit_flush_raw(s, seg, &seg_count, &seg_first, &seg_last);
+    if (ok) ok = emit_open_sources(s, cur, level, level_n, level_prefix, tail != 0, &opened);
+    if (ok) ok = emit_merge_sources(s, cur, level_n + tail, &out, &duplicate);
+    for (size_t i = 0; i < opened; i++)
+        cursor_close(&cur[i]);
+    if (ok) ok = emit_flush_raw(s, &out);
     if (ok) {
         ok = east_beast2_writer_finish(s->writer);
         ok = emit_drain(s) && ok;
@@ -852,23 +1005,15 @@ static bool emit_merge_runs(EmitSink *s)
         s->out = NULL;
     }
 
-    if (prev_key) east_value_release(prev_key);
-    if (seg_first) east_value_release(seg_first);
-    if (seg_last) east_value_release(seg_last);
-    if (seg) byte_buffer_free(seg);
-    for (size_t i = 0; i < k; i++) {
-        cursor_drop_key(&cur[i]);
-        if (cur[i].segment) east_value_release(cur[i].segment);
-        if (cur[i].reader) east_beast2_reader_free(cur[i].reader);
-        if (cur[i].enc) byte_buffer_free(cur[i].enc);
-        free(cur[i].data);
-        if (cur[i].f) fclose(cur[i].f);
-        free(cur[i].rec);
-    }
+    if (out.seg_first) east_value_release(out.seg_first);
+    if (out.seg_last) east_value_release(out.seg_last);
+    if (out.seg) byte_buffer_free(out.seg);
+    free(level);
     free(cur);
     emit_buf_clear(s);
     if (s->verbose) s->merge_ms = emit_elapsed_ms(&t0);
     if (ok) {
+        /* The runs a pass read are already gone; this removes the rest. */
         for (size_t i = 0; i < s->num_runs; i++)
             remove(s->run_paths[i]);
     } else if (!duplicate) {
@@ -898,7 +1043,7 @@ static EvalResult emit_invoke(EastCompiledFn *self, EastValue **args, size_t n_a
             return eval_error(msg);
         }
         s->emitted++;
-        if (s->buf_len >= s->run_cap) {
+        if (s->buf_len >= s->run_cap || s->arena->len >= s->run_bytes) {
             EastValue *dup = NULL;
             int rc = emit_spill(s, &dup);
             if (rc == 1) {
@@ -1003,7 +1148,12 @@ EastEmitSink *east_emit_sink_new(const EastEmitSinkConfig *cfg)
     s->output_path = cfg->output_path;
     s->verbose = cfg->verbose;
     s->next_batch = EMIT_BATCH_CAP;
-    s->run_cap = cfg->run_elements > 0 ? cfg->run_elements : emit_run_elements_from_env();
+    s->run_cap = cfg->run_elements > 0
+                     ? cfg->run_elements
+                     : emit_size_from_env("EAST_EMIT_RUN_ELEMENTS", EMIT_RUN_ELEMENTS_DEFAULT);
+    s->run_bytes = cfg->run_bytes > 0
+                       ? cfg->run_bytes
+                       : emit_size_from_env("EAST_EMIT_RUN_BYTES", EMIT_RUN_BYTES_DEFAULT);
     s->out = fopen(cfg->output_path, "wb");
     if (!s->out) {
         char msg[1024];
@@ -1054,7 +1204,9 @@ void east_emit_sink_stats(const EastEmitSink *s, EastEmitSinkStats *out)
     memset(out, 0, sizeof(*out));
     out->emitted = s->emitted;
     out->buffered = s->buffered;
-    out->runs = s->num_runs;
+    out->sources = s->merge_sources;
+    out->passes = s->merge_passes;
+    out->runs_per_pass = s->merge_width;
     out->spills = s->spills;
     out->peak_entries = s->peak_entries;
     out->peak_bytes = s->peak_bytes;

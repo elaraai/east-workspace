@@ -2,7 +2,7 @@
 #define EAST_EMIT_SINK_H
 
 /*
- * The streaming emit sink behind `run --emit` (issues #507, #518).
+ * The streaming emit sink behind `run --emit` (issues #507, #518, #770).
  *
  * A body's trailing parameter is a runner-provided function value; each call
  * appends one element (a key/value pair for dict outputs) to a streaming
@@ -19,20 +19,32 @@
  * released at once, and only its key kept for ordering. A run is that entry
  * table sorted by key and written raw beside the output as
  * `varint(key_len) key varint(val_len) value` records — the sink's own
- * temporary format, not beast2 — up to the run cap entries per run. The finish
- * k-way merges the runs and the in-memory tail into the canonical output
- * decoding KEYS only: value bytes are copied straight into the output
- * segments, never decoded or re-encoded, and the final write is the only
- * deflate.
+ * temporary format, not beast2 — once the entries reach the element cap or
+ * their encoded bytes reach the byte cap.
+ *
+ * The finish merges the runs and the in-memory tail into the canonical output
+ * through a binary min-heap over the sources, at most 64 at once: more runs
+ * than that merge in passes, each pass merging 64 consecutive runs into one
+ * intermediate run in the same record format, `<output_path>.run<N>.p<pass>`,
+ * and the tail joins only the final pass, as its last source. No run is read
+ * whole — run #0 is read segment by segment through a mapping, the raw runs
+ * sequentially through a small buffer — so the sink's memory is bounded by the
+ * caps, independent of the output's size and its rows' width. The merge
+ * decodes KEYS only: value bytes are copied straight into the output segments,
+ * never decoded or re-encoded unless a fold runs, and the final write is the
+ * only deflate. The final merge sizes its segments afresh, as a new sink does,
+ * so its bytes are what the ascending path writes for the same entries.
  *
  * Duplicate Set/Dict keys are a hard error in every path — immediately when
  * adjacent in the stream, at spill/merge time otherwise — unless the sink
  * folds them: with a merge function (dict sinks) equal keys fold left in
  * emission order, `acc = merge(key, acc, value)`; with union mode (set sinks)
- * equal elements collapse to the first. Either way the file is byte-identical
- * to what the non-folding sink writes for the already-folded sequence. The
- * sink may fold part of a key's emissions before combining it with the rest,
- * so a merge function must be associative; emission order is never changed.
+ * equal elements collapse to the first. Every merge pass folds, and equal keys
+ * leave the heap in source order — run #0, the spill runs by index, the tail —
+ * which is emission order. Either way the file is byte-identical to what the
+ * non-folding sink writes for the already-folded sequence. The sink may fold
+ * part of a key's emissions before combining it with the rest, so a merge
+ * function must be associative; emission order is never changed.
  *
  * A batch is flushed when it is full and the next element will not fold into
  * it (or at finish, or when the output demotes) — never on the insert that
@@ -63,13 +75,17 @@ typedef struct {
      * sink's lifetime): Array<E>, Set<E> or Dict<K, V> of the kind. */
     EastType *out_type;
     /* The output file (borrowed for the sink's lifetime). Spill runs are
-     * written beside it as `<output_path>.run<N>`. */
+     * written beside it as `<output_path>.run<N>`, a merge pass's
+     * intermediate runs as `<output_path>.run<N>.p<pass>`. */
     const char *output_path;
     /* Collect the spill/merge timings reported by east_emit_sink_stats. */
     bool verbose;
     /* Spill once this many out-of-order entries are buffered; 0 reads
      * EAST_EMIT_RUN_ELEMENTS (digits only, at least 1), else 100,000. */
     size_t run_elements;
+    /* Spill once the buffered entries' encoded bytes reach this many; 0 reads
+     * EAST_EMIT_RUN_BYTES (digits only, at least 1), else 64 MiB. */
+    size_t run_bytes;
     /* Dict sinks: fold equal keys, `acc = merge(key, acc, value)`, in
      * emission order — a compiled `(K, V, V) -> V` over the output's key and
      * value types (borrowed; kept alive by the caller for the sink's
@@ -84,14 +100,20 @@ typedef struct {
     size_t emitted;
     /* Whether emission left ascending order (the spill/merge path ran). */
     bool buffered;
-    /* Runs merged by the finish, the demoted prefix included. */
-    size_t runs;
+    /* Sources the finish merged: the demoted prefix, the spill runs, and the
+     * in-memory tail when it holds entries. */
+    size_t sources;
+    /* Merge passes: one, plus one per level of intermediate runs. */
+    size_t passes;
+    /* The most sources one merge read at once — at most 64. */
+    size_t runs_per_pass;
     /* Runs written by spilling. */
     size_t spills;
     /* The most entries, and the most encoded entry bytes, held at once. */
     size_t peak_entries;
     size_t peak_bytes;
-    /* Bytes written to temporary runs, the demoted prefix included. */
+    /* Bytes written to temporary runs: the demoted prefix, the spill runs and
+     * the intermediate runs. */
     size_t spilled_bytes;
     /* Milliseconds spent spilling and merging (0 unless `verbose`). */
     double spill_ms;
@@ -114,7 +136,7 @@ EastValue *east_emit_sink_function(EastEmitSink *sink, EastType *fn_type);
 /* Flushes the final batch and writes the terminator + index (ascending path),
  * or merges the spilled runs and the tail into the canonical output (buffered
  * path). On failure the output is left unfinalized — no terminator or index —
- * and the message is posted. Removes the spill runs on success. */
+ * and the message is posted. Removes the temporary runs on success. */
 bool east_emit_sink_finish(EastEmitSink *sink);
 
 /* The sink's counters so far. */

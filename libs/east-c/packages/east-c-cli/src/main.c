@@ -9,6 +9,7 @@
 #include <east/east.h>
 #include <east/emit_sink.h>
 #include <east/eval_result.h>
+#include <east/file_map.h>
 #include <east/type_of_type.h>
 #include <east/ir_normalize.h>
 #include <east_std/east_std.h>
@@ -21,11 +22,6 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
-#ifndef _WIN32
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <unistd.h>
-#endif
 #include <east/hashmap.h>
 #include <east/compat.h>
 
@@ -320,52 +316,13 @@ static size_t lazy_input_threshold(void)
     return (size_t)64 * 1024 * 1024;
 }
 
-/* A lazily opened input MAPS its file: the paged value reads its segments
- * from the mapping, so the input's residency is the page cache and the heap
- * holds one decoded segment at a time — the mapping is released with the
- * value through this hook. Windows has no mmap here: the bytes are read
- * into a heap buffer the same hook frees. */
-static void input_release_mapping(void *ctx, uint8_t *data, size_t len)
-{
-    (void)ctx;
-#ifndef _WIN32
-    munmap(data, len);
-#else
-    (void)len;
-    free(data);
-#endif
-}
-
-/* Maps (POSIX) or reads (Windows) the whole input file. NULL, quietly, when
- * the file cannot be mapped (missing, empty, a directory, a file system
- * without mmap) — the caller then takes the eager path, which reads the
- * file and reports failures exactly as it always did. */
-static uint8_t *map_input_file(const char *path, size_t *len_out)
-{
-#ifndef _WIN32
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) return NULL;
-    struct stat st;
-    if (fstat(fd, &st) != 0 || S_ISDIR(st.st_mode) || st.st_size <= 0) {
-        close(fd);
-        return NULL;
-    }
-    size_t len = (size_t)st.st_size;
-    void *map = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0);
-    close(fd);
-    if (map == MAP_FAILED) return NULL;
-    *len_out = len;
-    return (uint8_t *)map;
-#else
-    return read_file_binary(path, len_out);
-#endif
-}
-
 /* Loads input value `path`, always FROZEN — task inputs are immutable
  * (mutating builtins raise the uniform copy-first error, and frozen
  * collections compare by value). When `want_lazy`, an indexed beast2
  * collection blob opens as a lazy paged value over a mapping of the file
- * (O(segment) decoded memory — issue #505; *mapped_out reports it); anything
+ * (map_input_file: the input's residency is the page cache and the heap holds
+ * one decoded segment at a time — issue #505; the value releases the mapping
+ * through input_release_mapping; *mapped_out reports it); anything
  * not pageable (other formats, index-less or aliased blobs, Ref- or
  * function-bearing element shapes) silently decodes whole, exactly like
  * east-node's runner. Non-beast2 formats have no frozen decoder, so the
@@ -401,10 +358,11 @@ static EastValue *load_input_value(const char *path, EastType *type, bool want_l
         return val;
     }
     size_t len = 0;
-    uint8_t *data = map_input_file(path, &len);
+    void *map_ctx = NULL;
+    uint8_t *data = map_input_file(path, &len, &map_ctx);
     if (!data) return load_input_value(path, type, false, mapped_out);
     EastValue *paged =
-        east_beast2_open_paged_external(data, len, type, true, input_release_mapping, NULL);
+        east_beast2_open_paged_external(data, len, type, true, input_release_mapping, map_ctx);
     if (paged) {
         if (mapped_out) *mapped_out = true;
         return paged; /* the value releases the mapping */
@@ -412,7 +370,7 @@ static EastValue *load_input_value(const char *path, EastType *type, bool want_l
     free(east_builtin_get_error());
     /* Not pageable: decode whole from the mapping, then drop it at once. */
     EastValue *val = east_beast2_decode_full_frozen(data, len, type);
-    input_release_mapping(NULL, data, len);
+    input_release_mapping(map_ctx, data, len);
     if (!val) fprintf(stderr, "Error: Failed to decode Beast2 from %s\n", path);
     return val;
 }
@@ -621,6 +579,7 @@ static EastEmitSink *emit_sink_open(EmitKind kind, EastType *emit_param_type,
         .output_path = output_file,
         .verbose = verbose,
         .run_elements = 0,
+        .run_bytes = 0,
         .merge_fn = merge_out->fn,
         .union_mode = union_mode,
     };
@@ -643,13 +602,13 @@ static void emit_print_epilogue(const EastEmitSink *sink)
     EastEmitSinkStats st;
     east_emit_sink_stats(sink, &st);
     if (!st.buffered) return;
-    char sz[32], peak[32];
-    format_size((off_t)st.spilled_bytes, sz, sizeof(sz));
+    char peak[32];
     format_size((off_t)st.peak_bytes, peak, sizeof(peak));
     fprintf(stderr,
-            "  emit: merged %zu spilled run(s) + in-memory tail (%s temp); %zu spill(s), "
+            "  emit: merged %zu source(s) in %zu pass(es) (%zu runs per pass); %zu spill(s), "
             "peak %zu entries / %s buffered, spill %.1f ms, merge %.1f ms\n",
-            st.runs, sz, st.spills, st.peak_entries, peak, st.spill_ms, st.merge_ms);
+            st.sources, st.passes, st.runs_per_pass, st.spills, st.peak_entries, peak, st.spill_ms,
+            st.merge_ms);
 }
 
 /* Frees the sink (NULL-safe), then the --merge function and the output type
@@ -954,12 +913,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
             args[i] = load_input_value(input_files[i], param_types[i], want_lazy, &mapped);
             if (lazy_inputs) lazy_inputs[i] = mapped;
             if (verbose && mapped) {
-#ifdef _WIN32
-                fprintf(stderr, "  input %d: opened lazily — read into memory, paged from there\n",
-                        i);
-#else
                 fprintf(stderr, "  input %d: opened lazily — mapped from the file\n", i);
-#endif
             }
             if (!args[i]) {
                 char *ts = format_type(param_types[i]);
