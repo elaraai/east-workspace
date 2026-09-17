@@ -31,5 +31,6 @@
 #include "hashmap.h"
 #include "env.h"
 #include "serialization.h"
+#include "emit_sink.h"
 
 #endif

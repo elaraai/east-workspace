@@ -11,6 +11,7 @@ set(EAST_C_SOURCES
     src/env.c
     src/compiler.c
     src/platform.c
+    src/emit_sink.c
     src/builtins/registry.c
     src/builtins/integer.c
     src/builtins/float_ops.c
