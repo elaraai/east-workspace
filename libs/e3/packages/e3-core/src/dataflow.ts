@@ -125,8 +125,9 @@ export interface TaskExecutionResult {
   cached: boolean;
   /** Execution ID (UUIDv7) - present for executed or cached tasks */
   executionId?: string;
-  /** Final state */
-  state: 'success' | 'failed' | 'error' | 'skipped';
+  /** Final state — `cancelled` when e3 stopped the task because the run was
+   *  aborted */
+  state: 'success' | 'failed' | 'error' | 'skipped' | 'cancelled';
   /** Error message if state is 'error' */
   error?: string;
   /** Exit code if state is 'failed' */

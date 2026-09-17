@@ -22,7 +22,7 @@ import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
-import { getBootId, getPidStartTime } from './processHelpers.js';
+import { getBootId, getPidStartTime, isProcessAlive } from './processHelpers.js';
 import { adoptOutputFile, marshalInputsToDir, spawnAndCapture } from './processExec.js';
 import { materializeEnvironment } from './environment.js';
 import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
@@ -77,6 +77,10 @@ export interface ExecutionResult {
   duration: number;
   /** Error message on failure */
   error: string | null;
+  /** True when e3 stopped the execution because the run was aborted — an
+   *  `error` whose message starts `cancelled:`, which is not the task's own
+   *  failure */
+  cancelled: boolean;
 }
 
 /**
@@ -110,6 +114,9 @@ export class LocalTaskRunner implements TaskRunner {
       cached: result.cached,
       executionId: result.executionId,
     };
+    if (result.cancelled) {
+      taskResult.cancelled = true;
+    }
 
     if (result.state === 'success' && result.outputHash) {
       taskResult.outputHash = result.outputHash;
@@ -204,6 +211,7 @@ export async function taskExecute(
       exitCode: null,
       duration: Date.now() - startTime,
       error: `Failed to read task object: ${err}`,
+      cancelled: false,
     };
   }
 
@@ -231,6 +239,10 @@ export async function taskExecute(
 /**
  * Probes the execution cache for a successful prior execution.
  *
+ * A latest record still `running` whose runner and orchestrator have both
+ * exited is first rewritten as an `interrupted:` error (see
+ * {@link repairInterruptedExecution}), so it no longer reads as live.
+ *
  * Exported for the partition executor, which probes every unit of a
  * partitioned task before running it.
  *
@@ -248,23 +260,60 @@ export async function probeExecutionCache(
   taskHash: string,
   inHash: string
 ): Promise<ExecutionResult | null> {
-  const existingOutput = await storage.refs.executionGetLatestOutput(repo, taskHash, inHash);
-  if (existingOutput !== null) {
-    const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
-    if (status && status.type === 'success') {
-      return {
-        inputsHash: inHash,
-        executionId: status.value.executionId,
-        cached: true,
-        state: 'success',
-        outputHash: existingOutput,
-        exitCode: 0,
-        duration: 0,
-        error: null,
-      };
-    }
+  const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
+  if (status?.type === 'running') {
+    await repairInterruptedExecution(storage, repo, taskHash, inHash, status.value);
+    return null;
   }
-  return null;
+  if (status?.type !== 'success') {
+    return null;
+  }
+  const existingOutput = await storage.refs.executionGetLatestOutput(repo, taskHash, inHash);
+  if (existingOutput === null) {
+    return null;
+  }
+  return {
+    inputsHash: inHash,
+    executionId: status.value.executionId,
+    cached: true,
+    state: 'success',
+    outputHash: existingOutput,
+    exitCode: 0,
+    duration: 0,
+    error: null,
+    cancelled: false,
+  };
+}
+
+/**
+ * Rewrites a `running` record as `error` when its execution can no longer
+ * finish: the runner has exited and so has the orchestrator recorded as its
+ * owner, so nothing will ever write its outcome.
+ *
+ * A live owner means the orchestrator is between the runner's exit and the
+ * record's write (it hashes the output there), so the record is left alone;
+ * so is a record with no owner sidecar.
+ */
+async function repairInterruptedExecution(
+  storage: StorageBackend,
+  repo: string,
+  taskHash: string,
+  inHash: string,
+  running: Extract<ExecutionStatus, { type: 'running' }>['value']
+): Promise<void> {
+  const pid = Number(running.pid);
+  if (await isProcessAlive(pid, Number(running.pidStartTime), running.bootId)) return;
+  const owner = await storage.refs.executionOwnerRead?.(repo, taskHash, inHash, running.executionId) ?? null;
+  if (owner === null) return;
+  if (await isProcessAlive(owner.pid, owner.pidStartTime, owner.bootId)) return;
+  const status: ExecutionStatus = variant('error', {
+    executionId: running.executionId,
+    inputHashes: running.inputHashes,
+    startedAt: running.startedAt,
+    completedAt: new Date(),
+    message: `interrupted: the orchestrator exited before this execution finished (runner pid ${pid})`,
+  });
+  await storage.refs.executionWrite(repo, taskHash, inHash, running.executionId, status);
 }
 
 /** The identity of one execution attempt, computed by {@link taskExecute}
@@ -347,6 +396,7 @@ export async function taskExecuteBody(
         exitCode: null,
         duration: Date.now() - startTime,
         error: `Failed to evaluate command IR: ${err}`,
+        cancelled: false,
       };
     }
 
@@ -369,6 +419,7 @@ export async function taskExecuteBody(
         exitCode: null,
         duration: Date.now() - startTime,
         error: 'Command IR produced empty command',
+        cancelled: false,
       };
     }
 
@@ -404,6 +455,7 @@ export async function taskExecuteBody(
           exitCode: null,
           duration: Date.now() - startTime,
           error: message,
+          cancelled: false,
         };
       }
     }
@@ -427,6 +479,43 @@ export async function taskExecuteBody(
       envBins,
       task.runner.type !== 'custom'
     );
+
+    /** Records an execution e3 stopped (`error`) or a signal ended
+     *  (`failed`, exit code -1), appending `e3: <cause>` to its stderr log. */
+    const stoppedResult = async (state: 'error' | 'failed', cause: string, cancelled: boolean): Promise<ExecutionResult> => {
+      try {
+        await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', `e3: ${cause}\n`);
+      } catch (err) {
+        console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      const status: ExecutionStatus = state === 'error'
+        ? variant('error', {
+          executionId,
+          inputHashes,
+          startedAt: new Date(startTime),
+          completedAt: new Date(),
+          message: cause,
+        })
+        : variant('failed', {
+          executionId,
+          inputHashes,
+          startedAt: new Date(startTime),
+          completedAt: new Date(),
+          exitCode: -1n,
+        });
+      await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+      return {
+        inputsHash: inHash,
+        executionId,
+        cached: false,
+        state,
+        outputHash: null,
+        exitCode: state === 'failed' ? -1 : null,
+        duration: Date.now() - startTime,
+        error: state === 'failed' ? `e3: ${cause}` : cause,
+        cancelled,
+      };
+    };
 
     // Step 9: Handle result
     if (result.exitCode === 0) {
@@ -456,6 +545,7 @@ export async function taskExecuteBody(
           exitCode: 0,
           duration: Date.now() - startTime,
           error: null,
+          cancelled: false,
         };
       } catch (err) {
         // Output file missing or unreadable
@@ -477,30 +567,44 @@ export async function taskExecuteBody(
           exitCode: 0,
           duration: Date.now() - startTime,
           error: `Failed to read output: ${err}`,
+          cancelled: false,
         };
       }
-    } else {
-      // Failed - write failed status
-      const status: ExecutionStatus = variant('failed', {
-        executionId,
-        inputHashes,
-        startedAt: new Date(startTime),
-        completedAt: new Date(),
-        exitCode: BigInt(result?.exitCode ?? -1),
-      });
-      await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
-
-      return {
-        inputsHash: inHash,
-        executionId,
-        cached: false,
-        state: 'failed',
-        outputHash: null,
-        exitCode: result.exitCode,
-        duration: Date.now() - startTime,
-        error: result.error,
-      };
     }
+
+    // e3 stopped the runner, or a signal ended it: the record names the
+    // cause, and so does the last line of the execution's stderr log.
+    if (result.stoppedByE3 && options.signal?.aborted) {
+      return stoppedResult('error', 'cancelled: e3 stopped the runner because the run was aborted', true);
+    }
+    if (result.timedOut) {
+      return stoppedResult('error', `timed out: e3 stopped the runner after ${options.timeout} ms`, false);
+    }
+    if (result.exitCode === null && result.signal !== null) {
+      return stoppedResult('failed', `runner killed by ${result.signal}`, false);
+    }
+
+    // Failed - write failed status
+    const status: ExecutionStatus = variant('failed', {
+      executionId,
+      inputHashes,
+      startedAt: new Date(startTime),
+      completedAt: new Date(),
+      exitCode: BigInt(result?.exitCode ?? -1),
+    });
+    await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+
+    return {
+      inputsHash: inHash,
+      executionId,
+      cached: false,
+      state: 'failed',
+      outputHash: null,
+      exitCode: result.exitCode,
+      duration: Date.now() - startTime,
+      error: result.error,
+      cancelled: false,
+    };
   } finally {
     // Cleanup scratch directory
     try {
@@ -577,7 +681,7 @@ async function runCommand(
   options: ExecuteOptions,
   extraBins: string[] = [],
   stdinLifeline = false
-): Promise<{ exitCode: number | null; error: string | null }> {
+): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null; stoppedByE3: boolean; timedOut: boolean; error: string | null }> {
   const stdoutLog = createLogAppender(
     (data) => storage.logs.append(repo, taskHash, inHash, executionId, 'stdout', data), 'stdout');
   const stderrLog = createLogAppender(
@@ -622,11 +726,23 @@ async function runCommand(
         bootId,
       });
       await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+      // The owner sidecar: this process, which alone writes the outcome.
+      await storage.refs.executionOwnerWrite?.(repo, taskHash, inHash, executionId, {
+        pid: process.pid,
+        pidStartTime: await getPidStartTime(process.pid),
+        bootId,
+      });
     },
   });
 
   // Wait for any pending log writes to complete
   await Promise.all([stdoutLog.idle(), stderrLog.idle()]);
 
-  return { exitCode: result.exitCode, error: result.error };
+  return {
+    exitCode: result.exitCode,
+    signal: result.signal,
+    stoppedByE3: result.stoppedByE3,
+    timedOut: result.timedOut,
+    error: result.error,
+  };
 }

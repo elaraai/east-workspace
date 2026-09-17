@@ -134,8 +134,9 @@ export interface TaskCompletedCallback {
   name: string;
   /** Whether the task was cached */
   cached: boolean;
-  /** Final state */
-  state: 'success' | 'failed' | 'error' | 'skipped';
+  /** Final state — `cancelled` when e3 stopped the task because the run was
+   *  aborted; the task goes back to pending */
+  state: 'success' | 'failed' | 'error' | 'skipped' | 'cancelled';
   /** Error message if state is 'error' */
   error?: string;
   /** Exit code if state is 'failed' */

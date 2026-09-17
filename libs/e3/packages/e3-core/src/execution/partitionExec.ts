@@ -135,7 +135,7 @@ export async function partitionTaskExecute(
   // own logs can be opened. Appends run one at a time; a record waits for them.
   let logWrites: Promise<void> = Promise.resolve();
   const logUnit = (label: string, unitTaskHash: string, result: ExecutionResult): void => {
-    const state = result.cached ? 'cached' : result.state === 'success' ? 'completed' : 'failed';
+    const state = result.cancelled ? 'cancelled' : result.cached ? 'cached' : result.state === 'success' ? 'completed' : 'failed';
     const line = `${label} ${state} task=${unitTaskHash} inputs=${result.inputsHash} execution=${result.executionId} duration=${result.duration}\n`;
     logWrites = logWrites.then(async () => {
       try {
@@ -168,6 +168,7 @@ export async function partitionTaskExecute(
       exitCode,
       duration: Date.now() - startTime,
       error: message,
+      cancelled: false,
     };
   };
   const errorResult = async (message: string): Promise<ExecutionResult> => {
@@ -187,8 +188,14 @@ export async function partitionTaskExecute(
       exitCode: null,
       duration: Date.now() - startTime,
       error: message,
+      cancelled: false,
     };
   };
+  /** Records the logical execution stopped because the run was aborted. */
+  const cancelledResult = async (): Promise<ExecutionResult> => ({
+    ...await errorResult('cancelled: e3 stopped the partitioned run because the run was aborted'),
+    cancelled: true,
+  });
 
   // ---------------------------------------------------------------------
   // Decode the partition spec and split the input layout.
@@ -447,7 +454,7 @@ export async function partitionTaskExecute(
   const workers = Array.from({ length: Math.min(concurrency, partitions) }, async () => {
     for (;;) {
       const p = nextPartition++;
-      if (p >= partitions || hasFailure) return;
+      if (p >= partitions || hasFailure || options.signal?.aborted) return;
       if (reusedSlices === null) {
         try {
           const carved = await carvePartitionSlices(storage, repo, plan, p);
@@ -467,7 +474,8 @@ export async function partitionTaskExecute(
       logUnit(`partition ${p + 1}/${partitions}`, taskHash, result);
       partitionsCompleted++;
       progress?.({ phase: 'partition', index: p, total: partitions, completed: partitionsCompleted, state: 'completed', cached: result.cached, duration: result.duration });
-      if (result.state !== 'success') hasFailure = true;
+      // A unit e3 stopped because the run was aborted is not a failure.
+      if (result.state !== 'success' && !result.cancelled) hasFailure = true;
     }
   });
   await Promise.all(workers);
@@ -481,6 +489,11 @@ export async function partitionTaskExecute(
     } catch (err) {
       return errorResult(`Failed to record the partition plan: ${err instanceof Error ? err.message : err}`);
     }
+  }
+
+  // An aborted run stops here, whatever its units did.
+  if (options.signal?.aborted || results.some((r) => r?.cancelled)) {
+    return cancelledResult();
   }
 
   // Attribute failure deterministically: the LOWEST-index failed partition
@@ -524,6 +537,7 @@ export async function partitionTaskExecute(
         partials,
         concurrency,
         runUnit,
+        signal: options.signal,
         onUnitStarted: (unit) => {
           progress?.({ phase: 'merge', index: unit.index, total: unit.total, completed: unit.completed, state: 'started' });
         },
@@ -534,6 +548,9 @@ export async function partitionTaskExecute(
       });
     } catch (err) {
       return errorResult(`Failed to merge partition partials: ${err instanceof Error ? err.message : err}`);
+    }
+    if (outcome.kind === 'cancelled') {
+      return cancelledResult();
     }
     if (outcome.kind === 'error') {
       return errorResult(outcome.message);
@@ -585,14 +602,14 @@ export async function partitionTaskExecute(
       const mergeWorkers = Array.from({ length: Math.min(concurrency, pairs) }, async () => {
         for (;;) {
           const pair = nextPair++;
-          if (pair >= pairs || mergeFailed) return;
+          if (pair >= pairs || mergeFailed || options.signal?.aborted) return;
           const i = pair * 2;
           progress?.({ phase: 'combine', index: pair, total: pairs, completed: pairsCompleted, state: 'started' });
           const merged = await runUnit(taskHash, task, [combineIrHash, level[i]!, level[i + 1]!]);
           mergeResults[pair] = merged;
           logUnit(`combine level ${levelNumber}/${combineLevels} unit ${pair + 1}/${pairs}`, taskHash, merged);
           if (merged.state !== 'success' || merged.outputHash === null) {
-            mergeFailed = true;
+            if (!merged.cancelled) mergeFailed = true;
             return;
           }
           pairsCompleted++;
@@ -601,6 +618,9 @@ export async function partitionTaskExecute(
         }
       });
       await Promise.all(mergeWorkers);
+      if (options.signal?.aborted || mergeResults.some((r) => r?.cancelled)) {
+        return cancelledResult();
+      }
       // Deterministic attribution, exactly as for the partition fan-out.
       const failedPair = mergeResults.findIndex((r) => r !== undefined && (r.state !== 'success' || r.outputHash === null));
       if (failedPair >= 0) {
@@ -653,6 +673,7 @@ export async function partitionTaskExecute(
     exitCode: 0,
     duration: Date.now() - startTime,
     error: null,
+    cancelled: false,
   };
 }
 

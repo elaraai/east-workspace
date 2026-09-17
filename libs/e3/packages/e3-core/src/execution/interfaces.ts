@@ -63,6 +63,9 @@ export interface TaskResult {
   exitCode?: number;
   /** Error message (if state is 'error') */
   error?: string;
+  /** True when e3 stopped the task because the run was aborted (state
+   *  'error', message `cancelled: …`) — not the task's own failure */
+  cancelled?: boolean;
 }
 
 /**

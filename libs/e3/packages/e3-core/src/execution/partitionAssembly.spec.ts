@@ -113,7 +113,7 @@ describe('partitionAssembly', () => {
     const runs: string[][] = [];
     const runUnit = async (_taskHash: string, _task: TaskObject, inputs: string[]): Promise<ExecutionResult> => {
       runs.push(inputs);
-      const base = { inputsHash: 'i'.repeat(64), executionId: `unit-${runs.length}`, cached: false, duration: 0 };
+      const base = { inputsHash: 'i'.repeat(64), executionId: `unit-${runs.length}`, cached: false, duration: 0, cancelled: false };
       if (failWhen?.(inputs)) {
         return { ...base, state: 'failed', outputHash: null, exitCode: 3, error: 'boom' };
       }

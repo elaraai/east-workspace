@@ -14,7 +14,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import {
   variant, some, none,
   StringType, IntegerType, NullType, StructType, DictType, ArrayType, SetType,
@@ -831,6 +831,52 @@ describe('partitionTaskExecute', () => {
     assert.match(result.error ?? '', /merge-boom/);
     const latest = await storage.refs.executionGetLatest(repo, taskHash, result.inputsHash);
     assert.equal(latest?.type, 'failed', 'the recorded status must be failed, not error');
+  });
+
+  it('records a partitioned run aborted mid-partition as cancelled, the unit and the logical execution alike', async () => {
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const fnIrHash = await createDummyFnIr();
+    // Each partition announces itself, then sleeps while the marker exists.
+    const marker = join(repo, 'sleep-while-this-exists');
+    writeFileSync(marker, '');
+    const script = `echo started; while [ -e '${marker}' ]; do sleep 1; done; cp "$1" "$2"`;
+    const sleepyFn = East.function(
+      [ArrayType(StringType), StringType],
+      ArrayType(StringType),
+      ($, inputs, output) => ['bash', '-c', script, '--', inputs.get(1n), output],
+    );
+    const commandIrHash = await objectWrite(repo, encodeBeast2For(IRType)(sleepyFn.toIR().ir));
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1, commandIrHash });
+
+    const abort = new AbortController();
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], {
+      partitionConcurrency: 1,
+      signal: abort.signal,
+      onStdout: () => abort.abort(),
+    });
+
+    assert.equal(result.state, 'error');
+    assert.equal(result.cancelled, true);
+    assert.equal(result.error, 'cancelled: e3 stopped the partitioned run because the run was aborted');
+    const logical = await storage.refs.executionGet(repo, taskHash, result.inputsHash, result.executionId);
+    assert.equal(logical?.type === 'error' ? logical.value.message : null, 'cancelled: e3 stopped the partitioned run because the run was aborted');
+
+    // One partition ran before the abort; it is recorded cancelled, and the
+    // logical log names it.
+    const lines = await logLines(taskHash, result);
+    assert.equal(lines.length, 1, lines.join('\n'));
+    const match = /^partition 1\/10 cancelled task=([0-9a-f]{64}) inputs=([0-9a-f]{64}) execution=(\S+) duration=\d+$/.exec(lines[0]!);
+    assert.ok(match, lines[0]);
+    const unit = await storage.refs.executionGet(repo, match[1]!, match[2]!, match[3]!);
+    assert.equal(unit?.type === 'error' ? unit.value.message : null, 'cancelled: e3 stopped the runner because the run was aborted');
+    const unitStderr = await storage.logs.read(repo, match[1]!, match[2]!, match[3]!, 'stderr');
+    assert.ok(unitStderr.data.endsWith('e3: cancelled: e3 stopped the runner because the run was aborted\n'));
+
+    // Nothing was cached: the next run executes every partition.
+    rmSync(marker);
+    const rerun = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(rerun.state, 'success', rerun.error ?? '');
+    assert.equal(rerun.outputHash, tableHash);
   });
 
   it('spliceChunks refuses non-self-contained parts', async () => {

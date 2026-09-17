@@ -294,6 +294,8 @@ export interface MergeTreeOptions {
   concurrency: number;
   /** Runs one unit: probed in the execution cache, executed on a miss. */
   runUnit: (taskHash: string, task: TaskObject, inputs: string[]) => Promise<ExecutionResult>;
+  /** The run's abort: once it fires, workers pick up no further unit. */
+  signal?: AbortSignal;
   /** Called as a unit starts. */
   onUnitStarted?: (unit: MergeUnitPosition) => void;
   /** Called as a unit completes, whatever its result. */
@@ -308,6 +310,8 @@ export type MergeTreeOutcome =
   | { kind: 'merged'; results: string[]; units: number }
   /** A unit did not succeed — the lowest-index one of its level. */
   | { kind: 'unitFailed'; unit: MergeUnitPosition; result: ExecutionResult }
+  /** The run was aborted, or a unit was stopped because it was. */
+  | { kind: 'cancelled' }
   /** The tree cannot run; the message is the logical execution's error. */
   | { kind: 'error'; message: string };
 
@@ -320,7 +324,9 @@ export type MergeTreeOutcome =
  * each component into one unit (a group of one passes through) until one
  * entry remains. A level's units, across every component, run in a pool of
  * `concurrency` workers; the next level starts when the level is done. A
- * worker picks up no further unit once a unit has not succeeded.
+ * worker picks up no further unit once a unit has not succeeded or the run's
+ * signal has fired; a unit stopped because the run was aborted is not a
+ * failure, and the tree ends `cancelled`.
  *
  * @param options - The partials, the parent task and how units run
  * @returns The components' results, the failed unit, or why no tree can run
@@ -361,7 +367,7 @@ export async function assembleMergeTree(options: MergeTreeOptions): Promise<Merg
     const workers = Array.from({ length: Math.min(Math.max(1, options.concurrency), units.length) }, async () => {
       for (;;) {
         const index = nextUnit++;
-        if (index >= units.length || hasFailure) return;
+        if (index >= units.length || hasFailure || options.signal?.aborted) return;
         const unit = units[index]!;
         const unitTask = synthesized.get(unit.partials.length)!;
         const position = { level, levels, index, total: units.length, taskHash: unitTask.taskHash };
@@ -371,11 +377,15 @@ export async function assembleMergeTree(options: MergeTreeOptions): Promise<Merg
         completed++;
         positions[index] = { ...position, completed };
         options.onUnitCompleted?.(positions[index], result);
-        if (result.state !== 'success' || result.outputHash === null) hasFailure = true;
+        if ((result.state !== 'success' || result.outputHash === null) && !result.cancelled) hasFailure = true;
       }
     });
     await Promise.all(workers);
     unitCount += units.length;
+
+    if (options.signal?.aborted || results.some((r) => r?.cancelled)) {
+      return { kind: 'cancelled' };
+    }
 
     // Deterministic attribution: the lowest-index unit that did not succeed.
     const failed = results.findIndex((r) => r !== undefined && (r.state !== 'success' || r.outputHash === null));
