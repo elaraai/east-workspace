@@ -6,7 +6,7 @@
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } from '@elaraai/east';
@@ -292,7 +292,9 @@ describe('stopped executions', { skip: process.platform === 'win32' }, () => {
       assert.equal(result.state, 'success', result.error ?? '');
 
       const cwd = (await storage.logs.read(repo, taskHash, result.inputsHash, result.executionId, 'stdout')).data.trim();
-      assert.equal(path.dirname(cwd), root);
+      // The shell reports its working directory resolved, and macOS's
+      // temporary directory is a symlink (/var -> /private/var).
+      assert.equal(path.dirname(cwd), realpathSync(root));
       const pidStartTime = await getPidStartTime(process.pid);
       assert.match(
         path.basename(cwd),
