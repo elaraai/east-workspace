@@ -146,6 +146,7 @@ export const slicePredicates = example({
                                     variant("integer", { fieldId: "sessions", op: variant("gte", 10n) }),
                                     variant("string",  { fieldId: "country",  op: variant("eq",  "US") }),
                                 ],
+                                group: none,
                             }, Slice.Types.Cohort);
                             $(slice.defineCohort(cohort));
                         }));

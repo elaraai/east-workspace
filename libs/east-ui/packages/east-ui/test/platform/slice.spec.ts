@@ -171,7 +171,7 @@ describeEast("Slice", (test) => {
     // Cohort, Breakdown, State construction
     // -----------------------------------------------------------------------
 
-    test("SliceCohort holds typed AND-of-predicates", $ => {
+    test("SliceCohort holds typed AND-of-predicates and an optional group", $ => {
         const c = $.const(East.value({
             id:   "power-users",
             name: "Power users",
@@ -179,15 +179,28 @@ describeEast("Slice", (test) => {
                 variant("integer", { fieldId: "sessions", op: variant("gte", 10n) }),
                 variant("string",  { fieldId: "country",  op: variant("eq",  "US") }),
             ],
+            group: none,
         }, Slice.Types.Cohort));
         const intFilter = $.let(c.filters.get(0n).unwrap("integer"));
         const strFilter = $.let(c.filters.get(1n).unwrap("string"));
         $(Assert.equal(c.id,   "power-users"));
         $(Assert.equal(c.name, "Power users"));
+        $(Assert.equal(c.group.getTag(), "none"));
         $(Assert.equal(intFilter.fieldId, "sessions"));
         $(Assert.equal(intFilter.op.unwrap("gte"), 10n));
         $(Assert.equal(strFilter.fieldId, "country"));
         $(Assert.equal(strFilter.op.unwrap("eq"), "US"));
+    });
+
+    test("Slice.state takes a cohort's group as a bare string, and fills none in when it is omitted", $ => {
+        const s = $.const(Slice.state({
+            cohorts: [
+                { id: "scheduled", name: "Scheduled", group: "state", filters: [variant("string", { fieldId: "state", op: variant("eq", "SCHEDULED") })] },
+                { id: "mine",      name: "Mine",                      filters: [variant("string", { fieldId: "owner", op: variant("eq", "me") })] },
+            ],
+        }));
+        $(Assert.equal(s.cohorts.get(0n).group.unwrap("some"), "state"));
+        $(Assert.equal(s.cohorts.get(1n).group.getTag(), "none"));
     });
 
     test("SliceBreakdown carries fieldId + optional top-N", $ => {
@@ -874,6 +887,38 @@ describeEast("Slice", (test) => {
         $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rUS10), true));
         $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rUK10), false));
         $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rUS5),  false));
+    });
+
+    test("apply.matches: cohorts sharing a group OR with each other; groups AND with each other and with a standalone cohort", $ => {
+        const RowType = StructType({ state: StringType, status: StringType, owner: StringType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: { state: { label: "State" }, status: { label: "Status" }, owner: { label: "Owner" } },
+        }));
+        const cohorts = [
+            { id: "proposed",  name: "Proposed",  group: "state",  filters: [variant("string", { fieldId: "state",  op: variant("eq", "PROPOSED") })] },
+            { id: "scheduled", name: "Scheduled", group: "state",  filters: [variant("string", { fieldId: "state",  op: variant("eq", "SCHEDULED") })] },
+            { id: "ready",     name: "Ready",     group: "status", filters: [variant("string", { fieldId: "status", op: variant("eq", "READY") })] },
+            { id: "mine",      name: "Mine",                       filters: [variant("string", { fieldId: "owner",  op: variant("eq", "me") })] },
+        ];
+        const proposedReady   = $.const(East.value({ state: "PROPOSED",  status: "READY", owner: "me"  }, RowType));
+        const scheduledReady  = $.const(East.value({ state: "SCHEDULED", status: "READY", owner: "me"  }, RowType));
+        const scheduledHeld   = $.const(East.value({ state: "SCHEDULED", status: "HELD",  owner: "me"  }, RowType));
+        const doneReady       = $.const(East.value({ state: "DONE",      status: "READY", owner: "me"  }, RowType));
+        const scheduledReadyTheirs = $.const(East.value({ state: "SCHEDULED", status: "READY", owner: "you" }, RowType));
+        // Two members of one group: either state passes (OR within the group).
+        const twoStates = $.const(Slice.state({ cohorts, activeCohorts: new Set(["proposed", "scheduled"]) }));
+        $(Assert.equal(Slice.apply.matches([RowType], twoStates, cfg, proposedReady), true));
+        $(Assert.equal(Slice.apply.matches([RowType], twoStates, cfg, scheduledHeld), true));
+        $(Assert.equal(Slice.apply.matches([RowType], twoStates, cfg, doneReady),     false));
+        // A member of each group: both groups must pass (AND across groups).
+        const stateAndStatus = $.const(Slice.state({ cohorts, activeCohorts: new Set(["scheduled", "ready"]) }));
+        $(Assert.equal(Slice.apply.matches([RowType], stateAndStatus, cfg, scheduledReady), true));
+        $(Assert.equal(Slice.apply.matches([RowType], stateAndStatus, cfg, scheduledHeld),  false));
+        $(Assert.equal(Slice.apply.matches([RowType], stateAndStatus, cfg, proposedReady),  false));
+        // A standalone cohort ANDs with a group, as it always has.
+        const withMine = $.const(Slice.state({ cohorts, activeCohorts: new Set(["scheduled", "mine"]) }));
+        $(Assert.equal(Slice.apply.matches([RowType], withMine, cfg, scheduledReady),       true));
+        $(Assert.equal(Slice.apply.matches([RowType], withMine, cfg, scheduledReadyTheirs), false));
     });
 
     test("apply.matches: inactive cohort is ignored", $ => {

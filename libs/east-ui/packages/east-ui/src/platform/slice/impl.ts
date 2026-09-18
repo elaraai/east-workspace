@@ -235,6 +235,14 @@ interface CohortLike {
     readonly id: string;
     readonly name: string;
     readonly filters: ReadonlyArray<variant>;
+    /** `option<string>` — the cohort's family; absent on a state built before the field existed. */
+    readonly group?: variant;
+}
+
+/** A cohort's family, or `undefined` for a standalone cohort (tolerates a pre-field state with no `group`). */
+export function cohortGroupOf(cohort: { readonly group?: variant | undefined }): string | undefined {
+    const g = cohort.group;
+    return g !== undefined && g.type === "some" ? (g.value as string) : undefined;
 }
 
 interface StateLike {
@@ -303,13 +311,23 @@ export function sliceMatches(state: StateLike, config: ConfigLike, row: Record<s
     for (const f of state.filters) {
         if (!predicateMatches(f, row)) return false;
     }
-    // Active cohorts — each cohort's filters AND-ed into the chain
+    // Active cohorts — a standalone cohort's filters AND into the chain; the
+    // active members of a GROUP are alternatives (the row passes the group when
+    // any of them matches), and the groups AND with each other.
+    const groups = new Map<string, boolean>();
     for (const cohortId of state.activeCohorts) {
         const cohort = state.cohorts.find(c => eqString(c.id, cohortId));
         if (!cohort) continue;
-        for (const f of cohort.filters) {
-            if (!predicateMatches(f, row)) return false;
+        const matched = cohort.filters.every(f => predicateMatches(f, row));
+        const group = cohortGroupOf(cohort);
+        if (group === undefined) {
+            if (!matched) return false;
+            continue;
         }
+        groups.set(group, (groups.get(group) ?? false) || matched);
+    }
+    for (const passed of groups.values()) {
+        if (!passed) return false;
     }
     // Search — case-insensitive substring across the searchable fields: string
     // fields by value, `text` fields through their projection. Resolve them the
