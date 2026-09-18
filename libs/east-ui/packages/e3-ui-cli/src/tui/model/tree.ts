@@ -32,9 +32,6 @@ import {
 } from '@elaraai/east-ui/internal';
 import type { DatasetData, TreeUi, TuiState, View } from '../state/actions.js';
 
-/** Root rows fetched per page. */
-export const PAGE_SIZE = 500;
-
 /** Whether a dataset root type pages (Array / Set / Dict). */
 export function isCollectionType(type: EastTypeValue): boolean {
     return type.type === 'Array' || type.type === 'Set' || type.type === 'Dict';
@@ -151,7 +148,7 @@ function buildTreeModel(type: EastTypeValue, mode: TreeContent, tree: TreeUi, ed
             keyType,
         };
     }
-    const paging: ValueTreePaging = { totalRows: mode.totalRows, pageSize: PAGE_SIZE, pages: mode.pages, onNeedRows: () => undefined };
+    const paging: ValueTreePaging = { totalRows: mode.totalRows, pageSize: mode.pageSize, pages: mode.pages, onNeedRows: () => undefined };
     const flat = flattenPaged(paging, tree.open, openDepth);
     return {
         total: flat.totalFlat,
