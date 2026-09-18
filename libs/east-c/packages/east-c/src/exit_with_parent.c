@@ -5,18 +5,17 @@
  * A parent that must not leave its runner behind when it dies without warning
  * — e3's orchestrator under a V8 abort or `kill -9`, with no chance to stop
  * the process group — spawns the runner with a stdin pipe it never writes to
- * and EAST_EXIT_WITH_PARENT=1. The pipe's write end lives exactly as long as
- * the parent, so a read of stdin blocks until the parent is gone and then
- * returns end of file; the watcher ends the process there. It only reads a
- * file descriptor and exits: it touches no East value and allocates nothing,
- * so the runtime's single-thread contract holds.
+ * and `--exit-with-parent` on the command line. The pipe's write end lives
+ * exactly as long as the parent, so a read of stdin blocks until the parent
+ * is gone and then returns end of file; the watcher ends the process there.
+ * It only reads a file descriptor and exits: it touches no East value and
+ * allocates nothing, so the runtime's single-thread contract holds.
  */
 
 #include <east/compat.h>
 #include <east/east.h>
 
 #include <stdlib.h>
-#include <string.h>
 
 #ifndef _WIN32
 #include <errno.h>
@@ -56,8 +55,6 @@ static EAST_THREAD_ENTRY exit_with_parent_watch(void *arg)
 
 void east_exit_with_parent(void)
 {
-    const char *flag = getenv("EAST_EXIT_WITH_PARENT");
-    if (!flag || strcmp(flag, "1") != 0) return;
     EastThread watcher;
     if (east_thread_start(&watcher, exit_with_parent_watch, NULL)) east_thread_detach(watcher);
 }

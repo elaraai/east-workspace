@@ -13,7 +13,7 @@ target_compile_definitions(east-c-cli PRIVATE
 # over the checked-in IR fixtures in tests/fixtures and byte-validates the
 # emitted blobs (decode, index present, canonical error text on a duplicate
 # or out-of-order key), the --merge/--union fold contract over ascending
-# emissions, and the EAST_EXIT_WITH_PARENT stdin lifeline. Runs in the ASan
+# emissions, and the --exit-with-parent stdin lifeline. Runs in the ASan
 # tree too (leak-check's ctest pass), where the spawned CLI is instrumented —
 # the harness fails on any sanitizer report in the child's stderr, covering
 # the emit sink's error path (freed without finish).

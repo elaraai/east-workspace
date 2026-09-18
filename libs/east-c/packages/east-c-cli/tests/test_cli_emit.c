@@ -25,9 +25,9 @@
  *                      bytes the flag-less sink writes for the folded
  *                      sequence — including a fold into the last entry of a
  *                      full batch;
- *   7. lifeline      — with EAST_EXIT_WITH_PARENT=1 the runner exits once
- *                      its stdin pipe closes, mid-computation (bounded
- *                      wait, 10 s).
+ *   7. lifeline      — with --exit-with-parent the runner exits once its
+ *                      stdin pipe closes, mid-computation (bounded wait,
+ *                      10 s).
  *
  * Run under ASan/LSan (run_leak_check.sh's build-asan configuration) the
  * spawned CLI is itself instrumented; every case scans the child's stderr
@@ -378,8 +378,8 @@ static void sleep_ms(long ms)
 
 static void test_exit_with_parent(const char *bin, const char *fixtures)
 {
-    /* Issue #770 gate (c): a runner started with EAST_EXIT_WITH_PARENT=1 and
-     * a stdin pipe nobody writes exits once that pipe closes — while its body
+    /* Issue #770 gate (c): a runner started with --exit-with-parent and a
+     * stdin pipe nobody writes exits once that pipe closes — while its body
      * is still computing (the fixture loops forever after one emission). */
     char ir[1024];
     snprintf(ir, sizeof(ir), "%s/emit_spin.beast2", fixtures);
@@ -395,8 +395,6 @@ static void test_exit_with_parent(const char *bin, const char *fixtures)
         CHECK(false, "lifeline: pipe failed");
         return;
     }
-    /* Set before the fork, so the child only execs. */
-    setenv("EAST_EXIT_WITH_PARENT", "1", 1);
     pid_t pid = fork();
     if (pid == 0) {
         dup2(in_pipe[0], STDIN_FILENO);
@@ -405,10 +403,10 @@ static void test_exit_with_parent(const char *bin, const char *fixtures)
         close(in_pipe[1]);
         close(err_pipe[0]);
         close(err_pipe[1]);
-        execl(bin, bin, "run", ir, "--emit", "set", "-o", LIFELINE_OUTPUT, (char *)NULL);
+        execl(bin, bin, "run", "--exit-with-parent", ir, "--emit", "set", "-o", LIFELINE_OUTPUT,
+              (char *)NULL);
         _exit(127);
     }
-    unsetenv("EAST_EXIT_WITH_PARENT");
     close(in_pipe[0]);
     close(err_pipe[1]);
     if (pid < 0) {
@@ -469,8 +467,8 @@ static void test_exit_with_parent(const char *bin, const char *fixtures)
 #else
 static void test_exit_with_parent(const char *bin, const char *fixtures)
 {
-    /* Issue #770 gate (c): a runner started with EAST_EXIT_WITH_PARENT=1 and
-     * a stdin pipe nobody writes exits once that pipe closes — while its body
+    /* Issue #770 gate (c): a runner started with --exit-with-parent and a
+     * stdin pipe nobody writes exits once that pipe closes — while its body
      * is still computing (the fixture loops forever after one emission). */
     remove(LIFELINE_OUTPUT);
     SECURITY_ATTRIBUTES inherit = {sizeof(SECURITY_ATTRIBUTES), NULL, TRUE};
@@ -498,11 +496,10 @@ static void test_exit_with_parent(const char *bin, const char *fixtures)
     si.hStdError = err_write;
     PROCESS_INFORMATION pi;
     char cmd[4096];
-    snprintf(cmd, sizeof(cmd), "\"%s\" run \"%s/emit_spin.beast2\" --emit set -o " LIFELINE_OUTPUT,
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" run --exit-with-parent \"%s/emit_spin.beast2\" --emit set -o " LIFELINE_OUTPUT,
              bin, fixtures);
-    SetEnvironmentVariableA("EAST_EXIT_WITH_PARENT", "1");
     BOOL started = CreateProcessA(NULL, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
-    SetEnvironmentVariableA("EAST_EXIT_WITH_PARENT", NULL);
     CloseHandle(in_read);
     CloseHandle(err_write);
     if (!started) {

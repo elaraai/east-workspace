@@ -1539,6 +1539,9 @@ static void print_usage(const char *prog)
             "  -i, --input FILE        Input data file (repeatable, order matches params)\n"
             "  -o, --output FILE       Output file for result\n"
             "  -v, --verbose           Enable verbose output\n"
+            "      --exit-with-parent  Exit with status 1 once stdin reaches end of file —\n"
+            "                          for a parent that holds a stdin pipe it never writes\n"
+            "                          to, and takes the runner down with it (any command)\n"
             "      --emit KIND         Write the output incrementally from the function's\n"
             "                          trailing emit parameter (array|set|dict)\n"
             "      --merge FILE        With --emit dict: fold equal keys with the East\n"
@@ -1837,8 +1840,20 @@ static int cli_main(void *arg)
 int main(int argc, char **argv)
 {
     east_init_crash_handling();
-    /* A parent that gave the runner a stdin lifeline takes it down with it. */
-    east_exit_with_parent();
-    cli_args args = {argc, argv};
+    /* A parent that gave the runner a stdin lifeline takes it down with it:
+     * the flag is taken off the command line here, before any work starts,
+     * so every command accepts it wherever the parent splices it. */
+    int kept = 0;
+    bool lifeline = false;
+    for (int i = 0; i < argc; i++) {
+        if (i > 0 && strcmp(argv[i], "--exit-with-parent") == 0) {
+            lifeline = true;
+            continue;
+        }
+        argv[kept++] = argv[i];
+    }
+    argv[kept] = NULL;
+    if (lifeline) east_exit_with_parent();
+    cli_args args = {kept, argv};
     return east_run_on_large_stack(cli_main, &args);
 }
