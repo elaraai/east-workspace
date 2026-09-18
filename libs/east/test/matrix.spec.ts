@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, FloatType, VectorType, IntegerType } from "../src/index.js";
+import { East, ArrayType, FloatType, VectorType, IntegerType, MatrixType } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./matrix.examples.js";
 
@@ -594,5 +594,18 @@ await describe("Matrix", (test) => {
         // zero columns: every row sums to the empty sum
         const wide = $.let(East.Matrix.zeros(2n, 0n));
         $(assert.equal(wide.rowSums(), new Float64Array([0.0, 0.0])))
+    });
+
+    test("Matrix text keeps rows that have no columns", $ => {
+        // Only a matrix with no rows prints as `mat[]`; rows print even when
+        // they are empty, so the row count survives a text round trip.
+        // east-c printed `mat[]` for either dimension being zero (#774).
+        const wide = $.let(East.Matrix.zeros(3n, 0n));
+        $(assert.equal(East.print(wide), "mat[[], [], []]"))
+        const parsed = $.let(East.print(wide).parse(MatrixType(FloatType)));
+        $(assert.equal(parsed.rows(), 3n))
+        $(assert.equal(parsed.cols(), 0n))
+        $(assert.equal(East.print(East.Matrix.zeros(0n, 0n)), "mat[]"))
+        $(assert.equal(East.print(East.Matrix.zeros(0n, 3n)), "mat[]"))
     });
 });
