@@ -99,19 +99,16 @@ class _EmitSink:
     write the same bytes for the same emissions.
 
     The compiled body calls the sink's function value once per row with no
-    python in the loop: batching, the ascending check, spilling, merging and
-    the folds all run in C. Emission order is unconstrained. While Set/Dict
-    emissions stay strictly ascending, segments stream straight to the output
-    file; on the first out-of-order key the prefix written so far demotes to a
-    spill run, and :meth:`finish` merges the runs and the in-memory tail into
-    the canonical output, with memory bounded by ``EAST_EMIT_RUN_ELEMENTS``
-    and ``EAST_EMIT_RUN_BYTES`` rather than by the output's size. Duplicate
-    Set/Dict keys are a hard error in every path unless the sink folds them:
-    ``merge`` (a compiled ``(K, V, V) -> V``) folds equal dict keys in
-    emission order, ``union`` keeps the first of equal set elements."""
+    python in the loop: batching, the ascending check and the folds all run
+    in C, in one pass — segments stream straight to the output file, and
+    memory is one open segment whatever the output's size. Set and Dict
+    emissions must ascend in East order: an out-of-order key is an error,
+    and so is an equal key unless the sink folds it — ``merge`` (a compiled
+    ``(K, V, V) -> V``) folds an adjacent equal dict key in emission order,
+    ``union`` keeps the first of adjacent equal set elements."""
 
     def __init__(self, kind: str, emit_param_type: object, output_file: Path,
-                 verbose: bool = False, merge: Callable | None = None, union: bool = False):
+                 merge: Callable | None = None, union: bool = False):
         from east import ArrayType, DictType, SetType
         from east.serialization._beast2_eastc import _EmitSinkCore
 
@@ -138,8 +135,8 @@ class _EmitSink:
             else ArrayType(ins[0])
         )
         self._core = _EmitSinkCore(
-            {"array": 0, "set": 1, "dict": 2}[kind], self.emit_types, self.output_file,
-            verbose, merge, union)
+            {"array": 0, "set": 1, "dict": 2}[kind], self.emit_types, self.output_file, merge,
+            union)
 
     def function_value(self) -> Callable:
         """The emit capability as a native East function value: every row runs
@@ -158,29 +155,14 @@ class _EmitSink:
         self._core.emit(*args)
 
     def finish(self) -> None:
-        """Finalize the output: the terminator and index, or the merge of the
-        spilled runs and the tail. Raises EastError with the sink's message
-        (a duplicate key found at merge time, a failing merge function) and
-        leaves the output unfinalized."""
+        """Finalize the output: the open batch, the terminator and the
+        index. Raises EastError with the sink's message and leaves the output
+        unfinalized."""
         self._core.finish()
 
     def stats(self) -> dict[str, Any]:
-        """The sink's counters (see ``_EmitSinkCore.stats``)."""
+        """The sink's counter (see ``_EmitSinkCore.stats``)."""
         return self._core.stats()
-
-
-def _print_emit_epilogue(stats: dict[str, Any]) -> None:
-    """The -v account of the sink's buffered (spill/merge) path, worded as
-    the east-c and east-node runners word it."""
-    if not stats["buffered"]:
-        return
-    print(
-        f"  emit: merged {stats['sources']} source(s) in {stats['passes']} pass(es) "
-        f"({stats['runs_per_pass']} runs per pass); {stats['spills']} spill(s), "
-        f"peak {stats['peak_entries']} entries / {_format_size(stats['peak_bytes'])} buffered, "
-        f"spill {stats['spill_ms']:.1f} ms, merge {stats['merge_ms']:.1f} ms",
-        file=sys.stderr,
-    )
 
 
 def _compile_ir_file(ir_file: Path, platform_fns: list[PlatformFunction]) -> tuple[Callable, bool]:
@@ -261,7 +243,7 @@ def run_program(
         # A zero-parameter function has no trailing parameter to be the emit
         # capability — the shaped error, not an IndexError.
         sink = _EmitSink(emit, input_types[-1] if input_types else None, output_file,
-                         verbose=verbose, merge=merge_fn, union=union)
+                         merge=merge_fn, union=union)
 
     # Verbose header
     if verbose:
@@ -344,11 +326,10 @@ def run_program(
     # Output
     if sink is not None:
         # The sink wrote the output incrementally; the (Null) return value is
-        # unused. Finishing writes the terminator, index and footer — or
-        # merges the spilled runs into the canonical output.
+        # unused. Finishing writes the open batch, the terminator, index and
+        # footer.
         sink.finish()
         if verbose:
-            _print_emit_epilogue(sink.stats())
             print(
                 f"Output: {sink.output_file}  ({_format_file_size(sink.output_file)})",
                 file=sys.stderr,
@@ -400,3 +381,46 @@ def run_program(
                       file=sys.stderr)
 
     return result
+
+
+def merge_blobs(
+    input_files: Sequence[Path],
+    platform_fns: list[PlatformFunction],
+    output_file: Path,
+    verbose: bool = False,
+    merge: Path | None = None,
+    union: bool = False,
+) -> dict[str, int]:
+    """Merge sorted Set or Dict blobs of one type into one — ``east-py merge``
+    (issue #770), east-c's blob merge behind ``east-c merge`` too, so the two
+    runners write the same bytes.
+
+    One pass over the inputs, read segment by segment through a mapping; the
+    output is what ``run --emit`` writes for the same entries emitted
+    ascending. Equal keys fold in input order: ``merge`` names an IR file
+    holding a ``(K, V, V) -> V`` function, compiled with the run's platforms,
+    that folds equal Dict keys; ``union`` keeps the first of equal Set
+    elements; without a fold an equal key is an error. Returns the account
+    ``{"inputs", "entries", "folds"}``; raises ValueError with the merge's
+    message and leaves the output unfinalised.
+    """
+    from east.serialization._beast2_eastc import _merge_blobs
+
+    t0 = perf_counter()
+    if Path(output_file).suffix.lower() not in (".beast2", ".beast"):
+        raise ValueError("merge requires a .beast2 output file (-o)")
+    # The fold compiles with the run's platforms, exactly like a program; the
+    # merge checks its signature against the inputs' key and value types.
+    merge_fn = _compile_ir_file(Path(merge), platform_fns)[0] if merge is not None else None
+    stats = _merge_blobs([Path(p) for p in input_files], Path(output_file), merge_fn, union)
+    t1 = perf_counter()
+    if verbose:
+        print(
+            f"merge: {stats['inputs']} input(s), {stats['entries']} entries, "
+            f"{stats['folds']} fold(s)",
+            file=sys.stderr,
+        )
+        print(f"Output: {output_file}  ({_format_file_size(output_file)})", file=sys.stderr)
+        print("\nTiming:", file=sys.stderr)
+        print(f"  Total:    {(t1 - t0) * 1000:8.1f} ms", file=sys.stderr)
+    return stats

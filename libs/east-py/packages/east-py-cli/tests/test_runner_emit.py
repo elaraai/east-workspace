@@ -11,25 +11,25 @@ the same programs. ``events.beast2`` is written by the TS paged writer, which
 makes the stream-fold case a cross-runtime decode of TS-writer bytes.
 
 These cases exercise the whole seam end to end: ``_EmitSink`` (output
-validation) over east-c's library sink (batching, the order-robust spill/merge
-path and its duplicate-key check — issues #518, #770 — and finalization:
+validation) over east-c's library sink (batching, the ascending check and its
+duplicate-key and out-of-order errors — issues #518, #770 — and finalization:
 terminator + index + footer), and the native function value that carries the
-sink's ``emit`` into the compiled body (issue #560 phase 2). The C sink writes
-its demote notice to the process's stderr, so those checks capture file
-descriptors. One case drives the sink from python instead of from a compiled
-program — the harness route that issue #592 closed.
+sink's ``emit`` into the compiled body (issue #560 phase 2). One case drives
+the sink from python instead of from a compiled program — the harness route
+that issue #592 closed.
 
 The issue #770 gates pin the folding sink (``--merge`` / ``--union`` write the
-bytes the flag-less sink writes for the folded sequence), its bounded runs (the
-``-v`` account: peak entries and bytes independent of the output's size, only
-the merge passes growing) and the ``EAST_EXIT_WITH_PARENT`` stdin lifeline.
+bytes the flag-less sink writes for the folded sequence, over ascending
+emissions only), the blob merge behind ``east-py merge`` (``merge_blobs``:
+byte-identical to the sink over the fold, the account, the refusals) and the
+``--exit-with-parent`` stdin lifeline.
 """
 
 import os
 import re
 import subprocess
 import sys
-import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -52,7 +52,7 @@ from east.serialization.beast2 import (
     read_beast2_index,
 )
 
-from east_py_cli.runner import _EmitSink, _peak_rss_kb, run_program
+from east_py_cli.runner import _EmitSink, _peak_rss_kb, merge_blobs, run_program
 
 FIXTURES = Path(__file__).parent / "fixtures"
 INT_ARRAY = ArrayType(IntegerType)
@@ -209,33 +209,17 @@ def test_dict_emit_decodes_with_index(tmp_path):
     assert table[42] == "row-42"
 
 
-def test_dict_emit_accepts_out_of_order_keys(tmp_path, capfd):
-    # Since issue #518 the sink absorbs out-of-order emission (demote →
-    # spill → merge) instead of erroring; the output is the canonical dict
-    # and the transition is reported on stderr.
+def test_dict_emit_rejects_out_of_order_keys(tmp_path, capfd):
+    # Set/Dict emissions must ascend in East order (#770): the sink writes
+    # one pass and never buffers, so a key below the previous one is the
+    # error — in the same words on every runner — and nothing is reported
+    # on stderr on the way there.
     out = tmp_path / "out.beast2"
-    run_program(FIXTURES / "emit_dict_disorder.beast2", [], [], [], out, emit="dict")
-
-    blob = out.read_bytes()
-    assert read_beast2_index(INT_STR_DICT, blob) is not None
-    table = decode_beast2_with_header_for(INT_STR_DICT)(blob)
-    assert dict(table.items()) == {1: "a", 2: "b"}
-    assert "left ascending order" in capfd.readouterr().err
-
-
-def test_dict_emit_shuffled_spills_and_merges_byte_identical(tmp_path, monkeypatch):
-    # The shuffled fixture emits the same 1000 pairs as emit_dict; a tiny
-    # run cap forces spill runs, and the merged blob must be byte-identical
-    # to the ordered producer's, with the runs cleaned up (issue #518).
-    ordered = tmp_path / "ordered.beast2"
-    run_program(FIXTURES / "emit_dict.beast2", [], [], [], ordered, emit="dict")
-
-    shuffled = tmp_path / "shuffled.beast2"
-    monkeypatch.setenv("EAST_EMIT_RUN_ELEMENTS", "32")
-    run_program(FIXTURES / "emit_dict_shuffled.beast2", [], [], [], shuffled, emit="dict")
-
-    assert shuffled.read_bytes() == ordered.read_bytes()
-    assert not list(tmp_path.glob("shuffled.beast2.run*"))
+    expected = ("beast2 v5: Dict key emitted out of order: 1 after 2 — Set/Dict emissions "
+                "must ascend in East order")
+    with pytest.raises(EastError, match=f"^{re.escape(expected)}$"):
+        run_program(FIXTURES / "emit_dict_disorder.beast2", [], [], [], out, emit="dict")
+    assert capfd.readouterr().err == ""
 
 
 def test_dict_emit_duplicate_key_raises(tmp_path):
@@ -370,127 +354,166 @@ def test_snapshot_capture_refuses_streaming_flags(tmp_path, capsys):
 MERGE_CONCAT = FIXTURES / "emit_merge_concat.beast2"
 
 
-@pytest.mark.parametrize(
-    ("program", "run_cap", "demotes"),
-    [
-        ("emit_merge_ascending", None, False),
-        ("emit_merge_scattered", None, True),
-        ("emit_merge_scattered", "16", True),
-        ("emit_merge_scattered", "2", True),
-        ("emit_union_ascending", None, False),
-        ("emit_union_scattered", None, True),
-        ("emit_union_scattered", "16", True),
-        ("emit_union_scattered", "2", True),
-    ],
-)
-def test_folding_sink_writes_the_folded_sequence_byte_for_byte(
-    tmp_path, monkeypatch, capfd, program, run_cap, demotes
-):
-    # Issue #770: with --merge (dict) or --union (set) the sink folds equal
-    # keys in emission order, and the output is byte-identical to what the
-    # flag-less sink writes for the folded sequence. The ascending sequence
-    # folds on the straight-through path — key 999 into a full batch's last
-    # entry; the scattered one demotes, a duplicate of a prefix key follows,
-    # and the run cap moves its folds into the tail (the default), across
-    # runs (16), or across the runs of a two-pass merge (2).
+@pytest.mark.parametrize("program", ["emit_merge_ascending", "emit_union_ascending"])
+def test_folding_sink_writes_the_folded_sequence_byte_for_byte(tmp_path, program):
+    # Issue #770: with --merge (dict) or --union (set) the sink folds adjacent
+    # equal keys in emission order, and the output is byte-identical to what
+    # the flag-less sink writes for the folded sequence — key 999 folding
+    # into a full batch's last entry included.
     kind = "dict" if program.startswith("emit_merge") else "set"
     expected = tmp_path / "expected.beast2"
     run_program(FIXTURES / f"{program}_folded.beast2", [], [], [], expected, emit=kind)
 
-    if run_cap is not None:
-        monkeypatch.setenv("EAST_EMIT_RUN_ELEMENTS", run_cap)
-    capfd.readouterr()
     folded = tmp_path / "folded.beast2"
     run_program(
         FIXTURES / f"{program}.beast2", [], [], [], folded, emit=kind,
         merge=MERGE_CONCAT if kind == "dict" else None, union=kind == "set",
     )
-
-    assert ("left ascending order" in capfd.readouterr().err) == demotes
     assert folded.read_bytes() == expected.read_bytes()
-    assert not list(tmp_path.glob("folded.beast2.run*"))
 
 
-_EMIT_EPILOGUE = re.compile(
-    r"emit: merged (?P<sources>\d+) source\(s\) in (?P<passes>\d+) pass\(es\) "
-    r"\((?P<runs_per_pass>\d+) runs per pass\); (?P<spills>\d+) spill\(s\), "
-    r"peak (?P<peak_entries>\d+) entries / (?P<peak_bytes>[\d.]+ [KM]?B) buffered"
-)
-
-
-def test_merge_passes_grow_while_the_sink_peak_stays_bounded(tmp_path, monkeypatch, capfd):
-    # Issue #770 gate (a): the sink's memory is bounded by its run caps, not by
-    # the output. Under a 64-entry run cap, 50,000 and 400,000 out-of-order
-    # emissions (every element encoded in the same number of bytes) report the
-    # same peak entries and bytes and merge 64 runs at once; only the passes
-    # grow — 783 sources (the demoted prefix, 781 spills, the tail) in 2,
-    # 6,251 in 3. A byte cap below one run's bytes spills by bytes: fewer
-    # entries per run than the element cap allows.
-    monkeypatch.setenv("EAST_EMIT_RUN_ELEMENTS", "64")
-
-    def account(fixture: str, out: str) -> dict[str, str]:
-        capfd.readouterr()
-        run_program(FIXTURES / fixture, [], [], [], tmp_path / out, verbose=True, emit="set")
-        err = capfd.readouterr().err
-        match = _EMIT_EPILOGUE.search(err)
-        assert match is not None, f"-v printed no emit epilogue:\n{err}"
-        return match.groupdict()
-
-    small = account("emit_scatter_50k.beast2", "small.beast2")
-    large = account("emit_scatter_400k.beast2", "large.beast2")
-    monkeypatch.setenv("EAST_EMIT_RUN_BYTES", "256")
-    by_bytes = account("emit_scatter_50k.beast2", "by_bytes.beast2")
-
-    assert small["peak_bytes"] == large["peak_bytes"]
-    assert (small["peak_entries"], small["runs_per_pass"]) == ("64", "64")
-    assert (large["peak_entries"], large["runs_per_pass"]) == ("64", "64")
-    assert (small["sources"], small["passes"]) == ("783", "2")
-    assert (large["sources"], large["passes"]) == ("6251", "3")
-    assert 0 < int(by_bytes["peak_entries"]) < 64
-    assert int(by_bytes["spills"]) > int(small["spills"])
-    assert read_beast2_index(SetType(IntegerType), (tmp_path / "large.beast2").read_bytes())[1] == 400_000
-    assert not list(tmp_path.glob("*.run*"))
+def test_a_fold_does_not_admit_out_of_order_keys(tmp_path):
+    # The folds are over ADJACENT equal keys: an out-of-order key is the
+    # same error under --merge as without it.
+    with pytest.raises(EastError, match="Dict key emitted out of order: 1 after 2"):
+        run_program(
+            FIXTURES / "emit_dict_disorder.beast2", [], [], [], tmp_path / "out.beast2",
+            emit="dict", merge=MERGE_CONCAT,
+        )
 
 
 def test_a_runner_given_the_stdin_lifeline_exits_once_stdin_closes(tmp_path):
-    # Issue #770 gate (c): with EAST_EXIT_WITH_PARENT=1 and a stdin pipe
-    # nobody writes, the runner exits once that pipe closes — through east-c's
-    # native watcher, which runs while the body holds the GIL. The fixture's
-    # out-of-order second emission prints the sink's demote notice (the body
-    # is running), then the body loops forever.
+    # Issue #770 gate (c): with --exit-with-parent and a stdin pipe nobody
+    # writes, the runner exits once that pipe closes — through east-c's
+    # native watcher, which runs while the body holds the GIL. The sink
+    # opens the output file before the body runs, so the file's existence
+    # is the sign the runner is up and computing (the body loops forever
+    # after one emission).
+    out = tmp_path / "spin.beast2"
     proc = subprocess.Popen(
-        [sys.executable, "-m", "east_py_cli", "run", str(FIXTURES / "emit_spin.beast2"),
-         "--emit", "set", "-o", str(tmp_path / "spin.beast2")],
+        [sys.executable, "-m", "east_py_cli", "run", "--exit-with-parent",
+         str(FIXTURES / "emit_spin.beast2"), "--emit", "set", "-o", str(out)],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-        env={**os.environ, "EAST_EXIT_WITH_PARENT": "1"},
     )
-    stderr: list[bytes] = []
-    running = threading.Event()
-
-    def read_stderr() -> None:
-        assert proc.stderr is not None
-        for line in proc.stderr:
-            stderr.append(line)
-            if b"left ascending order" in line:
-                running.set()
-
-    reader = threading.Thread(target=read_stderr, daemon=True)
-    reader.start()
     try:
         # Bounded liveness waits: the interpreter's start-up, then the watcher.
-        assert running.wait(timeout=60), b"".join(stderr).decode(errors="replace")
-        assert proc.stdin is not None
+        deadline = time.monotonic() + 60
+        while not out.exists():
+            assert proc.poll() is None, proc.stderr.read().decode(errors="replace")
+            assert time.monotonic() < deadline, "the runner did not open its output in 60 s"
+            time.sleep(0.05)
+        assert proc.stdin is not None and proc.stderr is not None
         proc.stdin.close()  # the lifeline closes
         try:
             returncode = proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             pytest.fail("the runner outlived its closed stdin by 10 s")
-        reader.join(timeout=10)
+        stderr = proc.stderr.read()
         # The watcher's exit, not an error's: exit 1 with nothing reported.
         assert returncode == 1
-        assert b"Error" not in b"".join(stderr), b"".join(stderr).decode(errors="replace")
+        assert b"Error" not in stderr, stderr.decode(errors="replace")
     finally:
         if proc.poll() is None:
             proc.kill()
         proc.wait()
-        reader.join(timeout=10)
+
+
+# ---- The blob merge behind `east-py merge` (#770) ---------------------------
+
+MERGE_INPUTS = [FIXTURES / f"merge_in_{name}.beast2" for name in "abc"]
+MERGE_SETS = [FIXTURES / f"merge_set_{name}.beast2" for name in "abc"]
+
+
+def test_merge_writes_the_fold_byte_identical_to_the_ascending_sink(tmp_path):
+    # Three sorted Dict inputs with overlapping keys (a = 0..19, b = 10..29,
+    # c = {5, 15, 25, 40}) fold in input order under the concatenating merge,
+    # and the blob is exactly what `run --emit dict` writes for the folded
+    # sequence emitted ascending.
+    expected = tmp_path / "expected.beast2"
+    run_program(FIXTURES / "merge_expected_dict.beast2", [], [], [], expected, emit="dict")
+    out = tmp_path / "merged.beast2"
+    assert merge_blobs(MERGE_INPUTS, [], out, merge=MERGE_CONCAT) == {
+        "inputs": 3, "entries": 31, "folds": 13,
+    }
+    assert out.read_bytes() == expected.read_bytes()
+    table = decode_beast2_with_header_for(INT_STR_DICT)(out.read_bytes())
+    assert table[15] == "a15b15c15" and table[40] == "c40"
+
+
+def test_merge_unions_set_inputs_byte_identical_to_the_ascending_sink(tmp_path):
+    expected = tmp_path / "expected.beast2"
+    run_program(FIXTURES / "merge_expected_set.beast2", [], [], [], expected, emit="set")
+    out = tmp_path / "union.beast2"
+    assert merge_blobs(MERGE_SETS, [], out, union=True) == {"inputs": 3, "entries": 31, "folds": 13}
+    assert out.read_bytes() == expected.read_bytes()
+    assert read_beast2_index(SetType(IntegerType), out.read_bytes())[1] == 31
+
+
+def test_merge_without_a_fold_refuses_a_shared_key(tmp_path):
+    out = tmp_path / "dup.beast2"
+    with pytest.raises(ValueError, match="^beast2 v5: duplicate Dict key emitted: 10 — Dict keys "
+                                         "must be unique$"):
+        merge_blobs(MERGE_INPUTS[:2], [], out)
+    # The aborted output is left unfinalised: not an indexed blob.
+    with pytest.raises((ValueError, RuntimeError)):
+        open_beast2_pages_for(INT_STR_DICT)(out.read_bytes())
+
+
+def test_merge_names_the_input_of_another_type(tmp_path):
+    other = FIXTURES / "merge_mismatch.beast2"
+    with pytest.raises(ValueError, match=re.escape(f"merge: input 1 ({other}) has type ")):
+        merge_blobs([MERGE_INPUTS[0], other], [], tmp_path / "x.beast2", merge=MERGE_CONCAT)
+
+
+def test_merge_refuses_an_array_input_and_a_descending_one(tmp_path):
+    with pytest.raises(ValueError, match="^merge: inputs must be Set or Dict blobs, got Array"):
+        merge_blobs([FIXTURES / "events.beast2"], [], tmp_path / "array.beast2")
+    # paged_corrupt.beast2 splices a high key range before a low one.
+    with pytest.raises(ValueError, match=re.escape("merge: input 0 (")):
+        merge_blobs([FIXTURES / "paged_corrupt.beast2"], [], tmp_path / "descending.beast2")
+
+
+def test_merge_names_a_fold_of_the_wrong_signature(tmp_path):
+    # emit_fold.beast2 is (Array<Integer>, emit) -> Null: not a fold.
+    with pytest.raises(ValueError, match=re.escape(
+            "--merge: expected a function (K, V, V) -> V matching the inputs (K = ")):
+        merge_blobs(MERGE_INPUTS[:1], [], tmp_path / "wrong.beast2", merge=FIXTURES / "emit_fold.beast2")
+
+
+def test_merge_folds_apply_to_their_own_kind(tmp_path):
+    with pytest.raises(ValueError, match="^--merge applies to Dict inputs only$"):
+        merge_blobs(MERGE_SETS[:1], [], tmp_path / "m.beast2", merge=MERGE_CONCAT)
+    with pytest.raises(ValueError, match="^--union applies to Set inputs only$"):
+        merge_blobs(MERGE_INPUTS[:1], [], tmp_path / "u.beast2", union=True)
+
+
+def test_an_empty_input_contributes_nothing(tmp_path):
+    with_empty = tmp_path / "with_empty.beast2"
+    merge_blobs([FIXTURES / "merge_empty.beast2", MERGE_INPUTS[0]], [], with_empty, merge=MERGE_CONCAT)
+    alone = tmp_path / "alone.beast2"
+    merge_blobs(MERGE_INPUTS[:1], [], alone)
+    assert with_empty.read_bytes() == alone.read_bytes()
+    assert read_beast2_index(INT_STR_DICT, alone.read_bytes())[1] == 20
+    empty = tmp_path / "empty.beast2"
+    merge_blobs([FIXTURES / "merge_empty.beast2"], [], empty)
+    assert read_beast2_index(INT_STR_DICT, empty.read_bytes())[1] == 0
+
+
+def test_the_merge_command_prints_its_account(tmp_path):
+    out = tmp_path / "merged.beast2"
+    proc = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "merge", "--merge", str(MERGE_CONCAT),
+         *(arg for path in MERGE_INPUTS for arg in ("-i", str(path))), "-o", str(out), "-v"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "merge: 3 input(s), 31 entries, 13 fold(s)" in proc.stderr
+    assert read_beast2_index(INT_STR_DICT, out.read_bytes())[1] == 31
+
+    both = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "merge", "--merge", str(MERGE_CONCAT), "--union",
+         "-i", str(MERGE_INPUTS[0]), "-o", str(tmp_path / "both.beast2")],
+        capture_output=True, text=True,
+    )
+    assert both.returncode == 1
+    assert "Error: --merge and --union are two folds — give one" in both.stderr

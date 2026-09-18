@@ -652,8 +652,9 @@ cdef extern from "east/compiler.h":
 # ─── east.h ──────────────────────────────────────────────────────────────
 
 cdef extern from "east/east.h":
-    # Exit with the parent (#770): with EAST_EXIT_WITH_PARENT=1, a detached C
-    # thread blocks reading stdin and _exit(1)s at end of file or an error.
+    # Exit with the parent (#770): a detached C thread blocks reading stdin
+    # and _exit(1)s at end of file or an error — started by a runner whose
+    # command line carries --exit-with-parent.
     void east_exit_with_parent()
 
 
@@ -672,24 +673,11 @@ cdef extern from "east/emit_sink.h":
         EastEmitKind kind
         EastType *out_type
         const char *output_path
-        bint verbose
-        size_t run_elements
-        size_t run_bytes
         EastCompiledFn *merge_fn
         bint union_mode
 
     ctypedef struct EastEmitSinkStats:
         size_t emitted
-        bint buffered
-        size_t sources
-        size_t passes
-        size_t runs_per_pass
-        size_t spills
-        size_t peak_entries
-        size_t peak_bytes
-        size_t spilled_bytes
-        double spill_ms
-        double merge_ms
 
     ctypedef struct EastEmitSink:
         pass
@@ -699,6 +687,28 @@ cdef extern from "east/emit_sink.h":
     bint east_emit_sink_finish(EastEmitSink *sink)
     void east_emit_sink_stats(const EastEmitSink *sink, EastEmitSinkStats *out)
     void east_emit_sink_free(EastEmitSink *sink)
+
+
+# ─── merge.h ─────────────────────────────────────────────────────────────
+# The blob merge behind `merge` (#770), shared with the east-c CLI: k sorted
+# Set/Dict blobs of one type in, one canonical blob out, in a single pass.
+# `input_paths` is `const char *const *` in the header; the C compiler
+# accepts the `const char **` this declaration assigns.
+
+cdef extern from "east/merge.h":
+    ctypedef struct EastMergeConfig:
+        const char **input_paths
+        size_t num_inputs
+        const char *output_path
+        EastCompiledFn *merge_fn
+        bint union_mode
+
+    ctypedef struct EastMergeStats:
+        size_t inputs
+        size_t entries
+        size_t folds
+
+    bint east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
 
 
 # ─── type_of_type.h ─────────────────────────────────────────────────────

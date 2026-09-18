@@ -665,10 +665,11 @@ cdef class _Beast2PagesCore:
 # The streamTask emit capability over east-c's library sink
 # (east/emit_sink.h) — the very code the east-c CLI runs, so the two runners
 # write the same bytes for the same emissions. Everything per row happens in
-# C: batching, the ascending check, the spill/merge path and the --merge /
-# --union folds, and the duplicate-key and demote messages. _EmitSinkCore
+# C: batching, the ascending check, the --merge / --union folds of adjacent
+# equal keys, and the duplicate and out-of-order messages. _EmitSinkCore
 # owns the EastEmitSink*; _EmitSink (east-py-cli) validates the emit
-# parameter and prints the -v epilogue.
+# parameter. _merge_blobs below is the fan-in's twin: east-c's blob merge
+# (east/merge.h) behind `east-py merge`.
 
 
 cdef struct _EmitSinkEntry:
@@ -704,10 +705,12 @@ cdef class _EmitSinkCore:
 
     ``kind``: 0 = array, 1 = set, 2 = dict; ``emit_types`` the emit
     parameter's argument types (the element, or the key and the value). The
-    sink opens ``output_path`` at construction. ``merge`` is a compiled
-    ``(K, V, V) -> V`` East function (a dict sink folds equal keys with it,
-    in emission order) or None; ``union_mode`` collapses equal set elements.
-    The run caps come from ``EAST_EMIT_RUN_ELEMENTS`` / ``EAST_EMIT_RUN_BYTES``.
+    sink opens ``output_path`` at construction. Set and Dict emissions must
+    ascend in East order: an out-of-order key is an error, and so is an
+    equal key unless the sink folds it — ``merge`` (a compiled
+    ``(K, V, V) -> V`` East function; a dict sink folds an adjacent equal
+    key with it, in emission order) or ``union_mode`` (an adjacent equal set
+    element collapses into the previous one).
 
     Raises ValueError when ``merge`` does not match the emit parameter, or
     when the sink cannot open (the output is not writable, a merge function
@@ -722,8 +725,8 @@ cdef class _EmitSinkCore:
     cdef bytes _path                 # borrowed by the sink for its lifetime
     cdef object _merge               # borrowed by the sink for its lifetime
 
-    def __cinit__(self, int kind, object emit_types, object output_path, bint verbose=False,
-                  object merge=None, bint union_mode=False):
+    def __cinit__(self, int kind, object emit_types, object output_path, object merge=None,
+                  bint union_mode=False):
         import os
 
         from east.types.types import FunctionType, NullType
@@ -738,10 +741,9 @@ cdef class _EmitSinkCore:
             self._out_type = _eastc.east_set_type(ins[0])
         else:
             self._out_type = _eastc.east_array_type(ins[0])
-        # east-c opens the output (and its runs) with fopen, which reads the
-        # bytes in the ANSI code page on Windows.
-        self._path = (str(output_path).encode("mbcs") if os.name == "nt"
-                      else os.fsencode(output_path))
+        # east-c opens the output with fopen, which reads the bytes in the
+        # ANSI code page on Windows.
+        self._path = _c_path(output_path)
 
         cdef _eastc.EastCompiledFn* merge_fn = NULL
         if merge is not None:
@@ -754,9 +756,6 @@ cdef class _EmitSinkCore:
         cfg.kind = <_eastc.EastEmitKind>kind
         cfg.out_type = self._out_type
         cfg.output_path = <const char*>self._path
-        cfg.verbose = verbose
-        cfg.run_elements = 0
-        cfg.run_bytes = 0
         cfg.merge_fn = merge_fn
         cfg.union_mode = union_mode
         self._sink = _eastc.east_emit_sink_new(&cfg)
@@ -866,9 +865,8 @@ cdef class _EmitSinkCore:
         _eastc.eval_result_free(&r)
 
     def finish(self):
-        """Write the terminator and index (ascending path), or merge the
-        spilled runs and the tail into the canonical output (buffered path).
-        On failure the output is left unfinalized and EastError carries the
+        """Flush the open batch and write the terminator and index. On
+        failure the output is left unfinalized and EastError carries the
         sink's message."""
         cdef char* err
         if _eastc.east_emit_sink_finish(self._sink):
@@ -882,25 +880,69 @@ cdef class _EmitSinkCore:
         raise EastError(msg, [])
 
     def stats(self):
-        """The sink's counters: ``emitted``, ``buffered`` (the spill/merge
-        path ran), ``sources``, ``passes``, ``runs_per_pass``, ``spills``,
-        ``peak_entries``, ``peak_bytes``, ``spilled_bytes``, and ``spill_ms``
-        / ``merge_ms`` (collected only for a verbose sink)."""
+        """The sink's counter: ``emitted``, every emission including the
+        ones that folded."""
         cdef _eastc.EastEmitSinkStats st
         _eastc.east_emit_sink_stats(self._sink, &st)
-        return {
-            "emitted": st.emitted,
-            "buffered": st.buffered != 0,
-            "sources": st.sources,
-            "passes": st.passes,
-            "runs_per_pass": st.runs_per_pass,
-            "spills": st.spills,
-            "peak_entries": st.peak_entries,
-            "peak_bytes": st.peak_bytes,
-            "spilled_bytes": st.spilled_bytes,
-            "spill_ms": st.spill_ms,
-            "merge_ms": st.merge_ms,
-        }
+        return {"emitted": st.emitted}
+
+
+cdef bytes _c_path(object path):
+    """A path as the bytes east-c's fopen reads: the ANSI code page on
+    Windows, the filesystem encoding elsewhere."""
+    import os
+
+    if os.name == "nt":
+        return str(path).encode("mbcs")
+    return os.fsencode(path)
+
+
+def _merge_blobs(object input_paths, object output_path, object merge=None,
+                 bint union_mode=False):
+    """Merge sorted Set or Dict blobs of one type into one — east-c's
+    ``east_merge_blobs`` (east/merge.h), the very code ``east-c merge`` runs,
+    so the two runners write the same bytes (#770). One pass: every input is
+    read segment by segment through a mapping, a heap over the inputs yields
+    keys in East order, and the output goes through the emit sink's segment
+    writer, byte-identical to what ``run --emit`` writes for the same entries
+    emitted ascending. Equal keys fold in input order — ``merge`` (a compiled
+    ``(K, V, V) -> V`` East function) on Dict inputs, ``union_mode`` (the
+    first element stands) on Set inputs — and are the duplicate error
+    without a fold.
+
+    Returns ``{"inputs", "entries", "folds"}``. Raises ValueError with
+    east-c's message — an input of another type than input 0's, an Array,
+    keys that do not ascend, a fold whose signature does not match the
+    inputs, a file that cannot be opened — leaving the output unfinalised.
+    """
+    _ensure_eastc_runtime()
+    encoded = [_c_path(p) for p in input_paths]
+    cdef bytes out_bytes = _c_path(output_path)
+    cdef size_t n = len(encoded)
+    cdef const char** c_paths = <const char**>malloc((n if n > 0 else 1) * sizeof(char*))
+    if c_paths == NULL:
+        raise MemoryError()
+    cdef size_t i
+    for i in range(n):
+        c_paths[i] = <const char*>(<bytes>encoded[i])
+    cdef _eastc.EastCompiledFn* merge_fn = NULL
+    if merge is not None:
+        merge_fn = <_eastc.EastCompiledFn*><uintptr_t>merge._eastc_handle._compiled
+    cdef _eastc.EastMergeConfig cfg
+    cfg.input_paths = c_paths
+    cfg.num_inputs = n
+    cfg.output_path = <const char*>out_bytes
+    cfg.merge_fn = merge_fn
+    cfg.union_mode = union_mode
+    cdef _eastc.EastMergeStats st
+    cdef bint ok
+    try:
+        ok = _eastc.east_merge_blobs(&cfg, &st)
+    finally:
+        free(c_paths)
+    if not ok:
+        _consume_eastc_error("merge failed", ValueError)
+    return {"inputs": st.inputs, "entries": st.entries, "folds": st.folds}
 
 
 def _beast2_read_type(object data):

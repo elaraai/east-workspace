@@ -12,8 +12,13 @@ from pathlib import Path
 from east.runtime.errors import EastError
 
 from east_py_cli.loader import get_platform_version, load_platform
-from east_py_cli.runner import run_program
+from east_py_cli.runner import merge_blobs, run_program
 from east_py_cli.snapshot import read_snapshot, write_snapshot
+
+_EXIT_WITH_PARENT_HELP = (
+    "Exit with status 1 once stdin reaches end of file — for a parent that holds a stdin "
+    "pipe it never writes to, and takes the runner down with it"
+)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -146,6 +151,47 @@ def create_parser() -> argparse.ArgumentParser:
         help="Feed the given -i input lazily (0-based index, repeatable; segment-fed "
         "iteration, O(segment) decoded memory)",
     )
+    run_parser.add_argument(
+        "--exit-with-parent",
+        action="store_true",
+        dest="exit_with_parent",
+        help=_EXIT_WITH_PARENT_HELP,
+    )
+
+    # merge command (#770): k sorted Set/Dict blobs of one type into one
+    merge_parser = subparsers.add_parser(
+        "merge",
+        help="Merge sorted Set or Dict blobs of one type into one, in a single pass: equal "
+        "keys fold with the East function (K, V, V) -> V in --merge FILE (Dict), or "
+        "collapse under --union (Set); without a fold an equal key is an error. The "
+        "output is what `run --emit` writes for the same entries emitted ascending",
+    )
+    merge_parser.add_argument(
+        "-p", "--package", action="append", default=[], metavar="PACKAGE",
+        help="Platform package the --merge function's platform calls need (can be repeated)",
+    )
+    merge_parser.add_argument(
+        "-i", "--input", action="append", default=[], type=Path, metavar="FILE", required=True,
+        help="An input blob (can be repeated; equal keys fold in this order)",
+    )
+    merge_parser.add_argument(
+        "-o", "--output", type=Path, metavar="FILE", required=True, help="The merged blob",
+    )
+    merge_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose output",
+    )
+    merge_parser.add_argument(
+        "--merge", type=Path, metavar="FILE",
+        help="Dict inputs: fold equal keys with the East function (K, V, V) -> V in FILE, "
+        "in input order",
+    )
+    merge_parser.add_argument(
+        "--union", action="store_true", help="Set inputs: the first of equal elements stands",
+    )
+    merge_parser.add_argument(
+        "--exit-with-parent", action="store_true", dest="exit_with_parent",
+        help=_EXIT_WITH_PARENT_HELP,
+    )
 
     # convert command
     convert_parser = subparsers.add_parser(
@@ -226,13 +272,18 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _start_lifeline(args: argparse.Namespace) -> None:
+    """A parent that gave the runner a stdin lifeline (``--exit-with-parent``)
+    takes it down with it — east-c's native watcher (issue #770)."""
+    if getattr(args, "exit_with_parent", False):
+        from east.runtime._compiler_eastc import exit_with_parent
+
+        exit_with_parent()
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     """Execute the run command."""
-    # A parent that gave the runner a stdin lifeline (EAST_EXIT_WITH_PARENT=1)
-    # takes it down with it — east-c's native watcher (issue #770).
-    from east.runtime._compiler_eastc import exit_with_parent
-
-    exit_with_parent()
+    _start_lifeline(args)
 
     extract = None
 
@@ -347,6 +398,41 @@ def cmd_run(args: argparse.Namespace) -> int:
     finally:
         if extract is not None:
             extract.cleanup()
+
+
+def cmd_merge(args: argparse.Namespace) -> int:
+    """``east-py merge``: k sorted Set/Dict blobs of one type into one (#770)."""
+    _start_lifeline(args)
+
+    for input_file in args.input:
+        if not input_file.exists():
+            print(f"Error: Input file not found: {input_file}", file=sys.stderr)
+            return 1
+    if args.merge is not None and args.union:
+        print("Error: --merge and --union are two folds — give one", file=sys.stderr)
+        return 1
+
+    platform_fns = []
+    for package in args.package:
+        try:
+            platform_fns.extend(load_platform(package))
+        except (ImportError, ValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+    try:
+        merge_blobs(
+            input_files=args.input,
+            platform_fns=platform_fns,
+            output_file=args.output,
+            verbose=args.verbose,
+            merge=args.merge,
+            union=args.union,
+        )
+    except (EastError, ValueError, RuntimeError, OSError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def cmd_convert(args: argparse.Namespace) -> int:
@@ -647,6 +733,8 @@ def main() -> None:
         sys.exit(cmd_export_functions(args))
     elif args.command == "run":
         sys.exit(cmd_run(args))
+    elif args.command == "merge":
+        sys.exit(cmd_merge(args))
     elif args.command == "convert":
         sys.exit(cmd_convert(args))
     elif args.command == "version":

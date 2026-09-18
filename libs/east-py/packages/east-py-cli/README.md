@@ -91,12 +91,16 @@ spills, and the most entries and bytes held at once:
 
 ### Exiting with the Parent
 
-With `EAST_EXIT_WITH_PARENT=1` in its environment the runner watches its
-stdin on a native thread — one that runs while the body holds the GIL — and
-exits with status 1 as soon as a read returns end of file or fails. A parent
-that spawns the runner with a stdin pipe it never writes to — as e3 does —
-takes the runner down with it when it dies, even while the body is computing.
-Without the variable, stdin is left alone.
+With `--exit-with-parent` on its command line (`run` and `merge`) the runner
+watches its stdin on a native thread — one that runs while the body holds the
+GIL — and exits with status 1 as soon as a read returns end of file or fails.
+A parent that spawns the runner with a stdin pipe it never writes to — as e3
+does — takes the runner down with it when it dies, even while the body is
+computing. Without the flag, stdin is left alone.
+
+```bash
+east-py run task.beast2 --exit-with-parent -p east-py-std --emit dict -o out.beast2
+```
 
 ### Version and Platform Info
 
