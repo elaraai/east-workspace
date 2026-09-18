@@ -118,6 +118,7 @@ export {
   type RunnerValue,
   runnerToArgv,
   withRunnerVerbose,
+  withRunnerLifeline,
 } from './runner.js';
 
 // Function objects

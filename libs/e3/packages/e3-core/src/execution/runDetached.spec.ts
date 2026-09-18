@@ -247,21 +247,12 @@ describe('spawnAndCapture', { skip: isWindows }, () => {
     assert.equal(aborted.timedOut, false);
   });
 
-  it('gives the child a stdin lifeline and EAST_EXIT_WITH_PARENT only when asked', async () => {
+  it('gives the child a stdin lifeline pipe only when asked, and nothing in its environment', async () => {
     const probe = 'const s = require("fs").fstatSync(0); process.stdout.write((process.env.EAST_EXIT_WITH_PARENT ?? "unset") + " " + (s.isFIFO() || s.isSocket()))';
-    const previous = process.env.EAST_EXIT_WITH_PARENT;
-    // Inherited from this process, the variable must still not reach a child
-    // whose stdin is ignored: it would read EOF at once and exit.
-    process.env.EAST_EXIT_WITH_PARENT = '1';
-    try {
-      const withLifeline = await spawnAndCapture(['node', '-e', probe], scratch, { stdinLifeline: true });
-      assert.equal(withLifeline.stdoutTail, '1 true');
-      const without = await spawnAndCapture(['node', '-e', probe], scratch);
-      assert.equal(without.stdoutTail, 'unset false');
-    } finally {
-      if (previous === undefined) delete process.env.EAST_EXIT_WITH_PARENT;
-      else process.env.EAST_EXIT_WITH_PARENT = previous;
-    }
+    const withLifeline = await spawnAndCapture(['node', '-e', probe], scratch, { stdinLifeline: true });
+    assert.equal(withLifeline.stdoutTail, 'unset true');
+    const without = await spawnAndCapture(['node', '-e', probe], scratch);
+    assert.equal(without.stdoutTail, 'unset false');
   });
 
   it('hands the callbacks whole characters however the output is split', async () => {
@@ -332,7 +323,7 @@ describe('runDetached', { skip: isWindows }, () => {
   let searchDir: string;
 
   // A fake `east-node` runner with the real CLI contract:
-  //   east-node run [-p name]... [-i input]... -o output <bodyIr>
+  //   east-node run [--exit-with-parent] [-p name]... [-i input]... -o output <bodyIr>
   // Behaviour is selected by FAKE_RUNNER_MODE (inherited env):
   //   echo (default) - copy input-0 (or the bodyIr) to the output
   //   big            - write 4 KiB to the output
@@ -346,7 +337,7 @@ const inputs = [];
 let output = null;
 let bodyIr = null;
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === 'run') continue;
+  if (args[i] === 'run' || args[i] === '--exit-with-parent') continue;
   else if (args[i] === '-p') i++;
   else if (args[i] === '-i') inputs.push(args[++i]);
   else if (args[i] === '-o') output = args[++i];
@@ -394,6 +385,29 @@ else { fs.copyFileSync(inputs[0] ?? bodyIr, output); }
     ));
     assert.equal(result.kind, 'success');
     assert.deepEqual(new Uint8Array((result as { value: Uint8Array }).value), payload);
+  });
+
+  it('spawns a stock runner with the lifeline flag and pipe, and a custom one without', async () => {
+    // The fake runner reports its argv and whether stdin is a pipe.
+    const reporter = path.join(searchDir, 'node_modules', '.bin', 'east-c');
+    writeFileSync(reporter, [
+      '#!/usr/bin/env node',
+      'const s = require("fs").fstatSync(0);',
+      'require("fs").writeFileSync(process.argv[process.argv.indexOf("-o") + 1], Buffer.from([1]));',
+      'process.stdout.write(process.argv.slice(2).join(" ") + " | stdin pipe " + (s.isFIFO() || s.isSocket()));',
+    ].join('\n'), { mode: 0o755 });
+    const stock = await runDetached(
+      { bodyIr: new Uint8Array([0]), args: [], runner: variant('east_c', { platforms: [] }), limits },
+      { runnerSearchDir: searchDir },
+    );
+    assert.equal(stock.kind, 'success', stock.stderr);
+    assert.match(stock.stdout, /^run --exit-with-parent -o .* \| stdin pipe true$/);
+    const custom = await runDetached(
+      { bodyIr: new Uint8Array([0]), args: [], runner: variant('custom', { command: [reporter, 'run'] }), limits },
+      { runnerSearchDir: searchDir },
+    );
+    assert.equal(custom.kind, 'success', custom.stderr);
+    assert.match(custom.stdout, /^run -o .* \| stdin pipe false$/);
   });
 
   it('cleans up its scratch directory', async () => {

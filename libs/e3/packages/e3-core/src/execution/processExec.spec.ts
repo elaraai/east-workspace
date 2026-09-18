@@ -24,9 +24,10 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { East, FunctionType, IntegerType, NullType, encodeEastIR } from '@elaraai/east';
+import { East, FunctionType, IntegerType, NullType, encodeEastIR, variant } from '@elaraai/east';
+import { withRunnerLifeline } from '@elaraai/e3-types';
 import { adoptOutputFile, marshalInputsToDir } from './processExec.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
@@ -189,11 +190,11 @@ describe('the stdin lifeline (#770)', { skip: process.platform === 'win32' }, ()
   it('a stock runner spawned with it exits once the e3 process that spawned it is killed', async () => {
     // e3 dies without warning while a stock runner spins in its body. The
     // runner leads its own process group, so the kill never reaches it; the
-    // lifeline pipe closes with e3, and the runner exits. The body's
-    // out-of-order second emission prints the sink's demote notice (the body
-    // is running), then the body loops forever.
+    // lifeline pipe closes with e3, and the runner — spawned with
+    // `--exit-with-parent` — exits. The sink opens the output file before
+    // the body runs, so the file's existence is the sign the runner is up and
+    // computing; the body loops forever after one emission.
     const spin = East.function([FunctionType([IntegerType], NullType)], NullType, ($, emit) => {
-      $(emit(2n));
       $(emit(1n));
       const turns = $.let(0n);
       $.while(true, ($) => {
@@ -204,10 +205,12 @@ describe('the stdin lifeline (#770)', { skip: process.platform === 'win32' }, ()
     writeFileSync(irPath, encodeEastIR(spin.toIR()));
     const scratch = join(dir, 'scratch');
     mkdirSync(scratch);
+    const outputPath = join(dir, 'output.beast2');
 
     // The e3 process: this build's spawnAndCapture, reporting the runner's pid
     // and passing its stderr through.
-    const argv = ['east-node', 'run', '-p', '@elaraai/east-node-std', '--emit', 'set', '-o', join(dir, 'output.beast2'), irPath];
+    const argv = withRunnerLifeline(variant('east_node', { platforms: [] }),
+      ['east-node', 'run', '-p', '@elaraai/east-node-std', '--emit', 'set', '-o', outputPath, irPath]);
     const e3Script = join(dir, 'e3.mjs');
     writeFileSync(e3Script, [
       `import { spawnAndCapture } from ${JSON.stringify(new URL('./processExec.js', import.meta.url).href)};`,
@@ -227,9 +230,15 @@ describe('the stdin lifeline (#770)', { skip: process.platform === 'win32' }, ()
       e3.stdout!.on('data', (chunk: string) => {
         output += chunk;
         runnerPid ??= Number(/runner pid (\d+)/.exec(output)?.[1]) || null;
-        if (runnerPid !== null && output.includes('left ascending order')) resolve(true);
       });
       e3.on('exit', () => resolve(false));
+      const poll = setInterval(() => {
+        if (runnerPid !== null && existsSync(outputPath)) {
+          clearInterval(poll);
+          resolve(true);
+        }
+      }, 50);
+      poll.unref();
     });
     let e3Stderr = '';
     e3.stderr!.setEncoding('utf8');

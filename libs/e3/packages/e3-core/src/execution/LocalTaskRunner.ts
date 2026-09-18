@@ -16,7 +16,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { variant } from '@elaraai/east';
-import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject, withRunnerVerbose, TASK_KIND_PARTITION } from '@elaraai/e3-types';
+import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject, withRunnerLifeline, withRunnerVerbose, TASK_KIND_PARTITION } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -428,6 +428,12 @@ export async function taskExecuteBody(
     // is applied AFTER the cache decision and never touches commandIr/hashes, so
     // `-v` changes only what a task that actually spawns prints — not caching.
     args = withRunnerVerbose(task.runner, args, options.verbose);
+    // Step 6.45: the stdin lifeline. A stock runner is spawned with a stdin
+    // pipe this process never writes to and `--exit-with-parent` on its
+    // command line, so it exits if this process dies; both are spliced here,
+    // after the cache decision, and never touch commandIr or any hash.
+    const stdinLifeline = task.runner.type !== 'custom';
+    if (stdinLifeline) args = withRunnerLifeline(task.runner, args);
 
     // Step 6.5: Materialize the task's declared execution environment (warm
     // cache hit after first use); its bin dir is prepended to the child PATH.
@@ -463,8 +469,8 @@ export async function taskExecuteBody(
     // Step 7: Get boot ID for crash detection
     const bootId = await getBootId();
 
-    // Step 8: Execute command. A stock runner gets the stdin lifeline, so it
-    // exits if this process dies; a custom command keeps an ignored stdin.
+    // Step 8: Execute command, with the lifeline pipe for a stock runner; a
+    // custom command keeps an ignored stdin.
     const result = await runCommand(
       storage,
       repo,
@@ -477,7 +483,7 @@ export async function taskExecuteBody(
       scratchDir,
       options,
       envBins,
-      task.runner.type !== 'custom'
+      stdinLifeline
     );
 
     /** Records an execution e3 stopped (`error`) or a signal ended

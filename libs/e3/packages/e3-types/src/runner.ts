@@ -96,3 +96,24 @@ export function withRunnerVerbose(runner: RunnerValue, args: string[], verbose?:
   if (!verbose || runner.type === 'custom' || args.length < 2) return args;
   return [...args.slice(0, 2), '-v', ...args.slice(2)];
 }
+
+/**
+ * Insert the runner's `--exit-with-parent` flag into a fully-built argv, for
+ * the known runtimes only — the stdin lifeline (issue #770).
+ *
+ * A stock runner given the flag and a stdin pipe its parent never writes to
+ * exits as soon as the pipe reaches end of file: when the parent dies. A
+ * `custom` runner's argv is user-authored, so the flag is never spliced into
+ * it, and it keeps an ignored stdin. Like {@link withRunnerVerbose} the flag
+ * goes at index 2, after `[<bin>, <command>]`, and is a pure runtime toggle
+ * applied just before spawn — never part of the task's `commandIr` or any
+ * hash.
+ *
+ * @param runner - the runner the argv was built for (gates the injection)
+ * @param args - the fully-built argv
+ * @returns the argv, with `--exit-with-parent` inserted for known runtimes
+ */
+export function withRunnerLifeline(runner: RunnerValue, args: string[]): string[] {
+  if (runner.type === 'custom' || args.length < 2) return args;
+  return [...args.slice(0, 2), '--exit-with-parent', ...args.slice(2)];
+}

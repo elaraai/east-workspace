@@ -254,11 +254,11 @@ export interface SpawnAndCaptureOptions {
    *  they fall to half. A child writing faster than the callback settles then
    *  blocks on its pipe. */
   maxPendingBytes?: number;
-  /** Gives the child a stdin pipe this process never writes to and
-   *  `EAST_EXIT_WITH_PARENT=1` in its environment, so a stock runner exits
-   *  when the pipe closes — when this process dies. The pipe is destroyed once
-   *  the child has closed. Without it stdin is ignored and the variable is
-   *  never passed on. */
+  /** Gives the child a stdin pipe this process never writes to — the
+   *  lifeline a stock runner spawned with `--exit-with-parent` (spliced into
+   *  the argv by `withRunnerLifeline`) reads until end of file, so it exits
+   *  when the pipe closes: when this process dies. The pipe is destroyed once
+   *  the child has closed. Without it stdin is ignored. */
   stdinLifeline?: boolean;
   /** Executable dirs prepended to the child PATH ahead of everything else —
    *  a materialized execution environment's bin dir (materializeEnvironment)
@@ -305,7 +305,8 @@ export interface SpawnAndCaptureResult {
  * augmentation, `detached: true` process-group management, stdout/stderr
  * listeners (streaming callbacks of whole characters with backpressure +
  * bounded in-memory tails), process-group kill, timeout + AbortSignal wiring,
- * and the optional stdin lifeline that lets a runner exit with this process.
+ * and the optional stdin lifeline pipe a runner spawned with
+ * `--exit-with-parent` reads, so it exits with this process.
  *
  * Process Lifecycle Management
  * ============================
@@ -381,14 +382,6 @@ export async function spawnAndCapture(
       .filter(Boolean)
       .join(pathSep),
   };
-  // A runner told to exit with its parent reads stdin until EOF, so the
-  // variable goes only with the lifeline pipe: inherited next to an ignored
-  // stdin, it would read EOF at once and exit.
-  if (options.stdinLifeline) {
-    spawnOpts.env.EAST_EXIT_WITH_PARENT = '1';
-  } else {
-    delete spawnOpts.env.EAST_EXIT_WITH_PARENT;
-  }
   // Propagate the project search dirs to the runner. The child runs in a scratch
   // cwd (above), so it cannot find the project root on its own — without this a
   // runner CLI can't resolve a project's OWN platform package by Node
