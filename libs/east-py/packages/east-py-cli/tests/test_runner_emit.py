@@ -49,6 +49,7 @@ from east import (
 from east.runtime.errors import EastError
 from east.serialization.beast2 import (
     decode_beast2_with_header_for,
+    encode_beast2_v5_for,
     open_beast2_pages_for,
     read_beast2_index,
 )
@@ -568,6 +569,45 @@ def test_merge_refuses_bounds_of_another_key_type_and_a_missing_range_file(tmp_p
     missing = tmp_path / "missing.beast2"
     with pytest.raises(ValueError, match=f"^{re.escape(f'merge: --range ({missing}): cannot open the file')}$"):
         merge_blobs(MERGE_INPUTS, [], tmp_path / "m3.beast2", merge=MERGE_CONCAT, range=missing)
+
+
+def test_merge_refuses_a_file_that_is_not_a_blob_in_the_readers_words(tmp_path):
+    # An empty file or a file without the magic, as an input or as the range,
+    # is refused in the reader's own words — the sentence east-c and east-node
+    # give for the same bytes.
+    empty = tmp_path / "empty.beast2"
+    empty.write_bytes(b"")
+    text = tmp_path / "text.beast2"
+    text.write_bytes(b"not a blob")
+    short = "Data too short for Beast2 format: 0 bytes"
+    magic = "Invalid Beast2 magic at offset 0: expected 0x89, got 0x6e"
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: input 0 ({empty}): {short}')}$"):
+        merge_blobs([empty], [], tmp_path / "e.beast2")
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: input 1 ({text}): {magic}')}$"):
+        merge_blobs([MERGE_INPUTS[0], text], [], tmp_path / "t.beast2", merge=MERGE_CONCAT)
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: --range ({empty}): {short}')}$"):
+        merge_blobs(MERGE_INPUTS, [], tmp_path / "re.beast2", merge=MERGE_CONCAT, range=empty)
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: --range ({text}): {magic}')}$"):
+        merge_blobs(MERGE_INPUTS, [], tmp_path / "rt.beast2", merge=MERGE_CONCAT, range=text)
+    # A blob without the paging index — a whole-value encode, not what a runner
+    # writes — is refused in the reader's words too.
+    whole = tmp_path / "whole.beast2"
+    whole.write_bytes(encode_beast2_v5_for(INT_STR_DICT)(EastDict(IntegerType, StringType, {1: "a"})))
+    no_index = ("beast2 v5: blob carries no index — ranged reads need one (write with the index "
+                "enabled, the default)")
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: input 0 ({whole}): {no_index}')}$"):
+        merge_blobs([whole], [], tmp_path / "w.beast2")
+
+
+def test_the_merge_command_names_a_missing_input_as_the_other_runners_do(tmp_path):
+    missing = tmp_path / "missing.beast2"
+    proc = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "merge", "-i", str(missing), "-o", str(tmp_path / "m.beast2")],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 1
+    assert f"Error: merge: input 0 ({missing}): cannot open the file" in proc.stderr
+    assert "Input file not found" not in proc.stderr
 
 
 def test_the_merge_command_prints_its_account(tmp_path):

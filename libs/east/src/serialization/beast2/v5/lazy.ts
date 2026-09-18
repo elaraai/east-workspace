@@ -48,21 +48,31 @@ function orderError(kind: "Set" | "Dict"): Error {
   return new Error(`beast2 v5: ${kind === "Dict" ? "Dict keys" : "Set elements"} are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
 }
 
+/** The verified fences of every pager a lazy value has sought through: a
+ *  pager's fences are probed and checked once, not once per seek, so a body
+ *  that iterates from a key many times pays the probes once. */
+const verifiedFences = new WeakMap<Beast2Pages, unknown[]>();
+
 /**
  * The segment a range iteration from `from` starts in: the greatest segment
  * whose fence is at most `from`, or the first when `from` precedes every
  * fence. The fences are probed (a bounded prefix of each frame) and checked
  * to ascend strictly first — in the eager decoders' words, since a fence
  * that does not ascend is a key that does not ascend — so a corrupt blob is
- * refused before the search can land anywhere.
+ * refused before the search can land anywhere; once verified they are kept
+ * for the pager's later seeks.
  */
 function seekSegment<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number, kind: "Set" | "Dict", from: K): number {
   const n = pages.segmentCount;
   if (n === 0) return 0;
-  const fences: K[] = new Array(n);
-  for (let i = 0; i < n; i++) {
-    fences[i] = pages.fence(i) as K;
-    if (i > 0 && cmp(fences[i - 1]!, fences[i]!) >= 0) throw orderError(kind);
+  let fences = verifiedFences.get(pages) as K[] | undefined;
+  if (fences === undefined) {
+    fences = new Array(n);
+    for (let i = 0; i < n; i++) {
+      fences[i] = pages.fence(i) as K;
+      if (i > 0 && cmp(fences[i - 1]!, fences[i]!) >= 0) throw orderError(kind);
+    }
+    verifiedFences.set(pages, fences);
   }
   if (cmp(from, fences[0]!) < 0) return 0;
   let lo = 0;

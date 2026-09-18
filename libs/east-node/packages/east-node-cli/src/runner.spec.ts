@@ -551,6 +551,24 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
 
     const missing = join(tempDir, 'missing.beast2');
     assert.throws(() => mergeBlobs([missing], join(tempDir, 'm.beast2')), { message: `merge: input 0 (${missing}): cannot open the file` });
+
+    // A file that is not a blob is refused in the reader's own words — the
+    // sentence east-c and east-py give for the same bytes; a directory
+    // cannot be opened.
+    const empty = join(tempDir, 'empty-file.beast2');
+    writeFileSync(empty, '');
+    assert.throws(() => mergeBlobs([empty], join(tempDir, 'e.beast2')), { message: `merge: input 0 (${empty}): Data too short for Beast2 format: 0 bytes` });
+    const text = join(tempDir, 'text.beast2');
+    writeFileSync(text, 'not a blob');
+    assert.throws(() => mergeBlobs([writeDictInput('a'), text], join(tempDir, 't.beast2'), { mergePath: writeConcat() }), { message: `merge: input 1 (${text}): Invalid Beast2 magic at offset 0: expected 0x89, got 0x6e` });
+    assert.throws(() => mergeBlobs([tempDir], join(tempDir, 'd.beast2')), { message: `merge: input 0 (${tempDir}): cannot open the file` });
+
+    // A blob without the paging index — a whole-value encode, not what a
+    // runner writes — is refused in the reader's words, as east-c and
+    // east-py refuse it.
+    const whole = join(tempDir, 'whole.beast2');
+    writeFileSync(whole, encodeBeast2For(DT)(new SortedMap([[1n, 'a']], compareFor(IntegerType))));
+    assert.throws(() => mergeBlobs([whole], join(tempDir, 'w.beast2')), { message: `merge: input 0 (${whole}): beast2 v5: blob carries no index — ranged reads need one (write with the index enabled, the default)` });
   });
 
   it('merge names a fold of the wrong signature and refuses a fold of the wrong kind', () => {
@@ -635,7 +653,7 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     assert.equal(openBeast2PagesFor(DT)(new Uint8Array(readFileSync(join(tempDir, 'ranged_30_39.beast2')))).elementCount, 0, 'a range holding nothing writes the empty collection, indexed');
   });
 
-  it('merge --range refuses bounds of another key type, a missing file and a file that is not a blob', () => {
+  it('merge --range refuses bounds of another key type, a missing file, an empty file and a file that is not a blob', () => {
     const inputs = [writeDictInput('a'), writeDictInput('b')];
     const mismatch = join(tempDir, 'range_mismatch.beast2');
     writeFileSync(mismatch, encodeBeast2For(StructType({ from: OptionType(StringType), to: OptionType(StringType) }))({ from: none, to: none }));
@@ -645,11 +663,18 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     );
     const missing = join(tempDir, 'range_missing.beast2');
     assert.throws(() => mergeBlobs(inputs, join(tempDir, 'rm2.beast2'), { mergePath: writeConcat(), rangePath: missing }), { message: `merge: --range (${missing}): cannot open the file` });
+    // Not a blob: the reader's own words, as east-c and east-py say them.
     const text = join(tempDir, 'range_text.beast2');
     writeFileSync(text, 'not a blob');
     assert.throws(
       () => mergeBlobs(inputs, join(tempDir, 'rm3.beast2'), { mergePath: writeConcat(), rangePath: text }),
-      (err: Error) => err.message.startsWith(`merge: --range (${text}): `),
+      { message: `merge: --range (${text}): Invalid Beast2 magic at offset 0: expected 0x89, got 0x6e` },
+    );
+    const empty = join(tempDir, 'range_empty.beast2');
+    writeFileSync(empty, '');
+    assert.throws(
+      () => mergeBlobs(inputs, join(tempDir, 'rm4.beast2'), { mergePath: writeConcat(), rangePath: empty }),
+      { message: `merge: --range (${empty}): Data too short for Beast2 format: 0 bytes` },
     );
   });
 

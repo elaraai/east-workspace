@@ -167,6 +167,13 @@ describe("Beast2 v5 — lazy Dict", () => {
     assert.ok(reads.every((r) => r.length <= 4096 || r.offset >= frame(2).offset), "no read before the owning segment exceeds a fence probe");
     assert.equal(lazy.size, 350, "the value did not hydrate");
 
+    // A second seek on the same value keeps the verified fences: no fence
+    // is probed again, and only the owning segment is read.
+    reads.length = 0;
+    assert.deepEqual([...lazy.entries(320n)], [...eager.entries(320n)]);
+    assert.ok(reads.length > 0 && reads.every((r) => r.length > 4096), "no read of a later seek is a fence probe");
+    assert.ok(decodedWhole(3) && !decodedWhole(2), "only the owning segment is read");
+
     // Every kind of key: absent between two keys, exactly a fence, the last
     // key, before the first, after the last.
     const absentTable = new SortedMap(entries.filter(([k]) => k % 2n === 0n), compareFor(IntegerType));

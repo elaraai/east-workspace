@@ -23,7 +23,12 @@
  *                      side, open on both (the whole merge's bytes), and
  *                      holding nothing; the fold and the union over a range
  *                      are byte-identical to `run --emit` over the range's
- *                      entries; bounds of another key type are refused.
+ *                      entries; bounds of another key type are refused;
+ *   7. not a blob    — an empty file or a file without the magic, as an
+ *                      input or as the range, is refused in the reader's
+ *                      own words (the sentence east-node and east-py give
+ *                      for the same bytes); a missing file cannot be opened;
+ *                      a blob without the paging index is refused too.
  *
  * Runs in the ASan tree too: every case scans the child's stderr for a
  * sanitizer report.
@@ -476,6 +481,86 @@ static void test_ranges(const char *bin, const char *fixtures)
                           "merge_range_missing.beast2): cannot open the file");
 }
 
+/* Writes `len` bytes of `text` to `path`. */
+static void write_file(const char *path, const char *text, size_t len)
+{
+    FILE *f = fopen(path, "wb");
+    CHECK(f != NULL, "cannot write %s", path);
+    if (!f) return;
+    if (len > 0) fwrite(text, 1, len, f);
+    fclose(f);
+}
+
+static void test_not_a_blob(const char *bin, const char *fixtures)
+{
+    write_file("merge_empty_file.beast2", "", 0);
+    write_file("merge_text.beast2", "not a blob", 10);
+    char cmd[4096];
+
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" merge -i merge_empty_file.beast2 -o merge_out_nb_empty.beast2", bin);
+    int rc = run_cli(cmd, "merge_err_nb_empty.txt");
+    CHECK(rc == 1, "empty input: expected exit 1, got %d", rc);
+    check_stderr_contains("merge_err_nb_empty.txt",
+                          "merge: input 0 (merge_empty_file.beast2): Data too short for Beast2 "
+                          "format: 0 bytes");
+
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" merge -i \"%s/merge_in_a.beast2\" -i merge_text.beast2 -o "
+             "merge_out_nb_text.beast2",
+             bin, fixtures);
+    rc = run_cli(cmd, "merge_err_nb_text.txt");
+    CHECK(rc == 1, "text input: expected exit 1, got %d", rc);
+    check_stderr_contains("merge_err_nb_text.txt",
+                          "merge: input 1 (merge_text.beast2): Invalid Beast2 magic at offset 0: "
+                          "expected 0x89, got 0x6e");
+
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" merge -i merge_missing_file.beast2 -o merge_out_nb_missing.beast2", bin);
+    rc = run_cli(cmd, "merge_err_nb_missing.txt");
+    CHECK(rc == 1, "missing input: expected exit 1, got %d", rc);
+    check_stderr_contains("merge_err_nb_missing.txt",
+                          "merge: input 0 (merge_missing_file.beast2): cannot open the file");
+
+    /* A blob without the paging index — a whole-value encode, not what a
+     * runner writes — is refused in the reader's words, as east-node and
+     * east-py refuse it. */
+    EastValue *whole = east_dict_new(&east_integer_type, &east_string_type);
+    ByteBuffer *bytes = east_beast2_encode_full(whole, dict_type());
+    CHECK(bytes != NULL, "cannot encode the whole-value blob");
+    if (bytes) {
+        write_file("merge_whole.beast2", (const char *)bytes->data, bytes->len);
+        byte_buffer_free(bytes);
+    }
+    east_value_release(whole);
+    snprintf(cmd, sizeof(cmd), "\"%s\" merge -i merge_whole.beast2 -o merge_out_nb_whole.beast2",
+             bin);
+    rc = run_cli(cmd, "merge_err_nb_whole.txt");
+    CHECK(rc == 1, "whole-value input: expected exit 1, got %d", rc);
+    check_stderr_contains("merge_err_nb_whole.txt",
+                          "merge: input 0 (merge_whole.beast2): beast2 v5: blob carries no index — "
+                          "ranged reads need one (write with the index enabled, the default)");
+
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" merge --merge \"%s/emit_merge_concat.beast2\" --range merge_empty_file.beast2 "
+             "-i \"%s/merge_in_a.beast2\" -o merge_out_nb_range_empty.beast2",
+             bin, fixtures, fixtures);
+    rc = run_cli(cmd, "merge_err_nb_range_empty.txt");
+    CHECK(rc == 1, "empty range: expected exit 1, got %d", rc);
+    check_stderr_contains("merge_err_nb_range_empty.txt",
+                          "merge: --range (merge_empty_file.beast2): Data too short for Beast2 "
+                          "format: 0 bytes");
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" merge --merge \"%s/emit_merge_concat.beast2\" --range merge_text.beast2 "
+             "-i \"%s/merge_in_a.beast2\" -o merge_out_nb_range_text.beast2",
+             bin, fixtures, fixtures);
+    rc = run_cli(cmd, "merge_err_nb_range_text.txt");
+    CHECK(rc == 1, "text range: expected exit 1, got %d", rc);
+    check_stderr_contains("merge_err_nb_range_text.txt",
+                          "merge: --range (merge_text.beast2): Invalid Beast2 magic at offset 0: "
+                          "expected 0x89, got 0x6e");
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 3) {
@@ -490,6 +575,7 @@ int main(int argc, char **argv)
     test_refusals(argv[1], argv[2]);
     test_empty_inputs(argv[1], argv[2]);
     test_ranges(argv[1], argv[2]);
+    test_not_a_blob(argv[1], argv[2]);
 
     if (failures > 0) {
         fprintf(stderr, "%d failure(s)\n", failures);

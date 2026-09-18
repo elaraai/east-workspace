@@ -409,10 +409,9 @@ def cmd_merge(args: argparse.Namespace) -> int:
     """``east-py merge``: k sorted Set/Dict blobs of one type into one (#770)."""
     _start_lifeline(args)
 
-    for input_file in args.input:
-        if not input_file.exists():
-            print(f"Error: Input file not found: {input_file}", file=sys.stderr)
-            return 1
+    # No existence pre-check: the merge names a missing input itself, in the
+    # words east-c and east-node use (`merge: input <n> (<path>): cannot open
+    # the file`).
     if args.merge is not None and args.union:
         print("Error: --merge and --union are two folds — give one", file=sys.stderr)
         return 1

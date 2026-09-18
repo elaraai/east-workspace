@@ -32,12 +32,60 @@ static void merge_error(const char *fmt, ...)
     east_builtin_error(msg);
 }
 
+/* Posts `merge: <who>: <the message already posted>`, or `fallback`. */
+static void merge_posted_error(const char *who, const char *fallback)
+{
+    char *specific = east_builtin_get_error();
+    merge_error("merge: %s: %s", who, specific ? specific : fallback);
+    free(specific);
+}
+
+/* `input <n> (<path>)` — how a message names an input. */
+static void input_who(char *buf, size_t cap, size_t index, const char *path)
+{
+    snprintf(buf, cap, "input %zu (%s)", index, path);
+}
+
 /* Posts `merge: input <n> (<path>): <the message already posted>`. */
 static void merge_input_error(size_t index, const char *path)
 {
-    char *specific = east_builtin_get_error();
-    merge_error("merge: input %zu (%s): %s", index, path, specific ? specific : "cannot be read");
-    free(specific);
+    char who[4200];
+    input_who(who, sizeof(who), index, path);
+    merge_posted_error(who, "cannot be read");
+}
+
+/* Whether `path` is a regular file holding nothing. */
+static bool empty_regular_file(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 0;
+}
+
+/* Posts why `who`'s file could not be mapped: an empty regular file is a
+ * blob too short to read, in the reader's words — the sentence east-node
+ * gives for it — and a file that is missing, unreadable or not a regular
+ * file cannot be opened. */
+static void merge_map_error(const char *who, const char *path)
+{
+    char buf[128];
+    merge_error("merge: %s: %s", who,
+                empty_regular_file(path) ? east_beast2_magic_problem(NULL, 0, buf, sizeof(buf))
+                                         : "cannot open the file");
+}
+
+/* Posts why `who`'s mapped bytes are not a blob: a short file or a wrong
+ * magic in the reader's words (east-node's sentence for the same bytes),
+ * else whatever the decoder posted. */
+static void merge_not_blob_error(const char *who, const uint8_t *data, size_t len)
+{
+    char buf[128];
+    const char *problem = east_beast2_magic_problem(data, len, buf, sizeof(buf));
+    if (problem) {
+        free(east_builtin_get_error());
+        merge_error("merge: %s: %s", who, problem);
+    } else {
+        merge_posted_error(who, "cannot be read");
+    }
 }
 
 /* One input and its current entry. A whole input is read through the
@@ -266,14 +314,16 @@ static bool cursor_open(Merge *m, MergeCursor *c, size_t index, const char *path
 {
     memset(c, 0, sizeof(*c));
     c->path = path;
+    char who[4200];
+    input_who(who, sizeof(who), index, path);
     c->data = map_input_file(path, &c->len, &c->map_ctx);
     if (!c->data) {
-        merge_error("merge: input %zu (%s): cannot open the file", index, path);
+        merge_map_error(who, path);
         return false;
     }
     EastType *type = east_beast2_extract_type(c->data, c->len);
     if (!type) {
-        merge_input_error(index, path);
+        merge_not_blob_error(who, c->data, c->len);
         return false;
     }
     bool same = east_type_equal(type, m->type);
@@ -288,6 +338,23 @@ static bool cursor_open(Merge *m, MergeCursor *c, size_t index, const char *path
         return false;
     }
     east_type_release(type);
+    /* Every input carries the paging index — what the runners write, and
+     * what a seek needs — so a blob without one is refused in the reader's
+     * words, east-node's sentence for the same bytes. */
+    B2V5Index paging;
+    int ix = b2v5_read_index(c->data, c->len, &paging);
+    if (ix == 1) b2v5_index_free(&paging);
+    if (ix == 0) {
+        merge_error(
+            "merge: %s: beast2 v5: blob carries no index — ranged reads need one (write with "
+            "the index enabled, the default)",
+            who);
+        return false;
+    }
+    if (ix == -1) {
+        merge_posted_error(who, "cannot be read");
+        return false;
+    }
     c->enc = byte_buffer_new(256);
     if (!c->enc) {
         merge_input_error(index, path);
@@ -318,9 +385,11 @@ static bool merge_read_range(Merge *m, const char *path)
 {
     size_t len = 0;
     void *ctx = NULL;
+    char who[4200];
+    snprintf(who, sizeof(who), "--range (%s)", path);
     uint8_t *data = map_input_file(path, &len, &ctx);
     if (!data) {
-        merge_error("merge: --range (%s): cannot open the file", path);
+        merge_map_error(who, path);
         return false;
     }
     const char *case_names[2] = {"none", "some"};
@@ -333,9 +402,7 @@ static bool merge_read_range(Merge *m, const char *path)
     EastValue *bounds = NULL;
     EastType *type = east_beast2_extract_type(data, len);
     if (!type) {
-        char *specific = east_builtin_get_error();
-        merge_error("merge: --range (%s): %s", path, specific ? specific : "cannot be read");
-        free(specific);
+        merge_not_blob_error(who, data, len);
     } else if (!east_type_equal(type, expected)) {
         char *got = east_print_type(type);
         char *want = east_print_type(expected);
@@ -345,9 +412,7 @@ static bool merge_read_range(Merge *m, const char *path)
         free(got);
         free(want);
     } else if (!(bounds = east_beast2_decode_full(data, len, expected))) {
-        char *specific = east_builtin_get_error();
-        merge_error("merge: --range (%s): %s", path, specific ? specific : "cannot be read");
-        free(specific);
+        merge_posted_error(who, "cannot be read");
     } else {
         EastValue *from = east_struct_get_field(bounds, "from"); /* borrowed */
         EastValue *to = east_struct_get_field(bounds, "to");
@@ -577,17 +642,20 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
     /* The type is input 0's, read from its header. */
     size_t len0 = 0;
     void *ctx0 = NULL;
+    char who0[4200];
+    input_who(who0, sizeof(who0), 0, cfg->input_paths[0]);
     uint8_t *data0 = map_input_file(cfg->input_paths[0], &len0, &ctx0);
     if (!data0) {
-        merge_error("merge: input 0 (%s): cannot open the file", cfg->input_paths[0]);
+        merge_map_error(who0, cfg->input_paths[0]);
         return false;
     }
     EastType *type = east_beast2_extract_type(data0, len0);
-    input_release_mapping(ctx0, data0, len0);
     if (!type) {
-        merge_input_error(0, cfg->input_paths[0]);
+        merge_not_blob_error(who0, data0, len0);
+        input_release_mapping(ctx0, data0, len0);
         return false;
     }
+    input_release_mapping(ctx0, data0, len0);
     if (type->kind != EAST_TYPE_SET && type->kind != EAST_TYPE_DICT) {
         merge_error("merge: inputs must be Set or Dict blobs, got %s",
                     east_type_kind_name(type->kind));

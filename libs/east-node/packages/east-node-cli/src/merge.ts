@@ -47,6 +47,7 @@ import {
     openBeast2LazyFor,
     printFor,
     readBeast2Extents,
+    readBeast2HeaderType,
     readBeast2Type,
     toEastTypeValue,
     type Beast2SyncRangeReader,
@@ -117,18 +118,29 @@ interface OpenedInput {
  * @param index - the input's position, for messages
  * @param expected - input 0's type, or `null` for input 0 itself
  * @returns the opened input and its type
- * @throws {Error} When the file cannot be opened or read as a canonical
- *   collection blob, or its type is not `expected`.
+ * @throws {Error} When the file cannot be opened (missing, unreadable, not
+ *   a regular file), is not a blob (too short, or without the magic — the
+ *   reader's own words), cannot be read as a canonical collection blob, or
+ *   its type is not `expected`.
  */
 function openInput(path: string, index: number, expected: EastTypeValue | null): OpenedInput {
     let fd: number;
+    let size: number;
     try {
         fd = openSync(path, 'r');
     } catch {
         throw new Error(`merge: input ${index} (${path}): cannot open the file`);
     }
+    try {
+        const stat = fstatSync(fd);
+        if (!stat.isFile()) throw new Error('not a regular file');
+        size = stat.size;
+    } catch {
+        closeSync(fd);
+        throw new Error(`merge: input ${index} (${path}): cannot open the file`);
+    }
     const reader: Beast2SyncRangeReader = {
-        size: fstatSync(fd).size,
+        size,
         read(offset, length) {
             const out = new Uint8Array(length);
             let done = 0;
@@ -145,6 +157,10 @@ function openInput(path: string, index: number, expected: EastTypeValue | null):
     let type: EastTypeValue;
     let lazy: SortedMap<unknown, unknown> | SortedSet<unknown>;
     try {
+        // The header first: a file too short for a blob, or one without the
+        // magic, is refused in the reader's words — the sentence east-c and
+        // east-py give for the same bytes — before the index is looked for.
+        readBeast2HeaderType(reader);
         const extents = readBeast2Extents(reader);
         type = extents.typeValue;
         if (expected !== null && !isTypeValueEqual(type, expected)) {
