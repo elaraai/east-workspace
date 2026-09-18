@@ -61,6 +61,7 @@ e3 dataset find <repo> <ws> <pattern>           # Substring or glob (`*`, `?`) m
 ```bash
 e3 task list <repo> <ws>                        # List tasks with execution status
 e3 task logs <repo> <ws.task> [--follow]        # Stream task logs
+e3 task logs <repo> <ws.task> --execution <taskHash>/<inputsHash>/<executionId>   # One execution's own log — a unit a partitioned task's log names (local repositories)
 ```
 
 ### Dataflow execution
@@ -76,6 +77,12 @@ come first served, whatever launched it). It defaults to the CPUs available to
 e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set. The
 older `--concurrency` and `--partition-concurrency` are accepted as deprecated
 aliases of the same budget.
+
+A local run's per-execution scratch directories are created under
+`E3_SCRATCH_DIR`, or the system temp directory when unset; a tmpfs temp
+directory holds an output in memory until it is stored, so large outputs want
+it on a disk. A scratch directory left by a dead process is removed by the next
+run or `e3 repo gc`.
 
 `-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf
 block to the task's logs (`e3 task logs <repo> <ws.task>`) — identical across

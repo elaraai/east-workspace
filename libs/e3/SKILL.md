@@ -126,7 +126,7 @@ Task → What do you need?
 │
 ├─ Tasks (inspect / logs)
 │   ├─ List with status     → e3 task list <repo> <ws>
-│   └─ View / follow logs   → e3 task logs <repo> <ws.task> [-n <lines>] [--all] [--follow]
+│   └─ View / follow logs   → e3 task logs <repo> <ws.task> [-n <lines>] [--all] [--follow] [--execution <taskHash>/<inputsHash>/<executionId>]
 │
 ├─ Development workflow
 │   ├─ Watch + auto-deploy  → e3 watch <src.ts> <repo> <ws> [--start]
@@ -813,6 +813,7 @@ e3 task logs <repo> <ws.task>               # Last 200 lines of a task's logs
 e3 task logs <repo> <ws.task> -n 50         # Last 50 lines
 e3 task logs <repo> <ws.task> --all         # The whole log
 e3 task logs <repo> <ws.task> --follow      # Tail, then follow live output
+e3 task logs <repo> <ws.task> --execution <taskHash>/<inputsHash>/<executionId>   # One execution's own log — a partition or merge unit a partitioned task's log names (local repositories)
 ```
 
 ### Dataflow
@@ -829,6 +830,13 @@ partitions and merge units of its partitioned tasks alike (one slot per
 runner, first come first served). Default: the CPUs available to e3 (affinity
 mask, capped by a cgroup quota), or `E3_JOBS`. `--concurrency` and
 `--partition-concurrency` are deprecated aliases of the same budget.
+
+**`E3_SCRATCH_DIR`** names the directory a local run's per-execution scratch
+directories (inputs marshalled, the output written before it is stored) are
+created under — the system temp directory when unset. A tmpfs temp directory
+holds an output in memory until it is stored, so large outputs want it on a
+disk; a scratch directory left by a dead process is removed by the next run or
+`e3 repo gc`.
 
 **`-v` / `--verbose`** forwards `-v` to each task's runner so it prints a
 timing/perf block (Load / Compile / Execute / Output / Total + Peak RSS) — identical

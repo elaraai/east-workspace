@@ -557,13 +557,17 @@ e3 task logs <repo> <ws.task>                    # Last 200 lines of a task's lo
 e3 task logs <repo> <ws.task> -n 50              # Last 50 lines
 e3 task logs <repo> <ws.task> --all              # The whole log, however large
 e3 task logs <repo> <ws.task> --follow           # Tail, then stream live output
+e3 task logs <repo> <ws.task> --execution <taskHash>/<inputsHash>/<executionId>   # One execution's own log (local repositories)
 ```
 
 Logs are shown from the end, since that is where a failure lands. When earlier
 output was left out, a notice says so and how to get it; `--all` pages through
 the whole log rather than holding it in memory. `--follow` picks up from the
 current end of the log, so live output starts immediately regardless of how much
-backlog there is.
+backlog there is. A partitioned task's log is the orchestrator's account of its
+units — the partitions and merge units, each an execution of its own, named by
+`<taskHash>/<inputsHash>/<executionId>` in the `[PART]` / `[MERGE]` /
+`[COMBINE]` lines — and `--execution` shows one unit's own runner output.
 
 ### Dataflow Commands
 
@@ -578,6 +582,14 @@ come first served, whatever launched it). It defaults to the CPUs available to
 e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set. The
 older `--concurrency` and `--partition-concurrency` are accepted as deprecated
 aliases of the same budget.
+
+A local run gives every execution a scratch directory — its inputs are marshalled
+there and its output written there before it is stored — under `E3_SCRATCH_DIR`,
+or the system temp directory when that is unset. A temp directory on tmpfs holds
+an output in memory until it is stored, so a run with large outputs wants
+`E3_SCRATCH_DIR` on a disk with room for them. Each directory is named after its
+execution and the process that owns it; one left behind by a process that died
+is removed by the next `e3 dataflow run` or `e3 repo gc`.
 
 `-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf
 block (load, compile, execute, output, total + peak RSS) to the task's logs
