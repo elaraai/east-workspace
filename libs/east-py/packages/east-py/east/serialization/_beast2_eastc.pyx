@@ -898,7 +898,7 @@ cdef bytes _c_path(object path):
 
 
 def _merge_blobs(object input_paths, object output_path, object merge=None,
-                 bint union_mode=False):
+                 bint union_mode=False, object range_path=None):
     """Merge sorted Set or Dict blobs of one type into one — east-c's
     ``east_merge_blobs`` (east/merge.h), the very code ``east-c merge`` runs,
     so the two runners write the same bytes (#770). One pass: every input is
@@ -908,16 +908,21 @@ def _merge_blobs(object input_paths, object output_path, object merge=None,
     emitted ascending. Equal keys fold in input order — ``merge`` (a compiled
     ``(K, V, V) -> V`` East function) on Dict inputs, ``union_mode`` (the
     first element stands) on Set inputs — and are the duplicate error
-    without a fold.
+    without a fold. With ``range_path`` — a beast2 blob of ``Struct{from:
+    Option<K>, to: Option<K>}`` over the inputs' key type, an absent bound
+    open — only the keys in ``[from, to)`` merge: every input is sought to
+    the segment owning ``from`` through its fences.
 
     Returns ``{"inputs", "entries", "folds"}``. Raises ValueError with
     east-c's message — an input of another type than input 0's, an Array,
     keys that do not ascend, a fold whose signature does not match the
-    inputs, a file that cannot be opened — leaving the output unfinalised.
+    inputs, bounds of another shape than the inputs' key type, a file that
+    cannot be opened — leaving the output unfinalised.
     """
     _ensure_eastc_runtime()
     encoded = [_c_path(p) for p in input_paths]
     cdef bytes out_bytes = _c_path(output_path)
+    cdef bytes range_bytes = _c_path(range_path) if range_path is not None else b""
     cdef size_t n = len(encoded)
     cdef const char** c_paths = <const char**>malloc((n if n > 0 else 1) * sizeof(char*))
     if c_paths == NULL:
@@ -934,6 +939,7 @@ def _merge_blobs(object input_paths, object output_path, object merge=None,
     cfg.output_path = <const char*>out_bytes
     cfg.merge_fn = merge_fn
     cfg.union_mode = union_mode
+    cfg.range_path = <const char*>range_bytes if range_path is not None else NULL
     cdef _eastc.EastMergeStats st
     cdef bint ok
     try:

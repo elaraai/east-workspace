@@ -702,6 +702,7 @@ cdef extern from "east/merge.h":
         const char *output_path
         EastCompiledFn *merge_fn
         bint union_mode
+        const char *range_path
 
     ctypedef struct EastMergeStats:
         size_t inputs

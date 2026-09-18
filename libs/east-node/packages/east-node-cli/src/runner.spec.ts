@@ -24,6 +24,7 @@ import {
   FunctionType,
   IntegerType,
   NullType,
+  OptionType,
   SetType,
   StringType,
   StructType,
@@ -32,9 +33,12 @@ import {
   SortedSet,
   compareFor,
   decodeBeast2For,
+  encodeBeast2For,
   encodeBeast2PagedFor,
   encodeEastIR,
+  none,
   openBeast2PagesFor,
+  some,
   spliceBeast2,
 } from '@elaraai/east';
 
@@ -574,7 +578,82 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     assert.equal(openBeast2PagesFor(DT)(new Uint8Array(readFileSync(emptyOut))).elementCount, 0);
   });
 
-  it('the merge command prints its account and refuses two folds', () => {
+  // ---- Key ranges ---------------------------------------------------------
+
+  /** A `--range` blob over Integer keys: `[from, to)`, a `null` bound open. */
+  const RangeT = StructType({ from: OptionType(IntegerType), to: OptionType(IntegerType) });
+  function writeRange(name: string, from: bigint | null, to: bigint | null): string {
+    const path = join(tempDir, `range_${name}.beast2`);
+    writeFileSync(path, encodeBeast2For(RangeT)({ from: from === null ? none : some(from), to: to === null ? none : some(to) }));
+    return path;
+  }
+  /** Whether `k` lies in `[from, to)`. */
+  const inRange = (k: bigint, from: bigint | null, to: bigint | null): boolean => (from === null || k >= from) && (to === null || k < to);
+  /** An input holding only its keys in the range — the sliced twin a ranged merge must equal. */
+  function writeDictSlice(name: 'a' | 'b' | 'c', from: bigint | null, to: bigint | null): string {
+    const path = join(tempDir, `in_${name}_${from}_${to}.beast2`);
+    writeFileSync(path, encodeBeast2PagedFor(DT, { batchSize: 4 })(
+      new SortedMap(mergeKeys[name].filter((k) => inRange(k, from, to)).map((k) => [k, `${name}${k}`] as [bigint, string]), compareFor(IntegerType))));
+    return path;
+  }
+  function writeSetSlice(name: 'a' | 'b' | 'c', from: bigint | null, to: bigint | null): string {
+    const path = join(tempDir, `set_${name}_${from}_${to}.beast2`);
+    writeFileSync(path, encodeBeast2PagedFor(ST, { batchSize: 4 })(new SortedSet(mergeKeys[name].filter((k) => inRange(k, from, to)), compareFor(IntegerType))));
+    return path;
+  }
+
+  it('merge --range writes the keys in [from, to) byte-identical to merging inputs that hold only those keys', () => {
+    // The inputs are written in four-entry segments, so the bounds fall
+    // inside segments, on a fence, before the first key, past the last,
+    // and one range holds nothing.
+    const cases: [bigint | null, bigint | null][] = [[7n, 22n], [null, 12n], [25n, null], [8n, 16n], [-5n, 3n], [40n, 41n], [30n, 39n], [12n, 12n], [null, null]];
+    const inputs = [writeDictInput('a'), writeDictInput('b'), writeDictInput('c')];
+    const sets = [writeSetInput('a'), writeSetInput('b'), writeSetInput('c')];
+    for (const [from, to] of cases) {
+      const label = `[${from}, ${to})`;
+      const twin = join(tempDir, `twin_${from}_${to}.beast2`);
+      const twinStats = mergeBlobs([writeDictSlice('a', from, to), writeDictSlice('b', from, to), writeDictSlice('c', from, to)], twin, { mergePath: writeConcat() });
+      const ranged = join(tempDir, `ranged_${from}_${to}.beast2`);
+      const stats = mergeBlobs(inputs, ranged, { mergePath: writeConcat(), rangePath: writeRange(`${from}_${to}`, from, to) });
+      assert.deepEqual(stats, twinStats, label);
+      assert.deepEqual(new Uint8Array(readFileSync(ranged)), new Uint8Array(readFileSync(twin)), `${label}: the ranged merge must write exactly the sliced twin's bytes`);
+      const table = decodeBeast2For(DT)(new Uint8Array(readFileSync(ranged)));
+      for (const k of [...mergeKeys.a, ...mergeKeys.b, ...mergeKeys.c]) assert.equal(table.has(k), inRange(k, from, to), `${label}: key ${k}`);
+
+      const unionTwin = join(tempDir, `union_twin_${from}_${to}.beast2`);
+      const unionTwinStats = mergeBlobs([writeSetSlice('a', from, to), writeSetSlice('b', from, to), writeSetSlice('c', from, to)], unionTwin, { union: true });
+      const unionRanged = join(tempDir, `union_ranged_${from}_${to}.beast2`);
+      assert.deepEqual(mergeBlobs(sets, unionRanged, { union: true, rangePath: writeRange(`u_${from}_${to}`, from, to) }), unionTwinStats, label);
+      assert.deepEqual(new Uint8Array(readFileSync(unionRanged)), new Uint8Array(readFileSync(unionTwin)), `${label}: union`);
+    }
+    // The open range is the whole merge, and [7, 22) folds 15 keys, 11 of them shared.
+    const whole = join(tempDir, 'whole.beast2');
+    mergeBlobs(inputs, whole, { mergePath: writeConcat() });
+    assert.deepEqual(new Uint8Array(readFileSync(join(tempDir, 'ranged_null_null.beast2'))), new Uint8Array(readFileSync(whole)));
+    assert.equal(decodeBeast2For(DT)(new Uint8Array(readFileSync(join(tempDir, 'ranged_7_22.beast2')))).get(15n), 'a15b15c15');
+    assert.equal(openBeast2PagesFor(DT)(new Uint8Array(readFileSync(join(tempDir, 'ranged_7_22.beast2')))).elementCount, 15);
+    assert.equal(openBeast2PagesFor(DT)(new Uint8Array(readFileSync(join(tempDir, 'ranged_30_39.beast2')))).elementCount, 0, 'a range holding nothing writes the empty collection, indexed');
+  });
+
+  it('merge --range refuses bounds of another key type, a missing file and a file that is not a blob', () => {
+    const inputs = [writeDictInput('a'), writeDictInput('b')];
+    const mismatch = join(tempDir, 'range_mismatch.beast2');
+    writeFileSync(mismatch, encodeBeast2For(StructType({ from: OptionType(StringType), to: OptionType(StringType) }))({ from: none, to: none }));
+    assert.throws(
+      () => mergeBlobs(inputs, join(tempDir, 'rm.beast2'), { mergePath: writeConcat(), rangePath: mismatch }),
+      (err: Error) => err.message.startsWith(`merge: --range (${mismatch}) has type `) && err.message.endsWith(" (bounds over the inputs' key type)"),
+    );
+    const missing = join(tempDir, 'range_missing.beast2');
+    assert.throws(() => mergeBlobs(inputs, join(tempDir, 'rm2.beast2'), { mergePath: writeConcat(), rangePath: missing }), { message: `merge: --range (${missing}): cannot open the file` });
+    const text = join(tempDir, 'range_text.beast2');
+    writeFileSync(text, 'not a blob');
+    assert.throws(
+      () => mergeBlobs(inputs, join(tempDir, 'rm3.beast2'), { mergePath: writeConcat(), rangePath: text }),
+      (err: Error) => err.message.startsWith(`merge: --range (${text}): `),
+    );
+  });
+
+  it('the merge command prints its account, takes a range and refuses two folds', () => {
     const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
     const outputPath = join(tempDir, 'cli-merged.beast2');
     const inputs = [writeDictInput('a'), writeDictInput('b'), writeDictInput('c')];
@@ -582,6 +661,11 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.ok(result.stderr.includes('merge: 3 input(s), 31 entries, 13 fold(s)'), result.stderr);
     assert.equal(openBeast2PagesFor(DT)(new Uint8Array(readFileSync(outputPath))).elementCount, 31);
+
+    const rangedPath = join(tempDir, 'cli-ranged.beast2');
+    const ranged = spawnSync(process.execPath, [bin, 'merge', '--merge', writeConcat(), '--range', writeRange('cli', 7n, 22n), ...inputs.flatMap((p) => ['-i', p]), '-o', rangedPath, '-v'], { encoding: 'utf8' });
+    assert.equal(ranged.status, 0, ranged.stderr);
+    assert.ok(ranged.stderr.includes('merge: 3 input(s), 15 entries, 11 fold(s)'), ranged.stderr);
 
     const both = spawnSync(process.execPath, [bin, 'merge', '--merge', writeConcat(), '--union', '-i', inputs[0]!, '-o', join(tempDir, 'both.beast2')], { encoding: 'utf8' });
     assert.equal(both.status, 1);

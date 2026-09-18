@@ -91,11 +91,21 @@ east-py merge --merge merge.beast2 -i part-0.beast2 -i part-1.beast2 -i part-2.b
 
 # Set partials: the first of equal elements stands
 east-py merge --union -i part-0.beast2 -i part-1.beast2 -o out.beast2
+
+# Only the keys in [from, to): range.beast2 holds a Struct{from: Option<K>,
+# to: Option<K>} over the inputs' key type, an absent bound open
+east-py merge --merge merge.beast2 --range range.beast2 -i part-0.beast2 -i part-1.beast2 -o out.beast2
 ```
 
+With `--range` every input is sought to the segment owning `from` through its
+fences and read up to the first key at or past `to`, so a merge over one key
+range of large partials reads that range's share of each, plus at most one
+segment — how e3 merges a large output in parallel, one range per unit.
+
 An input of another type than the first, an Array input, an input whose keys
-do not ascend, and a fold whose signature does not match the inputs are
-refused, naming the input. With `-v` the merge prints its account:
+do not ascend, a fold whose signature does not match the inputs, and bounds of
+another type than the inputs' key are refused, naming the input. With `-v` the
+merge prints its account:
 
 ```text
 merge: 3 input(s), 31 entries, 13 fold(s)

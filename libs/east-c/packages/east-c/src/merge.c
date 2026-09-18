@@ -11,6 +11,10 @@
 #include <east/serialization.h>
 
 #include "emit_writer.h"
+/* The strict-ascent state a ranged cursor threads across the segments it
+ * decodes through the pager — the sequential reader's own check, in its own
+ * words. */
+#include "serialization/beast2/v5/internal_v5.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -36,14 +40,22 @@ static void merge_input_error(size_t index, const char *path)
     free(specific);
 }
 
-/* One input and its current entry. */
+/* One input and its current entry. A whole input is read through the
+ * sequential reader; a ranged input through the pager, from the segment
+ * owning the lower bound, with the strict-ascent state threaded across the
+ * segments it decodes. */
 typedef struct {
     const char *path;
     uint8_t *data; /* the mapping */
     size_t len;
     void *map_ctx;
-    Beast2SegmentReader *reader;
-    EastValue *segment; /* owned; NULL when exhausted */
+    Beast2SegmentReader *reader; /* a whole input */
+    Beast2Pages *pages;          /* a ranged input */
+    size_t next_seg;             /* ranged: the next segment to decode */
+    B2V5OrderCheck order;        /* ranged: strict ascent across the decoded segments */
+    bool past_from;              /* ranged: a key at or past the lower bound has been seen */
+    bool done;                   /* ranged: the upper bound, or the last segment, was reached */
+    EastValue *segment;          /* owned; NULL when exhausted */
     size_t idx, seg_len;
     ByteBuffer *enc; /* the current entry re-encoded: the key's bytes, then the value's */
     EastValue *key;  /* owned; NULL once the input is exhausted */
@@ -58,6 +70,7 @@ typedef struct {
     Beast2EntryEncoder *encoder;
     EastCompiledFn *merge_fn;
     bool union_mode;
+    EastValue *from, *to; /* owned; the key range's bounds, NULL when open */
     EmitWriter out;
     ByteBuffer *seg; /* the open output segment: its entries' bytes */
     size_t seg_count;
@@ -76,69 +89,176 @@ static void cursor_close(MergeCursor *c)
     cursor_drop_key(c);
     if (c->segment) east_value_release(c->segment);
     if (c->reader) east_beast2_reader_free(c->reader);
+    if (c->pages) east_beast2_pages_free(c->pages);
+    b2v5_order_check_dispose(&c->order);
     if (c->enc) byte_buffer_free(c->enc);
     if (c->data) input_release_mapping(c->map_ctx, c->data, c->len);
     memset(c, 0, sizeof(*c));
 }
 
-/* Advances a cursor to its next entry, re-encoding it into c->enc so the
- * merge copies bytes uniformly. Returns false with the message posted. The
- * reader holds each input to the canonical order: a key that does not ascend
- * is its error, prefixed with the input, in the same words on every
- * runtime. */
-static bool cursor_advance(Merge *m, MergeCursor *c, size_t index)
+/* The first and last keys of a decoded, non-empty segment (borrowed). */
+static EastValue *segment_key_at(Merge *m, EastValue *seg, size_t i)
 {
-    cursor_drop_key(c);
-    if (c->segment && c->idx + 1 < c->seg_len) {
-        c->idx++;
-    } else {
-        if (c->segment) {
-            east_value_release(c->segment);
-            c->segment = NULL;
-        }
-        for (;;) {
-            EastValue *seg = east_beast2_reader_next(c->reader);
+    return m->kind == EAST_TYPE_DICT ? east_dict_key_at(seg, i) : east_set_at(seg, i);
+}
+
+/* Loads the cursor's next non-empty segment into c->segment, or leaves it
+ * NULL once the input is exhausted. Returns false with the message posted.
+ * A whole input comes from the sequential reader, which holds it to the
+ * canonical order; a ranged input from the pager, segment by segment from
+ * the sought one, its first key accepted into the ascent state the previous
+ * segment's last key left — the reader's check, extended across segments in
+ * its own words. */
+static bool cursor_load_segment(Merge *m, MergeCursor *c, size_t index)
+{
+    if (c->done) return true;
+    for (;;) {
+        EastValue *seg;
+        if (c->pages) {
+            if (c->next_seg >= east_beast2_pages_segment_count(c->pages)) {
+                c->done = true;
+                return true;
+            }
+            seg = east_beast2_pages_segment(c->pages, c->next_seg++);
             if (!seg) {
-                if (east_beast2_reader_done(c->reader)) return true; /* exhausted */
                 merge_input_error(index, c->path);
                 return false;
             }
-            size_t n = m->kind == EAST_TYPE_DICT ? east_dict_len(seg) : east_set_len(seg);
-            if (n > 0) {
-                c->segment = seg;
-                c->idx = 0;
-                c->seg_len = n;
-                break;
+        } else {
+            seg = east_beast2_reader_next(c->reader);
+            if (!seg) {
+                if (east_beast2_reader_done(c->reader)) {
+                    c->done = true;
+                    return true;
+                }
+                merge_input_error(index, c->path);
+                return false;
             }
-            east_value_release(seg);
         }
+        size_t n = m->kind == EAST_TYPE_DICT ? east_dict_len(seg) : east_set_len(seg);
+        if (n == 0) {
+            east_value_release(seg);
+            continue;
+        }
+        if (c->pages) {
+            if (!b2v5_order_accept(&c->order, segment_key_at(m, seg, 0), m->kind == EAST_TYPE_DICT)) {
+                east_value_release(seg);
+                merge_input_error(index, c->path);
+                return false;
+            }
+            /* The segment's own ascent was checked as it decoded; its last
+             * key is what the next segment's first must exceed. */
+            EastValue *last = segment_key_at(m, seg, n - 1);
+            east_value_retain(last);
+            east_value_release(c->order.prev);
+            c->order.prev = last;
+        }
+        c->segment = seg;
+        c->idx = 0;
+        c->seg_len = n;
+        return true;
     }
-    EastValue *key = m->kind == EAST_TYPE_DICT ? east_dict_key_at(c->segment, c->idx)
-                                               : east_set_at(c->segment, c->idx);
-    c->enc->len = 0;
-    east_beast2_entry_begin(m->encoder);
-    if (!east_beast2_entry_encode(m->encoder, c->enc, key, m->key_type)) {
-        merge_input_error(index, c->path);
-        return false;
-    }
-    c->key_len = c->enc->len;
-    c->val_len = 0;
-    if (m->kind == EAST_TYPE_DICT) {
-        if (!east_beast2_entry_encode(m->encoder, c->enc, east_dict_val_at(c->segment, c->idx),
-                                      m->value_type)) {
+}
+
+/* Advances a cursor to its next entry within the merge's key range,
+ * re-encoding it into c->enc so the merge copies bytes uniformly. Returns
+ * false with the message posted. The reader holds each input to the
+ * canonical order: a key that does not ascend is its error, prefixed with
+ * the input, in the same words on every runtime. */
+static bool cursor_advance(Merge *m, MergeCursor *c, size_t index)
+{
+    cursor_drop_key(c);
+    for (;;) {
+        if (c->segment && c->idx + 1 < c->seg_len) {
+            c->idx++;
+        } else {
+            if (c->segment) {
+                east_value_release(c->segment);
+                c->segment = NULL;
+            }
+            if (!cursor_load_segment(m, c, index)) return false;
+            if (!c->segment) return true; /* exhausted */
+        }
+        EastValue *key = segment_key_at(m, c->segment, c->idx);
+        /* Keys below the lower bound — in the sought segment only — are
+         * skipped; the first key at or past the upper bound ends the input. */
+        if (m->from && !c->past_from) {
+            if (east_value_compare(key, m->from) < 0) continue;
+            c->past_from = true;
+        }
+        if (m->to && east_value_compare(key, m->to) >= 0) {
+            east_value_release(c->segment);
+            c->segment = NULL;
+            c->done = true;
+            return true;
+        }
+        c->enc->len = 0;
+        east_beast2_entry_begin(m->encoder);
+        if (!east_beast2_entry_encode(m->encoder, c->enc, key, m->key_type)) {
             merge_input_error(index, c->path);
             return false;
         }
-        c->val_len = c->enc->len - c->key_len;
+        c->key_len = c->enc->len;
+        c->val_len = 0;
+        if (m->kind == EAST_TYPE_DICT) {
+            if (!east_beast2_entry_encode(m->encoder, c->enc, east_dict_val_at(c->segment, c->idx),
+                                          m->value_type)) {
+                merge_input_error(index, c->path);
+                return false;
+            }
+            c->val_len = c->enc->len - c->key_len;
+        }
+        east_value_retain(key);
+        c->key = key;
+        return true;
     }
-    east_value_retain(key);
-    c->key = key;
+}
+
+/* Positions a ranged cursor at the segment owning the lower bound: the
+ * fences are probed (a bounded prefix of each frame) and checked to ascend
+ * strictly — a fence that does not ascend is a key that does not ascend, the
+ * reader's own error — and the greatest fence at or below the bound picks
+ * the segment; a bound below every fence starts at the first. Returns false
+ * with the message posted. */
+static bool cursor_seek(Merge *m, MergeCursor *c, size_t index)
+{
+    size_t n = east_beast2_pages_segment_count(c->pages);
+    bool is_dict = m->kind == EAST_TYPE_DICT;
+    B2V5OrderCheck fences = {0};
+    for (size_t i = 0; i < n; i++) {
+        EastValue *f = east_beast2_pages_fence(c->pages, i);
+        bool ok = f && b2v5_order_accept(&fences, f, is_dict);
+        if (f) east_value_release(f);
+        if (!ok) {
+            b2v5_order_check_dispose(&fences);
+            merge_input_error(index, c->path);
+            return false;
+        }
+    }
+    b2v5_order_check_dispose(&fences);
+    /* The first segment whose fence is above the bound; the one before it
+     * owns the bound. */
+    size_t lo = 0, hi = n;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        EastValue *f = east_beast2_pages_fence(c->pages, mid);
+        if (!f) {
+            merge_input_error(index, c->path);
+            return false;
+        }
+        int order = east_value_compare(f, m->from);
+        east_value_release(f);
+        if (order <= 0) lo = mid + 1;
+        else hi = mid;
+    }
+    c->next_seg = lo == 0 ? 0 : lo - 1;
     return true;
 }
 
 /* Maps input `index`, checks its type against the merge's, and positions the
- * cursor on its first entry. Returns false with the message posted; the
- * cursor still needs cursor_close. */
+ * cursor on its first entry — within the merge's key range, when it has
+ * one. Returns false with the message posted; the cursor still needs
+ * cursor_close. */
 static bool cursor_open(Merge *m, MergeCursor *c, size_t index, const char *path)
 {
     memset(c, 0, sizeof(*c));
@@ -165,13 +285,82 @@ static bool cursor_open(Merge *m, MergeCursor *c, size_t index, const char *path
         return false;
     }
     east_type_release(type);
-    c->reader = east_beast2_reader_new(c->data, c->len, m->type);
     c->enc = byte_buffer_new(256);
-    if (!c->reader || !c->enc) {
+    if (!c->enc) {
         merge_input_error(index, path);
         return false;
     }
+    if (m->from || m->to) {
+        c->pages = east_beast2_pages_new(c->data, c->len, m->type);
+        if (!c->pages) {
+            merge_input_error(index, path);
+            return false;
+        }
+        if (m->from && !cursor_seek(m, c, index)) return false;
+    } else {
+        c->reader = east_beast2_reader_new(c->data, c->len, m->type);
+        if (!c->reader) {
+            merge_input_error(index, path);
+            return false;
+        }
+    }
     return cursor_advance(m, c, index);
+}
+
+/* Reads the merge's key range: `Struct{from: Option<K>, to: Option<K>}`
+ * over the inputs' key type — the shape east-node checks (merge.ts) and
+ * e3-core writes (partitionExec.ts) — self-describing, checked against that
+ * type. Returns false with the message posted. */
+static bool merge_read_range(Merge *m, const char *path)
+{
+    size_t len = 0;
+    void *ctx = NULL;
+    uint8_t *data = map_input_file(path, &len, &ctx);
+    if (!data) {
+        merge_error("merge: --range (%s): cannot open the file", path);
+        return false;
+    }
+    const char *case_names[2] = {"none", "some"};
+    EastType *case_types[2] = {&east_null_type, m->key_type};
+    EastType *option = east_variant_type(case_names, case_types, 2);
+    const char *field_names[2] = {"from", "to"};
+    EastType *field_types[2] = {option, option};
+    EastType *expected = east_struct_type(field_names, field_types, 2);
+    bool ok = false;
+    EastValue *bounds = NULL;
+    EastType *type = east_beast2_extract_type(data, len);
+    if (!type) {
+        char *specific = east_builtin_get_error();
+        merge_error("merge: --range (%s): %s", path, specific ? specific : "cannot be read");
+        free(specific);
+    } else if (!east_type_equal(type, expected)) {
+        char *got = east_print_type(type);
+        char *want = east_print_type(expected);
+        merge_error("merge: --range (%s) has type %s, expected %s (bounds over the inputs' key type)",
+                    path, got ? got : "?", want ? want : "?");
+        free(got);
+        free(want);
+    } else if (!(bounds = east_beast2_decode_full(data, len, expected))) {
+        char *specific = east_builtin_get_error();
+        merge_error("merge: --range (%s): %s", path, specific ? specific : "cannot be read");
+        free(specific);
+    } else {
+        EastValue *from = east_struct_get_field(bounds, "from"); /* borrowed */
+        EastValue *to = east_struct_get_field(bounds, "to");
+        if (from && strcmp(east_variant_case_name(from), "some") == 0) {
+            m->from = from->data.variant.value;
+            east_value_retain(m->from);
+        }
+        if (to && strcmp(east_variant_case_name(to), "some") == 0) {
+            m->to = to->data.variant.value;
+            east_value_retain(m->to);
+        }
+        ok = true;
+    }
+    if (bounds) east_value_release(bounds);
+    if (type) east_type_release(type);
+    input_release_mapping(ctx, data, len);
+    return ok;
 }
 
 /* Whether input `a`'s entry leaves the heap before input `b`'s: the lesser
@@ -439,6 +628,7 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
     MergeCursor *cur = calloc(cfg->num_inputs, sizeof(MergeCursor));
     bool ok = m.encoder && m.seg && cur;
     if (!ok) east_builtin_error("merge: out of memory");
+    if (ok && cfg->range_path) ok = merge_read_range(&m, cfg->range_path);
     size_t opened = 0;
     for (size_t i = 0; ok && i < cfg->num_inputs; i++) {
         opened++;
@@ -458,6 +648,8 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
     free(cur);
     if (m.seg_first) east_value_release(m.seg_first);
     if (m.seg_last) east_value_release(m.seg_last);
+    if (m.from) east_value_release(m.from);
+    if (m.to) east_value_release(m.to);
     if (m.seg) byte_buffer_free(m.seg);
     if (m.encoder) east_beast2_entry_encoder_free(m.encoder);
     east_type_release(type);

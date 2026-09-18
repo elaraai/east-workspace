@@ -21,8 +21,9 @@ that issue #592 closed.
 The issue #770 gates pin the folding sink (``--merge`` / ``--union`` write the
 bytes the flag-less sink writes for the folded sequence, over ascending
 emissions only), the blob merge behind ``east-py merge`` (``merge_blobs``:
-byte-identical to the sink over the fold, the account, the refusals) and the
-``--exit-with-parent`` stdin lifeline.
+byte-identical to the sink over the fold, the account, the refusals, and the
+key range ``--range`` seeks each input to) and the ``--exit-with-parent``
+stdin lifeline.
 """
 
 import os
@@ -504,6 +505,71 @@ def test_an_empty_input_contributes_nothing(tmp_path):
     assert read_beast2_index(INT_STR_DICT, empty.read_bytes())[1] == 0
 
 
+MERGE_RANGE = {name: FIXTURES / f"merge_range_{name}.beast2" for name in ("7_22", "open", "to_12", "from_25", "30_39", "mismatch")}
+
+
+def test_merge_over_a_key_range_writes_the_ranges_entries_byte_identical_to_the_sink(tmp_path):
+    # [7, 22): 7 is the last key of a's second segment, 22 the first of b's
+    # fourth — the fold's entries in the range, byte-identical to the control
+    # that emits them ascending; the union over the Set twins likewise.
+    expected = tmp_path / "expected.beast2"
+    run_program(FIXTURES / "merge_expected_dict_7_22.beast2", [], [], [], expected, emit="dict")
+    out = tmp_path / "range.beast2"
+    assert merge_blobs(MERGE_INPUTS, [], out, merge=MERGE_CONCAT, range=MERGE_RANGE["7_22"]) == {
+        "inputs": 3, "entries": 15, "folds": 11,
+    }
+    assert out.read_bytes() == expected.read_bytes()
+    table = decode_beast2_with_header_for(INT_STR_DICT)(out.read_bytes())
+    assert table[15] == "a15b15c15" and 6 not in table and 22 not in table
+
+    expected_set = tmp_path / "expected_set.beast2"
+    run_program(FIXTURES / "merge_expected_set_7_22.beast2", [], [], [], expected_set, emit="set")
+    union = tmp_path / "range_union.beast2"
+    assert merge_blobs(MERGE_SETS, [], union, union=True, range=MERGE_RANGE["7_22"]) == {
+        "inputs": 3, "entries": 15, "folds": 11,
+    }
+    assert union.read_bytes() == expected_set.read_bytes()
+
+
+def test_merge_ranges_open_on_a_side_and_empty(tmp_path):
+    whole = tmp_path / "whole.beast2"
+    merge_blobs(MERGE_INPUTS, [], whole, merge=MERGE_CONCAT)
+    open_range = tmp_path / "open.beast2"
+    merge_blobs(MERGE_INPUTS, [], open_range, merge=MERGE_CONCAT, range=MERGE_RANGE["open"])
+    assert open_range.read_bytes() == whole.read_bytes()
+
+    to_12 = tmp_path / "to_12.beast2"
+    assert merge_blobs(MERGE_INPUTS, [], to_12, merge=MERGE_CONCAT, range=MERGE_RANGE["to_12"]) == {
+        "inputs": 3, "entries": 12, "folds": 3,
+    }
+    table = decode_beast2_with_header_for(INT_STR_DICT)(to_12.read_bytes())
+    assert table[5] == "a5c5" and table[11] == "a11b11" and 12 not in table
+
+    from_25 = tmp_path / "from_25.beast2"
+    assert merge_blobs(MERGE_INPUTS, [], from_25, merge=MERGE_CONCAT, range=MERGE_RANGE["from_25"]) == {
+        "inputs": 3, "entries": 6, "folds": 1,
+    }
+    table = decode_beast2_with_header_for(INT_STR_DICT)(from_25.read_bytes())
+    assert table[25] == "b25c25" and table[40] == "c40" and 24 not in table
+
+    empty = tmp_path / "empty.beast2"
+    assert merge_blobs(MERGE_INPUTS, [], empty, merge=MERGE_CONCAT, range=MERGE_RANGE["30_39"]) == {
+        "inputs": 3, "entries": 0, "folds": 0,
+    }
+    assert read_beast2_index(INT_STR_DICT, empty.read_bytes())[1] == 0
+
+
+def test_merge_refuses_bounds_of_another_key_type_and_a_missing_range_file(tmp_path):
+    mismatch = MERGE_RANGE["mismatch"]
+    with pytest.raises(ValueError, match=re.escape(f"merge: --range ({mismatch}) has type ")):
+        merge_blobs(MERGE_INPUTS, [], tmp_path / "m.beast2", merge=MERGE_CONCAT, range=mismatch)
+    with pytest.raises(ValueError, match=re.escape(" (bounds over the inputs' key type)")):
+        merge_blobs(MERGE_INPUTS, [], tmp_path / "m2.beast2", merge=MERGE_CONCAT, range=mismatch)
+    missing = tmp_path / "missing.beast2"
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: --range ({missing}): cannot open the file')}$"):
+        merge_blobs(MERGE_INPUTS, [], tmp_path / "m3.beast2", merge=MERGE_CONCAT, range=missing)
+
+
 def test_the_merge_command_prints_its_account(tmp_path):
     out = tmp_path / "merged.beast2"
     proc = subprocess.run(
@@ -522,3 +588,12 @@ def test_the_merge_command_prints_its_account(tmp_path):
     )
     assert both.returncode == 1
     assert "Error: --merge and --union are two folds — give one" in both.stderr
+
+    ranged = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "merge", "--merge", str(MERGE_CONCAT), "--range",
+         str(MERGE_RANGE["7_22"]), *(arg for path in MERGE_INPUTS for arg in ("-i", str(path))),
+         "-o", str(tmp_path / "ranged.beast2"), "-v"],
+        capture_output=True, text=True,
+    )
+    assert ranged.returncode == 0, ranged.stderr
+    assert "merge: 3 input(s), 15 entries, 11 fold(s)" in ranged.stderr

@@ -43,6 +43,7 @@ interface MergeOptions {
     verbose?: boolean;
     merge?: string;
     union?: boolean;
+    range?: string;
     exitWithParent?: boolean;
 }
 
@@ -254,6 +255,7 @@ async function cmdMerge(options: MergeOptions): Promise<void> {
         const platformFns = await loadPlatforms(options.package ?? []);
         mergeBlobs(options.input, options.output, {
             ...(options.merge !== undefined && { mergePath: options.merge }),
+            ...(options.range !== undefined && { rangePath: options.range }),
             union: options.union ?? false,
             platformFns,
             verbose: options.verbose ?? false,
@@ -386,6 +388,8 @@ export function main(): void {
         .option('-v, --verbose', 'Enable verbose output')
         .option('--merge <file>', 'Dict inputs: fold equal keys with the East function (K, V, V) -> V in <file>, in input order')
         .option('--union', 'Set inputs: the first of equal elements stands')
+        .option('--range <file>',
+            "Merge only the keys in [from, to): a beast2 blob of Struct{from: Option<K>, to: Option<K>} over the inputs' key type; an absent bound is open")
         .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
         .action(cmdMerge);
 

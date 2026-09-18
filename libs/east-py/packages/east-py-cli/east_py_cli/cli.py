@@ -189,6 +189,11 @@ def create_parser() -> argparse.ArgumentParser:
         "--union", action="store_true", help="Set inputs: the first of equal elements stands",
     )
     merge_parser.add_argument(
+        "--range", type=Path, metavar="FILE",
+        help="Merge only the keys in [from, to): a beast2 blob of Struct{from: Option<K>, "
+        "to: Option<K>} over the inputs' key type; an absent bound is open",
+    )
+    merge_parser.add_argument(
         "--exit-with-parent", action="store_true", dest="exit_with_parent",
         help=_EXIT_WITH_PARENT_HELP,
     )
@@ -428,6 +433,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
             verbose=args.verbose,
             merge=args.merge,
             union=args.union,
+            range=args.range,
         )
     except (EastError, ValueError, RuntimeError, OSError) as e:
         print(f"Error: {e}", file=sys.stderr)

@@ -12,15 +12,17 @@
  * the whole collection:
  *
  * - `size` / `length` come from the index (O(1)),
- * - iteration streams one decoded segment at a time (O(segment) memory),
+ * - iteration streams one decoded segment at a time (O(segment) memory) —
+ *   from the first key, or from a key (`entries(firstKey)`), which seeks
+ *   the owning segment through the fences and streams from there,
  * - keyed lookups (`get` / `has`, Array index reads) decode one segment via
  *   the fence index,
  *
- * and every other operation — mutation, set algebra, range iteration —
- * transparently hydrates the container (the whole-decode that would have
- * happened anyway) and then behaves exactly like the eager value. Object
- * identity is stable across hydration, so host-side iteration locks and
- * freezes keyed on the value keep working.
+ * and every other operation — mutation, set algebra — transparently
+ * hydrates the container (the whole-decode that would have happened anyway)
+ * and then behaves exactly like the eager value. Object identity is stable
+ * across hydration, so host-side iteration locks and freezes keyed on the
+ * value keep working.
  *
  * This is what lets a task runner open a huge collection input lazily: a
  * body that only iterates it once, or reads a few keys, never pays the whole
@@ -46,33 +48,68 @@ function orderError(kind: "Set" | "Dict"): Error {
   return new Error(`beast2 v5: ${kind === "Dict" ? "Dict keys" : "Set elements"} are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
 }
 
+/**
+ * The segment a range iteration from `from` starts in: the greatest segment
+ * whose fence is at most `from`, or the first when `from` precedes every
+ * fence. The fences are probed (a bounded prefix of each frame) and checked
+ * to ascend strictly first — in the eager decoders' words, since a fence
+ * that does not ascend is a key that does not ascend — so a corrupt blob is
+ * refused before the search can land anywhere.
+ */
+function seekSegment<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number, kind: "Set" | "Dict", from: K): number {
+  const n = pages.segmentCount;
+  if (n === 0) return 0;
+  const fences: K[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    fences[i] = pages.fence(i) as K;
+    if (i > 0 && cmp(fences[i - 1]!, fences[i]!) >= 0) throw orderError(kind);
+  }
+  if (cmp(from, fences[0]!) < 0) return 0;
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (cmp(fences[mid]!, from) <= 0) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
 /** Streams a Dict blob's entries segment by segment in canonical order,
- *  validating the cross-segment ascent the eager decoder enforces. */
-function* lazyDictEntries<K, V>(pages: Beast2Pages, cmp: (a: K, b: K) => number): Generator<[K, V]> {
+ *  validating the cross-segment ascent the eager decoder enforces — from the
+ *  first key, or from `from` (its owning segment is sought through the
+ *  fences and the keys before it skipped; East values are never
+ *  `undefined`, which means no lower bound). */
+function* lazyDictEntries<K, V>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?: K): Generator<[K, V]> {
   let prev: K | undefined;
   let has = false;
-  for (let i = 0; i < pages.segmentCount; i++) {
+  const start = from === undefined ? 0 : seekSegment(pages, cmp, "Dict", from);
+  for (let i = start; i < pages.segmentCount; i++) {
     const segment = pages.segment(i) as Map<K, V>;
     for (const [k, v] of segment) {
       if (has && cmp(prev as K, k) >= 0) throw orderError("Dict");
       prev = k;
       has = true;
+      if (from !== undefined && cmp(k, from) < 0) continue;
       yield [k, v];
     }
   }
 }
 
 /** Streams a Set blob's elements segment by segment in canonical order,
- *  validating the cross-segment ascent the eager decoder enforces. */
-function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number): Generator<K> {
+ *  validating the cross-segment ascent the eager decoder enforces — from the
+ *  first element, or from `from`, exactly as {@link lazyDictEntries}. */
+function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?: K): Generator<K> {
   let prev: K | undefined;
   let has = false;
-  for (let i = 0; i < pages.segmentCount; i++) {
+  const start = from === undefined ? 0 : seekSegment(pages, cmp, "Set", from);
+  for (let i = start; i < pages.segmentCount; i++) {
     const segment = pages.segment(i) as Set<K>;
     for (const k of segment) {
       if (has && cmp(prev as K, k) >= 0) throw orderError("Set");
       prev = k;
       has = true;
+      if (from !== undefined && cmp(k, from) < 0) continue;
       yield k;
     }
   }
@@ -81,7 +118,7 @@ function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number): Gener
 /**
  * A {@link SortedMap} served lazily from an indexed blob.
  *
- * Reads (`size`, `get`, `has`, whole-collection iteration, `minKey`,
+ * Reads (`size`, `get`, `has`, iteration — whole, or from a key —, `minKey`,
  * `maxKey`) are answered from the pager; anything else hydrates first. Not
  * constructed directly — see {@link openBeast2LazyFor}.
  */
@@ -171,34 +208,31 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
   }
 
   override keys(firstKey?: K): MapIterator<K> {
-    if (!this.hydrated && firstKey === undefined) {
+    if (!this.hydrated) {
       const pages = this.pages;
       const cmp = this.cmp;
       return Iterator.from((function* () {
-        for (const [k] of lazyDictEntries<K, V>(pages, cmp)) yield k;
+        for (const [k] of lazyDictEntries<K, V>(pages, cmp, firstKey)) yield k;
       })()) as MapIterator<K>;
     }
-    this.hydrate();
     return super.keys(firstKey);
   }
 
   override values(firstKey?: K): MapIterator<V> {
-    if (!this.hydrated && firstKey === undefined) {
+    if (!this.hydrated) {
       const pages = this.pages;
       const cmp = this.cmp;
       return Iterator.from((function* () {
-        for (const [, v] of lazyDictEntries<K, V>(pages, cmp)) yield v;
+        for (const [, v] of lazyDictEntries<K, V>(pages, cmp, firstKey)) yield v;
       })()) as MapIterator<V>;
     }
-    this.hydrate();
     return super.values(firstKey);
   }
 
   override entries(firstKey?: K): MapIterator<[K, V]> {
-    if (!this.hydrated && firstKey === undefined) {
-      return Iterator.from(lazyDictEntries<K, V>(this.pages, this.cmp)) as MapIterator<[K, V]>;
+    if (!this.hydrated) {
+      return Iterator.from(lazyDictEntries<K, V>(this.pages, this.cmp, firstKey)) as MapIterator<[K, V]>;
     }
-    this.hydrate();
     return super.entries(firstKey);
   }
 
@@ -210,10 +244,10 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
 /**
  * A {@link SortedSet} served lazily from an indexed blob.
  *
- * Reads (`size`, `has`, whole-collection iteration, `minKey`, `maxKey`) are
- * answered from the pager; anything else — including the set-algebra methods,
- * which walk the underlying B-tree directly — hydrates first. Not
- * constructed directly — see {@link openBeast2LazyFor}.
+ * Reads (`size`, `has`, iteration — whole, or from an element —, `minKey`,
+ * `maxKey`) are answered from the pager; anything else — including the
+ * set-algebra methods, which walk the underlying B-tree directly — hydrates
+ * first. Not constructed directly — see {@link openBeast2LazyFor}.
  */
 class LazySortedSet<K> extends SortedSet<K> {
   private hydrated = false;
@@ -332,10 +366,9 @@ class LazySortedSet<K> extends SortedSet<K> {
   }
 
   override keys(firstKey?: K): SetIterator<K> {
-    if (!this.hydrated && firstKey === undefined) {
-      return Iterator.from(lazySetKeys<K>(this.pages, this.cmp)) as SetIterator<K>;
+    if (!this.hydrated) {
+      return Iterator.from(lazySetKeys<K>(this.pages, this.cmp, firstKey)) as SetIterator<K>;
     }
-    this.hydrate();
     return super.keys(firstKey);
   }
 
@@ -344,14 +377,13 @@ class LazySortedSet<K> extends SortedSet<K> {
   }
 
   override entries(firstKey?: K): SetIterator<[K, K]> {
-    if (!this.hydrated && firstKey === undefined) {
+    if (!this.hydrated) {
       const pages = this.pages;
       const cmp = this.cmp;
       return Iterator.from((function* () {
-        for (const k of lazySetKeys<K>(pages, cmp)) yield [k, k] as [K, K];
+        for (const k of lazySetKeys<K>(pages, cmp, firstKey)) yield [k, k] as [K, K];
       })()) as SetIterator<[K, K]>;
     }
-    this.hydrate();
     return super.entries(firstKey);
   }
 
@@ -469,8 +501,9 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
  * only the blob's tail and head, and each served read fetches exactly the
  * segment frames it decodes, so the wire bytes never sit on the heap whole.
  *
- * Size, single-pass iteration, and keyed reads are served lazily with
- * O(segment) decoded memory; every other operation transparently hydrates
+ * Size, single-pass iteration (from the first key, or from a key), and
+ * keyed reads are served lazily with O(segment) decoded memory; every other
+ * operation transparently hydrates
  * the value (equivalent to the whole decode) and proceeds with eager
  * semantics, so the lazy value is observationally identical to
  * `decodeBeast2For(type)(data)`.

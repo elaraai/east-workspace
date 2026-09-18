@@ -390,6 +390,7 @@ def merge_blobs(
     verbose: bool = False,
     merge: Path | None = None,
     union: bool = False,
+    range: Path | None = None,  # noqa: A002 - the CLI flag's name
 ) -> dict[str, int]:
     """Merge sorted Set or Dict blobs of one type into one — ``east-py merge``
     (issue #770), east-c's blob merge behind ``east-c merge`` too, so the two
@@ -400,9 +401,11 @@ def merge_blobs(
     ascending. Equal keys fold in input order: ``merge`` names an IR file
     holding a ``(K, V, V) -> V`` function, compiled with the run's platforms,
     that folds equal Dict keys; ``union`` keeps the first of equal Set
-    elements; without a fold an equal key is an error. Returns the account
-    ``{"inputs", "entries", "folds"}``; raises ValueError with the merge's
-    message and leaves the output unfinalised.
+    elements; without a fold an equal key is an error. ``range`` names a
+    beast2 blob of ``Struct{from: Option<K>, to: Option<K>}`` over the inputs'
+    key type: only the keys in ``[from, to)`` merge, an absent bound open.
+    Returns the account ``{"inputs", "entries", "folds"}``; raises ValueError
+    with the merge's message and leaves the output unfinalised.
     """
     from east.serialization._beast2_eastc import _merge_blobs
 
@@ -412,7 +415,10 @@ def merge_blobs(
     # The fold compiles with the run's platforms, exactly like a program; the
     # merge checks its signature against the inputs' key and value types.
     merge_fn = _compile_ir_file(Path(merge), platform_fns)[0] if merge is not None else None
-    stats = _merge_blobs([Path(p) for p in input_files], Path(output_file), merge_fn, union)
+    stats = _merge_blobs(
+        [Path(p) for p in input_files], Path(output_file), merge_fn, union,
+        Path(range) if range is not None else None,
+    )
     t1 = perf_counter()
     if verbose:
         print(

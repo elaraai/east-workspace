@@ -1135,7 +1135,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
 
 static int cmd_merge(const char **packages, int num_packages, const char **input_files,
                      int num_inputs, const char *output_file, bool verbose, const char *merge_path,
-                     bool union_mode)
+                     bool union_mode, const char *range_path)
 {
     east_type_of_type_init();
     BuiltinRegistry *builtins = builtin_registry_new();
@@ -1169,6 +1169,7 @@ static int cmd_merge(const char **packages, int num_packages, const char **input
         .output_path = output_file,
         .merge_fn = merge.fn,
         .union_mode = union_mode,
+        .range_path = range_path,
     };
     EastMergeStats stats;
     bool ok = east_merge_blobs(&cfg, &stats);
@@ -1507,7 +1508,8 @@ static void print_usage(const char *prog)
             "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v] [--profile]\n"
             "         [--snapshot PATH]\n"
             "  %s run --from-snapshot PATH [-o FILE] [-v]\n"
-            "  %s merge [-p PACKAGE...] [--merge FILE | --union] -i FILE... -o FILE [-v]\n"
+            "  %s merge [-p PACKAGE...] [--merge FILE | --union] [--range FILE] -i FILE...\n"
+            "         -o FILE [-v]\n"
             "  %s convert <in_file> [-o FILE] [--type TYPE] [-v]\n"
             "  %s ir normalize <ir_file> [-o FILE]\n"
             "  %s ir diff <ir_file_a> <ir_file_b> [--raw]\n"
@@ -1519,8 +1521,11 @@ static void print_usage(const char *prog)
             "  merge    Merge sorted Set or Dict blobs of one type into one, in a single\n"
             "           pass: equal keys fold with the East function (K, V, V) -> V in\n"
             "           --merge FILE (Dict), or collapse under --union (Set); without a\n"
-            "           fold an equal key is an error. The output is what `run --emit`\n"
-            "           writes for the same entries emitted ascending.\n"
+            "           fold an equal key is an error. With --range FILE — a beast2 blob\n"
+            "           of Struct{from: Option<K>, to: Option<K>} over the inputs' key\n"
+            "           type, an absent bound open — only the keys in [from, to) merge.\n"
+            "           The output is what `run --emit` writes for the same entries\n"
+            "           emitted ascending.\n"
             "  convert  Decode a value file and re-encode in another format.\n"
             "           Output format is determined by -o's extension; omit -o to\n"
             "           print east-text to stdout. Auto-extracts the type from\n"
@@ -1596,6 +1601,7 @@ static int cli_main(void *arg)
     EmitKind emit_kind = EMIT_NONE;
     const char *merge_path = NULL;
     bool union_mode = false;
+    const char *range_path = NULL;
     int stream_inputs[MAX_INPUTS];
     int num_streams = 0;
     bool profile = false;
@@ -1754,6 +1760,9 @@ static int cli_main(void *arg)
             } else if (strcmp(a, "--union") == 0) {
                 union_mode = true;
                 i++;
+            } else if (strcmp(a, "--range") == 0 && i + 1 < argc) {
+                range_path = argv[i + 1];
+                i += 2;
             } else {
                 fprintf(stderr, "Error: Unknown option: %s\n", a);
                 print_usage(argv[0]);
@@ -1773,7 +1782,7 @@ static int cli_main(void *arg)
             return 1;
         }
         return cmd_merge(packages, num_packages, input_files, num_inputs, output_file, verbose,
-                         merge_path, union_mode);
+                         merge_path, union_mode, range_path);
 
     } else if (strcmp(command, "convert") == 0) {
         const char *in_path = NULL;

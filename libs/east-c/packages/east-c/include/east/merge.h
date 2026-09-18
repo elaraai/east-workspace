@@ -19,10 +19,17 @@
  * the emit sink raises. An input whose keys do not ascend, an input whose
  * type is not input 0's, and an Array input are refused.
  *
+ * With a key range (`range_path`, a blob of `Struct{from: Option<K>, to:
+ * Option<K>}` over the inputs' key type) only the keys in `[from, to)`
+ * merge: every input is sought to the segment owning `from` through its
+ * fences and read up to the first key at or past `to`, so a unit over a
+ * range of a large output reads that range's share of each input, plus at
+ * most one segment. An absent bound is open; both absent is the whole merge.
+ *
  * This is the fan-in of a partitioned task's keyed partials: e3 runs it as an
- * ordinary execution on the task's runner, one unit per group of partials,
- * and never decodes a partial itself. The sink lives in the core library so
- * the east-c CLI and east-py merge through the same code.
+ * ordinary execution on the task's runner, one unit per key range of a group
+ * of partials, and never decodes a partial itself. The sink lives in the core
+ * library so the east-c CLI and east-py merge through the same code.
  *
  * Errors are posted through east_builtin_error; a failed merge leaves the
  * output unfinalised (no terminator or index).
@@ -47,6 +54,10 @@ typedef struct {
     EastCompiledFn *merge_fn;
     /* Set inputs: the first of equal elements stands. */
     bool union_mode;
+    /* The keys to merge, `[from, to)`: a beast2 blob of `Struct{from:
+     * Option<K>, to: Option<K>}` over the inputs' key type, an absent bound
+     * open. NULL: the whole inputs. */
+    const char *range_path;
 } EastMergeConfig;
 
 typedef struct {
