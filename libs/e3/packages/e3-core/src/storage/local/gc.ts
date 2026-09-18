@@ -465,16 +465,14 @@ function extractChildren(
   }
 
   if (isPartitionPlanShape(t)) {
-    // Partition slices and merge-range slices are leaves; '' marks a slice
-    // the run never carved, which is no object.
-    const plan = value as { slices: string[][]; merges?: { slices: string[][] }[] };
+    // Partition slices are leaves; '' marks a slice the run never carved,
+    // which is no object. A merged component's range blobs are leaves too.
+    const plan = value as { slices: string[][]; merges?: { ranges: string[] }[] };
     for (const slices of plan.slices) {
       for (const slice of slices) if (slice !== '') children.push({ hash: slice, isLeaf: true });
     }
     for (const merge of plan.merges ?? []) {
-      for (const slices of merge.slices) {
-        for (const slice of slices) if (slice !== '') children.push({ hash: slice, isLeaf: true });
-      }
+      for (const range of merge.ranges) children.push({ hash: range, isLeaf: true });
     }
     return children;
   }

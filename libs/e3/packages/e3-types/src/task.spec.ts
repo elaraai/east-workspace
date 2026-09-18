@@ -93,7 +93,7 @@ describe('StreamTaskMetadataType', () => {
 });
 
 describe('PartitionPlanType', () => {
-  it('round-trips a plan, before and after its slices and merge ranges are carved', () => {
+  it('round-trips a plan, before and after its slices are carved and its merge ranges planned', () => {
     const plan: PartitionPlan = {
       partitions: ['a'.repeat(64), 'b'.repeat(64)],
       boundaries: [0n, 4n, 9n],
@@ -108,11 +108,7 @@ describe('PartitionPlanType', () => {
 
     const merged: PartitionPlan = {
       ...carved,
-      merges: [{
-        partials: ['2'.repeat(64), '3'.repeat(64)],
-        splits: [[{ seg: 0n, offset: 0n }, { seg: 1n, offset: 5n }, { seg: 2n, offset: 0n }], [{ seg: 0n, offset: 0n }, { seg: 0n, offset: 9n }, { seg: 3n, offset: 0n }]],
-        slices: [['4'.repeat(64), '5'.repeat(64)], ['6'.repeat(64), '']],
-      }],
+      merges: [{ partials: ['2'.repeat(64), '3'.repeat(64)], ranges: ['4'.repeat(64), '5'.repeat(64)] }],
     };
     assert.deepEqual(decodePartitionPlan(encodePartitionPlan(merged)), merged);
   });

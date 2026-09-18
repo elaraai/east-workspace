@@ -444,11 +444,12 @@ const totals = e3.partitionTask('totals', {
 // produce (associative — values may fold in any grouping, in partition order).
 // The task's runner merges the partials whose key ranges overlap with its
 // `merge` command — a large output in parallel, one key range of about
-// `targetPartitionBytes` per unit; the orchestrator never decodes them,
-// disjoint partials splice, the output is a deterministic function of the
-// inputs whatever `--jobs`, and every merge unit is cached, so a re-run after
-// an append costs the changed partitions plus the merges they reach. A Set
-// output takes `merge: 'union'`.
+// `targetPartitionBytes` per unit, each unit reading just its range of every
+// partial; the orchestrator never decodes or copies them, disjoint partials
+// splice, the output is a deterministic function of the inputs whatever
+// `--jobs`, and every merge unit is cached, so a re-run after an append costs
+// the changed partitions plus the merges they reach. A Set output takes
+// `merge: 'union'`.
 const latest = e3.partitionTask('latest', {
   partitions: [events],
   output: DictType(StringType, EventType),

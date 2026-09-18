@@ -342,24 +342,25 @@ export function decodeStreamTaskMetadata(data: Uint8Array): StreamTaskMetadata {
 const SplitPointType = StructType({ seg: IntegerType, offset: IntegerType });
 
 /**
- * The plan of one component's ranged fan-in (issue #770): the partials whose
- * key ranges overlap, where each key range starts in every one of them, and
- * the carved range slices the merge units merged.
+ * The plan of one merged component's fan-in (issue #770): the partials whose
+ * key ranges overlap, and the key ranges its merge units run over, as the
+ * hashes of the range blobs the units take as their input.
  *
  * @remarks
  * The ranges are a pure function of the partials and the task's
- * `targetPartitionBytes`, so a re-run whose partials are the same objects
- * plans the same splits; recording the slices lets it skip the carve, and
- * because every slice is content-addressed, every merge unit whose inputs
- * are unchanged cache-hits.
+ * `targetPartitionBytes` — the boundary keys are fences of the largest
+ * partial — so a re-run whose partials are the same objects plans the same
+ * ranges; recording them lets it skip the planning probes, and because
+ * every unit's inputs are then the same objects, every merge unit
+ * cache-hits.
  */
 export const MergeRangePlanType = StructType({
   /** The component's partial hashes, in partition order. */
   partials: ArrayType(StringType),
-  /** Per partial: the split point of every range plus the end; length ranges + 1. */
-  splits: ArrayType(ArrayType(SplitPointType)),
-  /** slices[partial][range] object hashes; `''` until carved. */
-  slices: ArrayType(ArrayType(StringType)),
+  /** The hashes of the component's range blobs — `Struct{from: Option<K>,
+   *  to: Option<K>}` over the output's key type — in key order; one open
+   *  range for a component that merges whole. */
+  ranges: ArrayType(StringType),
 });
 export type MergeRangePlanType = typeof MergeRangePlanType;
 
@@ -371,12 +372,13 @@ export type MergeRangePlan = ValueTypeOf<typeof MergeRangePlanType>;
  * the ranged fan-in of each merged component.
  *
  * @remarks
- * The step interpreter writes it to the object store as the run carves —
- * after the map step, and again after the reduce step has carved its merge
- * ranges — and points the `plan` sidecar of the execution's
- * `(taskHash, inputsHash)` directory at it, so a re-plan or a resume that
- * computes the same `partitions`/`boundaries`/`splits` reuses the slices
- * instead of carving them again, partition by partition and range by range.
+ * The step interpreter writes it to the object store as the run goes —
+ * after the map step with the carved slices, and again after the reduce
+ * step has planned each component's merge ranges — and points the `plan`
+ * sidecar of the execution's `(taskHash, inputsHash)` directory at it, so a
+ * re-plan or a resume that computes the same `partitions`/`boundaries`/
+ * `splits` reuses the slices instead of carving them again, partition by
+ * partition, and a component of the same partials reuses its ranges.
  */
 export const PartitionPlanType = StructType({
   /** Partitioned input hashes, wire order. */
@@ -388,7 +390,7 @@ export const PartitionPlanType = StructType({
   /** slices[input][partition] object hashes; empty until carved. */
   slices: ArrayType(ArrayType(StringType)),
   /** The ranged fan-in of each merged component, once its ranges are
-   *  carved. Appended LAST (BEAST2 encodes struct fields positionally) with
+   *  planned. Appended LAST (BEAST2 encodes struct fields positionally) with
    *  a dual decoder — see {@link decodePartitionPlan}. */
   merges: ArrayType(MergeRangePlanType),
 });
@@ -417,7 +419,7 @@ const decodePreMergesPlan = decodeBeast2For(PreMergesPartitionPlanType);
 /**
  * Decode a {@link PartitionPlanType} object, tolerating the pre-`merges`
  * wire shape (dual-decode migration): an older plan decodes with no recorded
- * merge ranges, so its partition slices are reused and its ranges carved.
+ * merge ranges, so its partition slices are reused and its ranges planned.
  *
  * @param data - the plan object's bytes
  * @returns the decoded plan

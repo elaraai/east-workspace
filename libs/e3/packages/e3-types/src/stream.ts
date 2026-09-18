@@ -6,8 +6,8 @@
 /**
  * The stream and merge commands (issue #770) — the builders of every argv a
  * stream execution spawns (an authored `streamTask`'s) and of the merge
- * command a partitioned task's keyed fan-in runs, both built at export time
- * and carried in the package like any other command IR.
+ * command a partitioned task's keyed fan-in runs per key range, both built
+ * at export time and carried in the package like any other command IR.
  */
 
 import { ArrayType, East, EastIR, IntegerType, StringType } from '@elaraai/east';
@@ -105,17 +105,22 @@ export function streamCommandIr(runner: RunnerValue, spec: StreamCommandSpec): E
 
 /**
  * Builds the command IR of a merge execution — the runner's `merge` command
- * over sorted partials of one Set or Dict type: `(input_paths, output_path)
- * -> argv`.
+ * over sorted partials of one Set or Dict type, within a key range:
+ * `(input_paths, output_path) -> argv`.
  *
- * The argv is `[...runner merge, '--merge' <merge IR path> | '--union', '-i'
- * <path> for each partial, '-o', <output>]`. In `function` mode wire input 0
- * is the merge IR `(K, V, V) -> V` and the partials follow; in `union` mode
- * every wire input is a partial. Equal keys across partials fold in input
- * order, and the output is byte-identical to what the runner's emit sink
- * writes for the same entries emitted ascending. A partitioned task's SDK
- * writes this IR into its metadata at export, and the orchestrator runs it
- * as an ordinary execution per group of partials.
+ * The argv is `[...runner merge, '--merge' <merge IR path> | '--union',
+ * '--range' <range path>, '-i' <path> for each partial, '-o', <output>]`. In
+ * `function` mode wire input 0 is the merge IR `(K, V, V) -> V`, wire input
+ * 1 the key range and the partials follow; in `union` mode wire input 0 is
+ * the key range and every other wire input is a partial. The key range is a
+ * blob of `Struct{from: Option<K>, to: Option<K>}` over the output's key
+ * type: only the keys in `[from, to)` merge, each partial sought to the
+ * segment owning `from`, and an absent bound is open — a component that
+ * merges whole takes the open range. Equal keys across partials fold in
+ * input order, and the output is byte-identical to what the runner's emit
+ * sink writes for the same entries emitted ascending. A partitioned task's
+ * SDK writes this IR into its metadata at export, and the orchestrator runs
+ * it as an ordinary execution per key range of a group of partials.
  *
  * @param runner - the stock runner whose `merge` command runs
  * @param mode - `function` (a Dict output, folded with the merge IR) or
@@ -128,8 +133,9 @@ export function streamCommandIr(runner: RunnerValue, spec: StreamCommandSpec): E
  * import { variant } from '@elaraai/east';
  *
  * const command = mergeCommandIr(variant('east_c', { platforms: [] }), 'function');
- * command.compile([])(['merge.beast2', 'p0.beast2', 'p1.beast2'], 'out.beast2');
- * // ['east-c', 'merge', '--merge', 'merge.beast2', '-i', 'p0.beast2', '-i', 'p1.beast2', '-o', 'out.beast2']
+ * command.compile([])(['merge.beast2', 'range.beast2', 'p0.beast2', 'p1.beast2'], 'out.beast2');
+ * // ['east-c', 'merge', '--merge', 'merge.beast2', '--range', 'range.beast2',
+ * //  '-i', 'p0.beast2', '-i', 'p1.beast2', '-o', 'out.beast2']
  * ```
  */
 export function mergeCommandIr(runner: RunnerValue, mode: 'function' | 'union'): EastIR<[string[], string], string[]> {
@@ -138,7 +144,8 @@ export function mergeCommandIr(runner: RunnerValue, mode: 'function' | 'union'):
     ...(mode === 'union' ? ['--union'] : []),
   ];
   const mergeInputs = mode === 'function' ? [0n] : [];
-  const firstInput = BigInt(mergeInputs.length);
+  const rangeInput = BigInt(mergeInputs.length);
+  const firstInput = rangeInput + 1n;
   const command = East.function(
     [ArrayType(StringType), StringType],
     ArrayType(StringType),
@@ -149,6 +156,8 @@ export function mergeCommandIr(runner: RunnerValue, mode: 'function' | 'union'):
         $(argv.pushLast('--merge'));
         $(argv.pushLast(input_paths.get(input)));
       });
+      $(argv.pushLast('--range'));
+      $(argv.pushLast(input_paths.get(rangeInput)));
       const i = $.let(firstInput);
       $.while(East.less(i, input_paths.size()), $ => {
         $(argv.pushLast('-i'));

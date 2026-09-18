@@ -17,14 +17,15 @@
  *   slices (carved on demand, or reused from a recorded plan) and the
  *   broadcast inputs; its result is one output hash per partition.
  * - `reduce` — a tree of executions of a task over the hashes of an earlier
- *   step: the entries are grouped (`all` as one group; `components` by key
- *   range, so partials whose ranges overlap merge together; `ranges`, the
- *   components each cut into key ranges of about `rangeBytes` — the fan-in
- *   of a large component runs one range per unit, in parallel), every level
- *   groups `fanIn` consecutive entries into one unit (a group of one passes
- *   through) until one entry remains; its result is one hash per group. The
- *   merge template's reduce runs the runner's `merge` command — the package's
- *   own `mergeCommand`, written at export — over sorted partials; the combine
+ *   step: the entries are grouped (`all` as one group; `ranges`, the partials
+ *   whose key ranges overlap grouped into components and each component cut
+ *   into key ranges of about `rangeBytes` — the fan-in of a large component
+ *   runs one range per unit, in parallel, every unit taking its range as an
+ *   input and seeking the partials to it), every level groups `fanIn`
+ *   consecutive entries into one unit (a group of one passes through) until
+ *   one entry remains; its result is one hash per group. The merge
+ *   template's reduce runs the runner's `merge` command — the package's own
+ *   `mergeCommand`, written at export — over sorted partials; the combine
  *   template's runs the task's command over the combine IR and two partials.
  * - `splice` — the byte splice of an earlier step's hashes in order, under
  *   the first blob's header; its result is one hash.
@@ -36,13 +37,16 @@
  * partition-level memoization rides the execution cache; the carve and
  * splice byte hooks default to the local storage-layer code, and a remote
  * backend (e3-cloud) supplies its kernel's. The orchestrator never decodes a
- * partial: it reads segment indexes, fences and one edge segment at a time.
+ * partial: it reads segment indexes, fences and one edge segment at a time,
+ * and carves nothing for a merge range — the range is a small blob the unit
+ * takes as an input, and its runner seeks every partial to it.
  *
  * Every output is a deterministic function of the inputs and the task: the
  * partitions, the merge ranges and the tree are planned from the blobs'
  * indexes and the task's metadata, never from the pool width, the jobs
  * budget or timing, so the same job writes the same bytes on every machine
- * at every `--jobs`, and a forced re-run reuses its recorded slices.
+ * at every `--jobs`, and a forced re-run reuses its recorded slices and
+ * ranges.
  *
  * While the units run the logical execution is recorded `running` under this
  * process, with the owner sidecar naming it, and its log names every unit's
@@ -82,16 +86,14 @@ import { probeExecutionCache, type ExecuteOptions, type ExecutionIds, type Execu
 import { PartitionBlob, decodedSegmentPeak, resetDecodedSegmentPeak, spliceChunks } from './partitionIo.js';
 import {
   SpliceOrderError,
-  carveMergeRange,
   carvePartitionSlices,
   planMergeRanges,
   planPartitions,
   readRecordedPlan,
-  recordedMergeRange,
+  recordedMergeRanges,
   recordedSlices,
   spliceBlobs,
   type PartitionUnitExecutor,
-  type SplitPoint,
 } from './partitionExec.js';
 
 /** The most partials one merge unit merges. */
@@ -341,10 +343,11 @@ export interface ReduceStep {
   over: number;
   /** The most entries one unit takes. */
   fanIn: number;
-  /** How the entries group: `all` as one group; `components` by key range;
-   *  `ranges`, each component cut into key ranges of about `rangeBytes`
-   *  whose slices merge as their own groups, in key order. */
-  group: 'all' | 'components' | 'ranges';
+  /** How the entries group: `all` as one group; `ranges`, the partials
+   *  whose key ranges overlap grouped into components, each cut into key
+   *  ranges of about `rangeBytes` that merge as their own groups, in key
+   *  order — every unit of a group takes the group's range as an input. */
+  group: 'all' | 'ranges';
   /** The bytes one range aims for under `ranges` — the task's
    *  `targetPartitionBytes`; unused otherwise. */
   rangeBytes: number;
@@ -388,9 +391,6 @@ export interface StepExecutors {
   /** Carves one partition's slices of a plan; defaults to
    *  {@link carvePartitionSlices}. */
   carve?: (storage: StorageBackend, repo: string, plan: PartitionPlan, p: number) => Promise<string[]>;
-  /** Carves one key range of a merged component's partials, as
-   *  {@link planMergeRanges} split them; defaults to {@link carveMergeRange}. */
-  carveRange?: (storage: StorageBackend, repo: string, partials: string[], splits: SplitPoint[][], r: number) => Promise<string[]>;
   /** Splices stored blobs in order; defaults to {@link spliceBlobs}. */
   splice?: (storage: StorageBackend, repo: string, hashes: string[]) => Promise<string>;
 }
@@ -538,7 +538,6 @@ export async function executeTemplate(
 ): Promise<ExecutionResult> {
   const { inHash, executionId, startTime } = ids;
   const carve = executors.carve ?? carvePartitionSlices;
-  const carveRange = executors.carveRange ?? carveMergeRange;
   const splice = executors.splice ?? spliceBlobs;
 
   // The logical execution's log: one stdout line per unit, appended when the
@@ -663,9 +662,9 @@ export async function executeTemplate(
   const results: StepResult[] = [];
   let recordedRunning = false;
   // The plan of a previous run of this logical execution, if the `plan`
-  // sidecar names one, and this run's own record of what it carved: the map
-  // step writes it with the partition slices, the reduce step again with
-  // each component's merge ranges.
+  // sidecar names one, and this run's own record of what it carved and
+  // planned: the map step writes it with the partition slices, the reduce
+  // step again with each component's merge ranges.
   let recordedPlan: PartitionPlan | null = null;
   let carved: { plan: PartitionPlan; slices: string[][]; merges: PartitionPlan['merges'] } | null = null;
   const recordPlan = async (): Promise<void> => {
@@ -812,64 +811,44 @@ export async function executeTemplate(
 
       case 'reduce': {
         const over = resolve({ step: step.over }, results);
-        // The groups the tree reduces, each as its entries' hashes at level 1.
-        let entries: string[][];
+        // The groups the tree reduces: each as its entries' hashes at level
+        // 1, and the key range its units take as an input, when they do.
+        let groups: { range: string | null; entries: string[] }[];
         try {
           if (step.group === 'all') {
-            entries = [over];
+            groups = [{ range: null, entries: over }];
           } else {
+            // The partials whose key ranges overlap form components, and each
+            // component is cut into key ranges of about `rangeBytes`, planned
+            // from the partials' indexes alone and written as the range blobs
+            // its units take as an input; every range merges the component's
+            // partials as its own group — a component of one range merges
+            // them whole, over the open range. The ranges are recorded in the
+            // plan, so a re-run with the same partials reuses them and, its
+            // units' inputs unchanged, cache-hits.
+            groups = [];
             const components = (await mergeComponents(storage, repo, over)).components.map((component) => component.partitions.map((i) => over[i]!));
-            if (step.group === 'components') {
-              entries = components;
-            } else {
-              // Each component is cut into key ranges of about `rangeBytes`,
-              // planned from the partials' indexes alone, and every partial is
-              // carved at the range boundaries; a component of one range merges
-              // its partials whole. The carved slices are recorded in the plan,
-              // so a re-run with the same partials reuses them — and, being
-              // content-addressed, its merge units then cache-hit.
-              entries = [];
-              for (const partials of components) {
-                // A recorded plan of the same partials supplies the splits and
-                // the slices it carved — the planning probes run only once
-                // per set of partials.
-                const recorded = recordedPlan !== null ? await recordedMergeRange(storage, repo, recordedPlan, partials) : null;
-                const splits = recorded?.splits ?? await planMergeRanges(storage, repo, partials, step.rangeBytes);
-                const ranges = splits[0]!.length - 1;
-                if (ranges === 1) {
-                  entries.push(partials);
-                  continue;
-                }
-                const slices: string[][] = recorded?.slices ?? partials.map(() => Array.from({ length: ranges }, () => ''));
-                for (let r = 0; r < ranges; r++) {
-                  if (slices.some((partial) => partial[r] === '')) {
-                    if (options.signal?.aborted) return cancelledResult();
-                    const carvedRange = await carveRange(storage, repo, partials, splits, r);
-                    for (let p = 0; p < partials.length; p++) slices[p]![r] = carvedRange[p]!;
-                  }
-                  entries.push(slices.map((partial) => partial[r]!));
-                }
-                if (carved !== null) {
-                  carved.merges.push({
-                    partials: [...partials],
-                    splits: splits.map((points) => points.map((point) => ({ seg: BigInt(point.seg), offset: BigInt(point.offset) }))),
-                    slices,
-                  });
-                  await recordPlan();
-                }
+            for (const partials of components) {
+              if (options.signal?.aborted) return cancelledResult();
+              const ranges = (recordedPlan !== null ? await recordedMergeRanges(storage, repo, recordedPlan, partials) : null)
+                ?? await planMergeRanges(storage, repo, partials, step.rangeBytes);
+              for (const range of ranges) groups.push({ range, entries: partials });
+              if (carved !== null) {
+                carved.merges.push({ partials: [...partials], ranges });
+                await recordPlan();
               }
             }
           }
         } catch (err) {
           return errorResult(`Failed to merge partition partials: ${err instanceof Error ? err.message : err}`);
         }
-        const levels = mergeTreeLevels(entries.map((group) => group.length), step.fanIn);
+        const levels = mergeTreeLevels(groups.map((group) => group.entries.length), step.fanIn);
         if (levels > 0 && step.unavailable !== null) {
           return errorResult(step.unavailable);
         }
         const leading = step.leading.flatMap((source) => resolve(source, results));
         for (let level = 1; level <= levels; level++) {
-          const runs = entries.map((group) => mergeTreeGroups(group, step.fanIn));
+          const runs = groups.map((group) => mergeTreeGroups(group.entries, step.fanIn));
           const units: { group: number; run: number; entries: string[] }[] = [];
           runs.forEach((groupRuns, group) => {
             groupRuns.forEach((run, index) => {
@@ -890,7 +869,8 @@ export async function executeTemplate(
                 level, levels, index, total: units.length, first: unit.run * step.fanIn, taskHash: step.taskHash!,
               };
               progress?.({ phase: step.label, index, total: units.length, completed, state: 'started' });
-              const result = await runUnit(step.taskHash!, step.task!, [...leading, ...unit.entries]);
+              const range = groups[unit.group]!.range;
+              const result = await runUnit(step.taskHash!, step.task!, [...leading, ...(range !== null ? [range] : []), ...unit.entries]);
               countAssemblyUnit();
               unitResults[index] = result;
               completed++;
@@ -918,12 +898,13 @@ export async function executeTemplate(
             return unitResult(message, unitResults[failed]!);
           }
           // The next level's entries: each run's output, or its one entry.
-          entries = runs.map((groupRuns) => groupRuns.map((run) => run[0]!));
+          const next = runs.map((groupRuns) => groupRuns.map((run) => run[0]!));
           units.forEach((unit, index) => {
-            entries[unit.group]![unit.run] = unitResults[index]!.outputHash!;
+            next[unit.group]![unit.run] = unitResults[index]!.outputHash!;
           });
+          groups = groups.map((group, g) => ({ range: group.range, entries: next[g]! }));
         }
-        results.push({ kind: 'hashes', hashes: entries.map((group) => group[0]!) });
+        results.push({ kind: 'hashes', hashes: groups.map((group) => group.entries[0]!) });
         break;
       }
 

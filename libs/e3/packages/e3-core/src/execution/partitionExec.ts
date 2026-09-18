@@ -15,11 +15,12 @@
  * secondary's split points; {@link carvePartitionSlices} carves a
  * partition's slices (byte copy; at most the two edge segments of each
  * secondary are re-encoded); {@link planMergeRanges} chooses the key ranges
- * a merged component's fan-in runs over and {@link carveMergeRange} carves
- * them out of the partials the same way; {@link spliceBlobs} splices stored
+ * a merged component's fan-in runs over and writes them as the range blobs
+ * its merge units take as an input — nothing is carved for a range: each
+ * runner seeks every partial to it; {@link spliceBlobs} splices stored
  * blobs under one header, validating the canonical shard order. The local
  * interpreter calls these directly; a remote backend supplies its kernel's
- * carves and splice.
+ * carve and splice.
  *
  * Because each per-partition execution is content-addressed by
  * `(taskHash, inputsHash([functionIr, ...slices, ...broadcast]))` and
@@ -39,10 +40,17 @@
  */
 
 import {
+  OptionType,
+  StructType,
   compareFor,
   decodeEastIR,
+  encodeBeast2For,
   equalFor,
+  fromEastTypeValue,
+  none,
   rebuildBeast2,
+  some,
+  toEastTypeValue,
 } from '@elaraai/east';
 import type { EastTypeValue, FunctionTypeValue } from '@elaraai/east';
 import { PartitionBlob, bufferPart, spliceChunks, type SplicePart } from './partitionIo.js';
@@ -307,25 +315,42 @@ export async function planPartitions(
 }
 
 /**
+ * The type of the key range a merge unit takes as an input: `[from, to)`
+ * as `Struct{from: Option<K>, to: Option<K>}` over the output's key type, a
+ * bound `none` when open — the shape every stock runner's `merge --range`
+ * reads (east-node `merge.ts`, east-c `merge.c`).
+ *
+ * @param keyType - The output's key (Dict) or element (Set) type
+ * @returns The range type
+ */
+export function mergeRangeTypeValue(keyType: EastTypeValue): EastTypeValue {
+  const key = fromEastTypeValue(keyType);
+  return toEastTypeValue(StructType({ from: OptionType(key), to: OptionType(key) }));
+}
+
+/**
  * Plans the ranged fan-in of one merged component: the key ranges its merge
- * units run over, as split points into every partial. Deterministic — a pure
- * function of the partials' segment indexes and the byte target — and
- * bounded: one decoded segment at a time.
+ * units run over, written to the object store as the range blobs the units
+ * take as their input. Deterministic — a pure function of the partials'
+ * segment indexes and the byte target — and bounded: the boundary keys are
+ * fence probes (a bounded prefix of each frame); no segment is decoded and
+ * nothing is carved.
  *
  * The number of ranges is the component's bytes over `targetBytes`, capped by
  * the segments of its largest partial (the pilot), whose fences supply the
  * boundary keys: the pilot's segments pack greedily into runs of about equal
  * bytes, and each run after the first starts a range at its first fence. A
  * component of one range — every parity job, and any component smaller than
- * the target — merges its partials whole. Every partial is then split at the
- * boundary keys as a co-partitioned secondary is split at the primary's
- * boundaries: a fence scan, then one segment decode per boundary.
+ * the target — merges its partials whole, over the open range. Each merge
+ * unit's runner then seeks every partial to the segment owning its range's
+ * lower bound and stops at the first key at or past its upper bound, so a
+ * unit reads its range's share of every partial, plus at most one segment.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param partials - The component's partial hashes, in partition order; at least one
  * @param targetBytes - The bytes one merge unit's ranged inputs aim for — the task's `targetPartitionBytes`
- * @returns Per partial, the split point of every range plus the end (`ranges + 1` points)
+ * @returns The range blobs' hashes, in key order; at least one
  * @throws {Error} When a partial is not a Set or Dict blob, or a probe fails.
  */
 export async function planMergeRanges(
@@ -333,9 +358,8 @@ export async function planMergeRanges(
   repo: string,
   partials: readonly string[],
   targetBytes: number,
-): Promise<SplitPoint[][]> {
+): Promise<string[]> {
   if (partials.length === 0) throw new Error('planMergeRanges: no partials');
-  const whole = (segCount: number): SplitPoint[] => [{ seg: 0, offset: 0 }, { seg: segCount, offset: 0 }];
 
   // The geometry of every partial from its head and tail alone.
   const geometry: { bytes: number; segments: number }[] = [];
@@ -352,100 +376,47 @@ export async function planMergeRanges(
   if (collection.type !== 'Dict' && collection.type !== 'Set') {
     throw new Error(`partition merge applies to Dict and Set outputs, got ${collection.type}`);
   }
-  const isDict = collection.type === 'Dict';
-  const keyType: EastTypeValue = isDict ? (collection as any).value.key : (collection as any).value;
-  const cmp = compareFor(keyType as any) as (a: unknown, b: unknown) => number;
+  const keyType: EastTypeValue = collection.type === 'Dict' ? (collection as any).value.key : (collection as any).value;
 
   const totalBytes = geometry.reduce((sum, g) => sum + g.bytes, 0);
   let pilot = 0;
   for (let p = 1; p < geometry.length; p++) if (geometry[p]!.bytes > geometry[pilot]!.bytes) pilot = p;
   const ranges = Math.max(1, Math.min(Math.ceil(totalBytes / Math.max(1, targetBytes)), geometry[pilot]!.segments));
-  if (ranges === 1) return geometry.map((g) => whole(g.segments));
 
   // The boundary keys: the pilot's fences where its segments, packed greedily
   // into `ranges` runs of about equal bytes, start a new run.
   const bounds: unknown[] = [];
-  const pilotBlob = await PartitionBlob.open(storage, repo, partials[pilot]!);
-  try {
-    const { extents } = pilotBlob;
-    const segmentBytes = (i: number): number =>
-      (i + 1 < extents.offsets.length ? extents.offsets[i + 1]! : extents.segmentsEnd) - extents.offsets[i]!;
-    const runBytes = geometry[pilot]!.bytes / ranges;
-    let acc = 0;
-    for (let i = 0; i < extents.offsets.length && bounds.length < ranges - 1; i++) {
-      const size = segmentBytes(i);
-      if (acc > 0 && acc + size > runBytes) {
-        bounds.push(await pilotBlob.fence(i));
-        acc = 0;
-      }
-      acc += size;
-    }
-  } finally {
-    pilotBlob.release();
-  }
-  if (bounds.length === 0) return geometry.map((g) => whole(g.segments));
-
-  // Every partial splits at the boundary keys — one forward pass each.
-  const splits: SplitPoint[][] = [];
-  for (const hash of partials) {
-    const blob = await PartitionBlob.open(storage, repo, hash);
+  if (ranges > 1) {
+    const pilotBlob = await PartitionBlob.open(storage, repo, partials[pilot]!);
     try {
-      const points: SplitPoint[] = [{ seg: 0, offset: 0 }];
-      let resumeFrom = 0;
-      for (const bound of bounds) {
-        const split = blob.extents.offsets.length === 0
-          ? { seg: 0, offset: 0 }
-          : await findSplitPoint(blob, isDict, (k) => k, cmp, bound, resumeFrom);
-        points.push(split);
-        resumeFrom = Math.max(0, Math.min(split.seg, blob.extents.offsets.length - 1));
+      const { extents } = pilotBlob;
+      const segmentBytes = (i: number): number =>
+        (i + 1 < extents.offsets.length ? extents.offsets[i + 1]! : extents.segmentsEnd) - extents.offsets[i]!;
+      const runBytes = geometry[pilot]!.bytes / ranges;
+      let acc = 0;
+      for (let i = 0; i < extents.offsets.length && bounds.length < ranges - 1; i++) {
+        const size = segmentBytes(i);
+        if (acc > 0 && acc + size > runBytes) {
+          bounds.push(await pilotBlob.fence(i));
+          acc = 0;
+        }
+        acc += size;
       }
-      points.push({ seg: blob.extents.offsets.length, offset: 0 });
-      splits.push(points);
     } finally {
-      blob.release();
+      pilotBlob.release();
     }
   }
-  return splits;
-}
 
-/**
- * Carves range `r` of every partial of a merged component, as
- * {@link planMergeRanges} split them: whole segments by byte copy, at most
- * the two edge segments a boundary falls inside re-encoded. A partial with
- * nothing in the range yields the empty collection under its own header.
- * Slices stream to the object store; no partial is read whole.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param partials - The component's partial hashes, in partition order
- * @param splits - Per partial, the split point of every range plus the end
- * @param r - Zero-based range index
- * @returns The range's slice hashes, one per partial in partition order
- * @throws {RangeError} When `r` is not a range of the splits.
- */
-export async function carveMergeRange(
-  storage: StorageBackend,
-  repo: string,
-  partials: readonly string[],
-  splits: readonly (readonly SplitPoint[])[],
-  r: number,
-): Promise<string[]> {
-  const ranges = (splits[0]?.length ?? 1) - 1;
-  if (!Number.isInteger(r) || r < 0 || r >= ranges) {
-    throw new RangeError(`range ${r} is not one of the plan's ${ranges} ranges`);
+  // The range blobs: `[from, to)` per range, the first open below and the
+  // last open above — the one open range when there is no boundary.
+  const encode = encodeBeast2For(mergeRangeTypeValue(keyType));
+  const hashes: string[] = [];
+  for (let r = 0; r <= bounds.length; r++) {
+    const from = r === 0 ? none : some(bounds[r - 1]);
+    const to = r === bounds.length ? none : some(bounds[r]);
+    hashes.push(await storage.objects.write(repo, encode({ from, to })));
   }
-  const slices: string[] = [];
-  for (let p = 0; p < partials.length; p++) {
-    const blob = await PartitionBlob.open(storage, repo, partials[p]!);
-    try {
-      const points = splits[p]!;
-      const parts = await carveRangeParts(blob, blob.extents.typeValue.type === 'Dict', points[r]!, points[r + 1]!);
-      slices.push(await storage.objects.writeStream(repo, spliceChunks(blob.extents.head, parts)));
-    } finally {
-      blob.release();
-    }
-  }
-  return slices;
+  return hashes;
 }
 
 /**
@@ -466,49 +437,37 @@ export async function readRecordedPlan(storage: StorageBackend, repo: string, re
 }
 
 /**
- * The ranged fan-in a recorded plan planned and carved for a component, when
- * it recorded the same partials: the split points, and `slices[partial][range]`
- * with `''` for a range the recorded run never carved or one of whose slices
- * no longer exists (both are carved again); `null` when the recorded plan
- * holds no such component. The splits are trusted as recorded: they are a
- * pure function of the partials and the task's byte target, and the plan is
- * the task's own — so a re-run skips the planning probes entirely.
+ * The key ranges a recorded plan planned for a component, when it recorded
+ * the same partials and every range blob still exists: the ranges are
+ * trusted as recorded — a pure function of the partials and the task's byte
+ * target, in the task's own plan — so a re-run skips the planning probes;
+ * `null` when the recorded plan holds no such component, or a range blob is
+ * gone (the ranges are planned again).
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param recorded - The recorded plan
  * @param partials - This run's partials of the component, in partition order
- * @returns The recorded splits and reusable slices, or `null`
+ * @returns The recorded range blobs' hashes, in key order, or `null`
  */
-export async function recordedMergeRange(
+export async function recordedMergeRanges(
   storage: StorageBackend,
   repo: string,
   recorded: PartitionPlan,
   partials: readonly string[],
-): Promise<{ splits: SplitPoint[][]; slices: string[][] } | null> {
+): Promise<string[] | null> {
   const samePartials = (entry: MergeRangePlan): boolean =>
     entry.partials.length === partials.length && entry.partials.every((hash, i) => hash === partials[i]);
   const entry = recorded.merges.find(samePartials);
-  if (entry === undefined || entry.splits.length !== partials.length) return null;
-  const splits = entry.splits.map((points) => points.map((point) => ({ seg: Number(point.seg), offset: Number(point.offset) })));
-  const ranges = (splits[0]?.length ?? 1) - 1;
-  if (ranges < 1 || splits.some((points) => points.length !== ranges + 1)) return null;
-  if (entry.slices.length !== partials.length || entry.slices.some((slices) => slices.length !== ranges)) return null;
-  const slices = entry.slices.map((partial) => partial.slice());
-  for (let r = 0; r < ranges; r++) {
-    // A range's slices are reused all together or carved all together.
-    let present = slices.every((partial) => partial[r] !== '');
-    for (const partial of slices) {
-      if (!present) break;
-      try {
-        await storage.objects.stat(repo, partial[r]!);
-      } catch {
-        present = false;
-      }
+  if (entry === undefined || entry.ranges.length === 0) return null;
+  for (const hash of entry.ranges) {
+    try {
+      await storage.objects.stat(repo, hash);
+    } catch {
+      return null;
     }
-    if (!present) for (const partial of slices) partial[r] = '';
   }
-  return { splits, slices };
+  return [...entry.ranges];
 }
 
 /**
