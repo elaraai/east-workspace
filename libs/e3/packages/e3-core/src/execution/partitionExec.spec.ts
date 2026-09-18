@@ -393,7 +393,7 @@ describe('partitionTaskExecute', () => {
     ];
 
     for (const { name, runner, available } of cases) {
-      it(`${name}: the assembly's counters are the same at N and 8N rows and 4 and 20 partitions`,
+      it(`${name}: the assembly's counters are the same at N and 8N rows and 4 and 20 partitions, and no data object is read whole`,
         { skip: available ? false : `${name} not on PATH` }, async () => {
           // Re-keys every row by a scattered id: each partial spans the whole
           // key space, so every partial overlaps every other.
@@ -406,16 +406,41 @@ describe('partitionTaskExecute', () => {
           }, ($, slice) => slice.toDict(($, _row, key) => key.multiply(7919n).remainder(1_000_003n), ($, row, _key) => row));
           const { taskHash, fnIrHash } = await writeSdkTask(rekeyed);
 
+          // Gate (a): the orchestrator never reads a data object whole — not
+          // the input, a slice, a partial or a unit output. Every whole read
+          // during a run is recorded and checked against them afterwards.
+          const objects = storage.objects;
+          const wholeReads = new Set<string>();
+          const origRead = objects.read.bind(objects);
+          objects.read = (r: string, h: string) => {
+            wholeReads.add(h);
+            return origRead(r, h);
+          };
+
           const observed: { rows: number; partitions: number; peakDecodedSegments: number; compiledFunctions: number; units: number }[] = [];
           for (const rows of [400, 3200]) {
             for (const partitions of [4, 20]) {
               const table = makeTable(rows);
               const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: rows / partitions })(table));
               let result: Awaited<ReturnType<typeof taskExecute>> | undefined;
+              wholeReads.clear();
               const stats = await partitionAssemblyStats(async () => {
                 result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
               });
               assert.equal(result?.state, 'success', result?.error ?? '');
+
+              const dataObjects = new Set<string>([tableHash, result!.outputHash!]);
+              const planHash = await storage.refs.executionPlanRead!(repo, taskHash, result!.inputsHash);
+              for (const slices of decodePartitionPlan(await origRead(repo, planHash!)).slices) for (const slice of slices) dataObjects.add(slice);
+              const unitTasks = new Set<string>([taskHash]);
+              for (const line of await logLines(taskHash, result!)) unitTasks.add(/task=([0-9a-f]{64})/.exec(line)![1]!);
+              for (const unitTask of unitTasks) {
+                for (const { status } of await storage.refs.executionListLatest(repo, unitTask)) {
+                  if (status.type === 'success') dataObjects.add(status.value.outputHash);
+                }
+              }
+              const readWhole = [...wholeReads].filter((h) => dataObjects.has(h));
+              assert.deepEqual(readWhole, [], `data objects read whole (${rows} rows, ${partitions} partitions): ${readWhole.join(', ')}`);
 
               const expected = new SortedMap<bigint, { id: bigint; name: string }>([], compareFor(IntegerType));
               for (const [id, row] of table) expected.set((id * 7919n) % 1_000_003n, row);

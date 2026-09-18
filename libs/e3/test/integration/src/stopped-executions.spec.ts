@@ -13,12 +13,14 @@
  * - The same through `LocalOrchestrator.cancel()`.
  * - `kill -9` of e3 during a partition: the runner exits with it (the stdin
  *   lifeline), the next run sweeps the scratch directory the killed run left
- *   behind, and the stopped partition is recorded `interrupted:`.
+ *   behind, and the stopped partition is recorded `interrupted:` — under one
+ *   partition at a time, and under `--partition-concurrency 4` with every
+ *   partition's runner running, on east-node and, when on PATH, on east-c.
  *
- * The partitioned task runs on east-node, e3's default runner. Its body marks
- * that it runs and then spins while a hold file exists, so each case stops a
- * partition mid-computation, and a run with the same inputs completes once
- * the hold file is gone.
+ * The partitioned task runs on east-node, e3's default runner, unless a case
+ * says otherwise. Its body marks that it runs and then spins while a hold
+ * file exists, so each case stops a partition mid-computation, and a run with
+ * the same inputs completes once the hold file is gone.
  *
  * Skipped on Windows, where a test cannot deliver SIGINT to the CLI (see
  * signal-handling.spec.ts) and a process's start time is unknown, so a dead
@@ -27,9 +29,10 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import e3 from '@elaraai/e3';
+import e3, { type Runner } from '@elaraai/e3';
 import { DictType, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2PagedFor, equalFor, variant } from '@elaraai/east';
 import { FileSystem } from '@elaraai/east-node-std';
 import {
@@ -68,6 +71,17 @@ async function exitsWithin(pid: number, ms: number): Promise<boolean> {
   return true;
 }
 
+/** Whether `binary` resolves on PATH and answers `version`. */
+function onPath(binary: string): boolean {
+  return spawnSync(binary, ['version'], { stdio: 'ignore' }).status === 0;
+}
+
+const EAST_NODE: Runner = { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] };
+const KILL_RUNNERS: { name: string; runner: Runner; available: boolean }[] = [
+  { name: 'east-node', runner: EAST_NODE, available: true },
+  { name: 'east-c', runner: { runtime: 'east-c', platforms: ['east-c-std'] }, available: onPath('east-c') },
+];
+
 describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT delivery or process start times on Windows' : false }, () => {
   let dir: string;
   let repo: string;
@@ -76,20 +90,25 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
   let table: SortedMap<bigint, string>;
   const storage = new LocalStorage();
 
-  beforeEach(async () => {
+  beforeEach(() => {
     dir = createTestDir();
     mkdirSync(dir, { recursive: true });
     repo = join(dir, 'repo');
     started = join(dir, 'started');
     hold = join(dir, 'hold');
+    table = new SortedMap(Array.from({ length: 40 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));
+  });
 
-    // Forty rows in four segments: four partitions, one of which runs at a
-    // time under --partition-concurrency 1.
+  /** Deploys the held task on `runner`: forty rows in four segments make
+   *  four partitions, one of which runs at a time under
+   *  --partition-concurrency 1, all four under 4. */
+  async function deploy(runner: Runner): Promise<void> {
     const tableInput = e3.input('table', TableType);
     const held = e3.partitionTask('held', {
       partitions: [tableInput],
       output: TableType,
       targetPartitionBytes: 1,
+      runner,
     }, ($, slice) => {
       const startedPath = $.const(started);
       const holdPath = $.const(hold);
@@ -99,8 +118,6 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
     });
     const zip = join(dir, 'held.zip');
     await e3.export(e3.package('held', '1.0.0', held), zip);
-
-    table = new SortedMap(Array.from({ length: 40 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));
     const tablePath = join(dir, 'table.beast2');
     writeFileSync(tablePath, encodeBeast2PagedFor(TableType, { batchSize: 10 })(table));
 
@@ -114,7 +131,7 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
       const result = await runE3Command(args, dir);
       assert.equal(result.exitCode, 0, `e3 ${args.join(' ')}:\n${result.stderr}\n${result.stdout}`);
     }
-  });
+  }
 
   afterEach(() => {
     removeTestDir(dir);
@@ -154,6 +171,7 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
   }
 
   it('Ctrl-C during a partition records the partition and the task cancelled, prints [CANCELLED], and the next run executes', async () => {
+    await deploy(EAST_NODE);
     writeFileSync(hold, '');
     const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--partition-concurrency', '1'], dir);
     await waitFor(() => existsSync(started), 30_000);
@@ -168,6 +186,7 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
   });
 
   it('LocalOrchestrator.cancel() during a partition records the same, and the next run executes', async () => {
+    await deploy(EAST_NODE);
     writeFileSync(hold, '');
     const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
     const completed: TaskCompletedCallback[] = [];
@@ -184,39 +203,60 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
     await assertNextRunExecutes();
   });
 
-  it('kill -9 of e3 during a partition: its runner exits, and the next run sweeps the scratch directory and records the partition interrupted', async () => {
+  /** kill -9 of e3 with `concurrency` partitions running on `runner`: every
+   *  running partition's runner exits with e3, the next run sweeps every
+   *  scratch directory the killed run left behind, and every stopped
+   *  partition is recorded `interrupted:`. */
+  async function assertKillMinusNine(runner: Runner, concurrency: number): Promise<void> {
+    await deploy(runner);
     const scratch = join(dir, 'scratch');
     mkdirSync(scratch);
     const env = { E3_SCRATCH_DIR: scratch };
     writeFileSync(hold, '');
-    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--partition-concurrency', '1'], dir, { env });
+    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--partition-concurrency', String(concurrency)], dir, { env });
     await waitFor(() => existsSync(started), 30_000);
 
-    // The running partition's record names its runner.
+    // Every running partition's record names its runner.
     const taskHash = await workspaceGetTaskHash(storage, repo, 'ws', 'held');
-    let unit: { inputsHash: string; executionId: string; pid: number } | undefined;
+    const units = new Map<string, { inputsHash: string; executionId: string; pid: number }>();
     await waitFor(async () => {
       for (const { inputsHash, status } of await storage.refs.executionListLatest(repo, taskHash)) {
         if (status.type === 'running' && Number(status.value.pid) !== run.pid) {
-          unit = { inputsHash, executionId: status.value.executionId, pid: Number(status.value.pid) };
+          units.set(inputsHash, { inputsHash, executionId: status.value.executionId, pid: Number(status.value.pid) });
         }
       }
-      return unit !== undefined;
+      return units.size === concurrency;
     }, 30_000);
+    await waitFor(() => readdirSync(scratch).filter((name) => name.startsWith('e3-exec-')).length === concurrency, 30_000);
     const leftBehind = readdirSync(scratch).filter((name) => name.startsWith('e3-exec-'));
-    assert.equal(leftBehind.length, 1, `one partition runs: ${leftBehind.join(', ')}`);
+    assert.equal(leftBehind.length, concurrency, `${concurrency} partition(s) run: ${leftBehind.join(', ')}`);
 
     run.kill('SIGKILL');
     await run.result;
-    assert.ok(await exitsWithin(unit!.pid, 10_000), `runner ${unit!.pid} outlived the killed e3 by 10 s`);
-    assert.ok(existsSync(join(scratch, leftBehind[0]!)), 'the killed run left its scratch directory behind');
+    for (const unit of units.values()) {
+      assert.ok(await exitsWithin(unit.pid, 10_000), `runner ${unit.pid} outlived the killed e3 by 10 s`);
+    }
+    for (const name of leftBehind) assert.ok(existsSync(join(scratch, name)), 'the killed run left its scratch directories behind');
 
     await assertNextRunExecutes(env);
-    assert.ok(!existsSync(join(scratch, leftBehind[0]!)), 'the next run swept the scratch directory');
-    const stopped = await storage.refs.executionGet(repo, taskHash, unit!.inputsHash, unit!.executionId);
-    assert.match(
-      stopped?.type === 'error' ? stopped.value.message : String(stopped?.type),
-      new RegExp(`^interrupted: the orchestrator exited before this execution finished \\(runner pid ${unit!.pid}\\)$`),
-    );
+    for (const name of leftBehind) assert.ok(!existsSync(join(scratch, name)), `the next run swept ${name}`);
+    for (const unit of units.values()) {
+      const stopped = await storage.refs.executionGet(repo, taskHash, unit.inputsHash, unit.executionId);
+      assert.match(
+        stopped?.type === 'error' ? stopped.value.message : String(stopped?.type),
+        new RegExp(`^interrupted: the orchestrator exited before this execution finished \\(runner pid ${unit.pid}\\)$`),
+      );
+    }
+  }
+
+  it('kill -9 of e3 during a partition: its runner exits, and the next run sweeps the scratch directory and records the partition interrupted', async () => {
+    await assertKillMinusNine(EAST_NODE, 1);
   });
+
+  for (const { name, runner, available } of KILL_RUNNERS) {
+    it(`kill -9 of e3 with four partitions running on ${name}: every runner exits, and the next run sweeps every scratch directory and records each partition interrupted`,
+      { skip: available ? false : `${name} not on PATH` }, async () => {
+        await assertKillMinusNine(runner, 4);
+      });
+  }
 });

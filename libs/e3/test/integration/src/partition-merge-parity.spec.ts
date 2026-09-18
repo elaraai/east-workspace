@@ -6,24 +6,32 @@
 /**
  * Partition merge parity (issue #770, gate (b)).
  *
- * A partitioned task's keyed fan-in runs on the task's own runner, as a tree
- * of stream executions whose sink folds equal keys, so the task must write
- * exactly the bytes a `streamTask` with the same `merge` writes for the same
- * emissions. Per runner on PATH:
+ * A partitioned task's keyed fan-in runs on the task's own runner — its
+ * `merge` command over sorted partials, one pass each — and every runner's
+ * merge writes through the same segment writer as its emit sink, so the task
+ * must write exactly the bytes a `streamTask` with the same `merge` writes for
+ * the same rows emitted in ascending key order. The twin of each job is a
+ * `streamTask({ merge })` over the expected rows as a sorted
+ * `Array<{ key, value }>` with duplicates adjacent, emitted in order. Per
+ * runner on PATH:
  *
  * - a re-keyed `partitionTask({ merge })` whose input repeats keys within a
- *   partition and across its 20 partitions writes the bytes of its
- *   `streamTask({ merge })` twin — a Dict folded by a function, and a Set by
- *   `'union'`;
+ *   partition and across its partitions writes the bytes of its twin — a
+ *   Dict folded by a function, and a Set by `'union'`;
+ * - a job whose partials form three components — each merged by its own
+ *   unit, the results spliced — equals its twin by value;
  * - a job whose partials are disjoint runs no merge unit and equals its twin
  *   by value;
  * - a blob the sink writes and a blob a returned value writes, of one type,
  *   share their header bytes, which the splice of merged and unmerged
- *   components relies on.
+ *   components relies on;
+ * - a job over the refinement-window rows — `Dict<Integer, Struct{v: String,
+ *   f0..f149: Integer}>`, 2,200 rows of 5,380 characters of 64-symbol noise,
+ *   rows 0–379 one character longer, the shape at which one runner's batch
+ *   refinement once diverged by a single entry — equals its twin.
  *
- * Across the runners, the same emissions give the same bytes. Every output row
- * is wider than 2 KB deflated, the width at which the runners' batch
- * refinement once diverged.
+ * Across the runners, the same rows give the same bytes: the re-keyed Dict,
+ * the Set and the refinement-window output are byte-identical on every runner.
  *
  * A runner is on PATH when `<runner> version` exits 0 in this process's
  * environment, which the CLI passes on to the runners it spawns. CI builds all
@@ -36,8 +44,9 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateRawSync } from 'node:zlib';
-import e3, { type Runner, type TaskDef } from '@elaraai/e3';
+import e3, { type DatasetDef, type Runner, type TaskDef } from '@elaraai/e3';
 import {
+  ArrayType,
   DictType,
   IntegerType,
   SetType,
@@ -57,39 +66,113 @@ const TableType = DictType(IntegerType, StructType({ text: StringType }));
 const AggType = StructType({ count: IntegerType, text: StringType });
 const OutType = DictType(IntegerType, AggType);
 const KeysType = SetType(IntegerType);
+const PairType = StructType({ key: IntegerType, value: AggType });
+const PairsType = ArrayType(PairType);
+const SortedKeysType = ArrayType(IntegerType);
+
+/** The refinement-window row: a wide string beside 150 integer fields. */
+const WIDE_FIELDS = 150;
+const WideRowType = StructType({
+  v: StringType,
+  ...Object.fromEntries(Array.from({ length: WIDE_FIELDS }, (_, k) => [`f${k}`, IntegerType])),
+});
+const WideType = DictType(IntegerType, WideRowType);
+const WidePairType = StructType({ key: IntegerType, value: WideRowType });
+const WidePairsType = ArrayType(WidePairType);
 
 const ROWS = 3600;
-const PARTITIONS = 20;
+const PARTITIONS = 18;
 const TEXT_CHARS = 4096;
+const WIDE_ROWS = 2200;
+const WIDE_CHARS = 5380;
+const WIDE_LONGER_ROWS = 380;
+
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/** A deterministic 64-symbol noise generator. */
+function noise(seed: number): (chars: number) => string {
+  let state = seed;
+  return (chars) => {
+    const out: string[] = [];
+    for (let c = 0; c < chars; c++) {
+      state = (state * 48271) % 2147483647;
+      out.push(ALPHABET[Math.floor((state / 2147483647) * 64)]!);
+    }
+    return out.join('');
+  };
+}
 
 /** `ROWS` rows keyed by id, each carrying `TEXT_CHARS` characters of
  *  deterministic noise, so a row stays about 3 KB once deflated. */
 function makeTable(): SortedMap<bigint, { text: string }> {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  let seed = 12345;
+  const next = noise(12345);
   const table = new SortedMap<bigint, { text: string }>([], compareFor(IntegerType));
-  for (let id = 0; id < ROWS; id++) {
-    const chars: string[] = [];
-    for (let c = 0; c < TEXT_CHARS; c++) {
-      seed = (seed * 48271) % 2147483647;
-      chars.push(alphabet[Math.floor((seed / 2147483647) * 64)]!);
-    }
-    table.set(BigInt(id), { text: chars.join('') });
-  }
+  for (let id = 0; id < ROWS; id++) table.set(BigInt(id), { text: next(TEXT_CHARS) });
   return table;
+}
+
+type WideRow = { v: string } & Record<string, bigint | string>;
+
+/** The refinement-window rows, keyed by id: rows 0–379 one character longer. */
+function makeWideRows(): { key: bigint; value: WideRow }[] {
+  const next = noise(54321);
+  const rows: { key: bigint; value: WideRow }[] = [];
+  for (let id = 0; id < WIDE_ROWS; id++) {
+    const value: WideRow = { v: next(WIDE_CHARS + (id < WIDE_LONGER_ROWS ? 1 : 0)) };
+    for (let k = 0; k < WIDE_FIELDS; k++) value[`f${k}`] = BigInt(id * WIDE_FIELDS + k);
+    rows.push({ key: BigInt(id), value });
+  }
+  return rows;
+}
+
+const rekey = (id: bigint): bigint => ((id / 2n) * 7919n) % 1200n;
+const groupedKey = (id: bigint): bigint => (id % 700n) + 10000n * (id / 1200n);
+const ascending = (a: bigint, b: bigint): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** The rows a keyed job folds, as `(key, value)` pairs sorted by key then
+ *  id — duplicates adjacent, in the order the partitions fold them. */
+function expectedPairs(table: SortedMap<bigint, { text: string }>, key: (id: bigint) => bigint): { key: bigint; value: { count: bigint; text: string } }[] {
+  const pairs = [...table].map(([id, row]) => ({ id, key: key(id), value: { count: 1n, text: row.text } }));
+  pairs.sort((a, b) => ascending(a.key, b.key) || ascending(a.id, b.id));
+  return pairs.map(({ key, value }) => ({ key, value }));
 }
 
 /**
  * The parity package on one runner. `rekeyed` maps ids to `(id / 2) * 7919
  * mod 1200`: two ids share each key within a partition, the ids 2400 apart
  * share it across partitions, and every partition's keys spread over the whole
- * key space, so all 20 partials overlap. `disjoint` maps ids to `id / 2`,
- * which keeps each partition's keys to its own range. Values fold by summing
- * the counts and keeping the first row's text — associative, and sensitive to
- * the order the values fold in.
+ * key space, so all 18 partials overlap. `grouped` maps ids to `id mod 700 +
+ * 10000 * (id / 1200)`: the six partitions of each 1,200-row group chain into
+ * one key range (the fourth wraps around the group's whole range) and touch no
+ * other group's, so the partials form three components.
+ * `disjoint` maps ids to `id / 2`, which keeps each partition's keys to its
+ * own range. `wide` re-keys the refinement-window rows from an array in
+ * scrambled order, so every partial spans the whole key space. Values fold by
+ * summing the counts and keeping the first row's text — associative, and
+ * sensitive to the order the values fold in. Each job's twin streams the
+ * expected rows, sorted with duplicates adjacent, through the same `merge`.
  */
 function parityPackage(name: string, runner: Runner) {
   const table = e3.input('table', TableType);
+  const rekeyedPairs = e3.input('rekeyed_pairs', PairsType);
+  const groupedPairs = e3.input('grouped_pairs', PairsType);
+  const disjointPairs = e3.input('disjoint_pairs', PairsType);
+  const sortedKeys = e3.input('sorted_keys', SortedKeysType);
+  const wideScrambled = e3.input('wide_scrambled', WidePairsType);
+  const wideSorted = e3.input('wide_sorted', WidePairsType);
+
+  /** The twin of a keyed Dict job: the expected rows, sorted with duplicates
+   *  adjacent, streamed through the same fold. */
+  const dictTwin = (taskName: string, pairs: DatasetDef<typeof PairsType>) => e3.streamTask(taskName, {
+    stream: pairs,
+    output: OutType,
+    merge: ($, _key, a, b) => ({ count: a.count.add(b.count), text: a.text }),
+    runner,
+  }, ($, rows, emit) => {
+    $.for(rows, ($, pair) => {
+      $(emit(pair.key, pair.value));
+    });
+  });
 
   const rekeyed = e3.partitionTask('rekeyed', {
     partitions: [table],
@@ -102,34 +185,20 @@ function parityPackage(name: string, runner: Runner) {
     ($, row, _id) => ({ count: 1n, text: row.text }),
     ($, existing, value, _key) => ({ count: existing.count.add(value.count), text: existing.text }),
   ));
-  const rekeyedTwin = e3.streamTask('rekeyed_twin', {
-    stream: table,
+  const rekeyedTwin = dictTwin('rekeyed_twin', rekeyedPairs);
+
+  const grouped = e3.partitionTask('grouped', {
+    partitions: [table],
     output: OutType,
     merge: ($, _key, a, b) => ({ count: a.count.add(b.count), text: a.text }),
-    runner,
-  }, ($, rows, emit) => {
-    $.for(rows, ($, row, id) => {
-      $(emit(id.divide(2n).multiply(7919n).remainder(1200n), { count: 1n, text: row.text }));
-    });
-  });
-
-  const keys = e3.partitionTask('keys', {
-    partitions: [table],
-    output: KeysType,
-    merge: 'union',
     targetPartitionBytes: 1,
     runner,
-  }, ($, slice) => slice.toSet(($, _row, id) => id.divide(2n).multiply(7919n).remainder(1200n)));
-  const keysTwin = e3.streamTask('keys_twin', {
-    stream: table,
-    output: KeysType,
-    merge: 'union',
-    runner,
-  }, ($, rows, emit) => {
-    $.for(rows, ($, _row, id) => {
-      $(emit(id.divide(2n).multiply(7919n).remainder(1200n)));
-    });
-  });
+  }, ($, slice) => slice.toDict(
+    ($, _row, id) => id.remainder(700n).add(id.divide(1200n).multiply(10000n)),
+    ($, row, _id) => ({ count: 1n, text: row.text }),
+    ($, existing, value, _key) => ({ count: existing.count.add(value.count), text: existing.text }),
+  ));
+  const groupedTwin = dictTwin('grouped_twin', groupedPairs);
 
   const disjoint = e3.partitionTask('disjoint', {
     partitions: [table],
@@ -142,21 +211,46 @@ function parityPackage(name: string, runner: Runner) {
     ($, row, _id) => ({ count: 1n, text: row.text }),
     ($, existing, value, _key) => ({ count: existing.count.add(value.count), text: existing.text }),
   ));
-  const disjointTwin = e3.streamTask('disjoint_twin', {
-    stream: table,
-    output: OutType,
-    merge: ($, _key, a, b) => ({ count: a.count.add(b.count), text: a.text }),
+  const disjointTwin = dictTwin('disjoint_twin', disjointPairs);
+
+  const keys = e3.partitionTask('keys', {
+    partitions: [table],
+    output: KeysType,
+    merge: 'union',
+    targetPartitionBytes: 1,
+    runner,
+  }, ($, slice) => slice.toSet(($, _row, id) => id.divide(2n).multiply(7919n).remainder(1200n)));
+  const keysTwin = e3.streamTask('keys_twin', {
+    stream: sortedKeys,
+    output: KeysType,
+    merge: 'union',
     runner,
   }, ($, rows, emit) => {
-    $.for(rows, ($, row, id) => {
-      $(emit(id.divide(2n), { count: 1n, text: row.text }));
+    $.for(rows, ($, key) => {
+      $(emit(key));
     });
   });
 
-  return {
-    tasks: { rekeyed, rekeyedTwin, keys, keysTwin, disjoint, disjointTwin },
-    pkg: e3.package(name, '1.0.0', rekeyed, rekeyedTwin, keys, keysTwin, disjoint, disjointTwin),
-  };
+  const wide = e3.partitionTask('wide', {
+    partitions: [wideScrambled],
+    output: WideType,
+    merge: ($, _key, a, _b) => a,
+    targetPartitionBytes: 1,
+    runner,
+  }, ($, slice) => slice.toDict(($, pair, _i) => pair.key, ($, pair, _i) => pair.value, ($, a, _b, _key) => a));
+  const wideTwin = e3.streamTask('wide_twin', {
+    stream: wideSorted,
+    output: WideType,
+    merge: ($, _key, a, _b) => a,
+    runner,
+  }, ($, rows, emit) => {
+    $.for(rows, ($, pair) => {
+      $(emit(pair.key, pair.value));
+    });
+  });
+
+  const tasks = { rekeyed, rekeyedTwin, grouped, groupedTwin, disjoint, disjointTwin, keys, keysTwin, wide, wideTwin };
+  return { tasks, pkg: e3.package(name, '1.0.0', ...Object.values(tasks)) };
 }
 
 /** Whether `binary` resolves on PATH and answers `version`. */
@@ -170,24 +264,39 @@ const RUNNERS: { name: string; runner: Runner }[] = [
   { name: 'east-py', runner: { runtime: 'east-py', platforms: ['east-py-std'] } },
 ];
 
-/** Each runner's re-keyed outputs, for the cross-runner comparison. */
-const written = new Map<string, { rekeyed: Uint8Array; keys: Uint8Array }>();
+/** Each runner's merged outputs, for the cross-runner comparison. */
+const written = new Map<string, { rekeyed: Uint8Array; keys: Uint8Array; wide: Uint8Array }>();
 
 describe('partition merge parity', () => {
-  let tableDir: string;
-  let tablePath: string;
+  let inputDir: string;
+  const inputFiles: Record<string, string> = {};
 
   before(() => {
-    tableDir = createTestDir();
-    mkdirSync(tableDir, { recursive: true });
+    inputDir = createTestDir();
+    mkdirSync(inputDir, { recursive: true });
     const table = makeTable();
     assert.ok(deflateRawSync(table.get(0n)!.text).length > 2048, 'a row is wider than 2 KB deflated');
-    tablePath = join(tableDir, 'table.beast2');
-    writeFileSync(tablePath, encodeBeast2PagedFor(TableType, { batchSize: ROWS / PARTITIONS })(table));
+    const wideRows = makeWideRows();
+    // The scrambled order: every partition of the array spans the key space.
+    const scrambled = wideRows.map((_, i) => wideRows[Number((BigInt(i) * 7919n) % BigInt(WIDE_ROWS))]!);
+    const sortedKeys = [...table.keys()].map(rekey).sort(ascending);
+    const files: Record<string, Uint8Array> = {
+      table: encodeBeast2PagedFor(TableType, { batchSize: ROWS / PARTITIONS })(table),
+      rekeyed_pairs: encodeBeast2PagedFor(PairsType)(expectedPairs(table, rekey)),
+      grouped_pairs: encodeBeast2PagedFor(PairsType)(expectedPairs(table, groupedKey)),
+      disjoint_pairs: encodeBeast2PagedFor(PairsType)(expectedPairs(table, (id) => id / 2n)),
+      sorted_keys: encodeBeast2PagedFor(SortedKeysType)(sortedKeys),
+      wide_scrambled: encodeBeast2PagedFor(WidePairsType, { batchSize: 200 })(scrambled),
+      wide_sorted: encodeBeast2PagedFor(WidePairsType, { batchSize: 200 })(wideRows),
+    };
+    for (const [name, bytes] of Object.entries(files)) {
+      inputFiles[name] = join(inputDir, `${name}.beast2`);
+      writeFileSync(inputFiles[name], bytes);
+    }
   });
 
   after(() => {
-    removeTestDir(tableDir);
+    removeTestDir(inputDir);
   });
 
   for (const { name, runner } of RUNNERS) {
@@ -211,6 +320,8 @@ describe('partition merge parity', () => {
         assert.equal(logs.exitCode, 0, logs.stderr);
         return logs.stdout.split('\n').filter((line) => /^(partition|merge) /.test(line));
       };
+      const mergeLines = (lines: string[]): string[] =>
+        lines.filter((line) => line.startsWith('merge ')).map((line) => line.split(' ').slice(0, 6).join(' ')).sort();
 
       before(async () => {
         dir = createTestDir();
@@ -227,7 +338,7 @@ describe('partition merge parity', () => {
           ['package', 'import', repo, zip],
           ['workspace', 'create', repo, 'ws'],
           ['workspace', 'deploy', repo, 'ws', `${packageName}@1.0.0`],
-          ['dataset', 'set', repo, 'ws.table', '--from-file', tablePath],
+          ...Object.entries(inputFiles).map(([input, file]) => ['dataset', 'set', repo, `ws.${input}`, '--from-file', file]),
         ]) {
           const result = await runE3Command(args, dir);
           assert.equal(result.exitCode, 0, `e3 ${args.join(' ')}:\n${result.stderr}\n${result.stdout}`);
@@ -243,17 +354,9 @@ describe('partition merge parity', () => {
 
       it('a re-keyed Dict merged by a function writes its streamTask twin\'s bytes', async () => {
         const lines = await unitLines('rekeyed');
-        assert.equal(lines.filter((line) => /^partition \d+\/20 completed /.test(line)).length, PARTITIONS, lines.join('\n'));
-        // One component of 20 partials: three units at level 1, one at level 2.
-        assert.deepEqual(
-          lines.filter((line) => line.startsWith('merge ')).map((line) => line.split(' ').slice(0, 6).join(' ')).sort(),
-          [
-            'merge level 1/2 unit 1/3 completed',
-            'merge level 1/2 unit 2/3 completed',
-            'merge level 1/2 unit 3/3 completed',
-            'merge level 2/2 unit 1/1 completed',
-          ],
-        );
+        assert.equal(lines.filter((line) => new RegExp(`^partition \\d+/${PARTITIONS} completed `).test(line)).length, PARTITIONS, lines.join('\n'));
+        // One component of 18 partials: one merge unit.
+        assert.deepEqual(mergeLines(lines), ['merge level 1/1 unit 1/1 completed']);
 
         const merged = await outputBytes(tasks.rekeyed);
         assert.deepEqual(merged, await outputBytes(tasks.rekeyedTwin), 'the merged output is the twin\'s bytes');
@@ -262,15 +365,26 @@ describe('partition merge parity', () => {
         let count = 0n;
         for (const agg of value.values()) count += agg.count;
         assert.equal(count, BigInt(ROWS), 'every row is counted once');
-        written.set(name, { rekeyed: merged, keys: await outputBytes(tasks.keys) });
       });
 
       it('a re-keyed Set merged by union writes its streamTask twin\'s bytes', async () => {
         const lines = await unitLines('keys');
-        assert.equal(lines.filter((line) => line.startsWith('merge ')).length, 4, lines.join('\n'));
+        assert.deepEqual(mergeLines(lines), ['merge level 1/1 unit 1/1 completed']);
         const merged = await outputBytes(tasks.keys);
         assert.deepEqual(merged, await outputBytes(tasks.keysTwin), 'the merged output is the twin\'s bytes');
         assert.equal(decodeBeast2For(KeysType)(merged).size, 1200);
+      });
+
+      it('partials forming three components merge one unit each and equal their twin by value', async () => {
+        const lines = await unitLines('grouped');
+        assert.deepEqual(mergeLines(lines), [
+          'merge level 1/1 unit 1/3 completed',
+          'merge level 1/1 unit 2/3 completed',
+          'merge level 1/1 unit 3/3 completed',
+        ]);
+        const spliced = decodeBeast2For(OutType)(await outputBytes(tasks.grouped));
+        assert.equal(spliced.size, 2100);
+        assert.ok(equalFor(OutType)(spliced, decodeBeast2For(OutType)(await outputBytes(tasks.groupedTwin))));
       });
 
       it('disjoint partials run no merge unit and equal their twin by value', async () => {
@@ -292,15 +406,30 @@ describe('partition merge parity', () => {
         const head = (bytes: Uint8Array): Uint8Array => bytes.subarray(0, readBeast2Extents(bytes).prefixEnd);
         assert.deepEqual(head(sinkWritten), head(returned));
       });
+
+      it('the refinement-window rows merge to their twin\'s bytes', async () => {
+        // 2,200 rows: the merge's second segment is sized from the first's
+        // bytes, and rows 0–379 being one character longer is the shape at
+        // which one runner's refinement once landed one entry apart.
+        const lines = await unitLines('wide');
+        assert.deepEqual(mergeLines(lines), ['merge level 1/1 unit 1/1 completed']);
+        const merged = await outputBytes(tasks.wide);
+        assert.deepEqual(merged, await outputBytes(tasks.wideTwin), 'the merged output is the twin\'s bytes');
+        const extents = readBeast2Extents(merged);
+        assert.equal(extents.elementCount, WIDE_ROWS);
+        assert.ok(extents.offsets.length >= 2, 'the output spans the refinement window');
+        written.set(name, { rekeyed: await outputBytes(tasks.rekeyed), keys: await outputBytes(tasks.keys), wide: merged });
+      });
     });
   }
 
-  it('the same emissions give the same bytes on every runner', { skip: RUNNERS.filter(({ name }) => onPath(name)).length < 2 ? 'fewer than two runners on PATH' : false }, () => {
+  it('the same rows give the same bytes on every runner', { skip: RUNNERS.filter(({ name }) => onPath(name)).length < 2 ? 'fewer than two runners on PATH' : false }, () => {
     const [first, ...rest] = [...written];
     assert.ok(first !== undefined && rest.length > 0, `outputs from ${written.size} runner(s)`);
     for (const [name, outputs] of rest) {
       assert.deepEqual(outputs.rekeyed, first[1].rekeyed, `${name}'s merged Dict differs from ${first[0]}'s`);
       assert.deepEqual(outputs.keys, first[1].keys, `${name}'s merged Set differs from ${first[0]}'s`);
+      assert.deepEqual(outputs.wide, first[1].wide, `${name}'s refinement-window output differs from ${first[0]}'s`);
     }
   });
 });

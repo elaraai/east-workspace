@@ -9,8 +9,9 @@
  * The local form used to fail before marking anything (`RepoStore operations
  * require reposDir to be configured`). It collects a repository, keeping what
  * its workspace references, and refuses while a dataflow run holds a
- * workspace's dataflow lock — the run and gc never overlap, so the slices a
- * partitioned run carves need no rooting.
+ * workspace's dataflow lock or an ad-hoc `e3 run` holds the repository's task
+ * lock — a run and gc never overlap, so the slices and unit outputs a run
+ * writes before rooting them need no rooting.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -18,7 +19,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import e3 from '@elaraai/e3';
-import { East, StringType, variant } from '@elaraai/east';
+import { East, StringType, encodeBeast2For, variant } from '@elaraai/east';
 import { LocalStorage } from '@elaraai/e3-core';
 import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
@@ -80,6 +81,35 @@ describe('e3 repo gc', () => {
     const refused = await runE3Command(['repo', 'gc', repo, '--min-age', '0'], dir);
     assert.notEqual(refused.exitCode, 0, refused.stdout);
     assert.match(refused.stderr, /gc: a dataflow is running in workspace 'ws' — retry when it finishes/);
+
+    rmSync(hold);
+    const finished = await run.result;
+    assert.equal(finished.exitCode, 0, `${finished.stderr}\n${finished.stdout}`);
+    const gc = await runE3Command(['repo', 'gc', repo, '--min-age', '0'], dir);
+    assert.equal(gc.exitCode, 0, `${gc.stderr}\n${gc.stdout}`);
+  });
+
+  it('refuses while an ad-hoc `e3 run` holds the repository\'s task lock, and collects once it finishes', { skip: process.platform === 'win32' ? 'the task is a bash loop' : false }, async () => {
+    const inputFile = join(dir, 'text.beast2');
+    writeFileSync(inputFile, encodeBeast2For(StringType)('kept'));
+    writeFileSync(hold, '');
+    const run = spawnE3Command(['run', repo, 'gc@1.0.0.copy', inputFile, '-o', join(dir, 'out.beast2')], dir);
+    const diagnose = (err: unknown): never => {
+      throw new Error(`${err instanceof Error ? err.message : String(err)}\nstdout:\n${run.getStdout()}\nstderr:\n${run.getStderr()}`);
+    };
+    await waitFor(() => run.getStdout().includes('Running gc@1.0.0/copy'), 30_000).catch(diagnose);
+    // The run holds the lock shared once its execution starts: an exclusive
+    // probe fails from then on (and is released at once when it succeeds).
+    await waitFor(async () => {
+      const probe = await storage.locks.acquire(repo, '#tasks', variant('dataflow', null));
+      if (probe === null) return true;
+      await probe.release();
+      return false;
+    }, 30_000).catch(diagnose);
+
+    const refused = await runE3Command(['repo', 'gc', repo, '--min-age', '0'], dir);
+    assert.notEqual(refused.exitCode, 0, refused.stdout);
+    assert.match(refused.stderr, /gc: a task is running — retry when it finishes/);
 
     rmSync(hold);
     const finished = await run.result;
