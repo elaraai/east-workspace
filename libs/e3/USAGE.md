@@ -293,9 +293,13 @@ and value, and must be associative: a key's values may fold in any grouping,
 though never out of partition order. It runs on the task's runner through its
 `merge` command, so it needs a stock runtime — the `custom` runtime is refused
 — of this release: an older runner has no `merge` command. The merge command
-is built at export and carried in the package; the merge tree's intermediate
-results are stored like any execution output, which is what lets a re-run
-re-merge only what changed.
+is built at export and carried in the package. A large output is merged in
+parallel: the partials that overlap are cut into key ranges of about
+`targetPartitionBytes`, each merged by its own unit. The ranges are planned
+from the partials alone, so the output is a deterministic function of the
+inputs — the same hash on every machine, whatever `--jobs` — and the merge
+units' results are stored like any execution output, which is what lets a
+re-run re-merge only what changed.
 
 Memoization is append-friendly: appends and tail-localized changes leave
 earlier slices byte-identical, so their executions are served from the

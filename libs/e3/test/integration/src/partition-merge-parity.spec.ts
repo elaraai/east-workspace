@@ -28,10 +28,17 @@
  * - a job over the refinement-window rows — `Dict<Integer, Struct{v: String,
  *   f0..f149: Integer}>`, 2,200 rows of 5,380 characters of 64-symbol noise,
  *   rows 0–379 one character longer, the shape at which one runner's batch
- *   refinement once diverged by a single entry — equals its twin.
+ *   refinement once diverged by a single entry — equals its twin;
+ * - the same rows in partitions of three input segments, whose partials
+ *   each span several segments — the shape whose fan-in runs per key range,
+ *   two units here — equal their twin by value;
+ * - a forced re-run at another `--jobs` count writes the same hash for every
+ *   output: the bytes are a function of the inputs and the task, never of
+ *   how many runners ran at once.
  *
  * Across the runners, the same rows give the same bytes: the re-keyed Dict,
- * the Set and the refinement-window output are byte-identical on every runner.
+ * the Set and both refinement-window outputs are byte-identical on every
+ * runner.
  *
  * A runner is on PATH when `<runner> version` exits 0 in this process's
  * environment, which the CLI passes on to the runners it spawns. CI builds all
@@ -86,6 +93,11 @@ const TEXT_CHARS = 4096;
 const WIDE_ROWS = 2200;
 const WIDE_CHARS = 5380;
 const WIDE_LONGER_ROWS = 380;
+/** `wide_ranged`'s byte target — three of `wide_scrambled`'s segments per
+ *  partition — and the partitions the plan's greedy packing makes of it,
+ *  both set once the input is written. */
+let wideRangedTarget = 1;
+let wideRangedPartitions = 0;
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
@@ -248,8 +260,17 @@ function parityPackage(name: string, runner: Runner) {
       $(emit(pair.key, pair.value));
     });
   });
+  // The same rows in partitions of three input segments: each partial spans
+  // several segments, so the fan-in runs per key range.
+  const wideRanged = e3.partitionTask('wide_ranged', {
+    partitions: [wideScrambled],
+    output: WideType,
+    merge: ($, _key, a, _b) => a,
+    targetPartitionBytes: wideRangedTarget,
+    runner,
+  }, ($, slice) => slice.toDict(($, pair, _i) => pair.key, ($, pair, _i) => pair.value, ($, a, _b, _key) => a));
 
-  const tasks = { rekeyed, rekeyedTwin, grouped, groupedTwin, disjoint, disjointTwin, keys, keysTwin, wide, wideTwin };
+  const tasks = { rekeyed, rekeyedTwin, grouped, groupedTwin, disjoint, disjointTwin, keys, keysTwin, wide, wideTwin, wideRanged };
   return { tasks, pkg: e3.package(name, '1.0.0', ...Object.values(tasks)) };
 }
 
@@ -265,7 +286,7 @@ const RUNNERS: { name: string; runner: Runner }[] = [
 ];
 
 /** Each runner's merged outputs, for the cross-runner comparison. */
-const written = new Map<string, { rekeyed: Uint8Array; keys: Uint8Array; wide: Uint8Array }>();
+const written = new Map<string, { rekeyed: Uint8Array; keys: Uint8Array; wide: Uint8Array; wideRanged: Uint8Array }>();
 
 describe('partition merge parity', () => {
   let inputDir: string;
@@ -289,6 +310,25 @@ describe('partition merge parity', () => {
       wide_scrambled: encodeBeast2PagedFor(WidePairsType, { batchSize: 200 })(scrambled),
       wide_sorted: encodeBeast2PagedFor(WidePairsType, { batchSize: 200 })(wideRows),
     };
+    // Three of the scrambled input's segments per partition: greedy packing
+    // cuts once a fourth would exceed the target.
+    const scrambledExtents = readBeast2Extents(files.wide_scrambled);
+    assert.ok(scrambledExtents.offsets.length >= 4, 'the scrambled input has several segments');
+    wideRangedTarget = scrambledExtents.offsets[3]! - scrambledExtents.offsets[0]!;
+    // The plan packs segments greedily: a partition closes when the next
+    // segment would take it over the target.
+    let packed = 1;
+    let acc = 0;
+    for (let i = 0; i < scrambledExtents.offsets.length; i++) {
+      const size = (i + 1 < scrambledExtents.offsets.length ? scrambledExtents.offsets[i + 1]! : scrambledExtents.segmentsEnd) - scrambledExtents.offsets[i]!;
+      if (acc > 0 && acc + size > wideRangedTarget) {
+        packed++;
+        acc = 0;
+      }
+      acc += size;
+    }
+    wideRangedPartitions = packed;
+    assert.ok(wideRangedPartitions >= 3, `several partitions of several segments: ${wideRangedPartitions}`);
     for (const [name, bytes] of Object.entries(files)) {
       inputFiles[name] = join(inputDir, `${name}.beast2`);
       writeFileSync(inputFiles[name], bytes);
@@ -418,7 +458,38 @@ describe('partition merge parity', () => {
         const extents = readBeast2Extents(merged);
         assert.equal(extents.elementCount, WIDE_ROWS);
         assert.ok(extents.offsets.length >= 2, 'the output spans the refinement window');
-        written.set(name, { rekeyed: await outputBytes(tasks.rekeyed), keys: await outputBytes(tasks.keys), wide: merged });
+        written.set(name, { rekeyed: await outputBytes(tasks.rekeyed), keys: await outputBytes(tasks.keys), wide: merged, wideRanged: await outputBytes(tasks.wideRanged) });
+      });
+
+      it('partials spanning several segments merge per key range, and equal their twin by value', async () => {
+        const lines = await unitLines('wide_ranged');
+        // Eleven input segments in partitions of about three; the partials,
+        // of about three megabytes, span two segments each, so the component
+        // cuts into two ranges, each merged by its own unit.
+        const partitionLine = new RegExp(`^partition \\d+/${wideRangedPartitions} completed `);
+        assert.equal(lines.filter((line) => partitionLine.test(line)).length, wideRangedPartitions, lines.join('\n'));
+        assert.deepEqual(mergeLines(lines), ['merge level 1/1 unit 1/2 completed', 'merge level 1/1 unit 2/2 completed'], lines.join('\n'));
+        const merged = await outputBytes(tasks.wideRanged);
+        const value = decodeBeast2For(WideType)(merged);
+        assert.ok(equalFor(WideType)(value, decodeBeast2For(WideType)(await outputBytes(tasks.wideTwin))));
+        assert.equal(readBeast2Extents(merged).elementCount, WIDE_ROWS);
+      });
+
+      it('a forced re-run at another --jobs count writes the same hash for every output', async () => {
+        const hashes = async (): Promise<Map<string, string | null>> => {
+          const out = new Map<string, string | null>();
+          for (const task of Object.values(tasks)) out.set(task.name, (await workspaceGetDatasetHash(storage, repo, 'ws', task.output.path)).hash);
+          return out;
+        };
+        const before = await hashes();
+        for (const jobs of ['1', '3']) {
+          const rerun = await runE3Command(['dataflow', 'run', repo, 'ws', '--force', '--jobs', jobs], dir);
+          assert.equal(rerun.exitCode, 0, `--force --jobs ${jobs}:\n${rerun.stderr}\n${rerun.stdout}`);
+          assert.match(rerun.stdout, /\[DONE\] wide_ranged /, 'the forced run executed the partitioned task');
+          for (const [task, hash] of await hashes()) {
+            assert.equal(hash, before.get(task), `${task}'s output hash changed on --force --jobs ${jobs}`);
+          }
+        }
       });
     });
   }
@@ -430,6 +501,7 @@ describe('partition merge parity', () => {
       assert.deepEqual(outputs.rekeyed, first[1].rekeyed, `${name}'s merged Dict differs from ${first[0]}'s`);
       assert.deepEqual(outputs.keys, first[1].keys, `${name}'s merged Set differs from ${first[0]}'s`);
       assert.deepEqual(outputs.wide, first[1].wide, `${name}'s refinement-window output differs from ${first[0]}'s`);
+      assert.deepEqual(outputs.wideRanged, first[1].wideRanged, `${name}'s ranged refinement-window output differs from ${first[0]}'s`);
     }
   });
 });

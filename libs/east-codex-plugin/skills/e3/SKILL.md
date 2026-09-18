@@ -443,10 +443,12 @@ const totals = e3.partitionTask('totals', {
 // Keyed partials that may share keys: `merge` folds a key two partials both
 // produce (associative — values may fold in any grouping, in partition order).
 // The task's runner merges the partials whose key ranges overlap with its
-// `merge` command, in one pass over sorted partials; the orchestrator never
-// decodes them, disjoint partials splice, and every merge unit is cached, so
-// a re-run after an append costs the changed partitions plus the merges they
-// reach. A Set output takes `merge: 'union'`.
+// `merge` command — a large output in parallel, one key range of about
+// `targetPartitionBytes` per unit; the orchestrator never decodes them,
+// disjoint partials splice, the output is a deterministic function of the
+// inputs whatever `--jobs`, and every merge unit is cached, so a re-run after
+// an append costs the changed partitions plus the merges they reach. A Set
+// output takes `merge: 'union'`.
 const latest = e3.partitionTask('latest', {
   partitions: [events],
   output: DictType(StringType, EventType),
@@ -475,9 +477,11 @@ fields in declared order; validated at build time, any other body rejected),
 output from shards), `merge` (for a Dict output, an associative
 `($, key, a, b) => value` over the output's own key and value types, folding a
 key present in two partials; for a Set output, `'union'` — the task's runner
-merges the partials with its `merge` command, as a tree of cached executions
-whose intermediate results are stored like any execution output; it needs a
-stock runtime of this release, since an older runner has no `merge` command;
+merges the partials with its `merge` command, in parallel per key range of
+about `targetPartitionBytes`, as a tree of cached executions whose results
+are stored like any execution output and whose output is a deterministic
+function of the inputs; it needs a stock runtime of this release, since an
+older runner has no `merge` command;
 mutually exclusive with `combine`, and refused on an Array output, in the
 wrong form for the output's kind, or on the `custom` runtime),
 `combine` (associative fold over whole partials; its presence is the mode

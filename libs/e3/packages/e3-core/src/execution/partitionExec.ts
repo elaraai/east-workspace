@@ -14,10 +14,12 @@
  * `by` projection + `targetPartitionBytes`) and each co-partitioned
  * secondary's split points; {@link carvePartitionSlices} carves a
  * partition's slices (byte copy; at most the two edge segments of each
- * secondary are re-encoded); {@link spliceBlobs} splices stored blobs under
- * one header, validating the canonical shard order. The local interpreter
- * calls these directly; a remote backend supplies its kernel's carve and
- * splice.
+ * secondary are re-encoded); {@link planMergeRanges} chooses the key ranges
+ * a merged component's fan-in runs over and {@link carveMergeRange} carves
+ * them out of the partials the same way; {@link spliceBlobs} splices stored
+ * blobs under one header, validating the canonical shard order. The local
+ * interpreter calls these directly; a remote backend supplies its kernel's
+ * carves and splice.
  *
  * Because each per-partition execution is content-addressed by
  * `(taskHash, inputsHash([functionIr, ...slices, ...broadcast]))` and
@@ -50,6 +52,7 @@ import {
   partitionProjectionShape,
   projectKey,
   projectedKeyType,
+  type MergeRangePlan,
   type PartitionPlan,
   type ProjectionShape,
   type TaskObject,
@@ -61,7 +64,7 @@ export { partitionTaskExecute } from './steps.js';
 
 /** A carve position: the first element of the slice, as a segment index and
  *  an element offset within that segment (`offset` 0 = the segment start). */
-interface SplitPoint {
+export interface SplitPoint {
   seg: number;
   offset: number;
 }
@@ -223,7 +226,7 @@ export async function planPartitions(
   const partitions = boundaries.length;
   if (partitions === 1) {
     primary.release();
-    return { plan: { partitions: partitionHashes, boundaries: [0n], splits: [], slices: [] }, partitions };
+    return { plan: { partitions: partitionHashes, boundaries: [0n], splits: [], slices: [], merges: [] }, partitions };
   }
 
   // ---------------------------------------------------------------------
@@ -297,9 +300,215 @@ export async function planPartitions(
       boundaries: boundaries.map((b) => BigInt(b)),
       splits: secondarySplits.map((splits) => splits.map((split) => ({ seg: BigInt(split.seg), offset: BigInt(split.offset) }))),
       slices: [],
+      merges: [],
     },
     partitions,
   };
+}
+
+/**
+ * Plans the ranged fan-in of one merged component: the key ranges its merge
+ * units run over, as split points into every partial. Deterministic — a pure
+ * function of the partials' segment indexes and the byte target — and
+ * bounded: one decoded segment at a time.
+ *
+ * The number of ranges is the component's bytes over `targetBytes`, capped by
+ * the segments of its largest partial (the pilot), whose fences supply the
+ * boundary keys: the pilot's segments pack greedily into runs of about equal
+ * bytes, and each run after the first starts a range at its first fence. A
+ * component of one range — every parity job, and any component smaller than
+ * the target — merges its partials whole. Every partial is then split at the
+ * boundary keys as a co-partitioned secondary is split at the primary's
+ * boundaries: a fence scan, then one segment decode per boundary.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param partials - The component's partial hashes, in partition order; at least one
+ * @param targetBytes - The bytes one merge unit's ranged inputs aim for — the task's `targetPartitionBytes`
+ * @returns Per partial, the split point of every range plus the end (`ranges + 1` points)
+ * @throws {Error} When a partial is not a Set or Dict blob, or a probe fails.
+ */
+export async function planMergeRanges(
+  storage: StorageBackend,
+  repo: string,
+  partials: readonly string[],
+  targetBytes: number,
+): Promise<SplitPoint[][]> {
+  if (partials.length === 0) throw new Error('planMergeRanges: no partials');
+  const whole = (segCount: number): SplitPoint[] => [{ seg: 0, offset: 0 }, { seg: segCount, offset: 0 }];
+
+  // The geometry of every partial from its head and tail alone.
+  const geometry: { bytes: number; segments: number }[] = [];
+  let typeValue: EastTypeValue | null = null;
+  for (const hash of partials) {
+    const blob = await PartitionBlob.open(storage, repo, hash);
+    const { extents } = blob;
+    typeValue ??= extents.typeValue;
+    const segments = extents.offsets.length;
+    geometry.push({ bytes: segments > 0 ? extents.segmentsEnd - extents.offsets[0]! : 0, segments });
+    blob.release();
+  }
+  const collection = typeValue!;
+  if (collection.type !== 'Dict' && collection.type !== 'Set') {
+    throw new Error(`partition merge applies to Dict and Set outputs, got ${collection.type}`);
+  }
+  const isDict = collection.type === 'Dict';
+  const keyType: EastTypeValue = isDict ? (collection as any).value.key : (collection as any).value;
+  const cmp = compareFor(keyType as any) as (a: unknown, b: unknown) => number;
+
+  const totalBytes = geometry.reduce((sum, g) => sum + g.bytes, 0);
+  let pilot = 0;
+  for (let p = 1; p < geometry.length; p++) if (geometry[p]!.bytes > geometry[pilot]!.bytes) pilot = p;
+  const ranges = Math.max(1, Math.min(Math.ceil(totalBytes / Math.max(1, targetBytes)), geometry[pilot]!.segments));
+  if (ranges === 1) return geometry.map((g) => whole(g.segments));
+
+  // The boundary keys: the pilot's fences where its segments, packed greedily
+  // into `ranges` runs of about equal bytes, start a new run.
+  const bounds: unknown[] = [];
+  const pilotBlob = await PartitionBlob.open(storage, repo, partials[pilot]!);
+  try {
+    const { extents } = pilotBlob;
+    const segmentBytes = (i: number): number =>
+      (i + 1 < extents.offsets.length ? extents.offsets[i + 1]! : extents.segmentsEnd) - extents.offsets[i]!;
+    const runBytes = geometry[pilot]!.bytes / ranges;
+    let acc = 0;
+    for (let i = 0; i < extents.offsets.length && bounds.length < ranges - 1; i++) {
+      const size = segmentBytes(i);
+      if (acc > 0 && acc + size > runBytes) {
+        bounds.push(await pilotBlob.fence(i));
+        acc = 0;
+      }
+      acc += size;
+    }
+  } finally {
+    pilotBlob.release();
+  }
+  if (bounds.length === 0) return geometry.map((g) => whole(g.segments));
+
+  // Every partial splits at the boundary keys — one forward pass each.
+  const splits: SplitPoint[][] = [];
+  for (const hash of partials) {
+    const blob = await PartitionBlob.open(storage, repo, hash);
+    try {
+      const points: SplitPoint[] = [{ seg: 0, offset: 0 }];
+      let resumeFrom = 0;
+      for (const bound of bounds) {
+        const split = blob.extents.offsets.length === 0
+          ? { seg: 0, offset: 0 }
+          : await findSplitPoint(blob, isDict, (k) => k, cmp, bound, resumeFrom);
+        points.push(split);
+        resumeFrom = Math.max(0, Math.min(split.seg, blob.extents.offsets.length - 1));
+      }
+      points.push({ seg: blob.extents.offsets.length, offset: 0 });
+      splits.push(points);
+    } finally {
+      blob.release();
+    }
+  }
+  return splits;
+}
+
+/**
+ * Carves range `r` of every partial of a merged component, as
+ * {@link planMergeRanges} split them: whole segments by byte copy, at most
+ * the two edge segments a boundary falls inside re-encoded. A partial with
+ * nothing in the range yields the empty collection under its own header.
+ * Slices stream to the object store; no partial is read whole.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param partials - The component's partial hashes, in partition order
+ * @param splits - Per partial, the split point of every range plus the end
+ * @param r - Zero-based range index
+ * @returns The range's slice hashes, one per partial in partition order
+ * @throws {RangeError} When `r` is not a range of the splits.
+ */
+export async function carveMergeRange(
+  storage: StorageBackend,
+  repo: string,
+  partials: readonly string[],
+  splits: readonly (readonly SplitPoint[])[],
+  r: number,
+): Promise<string[]> {
+  const ranges = (splits[0]?.length ?? 1) - 1;
+  if (!Number.isInteger(r) || r < 0 || r >= ranges) {
+    throw new RangeError(`range ${r} is not one of the plan's ${ranges} ranges`);
+  }
+  const slices: string[] = [];
+  for (let p = 0; p < partials.length; p++) {
+    const blob = await PartitionBlob.open(storage, repo, partials[p]!);
+    try {
+      const points = splits[p]!;
+      const parts = await carveRangeParts(blob, blob.extents.typeValue.type === 'Dict', points[r]!, points[r + 1]!);
+      slices.push(await storage.objects.writeStream(repo, spliceChunks(blob.extents.head, parts)));
+    } finally {
+      blob.release();
+    }
+  }
+  return slices;
+}
+
+/**
+ * The recorded plan a `plan` sidecar names, or `null` when it is gone or does
+ * not decode.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param recordedPlanHash - The hash the sidecar names
+ * @returns The plan, or `null`
+ */
+export async function readRecordedPlan(storage: StorageBackend, repo: string, recordedPlanHash: string): Promise<PartitionPlan | null> {
+  try {
+    return decodePartitionPlan(await storage.objects.read(repo, recordedPlanHash));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The ranged fan-in a recorded plan planned and carved for a component, when
+ * it recorded the same partials: the split points, and `slices[partial][range]`
+ * with `''` for a range the recorded run never carved or one of whose slices
+ * no longer exists (both are carved again); `null` when the recorded plan
+ * holds no such component. The splits are trusted as recorded: they are a
+ * pure function of the partials and the task's byte target, and the plan is
+ * the task's own — so a re-run skips the planning probes entirely.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param recorded - The recorded plan
+ * @param partials - This run's partials of the component, in partition order
+ * @returns The recorded splits and reusable slices, or `null`
+ */
+export async function recordedMergeRange(
+  storage: StorageBackend,
+  repo: string,
+  recorded: PartitionPlan,
+  partials: readonly string[],
+): Promise<{ splits: SplitPoint[][]; slices: string[][] } | null> {
+  const samePartials = (entry: MergeRangePlan): boolean =>
+    entry.partials.length === partials.length && entry.partials.every((hash, i) => hash === partials[i]);
+  const entry = recorded.merges.find(samePartials);
+  if (entry === undefined || entry.splits.length !== partials.length) return null;
+  const splits = entry.splits.map((points) => points.map((point) => ({ seg: Number(point.seg), offset: Number(point.offset) })));
+  const ranges = (splits[0]?.length ?? 1) - 1;
+  if (ranges < 1 || splits.some((points) => points.length !== ranges + 1)) return null;
+  if (entry.slices.length !== partials.length || entry.slices.some((slices) => slices.length !== ranges)) return null;
+  const slices = entry.slices.map((partial) => partial.slice());
+  for (let r = 0; r < ranges; r++) {
+    // A range's slices are reused all together or carved all together.
+    let present = slices.every((partial) => partial[r] !== '');
+    for (const partial of slices) {
+      if (!present) break;
+      try {
+        await storage.objects.stat(repo, partial[r]!);
+      } catch {
+        present = false;
+      }
+    }
+    if (!present) for (const partial of slices) partial[r] = '';
+  }
+  return { splits, slices };
 }
 
 /**
@@ -351,27 +560,21 @@ export async function carvePartitionSlices(
  * The slices a recorded plan carved, when that plan plans exactly as `plan`:
  * `slices[input][partition]`, with `''` for a partition the recorded run
  * never carved or whose slice no longer exists (both are carved again);
- * `null` when the recorded plan differs, is gone or does not decode.
+ * `null` when the recorded plan differs.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
- * @param recordedPlanHash - The plan the `plan` sidecar names
+ * @param recorded - The recorded plan (see {@link readRecordedPlan})
  * @param plan - This run's plan
  * @returns The reusable slices, or `null`
  */
 export async function recordedSlices(
   storage: StorageBackend,
   repo: string,
-  recordedPlanHash: string,
+  recorded: PartitionPlan,
   plan: PartitionPlan,
 ): Promise<string[][] | null> {
-  let recorded: PartitionPlan;
-  try {
-    recorded = decodePartitionPlan(await storage.objects.read(repo, recordedPlanHash));
-  } catch {
-    return null;
-  }
-  if (!equalFor(PartitionPlanType)({ ...recorded, slices: [] }, plan)) return null;
+  if (!equalFor(PartitionPlanType)({ ...recorded, slices: [], merges: [] }, { ...plan, slices: [], merges: [] })) return null;
   const partitions = plan.boundaries.length;
   if (recorded.slices.length !== plan.partitions.length || recorded.slices.some((slices) => slices.length !== partitions)) {
     return null;

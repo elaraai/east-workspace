@@ -338,16 +338,45 @@ export function decodeStreamTaskMetadata(data: Uint8Array): StreamTaskMetadata {
 // Partition plan
 // =============================================================================
 
+/** A carve position: a segment index and an element offset within it. */
+const SplitPointType = StructType({ seg: IntegerType, offset: IntegerType });
+
 /**
- * The plan of a partitioned execution (issue #770): the partitioned inputs,
- * where each partition starts in every one of them, and the carved slices.
+ * The plan of one component's ranged fan-in (issue #770): the partials whose
+ * key ranges overlap, where each key range starts in every one of them, and
+ * the carved range slices the merge units merged.
  *
  * @remarks
- * `partitionTaskExecute` writes it to the object store once every partition
- * has run, and points the `plan` sidecar of the execution's
+ * The ranges are a pure function of the partials and the task's
+ * `targetPartitionBytes`, so a re-run whose partials are the same objects
+ * plans the same splits; recording the slices lets it skip the carve, and
+ * because every slice is content-addressed, every merge unit whose inputs
+ * are unchanged cache-hits.
+ */
+export const MergeRangePlanType = StructType({
+  /** The component's partial hashes, in partition order. */
+  partials: ArrayType(StringType),
+  /** Per partial: the split point of every range plus the end; length ranges + 1. */
+  splits: ArrayType(ArrayType(SplitPointType)),
+  /** slices[partial][range] object hashes; `''` until carved. */
+  slices: ArrayType(ArrayType(StringType)),
+});
+export type MergeRangePlanType = typeof MergeRangePlanType;
+
+export type MergeRangePlan = ValueTypeOf<typeof MergeRangePlanType>;
+
+/**
+ * The plan of a partitioned execution (issue #770): the partitioned inputs,
+ * where each partition starts in every one of them, the carved slices, and
+ * the ranged fan-in of each merged component.
+ *
+ * @remarks
+ * The step interpreter writes it to the object store as the run carves —
+ * after the map step, and again after the reduce step has carved its merge
+ * ranges — and points the `plan` sidecar of the execution's
  * `(taskHash, inputsHash)` directory at it, so a re-plan or a resume that
  * computes the same `partitions`/`boundaries`/`splits` reuses the slices
- * instead of carving them again.
+ * instead of carving them again, partition by partition and range by range.
  */
 export const PartitionPlanType = StructType({
   /** Partitioned input hashes, wire order. */
@@ -355,21 +384,55 @@ export const PartitionPlanType = StructType({
   /** First segment index of each partition of the primary; boundaries[0] = 0. */
   boundaries: ArrayType(IntegerType),
   /** Per secondary (partitions[1..]): the split point of every partition plus the end; length boundaries.length + 1. */
-  splits: ArrayType(ArrayType(StructType({ seg: IntegerType, offset: IntegerType }))),
+  splits: ArrayType(ArrayType(SplitPointType)),
   /** slices[input][partition] object hashes; empty until carved. */
   slices: ArrayType(ArrayType(StringType)),
+  /** The ranged fan-in of each merged component, once its ranges are
+   *  carved. Appended LAST (BEAST2 encodes struct fields positionally) with
+   *  a dual decoder — see {@link decodePartitionPlan}. */
+  merges: ArrayType(MergeRangePlanType),
 });
 export type PartitionPlanType = typeof PartitionPlanType;
 
 export type PartitionPlan = ValueTypeOf<typeof PartitionPlanType>;
 
+/**
+ * The pre-`merges` plan wire shape, kept only so {@link decodePartitionPlan}
+ * can read plans a run recorded before the fan-in ran per key range.
+ */
+const PreMergesPartitionPlanType = StructType({
+  partitions: ArrayType(StringType),
+  boundaries: ArrayType(IntegerType),
+  splits: ArrayType(ArrayType(SplitPointType)),
+  slices: ArrayType(ArrayType(StringType)),
+});
+
 /** Encode a {@link PartitionPlanType} value for the object store. */
 export const encodePartitionPlan: (value: PartitionPlan) => Uint8Array =
   encodeBeast2For(PartitionPlanType);
 
-/** Decode a {@link PartitionPlanType} object. */
-export const decodePartitionPlan: (data: Uint8Array) => PartitionPlan =
-  decodeBeast2For(PartitionPlanType);
+const decodeCurrentPlan = decodeBeast2For(PartitionPlanType);
+const decodePreMergesPlan = decodeBeast2For(PreMergesPartitionPlanType);
+
+/**
+ * Decode a {@link PartitionPlanType} object, tolerating the pre-`merges`
+ * wire shape (dual-decode migration): an older plan decodes with no recorded
+ * merge ranges, so its partition slices are reused and its ranges carved.
+ *
+ * @param data - the plan object's bytes
+ * @returns the decoded plan
+ */
+export function decodePartitionPlan(data: Uint8Array): PartitionPlan {
+  try {
+    return decodeCurrentPlan(data);
+  } catch (err) {
+    try {
+      return { ...decodePreMergesPlan(data), merges: [] };
+    } catch {
+      throw err; // no known shape — surface the current-format error
+    }
+  }
+}
 
 // =============================================================================
 // Partition `by` projections

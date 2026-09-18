@@ -882,17 +882,25 @@ describe('gc', () => {
       it('keeps a partition plan\'s slices reachable', async () => {
         const planHash = 'e'.repeat(64);
         const slices = [['1'.repeat(64), '2'.repeat(64)], ['3'.repeat(64), '4'.repeat(64)]];
+        const rangeSlices = [['7'.repeat(64), '8'.repeat(64)], ['9'.repeat(64), '']];
         const objects = new Map([[planHash, encodePartitionPlan({
           partitions: ['5'.repeat(64), '6'.repeat(64)],
           boundaries: [0n, 3n],
           splits: [[{ seg: 0n, offset: 0n }, { seg: 1n, offset: 2n }, { seg: 4n, offset: 0n }]],
           slices,
+          merges: [{
+            partials: ['a'.repeat(64), 'b'.repeat(64)],
+            splits: [[{ seg: 0n, offset: 0n }, { seg: 2n, offset: 0n }, { seg: 5n, offset: 0n }], [{ seg: 0n, offset: 0n }, { seg: 1n, offset: 3n }, { seg: 4n, offset: 0n }]],
+            slices: rangeSlices,
+          }],
         })]]);
         const store = tracedStore(objects);
 
         const reachable = await markReachable(store.readObject, new Set([planHash]), { readHead: store.readHead });
 
-        assert.deepStrictEqual([...reachable].sort(), [planHash, ...slices.flat()].sort());
+        // Every partition slice and every carved range slice is marked; an
+        // uncarved range slice ('') is not an object.
+        assert.deepStrictEqual([...reachable].sort(), [planHash, ...slices.flat(), ...rangeSlices.flat().filter((h) => h !== '')].sort());
         assert.deepStrictEqual(store.wholeReads, [planHash], 'the slices are marked without being read');
       });
 

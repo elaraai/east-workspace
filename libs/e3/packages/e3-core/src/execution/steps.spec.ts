@@ -92,10 +92,10 @@ describe('steps', () => {
   const mergeIr = encodeEastIR(mergeFn.toIR());
 
   /** The metadata of a partitioned task in one assembly mode. */
-  function metadata(mode: 'splice' | 'combine' | 'merge' | 'union' | 'merge-without-command', runtime: 'east_node' | 'custom' = 'east_node'): PartitionTaskMetadata {
+  function metadata(mode: 'splice' | 'combine' | 'merge' | 'union' | 'merge-without-command', runtime: 'east_node' | 'custom' = 'east_node', targetPartitionBytes = 1n): PartitionTaskMetadata {
     const runner = runtime === 'custom' ? variant('custom', { command: [] }) : variant('east_node', { platforms: [] });
     const command = (m: 'function' | 'union') => runtime === 'custom' ? none : some(encodeEastIR(mergeCommandIr(runner, m)));
-    const base = { partitions: 1n, by: none, combine: none, targetPartitionBytes: 1n, merge: none, mergeSets: false, mergeCommand: none };
+    const base = { partitions: 1n, by: none, combine: none, targetPartitionBytes, merge: none, mergeSets: false, mergeCommand: none };
     switch (mode) {
       case 'splice': return base;
       case 'combine': return { ...base, combine: some(encodeEastIR(East.function([OutType, OutType], OutType, ($, a, _b) => $.return(a)).toIR())) };
@@ -106,13 +106,13 @@ describe('steps', () => {
   }
 
   /** A partitioned task in one assembly mode, on a stock or the custom runtime. */
-  function parentTask(mode: Parameters<typeof metadata>[0], runtime: 'east_node' | 'custom' = 'east_node'): TaskObject {
+  function parentTask(mode: Parameters<typeof metadata>[0], runtime: 'east_node' | 'custom' = 'east_node', targetPartitionBytes = 1n): TaskObject {
     return {
       commandIr: '0'.repeat(64),
       inputs: [],
       output: [],
       kind: some(TASK_KIND_PARTITION),
-      metadata: some(encodePartitionTaskMetadata(metadata(mode, runtime))),
+      metadata: some(encodePartitionTaskMetadata(metadata(mode, runtime, targetPartitionBytes))),
       runner: runtime === 'custom' ? variant('custom', { command: [] }) : variant('east_node', { platforms: [] }),
       environment: none,
     };
@@ -127,7 +127,7 @@ describe('steps', () => {
    * `modulus` counting rows (so partials overlap everywhere), and a merge unit
    * sums equal keys across its partials — in process, recording every unit.
    */
-  function standIn(options: { modulus?: bigint; failWhen?: (task: TaskObject, inputs: string[]) => boolean; onUnit?: () => void } = {}) {
+  function standIn(options: { modulus?: bigint; failWhen?: (task: TaskObject, inputs: string[]) => boolean; onUnit?: () => void; batchSize?: number } = {}) {
     const runs: { kind: string; inputs: string[] }[] = [];
     const executeUnit = async (_taskHash: string, task: TaskObject, inputs: string[]): Promise<ExecutionResult> => {
       const kind = task.kind.type === 'some' ? task.kind.value : 'data';
@@ -152,7 +152,7 @@ describe('steps', () => {
           merged.set(out, (merged.get(out) ?? 0n) + 1n);
         }
       }
-      return { ...base, state: 'success', outputHash: await store(merged), exitCode: 0, error: null };
+      return { ...base, state: 'success', outputHash: await store(merged, options.batchSize), exitCode: 0, error: null };
     };
     return { runs, executeUnit };
   }
@@ -216,7 +216,7 @@ describe('steps', () => {
       const merge = await templateFor(storage, repo, 't'.repeat(64), parentTask('merge'), metadata('merge'), 2);
       assert.deepEqual(kinds(merge), ['plan', 'map', 'reduce', 'splice']);
       const tree = merge[2] as Extract<Step, { kind: 'reduce' }>;
-      assert.deepEqual([tree.fanIn, tree.group, tree.label, tree.over, tree.unavailable], [MERGE_TREE_FANIN, 'components', 'merge', 1, null]);
+      assert.deepEqual([tree.fanIn, tree.group, tree.rangeBytes, tree.label, tree.over, tree.unavailable], [MERGE_TREE_FANIN, 'ranges', 1, 'merge', 1, null]);
       assert.deepEqual(merge[3], { kind: 'splice', over: 2, fallback: 1, subject: 'components' });
     });
 
@@ -357,6 +357,67 @@ describe('steps', () => {
         decodeBeast2For(OutType)(await storage.objects.read(repo, pooled.result.outputHash!)),
         decodeBeast2For(OutType)(await storage.objects.read(repo, single.result.outputHash!)),
       ), 'the pool width never changes the result');
+    });
+
+    it('cuts a component whose partials span several segments into key ranges, merging each in its own unit', async () => {
+      // 400 rows in 40-row partitions: ten partitions, each re-keyed onto
+      // forty of the keys 0..99, so every key lands in four partials — one
+      // component. Each partial is stored in 4-row segments (ten per
+      // partial), and a byte target of 1 cuts the component into as many
+      // ranges as its largest partial has segments: ten ranges, each merged
+      // by one unit over the ten partials' slices of it.
+      const table = await store(dict(range(0, 400)), 40);
+      const { runs, executeUnit } = standIn({ modulus: 100n, batchSize: 4 });
+      const { taskHash, ids, result } = await run(parentTask('merge'), ['f'.repeat(64), table], executeUnit, { partitionConcurrency: 3 });
+      assert.equal(result.state, 'success', result.error ?? '');
+      const merges = runs.filter((r) => r.kind === TASK_KIND_MERGE);
+      assert.equal(merges.length, 10, 'one merge unit per range');
+      assert.ok(merges.every((r) => r.inputs.length === 1 + 10), 'every unit merges every partial\'s slice of its range');
+      const expected = dict(range(0, 100), 4n);
+      assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await storage.objects.read(repo, result.outputHash!)), expected));
+      const lines = await logLines(taskHash, ids);
+      assert.equal(lines.filter((line) => line.startsWith('merge level 1/1 unit ')).length, 10);
+
+      // The plan records the component's ranges and their carved slices.
+      const planHash = await storage.refs.executionPlanRead!(repo, taskHash, ids.inHash);
+      const plan = decodePartitionPlan(await storage.objects.read(repo, planHash!));
+      assert.equal(plan.merges.length, 1);
+      assert.equal(plan.merges[0]!.partials.length, 10);
+      assert.equal(plan.merges[0]!.splits[0]!.length, 11, 'ten ranges: eleven split points per partial');
+      assert.ok(plan.merges[0]!.slices.every((partial) => partial.length === 10 && partial.every((slice) => slice !== '')));
+
+      // A forced re-run under one worker writes the same bytes, reuses every
+      // recorded slice — its only streamed write is the output splice — and
+      // runs the same units again.
+      const objects = storage.objects;
+      let streamWrites = 0;
+      const origWriteStream = objects.writeStream.bind(objects);
+      objects.writeStream = (r: string, s: AsyncIterable<Uint8Array>) => {
+        streamWrites++;
+        return origWriteStream(r, s);
+      };
+      const again = standIn({ modulus: 100n, batchSize: 4 });
+      const forced = await run(parentTask('merge'), ['f'.repeat(64), table], again.executeUnit, { partitionConcurrency: 1, force: true });
+      assert.equal(forced.result.state, 'success', forced.result.error ?? '');
+      assert.equal(forced.result.outputHash, result.outputHash, 'the same inputs write the same hash, whatever the pool width');
+      assert.equal(streamWrites, 1, 'the partition slices and the range slices are reused');
+      assert.equal(again.runs.filter((r) => r.kind === TASK_KIND_MERGE).length, 10);
+    });
+
+    it('merges a component whose partials are single segments whole, in one unit, recording no ranges', async () => {
+      // The same ten partitions folded onto three keys: each partial is one
+      // segment, so the largest partial caps the ranges at one whatever the
+      // byte target, and the component merges whole.
+      const table = await store(dict(range(0, 400)), 40);
+      const { runs, executeUnit } = standIn({ modulus: 3n, batchSize: 4 });
+      const { taskHash, ids, result } = await run(parentTask('merge'), ['f'.repeat(64), table], executeUnit, { partitionConcurrency: 3 });
+      assert.equal(result.state, 'success', result.error ?? '');
+      assert.equal(runs.filter((r) => r.kind === TASK_KIND_MERGE).length, 1);
+      const expected = dict([]);
+      for (const k of range(0, 400)) expected.set(BigInt(k % 3), (expected.get(BigInt(k % 3)) ?? 0n) + 1n);
+      assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await storage.objects.read(repo, result.outputHash!)), expected));
+      const plan = decodePartitionPlan(await storage.objects.read(repo, (await storage.refs.executionPlanRead!(repo, taskHash, ids.inHash))!));
+      assert.deepEqual(plan.merges, []);
     });
 
     it('runs no merge unit for disjoint partials, splicing them in key order', async () => {

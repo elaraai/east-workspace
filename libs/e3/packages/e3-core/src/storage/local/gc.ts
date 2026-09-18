@@ -309,12 +309,13 @@ function isRecordCommitShape(type: any): boolean {
 /**
  * Check if a decoded EastTypeValue represents a PartitionPlan.
  * PartitionPlan is a Struct with exactly the fields partitions, boundaries,
- * splits, slices.
+ * splits, slices — and, since the fan-in ran per key range, merges.
  */
 function isPartitionPlanShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
   const names = new Set((type.value as { name: string }[]).map(f => f.name));
-  return names.size === 4
+  const merges = names.has('merges') ? 1 : 0;
+  return names.size === 4 + merges
     && names.has('partitions') && names.has('boundaries') && names.has('splits') && names.has('slices');
 }
 
@@ -464,9 +465,16 @@ function extractChildren(
   }
 
   if (isPartitionPlanShape(t)) {
-    const plan = value as { slices: string[][] };
+    // Partition slices and merge-range slices are leaves; '' marks a slice
+    // the run never carved, which is no object.
+    const plan = value as { slices: string[][]; merges?: { slices: string[][] }[] };
     for (const slices of plan.slices) {
-      for (const slice of slices) children.push({ hash: slice, isLeaf: true }); // slices are leaves
+      for (const slice of slices) if (slice !== '') children.push({ hash: slice, isLeaf: true });
+    }
+    for (const merge of plan.merges ?? []) {
+      for (const slices of merge.slices) {
+        for (const slice of slices) if (slice !== '') children.push({ hash: slice, isLeaf: true });
+      }
     }
     return children;
   }

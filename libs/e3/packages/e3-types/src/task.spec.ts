@@ -13,23 +13,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  BlobType,
-  BooleanType,
-  East,
-  IntegerType,
-  OptionType,
-  StringType,
-  StructType,
-  compareFor,
-  encodeBeast2For,
-  encodeEastIR,
-  isTypeValueEqual,
-  none,
-  some,
-  toEastTypeValue,
-  variant,
-} from '@elaraai/east';
+import { ArrayType, BlobType, BooleanType, East, IntegerType, OptionType, StringType, StructType, compareFor, encodeBeast2For, encodeEastIR, isTypeValueEqual, none, some, toEastTypeValue, variant } from '@elaraai/east';
 import type { FunctionIR } from '@elaraai/east';
 import {
   decodePartitionPlan,
@@ -109,17 +93,51 @@ describe('StreamTaskMetadataType', () => {
 });
 
 describe('PartitionPlanType', () => {
-  it('round-trips a plan, before and after its slices are carved', () => {
+  it('round-trips a plan, before and after its slices and merge ranges are carved', () => {
     const plan: PartitionPlan = {
       partitions: ['a'.repeat(64), 'b'.repeat(64)],
       boundaries: [0n, 4n, 9n],
       splits: [[{ seg: 0n, offset: 0n }, { seg: 3n, offset: 17n }, { seg: 8n, offset: 0n }, { seg: 12n, offset: 0n }]],
       slices: [],
+      merges: [],
     };
     assert.deepEqual(decodePartitionPlan(encodePartitionPlan(plan)), plan);
 
     const carved: PartitionPlan = { ...plan, slices: [['c'.repeat(64), 'd'.repeat(64), 'e'.repeat(64)], ['f'.repeat(64), '0'.repeat(64), '1'.repeat(64)]] };
     assert.deepEqual(decodePartitionPlan(encodePartitionPlan(carved)), carved);
+
+    const merged: PartitionPlan = {
+      ...carved,
+      merges: [{
+        partials: ['2'.repeat(64), '3'.repeat(64)],
+        splits: [[{ seg: 0n, offset: 0n }, { seg: 1n, offset: 5n }, { seg: 2n, offset: 0n }], [{ seg: 0n, offset: 0n }, { seg: 0n, offset: 9n }, { seg: 3n, offset: 0n }]],
+        slices: [['4'.repeat(64), '5'.repeat(64)], ['6'.repeat(64), '']],
+      }],
+    };
+    assert.deepEqual(decodePartitionPlan(encodePartitionPlan(merged)), merged);
+  });
+
+  it('decodes a plan recorded before merge ranges existed, with none', () => {
+    // The pre-`merges` wire shape, encoded directly.
+    const PreMergesPlanType = StructType({
+      partitions: ArrayType(StringType),
+      boundaries: ArrayType(IntegerType),
+      splits: ArrayType(ArrayType(StructType({ seg: IntegerType, offset: IntegerType }))),
+      slices: ArrayType(ArrayType(StringType)),
+    });
+    const older = encodeBeast2For(PreMergesPlanType)({
+      partitions: ['a'.repeat(64)],
+      boundaries: [0n, 2n],
+      splits: [],
+      slices: [['b'.repeat(64), 'c'.repeat(64)]],
+    });
+    assert.deepEqual(decodePartitionPlan(older), {
+      partitions: ['a'.repeat(64)],
+      boundaries: [0n, 2n],
+      splits: [],
+      slices: [['b'.repeat(64), 'c'.repeat(64)]],
+      merges: [],
+    });
   });
 });
 
