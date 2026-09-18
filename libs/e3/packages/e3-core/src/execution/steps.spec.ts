@@ -299,6 +299,66 @@ describe('steps', () => {
       assert.ok(equalFor(OutType)(merged, expected));
     });
 
+    it('runs a map step\'s units and a reduce level\'s units concurrently, partitionConcurrency at a time', { timeout: 60_000 }, async () => {
+      // 40 partitions re-keyed onto one component: two level-1 merge units.
+      // The first four partition units and both level-1 merge units wait at
+      // a gate that opens only once that many are in flight — a pool that
+      // ran fewer at a time would never get past it — and the most units in
+      // flight is pinned to the pool's width. One worker never overlaps.
+      function gate(width: number) {
+        let inFlight = 0;
+        let peak = 0;
+        let admitted = 0;
+        const waiting: (() => void)[] = [];
+        return {
+          peak: () => peak,
+          async enter(): Promise<void> {
+            inFlight++;
+            peak = Math.max(peak, inFlight);
+            if (admitted++ < width) {
+              await new Promise<void>((resolve) => {
+                waiting.push(resolve);
+                if (waiting.length === width) for (const open of waiting.splice(0)) open();
+              });
+            }
+          },
+          leave(): void {
+            inFlight--;
+          },
+        };
+      }
+      const gated = (executeUnit: ReturnType<typeof standIn>['executeUnit'], gateFor: (task: TaskObject) => ReturnType<typeof gate>) =>
+        async (taskHash: string, task: TaskObject, inputs: string[]): Promise<ExecutionResult> => {
+          const g = gateFor(task);
+          await g.enter();
+          try {
+            return await executeUnit(taskHash, task, inputs);
+          } finally {
+            g.leave();
+          }
+        };
+      const isMerge = (task: TaskObject) => task.kind.type === 'some' && task.kind.value === TASK_KIND_MERGE;
+
+      const table = await store(dict(range(0, 160)));
+      const partitions = gate(4);
+      const merges = gate(2);
+      const pooled = await run(parentTask('merge'), ['f'.repeat(64), table], gated(standIn({ modulus: 3n }).executeUnit, (task) => isMerge(task) ? merges : partitions), { partitionConcurrency: 4 });
+      assert.equal(pooled.result.state, 'success', pooled.result.error ?? '');
+      assert.equal(partitions.peak(), 4, 'four partition units in flight at once');
+      assert.equal(merges.peak(), 2, 'both level-1 merge units in flight at once');
+
+      // A fresh input (so nothing cache-hits) under one worker.
+      const other = await store(dict(range(0, 160)), 8);
+      const serial = gate(1);
+      const single = await run(parentTask('merge'), ['f'.repeat(64), other], gated(standIn({ modulus: 3n }).executeUnit, () => serial), { partitionConcurrency: 1 });
+      assert.equal(single.result.state, 'success', single.result.error ?? '');
+      assert.equal(serial.peak(), 1, 'one worker never overlaps units');
+      assert.ok(equalFor(OutType)(
+        decodeBeast2For(OutType)(await storage.objects.read(repo, pooled.result.outputHash!)),
+        decodeBeast2For(OutType)(await storage.objects.read(repo, single.result.outputHash!)),
+      ), 'the pool width never changes the result');
+    });
+
     it('runs no merge unit for disjoint partials, splicing them in key order', async () => {
       // The identity stand-in: partials are the slices, disjoint by
       // construction. The custom runtime is refused only when a unit would run.
