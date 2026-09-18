@@ -211,21 +211,46 @@ def test_self_reference_in_set_or_dict_key_is_rejected():
         )
 
 
-# ── PatchType over recursive types (#475/#478) ───────────────────────────────
+# ── PatchType over recursive types (#475/#478, #774) ─────────────────────────
 
-def test_patch_type_back_references_are_replace_only_of_the_whole_type():
+def test_patch_type_of_a_recursive_type_is_replace_only():
+    """A recursive type is replace-only — the whole recursive value is the
+    unit of change, at the wrapper and at every reference back to it. That
+    is the patch type TypeScript declares and every runtime's diff/apply
+    produce and consume (#774); an earlier version patched the outer level
+    structurally, which no runtime's apply accepted."""
     p = PatchType(LinkedType)
-    # The outer level patches structurally (the wrapper is transparent).
-    assert {c["name"] for c in p.value} == {"unchanged", "replace", "patch"}
-    inner_patch = _case_type(p, "patch")
-    cons_patch = _case_type(inner_patch, "cons")
-    tail_patch = _case_type(cons_patch, "patch").value[1]["type"]
-    # The back-reference position carries replace-only semantics, and the
-    # replaced value is the WHOLE recursive type — never a bare back-ref.
-    assert {c["name"] for c in tail_patch.value} == {"unchanged", "replace"}
-    replace_struct = _case_type(tail_patch, "replace")
+    assert {c["name"] for c in p.value} == {"unchanged", "replace"}
+    replace_struct = _case_type(p, "replace")
+    assert [f["name"] for f in replace_struct.value] == ["before", "after"]
     assert replace_struct.value[0]["type"] is LinkedType
     assert replace_struct.value[1]["type"] is LinkedType
+
+
+def test_patch_type_is_the_same_wherever_the_type_occurs():
+    """The patch type is a pure function of the type: a recursive type reached
+    through a container and the same type bare, side by side, get one patch
+    type — the shape the Patch_Fuzz corpus exercises with a nested wrapper
+    named several times over (#774). The TypeScript builder writes the same
+    types into the IR, which the conformance round trip pins."""
+    both = StructType([("a", ArrayType(LinkedType)), ("b", LinkedType), ("c", LinkedType)])
+    p = PatchType(both)
+    fields = {f["name"]: f["type"] for f in _case_type(p, "patch").value}
+    a_element = _case_type(_case_type(fields["a"], "patch").value.value[2]["type"], "update")
+    assert a_element is fields["b"]
+    assert fields["b"] is fields["c"]
+    assert fields["b"] is PatchType(LinkedType)
+
+    outer = recursive_type(
+        lambda self: StructType([
+            ("first", DictType(StringType, LinkedType)),
+            ("second", LinkedType),
+            ("next", VariantType([("none", NullType), ("some", self)])),
+        ])
+    )
+    p_outer = PatchType(outer)
+    assert {c["name"] for c in p_outer.value} == {"unchanged", "replace"}
+    assert _case_type(p_outer, "replace").value[0]["type"] is outer
 
 
 def test_patch_type_raises_on_a_detached_ref():
