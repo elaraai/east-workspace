@@ -33,6 +33,7 @@
 #include "serialization.h"
 #include "emit_sink.h"
 #include "file_map.h"
+#include "merge.h"
 
 /* Exit with the parent (issue #770). With EAST_EXIT_WITH_PARENT=1 in the
  * environment, starts a detached watcher thread that blocks reading stdin and

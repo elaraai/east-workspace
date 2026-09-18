@@ -34,7 +34,9 @@ import {
   FunctionType,
   IntegerType,
   NullType,
+  SetType,
   SortedMap,
+  SortedSet,
   StringType,
   StructType,
   compareFor,
@@ -169,6 +171,35 @@ function scatterEmitter(count) {
 const folds = foldSequences();
 const ascendingPairs = foldPairs(folds.ascending);
 const scatteredPairs = foldPairs(folds.scattered);
+
+/** The blob merge's inputs (#770): three sorted Dicts whose keys overlap —
+ *  a = 0..19, b = 10..29, c = {5, 15, 25, 40} — each value naming its input,
+ *  and their fold under the concatenating merge in input order. */
+const mergeKeys = {
+  a: Array.from({ length: 20 }, (_, k) => k),
+  b: Array.from({ length: 20 }, (_, k) => k + 10),
+  c: [5, 15, 25, 40],
+};
+const IntStringDict = DictType(IntegerType, StringType);
+const intCmp = compareFor(IntegerType);
+function mergeInput(name) {
+  return encodeBeast2PagedFor(IntStringDict, { batchSize: 4 })(
+    new SortedMap(mergeKeys[name].map((k) => [BigInt(k), `${name}${k}`]), intCmp),
+  );
+}
+function mergeSetInput(name) {
+  return encodeBeast2PagedFor(SetType(IntegerType), { batchSize: 4 })(
+    new SortedSet(mergeKeys[name].map((k) => BigInt(k)), intCmp),
+  );
+}
+const mergeFolded = new Map();
+for (const name of ['a', 'b', 'c']) {
+  for (const k of mergeKeys[name]) mergeFolded.set(k, (mergeFolded.get(k) ?? '') + `${name}${k}`);
+}
+const mergeFoldedPairs = [...mergeFolded]
+  .sort(([x], [y]) => x - y)
+  .map(([k, v]) => ({ key: BigInt(k), value: v }));
+const mergeDistinct = unionKeys([...mergeKeys.a, ...mergeKeys.b, ...mergeKeys.c].map((k) => BigInt(k)));
 
 const fixtures = {
   // Producer: no file inputs, 2500 emissions of i*2 through the trailing
@@ -368,6 +399,26 @@ const fixtures = {
   // EAST_EMIT_RUN_ELEMENTS so the merge takes more passes as the output grows.
   'emit_scatter_50k.beast2': encodeEastIR(scatterEmitter(50_000n)),
   'emit_scatter_400k.beast2': encodeEastIR(scatterEmitter(400_000n)),
+
+  // ---- The blob merge (#770) --------------------------------------------
+
+  // Sorted inputs written by the TS paged writer in four-entry segments;
+  // `merge --merge` over the three Dicts and `merge --union` over the three
+  // Sets must write exactly the bytes `run --emit` writes for the folded
+  // (respectively distinct) sequence emitted ascending. An empty input, and a
+  // Dict of another type for the mismatch refusal.
+  'merge_in_a.beast2': mergeInput('a'),
+  'merge_in_b.beast2': mergeInput('b'),
+  'merge_in_c.beast2': mergeInput('c'),
+  'merge_expected_dict.beast2': encodeEastIR(pairEmitter(mergeFoldedPairs)),
+  'merge_set_a.beast2': mergeSetInput('a'),
+  'merge_set_b.beast2': mergeSetInput('b'),
+  'merge_set_c.beast2': mergeSetInput('c'),
+  'merge_expected_set.beast2': encodeEastIR(keyEmitter(mergeDistinct)),
+  'merge_empty.beast2': encodeBeast2PagedFor(IntStringDict, { batchSize: 4 })(new SortedMap([], intCmp)),
+  'merge_mismatch.beast2': encodeBeast2PagedFor(DictType(StringType, FloatType), { batchSize: 4 })(
+    new SortedMap([['x', 1.5]], compareFor(StringType)),
+  ),
 
   // The lifeline: one emission, then a loop that never ends, which only the
   // exit-with-parent watcher stops. The sink opens the output file before the
