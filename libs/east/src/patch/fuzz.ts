@@ -61,16 +61,14 @@ export interface FuzzTestCase<T extends EastType = EastType> {
     diffHex: string[];
     /** Per pair, the bytes of `invertPatch(diff(before, after))`. */
     invertHex: string[];
-    /** The type of `composed`: an array of the patch type. */
-    composedArrayType: ArrayTypeT<EastType>;
     /**
-     * Per triplet, `composePatch(diff(v1, v2), diff(v2, v3))` as TypeScript
-     * computes it. Composition is pinned by value equality, not bytes: its
-     * result is the same value on every runtime, but each runtime's compose
-     * reuses different sub-containers of its inputs and the wire records
-     * that sharing.
+     * Per triplet, the bytes of `composePatch(diff(v1, v2), diff(v2, v3))`.
+     * A composition can carry one input container twice — an element the
+     * first patch inserts and the second replaces — and the wire records
+     * that sharing as a back-reference, so these bytes also pin that every
+     * runtime's writer sees the sharing (#774).
      */
-    composed: ValueTypeOf<EastType>[];
+    composeHex: string[];
 }
 
 /**
@@ -268,7 +266,7 @@ export function generateFuzzTestCases(options: FuzzTestOptions = {}): FuzzTestCa
             const diffs = pairs.map(({ before, after }) => diff(before, after));
             const diffHex = diffs.map(hex);
             const invertHex = diffs.map((patch) => hex(invert(patch)));
-            const composed = triplets.map(({ v1, v2, v3 }) => compose(diff(v1, v2), diff(v2, v3)));
+            const composeHex = triplets.map(({ v1, v2, v3 }) => hex(compose(diff(v1, v2), diff(v2, v3))));
 
             seenTypes.add(typeName);
             testCases.push({
@@ -281,8 +279,7 @@ export function generateFuzzTestCases(options: FuzzTestOptions = {}): FuzzTestCa
                 triplets,
                 diffHex,
                 invertHex,
-                composedArrayType: ArrayType(patchType),
-                composed,
+                composeHex,
             });
             return true;
         } catch (e) {

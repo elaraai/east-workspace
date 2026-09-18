@@ -127,6 +127,19 @@ await describe("Patch - Primitives", (test) => {
         $(assert.equal(patch.unwrap("replace").before, ""));
         $(assert.equal(patch.unwrap("replace").after, "x"));
     });
+
+    // Function: East equality never inspects a closure — every function is
+    // equal to every other — so a function-typed diff is always unchanged.
+    // east-c compared closure identity, so two closures diffed to a replace
+    // there and to unchanged on TypeScript and east-py (#774).
+    test("Function: any two functions diff to unchanged", $ => {
+        const addOne = $.const(East.function([IntegerType], IntegerType, ($, x) => x.add(1n)));
+        const double = $.const(East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));
+        $(assert.equal(East.equal(addOne, double), true));
+        const patch = $.const(East.diff(addOne, double));
+        $(assert.equal(patch.getTag(), "unchanged"));
+        $(assert.equal(East.applyPatch(addOne, patch)(5n), 6n));
+    });
 });
 
 // =============================================================================
@@ -2102,18 +2115,19 @@ await describe("Patch - Recursive (replace-only)", (test) => {
 // beast2 type section — which names the same type in every process, where a
 // printed type would embed process-local ids.
 //
-// Every diff and invert is also pinned to the bytes TypeScript encodes for
-// it, and every compose to the value TypeScript computes, so a runtime must
-// produce the same patch VALUE as the reference, not merely one that applies
-// to the same result — east-c's patches diverged from TypeScript's for years
-// behind apply-only checks (structural patches through recursive wrappers,
-// unpaired array updates; #774). Compose is pinned by equality rather than
-// bytes because each runtime's compose reuses different sub-containers of
-// its inputs and the wire records that sharing. Function types are left out:
-// TypeScript's equality holds every function equal, east-c compares
-// closures, and a function value's encoding carries its source map — none of
-// which is a patch question.
-const fuzzTestCases = generateFuzzTestCases({ numTypes: 100, numSamples: 3, valueDepth: 2, includeFunctions: false });
+// Every diff, invert and compose is also pinned to the bytes TypeScript
+// encodes for it, so a runtime must produce the same patch VALUE as the
+// reference, not merely one that applies to the same result — east-c's
+// patches diverged from TypeScript's for years behind apply-only checks
+// (structural patches through recursive wrappers, unpaired array updates;
+// #774). The compose bytes also carry sharing: a composition can hold one
+// input element twice, inserted by the first patch and replaced by the
+// second, and the wire records the second occurrence as a back-reference,
+// which east-c's writer used to miss for a container owned by a shared
+// struct or variant. Function types are in: every function is equal to every
+// other on every runtime, so a function-typed diff is `unchanged`, and a
+// function value carried in a replace encodes to the same bytes everywhere.
+const fuzzTestCases = generateFuzzTestCases({ numTypes: 100, numSamples: 3, valueDepth: 2 });
 
 await describe("Patch Fuzz", (test) => {
     // The cases are typed by EastType itself — every East type at once — so
@@ -2157,7 +2171,7 @@ await describe("Patch Fuzz", (test) => {
 
         test(`${typeId}: compose round trip`, $ => {
             const trips = $.const(tc.triplets, tc.tripletsArrayType);
-            const expected = $.const(tc.composed, tc.composedArrayType);
+            const expected = $.const(tc.composeHex, ArrayType(StringType));
 
             $.for(trips, ($, trip, i) => {
                 const v1 = $.let(trip.v1);
@@ -2167,7 +2181,7 @@ await describe("Patch Fuzz", (test) => {
                 const p1 = $.let(East.diff<EastType>(v1, v2));
                 const p2 = $.let(East.diff<EastType>(v2, v3));
                 const composed = $.let(East.composePatch<EastType>(p1, p2, tc.type));
-                $(assert.equal(East.equal<EastType>(composed, expected.get(i)), true));
+                $(assert.equal(East.str`${East.Blob.encodeBeast(composed, 'v2')}`, expected.get(i)));
                 const direct = $.let(East.applyPatch<EastType>(v1, composed));
 
                 $(assert.equal(East.equal<EastType>(direct, v3), true));
