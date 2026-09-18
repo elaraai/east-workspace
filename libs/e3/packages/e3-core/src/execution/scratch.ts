@@ -64,14 +64,26 @@ export interface SweepScratchOptions {
   minAge: number;
 }
 
+/** Whether a process with `pid` exists — signal 0 sends nothing. */
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Removes the execution scratch directories whose orchestrator has exited.
  *
  * A directory's owner is gone when the pid in its name no longer has the
- * start time in its name. A directory named in the older form, without a start
- * time, is removed when its pid does not exist and the directory is older than
- * `minAge`. Directories of live processes, and anything else under the scratch
- * root, are left alone.
+ * start time in its name. Where the platform reports no start time (Windows,
+ * and any pid `/proc` cannot answer for), the pid's existence decides: a
+ * directory is removed when its pid does not exist. A directory named in the
+ * older form, without a start time, is removed when its pid does not exist
+ * and the directory is older than `minAge`. Directories of live processes,
+ * and anything else under the scratch root, are left alone.
  *
  * @param options - The age gate for directories named in the older form
  * @returns The number of directories removed
@@ -90,12 +102,15 @@ export async function sweepScratchDirs(options: SweepScratchOptions): Promise<nu
     if (!entry.startsWith(SCRATCH_PREFIX)) continue;
     const fields = entry.slice(SCRATCH_PREFIX.length).split('-');
     let ownerGone: boolean;
+    const pid = Number(fields[2]);
+    const startTime = await getPidStartTime(pid);
     if (fields.length === 5) {
       // <task8>-<in8>-<pid>-<pidStartTime>-<ms>
-      ownerGone = await getPidStartTime(Number(fields[2])) !== Number(fields[3]);
+      ownerGone = startTime !== 0 ? startTime !== Number(fields[3]) : !processExists(pid);
     } else if (fields.length === 4) {
-      // <task8>-<in8>-<pid>-<ms>
-      ownerGone = await getPidStartTime(Number(fields[2])) === 0 && now - Number(fields[3]) > options.minAge;
+      // <task8>-<in8>-<pid>-<ms>: with no start time, a reused pid cannot be
+      // told apart, so the directory must also be old.
+      ownerGone = startTime === 0 && !processExists(pid) && now - Number(fields[3]) > options.minAge;
     } else {
       continue;
     }

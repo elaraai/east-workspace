@@ -39,6 +39,7 @@ export {
 // Garbage collection
 export {
   repoGc,
+  TASKS_LOCK,
   collectAllRoots,
   markReachable,
   sweepBatch,

@@ -531,22 +531,31 @@ export function sweepBatch(
 // =============================================================================
 
 /**
+ * The lock an ad-hoc task run (`e3 run`) holds shared for its duration and
+ * gc takes exclusive, so the two never overlap: a run outside any workspace
+ * has no dataflow lock, yet writes objects it has not rooted (carved slices,
+ * unit outputs) that a concurrent sweep would delete.
+ */
+export const TASKS_LOCK = '#tasks';
+
+/**
  * Run garbage collection on an e3 repository.
  *
  * Works with any StorageBackend — no instanceof checks.
  *
- * gc holds every workspace's dataflow lock from before the mark until the
- * sweep is done, so it never overlaps a dataflow run: the objects a run writes
- * before it roots them (carved slices, merge-unit objects) need no rooting.
- * Marking is header-first when the object store serves ranged reads, so a
- * dataset is never read whole.
+ * gc holds the {@link TASKS_LOCK} exclusively and every workspace's dataflow
+ * lock from before the mark until the sweep is done, so it never overlaps an
+ * ad-hoc task run or a dataflow run: the objects a run writes before it roots
+ * them (carved slices, unit outputs) need no rooting. Marking is header-first
+ * when the object store serves ranged reads, so a dataset is never read
+ * whole.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param options - GC options
  * @returns GC result with statistics
- * @throws {Error} When a dataflow is running in one of the repository's
- *   workspaces.
+ * @throws {Error} When a task is running in the repository, or a dataflow is
+ *   running in one of its workspaces.
  */
 export async function repoGc(
   storage: StorageBackend,
@@ -555,6 +564,11 @@ export async function repoGc(
 ): Promise<GcResult> {
   const locks: LockHandle[] = [];
   try {
+    const tasks = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null));
+    if (tasks === null) {
+      throw new Error('gc: a task is running — retry when it finishes');
+    }
+    locks.push(tasks);
     for (const ws of await storage.refs.workspaceList(repo)) {
       const lock = await storage.locks.acquire(repo, `${ws}#dataflow`, variant('dataflow', null));
       if (lock === null) {
@@ -570,7 +584,7 @@ export async function repoGc(
   }
 }
 
-/** The mark and sweep of {@link repoGc}, run under its dataflow locks. */
+/** The mark and sweep of {@link repoGc}, run under its locks. */
 async function collectGarbage(
   storage: StorageBackend,
   repo: string,
