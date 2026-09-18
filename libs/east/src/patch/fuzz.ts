@@ -28,6 +28,11 @@ import {
 } from "../types.js";
 import { EastTypeType } from "../type_of_type.js";
 import { randomType, randomValueFor, randomRecursiveType, randomSharedRecursiveType, randomFunctionType, seedFuzz, typeFingerprint } from "../fuzz.js";
+import { encodeBeast2For } from "../serialization/beast2/index.js";
+import { PatchType } from "./type_of_patch.js";
+import { diffFor } from "./diff.js";
+import { invertFor } from "./invert.js";
+import { composeFor } from "./compose.js";
 
 /**
  * A generated test case containing a random type and sample values for testing.
@@ -47,6 +52,23 @@ export interface FuzzTestCase<T extends EastType = EastType> {
     pairs: Array<{ before: ValueTypeOf<T>; after: ValueTypeOf<T> }>;
     /** Value triplets for compose tests */
     triplets: Array<{ v1: ValueTypeOf<T>; v2: ValueTypeOf<T>; v3: ValueTypeOf<T> }>;
+    /**
+     * Per pair, the beast2 bytes of `diff(before, after)` as TypeScript
+     * computes and encodes it (`0x…`): the corpus asserts every runtime's
+     * diff encodes to these bytes, so a patch is the same value on every
+     * runtime — not merely one that applies to the same result (#774).
+     */
+    diffHex: string[];
+    /** Per pair, the bytes of `invertPatch(diff(before, after))`. */
+    invertHex: string[];
+    /**
+     * Per triplet, the bytes of `composePatch(diff(v1, v2), diff(v2, v3))`.
+     * A composition can carry one input container twice — an element the
+     * first patch inserts and the second replaces — and the wire records
+     * that sharing as a back-reference, so these bytes also pin that every
+     * runtime's writer sees the sharing (#774).
+     */
+    composeHex: string[];
 }
 
 /**
@@ -233,6 +255,19 @@ export function generateFuzzTestCases(options: FuzzTestOptions = {}): FuzzTestCa
             const pairsArrayType = ArrayType(StructType({ before: type, after: type }));
             const tripletsArrayType = ArrayType(StructType({ v1: type, v2: type, v3: type }));
 
+            // The reference patch values and their bytes, for the runtimes
+            // to match byte for byte.
+            const patchType = PatchType(type);
+            const diff = diffFor(type);
+            const invert = invertFor(type);
+            const compose = composeFor(type);
+            const encode = encodeBeast2For(patchType);
+            const hex = (patch: any) => `0x${Buffer.from(encode(patch)).toString("hex")}`;
+            const diffs = pairs.map(({ before, after }) => diff(before, after));
+            const diffHex = diffs.map(hex);
+            const invertHex = diffs.map((patch) => hex(invert(patch)));
+            const composeHex = triplets.map(({ v1, v2, v3 }) => hex(compose(diff(v1, v2), diff(v2, v3))));
+
             seenTypes.add(typeName);
             testCases.push({
                 type,
@@ -242,6 +277,9 @@ export function generateFuzzTestCases(options: FuzzTestOptions = {}): FuzzTestCa
                 tripletsArrayType,
                 pairs,
                 triplets,
+                diffHex,
+                invertHex,
+                composeHex,
             });
             return true;
         } catch (e) {

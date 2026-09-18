@@ -90,7 +90,7 @@ static void enc_map_insert(B2V5EncodeCtx *ctx, EastValue *value, size_t idx)
 void b2v5_enc_ctx_register(B2V5EncodeCtx *ctx, EastValue *value)
 {
     size_t def = ctx->def_count++;
-    if (value->ref_count != 1) enc_map_insert(ctx, value, def);
+    if (value->ref_count != 1 || ctx->shared_inline) enc_map_insert(ctx, value, def);
 }
 
 /* Emit the NEW/REF tag for a container. Returns true when the caller must
@@ -105,11 +105,35 @@ static bool b2v5_begin_container(ByteBuffer *buf, EastValue *value, B2V5EncodeCt
         return false;
     }
     byte_buffer_write_u8(buf, B2V5_TAG_NEW);
-    /* Refcount-1 elision inside: a container referenced exactly once cannot
-     * be met again in this walk, so it never needs a map entry. Immortal
-     * singletons use negative ref_count and are tracked normally. */
+    /* Refcount-1 elision inside: a container referenced exactly once, by a
+     * chain of values each reached once, cannot be met again in this walk,
+     * so it never needs a map entry. Its single owner may itself be shared,
+     * though — a struct, variant or function value is encoded inline at
+     * every reference, and so is the container it owns (a composed patch
+     * carrying the same element in two operations, #774) — hence the
+     * shared_inline gate. Immortal singletons use negative ref_count and are
+     * tracked normally. */
     b2v5_enc_ctx_register(ctx, value);
     return true;
+}
+
+/* Enter an inline value (struct, variant, function): its containers must be
+ * tracked when it, or an inline value above it, is referenced more than
+ * once. Returns the state to restore on exit. */
+static bool b2v5_enter_inline(B2V5EncodeCtx *ctx, EastValue *value)
+{
+    bool saved = ctx->shared_inline;
+    if (value->ref_count != 1) ctx->shared_inline = true;
+    return saved;
+}
+
+/* Enter a container's content: whatever is met inside is reached through a
+ * container that is tracked or provably reached once. */
+static bool b2v5_enter_container(B2V5EncodeCtx *ctx)
+{
+    bool saved = ctx->shared_inline;
+    ctx->shared_inline = false;
+    return saved;
 }
 
 /* ================================================================== */
@@ -159,6 +183,7 @@ void b2v5_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, B2V5En
 
     case EAST_TYPE_ARRAY: {
         if (!b2v5_begin_container(buf, value, ctx)) break;
+        bool outer = b2v5_enter_container(ctx);
         size_t n = value->data.array.len;
         EastType *elem = type->data.element;
         if (n > 0) {
@@ -167,11 +192,13 @@ void b2v5_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, B2V5En
                 b2v5_encode_value(buf, value->data.array.items[i], elem, ctx);
         }
         write_varint(buf, 0);
+        ctx->shared_inline = outer;
         break;
     }
 
     case EAST_TYPE_SET: {
         if (!b2v5_begin_container(buf, value, ctx)) break;
+        bool outer = b2v5_enter_container(ctx);
         size_t n = value->data.set.len;
         EastType *elem = type->data.element;
         if (n > 0) {
@@ -180,11 +207,13 @@ void b2v5_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, B2V5En
                 b2v5_encode_value(buf, east_set_at(value, i), elem, ctx);
         }
         write_varint(buf, 0);
+        ctx->shared_inline = outer;
         break;
     }
 
     case EAST_TYPE_DICT: {
         if (!b2v5_begin_container(buf, value, ctx)) break;
+        bool outer = b2v5_enter_container(ctx);
         size_t n = value->data.dict.len;
         EastType *kt = type->data.dict.key;
         EastType *vt = type->data.dict.value;
@@ -196,16 +225,20 @@ void b2v5_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, B2V5En
             }
         }
         write_varint(buf, 0);
+        ctx->shared_inline = outer;
         break;
     }
 
     case EAST_TYPE_REF: {
         if (!b2v5_begin_container(buf, value, ctx)) break;
+        bool outer = b2v5_enter_container(ctx);
         b2v5_encode_value(buf, value->data.ref.value, type->data.element, ctx);
+        ctx->shared_inline = outer;
         break;
     }
 
     case EAST_TYPE_STRUCT: {
+        bool outer = b2v5_enter_inline(ctx, value);
         size_t nf = type->data.struct_.num_fields;
         for (size_t i = 0; i < nf && !ctx->failed; i++) {
             EastType *ftype = type->data.struct_.fields[i].type;
@@ -220,10 +253,12 @@ void b2v5_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, B2V5En
                 east_value_release(null_val);
             }
         }
+        ctx->shared_inline = outer;
         break;
     }
 
     case EAST_TYPE_VARIANT: {
+        bool outer = b2v5_enter_inline(ctx, value);
         /* Tag lookup mirrors the v4 encoder: the case_tag string is
          * authoritative; the stored case_idx is a fallback for type-less
          * variants (see ../v4/value_encode.c for the full rationale). */
@@ -248,6 +283,7 @@ void b2v5_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, B2V5En
         }
         write_varint(buf, (uint64_t)ci);
         b2v5_encode_value(buf, value->data.variant.value, type->data.variant.cases[ci].type, ctx);
+        ctx->shared_inline = outer;
         break;
     }
 
@@ -303,6 +339,7 @@ void b2v5_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, B2V5En
             return;
         }
         if (!east_ir_type) east_type_of_type_init();
+        bool outer = b2v5_enter_inline(ctx, value);
 
         /* Source-map delta: adopt the stream map from the first function that
          * carries one, then emit any stacks not yet on the wire. */
@@ -370,6 +407,7 @@ void b2v5_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, B2V5En
 
             if (cap_type) east_type_release(cap_type);
         }
+        ctx->shared_inline = outer;
         break;
     }
     }

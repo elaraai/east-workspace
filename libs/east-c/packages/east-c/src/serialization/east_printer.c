@@ -597,7 +597,11 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
         size_t rows = value->data.matrix.rows;
         size_t cols = value->data.matrix.cols;
 
-        if (rows == 0 || cols == 0) {
+        /* One `[…]` per row, an empty one for a row of no columns — the
+         * TypeScript reference prints `mat[[], [], []]` for 3x0, so the row
+         * count survives print → parse; `mat[]` is only the row-less matrix
+         * (#774). */
+        if (rows == 0) {
             pbuf_append_str(sb, "mat[]");
         } else {
             pbuf_append_str(sb, "mat[");

@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { East, ArrayType, IntegerType, StringType, NullType, SetType, DictType, StructType, VariantType, variant, FloatType, BooleanType, DateTimeType, SortedSet, RefType, ref, RecursiveType, some, none, PatchType } from "../src/index.js";
-import type { ValueTypeOf } from "../src/index.js";
+import type { EastType, ValueTypeOf } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import { generateFuzzTestCases } from "../src/patch/fuzz.js";
 import * as ex from "./patch.examples.js";
@@ -126,6 +126,19 @@ await describe("Patch - Primitives", (test) => {
         $(assert.equal(patch.getTag(), "replace"));
         $(assert.equal(patch.unwrap("replace").before, ""));
         $(assert.equal(patch.unwrap("replace").after, "x"));
+    });
+
+    // Function: East equality never inspects a closure — every function is
+    // equal to every other — so a function-typed diff is always unchanged.
+    // east-c compared closure identity, so two closures diffed to a replace
+    // there and to unchanged on TypeScript and east-py (#774).
+    test("Function: any two functions diff to unchanged", $ => {
+        const addOne = $.const(East.function([IntegerType], IntegerType, ($, x) => x.add(1n)));
+        const double = $.const(East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));
+        $(assert.equal(East.equal(addOne, double), true));
+        const patch = $.const(East.diff(addOne, double));
+        $(assert.equal(patch.getTag(), "unchanged"));
+        $(assert.equal(East.applyPatch(addOne, patch)(5n), 6n));
     });
 });
 
@@ -1995,71 +2008,188 @@ await describe("Patch - E2E All Types", (test) => {
 });
 
 // =============================================================================
+// Recursive types are replace-only — on every runtime (#774)
+// =============================================================================
+
+// PatchType(T) has no `patch` case at a recursive wrapper, wherever the
+// wrapper occurs, and diff produces exactly the values that type describes:
+// the whole recursive value is the unit of change. east-c used to patch a
+// wrapper's body structurally on its first encounter — a value TypeScript
+// could not apply and east-py refused to decode — so these shapes pin the
+// contract through the corpus on all three runtimes.
+await describe("Patch - Recursive (replace-only)", (test) => {
+    const TreeType = RecursiveType((self) => StructType({
+        value: IntegerType,
+        children: ArrayType(self),
+    }));
+
+    test("Recursive: a changed tree diffs to one replace of the whole value", $ => {
+        const before = $.const({ value: 1n, children: [{ value: 2n, children: [] }] }, TreeType);
+        const after = $.const({ value: 1n, children: [{ value: 3n, children: [] }] }, TreeType);
+        const patch = $.const(East.diff(before, after));
+        $(assert.equal(patch.getTag(), "replace"));
+        $(assert.equal(East.equal(patch.unwrap("replace").before, before), true));
+        $(assert.equal(East.equal(patch.unwrap("replace").after, after), true));
+        $(assert.equal(East.equal(East.applyPatch(before, patch), after), true));
+        const inverted = $.const(East.invertPatch(patch, TreeType));
+        $(assert.equal(inverted.getTag(), "replace"));
+        $(assert.equal(East.equal(East.applyPatch(after, inverted), before), true));
+    });
+
+    test("Recursive: an unchanged tree diffs to unchanged", $ => {
+        const tree = $.const({ value: 1n, children: [{ value: 2n, children: [] }] }, TreeType);
+        const patch = $.const(East.diff(tree, tree));
+        $(assert.equal(patch.getTag(), "unchanged"));
+    });
+
+    test("Recursive: every occurrence of a recursive type is replace-only, not just the first", $ => {
+        // The same wrapper twice, side by side: the second occurrence used to
+        // get a different patch type than the first.
+        const PairType = StructType({ left: TreeType, right: TreeType });
+        const leaf = { value: 2n, children: [] };
+        const before = $.const({ left: { value: 1n, children: [leaf] }, right: { value: 1n, children: [leaf] } }, PairType);
+        const after = $.const({ left: { value: 1n, children: [leaf] }, right: { value: 9n, children: [leaf] } }, PairType);
+        const patch = $.const(East.diff(before, after));
+        $(assert.equal(patch.getTag(), "patch"));
+        const fields = $.const(patch.unwrap("patch"));
+        $(assert.equal(fields.left.getTag(), "unchanged"));
+        $(assert.equal(fields.right.getTag(), "replace"));
+        $(assert.equal(fields.right.unwrap("replace").after.unwrap().value, 9n));
+        $(assert.equal(East.equal(East.applyPatch(before, patch), after), true));
+        // ...and reached through a container before it appears bare.
+        const ShelfType = StructType({ many: ArrayType(TreeType), one: TreeType });
+        const s1 = $.const({ many: [leaf, { value: 3n, children: [] }], one: leaf }, ShelfType);
+        const s2 = $.const({ many: [leaf, { value: 4n, children: [] }], one: { value: 5n, children: [] } }, ShelfType);
+        const sp = $.const(East.diff(s1, s2));
+        const sf = $.const(sp.unwrap("patch"));
+        $(assert.equal(sf.one.getTag(), "replace"));
+        $(assert.equal(sf.many.getTag(), "patch"));
+        const op = $.const(sf.many.unwrap("patch").get(0n).operation);
+        $(assert.equal(op.getTag(), "update"));
+        $(assert.equal(op.unwrap("update").getTag(), "replace"));
+        $(assert.equal(East.equal(East.applyPatch(s1, sp), s2), true));
+        const composed = $.const(East.composePatch(East.diff(s1, s2), East.diff(s2, s1), ShelfType));
+        $(assert.equal(East.equal(East.applyPatch(s1, composed), s1), true));
+    });
+
+    test("Recursive: a wrapper nested inside another wrapper's body is replace-only inside it", $ => {
+        // Outer's root is a wrapper, so the whole value replaces; patching
+        // Outer's body as a struct reaches Inner through a Dict, an Option and
+        // bare, and every one of them replaces.
+        const OuterType = RecursiveType((self) => StructType({
+            first: DictType(StringType, TreeType),
+            second: VariantType({ none: NullType, some: TreeType }),
+            third: TreeType,
+            next: VariantType({ none: NullType, some: self }),
+        }));
+        const leaf = { value: 2n, children: [] };
+        const o1 = $.const({ first: new Map([["k", leaf]]), second: some(leaf), third: leaf, next: none }, OuterType);
+        const o2 = $.const({ first: new Map([["k", { value: 7n, children: [] }]]), second: some(leaf), third: leaf, next: none }, OuterType);
+        const patch = $.const(East.diff(o1, o2));
+        $(assert.equal(patch.getTag(), "replace"));
+        $(assert.equal(East.equal(East.applyPatch(o1, patch), o2), true));
+        const body1 = $.const(o1.unwrap());
+        const body2 = $.const(o2.unwrap());
+        const bp = $.const(East.diff(body1, body2));
+        $(assert.equal(bp.getTag(), "patch"));
+        const bf = $.const(bp.unwrap("patch"));
+        $(assert.equal(bf.first.getTag(), "patch"));
+        $(assert.equal(bf.first.unwrap("patch").get("k").getTag(), "update"));
+        $(assert.equal(bf.first.unwrap("patch").get("k").unwrap("update").getTag(), "replace"));
+        $(assert.equal(bf.second.getTag(), "unchanged"));
+        $(assert.equal(bf.third.getTag(), "unchanged"));
+        $(assert.equal(East.equal(East.applyPatch(body1, bp), body2), true));
+    });
+});
+
+// =============================================================================
 // Fuzz Tests - Random Types
 // =============================================================================
 
 // One suite — one exported IR file — for the whole corpus: a hundred random
 // types (nested, shared and randomly-bodied recursion, type values included)
-// with shallow sample values, replayed by the east-c and east-py compliance
-// harnesses. The generator is seeded, so the corpus reproduces across
+// with shallow sample values (two levels: a wide recursive type's values at
+// depth 3 ran to 30 MB of IR each, at depth 2 the whole file is under 20 MB),
+// replayed by the east-c and east-py compliance harnesses. The generator is seeded, so the corpus reproduces across
 // exports. Test names carry the type's fingerprint — the hash of its canonical
 // beast2 type section — which names the same type in every process, where a
 // printed type would embed process-local ids.
-const fuzzTestCases = generateFuzzTestCases({ numTypes: 100, numSamples: 3, valueDepth: 3 });
+//
+// Every diff, invert and compose is also pinned to the bytes TypeScript
+// encodes for it, so a runtime must produce the same patch VALUE as the
+// reference, not merely one that applies to the same result — east-c's
+// patches diverged from TypeScript's for years behind apply-only checks
+// (structural patches through recursive wrappers, unpaired array updates;
+// #774). The compose bytes also carry sharing: a composition can hold one
+// input element twice, inserted by the first patch and replaced by the
+// second, and the wire records the second occurrence as a back-reference,
+// which east-c's writer used to miss for a container owned by a shared
+// struct or variant. Function types are in: every function is equal to every
+// other on every runtime, so a function-typed diff is `unchanged`, and a
+// function value carried in a replace encodes to the same bytes everywhere.
+const fuzzTestCases = generateFuzzTestCases({ numTypes: 100, numSamples: 3, valueDepth: 2 });
 
 await describe("Patch Fuzz", (test) => {
+    // The cases are typed by EastType itself — every East type at once — so
+    // the patch builtins take their type argument explicitly where a union
+    // would leave them nothing to infer from.
     for (const tc of fuzzTestCases) {
         const typeId = tc.fingerprint;
 
         test(`${typeId}: diff/apply round trip`, $ => {
-            // Use 'as any' to bypass TypeScript's static type checking for dynamic types
-            const pairs = $.const(tc.pairs as any, tc.pairsArrayType as any);
+            const pairs = $.const(tc.pairs, tc.pairsArrayType);
+            const expected = $.const(tc.diffHex, ArrayType(StringType));
 
-            $.for(pairs as any, ($, pair: any) => {
-                const before = $.let((pair as any).before);
-                const after = $.let((pair as any).after);
+            $.for(pairs, ($, pair, i) => {
+                const before = $.let(pair.before);
+                const after = $.let(pair.after);
 
-                const patch = $.let(East.diff(before as any, after as any));
-                const applied = $.let(East.applyPatch(before as any, patch as any));
+                const patch = $.let(East.diff<EastType>(before, after));
+                $(assert.equal(East.str`${East.Blob.encodeBeast(patch, 'v2')}`, expected.get(i)));
+                const applied = $.let(East.applyPatch<EastType>(before, patch));
 
-                $(assert.equal(East.equal(applied as any, after as any), true));
+                $(assert.equal(East.equal<EastType>(applied, after), true));
             });
         });
 
         test(`${typeId}: invert round trip`, $ => {
-            const pairs = $.const(tc.pairs as any, tc.pairsArrayType as any);
+            const pairs = $.const(tc.pairs, tc.pairsArrayType);
+            const expected = $.const(tc.invertHex, ArrayType(StringType));
 
-            $.for(pairs as any, ($, pair: any) => {
-                const before = $.let((pair as any).before);
-                const after = $.let((pair as any).after);
+            $.for(pairs, ($, pair, i) => {
+                const before = $.let(pair.before);
+                const after = $.let(pair.after);
 
-                const patch = $.let(East.diff(before as any, after as any));
-                const inverted = $.let(East.invertPatch(patch as any, tc.type));
-                const roundtrip = $.let(East.applyPatch(after as any, inverted as any));
+                const patch = $.let(East.diff<EastType>(before, after));
+                const inverted = $.let(East.invertPatch<EastType>(patch, tc.type));
+                $(assert.equal(East.str`${East.Blob.encodeBeast(inverted, 'v2')}`, expected.get(i)));
+                const roundtrip = $.let(East.applyPatch<EastType>(after, inverted));
 
-                $(assert.equal(East.equal(roundtrip as any, before as any), true));
+                $(assert.equal(East.equal<EastType>(roundtrip, before), true));
             });
         });
 
         test(`${typeId}: compose round trip`, $ => {
-            const trips = $.const(tc.triplets as any, tc.tripletsArrayType as any);
+            const trips = $.const(tc.triplets, tc.tripletsArrayType);
+            const expected = $.const(tc.composeHex, ArrayType(StringType));
 
-            $.for(trips as any, ($, trip: any) => {
-                const v1 = $.let((trip as any).v1);
-                const v2 = $.let((trip as any).v2);
-                const v3 = $.let((trip as any).v3);
+            $.for(trips, ($, trip, i) => {
+                const v1 = $.let(trip.v1);
+                const v2 = $.let(trip.v2);
+                const v3 = $.let(trip.v3);
 
-                const p1 = $.let(East.diff(v1 as any, v2 as any));
-                const p2 = $.let(East.diff(v2 as any, v3 as any));
-                const composed = $.let(East.composePatch(p1 as any, p2 as any, tc.type));
-                const direct = $.let(East.applyPatch(v1 as any, composed as any));
+                const p1 = $.let(East.diff<EastType>(v1, v2));
+                const p2 = $.let(East.diff<EastType>(v2, v3));
+                const composed = $.let(East.composePatch<EastType>(p1, p2, tc.type));
+                $(assert.equal(East.str`${East.Blob.encodeBeast(composed, 'v2')}`, expected.get(i)));
+                const direct = $.let(East.applyPatch<EastType>(v1, composed));
 
-                $(assert.equal(East.equal(direct as any, v3 as any), true));
+                $(assert.equal(East.equal<EastType>(direct, v3), true));
 
                 // Verify sequential application matches
-                const step1 = $.let(East.applyPatch(v1 as any, p1 as any));
-                const step2 = $.let(East.applyPatch(step1 as any, p2 as any));
-                $(assert.equal(East.equal(step2 as any, v3 as any), true));
+                const step1 = $.let(East.applyPatch<EastType>(v1, p1));
+                const step2 = $.let(East.applyPatch<EastType>(step1, p2));
+                $(assert.equal(East.equal<EastType>(step2, v3), true));
             });
         });
     }
