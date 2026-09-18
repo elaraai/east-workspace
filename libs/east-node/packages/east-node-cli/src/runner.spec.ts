@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ArrayType,
   DictType,
+  FloatType,
   FunctionType,
   IntegerType,
   NullType,
@@ -28,28 +29,17 @@ import {
   StructType,
   East,
   SortedMap,
+  SortedSet,
   compareFor,
   decodeBeast2For,
   encodeBeast2PagedFor,
   encodeEastIR,
   openBeast2PagesFor,
+  spliceBeast2,
 } from '@elaraai/east';
 
 import { runProgram, lazyThreshold } from './runner.js';
-
-/** `items` in a deterministic Fisher-Yates shuffle (fixed LCG seed) — the
- *  shuffle east-c-cli's generate_fixtures.mjs uses, so all three runners are
- *  pinned against the same disorder. */
-function shuffled<T>(items: T[]): T[] {
-  const out = items.slice();
-  let seed = 12345;
-  const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1));
-    [out[i], out[j]] = [out[j]!, out[i]!];
-  }
-  return out;
-}
+import { mergeBlobs } from './merge.js';
 
 /** Runs `run` with console.error captured; returns what it printed. */
 async function stderrOf(run: () => Promise<unknown>): Promise<string> {
@@ -62,24 +52,6 @@ async function stderrOf(run: () => Promise<unknown>): Promise<string> {
     console.error = original;
   }
   return lines.join('\n');
-}
-
-/** Runs `run` with the given environment variables set (`undefined` unsets
- *  one), restoring them afterwards. */
-async function withEnv<T>(vars: Record<string, string | undefined>, run: () => Promise<T>): Promise<T> {
-  const saved = Object.fromEntries(Object.keys(vars).map((name) => [name, process.env[name]]));
-  const apply = (values: Record<string, string | undefined>): void => {
-    for (const [name, value] of Object.entries(values)) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
-  };
-  apply(vars);
-  try {
-    return await run();
-  } finally {
-    apply(saved);
-  }
 }
 
 /** `promise`'s value, or `undefined` once `ms` pass first — a bounded wait. */
@@ -202,12 +174,6 @@ describe('runner streaming execution', () => {
     assert.equal(decoded[2499], (2499n * 2500n) / 2n);
   });
 
-  /** The 0..count keys in the deterministic shuffle, so the disorder the
-   *  sink must absorb is stable across runs. */
-  function shuffledKeys(count: number): bigint[] {
-    return shuffled(Array.from({ length: count }, (_, i) => BigInt(i)));
-  }
-
   /** A dict producer emitting `row-${i}` for each key in the given order. */
   function dictEmitter(order: bigint[]) {
     const emitType = FunctionType([IntegerType, StringType], NullType);
@@ -218,42 +184,32 @@ describe('runner streaming execution', () => {
     });
   }
 
-  it('a dict emit accepts any emission order and writes the canonical blob (#518)', async () => {
-    const shuffledPath = join(tempDir, 'shuffled.beast2');
-    await runProgram(writeIr(dictEmitter(shuffledKeys(1000))), [], [], [], shuffledPath, { emit: 'dict' });
-    const orderedPath = join(tempDir, 'ordered.beast2');
+  it('an ascending dict emit writes the canonical blob, segmented and indexed', async () => {
+    const outputPath = join(tempDir, 'ordered.beast2');
     const ascending = Array.from({ length: 1000 }, (_, i) => BigInt(i));
-    await runProgram(writeIr(dictEmitter(ascending)), [], [], [], orderedPath, { emit: 'dict' });
+    await runProgram(writeIr(dictEmitter(ascending)), [], [], [], outputPath, { emit: 'dict' });
 
-    const shuffled = new Uint8Array(readFileSync(shuffledPath));
-    assert.deepEqual(shuffled, new Uint8Array(readFileSync(orderedPath)),
-      'out-of-order emission must produce the byte-identical canonical blob');
+    const output = new Uint8Array(readFileSync(outputPath));
     const DT = DictType(IntegerType, StringType);
-    const decoded = decodeBeast2For(DT)(shuffled);
+    const decoded = decodeBeast2For(DT)(output);
     assert.equal(decoded.size, 1000);
     assert.equal(decoded.get(42n), 'row-42');
-    assert.ok(openBeast2PagesFor(DT)(shuffled).selfContained);
-    assert.ok(!existsSync(`${shuffledPath}.run0`), 'spill runs must be cleaned up');
+    assert.ok(openBeast2PagesFor(DT)(output).selfContained);
   });
 
-  it('a tiny EAST_EMIT_RUN_ELEMENTS cap forces spilled runs and the merge is still canonical', async () => {
-    const saved = process.env.EAST_EMIT_RUN_ELEMENTS;
-    process.env.EAST_EMIT_RUN_ELEMENTS = '16';
-    try {
-      const shuffledPath = join(tempDir, 'spilled.beast2');
-      await runProgram(writeIr(dictEmitter(shuffledKeys(300))), [], [], [], shuffledPath, { emit: 'dict' });
-      const orderedPath = join(tempDir, 'ordered300.beast2');
-      const ascending = Array.from({ length: 300 }, (_, i) => BigInt(i));
-      await runProgram(writeIr(dictEmitter(ascending)), [], [], [], orderedPath, { emit: 'dict' });
-      assert.deepEqual(new Uint8Array(readFileSync(shuffledPath)), new Uint8Array(readFileSync(orderedPath)));
-      assert.ok(!existsSync(`${shuffledPath}.run1`), 'spill runs must be cleaned up');
-    } finally {
-      if (saved === undefined) delete process.env.EAST_EMIT_RUN_ELEMENTS;
-      else process.env.EAST_EMIT_RUN_ELEMENTS = saved;
-    }
+  it('a dict emit rejects an out-of-order key with the ascending contract\'s error (#770)', async () => {
+    // Set/Dict emissions must ascend in East order: the sink writes one pass
+    // and never buffers, so a key below the previous one is the error — in
+    // the same words on every runner — and nothing is reported on stderr on
+    // the way there.
+    const err = await stderrOf(() => assert.rejects(
+      runProgram(writeIr(dictEmitter([2n, 1n])), [], [], [], join(tempDir, 'disorder.beast2'), { emit: 'dict' }),
+      { message: 'beast2 v5: Dict key emitted out of order: 1 after 2 — Set/Dict emissions must ascend in East order' },
+    ));
+    assert.equal(err, '');
   });
 
-  it('a duplicate dict key is a hard error, adjacent or across spilled runs', async () => {
+  it('a duplicate dict key is a hard error', async () => {
     const emitType = FunctionType([IntegerType, StringType], NullType);
     const adjacent = East.function([emitType], NullType, ($, emit) => {
       $(emit(1n, 'a'));
@@ -261,19 +217,7 @@ describe('runner streaming execution', () => {
     });
     await assert.rejects(
       runProgram(writeIr(adjacent), [], [], [], join(tempDir, 'dup.beast2'), { emit: 'dict' }),
-      /duplicate Dict key emitted/,
-    );
-
-    // An inversion first (buffered mode), so the duplicate is only visible
-    // to the finalize-time merge.
-    const crossRun = East.function([emitType], NullType, ($, emit) => {
-      $(emit(5n, 'x'));
-      $(emit(3n, 'y'));
-      $(emit(5n, 'dup'));
-    });
-    await assert.rejects(
-      runProgram(writeIr(crossRun), [], [], [], join(tempDir, 'dup2.beast2'), { emit: 'dict' }),
-      /duplicate Dict key emitted/,
+      { message: 'beast2 v5: duplicate Dict key emitted: 1 — Dict keys must be unique' },
     );
   });
 
@@ -389,31 +333,31 @@ describe('runner streaming execution', () => {
     );
   });
 
-  it('a set emit accepts any order and names duplicates with the element noun', async () => {
+  it('a set emit rejects an out-of-order element and names duplicates with the element noun', async () => {
     const emitType = FunctionType([IntegerType], NullType);
     const disordered = East.function([emitType], NullType, ($, emit) => {
       $(emit(2n));
       $(emit(1n));
       $(emit(3n));
     });
-    const outputPath = join(tempDir, 'set.beast2');
-    await runProgram(writeIr(disordered), [], [], [], outputPath, { emit: 'set' });
-    const decoded = decodeBeast2For(SetType(IntegerType))(new Uint8Array(readFileSync(outputPath)));
-    assert.deepEqual([...decoded], [1n, 2n, 3n]);
+    await assert.rejects(
+      runProgram(writeIr(disordered), [], [], [], join(tempDir, 'set.beast2'), { emit: 'set' }),
+      { message: 'beast2 v5: Set element emitted out of order: 1 after 2 — Set/Dict emissions must ascend in East order' },
+    );
 
     const dup = East.function([emitType], NullType, ($, emit) => {
-      $(emit(2n));
       $(emit(1n));
+      $(emit(2n));
       $(emit(2n));
     });
     await assert.rejects(
       runProgram(writeIr(dup), [], [], [], join(tempDir, 'dupset.beast2'), { emit: 'set' }),
-      /duplicate Set element emitted/,
+      { message: 'beast2 v5: duplicate Set element emitted: 2 — Set elements must be unique' },
     );
   });
 });
 
-describe('folding emit, bounded runs and the stdin lifeline (#770)', () => {
+describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
   let tempDir: string;
 
   beforeEach(() => {
@@ -434,31 +378,19 @@ describe('folding emit, bounded runs and the stdin lifeline (#770)', () => {
   const emitPairType = FunctionType([IntegerType, StringType], NullType);
   const emitKeyType = FunctionType([IntegerType], NullType);
   const ascendingBigints = (a: bigint, b: bigint): number => (a < b ? -1 : a > b ? 1 : 0);
+  const DT = DictType(IntegerType, StringType);
+  const ST = SetType(IntegerType);
 
-  /** The fold contract's emission sequences, as keys — the sequences
-   *  generate_fixtures.mjs writes for east-c and east-py. `ascending` emits
-   *  0..1199 in order with adjacent duplicates: every third key twice, and
-   *  key 999 — the last entry of a full 1000-element batch — four times.
-   *  `scattered` emits 0..19 in order, each twice, then 7 again (the first
-   *  key out of order: the prefix demotes, and 7 must fold across it), then
-   *  0..599 shuffled with one to three copies each, so equal keys meet in the
-   *  prefix, within a run and across runs. */
-  function foldSequence(name: 'ascending' | 'scattered'): bigint[] {
+  /** The fold contract's emission sequence, as keys — the sequence
+   *  generate_fixtures.mjs writes for east-c and east-py: 0..1199 in order
+   *  with adjacent duplicates, every third key twice, and key 999 — the last
+   *  entry of a full 1000-element batch — four times. */
+  function foldSequence(): bigint[] {
     const keys: bigint[] = [];
-    if (name === 'ascending') {
-      for (let k = 0; k < 1200; k++) {
-        const copies = 1 + (k % 3 === 0 ? 1 : 0) + (k % 1000 === 999 ? 2 : 0);
-        for (let c = 0; c < copies; c++) keys.push(BigInt(k));
-      }
-      return keys;
+    for (let k = 0; k < 1200; k++) {
+      const copies = 1 + (k % 3 === 0 ? 1 : 0) + (k % 1000 === 999 ? 2 : 0);
+      for (let c = 0; c < copies; c++) keys.push(BigInt(k));
     }
-    const rest: bigint[] = [];
-    for (let k = 0; k < 600; k++) {
-      const copies = 1 + (k % 4 === 1 ? 1 : 0) + (k % 7 === 2 ? 1 : 0);
-      for (let c = 0; c < copies; c++) rest.push(BigInt(k));
-    }
-    for (let k = 0; k < 20; k++) keys.push(BigInt(k), BigInt(k));
-    keys.push(7n, ...shuffled(rest));
     return keys;
   }
 
@@ -480,100 +412,190 @@ describe('folding emit, bounded runs and the stdin lifeline (#770)', () => {
     });
   }
 
-  // The ascending sequence folds on the straight-through path — key 999 into
-  // a full batch's last entry; the scattered one demotes, and the run cap
-  // moves its folds into the tail (the default), across runs (16), or across
-  // the runs of a two-pass merge (2).
-  const foldCases = [
-    { sequence: 'ascending', runCap: undefined, demotes: false },
-    { sequence: 'scattered', runCap: undefined, demotes: true },
-    { sequence: 'scattered', runCap: '16', demotes: true },
-    { sequence: 'scattered', runCap: '2', demotes: true },
-  ] as const;
-
-  for (const { sequence, runCap, demotes } of foldCases) {
-    it(`--merge writes the folded ${sequence} sequence's bytes (run cap ${runCap ?? 'default'})`, async () => {
-      const pairs = foldSequence(sequence).map((key, i) => ({ key, value: `${i};` }));
-      const folded = new Map<bigint, string>();
-      for (const { key, value } of pairs) folded.set(key, (folded.get(key) ?? '') + value);
-      const foldedPairs = [...folded].sort(([a], [b]) => ascendingBigints(a, b)).map(([key, value]) => ({ key, value }));
-
-      const expectedPath = join(tempDir, 'expected.beast2');
-      await runProgram(writeIr('folded.beast2', pairEmitter(foldedPairs)), [], [], [], expectedPath, { emit: 'dict' });
-      const mergePath = writeIr('merge.beast2',
-        East.function([IntegerType, StringType, StringType], StringType, (_$, _key, acc, value) => acc.concat(value)));
-      const outputPath = join(tempDir, 'output.beast2');
-      const err = await withEnv({ EAST_EMIT_RUN_ELEMENTS: runCap }, () => stderrOf(() =>
-        runProgram(writeIr('program.beast2', pairEmitter(pairs)), [], [], [], outputPath, { emit: 'dict', merge: mergePath })));
-
-      assert.equal(err.includes('left ascending order'), demotes, err);
-      assert.deepEqual(new Uint8Array(readFileSync(outputPath)), new Uint8Array(readFileSync(expectedPath)),
-        'the folded output must be byte-identical to the flag-less sink\'s output for the folded sequence');
-      assert.ok(!existsSync(`${outputPath}.run0`) && !existsSync(`${outputPath}.run0.p1`), 'temporary runs are removed');
-    });
-
-    it(`--union writes the ${sequence} sequence's distinct keys' bytes (run cap ${runCap ?? 'default'})`, async () => {
-      const keys = foldSequence(sequence);
-      const distinct = [...new Set(keys)].sort(ascendingBigints);
-
-      const expectedPath = join(tempDir, 'expected.beast2');
-      await runProgram(writeIr('folded.beast2', keyEmitter(distinct)), [], [], [], expectedPath, { emit: 'set' });
-      const outputPath = join(tempDir, 'output.beast2');
-      const err = await withEnv({ EAST_EMIT_RUN_ELEMENTS: runCap }, () => stderrOf(() =>
-        runProgram(writeIr('program.beast2', keyEmitter(keys)), [], [], [], outputPath, { emit: 'set', union: true })));
-
-      assert.equal(err.includes('left ascending order'), demotes, err);
-      assert.deepEqual(new Uint8Array(readFileSync(outputPath)), new Uint8Array(readFileSync(expectedPath)),
-        'the union output must be byte-identical to the flag-less sink\'s output for the distinct keys');
-      assert.ok(!existsSync(`${outputPath}.run0`) && !existsSync(`${outputPath}.run0.p1`), 'temporary runs are removed');
-    });
+  /** The concatenating `(Integer, String, String) -> String` fold. */
+  function writeConcat(): string {
+    return writeIr('merge.beast2',
+      East.function([IntegerType, StringType, StringType], StringType, (_$, _key, acc, value) => acc.concat(value)));
   }
 
-  it('the merge takes more passes as the output grows while the peak stays at the run caps', async () => {
-    // Gate (a): the sink's memory is bounded by its run caps, not by the
-    // output. Under a 64-entry run cap, 50,000 and 400,000 out-of-order
-    // emissions (every element encoded in the same number of bytes) report
-    // the same peak entries and bytes and merge 64 runs at once; only the
-    // passes grow — 783 sources (the demoted prefix, 781 spills, the tail) in
-    // 2, 6,251 in 3. A byte cap below one run's bytes spills by bytes: fewer
-    // entries per run than the element cap allows.
-    const scatter = (count: bigint) => East.function([emitKeyType], NullType, ($, emit) => {
-      $.for(East.Array.range(0n, count), ($, i) => {
-        $(emit(i.multiply(7919n).remainder(count).add(1_000_000_000_000n)));
-      });
-    });
-    const epilogue = /emit: merged (\d+) source\(s\) in (\d+) pass\(es\) \((\d+) runs per pass\); (\d+) spill\(s\), peak (\d+) entries \/ ([\d.]+ [KM]?B) buffered/;
-    const account = async (count: bigint, name: string, runBytes?: string) => {
-      const outputPath = join(tempDir, name);
-      const err = await withEnv({ EAST_EMIT_RUN_ELEMENTS: '64', EAST_EMIT_RUN_BYTES: runBytes }, () => stderrOf(() =>
-        runProgram(writeIr('scatter.beast2', scatter(count)), [], [], [], outputPath, { emit: 'set', verbose: true })));
-      const match = epilogue.exec(err);
-      assert.ok(match !== null, `-v printed no emit epilogue:\n${err}`);
-      const [, sources, passes, runsPerPass, spills, peakEntries, peakBytes] = match;
-      return { sources: Number(sources), passes: Number(passes), runsPerPass: Number(runsPerPass), spills: Number(spills), peakEntries: Number(peakEntries), peakBytes };
-    };
+  it('--merge writes the folded ascending sequence\'s bytes', async () => {
+    // The fold is over ADJACENT equal keys, and lands in place — key 999
+    // into a full batch's last entry included — so the output is
+    // byte-identical to what the flag-less sink writes for the folded
+    // sequence.
+    const pairs = foldSequence().map((key, i) => ({ key, value: `${i};` }));
+    const folded = new Map<bigint, string>();
+    for (const { key, value } of pairs) folded.set(key, (folded.get(key) ?? '') + value);
+    const foldedPairs = [...folded].sort(([a], [b]) => ascendingBigints(a, b)).map(([key, value]) => ({ key, value }));
 
-    const small = await account(50_000n, 'small.beast2');
-    const large = await account(400_000n, 'large.beast2');
-    const byBytes = await account(50_000n, 'by-bytes.beast2', '256');
+    const expectedPath = join(tempDir, 'expected.beast2');
+    await runProgram(writeIr('folded.beast2', pairEmitter(foldedPairs)), [], [], [], expectedPath, { emit: 'dict' });
+    const outputPath = join(tempDir, 'output.beast2');
+    await runProgram(writeIr('program.beast2', pairEmitter(pairs)), [], [], [], outputPath, { emit: 'dict', merge: writeConcat() });
 
-    assert.equal(small.peakBytes, large.peakBytes, 'the peak bytes do not depend on the output');
-    assert.deepEqual([small.peakEntries, small.runsPerPass, large.peakEntries, large.runsPerPass], [64, 64, 64, 64]);
-    assert.deepEqual([small.sources, small.passes], [783, 2]);
-    assert.deepEqual([large.sources, large.passes], [6251, 3]);
-    assert.ok(byBytes.peakEntries > 0 && byBytes.peakEntries < 64, `a 256-byte cap spills by bytes: peak ${byBytes.peakEntries} entries`);
-    assert.ok(byBytes.spills > small.spills, `${byBytes.spills} spills under the byte cap, ${small.spills} under the element cap alone`);
-    assert.equal(openBeast2PagesFor(SetType(IntegerType))(new Uint8Array(readFileSync(join(tempDir, 'large.beast2')))).elementCount, 400_000);
-    assert.ok(!existsSync(join(tempDir, 'large.beast2.run0')) && !existsSync(join(tempDir, 'large.beast2.run0.p1')), 'temporary runs are removed');
+    assert.deepEqual(new Uint8Array(readFileSync(outputPath)), new Uint8Array(readFileSync(expectedPath)),
+      'the folded output must be byte-identical to the flag-less sink\'s output for the folded sequence');
   });
 
+  it('--union writes the ascending sequence\'s distinct keys\' bytes', async () => {
+    const keys = foldSequence();
+    const distinct = [...new Set(keys)].sort(ascendingBigints);
+
+    const expectedPath = join(tempDir, 'expected.beast2');
+    await runProgram(writeIr('folded.beast2', keyEmitter(distinct)), [], [], [], expectedPath, { emit: 'set' });
+    const outputPath = join(tempDir, 'output.beast2');
+    await runProgram(writeIr('program.beast2', keyEmitter(keys)), [], [], [], outputPath, { emit: 'set', union: true });
+
+    assert.deepEqual(new Uint8Array(readFileSync(outputPath)), new Uint8Array(readFileSync(expectedPath)),
+      'the union output must be byte-identical to the flag-less sink\'s output for the distinct keys');
+  });
+
+  it('a fold does not admit an out-of-order key', async () => {
+    const pairs = [{ key: 2n, value: 'a' }, { key: 1n, value: 'b' }];
+    await assert.rejects(
+      runProgram(writeIr('program.beast2', pairEmitter(pairs)), [], [], [], join(tempDir, 'output.beast2'), { emit: 'dict', merge: writeConcat() }),
+      { message: 'beast2 v5: Dict key emitted out of order: 1 after 2 — Set/Dict emissions must ascend in East order' },
+    );
+  });
+
+  // ---- The blob merge ---------------------------------------------------
+
+  /** Three sorted Dict inputs whose keys overlap — a = 0..19, b = 10..29,
+   *  c = {5, 15, 25, 40} — each value naming its input, written by the paged
+   *  writer in four-entry segments; the fixtures east-c and east-py merge. */
+  const mergeKeys = {
+    a: Array.from({ length: 20 }, (_, k) => BigInt(k)),
+    b: Array.from({ length: 20 }, (_, k) => BigInt(k + 10)),
+    c: [5n, 15n, 25n, 40n],
+  };
+  function writeDictInput(name: 'a' | 'b' | 'c'): string {
+    const path = join(tempDir, `in_${name}.beast2`);
+    writeFileSync(path, encodeBeast2PagedFor(DT, { batchSize: 4 })(
+      new SortedMap(mergeKeys[name].map((k) => [k, `${name}${k}`] as [bigint, string]), compareFor(IntegerType))));
+    return path;
+  }
+  function writeSetInput(name: 'a' | 'b' | 'c'): string {
+    const path = join(tempDir, `set_${name}.beast2`);
+    writeFileSync(path, encodeBeast2PagedFor(ST, { batchSize: 4 })(new SortedSet(mergeKeys[name], compareFor(IntegerType))));
+    return path;
+  }
+
+  it('merge writes the fold of overlapping dict inputs byte-identical to the ascending sink', async () => {
+    const folded = new Map<bigint, string>();
+    for (const name of ['a', 'b', 'c'] as const) {
+      for (const k of mergeKeys[name]) folded.set(k, (folded.get(k) ?? '') + `${name}${k}`);
+    }
+    const foldedPairs = [...folded].sort(([a], [b]) => ascendingBigints(a, b)).map(([key, value]) => ({ key, value }));
+    const expectedPath = join(tempDir, 'expected.beast2');
+    await runProgram(writeIr('folded.beast2', pairEmitter(foldedPairs)), [], [], [], expectedPath, { emit: 'dict' });
+
+    const outputPath = join(tempDir, 'merged.beast2');
+    const inputs = [writeDictInput('a'), writeDictInput('b'), writeDictInput('c')];
+    const stats = mergeBlobs(inputs, outputPath, { mergePath: writeConcat() });
+    assert.deepEqual(stats, { inputs: 3, entries: 31, folds: 13 });
+    assert.deepEqual(new Uint8Array(readFileSync(outputPath)), new Uint8Array(readFileSync(expectedPath)),
+      'the merge must write exactly what the sink writes for the folded sequence emitted ascending');
+    const table = decodeBeast2For(DT)(new Uint8Array(readFileSync(outputPath)));
+    assert.equal(table.get(15n), 'a15b15c15');
+    assert.equal(table.get(40n), 'c40');
+  });
+
+  it('merge --union writes the distinct elements of set inputs byte-identical to the ascending sink', async () => {
+    const distinct = [...new Set([...mergeKeys.a, ...mergeKeys.b, ...mergeKeys.c])].sort(ascendingBigints);
+    const expectedPath = join(tempDir, 'expected.beast2');
+    await runProgram(writeIr('folded.beast2', keyEmitter(distinct)), [], [], [], expectedPath, { emit: 'set' });
+
+    const outputPath = join(tempDir, 'union.beast2');
+    const stats = mergeBlobs([writeSetInput('a'), writeSetInput('b'), writeSetInput('c')], outputPath, { union: true });
+    assert.deepEqual(stats, { inputs: 3, entries: 31, folds: 13 });
+    assert.deepEqual(new Uint8Array(readFileSync(outputPath)), new Uint8Array(readFileSync(expectedPath)));
+    assert.equal(openBeast2PagesFor(ST)(new Uint8Array(readFileSync(outputPath))).elementCount, 31);
+  });
+
+  it('merge without a fold refuses a shared key and leaves the output unfinalised', () => {
+    const outputPath = join(tempDir, 'dup.beast2');
+    assert.throws(
+      () => mergeBlobs([writeDictInput('a'), writeDictInput('b')], outputPath),
+      { message: 'beast2 v5: duplicate Dict key emitted: 10 — Dict keys must be unique' },
+    );
+    assert.throws(() => openBeast2PagesFor(DT)(new Uint8Array(readFileSync(outputPath))), 'the aborted output carries no index');
+  });
+
+  it('merge refuses an input of another type, an Array input and a descending input, naming the input', () => {
+    const other = join(tempDir, 'other.beast2');
+    writeFileSync(other, encodeBeast2PagedFor(DictType(StringType, FloatType))(new SortedMap([['x', 1.5]], compareFor(StringType))));
+    assert.throws(
+      () => mergeBlobs([writeDictInput('a'), other], join(tempDir, 'x.beast2'), { mergePath: writeConcat() }),
+      (err: Error) => err.message.startsWith(`merge: input 1 (${other}) has type `) && err.message.endsWith(' (input 0)'),
+    );
+
+    const rows = join(tempDir, 'rows.beast2');
+    writeFileSync(rows, encodeBeast2PagedFor(ArrayType(IntegerType))([1n, 2n]));
+    assert.throws(() => mergeBlobs([rows], join(tempDir, 'array.beast2')), { message: 'merge: inputs must be Set or Dict blobs, got Array' });
+
+    // A high key range spliced before a low one.
+    const descending = join(tempDir, 'descending.beast2');
+    writeFileSync(descending, spliceBeast2([
+      encodeBeast2PagedFor(DT, { batchSize: 2 })(new SortedMap([[1000n, 'x'], [1001n, 'y']], compareFor(IntegerType))),
+      encodeBeast2PagedFor(DT, { batchSize: 2 })(new SortedMap([[1n, 'a'], [2n, 'b']], compareFor(IntegerType))),
+    ]));
+    assert.throws(
+      () => mergeBlobs([descending], join(tempDir, 'desc.beast2')),
+      (err: Error) => err.message.startsWith(`merge: input 0 (${descending}): `),
+    );
+
+    const missing = join(tempDir, 'missing.beast2');
+    assert.throws(() => mergeBlobs([missing], join(tempDir, 'm.beast2')), { message: `merge: input 0 (${missing}): cannot open the file` });
+  });
+
+  it('merge names a fold of the wrong signature and refuses a fold of the wrong kind', () => {
+    const wrong = writeIr('wrong.beast2', East.function([StringType, StringType, StringType], StringType, (_$, _key, acc, value) => acc.concat(value)));
+    assert.throws(
+      () => mergeBlobs([writeDictInput('a')], join(tempDir, 'w.beast2'), { mergePath: wrong }),
+      (err: Error) => err.message.startsWith('--merge: expected a function (K, V, V) -> V matching the inputs (K = '),
+    );
+    assert.throws(() => mergeBlobs([writeSetInput('a')], join(tempDir, 'ms.beast2'), { mergePath: writeConcat() }), { message: '--merge applies to Dict inputs only' });
+    assert.throws(() => mergeBlobs([writeDictInput('a')], join(tempDir, 'ud.beast2'), { union: true }), { message: '--union applies to Set inputs only' });
+    assert.throws(() => mergeBlobs([writeDictInput('a')], join(tempDir, 'both.beast2'), { mergePath: writeConcat(), union: true }), { message: 'merge: --merge and --union are two folds — give one' });
+  });
+
+  it('an empty input contributes nothing, and a lone empty input yields the empty collection, indexed', () => {
+    const empty = join(tempDir, 'empty.beast2');
+    writeFileSync(empty, encodeBeast2PagedFor(DT)(new SortedMap([], compareFor(IntegerType))));
+    const withEmpty = join(tempDir, 'with-empty.beast2');
+    mergeBlobs([empty, writeDictInput('a')], withEmpty, { mergePath: writeConcat() });
+    const alone = join(tempDir, 'alone.beast2');
+    mergeBlobs([writeDictInput('a')], alone);
+    assert.deepEqual(new Uint8Array(readFileSync(withEmpty)), new Uint8Array(readFileSync(alone)));
+    assert.equal(openBeast2PagesFor(DT)(new Uint8Array(readFileSync(alone))).elementCount, 20);
+    const emptyOut = join(tempDir, 'empty-out.beast2');
+    assert.deepEqual(mergeBlobs([empty], emptyOut), { inputs: 1, entries: 0, folds: 0 });
+    assert.equal(openBeast2PagesFor(DT)(new Uint8Array(readFileSync(emptyOut))).elementCount, 0);
+  });
+
+  it('the merge command prints its account and refuses two folds', () => {
+    const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
+    const outputPath = join(tempDir, 'cli-merged.beast2');
+    const inputs = [writeDictInput('a'), writeDictInput('b'), writeDictInput('c')];
+    const result = spawnSync(process.execPath, [bin, 'merge', '--merge', writeConcat(), ...inputs.flatMap((p) => ['-i', p]), '-o', outputPath, '-v'], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(result.stderr.includes('merge: 3 input(s), 31 entries, 13 fold(s)'), result.stderr);
+    assert.equal(openBeast2PagesFor(DT)(new Uint8Array(readFileSync(outputPath))).elementCount, 31);
+
+    const both = spawnSync(process.execPath, [bin, 'merge', '--merge', writeConcat(), '--union', '-i', inputs[0]!, '-o', join(tempDir, 'both.beast2')], { encoding: 'utf8' });
+    assert.equal(both.status, 1);
+    assert.ok(both.stderr.includes('Error: --merge and --union are two folds — give one'), both.stderr);
+  });
+
+  // ---- The stdin lifeline -----------------------------------------------
+
   it('a runner given the stdin lifeline exits once its stdin closes, mid-computation', async () => {
-    // Gate (c): with EAST_EXIT_WITH_PARENT=1 and a stdin pipe nobody writes,
-    // the runner exits once that pipe closes. The body's out-of-order second
-    // emission prints the sink's demote notice (the body is running), then
-    // the body loops forever — only the watcher stops it.
+    // Gate (c): with --exit-with-parent and a stdin pipe nobody writes, the
+    // runner exits once that pipe closes. The sink opens the output file
+    // before the body runs, so the file's existence is the sign the runner
+    // is up and computing; the body loops forever after one emission — only
+    // the watcher stops it.
     const spin = East.function([emitKeyType], NullType, ($, emit) => {
-      $(emit(2n));
       $(emit(1n));
       const turns = $.let(0n);
       $.while(true, ($) => {
@@ -583,24 +605,26 @@ describe('folding emit, bounded runs and the stdin lifeline (#770)', () => {
     const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
     // As in the wide-input test: point the platform loader at east-node-std.
     const stdDir = fileURLToPath(new URL('../../east-node-std', import.meta.url));
+    const outputPath = join(tempDir, 'spin-output.beast2');
     const child = spawn(process.execPath,
-      [bin, 'run', writeIr('spin.beast2', spin), '-p', '@elaraai/east-node-std', '--emit', 'set', '-o', join(tempDir, 'spin-output.beast2')],
-      { env: { ...process.env, EAST_EXIT_WITH_PARENT: '1', E3_RUNNER_SEARCH_DIRS: stdDir }, stdio: ['pipe', 'ignore', 'pipe'] });
+      [bin, 'run', '--exit-with-parent', writeIr('spin.beast2', spin), '-p', '@elaraai/east-node-std', '--emit', 'set', '-o', outputPath],
+      { env: { ...process.env, E3_RUNNER_SEARCH_DIRS: stdDir }, stdio: ['pipe', 'ignore', 'pipe'] });
     const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
       child.on('exit', (code, signal) => resolve({ code, signal }));
     });
     let stderr = '';
-    const running = new Promise<boolean>((resolve) => {
-      child.stderr!.setEncoding('utf8');
-      child.stderr!.on('data', (chunk: string) => {
-        stderr += chunk;
-        if (stderr.includes('left ascending order')) resolve(true);
-      });
-      void exited.then(() => resolve(false));
-    });
+    child.stderr!.setEncoding('utf8');
+    child.stderr!.on('data', (chunk: string) => { stderr += chunk; });
+    const running = (async () => {
+      while (!existsSync(outputPath)) {
+        if (child.exitCode !== null || child.signalCode !== null) return false;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return true;
+    })();
     try {
       // Bounded liveness waits: start-up, then the watcher.
-      assert.equal(await within(running, 30_000), true, `the runner never reported its body running:\n${stderr}`);
+      assert.equal(await within(running, 30_000), true, `the runner never opened its output:\n${stderr}`);
       child.stdin!.destroy(); // the lifeline closes
       const outcome = await within(exited, 10_000);
       assert.ok(outcome !== undefined, 'the runner outlived its closed stdin by 10 s');
@@ -637,8 +661,8 @@ describe('folding emit, bounded runs and the stdin lifeline (#770)', () => {
     });
     const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
     const outputPath = join(tempDir, 'busy-output.beast2');
-    const child = spawn(process.execPath, [bin, 'run', writeIr('busy.beast2', busy), '-p', 'empty-platform', '-o', outputPath],
-      { env: { ...process.env, EAST_EXIT_WITH_PARENT: '1', E3_RUNNER_SEARCH_DIRS: tempDir }, stdio: ['pipe', 'ignore', 'pipe'] });
+    const child = spawn(process.execPath, [bin, 'run', writeIr('busy.beast2', busy), '--exit-with-parent', '-p', 'empty-platform', '-o', outputPath],
+      { env: { ...process.env, E3_RUNNER_SEARCH_DIRS: tempDir }, stdio: ['pipe', 'ignore', 'pipe'] });
     const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
       child.on('exit', (code, signal) => resolve({ code, signal }));
     });

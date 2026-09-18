@@ -100,13 +100,17 @@ spills, and the most entries and bytes held at once:
 
 ### Exiting with the Parent
 
-With `EAST_EXIT_WITH_PARENT=1` in its environment the runner watches its
-stdin from a worker thread, reading it through a socket on the worker's own
-event loop, and kills its own process as soon as stdin ends, closes or cannot
-be read. A parent that spawns the runner with a stdin pipe it never writes to
-— as e3 does — takes the runner down with it when it dies, even while the body
-is computing. The watcher never blocks in a read, so it never holds up the
-runner's own exit. Without the variable, stdin is left alone.
+With `--exit-with-parent` on its command line (`run` and `merge`) the runner
+watches its stdin from a worker thread, reading it through a socket on the
+worker's own event loop, and kills its own process as soon as stdin ends,
+closes or cannot be read. A parent that spawns the runner with a stdin pipe
+it never writes to — as e3 does — takes the runner down with it when it dies,
+even while the body is computing. The watcher never blocks in a read, so it
+never holds up the runner's own exit. Without the flag, stdin is left alone.
+
+```bash
+east-node run ./task.beast2 --exit-with-parent -p @elaraai/east-node-std --emit dict -o out.beast2
+```
 
 ### Version Information
 

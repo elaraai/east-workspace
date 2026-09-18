@@ -10,6 +10,7 @@ import { createRequire } from 'module';
 import { EastError } from '@elaraai/east/internal';
 import { loadPlatforms, loadPlatformWithMetadata } from './loader.js';
 import { runProgram, type RunProgramOptions } from './runner.js';
+import { mergeBlobs } from './merge.js';
 import { writeSnapshot, readSnapshot } from './snapshot.js';
 import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile.js';
 import { exportFunctionsFromModule } from './export-functions.js';
@@ -32,7 +33,22 @@ interface RunOptions {
     merge?: string;
     union?: boolean;
     lazyInputs?: string;
+    exitWithParent?: boolean;
 }
+
+interface MergeOptions {
+    package?: string[];
+    input: string[];
+    output: string;
+    verbose?: boolean;
+    merge?: string;
+    union?: boolean;
+    exitWithParent?: boolean;
+}
+
+/** The `--exit-with-parent` flag's help, shared by `run` and `merge`. */
+const EXIT_WITH_PARENT_HELP =
+    'Exit as soon as stdin reaches end of file — for a parent that holds a stdin pipe it never writes to, and takes the runner down with it';
 
 /** Parses the streaming-execution flags into runner options. */
 function streamingOptions(options: RunOptions): RunProgramOptions {
@@ -132,19 +148,19 @@ try {
 `;
 
 /**
- * Exit with the parent (issue #770): with `EAST_EXIT_WITH_PARENT=1` in the
- * environment, start the watcher on an unref'd worker thread. A parent sets
- * the variable only when it gives the runner a stdin pipe it never writes
+ * Exit with the parent (issue #770): with `--exit-with-parent` on the
+ * command line, start the watcher on an unref'd worker thread. A parent
+ * passes the flag only when it gives the runner a stdin pipe it never writes
  * to, so stdin ends only when that parent is gone. The main thread never
  * reads `process.stdin`.
  */
-function exitWithParent(): void {
-    if (process.env.EAST_EXIT_WITH_PARENT !== '1') return;
+function startLifeline(options: { exitWithParent?: boolean }): void {
+    if (!options.exitWithParent) return;
     new Worker(EXIT_WITH_PARENT_WATCHER, { eval: true }).unref();
 }
 
 async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<void> {
-    exitWithParent();
+    startLifeline(options);
     try {
         // --from-snapshot is exclusive with <ir_file>, -i, -p
         if (options.fromSnapshot) {
@@ -221,6 +237,29 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
         return fail(err instanceof EastError
             ? `Error: ${err.toString()}`
             : (e.stack ?? `Error: ${e.message ?? String(err)}`));
+    }
+}
+
+/**
+ * `east-node merge` (#770): k sorted Set/Dict blobs of one type into one
+ * canonical blob, in a single pass — the fan-in of a partitioned task's
+ * keyed partials.
+ */
+async function cmdMerge(options: MergeOptions): Promise<void> {
+    startLifeline(options);
+    try {
+        if (options.merge !== undefined && options.union) {
+            return fail('Error: --merge and --union are two folds — give one');
+        }
+        const platformFns = await loadPlatforms(options.package ?? []);
+        mergeBlobs(options.input, options.output, {
+            ...(options.merge !== undefined && { mergePath: options.merge }),
+            union: options.union ?? false,
+            platformFns,
+            verbose: options.verbose ?? false,
+        });
+    } catch (err) {
+        return fail(`Error: ${(err as Error).message}`);
     }
 }
 
@@ -333,7 +372,22 @@ export function main(): void {
             'Feed the given -i inputs (0-based) lazily, segment-by-segment (repeatable)')
         .option('--lazy-inputs <bytes>',
             'Open indexed collection inputs at or above this size lazily (0 disables; default 64 MiB)')
+        .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
         .action(cmdRun);
+
+    program
+        .command('merge')
+        .description('Merge sorted Set or Dict blobs of one type into one, in a single pass: equal keys fold with ' +
+            'the East function (K, V, V) -> V in --merge <file> (Dict), or collapse under --union (Set); without ' +
+            'a fold an equal key is an error. The output is what `run --emit` writes for the same entries emitted ascending')
+        .requiredOption('-i, --input <file...>', 'The input blobs (equal keys fold in this order)')
+        .requiredOption('-o, --output <file>', 'The merged blob')
+        .option('-p, --package <package...>', "Platform packages the --merge function's platform calls need")
+        .option('-v, --verbose', 'Enable verbose output')
+        .option('--merge <file>', 'Dict inputs: fold equal keys with the East function (K, V, V) -> V in <file>, in input order')
+        .option('--union', 'Set inputs: the first of equal elements stands')
+        .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
+        .action(cmdMerge);
 
     program
         .command('transpile')
