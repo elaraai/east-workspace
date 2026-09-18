@@ -369,12 +369,12 @@ const fixtures = {
   'emit_scatter_50k.beast2': encodeEastIR(scatterEmitter(50_000n)),
   'emit_scatter_400k.beast2': encodeEastIR(scatterEmitter(400_000n)),
 
-  // The lifeline: two emissions out of order — the sink's demote notice on
-  // stderr says the body is running — then a loop that never ends, which only
-  // the EAST_EXIT_WITH_PARENT watcher stops.
+  // The lifeline: one emission, then a loop that never ends, which only the
+  // exit-with-parent watcher stops. The sink opens the output file before the
+  // body runs, so the file's existence is the gate's sign that the runner is
+  // up and computing.
   'emit_spin.beast2': encodeEastIR(
     East.function([emitInt], NullType, ($, emit) => {
-      $(emit(2n));
       $(emit(1n));
       const turns = $.let(0n);
       $.while(true, ($) => {

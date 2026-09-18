@@ -538,7 +538,7 @@ static bool emit_merge_load(const char *path, EastType *key_type, EastType *valu
  * *merge_out the --merge function, both of which the caller frees after the
  * sink. */
 static EastEmitSink *emit_sink_open(EmitKind kind, EastType *emit_param_type,
-                                    const char *output_file, bool verbose, const char *merge_path,
+                                    const char *output_file, const char *merge_path,
                                     bool union_mode, PlatformRegistry *platform,
                                     BuiltinRegistry *builtins, EastType **out_type_out,
                                     EmitMerge *merge_out)
@@ -577,9 +577,6 @@ static EastEmitSink *emit_sink_open(EmitKind kind, EastType *emit_param_type,
         .kind = (EastEmitKind)kind,
         .out_type = out_type,
         .output_path = output_file,
-        .verbose = verbose,
-        .run_elements = 0,
-        .run_bytes = 0,
         .merge_fn = merge_out->fn,
         .union_mode = union_mode,
     };
@@ -594,21 +591,6 @@ static EastEmitSink *emit_sink_open(EmitKind kind, EastType *emit_param_type,
     }
     *out_type_out = out_type;
     return sink;
-}
-
-/* The -v epilogue's account of the buffered (spill/merge) path. */
-static void emit_print_epilogue(const EastEmitSink *sink)
-{
-    EastEmitSinkStats st;
-    east_emit_sink_stats(sink, &st);
-    if (!st.buffered) return;
-    char peak[32];
-    format_size((off_t)st.peak_bytes, peak, sizeof(peak));
-    fprintf(stderr,
-            "  emit: merged %zu source(s) in %zu pass(es) (%zu runs per pass); %zu spill(s), "
-            "peak %zu entries / %s buffered, spill %.1f ms, merge %.1f ms\n",
-            st.sources, st.passes, st.runs_per_pass, st.spills, st.peak_entries, peak, st.spill_ms,
-            st.merge_ms);
 }
 
 /* Frees the sink (NULL-safe), then the --merge function and the output type
@@ -879,7 +861,7 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     EmitMerge emit_merge = {NULL, NULL};
     if (emit_kind != EMIT_NONE) {
         emit_sink = emit_sink_open(emit_kind, num_params > 0 ? param_types[num_params - 1] : NULL,
-                                   output_file, verbose, merge_path, union_mode, platform, builtins,
+                                   output_file, merge_path, union_mode, platform, builtins,
                                    &emit_out_type, &emit_merge);
         if (!emit_sink) {
             ir_node_release(ir);
@@ -1013,7 +995,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
             fprintf(stderr, "Error: failed to finalize the emitted output\n");
             exit_code = 1;
         } else if (verbose) {
-            emit_print_epilogue(emit_sink);
             char *ts = format_type(emit_out_type);
             char sz[32];
             format_file_size(output_file, sz, sizeof(sz));

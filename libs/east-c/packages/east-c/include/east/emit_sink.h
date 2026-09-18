@@ -2,54 +2,34 @@
 #define EAST_EMIT_SINK_H
 
 /*
- * The streaming emit sink behind `run --emit` (issues #507, #518, #770).
+ * The streaming emit sink behind `run --emit` (issues #507, #770).
  *
  * A body's trailing parameter is a runner-provided function value; each call
  * appends one element (a key/value pair for dict outputs) to a streaming
- * beast2 v5 writer on the output file. The sink lives in the core library so
- * every runner that embeds east-c — the east-c CLI and east-py — writes the
- * same bytes through the same code.
+ * beast2 v5 writer on the output file, in one pass with O(batch) memory. The
+ * sink lives in the core library so every runner that embeds east-c — the
+ * east-c CLI and east-py — writes the same bytes through the same code.
  *
- * Emission order is unconstrained. While Set/Dict emissions stay strictly
- * ascending in East (key) order, segments stream straight to the output file
- * — O(batch) memory, byte-identical to an always-ascending producer. On the
- * first out-of-order key the file written so far is finalized (a complete
- * canonical beast2 file of the prefix) and demoted to spill run #0; from then
- * on every emission is encoded into a byte arena as it arrives, its value
- * released at once, and only its key kept for ordering. A run is that entry
- * table sorted by key and written raw beside the output as
- * `varint(key_len) key varint(val_len) value` records — the sink's own
- * temporary format, not beast2 — once the entries reach the element cap or
- * their encoded bytes reach the byte cap.
+ * Set and Dict emissions must ascend strictly in East (key) order: segment
+ * content is the canonical value split at segment boundaries, and the sink
+ * writes each batch straight to the file as it fills. An out-of-order key
+ * ends the emission with an error; a re-keying producer partitions its input
+ * and merges the sorted partials instead (east/merge.h), which is the
+ * orchestrator's step, never the sink's. Segments are sized by the paged
+ * encoder's refinement (src/emit_writer.h), so the file is byte-identical to
+ * what every other writer produces for the same value.
  *
- * The finish merges the runs and the in-memory tail into the canonical output
- * through a binary min-heap over the sources, at most 64 at once: more runs
- * than that merge in passes, each pass merging 64 consecutive runs into one
- * intermediate run in the same record format, `<output_path>.run<N>.p<pass>`,
- * and the tail joins only the final pass, as its last source. No run is read
- * whole — run #0 is read segment by segment through a mapping, the raw runs
- * sequentially through a small buffer — so the sink's memory is bounded by the
- * caps, independent of the output's size and its rows' width. The merge
- * decodes KEYS only: value bytes are copied straight into the output segments,
- * never decoded or re-encoded unless a fold runs, and the final write is the
- * only deflate. The final merge sizes its segments afresh, as a new sink does,
- * so its bytes are what the ascending path writes for the same entries.
- *
- * Duplicate Set/Dict keys are a hard error in every path — immediately when
- * adjacent in the stream, at spill/merge time otherwise — unless the sink
- * folds them: with a merge function (dict sinks) equal keys fold left in
- * emission order, `acc = merge(key, acc, value)`; with union mode (set sinks)
- * equal elements collapse to the first. Every merge pass folds, and equal keys
- * leave the heap in source order — run #0, the spill runs by index, the tail —
- * which is emission order. Either way the file is byte-identical to what the
- * non-folding sink writes for the already-folded sequence. The sink may fold
- * part of a key's emissions before combining it with the rest, so a merge
- * function must be associative; emission order is never changed.
+ * Duplicate Set/Dict keys are an error unless the sink folds them: with a
+ * merge function (dict sinks) an equal key folds into the previous entry,
+ * `acc = merge(key, acc, value)`, in emission order; with union mode (set
+ * sinks) an equal element collapses into the previous one. Either way the
+ * file is byte-identical to what the non-folding sink writes for the
+ * already-folded sequence.
  *
  * A batch is flushed when it is full and the next element will not fold into
- * it (or at finish, or when the output demotes) — never on the insert that
- * fills it — which segments exactly as flushing on that insert would, and
- * lets an equal key fold into a full batch's last entry.
+ * it (or at finish) — never on the insert that fills it — which segments
+ * exactly as flushing on that insert would, and lets an equal key fold into
+ * a full batch's last entry.
  *
  * Errors are posted through east_builtin_error: a failed east_emit_sink_new or
  * east_emit_sink_finish leaves the message for east_builtin_get_error, and the
@@ -74,50 +54,20 @@ typedef struct {
     /* The output collection type (borrowed; kept alive by the caller for the
      * sink's lifetime): Array<E>, Set<E> or Dict<K, V> of the kind. */
     EastType *out_type;
-    /* The output file (borrowed for the sink's lifetime). Spill runs are
-     * written beside it as `<output_path>.run<N>`, a merge pass's
-     * intermediate runs as `<output_path>.run<N>.p<pass>`. */
+    /* The output file (borrowed for the sink's lifetime). */
     const char *output_path;
-    /* Collect the spill/merge timings reported by east_emit_sink_stats. */
-    bool verbose;
-    /* Spill once this many out-of-order entries are buffered; 0 reads
-     * EAST_EMIT_RUN_ELEMENTS (digits only, at least 1), else 100,000. */
-    size_t run_elements;
-    /* Spill once the buffered entries' encoded bytes reach this many; 0 reads
-     * EAST_EMIT_RUN_BYTES (digits only, at least 1), else 64 MiB. */
-    size_t run_bytes;
-    /* Dict sinks: fold equal keys, `acc = merge(key, acc, value)`, in
-     * emission order — a compiled `(K, V, V) -> V` over the output's key and
-     * value types (borrowed; kept alive by the caller for the sink's
-     * lifetime). NULL: equal keys are a duplicate error. */
+    /* Dict sinks: fold an equal key into the previous entry,
+     * `acc = merge(key, acc, value)` — a compiled `(K, V, V) -> V` over the
+     * output's key and value types (borrowed; kept alive by the caller for
+     * the sink's lifetime). NULL: equal keys are a duplicate error. */
     EastCompiledFn *merge_fn;
-    /* Set sinks: equal elements collapse to the first. */
+    /* Set sinks: an equal element collapses into the previous one. */
     bool union_mode;
 } EastEmitSinkConfig;
 
 typedef struct {
     /* Emissions accepted. */
     size_t emitted;
-    /* Whether emission left ascending order (the spill/merge path ran). */
-    bool buffered;
-    /* Sources the finish merged: the demoted prefix, the spill runs, and the
-     * in-memory tail when it holds entries. */
-    size_t sources;
-    /* Merge passes: one, plus one per level of intermediate runs. */
-    size_t passes;
-    /* The most sources one merge read at once — at most 64. */
-    size_t runs_per_pass;
-    /* Runs written by spilling. */
-    size_t spills;
-    /* The most entries, and the most encoded entry bytes, held at once. */
-    size_t peak_entries;
-    size_t peak_bytes;
-    /* Bytes written to temporary runs: the demoted prefix, the spill runs and
-     * the intermediate runs. */
-    size_t spilled_bytes;
-    /* Milliseconds spent spilling and merging (0 unless `verbose`). */
-    double spill_ms;
-    double merge_ms;
 } EastEmitSinkStats;
 
 typedef struct EastEmitSink EastEmitSink;
@@ -133,10 +83,9 @@ EastEmitSink *east_emit_sink_new(const EastEmitSinkConfig *cfg);
  * returned value; the sink must outlive it. NULL on allocation failure. */
 EastValue *east_emit_sink_function(EastEmitSink *sink, EastType *fn_type);
 
-/* Flushes the final batch and writes the terminator + index (ascending path),
- * or merges the spilled runs and the tail into the canonical output (buffered
- * path). On failure the output is left unfinalized — no terminator or index —
- * and the message is posted. Removes the temporary runs on success. */
+/* Flushes the final batch and writes the terminator + index. On failure the
+ * output is left unfinalized — no terminator or index — and the message is
+ * posted. */
 bool east_emit_sink_finish(EastEmitSink *sink);
 
 /* The sink's counters so far. */
