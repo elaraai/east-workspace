@@ -13,7 +13,7 @@
 
 import type { AsyncFunctionExpr, BlockBuilder, CallableAsyncFunctionExpr, CallableFunctionExpr, DictType, EastType, ExprType, FunctionExpr, FunctionIR, NeverType, SetType, SubtypeExprOrValue } from '@elaraai/east';
 import { Expr, variant, some, none, ArrayType, StringType, NullType, FunctionType, StructType, East, IRType, EastIR, AsyncEastIR, encodeEastIR, toEastTypeValue, isTypeValueEqual } from '@elaraai/east';
-import { TASK_KIND_PARTITION, TASK_KIND_STREAM, encodePartitionTaskMetadata, encodeStreamTaskMetadata, partitionProjectionShape, streamCommandIr, type ProjectionShape, type StreamMergeMode } from '@elaraai/e3-types';
+import { TASK_KIND_PARTITION, TASK_KIND_STREAM, encodePartitionTaskMetadata, encodeStreamTaskMetadata, mergeCommandIr, partitionProjectionShape, streamCommandIr, type ProjectionShape, type StreamMergeMode } from '@elaraai/e3-types';
 import type { DatasetDef, DataTreeDef, TaskDef } from './types.js';
 import { DEFAULT_RUNNER, runnerToCommand, runnerToVariant, type Runner } from './runner.js';
 import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
@@ -417,14 +417,16 @@ export interface PartitionTaskSpec<
    * assembly mode, alongside splice and `combine`.
    *
    * @remarks
-   * The partials are merged by the task's runner as a stream task; the
-   * orchestrator never decodes them. Partials whose key ranges overlap are
-   * grouped, and each group merges through a tree of stream executions (up to
-   * eight partials each) whose emit sink folds equal keys in partition order;
-   * partials no other partial reaches take no merge at all, and the results
-   * splice. Every merge unit is an ordinary cached execution: a re-run with
-   * unchanged partials merges nothing again, and the intermediate results of
-   * the tree are stored like any other execution output.
+   * The partials are merged by the task's runner — its `merge` command, over
+   * sorted partials, in one pass; the orchestrator never decodes them.
+   * Partials whose key ranges overlap are grouped, and each group merges
+   * through a tree of merge executions (up to 32 partials each) folding equal
+   * keys in partition order; partials no other partial reaches take no merge
+   * at all, and the results splice. Every merge unit is an ordinary cached
+   * execution: a re-run with unchanged partials merges nothing again, and the
+   * intermediate results of the tree are stored like any other execution
+   * output. The merge command is built here, at export, and carried in the
+   * package's metadata like any other command IR.
    *
    * A `Dict` output takes a function of the key and two of its values, over
    * the output's own key and value types; a `Set` output takes the literal
@@ -433,9 +435,9 @@ export interface PartitionTaskSpec<
    * {@link combine}, which stays the mode for non-collection outputs (KPIs,
    * counts) and for authors who want a whole-value fold.
    *
-   * Needs a stock runtime (the merge units carry streaming flags the `custom`
-   * runtime cannot) at this release: an older runner fails the merge unit with
-   * `Unknown option: --merge`.
+   * Needs a stock runtime: the merge units run the runner's `merge` command,
+   * which the `custom` runtime does not have and an older runner does not
+   * ship.
    */
   readonly merge?: OutputMerge<Output>;
   /** Target carved-slice size in wire bytes. Defaults to 256 MiB. */
@@ -693,9 +695,12 @@ export function partitionTask<
 
   // Reify `merge` as a free East function (Key, Value, Value) -> Value for a
   // Dict output, or record the Set union flag. The task's runner merges the
-  // partials with it, as stream executions the orchestrator synthesizes.
+  // partials with it through its `merge` command, whose command IR is built
+  // here and carried in the metadata — the orchestrator runs it as an
+  // ordinary execution per group of partials.
   let mergeIr: Uint8Array | undefined;
   let mergeSets = false;
+  let mergeCommand: Uint8Array | undefined;
   if (spec.merge !== undefined) {
     if (spec.combine !== undefined) {
       throw new Error(
@@ -706,7 +711,7 @@ export function partitionTask<
     if (spec.runner?.runtime === 'custom') {
       throw new Error(
         `partitionTask '${name}': merge runs the fan-in on the task's runner, which must be a stock runtime ` +
-        `(east-node, east-py, east-c) — the custom runtime cannot carry the streaming flags`
+        `(east-node, east-py, east-c) — the custom runtime has no merge command`
       );
     }
     if (spec.merge === 'union') {
@@ -727,6 +732,7 @@ export function partitionTask<
       const mergeFn = East.function([keyType, valueType, valueType], valueType, spec.merge as any);
       mergeIr = encodeEastIR(mergeFn.toIR());
     }
+    mergeCommand = encodeEastIR(mergeCommandIr(runnerToVariant(spec.runner ?? DEFAULT_RUNNER), mergeSets ? 'union' : 'function'));
   }
 
   const targetPartitionBytes = spec.targetPartitionBytes ?? DEFAULT_TARGET_PARTITION_BYTES;
@@ -747,6 +753,7 @@ export function partitionTask<
     targetPartitionBytes: BigInt(targetPartitionBytes),
     merge: mergeIr !== undefined ? some(mergeIr) : none,
     mergeSets,
+    mergeCommand: mergeCommand !== undefined ? some(mergeCommand) : none,
   });
 
   return task(
@@ -793,25 +800,25 @@ export interface StreamTaskSpec<
   readonly stream?: Stream;
   /** Ordinary inputs, decoded whole. */
   readonly inputs?: [...Inputs];
-  /** The output collection type. Emission order is unconstrained: ascending
-   *  Set/Dict emission streams straight to the output, and out-of-order
-   *  emission is sorted by the runner's sink (bounded-memory spill/merge)
-   *  before the file is finalized — the stored dataset is always the
-   *  canonical collection. Duplicate Set/Dict keys are a runtime error unless
+  /** The output collection type. An Array output stores its elements in
+   *  emission order. A Set or Dict output must be emitted in ascending key
+   *  order (East's total order): the runner writes it in one pass, segment by
+   *  segment, and an out-of-order key fails the task with the same message
+   *  on every runtime. Duplicate Set/Dict keys are a runtime error unless
    *  {@link merge} folds them. */
   readonly output: Output;
   /**
-   * How the runner's sink folds emissions with equal keys, instead of failing
-   * on the duplicate.
+   * How the runner's sink folds emissions with equal keys that arrive
+   * together, instead of failing on the duplicate.
    *
    * @remarks
-   * A `Dict` output takes a function of the key and two values: equal keys
-   * fold left in emission order, `acc = merge(key, acc, value)`. A `Set`
-   * output takes the literal `'union'`: equal elements collapse to the first.
-   * The stored dataset is exactly the output the emissions' fold would write.
-   * The sink may fold some of a key's values before combining them with the
-   * rest, so the function must be associative. An Array output takes no
-   * `merge`.
+   * A `Dict` output takes a function of the key and two values: adjacent
+   * equal keys fold left in emission order, `acc = merge(key, acc, value)`. A
+   * `Set` output takes the literal `'union'`: adjacent equal elements collapse
+   * to the first. The ascending contract stands — `merge` folds the equal keys
+   * of a grouped stream; keys that collide across the stream are a
+   * `partitionTask` with `merge`. The stored dataset is exactly the output the
+   * folded emissions would write. An Array output takes no `merge`.
    */
   readonly merge?: OutputMerge<Output>;
   /** Runtime the body runs on; defaults to {@link DEFAULT_RUNNER}. Every
@@ -844,15 +851,17 @@ type StreamTaskArgs<
  *
  * `emit` is a runner-implemented function value: `emit(key, value)` for Dict
  * outputs, `emit(element)` for Array/Set outputs. The streaming writer
- * re-batches emissions byte-adaptively, and emission order is unconstrained:
- * emissions arriving in ascending (key) order stream straight to the output
- * file, and out-of-order emissions are sorted by the sink (bounded-memory
- * spill/merge, reported on stderr when it engages) before the file is
- * finalized — either way the stored dataset is the canonical collection, so
- * a re-keying producer can emit as it reads. Duplicate Set/Dict keys are a
- * runtime error unless `merge` folds them: a function for a Dict output
- * (equal keys fold left in emission order), `'union'` for a Set output. The
- * body's return value is unused — the output dataset is what `emit` wrote.
+ * re-batches emissions byte-adaptively and writes the output in one pass,
+ * with one open batch in memory whatever the output's size. An Array output
+ * takes its elements in emission order; a Set or Dict output must be emitted
+ * in ascending key order, and an out-of-order key fails the task (`beast2
+ * v5: Dict key emitted out of order: 1 after 2 — Set/Dict emissions must
+ * ascend in East order`, the same words on every runtime). A re-key whose
+ * output keys do not arrive in order is a `partitionTask` with `merge`.
+ * Duplicate Set/Dict keys are a runtime error unless `merge` folds them: a
+ * function for a Dict output (adjacent equal keys fold left in emission
+ * order), `'union'` for a Set output. The body's return value is unused —
+ * the output dataset is what `emit` wrote.
  *
  * With no `stream`, the task is a producer: its body loops over
  * platform-function sources (paginated APIs, database cursors) and emits.

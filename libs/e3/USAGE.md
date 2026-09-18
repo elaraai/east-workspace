@@ -264,10 +264,11 @@ const totals = e3.partitionTask('totals', {
 
 // Keyed partials that may share keys: `merge` folds a key present in two
 // partials (it must be associative). The task's runner merges the partials
-// whose key ranges overlap, as a tree of stream executions, and the results
-// splice with the partials no other reaches — the orchestrator never decodes
-// them. Every merge unit is cached, so an append re-runs the changed
-// partitions plus the merges they reach. A Set output takes `merge: 'union'`.
+// whose key ranges overlap with its `merge` command — one pass over sorted
+// partials, as a tree of merge executions — and the results splice with the
+// partials no other reaches; the orchestrator never decodes them. Every merge
+// unit is cached, so an append re-runs the changed partitions plus the merges
+// they reach. A Set output takes `merge: 'union'`.
 const latest = e3.partitionTask('latest', {
   partitions: [events],
   output: DictType(StringType, EventType),
@@ -289,11 +290,12 @@ exclusive, and `merge` is refused on an Array output.
 
 A `merge` function takes the key and two values, typed as the output's own key
 and value, and must be associative: a key's values may fold in any grouping,
-though never out of partition order. It runs on the task's runner, so it needs
-a stock runtime — the `custom` runtime is refused — of this release: an older
-runner fails the merge unit with `Unknown option: --merge`. The merge tree's
-intermediate results are stored like any execution output; that storage is what
-lets a re-run re-merge only what changed.
+though never out of partition order. It runs on the task's runner through its
+`merge` command, so it needs a stock runtime — the `custom` runtime is refused
+— of this release: an older runner has no `merge` command. The merge command
+is built at export and carried in the package; the merge tree's intermediate
+results are stored like any execution output, which is what lets a re-run
+re-merge only what changed.
 
 Memoization is append-friendly: appends and tail-localized changes leave
 earlier slices byte-identical, so their executions are served from the
@@ -331,27 +333,30 @@ const balances = e3.streamTask('balances', {
 ```
 
 `emit(key, value)` writes one Dict entry, `emit(element)` one Array/Set
-element — in any order. Ascending Set/Dict emission streams straight to
-the output file, and out-of-order emission is sorted by the runner's sink
-(bounded-memory spill/merge, reported on stderr when it engages) before
-the output is finalized, so the stored dataset is always the canonical
-collection and a re-keying producer can emit rows as it reads them.
-Duplicate Dict keys / Set elements are a runtime error unless `merge` folds
-them. Omit `stream` for a producer task whose body loops over
-platform-function sources (paginated APIs, database cursors) and emits.
+element. An Array output stores its elements in emission order. A Set or
+Dict output must be emitted in ascending key order (East's total order): the
+runner writes the output in one pass, segment by segment, with one open batch
+in memory whatever the output's size, and an out-of-order key fails the task
+with the same message on every runtime — `beast2 v5: Dict key emitted out of
+order: 1 after 2 — Set/Dict emissions must ascend in East order`. Duplicate
+Dict keys / Set elements are a runtime error unless `merge` folds them. Omit
+`stream` for a producer task whose body loops over platform-function sources
+(paginated APIs, database cursors) and emits.
 
-With `merge`, equal keys fold instead of failing: a Dict output takes a
-function of the key and two values, and equal keys fold left in emission
-order; a Set output takes `'union'`, and equal elements collapse to the first.
-The stored dataset is exactly what the folded emissions would write. The sink
-may fold some of a key's values before combining them with the rest, so the
-function must be associative.
+With `merge`, equal keys that arrive together fold instead of failing: a Dict
+output takes a function of the key and two values, and adjacent equal keys
+fold left in emission order; a Set output takes `'union'`, and adjacent equal
+elements collapse to the first. The ascending contract stands — `merge` is
+for a stream whose equal keys are grouped — and the stored dataset is exactly
+what the folded emissions would write. Keys that collide across the stream,
+or arrive out of order, are a `partitionTask` with `merge`:
 
 ```typescript
-import { ArrayType, DictType, FloatType, StringType } from '@elaraai/east';
+import { ArrayType, DictType, FloatType, IntegerType, StringType, StructType } from '@elaraai/east';
 
-const payments = e3.input('payments', ArrayType(PaymentType));
-
+// (a) Grouped input, one pass: payments sorted by account fold to per-account
+//     totals — equal keys arrive together, and the accounts ascend.
+const payments = e3.input('payments', ArrayType(PaymentType));   // sorted by account
 const accountTotals = e3.streamTask('account_totals', {
   stream: payments,
   output: DictType(StringType, FloatType),
@@ -361,6 +366,37 @@ const accountTotals = e3.streamTask('account_totals', {
     $(emit(payment.account, payment.amount));
   });
 });
+
+// (b) A re-key — the output key is not the input's order — is a partitionTask:
+//     each partition builds its slice's Dict (toDict folds the keys that
+//     collide inside the slice) and `merge` folds the keys that collide across
+//     partitions, on the task's runner.
+const sales = e3.input('sales', DictType(SaleKeyType, SaleType));
+const bySku = e3.partitionTask('by_sku', {
+  partitions: [sales],
+  output: DictType(StringType, IntegerType),
+  merge: (_$, _sku, a, b) => a.add(b),
+}, ($, slice) => slice.toDict(
+  ($, _sale, key) => key.sku,
+  ($, sale, _key) => sale.qty,
+  ($, a, b, _sku) => a.add(b),
+));
+
+// (c) An ingest that cannot page in key order emits pairs in arrival order,
+//     and a partitionTask over the pairs re-keys them.
+const PairType = StructType({ key: StringType, value: RowType });
+const pairs = e3.streamTask('ingest_pairs', {
+  output: ArrayType(PairType),
+}, ($, emit) => { /* fetch pages, $(emit({ key: row.id, value: row })) each */ });
+const rows = e3.partitionTask('rows', {
+  partitions: [pairs.output],
+  output: DictType(StringType, RowType),
+  merge: ($, _id, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),
+}, ($, slice) => slice.toDict(
+  ($, pair, _i) => pair.key,
+  ($, pair, _i) => pair.value,
+  ($, a, b, _id) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),
+));
 ```
 
 ### `e3.customTask(name, inputs, outputType, command)`
@@ -792,8 +828,8 @@ Tasks are cached by content hash. A task only re-runs when:
 - Any of its input values change
 
 Changing one task doesn't invalidate unrelated tasks. A `partitionTask` is
-also cached per partition and, with `merge`, per merge unit. Use `--force` to
-bypass cache:
+also cached per partition and, with `merge`, per merge unit (the runner's
+`merge` command over a group of partials). Use `--force` to bypass cache:
 
 ```bash
 e3 dataflow run . dev --force

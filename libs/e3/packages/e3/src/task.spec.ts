@@ -637,6 +637,43 @@ describe('partitionTask merge', () => {
     assert.strictEqual(setMeta.mergeSets, true);
   });
 
+  it('carries the merge command of the task\'s runner, built at export, and none without merge', () => {
+    // The orchestrator's merge units run this command IR as an ordinary
+    // execution: `<runner> merge --merge <merge IR> -i <partial>... -o <out>`
+    // for a Dict output, `--union` for a Set.
+    const byId = partitionTask('merge_cmd_by_id', {
+      partitions: [events],
+      output: DictType(IntegerType, RowType),
+      merge: ($, _key, a, _b) => $.return(a),
+      runner: { runtime: 'east-c', platforms: ['east-c-std'] },
+    }, ($, slice) => $.return(slice));
+    const dictMeta = decodePartitionTaskMetadata(byId.metadata!);
+    assert.strictEqual(dictMeta.mergeCommand.type, 'some');
+    const dictCommand = decodeEastIR(dictMeta.mergeCommand.type === 'some' ? dictMeta.mergeCommand.value : new Uint8Array());
+    assert.deepStrictEqual(
+      (dictCommand.compile([]) as (inputs: string[], output: string) => string[])(['merge.beast2', 'p0.beast2', 'p1.beast2'], 'out.beast2'),
+      ['east-c', 'merge', '-p', 'east-c-std', '--merge', 'merge.beast2', '-i', 'p0.beast2', '-i', 'p1.beast2', '-o', 'out.beast2'],
+    );
+
+    const ids = partitionTask('merge_cmd_ids', {
+      partitions: [events],
+      output: SetType(IntegerType),
+      merge: 'union',
+    }, ($, slice) => $.return(slice.keys()));
+    const setMeta = decodePartitionTaskMetadata(ids.metadata!);
+    const setCommand = decodeEastIR(setMeta.mergeCommand.type === 'some' ? setMeta.mergeCommand.value : new Uint8Array());
+    assert.deepStrictEqual(
+      (setCommand.compile([]) as (inputs: string[], output: string) => string[])(['p0.beast2', 'p1.beast2'], 'out.beast2'),
+      ['east-node', 'merge', '-p', '@elaraai/east-node-std', '--union', '-i', 'p0.beast2', '-i', 'p1.beast2', '-o', 'out.beast2'],
+    );
+
+    const spliced = partitionTask('merge_cmd_none', {
+      partitions: [events],
+      output: DictType(IntegerType, RowType),
+    }, ($, slice) => $.return(slice));
+    assert.strictEqual(decodePartitionTaskMetadata(spliced.metadata!).mergeCommand.type, 'none');
+  });
+
   it('refuses merge alongside combine, on the wrong output kind, or in the wrong form', () => {
     assert.throws(
       () => partitionTask('merge_and_combine', {
@@ -693,7 +730,7 @@ describe('partitionTask merge', () => {
         merge: ($, _key, a, _b) => $.return(a),
         runner: { runtime: 'custom', command: ['my-runner'] },
       }, ($, slice) => $.return(slice)),
-      /^Error: partitionTask 'merge_custom': merge runs the fan-in on the task's runner, which must be a stock runtime \(east-node, east-py, east-c\) — the custom runtime cannot carry the streaming flags$/
+      /^Error: partitionTask 'merge_custom': merge runs the fan-in on the task's runner, which must be a stock runtime \(east-node, east-py, east-c\) — the custom runtime has no merge command$/
     );
   });
 });
