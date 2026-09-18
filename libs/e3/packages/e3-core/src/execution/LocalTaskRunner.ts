@@ -26,6 +26,7 @@ import { adoptOutputFile, marshalInputsToDir, spawnAndCapture } from './processE
 import { materializeEnvironment } from './environment.js';
 import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
 import { executionScratchDir } from './scratch.js';
+import type { JobSlots, ReleaseSlot } from './jobs.js';
 
 // Re-exported from processExec.js (where the implementation moved) for
 // backwards compatibility — exported for testing, not public API.
@@ -49,9 +50,16 @@ export interface ExecuteOptions {
   onStdout?: (data: string) => void;
   /** Stream stderr callback */
   onStderr?: (data: string) => void;
-  /** Maximum concurrent per-partition executions of a partitioned task
-   *  (default: 4). Runtime-only: never affects hashes or caching. */
+  /** The most units of a partitioned task in flight at once — its pool
+   *  width. Defaults to the jobs budget's capacity, else 4. Runtime-only:
+   *  never affects hashes or caching. */
   partitionConcurrency?: number;
+  /** The run's jobs budget: a runner spawns only while its execution holds
+   *  one of the slots, and a partitioned task's units take slots like any
+   *  execution, so the budget bounds the runner processes of the whole run.
+   *  Runtime-only, and never seen by a remote backend. Absent, spawns are
+   *  not budgeted. */
+  jobs?: JobSlots;
   /** Called as each unit of a partitioned task (slice execution or combine
    *  step) starts and completes. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
@@ -105,6 +113,7 @@ export class LocalTaskRunner implements TaskRunner {
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
       partitionConcurrency: options?.partitionConcurrency,
+      jobs: options?.jobs,
       onPartitionProgress: options?.onPartitionProgress,
     });
 
@@ -466,26 +475,6 @@ export async function taskExecuteBody(
       }
     }
 
-    // Step 7: Get boot ID for crash detection
-    const bootId = await getBootId();
-
-    // Step 8: Execute command, with the lifeline pipe for a stock runner; a
-    // custom command keeps an ignored stdin.
-    const result = await runCommand(
-      storage,
-      repo,
-      taskHash,
-      inHash,
-      executionId,
-      args,
-      inputHashes,
-      bootId,
-      scratchDir,
-      options,
-      envBins,
-      stdinLifeline
-    );
-
     /** Records an execution e3 stopped (`error`) or a signal ended
      *  (`failed`, exit code -1), appending `e3: <cause>` to its stderr log. */
     const stoppedResult = async (state: 'error' | 'failed', cause: string, cancelled: boolean): Promise<ExecutionResult> => {
@@ -522,6 +511,49 @@ export async function taskExecuteBody(
         cancelled,
       };
     };
+
+    // Step 7: Get boot ID for crash detection
+    const bootId = await getBootId();
+
+    // Step 7.5: the run's jobs budget. The runner spawns only once this
+    // execution holds a slot — a partitioned task's units queue here beside
+    // the dataflow's other tasks, first come first served — and an execution
+    // the run aborts while it waits never spawns: it is recorded cancelled,
+    // with no `running` record ever written.
+    let releaseSlot: ReleaseSlot | undefined;
+    if (options.jobs !== undefined) {
+      try {
+        releaseSlot = await options.jobs.acquire(options.signal);
+      } catch (err) {
+        if (options.signal?.aborted) {
+          return stoppedResult('error', 'cancelled: e3 did not start the runner because the run was aborted', true);
+        }
+        throw err;
+      }
+    }
+
+    // Step 8: Execute command, with the lifeline pipe for a stock runner; a
+    // custom command keeps an ignored stdin. The slot is held until the
+    // runner has exited.
+    let result: Awaited<ReturnType<typeof runCommand>>;
+    try {
+      result = await runCommand(
+        storage,
+        repo,
+        taskHash,
+        inHash,
+        executionId,
+        args,
+        inputHashes,
+        bootId,
+        scratchDir,
+        options,
+        envBins,
+        stdinLifeline
+      );
+    } finally {
+      releaseSlot?.();
+    }
 
     // Step 9: Handle result
     if (result.exitCode === 0) {

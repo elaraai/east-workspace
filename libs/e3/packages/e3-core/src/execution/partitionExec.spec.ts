@@ -41,6 +41,7 @@ import {
 } from '@elaraai/e3-types';
 import type { PartitionProgress } from '@elaraai/e3-types';
 import { collectNodeModulesBins, taskExecute, taskExecuteBody, type ExecuteOptions } from './LocalTaskRunner.js';
+import { JobSlots } from './jobs.js';
 import { carvePartitionSlices, partitionTaskExecute, spliceBlobs, type PartitionUnitExecutor } from './partitionExec.js';
 import { MERGE_TREE_FANIN, partitionAssemblyStats } from './steps.js';
 import { bufferPart, spliceChunks } from './partitionIo.js';
@@ -791,6 +792,29 @@ describe('partitionTaskExecute', () => {
       spliceBlobs(storage, repo, [highHash, lowHash]),
       /blobs 1 and 2 of 2 do not ascend disjointly in key order/,
     );
+  });
+
+  it('draws every unit of a partitioned task from the run\'s jobs budget', async () => {
+    // Ten partitions whose bodies each sleep long enough to overlap, under a
+    // budget of two: the pool is as wide as the budget, and the budget — not
+    // the pool — bounds the runners in flight.
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const fnIrHash = await createDummyFnIr();
+    const sleepyCopy = East.function(
+      [ArrayType(StringType), StringType],
+      ArrayType(StringType),
+      ($, inputs, output) => ['bash', '-c', 'sleep 0.2; cp "$1" "$2"', '--', inputs.get(1n), output],
+    );
+    const commandIrHash = await objectWrite(repo, encodeBeast2For(IRType)(sleepyCopy.toIR().ir));
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1, commandIrHash });
+
+    const jobs = new JobSlots(2);
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], { jobs });
+    assert.equal(result.state, 'success', result.error ?? '');
+    assert.equal(result.outputHash, tableHash);
+    assert.equal(jobs.peak, 2, 'two units in flight at once, never more');
+    assert.equal(jobs.inFlight, 0);
+    assert.equal(await executionCount(taskHash), 11);
   });
 
   it('reports per-unit progress across the fan-out and every combine level', async () => {

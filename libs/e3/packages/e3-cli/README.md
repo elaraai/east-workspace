@@ -66,8 +66,16 @@ e3 task logs <repo> <ws.task> [--follow]        # Stream task logs
 ### Dataflow execution
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force] [-v]
+e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--force] [-v]
 ```
+
+`-j` / `--jobs <n>` is the run's one budget of parallelism: the runner processes
+e3 keeps in flight at once, across the dataflow's tasks and the partitions and
+merge units of its partitioned tasks alike (every runner takes one slot, first
+come first served, whatever launched it). It defaults to the CPUs available to
+e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set. The
+older `--concurrency` and `--partition-concurrency` are accepted as deprecated
+aliases of the same budget.
 
 `-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf
 block to the task's logs (`e3 task logs <repo> <ws.task>`) — identical across
@@ -95,7 +103,7 @@ e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2> [-v]
 ### Watch / live development
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [--abort-on-change]
+e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change]
 ```
 
 ### Authentication

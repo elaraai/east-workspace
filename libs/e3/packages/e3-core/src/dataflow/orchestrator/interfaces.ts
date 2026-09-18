@@ -14,6 +14,7 @@
 import type { PartitionProgress } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { TaskRunner } from '../../execution/interfaces.js';
+import type { JobSlots } from '../../execution/jobs.js';
 import type { DataflowExecutionState, ExecutionEvent, FinalizeResult } from '../types.js';
 
 /**
@@ -77,9 +78,18 @@ export interface OrchestratorStartOptions {
   lock?: LockHandle;
   /** Task runner for executing individual tasks */
   runner?: TaskRunner;
-  /** Maximum concurrent per-partition executions within each partitioned
-   *  task (default: 4). Runtime-only: never affects hashes or caching. */
+  /** The most units of a partitioned task in flight at once — its pool
+   *  width. Defaults to the jobs budget's capacity, else 4. Runtime-only:
+   *  never affects hashes or caching. */
   partitionConcurrency?: number;
+  /**
+   * The run's jobs budget: the runner processes the local runner keeps in
+   * flight at once, across every task of the run and the units of its
+   * partitioned tasks. The local CLI sets `concurrency` to the same number
+   * and lets the budget bound what actually spawns. A runtime collaborator
+   * like {@link signal}: never persisted, and ignored by a remote runner.
+   */
+  jobs?: JobSlots;
   /** Callback when a task starts */
   onTaskStart?: (name: string) => void;
   /** Callback when a task completes */

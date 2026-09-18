@@ -1128,6 +1128,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
       partitionConcurrency: options.partitionConcurrency,
+      jobs: options.jobs,
       // Forward partition progress to the caller's callback ONLY. It is
       // deliberately not persisted as execution events: ExecutionEventType
       // is a frozen beast2 wire (appending cases breaks released readers —

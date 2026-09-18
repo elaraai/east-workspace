@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono';
-import type { StorageBackend } from '@elaraai/e3-core';
+import { defaultJobs, type StorageBackend } from '@elaraai/e3-core';
 import {
   startDataflow,
   getDataflowStatus,
@@ -29,11 +29,14 @@ export function createExecutionRoutes(
     const ws = c.req.param('ws')!;
 
     const body = await decodeBody(c, DataflowRequestType);
-    const concurrency = body.concurrency.type === 'some' ? Number(body.concurrency.value) : 4;
+    // The request's `concurrency` is the run's jobs budget: the runner
+    // processes this server keeps in flight for it, across tasks and the
+    // units of partitioned tasks. Absent, the CPUs available to the server.
+    const jobs = body.concurrency.type === 'some' ? Number(body.concurrency.value) : defaultJobs();
     const filter = body.filter.type === 'some' ? body.filter.value : undefined;
 
     return startDataflow(storage, repoPath, ws, {
-      concurrency,
+      jobs,
       force: body.force,
       filter,
       verbose: c.req.query('verbose') === '1',

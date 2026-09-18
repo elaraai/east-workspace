@@ -270,6 +270,7 @@ An execution that e3 stops, or whose process dies, is recorded with a status tha
 |---|---|---|
 | The runner exits 0 | `success` | — |
 | e3 stopped the runner because the run was aborted (Ctrl-C, `SIGTERM`, `SIGHUP`, `LocalOrchestrator.cancel()`, the caller's `AbortSignal`) | `error` | `cancelled: e3 stopped the runner because the run was aborted` |
+| The run was aborted while the execution waited for a job slot, so no runner ever started | `error` | `cancelled: e3 did not start the runner because the run was aborted` |
 | e3 stopped the runner at the task's timeout | `error` | `timed out: e3 stopped the runner after <ms> ms` |
 | A signal from elsewhere ended the runner | `failed`, exit code -1 | `e3: runner killed by <signal>` |
 | The runner exits non-zero, or cannot be spawned | `failed` | the exit code (-1 and `Failed to spawn: …` for a spawn failure) |
@@ -294,7 +295,7 @@ A partition task (`e3.partitionTask`) is one task node with one output dataset �
 A step reads hashes from a logical input, an earlier step's result or an object the template wrote, and yields a plan, a list of hashes or one hash. There are four kinds:
 
 - **plan.** The primary partitioned input's segment index gives the boundaries: greedy byte packing up to `targetPartitionBytes`, advanced so rows with equal `by` projections never split. `by` is evaluated by reading key fields — the SDK builds only leading-prefix projections — never by compiling its IR. Each co-partitioned secondary gets a split point at every boundary. The plan is a pure function of the inputs and the task's metadata, and is stored before anything is carved from it.
-- **map.** One execution per partition of the task's own command over `[functionIr, ...slices, ...broadcast]`, in a pool of `partitionConcurrency` workers. When a worker picks up partition `p` it carves that partition's slices (`carvePartitionSlices`: byte copies of the primary's segments, and of each secondary's range with at most the two edge segments a split falls inside re-encoded) unless a recorded plan supplies them. No input is read whole. The result is one output hash per partition.
+- **map.** One execution per partition of the task's own command over `[functionIr, ...slices, ...broadcast]`, in a pool as wide as the run's jobs budget (or `partitionConcurrency`, when given). When a worker picks up partition `p` it carves that partition's slices (`carvePartitionSlices`: byte copies of the primary's segments, and of each secondary's range with at most the two edge segments a split falls inside re-encoded) unless a recorded plan supplies them. No input is read whole. The result is one output hash per partition.
 - **reduce.** A tree of executions of one task over an earlier step's hashes. The entries are grouped — `all` as one group, or `components` by key range — and every level groups `fanIn` consecutive entries of a group into one unit, whose inputs are the step's leading inputs followed by its entries, in wire order; a group of one passes through, and a level's units, across groups, run in the pool before the next level starts. The result is one hash per group.
 - **splice.** The byte splice of an earlier step's hashes, in order, under the first blob's header (`spliceBlobs`). Set and Dict blobs must ascend disjointly in key order, which is checked from their fences, one blob open at a time. When the step's source yields no hash (every partial empty) the result is the empty collection under the header of the fallback step's first hash.
 
@@ -308,7 +309,7 @@ Three templates, chosen by the task's metadata:
 
 A combine step is an execution of the task with the combine IR as its input 0, exactly as `function_ir` is for a body execution, so the unchanged side of the tree cache-hits; a combine folds whole values, so its memory is the runner's to bound. Components group the partials whose key ranges overlap: each partial's range is its first fence and its last key; ordered by first key, a partial joins the current component when its first key is at most the greatest last key the component has seen. Empty partials belong to no component, a component of one partial is already its own result, and one component is the output while several splice in key order.
 
-**Units.** Every unit — partition, merge unit or combine step — is an ordinary content-addressed execution, `(unitTaskHash, inputsHash(unitInputs))`, spawned like any other (scratch directory, stdin lifeline, owner sidecar, its own logs). It is probed in the execution cache first and run through `StepExecutors.executeUnit` only on a miss: the local executor runs the standard execution body, and a remote backend supplies its own. The `carve` and `splice` hooks of `StepExecutors` default to the storage-layer code, so a remote backend can move the bytes where it likes while the orchestration stays in e3-core. Failure attribution is deterministic (the lowest index of a level; a failed carve counts at its partition's index); a cancelled unit is not a failure, and an aborted run records the logical execution `cancelled: e3 stopped the partitioned run because the run was aborted`.
+**Units.** Every unit — partition, merge unit or combine step — is an ordinary content-addressed execution, `(unitTaskHash, inputsHash(unitInputs))`, spawned like any other (scratch directory, a slot of the jobs budget, stdin lifeline, owner sidecar, its own logs). It is probed in the execution cache first and run through `StepExecutors.executeUnit` only on a miss: the local executor runs the standard execution body, and a remote backend supplies its own. The `carve` and `splice` hooks of `StepExecutors` default to the storage-layer code, so a remote backend can move the bytes where it likes while the orchestration stays in e3-core. Failure attribution is deterministic (the lowest index of a level; a failed carve counts at its partition's index); a cancelled unit is not a failure, and an aborted run records the logical execution `cancelled: e3 stopped the partitioned run because the run was aborted`.
 
 **The logical execution.** With two or more partitions, the task's own execution is recorded `running` under the orchestrator (with its owner sidecar) while its units run, and its `stdout.txt` gets one line per unit once the unit's result is known:
 ```
@@ -334,6 +335,12 @@ A later run of the same logical execution (a retry, or `--force`, which re-runs 
 
 Neither plans nor slices are gc roots, and a unit's output is rooted only once its execution is recorded. gc takes the repository's `#tasks` lock exclusively and every workspace's `#dataflow` lock before marking, and refuses while a run holds one; a dataflow run holds its workspace's `#dataflow` lock, and an ad-hoc `e3 run` holds `#tasks` shared for its execution (and refuses, in turn, while gc holds it). So gc never runs while a partitioned run is using its slices or unit outputs, and a slice gc removes between runs is carved again by the next run that needs it.
 
+## The Jobs Budget
+
+A local run has one budget of parallelism: `jobs`, the runner processes e3 keeps in flight at once. Every runner the local runner spawns — a task of the dataflow, a partition, a merge unit, a combine step — holds one slot of a `JobSlots` semaphore from just before its spawn until it has exited, first come first served, and an execution the run aborts while it waits is recorded `cancelled:` without a runner ever starting. The orchestrator's task loop and the step interpreter's pools decide what is *ready* (the CLI sets the task loop's `concurrency` to the budget, and a partitioned task's pool is as wide as the budget); the budget decides what *runs*, so a partitioned task's units queue beside the other tasks of the run instead of multiplying with them.
+
+The budget is a runtime collaborator of the run, like its abort signal: `OrchestratorStartOptions.jobs` flows to each execution's `ExecuteOptions.jobs`, is never persisted, never enters an execution's identity, and is ignored by a remote runner (e3-cloud's capacity is its own). The CLI's `-j`/`--jobs` sets it, defaulting to `defaultJobs()`: the CPUs available to the process — `os.availableParallelism()` capped by the tightest cgroup v2 `cpu.max` up the process's hierarchy, as east-c's `east_cpu_count` sizes its thread pool — or `E3_JOBS`. The api-server runs each request's `concurrency` as that run's budget. Not yet budgeted: the threads a runner uses inside its own process (east-c's parallel deflate takes every CPU it can see), and memory.
+
 ## Dataflow Execution
 
 ### Task Dependency Graph
@@ -355,7 +362,7 @@ Execute all tasks in a workspace, respecting dependencies.
 ```ts
 interface ExecStartOptions {
   filter?: string;        // Only run tasks matching this name (exact match for MVP)
-  concurrency?: number;   // Max parallel tasks (default: 1, like `make -j`)
+  concurrency?: number;   // Tasks the loop may have in progress at once; locally the jobs budget
   force?: boolean;        // Re-run all tasks even if cached
   onTaskStart?: (taskName: string) => void;
   onTaskComplete?: (taskName: string, result: ExecutionResult) => void;
@@ -394,7 +401,8 @@ interface ExecResult {
    completed = {}
 
    while tasks remain:
-     # Start tasks up to concurrency limit
+     # Start tasks up to concurrency limit; each runner they spawn
+     # then takes a slot of the jobs budget (see "The Jobs Budget")
      while |running| < concurrency and ready is not empty:
        task = ready.pop()
        start task asynchronously

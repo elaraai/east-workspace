@@ -8,7 +8,7 @@
  *
  * Usage:
  *   e3 start . my-workspace
- *   e3 start . my-workspace --concurrency 2
+ *   e3 start . my-workspace --jobs 2
  *   e3 start . my-workspace --force
  *   e3 start https://server/repos/myrepo my-workspace
  */
@@ -16,6 +16,7 @@
 import { join } from 'node:path';
 import {
   DataflowAbortedError,
+  JobSlots,
   LocalStorage,
   LocalOrchestrator,
   FileStateStore,
@@ -36,6 +37,7 @@ import { type EastTypeValue } from '@elaraai/east';
 import { parseRepoLocation, formatError, exitError, type RepoLocation } from '../utils.js';
 import { getValidToken } from '../credentials.js';
 import { formatSize } from '../format.js';
+import { resolveJobs, type JobsFlags } from './jobs.js';
 
 /** Polling interval for remote execution (ms) */
 const POLL_INTERVAL = 500;
@@ -46,7 +48,7 @@ const POLL_INTERVAL = 500;
 export async function startCommand(
   repoArg: string,
   ws: string,
-  options: { filter?: string; concurrency?: string; partitionConcurrency?: string; force?: boolean; verbose?: boolean }
+  options: JobsFlags & { filter?: string; force?: boolean; verbose?: boolean }
 ): Promise<void> {
   // Set up abort controller for signal handling
   const controller = new AbortController();
@@ -66,27 +68,15 @@ export async function startCommand(
 
   try {
     const location = await parseRepoLocation(repoArg);
-    // Non-numeric values would flow through parseInt as NaN: --concurrency
-    // NaN launches no tasks and dies later as "Dataflow stuck", and
-    // --partition-concurrency NaN collapses the partition worker pool to
-    // zero and crashes with an opaque TypeError — both must be argument
-    // errors instead.
-    const concurrency = options.concurrency ? parseInt(options.concurrency, 10) : 4;
-    if (!Number.isInteger(concurrency) || concurrency < 1) {
-      exitError(`--concurrency must be a positive integer, got '${options.concurrency}'`);
-    }
-    const partitionConcurrency = options.partitionConcurrency !== undefined
-      ? parseInt(options.partitionConcurrency, 10)
-      : undefined;
-    if (partitionConcurrency !== undefined && (!Number.isInteger(partitionConcurrency) || partitionConcurrency < 1)) {
-      exitError(`--partition-concurrency must be a positive integer, got '${options.partitionConcurrency}'`);
-    }
+    // One budget for the run: the runner processes in flight at once, across
+    // the dataflow's tasks and the units of its partitioned tasks.
+    const jobs = resolveJobs(options);
 
     console.log(`Starting tasks in workspace: ${ws}`);
     if (options.filter) {
       console.log(`Filter: ${options.filter}`);
     }
-    console.log(`Concurrency: ${concurrency}`);
+    console.log(`Jobs: ${jobs}`);
     if (options.force) {
       console.log(
         options.filter
@@ -98,8 +88,7 @@ export async function startCommand(
 
     if (location.type === 'local') {
       await executeLocal(location.path, ws, {
-        concurrency,
-        partitionConcurrency,
+        jobs,
         force: options.force,
         verbose: options.verbose,
         filter: options.filter,
@@ -111,7 +100,7 @@ export async function startCommand(
         location.repo,
         ws,
         {
-          concurrency,
+          jobs,
           force: options.force,
           filter: options.filter,
           verbose: options.verbose,
@@ -138,8 +127,8 @@ export async function startCommand(
 // =============================================================================
 
 interface LocalExecuteOptions {
-  concurrency: number;
-  partitionConcurrency?: number;
+  /** The runner processes in flight at once, across tasks and partition units. */
+  jobs: number;
   force?: boolean;
   verbose?: boolean;
   filter?: string;
@@ -163,9 +152,11 @@ async function executeLocal(
     // Not a reason to fail the run
   }
 
+  // The task loop may launch as many tasks as the budget holds; the budget
+  // itself decides which runners spawn, tasks and partition units alike.
   const handle = await orchestrator.start(storage, repoPath, ws, {
-    concurrency: options.concurrency,
-    partitionConcurrency: options.partitionConcurrency,
+    concurrency: options.jobs,
+    jobs: new JobSlots(options.jobs),
     force: options.force,
     verbose: options.verbose,
     filter: options.filter,
@@ -244,7 +235,8 @@ async function executeLocal(
 // =============================================================================
 
 interface RemoteExecuteOptions {
-  concurrency: number;
+  /** The runner processes the server keeps in flight for the run. */
+  jobs: number;
   force?: boolean;
   filter?: string;
   verbose?: boolean;
@@ -262,8 +254,10 @@ async function executeRemote(
   // run never sends an expired token and dies mid-flight with "Token expired".
 
   // Start the dataflow execution
+  // The API carries the budget in its `concurrency` field; the server runs
+  // it as its jobs budget.
   await dataflowStartRemote(baseUrl, repo, ws, {
-    concurrency: options.concurrency,
+    concurrency: options.jobs,
     force: options.force,
     filter: options.filter,
   }, { token: await getValidToken(baseUrl), verbose: options.verbose });

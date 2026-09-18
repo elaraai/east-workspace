@@ -13,6 +13,7 @@ import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } f
 import { TaskObjectType, type ExecutionOwner, type ExecutionStatus, type TaskObject } from '@elaraai/e3-types';
 
 import { collectNodeModulesBins, probeExecutionCache, taskExecute } from './LocalTaskRunner.js';
+import { JobSlots } from './jobs.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import { uuidv7 } from '../uuid.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
@@ -314,5 +315,100 @@ describe('stopped executions', { skip: process.platform === 'win32' }, () => {
     assert.equal(result.state, 'success', result.error ?? '');
     const owner = await storage.refs.executionOwnerRead!(repo, taskHash, result.inputsHash, result.executionId);
     assert.deepEqual(owner, { pid: process.pid, pidStartTime: await getPidStartTime(process.pid), bootId: await getBootId() });
+  });
+});
+
+describe('the jobs budget', { skip: process.platform === 'win32' }, () => {
+  let repo: string;
+  let storage: StorageBackend;
+
+  beforeEach(() => {
+    repo = createTestRepo();
+    storage = new LocalStorage();
+  });
+
+  afterEach(() => {
+    removeTestRepo(repo);
+  });
+
+  /** A custom bash task running `script` with its input as "$1" and its
+   *  output as "$2"; each call is its own task, so nothing cache-hits. */
+  async function bashTask(script: string, salt: string): Promise<{ taskHash: string; inputHashes: string[] }> {
+    const commandFn = East.function(
+      [ArrayType(StringType), StringType],
+      ArrayType(StringType),
+      ($, inputs, output) => ['bash', '-c', script, salt, inputs.get(0n), output],
+    );
+    const task: TaskObject = {
+      commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)),
+      inputs: [],
+      output: [],
+      kind: none,
+      metadata: none,
+      runner: variant('custom', { command: [] }),
+      environment: none,
+    };
+    return {
+      taskHash: await objectWrite(repo, encodeBeast2For(TaskObjectType)(task)),
+      inputHashes: [await storage.objects.write(repo, new Uint8Array([1, 2, 3]))],
+    };
+  }
+
+  it('keeps at most the budget of runners in flight across concurrent executions', async () => {
+    // Six executions started at once under a budget of two: each runner
+    // marks itself running while it sleeps, so the most marks present at
+    // once is the most runners in flight.
+    const marks = mkdtempSync(path.join(tmpdir(), 'e3-jobs-'));
+    try {
+      const jobs = new JobSlots(2);
+      const script = `touch "${marks}/$0"; sleep 0.3; rm "${marks}/$0"; cp "$1" "$2"`;
+      let peakMarks = 0;
+      const watcher = setInterval(() => { peakMarks = Math.max(peakMarks, readdirSync(marks).length); }, 10);
+      const results = await Promise.all(Array.from({ length: 6 }, async (_, i) => {
+        const { taskHash, inputHashes } = await bashTask(script, `run-${i}`);
+        return taskExecute(storage, repo, taskHash, inputHashes, { jobs });
+      }));
+      clearInterval(watcher);
+      for (const result of results) assert.equal(result.state, 'success', result.error ?? '');
+      assert.equal(jobs.peak, 2, 'the budget was used in full');
+      assert.ok(peakMarks <= 2, `runners in flight at once: ${peakMarks}`);
+      assert.equal(jobs.inFlight, 0);
+    } finally {
+      rmSync(marks, { recursive: true, force: true });
+    }
+  });
+
+  it('records an execution the run aborts while it waits for a slot as cancelled, without a runner', async () => {
+    const jobs = new JobSlots(1);
+    const abort = new AbortController();
+    const holder = await bashTask('sleep 30; cp "$1" "$2"', 'holder');
+    const waiter = await bashTask('cp "$1" "$2"', 'waiter');
+    // The first execution takes the one slot as soon as it spawns; the
+    // second then queues, and the abort reaches it there.
+    const first = taskExecute(storage, repo, holder.taskHash, holder.inputHashes, { jobs, signal: abort.signal, onStdout: () => {} });
+    await new Promise<void>((resolve) => {
+      const poll = setInterval(() => { if (jobs.inFlight === 1) { clearInterval(poll); resolve(); } }, 10);
+    });
+    const second = taskExecute(storage, repo, waiter.taskHash, waiter.inputHashes, { jobs, signal: abort.signal });
+    await new Promise<void>((resolve) => {
+      const poll = setInterval(() => { if (jobs.queued === 1) { clearInterval(poll); resolve(); } }, 10);
+    });
+    abort.abort();
+
+    const waited = await second;
+    assert.equal(waited.state, 'error');
+    assert.equal(waited.cancelled, true);
+    assert.equal(waited.error, 'cancelled: e3 did not start the runner because the run was aborted');
+    const status = await storage.refs.executionGet(repo, waiter.taskHash, waited.inputsHash, waited.executionId);
+    assert.equal(status?.type === 'error' ? status.value.message : status?.type, 'cancelled: e3 did not start the runner because the run was aborted');
+    const stderr = await storage.logs.read(repo, waiter.taskHash, waited.inputsHash, waited.executionId, 'stderr');
+    assert.equal(stderr.data, 'e3: cancelled: e3 did not start the runner because the run was aborted\n');
+    // No runner ever ran for it: the only record it has is the cancelled one.
+    assert.deepEqual(await storage.refs.executionListIds(repo, waiter.taskHash, waited.inputsHash), [waited.executionId]);
+
+    const held = await first;
+    assert.equal(held.cancelled, true);
+    assert.equal(held.error, 'cancelled: e3 stopped the runner because the run was aborted');
+    assert.equal(jobs.inFlight, 0);
   });
 });

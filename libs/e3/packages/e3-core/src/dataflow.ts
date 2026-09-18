@@ -29,6 +29,7 @@ import {
   inputsHash,
 } from './executions.js';
 import type { TaskRunner } from './execution/interfaces.js';
+import type { JobSlots } from './execution/jobs.js';
 import {
   workspaceGetDatasetHash,
 } from './trees.js';
@@ -176,6 +177,8 @@ export interface DataflowOptions {
   signal?: AbortSignal;
   /** Task runner for executing individual tasks. */
   runner?: TaskRunner;
+  /** The run's jobs budget (local runner only; see `JobSlots`). */
+  jobs?: JobSlots;
   /** Callback when a task starts */
   onTaskStart?: (name: string) => void;
   /** Callback when a task completes */
@@ -321,6 +324,7 @@ export async function dataflowExecute(
     signal: options.signal,
     lock: options.lock,
     runner: options.runner,
+    jobs: options.jobs,
     onTaskStart: options.onTaskStart,
     onTaskComplete: (result) => {
       taskResults.push({

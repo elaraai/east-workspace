@@ -23,6 +23,7 @@ import {
   workspaceGetState,
   workspaceDeploy,
   DataflowAbortedError,
+  JobSlots,
   LocalStorage,
   LocalOrchestrator,
   InMemoryStateStore,
@@ -30,10 +31,10 @@ import {
 } from '@elaraai/e3-core';
 import { resolveRepo, formatError, exitError } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
+import { resolveJobs, type JobsFlags } from './jobs.js';
 
-interface WatchOptions {
+interface WatchOptions extends JobsFlags {
   start?: boolean;
-  concurrency?: string;
   abortOnChange?: boolean;
   /** Function manifests resolving `East.importFunction` references (#628). */
   functions?: string[];
@@ -60,7 +61,7 @@ export async function watchCommand(
 ): Promise<void> {
   const repoPath = resolveRepo(repoArg);
   const absoluteSourcePath = path.resolve(sourceFile);
-  const concurrency = options.concurrency ? parseInt(options.concurrency, 10) : 4;
+  const jobs = resolveJobs(options);
 
   // Validate source file exists
   if (!fs.existsSync(absoluteSourcePath)) {
@@ -71,7 +72,7 @@ export async function watchCommand(
   console.log(`Repository: ${repoPath}`);
   console.log(`Target workspace: ${workspace}`);
   if (options.start) {
-    console.log(`Auto-start: enabled (concurrency: ${concurrency})`);
+    console.log(`Auto-start: enabled (jobs: ${jobs})`);
     if (options.abortOnChange) {
       console.log(`Abort on change: enabled`);
     }
@@ -169,7 +170,8 @@ export async function watchCommand(
 
     try {
       const handle = await orchestrator.start(storage, repoPath, workspace, {
-        concurrency,
+        concurrency: jobs,
+        jobs: new JobSlots(jobs),
         signal,
         onTaskStart: (name) => {
           console.log(`  [START] ${name}`);

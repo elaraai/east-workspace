@@ -562,8 +562,16 @@ backlog there is.
 ### Dataflow Commands
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <pattern>] [--concurrency <n>] [--force] [-v]
+e3 dataflow run <repo> <ws> [--filter <pattern>] [-j <n>] [--force] [-v]
 ```
+
+`-j` / `--jobs <n>` is the run's one budget of parallelism: the runner processes
+e3 keeps in flight at once, across the dataflow's tasks and the partitions and
+merge units of its partitioned tasks alike (every runner takes one slot, first
+come first served, whatever launched it). It defaults to the CPUs available to
+e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set. The
+older `--concurrency` and `--partition-concurrency` are accepted as deprecated
+aliases of the same budget.
 
 `-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf
 block (load, compile, execute, output, total + peak RSS) to the task's logs
@@ -611,10 +619,10 @@ repository byte-for-byte unchanged.
 ### Watch / Live Development
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [--abort-on-change]
+e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change]
 ```
 
-The source file is the first argument — that's the thing you're editing, the rest is plumbing.
+The source file is the first argument — that's the thing you're editing, the rest is plumbing. `-j` is the jobs budget of the runs `--start` launches, as for `e3 dataflow run`.
 
 **Cancellation:** Press Ctrl-C in a running `e3 dataflow run` to abort it. In watch mode, `--abort-on-change` cancels in-flight runs when files change.
 

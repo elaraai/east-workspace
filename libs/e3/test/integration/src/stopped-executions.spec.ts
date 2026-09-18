@@ -14,8 +14,8 @@
  * - `kill -9` of e3 during a partition: the runner exits with it (the stdin
  *   lifeline), the next run sweeps the scratch directory the killed run left
  *   behind, and the stopped partition is recorded `interrupted:` — under one
- *   partition at a time, and under `--partition-concurrency 4` with every
- *   partition's runner running, on east-node and, when on PATH, on east-c.
+ *   partition at a time, and under `--jobs 4` with every partition's runner
+ *   running, on east-node and, when on PATH, on east-c.
  *
  * The partitioned task runs on east-node, e3's default runner, unless a case
  * says otherwise. Its body marks that it runs and then spins while a hold
@@ -38,6 +38,7 @@ import { FileSystem } from '@elaraai/east-node-std';
 import {
   DataflowAbortedError,
   InMemoryStateStore,
+  JobSlots,
   LocalOrchestrator,
   LocalStorage,
   workspaceGetDatasetHash,
@@ -100,8 +101,8 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
   });
 
   /** Deploys the held task on `runner`: forty rows in four segments make
-   *  four partitions, one of which runs at a time under
-   *  --partition-concurrency 1, all four under 4. */
+   *  four partitions, one of which runs at a time under --jobs 1, all four
+   *  under 4. */
   async function deploy(runner: Runner): Promise<void> {
     const tableInput = e3.input('table', TableType);
     const held = e3.partitionTask('held', {
@@ -173,7 +174,7 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
   it('Ctrl-C during a partition records the partition and the task cancelled, prints [CANCELLED], and the next run executes', async () => {
     await deploy(EAST_NODE);
     writeFileSync(hold, '');
-    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--partition-concurrency', '1'], dir);
+    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--jobs', '1'], dir);
     await waitFor(() => existsSync(started), 30_000);
     run.kill('SIGINT');
     const result = await run.result;
@@ -191,7 +192,8 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
     const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
     const completed: TaskCompletedCallback[] = [];
     const handle = await orchestrator.start(storage, repo, 'ws', {
-      partitionConcurrency: 1,
+      concurrency: 1,
+      jobs: new JobSlots(1),
       onTaskComplete: (result) => { completed.push(result); },
     });
     await waitFor(() => existsSync(started), 30_000);
@@ -213,7 +215,7 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
     mkdirSync(scratch);
     const env = { E3_SCRATCH_DIR: scratch };
     writeFileSync(hold, '');
-    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--partition-concurrency', String(concurrency)], dir, { env });
+    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--jobs', String(concurrency)], dir, { env });
     await waitFor(() => existsSync(started), 30_000);
 
     // Every running partition's record names its runner.

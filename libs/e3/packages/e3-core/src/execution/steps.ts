@@ -85,7 +85,8 @@ import {
 /** The most partials one merge unit merges. */
 export const MERGE_TREE_FANIN = 32;
 
-/** The default per-unit execution concurrency. */
+/** The default pool width — the most units in flight at once — without a
+ *  jobs budget or an explicit `partitionConcurrency`. */
 const DEFAULT_PARTITION_CONCURRENCY = 4;
 
 /** Why a merge tree cannot run on a task's runner. */
@@ -625,7 +626,11 @@ export async function executeTemplate(
     }
     return executors.executeUnit(unitTaskHash, unitTask, unitInputs, options);
   };
-  const concurrency = Math.max(1, options.partitionConcurrency ?? DEFAULT_PARTITION_CONCURRENCY);
+  // The pool width: how many units a map step or a reduce level has in
+  // flight at once. Under a jobs budget the pool is as wide as the budget —
+  // the budget, not the pool, bounds the runner processes, and a unit waiting
+  // for a slot has already carved its slices.
+  const concurrency = Math.max(1, options.partitionConcurrency ?? options.jobs?.capacity ?? DEFAULT_PARTITION_CONCURRENCY);
   const progress = options.onPartitionProgress;
   const resolve = (source: StepSource, results: StepResult[]): string[] => {
     if ('input' in source) return [inputHashes[source.input]!];

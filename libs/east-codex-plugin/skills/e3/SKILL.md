@@ -109,7 +109,7 @@ Task → What do you need?
 │   └─ Remove                        → e3 workspace remove <repo> <ws>
 │
 ├─ Running the dataflow
-│   └─ Execute all tasks    → e3 dataflow run <repo> <ws> [--force] [--concurrency <n>] [-v]
+│   └─ Execute all tasks    → e3 dataflow run <repo> <ws> [--force] [-j <n>] [-v]
 │
 ├─ Datasets (read / write values)
 │   ├─ Read a value         → e3 dataset get <repo> <ws.name> [-f east|json|beast2]
@@ -813,10 +813,17 @@ e3 task logs <repo> <ws.task> --follow      # Tail, then follow live output
 ### Dataflow
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force] [-v]
+e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--force] [-v]
 ```
 
 After a successful run the output paths are printed in flat form, ready to read with `e3 dataset get`.
+
+**`-j` / `--jobs <n>`** is the run's one budget of parallelism: the runner
+processes e3 keeps in flight at once, across the dataflow's tasks and the
+partitions and merge units of its partitioned tasks alike (one slot per
+runner, first come first served). Default: the CPUs available to e3 (affinity
+mask, capped by a cgroup quota), or `E3_JOBS`. `--concurrency` and
+`--partition-concurrency` are deprecated aliases of the same budget.
 
 **`-v` / `--verbose`** forwards `-v` to each task's runner so it prints a
 timing/perf block (Load / Compile / Execute / Output / Total + Peak RSS) — identical
@@ -848,7 +855,7 @@ Calls are graph-free: no datasets read or written, repository unchanged.
 ### Watch
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [--abort-on-change] [--functions <manifest…>]   # source file first
+e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change] [--functions <manifest…>]   # source file first
 ```
 
 ### Utilities
