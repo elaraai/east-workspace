@@ -215,21 +215,23 @@ export async function taskExecute(
     };
   }
 
-  // Partitioned tasks fan out below this point: carve the partitioned
-  // input(s), run each slice as its own content-addressed execution, and
-  // splice/combine the shards. Every unit that misses the cache runs the
-  // standard body in this process under fresh ids. Loaded lazily —
-  // partitionExec imports back into this module for the cache probe and the
-  // standard body.
+  // Partitioned tasks are a template of steps below this point (steps.ts):
+  // plan the partitions, run each slice as its own content-addressed
+  // execution, and reduce or splice the partials. Every unit that misses the
+  // cache runs the standard body in this process under fresh ids; the byte
+  // hooks are the local storage layer's. Loaded lazily — the interpreter
+  // imports back into this module for the cache probe and the standard body.
   if (task.kind.type === 'some' && task.kind.value === TASK_KIND_PARTITION) {
-    const { partitionTaskExecute } = await import('./partitionExec.js');
-    return partitionTaskExecute(
+    const { executeTemplate } = await import('./steps.js');
+    return executeTemplate(
       storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options,
-      (unitTaskHash, unitTask, unitInputs, unitOptions) => taskExecuteBody(
-        storage, repo, unitTaskHash, unitTask, unitInputs,
-        { inHash: inputsHash(unitInputs), executionId: uuidv7(), startTime: Date.now() },
-        unitOptions,
-      ),
+      {
+        executeUnit: (unitTaskHash, unitTask, unitInputs, unitOptions) => taskExecuteBody(
+          storage, repo, unitTaskHash, unitTask, unitInputs,
+          { inHash: inputsHash(unitInputs), executionId: uuidv7(), startTime: Date.now() },
+          unitOptions,
+        ),
+      },
     );
   }
 
@@ -329,8 +331,8 @@ export interface ExecutionIds {
 
 /** The standard execution body: scratch dir, input marshalling, command IR
  *  evaluation, spawn, and verbatim output store. Exported for the partition
- *  path's single-partition short-circuit, which runs the body once under the
- *  LOGICAL execution identity (the whole input is the one slice). @internal */
+ *  template's unit executor, which runs it once per unit under fresh ids.
+ *  @internal */
 export async function taskExecuteBody(
   storage: StorageBackend,
   repo: string,

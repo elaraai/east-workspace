@@ -29,6 +29,7 @@ import {
   PackageObjectType,
   WorkspaceStateType,
   DatasetRefType,
+  TASK_KIND_MERGE,
   TASK_KIND_PARTITION,
   decodePartitionPlan,
   decodeTaskObject,
@@ -41,7 +42,7 @@ import {
 import type { PartitionProgress } from '@elaraai/e3-types';
 import { collectNodeModulesBins, taskExecute, taskExecuteBody, type ExecuteOptions } from './LocalTaskRunner.js';
 import { carvePartitionSlices, partitionTaskExecute, spliceBlobs, type PartitionUnitExecutor } from './partitionExec.js';
-import { partitionAssemblyStats } from './partitionAssembly.js';
+import { MERGE_TREE_FANIN, partitionAssemblyStats } from './steps.js';
 import { bufferPart, spliceChunks } from './partitionIo.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import { inputsHash } from '../executions.js';
@@ -110,6 +111,7 @@ describe('partitionTaskExecute', () => {
     const metadata = encodePartitionTaskMetadata({
       merge: options.merge !== undefined ? some(options.merge) : none,
       mergeSets: options.mergeSets ?? false,
+      mergeCommand: none,
       partitions: BigInt(options.partitions),
       by: options.by !== undefined ? some(options.by) : none,
       combine: options.combine !== undefined ? some(options.combine) : none,
@@ -302,8 +304,8 @@ describe('partitionTaskExecute', () => {
   it('merges colliding keyed partials on the task runner through a merge tree, logging every unit', async () => {
     const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
     // Every partition counts its rows onto the same seven keys: the ten
-    // partials overlap everywhere, so they form one component, merged by two
-    // units at level 1 (eight partials, then two) and one at level 2.
+    // partials overlap everywhere, so they form one component, merged by one
+    // unit of the runner's `merge` command.
     const counts = partitionTask('counts', {
       partitions: [input('table', TableType)],
       output: DictType(IntegerType, IntegerType),
@@ -344,8 +346,8 @@ describe('partitionTaskExecute', () => {
 
     // One line per unit, naming each unit's execution in full.
     const lines = await logLines(taskHash, result);
-    const unitLine = /^(partition \d+\/10|merge level \d\/2 unit \d\/\d) (completed|cached) task=([0-9a-f]{64}) inputs=([0-9a-f]{64}) execution=(\S+) duration=\d+$/;
-    assert.equal(lines.length, 13, lines.join('\n'));
+    const unitLine = /^(partition \d+\/10|merge level 1\/1 unit 1\/1) (completed|cached) task=([0-9a-f]{64}) inputs=([0-9a-f]{64}) execution=(\S+) duration=\d+$/;
+    assert.equal(lines.length, 11, lines.join('\n'));
     for (const line of lines) {
       const match = unitLine.exec(line);
       assert.ok(match, line);
@@ -357,17 +359,24 @@ describe('partitionTaskExecute', () => {
       Array.from({ length: 10 }, (_, p) => `${p + 1}/10`).sort(),
     );
     assert.deepEqual(
-      lines.filter((line) => line.startsWith('merge ')).map((line) => line.split(' ').slice(0, 5).join(' ')).sort(),
-      ['merge level 1/2 unit 1/2', 'merge level 1/2 unit 2/2', 'merge level 2/2 unit 1/1'],
+      lines.filter((line) => line.startsWith('merge ')).map((line) => line.split(' ').slice(0, 5).join(' ')),
+      ['merge level 1/1 unit 1/1'],
     );
+    // The unit ran the runner's `merge` command: a task of the merge kind
+    // whose command IR is the package's own mergeCommand.
+    const mergeLine = lines.find((line) => line.startsWith('merge '))!;
+    const unitTask = decodeTaskObject(await storage.objects.read(repo, unitLine.exec(mergeLine)![3]!));
+    assert.deepEqual(unitTask.kind, some(TASK_KIND_MERGE));
+    assert.deepEqual(unitTask.metadata, none);
+    assert.deepEqual(unitTask.runner, task.runner);
   });
 
   describe('orchestrator memory does not depend on output size', () => {
     /** Units the merge tree runs over `n` overlapping partials. */
     const plannedUnits = (n: number): number => {
       let units = 0;
-      for (let entries = n; entries > 1; entries = Math.ceil(entries / 8)) {
-        units += Math.ceil(entries / 8) - (entries % 8 === 1 ? 1 : 0);
+      for (let entries = n; entries > 1; entries = Math.ceil(entries / MERGE_TREE_FANIN)) {
+        units += Math.ceil(entries / MERGE_TREE_FANIN) - (entries % MERGE_TREE_FANIN === 1 ? 1 : 0);
       }
       return units;
     };
@@ -682,10 +691,10 @@ describe('partitionTaskExecute', () => {
     assert.equal(second.state, 'success', second.error ?? '');
     assert.equal(second.outputHash, tableHash);
     assert.ok(reportedGone, 'the reuse check looked the slice up');
-    assert.equal(streamWrites.count, 11, 'all ten partitions carve again, then the output splices');
+    assert.equal(streamWrites.count, 2, 'only the missing slice carves again, then the output splices');
   });
 
-  it('carves a partition when a worker picks it up, and records no plan until every partition has run', async () => {
+  it('carves a partition when a worker picks it up, and records the plan with what was carved', async () => {
     const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
     const fnIrHash = await createDummyFnIr();
     const failFn = East.function(
@@ -698,11 +707,17 @@ describe('partitionTaskExecute', () => {
     const streamWrites = countStreamWrites();
 
     // One worker: the first partition fails, so the pool stops before
-    // picking up another.
+    // picking up another. The plan is recorded with the one carved slice and
+    // '' for the rest, so a retry carves only those.
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], { partitionConcurrency: 1 });
     assert.equal(result.state, 'failed');
     assert.equal(streamWrites.count, 1, 'only the first partition was carved');
-    assert.equal(await storage.refs.executionPlanRead!(repo, taskHash, result.inputsHash), null);
+    const planHash = await storage.refs.executionPlanRead!(repo, taskHash, result.inputsHash);
+    assert.notEqual(planHash, null);
+    const plan = decodePartitionPlan(await storage.objects.read(repo, planHash!));
+    assert.equal(plan.slices[0]!.length, 10);
+    assert.notEqual(plan.slices[0]![0], '');
+    assert.deepEqual(plan.slices[0]!.slice(1), Array.from({ length: 9 }, () => ''));
   });
 
   it('runs a unit through executeUnit only when the execution cache misses', async () => {
