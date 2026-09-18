@@ -30,22 +30,37 @@ import { isVariant } from "../containers/variant.js";
  * for passing to constructors like {@link StructType} or for round-tripping
  * via `toEastTypeValue` if a runtime form is needed.
  *
- * Uses a context map to handle recursive types.
+ * The patch type is a pure function of the type — every occurrence of a
+ * type gets the same patch type, wherever it sits — and it is the type the
+ * runtimes' patch values conform to, so it is one definition on every
+ * runtime (`PatchType` in east-py's `types.py`; east-c's `patch.c` builds
+ * values of exactly these shapes). A **recursive type is replace-only**:
+ * its patch has `unchanged` and `replace` cases and no `patch` case, at the
+ * wrapper and at every reference back to it, which is what `diffFor`,
+ * `applyFor`, `composeFor`, `invertFor`, `mergeFor` and `walkPatch` implement
+ * and what the type-level {@link PatchTypeOf} states. (An earlier version
+ * descended into the wrapper's body on its first occurrence only, keyed by
+ * object identity, so `Struct{a: Array<T>, b: T}` gave `a`'s element and `b`
+ * different patch types — a type no runtime's values conformed to; #774.)
+ *
+ * `ctx` memoizes the result per type object across one computation.
  */
 export function PatchType<T extends EastType>(type: T, ctx?: Map<EastType, EastType>): EastType;
 export function PatchType(type: EastTypeValue, ctx?: Map<EastType, EastType>): EastType;
 export function PatchType(type: EastType | EastTypeValue, ctx?: Map<EastType, EastType>): EastType {
   if (isVariant(type)) type = fromEastTypeValue(type as EastTypeValue);
-  // Initialize context for tracking recursive types
   const context = ctx ?? new Map<EastType, EastType>();
-
-  // Check if we've already computed the patch type for this type (handles recursion)
   const cached = context.get(type);
   if (cached !== undefined) {
     return cached;
   }
+  const result = patchTypeOf(type as EastType, context);
+  context.set(type as EastType, result);
+  return result;
+}
 
-  const t = type as EastType;
+function patchTypeOf(type: EastType, context: Map<EastType, EastType>): EastType {
+  const t = type;
 
   if (
     t.type === "Never" ||
@@ -137,22 +152,12 @@ export function PatchType(type: EastType | EastTypeValue, ctx?: Map<EastType, Ea
       patch: innerPatchType,
     });
   } else if (t.type === "Recursive") {
-    // Check if we've already seen this type (handles circular back-references)
-    const cached = context.get(type);
-    if (cached !== undefined) {
-      return cached;
-    }
-
-    // For back-references within the recursive structure, use replace-only semantics
-    // Register this BEFORE recursing so circular refs are caught
-    const replaceOnlyType = VariantType({
+    // Replace-only, at the wrapper and at every reference back to it: the
+    // whole recursive value is the unit of change (see the module comment).
+    return VariantType({
       unchanged: NullType,
       replace: StructType({ before: type, after: type }),
     });
-    context.set(type, replaceOnlyType);
-
-    // Recurse into the node - the outer structure gets structural patching
-    return PatchType(t.node, context);
   } else if (t.type === "Function" || t.type === "AsyncFunction") {
     return VariantType({
       unchanged: NullType,
