@@ -533,7 +533,8 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     writeFileSync(rows, encodeBeast2PagedFor(ArrayType(IntegerType))([1n, 2n]));
     assert.throws(() => mergeBlobs([rows], join(tempDir, 'array.beast2')), { message: 'merge: inputs must be Set or Dict blobs, got Array' });
 
-    // A high key range spliced before a low one.
+    // A high key range spliced before a low one: the reader's canonical-order
+    // error, prefixed with the input — the same sentence east-c and east-py give.
     const descending = join(tempDir, 'descending.beast2');
     writeFileSync(descending, spliceBeast2([
       encodeBeast2PagedFor(DT, { batchSize: 2 })(new SortedMap([[1000n, 'x'], [1001n, 'y']], compareFor(IntegerType))),
@@ -541,7 +542,7 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     ]));
     assert.throws(
       () => mergeBlobs([descending], join(tempDir, 'desc.beast2')),
-      (err: Error) => err.message.startsWith(`merge: input 0 (${descending}): `),
+      { message: `merge: input 0 (${descending}): beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)` },
     );
 
     const missing = join(tempDir, 'missing.beast2');

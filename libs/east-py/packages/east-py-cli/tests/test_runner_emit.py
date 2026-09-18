@@ -468,9 +468,14 @@ def test_merge_names_the_input_of_another_type(tmp_path):
 def test_merge_refuses_an_array_input_and_a_descending_one(tmp_path):
     with pytest.raises(ValueError, match="^merge: inputs must be Set or Dict blobs, got Array"):
         merge_blobs([FIXTURES / "events.beast2"], [], tmp_path / "array.beast2")
-    # paged_corrupt.beast2 splices a high key range before a low one.
-    with pytest.raises(ValueError, match=re.escape("merge: input 0 (")):
-        merge_blobs([FIXTURES / "paged_corrupt.beast2"], [], tmp_path / "descending.beast2")
+    # paged_corrupt.beast2 splices a high key range before a low one: the
+    # reader's canonical-order error, prefixed with the input — the same
+    # sentence east-c and east-node give.
+    corrupt = FIXTURES / "paged_corrupt.beast2"
+    expected = (f"merge: input 0 ({corrupt}): beast2 v5: Dict keys are not strictly ascending in "
+                "East order — the wire must hold the canonical value (corrupt or pre-contract blob)")
+    with pytest.raises(ValueError, match=f"^{re.escape(expected)}$"):
+        merge_blobs([corrupt], [], tmp_path / "descending.beast2")
 
 
 def test_merge_names_a_fold_of_the_wrong_signature(tmp_path):

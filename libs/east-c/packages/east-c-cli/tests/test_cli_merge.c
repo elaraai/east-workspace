@@ -270,13 +270,20 @@ static void test_refusals(const char *bin, const char *fixtures)
     CHECK(rc == 1, "--union on a Dict: expected exit 1, got %d", rc);
     check_stderr_contains("merge_err_uniondict.txt", "--union applies to Set inputs only");
 
-    /* paged_corrupt.beast2 splices a high key range before a low one. */
+    /* paged_corrupt.beast2 splices a high key range before a low one: the
+     * reader's canonical-order error, prefixed with the input — the same
+     * sentence east-node and east-py give. */
     snprintf(cmd, sizeof(cmd),
              "\"%s\" merge -i \"%s/paged_corrupt.beast2\" -o merge_out_descending.beast2", bin,
              fixtures);
     rc = run_cli(cmd, "merge_err_descending.txt");
     CHECK(rc == 1, "descending: expected exit 1, got %d", rc);
     check_stderr_contains("merge_err_descending.txt", "merge: input 0 (");
+    check_stderr_contains(
+        "merge_err_descending.txt",
+        "paged_corrupt.beast2): beast2 v5: Dict keys are not strictly ascending in "
+        "East order — the wire must hold the canonical value (corrupt or "
+        "pre-contract blob)");
 
     snprintf(cmd, sizeof(cmd),
              "\"%s\" merge --merge \"%s/emit_merge_concat.beast2\" --union -i "

@@ -45,11 +45,9 @@ typedef struct {
     Beast2SegmentReader *reader;
     EastValue *segment; /* owned; NULL when exhausted */
     size_t idx, seg_len;
-    ByteBuffer *enc;     /* the current entry re-encoded: the key's bytes, then the value's */
-    EastValue *key;      /* owned; NULL once the input is exhausted */
-    EastValue *prev_key; /* owned; the previous entry's key, for the ascent check */
+    ByteBuffer *enc; /* the current entry re-encoded: the key's bytes, then the value's */
+    EastValue *key;  /* owned; NULL once the input is exhausted */
     size_t key_len, val_len;
-    size_t entries; /* entries read so far */
 } MergeCursor;
 
 typedef struct {
@@ -76,7 +74,6 @@ static void cursor_drop_key(MergeCursor *c)
 static void cursor_close(MergeCursor *c)
 {
     cursor_drop_key(c);
-    if (c->prev_key) east_value_release(c->prev_key);
     if (c->segment) east_value_release(c->segment);
     if (c->reader) east_beast2_reader_free(c->reader);
     if (c->enc) byte_buffer_free(c->enc);
@@ -85,7 +82,10 @@ static void cursor_close(MergeCursor *c)
 }
 
 /* Advances a cursor to its next entry, re-encoding it into c->enc so the
- * merge copies bytes uniformly. Returns false with the message posted. */
+ * merge copies bytes uniformly. Returns false with the message posted. The
+ * reader holds each input to the canonical order: a key that does not ascend
+ * is its error, prefixed with the input, in the same words on every
+ * runtime. */
 static bool cursor_advance(Merge *m, MergeCursor *c, size_t index)
 {
     cursor_drop_key(c);
@@ -115,13 +115,6 @@ static bool cursor_advance(Merge *m, MergeCursor *c, size_t index)
     }
     EastValue *key = m->kind == EAST_TYPE_DICT ? east_dict_key_at(c->segment, c->idx)
                                                : east_set_at(c->segment, c->idx);
-    /* The reader holds each input to the canonical order; this is the same
-     * check at the merge's own level, in its own words. */
-    if (c->prev_key && east_value_compare(c->prev_key, key) >= 0) {
-        merge_error("merge: input %zu (%s) is not in ascending key order at entry %zu", index,
-                    c->path, c->entries);
-        return false;
-    }
     c->enc->len = 0;
     east_beast2_entry_begin(m->encoder);
     if (!east_beast2_entry_encode(m->encoder, c->enc, key, m->key_type)) {
@@ -140,10 +133,6 @@ static bool cursor_advance(Merge *m, MergeCursor *c, size_t index)
     }
     east_value_retain(key);
     c->key = key;
-    if (c->prev_key) east_value_release(c->prev_key);
-    east_value_retain(key);
-    c->prev_key = key;
-    c->entries++;
     return true;
 }
 

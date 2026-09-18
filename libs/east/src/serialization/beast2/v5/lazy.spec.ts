@@ -94,12 +94,14 @@ describe("Beast2 v5 — lazy Dict", () => {
     assert.deepEqual([...lazy], []);
   });
 
-  test("cross-segment order violations surface the canonical error", () => {
+  test("cross-segment order violations surface the eager decoder's error", () => {
     const high = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 1000));
     const low = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 0));
     const corrupt = spliceBeast2([high, low]);
     const lazy = openBeast2LazyFor(TableType)(corrupt);
-    assert.throws(() => [...lazy], /not disjoint ascending key ranges/);
+    assert.throws(() => [...lazy], {
+      message: "beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)",
+    });
   });
 
   test("hydration mid-generator keeps the in-flight iterator on the original sequence", () => {

@@ -40,9 +40,10 @@ import { isSegmentedRoot } from "./codec.js";
 import { Beast2Pages } from "./stream.js";
 import { type Beast2SyncRangeReader } from "./range.js";
 
-/** The canonical-order violation error, matching the eager decoders. */
-function disjointError(kind: "Set" | "Dict", i: number): Error {
-  return new Error(`beast2 v5: segments ${i - 1} and ${i} are not disjoint ascending ${kind === "Dict" ? "key" : "element"} ranges — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+/** The canonical-order violation error, in the eager decoders' words —
+ *  the same sentence on every runtime for the same blob. */
+function orderError(kind: "Set" | "Dict"): Error {
+  return new Error(`beast2 v5: ${kind === "Dict" ? "Dict keys" : "Set elements"} are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
 }
 
 /** Streams a Dict blob's entries segment by segment in canonical order,
@@ -53,7 +54,7 @@ function* lazyDictEntries<K, V>(pages: Beast2Pages, cmp: (a: K, b: K) => number)
   for (let i = 0; i < pages.segmentCount; i++) {
     const segment = pages.segment(i) as Map<K, V>;
     for (const [k, v] of segment) {
-      if (has && cmp(prev as K, k) >= 0) throw disjointError("Dict", i);
+      if (has && cmp(prev as K, k) >= 0) throw orderError("Dict");
       prev = k;
       has = true;
       yield [k, v];
@@ -69,7 +70,7 @@ function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number): Gener
   for (let i = 0; i < pages.segmentCount; i++) {
     const segment = pages.segment(i) as Set<K>;
     for (const k of segment) {
-      if (has && cmp(prev as K, k) >= 0) throw disjointError("Set", i);
+      if (has && cmp(prev as K, k) >= 0) throw orderError("Set");
       prev = k;
       has = true;
       yield k;
