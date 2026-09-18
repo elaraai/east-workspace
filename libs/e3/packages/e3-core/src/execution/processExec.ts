@@ -19,7 +19,7 @@ import * as path from 'path';
 import { StringDecoder } from 'string_decoder';
 import type { Readable } from 'stream';
 import crossSpawn from 'cross-spawn';
-import { spawn as nodeSpawn } from 'child_process';
+import { spawn as nodeSpawn, type ChildProcess } from 'child_process';
 import { runnerToArgv, type RunnerValue } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 
@@ -233,6 +233,38 @@ export function buildRunnerArgv(
 }
 
 /**
+ * Ends a process and every process it started, on Windows.
+ *
+ * @remarks
+ * Windows has no process group a signal can address — `process.kill(-pid)`
+ * throws there, so a POSIX group kill is a silent no-op — and the runner is
+ * often not the direct child: cross-spawn runs a `.cmd` shim through
+ * cmd.exe, so `child.pid` is cmd.exe's and node.exe beneath it holds the
+ * stdio pipes. `child.kill()` would end only cmd.exe, the pipes would stay
+ * open and `'close'` would never fire. `taskkill /T /F` ends the whole tree,
+ * as the POSIX group kill does. If taskkill itself cannot run, the direct
+ * child is killed as a last resort.
+ *
+ * @param pid - The direct child's pid
+ * @param child - The direct child, for the last-resort kill
+ */
+function killProcessTree(pid: number, child: ChildProcess): void {
+  const lastResort = (): void => {
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      // Already exited
+    }
+  };
+  try {
+    const taskkill = nodeSpawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    taskkill.on('error', lastResort);
+  } catch {
+    lastResort();
+  }
+}
+
+/**
  * Options for {@link spawnAndCapture}.
  */
 export interface SpawnAndCaptureOptions {
@@ -310,11 +342,13 @@ export interface SpawnAndCaptureResult {
  *
  * Process Lifecycle Management
  * ============================
- * We use detached: true to create a new process group, allowing us to kill
- * the entire process tree by signaling the negative PID (process group
- * leader). Process groups are flat, not hierarchical — a task that calls
- * setsid() escapes the kill; that is a known, accepted limitation (see the
- * discussion that used to live in runCommand).
+ * On POSIX we use detached: true to create a new process group, allowing us
+ * to kill the entire process tree by signaling the negative PID (process
+ * group leader). Process groups are flat, not hierarchical — a task that
+ * calls setsid() escapes the kill; that is a known, accepted limitation (see
+ * the discussion that used to live in runCommand). Windows has no process
+ * group a signal can address, so there the tree is ended by
+ * {@link killProcessTree}.
  */
 export async function spawnAndCapture(
   args: string[],
@@ -476,16 +510,21 @@ export async function spawnAndCapture(
     stderrTail = combined.slice(-tailBytes);
   }, options.onStderr);
 
-  // Helper to kill the entire process group (child and all its descendants).
-  // With detached: true, child.pid is the process group leader, so killing
-  // -child.pid sends the signal to all processes in that group.
+  // Helper to kill the entire process tree (child and all its descendants).
+  // POSIX: with detached: true, child.pid is the process group leader, so
+  // killing -child.pid sends the signal to all processes in that group.
+  // Windows: `process.kill(-pid)` throws — there is no such group — so the
+  // tree is ended by taskkill instead.
   const killProcessGroup = () => {
-    if (child.pid) {
-      try {
-        process.kill(-child.pid, 'SIGKILL');
-      } catch {
-        // Process may have already exited
-      }
+    if (!child.pid) return;
+    if (process.platform === 'win32') {
+      killProcessTree(child.pid, child);
+      return;
+    }
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      // Process may have already exited
     }
   };
   // The kills this process decides on, as opposed to any other signal.

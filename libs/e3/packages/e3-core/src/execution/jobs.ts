@@ -23,7 +23,7 @@
 
 import { readFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
-import { join } from 'node:path';
+import { posix } from 'node:path';
 
 /** Releases a slot; calling it again does nothing. */
 export type ReleaseSlot = () => void;
@@ -156,6 +156,9 @@ function readTextFile(path: string): string | null {
  * tightest ceiling of `quota / period` — as east-c's `east_cpu_count` does,
  * so e3 and its runners agree on a container's limit.
  *
+ * The paths are Linux paths, joined with `/` whatever the host, so the walk
+ * reads the same files wherever it is exercised.
+ *
  * @param read - Reads a file's text, or `null` when it cannot be read
  * @param cgroupFile - The process's cgroup membership (`/proc/self/cgroup`)
  * @param root - The cgroup filesystem's mount point
@@ -174,7 +177,7 @@ export function cgroupCpuQuota(
   if (relative === '') relative = '/';
   let tightest: number | null = null;
   for (;;) {
-    const max = read(join(root, relative, 'cpu.max'));
+    const max = read(posix.join(root, relative, 'cpu.max'));
     if (max !== null) {
       const [quota, period] = max.trim().split(/\s+/);
       if (quota !== undefined && quota !== 'max') {
