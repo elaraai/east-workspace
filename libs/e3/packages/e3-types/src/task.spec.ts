@@ -4,7 +4,8 @@
  */
 
 /**
- * Partition and stream task wire helpers (issue #770): the stream metadata's
+ * Partition and stream task wire helpers (issue #770): the partition
+ * metadata's merge fields and its triple decoder, the stream metadata's
  * `merge` mode and its dual decoder, the partition plan round trip, and the
  * `by` projection shapes the orchestrator evaluates by reading key fields
  * instead of compiling the projection.
@@ -13,29 +14,83 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  BlobType,
   BooleanType,
   East,
   IntegerType,
+  OptionType,
   StringType,
   StructType,
   compareFor,
   encodeBeast2For,
+  encodeEastIR,
   isTypeValueEqual,
+  none,
+  some,
   toEastTypeValue,
+  variant,
 } from '@elaraai/east';
 import type { FunctionIR } from '@elaraai/east';
 import {
   decodePartitionPlan,
+  decodePartitionTaskMetadata,
   decodeStreamTaskMetadata,
   encodePartitionPlan,
+  encodePartitionTaskMetadata,
   encodeStreamTaskMetadata,
   partitionProjectionShape,
   projectKey,
   projectedKeyType,
   type PartitionPlan,
+  type PartitionTaskMetadata,
   type ProjectionShape,
   type StreamTaskMetadata,
 } from './task.js';
+import { mergeCommandIr } from './stream.js';
+
+describe('PartitionTaskMetadataType', () => {
+  const mergeIr = encodeEastIR(East.function([IntegerType, StringType, StringType], StringType, (_$, _key, acc, value) => acc.concat(value)).toIR());
+  const mergeCommand = encodeEastIR(mergeCommandIr(variant('east_c', { platforms: ['east-c-std'] }), 'function'));
+
+  /** The metadata with every blob as a plain Uint8Array — the decoder hands
+   *  back Buffers, whose prototype strict deep equality would reject. */
+  function plain(meta: PartitionTaskMetadata): PartitionTaskMetadata {
+    const blob = (option: { type: string; value: unknown }) =>
+      option.type === 'some' ? some(new Uint8Array(option.value as Uint8Array)) : none;
+    return { ...meta, by: blob(meta.by), combine: blob(meta.combine), merge: blob(meta.merge), mergeCommand: blob(meta.mergeCommand) };
+  }
+
+  it('round-trips the merge fields and the merge command', () => {
+    const meta: PartitionTaskMetadata = {
+      partitions: 1n, by: none, combine: none, targetPartitionBytes: 1024n,
+      merge: some(mergeIr), mergeSets: false, mergeCommand: some(mergeCommand),
+    };
+    assert.deepEqual(plain(decodePartitionTaskMetadata(encodePartitionTaskMetadata(meta))), meta);
+  });
+
+  it('decodes v1.0.77 metadata, exported before merge commands, with mergeCommand none', () => {
+    const shape = StructType({
+      partitions: IntegerType, by: OptionType(BlobType), combine: OptionType(BlobType), targetPartitionBytes: IntegerType,
+      merge: OptionType(BlobType), mergeSets: BooleanType,
+    });
+    const legacy = encodeBeast2For(shape)({ partitions: 2n, by: none, combine: none, targetPartitionBytes: 512n, merge: some(mergeIr), mergeSets: false });
+    assert.deepEqual(plain(decodePartitionTaskMetadata(legacy)), {
+      partitions: 2n, by: none, combine: none, targetPartitionBytes: 512n, merge: some(mergeIr), mergeSets: false, mergeCommand: none,
+    });
+  });
+
+  it('decodes metadata exported before merge assembly with every merge field off', () => {
+    const shape = StructType({ partitions: IntegerType, by: OptionType(BlobType), combine: OptionType(BlobType), targetPartitionBytes: IntegerType });
+    const legacy = encodeBeast2For(shape)({ partitions: 1n, by: none, combine: none, targetPartitionBytes: 256n });
+    assert.deepEqual(decodePartitionTaskMetadata(legacy), {
+      partitions: 1n, by: none, combine: none, targetPartitionBytes: 256n, merge: none, mergeSets: false, mergeCommand: none,
+    });
+  });
+
+  it('throws for bytes of no known metadata shape', () => {
+    assert.throws(() => decodePartitionTaskMetadata(encodeBeast2For(IntegerType)(7n)));
+  });
+});
 
 describe('StreamTaskMetadataType', () => {
   it('round-trips the merge mode', () => {

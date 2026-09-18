@@ -142,6 +142,14 @@ export const TASK_KIND_PARTITION = 'partition';
  *  beast2-encoded {@link StreamTaskMetadataType}. */
 export const TASK_KIND_STREAM = 'stream';
 
+/** Task kind of a merge unit — the runner's `merge` command over sorted
+ *  partials of a partitioned task's keyed output (issue #770). The
+ *  orchestrator writes one such task per partitioned task from the
+ *  package's {@link PartitionTaskMetadataType} `mergeCommand`, and runs it
+ *  as an ordinary content-addressed execution per group of partials. It
+ *  carries no metadata. */
+export const TASK_KIND_MERGE = 'merge';
+
 /**
  * Metadata of a {@link TASK_KIND_PARTITION} task.
  *
@@ -174,16 +182,27 @@ export const PartitionTaskMetadataType = StructType({
    *
    * Its presence (or {@link mergeSets}) selects the MERGE-TREE assembly:
    * partials whose key ranges overlap are merged by the task's own runner, in
-   * a tree of stream executions whose emit sink folds equal keys with this
-   * function (`--merge`); disjoint partials are spliced; the orchestrator
-   * never decodes a partial. Appended LAST (BEAST2 encodes struct fields
-   * positionally) with a dual decoder — see {@link decodePartitionTaskMetadata}.
+   * a tree of merge executions ({@link mergeCommand}) folding equal keys with
+   * this function; disjoint partials are spliced; the orchestrator never
+   * decodes a partial. Appended after `targetPartitionBytes` (BEAST2 encodes
+   * struct fields positionally) with a dual decoder — see
+   * {@link decodePartitionTaskMetadata}.
    */
   merge: OptionType(BlobType),
   /** Whether a Set output assembles by the merge tree, keeping one of equal
    *  elements (`--union`). The Set twin of {@link merge}, which needs no
-   *  function. Appended LAST. */
+   *  function. */
   mergeSets: BooleanType,
+  /**
+   * `encodeEastIR` bundle of the merge command `(input_paths, output_path) ->
+   * argv` — `mergeCommandIr` over the task's runner, in `function` mode with
+   * {@link merge} and `union` mode with {@link mergeSets} — that the
+   * orchestrator's merge units execute; `none` in splice and combine modes.
+   * Built at export, so the merge unit task is a package object like any
+   * other and nothing is synthesized at run time. Appended LAST with a
+   * triple decoder — see {@link decodePartitionTaskMetadata}.
+   */
+  mergeCommand: OptionType(BlobType),
 });
 export type PartitionTaskMetadataType = typeof PartitionTaskMetadataType;
 
@@ -201,29 +220,49 @@ const PreMergePartitionTaskMetadataType = StructType({
   targetPartitionBytes: IntegerType,
 });
 
+/**
+ * The v1.0.77 partition metadata wire shape — `merge` and `mergeSets` but no
+ * `mergeCommand` — kept only so {@link decodePartitionTaskMetadata} can read
+ * tasks exported by that SDK; their merge units cannot run.
+ */
+const PreMergeCommandPartitionTaskMetadataType = StructType({
+  partitions: IntegerType,
+  by: OptionType(BlobType),
+  combine: OptionType(BlobType),
+  targetPartitionBytes: IntegerType,
+  merge: OptionType(BlobType),
+  mergeSets: BooleanType,
+});
+
 /** Encode a {@link PartitionTaskMetadataType} value for `TaskObject.metadata`. */
 export const encodePartitionTaskMetadata: (value: PartitionTaskMetadata) => Uint8Array =
   encodeBeast2For(PartitionTaskMetadataType);
 
 const decodeCurrentPartitionMetadata = decodeBeast2For(PartitionTaskMetadataType);
+const decodePreMergeCommandPartitionMetadata = decodeBeast2For(PreMergeCommandPartitionTaskMetadataType);
 const decodePreMergePartitionMetadata = decodeBeast2For(PreMergePartitionTaskMetadataType);
 
 /**
  * Decode a `TaskObject.metadata` blob of a {@link TASK_KIND_PARTITION} task,
- * tolerating the pre-`merge` wire format (dual-decode migration).
+ * tolerating the two older wire formats: the v1.0.77 shape without
+ * `mergeCommand`, and the pre-`merge` shape.
  *
  * @param data - the metadata blob
- * @returns the decoded metadata, with `merge`/`mergeSets` defaulted off for
- *   older bytes
+ * @returns the decoded metadata, with `mergeCommand` (and, for the oldest
+ *   bytes, `merge`/`mergeSets`) defaulted off
  */
 export function decodePartitionTaskMetadata(data: Uint8Array): PartitionTaskMetadata {
   try {
     return decodeCurrentPartitionMetadata(data);
   } catch (err) {
     try {
-      return { ...decodePreMergePartitionMetadata(data), merge: none, mergeSets: false };
+      return { ...decodePreMergeCommandPartitionMetadata(data), mergeCommand: none };
     } catch {
-      throw err; // no known shape — surface the current-format error
+      try {
+        return { ...decodePreMergePartitionMetadata(data), merge: none, mergeSets: false, mergeCommand: none };
+      } catch {
+        throw err; // no known shape — surface the current-format error
+      }
     }
   }
 }

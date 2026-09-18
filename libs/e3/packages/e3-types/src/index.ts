@@ -46,6 +46,7 @@ export {
   decodeTaskObject,
   TASK_KIND_PARTITION,
   TASK_KIND_STREAM,
+  TASK_KIND_MERGE,
   PartitionTaskMetadataType,
   type PartitionTaskMetadata,
   encodePartitionTaskMetadata,
@@ -64,12 +65,12 @@ export {
   projectKey,
 } from './task.js';
 
-// Stream commands
+// Stream and merge commands
 export {
   type StreamMergeMode,
   type StreamCommandSpec,
   streamCommandIr,
-  stripIrLocations,
+  mergeCommandIr,
 } from './stream.js';
 
 // Execution environments

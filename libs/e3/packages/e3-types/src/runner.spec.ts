@@ -73,4 +73,29 @@ describe('withRunnerVerbose', () => {
     assert.deepStrictEqual(withRunnerVerbose(runner, ['east-node'], true), ['east-node']);
     assert.deepStrictEqual(withRunnerVerbose(runner, [], true), []);
   });
+
+  it('inserts -v after the merge subcommand too', () => {
+    const runner = variant('east_c', { platforms: ['east-c-std'] });
+    const args = [...runnerToArgv(runner, 'merge'), '--union', '-i', 'p0.beast2', '-o', 'out.beast2'];
+    assert.deepStrictEqual(withRunnerVerbose(runner, args, true).slice(0, 3), ['east-c', 'merge', '-v']);
+  });
+});
+
+describe('runnerToArgv', () => {
+  for (const [tag, runner, bin] of KNOWN) {
+    it(`resolves the run and merge commands of ${tag}`, () => {
+      assert.deepStrictEqual(runnerToArgv(runner).slice(0, 2), [bin, 'run']);
+      assert.deepStrictEqual(runnerToArgv(runner, 'run'), runnerToArgv(runner));
+      const merge = runnerToArgv(runner, 'merge');
+      assert.deepStrictEqual(merge.slice(0, 2), [bin, 'merge']);
+      // The platform flags follow either command unchanged.
+      assert.deepStrictEqual(merge.slice(2), runnerToArgv(runner).slice(2));
+    });
+  }
+
+  it('resolves a custom runner to its own command, and has no merge command for it', () => {
+    const runner: RunnerValue = variant('custom', { command: ['uv', 'run', 'east-py', 'run'] });
+    assert.deepStrictEqual(runnerToArgv(runner), ['uv', 'run', 'east-py', 'run']);
+    assert.throws(() => runnerToArgv(runner, 'merge'), { message: 'a custom runner has no merge command' });
+  });
 });

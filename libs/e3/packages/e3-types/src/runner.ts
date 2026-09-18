@@ -45,19 +45,30 @@ function flags(platforms: string[]): string[] {
 }
 
 /**
- * Resolve a {@link RunnerType} value to the argv prefix (the wire-value
- * analogue of the SDK's `runnerToCommand`). Lives in e3-types so both
- * e3-core (local) and the cloud execution kernel import the one resolver.
+ * Resolve a {@link RunnerType} value to the argv prefix of one of its
+ * commands (the wire-value analogue of the SDK's `runnerToCommand`): `run`,
+ * the default — `[<bin>, 'run', -p…]` — or `merge`, the blob merge every
+ * stock runner ships — `[<bin>, 'merge', -p…]`, the fan-in of a partitioned
+ * task's keyed partials (issue #770). Lives in e3-types so both e3-core
+ * (local) and the cloud execution kernel import the one resolver.
  *
  * Variant tags use underscores (`east_node`) mapped to the binary name
- * (`east-node`) here.
+ * (`east-node`) here. A `custom` runner's command is its `run`; it has no
+ * merge command.
+ *
+ * @param r - the runner
+ * @param command - the runner command, `run` by default
+ * @returns the argv prefix
+ * @throws {Error} When `merge` is asked of a custom runner.
  */
-export function runnerToArgv(r: RunnerValue): string[] {
+export function runnerToArgv(r: RunnerValue, command: 'run' | 'merge' = 'run'): string[] {
   switch (r.type) {
-    case 'east_node': return ['east-node', 'run', ...flags(r.value.platforms)];
-    case 'east_py':   return ['east-py',   'run', ...flags(r.value.platforms)];
-    case 'east_c':    return ['east-c',    'run', ...flags(r.value.platforms)];
-    case 'custom':    return [...r.value.command];
+    case 'east_node': return ['east-node', command, ...flags(r.value.platforms)];
+    case 'east_py':   return ['east-py',   command, ...flags(r.value.platforms)];
+    case 'east_c':    return ['east-c',    command, ...flags(r.value.platforms)];
+    case 'custom':
+      if (command !== 'run') throw new Error(`a custom runner has no ${command} command`);
+      return [...r.value.command];
   }
 }
 
@@ -65,10 +76,10 @@ export function runnerToArgv(r: RunnerValue): string[] {
  * Insert the runner's `-v/--verbose` flag into a fully-built argv, for the
  * known runtimes only.
  *
- * All three known runners (`east-node`/`east-py`/`east-c run`) accept `-v`
- * among their options and print timing/perf detail to stderr; a `custom`
- * runner's argv is user-authored, so a flag is never spliced into it. A
- * known-runtime argv always starts `[<bin>, 'run', …]` (see
+ * All three known runners (`east-node`/`east-py`/`east-c`, `run` and `merge`)
+ * accept `-v` among their options and print timing/perf detail to stderr; a
+ * `custom` runner's argv is user-authored, so a flag is never spliced into
+ * it. A known-runtime argv always starts `[<bin>, <command>, …]` (see
  * {@link runnerToArgv} and the SDK's `runnerToCommand`), so `-v` goes at
  * index 2 — ahead of the `-p`/`-i`/`-o` flags and the trailing IR path.
  *
