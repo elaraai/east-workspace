@@ -7,8 +7,9 @@
  * A mapped file is read through the page cache: its residency is the kernel's
  * decision, not the heap's, so a reader that walks it a segment at a time
  * holds one decoded segment, however large the file. Used for lazily opened
- * task inputs (the release hook of a paged value) and for the emit sink's
- * demoted prefix run. POSIX maps with mmap; Windows with a file mapping view.
+ * task inputs (the release hook of a paged value) and for the blob merge's
+ * inputs and key range. POSIX maps with mmap; Windows with a file mapping
+ * view.
  */
 
 #include <stddef.h>

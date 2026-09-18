@@ -247,12 +247,14 @@ describe('spawnAndCapture', { skip: isWindows }, () => {
     assert.equal(aborted.timedOut, false);
   });
 
-  it('gives the child a stdin lifeline pipe only when asked, and nothing in its environment', async () => {
-    const probe = 'const s = require("fs").fstatSync(0); process.stdout.write((process.env.EAST_EXIT_WITH_PARENT ?? "unset") + " " + (s.isFIFO() || s.isSocket()))';
+  it('gives the child a stdin lifeline pipe only when asked', async () => {
+    // The lifeline is the pipe and the `--exit-with-parent` flag the caller
+    // splices into the argv — nothing rides the environment.
+    const probe = 'const s = require("fs").fstatSync(0); process.stdout.write(String(s.isFIFO() || s.isSocket()))';
     const withLifeline = await spawnAndCapture(['node', '-e', probe], scratch, { stdinLifeline: true });
-    assert.equal(withLifeline.stdoutTail, 'unset true');
+    assert.equal(withLifeline.stdoutTail, 'true');
     const without = await spawnAndCapture(['node', '-e', probe], scratch);
-    assert.equal(without.stdoutTail, 'unset false');
+    assert.equal(without.stdoutTail, 'false');
   });
 
   it('hands the callbacks whole characters however the output is split', async () => {

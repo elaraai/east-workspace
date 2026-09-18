@@ -335,7 +335,8 @@ static int merge_dict_range(const char *bin, const char *fixtures, const char *r
              "\"%s\" merge --merge \"%s/emit_merge_concat.beast2\" --range \"%s/%s\" "
              "-i \"%s/merge_in_a.beast2\" -i \"%s/merge_in_b.beast2\" -i \"%s/merge_in_c.beast2\" "
              "-o %s%s",
-             bin, fixtures, fixtures, range, fixtures, fixtures, fixtures, out, verbose ? " -v" : "");
+             bin, fixtures, fixtures, range, fixtures, fixtures, fixtures, out,
+             verbose ? " -v" : "");
     return run_cli(cmd, err_path);
 }
 
@@ -365,7 +366,8 @@ static void test_ranges(const char *bin, const char *fixtures)
      * fourth — the fold's entries in the range, byte-identical to the
      * control that emits them ascending. */
     snprintf(cmd, sizeof(cmd),
-             "\"%s\" run \"%s/merge_expected_dict_7_22.beast2\" --emit dict -o merge_out_range_expected.beast2",
+             "\"%s\" run \"%s/merge_expected_dict_7_22.beast2\" --emit dict -o "
+             "merge_out_range_expected.beast2",
              bin, fixtures);
     int rc = run_cli(cmd, "merge_err_range_expected.txt");
     CHECK(rc == 0, "range [7, 22): the expected control exited %d", rc);
@@ -375,30 +377,38 @@ static void test_ranges(const char *bin, const char *fixtures)
     if (rc == 0) {
         CHECK(same_bytes("merge_out_range_expected.beast2", "merge_out_range_7_22.beast2"),
               "range [7, 22): not byte-identical to `run --emit dict` over the range's entries");
-        check_stderr_contains("merge_err_range_7_22.txt", "merge: 3 input(s), 15 entries, 11 fold(s)");
+        check_stderr_contains("merge_err_range_7_22.txt",
+                              "merge: 3 input(s), 15 entries, 11 fold(s)");
         char *v = dict_value("merge_out_range_7_22.beast2", 15);
         CHECK(v && strcmp(v, "a15b15c15") == 0, "range [7, 22): key 15 folded to %s", v ? v : "?");
         free(v);
-        CHECK(dict_value("merge_out_range_7_22.beast2", 6) == NULL, "range [7, 22): key 6 must be absent");
-        CHECK(dict_value("merge_out_range_7_22.beast2", 22) == NULL, "range [7, 22): key 22 must be absent");
+        CHECK(dict_value("merge_out_range_7_22.beast2", 6) == NULL,
+              "range [7, 22): key 6 must be absent");
+        CHECK(dict_value("merge_out_range_7_22.beast2", 22) == NULL,
+              "range [7, 22): key 22 must be absent");
     }
 
     /* The same range over the Set twins under --union. */
     snprintf(cmd, sizeof(cmd),
-             "\"%s\" run \"%s/merge_expected_set_7_22.beast2\" --emit set -o merge_out_range_set_expected.beast2",
+             "\"%s\" run \"%s/merge_expected_set_7_22.beast2\" --emit set -o "
+             "merge_out_range_set_expected.beast2",
              bin, fixtures);
     rc = run_cli(cmd, "merge_err_range_set_expected.txt");
     CHECK(rc == 0, "range [7, 22) union: the expected control exited %d", rc);
-    snprintf(cmd, sizeof(cmd),
-             "\"%s\" merge --union --range \"%s/merge_range_7_22.beast2\" -i \"%s/merge_set_a.beast2\" "
-             "-i \"%s/merge_set_b.beast2\" -i \"%s/merge_set_c.beast2\" -o merge_out_range_set.beast2 -v",
-             bin, fixtures, fixtures, fixtures, fixtures);
+    snprintf(
+        cmd, sizeof(cmd),
+        "\"%s\" merge --union --range \"%s/merge_range_7_22.beast2\" -i \"%s/merge_set_a.beast2\" "
+        "-i \"%s/merge_set_b.beast2\" -i \"%s/merge_set_c.beast2\" -o merge_out_range_set.beast2 "
+        "-v",
+        bin, fixtures, fixtures, fixtures, fixtures);
     rc = run_cli(cmd, "merge_err_range_set.txt");
     CHECK(rc == 0, "range [7, 22) union: expected exit 0, got %d", rc);
     if (rc == 0) {
         CHECK(same_bytes("merge_out_range_set_expected.beast2", "merge_out_range_set.beast2"),
-              "range [7, 22) union: not byte-identical to `run --emit set` over the range's elements");
-        check_stderr_contains("merge_err_range_set.txt", "merge: 3 input(s), 15 entries, 11 fold(s)");
+              "range [7, 22) union: not byte-identical to `run --emit set` over the range's "
+              "elements");
+        check_stderr_contains("merge_err_range_set.txt",
+                              "merge: 3 input(s), 15 entries, 11 fold(s)");
     }
 
     /* Open on both sides: the whole merge's bytes. */
@@ -413,27 +423,31 @@ static void test_ranges(const char *bin, const char *fixtures)
                           "merge_err_range_to_12.txt", true);
     CHECK(rc == 0, "range (-inf, 12): expected exit 0, got %d", rc);
     if (rc == 0) {
-        check_stderr_contains("merge_err_range_to_12.txt", "merge: 3 input(s), 12 entries, 3 fold(s)");
+        check_stderr_contains("merge_err_range_to_12.txt",
+                              "merge: 3 input(s), 12 entries, 3 fold(s)");
         char *v = dict_value("merge_out_range_to_12.beast2", 5);
         CHECK(v && strcmp(v, "a5c5") == 0, "range (-inf, 12): key 5 folded to %s", v ? v : "?");
         free(v);
         v = dict_value("merge_out_range_to_12.beast2", 11);
         CHECK(v && strcmp(v, "a11b11") == 0, "range (-inf, 12): key 11 folded to %s", v ? v : "?");
         free(v);
-        CHECK(dict_value("merge_out_range_to_12.beast2", 12) == NULL, "range (-inf, 12): key 12 must be absent");
+        CHECK(dict_value("merge_out_range_to_12.beast2", 12) == NULL,
+              "range (-inf, 12): key 12 must be absent");
     }
-    rc = merge_dict_range(bin, fixtures, "merge_range_from_25.beast2", "merge_out_range_from_25.beast2",
-                          "merge_err_range_from_25.txt", true);
+    rc = merge_dict_range(bin, fixtures, "merge_range_from_25.beast2",
+                          "merge_out_range_from_25.beast2", "merge_err_range_from_25.txt", true);
     CHECK(rc == 0, "range [25, +inf): expected exit 0, got %d", rc);
     if (rc == 0) {
-        check_stderr_contains("merge_err_range_from_25.txt", "merge: 3 input(s), 6 entries, 1 fold(s)");
+        check_stderr_contains("merge_err_range_from_25.txt",
+                              "merge: 3 input(s), 6 entries, 1 fold(s)");
         char *v = dict_value("merge_out_range_from_25.beast2", 25);
         CHECK(v && strcmp(v, "b25c25") == 0, "range [25, +inf): key 25 folded to %s", v ? v : "?");
         free(v);
         v = dict_value("merge_out_range_from_25.beast2", 40);
         CHECK(v && strcmp(v, "c40") == 0, "range [25, +inf): key 40 is %s", v ? v : "?");
         free(v);
-        CHECK(dict_value("merge_out_range_from_25.beast2", 24) == NULL, "range [25, +inf): key 24 must be absent");
+        CHECK(dict_value("merge_out_range_from_25.beast2", 24) == NULL,
+              "range [25, +inf): key 24 must be absent");
     }
 
     /* [30, 39) holds nothing: the empty collection, indexed. */
@@ -441,23 +455,25 @@ static void test_ranges(const char *bin, const char *fixtures)
                           "merge_err_range_30_39.txt", true);
     CHECK(rc == 0, "range [30, 39): expected exit 0, got %d", rc);
     if (rc == 0) {
-        check_stderr_contains("merge_err_range_30_39.txt", "merge: 3 input(s), 0 entries, 0 fold(s)");
+        check_stderr_contains("merge_err_range_30_39.txt",
+                              "merge: 3 input(s), 0 entries, 0 fold(s)");
         CHECK(indexed_count("merge_out_range_30_39.beast2", dict_type()) == 0,
               "range [30, 39): expected the empty collection, indexed");
     }
 
     /* Bounds over another key type, and a range file that does not exist. */
-    rc = merge_dict_range(bin, fixtures, "merge_range_mismatch.beast2", "merge_out_range_mismatch.beast2",
-                          "merge_err_range_mismatch.txt", false);
+    rc = merge_dict_range(bin, fixtures, "merge_range_mismatch.beast2",
+                          "merge_out_range_mismatch.beast2", "merge_err_range_mismatch.txt", false);
     CHECK(rc == 1, "range mismatch: expected exit 1, got %d", rc);
     check_stderr_contains("merge_err_range_mismatch.txt", "merge: --range (");
     check_stderr_contains("merge_err_range_mismatch.txt", "merge_range_mismatch.beast2) has type ");
     check_stderr_contains("merge_err_range_mismatch.txt", ", expected ");
     check_stderr_contains("merge_err_range_mismatch.txt", " (bounds over the inputs' key type)");
-    rc = merge_dict_range(bin, fixtures, "merge_range_missing.beast2", "merge_out_range_missing.beast2",
-                          "merge_err_range_missing.txt", false);
+    rc = merge_dict_range(bin, fixtures, "merge_range_missing.beast2",
+                          "merge_out_range_missing.beast2", "merge_err_range_missing.txt", false);
     CHECK(rc == 1, "range missing: expected exit 1, got %d", rc);
-    check_stderr_contains("merge_err_range_missing.txt", "merge_range_missing.beast2): cannot open the file");
+    check_stderr_contains("merge_err_range_missing.txt",
+                          "merge_range_missing.beast2): cannot open the file");
 }
 
 int main(int argc, char **argv)

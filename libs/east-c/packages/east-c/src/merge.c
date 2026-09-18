@@ -141,7 +141,8 @@ static bool cursor_load_segment(Merge *m, MergeCursor *c, size_t index)
             continue;
         }
         if (c->pages) {
-            if (!b2v5_order_accept(&c->order, segment_key_at(m, seg, 0), m->kind == EAST_TYPE_DICT)) {
+            if (!b2v5_order_accept(&c->order, segment_key_at(m, seg, 0),
+                                   m->kind == EAST_TYPE_DICT)) {
                 east_value_release(seg);
                 merge_input_error(index, c->path);
                 return false;
@@ -248,8 +249,10 @@ static bool cursor_seek(Merge *m, MergeCursor *c, size_t index)
         }
         int order = east_value_compare(f, m->from);
         east_value_release(f);
-        if (order <= 0) lo = mid + 1;
-        else hi = mid;
+        if (order <= 0)
+            lo = mid + 1;
+        else
+            hi = mid;
     }
     c->next_seg = lo == 0 ? 0 : lo - 1;
     return true;
@@ -336,8 +339,9 @@ static bool merge_read_range(Merge *m, const char *path)
     } else if (!east_type_equal(type, expected)) {
         char *got = east_print_type(type);
         char *want = east_print_type(expected);
-        merge_error("merge: --range (%s) has type %s, expected %s (bounds over the inputs' key type)",
-                    path, got ? got : "?", want ? want : "?");
+        merge_error(
+            "merge: --range (%s) has type %s, expected %s (bounds over the inputs' key type)", path,
+            got ? got : "?", want ? want : "?");
         free(got);
         free(want);
     } else if (!(bounds = east_beast2_decode_full(data, len, expected))) {

@@ -465,6 +465,21 @@ describe('steps', () => {
       assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await storage.objects.read(repo, result.outputHash!)), dict(range(0, 40))));
     });
 
+    it('passes a component of one partial through whole, however many segments it spans', async () => {
+      // Ten disjoint partials of ten segments each, far above the byte
+      // target: a component of one partial is never cut into ranges — no
+      // unit runs over a group of one, so a range per segment would only
+      // splice the same partial ten times over.
+      const table = await store(dict(range(0, 400)), 40);
+      const { runs, executeUnit } = standIn({ batchSize: 4 });
+      const { taskHash, ids, result } = await run(parentTask('merge'), ['f'.repeat(64), table], executeUnit);
+      assert.equal(result.state, 'success', result.error ?? '');
+      assert.equal(runs.filter((r) => r.kind === TASK_KIND_MERGE).length, 0);
+      assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await storage.objects.read(repo, result.outputHash!)), dict(range(0, 400))));
+      const plan = decodePartitionPlan(await storage.objects.read(repo, (await storage.refs.executionPlanRead!(repo, taskHash, ids.inHash))!));
+      assert.deepEqual(plan.merges, [], 'nothing to reuse: no ranges were planned');
+    });
+
     it('refuses the custom runtime, and a package without a merge command, only when a unit would run', async () => {
       const table = await store(dict(range(0, 16)));
       const custom = await run(parentTask('merge', 'custom'), ['f'.repeat(64), table], standIn({ modulus: 3n }).executeUnit);

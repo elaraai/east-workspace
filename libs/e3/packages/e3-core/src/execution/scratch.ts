@@ -7,16 +7,17 @@
  * Scratch directories of local task executions (issue #770).
  *
  * An execution stages its inputs in a scratch directory, and its runner writes
- * the output there, spill runs included. The directory is named after the
- * execution and the orchestrator process that owns it —
+ * the output there, once, in order (no runner spills anywhere). The directory
+ * is named after the execution and the orchestrator process that owns it —
  * `e3-exec-<task8>-<in8>-<pid>-<pidStartTime>-<ms>` — and the execution
  * removes it when it finishes. An orchestrator that dies leaves its
  * directories behind; {@link sweepScratchDirs} removes them once that process
  * is gone.
  *
  * Scratch directories are created under `E3_SCRATCH_DIR`, or the system temp
- * directory when it is unset. A temp directory on tmpfs keeps spill runs in
- * memory, so large outputs want `E3_SCRATCH_DIR` on a disk.
+ * directory when it is unset. A temp directory on tmpfs holds an output in
+ * memory until it is stored, so large outputs want `E3_SCRATCH_DIR` on a
+ * disk.
  */
 
 import * as fs from 'fs/promises';

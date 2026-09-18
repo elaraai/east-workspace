@@ -829,15 +829,23 @@ export async function executeTemplate(
             groups = [];
             const components = (await mergeComponents(storage, repo, over)).components.map((component) => component.partitions.map((i) => over[i]!));
             for (const partials of components) {
+              // A component of one partial is already its own result: no
+              // unit runs over a group of one, so it passes through whole,
+              // however many segments it spans — a range would only be
+              // ignored, and a range per segment would repeat the partial.
+              if (partials.length === 1) {
+                groups.push({ range: null, entries: partials });
+                continue;
+              }
               if (options.signal?.aborted) return cancelledResult();
               const ranges = (recordedPlan !== null ? await recordedMergeRanges(storage, repo, recordedPlan, partials) : null)
                 ?? await planMergeRanges(storage, repo, partials, step.rangeBytes);
               for (const range of ranges) groups.push({ range, entries: partials });
-              if (carved !== null) {
-                carved.merges.push({ partials: [...partials], ranges });
-                await recordPlan();
-              }
+              carved?.merges.push({ partials: [...partials], ranges });
             }
+            // One record of every component's ranges: planning is fence
+            // probes only, so a run that dies here just plans again.
+            if (carved !== null && carved.merges.length > 0) await recordPlan();
           }
         } catch (err) {
           return errorResult(`Failed to merge partition partials: ${err instanceof Error ? err.message : err}`);
