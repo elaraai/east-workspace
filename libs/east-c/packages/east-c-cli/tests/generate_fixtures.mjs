@@ -4,12 +4,13 @@
  */
 
 /*
- * Regenerates the checked-in `--emit` test fixtures: tiny East IR programs
- * (beast2-encoded, source map included) plus one TS-paged-written input blob,
- * shared verbatim by the east-c ctest gate (tests/test_cli_emit.c) and the
- * east-py-cli pytest suite (libs/east-py/packages/east-py-cli/tests/fixtures).
- * Keeping the TS writer as the fixture source makes every native-runner test
- * that READS these blobs a cross-runtime decode of TS-written bytes.
+ * Regenerates the checked-in `--emit` and `merge` test fixtures: tiny East
+ * IR programs (beast2-encoded, source map included) plus TS-paged-written
+ * input blobs, shared verbatim by the east-c ctest gates (tests/test_cli_emit.c,
+ * tests/test_cli_merge.c) and the east-py-cli pytest suite
+ * (libs/east-py/packages/east-py-cli/tests/fixtures). Keeping the TS writer
+ * as the fixture source makes every native-runner test that READS these
+ * blobs a cross-runtime decode of TS-written bytes.
  *
  * Run after building the east package:
  *
@@ -53,50 +54,6 @@ const targets = [
 
 const emitInt = FunctionType([IntegerType], NullType);
 const emitPair = FunctionType([IntegerType, StringType], NullType);
-const NestedT = StructType({
-  label: StringType,
-  items: ArrayType(StructType({ x: IntegerType, y: FloatType })),
-});
-const emitNested = FunctionType([IntegerType, NestedT], NullType);
-
-/** A dict producer whose values are structs of arrays of structs, emitted
- *  in the given key order: the sink encodes an out-of-order emission at
- *  the emit and merges runs of bytes, and its output must be byte-identical
- *  to the ascending producer's. */
-function nestedProducer(keys) {
-  return East.function([emitNested], NullType, ($, emit) => {
-    $.for($.const(keys, ArrayType(IntegerType)), ($, i) => {
-      $(
-        emit(i, {
-          label: East.str`row-${i}`,
-          items: [
-            { x: i, y: 0.5 },
-            { x: i.add(1n), y: 1.5 },
-            { x: i.add(2n), y: 2.5 },
-          ],
-        }),
-      );
-    });
-  }).toIR();
-}
-
-/** `items` in a deterministic Fisher-Yates shuffle (fixed LCG seed), so the
- *  disorder the sink must absorb is stable across fixture regenerations. */
-function shuffled(items) {
-  const out = items.slice();
-  let seed = 12345;
-  const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
-
-/** The 0..count keys in the deterministic shuffle. */
-function shuffledKeys(count) {
-  return shuffled(Array.from({ length: count }, (_, i) => BigInt(i)));
-}
 
 const PairT = StructType({ key: IntegerType, value: StringType });
 
@@ -118,28 +75,16 @@ function keyEmitter(keys) {
   }).toIR();
 }
 
-/** The fold contract's emission sequences (#770), as keys. `ascending` emits
- *  0..1199 in order with adjacent duplicates: every third key twice, and key
- *  999 — the last entry of a full 1000-element batch — four times.
- *  `scattered` emits 0..19 in order, each twice, then 7 again (the first key
- *  out of order: the prefix demotes, and 7 must fold across it), then 0..599
- *  shuffled with one to three copies each, so equal keys meet in the prefix,
- *  within a run and across runs. */
-function foldSequences() {
+/** The fold contract's emission sequence (#770), as keys: 0..1199 in order
+ *  with adjacent duplicates — every third key twice, and key 999, the last
+ *  entry of a full 1000-element batch, four times. */
+function foldSequence() {
   const ascending = [];
   for (let k = 0; k < 1200; k++) {
     const copies = 1 + (k % 3 === 0 ? 1 : 0) + (k % 1000 === 999 ? 2 : 0);
     for (let c = 0; c < copies; c++) ascending.push(BigInt(k));
   }
-  const rest = [];
-  for (let k = 0; k < 600; k++) {
-    const copies = 1 + (k % 4 === 1 ? 1 : 0) + (k % 7 === 2 ? 1 : 0);
-    for (let c = 0; c < copies; c++) rest.push(BigInt(k));
-  }
-  const scattered = [];
-  for (let k = 0; k < 20; k++) scattered.push(BigInt(k), BigInt(k));
-  scattered.push(7n, ...shuffled(rest));
-  return { ascending, scattered };
+  return ascending;
 }
 
 /** A key sequence as dict emissions — each value names its emission — and
@@ -157,20 +102,8 @@ function unionKeys(keys) {
   return [...new Set(keys)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
-/** A set producer emitting 0..count scattered by a multiplicative step and
- *  offset by 10^12: every element distinct and encoded in the same number of
- *  bytes, so the sink's peak buffered bytes depend on its run cap alone. */
-function scatterEmitter(count) {
-  return East.function([emitInt], NullType, ($, emit) => {
-    $.for(East.Array.range(0n, count), ($, i) => {
-      $(emit(i.multiply(7919n).remainder(count).add(1_000_000_000_000n)));
-    });
-  }).toIR();
-}
-
-const folds = foldSequences();
-const ascendingPairs = foldPairs(folds.ascending);
-const scatteredPairs = foldPairs(folds.scattered);
+const foldKeys = foldSequence();
+const ascendingPairs = foldPairs(foldKeys);
 
 /** The blob merge's inputs (#770): three sorted Dicts whose keys overlap —
  *  a = 0..19, b = 10..29, c = {5, 15, 25, 40} — each value naming its input,
@@ -233,9 +166,9 @@ const fixtures = {
     }).toIR(),
   ),
 
-  // Dict producer emitting out of key order on the second emit — since
-  // issue #518 the sink absorbs this (sort-in-the-sink) and the output is
-  // the canonical two-pair dict.
+  // Dict producer emitting out of key order on the second emit — Set/Dict
+  // emissions must ascend in East order (#770): the sink writes one pass,
+  // and this is the out-of-order error naming both keys.
   'emit_dict_disorder.beast2': encodeEastIR(
     East.function([emitPair], NullType, ($, emit) => {
       $(emit(2n, 'b'));
@@ -243,20 +176,7 @@ const fixtures = {
     }).toIR(),
   ),
 
-  // Dict producer emitting the same 1000 pairs as emit_dict in a
-  // deterministically shuffled order — the sink must spill/merge to the
-  // byte-identical canonical blob (issue #518; run tiny
-  // EAST_EMIT_RUN_ELEMENTS to force multiple spill runs).
-  'emit_dict_shuffled.beast2': encodeEastIR(
-    East.function([emitPair], NullType, ($, emit) => {
-      $.for($.const(shuffledKeys(1000), ArrayType(IntegerType)), ($, i) => {
-        $(emit(i, East.str`row-${i}`));
-      });
-    }).toIR(),
-  ),
-
-  // Duplicate key emitted adjacently — a hard error under any emission
-  // order (the `strictly` half of the old contract, which survives #518).
+  // Duplicate key emitted adjacently — a hard error.
   'emit_dict_duplicate.beast2': encodeEastIR(
     East.function([emitPair], NullType, ($, emit) => {
       $(emit(1n, 'a'));
@@ -366,20 +286,10 @@ const fixtures = {
     ),
   ),
 
-  // ---- Encode-at-the-emit pins ----------------------------------------
+  // ---- Folding sinks and the lifeline (#770) ---------------------------
 
-  // 300 nested-value pairs in ascending order, and the same pairs in a
-  // deterministically shuffled order (run under a tiny
-  // EAST_EMIT_RUN_ELEMENTS to force several raw spill runs).
-  'emit_nested.beast2': encodeEastIR(
-    nestedProducer(Array.from({ length: 300 }, (_, i) => BigInt(i))),
-  ),
-  'emit_nested_shuffled.beast2': encodeEastIR(nestedProducer(shuffledKeys(300))),
-
-  // ---- Folding sinks, bounded runs, the lifeline (#770) ----------------
-
-  // The fold contract: each sequence emitted with --merge (dict) or --union
-  // (set), and the fold of that sequence emitted ascending for the flag-less
+  // The fold contract: the ascending sequence emitted with --merge (dict) or
+  // --union (set), and the fold of that sequence emitted for the flag-less
   // sink — the two outputs must be byte-identical.
   'emit_merge_concat.beast2': encodeEastIR(
     East.function([IntegerType, StringType, StringType], StringType, (_$, _key, acc, value) =>
@@ -388,17 +298,8 @@ const fixtures = {
   ),
   'emit_merge_ascending.beast2': encodeEastIR(pairEmitter(ascendingPairs.pairs)),
   'emit_merge_ascending_folded.beast2': encodeEastIR(pairEmitter(ascendingPairs.folded)),
-  'emit_merge_scattered.beast2': encodeEastIR(pairEmitter(scatteredPairs.pairs)),
-  'emit_merge_scattered_folded.beast2': encodeEastIR(pairEmitter(scatteredPairs.folded)),
-  'emit_union_ascending.beast2': encodeEastIR(keyEmitter(folds.ascending)),
-  'emit_union_ascending_folded.beast2': encodeEastIR(keyEmitter(unionKeys(folds.ascending))),
-  'emit_union_scattered.beast2': encodeEastIR(keyEmitter(folds.scattered)),
-  'emit_union_scattered_folded.beast2': encodeEastIR(keyEmitter(unionKeys(folds.scattered))),
-
-  // Bounded runs: 50,000 and 400,000 out-of-order emissions, run under a tiny
-  // EAST_EMIT_RUN_ELEMENTS so the merge takes more passes as the output grows.
-  'emit_scatter_50k.beast2': encodeEastIR(scatterEmitter(50_000n)),
-  'emit_scatter_400k.beast2': encodeEastIR(scatterEmitter(400_000n)),
+  'emit_union_ascending.beast2': encodeEastIR(keyEmitter(foldKeys)),
+  'emit_union_ascending_folded.beast2': encodeEastIR(keyEmitter(unionKeys(foldKeys))),
 
   // ---- The blob merge (#770) --------------------------------------------
 

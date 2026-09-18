@@ -51,42 +51,54 @@ east-py run task.beast2 -p east-py-std \
   --emit dict -o out.beast2 -v
 ```
 
-The sink is east-c's, so it writes the same bytes as `east-c run`. Dict and
-Set emissions may arrive in any order. While they ascend, segments stream
-straight to the output; on the first out-of-order key the sink encodes each
-further emission as it arrives, keeps only the key, and spills a sorted run
-beside the output as raw byte records once the buffered entries reach
-`EAST_EMIT_RUN_ELEMENTS` (default 100000) or their encoded bytes reach
-`EAST_EMIT_RUN_BYTES` (default 64 MiB). The finish merges the runs by decoding
-keys, at most 64 runs at once — more merge in passes, through intermediate
-runs named `<output>.run<N>.p<pass>` — so the sink's memory is bounded by the
-two caps whatever the size of the output or the width of its rows, and the
-output is byte-identical to what an ascending producer writes.
+The sink is east-c's, so it writes the same bytes as `east-c run`. Dict and Set emissions must ascend in East order. The sink writes one pass,
+segment by segment, with one open batch in memory whatever the size of the
+output, and a key below the previous one is an error naming both:
 
-Equal keys are an error unless the sink folds them:
+```text
+beast2 v5: Dict key emitted out of order: 1 after 2 — Set/Dict emissions must ascend in East order
+```
+
+Equal keys are an error too unless the sink folds them:
 
 ```bash
-# Dict: fold the values of equal keys with an East function (K, V, V) -> V
+# Dict: fold the values of adjacent equal keys with an East function (K, V, V) -> V
 east-py run task.beast2 -p east-py-std --emit dict --merge merge.beast2 -o out.beast2
 
-# Set: keep one of equal elements
+# Set: keep the first of adjacent equal elements
 east-py run task.beast2 -p east-py-std --emit set --union -o out.beast2
 ```
 
 `--merge` takes an IR file in any format the program itself may use, compiled
 with the run's `-p` platforms; its signature must match the emit parameter's
-key and value types. Equal keys fold left in emission order, `acc = merge(key,
-acc, value)`, and the output is byte-identical to what the sink writes without
-the flag for the already-folded sequence. The sink may fold some of a key's
-values before combining them with the rest, so the function must be
-associative.
+key and value types. Adjacent equal keys fold left in emission order,
+`acc = merge(key, acc, value)`, and the output is byte-identical to what the
+sink writes without the flag for the already-folded sequence.
 
-With `-v`, a run whose emissions left ascending order ends with the sink's
-account — the sources merged, the passes, the most runs one merge read, the
-spills, and the most entries and bytes held at once:
+### Merging blobs
+
+`merge` combines sorted Set or Dict blobs of one type — the files `run --emit`
+writes — into one, in a single pass over the inputs: every input is read
+segment by segment, equal keys across inputs fold in input order (`--merge`
+on Dict inputs, `--union` on Set inputs; without a fold an equal key is an
+error), and the output is byte-identical to what `run --emit` writes for the
+same entries emitted ascending. This is how e3 assembles a partitioned task's
+keyed partials; all three runners write the same bytes.
+
+```bash
+# Dict partials: fold the values of equal keys, in input order
+east-py merge --merge merge.beast2 -i part-0.beast2 -i part-1.beast2 -i part-2.beast2 -o out.beast2 -v
+
+# Set partials: the first of equal elements stands
+east-py merge --union -i part-0.beast2 -i part-1.beast2 -o out.beast2
+```
+
+An input of another type than the first, an Array input, an input whose keys
+do not ascend, and a fold whose signature does not match the inputs are
+refused, naming the input. With `-v` the merge prints its account:
 
 ```text
-  emit: merged 783 source(s) in 2 pass(es) (64 runs per pass); 781 spill(s), peak 64 entries / 384 B buffered, spill 7.6 ms, merge 30.1 ms
+merge: 3 input(s), 31 entries, 13 fold(s)
 ```
 
 ### Exiting with the Parent
