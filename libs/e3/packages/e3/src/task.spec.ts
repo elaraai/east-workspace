@@ -639,8 +639,9 @@ describe('partitionTask merge', () => {
 
   it('carries the merge command of the task\'s runner, built at export, and none without merge', () => {
     // The orchestrator's merge units run this command IR as an ordinary
-    // execution: `<runner> merge --merge <merge IR> -i <partial>... -o <out>`
-    // for a Dict output, `--union` for a Set.
+    // execution: `<runner> merge --merge <merge IR> --range <range> -i
+    // <partial>... -o <out>` for a Dict output, `--union` for a Set — the
+    // key range is the input after the merge IR, then the partials.
     const byId = partitionTask('merge_cmd_by_id', {
       partitions: [events],
       output: DictType(IntegerType, RowType),
@@ -651,8 +652,8 @@ describe('partitionTask merge', () => {
     assert.strictEqual(dictMeta.mergeCommand.type, 'some');
     const dictCommand = decodeEastIR(dictMeta.mergeCommand.type === 'some' ? dictMeta.mergeCommand.value : new Uint8Array());
     assert.deepStrictEqual(
-      (dictCommand.compile([]) as (inputs: string[], output: string) => string[])(['merge.beast2', 'p0.beast2', 'p1.beast2'], 'out.beast2'),
-      ['east-c', 'merge', '-p', 'east-c-std', '--merge', 'merge.beast2', '-i', 'p0.beast2', '-i', 'p1.beast2', '-o', 'out.beast2'],
+      (dictCommand.compile([]) as (inputs: string[], output: string) => string[])(['merge.beast2', 'range.beast2', 'p0.beast2', 'p1.beast2'], 'out.beast2'),
+      ['east-c', 'merge', '-p', 'east-c-std', '--merge', 'merge.beast2', '--range', 'range.beast2', '-i', 'p0.beast2', '-i', 'p1.beast2', '-o', 'out.beast2'],
     );
 
     const ids = partitionTask('merge_cmd_ids', {
@@ -663,8 +664,8 @@ describe('partitionTask merge', () => {
     const setMeta = decodePartitionTaskMetadata(ids.metadata!);
     const setCommand = decodeEastIR(setMeta.mergeCommand.type === 'some' ? setMeta.mergeCommand.value : new Uint8Array());
     assert.deepStrictEqual(
-      (setCommand.compile([]) as (inputs: string[], output: string) => string[])(['p0.beast2', 'p1.beast2'], 'out.beast2'),
-      ['east-node', 'merge', '-p', '@elaraai/east-node-std', '--union', '-i', 'p0.beast2', '-i', 'p1.beast2', '-o', 'out.beast2'],
+      (setCommand.compile([]) as (inputs: string[], output: string) => string[])(['range.beast2', 'p0.beast2', 'p1.beast2'], 'out.beast2'),
+      ['east-node', 'merge', '-p', '@elaraai/east-node-std', '--union', '--range', 'range.beast2', '-i', 'p0.beast2', '-i', 'p1.beast2', '-o', 'out.beast2'],
     );
 
     const spliced = partitionTask('merge_cmd_none', {
