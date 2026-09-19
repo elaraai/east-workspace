@@ -14,7 +14,7 @@
  */
 
 import * as fs from 'fs/promises';
-import { createReadStream, existsSync } from 'fs';
+import { appendFileSync, createReadStream, existsSync } from 'fs';
 import * as path from 'path';
 import { StringDecoder } from 'string_decoder';
 import type { Readable } from 'stream';
@@ -586,6 +586,16 @@ export async function spawnAndCapture(
   const launcher = jobLauncher();
   const inJob = launcher === null ? null : spawnInJob(launcher, cmd, cmdArgs, spawnOpts);
   const child = inJob ?? spawn(cmd, cmdArgs, spawnOpts);
+  // PROBE (scratch branch only): trace the child's lifecycle.
+  const probeTrace = process.env.E3_PROBE_TRACE;
+  const trace = (event: string): void => {
+    if (probeTrace) appendFileSync(probeTrace, `${new Date().toISOString()} [${process.pid}] pid=${child.pid} ${event}\n`);
+  };
+  trace(`spawn job=${inJob !== null} lifeline=${options.stdinLifeline === true} argv=${JSON.stringify(args).slice(0, 300)}`);
+  child.on('exit', (code, signal) => trace(`exit code=${code} signal=${signal}`));
+  child.on('close', (code, signal) => trace(`close code=${code} signal=${signal}`));
+  child.stdout?.on('end', () => trace('stdout end'));
+  child.stderr?.on('end', () => trace('stderr end'));
 
   // Set up event listeners IMMEDIATELY before any async work to avoid
   // missing events if the process completes quickly. Capture bounded tails
@@ -681,6 +691,7 @@ export async function spawnAndCapture(
   const killProcessGroup = () => {
     if (groupKilled || !child.pid) return;
     groupKilled = true;
+    trace('kill');
     if (process.platform === 'win32') {
       if (child.exitCode !== null || child.signalCode !== null) return;
       if (inJob === null) {

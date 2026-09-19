@@ -1,0 +1,47 @@
+name: Probe Windows hang
+
+# PROBE (scratch branch only): see libs/e3/packages/e3-core/probe-win-hang.mjs.
+on:
+  push:
+    branches: ['scratch/win-hang-probe']
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+    env:
+      npm_config_script_shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Install make
+        run: choco install make --no-progress -y
+      - name: Install
+        run: pnpm install
+      - name: Install the job launcher
+        working-directory: libs/e3
+        run: make install-job
+      - name: Build east
+        working-directory: libs/east
+        run: make build
+      - name: Build east-node
+        working-directory: libs/east-node
+        run: make build
+      - name: Build scaffold-core
+        working-directory: libs/create
+        run: pnpm --filter @elaraai/scaffold-core run build
+      - name: Build e3
+        working-directory: libs/e3
+        run: make build
+      - name: Probe
+        working-directory: libs/e3/packages/e3-core
+        run: node probe-win-hang.mjs
