@@ -27,7 +27,8 @@
  *                      full batch;
  *   7. lifeline      — with --exit-with-parent the runner exits once its
  *                      stdin pipe closes, mid-computation (bounded wait,
- *                      10 s).
+ *                      10 s); on Windows over a synchronous pipe and over
+ *                      an overlapped one, the kind e3 hands its runners.
  *
  * Run under ASan/LSan (run_leak_check.sh's build-asan configuration) the
  * spawned CLI is itself instrumented; every case scans the child's stderr
@@ -465,22 +466,46 @@ static void test_exit_with_parent(const char *bin, const char *fixtures)
     remove(LIFELINE_OUTPUT);
 }
 #else
-static void test_exit_with_parent(const char *bin, const char *fixtures)
+/* The two ends of an overlapped pipe — the child's to read, inheritable, and
+ * the parent's to close — as Node's stdio 'overlapped' makes the lifeline e3
+ * hands its runners. */
+static bool overlapped_pipe(HANDLE *child_end, HANDLE *parent_end)
 {
-    /* Issue #770 gate (c): a runner started with --exit-with-parent and a
-     * stdin pipe nobody writes exits once that pipe closes — while its body
-     * is still computing (the fixture loops forever after one emission). */
+    wchar_t name[96];
+    swprintf(name, sizeof(name) / sizeof(name[0]), L"\\\\.\\pipe\\east-c-lifeline-%lu-%lu",
+             GetCurrentProcessId(), GetTickCount());
+    HANDLE server = CreateNamedPipeW(
+        name, PIPE_ACCESS_OUTBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED,
+        PIPE_TYPE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, NULL);
+    if (server == INVALID_HANDLE_VALUE) return false;
+    SECURITY_ATTRIBUTES inherit = {sizeof(SECURITY_ATTRIBUTES), NULL, TRUE};
+    HANDLE client = CreateFileW(name, GENERIC_READ | FILE_WRITE_ATTRIBUTES, 0, &inherit,
+                                OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+    if (client == INVALID_HANDLE_VALUE) {
+        CloseHandle(server);
+        return false;
+    }
+    *child_end = client;
+    *parent_end = server;
+    return true;
+}
+
+/* One run of the lifeline gate, over a synchronous pipe or an overlapped one. */
+static void lifeline_case(const char *bin, const char *fixtures, bool overlapped)
+{
+    const char *kind = overlapped ? "overlapped" : "synchronous";
     remove(LIFELINE_OUTPUT);
     SECURITY_ATTRIBUTES inherit = {sizeof(SECURITY_ATTRIBUTES), NULL, TRUE};
     HANDLE in_read = NULL, in_write = NULL, err_read = NULL, err_write = NULL;
-    if (!CreatePipe(&in_read, &in_write, &inherit, 0)) {
-        CHECK(false, "lifeline: CreatePipe failed (%lu)", GetLastError());
+    if (overlapped ? !overlapped_pipe(&in_read, &in_write)
+                   : !CreatePipe(&in_read, &in_write, &inherit, 0)) {
+        CHECK(false, "lifeline (%s): the pipe could not be made (%lu)", kind, GetLastError());
         return;
     }
     if (!CreatePipe(&err_read, &err_write, &inherit, 0)) {
         CloseHandle(in_read);
         CloseHandle(in_write);
-        CHECK(false, "lifeline: CreatePipe failed (%lu)", GetLastError());
+        CHECK(false, "lifeline (%s): CreatePipe failed (%lu)", kind, GetLastError());
         return;
     }
     /* The child inherits only its own ends. */
@@ -505,7 +530,7 @@ static void test_exit_with_parent(const char *bin, const char *fixtures)
     if (!started) {
         CloseHandle(in_write);
         CloseHandle(err_read);
-        CHECK(false, "lifeline: CreateProcess failed (%lu)", GetLastError());
+        CHECK(false, "lifeline (%s): CreateProcess failed (%lu)", kind, GetLastError());
         return;
     }
 
@@ -518,7 +543,7 @@ static void test_exit_with_parent(const char *bin, const char *fixtures)
             if (!gone) Sleep(20);
         }
     }
-    CHECK(running, "lifeline: the runner never opened its output%s",
+    CHECK(running, "lifeline (%s): the runner never opened its output%s", kind,
           gone ? " (it exited first)" : "");
 
     CloseHandle(in_write); /* the lifeline closes */
@@ -529,8 +554,10 @@ static void test_exit_with_parent(const char *bin, const char *fixtures)
     }
     DWORD code = 0;
     GetExitCodeProcess(pi.hProcess, &code);
-    CHECK(exited, "lifeline: the runner outlived its closed stdin by %d ms", LIFELINE_WAIT_MS);
-    CHECK(!exited || code == 1, "lifeline: expected the watcher's exit code 1, got %lu", code);
+    CHECK(exited, "lifeline (%s): the runner outlived its closed stdin by %d ms", kind,
+          LIFELINE_WAIT_MS);
+    CHECK(!exited || code == 1, "lifeline (%s): expected the watcher's exit code 1, got %lu", kind,
+          code);
 
     /* Whatever the runner wrote. */
     char err[8192];
@@ -543,11 +570,23 @@ static void test_exit_with_parent(const char *bin, const char *fixtures)
         err[err_len] = '\0';
     }
     /* The watcher's exit, not an error's: exit 1 with nothing reported. */
-    CHECK(strstr(err, "Error") == NULL, "lifeline: the runner reported an error:\n%s", err);
+    CHECK(strstr(err, "Error") == NULL, "lifeline (%s): the runner reported an error:\n%s", kind,
+          err);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     CloseHandle(err_read);
     remove(LIFELINE_OUTPUT);
+}
+
+static void test_exit_with_parent(const char *bin, const char *fixtures)
+{
+    /* Issue #770 gate (c): a runner started with --exit-with-parent and a
+     * stdin pipe nobody writes exits once that pipe closes — while its body
+     * is still computing (the fixture loops forever after one emission) —
+     * over a synchronous pipe (CreatePipe's) and an overlapped one (what e3
+     * hands its runners): the watcher reads either. */
+    lifeline_case(bin, fixtures, false);
+    lifeline_case(bin, fixtures, true);
 }
 #endif
 

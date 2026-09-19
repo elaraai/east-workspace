@@ -124,6 +124,13 @@ computing. Without the flag, stdin is left alone.
 east-py run task.beast2 --exit-with-parent -p east-py-std --emit dict -o out.beast2
 ```
 
+On Windows the watcher (east-c's) reads a synchronous pipe or an overlapped
+one. Hand it an overlapped pipe — `FILE_FLAG_OVERLAPPED`, or Node's stdio
+`'overlapped'`, as e3 does: a read pending on a synchronous pipe holds the
+pipe's file-object lock, so any other use of stdin in the runner — a
+`sys.stdin.isatty()` in a platform package, say — would wait until the
+parent is gone.
+
 ### Version and Platform Info
 
 ```bash

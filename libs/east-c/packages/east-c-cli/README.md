@@ -119,6 +119,12 @@ Without the flag, stdin is left alone.
 east-c run task.beast2 --exit-with-parent --emit dict -o out.beast2
 ```
 
+On Windows the watcher reads a synchronous pipe or an overlapped one. Hand it
+an overlapped pipe — `FILE_FLAG_OVERLAPPED`, or Node's stdio `'overlapped'`,
+as e3 does: a read pending on a synchronous pipe holds the pipe's file-object
+lock, so any other use of stdin in the runner would wait until the parent is
+gone.
+
 ### Profiling
 
 ```bash

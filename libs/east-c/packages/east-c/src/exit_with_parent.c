@@ -10,11 +10,18 @@
  * is gone and then returns end of file; the watcher ends the process there.
  * It only reads a file descriptor and exits: it touches no East value and
  * allocates nothing, so the runtime's single-thread contract holds.
+ *
+ * On Windows the pipe may be overlapped — e3 hands its runners one, so that a
+ * runner keeps full use of its stdin while this read is pending: a read
+ * pending on a synchronous pipe holds the pipe's file-object lock, and every
+ * other operation on stdin in the process waits for it. The watcher reads
+ * either kind.
  */
 
 #include <east/compat.h>
 #include <east/east.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #ifndef _WIN32
@@ -30,10 +37,22 @@ static EAST_THREAD_ENTRY exit_with_parent_watch(void *arg)
     (void)arg;
     char byte;
 #ifdef _WIN32
+    /* Every read goes through an OVERLAPPED of its own: ReadFile needs one on
+     * an overlapped handle, and on a synchronous handle the same call simply
+     * blocks until the read completes. */
     HANDLE in = GetStdHandle(STD_INPUT_HANDLE);
-    DWORD n = 1;
-    while (n == 1 && in != NULL && in != INVALID_HANDLE_VALUE) {
-        if (!ReadFile(in, &byte, 1, &n, NULL)) break;
+    OVERLAPPED lifeline;
+    ZeroMemory(&lifeline, sizeof lifeline);
+    lifeline.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (lifeline.hEvent == NULL)
+        fprintf(stderr, "Error: --exit-with-parent cannot watch stdin (Windows error %lu)\n",
+                GetLastError());
+    while (in != NULL && in != INVALID_HANDLE_VALUE && lifeline.hEvent != NULL) {
+        DWORD n = 0;
+        BOOL done = ReadFile(in, &byte, 1, &n, &lifeline);
+        if (!done && GetLastError() == ERROR_IO_PENDING)
+            done = GetOverlappedResult(in, &lifeline, &n, TRUE);
+        if (!done || n != 1) break;
     }
 #else
     for (;;) {
