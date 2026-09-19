@@ -16,6 +16,16 @@ const REPORTS = mkdtempSync(join(tmpdir(), 'e3-probe-reports-'));
 const WATCHDOG = resolve('probe-watchdog.cjs');
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
+// Node's own symbols (published beside each Windows release) so the native
+// stacks of a stuck runner name libuv's and node's frames.
+const PDB_DIR = 'C:\\nodepdb';
+{
+  const url = `https://nodejs.org/dist/v${process.versions.node}/win-x64/node_pdb.zip`;
+  const zip = join(tmpdir(), 'node_pdb.zip');
+  const r = spawnSync('curl.exe', ['-fsSL', '-o', zip, url], { stdio: 'inherit' });
+  if (r.status === 0) spawnSync('powershell.exe', ['-NoProfile', '-Command', `Expand-Archive -Force -Path '${zip}' -DestinationPath '${PDB_DIR}'`], { stdio: 'inherit' });
+  console.log(`node pdb from ${url}: ${existsSync(PDB_DIR) ? readdirSync(PDB_DIR).join(', ') : 'unavailable'}`);
+}
 const CDB = [
   'C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe',
   'C:\\Program Files\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe',
@@ -78,9 +88,9 @@ function dump(rootPid, label) {
     const cpu2 = ps(`(Get-Process -Id ${p.ProcessId}).TotalProcessorTime.TotalMilliseconds`).trim();
     console.log(`  cpu over 2 s: ${cpu1} -> ${cpu2} ms`);
     if (CDB) {
-      const r = spawnSync(CDB, ['-pv', '-p', String(p.ProcessId), '-y', 'srv*C:\\symbols*https://msdl.microsoft.com/download/symbols', '-c', '~*k 25; q'],
-        { encoding: 'utf8', timeout: 180_000, maxBuffer: 64 << 20 });
-      console.log(`  cdb (status ${r.status}):\n${(r.stdout ?? '').split(/\r?\n/).filter((l) => /^\s*[#.]?\s*\d+\s+Id:|^[0-9a-f]{2} [0-9a-f`]+ [0-9a-f`]+ |ntdll|KERNEL|node|uv_|Wait|Read|Sleep|Critical/i.test(l)).slice(0, 400).join('\n')}`);
+      const r = spawnSync(CDB, ['-pv', '-p', String(p.ProcessId), '-y', `${PDB_DIR};srv*C:\\symbols*https://msdl.microsoft.com/download/symbols`, '-c', '.reload /f node.exe; ~*kc 40; q'],
+        { encoding: 'utf8', timeout: 300_000, maxBuffer: 64 << 20 });
+      console.log(`  cdb (status ${r.status}):\n${(r.stdout ?? '').split(/\r?\n/).filter((l) => l.trim() !== '' && !/^(Microsoft|Copyright|CommandLine|Symbol search|Executable search|Loading|\*\*\*|ModLoad|NOTE|WARNING)/.test(l)).slice(0, 600).join('\n')}`);
     }
   }
   const runnerPids = tree.filter((p) => /east-node\.mjs/.test(p.CommandLine ?? '')).map((p) => p.ProcessId);
@@ -93,7 +103,7 @@ function killTree(pid) {
 }
 
 async function runBounded(label, args, ms, extraEnv) {
-  const env = { ...process.env, E3_PROBE_TRACE: TRACE, E3_PROBE_REPORTS: REPORTS, NODE_OPTIONS: `--require ${WATCHDOG}`, ...extraEnv };
+  const env = { ...process.env, E3_PROBE_TRACE: TRACE, E3_PROBE_REPORTS: REPORTS, ...extraEnv };
   const child = spawn(process.execPath, args, { cwd: process.cwd(), env, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
@@ -119,12 +129,12 @@ const phase = async (name, fn) => { log(`########## ${name}`); results[name] = a
 
 await phase('A test7 with the lifeline', async () => {
   const r = [];
-  for (let i = 0; i < 6; i++) r.push(await runBounded(`A${i}`, test7, 120_000, {}));
+  for (let i = 0; i < 10; i++) r.push(await runBounded(`A${i}`, test7, 120_000, {}));
   return r;
 });
 await phase('E test7 without the lifeline', async () => {
   const r = [];
-  for (let i = 0; i < 6; i++) r.push(await runBounded(`E${i}`, test7, 120_000, { E3_PROBE_NO_LIFELINE: '1' }));
+  for (let i = 0; i < 10; i++) r.push(await runBounded(`E${i}`, test7, 120_000, { E3_PROBE_NO_LIFELINE: '1' }));
   return r;
 });
 
