@@ -412,10 +412,11 @@ describe('the Windows job launcher', { skip: process.platform !== 'win32' ? 'Win
   });
 
   it('reports a program it cannot find as 127, one it cannot run as 126, and misuse as 125', () => {
-    const missing = join(dir, 'missing.exe');
+    // A name beyond ASCII, which the launcher's message must carry whole.
+    const missing = join(dir, 'missing-é✓.exe');
     const notFound = launch(`"${missing}" missing.exe`);
     assert.equal(notFound.status, 127, notFound.stderr);
-    assert.match(notFound.stderr, /^e3-job: cannot start .*missing\.exe: /);
+    assert.ok(notFound.stderr.startsWith(`e3-job: cannot start ${missing}: `), notFound.stderr);
 
     const text = join(dir, 'text.exe');
     writeFileSync(text, 'not a program');

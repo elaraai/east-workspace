@@ -34,6 +34,8 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <fcntl.h>
+#include <io.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <wchar.h>
@@ -42,15 +44,19 @@
 #define EXIT_CANNOT_RUN 126
 #define EXIT_NOT_FOUND 127
 
-/* Prints `e3-job: <what>: <the error's system message>` to stderr. */
-static void report(const wchar_t *what, DWORD error) {
+/* Prints `e3-job: <what>[ <subject>]: <the error's system message>` to stderr. */
+static void report(const wchar_t *what, const wchar_t *subject, DWORD error) {
   wchar_t message[512];
   DWORD length = FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, error, 0,
                                 message, (DWORD)(sizeof message / sizeof message[0]), NULL);
   /* The system message ends with a line break; trim it. */
   while (length > 0 && (message[length - 1] == L'\r' || message[length - 1] == L'\n')) message[--length] = L'\0';
   if (length == 0) swprintf(message, sizeof message / sizeof message[0], L"error %lu", error);
-  fwprintf(stderr, L"e3-job: %ls: %ls\n", what, message);
+  if (subject != NULL) {
+    fwprintf(stderr, L"e3-job: %ls %ls: %ls\n", what, subject, message);
+  } else {
+    fwprintf(stderr, L"e3-job: %ls: %ls\n", what, message);
+  }
 }
 
 static const wchar_t *skip_blanks(const wchar_t *p) {
@@ -91,6 +97,10 @@ static const wchar_t *read_path(const wchar_t *p, wchar_t **text) {
 }
 
 int wmain(void) {
+  /* Its own messages go out as UTF-8, so a path or a system message beyond
+   * ASCII reaches e3 whole rather than cut short by the C locale. */
+  if (_fileno(stderr) >= 0) _setmode(_fileno(stderr), _O_U8TEXT);
+
   /* This launcher's own path, then the application's, then its command line. */
   wchar_t *application = NULL;
   const wchar_t *p = read_path(skip_blanks(GetCommandLineW()), NULL);
@@ -113,14 +123,14 @@ int wmain(void) {
    * answer. */
   HANDLE job = CreateJobObjectW(NULL, NULL);
   if (job == NULL) {
-    report(L"cannot create the job object", GetLastError());
+    report(L"cannot create the job object", NULL, GetLastError());
     return EXIT_SETUP;
   }
   JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
   ZeroMemory(&limits, sizeof limits);
   limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
   if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof limits)) {
-    report(L"cannot set up the job object", GetLastError());
+    report(L"cannot set up the job object", NULL, GetLastError());
     return EXIT_SETUP;
   }
   /* Joined before the command starts: the command is created in the job. The
@@ -128,7 +138,7 @@ int wmain(void) {
    * and a process in a job that allows no breakaway cannot break away even
    * when a job further up allows it. */
   if (!AssignProcessToJobObject(job, GetCurrentProcess())) {
-    report(L"cannot join the job object", GetLastError());
+    report(L"cannot join the job object", NULL, GetLastError());
     return EXIT_SETUP;
   }
 
@@ -142,9 +152,7 @@ int wmain(void) {
   PROCESS_INFORMATION process;
   if (!CreateProcessW(application, command_line, NULL, NULL, TRUE, 0, NULL, NULL, &startup, &process)) {
     DWORD error = GetLastError();
-    wchar_t what[64 + MAX_PATH];
-    swprintf(what, sizeof what / sizeof what[0], L"cannot start %.*ls", MAX_PATH, application);
-    report(what, error);
+    report(L"cannot start", application, error);
     return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? EXIT_NOT_FOUND : EXIT_CANNOT_RUN;
   }
   CloseHandle(process.hThread);
@@ -152,7 +160,7 @@ int wmain(void) {
   WaitForSingleObject(process.hProcess, INFINITE);
   DWORD code = EXIT_SETUP;
   if (!GetExitCodeProcess(process.hProcess, &code)) {
-    report(L"cannot read the command's exit code", GetLastError());
+    report(L"cannot read the command's exit code", NULL, GetLastError());
     code = EXIT_SETUP;
   }
   /* Exiting closes the job's only handle: whatever the command left running
