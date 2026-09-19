@@ -441,7 +441,8 @@ export async function taskExecuteBody(
     // pipe this process never writes to and `--exit-with-parent` on its
     // command line, so it exits if this process dies; both are spliced here,
     // after the cache decision, and never touch commandIr or any hash.
-    const stdinLifeline = task.runner.type !== 'custom';
+    // PROBE (scratch branch only): E3_PROBE_NO_LIFELINE turns the lifeline off.
+    const stdinLifeline = task.runner.type !== 'custom' && process.env.E3_PROBE_NO_LIFELINE !== '1';
     if (stdinLifeline) args = withRunnerLifeline(task.runner, args);
 
     // Step 6.5: Materialize the task's declared execution environment (warm
