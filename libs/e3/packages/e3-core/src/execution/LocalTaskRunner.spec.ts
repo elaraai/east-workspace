@@ -215,6 +215,35 @@ describe('stopped executions', () => {
     assert.ok((await stderrOf(taskHash, result)).endsWith('e3: timed out: e3 stopped the runner after 100 ms\n'));
   });
 
+  it('fails the execution, not the process, when a stopped runner\'s record cannot be written', async () => {
+    // The record of a runner e3 stopped is written while the scratch
+    // directory is being removed: a write that fails there must reject this
+    // execution, never go unhandled — Node ends a process on an unhandled
+    // rejection, an e3-api-server with every run it serves.
+    const { taskHash, inputHashes } = await bashTask('echo started; sleep 30; cp "$1" "$2"');
+    const refs = storage.refs;
+    const write = refs.executionWrite.bind(refs);
+    refs.executionWrite = async (r, t, i, e, status) => {
+      if (status.type === 'error') throw new Error('the record cannot be written');
+      return write(r, t, i, e, status);
+    };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => { unhandled.push(reason); };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const abort = new AbortController();
+      await assert.rejects(
+        taskExecute(storage, repo, taskHash, inputHashes, { signal: abort.signal, onStdout: () => abort.abort() }),
+        { message: 'the record cannot be written' },
+      );
+      // An unhandled rejection is reported as the event loop turns.
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(unhandled, [], 'no rejection went unhandled');
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
   it('records a runner killed by a signal from elsewhere as failed with exit code -1', {
     skip: process.platform === 'win32' ? 'Windows has no signals: a process ended from elsewhere leaves only its exit code' : false,
   }, async () => {

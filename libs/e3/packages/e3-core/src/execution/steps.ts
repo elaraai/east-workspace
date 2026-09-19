@@ -485,6 +485,28 @@ export async function templateFor(
   return [plan, map, { kind: 'splice', over: 1, fallback: null, subject: 'shards' }];
 }
 
+/** A unit of a pool that threw — its executor or cache probe failing, which is
+ *  not the unit's own failure — with its index in the step or level. */
+interface ThrownUnit {
+  index: number;
+  error: unknown;
+}
+
+/**
+ * Once a pool has drained, rethrows the error of the lowest-index unit that
+ * threw — deterministic attribution, as for a unit that failed — after the
+ * log lines its units wrote have landed, so nothing the step started outlives
+ * it.
+ *
+ * @param thrown - The pool's thrown units, in any order
+ * @param logWrites - The logical execution's pending log appends
+ */
+async function rethrowLowest(thrown: readonly ThrownUnit[], logWrites: Promise<void>): Promise<void> {
+  if (thrown.length === 0) return;
+  await logWrites;
+  throw thrown.reduce((lowest, unit) => (unit.index < lowest.index ? unit : lowest)).error;
+}
+
 /** Where a reduce unit sits in its tree, for progress and the logical log. */
 export interface ReduceUnitPosition {
   /** The unit's level, from 1. */
@@ -745,6 +767,11 @@ export async function executeTemplate(
           ?? Array.from({ length: sliceCount }, () => Array.from({ length: partitions }, () => ''));
         const unitResults: (ExecutionResult | undefined)[] = Array.from({ length: partitions }, () => undefined);
         const carveFailures: (string | undefined)[] = Array.from({ length: partitions }, () => undefined);
+        // A unit that throws stops the pool as a failure does — no worker
+        // takes another partition — and the step waits for the units in
+        // flight before it rethrows, so none runs on, writing its record,
+        // after the logical execution has ended.
+        const thrown: ThrownUnit[] = [];
         let nextPartition = 0;
         let partitionsCompleted = 0;
         let hasFailure = false;
@@ -764,18 +791,25 @@ export async function executeTemplate(
                 continue;
               }
             }
-            progress?.({ phase: step.label, index: p, total: partitions, completed: partitionsCompleted, state: 'started' });
-            const unitInputs = step.inputs.flatMap((source) => 'slice' in source ? [sliceHashes[source.slice]![p]!] : resolve(source, results));
-            const result = await runUnit(step.taskHash, step.task, unitInputs);
-            unitResults[p] = result;
-            logUnit(`${step.label} ${p + 1}/${partitions}`, step.taskHash, result);
-            partitionsCompleted++;
-            progress?.({ phase: step.label, index: p, total: partitions, completed: partitionsCompleted, state: 'completed', cached: result.cached, duration: result.duration });
-            // A unit e3 stopped because the run was aborted is not a failure.
-            if (result.state !== 'success' && !result.cancelled) hasFailure = true;
+            try {
+              progress?.({ phase: step.label, index: p, total: partitions, completed: partitionsCompleted, state: 'started' });
+              const unitInputs = step.inputs.flatMap((source) => 'slice' in source ? [sliceHashes[source.slice]![p]!] : resolve(source, results));
+              const result = await runUnit(step.taskHash, step.task, unitInputs);
+              unitResults[p] = result;
+              logUnit(`${step.label} ${p + 1}/${partitions}`, step.taskHash, result);
+              partitionsCompleted++;
+              progress?.({ phase: step.label, index: p, total: partitions, completed: partitionsCompleted, state: 'completed', cached: result.cached, duration: result.duration });
+              // A unit e3 stopped because the run was aborted is not a failure.
+              if (result.state !== 'success' && !result.cancelled) hasFailure = true;
+            } catch (error) {
+              thrown.push({ index: p, error });
+              hasFailure = true;
+              return;
+            }
           }
         });
         await Promise.all(workers);
+        await rethrowLowest(thrown, logWrites);
 
         // The plan is recorded with whatever was carved, whatever happened —
         // an uncarved slice as '' — so a retry reuses the slices it has.
@@ -837,7 +871,7 @@ export async function executeTemplate(
                 groups.push({ range: null, entries: partials });
                 continue;
               }
-              if (options.signal?.aborted) return cancelledResult();
+              if (options.signal?.aborted) return await cancelledResult();
               const ranges = (recordedPlan !== null ? await recordedMergeRanges(storage, repo, recordedPlan, partials) : null)
                 ?? await planMergeRanges(storage, repo, partials, step.rangeBytes);
               for (const range of ranges) groups.push({ range, entries: partials });
@@ -865,6 +899,9 @@ export async function executeTemplate(
           });
           const unitResults: (ExecutionResult | undefined)[] = Array.from({ length: units.length }, () => undefined);
           const positions: (ReduceUnitPosition | undefined)[] = Array.from({ length: units.length }, () => undefined);
+          // As in the map step: a unit that throws stops the level's pool,
+          // and the level drains before it rethrows.
+          const thrown: ThrownUnit[] = [];
           let nextUnit = 0;
           let completed = 0;
           let hasFailure = false;
@@ -872,26 +909,33 @@ export async function executeTemplate(
             for (;;) {
               const index = nextUnit++;
               if (index >= units.length || hasFailure || options.signal?.aborted) return;
-              const unit = units[index]!;
-              const position: Omit<ReduceUnitPosition, 'completed'> = {
-                level, levels, index, total: units.length, first: unit.run * step.fanIn, taskHash: step.taskHash!,
-              };
-              progress?.({ phase: step.label, index, total: units.length, completed, state: 'started' });
-              const range = groups[unit.group]!.range;
-              const result = await runUnit(step.taskHash!, step.task!, [...leading, ...(range !== null ? [range] : []), ...unit.entries]);
-              countAssemblyUnit();
-              unitResults[index] = result;
-              completed++;
-              positions[index] = { ...position, completed };
-              logUnit(`${step.label} level ${level}/${levels} unit ${index + 1}/${units.length}`, step.taskHash!, result);
-              if (result.state === 'success' && result.outputHash !== null) {
-                progress?.({ phase: step.label, index, total: units.length, completed, state: 'completed', cached: result.cached, duration: result.duration });
-              } else if (!result.cancelled) {
+              try {
+                const unit = units[index]!;
+                const position: Omit<ReduceUnitPosition, 'completed'> = {
+                  level, levels, index, total: units.length, first: unit.run * step.fanIn, taskHash: step.taskHash!,
+                };
+                progress?.({ phase: step.label, index, total: units.length, completed, state: 'started' });
+                const range = groups[unit.group]!.range;
+                const result = await runUnit(step.taskHash!, step.task!, [...leading, ...(range !== null ? [range] : []), ...unit.entries]);
+                countAssemblyUnit();
+                unitResults[index] = result;
+                completed++;
+                positions[index] = { ...position, completed };
+                logUnit(`${step.label} level ${level}/${levels} unit ${index + 1}/${units.length}`, step.taskHash!, result);
+                if (result.state === 'success' && result.outputHash !== null) {
+                  progress?.({ phase: step.label, index, total: units.length, completed, state: 'completed', cached: result.cached, duration: result.duration });
+                } else if (!result.cancelled) {
+                  hasFailure = true;
+                }
+              } catch (error) {
+                thrown.push({ index, error });
                 hasFailure = true;
+                return;
               }
             }
           });
           await Promise.all(workers);
+          await rethrowLowest(thrown, logWrites);
 
           if (options.signal?.aborted || unitResults.some((r) => r?.cancelled)) {
             return cancelledResult();
@@ -924,7 +968,7 @@ export async function executeTemplate(
             // Every partial is empty: the empty collection under the first
             // partial's header.
             const source = step.fallback !== null ? resolve({ step: step.fallback }, results) : [];
-            if (source.length === 0) return errorResult('partition template: nothing to splice');
+            if (source.length === 0) return await errorResult('partition template: nothing to splice');
             const first = await PartitionBlob.open(storage, repo, source[0]!);
             hash = await storage.objects.writeStream(repo, spliceChunks(first.extents.head, []));
           } else if (over.length === 1 && step.subject === 'components') {

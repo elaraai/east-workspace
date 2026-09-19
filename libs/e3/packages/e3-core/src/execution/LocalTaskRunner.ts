@@ -476,7 +476,11 @@ export async function taskExecuteBody(
     }
 
     /** Records an execution e3 stopped (`error`) or a signal ended
-     *  (`failed`, exit code -1), appending `e3: <cause>` to its stderr log. */
+     *  (`failed`, exit code -1), appending `e3: <cause>` to its stderr log.
+     *  Returned awaited: a promise returned unawaited from inside the `try`
+     *  gets no handler until the `finally` has removed the scratch directory,
+     *  so a record that cannot be written would be an unhandled rejection —
+     *  which ends the process — rather than this execution's failure. */
     const stoppedResult = async (state: 'error' | 'failed', cause: string, cancelled: boolean): Promise<ExecutionResult> => {
       try {
         await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', `e3: ${cause}\n`);
@@ -526,7 +530,7 @@ export async function taskExecuteBody(
         releaseSlot = await options.jobs.acquire(options.signal);
       } catch (err) {
         if (options.signal?.aborted) {
-          return stoppedResult('error', 'cancelled: e3 did not start the runner because the run was aborted', true);
+          return await stoppedResult('error', 'cancelled: e3 did not start the runner because the run was aborted', true);
         }
         throw err;
       }
@@ -613,13 +617,13 @@ export async function taskExecuteBody(
     // e3 stopped the runner, or a signal ended it: the record names the
     // cause, and so does the last line of the execution's stderr log.
     if (result.stoppedByE3 && options.signal?.aborted) {
-      return stoppedResult('error', 'cancelled: e3 stopped the runner because the run was aborted', true);
+      return await stoppedResult('error', 'cancelled: e3 stopped the runner because the run was aborted', true);
     }
     if (result.timedOut) {
-      return stoppedResult('error', `timed out: e3 stopped the runner after ${options.timeout} ms`, false);
+      return await stoppedResult('error', `timed out: e3 stopped the runner after ${options.timeout} ms`, false);
     }
     if (result.exitCode === null && result.signal !== null) {
-      return stoppedResult('failed', `runner killed by ${result.signal}`, false);
+      return await stoppedResult('failed', `runner killed by ${result.signal}`, false);
     }
 
     // Failed - write failed status

@@ -502,6 +502,65 @@ describe('steps', () => {
       assert.match(result.error ?? '', /^Merge unit 1 of 2 at level 1 of 2 failed \(exit code 3\): boom$/);
     });
 
+    /**
+     * An executor over `executeUnit` whose first unit matching `matches`
+     * throws — its executor failing, not the unit's own failure — once the
+     * second has started, the second held until the test releases it.
+     */
+    function throwingPool(executeUnit: ReturnType<typeof standIn>['executeUnit'], matches: (task: TaskObject) => boolean) {
+      const started: number[] = [];
+      let secondStarted!: () => void;
+      const second = new Promise<void>((resolve) => { secondStarted = resolve; });
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      const pooled = async (taskHash: string, task: TaskObject, inputs: string[]): Promise<ExecutionResult> => {
+        if (!matches(task)) return executeUnit(taskHash, task, inputs);
+        const unit = started.push(started.length + 1);
+        if (unit === 1) {
+          await second;
+          throw new Error('the executor failed');
+        }
+        if (unit === 2) {
+          secondStarted();
+          await released;
+        }
+        return executeUnit(taskHash, task, inputs);
+      };
+      return { pooled, started, second, release };
+    }
+
+    /** Runs `task` over the throwing pool, two units at a time: the execution
+     *  must wait for the held unit, then reject with the thrown error, no unit
+     *  having started after the throw. The partials overlap, so a merge task
+     *  reaches its tree. */
+    async function assertDrainsThenRethrows(task: TaskObject, table: string, matches: (task: TaskObject) => boolean): Promise<void> {
+      const pool = throwingPool(standIn({ modulus: 3n }).executeUnit, matches);
+      const taskHash = await writeTask(task);
+      const inputs = ['f'.repeat(64), table];
+      const execution = executeTemplate(storage, repo, taskHash, task, inputs,
+        { inHash: inputsHash(inputs), executionId: uuidv7(), startTime: Date.now() }, { partitionConcurrency: 2 }, { executeUnit: pool.pooled });
+      let settled = false;
+      execution.then(() => { settled = true; }, () => { settled = true; });
+      await pool.second;
+      // The first unit throws now; let its error travel as far as it will.
+      for (let turn = 0; turn < 10; turn++) await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(settled, false, 'the pool waits for the unit still in flight');
+      pool.release();
+      await assert.rejects(execution, { message: 'the executor failed' });
+      assert.deepEqual(pool.started, [1, 2], 'no unit starts once one has thrown');
+    }
+
+    it('drains a map step whose unit throws before rethrowing its error, starting no further partition', async () => {
+      const isPartition = (task: TaskObject) => task.kind.type === 'some' && task.kind.value === TASK_KIND_PARTITION;
+      await assertDrainsThenRethrows(parentTask('splice'), await store(dict(range(0, 40))), isPartition);
+    });
+
+    it('drains a reduce level whose unit throws before rethrowing its error, starting no further unit', async () => {
+      // 64 partitions over one key space: two level-1 merge units.
+      const isMerge = (task: TaskObject) => task.kind.type === 'some' && task.kind.value === TASK_KIND_MERGE;
+      await assertDrainsThenRethrows(parentTask('merge'), await store(dict(range(0, 256))), isMerge);
+    });
+
     it('folds partials pairwise under combine, naming the failed step by its partials', async () => {
       const table = await store(dict(range(0, 40)));
       const { runs, executeUnit } = standIn();

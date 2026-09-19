@@ -28,7 +28,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } 
 import { join } from 'node:path';
 import { East, FunctionType, IntegerType, NullType, encodeEastIR, variant } from '@elaraai/east';
 import { withRunnerLifeline } from '@elaraai/e3-types';
-import { adoptOutputFile, marshalInputsToDir } from './processExec.js';
+import { adoptOutputFile, marshalInputsToDir, spawnAndCapture } from './processExec.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, processTree } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { objectPath } from '../storage/local/localHelpers.js';
@@ -175,6 +175,32 @@ async function exitsWithin(pid: number, ms: number): Promise<boolean> {
   }
   return true;
 }
+
+describe('a spawn whose caller cannot record the runner', () => {
+  it('stops the runner and waits for it before rejecting', async () => {
+    // The tracked path writes the `running` record from onSpawned. When that
+    // fails, the spawn fails with it — and the runner, which nothing would
+    // then track, must not be left running.
+    const dir = createTempDir();
+    let pid: number | null = null;
+    try {
+      await assert.rejects(
+        spawnAndCapture([process.execPath, '-e', 'setInterval(() => {}, 1000)'], dir, {
+          onSpawned: (spawned) => {
+            pid = spawned;
+            throw new Error('the running record cannot be written');
+          },
+        }),
+        { message: 'the running record cannot be written' },
+      );
+      assert.ok(pid !== null, 'the runner spawned');
+      assert.equal(alive(pid), false, 'the runner was stopped before the spawn rejected');
+    } finally {
+      if (pid !== null && alive(pid)) process.kill(pid, 'SIGKILL');
+      removeTempDir(dir);
+    }
+  });
+});
 
 describe('the stdin lifeline (#770)', () => {
   let dir: string;

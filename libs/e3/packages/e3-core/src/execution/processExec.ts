@@ -300,7 +300,9 @@ export interface SpawnAndCaptureOptions {
    *  PATH so runner CLIs resolve (deduped, nearest first). */
   searchDirs?: string[];
   /** Called once the child has spawned, with its pid (or null). The tracked
-   *  path uses this to write the `running` execution status. */
+   *  path uses this to write the `running` execution status. When it throws,
+   *  the child is stopped and waited for, and the spawn rejects with its
+   *  error. */
   onSpawned?: (pid: number | null) => void | Promise<void>;
 }
 
@@ -565,9 +567,17 @@ export async function spawnAndCapture(
   }
 
   // Notify the caller of the spawned pid (tracked path writes its
-  // `running` status here).
+  // `running` status here). A caller that cannot record the runner fails
+  // the spawn, and the runner is stopped and waited for first, so it is never
+  // left running with nothing tracking it.
+  let spawnedFailure: { error: unknown } | null = null;
   if (options.onSpawned) {
-    await options.onSpawned(child.pid ?? null);
+    try {
+      await options.onSpawned(child.pid ?? null);
+    } catch (error) {
+      spawnedFailure = { error };
+      stopProcessGroup();
+    }
   }
 
   // Wait for process to complete
@@ -578,6 +588,7 @@ export async function spawnAndCapture(
   if (options.signal) {
     options.signal.removeEventListener('abort', stopProcessGroup);
   }
+  if (spawnedFailure !== null) throw spawnedFailure.error;
 
   return {
     exitCode: result.exitCode,

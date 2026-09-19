@@ -20,6 +20,10 @@ const baseRules = {
   '@typescript-eslint/no-floating-promises': 'error',
   '@typescript-eslint/require-await': 'error',
   '@typescript-eslint/no-misused-promises': 'error',
+  // A promise returned unawaited from inside `try` escapes its `catch`, and
+  // inside `try`/`finally` it has no handler until the `finally` completes: a
+  // rejection there is unhandled, and Node ends the process.
+  '@typescript-eslint/return-await': ['error', 'error-handling-correctness-only'],
 };
 
 const testRules = {
