@@ -139,6 +139,13 @@ export async function runDetached(
       return { kind: 'timed_out', ms: spec.limits.timeoutMs, ...streams };
     }
 
+    // Stopped because the call was aborted: failed with exit code -1 however
+    // the stop ended the runner — Node's kill leaves a signal, taskkill (on
+    // Windows without the job launcher) exit code 1.
+    if (result.stoppedByE3) {
+      return { kind: 'failed', exitCode: -1, ...streams };
+    }
+
     if (result.exitCode !== 0) {
       // Spawn failures (exitCode null) also land here; surface the error
       // text on stderr so the caller sees why nothing ran.

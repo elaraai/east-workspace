@@ -25,6 +25,34 @@ import { runDetached } from './runDetached.js';
 const isWindows = process.platform === 'win32';
 const venvBinSubdir = isWindows ? 'Scripts' : 'bin';
 
+/**
+ * Plants an executable `name` in `binDir` running the node script `js`: a
+ * `#!/usr/bin/env node` file on POSIX; on Windows, where a script is no
+ * executable, the script beside a `.cmd` shim — the shape pnpm gives the real
+ * runners' bins, run through cmd.exe.
+ *
+ * @returns The path to run it by
+ */
+function plantNodeBin(binDir: string, name: string, js: string): string {
+  if (isWindows) {
+    writeFileSync(path.join(binDir, `${name}.cjs`), js);
+    writeFileSync(path.join(binDir, `${name}.cmd`), `@node "%~dp0\\${name}.cjs" %*\r\n`);
+    return path.join(binDir, `${name}.cmd`);
+  }
+  writeFileSync(path.join(binDir, name), `#!/usr/bin/env node\n${js}`, { mode: 0o755 });
+  return path.join(binDir, name);
+}
+
+/** Plants an executable `name` in `binDir` that prints `text`. */
+function plantEcho(binDir: string, name: string, text: string): void {
+  if (isWindows) writeFileSync(path.join(binDir, `${name}.cmd`), `@echo ${text}\r\n`);
+  else writeFileSync(path.join(binDir, name), `#!/bin/sh\necho ${text}\n`, { mode: 0o755 });
+}
+
+/** A node script printing whether its stdin is a pipe — neither a
+ *  character device (an ignored stdin is the null device) nor a file. */
+const STDIN_IS_PIPE = 'const s = require("fs").fstatSync(0); process.stdout.write(String(!s.isCharacterDevice() && !s.isFile()))';
+
 describe('buildRunnerArgv', () => {
   it('builds the runner argv from the wire variant', () => {
     const argv = buildRunnerArgv(
@@ -93,23 +121,22 @@ describe('collectVenvBins', () => {
   });
 });
 
-// A fake `east-py` planted in BOTH a project's `.venv/bin` and its
-// `node_modules/.bin` proves the PATH ordering: the venv binary must win.
-// Skipped on Windows where these POSIX shell shims are not executable (the
-// venv-bin/shim precedence is exercised by collectVenvBins above + CI runners).
-describe('venv PATH precedence', { skip: isWindows }, () => {
+// A fake `east-py` planted in BOTH a project's `.venv/bin` (`.venv/Scripts`
+// on Windows) and its `node_modules/.bin` proves the PATH ordering: the venv
+// binary must win.
+describe('venv PATH precedence', () => {
   let proj: string;
   let scratch: string;
 
   before(() => {
     proj = mkdtempSync(path.join(tmpdir(), 'e3-venv-path-'));
     scratch = mkdtempSync(path.join(tmpdir(), 'e3-venv-scratch-'));
-    const venvBin = path.join(proj, '.venv', 'bin');
+    const venvBin = path.join(proj, '.venv', venvBinSubdir);
     const nmBin = path.join(proj, 'node_modules', '.bin');
     mkdirSync(venvBin, { recursive: true });
     mkdirSync(nmBin, { recursive: true });
-    writeFileSync(path.join(venvBin, 'east-py'), '#!/bin/sh\necho FROM_VENV\n', { mode: 0o755 });
-    writeFileSync(path.join(nmBin, 'east-py'), '#!/bin/sh\necho FROM_NODE_MODULES\n', { mode: 0o755 });
+    plantEcho(venvBin, 'east-py', 'FROM_VENV');
+    plantEcho(nmBin, 'east-py', 'FROM_NODE_MODULES');
   });
 
   after(() => {
@@ -129,7 +156,7 @@ describe('venv PATH precedence', { skip: isWindows }, () => {
     try {
       const nmBin = path.join(nmOnly, 'node_modules', '.bin');
       mkdirSync(nmBin, { recursive: true });
-      writeFileSync(path.join(nmBin, 'east-py'), '#!/bin/sh\necho FROM_NODE_MODULES\n', { mode: 0o755 });
+      plantEcho(nmBin, 'east-py', 'FROM_NODE_MODULES');
       const result = await spawnAndCapture(['east-py'], scratch, { searchDirs: [nmOnly] });
       assert.equal(result.exitCode, 0);
       assert.match(result.stdoutTail, /FROM_NODE_MODULES/);
@@ -142,7 +169,7 @@ describe('venv PATH precedence', { skip: isWindows }, () => {
 // e3 spawns runners in a scratch cwd, so it must hand the project root to the
 // runner another way: the E3_RUNNER_SEARCH_DIRS env var (read by east-node-cli's
 // loader to self-resolve a project's own platform package).
-describe('E3_RUNNER_SEARCH_DIRS propagation', { skip: isWindows }, () => {
+describe('E3_RUNNER_SEARCH_DIRS propagation', () => {
   let scratch: string;
   before(() => { scratch = mkdtempSync(path.join(tmpdir(), 'e3-envprop-')); });
   after(() => { rmSync(scratch, { recursive: true, force: true }); });
@@ -167,7 +194,7 @@ describe('E3_RUNNER_SEARCH_DIRS propagation', { skip: isWindows }, () => {
   });
 });
 
-describe('spawnAndCapture', { skip: isWindows }, () => {
+describe('spawnAndCapture', () => {
   let scratch: string;
 
   before(() => {
@@ -221,6 +248,8 @@ describe('spawnAndCapture', { skip: isWindows }, () => {
     );
     assert.equal(result.timedOut, true);
     assert.equal(result.stoppedByE3, true);
+    // A stop is Node's own kill — of the process group on POSIX, of the job
+    // launcher on Windows — reported as the signal it sent.
     assert.equal(result.signal, 'SIGKILL');
     assert.notEqual(result.exitCode, 0);
     assert.ok(Date.now() - start < 10_000, 'timeout did not kill the process promptly');
@@ -231,30 +260,32 @@ describe('spawnAndCapture', { skip: isWindows }, () => {
     assert.equal(exited.signal, null);
     assert.equal(exited.stoppedByE3, false);
 
-    const signalled = await spawnAndCapture(['node', '-e', 'process.kill(process.pid, "SIGTERM"); setTimeout(() => {}, 30000);'], scratch);
-    assert.equal(signalled.exitCode, null);
-    assert.equal(signalled.signal, 'SIGTERM');
-    assert.equal(signalled.stoppedByE3, false, 'a signal from elsewhere is not a stop by e3');
-
     const abort = new AbortController();
     const aborted = await spawnAndCapture(['node', '-e', 'setTimeout(() => {}, 30000);'], scratch, {
       signal: abort.signal,
       onSpawned: () => abort.abort(),
     });
+    // Node's own kill, on every platform (see the timeout test above).
     assert.equal(aborted.exitCode, null);
     assert.equal(aborted.signal, 'SIGKILL');
     assert.equal(aborted.stoppedByE3, true);
     assert.equal(aborted.timedOut, false);
   });
 
+  it('does not take a signal from elsewhere for a stop by e3', { skip: isWindows ? 'Windows has no signals: a process ended from elsewhere leaves only its exit code' : false }, async () => {
+    const signalled = await spawnAndCapture(['node', '-e', 'process.kill(process.pid, "SIGTERM"); setTimeout(() => {}, 30000);'], scratch);
+    assert.equal(signalled.exitCode, null);
+    assert.equal(signalled.signal, 'SIGTERM');
+    assert.equal(signalled.stoppedByE3, false, 'a signal from elsewhere is not a stop by e3');
+  });
+
   it('gives the child a stdin lifeline pipe only when asked', async () => {
     // The lifeline is the pipe and the `--exit-with-parent` flag the caller
     // splices into the argv — nothing rides the environment.
-    const probe = 'const s = require("fs").fstatSync(0); process.stdout.write(String(s.isFIFO() || s.isSocket()))';
-    const withLifeline = await spawnAndCapture(['node', '-e', probe], scratch, { stdinLifeline: true });
-    assert.equal(withLifeline.stdoutTail, 'true');
-    const without = await spawnAndCapture(['node', '-e', probe], scratch);
-    assert.equal(without.stdoutTail, 'false');
+    const withLifeline = await spawnAndCapture(['node', '-e', STDIN_IS_PIPE], scratch, { stdinLifeline: true });
+    assert.equal(withLifeline.stdoutTail, 'true', withLifeline.stderrTail);
+    const without = await spawnAndCapture(['node', '-e', STDIN_IS_PIPE], scratch);
+    assert.equal(without.stdoutTail, 'false', without.stderrTail);
   });
 
   it('hands the callbacks whole characters however the output is split', async () => {
@@ -321,7 +352,7 @@ describe('spawnAndCapture', { skip: isWindows }, () => {
   });
 });
 
-describe('runDetached', { skip: isWindows }, () => {
+describe('runDetached', () => {
   let searchDir: string;
 
   // A fake `east-node` runner with the real CLI contract:
@@ -332,8 +363,7 @@ describe('runDetached', { skip: isWindows }, () => {
   //   fail           - print to stderr, exit 3, no output
   //   sleep          - sleep 30 s
   //   silent-ok      - exit 0 WITHOUT writing the output file
-  const FAKE_RUNNER = `#!/usr/bin/env node
-const fs = require('fs');
+  const FAKE_RUNNER = `const fs = require('fs');
 const args = process.argv.slice(2);
 const inputs = [];
 let output = null;
@@ -372,7 +402,7 @@ else { fs.copyFileSync(inputs[0] ?? bodyIr, output); }
     searchDir = mkdtempSync(path.join(tmpdir(), 'e3-fake-runner-'));
     const binDir = path.join(searchDir, 'node_modules', '.bin');
     mkdirSync(binDir, { recursive: true });
-    writeFileSync(path.join(binDir, 'east-node'), FAKE_RUNNER, { mode: 0o755 });
+    plantNodeBin(binDir, 'east-node', FAKE_RUNNER);
   });
 
   after(() => {
@@ -391,13 +421,11 @@ else { fs.copyFileSync(inputs[0] ?? bodyIr, output); }
 
   it('spawns a stock runner with the lifeline flag and pipe, and a custom one without', async () => {
     // The fake runner reports its argv and whether stdin is a pipe.
-    const reporter = path.join(searchDir, 'node_modules', '.bin', 'east-c');
-    writeFileSync(reporter, [
-      '#!/usr/bin/env node',
+    const reporter = plantNodeBin(path.join(searchDir, 'node_modules', '.bin'), 'east-c', [
       'const s = require("fs").fstatSync(0);',
       'require("fs").writeFileSync(process.argv[process.argv.indexOf("-o") + 1], Buffer.from([1]));',
-      'process.stdout.write(process.argv.slice(2).join(" ") + " | stdin pipe " + (s.isFIFO() || s.isSocket()));',
-    ].join('\n'), { mode: 0o755 });
+      'process.stdout.write(process.argv.slice(2).join(" ") + " | stdin pipe " + (!s.isCharacterDevice() && !s.isFile()));',
+    ].join('\n'));
     const stock = await runDetached(
       { bodyIr: new Uint8Array([0]), args: [], runner: variant('east_c', { platforms: [] }), limits },
       { runnerSearchDir: searchDir },
@@ -469,7 +497,8 @@ else { fs.copyFileSync(inputs[0] ?? bodyIr, output); }
     ));
     setTimeout(() => abort.abort(), 200);
     const result = await promise;
-    // Killed by signal → non-success; exact kind is failed (exit by signal)
-    assert.notEqual(result.kind, 'success');
+    // A stopped call fails with exit code -1 on every platform.
+    assert.equal(result.kind, 'failed');
+    assert.equal((result as { exitCode: number }).exitCode, -1);
   });
 });
