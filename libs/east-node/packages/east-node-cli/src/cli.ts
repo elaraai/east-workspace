@@ -133,7 +133,8 @@ function fail(message: string): Promise<never> {
  * It never blocks in a read. Process exit joins worker threads, so a worker
  * blocked in `fs.readSync(0)` keeps the runner from ever exiting: a read that
  * starts before stdin is non-blocking stays blocked, and on Windows libuv
- * keeps pipes in blocking mode. An evented read stops with the worker's loop.
+ * keeps pipes in blocking mode. An evented read stops with the worker's loop
+ * (on a synchronous Windows pipe libuv cancels its blocking read).
  */
 const EXIT_WITH_PARENT_WATCHER = `
 const { Socket } = require('node:net');
@@ -154,10 +155,17 @@ try {
  * command line, start the watcher on an unref'd worker thread. A parent
  * passes the flag only when it gives the runner a stdin pipe it never writes
  * to, so stdin ends only when that parent is gone. The main thread never
- * reads `process.stdin`.
+ * reads `process.stdin`, but it opens it first: on Windows a read pending on
+ * a synchronous pipe holds the pipe's file-object lock, so once the watcher
+ * reads, opening stdin — which the first ESM import of `node:process` does,
+ * the builtin's facade reading every export — would wait for the parent to
+ * go. Opened now, stdin is one stream every later use shares. (e3 hands its
+ * runners an overlapped pipe, whose reads take no such lock; this keeps the
+ * runner whole under any parent.)
  */
 function startLifeline(options: { exitWithParent?: boolean }): void {
     if (!options.exitWithParent) return;
+    void process.stdin;
     new Worker(EXIT_WITH_PARENT_WATCHER, { eval: true }).unref();
 }
 

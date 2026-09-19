@@ -793,6 +793,50 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
       child.stdin!.destroy();
     }
   });
+
+  it('a runner given the stdin lifeline keeps full use of its stdin while the watcher reads it', async () => {
+    // The platform opens the process's stdin two seconds in, once the watcher is
+    // surely reading — as the first ESM import of `node:process` does, the
+    // builtin's facade reading every export — over the plain 'pipe' a parent
+    // gives, which on Windows is synchronous: a read pending on it holds the
+    // pipe's file-object lock, and that open waited for the parent to go. The
+    // runner opens stdin before its watcher reads, so it must load, run and
+    // exit 0 with the lifeline still open.
+    const platformDir = join(tempDir, 'node_modules', 'late-stdin-platform');
+    mkdirSync(platformDir, { recursive: true });
+    writeFileSync(join(platformDir, 'package.json'), JSON.stringify({
+      name: 'late-stdin-platform',
+      version: '0.0.0',
+      type: 'module',
+      exports: { './platform': './platform.js', './package.json': './package.json' },
+    }));
+    writeFileSync(join(platformDir, 'platform.js'), [
+      'await new Promise((resolve) => setTimeout(resolve, 2000));',
+      'process.stdin;',
+      'export default [];',
+    ].join('\n'));
+    const one = East.function([], IntegerType, (_$) => 1n);
+    const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
+    const outputPath = join(tempDir, 'late-stdin-output.beast2');
+    const child = spawn(process.execPath, [bin, 'run', writeIr('one.beast2', one), '--exit-with-parent', '-p', 'late-stdin-platform', '-o', outputPath],
+      { env: { ...process.env, E3_RUNNER_SEARCH_DIRS: tempDir }, stdio: ['pipe', 'ignore', 'pipe'] });
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      child.on('exit', (code, signal) => resolve({ code, signal }));
+    });
+    let stderr = '';
+    child.stderr!.setEncoding('utf8');
+    child.stderr!.on('data', (chunk: string) => { stderr += chunk; });
+    try {
+      // A bounded liveness wait; the lifeline stays open throughout.
+      const outcome = await within(exited, 30_000);
+      assert.ok(outcome !== undefined, `the runner never finished loading its platform — opening stdin waited on the watcher's read:\n${stderr}`);
+      assert.deepEqual(outcome, { code: 0, signal: null }, stderr);
+      assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 1n);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      child.stdin!.destroy();
+    }
+  });
 });
 
 describe('frozen inputs', () => {

@@ -129,7 +129,12 @@ worker's own event loop, and kills its own process as soon as stdin ends,
 closes or cannot be read. A parent that spawns the runner with a stdin pipe
 it never writes to — as e3 does — takes the runner down with it when it dies,
 even while the body is computing. The watcher never blocks in a read, so it
-never holds up the runner's own exit. Without the flag, stdin is left alone.
+never holds up the runner's own exit. The runner opens `process.stdin` before
+the watcher reads, so it keeps full use of its stdin over any pipe — on
+Windows a read pending on a synchronous pipe holds the pipe's file-object
+lock, and opening stdin after it (as the first import of `node:process` does)
+would otherwise wait until the parent is gone. Without the flag, stdin is left
+alone.
 
 ```bash
 east-node run ./task.beast2 --exit-with-parent -p @elaraai/east-node-std --emit dict -o out.beast2
