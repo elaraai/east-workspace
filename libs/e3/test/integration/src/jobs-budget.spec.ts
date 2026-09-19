@@ -13,9 +13,6 @@
  * Every body spins while a hold file exists, so the run parks with its two
  * runners up and everything else queued; the `running` execution records
  * (each naming its runner's pid) count the runners.
- *
- * Skipped on Windows, where `FileSystem.exists` polling in a tight East loop
- * starves the runner's own exit (see stopped-executions.spec.ts).
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -31,7 +28,7 @@ import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } f
 const TableType = DictType(IntegerType, StringType);
 const PLAIN_TASKS = ['held_a', 'held_b', 'held_c'];
 
-describe('the jobs budget', { skip: process.platform === 'win32' ? 'no hold-file polling on Windows' : false }, () => {
+describe('the jobs budget', () => {
   let dir: string;
   let repo: string;
   let hold: string;

@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import { executionScratchDir, scratchRoot, sweepScratchDirs } from './scratch.js';
 import { getPidStartTime } from './processHelpers.js';
 
-describe('scratch directories', { skip: process.platform === 'win32' }, () => {
+describe('scratch directories', () => {
   let root: string;
   let previous: string | undefined;
 
@@ -62,12 +62,18 @@ describe('scratch directories', { skip: process.platform === 'win32' }, () => {
 
     const removed = await sweepScratchDirs({ minAge: 60_000 });
 
-    assert.equal(removed, 3);
+    // Every platform but Windows reports a process's start time. Where none
+    // is reported, a pid's existence decides, so there the reused pid — this
+    // process, now running — still counts as the owner.
+    const startTimes = process.platform !== 'win32';
+    assert.equal((await getPidStartTime(process.pid)) !== 0, startTimes, 'this platform reports start times');
+    assert.equal(removed, startTimes ? 3 : 2);
     assert.deepEqual(
       readdirSync(root).sort(),
-      [names.live, names.oldFormExitedYoung, names.oldFormLive, names.unrelated].sort(),
+      [names.live, names.oldFormExitedYoung, names.oldFormLive, names.unrelated, ...(startTimes ? [] : [names.reusedPid])].sort(),
     );
-    assert.ok(!existsSync(path.join(root, names.reusedPid)), 'a pid now running with another start time is not the owner');
+    assert.equal(existsSync(path.join(root, names.reusedPid)), !startTimes,
+      startTimes ? 'a pid now running with another start time is not the owner' : 'with no start time, a live pid is the owner');
   });
 
   it('removes nothing when there is no scratch root', async () => {

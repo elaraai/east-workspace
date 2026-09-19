@@ -71,7 +71,7 @@ describe('collectNodeModulesBins', () => {
   });
 });
 
-describe('taskExecute output capture', { skip: process.platform === 'win32' }, () => {
+describe('taskExecute output capture', () => {
   let repo: string;
   let storage: StorageBackend;
 
@@ -142,7 +142,7 @@ describe('taskExecute output capture', { skip: process.platform === 'win32' }, (
   });
 });
 
-describe('stopped executions', { skip: process.platform === 'win32' }, () => {
+describe('stopped executions', () => {
   let repo: string;
   let storage: StorageBackend;
 
@@ -155,12 +155,12 @@ describe('stopped executions', { skip: process.platform === 'win32' }, () => {
     removeTestRepo(repo);
   });
 
-  /** A custom bash task running `script` with its input as "$1" and its output as "$2". */
-  async function bashTask(script: string): Promise<{ taskHash: string; inputHashes: string[] }> {
+  /** A custom task running `argv` followed by its input path and its output path. */
+  async function customTask(argv: string[]): Promise<{ taskHash: string; inputHashes: string[] }> {
     const commandFn = East.function(
       [ArrayType(StringType), StringType],
       ArrayType(StringType),
-      ($, inputs, output) => ['bash', '-c', script, '--', inputs.get(0n), output],
+      ($, inputs, output) => [...argv, inputs.get(0n), output],
     );
     const task: TaskObject = {
       commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)),
@@ -176,6 +176,9 @@ describe('stopped executions', { skip: process.platform === 'win32' }, () => {
       inputHashes: [await storage.objects.write(repo, new Uint8Array([1, 2, 3]))],
     };
   }
+
+  /** A custom bash task running `script` with its input as "$1" and its output as "$2". */
+  const bashTask = (script: string) => customTask(['bash', '-c', script, '--']);
 
   async function stderrOf(taskHash: string, result: { inputsHash: string; executionId: string }): Promise<string> {
     return (await storage.logs.read(repo, taskHash, result.inputsHash, result.executionId, 'stderr')).data;
@@ -212,7 +215,9 @@ describe('stopped executions', { skip: process.platform === 'win32' }, () => {
     assert.ok((await stderrOf(taskHash, result)).endsWith('e3: timed out: e3 stopped the runner after 100 ms\n'));
   });
 
-  it('records a runner killed by a signal from elsewhere as failed with exit code -1', async () => {
+  it('records a runner killed by a signal from elsewhere as failed with exit code -1', {
+    skip: process.platform === 'win32' ? 'Windows has no signals: a process ended from elsewhere leaves only its exit code' : false,
+  }, async () => {
     const { taskHash, inputHashes } = await bashTask('kill -TERM $$');
     const result = await taskExecute(storage, repo, taskHash, inputHashes);
 
@@ -288,14 +293,17 @@ describe('stopped executions', { skip: process.platform === 'win32' }, () => {
     const previous = process.env.E3_SCRATCH_DIR;
     process.env.E3_SCRATCH_DIR = root;
     try {
-      const { taskHash, inputHashes } = await bashTask('echo "$PWD"; cp "$1" "$2"');
+      // The runner reports its working directory as the platform names it —
+      // node, not bash, whose MSYS form (/c/...) is no Windows path.
+      const { taskHash, inputHashes } = await customTask(['node', '-e',
+        'process.stdout.write(process.cwd()); require("node:fs").copyFileSync(process.argv[1], process.argv[2])']);
       const result = await taskExecute(storage, repo, taskHash, inputHashes);
       assert.equal(result.state, 'success', result.error ?? '');
 
       const cwd = (await storage.logs.read(repo, taskHash, result.inputsHash, result.executionId, 'stdout')).data.trim();
-      // The shell reports its working directory resolved, and macOS's
-      // temporary directory is a symlink (/var -> /private/var).
-      assert.equal(path.dirname(cwd), realpathSync(root));
+      // Compared resolved: macOS's temporary directory is a symlink (/var ->
+      // /private/var), and Windows's may be named in its short 8.3 form.
+      assert.equal(realpathSync(path.dirname(cwd)), realpathSync(root));
       const pidStartTime = await getPidStartTime(process.pid);
       assert.match(
         path.basename(cwd),
@@ -318,7 +326,7 @@ describe('stopped executions', { skip: process.platform === 'win32' }, () => {
   });
 });
 
-describe('the jobs budget', { skip: process.platform === 'win32' }, () => {
+describe('the jobs budget', () => {
   let repo: string;
   let storage: StorageBackend;
 
@@ -361,7 +369,10 @@ describe('the jobs budget', { skip: process.platform === 'win32' }, () => {
     const marks = mkdtempSync(path.join(tmpdir(), 'e3-jobs-'));
     try {
       const jobs = new JobSlots(2);
-      const script = `touch "${marks}/$0"; sleep 0.3; rm "${marks}/$0"; cp "$1" "$2"`;
+      // Forward slashes, as e3 hands a custom runner its own paths: bash takes
+      // a Windows backslash for an escape.
+      const marksDir = marks.split(path.sep).join('/');
+      const script = `touch "${marksDir}/$0"; sleep 0.3; rm "${marksDir}/$0"; cp "$1" "$2"`;
       let peakMarks = 0;
       const watcher = setInterval(() => { peakMarks = Math.max(peakMarks, readdirSync(marks).length); }, 10);
       const results = await Promise.all(Array.from({ length: 6 }, async (_, i) => {

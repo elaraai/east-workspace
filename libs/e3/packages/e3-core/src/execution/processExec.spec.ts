@@ -29,7 +29,7 @@ import { join } from 'node:path';
 import { East, FunctionType, IntegerType, NullType, encodeEastIR, variant } from '@elaraai/east';
 import { withRunnerLifeline } from '@elaraai/e3-types';
 import { adoptOutputFile, marshalInputsToDir } from './processExec.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from '../test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, processTree } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { objectPath } from '../storage/local/localHelpers.js';
 import type { ObjectStore, StorageBackend } from '../storage/interfaces.js';
@@ -176,7 +176,7 @@ async function exitsWithin(pid: number, ms: number): Promise<boolean> {
   return true;
 }
 
-describe('the stdin lifeline (#770)', { skip: process.platform === 'win32' }, () => {
+describe('the stdin lifeline (#770)', () => {
   let dir: string;
 
   beforeEach(() => {
@@ -189,11 +189,13 @@ describe('the stdin lifeline (#770)', { skip: process.platform === 'win32' }, ()
 
   it('a stock runner spawned with it exits once the e3 process that spawned it is killed', async () => {
     // e3 dies without warning while a stock runner spins in its body. The
-    // runner leads its own process group, so the kill never reaches it; the
-    // lifeline pipe closes with e3, and the runner — spawned with
-    // `--exit-with-parent` — exits. The sink opens the output file before
-    // the body runs, so the file's existence is the sign the runner is up and
-    // computing; the body loops forever after one emission.
+    // kill never reaches the runner: on POSIX it leads its own process group;
+    // on Windows the job object e3's children are placed in ends only the
+    // cmd.exe running the pnpm shim, and the runner beneath it is outside
+    // that job. The lifeline pipe closes with e3, and the runner — spawned
+    // with `--exit-with-parent` — exits. The sink opens the output file
+    // before the body runs, so the file's existence is the sign the runner is
+    // up and computing; the body loops forever after one emission.
     const spin = East.function([FunctionType([IntegerType], NullType)], NullType, ($, emit) => {
       $(emit(1n));
       const turns = $.let(0n);
@@ -244,17 +246,25 @@ describe('the stdin lifeline (#770)', { skip: process.platform === 'win32' }, ()
     e3.stderr!.setEncoding('utf8');
     e3.stderr!.on('data', (chunk: string) => { e3Stderr += chunk; });
 
+    // Every process of the runner's tree: on Windows the shim and the runner.
+    let tree: number[] = [];
     try {
       // Bounded liveness waits: start-up, then the lifeline.
       const started = await Promise.race([running, new Promise<false>((resolve) => setTimeout(() => resolve(false), 30_000).unref())]);
       assert.ok(started, `the runner never reported its body running:\n${output}\n${e3Stderr}`);
+      tree = processTree(runnerPid!);
+      if (process.platform === 'win32') assert.ok(tree.length > 1, `the runner beneath the shim ${runnerPid} is found: ${tree.join(', ')}`);
       e3.kill('SIGKILL');
-      assert.ok(await exitsWithin(runnerPid!, 10_000), `runner ${runnerPid} outlived the e3 process that spawned it by 10 s`);
+      for (const pid of tree) {
+        assert.ok(await exitsWithin(pid, 10_000), `runner process ${pid} (of ${tree.join(', ')}) outlived the e3 process that spawned it by 10 s`);
+      }
     } finally {
       e3.kill('SIGKILL');
-      if (runnerPid !== null && alive(runnerPid)) {
+      if (tree.length === 0 && runnerPid !== null) tree = processTree(runnerPid);
+      for (const pid of tree) {
+        if (!alive(pid)) continue;
         try {
-          process.kill(-runnerPid, 'SIGKILL');
+          process.kill(pid, 'SIGKILL');
         } catch {
           // Already gone
         }

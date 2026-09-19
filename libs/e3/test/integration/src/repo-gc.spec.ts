@@ -17,7 +17,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import e3 from '@elaraai/e3';
 import { East, StringType, encodeBeast2For, variant } from '@elaraai/east';
 import { LocalStorage } from '@elaraai/e3-core';
@@ -35,11 +35,15 @@ describe('e3 repo gc', () => {
     repo = join(dir, 'repo');
     hold = join(dir, 'hold');
 
-    // A task that copies its input once no hold file is left.
+    // A task that copies its input once no hold file is left. The hold path is
+    // spliced into a bash script, so it is given with forward slashes, as e3
+    // gives a custom task its own paths: bash takes a Windows backslash for an
+    // escape.
+    const holdForBash = hold.split(sep).join('/');
     const text = e3.input('text', StringType, variant('value', 'kept'));
     const copy = e3.customTask('copy', [text], StringType, ($, inputs, output) => {
-      const holdPath = $.const(hold);
-      return East.str`while [ -e ${holdPath} ]; do sleep 0.1; done; cp ${inputs.get(0n)} ${output}`;
+      const holdPath = $.const(holdForBash);
+      return East.str`while [ -e '${holdPath}' ]; do sleep 0.1; done; cp ${inputs.get(0n)} ${output}`;
     });
     const zip = join(dir, 'gc.zip');
     await e3.export(e3.package('gc', '1.0.0', copy), zip);
@@ -73,7 +77,7 @@ describe('e3 repo gc', () => {
     assert.match(output.stdout, /kept/, 'the task output survives');
   });
 
-  it('refuses while a dataflow run holds the workspace\'s lock, and collects once the run finishes', { skip: process.platform === 'win32' ? 'the task is a bash loop' : false }, async () => {
+  it('refuses while a dataflow run holds the workspace\'s lock, and collects once the run finishes', async () => {
     writeFileSync(hold, '');
     const run = spawnE3Command(['dataflow', 'run', repo, 'ws'], dir);
     await waitFor(() => run.getStdout().includes('[START] copy'), 30_000);
@@ -89,7 +93,7 @@ describe('e3 repo gc', () => {
     assert.equal(gc.exitCode, 0, `${gc.stderr}\n${gc.stdout}`);
   });
 
-  it('refuses while an ad-hoc `e3 run` holds the repository\'s task lock, and collects once it finishes', { skip: process.platform === 'win32' ? 'the task is a bash loop' : false }, async () => {
+  it('refuses while an ad-hoc `e3 run` holds the repository\'s task lock, and collects once it finishes', async () => {
     const inputFile = join(dir, 'text.beast2');
     writeFileSync(inputFile, encodeBeast2For(StringType)('kept'));
     writeFileSync(hold, '');

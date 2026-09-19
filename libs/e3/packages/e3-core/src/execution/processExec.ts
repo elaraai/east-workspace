@@ -334,11 +334,11 @@ export interface SpawnAndCaptureResult {
  * LocalTaskRunner minus every storage write.
  *
  * Keeps: cross-spawn/nodeSpawn selection, node_modules/.bin PATH
- * augmentation, `detached: true` process-group management, stdout/stderr
- * listeners (streaming callbacks of whole characters with backpressure +
- * bounded in-memory tails), process-group kill, timeout + AbortSignal wiring,
- * and the optional stdin lifeline pipe a runner spawned with
- * `--exit-with-parent` reads, so it exits with this process.
+ * augmentation, process-group management on POSIX, stdout/stderr listeners
+ * (streaming callbacks of whole characters with backpressure + bounded
+ * in-memory tails), process-tree kill, timeout + AbortSignal wiring, and the
+ * optional stdin lifeline pipe a runner spawned with `--exit-with-parent`
+ * reads, so it exits with this process.
  *
  * Process Lifecycle Management
  * ============================
@@ -347,8 +347,11 @@ export interface SpawnAndCaptureResult {
  * group leader). Process groups are flat, not hierarchical — a task that
  * calls setsid() escapes the kill; that is a known, accepted limitation (see
  * the discussion that used to live in runCommand). Windows has no process
- * group a signal can address, so there the tree is ended by
- * {@link killProcessTree}.
+ * group a signal can address, so there the child is not detached (see the
+ * spawn options for why it must not be), a stop ends the tree through
+ * {@link killProcessTree}, and when this process dies the job object Node
+ * places its children in ends the direct child — a stock runner beneath a
+ * `.cmd` shim is not in that job, and exits through its lifeline instead.
  */
 export async function spawnAndCapture(
   args: string[],
@@ -402,11 +405,20 @@ export async function spawnAndCapture(
     // address inputs/outputs by absolute path and resolve their runner via
     // PATH, so cwd isn't part of the contract — and inheriting the
     // caller's cwd pins it. On Windows a live process's cwd can't be
-    // removed, so a `detached` child that outlives a killed parent would
-    // hold the repo/project dir open and block its cleanup (EBUSY).
+    // removed, so a child that outlives a killed parent would hold the
+    // repo/project dir open and block its cleanup (EBUSY).
     cwd: scratchDir,
     stdio: [options.stdinLifeline ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-    detached: true,
+    // A process group of its own on POSIX, so a stop reaches the whole tree.
+    // Never on Windows: a detached child starts with no console, so when it
+    // is cmd.exe running a `.cmd` shim, the console runner beneath it (node
+    // for east-node) is given a new console, and its stdin, stdout and
+    // stderr are that console instead of these pipes — its output never
+    // reaches e3, and the lifeline watcher, reading a console rather than a
+    // pipe, ends the runner as it starts (exit code 1, no stderr). Not
+    // detached, the child shares no console with e3 either: with no stdio
+    // inherited, `windowsHide` gives it a hidden console of its own.
+    detached: process.platform !== 'win32',
     windowsHide: true,
   };
   const pathSep = process.platform === 'win32' ? ';' : ':';
@@ -511,8 +523,8 @@ export async function spawnAndCapture(
   }, options.onStderr);
 
   // Helper to kill the entire process tree (child and all its descendants).
-  // POSIX: with detached: true, child.pid is the process group leader, so
-  // killing -child.pid sends the signal to all processes in that group.
+  // POSIX: detached, child.pid is the process group leader, so killing
+  // -child.pid sends the signal to all processes in that group.
   // Windows: `process.kill(-pid)` throws — there is no such group — so the
   // tree is ended by taskkill instead.
   const killProcessGroup = () => {

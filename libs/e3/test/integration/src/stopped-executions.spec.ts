@@ -22,9 +22,10 @@
  * file exists, so each case stops a partition mid-computation, and a run with
  * the same inputs completes once the hold file is gone.
  *
- * Skipped on Windows, where a test cannot deliver SIGINT to the CLI (see
- * signal-handling.spec.ts) and a process's start time is unknown, so a dead
- * scratch-directory owner cannot be told from a live one.
+ * On Windows a runner's record names cmd.exe running the pnpm shim, which dies
+ * with e3's job object whatever the runner does, so the kill cases wait for
+ * every process of each runner's tree. The Ctrl-C case is skipped there: a
+ * test cannot deliver Ctrl-C to the CLI (see signal-handling.spec.ts).
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -46,7 +47,7 @@ import {
   workspaceStatus,
   type TaskCompletedCallback,
 } from '@elaraai/e3-core';
-import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
+import { createTestDir, processTree, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
 const TableType = DictType(IntegerType, StringType);
 const CANCELLED_TASK = 'cancelled: e3 stopped the partitioned run because the run was aborted';
@@ -83,7 +84,7 @@ const KILL_RUNNERS: { name: string; runner: Runner; available: boolean }[] = [
   { name: 'east-c', runner: { runtime: 'east-c', platforms: ['east-c-std'] }, available: onPath('east-c') },
 ];
 
-describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT delivery or process start times on Windows' : false }, () => {
+describe('stopped executions', () => {
   let dir: string;
   let repo: string;
   let started: string;
@@ -171,7 +172,9 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
     assert.ok(equalFor(TableType)(decodeBeast2For(TableType)(await storage.objects.read(repo, hash)), table));
   }
 
-  it('Ctrl-C during a partition records the partition and the task cancelled, prints [CANCELLED], and the next run executes', async () => {
+  it('Ctrl-C during a partition records the partition and the task cancelled, prints [CANCELLED], and the next run executes', {
+    skip: process.platform === 'win32' ? 'a test cannot deliver Ctrl-C on Windows: process.kill ends the CLI outright' : false,
+  }, async () => {
     await deploy(EAST_NODE);
     writeFileSync(hold, '');
     const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--jobs', '1'], dir);
@@ -233,10 +236,14 @@ describe('stopped executions', { skip: process.platform === 'win32' ? 'no SIGINT
     const leftBehind = readdirSync(scratch).filter((name) => name.startsWith('e3-exec-'));
     assert.equal(leftBehind.length, concurrency, `${concurrency} partition(s) run: ${leftBehind.join(', ')}`);
 
+    // Every process of each runner's tree: on Windows the shim and the runner.
+    const trees = [...units.values()].map((unit) => processTree(unit.pid));
     run.kill('SIGKILL');
     await run.result;
-    for (const unit of units.values()) {
-      assert.ok(await exitsWithin(unit.pid, 10_000), `runner ${unit.pid} outlived the killed e3 by 10 s`);
+    for (const tree of trees) {
+      for (const pid of tree) {
+        assert.ok(await exitsWithin(pid, 10_000), `runner process ${pid} (of ${tree.join(', ')}) outlived the killed e3 by 10 s`);
+      }
     }
     for (const name of leftBehind) assert.ok(existsSync(join(scratch, name)), 'the killed run left its scratch directories behind');
 
