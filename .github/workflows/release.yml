@@ -162,14 +162,16 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────
   # validate-release: publish-dry-run guard. On each OS, spins a throwaway
   # verdaccio, publishes every @elaraai/* package + the east-c-cli launcher +
-  # the host-platform binary exactly as the real jobs do — minus provenance,
+  # the host-platform binary (and, on Windows, e3-core's job launcher
+  # @elaraai/e3-job-win32-x64) exactly as the real jobs do — minus provenance,
   # which is npm-OIDC-only — then installs them into a fresh consumer and
   # smoke-tests. Matrixed over the 3 publish OSes so the per-platform npm
-  # install contract (launcher → matching @elaraai/east-c-cli-<target>) is
-  # validated where it actually runs. Runs in BOTH dry and real so a real
-  # release is proven installable BEFORE anything hits npm; the real npm
-  # publish jobs gate on it. No secrets / no OIDC. (Locally, `act` covers the
-  # ubuntu leg; macOS/Windows legs are CI-only.)
+  # install contracts (launcher → matching @elaraai/east-c-cli-<target>;
+  # e3-core → its job launcher on Windows only) are validated where they
+  # actually run. Runs in BOTH dry and real so a real release is proven
+  # installable BEFORE anything hits npm; the real npm publish jobs gate on
+  # it. No secrets / no OIDC. (Locally, `act` covers the ubuntu leg;
+  # macOS/Windows legs are CI-only.)
   # ────────────────────────────────────────────────────────────────────────
   validate-release:
     strategy:
@@ -209,14 +211,55 @@ jobs:
         run: bash scripts/test-release-verdaccio.sh
 
   # ────────────────────────────────────────────────────────────────────────
+  # build-e3-job: the Windows job launcher e3-core runs each runner through
+  # (libs/e3/native/e3-job), packed as its per-platform npm package
+  # @elaraai/e3-job-win32-x64 for publish-npm. Like the east-c per-platform
+  # packages it is generated here from the built binary, never committed.
+  # ────────────────────────────────────────────────────────────────────────
+  build-e3-job:
+    needs: prepare
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: version-bump }
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build
+        run: |
+          cmake -S libs/e3/native/e3-job -B libs/e3/native/e3-job/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build libs/e3/native/e3-job/build
+      - name: Stage + pack the per-platform npm package
+        run: |
+          node scripts/stage-e3-job-package.mjs \
+            --exe libs/e3/native/e3-job/build/e3-job.exe \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --out e3-job-npm-stage
+          ( cd e3-job-npm-stage && npm pack --pack-destination .. )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e3-job-npm
+          # npm pack folds the scope into the filename:
+          # @elaraai/e3-job-win32-x64 → elaraai-e3-job-win32-x64-<v>.tgz
+          path: elaraai-e3-job-win32-x64-*.tgz
+          if-no-files-found: error
+
+  # ────────────────────────────────────────────────────────────────────────
   # Tests are NOT re-run here: main is protected and only reachable via PRs that
   # pass the per-lib test workflows, so the release trusts main and only builds
   # + publishes.
   #
-  # publish-npm: the public @elaraai/* packages via scripts/publish-npm.mjs.
+  # publish-npm: the public @elaraai/* packages via scripts/publish-npm.mjs,
+  # after e3-core's Windows job launcher (built by build-e3-job).
   # ────────────────────────────────────────────────────────────────────────
   publish-npm:
-    needs: [prepare, validate-release]
+    needs: [prepare, validate-release, build-e3-job]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -262,6 +305,37 @@ jobs:
         run: make build
       - name: Build create packages
         run: pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
+      - uses: actions/download-artifact@v4
+        with:
+          name: e3-job-npm
+          path: e3-job-npm
+      # Before e3-core, whose optionalDependency pins it: an install of e3-core
+      # must find it. Trusted publishing must be configured for the name before
+      # the first real run — see scripts/bootstrap-e3-job-npm.mjs.
+      - name: Publish the Windows job launcher (@elaraai/e3-job-win32-x64)
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          TAG="${{ needs.prepare.outputs.npm_tag }}"
+          DRY=${{ inputs.dry_run && '--dry-run' || '' }}
+          NAME="@elaraai/e3-job-win32-x64"
+          # Leading ./ is required: without it npm parses the single-slash
+          # path as a GitHub owner/repo shorthand and tries git ls-remote.
+          TGZ="./e3-job-npm/elaraai-e3-job-win32-x64-${VERSION}.tgz"
+          if [ ! -f "$TGZ" ]; then
+            echo "::error::Missing artifact $TGZ"
+            exit 1
+          fi
+          # Skip if already published — a partial-failure retry must be safe.
+          if [ -z "$DRY" ] && npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "  skip: ${NAME}@${VERSION} already on npm"
+          else
+            echo "  publish: ${NAME}@${VERSION} ← ${TGZ}"
+            npm publish "$TGZ" --access public --provenance --tag "$TAG" $DRY
+          fi
+      # After `pnpm install` above: the injected dependency is deliberately not
+      # in the lockfile, so a frozen install after it would reject the manifest.
+      - name: Inject e3-core's optionalDependency on the launcher (not committed; see scripts/inject-e3-job-dep.mjs)
+        run: node scripts/inject-e3-job-dep.mjs --version "${{ needs.prepare.outputs.version }}"
       - name: Publish (skip already-published)
         run: |
           node scripts/publish-npm.mjs \

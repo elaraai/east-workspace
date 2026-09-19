@@ -19,7 +19,8 @@ import * as path from 'path';
 import { StringDecoder } from 'string_decoder';
 import type { Readable } from 'stream';
 import crossSpawn from 'cross-spawn';
-import { spawn as nodeSpawn, type ChildProcess } from 'child_process';
+import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'child_process';
+import { createRequire } from 'module';
 import { runnerToArgv, type RunnerValue } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 
@@ -232,23 +233,151 @@ export function buildRunnerArgv(
   ];
 }
 
+/** How long a child e3 stopped is read after it has exited, before its pipes
+ *  are closed from this side (see spawnAndCapture). */
+const STOP_DRAIN_MS = 5_000;
+
+/** The per-platform package carrying the Windows job launcher. */
+const JOB_LAUNCHER_PACKAGE = '@elaraai/e3-job-win32-x64';
+
+let jobLauncherPath: string | null | undefined;
+
 /**
- * Ends a process and every process it started, on Windows.
+ * The Windows job launcher, `e3-job.exe`: the path of the one this install
+ * carries, or null — off Windows, and on a Windows install without it.
  *
  * @remarks
- * Windows has no process group a signal can address — `process.kill(-pid)`
- * throws there, so a POSIX group kill is a silent no-op — and the runner is
- * often not the direct child: cross-spawn runs a `.cmd` shim through
- * cmd.exe, so `child.pid` is cmd.exe's and node.exe beneath it holds the
- * stdio pipes. `child.kill()` would end only cmd.exe, the pipes would stay
- * open and `'close'` would never fire. `taskkill /T /F` ends the whole tree,
- * as the POSIX group kill does. If taskkill itself cannot run, the direct
- * child is killed as a last resort.
+ * Windows has no process group a signal can address. Its container for "a
+ * process and everything it starts" is the Job Object, which Node cannot
+ * create, so e3 runs each runner in one through this small native launcher
+ * (libs/e3/native/e3-job): it joins a new job that allows no breakaway and
+ * ends every member when its last handle closes, starts the runner in it, and
+ * exits with the runner's exit code; e3 stops the runner by ending the
+ * launcher. It ships in its own per-platform package, an optional dependency
+ * of e3-core; an install without it (optional dependencies omitted, or a
+ * platform it is not built for) runs runners directly, and a stop ends only
+ * what `taskkill /T` can find.
  *
- * @param pid - The direct child's pid
- * @param child - The direct child, for the last-resort kill
+ * @returns The launcher's path, or null
+ * @internal
  */
-function killProcessTree(pid: number, child: ChildProcess): void {
+export function jobLauncher(): string | null {
+  if (jobLauncherPath === undefined) {
+    jobLauncherPath = null;
+    if (process.platform === 'win32') {
+      try {
+        jobLauncherPath = createRequire(import.meta.url).resolve(`${JOB_LAUNCHER_PACKAGE}/e3-job.exe`);
+      } catch {
+        process.emitWarning(
+          `the Windows job launcher (${JOB_LAUNCHER_PACKAGE}) is not installed: runners run without a job object, ` +
+          'and stopping one ends only the processes taskkill /T can find — install e3-core with its optional dependencies',
+          { code: 'E3_NO_JOB_LAUNCHER' },
+        );
+      }
+    }
+  }
+  return jobLauncherPath;
+}
+
+/**
+ * Quotes one argument into a Windows command line exactly as libuv does
+ * (`quote_cmd_arg`, src/win/process.c), so a command line built here is the
+ * one Node would have built to spawn the same argv.
+ *
+ * @param arg - The argument
+ * @returns The argument, quoted and escaped where it needs to be
+ * @internal
+ */
+export function quoteWindowsArgument(arg: string): string {
+  if (arg.length === 0) return '""';
+  if (!/[ \t"]/.test(arg)) return arg;
+  if (!/["\\]/.test(arg)) return `"${arg}"`;
+  // Walking backwards a UTF-16 unit at a time, as libuv does, backslashes
+  // before a quote — or before the closing quote at the end — are doubled,
+  // and each quote is escaped.
+  const units: string[] = [];
+  let quoteFollows = true;
+  for (let i = arg.length - 1; i >= 0; i--) {
+    const c = arg[i]!;
+    units.push(c);
+    if (quoteFollows && c === '\\') {
+      units.push('\\');
+    } else if (c === '"') {
+      quoteFollows = true;
+      units.push('\\');
+    } else {
+      quoteFollows = false;
+    }
+  }
+  return `"${units.reverse().join('')}"`;
+}
+
+/** A command as cross-spawn would spawn it. */
+interface ParsedCommand {
+  command: string;
+  args: string[];
+  options: SpawnOptions;
+  /** The resolved path of the program, when it was found. */
+  file?: string;
+}
+
+/** cross-spawn's parse of a command (`_parse`), which execa relies on too. */
+const parseCommand = (crossSpawn as unknown as {
+  _parse: (command: string, args: string[], options: SpawnOptions) => ParsedCommand;
+})._parse;
+
+/**
+ * Spawns a command on Windows inside a job object, through the job launcher.
+ *
+ * @remarks
+ * The command is parsed exactly as a direct spawn parses it — cross-spawn's
+ * parse, which runs a `.cmd` shim through cmd.exe with its own escaping, and
+ * a script with a shebang through the interpreter it names — and the program
+ * that parse runs is found the way cross-spawn finds a command. The launcher
+ * is given that program's path and the very command line Node would have
+ * built to spawn the parse, which it hands to CreateProcessW unchanged. A
+ * command that cannot be found is not launched: the direct spawn reports it
+ * as usual (cross-spawn turns cmd.exe's "not recognized" into ENOENT).
+ *
+ * @param launcher - The job launcher's path
+ * @param cmd - The command
+ * @param args - Its arguments
+ * @param options - The spawn options
+ * @returns The launcher's process, or null when the command is not found
+ */
+function spawnInJob(launcher: string, cmd: string, args: string[], options: SpawnOptions): ChildProcess | null {
+  const parsed = parseCommand(cmd, args, options);
+  if (parsed.file === undefined) return null;
+  // The program the parse runs — the command itself, the interpreter its
+  // shebang names, or cmd.exe for a shim — which Node would look up by name.
+  const application = parseCommand(parsed.command, [], parsed.options).file;
+  if (application === undefined) return null;
+  const verbatim = parsed.options.windowsVerbatimArguments === true;
+  const commandLine = [parsed.command, ...parsed.args].map((arg) => (verbatim ? arg : quoteWindowsArgument(arg))).join(' ');
+  return nodeSpawn(launcher, [`"${application}"`, commandLine], {
+    ...parsed.options,
+    // The launcher's own command line is built here, so Node must pass it as is.
+    windowsVerbatimArguments: true,
+    argv0: `"${launcher}"`,
+  });
+}
+
+/**
+ * Ends a process and every process it started, on Windows, when it was not
+ * started in a job object.
+ *
+ * @remarks
+ * Without the job launcher (see {@link jobLauncher}) there is no container to
+ * close: `taskkill /T /F` ends the process and every descendant it finds by
+ * parent pid. It misses a program whose parent has exited — Git Bash's exec
+ * leaves each program it runs so — and such a program runs on until it ends
+ * by itself. taskkill runs by absolute path, so no PATH entry can stand in for
+ * it, and only while the child lives: after it exits its pid may name another
+ * process. When taskkill cannot run or fails, the child is killed directly.
+ *
+ * @param child - The direct child, running
+ */
+function killProcessTree(child: ChildProcess): void {
   const lastResort = (): void => {
     try {
       child.kill('SIGKILL');
@@ -257,8 +386,12 @@ function killProcessTree(pid: number, child: ChildProcess): void {
     }
   };
   try {
-    const taskkill = nodeSpawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    const taskkill = nodeSpawn(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'),
+      ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
     taskkill.on('error', lastResort);
+    taskkill.on('exit', (code) => {
+      if (code !== 0 && child.exitCode === null && child.signalCode === null) lastResort();
+    });
   } catch {
     lastResort();
   }
@@ -349,11 +482,19 @@ export interface SpawnAndCaptureResult {
  * group leader). Process groups are flat, not hierarchical — a task that
  * calls setsid() escapes the kill; that is a known, accepted limitation (see
  * the discussion that used to live in runCommand). Windows has no process
- * group a signal can address, so there the child is not detached (see the
- * spawn options for why it must not be), a stop ends the tree through
- * {@link killProcessTree}, and when this process dies the job object Node
- * places its children in ends the direct child — a stock runner beneath a
- * `.cmd` shim is not in that job, and exits through its lifeline instead.
+ * group a signal can address: there the child is the job launcher (see
+ * {@link jobLauncher}), which runs the command in a job object nothing it
+ * starts can leave, and a stop ends the launcher, which ends the job and
+ * every process in it. The job ends the same way when this process dies, as
+ * Node ends its direct children with it, and when the command exits, so on
+ * Windows nothing a runner starts outlives it. Without the launcher a stop
+ * ends what {@link killProcessTree} finds, and when this process dies only
+ * the direct child ends with it — a stock runner beneath a `.cmd` shim exits
+ * through its lifeline instead. The child is never detached on Windows (see
+ * the spawn options for why it must not be). On every platform a stop
+ * finishes even when a process it could not reach holds the child's output
+ * open: once the child has exited, e3 reads on for STOP_DRAIN_MS and then
+ * closes the pipes itself.
  */
 export async function spawnAndCapture(
   args: string[],
@@ -412,14 +553,14 @@ export async function spawnAndCapture(
     cwd: scratchDir,
     stdio: [options.stdinLifeline ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     // A process group of its own on POSIX, so a stop reaches the whole tree.
-    // Never on Windows: a detached child starts with no console, so when it
-    // is cmd.exe running a `.cmd` shim, the console runner beneath it (node
-    // for east-node) is given a new console, and its stdin, stdout and
-    // stderr are that console instead of these pipes — its output never
-    // reaches e3, and the lifeline watcher, reading a console rather than a
-    // pipe, ends the runner as it starts (exit code 1, no stderr). Not
-    // detached, the child shares no console with e3 either: with no stdio
-    // inherited, `windowsHide` gives it a hidden console of its own.
+    // Never on Windows: a detached child starts with no console, so a console
+    // runner it starts — beneath the job launcher, or beneath cmd.exe running
+    // a `.cmd` shim (node for east-node) — is given a new console, and its
+    // stdin, stdout and stderr are that console instead of these pipes: its
+    // output never reaches e3, and the lifeline watcher, reading a console
+    // rather than a pipe, ends the runner as it starts (exit code 1, no
+    // stderr). Not detached, the child shares no console with e3 either: with
+    // no stdio inherited, `windowsHide` gives it a hidden console of its own.
     detached: process.platform !== 'win32',
     windowsHide: true,
   };
@@ -440,7 +581,11 @@ export async function spawnAndCapture(
   if (searchDirs.length > 0) {
     spawnOpts.env.E3_RUNNER_SEARCH_DIRS = [...new Set(searchDirs)].join(pathSep);
   }
-  const child = spawn(cmd, cmdArgs, spawnOpts);
+  // On Windows each runner runs in a job object, through the job launcher,
+  // when this install carries it.
+  const launcher = jobLauncher();
+  const inJob = launcher === null ? null : spawnInJob(launcher, cmd, cmdArgs, spawnOpts);
+  const child = inJob ?? spawn(cmd, cmdArgs, spawnOpts);
 
   // Set up event listeners IMMEDIATELY before any async work to avoid
   // missing events if the process completes quickly. Capture bounded tails
@@ -524,15 +669,29 @@ export async function spawnAndCapture(
     stderrTail = combined.slice(-tailBytes);
   }, options.onStderr);
 
-  // Helper to kill the entire process tree (child and all its descendants).
-  // POSIX: detached, child.pid is the process group leader, so killing
-  // -child.pid sends the signal to all processes in that group.
-  // Windows: `process.kill(-pid)` throws — there is no such group — so the
-  // tree is ended by taskkill instead.
+  // Helper to kill the entire process tree (child and all its descendants),
+  // once. POSIX: detached, child.pid is the process group leader, so killing
+  // -child.pid sends the signal to all processes in that group — which the
+  // group keeps, even once its leader has exited, while any member lives.
+  // Windows: the child is the job launcher, and ending it closes its job,
+  // which ends every process in it; without the launcher, taskkill /T ends
+  // what it finds. Only while the child lives: once it has exited its job has
+  // closed, and its pid may name another process.
+  let groupKilled = false;
   const killProcessGroup = () => {
-    if (!child.pid) return;
+    if (groupKilled || !child.pid) return;
+    groupKilled = true;
     if (process.platform === 'win32') {
-      killProcessTree(child.pid, child);
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      if (inJob === null) {
+        killProcessTree(child);
+        return;
+      }
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // Already exited
+      }
       return;
     }
     try {
@@ -541,9 +700,27 @@ export async function spawnAndCapture(
       // Process may have already exited
     }
   };
+  // Once the child e3 stopped has exited, its output is read for
+  // STOP_DRAIN_MS more, and then the pipes are closed from this side: a
+  // process the stop could not reach — one that left the process group, or
+  // on Windows one taskkill could not find when there is no job launcher —
+  // would otherwise hold them open, and the stop would never finish. (Go's
+  // exec.Cmd.WaitDelay bounds the same wait.)
+  let drainTimer: NodeJS.Timeout | undefined;
+  const drainAfterStop = (): void => {
+    if (drainTimer !== undefined) return;
+    drainTimer = setTimeout(() => {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+    }, STOP_DRAIN_MS);
+  };
+  child.on('exit', () => {
+    if (stoppedByE3) drainAfterStop();
+  });
   // The kills this process decides on, as opposed to any other signal.
   const stopProcessGroup = () => {
     stoppedByE3 = true;
+    if (child.exitCode !== null || child.signalCode !== null) drainAfterStop();
     killProcessGroup();
   };
 
@@ -584,6 +761,7 @@ export async function spawnAndCapture(
   const result = await resultPromise;
 
   // Cleanup
+  if (drainTimer) clearTimeout(drainTimer);
   if (timeoutId) clearTimeout(timeoutId);
   if (options.signal) {
     options.signal.removeEventListener('abort', stopProcessGroup);

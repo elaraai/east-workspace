@@ -12,6 +12,7 @@ The directory structure is:
  - packages/e3-api-client - Stateless HTTP client for remote e3 repositories (BEAST2-serialized)
  - packages/e3-api-server - HTTP server exposing e3-core as a REST API
  - packages/e3-api-tests - Shared API compliance test suites (run against both e3-api-server and e3-cloud)
+ - native/e3-job - The Windows job launcher (`e3-job.exe`) e3-core runs each runner through; `make install-job` installs it in a checkout (see its README)
  - test/integration - End-to-end CLI tests
  - design - Design documentation (see design/e3-mvp.md for overview)
 
