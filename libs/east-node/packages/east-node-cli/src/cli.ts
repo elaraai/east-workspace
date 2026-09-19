@@ -109,12 +109,13 @@ interface ExportFunctionsOptions {
 /**
  * Print `message` to stderr and exit 1 once the write has FLUSHED.
  *
- * Piped stdio is asynchronous on Windows, so `console.error(...)` followed by
- * `process.exit(1)` can truncate the message before a parent process ever
- * reads it — e3 spawns this CLI with stdio pipes and surfaces the stderr tail
- * on failure, and on windows-latest that tail arrived empty. The returned
- * promise never resolves (the process exits from the write callback), so
- * `return fail(...)` ends the caller exactly like the exit it replaces.
+ * A write to `process.stderr` is asynchronous on a POSIX pipe (and on a
+ * Windows terminal), so `console.error(...)` followed by `process.exit(1)` can
+ * end the process before the message is written — and e3 spawns this CLI with
+ * stdio pipes and surfaces the stderr tail on failure. Exiting from the write
+ * callback lets the whole message through. The returned promise never
+ * resolves (the process exits from the write callback), so `return fail(...)`
+ * ends the caller exactly like the exit it replaces.
  */
 function fail(message: string): Promise<never> {
     process.exitCode = 1;

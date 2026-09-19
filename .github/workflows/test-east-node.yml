@@ -118,3 +118,45 @@ jobs:
 
       - name: Test east-node-std
         run: pnpm --filter @elaraai/east-node-std test
+
+  # east-node-cli on macOS + Windows: the runner e3 spawns on every platform,
+  # its `--exit-with-parent` lifeline (#770) included. The ubuntu `test` job
+  # above covers it on Linux.
+  test-cli:
+    name: Test east-node-cli (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # east-node-std's build is `rm -rf dist && tsc`; pnpm runs package scripts
+      # via cmd.exe on Windows by default, so force a POSIX shell for them.
+      npm_config_script_shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build east (dependency)
+        run: pnpm --filter @elaraai/east run build
+
+      # The runner specs load east-node-std as the platform package.
+      - name: Build east-node-std (dependency)
+        run: pnpm --filter @elaraai/east-node-std run build
+
+      - name: Test east-node-cli
+        run: pnpm --filter @elaraai/east-node-cli test

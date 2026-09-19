@@ -739,7 +739,10 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
       const outcome = await within(exited, 10_000);
       assert.ok(outcome !== undefined, 'the runner outlived its closed stdin by 10 s');
       // The watcher kills the whole process: nothing else sends it SIGKILL.
-      if (process.platform !== 'win32') assert.equal(outcome.signal, 'SIGKILL', stderr);
+      // Windows has no signals: there the kill terminates the process with
+      // exit code 1, and the runner reports no error of its own.
+      if (process.platform === 'win32') assert.deepEqual({ ...outcome, stderr }, { code: 1, signal: null, stderr: '' });
+      else assert.equal(outcome.signal, 'SIGKILL', stderr);
     } finally {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
     }
